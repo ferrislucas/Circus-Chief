@@ -37,7 +37,7 @@
         class="metric"
       >
         <span class="metric-value">{{ sessionCount }}</span>
-        <span class="metric-label">Workspaces</span>
+        <span class="metric-label">Sessions</span>
       </div>
       <div
         v-if="hasNonZeroTokens"

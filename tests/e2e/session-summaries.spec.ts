@@ -967,8 +967,8 @@ test.describe('Session Summaries', () => {
       const metricsRow = page.locator('.overview-metrics');
       await expect(metricsRow).toBeVisible();
 
-      // The Workspaces metric should show "3" (1 parent + 2 children)
-      const sessionsLabel = page.locator('.overview-metrics .metric-label').filter({ hasText: 'Workspaces' });
+      // The Sessions metric should show "3" (1 parent + 2 children)
+      const sessionsLabel = page.locator('.overview-metrics .metric-label').filter({ hasText: 'Sessions' });
       await expect(sessionsLabel).toBeVisible();
 
       const sessionsMetric = sessionsLabel.locator('..');

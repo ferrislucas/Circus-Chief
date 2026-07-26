@@ -1,4 +1,4 @@
-import { OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
+import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
 
 export const BUILT_IN_ANTHROPIC_PROVIDER = {
   id: 'anthropic-default',
@@ -20,14 +20,10 @@ export const BUILT_IN_GOOGLE_PROVIDER = {
   kind: 'google',
 };
 
-export const BUILT_IN_ANTHROPIC_MODELS = [
-  { id: 'anthropic-fable', providerId: BUILT_IN_ANTHROPIC_PROVIDER.id, modelId: 'claude-fable-5', displayName: 'Fable 5', description: 'Next-generation intelligence', tier: 'fable' },
-  { id: 'anthropic-haiku', providerId: BUILT_IN_ANTHROPIC_PROVIDER.id, modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', description: 'Fast & lightweight', tier: 'haiku' },
-  { id: 'anthropic-sonnet', providerId: BUILT_IN_ANTHROPIC_PROVIDER.id, modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', description: 'Balanced', tier: 'sonnet' },
-  { id: 'anthropic-opus', providerId: BUILT_IN_ANTHROPIC_PROVIDER.id, modelId: 'claude-opus-4-6', displayName: 'Opus 4.6', description: 'Previous generation', tier: 'opus' },
-  { id: 'anthropic-opus-4-7', providerId: BUILT_IN_ANTHROPIC_PROVIDER.id, modelId: 'claude-opus-4-7', displayName: 'Opus 4.7', description: 'Previous generation', tier: 'opus' },
-  { id: 'anthropic-opus-4-8', providerId: BUILT_IN_ANTHROPIC_PROVIDER.id, modelId: 'claude-opus-4-8', displayName: 'Opus 4.8', description: 'Most capable (default)', tier: 'opus' },
-];
+export const BUILT_IN_ANTHROPIC_MODELS = CLAUDE_MODELS.map((model) => ({
+  id: model.seedId, providerId: BUILT_IN_ANTHROPIC_PROVIDER.id,
+  modelId: model.id, displayName: model.name, description: model.description, tier: model.tier,
+}));
 
 export const BUILT_IN_OPENAI_MODELS = OPENAI_MODELS.map((model) => ({
   id: model.seedId,

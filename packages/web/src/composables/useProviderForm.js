@@ -8,6 +8,29 @@ import {
 
 export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai']);
 
+function normalizeCommitAttributionOverride(value) {
+  const result = parseCommitAttributionOverride(value);
+  if (!result.success) {
+    throw new Error(COMMIT_ATTRIBUTION_VALIDATION_MESSAGE);
+  }
+  return result.value;
+}
+
+function buildProviderData(form) {
+  return {
+    name: form.name.trim(),
+    baseUrl: form.baseUrl?.trim() || null,
+    apiTimeoutMs: form.apiTimeoutMs || null,
+    additionalEnvVars:
+      Object.keys(form.additionalEnvVars).length > 0
+        ? form.additionalEnvVars
+        : null,
+    commitAttributionOverride: normalizeCommitAttributionOverride(
+      form.commitAttributionOverride
+    ),
+  };
+}
+
 /**
  * Create the default (empty) form state for a new provider.
  * @returns {Object} Default form values
@@ -45,6 +68,8 @@ function buildFormFromProvider(provider) {
     modelId: m.modelId,
     displayName: m.displayName,
     tier: m.tier || 'custom',
+    enabled: m.enabled !== false,
+    sortOrder: m.sortOrder ?? null,
   }));
   return { formData, envKeys, models, authModified: false };
 }
@@ -78,7 +103,7 @@ function createFormState() {
 export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
   const providersStore = useProvidersStore();
   const uiStore = useUiStore();
-  const attributionOnlyRef = options.attributionOnlyRef;
+  const builtInManageRef = options.builtInManageRef;
 
   // ── Form state ────────────────────────────────────────────────
   const state = createFormState();
@@ -92,7 +117,6 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
   });
   const isValid = computed(() => {
     if (attributionValidationError.value) return false;
-    if (attributionOnlyRef?.value) return true;
     if (form.value.name.trim().length === 0) return false;
     // `kind` is required on create; on edit the server enforces immutability
     // and we simply surface the existing value, so no extra validation needed.
@@ -129,11 +153,31 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
 
   // ── Model helpers ─────────────────────────────────────────────
   function addLocalModel() {
-    localModels.value.push({ modelId: '', displayName: '', tier: 'custom' });
+    // Assign a stable client-side key at creation so `ProviderModelsList`'s
+    // `v-for` can key on `model._serverId || model._localKey` instead of the
+    // row's array index. An index-based key for unsaved rows means
+    // reordering two unsaved rows leaves the *set* of keys unchanged (only
+    // which model sits at which index changes), so Vue patches each DOM node
+    // -- including whichever one currently has focus -- in place with
+    // another row's data instead of moving the matched node with its model.
+    localModels.value.push({
+      _localKey: crypto.randomUUID(),
+      modelId: '',
+      displayName: '',
+      tier: 'custom',
+      enabled: true,
+    });
   }
 
   function removeLocalModel(index) {
     localModels.value.splice(index, 1);
+  }
+
+  function moveLocalModel(index, delta) {
+    const destination = index + delta;
+    if (destination < 0 || destination >= localModels.value.length) return;
+    const [model] = localModels.value.splice(index, 1);
+    localModels.value.splice(destination, 0, model);
   }
 
   // ── Env-var helpers ───────────────────────────────────────────
@@ -187,6 +231,7 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
       model.modelId.trim() !== original.modelId ||
       model.displayName.trim() !== original.displayName ||
       model.tier !== original.tier
+      || model.enabled !== original.enabled
     );
   }
 
@@ -195,6 +240,7 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
       modelId: model.modelId.trim(),
       displayName: model.displayName.trim() || model.modelId.trim(),
       tier: model.tier || 'custom',
+      enabled: model.enabled !== false,
     };
   }
 
@@ -232,16 +278,26 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
       await processLocalModel(model, providerId, originalModelMap);
     }
 
+    const order = localModels.value.filter((model) => model._serverId).map((model) => model._serverId);
+    if (order.length && typeof providersStore.reorderModels === 'function') {
+      await providersStore.reorderModels(providerId, order);
+    }
+
     await providersStore.fetchProviders();
   }
 
   // ── Save ──────────────────────────────────────────────────────
-  function normalizeCommitAttributionOverride(value) {
-    const result = parseCommitAttributionOverride(value);
-    if (!result.success) {
-      throw new Error(COMMIT_ATTRIBUTION_VALIDATION_MESSAGE);
-    }
-    return result.value;
+  function saveLimitedProvider(data) {
+    const builtInManage = builtInManageRef?.value && providerRef.value?.isBuiltIn;
+    if (!builtInManage) return null;
+
+    return providersStore.updateProvider(providerRef.value.id, {
+      commitAttributionOverride: data.commitAttributionOverride,
+    }).then(async () => {
+      await reconcileModels(providerRef.value.id);
+      uiStore.success('Provider updated successfully');
+      onSaved();
+    });
   }
 
   async function save() {
@@ -249,25 +305,10 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     error.value = null;
 
     try {
-      const data = {
-        name: form.value.name.trim(),
-        baseUrl: form.value.baseUrl?.trim() || null,
-        apiTimeoutMs: form.value.apiTimeoutMs || null,
-        additionalEnvVars:
-          Object.keys(form.value.additionalEnvVars).length > 0
-            ? form.value.additionalEnvVars
-            : null,
-        commitAttributionOverride: normalizeCommitAttributionOverride(
-          form.value.commitAttributionOverride
-        ),
-      };
-
-      if (attributionOnlyRef?.value) {
-        await providersStore.updateProvider(providerRef.value.id, {
-          commitAttributionOverride: data.commitAttributionOverride,
-        });
-        uiStore.success('Provider updated successfully');
-        onSaved();
+      const data = buildProviderData(form.value);
+      const limitedSave = saveLimitedProvider(data);
+      if (limitedSave) {
+        await limitedSave;
         return;
       }
 
@@ -314,6 +355,7 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     canTest,
     addLocalModel,
     removeLocalModel,
+    moveLocalModel,
     addEnvVar,
     removeEnvVar,
     updateEnvVarKey,

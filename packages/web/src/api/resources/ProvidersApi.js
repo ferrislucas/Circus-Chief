@@ -78,6 +78,24 @@ export function ProvidersApi(ApiClient) {
     },
 
     /**
+     * Resolve a model id that may be disabled or soft-removed, for a session
+     * that already references it. Returns `null` (rather than throwing) when
+     * no historical row exists, so callers can treat "nothing to merge" as a
+     * normal outcome.
+     * @param {string} providerId - Provider ID
+     * @param {string} modelId - The model string (e.g. 'claude-opus-4-7')
+     * @returns {Promise<Object|null>}
+     */
+    async getHistoricalProviderModel(providerId, modelId) {
+      try {
+        return await this._get(this._buildQueryPath(`/providers/${providerId}/models/historical`, { modelId }));
+      } catch (err) {
+        if (err.message?.includes('404') || err.message === 'Model not found') return null;
+        throw err;
+      }
+    },
+
+    /**
      * Add a model to a provider
      * @param {string} providerId - Provider ID
      * @param {Object} data - Model data
@@ -96,6 +114,10 @@ export function ProvidersApi(ApiClient) {
      */
     async updateProviderModel(providerId, modelId, data) {
       return this._patch(`/providers/${providerId}/models/${modelId}`, data);
+    },
+
+    async reorderProviderModels(providerId, order) {
+      return this._put(`/providers/${providerId}/models/order`, { order });
     },
 
     /**

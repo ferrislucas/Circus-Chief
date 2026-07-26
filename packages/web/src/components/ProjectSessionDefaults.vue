@@ -137,6 +137,7 @@
       <ModelSelector
         v-model="defaultModel"
         v-model:provider-id="defaultProviderId"
+        preserve-current-value
         :allow-empty="true"
         empty-label="Use system default"
         select-class="form-input"

@@ -104,6 +104,7 @@
           <label for="model">Model</label>
           <ModelSelector
             v-model="formData.model"
+            preserve-current-value
             :allow-empty="true"
             empty-label="Inherit from root session"
           />

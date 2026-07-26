@@ -7,8 +7,13 @@ import { useProvidersStore } from '../stores/providers.js';
 import { useTiersStore } from '../stores/tiers.js';
 import { CLAUDE_MODELS, OPENAI_MODELS } from '@circuschief/shared';
 
-// Use actual model data from the shared package
-const [fable, haiku, sonnet, opusLegacy, opus47, opus] = CLAUDE_MODELS;
+// Use actual model data from the shared package. This suite was written
+// against a fixed six-model Anthropic fixture; exclude claude-opus-5 (added
+// as the new current default alongside Opus 4.8's reclassification to
+// 'older') so the rendering/count assertions below keep testing generic
+// ModelSelector behavior rather than tracking the live catalog's exact size.
+const CLAUDE_MODELS_FIXTURE = CLAUDE_MODELS.filter((model) => model.id !== 'claude-opus-5');
+const [fable, haiku, sonnet, opusLegacy, opus47, opus] = CLAUDE_MODELS_FIXTURE;
 const optionValue = (providerId, modelId) => `${providerId}::${modelId}`;
 
 // Global helper to flush all async updates and force DOM re-render
@@ -33,7 +38,7 @@ describe('ModelSelector', () => {
         id: 'anthropic',
         name: 'Anthropic',
         isBuiltIn: true,
-        models: CLAUDE_MODELS.map((model) => ({
+        models: CLAUDE_MODELS_FIXTURE.map((model) => ({
           id: `anthropic-${model.id}`,
           modelId: model.id,
           displayName: model.name,
@@ -1015,7 +1020,7 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           kind: 'openai',
           models: [
-            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom', enabled: false },
             { id: 'openai-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', tier: 'custom' },
           ],
         },
@@ -1038,7 +1043,7 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           kind: 'openai',
           models: [
-            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom', enabled: false },
           ],
         },
         {
@@ -1069,7 +1074,7 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           kind: 'openai',
           models: [
-            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom', enabled: false },
             { id: 'openai-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', tier: 'custom' },
           ],
         },
@@ -1077,7 +1082,11 @@ describe('ModelSelector', () => {
 
       const onUpdateModelValue = vi.fn();
       const wrapper = mountComponent(
-        { modelValue: 'gpt-5.5', providerId: 'openai-default' },
+        // A picker showing an existing session's stored model must be
+        // sessionScoped to keep a disabled choice visible (FRD §0 / Plan
+        // Phase 7): the exception is not "any picker whose value happens to
+        // match", it's specifically the session that owns that value.
+        { modelValue: 'gpt-5.5', providerId: 'openai-default', sessionScoped: true },
         { 'onUpdate:modelValue': onUpdateModelValue }
       );
       await flushAll(wrapper);
@@ -1262,6 +1271,79 @@ describe('ModelSelector', () => {
     });
   });
 
+  describe('disabled-model visibility is gated by sessionScoped + providerId (Issue 2)', () => {
+    beforeEach(() => {
+      providersStore.providers = [
+        {
+          id: 'openai-default',
+          name: 'OpenAI (Official)',
+          isBuiltIn: true,
+          kind: 'openai',
+          models: [
+            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom', enabled: false },
+            { id: 'openai-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', tier: 'custom' },
+          ],
+        },
+      ];
+    });
+
+    it('preserves a disabled stored value as a labelled, read-only option for non-session configuration', async () => {
+      const wrapper = mountComponent({
+        modelValue: 'gpt-5.5', providerId: 'openai-default', preserveCurrentValue: true,
+      });
+      await flushAll(wrapper);
+
+      const option = wrapper.find(`option[value="${optionValue('openai-default', 'gpt-5.5')}"]`);
+      expect(option.exists()).toBe(true);
+      expect(option.element.disabled).toBe(true);
+      expect(option.text()).toContain('currently set');
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
+    });
+
+    it('hides a disabled model whose modelId matches modelValue when sessionScoped is true but providerId does not match its owning provider', async () => {
+      providersStore.providers.push({
+        id: 'custom-openai',
+        name: 'Custom OpenAI',
+        isBuiltIn: false,
+        kind: 'openai',
+        models: [
+          { id: 'custom-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'Custom Sol', tier: 'custom' },
+        ],
+      });
+
+      const wrapper = mountComponent({ modelValue: 'gpt-5.5', providerId: 'custom-openai', sessionScoped: true });
+      await flushAll(wrapper);
+
+      const values = wrapper.findAll('option').map((option) => option.element.value);
+      expect(values).not.toContain(optionValue('openai-default', 'gpt-5.5'));
+    });
+
+    it('shows and keeps selectable a disabled model whose modelId matches modelValue when sessionScoped is true and providerId matches', async () => {
+      const wrapper = mountComponent({ modelValue: 'gpt-5.5', providerId: 'openai-default', sessionScoped: true });
+      await flushAll(wrapper);
+
+      const values = wrapper.findAll('option').map((option) => option.element.value);
+      expect(values).toContain(optionValue('openai-default', 'gpt-5.5'));
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
+    });
+
+    // PR #1063 remediation, Slice E2: a session created via the API (or any
+    // legacy session predating providerId tracking) stores only `model`, not
+    // `providerId` -- session.providerId is null. The parent then passes
+    // `providerId: null` through to ModelSelector. Session-scoped resolution
+    // must still find the *actual* owning provider (here, OpenAI) from the
+    // model id itself, not silently assume Anthropic.
+    it('shows and keeps selectable a disabled non-Anthropic model when sessionScoped is true and providerId is not supplied', async () => {
+      const wrapper = mountComponent({ modelValue: 'gpt-5.5', sessionScoped: true });
+      await flushAll(wrapper);
+
+      const values = wrapper.findAll('option').map((option) => option.element.value);
+      expect(values).toContain(optionValue('openai-default', 'gpt-5.5'));
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
+      expect(wrapper.attributes('data-model')).toBe('gpt-5.5');
+    });
+  });
+
   describe('orphaned (unknown) model id', () => {
     const ORPHAN = 'claude-sonnet-4-6';
 
@@ -1337,6 +1419,76 @@ describe('ModelSelector', () => {
 
       expect(onUpdateModelValue).toHaveBeenCalledWith('claude-opus-4-8');
       expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
+    });
+  });
+
+  describe('sessionScoped historical continuity for soft-removed models', () => {
+    const REMOVED_MODEL_ID = 'claude-opus-4-6';
+
+    beforeEach(() => {
+      // The removed model is NOT part of the bulk providers payload -- the
+      // server excludes soft-removed rows from GET /api/providers, same as a
+      // real removal would.
+      providersStore.providers = [
+        {
+          id: 'anthropic-default',
+          name: 'Anthropic (Official)',
+          isBuiltIn: true,
+          kind: 'anthropic',
+          models: [
+            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' },
+            { id: 'anthropic-opus-4-8', modelId: 'claude-opus-4-8', displayName: 'Opus 4.8', tier: 'opus' },
+          ],
+        },
+      ];
+    });
+
+    it('fetches a soft-removed stored value as a labelled, read-only option for non-session configuration', async () => {
+      const fetchHistoricalModel = vi.spyOn(providersStore, 'fetchHistoricalModel');
+      fetchHistoricalModel.mockResolvedValue({
+        id: 'anthropic-opus', providerId: 'anthropic-default', modelId: REMOVED_MODEL_ID,
+        displayName: 'Opus 4.6', tier: 'opus', enabled: false, removedAt: Date.now(),
+      });
+      const wrapper = mountComponent({
+        modelValue: REMOVED_MODEL_ID, providerId: 'anthropic-default', preserveCurrentValue: true,
+      });
+      await flushAll(wrapper);
+
+      expect(fetchHistoricalModel).toHaveBeenCalledWith('anthropic-default', REMOVED_MODEL_ID);
+      const option = wrapper.find(`option[value="${optionValue('anthropic-default', REMOVED_MODEL_ID)}"]`);
+      expect(option.exists()).toBe(true);
+      expect(option.element.disabled).toBe(true);
+      expect(option.text()).toContain('currently set');
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
+    });
+
+    it('fetches and merges the removed model when sessionScoped is true, clearing the unknown badge', async () => {
+      vi.spyOn(providersStore, 'fetchHistoricalModel').mockResolvedValue({
+        id: 'anthropic-opus',
+        providerId: 'anthropic-default',
+        modelId: REMOVED_MODEL_ID,
+        displayName: 'Opus 4.6',
+        tier: 'opus',
+        enabled: false,
+        removedAt: Date.now(),
+      });
+
+      const wrapper = mountComponent({ modelValue: REMOVED_MODEL_ID, providerId: 'anthropic-default', sessionScoped: true });
+      await flushAll(wrapper);
+
+      expect(providersStore.fetchHistoricalModel).toHaveBeenCalledWith('anthropic-default', REMOVED_MODEL_ID);
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
+      const values = wrapper.findAll('option').map((option) => option.element.value);
+      expect(values).toContain(optionValue('anthropic-default', REMOVED_MODEL_ID));
+      expect(wrapper.attributes('data-model')).toBe(REMOVED_MODEL_ID);
+    });
+
+    it('does not fetch when the value already resolves among active models', async () => {
+      const fetchHistoricalModel = vi.spyOn(providersStore, 'fetchHistoricalModel');
+      const wrapper = mountComponent({ modelValue: 'claude-opus-4-8', providerId: 'anthropic-default', sessionScoped: true });
+      await flushAll(wrapper);
+
+      expect(fetchHistoricalModel).not.toHaveBeenCalled();
     });
   });
 });

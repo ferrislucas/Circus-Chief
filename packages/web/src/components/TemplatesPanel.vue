@@ -85,6 +85,7 @@
           <label class="form-label">Model</label>
           <ModelSelector
             v-model="formData.model"
+            preserve-current-value
             :allow-empty="true"
             empty-label="Inherit from root workspace"
           />

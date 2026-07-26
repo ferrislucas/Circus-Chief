@@ -152,8 +152,10 @@
 
           <div
             v-if="showOutput"
+            ref="outputContainerRef"
             class="output-content"
             data-testid="output-content"
+            @scroll="handleScroll"
           >
             <div
               v-if="loadingOutput"
@@ -173,7 +175,6 @@
               </div>
               <!-- eslint-disable vue/no-v-html -->
               <div
-                ref="outputContainerRef"
                 class="output-text"
                 data-testid="output-text"
                 v-html="formattedOutput || '(no output)'"
@@ -242,6 +243,7 @@
 import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import { ansiToHtml } from '../utils/ansi.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { useOutputAutoTail } from '../composables/useOutputAutoTail.js';
 
 const commandButtonsStore = useCommandButtonsStore();
 
@@ -280,6 +282,7 @@ const outputIsTruncatedForDisplay = ref(false);
 const outputContainerRef = ref(null);
 const DISPLAY_LINE_LIMIT = 200;
 const loadingOutput = ref(false);
+const { handleScroll, resetTail, handleRenderedOutput } = useOutputAutoTail(outputContainerRef);
 
 // Computed property that resolves output from store first, then props
 const resolvedOutput = computed(() => {
@@ -451,6 +454,11 @@ watch(
   async (newValue) => {
     if (newValue) {
       startTimer();
+      // Opening the modal always establishes a fresh tail session. Only
+      // request an immediate scroll when the output section is already
+      // expanded; otherwise expansion itself performs the first scroll
+      // once .output-content mounts.
+      resetTail({ scroll: showOutput.value });
       // On-demand output fetching: when the modal opens, fetch the output if not already loaded
       await ensureRunOutputLoaded();
     } else {
@@ -470,6 +478,32 @@ watch(
   }
 );
 
+/**
+ * Expanding Process Output is a fresh request to view the latest output:
+ * reset to tail mode and scroll to the bottom once the container mounts.
+ */
+watch(
+  showOutput,
+  (isVisible) => {
+    if (isVisible) {
+      resetTail({ scroll: true });
+    }
+  }
+);
+
+/**
+ * Changing the run while the modal and output section are visible resets
+ * the pane to tail mode for the new run.
+ */
+watch(
+  () => props.latestRun?.runId,
+  () => {
+    if (props.isOpen && showOutput.value) {
+      resetTail({ scroll: true });
+    }
+  }
+);
+
 // Watch for output changes and update formatted output (now watches resolvedOutput)
 let isFirstOutputUpdate = true;
 watch(
@@ -484,6 +518,18 @@ watch(
     }
   },
   { immediate: true }
+);
+
+/**
+ * Notify the auto-tail composable once formatted output has changed, so
+ * scrolling is scheduled only after the visible output DOM reflects the
+ * latest content.
+ */
+watch(
+  () => formattedOutput.value,
+  () => {
+    handleRenderedOutput();
+  }
 );
 
 onMounted(() => {

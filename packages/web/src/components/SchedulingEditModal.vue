@@ -36,7 +36,10 @@
 
             <div class="form-group">
               <label class="form-label">Model</label>
-              <ModelSelector v-model="form.model" />
+              <ModelSelector
+                v-model="form.model"
+                preserve-current-value
+              />
             </div>
 
             <div class="form-group">
