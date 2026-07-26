@@ -1106,12 +1106,17 @@ describe('ModelSelector', () => {
       ];
     });
 
-    it('hides a disabled model whose modelId matches modelValue when sessionScoped is false (e.g. a project-defaults/template/scheduling picker)', async () => {
-      const wrapper = mountComponent({ modelValue: 'gpt-5.5', providerId: 'openai-default', sessionScoped: false });
+    it('preserves a disabled stored value as a labelled, read-only option for non-session configuration', async () => {
+      const wrapper = mountComponent({
+        modelValue: 'gpt-5.5', providerId: 'openai-default', preserveCurrentValue: true,
+      });
       await flushAll(wrapper);
 
-      const values = wrapper.findAll('option').map((option) => option.element.value);
-      expect(values).not.toContain(optionValue('openai-default', 'gpt-5.5'));
+      const option = wrapper.find(`option[value="${optionValue('openai-default', 'gpt-5.5')}"]`);
+      expect(option.exists()).toBe(true);
+      expect(option.element.disabled).toBe(true);
+      expect(option.text()).toContain('currently set');
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
     });
 
     it('hides a disabled model whose modelId matches modelValue when sessionScoped is true but providerId does not match its owning provider', async () => {
@@ -1241,13 +1246,23 @@ describe('ModelSelector', () => {
       ];
     });
 
-    it('does not fetch or show the removed model when sessionScoped is false', async () => {
+    it('fetches a soft-removed stored value as a labelled, read-only option for non-session configuration', async () => {
       const fetchHistoricalModel = vi.spyOn(providersStore, 'fetchHistoricalModel');
-      const wrapper = mountComponent({ modelValue: REMOVED_MODEL_ID, providerId: 'anthropic-default', sessionScoped: false });
+      fetchHistoricalModel.mockResolvedValue({
+        id: 'anthropic-opus', providerId: 'anthropic-default', modelId: REMOVED_MODEL_ID,
+        displayName: 'Opus 4.6', tier: 'opus', enabled: false, removedAt: Date.now(),
+      });
+      const wrapper = mountComponent({
+        modelValue: REMOVED_MODEL_ID, providerId: 'anthropic-default', preserveCurrentValue: true,
+      });
       await flushAll(wrapper);
 
-      expect(fetchHistoricalModel).not.toHaveBeenCalled();
-      expect(wrapper.find('.unknown-model-badge').exists()).toBe(true);
+      expect(fetchHistoricalModel).toHaveBeenCalledWith('anthropic-default', REMOVED_MODEL_ID);
+      const option = wrapper.find(`option[value="${optionValue('anthropic-default', REMOVED_MODEL_ID)}"]`);
+      expect(option.exists()).toBe(true);
+      expect(option.element.disabled).toBe(true);
+      expect(option.text()).toContain('currently set');
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
     });
 
     it('fetches and merges the removed model when sessionScoped is true, clearing the unknown badge', async () => {

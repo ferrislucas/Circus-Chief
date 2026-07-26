@@ -27,6 +27,7 @@
           v-for="model in provider.models"
           :key="`${provider.id}:${model.id}`"
           :value="optionKey(provider.id, model.modelId)"
+          :disabled="model.unavailable === true"
           :data-provider-id="provider.id"
           :data-model-id="model.modelId"
           :data-agent-type="agentTypeFor(provider)"
@@ -86,6 +87,14 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  // Configuration forms may need to render a previously stored disabled or
+  // removed value. Unlike a session-scoped historical value, this entry is
+  // read-only: it documents the current setting but cannot be selected for a
+  // new configuration.
+  preserveCurrentValue: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const emit = defineEmits(['update:modelValue', 'model-selected', 'update:providerId']);
@@ -96,6 +105,8 @@ const providersStore = useProvidersStore();
 // Providers may have been fetched without models (e.g., from ProvidersView)
 const providersHaveModels = computed(() => providersStore.providers.length > 0 &&
     providersStore.providers.some(p => p.models && p.models.length > 0));
+
+const shouldPreserveCurrentValue = computed(() => props.sessionScoped || props.preserveCurrentValue);
 
 // Get all valid model IDs from all providers
 const validModelIds = computed(() => {
@@ -164,7 +175,11 @@ const visibleProviders = computed(() => {
   }
 
   const providers = sortedProviders.value
-    .map((provider) => withDisabledModelsHidden(provider, sessionScopedKeepModelIds(provider)))
+    .map((provider) => withDisabledModelsHidden(
+      provider,
+      sessionScopedKeepModelIds(provider),
+      props.preserveCurrentValue && !props.sessionScoped,
+    ))
     .map((provider) => {
       if (!props.hideBuiltInDuplicates || !provider.isBuiltIn) return provider;
       return withCustomModelsHidden(provider, customModelIds);
@@ -189,39 +204,55 @@ function hasActiveMatch(modelId, providerId) {
   });
 }
 
-// Which provider a session-scoped picker's current value belongs to. Falls
-// back to the built-in Anthropic provider for legacy sessions with no stored
-// providerId (mirrors resolveModelId's tier-alias fallback). Shared by both
-// the historical-fetch watcher below and the disabled-model exception in
-// `visibleProviders`, so there is exactly one session-scoped/provider-aware
-// mechanism (FRD-built-in-model-choices.md §0, Plan Phase 7).
-const sessionScopedProviderId = computed(() => {
+// Which provider the preserved current value belongs to. Session-scoped
+// pickers fall back to Anthropic for legacy tier aliases; configuration forms
+// first resolve an active row, then use a built-in model-id prefix only for a
+// soft-removed built-in row. This single resolver feeds both the historical
+// fetch and the disabled-row exception in `visibleProviders`.
+const currentValueProviderId = computed(() => {
   if (props.providerId) return props.providerId;
+  if (!props.sessionScoped) {
+    const activeProvider = providersStore.providers.find(providerHasCurrentModel);
+    return activeProvider?.id || inferredBuiltInProviderId(resolveModelId(props.modelValue));
+  }
   return providersStore.providers.find(
     (p) => p.isBuiltIn && agentTypeFor(p) === 'claude-code'
   )?.id || null;
 });
 
-// Disabled (but not soft-removed) choices are hidden from every picker except
-// the one scoped to the session that actually owns the current value: only
-// when `sessionScoped` is true AND the given provider is the resolved
-// `sessionScopedProviderId` should its matching disabled row stay visible.
-// Any other picker whose bound value merely happens to equal a disabled
-// model's id (project defaults, templates, scheduling, unrelated sessions)
-// must not un-hide it.
+function providerHasCurrentModel(provider) {
+  return (provider.models || []).some((model) => model.modelId === resolveModelId(props.modelValue));
+}
+
+// Older template and schedule records predate provider ids. Built-in model ids
+// have stable provider prefixes, so they remain recoverable even after their
+// catalog row has been soft-removed. Custom removed rows need an explicit
+// provider id and intentionally remain unknown rather than guessing.
+function inferredBuiltInProviderId(modelId) {
+  if (!modelId) return null;
+  const kind = modelId.startsWith('gpt-') ? 'openai'
+    : modelId.startsWith('gemini-') ? 'google'
+      : modelId.startsWith('claude-') ? 'anthropic'
+        : null;
+  return providersStore.providers.find((provider) => provider.isBuiltIn && provider.kind === kind)?.id || null;
+}
+
+// Disabled rows stay hidden by default. A session can preserve its own current
+// choice as selectable; configuration forms explicitly opt in to preserve a
+// stored value as a disabled, read-only entry. No unrelated picker sees it.
 function sessionScopedKeepModelIds(provider) {
-  if (!props.sessionScoped || provider.id !== sessionScopedProviderId.value) return new Set();
+  if (!shouldPreserveCurrentValue.value || provider.id !== currentValueProviderId.value) return new Set();
   return new Set([resolveModelId(props.modelValue)].filter(Boolean));
 }
 
 watch(
-  () => [props.sessionScoped, props.modelValue, props.providerId, providersHaveModels.value],
+  () => [shouldPreserveCurrentValue.value, props.modelValue, props.providerId, providersHaveModels.value],
   async () => {
     historicalEntry.value = null;
-    if (!props.sessionScoped || !props.modelValue || !providersHaveModels.value) return;
+    if (!shouldPreserveCurrentValue.value || !props.modelValue || !providersHaveModels.value) return;
     if (hasActiveMatch(props.modelValue, props.providerId)) return;
 
-    const targetProviderId = sessionScopedProviderId.value;
+    const targetProviderId = currentValueProviderId.value;
     if (!targetProviderId) return;
 
     const model = await providersStore.fetchHistoricalModel(targetProviderId, props.modelValue);
@@ -245,13 +276,19 @@ function withHistoricalEntryMerged(providers) {
   if (targetIndex !== -1) {
     return providers.map((provider, index) => (
       index === targetIndex
-        ? { ...provider, models: [...(provider.models || []), entry.model] }
+        ? { ...provider, models: [...(provider.models || []), unavailableHistoricalModel(entry.model)] }
         : provider
     ));
   }
 
   const sourceProvider = providersStore.providers.find((provider) => provider.id === entry.providerId);
-  return sourceProvider ? [...providers, { ...sourceProvider, models: [entry.model] }] : providers;
+  return sourceProvider
+    ? [...providers, { ...sourceProvider, models: [unavailableHistoricalModel(entry.model)] }]
+    : providers;
+}
+
+function unavailableHistoricalModel(model) {
+  return props.preserveCurrentValue && !props.sessionScoped ? { ...model, unavailable: true } : model;
 }
 
 const duplicateModelIds = computed(() => {
@@ -272,12 +309,18 @@ function withCustomModelsHidden(provider, customModelIds) {
 }
 
 // Disabled choices stay valid for historical sessions, but are hidden from
-// new selections. Keep the current value visible so an existing session can
-// continue to display and use its disabled model without becoming "unknown".
-function withDisabledModelsHidden(provider, keepModelIds) {
+// new selections. Explicit preservation either keeps a session usable or
+// renders a configuration form's stored choice as read-only.
+function withDisabledModelsHidden(provider, keepModelIds, markPreservedUnavailable = false) {
   return {
     ...provider,
-    models: (provider.models || []).filter((model) => model.enabled !== false || keepModelIds.has(model.modelId)),
+    models: (provider.models || [])
+      .filter((model) => model.enabled !== false || keepModelIds.has(model.modelId))
+      .map((model) => (
+        markPreservedUnavailable && model.enabled === false && keepModelIds.has(model.modelId)
+          ? { ...model, unavailable: true }
+          : model
+      )),
   };
 }
 
@@ -528,8 +571,8 @@ function findVisibleOption(modelId, providerId = null) {
 
 function optionLabel(provider, model) {
   const baseLabel = provider.isBuiltIn ? model.displayName : model.modelId;
-  if (!duplicateModelIds.value.has(model.modelId)) return baseLabel;
-  return `${baseLabel} (${provider.name})`;
+  const disambiguated = duplicateModelIds.value.has(model.modelId) ? `${baseLabel} (${provider.name})` : baseLabel;
+  return model.unavailable ? `${disambiguated} (currently set — unavailable for new selection)` : disambiguated;
 }
 </script>
 
