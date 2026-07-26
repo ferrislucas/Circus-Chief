@@ -752,7 +752,6 @@ function optionLabel(provider, model) {
   background-repeat: no-repeat;
   background-position: right 0.5rem center;
   background-size: 12px;
-  padding-right: 2rem;
 }
 
 .model-select:hover:not(:disabled) {
