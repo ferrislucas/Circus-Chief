@@ -3,7 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { modelProviders } from '../database.js';
 import { testProviderConnection } from '../services/providerTestService.js';
-import { OPENAI_MODELS } from '@circuschief/shared';
+import { OPENAI_MODELS, CLAUDE_MODELS } from '@circuschief/shared';
 
 // Mock providerTestService so we can spy on kind forwarding without hitting
 // external APIs.
@@ -64,6 +64,33 @@ describe('Providers API', () => {
       );
       expect(anthropic).toHaveProperty('commitAttributionOverride');
       expect(openai).toHaveProperty('commitAttributionOverride');
+    });
+
+    it('exposes Opus 5 on the built-in Anthropic provider as the current, enabled default; Opus 4.8 as older and disabled', async () => {
+      const response = await request(app)
+        .get('/api/providers')
+        .expect(200);
+
+      const anthropic = response.body.find((provider) => provider.id === 'anthropic-default');
+      expect(anthropic.models.map((model) => model.modelId).sort()).toEqual(
+        CLAUDE_MODELS.map((model) => model.id).sort()
+      );
+
+      const opus5 = anthropic.models.find((model) => model.modelId === 'claude-opus-5');
+      expect(opus5).toMatchObject({
+        displayName: 'Opus 5',
+        tier: 'opus',
+        lifecycle: 'current',
+        enabled: true,
+      });
+
+      const opus48 = anthropic.models.find((model) => model.modelId === 'claude-opus-4-8');
+      expect(opus48).toMatchObject({
+        displayName: 'Opus 4.8',
+        tier: 'opus',
+        lifecycle: 'older',
+        enabled: false,
+      });
     });
   });
 
@@ -339,6 +366,56 @@ describe('Providers API', () => {
         .expect(400);
 
       expect(response.body.error).toBeDefined();
+    });
+  });
+
+  describe('PUT /api/providers/:id/models/order', () => {
+    let modelA;
+    let modelB;
+
+    beforeEach(() => {
+      const provider = modelProviders.create({
+        name: 'Reorder API Test Provider',
+        baseUrl: 'https://api.test.com',
+        authToken: 'test-token',
+      });
+      testProviderId = provider.id;
+      modelA = modelProviders.addModel(testProviderId, { modelId: 'reorder-a', displayName: 'A', tier: 'sonnet' });
+      modelB = modelProviders.addModel(testProviderId, { modelId: 'reorder-b', displayName: 'B', tier: 'sonnet' });
+    });
+
+    it('200: persists a valid reorder', async () => {
+      const response = await request(app)
+        .put(`/api/providers/${testProviderId}/models/order`)
+        .send({ order: [modelB.id, modelA.id] })
+        .expect(200);
+
+      expect(response.body.map((m) => m.id)).toEqual([modelB.id, modelA.id]);
+    });
+
+    it('404: provider not found', async () => {
+      await request(app)
+        .put('/api/providers/non-existent/models/order')
+        .send({ order: [] })
+        .expect(404);
+    });
+
+    it('400: rejects an id that does not belong to this provider', async () => {
+      const response = await request(app)
+        .put(`/api/providers/${testProviderId}/models/order`)
+        .send({ order: [modelA.id, 'not-a-real-model-row-id'] })
+        .expect(400);
+
+      expect(response.body.error).toBe('Model does not belong to this provider');
+    });
+
+    it('400: rejects a duplicate id in the order list', async () => {
+      const response = await request(app)
+        .put(`/api/providers/${testProviderId}/models/order`)
+        .send({ order: [modelA.id, modelA.id] })
+        .expect(400);
+
+      expect(response.body.error).toBe('Duplicate model ids in reorder request');
     });
   });
 

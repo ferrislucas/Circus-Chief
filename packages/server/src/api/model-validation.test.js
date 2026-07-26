@@ -31,26 +31,28 @@ describe('validateModelId', () => {
     expect(result.error).toContain('opus');
   });
 
-  it('does not list the retired gpt-5.5 id on a fresh database', () => {
+  it('lists disabled built-in gpt-5.5 as a valid historical model id', () => {
     const result = validateModelId('not-a-real-model');
-    expect(result.error).not.toContain('gpt-5.5');
+    expect(result.error).toContain('gpt-5.5');
   });
 
-  it('accepts a retained legacy gpt-5.5 compatibility row (upgraded DB)', () => {
-    // Fresh DBs no longer seed gpt-5.5, but upgraded installations retain the
-    // historical built-in row so existing gpt-5.5 sessions keep validating.
+  it('accepts a retained legacy compatibility row no longer in the live catalog (upgraded DB)', () => {
+    // Models retired from the OPENAI_MODELS/CLAUDE_MODELS/GEMINI_MODELS
+    // constants entirely (as opposed to merely reclassified `lifecycle:
+    // 'older'`) still keep their historical `provider_models` row so
+    // existing sessions referencing them keep validating server-side.
     const now = Date.now();
     modelProviders.db
       .prepare(
         `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
-      .run('openai-gpt-5-5-validation-test', 'openai-default', 'gpt-5.5', 'GPT-5.5', 'Retired', 'custom', now);
+      .run('openai-legacy-validation-test', 'openai-default', 'gpt-legacy-validation-test', 'GPT Legacy', 'Retired', 'custom', now);
 
     try {
-      expect(validateModelId('gpt-5.5')).toEqual({ value: 'gpt-5.5' });
+      expect(validateModelId('gpt-legacy-validation-test')).toEqual({ value: 'gpt-legacy-validation-test' });
     } finally {
-      modelProviders.db.prepare('DELETE FROM provider_models WHERE id = ?').run('openai-gpt-5-5-validation-test');
+      modelProviders.db.prepare('DELETE FROM provider_models WHERE id = ?').run('openai-legacy-validation-test');
     }
   });
 

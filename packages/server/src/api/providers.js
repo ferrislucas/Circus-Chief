@@ -5,9 +5,11 @@ import {
   CreateProviderRequest,
   UpdateProviderRequest,
   CreateProviderModelRequest,
+  ReorderProviderModelsRequest,
   TestConnectionRequest,
 } from '@circuschief/shared/contracts/providers';
 import { testProviderConnection } from '../services/providerTestService.js';
+import { assertValidReorder } from '../db/providerModelOperations.js';
 
 // Error message constants
 const ERR_PROVIDER_NOT_FOUND = 'Provider not found';
@@ -184,7 +186,35 @@ router.get('/:id/models', (req, res) => {
   }
 });
 
-// POST /api/providers/:id/models - Add model to provider
+// GET /api/providers/:id/models/historical?modelId=... - Resolve a model id
+// that may be disabled or soft-removed, for a session that already
+// references it (FRD-built-in-model-choices.md §0 historical continuity).
+// Not for general listing -- normal pickers must never see removed rows.
+router.get('/:id/models/historical', (req, res) => {
+  try {
+    const provider = modelProviders.getById(req.params.id);
+    if (!provider) {
+      return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
+    }
+
+    const modelId = req.query.modelId;
+    if (!modelId || typeof modelId !== 'string') {
+      return res.status(400).json({ error: 'modelId query parameter is required' });
+    }
+
+    const model = modelProviders.getHistoricalModel(req.params.id, modelId);
+    if (!model) {
+      return res.status(404).json({ error: 'Model not found' });
+    }
+    res.json(model);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/providers/:id/models - Add model to provider (built-in and
+// custom providers share this path; a soft-removed row is restored instead
+// of duplicated).
 router.post('/:id/models', (req, res) => {
   try {
     const provider = modelProviders.getById(req.params.id);
@@ -199,6 +229,32 @@ router.post('/:id/models', (req, res) => {
 
     const model = modelProviders.addModel(req.params.id, result.data);
     res.status(201).json(model);
+  } catch (error) {
+    if (error.message.includes('already exists for this provider')) {
+      return res.status(409).json({ error: error.message });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/providers/:id/models/order - Persist a provider's model order
+router.put('/:id/models/order', (req, res) => {
+  try {
+    const provider = modelProviders.getById(req.params.id);
+    if (!provider) return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
+    const result = ReorderProviderModelsRequest.safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: result.error.issues[0].message });
+
+    // Same validation `reorderModels` itself now enforces (assertValidReorder)
+    // -- checked here too so HTTP callers get a 400 instead of a 500.
+    const models = modelProviders.getModels(req.params.id);
+    try {
+      assertValidReorder(models, result.data.order);
+    } catch (validationError) {
+      return res.status(400).json({ error: validationError.message });
+    }
+
+    res.json(modelProviders.reorderModels(req.params.id, result.data.order));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -229,6 +285,9 @@ router.patch('/:id/models/:modelId', (req, res) => {
     const updated = modelProviders.updateModel(req.params.modelId, result.data);
     res.json(updated);
   } catch (error) {
+    if (error.message === 'Cannot change the model id of a built-in provider model') {
+      return res.status(403).json({ error: error.message });
+    }
     res.status(500).json({ error: error.message });
   }
 });
@@ -250,6 +309,7 @@ router.delete('/:providerId/models/:modelId', (req, res) => {
       return res.status(400).json({ error: 'Model does not belong to this provider' });
     }
 
+    // Soft-remove: works identically for built-in and custom providers.
     modelProviders.removeModel(req.params.modelId);
     res.status(204).send();
   } catch (error) {

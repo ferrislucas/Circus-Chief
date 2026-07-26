@@ -46,7 +46,11 @@ test.describe('Draft session model dropdown sync', () => {
   test('changing model dropdown on draft session syncs both model and pendingModel', async ({ page }) => {
     // Use built-in model IDs that match the provider's actual models
     const initialModel = 'claude-sonnet-5';
-    const targetModel = 'claude-opus-4-6';
+    // claude-haiku-4-5 is a `lifecycle: 'current'` catalog entry, enabled by
+    // default -- unlike claude-opus-4-6 (an older, disabled-by-default
+    // generation, FRD-built-in-model-choices.md §0), it's always offered to
+    // a fresh draft session so this test doesn't depend on catalog defaults.
+    const targetModel = 'claude-haiku-4-5-20251001';
 
     // Create a draft session with a known model
     const session = await seedSession(project.id, {
@@ -122,7 +126,11 @@ test.describe('Draft session model dropdown sync', () => {
 
   test('model dropdown value persists after page reload on draft session', async ({ page }) => {
     const initialModel = 'claude-sonnet-5';
-    const targetModel = 'claude-opus-4-6';
+    // claude-haiku-4-5 is a `lifecycle: 'current'` catalog entry, enabled by
+    // default -- unlike claude-opus-4-6 (an older, disabled-by-default
+    // generation, FRD-built-in-model-choices.md §0), it's always offered to
+    // a fresh draft session so this test doesn't depend on catalog defaults.
+    const targetModel = 'claude-haiku-4-5-20251001';
 
     // Create a draft session with a known model
     const session = await seedSession(project.id, {

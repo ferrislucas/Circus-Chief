@@ -1,10 +1,98 @@
 import { describe, it, expect } from 'vitest';
-import {
-  OPENAI_MODELS,
-  DEFAULT_OPENAI_MODEL,
-  RETIRED_BUILT_IN_OPENAI_MODEL_IDS,
-  isRetiredBuiltInOpenAIModelSelection,
-} from './types.js';
+import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS, DEFAULT_MODEL, DEFAULT_OPENAI_MODEL } from './types.js';
+
+describe('catalog matrix completeness (FRD §0 / Phase 1 gate)', () => {
+  const catalogs = { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS };
+
+  for (const [name, models] of Object.entries(catalogs)) {
+    describe(name, () => {
+      it('has at least one entry', () => {
+        expect(models.length).toBeGreaterThan(0);
+      });
+
+      it('every entry has lifecycle, evidence, reviewedDate, and a seedId', () => {
+        for (const model of models) {
+          expect(['current', 'older']).toContain(model.lifecycle);
+          expect(model.evidence).toBeTypeOf('string');
+          expect(model.evidence.length).toBeGreaterThan(0);
+          expect(model.reviewedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+          expect(model.seedId).toBeTypeOf('string');
+          expect(model.seedId.length).toBeGreaterThan(0);
+        }
+      });
+
+      it('defaultEnabled matches lifecycle (current => true, older => false)', () => {
+        for (const model of models) {
+          expect(model.defaultEnabled).toBe(model.lifecycle === 'current');
+        }
+      });
+
+      it('has no duplicate ids or seed ids', () => {
+        const ids = models.map((m) => m.id);
+        const seedIds = models.map((m) => m.seedId);
+        expect(new Set(ids).size).toBe(ids.length);
+        expect(new Set(seedIds).size).toBe(seedIds.length);
+      });
+    });
+  }
+
+  it('classifies superseded Claude Opus generations as older, disabled by default', () => {
+    expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-6')).toMatchObject({ lifecycle: 'older', defaultEnabled: false });
+    expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-7')).toMatchObject({ lifecycle: 'older', defaultEnabled: false });
+    expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-8')).toMatchObject({ lifecycle: 'older', defaultEnabled: false });
+    expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-5')).toMatchObject({ lifecycle: 'current', defaultEnabled: true });
+  });
+
+  it('classifies superseded GPT-5.x generations as older, disabled by default', () => {
+    for (const id of ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.5']) {
+      expect(OPENAI_MODELS.find((m) => m.id === id)).toMatchObject({ lifecycle: 'older', defaultEnabled: false });
+    }
+    for (const id of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
+      expect(OPENAI_MODELS.find((m) => m.id === id)).toMatchObject({ lifecycle: 'current', defaultEnabled: true });
+    }
+  });
+
+  it('classifies every Gemini entry as current (no superseded sibling in this catalog)', () => {
+    for (const model of GEMINI_MODELS) {
+      expect(model.lifecycle).toBe('current');
+      expect(model.defaultEnabled).toBe(true);
+    }
+  });
+});
+
+describe('CLAUDE_MODELS', () => {
+  it('includes Opus 5 as the current, enabled-by-default Anthropic choice', () => {
+    expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-5')).toMatchObject({
+      name: 'Opus 5',
+      description: 'Most capable (default)',
+      tier: 'opus',
+      seedId: 'anthropic-opus-5',
+      lifecycle: 'current',
+      defaultEnabled: true,
+    });
+  });
+
+  it('retains claude-opus-4-8 as an older, disabled-by-default choice (not removed or renamed)', () => {
+    expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-8')).toMatchObject({
+      name: 'Opus 4.8',
+      tier: 'opus',
+      seedId: 'anthropic-opus-4-8',
+      lifecycle: 'older',
+      defaultEnabled: false,
+    });
+  });
+
+  it('orders Opus 5 ahead of Opus 4.8 in the catalog', () => {
+    const ids = CLAUDE_MODELS.map((m) => m.id);
+    expect(ids.indexOf('claude-opus-5')).toBeLessThan(ids.indexOf('claude-opus-4-8'));
+  });
+});
+
+describe('DEFAULT_MODEL', () => {
+  it('defaults to claude-opus-5', () => {
+    expect(DEFAULT_MODEL).toBe('claude-opus-5');
+  });
+});
 
 describe('OPENAI_MODELS', () => {
   it('includes the GPT-5.6 family', () => {
@@ -14,9 +102,10 @@ describe('OPENAI_MODELS', () => {
     expect(ids).toContain('gpt-5.6-luna');
   });
 
-  it('does not include the retired gpt-5.5 model', () => {
+  it('includes gpt-5.5 as a disabled-by-default legacy choice', () => {
     const ids = OPENAI_MODELS.map((m) => m.id);
-    expect(ids).not.toContain('gpt-5.5');
+    expect(ids).toContain('gpt-5.5');
+    expect(OPENAI_MODELS.find((m) => m.id === 'gpt-5.5')).toMatchObject({ defaultEnabled: false });
   });
 
   it('gives each GPT-5.6 model a stable seed id and display name', () => {
@@ -43,31 +132,5 @@ describe('OPENAI_MODELS', () => {
 describe('DEFAULT_OPENAI_MODEL', () => {
   it('defaults to gpt-5.6-sol', () => {
     expect(DEFAULT_OPENAI_MODEL).toBe('gpt-5.6-sol');
-  });
-});
-
-describe('isRetiredBuiltInOpenAIModelSelection', () => {
-  it('treats gpt-5.5 as retired for the built-in OpenAI provider', () => {
-    const provider = { isBuiltIn: true, kind: 'openai' };
-    expect(isRetiredBuiltInOpenAIModelSelection(provider, 'gpt-5.5')).toBe(true);
-  });
-
-  it('does not treat gpt-5.5 as retired for a custom OpenAI provider', () => {
-    const provider = { isBuiltIn: false, kind: 'openai' };
-    expect(isRetiredBuiltInOpenAIModelSelection(provider, 'gpt-5.5')).toBe(false);
-  });
-
-  it('does not treat current models as retired', () => {
-    const provider = { isBuiltIn: true, kind: 'openai' };
-    expect(isRetiredBuiltInOpenAIModelSelection(provider, 'gpt-5.6-sol')).toBe(false);
-  });
-
-  it('returns false for a missing/null provider', () => {
-    expect(isRetiredBuiltInOpenAIModelSelection(null, 'gpt-5.5')).toBe(false);
-    expect(isRetiredBuiltInOpenAIModelSelection(undefined, 'gpt-5.5')).toBe(false);
-  });
-
-  it('exposes the retired id list', () => {
-    expect(RETIRED_BUILT_IN_OPENAI_MODEL_IDS).toEqual(['gpt-5.5']);
   });
 });

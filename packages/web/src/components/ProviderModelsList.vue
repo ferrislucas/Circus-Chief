@@ -13,18 +13,20 @@
         <span class="col-model-id">Model ID</span>
         <span class="col-display-name">Display Name</span>
         <span class="col-tier">Tier</span>
-        <span class="col-actions" />
+        <span class="col-actions">Controls</span>
       </div>
       <div
         v-for="(model, index) in models"
-        :key="index"
-        class="model-row"
+        :key="model._serverId || model._localKey || index"
+        :class="['model-row', { 'is-disabled': model.enabled === false }]"
       >
         <input
           v-model="model.modelId"
           type="text"
           placeholder="anthropic.claude-3-sonnet-…"
           class="col-model-id model-input"
+          :readonly="readOnlyModelId && Boolean(model._serverId)"
+          :title="readOnlyModelId && model._serverId ? 'Canonical model id cannot be changed after creation. Remove and re-add to use a different id.' : undefined"
         >
         <input
           v-model="model.displayName"
@@ -39,6 +41,9 @@
           <option value="opus">
             Opus
           </option>
+          <option value="fable">
+            Fable
+          </option>
           <option value="sonnet">
             Sonnet
           </option>
@@ -49,14 +54,44 @@
             Custom
           </option>
         </select>
-        <button
-          type="button"
-          class="col-actions remove-model-btn"
-          title="Remove model"
-          @click="$emit('remove', index)"
-        >
-          ×
-        </button>
+        <div class="col-actions model-controls">
+          <button
+            type="button"
+            class="move-model-btn"
+            title="Move model up"
+            :disabled="index === 0"
+            @click="$emit('move-up', index)"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            class="move-model-btn"
+            title="Move model down"
+            :disabled="index === models.length - 1"
+            @click="$emit('move-down', index)"
+          >
+            ↓
+          </button>
+          <label
+            class="model-enabled"
+            :title="model.enabled === false ? 'Enable model' : 'Disable model'"
+          >
+            <input
+              v-model="model.enabled"
+              type="checkbox"
+            >
+            <span>{{ model.enabled === false ? 'Off' : 'On' }}</span>
+          </label>
+          <button
+            type="button"
+            class="remove-model-btn"
+            title="Remove model"
+            @click="$emit('remove', index)"
+          >
+            ×
+          </button>
+        </div>
       </div>
     </div>
     <div
@@ -79,9 +114,10 @@
 <script setup>
 defineProps({
   models: { type: Array, required: true },
+  readOnlyModelId: { type: Boolean, default: false },
 });
 
-defineEmits(['add', 'remove']);
+defineEmits(['add', 'remove', 'move-up', 'move-down']);
 </script>
 
 <style scoped>
@@ -118,7 +154,7 @@ defineEmits(['add', 'remove']);
 
 .model-row {
   display: grid;
-  grid-template-columns: 1fr 10rem 6.5rem 2rem;
+  grid-template-columns: 1fr 10rem 6.5rem 10rem;
   gap: 0.5rem;
   align-items: center;
   margin-bottom: 0.375rem;
@@ -170,6 +206,12 @@ defineEmits(['add', 'remove']);
   color: var(--color-danger, #ef4444);
   border-color: var(--color-danger, #ef4444);
 }
+
+.model-controls { display: flex; align-items: center; gap: 0.2rem; }
+.move-model-btn { background: none; border: 1px solid var(--color-border); color: var(--color-text); border-radius: 0.25rem; cursor: pointer; padding: 0.15rem 0.35rem; }
+.move-model-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.model-enabled { display: inline-flex; align-items: center; gap: 0.15rem; color: var(--color-text-soft); font-size: 0.7rem; cursor: pointer; }
+.is-disabled .model-input { opacity: 0.55; }
 
 .models-empty {
   padding: 0.75rem 1rem;

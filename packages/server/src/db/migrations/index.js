@@ -289,6 +289,23 @@ export const allMigrations = validateMigrations([
   pr.get('provider-models-widen-tier-check-fable'),
   pr.get('providers-seed-built-in-fable-5'),
 
+  // --- Per-model enabled state and user-controlled ordering ---
+  pr.get('provider-models-add-enabled'),
+  pr.get('provider-models-add-sort-order'),
+  pr.get('provider-models-backfill-sort-order'),
+  pr.get('provider-models-sync-built-in-catalogs'),
+
+  // --- Configurable built-in model choices: lifecycle, soft removal, and
+  //     catalog-driven defaults (FRD-built-in-model-choices.md). Supersedes
+  //     the retired gpt-5.5-only special case with a general mechanism. ---
+  pr.get('provider-models-add-lifecycle'),
+  pr.get('provider-models-add-catalog-managed'),
+  pr.get('provider-models-add-removed-at'),
+  pr.get('provider-models-dedupe-active-identity'),
+  pr.get('provider-models-unique-active-identity-index'),
+  pr.get('provider-models-sync-catalog-lifecycle'),
+  pr.get('provider-models-disable-older-lifecycle-once'),
+
   // --- Pending conversation ID for existing-message retry on reschedule ---
   s.get('sessions-add-pending_conversation_id'),
 

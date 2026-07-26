@@ -1,4 +1,4 @@
-import { OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
+import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
 import { getTableSql } from './migrationUtils.js';
 import { BUILT_IN_OPENAI_COMMIT_ATTRIBUTION } from '../seedBaselineData.js';
 
@@ -13,6 +13,42 @@ const FABLE_MODEL = {
   tier: 'fable',
 };
 
+/**
+ * Insert (or, on re-run, no-op via `INSERT OR IGNORE`) one `provider_models`
+ * row per entry in `models` for the given `providerId`. Shared by all three
+ * built-in seed helpers below so each provider's catalog -- `CLAUDE_MODELS`,
+ * `OPENAI_MODELS`, `GEMINI_MODELS` -- is the single source of truth for its
+ * seeded rows (FRD-built-in-model-choices.md FR-1.2); there is no
+ * hand-maintained duplicate list for any built-in provider.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} providerId
+ * @param {Array} models - one of CLAUDE_MODELS / OPENAI_MODELS / GEMINI_MODELS
+ * @param {(model: object) => string} tierFor - resolves the `tier` column
+ *   value for a catalog entry (Anthropic rows carry a real tier; OpenAI/Google
+ *   built-in rows use the fixed 'custom' tier).
+ */
+function seedCatalogModels(db, providerId, models, tierFor) {
+  const insertModel = db.prepare(
+    `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  );
+
+  const now = Date.now();
+  for (const model of models) {
+    insertModel.run(model.seedId, providerId, model.id, model.name, model.description, tierFor(model), now);
+  }
+}
+
+/**
+ * Single source of truth for the Anthropic built-in seed rows: derived from
+ * `CLAUDE_MODELS` (shared/src/types.js), mirroring how
+ * `seedBuiltInOpenAIProvider` derives from `OPENAI_MODELS` and
+ * `seedBuiltInGoogleProvider` derives from `GEMINI_MODELS`. There is no
+ * hand-maintained duplicate list here anymore -- adding a supported Claude
+ * model is a one-line change to `CLAUDE_MODELS` (FRD-built-in-model-choices.md
+ * FR-1.2).
+ */
 export function seedBuiltInAnthropicProvider(db) {
   const existing = db
     .prepare('SELECT id FROM providers WHERE id = ?')
@@ -26,24 +62,7 @@ export function seedBuiltInAnthropicProvider(db) {
     ).run(ANTHROPIC_PROVIDER_ID, 'Anthropic (Official)', now, now);
   }
 
-  const defaultModels = [
-    FABLE_MODEL,
-    { id: 'anthropic-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', description: 'Fast & lightweight', tier: 'haiku' },
-    { id: 'anthropic-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', description: 'Balanced', tier: 'sonnet' },
-    { id: 'anthropic-opus', modelId: 'claude-opus-4-6', displayName: 'Opus 4.6', description: 'Previous generation', tier: 'opus' },
-    { id: 'anthropic-opus-4-7', modelId: 'claude-opus-4-7', displayName: 'Opus 4.7', description: 'Previous generation', tier: 'opus' },
-    { id: 'anthropic-opus-4-8', modelId: 'claude-opus-4-8', displayName: 'Opus 4.8', description: 'Most capable (default)', tier: 'opus' },
-  ];
-
-  const insertModel = db.prepare(
-    `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  );
-
-  const now = Date.now();
-  for (const model of defaultModels) {
-    insertModel.run(model.id, ANTHROPIC_PROVIDER_ID, model.modelId, model.displayName, model.description, model.tier, now);
-  }
+  seedCatalogModels(db, ANTHROPIC_PROVIDER_ID, CLAUDE_MODELS, (model) => model.tier);
 }
 
 /**
@@ -73,14 +92,7 @@ export function seedBuiltInOpenAIProvider(db) {
      VALUES (?, ?, NULL, NULL, 'openai', ?, 1, ?, ?)`
   ).run(OPENAI_PROVIDER_ID, 'OpenAI (Official)', BUILT_IN_OPENAI_COMMIT_ATTRIBUTION, now, now);
 
-  const insertModel = db.prepare(
-    `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-     VALUES (?, ?, ?, ?, ?, 'custom', ?)`
-  );
-
-  for (const model of OPENAI_MODELS) {
-    insertModel.run(model.seedId, OPENAI_PROVIDER_ID, model.id, model.name, model.description, now);
-  }
+  seedCatalogModels(db, OPENAI_PROVIDER_ID, OPENAI_MODELS, () => 'custom');
 }
 
 export function seedBuiltInGoogleProvider(db) {
@@ -93,14 +105,7 @@ export function seedBuiltInGoogleProvider(db) {
      VALUES (?, ?, NULL, NULL, 'google', 1, ?, ?)`
   ).run(GOOGLE_PROVIDER_ID, 'Google (Official)', now, now);
 
-  const insertModel = db.prepare(
-    `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-     VALUES (?, ?, ?, ?, ?, 'custom', ?)`
-  );
-
-  for (const model of GEMINI_MODELS) {
-    insertModel.run(model.seedId, GOOGLE_PROVIDER_ID, model.id, model.name, model.description, now);
-  }
+  seedCatalogModels(db, GOOGLE_PROVIDER_ID, GEMINI_MODELS, () => 'custom');
 }
 
 export function seedBuiltInProviders(db) {
@@ -207,4 +212,121 @@ export function seedBuiltInFable5(db) {
     ANTHROPIC_PROVIDER_ID,
     FABLE_MODEL.id
   );
+}
+
+/**
+ * The provider/catalog pairs shared by every catalog-driven migration helper
+ * below (seeding, lifecycle sync, and the one-time older-lifecycle disable).
+ */
+const CATALOGS_BY_PROVIDER = [
+  [ANTHROPIC_PROVIDER_ID, CLAUDE_MODELS, (model) => model.tier],
+  [OPENAI_PROVIDER_ID, OPENAI_MODELS, () => 'custom'],
+  [GOOGLE_PROVIDER_ID, GEMINI_MODELS, () => 'custom'],
+];
+
+/** Seed current catalogs after enabled/sort_order columns have been added. */
+export function syncBuiltInModelCatalogs(db) {
+  const now = Date.now();
+  const insert = db.prepare(`INSERT OR IGNORE INTO provider_models
+    (id, provider_id, model_id, display_name, description, tier, enabled, sort_order, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM provider_models WHERE provider_id = ?), ?)`);
+  for (const [providerId, models, tierFor] of CATALOGS_BY_PROVIDER) {
+    for (const model of models) {
+      insert.run(model.seedId, providerId, model.id, model.name, model.description, tierFor(model), model.defaultEnabled === false ? 0 : 1, providerId, now);
+    }
+  }
+}
+
+/**
+ * Keep `lifecycle` and `catalog_managed` in sync with the current catalog on
+ * every startup. Never touches `enabled`, `sort_order`, or `removed_at` --
+ * those are user-controlled once seeded (FRD §0 "Startup must never overwrite
+ * a user's later enable/disable decision").
+ */
+export function syncCatalogLifecycleMetadata(db) {
+  const updateLifecycle = db.prepare(
+    `UPDATE provider_models SET lifecycle = ?, catalog_managed = 1
+     WHERE provider_id = ? AND model_id = ? AND removed_at IS NULL AND lifecycle IS NOT ?`
+  );
+  for (const [providerId, models] of CATALOGS_BY_PROVIDER) {
+    for (const model of models) {
+      const lifecycle = model.lifecycle || 'current';
+      updateLifecycle.run(lifecycle, providerId, model.id, lifecycle);
+    }
+  }
+}
+
+const OLDER_LIFECYCLE_MIGRATION_MARKER = 'provider_models_disable_older_lifecycle_v1';
+
+/**
+ * One-time, marker-guarded migration: disable every catalog entry classified
+ * as `lifecycle: 'older'` across all three built-in providers. Guarded by a
+ * row in `app_settings` (rather than the `sort_order IS NULL` trick used by
+ * the retired gpt-5.5-only migration) so it runs exactly once regardless of
+ * when each row was originally seeded, and never re-disables a model a user
+ * has since re-enabled.
+ *
+ * This also covers the Opus 4.8 -> Opus 5 lifecycle transition: because the
+ * lifecycle/enabled/sort_order mechanism and the Opus 5 catalog addition
+ * shipped together (never as separate releases), this single mechanism is
+ * sufficient to disable Opus 4.8 on both fresh installs and databases
+ * upgraded from origin/main -- see providerMigrationHelpers.test.js
+ * ("provider-models-transition-opus-4-8-to-older-once redundancy (Slice C)")
+ * for the regression proof. A previously-added, separately-marker-guarded
+ * `transitionBuiltInOpus48ToOlderOnce` migration was removed as redundant
+ * (PR #1063 remediation, Issue 3).
+ */
+export function disableOlderLifecycleModelsOnce(db) {
+  const already = db.prepare('SELECT 1 FROM app_settings WHERE key = ?').get(OLDER_LIFECYCLE_MIGRATION_MARKER);
+  if (already) return;
+
+  const disable = db.prepare(
+    `UPDATE provider_models SET enabled = 0 WHERE provider_id = ? AND model_id = ? AND removed_at IS NULL`
+  );
+  const transaction = db.transaction(() => {
+    for (const [providerId, models] of CATALOGS_BY_PROVIDER) {
+      for (const model of models) {
+        if ((model.lifecycle || 'current') === 'older') {
+          disable.run(providerId, model.id);
+        }
+      }
+    }
+    db.prepare(
+      'INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)'
+    ).run(OLDER_LIFECYCLE_MIGRATION_MARKER, 'done', Date.now());
+  });
+  transaction();
+}
+
+/**
+ * Resolve any pre-existing duplicate (provider_id, model_id) pairs among
+ * *active* (non-removed) rows before the unique partial index is created.
+ * Keeps the earliest row (by created_at, then rowid as an insertion-order
+ * tiebreak) and soft-removes the rest so historical continuity is preserved
+ * rather than destroyed.
+ */
+export function dedupeActiveProviderModelIdentities(db) {
+  const duplicates = db.prepare(`
+    SELECT id FROM provider_models pm
+    WHERE removed_at IS NULL
+      AND EXISTS (
+        SELECT 1 FROM provider_models earlier
+        WHERE earlier.provider_id = pm.provider_id
+          AND earlier.model_id = pm.model_id
+          AND earlier.removed_at IS NULL
+          AND (earlier.created_at < pm.created_at
+            OR (earlier.created_at = pm.created_at AND earlier.rowid < pm.rowid))
+      )
+  `).all();
+
+  if (duplicates.length === 0) return;
+
+  const softRemove = db.prepare('UPDATE provider_models SET removed_at = ? WHERE id = ?');
+  const now = Date.now();
+  const transaction = db.transaction(() => {
+    for (const { id } of duplicates) {
+      softRemove.run(now, id);
+    }
+  });
+  transaction();
 }
