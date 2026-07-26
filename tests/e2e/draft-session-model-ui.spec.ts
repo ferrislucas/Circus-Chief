@@ -53,7 +53,7 @@ test.describe('Draft session model dropdown sync', () => {
       prompt: 'Test prompt for model dropdown sync',
       model: initialModel,
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
 
@@ -129,7 +129,7 @@ test.describe('Draft session model dropdown sync', () => {
       prompt: 'Test model persistence after reload',
       model: initialModel,
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
 

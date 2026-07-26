@@ -71,7 +71,7 @@ test.describe('Opus 4.7 Model Availability', () => {
     const session = await seedSession(project.id, {
       prompt: 'Test Opus 4.7 availability in model selector',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
 
@@ -134,7 +134,7 @@ test.describe('Opus 4.7 Model Availability', () => {
     const session = await seedSession(project.id, {
       prompt: 'Test selecting Opus 4.7',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
 
@@ -182,7 +182,7 @@ test.describe('Opus 4.7 Model Availability', () => {
     const session = await seedSession(project.id, {
       prompt: 'Test selecting Opus 4.8',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
 
@@ -232,7 +232,7 @@ test.describe('Opus 4.7 Model Availability', () => {
       prompt: 'Existing session with Opus 4.6',
       model: 'claude-opus-4-6',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
 
