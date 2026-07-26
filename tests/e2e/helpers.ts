@@ -1314,6 +1314,22 @@ export async function updateProviderModel(providerId: string, modelRowId: string
 }
 
 /**
+ * Persist a provider's model order (by model row IDs, in the desired order).
+ */
+export async function reorderProviderModels(providerId: string, order: string[]) {
+  const response = await fetch(`${API_URL}/api/providers/${providerId}/models/order`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order }),
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Failed to reorder provider models (${response.status}): ${body}`);
+  }
+  return response.json();
+}
+
+/**
  * Get all providers
  */
 export async function getProviders() {

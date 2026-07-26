@@ -1145,6 +1145,22 @@ describe('ModelSelector', () => {
       expect(values).toContain(optionValue('openai-default', 'gpt-5.5'));
       expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
     });
+
+    // PR #1063 remediation, Slice E2: a session created via the API (or any
+    // legacy session predating providerId tracking) stores only `model`, not
+    // `providerId` -- session.providerId is null. The parent then passes
+    // `providerId: null` through to ModelSelector. Session-scoped resolution
+    // must still find the *actual* owning provider (here, OpenAI) from the
+    // model id itself, not silently assume Anthropic.
+    it('shows and keeps selectable a disabled non-Anthropic model when sessionScoped is true and providerId is not supplied', async () => {
+      const wrapper = mountComponent({ modelValue: 'gpt-5.5', sessionScoped: true });
+      await flushAll(wrapper);
+
+      const values = wrapper.findAll('option').map((option) => option.element.value);
+      expect(values).toContain(optionValue('openai-default', 'gpt-5.5'));
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
+      expect(wrapper.attributes('data-model')).toBe('gpt-5.5');
+    });
   });
 
   describe('orphaned (unknown) model id', () => {

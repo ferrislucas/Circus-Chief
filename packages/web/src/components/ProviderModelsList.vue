@@ -17,7 +17,7 @@
       </div>
       <div
         v-for="(model, index) in models"
-        :key="model._serverId || index"
+        :key="model._serverId || model._localKey || index"
         :class="['model-row', { 'is-disabled': model.enabled === false }]"
       >
         <input

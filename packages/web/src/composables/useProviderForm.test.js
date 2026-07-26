@@ -344,8 +344,18 @@ describe('useProviderForm', () => {
       const { result } = createForm();
       result.addLocalModel();
       expect(result.localModels.value).toEqual([
-        { modelId: '', displayName: '', tier: 'custom', enabled: true },
+        { _localKey: expect.any(String), modelId: '', displayName: '', tier: 'custom', enabled: true },
       ]);
+    });
+
+    it('should assign each new model a stable, distinct _localKey', () => {
+      const { result } = createForm();
+      result.addLocalModel();
+      result.addLocalModel();
+      const [first, second] = result.localModels.value;
+      expect(first._localKey).toBeTruthy();
+      expect(second._localKey).toBeTruthy();
+      expect(first._localKey).not.toBe(second._localKey);
     });
 
     it('should add multiple models', () => {

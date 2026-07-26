@@ -18,12 +18,6 @@ const backfillSortOrderMigration = providerMigrations.find(
   (m) => m.name === 'provider-models-backfill-sort-order'
 );
 
-const opus48TransitionMigration = providerMigrations.find(
-  (m) => m.name === 'provider-models-transition-opus-4-8-to-older-once'
-);
-
-const OPUS_4_8_TRANSITION_MARKER = 'provider_models_opus_4_8_lifecycle_transition_v1';
-
 describe('fresh-install built-in model catalog order', () => {
   it('orders anthropic-default models to match CLAUDE_MODELS catalog order', () => {
     withDb((db) => {
@@ -106,89 +100,16 @@ describe('provider-models-backfill-sort-order migration', () => {
   });
 });
 
-describe('provider-models-transition-opus-4-8-to-older-once migration', () => {
-  it('exists and is registered', () => {
-    expect(opus48TransitionMigration).toBeDefined();
-    expect(typeof opus48TransitionMigration.up).toBe('function');
-  });
-
-  it('upgraded database (general older-lifecycle marker already ran before Opus 4.8 was reclassified): disables active catalog-managed Opus 4.8 exactly once', () => {
-    withDb((db) => {
-      // Simulate the pre-Opus-5 upgraded-database state: this release's
-      // transition marker hasn't run yet, and Opus 4.8 is still enabled (as
-      // it would be on a database where the general older-lifecycle-once
-      // migration fired back when Opus 4.8 was still `lifecycle: 'current'`).
-      db.prepare('DELETE FROM app_settings WHERE key = ?').run(OPUS_4_8_TRANSITION_MARKER);
-      db.prepare('UPDATE provider_models SET enabled = 1 WHERE provider_id = ? AND model_id = ?')
-        .run('anthropic-default', 'claude-opus-4-8');
-
-      opus48TransitionMigration.up(db);
-
-      const opus48 = getModels(db, 'anthropic-default').find((m) => m.modelId === 'claude-opus-4-8');
-      expect(opus48.enabled).toBe(false);
-
-      const marker = db.prepare('SELECT 1 FROM app_settings WHERE key = ?').get(OPUS_4_8_TRANSITION_MARKER);
-      expect(marker).toBeTruthy();
-    });
-  });
-
-  it('is idempotent: repeated startup does not error and does not change state further', () => {
-    withDb((db) => {
-      db.prepare('DELETE FROM app_settings WHERE key = ?').run(OPUS_4_8_TRANSITION_MARKER);
-      db.prepare('UPDATE provider_models SET enabled = 1 WHERE provider_id = ? AND model_id = ?')
-        .run('anthropic-default', 'claude-opus-4-8');
-
-      opus48TransitionMigration.up(db);
-      opus48TransitionMigration.up(db);
-      opus48TransitionMigration.up(db);
-
-      const opus48 = getModels(db, 'anthropic-default').find((m) => m.modelId === 'claude-opus-4-8');
-      expect(opus48.enabled).toBe(false);
-    });
-  });
-
-  it('after the transition marker exists, a user re-enabling Opus 4.8 is not overwritten by a later startup', () => {
-    withDb((db) => {
-      // withDb() runs the full migration chain, including this transition,
-      // so the marker already exists by this point.
-      db.prepare('UPDATE provider_models SET enabled = 1 WHERE provider_id = ? AND model_id = ?')
-        .run('anthropic-default', 'claude-opus-4-8');
-
-      opus48TransitionMigration.up(db);
-
-      const opus48 = getModels(db, 'anthropic-default').find((m) => m.modelId === 'claude-opus-4-8');
-      expect(opus48.enabled).toBe(true);
-    });
-  });
-
-  it('does not restore a soft-removed Opus 4.8 row', () => {
-    withDb((db) => {
-      const opus48Row = db
-        .prepare('SELECT id FROM provider_models WHERE provider_id = ? AND model_id = ?')
-        .get('anthropic-default', 'claude-opus-4-8');
-      db.prepare('UPDATE provider_models SET removed_at = ?, enabled = 1 WHERE id = ?').run(Date.now(), opus48Row.id);
-      db.prepare('DELETE FROM app_settings WHERE key = ?').run(OPUS_4_8_TRANSITION_MARKER);
-
-      opus48TransitionMigration.up(db);
-
-      const row = db.prepare('SELECT enabled, removed_at FROM provider_models WHERE id = ?').get(opus48Row.id);
-      expect(row.removed_at).not.toBeNull();
-      expect(row.enabled).toBe(1);
-    });
-  });
-
-  it('leaves unrelated model enablement, ordering, and other built-in providers unchanged', () => {
-    withDb((db) => {
-      const openaiBefore = getModels(db, 'openai-default');
-      const googleBefore = getModels(db, 'google-default');
-      const anthropicOthersBefore = getModels(db, 'anthropic-default').filter((m) => m.modelId !== 'claude-opus-4-8');
-
-      db.prepare('DELETE FROM app_settings WHERE key = ?').run(OPUS_4_8_TRANSITION_MARKER);
-      opus48TransitionMigration.up(db);
-
-      expect(getModels(db, 'openai-default')).toEqual(openaiBefore);
-      expect(getModels(db, 'google-default')).toEqual(googleBefore);
-      expect(getModels(db, 'anthropic-default').filter((m) => m.modelId !== 'claude-opus-4-8')).toEqual(anthropicOthersBefore);
-    });
-  });
-});
+// `provider-models-transition-opus-4-8-to-older-once` (and its dedicated
+// tests) were removed in the PR #1063 remediation, Slice C: it was a
+// narrowly-scoped, marker-guarded migration meant to protect an intermediate
+// release where the general `disableOlderLifecycleModelsOnce` marker had
+// already fired before Opus 4.8 was reclassified `lifecycle: 'older'`. That
+// intermediate release never shipped -- the entire lifecycle/enabled/
+// sort_order/soft-removal mechanism and the Opus 4.8 reclassification landed
+// together, unreleased, in this same branch. See
+// `providerMigrationHelpers.test.js` ("provider-models-transition-opus-4-8-to-older-once
+// redundancy (Slice C)") for the regression tests proving Opus 4.8 ends up
+// disabled by `disableOlderLifecycleModelsOnce` alone on both a fresh install
+// and a database upgraded from origin/main -- with no dedicated transition
+// migration needed.

@@ -204,17 +204,22 @@ function hasActiveMatch(modelId, providerId) {
   });
 }
 
-// Which provider the preserved current value belongs to. Session-scoped
-// pickers fall back to Anthropic for legacy tier aliases; configuration forms
-// first resolve an active row, then use a built-in model-id prefix only for a
-// soft-removed built-in row. This single resolver feeds both the historical
-// fetch and the disabled-row exception in `visibleProviders`.
+// Which provider the preserved current value belongs to. Always prefer the
+// provider that actually owns the model id (covers disabled OpenAI/Gemini
+// models on a session whose `providerId` was never stored -- e.g. a session
+// created via the API with only `model` set), then a built-in model-id
+// prefix inference for a soft-removed row not present in the bulk payload.
+// Session-scoped pickers fall back to the built-in Anthropic provider only as
+// a last resort (legacy tier aliases like 'sonnet' with no owning provider).
+// Configuration forms (non-session-scoped) return null in that last-resort
+// case instead, since they have no session context to default to.
 const currentValueProviderId = computed(() => {
   if (props.providerId) return props.providerId;
-  if (!props.sessionScoped) {
-    const activeProvider = providersStore.providers.find(providerHasCurrentModel);
-    return activeProvider?.id || inferredBuiltInProviderId(resolveModelId(props.modelValue));
-  }
+  const owningProvider = providersStore.providers.find(providerHasCurrentModel);
+  if (owningProvider) return owningProvider.id;
+  const inferred = inferredBuiltInProviderId(resolveModelId(props.modelValue));
+  if (inferred) return inferred;
+  if (!props.sessionScoped) return null;
   return providersStore.providers.find(
     (p) => p.isBuiltIn && agentTypeFor(p) === 'claude-code'
   )?.id || null;

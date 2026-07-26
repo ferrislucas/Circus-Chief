@@ -153,7 +153,20 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
 
   // ── Model helpers ─────────────────────────────────────────────
   function addLocalModel() {
-    localModels.value.push({ modelId: '', displayName: '', tier: 'custom', enabled: true });
+    // Assign a stable client-side key at creation so `ProviderModelsList`'s
+    // `v-for` can key on `model._serverId || model._localKey` instead of the
+    // row's array index. An index-based key for unsaved rows means
+    // reordering two unsaved rows leaves the *set* of keys unchanged (only
+    // which model sits at which index changes), so Vue patches each DOM node
+    // -- including whichever one currently has focus -- in place with
+    // another row's data instead of moving the matched node with its model.
+    localModels.value.push({
+      _localKey: crypto.randomUUID(),
+      modelId: '',
+      displayName: '',
+      tier: 'custom',
+      enabled: true,
+    });
   }
 
   function removeLocalModel(index) {

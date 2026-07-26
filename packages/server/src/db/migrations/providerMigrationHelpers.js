@@ -13,6 +13,42 @@ const FABLE_MODEL = {
   tier: 'fable',
 };
 
+/**
+ * Insert (or, on re-run, no-op via `INSERT OR IGNORE`) one `provider_models`
+ * row per entry in `models` for the given `providerId`. Shared by all three
+ * built-in seed helpers below so each provider's catalog -- `CLAUDE_MODELS`,
+ * `OPENAI_MODELS`, `GEMINI_MODELS` -- is the single source of truth for its
+ * seeded rows (FRD-built-in-model-choices.md FR-1.2); there is no
+ * hand-maintained duplicate list for any built-in provider.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} providerId
+ * @param {Array} models - one of CLAUDE_MODELS / OPENAI_MODELS / GEMINI_MODELS
+ * @param {(model: object) => string} tierFor - resolves the `tier` column
+ *   value for a catalog entry (Anthropic rows carry a real tier; OpenAI/Google
+ *   built-in rows use the fixed 'custom' tier).
+ */
+function seedCatalogModels(db, providerId, models, tierFor) {
+  const insertModel = db.prepare(
+    `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  );
+
+  const now = Date.now();
+  for (const model of models) {
+    insertModel.run(model.seedId, providerId, model.id, model.name, model.description, tierFor(model), now);
+  }
+}
+
+/**
+ * Single source of truth for the Anthropic built-in seed rows: derived from
+ * `CLAUDE_MODELS` (shared/src/types.js), mirroring how
+ * `seedBuiltInOpenAIProvider` derives from `OPENAI_MODELS` and
+ * `seedBuiltInGoogleProvider` derives from `GEMINI_MODELS`. There is no
+ * hand-maintained duplicate list here anymore -- adding a supported Claude
+ * model is a one-line change to `CLAUDE_MODELS` (FRD-built-in-model-choices.md
+ * FR-1.2).
+ */
 export function seedBuiltInAnthropicProvider(db) {
   const existing = db
     .prepare('SELECT id FROM providers WHERE id = ?')
@@ -26,24 +62,7 @@ export function seedBuiltInAnthropicProvider(db) {
     ).run(ANTHROPIC_PROVIDER_ID, 'Anthropic (Official)', now, now);
   }
 
-  const defaultModels = [
-    FABLE_MODEL,
-    { id: 'anthropic-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', description: 'Fast & lightweight', tier: 'haiku' },
-    { id: 'anthropic-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', description: 'Balanced', tier: 'sonnet' },
-    { id: 'anthropic-opus', modelId: 'claude-opus-4-6', displayName: 'Opus 4.6', description: 'Previous generation', tier: 'opus' },
-    { id: 'anthropic-opus-4-7', modelId: 'claude-opus-4-7', displayName: 'Opus 4.7', description: 'Previous generation', tier: 'opus' },
-    { id: 'anthropic-opus-4-8', modelId: 'claude-opus-4-8', displayName: 'Opus 4.8', description: 'Most capable (default)', tier: 'opus' },
-  ];
-
-  const insertModel = db.prepare(
-    `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  );
-
-  const now = Date.now();
-  for (const model of defaultModels) {
-    insertModel.run(model.id, ANTHROPIC_PROVIDER_ID, model.modelId, model.displayName, model.description, model.tier, now);
-  }
+  seedCatalogModels(db, ANTHROPIC_PROVIDER_ID, CLAUDE_MODELS, (model) => model.tier);
 }
 
 /**
@@ -73,14 +92,7 @@ export function seedBuiltInOpenAIProvider(db) {
      VALUES (?, ?, NULL, NULL, 'openai', ?, 1, ?, ?)`
   ).run(OPENAI_PROVIDER_ID, 'OpenAI (Official)', BUILT_IN_OPENAI_COMMIT_ATTRIBUTION, now, now);
 
-  const insertModel = db.prepare(
-    `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-     VALUES (?, ?, ?, ?, ?, 'custom', ?)`
-  );
-
-  for (const model of OPENAI_MODELS) {
-    insertModel.run(model.seedId, OPENAI_PROVIDER_ID, model.id, model.name, model.description, now);
-  }
+  seedCatalogModels(db, OPENAI_PROVIDER_ID, OPENAI_MODELS, () => 'custom');
 }
 
 export function seedBuiltInGoogleProvider(db) {
@@ -93,14 +105,7 @@ export function seedBuiltInGoogleProvider(db) {
      VALUES (?, ?, NULL, NULL, 'google', 1, ?, ?)`
   ).run(GOOGLE_PROVIDER_ID, 'Google (Official)', now, now);
 
-  const insertModel = db.prepare(
-    `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-     VALUES (?, ?, ?, ?, ?, 'custom', ?)`
-  );
-
-  for (const model of GEMINI_MODELS) {
-    insertModel.run(model.seedId, GOOGLE_PROVIDER_ID, model.id, model.name, model.description, now);
-  }
+  seedCatalogModels(db, GOOGLE_PROVIDER_ID, GEMINI_MODELS, () => 'custom');
 }
 
 export function seedBuiltInProviders(db) {
@@ -260,6 +265,16 @@ const OLDER_LIFECYCLE_MIGRATION_MARKER = 'provider_models_disable_older_lifecycl
  * the retired gpt-5.5-only migration) so it runs exactly once regardless of
  * when each row was originally seeded, and never re-disables a model a user
  * has since re-enabled.
+ *
+ * This also covers the Opus 4.8 -> Opus 5 lifecycle transition: because the
+ * lifecycle/enabled/sort_order mechanism and the Opus 5 catalog addition
+ * shipped together (never as separate releases), this single mechanism is
+ * sufficient to disable Opus 4.8 on both fresh installs and databases
+ * upgraded from origin/main -- see providerMigrationHelpers.test.js
+ * ("provider-models-transition-opus-4-8-to-older-once redundancy (Slice C)")
+ * for the regression proof. A previously-added, separately-marker-guarded
+ * `transitionBuiltInOpus48ToOlderOnce` migration was removed as redundant
+ * (PR #1063 remediation, Issue 3).
  */
 export function disableOlderLifecycleModelsOnce(db) {
   const already = db.prepare('SELECT 1 FROM app_settings WHERE key = ?').get(OLDER_LIFECYCLE_MIGRATION_MARKER);
@@ -279,53 +294,6 @@ export function disableOlderLifecycleModelsOnce(db) {
     db.prepare(
       'INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)'
     ).run(OLDER_LIFECYCLE_MIGRATION_MARKER, 'done', Date.now());
-  });
-  transaction();
-}
-
-const OPUS_4_8_LIFECYCLE_TRANSITION_MARKER = 'provider_models_opus_4_8_lifecycle_transition_v1';
-
-/**
- * One-time, marker-guarded release transition: Opus 5 supersedes Opus 4.8 as
- * the current Anthropic default (see the "Add Opus 5" plan, Slice 2).
- *
- * `syncBuiltInModelCatalogs` / `syncCatalogLifecycleMetadata` already handle
- * seeding the new Opus 5 row and updating Opus 4.8's `lifecycle` column to
- * `'older'` generically, on every startup, for both fresh and upgraded
- * databases. But `disableOlderLifecycleModelsOnce` (the general older-model
- * disable mechanism) is guarded by a marker that already ran -- on databases
- * upgraded from before this release, that marker fired when Opus 4.8 was
- * still `lifecycle: 'current'`, so it never disabled it and never will again.
- *
- * This migration is a narrowly-scoped, separately-marker-guarded transition
- * that disables the built-in, catalog-managed, non-removed Opus 4.8 row
- * exactly once. It intentionally:
- *   - only touches the built-in Anthropic Opus 4.8 row (never unrelated
- *     models, never a user-added/custom row that happens to share the id),
- *   - skips soft-removed rows (removed_at IS NOT NULL) so a user's removal
- *     is never "undone" by resurrecting an enabled state,
- *   - never re-runs once its marker exists, so a user who re-enables or
- *     reorders Opus 4.8 afterward is never overwritten by a later startup.
- *
- * On a fresh install this is a no-op in effect: `disableOlderLifecycleModelsOnce`
- * already disables Opus 4.8 (correctly classified `'older'` from the start),
- * so this migration's UPDATE simply matches zero additional rows beyond what
- * is already disabled.
- */
-export function transitionBuiltInOpus48ToOlderOnce(db) {
-  const already = db.prepare('SELECT 1 FROM app_settings WHERE key = ?').get(OPUS_4_8_LIFECYCLE_TRANSITION_MARKER);
-  if (already) return;
-
-  const transaction = db.transaction(() => {
-    db.prepare(
-      `UPDATE provider_models
-       SET enabled = 0
-       WHERE provider_id = ? AND model_id = ? AND catalog_managed = 1 AND removed_at IS NULL`
-    ).run(ANTHROPIC_PROVIDER_ID, 'claude-opus-4-8');
-
-    db.prepare(
-      'INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)'
-    ).run(OPUS_4_8_LIFECYCLE_TRANSITION_MARKER, 'done', Date.now());
   });
   transaction();
 }
