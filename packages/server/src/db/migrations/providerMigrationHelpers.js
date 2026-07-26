@@ -283,6 +283,53 @@ export function disableOlderLifecycleModelsOnce(db) {
   transaction();
 }
 
+const OPUS_4_8_LIFECYCLE_TRANSITION_MARKER = 'provider_models_opus_4_8_lifecycle_transition_v1';
+
+/**
+ * One-time, marker-guarded release transition: Opus 5 supersedes Opus 4.8 as
+ * the current Anthropic default (see the "Add Opus 5" plan, Slice 2).
+ *
+ * `syncBuiltInModelCatalogs` / `syncCatalogLifecycleMetadata` already handle
+ * seeding the new Opus 5 row and updating Opus 4.8's `lifecycle` column to
+ * `'older'` generically, on every startup, for both fresh and upgraded
+ * databases. But `disableOlderLifecycleModelsOnce` (the general older-model
+ * disable mechanism) is guarded by a marker that already ran -- on databases
+ * upgraded from before this release, that marker fired when Opus 4.8 was
+ * still `lifecycle: 'current'`, so it never disabled it and never will again.
+ *
+ * This migration is a narrowly-scoped, separately-marker-guarded transition
+ * that disables the built-in, catalog-managed, non-removed Opus 4.8 row
+ * exactly once. It intentionally:
+ *   - only touches the built-in Anthropic Opus 4.8 row (never unrelated
+ *     models, never a user-added/custom row that happens to share the id),
+ *   - skips soft-removed rows (removed_at IS NOT NULL) so a user's removal
+ *     is never "undone" by resurrecting an enabled state,
+ *   - never re-runs once its marker exists, so a user who re-enables or
+ *     reorders Opus 4.8 afterward is never overwritten by a later startup.
+ *
+ * On a fresh install this is a no-op in effect: `disableOlderLifecycleModelsOnce`
+ * already disables Opus 4.8 (correctly classified `'older'` from the start),
+ * so this migration's UPDATE simply matches zero additional rows beyond what
+ * is already disabled.
+ */
+export function transitionBuiltInOpus48ToOlderOnce(db) {
+  const already = db.prepare('SELECT 1 FROM app_settings WHERE key = ?').get(OPUS_4_8_LIFECYCLE_TRANSITION_MARKER);
+  if (already) return;
+
+  const transaction = db.transaction(() => {
+    db.prepare(
+      `UPDATE provider_models
+       SET enabled = 0
+       WHERE provider_id = ? AND model_id = ? AND catalog_managed = 1 AND removed_at IS NULL`
+    ).run(ANTHROPIC_PROVIDER_ID, 'claude-opus-4-8');
+
+    db.prepare(
+      'INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)'
+    ).run(OPUS_4_8_LIFECYCLE_TRANSITION_MARKER, 'done', Date.now());
+  });
+  transaction();
+}
+
 /**
  * Resolve any pre-existing duplicate (provider_id, model_id) pairs among
  * *active* (non-removed) rows before the unique partial index is created.

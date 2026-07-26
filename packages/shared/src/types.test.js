@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS, DEFAULT_OPENAI_MODEL } from './types.js';
+import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS, DEFAULT_MODEL, DEFAULT_OPENAI_MODEL } from './types.js';
 
 describe('catalog matrix completeness (FRD §0 / Phase 1 gate)', () => {
   const catalogs = { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS };
@@ -39,7 +39,8 @@ describe('catalog matrix completeness (FRD §0 / Phase 1 gate)', () => {
   it('classifies superseded Claude Opus generations as older, disabled by default', () => {
     expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-6')).toMatchObject({ lifecycle: 'older', defaultEnabled: false });
     expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-7')).toMatchObject({ lifecycle: 'older', defaultEnabled: false });
-    expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-8')).toMatchObject({ lifecycle: 'current', defaultEnabled: true });
+    expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-8')).toMatchObject({ lifecycle: 'older', defaultEnabled: false });
+    expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-5')).toMatchObject({ lifecycle: 'current', defaultEnabled: true });
   });
 
   it('classifies superseded GPT-5.x generations as older, disabled by default', () => {
@@ -56,6 +57,40 @@ describe('catalog matrix completeness (FRD §0 / Phase 1 gate)', () => {
       expect(model.lifecycle).toBe('current');
       expect(model.defaultEnabled).toBe(true);
     }
+  });
+});
+
+describe('CLAUDE_MODELS', () => {
+  it('includes Opus 5 as the current, enabled-by-default Anthropic choice', () => {
+    expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-5')).toMatchObject({
+      name: 'Opus 5',
+      description: 'Most capable (default)',
+      tier: 'opus',
+      seedId: 'anthropic-opus-5',
+      lifecycle: 'current',
+      defaultEnabled: true,
+    });
+  });
+
+  it('retains claude-opus-4-8 as an older, disabled-by-default choice (not removed or renamed)', () => {
+    expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-8')).toMatchObject({
+      name: 'Opus 4.8',
+      tier: 'opus',
+      seedId: 'anthropic-opus-4-8',
+      lifecycle: 'older',
+      defaultEnabled: false,
+    });
+  });
+
+  it('orders Opus 5 ahead of Opus 4.8 in the catalog', () => {
+    const ids = CLAUDE_MODELS.map((m) => m.id);
+    expect(ids.indexOf('claude-opus-5')).toBeLessThan(ids.indexOf('claude-opus-4-8'));
+  });
+});
+
+describe('DEFAULT_MODEL', () => {
+  it('defaults to claude-opus-5', () => {
+    expect(DEFAULT_MODEL).toBe('claude-opus-5');
   });
 });
 

@@ -9,6 +9,7 @@ import {
   seedBuiltInProviders,
   syncBuiltInModelCatalogs,
   syncCatalogLifecycleMetadata,
+  transitionBuiltInOpus48ToOlderOnce,
   updateBuiltInModels,
   updateBuiltInSonnet5,
   widenProviderModelsTierCheckForFable,
@@ -290,5 +291,15 @@ export const providerMigrations = [
     // user's later re-enable decision is never overwritten.
     name: 'provider-models-disable-older-lifecycle-once',
     up(db) { disableOlderLifecycleModelsOnce(db); },
+  },
+  {
+    // Release transition: Opus 5 becomes the current Anthropic default,
+    // superseding Opus 4.8. Databases that already ran the general
+    // older-lifecycle-once migration above (before Opus 4.8 was reclassified
+    // `lifecycle: 'older'`) never disabled Opus 4.8 through that mechanism,
+    // so this narrowly-scoped, separately-marker-guarded transition disables
+    // it exactly once. See providerMigrationHelpers.js for full rationale.
+    name: 'provider-models-transition-opus-4-8-to-older-once',
+    up(db) { transitionBuiltInOpus48ToOlderOnce(db); },
   },
 ];

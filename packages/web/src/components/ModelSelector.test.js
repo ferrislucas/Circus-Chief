@@ -6,8 +6,13 @@ import ModelSelector from './ModelSelector.vue';
 import { useProvidersStore } from '../stores/providers.js';
 import { CLAUDE_MODELS, OPENAI_MODELS } from '@circuschief/shared';
 
-// Use actual model data from the shared package
-const [fable, haiku, sonnet, opusLegacy, opus47, opus] = CLAUDE_MODELS;
+// Use actual model data from the shared package. This suite was written
+// against a fixed six-model Anthropic fixture; exclude claude-opus-5 (added
+// as the new current default alongside Opus 4.8's reclassification to
+// 'older') so the rendering/count assertions below keep testing generic
+// ModelSelector behavior rather than tracking the live catalog's exact size.
+const CLAUDE_MODELS_FIXTURE = CLAUDE_MODELS.filter((model) => model.id !== 'claude-opus-5');
+const [fable, haiku, sonnet, opusLegacy, opus47, opus] = CLAUDE_MODELS_FIXTURE;
 const optionValue = (providerId, modelId) => `${providerId}::${modelId}`;
 
 // Global helper to flush all async updates and force DOM re-render
@@ -32,7 +37,7 @@ describe('ModelSelector', () => {
         id: 'anthropic',
         name: 'Anthropic',
         isBuiltIn: true,
-        models: CLAUDE_MODELS.map((model) => ({
+        models: CLAUDE_MODELS_FIXTURE.map((model) => ({
           id: `anthropic-${model.id}`,
           modelId: model.id,
           displayName: model.name,

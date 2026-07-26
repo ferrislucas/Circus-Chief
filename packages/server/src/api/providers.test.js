@@ -3,7 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { modelProviders } from '../database.js';
 import { testProviderConnection } from '../services/providerTestService.js';
-import { OPENAI_MODELS } from '@circuschief/shared';
+import { OPENAI_MODELS, CLAUDE_MODELS } from '@circuschief/shared';
 
 // Mock providerTestService so we can spy on kind forwarding without hitting
 // external APIs.
@@ -64,6 +64,33 @@ describe('Providers API', () => {
       );
       expect(anthropic).toHaveProperty('commitAttributionOverride');
       expect(openai).toHaveProperty('commitAttributionOverride');
+    });
+
+    it('exposes Opus 5 on the built-in Anthropic provider as the current, enabled default; Opus 4.8 as older and disabled', async () => {
+      const response = await request(app)
+        .get('/api/providers')
+        .expect(200);
+
+      const anthropic = response.body.find((provider) => provider.id === 'anthropic-default');
+      expect(anthropic.models.map((model) => model.modelId).sort()).toEqual(
+        CLAUDE_MODELS.map((model) => model.id).sort()
+      );
+
+      const opus5 = anthropic.models.find((model) => model.modelId === 'claude-opus-5');
+      expect(opus5).toMatchObject({
+        displayName: 'Opus 5',
+        tier: 'opus',
+        lifecycle: 'current',
+        enabled: true,
+      });
+
+      const opus48 = anthropic.models.find((model) => model.modelId === 'claude-opus-4-8');
+      expect(opus48).toMatchObject({
+        displayName: 'Opus 4.8',
+        tier: 'opus',
+        lifecycle: 'older',
+        enabled: false,
+      });
     });
   });
 

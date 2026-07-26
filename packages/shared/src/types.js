@@ -7,7 +7,7 @@
  */
 
 /**
- * @typedef {'claude-fable-5' | 'claude-sonnet-5' | 'claude-opus-4-6' | 'claude-opus-4-7' | 'claude-opus-4-8' | 'claude-haiku-4-5-20251001'} ClaudeModel
+ * @typedef {'claude-fable-5' | 'claude-opus-5' | 'claude-sonnet-5' | 'claude-opus-4-6' | 'claude-opus-4-7' | 'claude-opus-4-8' | 'claude-haiku-4-5-20251001'} ClaudeModel
  */
 
 /**
@@ -148,8 +148,13 @@ export const CLAUDE_MODELS = [
     evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
   },
   {
-    id: 'claude-opus-4-8', name: 'Opus 4.8', description: 'Most capable (default)', tier: 'opus',
-    seedId: 'anthropic-opus-4-8', lifecycle: 'current', defaultEnabled: true,
+    id: 'claude-opus-5', name: 'Opus 5', description: 'Most capable (default)', tier: 'opus',
+    seedId: 'anthropic-opus-5', lifecycle: 'current', defaultEnabled: true,
+    evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
+    id: 'claude-opus-4-8', name: 'Opus 4.8', description: 'Previous generation', tier: 'opus',
+    seedId: 'anthropic-opus-4-8', lifecycle: 'older', defaultEnabled: false,
     evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
   },
   {
@@ -173,7 +178,7 @@ export const CLAUDE_MODELS = [
     evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
   },
 ];
-export const DEFAULT_MODEL = 'claude-opus-4-8';
+export const DEFAULT_MODEL = 'claude-opus-5';
 
 export const OPENAI_MODELS = [
   {

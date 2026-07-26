@@ -306,6 +306,12 @@ export const allMigrations = validateMigrations([
   pr.get('provider-models-sync-catalog-lifecycle'),
   pr.get('provider-models-disable-older-lifecycle-once'),
 
+  // --- Add Opus 5 to the built-in Anthropic catalog: one-time release
+  //     transition that disables Opus 4.8 on databases where the general
+  //     older-lifecycle-once migration above already ran before this
+  //     reclassification (see providerMigrationHelpers.js). ---
+  pr.get('provider-models-transition-opus-4-8-to-older-once'),
+
   // --- Pending conversation ID for existing-message retry on reschedule ---
   s.get('sessions-add-pending_conversation_id'),
 

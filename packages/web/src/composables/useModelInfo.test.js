@@ -27,6 +27,11 @@ describe('useModelInfo', () => {
       expect(getModelDisplayName('claude-opus-4-8')).toBe('Opus 4.8');
     });
 
+    it('returns "Opus 5" for claude-opus-5', () => {
+      const { getModelDisplayName } = useModelInfo();
+      expect(getModelDisplayName('claude-opus-5')).toBe('Opus 5');
+    });
+
     it('returns "Sonnet 5" for claude-sonnet-5', () => {
       const { getModelDisplayName } = useModelInfo();
       expect(getModelDisplayName('claude-sonnet-5')).toBe('Sonnet 5');
@@ -74,9 +79,14 @@ describe('useModelInfo', () => {
       expect(getModelDescription('claude-opus-4-7')).toBe('Previous generation');
     });
 
-    it('returns "Most capable (default)" for Opus 4.8 model', () => {
+    it('returns "Previous generation" for Opus 4.8 model (superseded by Opus 5)', () => {
       const { getModelDescription } = useModelInfo();
-      expect(getModelDescription('claude-opus-4-8')).toBe('Most capable (default)');
+      expect(getModelDescription('claude-opus-4-8')).toBe('Previous generation');
+    });
+
+    it('returns "Most capable (default)" for Opus 5 model', () => {
+      const { getModelDescription } = useModelInfo();
+      expect(getModelDescription('claude-opus-5')).toBe('Most capable (default)');
     });
 
     it('returns "Balanced" for Sonnet model', () => {
@@ -135,12 +145,23 @@ describe('useModelInfo', () => {
       });
     });
 
-    it('returns object with name and description for Opus 4.8', () => {
+    it('returns object with name and description for Opus 4.8 (superseded by Opus 5)', () => {
       const { getModelInfo } = useModelInfo();
       const info = getModelInfo('claude-opus-4-8');
 
       expect(info).toMatchObject({
         name: 'Opus 4.8',
+        description: 'Previous generation',
+        agentType: 'claude-code',
+      });
+    });
+
+    it('returns object with name and description for Opus 5 (the current default)', () => {
+      const { getModelInfo } = useModelInfo();
+      const info = getModelInfo('claude-opus-5');
+
+      expect(info).toMatchObject({
+        name: 'Opus 5',
         description: 'Most capable (default)',
         agentType: 'claude-code',
       });
