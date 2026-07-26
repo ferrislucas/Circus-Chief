@@ -1,5 +1,5 @@
 /* global global */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { ref, nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
@@ -824,6 +824,215 @@ describe('CommandButtonItem', () => {
 
       // handleSendToCanvas should not throw when output is available in store
       await expect(wrapper.vm.handleSendToCanvas()).resolves.not.toThrow();
+    });
+  });
+
+  describe('output auto-tail', () => {
+    let rafQueue;
+    let rafId;
+
+    beforeEach(() => {
+      rafQueue = [];
+      rafId = 0;
+      vi.stubGlobal('requestAnimationFrame', (cb) => {
+        const id = ++rafId;
+        rafQueue.push({ id, cb });
+        return id;
+      });
+      vi.stubGlobal('cancelAnimationFrame', (id) => {
+        rafQueue = rafQueue.filter((f) => f.id !== id);
+      });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    function flushFrames() {
+      const queue = rafQueue;
+      rafQueue = [];
+      queue.forEach((f) => f.cb());
+    }
+
+    function setGeometry(wrapper, { scrollHeight, scrollTop = 0, clientHeight = 300 }) {
+      const el = wrapper.find('.output-text').element;
+      Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true });
+      Object.defineProperty(el, 'clientHeight', { value: clientHeight, configurable: true });
+      el.scrollTop = scrollTop;
+      return el;
+    }
+
+    async function waitForDebounceAndRender(wrapper) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await flushPromises();
+      await nextTick();
+    }
+
+    async function settleScroll(wrapper) {
+      await waitForDebounceAndRender(wrapper);
+      await nextTick();
+      flushFrames();
+    }
+
+    it('expanding existing output resets tailing and scrolls to the bottom', async () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: { button: mockButton, sessionId: 'session-1', run: mockRun },
+      });
+
+      await wrapper.find('.output-header').trigger('click');
+      await settleScroll(wrapper);
+
+      const el = wrapper.find('.output-text').element;
+      // scrollTop should be programmatically moved to scrollHeight once mounted/tailing.
+      expect(el.scrollTop).toBe(el.scrollHeight);
+    });
+
+    it('a large appended batch remains tailed', async () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: { button: mockButton, sessionId: 'session-1', run: mockRun },
+      });
+
+      await wrapper.find('.output-header').trigger('click');
+      await settleScroll(wrapper);
+
+      const el = setGeometry(wrapper, { scrollHeight: 1000, scrollTop: 1000, clientHeight: 300 });
+
+      const hugeOutput = Array.from({ length: 400 }, (_, i) => `Line ${i}`).join('\n');
+      await wrapper.setProps({ run: { ...mockRun, output: hugeOutput } });
+
+      // Simulate the large content growth that happens once formatting lands.
+      Object.defineProperty(el, 'scrollHeight', { value: 9000, configurable: true });
+      await settleScroll(wrapper);
+
+      expect(el.scrollTop).toBe(9000);
+    });
+
+    it('scrolling above tolerance preserves scrollTop when later output arrives', async () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: { button: mockButton, sessionId: 'session-1', run: mockRun },
+      });
+
+      await wrapper.find('.output-header').trigger('click');
+      await settleScroll(wrapper);
+
+      const el = setGeometry(wrapper, { scrollHeight: 1000, scrollTop: 200, clientHeight: 300 });
+      await wrapper.find('.output-text').trigger('scroll');
+
+      await wrapper.setProps({ run: { ...mockRun, output: `${mockRun.output}\nMore output` } });
+      await settleScroll(wrapper);
+
+      expect(el.scrollTop).toBe(200);
+    });
+
+    it('scrolling back within tolerance resumes tailing on the next append', async () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: { button: mockButton, sessionId: 'session-1', run: mockRun },
+      });
+
+      await wrapper.find('.output-header').trigger('click');
+      await settleScroll(wrapper);
+
+      const el = setGeometry(wrapper, { scrollHeight: 1000, scrollTop: 200, clientHeight: 300 });
+      await wrapper.find('.output-text').trigger('scroll');
+
+      // Return to the bottom.
+      el.scrollTop = 700; // distance = 1000 - 700 - 300 = 0
+      await wrapper.find('.output-text').trigger('scroll');
+
+      Object.defineProperty(el, 'scrollHeight', { value: 3000, configurable: true });
+      await wrapper.setProps({ run: { ...mockRun, output: `${mockRun.output}\nMore output` } });
+      await settleScroll(wrapper);
+
+      expect(el.scrollTop).toBe(3000);
+    });
+
+    it('collapse and re-expand resets tailing', async () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: { button: mockButton, sessionId: 'session-1', run: mockRun },
+      });
+
+      await wrapper.find('.output-header').trigger('click');
+      await settleScroll(wrapper);
+
+      const el = setGeometry(wrapper, { scrollHeight: 1000, scrollTop: 100, clientHeight: 300 });
+      await wrapper.find('.output-text').trigger('scroll'); // paused
+
+      // Collapse
+      await wrapper.find('.output-header').trigger('click');
+      await nextTick();
+
+      // Re-expand
+      await wrapper.find('.output-header').trigger('click');
+      await settleScroll(wrapper);
+
+      const reopenedEl = wrapper.find('.output-text').element;
+      expect(reopenedEl.scrollTop).toBe(reopenedEl.scrollHeight);
+    });
+
+    it('replacing the run ID while expanded resets tailing', async () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: { button: mockButton, sessionId: 'session-1', run: mockRun },
+      });
+
+      await wrapper.find('.output-header').trigger('click');
+      await settleScroll(wrapper);
+
+      setGeometry(wrapper, { scrollHeight: 1000, scrollTop: 100, clientHeight: 300 });
+      await wrapper.find('.output-text').trigger('scroll'); // paused
+
+      // The pane's expand/collapse state is tracked per runId in the store;
+      // mark the new run as already expanded so the pane stays visible
+      // across the run change (this test targets tail-state reset, not
+      // collapse-state persistence).
+      const store = useCommandButtonsStore();
+      store.setOutputCollapsed('run-2', false);
+
+      await wrapper.setProps({
+        run: { ...mockRun, runId: 'run-2', output: 'Fresh run output' },
+      });
+      await settleScroll(wrapper);
+
+      const el = wrapper.find('.output-text').element;
+      expect(el.scrollTop).toBe(el.scrollHeight);
+    });
+
+    it('keeps two command-item instances independent', async () => {
+      const wrapperA = mount(CommandButtonItem, {
+        props: { button: mockButton, sessionId: 'session-1', run: { ...mockRun, runId: 'run-a' } },
+      });
+      const wrapperB = mount(CommandButtonItem, {
+        props: { button: mockButton, sessionId: 'session-1', run: { ...mockRun, runId: 'run-b' } },
+      });
+
+      await wrapperA.find('.output-header').trigger('click');
+      await settleScroll(wrapperA);
+      await wrapperB.find('.output-header').trigger('click');
+      await settleScroll(wrapperB);
+
+      const elA = setGeometry(wrapperA, { scrollHeight: 1000, scrollTop: 100, clientHeight: 300 });
+      await wrapperA.find('.output-text').trigger('scroll'); // A paused
+
+      const elB = wrapperB.find('.output-text').element;
+      await wrapperB.setProps({ run: { ...mockRun, runId: 'run-b', output: 'B output more' } });
+      await settleScroll(wrapperB);
+
+      // A stays where the user left it; B (still tailing) follows to bottom.
+      expect(elA.scrollTop).toBe(100);
+      expect(elB.scrollTop).toBe(elB.scrollHeight);
+    });
+
+    it('unmounting cancels pending scheduled scroll work', async () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: { button: mockButton, sessionId: 'session-1', run: mockRun },
+      });
+
+      await wrapper.find('.output-header').trigger('click');
+      await waitForDebounceAndRender(wrapper);
+      await nextTick(); // frame now scheduled but not yet flushed
+
+      wrapper.unmount();
+
+      expect(() => flushFrames()).not.toThrow();
     });
   });
 });
