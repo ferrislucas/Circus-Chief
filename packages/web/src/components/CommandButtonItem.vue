@@ -100,6 +100,7 @@
         <div
           ref="outputContainerRef"
           class="output-text"
+          @scroll="handleScroll"
           v-html="formattedOutput || '(no output)'"
         />
         <!-- eslint-enable vue/no-v-html -->
@@ -118,12 +119,13 @@
 </template>
 
 <script setup>
-import { defineProps, defineEmits, ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
+import { defineProps, defineEmits, ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { ansiToHtml, stripAnsi } from '../utils/ansi.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useUiStore } from '../stores/ui.js';
 import { getStatusIconSvg } from './statusIcons';
+import { useOutputAutoTail } from '../composables/useOutputAutoTail.js';
 import ActionMenu from './ActionMenu.vue';
 
 /**
@@ -209,8 +211,9 @@ const menuItems = computed(() => [
   { icon: '📄', label: 'Copy command', action: 'copy-command' }
 ]);
 
-// Template ref for output container (used for auto-scroll)
+// Template ref for output container (used for auto-tail scrolling)
 const outputContainerRef = ref(null);
+const { handleScroll, resetTail, handleRenderedOutput } = useOutputAutoTail(outputContainerRef);
 
 // NEW: Elapsed time for running commands
 const elapsedTime = ref('0:00');
@@ -337,56 +340,42 @@ watch(
 );
 
 /**
- * Scroll to bottom of output container
- * Uses requestAnimationFrame after nextTick for reliable timing
- */
-const scrollToBottom = () => {
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      const el = outputContainerRef.value;
-      if (el) {
-        el.scrollTop = el.scrollHeight;
-      }
-    });
-  });
-};
-
-/**
- * Check if user is near the bottom of the output container
- * Returns true if within 100px of bottom
- */
-const isNearBottom = () => {
-  const el = outputContainerRef.value;
-  if (!el) return true; // Default to true if element not mounted
-  return el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-};
-
-/**
- * Watch for output changes and auto-scroll to bottom
- * Only auto-scrolls if user is near the bottom (not scrolled up)
+ * Watch formatted (rendered) output and notify the auto-tail composable
+ * after the DOM has reflected the latest formatted output. The composable
+ * only scrolls when the pane is currently tailing, so a user who has
+ * scrolled up is never pulled back down by incoming output - including a
+ * large single update that would otherwise look like the user scrolled.
  */
 watch(
-  () => props.run?.output,
+  () => formattedOutput.value,
   () => {
-    // Only auto-scroll if user hasn't scrolled up to read earlier output
-    // Check on next tick when DOM is ready
-    nextTick(() => {
-      if (showOutput.value && isNearBottom()) {
-        scrollToBottom();
-      }
-    });
+    handleRenderedOutput();
   },
   { immediate: false }
 );
 
 /**
- * Watch for new run ID and scroll to bottom for fresh output
+ * Expanding the output pane is a fresh request to view the latest output:
+ * reset to tail mode and scroll to the bottom once the pane is mounted.
+ */
+watch(
+  () => showOutput.value,
+  (isVisible) => {
+    if (isVisible) {
+      resetTail({ scroll: true });
+    }
+  },
+  { immediate: false }
+);
+
+/**
+ * Watch for a new run ID while expanded and reset to tail mode for the new run.
  */
 watch(
   () => props.run?.runId,
   () => {
     if (showOutput.value) {
-      scrollToBottom();
+      resetTail({ scroll: true });
     }
   },
   { immediate: false }
