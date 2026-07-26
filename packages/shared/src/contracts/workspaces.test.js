@@ -155,7 +155,18 @@ describe('CreateWorkspaceSessionRequest', () => {
     }).success).toBe(false);
   });
 
-  it('rejects the retired afterSessionId field name', () => {
+  it('rejects the retired afterSessionId field name even when a valid parentSessionId is also present', () => {
+    // A valid parentSessionId is included so this proves afterSessionId itself
+    // is rejected, not merely that parentSessionId was missing.
+    const result = CreateWorkspaceSessionRequest.safeParse({
+      prompt: 'Continue',
+      parentSessionId: '550e8400-e29b-41d4-a716-446655440001',
+      afterSessionId: '550e8400-e29b-41d4-a716-446655440000',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects the retired afterSessionId field name when parentSessionId is missing', () => {
     const result = CreateWorkspaceSessionRequest.safeParse({
       prompt: 'Continue',
       afterSessionId: '550e8400-e29b-41d4-a716-446655440000',

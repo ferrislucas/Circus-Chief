@@ -281,6 +281,45 @@ describe('SessionsApi', () => {
     });
   });
 
+  describe('createWorkspaceSession', () => {
+    it('sends POST to /workspaces/:workspaceId/sessions with JSON when no files', async () => {
+      const data = { prompt: 'Continue', parentSessionId: 'sess-a' };
+      mockFetch.mockReturnValue(mockResponse({ id: 'child-1' }));
+
+      await client.createWorkspaceSession('workspace-1', data);
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/workspaces/workspace-1/sessions', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify(data),
+      }));
+    });
+
+    it('sends FormData when files are attached', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: 'child-1' }));
+      const file = new File(['test'], 'test.txt', { type: 'text/plain' });
+
+      await client.createWorkspaceSession('workspace-1', { prompt: 'Continue', parentSessionId: 'sess-a', files: [file] });
+
+      const callArgs = mockFetch.mock.calls[0];
+      expect(callArgs[1].body).toBeInstanceOf(FormData);
+      expect(callArgs[1].body.get('prompt')).toBe('Continue');
+      expect(callArgs[1].body.get('parentSessionId')).toBe('sess-a');
+      expect(callArgs[1].body.getAll('files')).toHaveLength(1);
+    });
+
+    it('normalizes numeric scheduledAt to ISO 8601', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: 'child-1' }));
+      const scheduledAt = Date.parse('2026-06-12T14:00:00Z');
+
+      await client.createWorkspaceSession('workspace-1', { prompt: 'Continue', parentSessionId: 'sess-a', scheduledAt });
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/workspaces/workspace-1/sessions', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ prompt: 'Continue', parentSessionId: 'sess-a', scheduledAt: '2026-06-12T14:00:00.000Z' }),
+      }));
+    });
+  });
+
   describe('getSession', () => {
     it('sends GET to /sessions/:id', async () => {
       mockFetch.mockReturnValue(mockResponse({ id: 'sess-123' }));

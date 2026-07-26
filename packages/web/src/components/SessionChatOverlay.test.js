@@ -160,6 +160,7 @@ vi.mock('../composables/useApi.js', () => ({
     getSessionSummary: vi.fn().mockResolvedValue(null),
     getProjectSessions: vi.fn().mockResolvedValue([]),
     createSession: vi.fn().mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' }),
+    createWorkspaceSession: vi.fn().mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' }),
     updateSession: vi.fn().mockResolvedValue({}),
   },
 }));
@@ -977,7 +978,7 @@ describe('SessionChatOverlay', () => {
     it('uses addSessionToList when creating a child workspace', async () => {
       const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123' });
-      api.createSession.mockResolvedValue(newSession);
+      api.createWorkspaceSession.mockResolvedValue(newSession);
 
       const onSessionCreated = vi.fn();
       const wrapper = mount(SessionChatOverlay, {
@@ -1003,7 +1004,7 @@ describe('SessionChatOverlay', () => {
       const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.sessions = [newSession];
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123' });
-      api.createSession.mockResolvedValue(newSession);
+      api.createWorkspaceSession.mockResolvedValue(newSession);
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1021,7 +1022,7 @@ describe('SessionChatOverlay', () => {
     it('inherits git settings from parent workspace with worktree', async () => {
       const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
-      api.createSession.mockResolvedValue(newSession);
+      api.createWorkspaceSession.mockResolvedValue(newSession);
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1033,7 +1034,7 @@ describe('SessionChatOverlay', () => {
       await new Promise(r => setTimeout(r, 50));
 
       expect(generateWorktreeBranch).not.toHaveBeenCalled();
-      expect(api.createSession).toHaveBeenCalledWith('proj-123', {
+      expect(api.createWorkspaceSession).toHaveBeenCalledWith('sess-root', {
         prompt: ' ',
         name: 'New Session',
         parentSessionId: 'sess-root',
@@ -1047,7 +1048,7 @@ describe('SessionChatOverlay', () => {
     it('omits git settings when parent has branch but no worktree', async () => {
       const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: null });
-      api.createSession.mockResolvedValue(newSession);
+      api.createWorkspaceSession.mockResolvedValue(newSession);
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1061,7 +1062,7 @@ describe('SessionChatOverlay', () => {
       expect(generateWorktreeBranch).not.toHaveBeenCalled();
       // Without a gitWorktree, git params should NOT be sent to avoid
       // triggering git checkout in directories that may not be git repos
-      expect(api.createSession).toHaveBeenCalledWith('proj-123', {
+      expect(api.createWorkspaceSession).toHaveBeenCalledWith('sess-root', {
         prompt: ' ',
         name: 'New Session',
         parentSessionId: 'sess-root',
@@ -1073,7 +1074,7 @@ describe('SessionChatOverlay', () => {
     it('omits git settings when parent has no git config', async () => {
       const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: null, gitWorktree: null });
-      api.createSession.mockResolvedValue(newSession);
+      api.createWorkspaceSession.mockResolvedValue(newSession);
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1084,7 +1085,7 @@ describe('SessionChatOverlay', () => {
       await nextTick();
       await new Promise(r => setTimeout(r, 50));
 
-      expect(api.createSession).toHaveBeenCalledWith('proj-123', {
+      expect(api.createWorkspaceSession).toHaveBeenCalledWith('sess-root', {
         prompt: ' ',
         name: 'New Session',
         parentSessionId: 'sess-root',
@@ -1096,7 +1097,7 @@ describe('SessionChatOverlay', () => {
     it('after creation, overlay switches activeSessionId to new workspace', async () => {
       const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
-      api.createSession.mockResolvedValue(newSession);
+      api.createWorkspaceSession.mockResolvedValue(newSession);
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1118,7 +1119,7 @@ describe('SessionChatOverlay', () => {
     it('emits workspace-created event after creation', async () => {
       const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
-      api.createSession.mockResolvedValue(newSession);
+      api.createWorkspaceSession.mockResolvedValue(newSession);
 
       const onSessionCreated = vi.fn();
       const wrapper = mount(SessionChatOverlay, {
@@ -1143,7 +1144,7 @@ describe('SessionChatOverlay', () => {
       let resolveCreate;
       const createPromise = new Promise(resolve => { resolveCreate = resolve; });
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
-      api.createSession.mockReturnValue(createPromise);
+      api.createWorkspaceSession.mockReturnValue(createPromise);
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1169,7 +1170,7 @@ describe('SessionChatOverlay', () => {
 
     it('shows error toast on API failure', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
-      api.createSession.mockRejectedValue(new Error('Network error'));
+      api.createWorkspaceSession.mockRejectedValue(new Error('Network error'));
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1197,7 +1198,7 @@ describe('SessionChatOverlay', () => {
       await nextTick();
       await new Promise(r => setTimeout(r, 50));
 
-      expect(api.createSession).not.toHaveBeenCalled();
+      expect(api.createWorkspaceSession).not.toHaveBeenCalled();
       expect(mockUiStore.error).toHaveBeenCalledWith('Cannot create workspace: no project context');
       wrapper.unmount();
     });
@@ -1205,7 +1206,7 @@ describe('SessionChatOverlay', () => {
     it('does not send gitBranch for non-git project workspaces', async () => {
       const nonGitSession = { ...rootSession, projectId: 'proj-123', gitBranch: null };
       mockSessionsStore.getSessionById.mockReturnValue(nonGitSession);
-      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
+      api.createWorkspaceSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1217,7 +1218,7 @@ describe('SessionChatOverlay', () => {
       await new Promise(r => setTimeout(r, 50));
 
       expect(generateWorktreeBranch).not.toHaveBeenCalled();
-      expect(api.createSession).toHaveBeenCalledWith('proj-123', {
+      expect(api.createWorkspaceSession).toHaveBeenCalledWith('sess-root', {
         prompt: ' ',
         name: 'New Session',
         parentSessionId: 'sess-root',
@@ -1229,7 +1230,7 @@ describe('SessionChatOverlay', () => {
     it('propagates parent model to child workspace when parent has a model', async () => {
       const codexSession = { ...rootSession, projectId: 'proj-123', model: 'gpt-5.4', gitBranch: null, gitWorktree: null };
       mockSessionsStore.getSessionById.mockReturnValue(codexSession);
-      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
+      api.createWorkspaceSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1240,7 +1241,7 @@ describe('SessionChatOverlay', () => {
       await nextTick();
       await new Promise(r => setTimeout(r, 50));
 
-      expect(api.createSession).toHaveBeenCalledWith('proj-123', {
+      expect(api.createWorkspaceSession).toHaveBeenCalledWith('sess-root', {
         prompt: ' ',
         name: 'New Session',
         parentSessionId: 'sess-root',
@@ -1255,7 +1256,7 @@ describe('SessionChatOverlay', () => {
       // Ensure no 'model' key is present at all
       delete noModelSession.model;
       mockSessionsStore.getSessionById.mockReturnValue(noModelSession);
-      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
+      api.createWorkspaceSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1266,7 +1267,7 @@ describe('SessionChatOverlay', () => {
       await nextTick();
       await new Promise(r => setTimeout(r, 50));
 
-      expect(api.createSession).toHaveBeenCalledWith('proj-123', {
+      expect(api.createWorkspaceSession).toHaveBeenCalledWith('sess-root', {
         prompt: ' ',
         name: 'New Session',
         parentSessionId: 'sess-root',

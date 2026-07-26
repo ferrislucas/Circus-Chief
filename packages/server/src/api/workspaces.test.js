@@ -387,7 +387,21 @@ describe('Workspace facade API', () => {
   // parentSessionId contract edge cases (#5)
   // ---------------------------------------------------------------------------
   describe('parentSessionId contract edge cases', () => {
-    it('rejects the retired afterSessionId field name outright', async () => {
+    it('rejects the retired afterSessionId field name outright, even alongside a valid parentSessionId', async () => {
+      // Includes a valid parentSessionId so this proves afterSessionId itself
+      // is rejected, not merely that parentSessionId was missing.
+      const root = sessions.create(project.id, 'Root', 'root');
+
+      const res = await request(app)
+        .post(`/api/workspaces/${root.id}/sessions`)
+        .send({ prompt: 'Legacy field name', parentSessionId: root.id, afterSessionId: root.id })
+        .expect(400);
+
+      expect(sessions.getByProjectId(project.id)).toHaveLength(1);
+      expect(res.body.error).toBeTruthy();
+    });
+
+    it('rejects the retired afterSessionId field name when parentSessionId is missing', async () => {
       const root = sessions.create(project.id, 'Root', 'root');
 
       const res = await request(app)

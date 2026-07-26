@@ -36,9 +36,22 @@ export const CreateWorkspaceRequest = WorkspaceSessionFields;
  *     there is no fallback to the workspace root.
  *
  * This field replaces the former optional, forgiving `afterSessionId` field.
+ * `afterSessionId` is not a compatibility alias: submitting it (even alongside
+ * a valid `parentSessionId`) is rejected outright, since there is no
+ * compatibility window for this cutover (see the FRD's recommended decisions).
+ *
+ * `afterSessionId` must be declared here (rather than left undeclared) so it
+ * survives Zod's default "strip unknown keys" parsing behavior and is still
+ * present in the object the `.refine()` below inspects. An undeclared key
+ * would be silently stripped before the refinement ever ran, making the
+ * rejection a no-op.
  */
 export const CreateWorkspaceSessionRequest = WorkspaceSessionFields.extend({
   parentSessionId: z.string().uuid(),
+  afterSessionId: z.any().optional(),
+}).refine((body) => !('afterSessionId' in body), {
+  message: 'afterSessionId is no longer supported; use parentSessionId',
+  path: ['afterSessionId'],
 });
 
 /**

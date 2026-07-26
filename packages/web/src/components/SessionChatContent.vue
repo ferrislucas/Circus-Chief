@@ -432,7 +432,10 @@ async function addChildSession() {
     const gitMode = currentSession.gitWorktree ? 'worktree' : undefined;
     const gitBranch = currentSession.gitWorktree ? currentSession.gitBranch : undefined;
 
-    const newSession = await api.createSession(currentSession.projectId, {
+    // Child sessions must be created via the workspace route: it requires and
+    // validates parentSessionId against the workspace tree, whereas
+    // POST /api/projects/:id/sessions now creates root sessions only.
+    const newSession = await api.createWorkspaceSession(activeSessionId.value, {
       prompt: ' ',
       name: 'New Session',
       parentSessionId: activeSessionId.value,

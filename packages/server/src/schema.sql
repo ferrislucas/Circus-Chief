@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   model TEXT,
   provider_id TEXT REFERENCES providers(id),
   next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
-  parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+  parent_session_id TEXT REFERENCES sessions(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
   input_tokens INTEGER DEFAULT 0,
   output_tokens INTEGER DEFAULT 0,
   thinking_tokens INTEGER DEFAULT 0,
@@ -114,6 +114,18 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
+
+-- Session parentage is set once at creation and is immutable thereafter.
+-- Reject any UPDATE that changes a non-null parent_session_id (a one-time
+-- NULL -> value backfill is still allowed for historical repair migrations).
+CREATE TRIGGER IF NOT EXISTS trg_sessions_parent_session_id_immutable
+BEFORE UPDATE OF parent_session_id ON sessions
+FOR EACH ROW
+WHEN OLD.parent_session_id IS NOT NULL
+  AND (NEW.parent_session_id IS NULL OR NEW.parent_session_id <> OLD.parent_session_id)
+BEGIN
+  SELECT RAISE(ABORT, 'parent_session_id is immutable once set');
+END;
 
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY,

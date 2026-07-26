@@ -302,4 +302,9 @@ export const allMigrations = validateMigrations([
   // --- Normalize retired Claude model ids in CONFIG columns only ---
   // (lanes/templates/defaults. Record columns like sessions.model are preserved.)
   m.get('normalize-stale-claude-model-ids'),
+
+  // --- Enforce immutable session parentage (ON DELETE RESTRICT + trigger) ---
+  // Must run after repairMissingSessionParentsFromWorktree so that one-time
+  // NULL -> value backfill has already happened before the trigger is asserted.
+  s.get('sessions-immutable-parent_session_id'),
 ]);

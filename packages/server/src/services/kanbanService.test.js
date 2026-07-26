@@ -298,8 +298,8 @@ describe('kanbanService', () => {
       kanbanCards.create(lanes[0].id, parent.id);
       kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
 
-      const child = sessions.create(projectId, 'Child', 'Prompt');
-      sessions.update(child.id, { parentSessionId: parent.id, laneTriggerDepth: 1 });
+      const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: parent.id });
+      sessions.update(child.id, { laneTriggerDepth: 1 });
 
       await handleCompletionMove(child.id);
 
@@ -321,11 +321,11 @@ describe('kanbanService', () => {
       kanbanCards.create(lanes[0].id, root.id);
       kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
 
-      const child = sessions.create(projectId, 'Child', 'Prompt');
-      sessions.update(child.id, { parentSessionId: root.id, laneTriggerDepth: 1 });
+      const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: root.id });
+      sessions.update(child.id, { laneTriggerDepth: 1 });
 
-      const grandchild = sessions.create(projectId, 'Grandchild', 'Prompt');
-      sessions.update(grandchild.id, { parentSessionId: child.id, laneTriggerDepth: 2 });
+      const grandchild = sessions.create(projectId, 'Grandchild', 'Prompt', { parentSessionId: child.id });
+      sessions.update(grandchild.id, { laneTriggerDepth: 2 });
 
       await handleCompletionMove(grandchild.id);
 
@@ -336,8 +336,7 @@ describe('kanbanService', () => {
     it('does nothing when child has no card and parent also has no card', async () => {
       const parent = createSession('Parent');
       // No card for parent either
-      const child = sessions.create(projectId, 'Child', 'Prompt');
-      sessions.update(child.id, { parentSessionId: parent.id });
+      const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: parent.id });
 
       await handleCompletionMove(child.id);
 

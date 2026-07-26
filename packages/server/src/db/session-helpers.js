@@ -177,7 +177,11 @@ export const DIRECT_FIELD_MAP = {
   model: 'model',
   providerId: 'provider_id',
   nextTemplateId: 'next_template_id',
-  parentSessionId: 'parent_session_id',
+  // parentSessionId is intentionally NOT mapped here: parentage is set once at
+  // create() time (see the direct INSERT in SessionRepository.create()) and is
+  // immutable thereafter. A DB-level trigger (see sessionTableRecreate.js)
+  // enforces this even against direct SQL, so no application-layer path should
+  // attempt to reparent an existing session via update().
   scheduledAt: 'scheduled_at',
   rescheduleDelayMinutes: 'reschedule_delay_minutes',
   maxRescheduleCount: 'max_reschedule_count',

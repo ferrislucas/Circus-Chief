@@ -783,12 +783,21 @@ describe('SessionRepository', () => {
       expect(updated.nextTemplateId).toBeNull();
     });
 
-    it('updates parentSessionId', () => {
+    it('parentSessionId must be set at create() time, not via update()', () => {
+      // Parentage is immutable: sessions.update({ parentSessionId }) is a no-op
+      // by design (see DIRECT_FIELD_MAP in session-helpers.js). A DB trigger
+      // additionally rejects any attempt to change a non-null parent_session_id,
+      // even via raw SQL (see 'rejects changing an existing parent_session_id'
+      // and 'rejects clearing parent_session_id' below).
       const parentSession = repo.create(projectId, 'Parent', 'Prompt');
-      const childSession = repo.create(projectId, 'Child', 'Prompt');
-      const updated = repo.update(childSession.id, { parentSessionId: parentSession.id });
+      const childSession = repo.create(projectId, 'Child', 'Prompt', { parentSessionId: parentSession.id });
 
-      expect(updated.parentSessionId).toBe(parentSession.id);
+      expect(childSession.parentSessionId).toBe(parentSession.id);
+
+      const orphanSession = repo.create(projectId, 'Orphan', 'Prompt');
+      const updated = repo.update(orphanSession.id, { parentSessionId: parentSession.id });
+
+      expect(updated.parentSessionId).toBeNull();
     });
 
     it('updates archived to true', () => {
@@ -1004,14 +1013,50 @@ describe('SessionRepository', () => {
       expect(children).toEqual([]);
     });
 
-    it('update can set parentSessionId', () => {
+    it('parentSessionId set at create() persists; update() cannot set it after the fact', () => {
       const parent = repo.create(projectId, 'Parent', 'Parent prompt');
-      const child = repo.create(projectId, 'Child', 'Child prompt');
+      const child = repo.create(projectId, 'Child', 'Child prompt', { parentSessionId: parent.id });
 
-      repo.update(child.id, { parentSessionId: parent.id });
-      const updated = repo.getById(child.id);
+      expect(repo.getById(child.id).parentSessionId).toBe(parent.id);
 
-      expect(updated.parentSessionId).toBe(parent.id);
+      const orphan = repo.create(projectId, 'Orphan', 'Orphan prompt');
+      repo.update(orphan.id, { parentSessionId: parent.id });
+
+      expect(repo.getById(orphan.id).parentSessionId).toBeNull();
+    });
+
+    it('DB trigger rejects changing an existing parent_session_id via raw SQL', () => {
+      const parentA = repo.create(projectId, 'Parent A', 'Prompt');
+      const parentB = repo.create(projectId, 'Parent B', 'Prompt');
+      const child = repo.create(projectId, 'Child', 'Prompt', { parentSessionId: parentA.id });
+
+      expect(() => {
+        repo.db.prepare('UPDATE sessions SET parent_session_id = ? WHERE id = ?').run(parentB.id, child.id);
+      }).toThrow(/immutable/);
+
+      expect(repo.getById(child.id).parentSessionId).toBe(parentA.id);
+    });
+
+    it('DB trigger rejects clearing an existing parent_session_id via raw SQL', () => {
+      const parent = repo.create(projectId, 'Parent', 'Prompt');
+      const child = repo.create(projectId, 'Child', 'Prompt', { parentSessionId: parent.id });
+
+      expect(() => {
+        repo.db.prepare('UPDATE sessions SET parent_session_id = NULL WHERE id = ?').run(child.id);
+      }).toThrow(/immutable/);
+
+      expect(repo.getById(child.id).parentSessionId).toBe(parent.id);
+    });
+
+    it('DB trigger allows a one-time NULL -> value backfill via raw SQL', () => {
+      const parent = repo.create(projectId, 'Parent', 'Prompt');
+      const orphan = repo.create(projectId, 'Orphan', 'Prompt');
+
+      expect(() => {
+        repo.db.prepare('UPDATE sessions SET parent_session_id = ? WHERE id = ?').run(parent.id, orphan.id);
+      }).not.toThrow();
+
+      expect(repo.getById(orphan.id).parentSessionId).toBe(parent.id);
     });
 
     it('children are ordered by last_activity_at DESC when fetched', async () => {

@@ -30,7 +30,7 @@ export const SESSIONS_ALL_CURRENT_COLUMNS = `
     model TEXT,
     provider_id TEXT,
     next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
-    parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+    parent_session_id TEXT REFERENCES sessions(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
     input_tokens INTEGER DEFAULT 0,
     output_tokens INTEGER DEFAULT 0,
     thinking_tokens INTEGER DEFAULT 0,
@@ -113,6 +113,54 @@ export function recreateSessionsTable(db, columnsSql, allColumnNames) {
   } finally {
     db.pragma(`foreign_keys = ${foreignKeysEnabled ? 'ON' : 'OFF'}`);
   }
+}
+
+/**
+ * Name of the trigger that enforces immutable session parentage.
+ * Exported so tests/migrations can reference it without duplicating the string.
+ */
+export const PARENT_IMMUTABILITY_TRIGGER = 'trg_sessions_parent_session_id_immutable';
+
+/**
+ * Create (idempotently) the trigger that rejects any UPDATE changing a
+ * non-null parent_session_id. A one-time NULL -> value backfill is allowed;
+ * value -> different-value and value -> NULL are both rejected.
+ * @param {import('better-sqlite3').Database} db
+ */
+export function createParentImmutabilityTrigger(db) {
+  db.exec(`
+    DROP TRIGGER IF EXISTS ${PARENT_IMMUTABILITY_TRIGGER};
+    CREATE TRIGGER ${PARENT_IMMUTABILITY_TRIGGER}
+    BEFORE UPDATE OF parent_session_id ON sessions
+    FOR EACH ROW
+    WHEN OLD.parent_session_id IS NOT NULL
+      AND (NEW.parent_session_id IS NULL OR NEW.parent_session_id <> OLD.parent_session_id)
+    BEGIN
+      SELECT RAISE(ABORT, 'parent_session_id is immutable once set');
+    END;
+  `);
+}
+
+/**
+ * Migrate the sessions table so that:
+ *  - parent_session_id uses ON DELETE RESTRICT (instead of SET NULL), and
+ *  - a trigger rejects any attempt to change a non-null parent_session_id.
+ * No-op (besides re-asserting the trigger) if the table already has the
+ * target foreign-key behavior.
+ * @param {import('better-sqlite3').Database} db
+ */
+export function migrateSessionsImmutableParentage(db) {
+  const parentFkAlreadyRestrict = db
+    .pragma('foreign_key_list(sessions)')
+    .some((fk) => fk.table === 'sessions' && fk.from === 'parent_session_id' && fk.on_delete === 'RESTRICT');
+
+  if (!parentFkAlreadyRestrict) {
+    recreateSessionsTable(db, SESSIONS_ALL_CURRENT_COLUMNS, SESSIONS_ALL_CURRENT_COLUMN_NAMES);
+  }
+
+  // Always (re)assert the trigger: it's cheap, idempotent, and must survive
+  // any other table-recreate migration that rebuilds `sessions` without it.
+  createParentImmutabilityTrigger(db);
 }
 
 /**
