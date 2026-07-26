@@ -320,6 +320,11 @@ export const allMigrations = validateMigrations([
   // (lanes/templates/defaults. Record columns like sessions.model are preserved.)
   m.get('normalize-stale-claude-model-ids'),
 
+  // --- Durable Kanban lane-run workflow ---
+  // This must precede the sessions-table recreation below.  The recreation
+  // copies the complete current sessions shape, including these columns.
+  k.get('kanban-add-lane-run-workflow'),
+
   // --- Enforce immutable session parentage (ON DELETE RESTRICT + trigger) ---
   // Must run after repairMissingSessionParentsFromWorktree so that one-time
   // NULL -> value backfill has already happened before the trigger is asserted.
