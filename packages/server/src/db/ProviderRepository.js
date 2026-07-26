@@ -2,6 +2,7 @@ import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { normalizeCommitAttributionOverride } from '@circuschief/shared/contracts/providers';
+import * as modelOps from './providerModelOperations.js';
 
 /**
  * Valid values for `providers.kind`. Maps 1:1 to an agent adapter:
@@ -110,18 +111,6 @@ export class ProviderRepository extends BaseRepository {
       kind: row.kind || 'anthropic',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-    };
-  }
-
-  static #mapProviderModel(row) {
-    return {
-      id: row.id,
-      providerId: row.provider_id,
-      modelId: row.model_id,
-      displayName: row.display_name,
-      description: row.description,
-      tier: row.tier,
-      createdAt: row.created_at,
     };
   }
 
@@ -244,98 +233,80 @@ export class ProviderRepository extends BaseRepository {
   }
 
   /**
-   * Get all models for a provider
+   * Get all models for a provider.
    * @param {string} providerId
+   * @param {{ includeRemoved?: boolean }} [options] - Pass `includeRemoved: true`
+   *   to include soft-removed (tombstoned) rows. Normal list/picker callers
+   *   must never see removed rows; historical resolution uses
+   *   `getHistoricalModel` / `getModelById` instead.
    * @returns {Array<Object>}
    */
-  getModels(providerId) {
-    const rows = this.db
-      .prepare('SELECT * FROM provider_models WHERE provider_id = ? ORDER BY created_at ASC')
-      .all(providerId);
-    return rows.map(ProviderRepository.#mapProviderModel);
+  getModels(providerId, { includeRemoved = false } = {}) {
+    return modelOps.getModels(this.db, providerId, { includeRemoved });
   }
 
   /**
-   * Add a model to a provider
+   * Add a model to a provider. Built-in and custom providers share this path
+   * (FRD-built-in-model-choices.md §0 "users can add and remove model choices
+   * for built-in providers just as they can for custom providers"). If a
+   * soft-removed row already exists for this (provider, modelId) pair, it is
+   * restored and updated in place rather than duplicated.
    * @param {string} providerId
    * @param {Object} data
-   * @param {string} data.modelId
-   * @param {string} data.displayName
-   * @param {string|null} [data.description]
-   * @param {string} [data.tier]
-   * @returns {Object} Created model
+   * @returns {Object} Created (or restored) model
    */
   addModel(providerId, data) {
-    const id = databaseManager.generateId();
-    const now = Date.now();
-
-    const { modelId, displayName, description = null, tier = 'custom' } = data;
-
-    this.db
-      .prepare(
-        `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(id, providerId, modelId, displayName, description, tier, now);
-
-    return this.getModelById(id);
+    const provider = this.getById(providerId);
+    if (!provider) throw new Error('Provider not found');
+    return modelOps.addModel(this.db, providerId, data);
   }
 
   /**
-   * Get a model by its row ID
+   * Get a model by its row ID. Unfiltered by `removed_at` -- historical
+   * resolution (e.g. a session referencing a since-removed choice) looks
+   * models up by their known row id, so removed rows must still resolve.
    * @param {string} id - Model row ID
    * @returns {Object|null}
    */
   getModelById(id) {
-    const row = this.db.prepare('SELECT * FROM provider_models WHERE id = ?').get(id);
-    return row ? ProviderRepository.#mapProviderModel(row) : null;
+    return modelOps.getModelById(this.db, id);
+  }
+
+  /**
+   * Resolve the row a session should use to keep displaying/running a given
+   * (provider, modelId string) pair, even if it has since been disabled or
+   * soft-removed.
+   * @returns {Object|null}
+   */
+  getHistoricalModel(providerId, modelId) {
+    return modelOps.getHistoricalModel(this.db, providerId, modelId);
   }
 
   /**
    * Update an existing model
    * @param {string} id - Model row ID
-   * @param {Object} data
-   * @param {string} [data.modelId]
-   * @param {string} [data.displayName]
-   * @param {string|null} [data.description]
-   * @param {string} [data.tier]
    * @returns {Object} Updated model
    */
   updateModel(id, data) {
-    const updates = [];
-    const values = [];
-
-    if (data.modelId !== undefined) {
-      updates.push('model_id = ?');
-      values.push(data.modelId);
-    }
-    if (data.displayName !== undefined) {
-      updates.push('display_name = ?');
-      values.push(data.displayName);
-    }
-    if (data.description !== undefined) {
-      updates.push('description = ?');
-      values.push(data.description);
-    }
-    if (data.tier !== undefined) {
-      updates.push('tier = ?');
-      values.push(data.tier);
-    }
-
-    if (updates.length > 0) {
-      values.push(id);
-      this.db.prepare(`UPDATE provider_models SET ${updates.join(', ')} WHERE id = ?`).run(...values);
-    }
-
-    return this.getModelById(id);
+    const current = this.getModelById(id);
+    if (!current) throw new Error('Model not found');
+    const provider = this.getById(current.providerId);
+    return modelOps.updateModel(this.db, id, data, { current, provider });
   }
 
   /**
-   * Remove a model from a provider
+   * Remove a model from a provider (soft-removal; see providerModelOperations.js).
    * @param {string} modelId - Model row ID (not the model string like "claude-opus-4-6")
+   * @returns {Object} The soft-removed model row
    */
   removeModel(modelId) {
-    this.db.prepare('DELETE FROM provider_models WHERE id = ?').run(modelId);
+    const model = this.getModelById(modelId);
+    if (!model) throw new Error('Model not found');
+    return modelOps.removeModel(this.db, modelId, model);
+  }
+
+  reorderModels(providerId, orderedRowIds) {
+    return modelOps.reorderModels(this.db, providerId, orderedRowIds);
   }
 
   /**

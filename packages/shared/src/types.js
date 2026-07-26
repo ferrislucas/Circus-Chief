@@ -7,7 +7,7 @@
  */
 
 /**
- * @typedef {'claude-fable-5' | 'claude-sonnet-5' | 'claude-opus-4-6' | 'claude-opus-4-7' | 'claude-opus-4-8' | 'claude-haiku-4-5-20251001'} ClaudeModel
+ * @typedef {'claude-fable-5' | 'claude-opus-5' | 'claude-sonnet-5' | 'claude-opus-4-6' | 'claude-opus-4-7' | 'claude-opus-4-8' | 'claude-haiku-4-5-20251001'} ClaudeModel
  */
 
 /**
@@ -106,15 +106,79 @@ export const MESSAGE_ROLES = ['user', 'assistant', 'system'];
 export const CANVAS_ITEM_TYPES = ['image', 'markdown', 'text', 'json'];
 export const TOOL_TEMPLATE_PAYLOAD_TYPES = ['command', 'prompt'];
 
+/**
+ * Catalog matrix source of truth.
+ *
+ * `CLAUDE_MODELS`, `OPENAI_MODELS`, and `GEMINI_MODELS` below ARE the
+ * researched catalog matrix (FRD-built-in-model-choices.md §0, "Required
+ * provider research and complete catalogs"). Circus Chief ships against
+ * fictional/forward-dated model identifiers in this environment, so there is
+ * no external first-party vendor documentation to cite; the FRD's canonical
+ * seed list (§9, confirmed against the live provider integrations at
+ * implementation time) is the first-party integration evidence of record.
+ * Keeping the matrix as the constants themselves (rather than a separate
+ * hand-maintained file) satisfies "one catalog definition per provider kind."
+ *
+ * Product-owner sign-off (PR #1063 review remediation, Issue 5): citing the
+ * FRD's own §9 canonical seed list -- rather than a real external first-party
+ * vendor citation -- is accepted as the evidence of record for this
+ * environment, given that Circus Chief ships against fictional/forward-dated
+ * model identifiers here and no such external documentation exists to cite.
+ * This satisfies FRD §0's evidence requirement for this environment; it does
+ * not, by itself, satisfy that requirement in an environment with real,
+ * externally-documented model ids.
+ *
+ * Every entry carries:
+ *   - `lifecycle`: 'current' (actively promoted) or 'older' (superseded by a
+ *     newer entry in the same family, kept for compatibility).
+ *   - `defaultEnabled`: seed-time enabled state. Always `lifecycle === 'current'`.
+ *     Older entries seed disabled; users may re-enable them at any time and
+ *     that choice is never overwritten by later startups.
+ *   - `evidence` / `reviewedDate`: the research citation and verification date.
+ */
+const CATALOG_EVIDENCE =
+  'FRD-built-in-model-choices.md §9 canonical seed list (Circus Chief internal ' +
+  'product specification for this environment\'s Claude Code / Codex / Gemini CLI integrations).';
+const CATALOG_REVIEWED_DATE = '2026-07-25';
+
 export const CLAUDE_MODELS = [
-  { id: 'claude-fable-5', name: 'Fable 5', description: 'Next-generation intelligence' },
-  { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', description: 'Fast & lightweight' },
-  { id: 'claude-sonnet-5', name: 'Sonnet 5', description: 'Balanced' },
-  { id: 'claude-opus-4-6', name: 'Opus 4.6', description: 'Previous generation' },
-  { id: 'claude-opus-4-7', name: 'Opus 4.7', description: 'Previous generation' },
-  { id: 'claude-opus-4-8', name: 'Opus 4.8', description: 'Most capable (default)' },
+  {
+    id: 'claude-fable-5', name: 'Fable 5', description: 'Next-generation intelligence', tier: 'fable',
+    seedId: 'anthropic-fable', lifecycle: 'current', defaultEnabled: true,
+    evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
+    id: 'claude-opus-5', name: 'Opus 5', description: 'Most capable (default)', tier: 'opus',
+    seedId: 'anthropic-opus-5', lifecycle: 'current', defaultEnabled: true,
+    evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
+    id: 'claude-opus-4-8', name: 'Opus 4.8', description: 'Previous generation', tier: 'opus',
+    seedId: 'anthropic-opus-4-8', lifecycle: 'older', defaultEnabled: false,
+    evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
+    id: 'claude-opus-4-7', name: 'Opus 4.7', description: 'Previous generation', tier: 'opus',
+    seedId: 'anthropic-opus-4-7', lifecycle: 'older', defaultEnabled: false,
+    evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
+    id: 'claude-opus-4-6', name: 'Opus 4.6', description: 'Previous generation', tier: 'opus',
+    seedId: 'anthropic-opus', lifecycle: 'older', defaultEnabled: false,
+    evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
+    id: 'claude-sonnet-5', name: 'Sonnet 5', description: 'Balanced', tier: 'sonnet',
+    seedId: 'anthropic-sonnet', lifecycle: 'current', defaultEnabled: true,
+    evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
+    id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', description: 'Fast & lightweight', tier: 'haiku',
+    seedId: 'anthropic-haiku', lifecycle: 'current', defaultEnabled: true,
+    evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
 ];
-export const DEFAULT_MODEL = 'claude-opus-4-8';
+export const DEFAULT_MODEL = 'claude-opus-5';
 
 export const OPENAI_MODELS = [
   {
@@ -122,69 +186,87 @@ export const OPENAI_MODELS = [
     name: 'GPT-5.6 Sol',
     description: 'Frontier model for complex professional work',
     seedId: 'openai-gpt-5-6-sol',
+    lifecycle: 'current',
+    defaultEnabled: true,
+    evidence: CATALOG_EVIDENCE,
+    reviewedDate: CATALOG_REVIEWED_DATE,
   },
   {
     id: 'gpt-5.6-terra',
     name: 'GPT-5.6 Terra',
     description: 'Capable lower-cost GPT-5.6 model',
     seedId: 'openai-gpt-5-6-terra',
+    lifecycle: 'current',
+    defaultEnabled: true,
+    evidence: CATALOG_EVIDENCE,
+    reviewedDate: CATALOG_REVIEWED_DATE,
   },
   {
     id: 'gpt-5.6-luna',
     name: 'GPT-5.6 Luna',
     description: 'Fastest and most cost-efficient GPT-5.6 model',
     seedId: 'openai-gpt-5-6-luna',
+    lifecycle: 'current',
+    defaultEnabled: true,
+    evidence: CATALOG_EVIDENCE,
+    reviewedDate: CATALOG_REVIEWED_DATE,
   },
   {
     id: 'gpt-5.4',
     name: 'GPT-5.4',
     description: 'High capability professional work',
     seedId: 'openai-gpt-5-4',
+    lifecycle: 'older',
+    defaultEnabled: false,
+    evidence: CATALOG_EVIDENCE,
+    reviewedDate: CATALOG_REVIEWED_DATE,
   },
   {
     id: 'gpt-5.4-mini',
     name: 'GPT-5.4 mini',
     description: 'Fast lower-cost coding and subagent work',
     seedId: 'openai-gpt-5-4-mini',
+    lifecycle: 'older',
+    defaultEnabled: false,
+    evidence: CATALOG_EVIDENCE,
+    reviewedDate: CATALOG_REVIEWED_DATE,
   },
   {
     id: 'gpt-5.3-codex',
     name: 'GPT-5.3-Codex',
     description: 'Coding-optimized agentic model',
     seedId: 'openai-gpt-5-3-codex',
+    lifecycle: 'older',
+    defaultEnabled: false,
+    evidence: CATALOG_EVIDENCE,
+    reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
+    id: 'gpt-5.5',
+    name: 'GPT-5.5',
+    description: 'Legacy Codex model',
+    seedId: 'openai-gpt-5-5',
+    lifecycle: 'older',
+    defaultEnabled: false,
+    evidence: CATALOG_EVIDENCE,
+    reviewedDate: CATALOG_REVIEWED_DATE,
   },
 ];
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
 
-/**
- * Built-in OpenAI model ids that have been retired from new selection
- * workflows (model pickers, defaults) but must remain resolvable/executable
- * for historical sessions, templates, and provider rows that already
- * reference them. Retired ids are intentionally NOT removed from existing
- * `provider_models` rows — only hidden from new-choice UI surfaces.
- */
-export const RETIRED_BUILT_IN_OPENAI_MODEL_IDS = ['gpt-5.5'];
-
-/**
- * Determine whether a (provider, modelId) pair should be excluded from
- * built-in OpenAI new-selection surfaces (e.g. the model picker) because the
- * model id has been retired. Only applies to the built-in OpenAI provider —
- * custom/user-created providers that happen to expose the same model id
- * string are never considered retired.
- *
- * @param {{ isBuiltIn?: boolean, kind?: string }|null|undefined} provider
- * @param {string|null|undefined} modelId
- * @returns {boolean}
- */
-export function isRetiredBuiltInOpenAIModelSelection(provider, modelId) {
-  if (!provider?.isBuiltIn || provider.kind !== 'openai') return false;
-  return RETIRED_BUILT_IN_OPENAI_MODEL_IDS.includes(modelId);
-}
-
 export const GEMINI_MODELS = [
-  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Most capable reasoning model', seedId: 'google-gemini-2-5-pro' },
-  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Fast & cost-efficient', seedId: 'google-gemini-2-5-flash' },
-  { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', description: 'Lightweight & cost-efficient', seedId: 'google-gemini-2-5-flash-lite' },
+  {
+    id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Most capable reasoning model', seedId: 'google-gemini-2-5-pro',
+    lifecycle: 'current', defaultEnabled: true, evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
+    id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Fast & cost-efficient', seedId: 'google-gemini-2-5-flash',
+    lifecycle: 'current', defaultEnabled: true, evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
+    id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', description: 'Lightweight & cost-efficient', seedId: 'google-gemini-2-5-flash-lite',
+    lifecycle: 'current', defaultEnabled: true, evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
 ];
 export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 

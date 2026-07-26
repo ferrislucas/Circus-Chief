@@ -27,6 +27,11 @@ describe('useModelInfo', () => {
       expect(getModelDisplayName('claude-opus-4-8')).toBe('Opus 4.8');
     });
 
+    it('returns "Opus 5" for claude-opus-5', () => {
+      const { getModelDisplayName } = useModelInfo();
+      expect(getModelDisplayName('claude-opus-5')).toBe('Opus 5');
+    });
+
     it('returns "Sonnet 5" for claude-sonnet-5', () => {
       const { getModelDisplayName } = useModelInfo();
       expect(getModelDisplayName('claude-sonnet-5')).toBe('Sonnet 5');
@@ -74,9 +79,14 @@ describe('useModelInfo', () => {
       expect(getModelDescription('claude-opus-4-7')).toBe('Previous generation');
     });
 
-    it('returns "Most capable (default)" for Opus 4.8 model', () => {
+    it('returns "Previous generation" for Opus 4.8 model (superseded by Opus 5)', () => {
       const { getModelDescription } = useModelInfo();
-      expect(getModelDescription('claude-opus-4-8')).toBe('Most capable (default)');
+      expect(getModelDescription('claude-opus-4-8')).toBe('Previous generation');
+    });
+
+    it('returns "Most capable (default)" for Opus 5 model', () => {
+      const { getModelDescription } = useModelInfo();
+      expect(getModelDescription('claude-opus-5')).toBe('Most capable (default)');
     });
 
     it('returns "Balanced" for Sonnet model', () => {
@@ -135,12 +145,23 @@ describe('useModelInfo', () => {
       });
     });
 
-    it('returns object with name and description for Opus 4.8', () => {
+    it('returns object with name and description for Opus 4.8 (superseded by Opus 5)', () => {
       const { getModelInfo } = useModelInfo();
       const info = getModelInfo('claude-opus-4-8');
 
       expect(info).toMatchObject({
         name: 'Opus 4.8',
+        description: 'Previous generation',
+        agentType: 'claude-code',
+      });
+    });
+
+    it('returns object with name and description for Opus 5 (the current default)', () => {
+      const { getModelInfo } = useModelInfo();
+      const info = getModelInfo('claude-opus-5');
+
+      expect(info).toMatchObject({
+        name: 'Opus 5',
         description: 'Most capable (default)',
         agentType: 'claude-code',
       });
@@ -322,8 +343,8 @@ describe('useModelInfo', () => {
       expect(info.description).toBe('Frontier model for complex professional work');
     });
 
-    it('does not resolve gpt-5.5 against OPENAI_MODELS (retired from the curated catalog)', () => {
-      expect(OPENAI_MODELS.find((model) => model.id === 'gpt-5.5')).toBeUndefined();
+    it('resolves gpt-5.5 from the curated disabled-by-default catalog', () => {
+      expect(OPENAI_MODELS.find((model) => model.id === 'gpt-5.5')).toMatchObject({ defaultEnabled: false });
     });
 
     it('falls back to the retained provider-row metadata for a legacy gpt-5.5 compatibility row', async () => {
@@ -334,10 +355,10 @@ describe('useModelInfo', () => {
       expect(info.agentType).toBe('codex');
       expect(info.providerId).toBe('openai-default');
       expect(info.providerName).toBe('OpenAI (Official)');
-      // Name/description come from the persisted provider_models row, not
-      // from curated OPENAI_MODELS metadata (which no longer has an entry).
-      expect(info.name).toBe('GPT-5.5 (legacy)');
-      expect(info.description).toBe('Retired model retained for compatibility');
+      // The canonical catalog now supplies the current display metadata while
+      // the persisted disabled row keeps the id valid for continuity.
+      expect(info.name).toBe('GPT-5.5');
+      expect(info.description).toBe('Legacy Codex model');
     });
 
     it('resolves every OPENAI_MODELS entry to curated metadata for OpenAI providers', async () => {

@@ -70,6 +70,10 @@ temp/
 .claude-plans/
 .plan/
 
+# Canvas-sourced planning/remediation docs (live on the workspace canvas, not
+# in the repo -- see PR #1063 remediation, Slice A)
+/*-remediation-plan.md
+
 # Session attachments (temporary artifacts)
 .attachments/
 

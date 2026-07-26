@@ -58,19 +58,8 @@ CREATE TABLE IF NOT EXISTS provider_models (
   display_name TEXT NOT NULL,
   description TEXT,
   tier TEXT CHECK(tier IN ('fable', 'opus', 'sonnet', 'haiku', 'custom')),
-  enabled INTEGER NOT NULL DEFAULT 1,
-  sort_order INTEGER,
-  lifecycle TEXT NOT NULL DEFAULT 'current',
-  catalog_managed INTEGER NOT NULL DEFAULT 0,
-  removed_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
--- NOTE: the (provider_id, model_id) uniqueness index for active rows is
--- created by the `provider-models-unique-active-identity-index` migration
--- (not here), since it must run after existing databases have gained the
--- `removed_at` column and had any legacy duplicates deterministically
--- resolved. Migrations always run after this file on every startup, so a
--- fresh database ends up with the identical index either way.
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,

@@ -91,8 +91,16 @@ export const UpdateProviderRequest = z
   })
   .strict();
 
+// Provider and provider-model row ids are NOT always UUIDs: custom rows use
+// generated UUIDs, but built-in rows use stable slug ids (e.g. provider
+// `anthropic-default`, model `anthropic-opus-4-8` / `openai-gpt-5-6-sol`).
+// The slugs are required so seed migrations can `INSERT OR IGNORE` idempotently
+// (FRD-built-in-model-choices.md §Phase 2.6). Treat these ids as opaque
+// non-empty strings, not UUIDs.
+const PROVIDER_ROW_ID = z.string().min(1);
+
 export const ProviderResponse = z.object({
-  id: z.string().uuid(),
+  id: PROVIDER_ROW_ID,
   name: z.string(),
   kind: ProviderKind,
   baseUrl: z.string().nullable(),
@@ -106,12 +114,17 @@ export const ProviderResponse = z.object({
   updatedAt: z.number(),
   models: z.array(
     z.object({
-      id: z.string().uuid(),
-      providerId: z.string().uuid(),
+      id: PROVIDER_ROW_ID,
+      providerId: PROVIDER_ROW_ID,
       modelId: z.string(),
       displayName: z.string(),
       description: z.string().nullable(),
       tier: z.enum(['fable', 'opus', 'sonnet', 'haiku', 'custom']),
+      enabled: z.boolean(),
+      sortOrder: z.number().nullable(),
+      lifecycle: z.enum(['current', 'older']),
+      catalogManaged: z.boolean(),
+      removedAt: z.number().nullable(),
       createdAt: z.number(),
     })
   ),
@@ -124,16 +137,27 @@ export const CreateProviderModelRequest = z.object({
   displayName: z.string().min(1).max(100),
   description: z.string().nullable().optional(),
   tier: z.enum(['fable', 'opus', 'sonnet', 'haiku', 'custom']).nullable().optional(),
+  enabled: z.boolean().optional(),
+  sortOrder: z.number().int().nullable().optional(),
 });
 
 export const ProviderModelResponse = z.object({
-  id: z.string().uuid(),
-  providerId: z.string().uuid(),
+  id: PROVIDER_ROW_ID,
+  providerId: PROVIDER_ROW_ID,
   modelId: z.string(),
   displayName: z.string(),
   description: z.string().nullable(),
   tier: z.string().nullable(),
+  enabled: z.boolean(),
+  sortOrder: z.number().nullable(),
+  lifecycle: z.enum(['current', 'older']),
+  catalogManaged: z.boolean(),
+  removedAt: z.number().nullable(),
   createdAt: z.number(),
+});
+
+export const ReorderProviderModelsRequest = z.object({
+  order: z.array(PROVIDER_ROW_ID),
 });
 
 export const ProviderModelListResponse = z.array(ProviderModelResponse);
