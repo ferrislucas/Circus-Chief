@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
@@ -1562,6 +1562,244 @@ describe('ButtonStatusModal.vue', () => {
 
       // Loading indicator should be hidden
       expect(wrapper.find('[data-testid="output-loading"]').exists()).toBe(false);
+    });
+  });
+
+  describe('output auto-tail', () => {
+    let rafQueue;
+    let rafId;
+
+    beforeEach(() => {
+      rafQueue = [];
+      rafId = 0;
+      vi.stubGlobal('requestAnimationFrame', (cb) => {
+        const id = ++rafId;
+        rafQueue.push({ id, cb });
+        return id;
+      });
+      vi.stubGlobal('cancelAnimationFrame', (id) => {
+        rafQueue = rafQueue.filter((f) => f.id !== id);
+      });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    function flushFrames() {
+      const queue = rafQueue;
+      rafQueue = [];
+      queue.forEach((f) => f.cb());
+    }
+
+    function setGeometry(wrapper, { scrollHeight, scrollTop = 0, clientHeight = 300 }) {
+      const el = wrapper.find('[data-testid="output-content"]').element;
+      Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true });
+      Object.defineProperty(el, 'clientHeight', { value: clientHeight, configurable: true });
+      el.scrollTop = scrollTop;
+      return el;
+    }
+
+    async function settleScroll(wrapper) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await flushPromises();
+      await nextTick();
+      flushFrames();
+    }
+
+    it('expanding Process Output starts at the bottom', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: { button: baseButton, latestRun: { ...baseRun, output: 'Build successful' }, isOpen: true },
+      });
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await settleScroll(wrapper);
+
+      const el = wrapper.find('[data-testid="output-content"]').element;
+      expect(el.scrollTop).toBe(el.scrollHeight);
+    });
+
+    it('scrolling owner is .output-content, not .output-text', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: { button: baseButton, latestRun: { ...baseRun, output: 'Build successful' }, isOpen: true },
+      });
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await settleScroll(wrapper);
+
+      const contentEl = wrapper.find('[data-testid="output-content"]').element;
+      const textEl = wrapper.find('[data-testid="output-text"]').element;
+      expect(contentEl.getAttribute('data-testid')).toBe('output-content');
+      // The scrollable container's own ref receives the programmatic scroll,
+      // the inner text node is never assigned a scrollTop directly.
+      expect(contentEl.scrollTop).toBe(contentEl.scrollHeight);
+      expect(textEl).not.toBe(contentEl);
+    });
+
+    it('a large live append remains tailed', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: { button: baseButton, latestRun: { ...baseRun, output: 'Line 1' }, isOpen: true },
+      });
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await settleScroll(wrapper);
+
+      const el = setGeometry(wrapper, { scrollHeight: 1000, scrollTop: 1000, clientHeight: 300 });
+
+      const hugeOutput = Array.from({ length: 400 }, (_, i) => `Line ${i}`).join('\n');
+      await wrapper.setProps({ latestRun: { ...baseRun, output: hugeOutput } });
+      Object.defineProperty(el, 'scrollHeight', { value: 9000, configurable: true });
+      await settleScroll(wrapper);
+
+      expect(el.scrollTop).toBe(9000);
+    });
+
+    it('scrolling above tolerance preserves the viewport across later output', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: { button: baseButton, latestRun: { ...baseRun, output: 'Line 1' }, isOpen: true },
+      });
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await settleScroll(wrapper);
+
+      const el = setGeometry(wrapper, { scrollHeight: 1000, scrollTop: 200, clientHeight: 300 });
+      await wrapper.find('[data-testid="output-content"]').trigger('scroll');
+
+      await wrapper.setProps({ latestRun: { ...baseRun, output: 'Line 1\nLine 2' } });
+      await settleScroll(wrapper);
+
+      expect(el.scrollTop).toBe(200);
+    });
+
+    it('scrolling back within tolerance resumes on the next append', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: { button: baseButton, latestRun: { ...baseRun, output: 'Line 1' }, isOpen: true },
+      });
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await settleScroll(wrapper);
+
+      const el = setGeometry(wrapper, { scrollHeight: 1000, scrollTop: 200, clientHeight: 300 });
+      await wrapper.find('[data-testid="output-content"]').trigger('scroll'); // paused
+
+      el.scrollTop = 700; // back within tolerance
+      await wrapper.find('[data-testid="output-content"]').trigger('scroll');
+
+      Object.defineProperty(el, 'scrollHeight', { value: 3000, configurable: true });
+      await wrapper.setProps({ latestRun: { ...baseRun, output: 'Line 1\nLine 2' } });
+      await settleScroll(wrapper);
+
+      expect(el.scrollTop).toBe(3000);
+    });
+
+    it('collapse/re-expand resets tailing', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: { button: baseButton, latestRun: { ...baseRun, output: 'Line 1' }, isOpen: true },
+      });
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await settleScroll(wrapper);
+
+      setGeometry(wrapper, { scrollHeight: 1000, scrollTop: 100, clientHeight: 300 });
+      await wrapper.find('[data-testid="output-content"]').trigger('scroll'); // paused
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click'); // collapse
+      await nextTick();
+      await wrapper.find('[data-testid="output-header"]').trigger('click'); // re-expand
+      await settleScroll(wrapper);
+
+      const el = wrapper.find('[data-testid="output-content"]').element;
+      expect(el.scrollTop).toBe(el.scrollHeight);
+    });
+
+    it('changing run ID while open and expanded resets tailing', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: { button: baseButton, latestRun: { ...baseRun, output: 'Line 1' }, isOpen: true },
+      });
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await settleScroll(wrapper);
+
+      setGeometry(wrapper, { scrollHeight: 1000, scrollTop: 100, clientHeight: 300 });
+      await wrapper.find('[data-testid="output-content"]').trigger('scroll'); // paused
+
+      await wrapper.setProps({
+        latestRun: { ...baseRun, runId: 'run-2', output: 'Fresh output' },
+      });
+      await settleScroll(wrapper);
+
+      const el = wrapper.find('[data-testid="output-content"]').element;
+      expect(el.scrollTop).toBe(el.scrollHeight);
+    });
+
+    it('final output respects a paused state and does not jump to the bottom', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: { button: baseButton, latestRun: { ...baseRun, status: 'running', output: 'Line 1' }, isOpen: true },
+      });
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await settleScroll(wrapper);
+
+      const el = setGeometry(wrapper, { scrollHeight: 1000, scrollTop: 200, clientHeight: 300 });
+      await wrapper.find('[data-testid="output-content"]').trigger('scroll'); // paused
+
+      await wrapper.setProps({
+        latestRun: { ...baseRun, status: 'success', output: 'Line 1\nFinal line', exitCode: 0 },
+      });
+      await settleScroll(wrapper);
+
+      expect(el.scrollTop).toBe(200);
+    });
+
+    it('close/reopen while collapsed starts a fresh tail session without scheduling against an absent container', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: { button: baseButton, latestRun: { ...baseRun, output: 'Line 1' }, isOpen: true },
+      });
+
+      // Output section stays collapsed by default.
+      await wrapper.setProps({ isOpen: false });
+      await nextTick();
+      await wrapper.setProps({ isOpen: true });
+      await settleScroll(wrapper);
+
+      expect(wrapper.find('[data-testid="output-content"]').exists()).toBe(false);
+      // No scroll work should have been scheduled since the container never mounted.
+      expect(rafQueue.length).toBe(0);
+    });
+
+    it('close/reopen while expanded resets and reaches the bottom after remount', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: { button: baseButton, latestRun: { ...baseRun, output: 'Line 1' }, isOpen: true },
+      });
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await settleScroll(wrapper);
+
+      setGeometry(wrapper, { scrollHeight: 1000, scrollTop: 100, clientHeight: 300 });
+      await wrapper.find('[data-testid="output-content"]').trigger('scroll'); // paused
+
+      await wrapper.setProps({ isOpen: false });
+      await nextTick();
+      await wrapper.setProps({ isOpen: true });
+      await settleScroll(wrapper);
+
+      const el = wrapper.find('[data-testid="output-content"]').element;
+      expect(el.scrollTop).toBe(el.scrollHeight);
+    });
+
+    it('unmounting cancels pending scheduled scroll work', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: { button: baseButton, latestRun: { ...baseRun, output: 'Line 1' }, isOpen: true },
+      });
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await flushPromises();
+      await nextTick(); // frame now scheduled but not yet flushed
+
+      wrapper.unmount();
+
+      expect(() => flushFrames()).not.toThrow();
     });
   });
 });
