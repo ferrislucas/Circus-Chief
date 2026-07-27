@@ -1,9 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { canvasItems, projects, sessions } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { existsSync, rmSync, readFileSync } from 'fs';
+
+vi.mock('../websocket.js', () => ({
+  broadcastToSession: vi.fn(),
+}));
+
+import { broadcastToSession } from '../websocket.js';
 import canvasRouter, { isBinaryContent, getTypeFromExtension } from './canvas.js';
 
 /**
@@ -2437,6 +2444,7 @@ describe('Canvas API', () => {
     let rootSessionId;
 
     beforeEach(() => {
+      broadcastToSession.mockClear();
       app = express();
       app.use(express.json());
       // Mount canvasRouter under both prefixes, mirroring production index.js
@@ -2481,6 +2489,54 @@ describe('Canvas API', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.type).toBe('text');
+    });
+
+    it('DELETE /api/workspaces/:id/canvas/file/:filename trashes all active versions', async () => {
+      const v1 = canvasItems.create(rootSessionId, { type: 'text', content: 'one', filename: 'report.md' });
+      const v2 = canvasItems.create(rootSessionId, { type: 'text', content: 'two', filename: 'report.md' });
+      const v3 = canvasItems.create(rootSessionId, { type: 'text', content: 'three', filename: 'report.md' });
+
+      const res = await request(app).delete(`/api/workspaces/${rootSessionId}/canvas/file/report.md`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ filename: 'report.md', trashedCount: 3 });
+      expect((await request(app).get(`/api/workspaces/${rootSessionId}/canvas/file/report.md`)).status).toBe(404);
+      expect((await request(app).get(`/api/workspaces/${rootSessionId}/canvas`)).body).toEqual([]);
+      const trash = await request(app).get(`/api/workspaces/${rootSessionId}/canvas-trash`);
+      expect(trash.body.map(item => item.id).sort()).toEqual([v1.id, v2.id, v3.id].sort());
+      expect(broadcastToSession).toHaveBeenCalledTimes(3);
+      expect(broadcastToSession.mock.calls).toEqual(expect.arrayContaining([
+        [rootSessionId, WS_MESSAGE_TYPES.CANVAS_REMOVE, { sessionId: rootSessionId, itemId: v1.id }],
+        [rootSessionId, WS_MESSAGE_TYPES.CANVAS_REMOVE, { sessionId: rootSessionId, itemId: v2.id }],
+        [rootSessionId, WS_MESSAGE_TYPES.CANVAS_REMOVE, { sessionId: rootSessionId, itemId: v3.id }],
+      ]));
+    });
+
+    it('trashes only active exact-name matches and supports URL-encoded filenames', async () => {
+      const active = canvasItems.create(rootSessionId, { type: 'text', filename: 'quarterly report #1.md' });
+      const alreadyTrashed = canvasItems.create(rootSessionId, { type: 'text', filename: 'quarterly report #1.md' });
+      canvasItems.softDelete(alreadyTrashed.id);
+      const differentFile = canvasItems.create(rootSessionId, { type: 'text', filename: 'quarterly report #1.pdf' });
+
+      const res = await request(app)
+        .delete(`/api/workspaces/${rootSessionId}/canvas/file/${encodeURIComponent('quarterly report #1.md')}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ filename: 'quarterly report #1.md', trashedCount: 1 });
+      expect(canvasItems.getById(active.id).deletedAt).not.toBeNull();
+      expect(canvasItems.getById(alreadyTrashed.id).deletedAt).not.toBeNull();
+      expect(canvasItems.getById(differentFile.id).deletedAt).toBeNull();
+    });
+
+    it('returns 404 without changing the canvas when no active filename exists', async () => {
+      const otherFile = canvasItems.create(rootSessionId, { type: 'text', filename: 'keep.md' });
+
+      const res = await request(app).delete(`/api/workspaces/${rootSessionId}/canvas/file/missing.md`);
+
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ error: 'File not found on canvas' });
+      expect(canvasItems.getById(otherFile.id).deletedAt).toBeNull();
+      expect(broadcastToSession).not.toHaveBeenCalled();
     });
 
     it('returns 404 for non-existent workspace ID', async () => {

@@ -251,6 +251,27 @@ router.get('/:id/canvas/file/:filename/content', requireRootSessionAndProject, (
   });
 });
 
+// DELETE /api/workspaces/:id/canvas/file/:filename - Move every active version of a file to trash
+router.delete('/:id/canvas/file/:filename', requireRootSessionAndProject, (req, res) => {
+  const { trashedIds, trashedCount } = canvasItems.trashAllActiveVersionsByFilename(
+    req.rootSessionId,
+    req.params.filename
+  );
+
+  if (trashedCount === 0) {
+    return res.status(404).json({ error: 'File not found on canvas' });
+  }
+
+  trashedIds.forEach(itemId => {
+    broadcastToSession(req.rootSessionId, WS_MESSAGE_TYPES.CANVAS_REMOVE, {
+      sessionId: req.rootSessionId,
+      itemId,
+    });
+  });
+
+  res.json({ filename: req.params.filename, trashedCount });
+});
+
 // GET /api/sessions/:id/canvas/:itemId/content - Get one canvas item content inline
 router.get('/:id/canvas/:itemId/content', requireRootSessionAndProject, (req, res) => {
   const item = canvasItems.getById(req.params.itemId);

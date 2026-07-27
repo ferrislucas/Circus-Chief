@@ -28,10 +28,11 @@ Agents can post artifacts to the canvas and read them back.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/sessions/{sessionId}/canvas` | Add a file to the canvas. Body: `{"filePath": "/path/to/file"}`. File type auto-detected from extension. |
-| GET | `/api/sessions/{sessionId}/canvas` | List all files on the canvas |
-| GET | `/api/sessions/{sessionId}/canvas/file/{filename}` | Get metadata for a canvas file. Response: `{ filePath, type, mimeType, createdAt, version, totalVersions }` |
-| GET | `/api/sessions/{sessionId}/canvas/file/{filename}/history/{version}` | Get a historical version of a canvas file. Version 1 = oldest. |
+| POST | `/api/workspaces/{workspaceId}/canvas` | Add a file to the canvas. Body: `{"filePath": "/path/to/file"}`. File type auto-detected from extension. |
+| GET | `/api/workspaces/{workspaceId}/canvas` | List all files on the canvas |
+| GET | `/api/workspaces/{workspaceId}/canvas/file/{filename}` | Get metadata for a canvas file. Response: `{ filePath, type, mimeType, createdAt, version, totalVersions }` |
+| GET | `/api/workspaces/{workspaceId}/canvas/file/{filename}/history/{version}` | Get a historical version of a canvas file. Version 1 = oldest. |
+| DELETE | `/api/workspaces/{workspaceId}/canvas/file/{filename}` | Move every active version of the exact filename to recoverable canvas trash. Response: `{ filename, trashedCount }`; returns `404 { error: "File not found on canvas" }` when no active version exists. URL-encode reserved filename characters (for example, `quarterly%20report%20%231.md`). |
 
 **Supported file formats:** Images (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.bmp`), PDFs (`.pdf`), Markdown (`.md`, `.mdx`), Code (`.js`, `.ts`, `.py`, `.go`, `.rs`, `.java`, etc.), JSON (`.json`), Text (`.txt`, `.log`, `.csv`).
 
