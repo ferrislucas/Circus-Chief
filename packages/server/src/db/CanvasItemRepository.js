@@ -272,6 +272,27 @@ export class CanvasItemRepository extends BaseRepository {
   }
 
   /**
+   * Move every active version of one filename to trash atomically.
+   *
+   * @param {string} sessionId
+   * @param {string} filename
+   * @returns {{trashedIds: string[], trashedCount: number}}
+   */
+  trashAllActiveVersionsByFilename(sessionId, filename) {
+    const trashVersions = this.db.transaction(() => {
+      const rows = this.db
+        .prepare(
+          'UPDATE canvas_items SET deleted_at = ? WHERE session_id = ? AND filename = ? AND deleted_at IS NULL RETURNING id'
+        )
+        .all(Date.now(), sessionId, filename);
+
+      return { trashedIds: rows.map(row => row.id), trashedCount: rows.length };
+    });
+
+    return trashVersions();
+  }
+
+  /**
    * Recover multiple items atomically
    * @param {string[]} itemIds - Array of item IDs to recover
    * @returns {number} Count of items actually recovered
