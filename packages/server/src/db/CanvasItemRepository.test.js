@@ -883,7 +883,8 @@ describe('CanvasItemRepository', () => {
       const result = repo.trashAllActiveVersionsByFilename(sessionId, 'report.md');
 
       expect(result.trashedCount).toBe(3);
-      expect(result.trashedIds.sort()).toEqual([v1.id, v2.id, v3.id].sort());
+      expect(result.trashedIds).toHaveLength(3);
+      expect(result.trashedIds).toEqual(expect.arrayContaining([v1.id, v2.id, v3.id]));
       expect(repo.getAllVersionsByFilename(sessionId, 'report.md')).toEqual([]);
       expect(repo.getDeletedBySessionId(sessionId).map(item => item.id)).toEqual(expect.arrayContaining(result.trashedIds));
     });

@@ -282,23 +282,9 @@ export class CanvasItemRepository extends BaseRepository {
     const trashVersions = this.db.transaction(() => {
       const rows = this.db
         .prepare(
-          'SELECT id FROM canvas_items WHERE session_id = ? AND filename = ? AND deleted_at IS NULL ORDER BY rowid'
+          'UPDATE canvas_items SET deleted_at = ? WHERE session_id = ? AND filename = ? AND deleted_at IS NULL RETURNING id'
         )
-        .all(sessionId, filename);
-
-      if (rows.length === 0) {
-        return { trashedIds: [], trashedCount: 0 };
-      }
-
-      const result = this.db
-        .prepare(
-          'UPDATE canvas_items SET deleted_at = ? WHERE session_id = ? AND filename = ? AND deleted_at IS NULL'
-        )
-        .run(Date.now(), sessionId, filename);
-
-      if (result.changes !== rows.length) {
-        throw new Error('Failed to trash every active canvas file version');
-      }
+        .all(Date.now(), sessionId, filename);
 
       return { trashedIds: rows.map(row => row.id), trashedCount: rows.length };
     });

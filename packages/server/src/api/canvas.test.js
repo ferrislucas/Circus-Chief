@@ -1,9 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { canvasItems, projects, sessions } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { existsSync, rmSync, readFileSync } from 'fs';
+
+vi.mock('../websocket.js', () => ({
+  broadcastToSession: vi.fn(),
+}));
+
+import { broadcastToSession } from '../websocket.js';
 import canvasRouter, { isBinaryContent, getTypeFromExtension } from './canvas.js';
 
 /**
@@ -2437,6 +2444,7 @@ describe('Canvas API', () => {
     let rootSessionId;
 
     beforeEach(() => {
+      broadcastToSession.mockClear();
       app = express();
       app.use(express.json());
       // Mount canvasRouter under both prefixes, mirroring production index.js
@@ -2496,6 +2504,12 @@ describe('Canvas API', () => {
       expect((await request(app).get(`/api/workspaces/${rootSessionId}/canvas`)).body).toEqual([]);
       const trash = await request(app).get(`/api/workspaces/${rootSessionId}/canvas-trash`);
       expect(trash.body.map(item => item.id).sort()).toEqual([v1.id, v2.id, v3.id].sort());
+      expect(broadcastToSession).toHaveBeenCalledTimes(3);
+      expect(broadcastToSession.mock.calls).toEqual(expect.arrayContaining([
+        [rootSessionId, WS_MESSAGE_TYPES.CANVAS_REMOVE, { sessionId: rootSessionId, itemId: v1.id }],
+        [rootSessionId, WS_MESSAGE_TYPES.CANVAS_REMOVE, { sessionId: rootSessionId, itemId: v2.id }],
+        [rootSessionId, WS_MESSAGE_TYPES.CANVAS_REMOVE, { sessionId: rootSessionId, itemId: v3.id }],
+      ]));
     });
 
     it('trashes only active exact-name matches and supports URL-encoded filenames', async () => {
@@ -2522,6 +2536,7 @@ describe('Canvas API', () => {
       expect(res.status).toBe(404);
       expect(res.body).toEqual({ error: 'File not found on canvas' });
       expect(canvasItems.getById(otherFile.id).deletedAt).toBeNull();
+      expect(broadcastToSession).not.toHaveBeenCalled();
     });
 
     it('returns 404 for non-existent workspace ID', async () => {
