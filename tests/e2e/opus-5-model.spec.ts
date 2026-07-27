@@ -99,7 +99,7 @@ test.describe('Opus 5 Model Availability', () => {
     const session = await seedSession(project.id, {
       prompt: 'Test Opus generation defaults in model selector',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
 
@@ -163,7 +163,7 @@ test.describe('Opus 5 Model Availability', () => {
       const session = await seedSession(project.id, {
         prompt: 'Test selecting a re-enabled Opus 4.8',
         startImmediately: false,
-        gitMode: 'none',
+        gitMode: 'current',
         gitBranch: 'main',
       });
 
@@ -214,7 +214,7 @@ test.describe('Opus 5 Model Availability', () => {
     const session = await seedSession(project.id, {
       prompt: 'Test selecting Opus 5',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
 
@@ -264,7 +264,7 @@ test.describe('Opus 5 Model Availability', () => {
       prompt: 'Existing session with Opus 4.6',
       model: 'claude-opus-4-6',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
 
@@ -302,7 +302,7 @@ test.describe('Opus 5 Model Availability', () => {
       prompt: 'Existing session with Opus 4.8',
       model: 'claude-opus-4-8',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
 
