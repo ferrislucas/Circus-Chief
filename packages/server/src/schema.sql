@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   model TEXT,
   provider_id TEXT REFERENCES providers(id),
   next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
-  parent_session_id TEXT REFERENCES sessions(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+  parent_session_id TEXT REFERENCES sessions(id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
   input_tokens INTEGER DEFAULT 0,
   output_tokens INTEGER DEFAULT 0,
   thinking_tokens INTEGER DEFAULT 0,

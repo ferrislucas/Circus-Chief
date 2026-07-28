@@ -115,14 +115,9 @@ describe('BaseRepository', () => {
       expect(() => repo.delete('non-existent')).not.toThrow();
     });
 
-    it('deletes a project whose sessions form a multi-level parent/child chain (regression: parent_session_id ON DELETE RESTRICT)', () => {
-      // sessions.parent_session_id uses ON DELETE RESTRICT (see
-      // sessionTableRecreate.js) so that a session can never be deleted out
-      // from under a surviving child. Deleting the *project* cascades to all
-      // of its sessions via project_id ON DELETE CASCADE, which can delete a
-      // parent session row before its child row within the same cascade.
-      // Without deferring FK enforcement (see BaseRepository#delete), that
-      // would trip the RESTRICT constraint and fail the whole project delete.
+    it('deletes a project whose sessions form a multi-level parent/child chain', () => {
+      // The deferred parent FK prevents orphaning a surviving child while
+      // allowing a project cascade to remove the complete session tree.
       const project = projects.create('Cascade FK Project', '/tmp/cascade-fk-project');
       const grandparent = sessions.create(project.id, 'Grandparent', 'Prompt');
       const parent = sessions.create(project.id, 'Parent', 'Prompt', { parentSessionId: grandparent.id });

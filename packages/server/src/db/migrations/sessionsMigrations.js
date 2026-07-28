@@ -325,7 +325,7 @@ export const sessionsMigrations = [
     },
   },
 
-  // --- Immutable parentage: parent_session_id ON DELETE RESTRICT + update-rejecting trigger ---
+  // --- Immutable parentage: deferred ON DELETE NO ACTION + update-rejecting trigger ---
   {
     name: 'sessions-immutable-parent_session_id',
     up(db) { migrateSessionsImmutableParentage(db); },

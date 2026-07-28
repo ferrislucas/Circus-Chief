@@ -43,7 +43,7 @@ export const SESSIONS_ALL_CURRENT_COLUMNS = `
     model TEXT,
     provider_id TEXT,
     next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
-    parent_session_id TEXT REFERENCES sessions(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+    parent_session_id TEXT REFERENCES sessions(id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
     input_tokens INTEGER DEFAULT 0,
     output_tokens INTEGER DEFAULT 0,
     thinking_tokens INTEGER DEFAULT 0,
@@ -163,18 +163,21 @@ export function createParentImmutabilityTrigger(db) {
 
 /**
  * Migrate the sessions table so that:
- *  - parent_session_id uses ON DELETE RESTRICT (instead of SET NULL), and
+ *  - parent_session_id uses deferred ON DELETE NO ACTION (instead of SET NULL), and
  *  - a trigger rejects any attempt to change a non-null parent_session_id.
+ * NO ACTION preserves the no-orphan invariant while allowing a project delete
+ * to cascade through an entire session tree. RESTRICT cannot be used here
+ * because SQLite applies it immediately, even on a deferred foreign key.
  * No-op (besides re-asserting the trigger) if the table already has the
  * target foreign-key behavior.
  * @param {import('better-sqlite3').Database} db
  */
 export function migrateSessionsImmutableParentage(db) {
-  const parentFkAlreadyRestrict = db
+  const parentFkAlreadyImmutable = db
     .pragma('foreign_key_list(sessions)')
-    .some((fk) => fk.table === 'sessions' && fk.from === 'parent_session_id' && fk.on_delete === 'RESTRICT');
+    .some((fk) => fk.table === 'sessions' && fk.from === 'parent_session_id' && fk.on_delete === 'NO ACTION');
 
-  if (!parentFkAlreadyRestrict) {
+  if (!parentFkAlreadyImmutable) {
     recreateSessionsTable(db, SESSIONS_ALL_CURRENT_COLUMNS, SESSIONS_ALL_CURRENT_COLUMN_NAMES);
   }
 

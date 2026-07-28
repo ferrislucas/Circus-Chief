@@ -325,7 +325,7 @@ export const allMigrations = validateMigrations([
   // copies the complete current sessions shape, including these columns.
   k.get('kanban-add-lane-run-workflow'),
 
-  // --- Enforce immutable session parentage (ON DELETE RESTRICT + trigger) ---
+  // --- Enforce immutable session parentage (deferred ON DELETE NO ACTION + trigger) ---
   // Must run after repairMissingSessionParentsFromWorktree so that one-time
   // NULL -> value backfill has already happened before the trigger is asserted.
   s.get('sessions-immutable-parent_session_id'),
