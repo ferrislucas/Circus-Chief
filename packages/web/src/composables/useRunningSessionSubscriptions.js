@@ -37,12 +37,16 @@ export function useRunningSessionSubscriptions(desiredSessionIds) {
           return;
         }
         if (retry < MAX_HYDRATION_RETRIES) {
-          entry.retryTimer = setTimeout(() => hydrate(sessionId, entry, retry + 1), 1500 * (2 ** retry));
+          Object.assign(entry, {
+            retryTimer: setTimeout(() => hydrate(sessionId, entry, retry + 1), 1500 * (2 ** retry)),
+          });
         }
       })
       .catch(error => {
         if (error.name !== 'AbortError' && isCurrent(sessionId, entry) && retry < MAX_HYDRATION_RETRIES) {
-          entry.retryTimer = setTimeout(() => hydrate(sessionId, entry, retry + 1), 1500 * (2 ** retry));
+          Object.assign(entry, {
+            retryTimer: setTimeout(() => hydrate(sessionId, entry, retry + 1), 1500 * (2 ** retry)),
+          });
         }
       });
   }
@@ -58,10 +62,12 @@ export function useRunningSessionSubscriptions(desiredSessionIds) {
     entry.cleanups.push(sub.onChangesUpdate(count => { if (isCurrent(sessionId, entry)) streamingStore.setSessionFileCount(sessionId, count); }));
     entry.cleanups.push(sub.onStatus(status => {
       if (!['running', 'starting'].includes(status) && isCurrent(sessionId, entry)) {
-        entry.clearTimer = setTimeout(() => streamingStore.clearSessionEphemeralState(sessionId), 2000);
+        Object.assign(entry, {
+          clearTimer: setTimeout(() => streamingStore.clearSessionEphemeralState(sessionId), 2000),
+        });
       } else if (entry.clearTimer) {
         clearTimeout(entry.clearTimer);
-        entry.clearTimer = null;
+        Object.assign(entry, { clearTimer: null });
       }
     }));
     sub.subscribe();

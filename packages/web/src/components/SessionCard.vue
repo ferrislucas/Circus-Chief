@@ -1,6 +1,9 @@
 <template>
   <!-- Workflow card (root session with consolidated view) -->
-  <div ref="cardElement" class="workflow-card-wrapper">
+  <div
+    ref="cardElement"
+    class="workflow-card-wrapper"
+  >
     <router-link
       :to="`/sessions/${session.id}`"
       class="session-card card"

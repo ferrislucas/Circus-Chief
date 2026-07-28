@@ -72,17 +72,17 @@ export class CommandRunner {
     if (!commandRuns || typeof commandRuns.appendOutput !== 'function') return;
     try {
       commandRuns.appendOutput(runId, entry.dbOutputBuffer);
-      entry.lastDbWrite = Date.now();
+      Object.assign(entry, { lastDbWrite: Date.now() });
     } catch (err) {
       console.warn(`[commandRunner.run] Warning: Error flushing output to database for runId: ${runId}`, err.message);
     }
-    entry.dbOutputBuffer = '';
+    Object.assign(entry, { dbOutputBuffer: '' });
   }
 
   #flushBroadcastOutput(entry, onOutput) {
     if (!entry.broadcastOutputBuffer) return;
     const output = entry.broadcastOutputBuffer;
-    entry.broadcastOutputBuffer = '';
+    Object.assign(entry, { broadcastOutputBuffer: '' });
     try { onOutput?.(output); } catch (err) {
       console.warn('[commandRunner.run] Output callback failed:', err.message);
     }
@@ -90,16 +90,17 @@ export class CommandRunner {
 
   #appendOutput(entry, text) {
     if (!text) return;
-    entry.output += text;
-    entry.dbOutputBuffer += text;
-    entry.broadcastOutputBuffer += text;
+    Object.assign(entry, {
+      output: entry.output + text,
+      dbOutputBuffer: entry.dbOutputBuffer + text,
+      broadcastOutputBuffer: entry.broadcastOutputBuffer + text,
+    });
   }
 
   #clearFlushTimers(entry) {
     if (entry.bufferFlushTimer) clearInterval(entry.bufferFlushTimer);
     if (entry.broadcastFlushTimer) clearInterval(entry.broadcastFlushTimer);
-    entry.bufferFlushTimer = null;
-    entry.broadcastFlushTimer = null;
+    Object.assign(entry, { bufferFlushTimer: null, broadcastFlushTimer: null });
   }
 
   /**

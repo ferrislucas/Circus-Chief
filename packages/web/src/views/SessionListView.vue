@@ -369,23 +369,26 @@ const { filteredGroupedSessions } = useSessionFiltering();
 // A workflow is eligible only while the card is rendered, expanded, and in the
 // observer's prefetch margin. Keep this policy here so subscriptions stay pure.
 const cardVisibilityByRootId = ref({});
-const eligibleWorkflowCards = computed(() => filteredGroupedSessions.value.map(({ parent }) => {
+const isRunningSession = session => ['running', 'starting'].includes(session.status);
+const workflowCardFromGroup = ({ parent }) => {
   const rootSessionId = parent.id;
   const members = sessionsStore.getWorkflowSessions(rootSessionId);
-  const runningSessionIds = members.filter(s => ['running', 'starting'].includes(s.status)).map(s => s.id);
   return {
     rootSessionId,
-    runningSessionIds,
-    memberIds: members.map(s => s.id),
+    runningSessionIds: members.filter(isRunningSession).map(session => session.id),
+    memberIds: members.map(session => session.id),
     eligible: activeTab.value === 'sessions'
       && cardVisibilityByRootId.value[rootSessionId] !== false
       && !streamingStore.isSessionLogCollapsed(rootSessionId),
   };
-}));
-const eligibleSessionIds = computed(() => [...new Set(eligibleWorkflowCards.value
-  .filter(card => card.eligible).flatMap(card => card.runningSessionIds))]);
-const eligibleCommandSessionIds = computed(() => [...new Set(eligibleWorkflowCards.value
-  .filter(card => card.eligible).flatMap(card => card.memberIds))]);
+};
+const eligibleIdsFor = key => [...new Set(eligibleWorkflowCards.value
+  .filter(card => card.eligible)
+  .flatMap(card => card[key]))];
+const eligibleWorkflowCards = computed(() => filteredGroupedSessions.value
+  .map(({ parent }) => workflowCardFromGroup({ parent })));
+const eligibleSessionIds = computed(() => eligibleIdsFor('runningSessionIds'));
+const eligibleCommandSessionIds = computed(() => eligibleIdsFor('memberIds'));
 
 useRunningSessionSubscriptions(eligibleSessionIds);
 

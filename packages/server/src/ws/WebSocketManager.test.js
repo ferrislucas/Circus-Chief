@@ -483,6 +483,32 @@ describe('WebSocketManager', () => {
     });
   });
 
+  describe('broadcastToSessionAndProject', () => {
+    it('delivers one frame to each client in the union of session and project subscribers', async () => {
+      manager.init(server);
+
+      const dualScopeClient = await connectClient();
+      const sessionClient = await connectClient();
+      const projectClient = await connectClient();
+      dualScopeClient.send(createMessage(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId: 'sess-123' }));
+      dualScopeClient.send(createMessage(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId: 'proj-123' }));
+      sessionClient.send(createMessage(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId: 'sess-123' }));
+      projectClient.send(createMessage(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId: 'proj-123' }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const received = [0, 0, 0];
+      const clients = [dualScopeClient, sessionClient, projectClient];
+      clients.forEach((client, index) => client.on('message', () => { received[index] += 1; }));
+
+      manager.broadcastToSessionAndProject('sess-123', 'proj-123', 'COMMAND_RUN_OUTPUT', { runId: 'run-1' });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(received).toEqual([1, 1, 1]);
+
+      clients.forEach(client => client.close());
+    });
+  });
+
   describe('getServer', () => {
     it('returns null before init', () => {
       expect(manager.getServer()).toBeNull();
