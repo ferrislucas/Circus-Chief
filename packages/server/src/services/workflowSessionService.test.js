@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { kanbanBoards, kanbanCards, kanbanLanes, projects, sessions } from '../database.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { databaseManager, kanbanBoards, kanbanCards, kanbanLanes, projects, sessions } from '../database.js';
 import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
-  getRun, requestOwnWorkCompletion, attachRootSession,
+  getRun, requestOwnWorkCompletion, attachRootSession, reconcileLaneRun,
+  supersedeRunForCard,
 } from './workflowSessionService.js';
 
 describe('workflowSessionService', () => {
@@ -72,5 +73,42 @@ describe('workflowSessionService', () => {
 
     expect(finalizeOwnWorkCompletion(worker.id, token).status).toBe('succeeded');
     expect(kanbanCards.getById(card.id).activeLaneRunId).toBeNull();
+  });
+
+  it('fails a run without moving its card when a participating member permanently fails', () => {
+    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    attachRootSession(run.id, worker.id);
+    databaseManager.get().prepare("UPDATE sessions SET own_work_state='closed_failed', workflow_reason=? WHERE id=?")
+      .run('permanent provider error', worker.id);
+
+    expect(reconcileLaneRun(run.id).status).toBe('failed');
+    expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+  });
+
+  it.todo('wires execution failures and cancellations into closed_failed/cancelled before structured lanes are enabled');
+
+  it('documents that the dormant structured transition does not start target-lane work', () => {
+    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    attachRootSession(run.id, worker.id);
+    const token = beginWorkflowTurn(worker.id);
+    requestOwnWorkCompletion(worker.id, token, 'request-1');
+
+    expect(finalizeOwnWorkCompletion(worker.id, token).status).toBe('succeeded');
+    expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
+    const sessionRows = databaseManager.get().prepare('SELECT id FROM sessions ORDER BY id').all();
+    expect(sessionRows.map(({ id }) => id)).toEqual(expect.arrayContaining([root.id, worker.id]));
+    expect(sessionRows).toHaveLength(2);
+  });
+
+  it('does not open a transaction when superseding a legacy card without an active run', () => {
+    const transaction = vi.spyOn(databaseManager, 'transaction');
+    try {
+      expect(supersedeRunForCard(card.id)).toBeNull();
+      expect(transaction).not.toHaveBeenCalled();
+    } finally {
+      transaction.mockRestore();
+    }
   });
 });

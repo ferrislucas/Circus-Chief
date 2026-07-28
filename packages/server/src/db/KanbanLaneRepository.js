@@ -2,7 +2,8 @@ import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 
 // The durable workflow engine is intentionally dormant until its agent token,
-// transition broadcast, and target-lane automation pieces are complete.
+// own-work failure/cancellation propagation, transition broadcast, target-lane
+// sort ordering, and target-lane automation pieces are complete.
 export const STRUCTURED_LANE_RUNS_ENABLED = false;
 
 function assertSupportedCompletionMode(mode) {

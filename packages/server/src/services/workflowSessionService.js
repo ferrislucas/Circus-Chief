@@ -117,6 +117,10 @@ export function finalizeOwnWorkCompletion(sessionId, turnToken) {
   });
 }
 
+// TODO(structured-lane-runs): Wire permanent execution failures and user
+// cancellations into closed_failed/cancelled before enabling structured lanes.
+// Until then, the reconciliation branches below are deliberately fenced by
+// STRUCTURED_LANE_RUNS_ENABLED and are covered as dormant semantics.
 export function reconcileLaneRun(runId) {
   const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
   if (!run || run.status !== 'open') return getRun(runId);
@@ -134,6 +138,10 @@ export function reconcileLaneRun(runId) {
 }
 
 export function attemptLaneRunTransition(runId) {
+  // TODO(structured-lane-runs): Before enabling this path, route this through
+  // moveCard so it broadcasts KANBAN_CARD_MOVED, assigns target-lane
+  // sort_order, and starts target-lane on-enter automation exactly once.
+  // See STRUCTURED_LANE_RUNS_ENABLED for the complete activation checklist.
   const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
   if (!run || run.status !== 'open') return getRun(runId);
   const card = db.prepare('SELECT * FROM kanban_cards WHERE id=?').get(run.card_id);
@@ -150,6 +158,13 @@ export function attemptLaneRunTransition(runId) {
 }
 
 export function supersedeRunForCard(cardId, reason = 'manual_move') {
+  // Legacy cards never participate in lane runs. Keep their move hot path
+  // read-only instead of opening a transaction merely to discover that fact.
+  const activeLaneRun = databaseManager.get()
+    .prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?')
+    .get(cardId)?.active_lane_run_id;
+  if (!activeLaneRun) return null;
+
   return databaseManager.transaction(() => {
     const db = databaseManager.get(); const card = db.prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?').get(cardId);
     if (!card?.active_lane_run_id) return null; const time = now();
