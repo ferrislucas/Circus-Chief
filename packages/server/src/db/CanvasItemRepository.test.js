@@ -873,4 +873,52 @@ describe('CanvasItemRepository', () => {
       });
     });
   });
+
+  describe('trashAllActiveVersionsByFilename', () => {
+    it('moves every active version to trash and returns their IDs', () => {
+      const v1 = repo.create(sessionId, { type: 'text', content: 'one', filename: 'report.md' });
+      const v2 = repo.create(sessionId, { type: 'text', content: 'two', filename: 'report.md' });
+      const v3 = repo.create(sessionId, { type: 'text', content: 'three', filename: 'report.md' });
+
+      const result = repo.trashAllActiveVersionsByFilename(sessionId, 'report.md');
+
+      expect(result.trashedCount).toBe(3);
+      expect(result.trashedIds).toHaveLength(3);
+      expect(result.trashedIds).toEqual(expect.arrayContaining([v1.id, v2.id, v3.id]));
+      expect(repo.getAllVersionsByFilename(sessionId, 'report.md')).toEqual([]);
+      expect(repo.getDeletedBySessionId(sessionId).map(item => item.id)).toEqual(expect.arrayContaining(result.trashedIds));
+    });
+
+    it('leaves already trashed versions and other exact-name scopes unchanged', () => {
+      const active = repo.create(sessionId, { type: 'text', filename: 'report.md' });
+      const alreadyTrashed = repo.create(sessionId, { type: 'text', filename: 'report.md' });
+      repo.softDelete(alreadyTrashed.id);
+      const differentName = repo.create(sessionId, { type: 'text', filename: 'report.pdf' });
+
+      const otherProject = projectRepo.create('Other Project', '/tmp/other');
+      const otherSessionId = databaseManager.generateId();
+      const now = Date.now();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(otherSessionId, otherProject.id, 'Other Session', 'running', 'standard', now, now);
+      const otherSessionItem = repo.create(otherSessionId, { type: 'text', filename: 'report.md' });
+
+      expect(repo.trashAllActiveVersionsByFilename(sessionId, 'report.md')).toEqual({
+        trashedIds: [active.id],
+        trashedCount: 1,
+      });
+      expect(repo.getById(alreadyTrashed.id).deletedAt).not.toBeNull();
+      expect(repo.getById(differentName.id).deletedAt).toBeNull();
+      expect(repo.getById(otherSessionItem.id).deletedAt).toBeNull();
+    });
+
+    it('returns a zero count when the filename is absent or already fully trashed', () => {
+      const item = repo.create(sessionId, { type: 'text', filename: 'gone.md' });
+      repo.softDelete(item.id);
+
+      expect(repo.trashAllActiveVersionsByFilename(sessionId, 'missing.md')).toEqual({ trashedIds: [], trashedCount: 0 });
+      expect(repo.trashAllActiveVersionsByFilename(sessionId, 'gone.md')).toEqual({ trashedIds: [], trashedCount: 0 });
+      expect(repo.getById(item.id).deletedAt).not.toBeNull();
+    });
+  });
 });

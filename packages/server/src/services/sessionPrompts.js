@@ -238,7 +238,23 @@ If you need to access an earlier version of a file:
 curl ${canvasUrl}/canvas/file/{filename}/history/{version}
 \`\`\`
 
-Where version 1 = oldest, and higher numbers are newer versions.`;
+Where version 1 = oldest, and higher numbers are newer versions.
+
+### Deleting a Canvas File
+
+To move **all active versions** of a named file to recoverable canvas trash:
+
+\`\`\`bash
+curl -X DELETE ${canvasUrl}/canvas/file/{url-encoded-filename}
+\`\`\`
+
+For example, delete \`quarterly report #1.md\` with:
+
+\`\`\`bash
+curl -X DELETE ${canvasUrl}/canvas/file/quarterly%20report%20%231.md
+\`\`\`
+
+Response: \`{ filename, trashedCount }\`. The operation moves every active version of that exact filename to canvas trash, where it can be recovered; it does not permanently delete the file.`;
 }
 
 /**
