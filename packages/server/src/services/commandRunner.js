@@ -24,9 +24,10 @@ export function wrapCommandForPlatform(command, currentPlatform = osModule.platf
  * Service for running commands and managing their execution
  */
 export class CommandRunner {
-  constructor() {
-    this.processes = new Map(); // runId -> { process, timeout, outputBuffer, lastDbWrite }
-    this.outputBufferFlushInterval = 500; // Flush buffered output every 500ms
+  constructor({ outputBroadcastInterval = 250, outputDbFlushInterval = 500 } = {}) {
+    this.processes = new Map();
+    this.outputBroadcastInterval = outputBroadcastInterval;
+    this.outputBufferFlushInterval = outputDbFlushInterval;
   }
 
   /**
@@ -52,9 +53,12 @@ export class CommandRunner {
       sessionId,
       buttonId,
       output: '',
-      outputBuffer: '',
+      dbOutputBuffer: '',
+      broadcastOutputBuffer: '',
       lastDbWrite: Date.now(),
       bufferFlushTimer: null,
+      broadcastFlushTimer: null,
+      finalized: false,
       outputProcessor: new TerminalOutputProcessor(),
     };
   }
@@ -64,15 +68,38 @@ export class CommandRunner {
    */
   #flushOutputBuffer(entryInput, runId) {
     const entry = entryInput;
-    if (!entry.outputBuffer || !entry.sessionId || !entry.buttonId) return;
+    if (!entry.dbOutputBuffer || !entry.sessionId || !entry.buttonId) return;
     if (!commandRuns || typeof commandRuns.appendOutput !== 'function') return;
     try {
-      commandRuns.appendOutput(runId, entry.outputBuffer);
+      commandRuns.appendOutput(runId, entry.dbOutputBuffer);
       entry.lastDbWrite = Date.now();
     } catch (err) {
       console.warn(`[commandRunner.run] Warning: Error flushing output to database for runId: ${runId}`, err.message);
     }
-    entry.outputBuffer = '';
+    entry.dbOutputBuffer = '';
+  }
+
+  #flushBroadcastOutput(entry, onOutput) {
+    if (!entry.broadcastOutputBuffer) return;
+    const output = entry.broadcastOutputBuffer;
+    entry.broadcastOutputBuffer = '';
+    try { onOutput?.(output); } catch (err) {
+      console.warn('[commandRunner.run] Output callback failed:', err.message);
+    }
+  }
+
+  #appendOutput(entry, text) {
+    if (!text) return;
+    entry.output += text;
+    entry.dbOutputBuffer += text;
+    entry.broadcastOutputBuffer += text;
+  }
+
+  #clearFlushTimers(entry) {
+    if (entry.bufferFlushTimer) clearInterval(entry.bufferFlushTimer);
+    if (entry.broadcastFlushTimer) clearInterval(entry.broadcastFlushTimer);
+    entry.bufferFlushTimer = null;
+    entry.broadcastFlushTimer = null;
   }
 
   /**
@@ -80,13 +107,14 @@ export class CommandRunner {
    * @param {{ entry: object, runId: string, exitCode: number|null, signal: string|null }} ctx
    * @param {function|undefined} onComplete - Completion callback
    */
-  #handleProcessClose(ctx, onComplete) {
+  #handleProcessClose(ctx, onComplete, onOutput) {
     const { entry, runId, exitCode, signal } = ctx;
+    if (entry.finalized) return exitCode ?? 1;
+    entry.finalized = true;
+    this.#clearFlushTimers(entry);
     const remainingText = entry.outputProcessor.flush();
-    if (remainingText) {
-      entry.output += remainingText;
-      entry.outputBuffer += remainingText;
-    }
+    this.#appendOutput(entry, remainingText);
+    this.#flushBroadcastOutput(entry, onOutput);
     this.#flushOutputBuffer(entry, runId);
     console.log(`[commandRunner.run] Process closed for runId: ${runId}, exitCode: ${exitCode}, signal: ${signal}`);
 
@@ -110,12 +138,15 @@ export class CommandRunner {
   }
 
   /** Handle a run failure (process error or setup exception). Flushes output, marks failed, resolves. */
-  #handleRunFailure({ entry: entryParam, runId, err, onError, resolve }) {
+  #handleRunFailure({ entry: entryParam, runId, err, onError, onOutput, resolve }) {
     const entry = entryParam;
     let errorOutput = `[Error] Failed to execute command: ${err.message}`;
     if (entry) {
-      const remaining = entry.outputProcessor.flush();
-      if (remaining) { entry.output += remaining; entry.outputBuffer += remaining; }
+      if (entry.finalized) return;
+      entry.finalized = true;
+      this.#clearFlushTimers(entry);
+      this.#appendOutput(entry, entry.outputProcessor.flush());
+      this.#flushBroadcastOutput(entry, onOutput);
       this.#flushOutputBuffer(entry, runId);
       errorOutput = entry.output;
     }
@@ -150,20 +181,16 @@ export class CommandRunner {
         const entry = this.#createProcessEntry(child, sessionId, buttonId);
         this.processes.set(runId, entry);
 
-        const clearBufferTimer = () => {
-          if (entry.bufferFlushTimer) {
-            clearInterval(entry.bufferFlushTimer);
-            entry.bufferFlushTimer = null;
-          }
-        };
         entry.bufferFlushTimer = setInterval(() => this.#flushOutputBuffer(entry, runId), this.outputBufferFlushInterval);
+        entry.broadcastFlushTimer = setInterval(
+          () => this.#flushBroadcastOutput(entry, onOutput),
+          this.outputBroadcastInterval,
+        );
 
         const handleData = (data) => {
           const text = entry.outputProcessor.process(data.toString());
           if (text) {
-            entry.output += text;
-            entry.outputBuffer += text;
-            if (onOutput) onOutput(text);
+            this.#appendOutput(entry, text);
           }
         };
 
@@ -171,22 +198,14 @@ export class CommandRunner {
         child.stderr.on('data', handleData);
 
         child.on('error', (err) => {
-          clearBufferTimer();
-          this.#handleRunFailure({ entry, runId, err, onError, resolve });
+          this.#handleRunFailure({ entry, runId, err, onError, onOutput, resolve });
         });
 
         child.on('close', (exitCode, signal) => {
-          clearBufferTimer();
-          const remainingText = entry.outputProcessor.flush();
-          if (remainingText) {
-            entry.output += remainingText;
-            entry.outputBuffer += remainingText;
-            if (onOutput) onOutput(remainingText);
-          }
-          resolve(this.#handleProcessClose({ entry, runId, exitCode, signal }, onComplete));
+          resolve(this.#handleProcessClose({ entry, runId, exitCode, signal }, onComplete, onOutput));
         });
       } catch (err) {
-        this.#handleRunFailure({ entry: null, runId, err, onError, resolve });
+        this.#handleRunFailure({ entry: null, runId, err, onError, onOutput, resolve });
       }
     });
   }
@@ -221,24 +240,7 @@ export class CommandRunner {
         }
       }, 1000);
 
-      // Flush any remaining output (database mark as killed will be done in close event)
-      if (entry.bufferFlushTimer) {
-        clearInterval(entry.bufferFlushTimer);
-        entry.bufferFlushTimer = null;
-      }
-      if (entry.outputBuffer && commandRuns && typeof commandRuns.appendOutput === 'function') {
-        try {
-          commandRuns.appendOutput(runId, entry.outputBuffer);
-          entry.outputBuffer = '';
-        } catch (err) {
-          console.warn(
-            `[commandRunner.kill] Warning: Error flushing output to database for runId: ${runId}`,
-            err.message
-          );
-        }
-      }
-      // Note: We don't mark as killed here because the close event will handle it
-      // This is to avoid race conditions where we mark it killed before the process actually closes
+      // The close event is the sole finalization path; it drains both buffers.
 
       return true;
     } catch (err) {

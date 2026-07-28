@@ -221,6 +221,7 @@
             @retry-summary="retryFetchSummary"
             @archive="handleArchive"
             @add-to-board="handleAddToBoard"
+            @visibility-change="handleCardVisibility"
           />
         </template>
       </div>
@@ -319,8 +320,6 @@ const sessionsStore = useSessionsStore();
 const kanbanStore = useKanbanStore();
 const streamingStore = useSessionStreamingStore();
 
-// Auto-subscribe to all running sessions' WebSocket streams for live output
-useRunningSessionSubscriptions();
 streamingStore.restoreCollapsedLogState();
 
 // Compute activeTab from route name
@@ -367,12 +366,46 @@ const {
 // Use composable for filtering (provides filteredGroupedSessions + filter toggles)
 const { filteredGroupedSessions } = useSessionFiltering();
 
+// A workflow is eligible only while the card is rendered, expanded, and in the
+// observer's prefetch margin. Keep this policy here so subscriptions stay pure.
+const cardVisibilityByRootId = ref({});
+const eligibleWorkflowCards = computed(() => filteredGroupedSessions.value.map(({ parent }) => {
+  const rootSessionId = parent.id;
+  const members = sessionsStore.getWorkflowSessions(rootSessionId);
+  const runningSessionIds = members.filter(s => ['running', 'starting'].includes(s.status)).map(s => s.id);
+  return {
+    rootSessionId,
+    runningSessionIds,
+    memberIds: members.map(s => s.id),
+    eligible: activeTab.value === 'sessions'
+      && cardVisibilityByRootId.value[rootSessionId] !== false
+      && !streamingStore.isSessionLogCollapsed(rootSessionId),
+  };
+}));
+const eligibleSessionIds = computed(() => [...new Set(eligibleWorkflowCards.value
+  .filter(card => card.eligible).flatMap(card => card.runningSessionIds))]);
+const eligibleCommandSessionIds = computed(() => [...new Set(eligibleWorkflowCards.value
+  .filter(card => card.eligible).flatMap(card => card.memberIds))]);
+
+useRunningSessionSubscriptions(eligibleSessionIds);
+
+function handleCardVisibility(rootSessionId, visible) {
+  cardVisibilityByRootId.value[rootSessionId] = visible;
+}
+
+watch(filteredGroupedSessions, groups => {
+  const rendered = new Set(groups.map(group => group.parent.id));
+  for (const id of Object.keys(cardVisibilityByRootId.value)) {
+    if (!rendered.has(id)) delete cardVisibilityByRootId.value[id];
+  }
+}, { immediate: true });
+
 // Use composable for WebSocket subscription management
 const { archivedLoaded } = useProjectSessionSubscription(projectId, {
   fetchSummariesBatch,
   updateSummary,
   cleanupSummary,
-});
+}, { activeTab, eligibleCommandSessionIds });
 
 // Watch for sessions changes and fetch summaries (debounced to avoid burst of API calls
 // when multiple WebSocket updates arrive in quick succession)

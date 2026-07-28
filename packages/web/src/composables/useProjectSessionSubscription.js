@@ -24,7 +24,7 @@ let subscriptionRunId = 0;
  * @param {Function} summaryCallbacks.updateSummary - Update a single summary (e.g., from WebSocket)
  * @param {Function} summaryCallbacks.cleanupSummary - Clean up summary data for a deleted session
  */
-export function useProjectSessionSubscription(projectId, summaryCallbacks) {
+export function useProjectSessionSubscription(projectId, summaryCallbacks, streamingScope = {}) {
   const projectsStore = useProjectsStore();
   const sessionsStore = useSessionsStore();
   const commandButtonsStore = useCommandButtonsStore();
@@ -38,6 +38,9 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
    * Extracted to avoid excessive callback nesting inside the watch handler.
    */
   function handleCommandRunOutput(runId, sessionId, buttonId, output) {
+    const tab = streamingScope.activeTab?.value;
+    const eligibleIds = streamingScope.eligibleCommandSessionIds?.value;
+    if (tab && !(tab === 'commands' || (tab === 'sessions' && (eligibleIds || []).includes(sessionId)))) return;
     const existingRun = commandButtonsStore.runs[runId];
     const sessions = sessionsStore.sessions;
     const storeSession = sessions.find(s => s.id === sessionId);
