@@ -16,6 +16,10 @@ function audit(db, runId, type, { sessionId = null, details = null } = {}) {
     .run(id(), runId, sessionId, type, details ? JSON.stringify(details) : null, now());
 }
 
+function isParticipating(session) {
+  return Boolean(session?.lane_run_id);
+}
+
 export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, cause = 'card_added', priorLaneRunId = null }) {
   if (lane.completionMode === 'legacy') return null;
   return databaseManager.transaction(() => {
@@ -31,20 +35,49 @@ export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, ca
        completion_target_lane_id,completion_mode,root_session_id,status,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,'open',?,?)`)
       .run(runId, eventId, priorLaneRunId, projectId, workspaceId, cardId, lane.id,
-        lane.completionTargetLaneId, lane.completionMode, workspaceId, time, time);
+        lane.completionTargetLaneId, lane.completionMode, null, time, time);
     db.prepare(`UPDATE kanban_cards SET active_lane_run_id=?, lane_entry_event_id=?, updated_at=? WHERE id=?`)
       .run(runId, eventId, time, cardId);
+    audit(db, runId, 'run_created', { details: { cause, laneId: lane.id } });
+    return getRun(runId);
+  });
+}
+
+/** Attach the actual on-entry worker as a lane run's root exactly once. */
+export function attachRootSession(runId, sessionId) {
+  return databaseManager.transaction(() => {
+    const db = databaseManager.get();
+    const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
+    const session = db.prepare('SELECT * FROM sessions WHERE id=?').get(sessionId);
+    if (!run || run.status !== 'open') throw new Error('Cannot attach a root to a terminal lane run');
+    const belongsToWorkspace = session && db.prepare(`WITH RECURSIVE ancestors(id, parent_session_id) AS (
+      SELECT id, parent_session_id FROM sessions WHERE id=?
+      UNION ALL
+      SELECT s.id, s.parent_session_id FROM sessions s JOIN ancestors a ON a.parent_session_id=s.id
+    ) SELECT 1 FROM ancestors WHERE id=?`).get(sessionId, run.workspace_id);
+    if (!session || !belongsToWorkspace || session.id === run.workspace_id || session.project_id !== run.project_id) {
+      throw new Error('Lane run root must be an on-entry child in the same project');
+    }
+    if (run.root_session_id && run.root_session_id !== sessionId) {
+      throw new Error('Lane run already has a different root session');
+    }
+    const time = now();
+    db.prepare(`UPDATE kanban_lane_runs SET root_session_id=?, updated_at=? WHERE id=? AND root_session_id IS NULL`)
+      .run(sessionId, time, runId);
     db.prepare(`UPDATE sessions SET lane_run_id=?, own_work_state='open', workflow_updated_at=?, workflow_reason=NULL
-      WHERE id=?`).run(runId, time, workspaceId);
-    audit(db, runId, 'run_created', { sessionId: workspaceId, details: { cause, laneId: lane.id } });
+      WHERE id=?`).run(runId, time, sessionId);
+    audit(db, runId, 'root_session_attached', { sessionId });
     return getRun(runId);
   });
 }
 
 export function beginWorkflowTurn(sessionId) {
+  // Most executions are unrelated to lane runs. Avoid opening a transaction
+  // for those hot-path sessions; the transaction below still re-reads state.
+  if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return null;
   return databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare('SELECT * FROM sessions WHERE id=?').get(sessionId);
-    if (!s?.lane_run_id || s.own_work_state !== 'open') return null;
+    if (!isParticipating(s) || s.own_work_state !== 'open') return null;
     const token = id(); const time = now();
     db.prepare(`UPDATE sessions SET workflow_turn_token=?, completion_requested_turn_token=NULL,
       completion_request_key=NULL, completion_requested_at=NULL, workflow_updated_at=? WHERE id=?`).run(token, time, sessionId);
@@ -69,9 +102,10 @@ export function requestOwnWorkCompletion(sessionId, turnToken, requestKey) {
 }
 
 export function finalizeOwnWorkCompletion(sessionId, turnToken) {
+  if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return null;
   return databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare('SELECT * FROM sessions WHERE id=?').get(sessionId);
-    if (!s?.lane_run_id || s.own_work_state !== 'open') return null;
+    if (!isParticipating(s) || s.own_work_state !== 'open') return null;
     if (s.workflow_turn_token !== turnToken || s.completion_requested_turn_token !== turnToken) return null;
     // A future schedule is an explicit continuation obligation, never success.
     if (s.scheduled_at || s.pending_prompt) return null;
@@ -109,6 +143,8 @@ export function attemptLaneRunTransition(runId) {
     .run(time, time, time, runId);
   if (run.completion_mode === 'structured' && run.completion_target_lane_id) {
     db.prepare('UPDATE kanban_cards SET lane_id=?, active_lane_run_id=NULL, updated_at=? WHERE id=?').run(run.completion_target_lane_id, time, card.id);
+  } else {
+    db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=? WHERE id=?').run(time, card.id);
   }
   audit(db, runId, 'transition_applied'); return getRun(runId);
 }

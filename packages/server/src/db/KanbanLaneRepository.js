@@ -1,6 +1,16 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 
+// The durable workflow engine is intentionally dormant until its agent token,
+// transition broadcast, and target-lane automation pieces are complete.
+export const STRUCTURED_LANE_RUNS_ENABLED = false;
+
+function assertSupportedCompletionMode(mode) {
+  if (mode && mode !== 'legacy' && !STRUCTURED_LANE_RUNS_ENABLED) {
+    throw new Error('Structured lane completion is not enabled yet');
+  }
+}
+
 /**
  * Convert a boolean value to SQLite integer (1/0) or null.
  * @param {boolean|null|undefined} value
@@ -122,6 +132,7 @@ export class KanbanLaneRepository extends BaseRepository {
    * @returns {Object}
    */
   create(boardId, data) {
+    assertSupportedCompletionMode(data.completionMode);
     const id = databaseManager.generateId();
     const now = Date.now();
     const sortOrder = this.#resolveSortOrder(boardId, data.sortOrder);
@@ -172,6 +183,7 @@ export class KanbanLaneRepository extends BaseRepository {
    * @returns {Object}
    */
   update(id, data) {
+    assertSupportedCompletionMode(data.completionMode);
     // Field mapping: camelCase -> snake_case
     const fieldMap = {
       name: 'name',

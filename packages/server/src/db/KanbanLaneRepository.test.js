@@ -108,6 +108,12 @@ describe('KanbanLaneRepository', () => {
   });
 
   describe('update', () => {
+    it('rejects structured completion while the workflow engine is disabled', () => {
+      const lane = laneRepo.create(boardId, { name: 'Incomplete workflow' });
+      expect(() => laneRepo.update(lane.id, { completionMode: 'structured' }))
+        .toThrow('Structured lane completion is not enabled yet');
+    });
+
     it('updates lane name', () => {
       const lane = laneRepo.create(boardId, { name: 'Original' });
       const updated = laneRepo.update(lane.id, { name: 'Updated' });

@@ -48,7 +48,7 @@ export const CreateWorkspaceRequest = WorkspaceSessionFields;
  */
 export const CreateWorkspaceSessionRequest = WorkspaceSessionFields.extend({
   parentSessionId: z.string().uuid(),
-  afterSessionId: z.any().optional(),
+  afterSessionId: z.unknown().optional(),
 }).refine((body) => !('afterSessionId' in body), {
   message: 'afterSessionId is no longer supported; use parentSessionId',
   path: ['afterSessionId'],

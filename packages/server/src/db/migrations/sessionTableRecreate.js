@@ -9,6 +9,19 @@ const TABLE_SESSIONS = 'sessions';
 const SESSIONS_TARGET_MODE_DEFAULT = "'yolo'";
 const SESSIONS_TARGET_THINKING_ENABLED_DEFAULT = '1';
 
+// Keep table recreation in lockstep with schema.sql. SQLite drops a table's
+// indexes during recreation, so every sessions index must be restored here.
+export const SESSIONS_INDEX_DDL = [
+  'CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id)',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived)',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_starred ON sessions(archived, starred)',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_next_template ON sessions(next_template_id)',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id)',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_scheduled ON sessions(scheduled_at) WHERE scheduled_at IS NOT NULL',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_lane_run ON sessions(lane_run_id)',
+];
+
 /**
  * SQL column definitions for the sessions table with current defaults.
  */
@@ -110,13 +123,7 @@ export function recreateSessionsTable(db, columnsSql, allColumnNames) {
       SELECT ${selectColumns} FROM sessions;
       DROP TABLE sessions;
       ALTER TABLE sessions_new RENAME TO sessions;
-      CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
-      CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
-      CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived);
-      CREATE INDEX IF NOT EXISTS idx_sessions_starred ON sessions(archived, starred);
-      CREATE INDEX IF NOT EXISTS idx_sessions_next_template ON sessions(next_template_id);
-      CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
-      CREATE INDEX IF NOT EXISTS idx_sessions_scheduled ON sessions(scheduled_at) WHERE scheduled_at IS NOT NULL;
+      ${SESSIONS_INDEX_DDL.join(';\n      ')};
     `);
 
     const foreignKeyViolations = db.pragma('foreign_key_check');

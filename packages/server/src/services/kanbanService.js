@@ -8,39 +8,8 @@ import {
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
-import { createLaneRunForEntry, supersedeRunForCard, getRun } from './workflowSessionService.js';
-
-/**
- * Helper to build full board response with lanes and cards
- */
-function buildFullBoardResponse(board) {
-  if (!board) return null;
-
-  const lanes = kanbanLanes.getByBoardId(board.id);
-  const allCards = kanbanCards.getByBoardId(board.id);
-
-  // Group cards by lane
-  const cardsByLane = {};
-  for (const lane of lanes) {
-    cardsByLane[lane.id] = [];
-  }
-  for (const card of allCards) {
-    if (cardsByLane[card.laneId]) {
-      cardsByLane[card.laneId].push(card);
-    }
-  }
-
-  return {
-    id: board.id,
-    projectId: board.projectId,
-    lanes: lanes.map((lane) => ({
-      ...lane,
-      cards: (cardsByLane[lane.id] || []).map(card => ({ ...card, activeLaneRun: card.activeLaneRunId ? getRun(card.activeLaneRunId) : null })),
-    })),
-    createdAt: board.createdAt,
-    updatedAt: board.updatedAt,
-  };
-}
+import { createLaneRunForEntry, supersedeRunForCard } from './workflowSessionService.js';
+import { buildFullBoardResponse } from './kanbanBoardResponse.js';
 
 /**
  * Get the full board with all lanes and cards for a project.
@@ -71,7 +40,7 @@ function resolveWorkspaceId(sessionId) {
 }
 
 async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
-  const { runOnEnterTemplate = true, depth = 0 } = options;
+  const { runOnEnterTemplate = true, depth = 0, laneRunId = null } = options;
 
   if (!runOnEnterTemplate) {
     return;
@@ -79,9 +48,9 @@ async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
 
   const lane = kanbanLanes.getByIdWithTemplate(laneId);
   if (lane?.onEnterTemplateId) {
-    await triggerOnEnterTemplate(sessionId, lane, { depth });
+    await triggerOnEnterTemplate(sessionId, lane, { depth, laneRunId });
   } else if (lane?.onEnterPrompt) {
-    await triggerOnEnterPrompt(sessionId, lane, { depth });
+    await triggerOnEnterPrompt(sessionId, lane, { depth, laneRunId });
   }
 }
 
@@ -115,9 +84,9 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
   const rootSession = sessions.getById(workspaceId);
   if (rootSession) {
     const lane = kanbanLanes.getById(laneId);
-    if (lane?.completionMode && lane.completionMode !== 'legacy') {
-      createLaneRunForEntry({ projectId: rootSession.projectId, workspaceId, cardId: card.id, lane });
-    }
+    const laneRun = lane?.completionMode && lane.completionMode !== 'legacy'
+      ? createLaneRunForEntry({ projectId: rootSession.projectId, workspaceId, cardId: card.id, lane })
+      : null;
     broadcastToProject(rootSession.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_ADDED, {
       projectId: rootSession.projectId,
       card,
@@ -130,6 +99,7 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
     await triggerLaneEntryAutomation(workspaceId, laneId, {
       runOnEnterTemplate,
       depth: depth || rootDepth,
+      laneRunId: laneRun?.id,
     });
   }
 
@@ -170,9 +140,9 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
 
   if (session) {
     const lane = kanbanLanes.getById(targetLaneId);
-    if (lane?.completionMode && lane.completionMode !== 'legacy') {
-      createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause: 'manual_move' });
-    }
+    const laneRun = lane?.completionMode && lane.completionMode !== 'legacy'
+      ? createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause: 'manual_move' })
+      : null;
     broadcastToProject(session.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
       projectId: session.projectId,
       cardId,
@@ -181,7 +151,7 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
       card: movedCard,
     });
 
-    await triggerLaneEntryAutomation(sessionId, targetLaneId, { runOnEnterTemplate, depth });
+    await triggerLaneEntryAutomation(sessionId, targetLaneId, { runOnEnterTemplate, depth, laneRunId: laneRun?.id });
   }
 
   return movedCard;
