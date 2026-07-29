@@ -105,13 +105,31 @@ describe('KanbanLaneRepository', () => {
 
       expect(lane.completionTargetLaneId).toBeNull();
     });
+
+    it('creates a lane with structured completion mode (W2: activation no longer gated)', () => {
+      const lane = laneRepo.create(boardId, { name: 'Structured Lane', completionMode: 'structured' });
+
+      expect(lane.completionMode).toBe('structured');
+    });
+
+    it('defaults completionMode to legacy when omitted', () => {
+      const lane = laneRepo.create(boardId, { name: 'Plain Lane' });
+
+      expect(lane.completionMode).toBe('legacy');
+    });
   });
 
   describe('update', () => {
-    it('rejects structured completion while the workflow engine is disabled', () => {
-      const lane = laneRepo.create(boardId, { name: 'Incomplete workflow' });
-      expect(() => laneRepo.update(lane.id, { completionMode: 'structured' }))
-        .toThrow('Structured lane completion is not enabled yet');
+    it('persists structured completion mode (W2: activation no longer gated)', () => {
+      const lane = laneRepo.create(boardId, { name: 'Workflow lane' });
+      const updated = laneRepo.update(lane.id, { completionMode: 'structured' });
+      expect(updated.completionMode).toBe('structured');
+    });
+
+    it('persists shadow completion mode', () => {
+      const lane = laneRepo.create(boardId, { name: 'Shadow lane' });
+      const updated = laneRepo.update(lane.id, { completionMode: 'shadow' });
+      expect(updated.completionMode).toBe('shadow');
     });
 
     it('updates lane name', () => {

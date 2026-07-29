@@ -78,6 +78,8 @@ export const SESSIONS_ALL_CURRENT_COLUMNS = `
     own_work_closed_at INTEGER,
     workflow_updated_at INTEGER,
     workflow_reason TEXT,
+    execution_state TEXT NOT NULL DEFAULT 'idle',
+    subtree_outcome TEXT NOT NULL DEFAULT 'open',
     created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
     updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 `;
@@ -98,7 +100,7 @@ export const SESSIONS_ALL_CURRENT_COLUMN_NAMES = [
   'lane_run_id', 'own_work_state', 'workflow_turn_token',
   'completion_requested_turn_token', 'completion_request_key',
   'completion_requested_at', 'own_work_closed_at', 'workflow_updated_at',
-  'workflow_reason',
+  'workflow_reason', 'execution_state', 'subtree_outcome',
 ];
 
 /**

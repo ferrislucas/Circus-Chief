@@ -138,6 +138,20 @@ describe('SessionRepository', () => {
       expect(session.starred).toBe(false);
     });
 
+    it('exposes executionState and subtreeOutcome as lifecycle dimensions independent of ownWorkState', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+
+      // FR-5: a freshly created, non-participating session has no workflow
+      // obligation (ownWorkState defaults to 'open' for historical reasons,
+      // but it is not blocking since laneRunId is null). executionState and
+      // subtreeOutcome are distinct fields, not derived from ownWorkState.
+      expect(session.executionState).toBe('idle');
+      expect(session.subtreeOutcome).toBe('open');
+      expect(session.ownWorkState).toBe('open');
+      expect(session).toHaveProperty('executionState');
+      expect(session).toHaveProperty('subtreeOutcome');
+    });
+
     // New options object signature tests
     describe('options object signature', () => {
       it('creates session with options object containing mode', () => {

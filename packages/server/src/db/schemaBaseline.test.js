@@ -75,6 +75,7 @@ describe('schema baseline', () => {
         'lane_trigger_depth', 'lane_run_id', 'own_work_state', 'workflow_turn_token',
         'completion_requested_turn_token', 'completion_request_key', 'completion_requested_at',
         'own_work_closed_at', 'workflow_updated_at', 'workflow_reason',
+        'execution_state', 'subtree_outcome',
         'created_at', 'updated_at', 'pending_conversation_id',
       ]);
     });
@@ -88,6 +89,10 @@ describe('schema baseline', () => {
       expect(byName.get('reschedule_delay_minutes').dflt_value).toBe(String(DEFAULT_RESCHEDULE_DELAY_MINUTES));
       expect(byName.get('agent_type').dflt_value).toBe("'claude-code'");
       expect(byName.get('pr_url_auto_link_disabled').dflt_value).toBe('0');
+      // FR-5: execution_state and subtree_outcome are independent of
+      // own_work_state and must default to their "not yet obligated" values.
+      expect(byName.get('execution_state').dflt_value).toBe("'idle'");
+      expect(byName.get('subtree_outcome').dflt_value).toBe("'open'");
     });
   });
 

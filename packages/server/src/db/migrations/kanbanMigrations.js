@@ -188,4 +188,17 @@ export const kanbanMigrations = [
       `);
     },
   },
+  {
+    // FR-5: separate lifecycle dimensions. execution_state tracks what the
+    // process is doing right now; subtree_outcome tracks the aggregate
+    // outcome of this session's own work plus every blocking descendant.
+    // Both are independent of own_work_state (which only tracks *this*
+    // session's own obligation). Must run before sessions-immutable-parent_
+    // session_id, whose table recreation copies the complete current shape.
+    name: 'kanban-add-lane-run-execution-state',
+    up(db) {
+      addColumnIfMissing(db, 'sessions', 'execution_state', "TEXT NOT NULL DEFAULT 'idle'");
+      addColumnIfMissing(db, 'sessions', 'subtree_outcome', "TEXT NOT NULL DEFAULT 'open'");
+    },
+  },
 ];

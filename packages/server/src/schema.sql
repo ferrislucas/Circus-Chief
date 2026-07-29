@@ -131,6 +131,13 @@ CREATE TABLE IF NOT EXISTS sessions (
   own_work_closed_at INTEGER,
   workflow_updated_at INTEGER,
   workflow_reason TEXT,
+  -- FR-5 lifecycle dimensions, independent of own_work_state:
+  --   execution_state: what the process is doing right now (queued/starting/
+  --     running/scheduled/retrying/paused/idle/stopped).
+  --   subtree_outcome: the aggregate outcome of this session's own work and
+  --     every blocking descendant (open/succeeded/failed/cancelled).
+  execution_state TEXT NOT NULL DEFAULT 'idle',
+  subtree_outcome TEXT NOT NULL DEFAULT 'open',
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );

@@ -20,6 +20,18 @@ function isParticipating(session) {
   return Boolean(session?.lane_run_id);
 }
 
+/**
+ * True when a lane's completion is governed by the durable lane-run engine
+ * (either `shadow`, which computes outcomes without moving the card, or
+ * `structured`, which also drives the Kanban transition) rather than the
+ * legacy single-session completion signal.
+ * @param {{ completionMode?: string }|null|undefined} lane
+ * @returns {boolean}
+ */
+export function isStructured(lane) {
+  return Boolean(lane?.completionMode && lane.completionMode !== 'legacy');
+}
+
 export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, cause = 'card_added', priorLaneRunId = null }) {
   if (lane.completionMode === 'legacy') return null;
   return databaseManager.transaction(() => {
@@ -117,10 +129,10 @@ export function finalizeOwnWorkCompletion(sessionId, turnToken) {
   });
 }
 
-// TODO(structured-lane-runs): Wire permanent execution failures and user
-// cancellations into closed_failed/cancelled before enabling structured lanes.
-// Until then, the reconciliation branches below are deliberately fenced by
-// STRUCTURED_LANE_RUNS_ENABLED and are covered as dormant semantics.
+// TODO(structured-lane-runs / W4): nothing in the current execution path sets
+// own_work_state to closed_failed/cancelled yet, so the failure/cancellation
+// branches below are exercised only by tests that set that state directly.
+// See sessionExecution.js and sessions-lifecycle.js for the wiring gap.
 export function reconcileLaneRun(runId) {
   const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
   if (!run || run.status !== 'open') return getRun(runId);

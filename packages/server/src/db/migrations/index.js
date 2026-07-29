@@ -325,6 +325,10 @@ export const allMigrations = validateMigrations([
   // copies the complete current sessions shape, including these columns.
   k.get('kanban-add-lane-run-workflow'),
 
+  // --- FR-5 lifecycle dimensions: execution_state + subtree_outcome ---
+  // Also must precede the sessions-table recreation below, for the same reason.
+  k.get('kanban-add-lane-run-execution-state'),
+
   // --- Enforce immutable session parentage (deferred ON DELETE NO ACTION + trigger) ---
   // Must run after repairMissingSessionParentsFromWorktree so that one-time
   // NULL -> value backfill has already happened before the trigger is asserted.
