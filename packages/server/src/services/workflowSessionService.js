@@ -6,6 +6,12 @@
  */
 import crypto from 'crypto';
 import { databaseManager } from '../db/DatabaseManager.js';
+// db/ layer only — safe to import: db/index.js never depends on any
+// services/ module, so this cannot create an import cycle (contrast with
+// kanbanService.js/kanbanTriggers.js — see attemptLaneRunTransition below).
+import { kanbanCards } from '../database.js';
+import { broadcastToProject } from '../websocket.js';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 const now = () => Date.now();
 const id = () => crypto.randomUUID();
@@ -252,24 +258,71 @@ export function reconcileLaneRun(runId) {
   return getRun(runId);
 }
 
+/**
+ * Move the card into its target lane (via the same KanbanCardRepository
+ * method the manual-move path uses) and broadcast KANBAN_CARD_MOVED,
+ * mirroring kanbanService.moveCard's broadcast payload shape. No-op — does
+ * not move or broadcast — when there is no structured target lane (e.g.
+ * `shadow` mode, or `structured` mode with no completionTargetLaneId).
+ * @returns {string|null} The target lane id, or null if nothing moved
+ */
+function moveCardForTransition(db, run, card) {
+  const targetLaneId = (run.completion_mode === 'structured' && run.completion_target_lane_id) ? run.completion_target_lane_id : null;
+  if (!targetLaneId) return null;
+  const movedCard = kanbanCards.moveToLane(card.id, targetLaneId);
+  const projectRow = db.prepare('SELECT project_id FROM sessions WHERE id=?').get(run.workspace_id);
+  if (projectRow) {
+    broadcastToProject(projectRow.project_id, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
+      projectId: projectRow.project_id,
+      cardId: card.id,
+      fromLaneId: card.lane_id,
+      toLaneId: targetLaneId,
+      card: movedCard,
+    });
+  }
+  return targetLaneId;
+}
+
+/**
+ * W6 (FR-8): apply a successful lane run's guarded Kanban transition.
+ *
+ * FR-8 guards are re-checked here, immediately before the mutating UPDATE, so
+ * a stale/superseded run (AC-9) or a card that already moved out from under
+ * this run can never be transitioned. The run-succeeded UPDATE doubles as the
+ * concurrency guard: it is scoped to `WHERE status='open'`, so only the
+ * caller that actually flips the row (winner.changes === 1) proceeds to move
+ * the card — a duplicate/concurrent evaluator is a no-op (AC-12, AC-14).
+ *
+ * This function stays synchronous — it runs inside the same better-sqlite3
+ * transaction as the run-succeeded write — and deliberately has no
+ * dependency on kanbanService.js/kanbanTriggers.js, which both transitively
+ * depend on sessionManager.js -> sessionExecution.js -> this module; pulling
+ * them in here would create an import cycle. Instead, when a target-lane
+ * move actually happened, the necessarily-async remainder (creating the next
+ * lane run and starting its on-enter session) is handed back to the caller
+ * via the returned `pendingTargetLaneTrigger` — see
+ * kanbanService.triggerStructuredTransitionAutomation(), called from
+ * sessionExecution.js right after finalizeOwnWorkCompletion().
+ */
 export function attemptLaneRunTransition(runId) {
-  // TODO(structured-lane-runs): Before enabling this path, route this through
-  // moveCard so it broadcasts KANBAN_CARD_MOVED, assigns target-lane
-  // sort_order, and starts target-lane on-enter automation exactly once.
-  // See STRUCTURED_LANE_RUNS_ENABLED for the complete activation checklist.
   const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
   if (!run || run.status !== 'open') return getRun(runId);
   const card = db.prepare('SELECT * FROM kanban_cards WHERE id=?').get(run.card_id);
   if (!card || card.active_lane_run_id !== runId || card.lane_id !== run.source_lane_id) return getRun(runId);
   const time = now();
-  db.prepare(`UPDATE kanban_lane_runs SET status='succeeded', succeeded_at=?, transition_applied_at=?, updated_at=? WHERE id=? AND status='open'`)
+  const winner = db.prepare(`UPDATE kanban_lane_runs SET status='succeeded', succeeded_at=?, transition_applied_at=?, updated_at=? WHERE id=? AND status='open'`)
     .run(time, time, time, runId);
-  if (run.completion_mode === 'structured' && run.completion_target_lane_id) {
-    db.prepare('UPDATE kanban_cards SET lane_id=?, active_lane_run_id=NULL, updated_at=? WHERE id=?').run(run.completion_target_lane_id, time, card.id);
-  } else {
-    db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=? WHERE id=?').run(time, card.id);
+  if (winner.changes === 0) return getRun(runId);
+
+  const targetLaneId = moveCardForTransition(db, run, card);
+  db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=? WHERE id=?').run(now(), card.id);
+  audit(db, runId, 'transition_applied');
+
+  const result = getRun(runId);
+  if (targetLaneId) {
+    result.pendingTargetLaneTrigger = { workspaceSessionId: run.workspace_id, targetLaneId, cardId: card.id, sourceRunId: runId };
   }
-  audit(db, runId, 'transition_applied'); return getRun(runId);
+  return result;
 }
 
 export function supersedeRunForCard(cardId, reason = 'manual_move') {

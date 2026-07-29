@@ -28,6 +28,7 @@ import {
   projects,
   sessions,
   sessionTemplates,
+  databaseManager,
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { runSession } from './sessionManager.js';
@@ -38,6 +39,7 @@ import {
   moveCard,
   handleCompletionMove,
   removeSessionFromBoard,
+  triggerStructuredTransitionAutomation,
 } from './kanbanService.js';
 
 describe('kanbanService', () => {
@@ -882,6 +884,57 @@ describe('kanbanService', () => {
 
       // Child session should exist (template-triggered), not crash
       expect(childSession.status).toBeDefined();
+    });
+  });
+
+  // ── triggerStructuredTransitionAutomation (W6) ────────────────────────
+
+  describe('triggerStructuredTransitionAutomation', () => {
+    it('starts the target lane on-enter prompt exactly once and links the new run to the source run', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work', completionMode: 'structured' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[0].id, workspace.id);
+
+      await triggerStructuredTransitionAutomation({
+        workspaceSessionId: workspace.id,
+        targetLaneId: lanes[1].id,
+        cardId: card.id,
+        sourceRunId: 'source-run-1',
+      });
+
+      expect(runSession).toHaveBeenCalledTimes(1);
+      const newSessions = sessions.getByProjectId(projectId).filter((s) => s.id !== workspace.id);
+      expect(newSessions).toHaveLength(1);
+      expect(newSessions[0].laneRunId).toBeTruthy();
+
+      const newRun = databaseManager.get().prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(newSessions[0].laneRunId);
+      expect(newRun.prior_lane_run_id).toBe('source-run-1');
+      expect(newRun.source_lane_id).toBe(lanes[1].id);
+    });
+
+    it('does not create a lane run when the target lane is plain legacy (no automation started twice)', async () => {
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[0].id, workspace.id);
+
+      await triggerStructuredTransitionAutomation({
+        workspaceSessionId: workspace.id,
+        targetLaneId: lanes[1].id, // no onEnterPrompt/onEnterTemplateId, legacy completionMode
+        cardId: card.id,
+        sourceRunId: 'source-run-1',
+      });
+
+      expect(runSession).not.toHaveBeenCalled();
+      expect(sessions.getByProjectId(projectId)).toHaveLength(1);
+    });
+
+    it('is a no-op when the workspace session no longer exists', async () => {
+      await expect(triggerStructuredTransitionAutomation({
+        workspaceSessionId: 'deleted-session',
+        targetLaneId: lanes[1].id,
+        cardId: 'irrelevant-card',
+        sourceRunId: 'source-run-1',
+      })).resolves.toBeUndefined();
+      expect(runSession).not.toHaveBeenCalled();
     });
   });
 });

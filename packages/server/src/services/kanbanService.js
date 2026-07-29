@@ -39,7 +39,7 @@ function resolveWorkspaceId(sessionId) {
   return sessions.getRootSessionId(sessionId) || sessionId;
 }
 
-async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
+export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
   const { runOnEnterTemplate = true, depth = 0, laneRunId = null } = options;
 
   if (!runOnEnterTemplate) {
@@ -155,6 +155,46 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
   }
 
   return movedCard;
+}
+
+/**
+ * W6 (FRD: Kanban Lane-Run Structured Completion, FR-8): finish a
+ * structured lane-run's transition into the target lane's on-enter
+ * automation.
+ *
+ * The DB transition itself (marking the run succeeded, moving the card,
+ * assigning sort_order, broadcasting KANBAN_CARD_MOVED) already happened
+ * synchronously and atomically inside workflowSessionService.js's
+ * attemptLaneRunTransition — that module cannot import this one (kanbanService
+ * -> kanbanTriggers -> sessionManager -> sessionExecution -> workflowSessionService
+ * would cycle), so it hands back a `pendingTargetLaneTrigger` descriptor for
+ * the necessarily-async remainder: creating (for a structured/shadow target
+ * lane) the next lane run and starting its on-enter session.
+ *
+ * @param {{ workspaceSessionId: string, targetLaneId: string, cardId: string, sourceRunId: string }} pending
+ */
+export async function triggerStructuredTransitionAutomation(pending) {
+  const { workspaceSessionId, targetLaneId, cardId, sourceRunId } = pending;
+  const workspaceSession = sessions.getById(workspaceSessionId);
+  if (!workspaceSession) return;
+
+  const lane = kanbanLanes.getById(targetLaneId);
+  const laneRun = isStructured(lane)
+    ? createLaneRunForEntry({
+        projectId: workspaceSession.projectId,
+        workspaceId: workspaceSessionId,
+        cardId,
+        lane,
+        cause: 'completion',
+        priorLaneRunId: sourceRunId,
+      })
+    : null;
+
+  await triggerLaneEntryAutomation(workspaceSessionId, targetLaneId, {
+    runOnEnterTemplate: true,
+    depth: workspaceSession.laneTriggerDepth || 0,
+    laneRunId: laneRun?.id,
+  });
 }
 
 async function moveExistingSessionCard(session, card, targetLaneId) {

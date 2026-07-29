@@ -4,7 +4,7 @@ import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
   getRun, requestOwnWorkCompletion, attachRootSession, reconcileLaneRun,
   supersedeRunForCard, closeOwnWork, markExecutionState,
-  computeSubtreeOutcome, recomputeSubtreeOutcomes,
+  computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition,
 } from './workflowSessionService.js';
 
 describe('workflowSessionService', () => {
@@ -159,18 +159,63 @@ describe('workflowSessionService', () => {
     expect(sessions.getById(plain.id).executionState).toBe('idle');
   });
 
-  it('documents that the dormant structured transition does not start target-lane work', () => {
+  it('W6: the synchronous DB transition moves the card but hands off target-lane automation via pendingTargetLaneTrigger', () => {
+    // finalizeOwnWorkCompletion/attemptLaneRunTransition stay synchronous and
+    // free of any dependency on kanbanService.js (see the import-cycle note on
+    // attemptLaneRunTransition) — starting the target lane's on-enter session
+    // is necessarily async and is the caller's job (sessionExecution.js calls
+    // kanbanService.triggerStructuredTransitionAutomation with this value).
     const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
     const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
     attachRootSession(run.id, worker.id);
     const token = beginWorkflowTurn(worker.id);
     requestOwnWorkCompletion(worker.id, token, 'request-1');
 
-    expect(finalizeOwnWorkCompletion(worker.id, token).status).toBe('succeeded');
+    const reconciled = finalizeOwnWorkCompletion(worker.id, token);
+
+    expect(reconciled.status).toBe('succeeded');
     expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
+    expect(reconciled.pendingTargetLaneTrigger).toEqual({
+      workspaceSessionId: root.id,
+      targetLaneId: target.id,
+      cardId: card.id,
+      sourceRunId: run.id,
+    });
+    // No target-lane session exists yet — that only happens once the caller
+    // acts on pendingTargetLaneTrigger.
     const sessionRows = databaseManager.get().prepare('SELECT id FROM sessions ORDER BY id').all();
     expect(sessionRows.map(({ id }) => id)).toEqual(expect.arrayContaining([root.id, worker.id]));
     expect(sessionRows).toHaveLength(2);
+  });
+
+  it('W6: assigns the target-lane card a sort_order at the end of its existing cards', () => {
+    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    attachRootSession(run.id, worker.id);
+    // Seed an existing card in the target lane so sort_order must land after it.
+    const otherRootA = sessions.create(project.id, 'Other A', 'x');
+    const existingTargetCard = kanbanCards.create(target.id, otherRootA.id, { sortOrder: 5 });
+
+    const token = beginWorkflowTurn(worker.id);
+    requestOwnWorkCompletion(worker.id, token, 'request-1');
+    finalizeOwnWorkCompletion(worker.id, token);
+
+    expect(kanbanCards.getById(card.id).sortOrder).toBeGreaterThan(existingTargetCard.sortOrder);
+  });
+
+  it('W6 (AC-12/AC-14): a run that is no longer open cannot be transitioned twice', () => {
+    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    attachRootSession(run.id, worker.id);
+    const token = beginWorkflowTurn(worker.id);
+    requestOwnWorkCompletion(worker.id, token, 'request-1');
+    finalizeOwnWorkCompletion(worker.id, token);
+
+    // A second attempt against the now-succeeded run must be a pure no-op:
+    // no pendingTargetLaneTrigger, no further card mutation.
+    const second = attemptLaneRunTransition(run.id);
+    expect(second.pendingTargetLaneTrigger).toBeUndefined();
+    expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
   });
 
   it('does not open a transaction when superseding a legacy card without an active run', () => {

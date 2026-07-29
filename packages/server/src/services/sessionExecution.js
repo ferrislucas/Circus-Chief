@@ -28,6 +28,11 @@ import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState } from './workflowSessionService.js';
+// W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
+// sessionExecution), safe because this is only called at runtime inside
+// _executeSession, long after the module graph is loaded (same pattern as
+// session-helpers.js's database.js <-> SessionRepository cycle).
+import { triggerStructuredTransitionAutomation } from './kanbanService.js';
 
 /**
  * Build the adapter-specific default config object for
@@ -147,13 +152,14 @@ export async function _executeSession({
       workingDirectory,
       { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded }
     );
-    if (wasRescheduled) {
-      // FR-4/FR-5: a self-scheduled continuation is an open obligation, not
-      // success — no-op for non-participating sessions.
-      markExecutionState(sessionId, 'scheduled');
-      return;
-    }
-    finalizeOwnWorkCompletion(sessionId, workflowTurnToken);
+    // FR-4/FR-5: a self-scheduled continuation is an open obligation, not
+    // success — markExecutionState no-ops for non-participating sessions.
+    if (wasRescheduled) { markExecutionState(sessionId, 'scheduled'); return; }
+    // W6/FR-8: the card already moved synchronously inside
+    // finalizeOwnWorkCompletion; finish the async remainder (start the
+    // target lane's on-enter automation exactly once) if it just happened.
+    const reconciled = finalizeOwnWorkCompletion(sessionId, workflowTurnToken);
+    if (reconciled?.pendingTargetLaneTrigger) await triggerStructuredTransitionAutomation(reconciled.pendingTargetLaneTrigger);
   } catch (error) {
     const rescheduled = await handleSessionError(sessionId, error, {
       controller,
