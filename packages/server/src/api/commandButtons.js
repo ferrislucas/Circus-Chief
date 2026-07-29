@@ -2,27 +2,15 @@ import { Router } from 'express';
 import { commandButtons, sessions, commandRuns, projects } from '../database.js';
 import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@circuschief/shared/contracts/commandButtons';
 import { commandRunner } from '../services/commandRunner.js';
-import { broadcastToSession, broadcastToProject } from '../websocket.js';
-import { webSocketManager } from '../ws/WebSocketManager.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { databaseManager } from '../db/DatabaseManager.js';
+import { broadcastCommandEvent } from './commandEventBroadcast.js';
 
 // Error message constants
 const ERR_SESSION_NOT_FOUND = 'Session not found';
 const ERR_BUTTON_NOT_FOUND = 'Circus Command not found';
 
 const router = Router({ mergeParams: true });
-
-function broadcastCommandEvent(sessionId, projectId, type, payload) {
-  // Existing API tests inject the two legacy functions; retain that seam while
-  // production uses a union broadcast to prevent duplicate frames per socket.
-  if (broadcastToSession.mock) {
-    broadcastToSession(sessionId, type, { sessionId, ...payload });
-    broadcastToProject(projectId, type, { projectId, sessionId, ...payload });
-    return;
-  }
-  webSocketManager.broadcastToSessionAndProject(sessionId, projectId, type, payload);
-}
 
 /**
  * Create WebSocket broadcast callbacks for a command run

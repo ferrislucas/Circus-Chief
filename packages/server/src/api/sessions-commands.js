@@ -1,25 +1,15 @@
 import { Router } from 'express';
 import { commandButtons, commandRuns } from '../database.js';
-import { broadcastToSession, broadcastToProject } from '../websocket.js';
-import { webSocketManager } from '../ws/WebSocketManager.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { requireRootSessionAndProject } from '../middleware/sessionLookup.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { databaseManager } from '../db/DatabaseManager.js';
+import { broadcastCommandEvent } from './commandEventBroadcast.js';
 
 // Error message constants
 const ERR_BUTTON_NOT_FOUND = 'Circus Command not found';
 
 const router = Router();
-
-function broadcastCommandEvent(sessionId, projectId, type, payload) {
-  if (broadcastToSession.mock) {
-    broadcastToSession(sessionId, type, { sessionId, ...payload });
-    broadcastToProject(projectId, type, { projectId, sessionId, ...payload });
-    return;
-  }
-  webSocketManager.broadcastToSessionAndProject(sessionId, projectId, type, payload);
-}
 
 /**
  * Broadcast command output to session and project subscribers.

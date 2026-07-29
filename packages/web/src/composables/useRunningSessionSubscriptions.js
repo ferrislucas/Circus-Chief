@@ -28,7 +28,7 @@ export function useRunningSessionSubscriptions(desiredSessionIds) {
   }
 
   function hydrate(sessionId, entry, retry = 0) {
-    fetch(`/api/sessions/${sessionId}/streaming-state`)
+    fetch(`/api/sessions/${sessionId}/streaming-state`, { signal: entry.controller.signal })
       .then(res => res.ok ? res.json() : null)
       .then(snapshot => {
         if (!isCurrent(sessionId, entry)) return;

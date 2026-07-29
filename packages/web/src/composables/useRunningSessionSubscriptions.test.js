@@ -367,7 +367,33 @@ describe('useRunningSessionSubscriptions', () => {
 
     await nextTick();
 
-    expect(globalThis.fetch).toHaveBeenCalledWith('/api/sessions/session-1/streaming-state');
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/sessions/session-1/streaming-state',
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+  });
+
+  it('wires the AbortController signal into the hydration fetch and aborts it on removal', async () => {
+    mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+    wrapper = mount(testComponent, {
+      global: { plugins: [createPinia()] },
+    });
+
+    await nextTick();
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    const [url, options] = globalThis.fetch.mock.calls[0];
+    expect(url).toBe('/api/sessions/session-1/streaming-state');
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+    expect(options.signal.aborted).toBe(false);
+
+    // Session transitions away from running/starting -> composable removes it,
+    // which should abort the in-flight hydration fetch's signal.
+    mockSessionsStore.sessions = [{ id: 'session-1', status: 'completed' }];
+    await nextTick();
+
+    expect(options.signal.aborted).toBe(true);
   });
 
   it('calls hydrateSessionState when streaming-state REST call resolves', async () => {
@@ -808,8 +834,14 @@ describe('useRunningSessionSubscriptions', () => {
 
       // Both sessions should have re-hydration fetches
       await vi.waitFor(() => {
-        expect(globalThis.fetch).toHaveBeenCalledWith('/api/sessions/session-1/streaming-state');
-        expect(globalThis.fetch).toHaveBeenCalledWith('/api/sessions/session-2/streaming-state');
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+          '/api/sessions/session-1/streaming-state',
+          expect.objectContaining({ signal: expect.any(AbortSignal) })
+        );
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+          '/api/sessions/session-2/streaming-state',
+          expect.objectContaining({ signal: expect.any(AbortSignal) })
+        );
       });
     });
 

@@ -40,7 +40,8 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks, strea
   function handleCommandRunOutput(runId, sessionId, buttonId, output) {
     const tab = streamingScope.activeTab?.value;
     const eligibleIds = streamingScope.eligibleCommandSessionIds?.value;
-    if (tab && !(tab === 'commands' || (tab === 'sessions' && (eligibleIds || []).includes(sessionId)))) return;
+    const eligible = !tab || tab === 'commands' || (tab === 'sessions' && (eligibleIds || []).includes(sessionId));
+
     const existingRun = commandButtonsStore.runs[runId];
     const sessions = sessionsStore.sessions;
     const storeSession = sessions.find(s => s.id === sessionId);
@@ -59,8 +60,16 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks, strea
         outputTruncated: false,
       };
     }
-    commandButtonsStore.appendOutput(runId, output);
 
+    // The streaming output payload is heavy (fires per chunk); suppress it for
+    // ineligible (collapsed/off-screen) cards so they don't pay the render cost.
+    if (eligible) {
+      commandButtonsStore.appendOutput(runId, output);
+    }
+
+    // The status/lifecycle update is cheap — keep it unconditional so the
+    // running indicator stays correct for collapsed cards instead of going
+    // stale until COMMAND_RUN_COMPLETE.
     sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
       buttonId,
       status: 'running',
