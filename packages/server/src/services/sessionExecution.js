@@ -27,7 +27,7 @@ import { buildConversationContextForModelSwitch, buildConversationContextForCont
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { beginWorkflowTurn, finalizeOwnWorkCompletion } from './workflowSessionService.js';
+import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState } from './workflowSessionService.js';
 
 /**
  * Build the adapter-specific default config object for
@@ -148,6 +148,9 @@ export async function _executeSession({
       { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded }
     );
     if (wasRescheduled) {
+      // FR-4/FR-5: a self-scheduled continuation is an open obligation, not
+      // success — no-op for non-participating sessions.
+      markExecutionState(sessionId, 'scheduled');
       return;
     }
     finalizeOwnWorkCompletion(sessionId, workflowTurnToken);
@@ -161,8 +164,18 @@ export async function _executeSession({
       handleTemplateTriggerIfNeeded,
     });
     if (rescheduled) {
+      // FR-9.1/FR-9.5: a transient error with an automatic retry/reschedule
+      // keeps the session (and its lane run) open — only the execution_state
+      // dimension moves, own_work_state is untouched.
+      markExecutionState(sessionId, 'retrying');
       return; // Don't throw - session was rescheduled
     }
+    // FR-9.2/FR-9.4: distinguish a user-initiated stop (must land as
+    // 'cancelled', never a failure) from a genuine permanent error (must land
+    // as 'closed_failed'). Both are terminal — neither may be interpreted as
+    // success, and reconcileLaneRun() below fails/cancels the lane run so a
+    // structured card never advances past this session.
+    closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message);
     throw error;
   } finally {
     cleanupSessionState(sessionId, cleanupConversationId);

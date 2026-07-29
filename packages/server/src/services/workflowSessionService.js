@@ -9,6 +9,7 @@ import { databaseManager } from '../db/DatabaseManager.js';
 
 const now = () => Date.now();
 const id = () => crypto.randomUUID();
+const SELECT_SESSION_BY_ID = 'SELECT * FROM sessions WHERE id=?';
 
 function audit(db, runId, type, { sessionId = null, details = null } = {}) {
   db.prepare(`INSERT INTO kanban_lane_run_audit_events
@@ -60,7 +61,7 @@ export function attachRootSession(runId, sessionId) {
   return databaseManager.transaction(() => {
     const db = databaseManager.get();
     const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
-    const session = db.prepare('SELECT * FROM sessions WHERE id=?').get(sessionId);
+    const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!run || run.status !== 'open') throw new Error('Cannot attach a root to a terminal lane run');
     const belongsToWorkspace = session && db.prepare(`WITH RECURSIVE ancestors(id, parent_session_id) AS (
       SELECT id, parent_session_id FROM sessions WHERE id=?
@@ -88,7 +89,7 @@ export function beginWorkflowTurn(sessionId) {
   // for those hot-path sessions; the transaction below still re-reads state.
   if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return null;
   return databaseManager.transaction(() => {
-    const db = databaseManager.get(); const s = db.prepare('SELECT * FROM sessions WHERE id=?').get(sessionId);
+    const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!isParticipating(s) || s.own_work_state !== 'open') return null;
     const token = id(); const time = now();
     db.prepare(`UPDATE sessions SET workflow_turn_token=?, completion_requested_turn_token=NULL,
@@ -100,7 +101,7 @@ export function beginWorkflowTurn(sessionId) {
 
 export function requestOwnWorkCompletion(sessionId, turnToken, requestKey) {
   return databaseManager.transaction(() => {
-    const db = databaseManager.get(); const s = db.prepare('SELECT * FROM sessions WHERE id=?').get(sessionId);
+    const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!s?.lane_run_id || s.own_work_state !== 'open') throw new Error('Session has no open workflow obligation');
     if (s.workflow_turn_token !== turnToken) throw new Error('Workflow turn token is stale or invalid');
     if (s.completion_request_key === requestKey) return { accepted: true, idempotent: true };
@@ -116,23 +117,72 @@ export function requestOwnWorkCompletion(sessionId, turnToken, requestKey) {
 export function finalizeOwnWorkCompletion(sessionId, turnToken) {
   if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return null;
   return databaseManager.transaction(() => {
-    const db = databaseManager.get(); const s = db.prepare('SELECT * FROM sessions WHERE id=?').get(sessionId);
+    const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!isParticipating(s) || s.own_work_state !== 'open') return null;
     if (s.workflow_turn_token !== turnToken || s.completion_requested_turn_token !== turnToken) return null;
     // A future schedule is an explicit continuation obligation, never success.
     if (s.scheduled_at || s.pending_prompt) return null;
     const time = now();
     db.prepare(`UPDATE sessions SET own_work_state='closed_successfully', own_work_closed_at=?,
-      completion_requested_turn_token=NULL, completion_request_key=NULL, workflow_updated_at=? WHERE id=?`).run(time, time, sessionId);
+      completion_requested_turn_token=NULL, completion_request_key=NULL, execution_state='idle', workflow_updated_at=? WHERE id=?`).run(time, time, sessionId);
     audit(db, s.lane_run_id, 'own_work_succeeded', { sessionId });
     return reconcileLaneRun(s.lane_run_id);
   });
 }
 
-// TODO(structured-lane-runs / W4): nothing in the current execution path sets
-// own_work_state to closed_failed/cancelled yet, so the failure/cancellation
-// branches below are exercised only by tests that set that state directly.
-// See sessionExecution.js and sessions-lifecycle.js for the wiring gap.
+/**
+ * Terminally close a session's own-work obligation via failure or
+ * cancellation (success goes through finalizeOwnWorkCompletion instead), and
+ * reconcile its lane run (FR-9: permanent failures and user
+ * stops/cancellations must never be interpreted as success). No-op — returns
+ * null — for non-participating sessions or sessions whose own work is
+ * already closed, so callers may invoke this unconditionally on every
+ * error/stop path without checking participation first.
+ * @param {string} sessionId
+ * @param {'closed_failed'|'cancelled'} outcome
+ * @param {string|null} [reason]
+ * @returns {Object|null} The reconciled run, or null if this was a no-op
+ */
+export function closeOwnWork(sessionId, outcome, reason = null) {
+  if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return null;
+  return databaseManager.transaction(() => {
+    const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
+    if (!isParticipating(s) || s.own_work_state !== 'open') return null;
+    const time = now();
+    db.prepare(`UPDATE sessions SET own_work_state=?, workflow_reason=?, own_work_closed_at=?,
+      workflow_turn_token=NULL, completion_requested_turn_token=NULL, completion_request_key=NULL,
+      execution_state='stopped', subtree_outcome=?, workflow_updated_at=? WHERE id=?`)
+      .run(outcome, reason, time, outcome === 'closed_failed' ? 'failed' : 'cancelled', time, sessionId);
+    audit(db, s.lane_run_id, outcome === 'closed_failed' ? 'own_work_failed' : 'own_work_cancelled', { sessionId, details: { reason } });
+    return reconcileLaneRun(s.lane_run_id);
+  });
+}
+
+/**
+ * Update only the execution_state dimension (FR-5) for a participating
+ * session — e.g. 'retrying' while an auto-reschedule after a transient error
+ * is pending. Does not touch own_work_state: the obligation stays open. No-op
+ * for non-participating sessions.
+ * @param {string} sessionId
+ * @param {string} executionState
+ */
+export function markExecutionState(sessionId, executionState) {
+  const db = databaseManager.get();
+  const s = db.prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId);
+  if (!isParticipating(s)) return;
+  db.prepare('UPDATE sessions SET execution_state=?, workflow_updated_at=? WHERE id=?').run(executionState, now(), sessionId);
+}
+
+// W4 (FR-9): closeOwnWork() is the single entry point that ever sets
+// own_work_state to closed_failed/cancelled — see sessionExecution.js
+// (permanent execution failure) and sessionManager.js#stopSession (user
+// stop/cancellation). Both call through here to fail/cancel the run.
+//
+// TODO(structured-lane-runs / W5): this predicate is still flat — any single
+// member being closed_failed/cancelled fails the whole run immediately,
+// rather than propagating subtree_outcome from leaves to root and only
+// failing ancestors that actually block on that member. Sufficient for a
+// single-level run; arbitrary-depth trees need the real roll-up (FR-6/FR-7).
 export function reconcileLaneRun(runId) {
   const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
   if (!run || run.status !== 'open') return getRun(runId);

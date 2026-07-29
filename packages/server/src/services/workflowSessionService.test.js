@@ -3,7 +3,7 @@ import { databaseManager, kanbanBoards, kanbanCards, kanbanLanes, projects, sess
 import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
   getRun, requestOwnWorkCompletion, attachRootSession, reconcileLaneRun,
-  supersedeRunForCard,
+  supersedeRunForCard, closeOwnWork, markExecutionState,
 } from './workflowSessionService.js';
 
 describe('workflowSessionService', () => {
@@ -86,7 +86,77 @@ describe('workflowSessionService', () => {
     expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
   });
 
-  it.todo('wires execution failures and cancellations into closed_failed/cancelled before structured lanes are enabled');
+  describe('closeOwnWork (W4: FR-9 failure/cancellation propagation)', () => {
+    it('fails the run and does not move the card on a permanent execution failure (AC-8)', () => {
+      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+      const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+      attachRootSession(run.id, worker.id);
+      beginWorkflowTurn(worker.id);
+
+      const reconciled = closeOwnWork(worker.id, 'closed_failed', 'permanent provider error');
+
+      expect(reconciled.status).toBe('failed');
+      expect(sessions.getById(worker.id).ownWorkState).toBe('closed_failed');
+      expect(sessions.getById(worker.id).workflowReason).toBe('permanent provider error');
+      expect(sessions.getById(worker.id).executionState).toBe('stopped');
+      expect(sessions.getById(worker.id).subtreeOutcome).toBe('failed');
+      expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+    });
+
+    it('cancels the run and does not move the card on a user stop', () => {
+      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+      const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+      attachRootSession(run.id, worker.id);
+      beginWorkflowTurn(worker.id);
+
+      const reconciled = closeOwnWork(worker.id, 'cancelled', 'Stopped by user');
+
+      expect(reconciled.status).toBe('cancelled');
+      expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
+      expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+    });
+
+    it('is idempotent: a second call after the first close is a no-op', () => {
+      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+      const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+      attachRootSession(run.id, worker.id);
+      beginWorkflowTurn(worker.id);
+      closeOwnWork(worker.id, 'closed_failed', 'first reason');
+
+      const result = closeOwnWork(worker.id, 'cancelled', 'second reason (should not apply)');
+
+      expect(result).toBeNull();
+      expect(sessions.getById(worker.id).ownWorkState).toBe('closed_failed');
+      expect(sessions.getById(worker.id).workflowReason).toBe('first reason');
+    });
+
+    it('is a no-op for a non-participating session', () => {
+      const plain = sessions.create(project.id, 'Plain', 'unrelated work');
+      expect(closeOwnWork(plain.id, 'closed_failed', 'irrelevant')).toBeNull();
+      expect(sessions.getById(plain.id).ownWorkState).toBe('open');
+    });
+
+    it('a transient error that keeps the session open never touches own_work_state (AC-7 contrast)', () => {
+      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+      const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+      attachRootSession(run.id, worker.id);
+      beginWorkflowTurn(worker.id);
+
+      // Simulates sessionExecution.js's rescheduled branch: only execution_state moves.
+      markExecutionState(worker.id, 'retrying');
+
+      expect(sessions.getById(worker.id).ownWorkState).toBe('open');
+      expect(sessions.getById(worker.id).executionState).toBe('retrying');
+      expect(getRun(run.id).status).toBe('open');
+      expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+    });
+  });
+
+  it('markExecutionState is a no-op for a non-participating session', () => {
+    const plain = sessions.create(project.id, 'Plain', 'unrelated work');
+    markExecutionState(plain.id, 'retrying');
+    expect(sessions.getById(plain.id).executionState).toBe('idle');
+  });
 
   it('documents that the dormant structured transition does not start target-lane work', () => {
     const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
