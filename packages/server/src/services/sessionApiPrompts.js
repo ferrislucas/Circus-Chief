@@ -91,6 +91,41 @@ curl -X POST ${apiUrl}/api/sessions/${sessionId}/summary  # Regenerate
 \`\`\``;
 }
 
+/**
+ * Build the workflow-completion contract section, included only when this
+ * session participates in an open structured Kanban lane run (session has a
+ * lane_run_id). Ending a turn is intentionally insufficient to advance a
+ * structured lane's card — the participating session must explicitly close
+ * its own-work obligation. See FRD "Kanban Lane-Run Structured Completion".
+ * @param {string} sessionId
+ * @returns {string} Instructions, or '' when this session is not a lane-run participant
+ */
+export function buildWorkflowCompletionInstructions(sessionId) {
+  const session = sessions.getById(sessionId);
+  if (!session?.laneRunId) return '';
+
+  const apiUrl = getApiBaseUrl();
+  return `## Workflow Completion (Structured Kanban Lane Run)
+
+This session is part of an active structured Kanban lane run. **Finishing a turn does not, by itself, advance the Kanban card.** You must explicitly tell the system your own work is done.
+
+1. Fetch your current \`workflowTurnToken\` (always re-fetch — it changes on every retry/continuation):
+\`\`\`bash
+curl ${apiUrl}/api/sessions/${sessionId}
+\`\`\`
+2. Once your own work for this turn is genuinely finished (not paused, not waiting on a scheduled continuation), call:
+\`\`\`bash
+curl -X POST ${apiUrl}/api/sessions/${sessionId}/workflow/complete \\
+  -H "Content-Type: application/json" \\
+  -d '{"turnToken": "<workflowTurnToken from step 1>", "idempotencyKey": "<any unique string for this request>"}'
+\`\`\`
+
+Notes:
+- If you schedule further work for yourself (via \`POST /api/sessions/${sessionId}/schedule\`) or a required descendant session is still open, do **not** call this endpoint — the run correctly waits for that work instead.
+- A stale or already-superseded \`turnToken\` is rejected; re-fetch the session and retry.
+- This call is idempotent for the same \`idempotencyKey\`; retry safely on network errors.`;
+}
+
 /** Build session API instructions for Claude to create/modify sessions */
 export function buildSessionApiInstructions(sessionId, projectId) {
   const apiUrl = getApiBaseUrl();

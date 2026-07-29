@@ -432,6 +432,26 @@ describe('sessionPrompts', () => {
       expect(result).toContain(sessionId); // current session ID as the example value
     });
 
+    it('omits workflow completion instructions when the session is not a lane-run participant', () => {
+      sessions.getById.mockReturnValue({ id: sessionId, laneRunId: null });
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+      expect(result).not.toContain('Workflow Completion');
+      expect(result).not.toContain('/workflow/complete');
+    });
+
+    it('documents the workflow/complete endpoint when the session participates in a lane run (W3)', () => {
+      sessions.getById.mockReturnValue({ id: sessionId, laneRunId: 'lane-run-1' });
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+      expect(result).toContain('Workflow Completion');
+      expect(result).toContain(`/api/sessions/${sessionId}/workflow/complete`);
+      expect(result).toContain('workflowTurnToken');
+      expect(result).toContain('idempotencyKey');
+      // Must instruct the agent to re-fetch the token rather than trust a
+      // value baked into the prompt at build time (it is minted fresh per turn).
+      expect(result).toContain(`/api/sessions/${sessionId}`);
+      expect(result).toMatch(/Finishing a turn does not.*advance/i);
+    });
+
     it('uses a future-safe placeholder in the session schedule example', () => {
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
       const scheduleSection = result.slice(result.indexOf('### Schedule Current Session to Continue Later'));
