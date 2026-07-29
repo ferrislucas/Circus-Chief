@@ -173,29 +173,82 @@ export function markExecutionState(sessionId, executionState) {
   db.prepare('UPDATE sessions SET execution_state=?, workflow_updated_at=? WHERE id=?').run(executionState, now(), sessionId);
 }
 
+/**
+ * FR-6/FR-7 pure roll-up rule: a session's subtree outcome from its own-work
+ * state and the already-computed subtree outcomes of its direct blocking
+ * children. Precedence — failed beats cancelled beats open beats succeeded —
+ * so a single failed obligation anywhere in a subtree marks every ancestor's
+ * subtree failed, even if a sibling subtree is merely cancelled or still open.
+ * @param {string} ownWorkState - 'open'|'closed_successfully'|'closed_failed'|'cancelled'
+ * @param {string[]} childSubtreeOutcomes - already-computed outcomes of direct children
+ * @returns {'open'|'succeeded'|'failed'|'cancelled'}
+ */
+export function computeSubtreeOutcome(ownWorkState, childSubtreeOutcomes) {
+  if (ownWorkState === 'closed_failed' || childSubtreeOutcomes.includes('failed')) return 'failed';
+  if (ownWorkState === 'cancelled' || childSubtreeOutcomes.includes('cancelled')) return 'cancelled';
+  if (ownWorkState !== 'closed_successfully') return 'open';
+  if (childSubtreeOutcomes.some((o) => o !== 'succeeded')) return 'open';
+  return 'succeeded';
+}
+
+/**
+ * FR-6.4: persisted sessions are the source of truth. Recompute every
+ * member's subtree_outcome bottom-up (leaves to root) from the member rows
+ * themselves — not from any cached counter — and persist any value that
+ * changed. Safe to call repeatedly (idempotent) and usable standalone as a
+ * reconciliation query, independent of reconcileLaneRun.
+ * @param {string} runId
+ * @returns {string|null} The recomputed root subtree outcome, or null if the run has no root yet
+ */
+export function recomputeSubtreeOutcomes(runId) {
+  const db = databaseManager.get();
+  const run = db.prepare('SELECT root_session_id FROM kanban_lane_runs WHERE id=?').get(runId);
+  if (!run?.root_session_id) return null;
+  const members = db.prepare('SELECT id, parent_session_id, own_work_state, subtree_outcome FROM sessions WHERE lane_run_id=?').all(runId);
+  const byParent = new Map();
+  for (const m of members) {
+    if (!byParent.has(m.parent_session_id)) byParent.set(m.parent_session_id, []);
+    byParent.get(m.parent_session_id).push(m);
+  }
+  const byId = new Map(members.map((m) => [m.id, m]));
+  const computed = new Map();
+  const time = now();
+  function resolve(node) {
+    if (computed.has(node.id)) return computed.get(node.id);
+    const childOutcomes = (byParent.get(node.id) || []).map((child) => resolve(child));
+    const outcome = computeSubtreeOutcome(node.own_work_state, childOutcomes);
+    computed.set(node.id, outcome);
+    if (outcome !== node.subtree_outcome) {
+      db.prepare('UPDATE sessions SET subtree_outcome=?, workflow_updated_at=? WHERE id=?').run(outcome, time, node.id);
+    }
+    return outcome;
+  }
+  const root = byId.get(run.root_session_id);
+  return root ? resolve(root) : null;
+}
+
 // W4 (FR-9): closeOwnWork() is the single entry point that ever sets
 // own_work_state to closed_failed/cancelled — see sessionExecution.js
 // (permanent execution failure) and sessionManager.js#stopSession (user
 // stop/cancellation). Both call through here to fail/cancel the run.
 //
-// TODO(structured-lane-runs / W5): this predicate is still flat — any single
-// member being closed_failed/cancelled fails the whole run immediately,
-// rather than propagating subtree_outcome from leaves to root and only
-// failing ancestors that actually block on that member. Sufficient for a
-// single-level run; arbitrary-depth trees need the real roll-up (FR-6/FR-7).
+// W5 (FR-6/FR-7): the run-level predicate is now defined in terms of the
+// freshly recomputed root subtree_outcome, matching FR-7's literal
+// predicate table, rather than an ad hoc flat scan of all members.
 export function reconcileLaneRun(runId) {
   const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
   if (!run || run.status !== 'open') return getRun(runId);
-  const members = db.prepare('SELECT * FROM sessions WHERE lane_run_id=?').all(runId);
-  const failed = members.find(s => s.own_work_state === 'closed_failed');
-  const cancelled = members.find(s => s.own_work_state === 'cancelled');
-  if (failed || cancelled) {
-    const state = failed ? 'failed' : 'cancelled'; const time = now();
+  const rootOutcome = recomputeSubtreeOutcomes(runId);
+  if (rootOutcome === 'failed' || rootOutcome === 'cancelled') {
+    const members = db.prepare('SELECT * FROM sessions WHERE lane_run_id=?').all(runId);
+    const failed = members.find((s) => s.own_work_state === 'closed_failed');
+    const cancelled = members.find((s) => s.own_work_state === 'cancelled');
+    const state = rootOutcome; const time = now();
     db.prepare(`UPDATE kanban_lane_runs SET status=?, failure_reason=?, ${state}_at=?, updated_at=? WHERE id=?`)
       .run(state, failed?.workflow_reason || cancelled?.workflow_reason || state, time, time, runId);
     audit(db, runId, `run_${state}`, { sessionId: failed?.id || cancelled?.id }); return getRun(runId);
   }
-  if (members.length && members.every(s => s.own_work_state === 'closed_successfully')) return attemptLaneRunTransition(runId);
+  if (rootOutcome === 'succeeded') return attemptLaneRunTransition(runId);
   return getRun(runId);
 }
 
