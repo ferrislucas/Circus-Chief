@@ -356,4 +356,61 @@ describe('workflowSessionService', () => {
       expect(recomputeSubtreeOutcomes(run.id)).toBeNull();
     });
   });
+
+  describe('idempotent lane-entry events + race hardening (W7: FR-1.5, AC-14)', () => {
+    it('a duplicate completion-caused entry for the same source run resolves to the existing run instead of creating a second one', () => {
+      const sourceRunId = 'source-run-fixed-id';
+
+      const first = createLaneRunForEntry({
+        projectId: project.id, workspaceId: root.id, cardId: card.id,
+        lane: structuredLane(), cause: 'completion', priorLaneRunId: sourceRunId,
+      });
+      const second = createLaneRunForEntry({
+        projectId: project.id, workspaceId: root.id, cardId: card.id,
+        lane: structuredLane(), cause: 'completion', priorLaneRunId: sourceRunId,
+      });
+
+      expect(second.id).toBe(first.id);
+      const allRuns = databaseManager.get().prepare('SELECT id FROM kanban_lane_runs WHERE prior_lane_run_id=?').all(sourceRunId);
+      expect(allRuns).toHaveLength(1);
+    });
+
+    it('a second attempt to open a run for a card that already has one open resolves to the existing run (idx_lane_runs_one_open_card backstop)', () => {
+      // No caused_by_run_id precheck applies to a plain 'card_added'/'manual_move'
+      // cause, so this exercises the catch-path fallback: the INSERT itself hits
+      // idx_lane_runs_one_open_card (at most one open run per card), and the
+      // function resolves to the card's already-active run instead of throwing.
+      const first = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+      expect(getRun(first.id).status).toBe('open');
+
+      const second = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+
+      expect(second.id).toBe(first.id);
+      const openRunsForCard = databaseManager.get()
+        .prepare("SELECT id FROM kanban_lane_runs WHERE card_id=? AND status='open'").all(card.id);
+      expect(openRunsForCard).toHaveLength(1);
+    });
+
+    it('rejects creating a blocking child under a superseded lane run (FR-3.6 late-child rejection)', () => {
+      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+      const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+      attachRootSession(run.id, worker.id);
+
+      // Manual move supersedes the run without touching worker.own_work_state.
+      supersedeRunForCard(card.id, 'manual_move');
+      expect(sessions.getById(worker.id).ownWorkState).toBe('open');
+      expect(getRun(run.id).status).toBe('superseded');
+
+      expect(() => sessions.create(project.id, 'Late child', 'too late', { parentSessionId: worker.id }))
+        .toThrow('Cannot create a child under a terminal or superseded lane run');
+    });
+
+    it('still allows children while the run is genuinely open', () => {
+      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+      const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+      attachRootSession(run.id, worker.id);
+
+      expect(() => sessions.create(project.id, 'Child', 'on time', { parentSessionId: worker.id })).not.toThrow();
+    });
+  });
 });

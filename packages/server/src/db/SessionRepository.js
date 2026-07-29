@@ -97,8 +97,17 @@ export class SessionRepository extends BaseRepository {
     const parentWorkflow = config.parentSessionId
       ? this.db.prepare('SELECT lane_run_id, own_work_state FROM sessions WHERE id = ?').get(config.parentSessionId)
       : null;
-    if (parentWorkflow?.lane_run_id && parentWorkflow.own_work_state !== 'open') {
-      throw new Error('Cannot create a child from a terminal workflow session');
+    if (parentWorkflow?.lane_run_id) {
+      if (parentWorkflow.own_work_state !== 'open') {
+        throw new Error('Cannot create a child from a terminal workflow session');
+      }
+      // FR-3.6/W7: reject late children under a run that has already gone
+      // terminal or been superseded (e.g. a manual move superseded the run
+      // while this parent's own own_work_state row was never touched).
+      const runStatus = this.db.prepare('SELECT status FROM kanban_lane_runs WHERE id = ?').get(parentWorkflow.lane_run_id)?.status;
+      if (runStatus && runStatus !== 'open') {
+        throw new Error('Cannot create a child under a terminal or superseded lane run');
+      }
     }
     const laneRunId = parentWorkflow?.lane_run_id || null;
     this.db

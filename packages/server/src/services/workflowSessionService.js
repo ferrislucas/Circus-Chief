@@ -39,27 +39,72 @@ export function isStructured(lane) {
   return Boolean(lane?.completionMode && lane.completionMode !== 'legacy');
 }
 
+/** True for a better-sqlite3 UNIQUE constraint violation, across driver versions. */
+function isUniqueConstraintError(error) {
+  return error?.code?.startsWith('SQLITE_CONSTRAINT') || /UNIQUE constraint failed/.test(error?.message || '');
+}
+
+/**
+ * W7 (FR-1.5, AC-14): a `completion`-caused lane-entry event is
+ * deterministically identified by the source run that caused it — a given
+ * source run can cause at most one entry event, ever. This activates the
+ * pre-existing idx_lane_entry_completion_cause partial unique index (it was
+ * declared in the schema but nothing ever populated caused_by_run_id, so it
+ * was inert). Other causes (card_added, manual_move) are one-shot,
+ * synchronous, single-process actions gated by their own callers.
+ */
+function causedByRunId(cause, priorLaneRunId) {
+  return cause === 'completion' ? priorLaneRunId : null;
+}
+
+/** Resolve the run tied to an existing lane-entry event, if any. */
+function runForEntryEvent(db, eventId) {
+  const run = db.prepare('SELECT id FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(eventId);
+  return run ? getRun(run.id) : null;
+}
+
 export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, cause = 'card_added', priorLaneRunId = null }) {
   if (lane.completionMode === 'legacy') return null;
-  return databaseManager.transaction(() => {
-    const db = databaseManager.get(); const time = now();
-    const eventId = id(); const runId = id();
-    const key = `${cause}:${cardId}:${lane.id}:${eventId}`;
-    db.prepare(`INSERT INTO kanban_lane_entry_events
-      (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,status,created_at,updated_at,completed_at)
-      VALUES (?,?,?,?,?,?,?,'completed',?,?,?)`)
-      .run(eventId, key, projectId, workspaceId, cardId, lane.id, cause, time, time, time);
-    db.prepare(`INSERT INTO kanban_lane_runs
-      (id,lane_entry_event_id,prior_lane_run_id,project_id,workspace_id,card_id,source_lane_id,
-       completion_target_lane_id,completion_mode,root_session_id,status,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,'open',?,?)`)
-      .run(runId, eventId, priorLaneRunId, projectId, workspaceId, cardId, lane.id,
-        lane.completionTargetLaneId, lane.completionMode, null, time, time);
-    db.prepare(`UPDATE kanban_cards SET active_lane_run_id=?, lane_entry_event_id=?, updated_at=? WHERE id=?`)
-      .run(runId, eventId, time, cardId);
-    audit(db, runId, 'run_created', { details: { cause, laneId: lane.id } });
-    return getRun(runId);
-  });
+  const db = databaseManager.get();
+  const causeRunId = causedByRunId(cause, priorLaneRunId);
+  if (causeRunId) {
+    const existingEvent = db.prepare('SELECT id FROM kanban_lane_entry_events WHERE caused_by_run_id=?').get(causeRunId);
+    if (existingEvent) return runForEntryEvent(db, existingEvent.id);
+  }
+  try {
+    return databaseManager.transaction(() => {
+      const db2 = databaseManager.get(); const time = now();
+      const eventId = id(); const runId = id();
+      const key = `${cause}:${cardId}:${lane.id}:${eventId}`;
+      db2.prepare(`INSERT INTO kanban_lane_entry_events
+        (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,caused_by_run_id,status,created_at,updated_at,completed_at)
+        VALUES (?,?,?,?,?,?,?,?,'completed',?,?,?)`)
+        .run(eventId, key, projectId, workspaceId, cardId, lane.id, cause, causeRunId, time, time, time);
+      db2.prepare(`INSERT INTO kanban_lane_runs
+        (id,lane_entry_event_id,prior_lane_run_id,project_id,workspace_id,card_id,source_lane_id,
+         completion_target_lane_id,completion_mode,root_session_id,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,'open',?,?)`)
+        .run(runId, eventId, priorLaneRunId, projectId, workspaceId, cardId, lane.id,
+          lane.completionTargetLaneId, lane.completionMode, null, time, time);
+      db2.prepare(`UPDATE kanban_cards SET active_lane_run_id=?, lane_entry_event_id=?, updated_at=? WHERE id=?`)
+        .run(runId, eventId, time, cardId);
+      audit(db2, runId, 'run_created', { details: { cause, laneId: lane.id } });
+      return getRun(runId);
+    });
+  } catch (error) {
+    // W7 (AC-14): a concurrent caller committed first — either the same
+    // caused_by_run_id entry event, or idx_lane_runs_one_open_card (at most
+    // one open run per card). Resolve to whichever run now actually owns the
+    // card instead of surfacing a 500 for a request that was, semantically,
+    // a duplicate.
+    if (!isUniqueConstraintError(error)) throw error;
+    if (causeRunId) {
+      const winningEvent = db.prepare('SELECT id FROM kanban_lane_entry_events WHERE caused_by_run_id=?').get(causeRunId);
+      if (winningEvent) return runForEntryEvent(db, winningEvent.id);
+    }
+    const activeRunId = db.prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?').get(cardId)?.active_lane_run_id;
+    return activeRunId ? getRun(activeRunId) : null;
+  }
 }
 
 /** Attach the actual on-entry worker as a lane run's root exactly once. */
