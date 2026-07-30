@@ -266,11 +266,11 @@ export async function handleCompletionMove(sessionId) {
   if (card.activeLaneRunId) return;
 
   const currentLane = kanbanLanes.getById(card.laneId);
-  if (!currentLane?.completionTargetLaneId) {
-    return;
-  }
-
-  const targetLaneId = currentLane.completionTargetLaneId;
+  // A shadow run clears activeLaneRunId after evaluation, so it needs an
+  // explicit guard against the legacy hook reopening the card. Structured
+  // runs retain the active-run guard until their server-driven transition.
+  const targetLaneId = legacyCompletionTarget(currentLane);
+  if (!targetLaneId) return;
   if (targetLaneId === currentLane.id) {
     return;
   }
@@ -293,6 +293,10 @@ export async function handleCompletionMove(sessionId) {
   }
 
   await moveExistingSessionCard(rootSession, card, targetLaneId);
+}
+
+function legacyCompletionTarget(lane) {
+  return lane?.completionMode === 'shadow' ? null : lane?.completionTargetLaneId;
 }
 
 /**

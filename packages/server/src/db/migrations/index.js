@@ -329,6 +329,9 @@ export const allMigrations = validateMigrations([
   // Also must precede the sessions-table recreation below, for the same reason.
   k.get('kanban-add-lane-run-execution-state'),
 
+  // --- Remove the retired agent-driven completion token state ---
+  k.get('kanban-drop-agent-workflow-completion-tokens'),
+
   // --- Enforce immutable session parentage (deferred ON DELETE NO ACTION + trigger) ---
   // Must run after repairMissingSessionParentsFromWorktree so that one-time
   // NULL -> value backfill has already happened before the trigger is asserted.

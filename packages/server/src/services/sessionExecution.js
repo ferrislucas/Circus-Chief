@@ -133,10 +133,7 @@ export async function _executeSession({
   errorLabel = 'Session error',
 }) {
   const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded } = callbacks;
-  // The token is opaque and scoped to this one successful agent execution.
-  // A retry/scheduled continuation starts a fresh token and cannot consume an
-  // old completion request.
-  const workflowTurnToken = beginWorkflowTurn(sessionId);
+  beginWorkflowTurn(sessionId);
 
   try {
     // Run the query with the agent (SDK via gateway, or mock)
@@ -155,10 +152,10 @@ export async function _executeSession({
     // FR-4/FR-5: a self-scheduled continuation is an open obligation, not
     // success — markExecutionState no-ops for non-participating sessions.
     if (wasRescheduled) { markExecutionState(sessionId, 'scheduled'); return; }
-    // W6/FR-8: the card already moved synchronously inside
-    // finalizeOwnWorkCompletion; finish the async remainder (start the
+    // W6/FR-8: the server infers own-work completion from this successful,
+    // non-continuing turn; finish the async remainder (start the
     // target lane's on-enter automation exactly once) if it just happened.
-    const reconciled = finalizeOwnWorkCompletion(sessionId, workflowTurnToken);
+    const reconciled = finalizeOwnWorkCompletion(sessionId);
     if (reconciled?.pendingTargetLaneTrigger) await triggerStructuredTransitionAutomation(reconciled.pendingTargetLaneTrigger);
   } catch (error) {
     const rescheduled = await handleSessionError(sessionId, error, {

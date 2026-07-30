@@ -6,7 +6,6 @@ import { getChanges, getChangesBranch } from '../services/diffService.js';
 import * as gitService from '../services/gitService.js';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import { commandRunner } from '../services/commandRunner.js';
-import { requestOwnWorkCompletion } from '../services/workflowSessionService.js';
 
 // Import sub-routers
 import conversationsRouter from './sessions-conversations.js';
@@ -29,20 +28,6 @@ router.use('/', lifecycleRouter);
 router.use('/', streamingRouter);
 router.use('/', messagesRouter);
 router.use('/', draftRouter);
-
-// An agent must explicitly close its workflow obligation; ending a model turn
-// alone is intentionally insufficient to advance a structured Kanban card.
-router.post('/:id/workflow/complete', requireSession, (req, res) => {
-  const { turnToken, idempotencyKey } = req.body || {};
-  if (typeof turnToken !== 'string' || !turnToken || typeof idempotencyKey !== 'string' || !idempotencyKey) {
-    return res.status(400).json({ error: 'turnToken and idempotencyKey are required' });
-  }
-  try {
-    res.status(202).json(requestOwnWorkCompletion(req.params.id, turnToken, idempotencyKey));
-  } catch (error) {
-    res.status(409).json({ error: error.message });
-  }
-});
 
 // TTL cache for files-count endpoint (60 second TTL)
 const filesCountCache = new Map();

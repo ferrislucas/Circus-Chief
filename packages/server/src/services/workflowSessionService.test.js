@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { databaseManager, kanbanBoards, kanbanCards, kanbanLanes, projects, sessions } from '../database.js';
 import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
-  getRun, requestOwnWorkCompletion, attachRootSession, reconcileLaneRun,
+  getRun, attachRootSession, reconcileLaneRun,
   supersedeRunForCard, closeOwnWork, markExecutionState,
   computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition,
 } from './workflowSessionService.js';
@@ -22,17 +22,13 @@ describe('workflowSessionService', () => {
     return { ...kanbanLanes.getById(source.id), completionMode: 'structured', completionTargetLaneId: target.id };
   }
 
-  it('only advances after an explicit request for the current successful turn', () => {
+  it('advances when the server finalizes a successful turn without an agent callback', () => {
     const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
     const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
     attachRootSession(run.id, worker.id);
     expect(getRun(run.id).rootSessionId).toBe(worker.id);
     expect(sessions.getById(root.id).laneRunId).toBeNull();
     const token = beginWorkflowTurn(worker.id);
-    expect(finalizeOwnWorkCompletion(worker.id, token)).toBeNull();
-    expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
-
-    expect(requestOwnWorkCompletion(worker.id, token, 'request-1')).toEqual({ accepted: true, idempotent: false });
     expect(finalizeOwnWorkCompletion(worker.id, token).status).toBe('succeeded');
     expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
     expect(getRun(run.id).openCount).toBe(0);
@@ -43,7 +39,6 @@ describe('workflowSessionService', () => {
     const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
     attachRootSession(run.id, worker.id);
     const token = beginWorkflowTurn(worker.id);
-    requestOwnWorkCompletion(worker.id, token, 'request-1');
     sessions.update(worker.id, { scheduledAt: Date.now() + 60_000, pendingPrompt: 'continue' });
     expect(finalizeOwnWorkCompletion(worker.id, token)).toBeNull();
     expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
@@ -57,7 +52,6 @@ describe('workflowSessionService', () => {
     expect(sessions.getById(child.id).laneRunId).toBe(run.id);
 
     const rootToken = beginWorkflowTurn(worker.id);
-    requestOwnWorkCompletion(worker.id, rootToken, 'root-request');
     expect(finalizeOwnWorkCompletion(worker.id, rootToken).status).toBe('open');
     expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
   });
@@ -70,7 +64,6 @@ describe('workflowSessionService', () => {
     });
     attachRootSession(run.id, worker.id);
     const token = beginWorkflowTurn(worker.id);
-    requestOwnWorkCompletion(worker.id, token, 'request-1');
 
     expect(finalizeOwnWorkCompletion(worker.id, token).status).toBe('succeeded');
     expect(kanbanCards.getById(card.id).activeLaneRunId).toBeNull();
@@ -169,7 +162,6 @@ describe('workflowSessionService', () => {
     const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
     attachRootSession(run.id, worker.id);
     const token = beginWorkflowTurn(worker.id);
-    requestOwnWorkCompletion(worker.id, token, 'request-1');
 
     const reconciled = finalizeOwnWorkCompletion(worker.id, token);
 
@@ -197,7 +189,6 @@ describe('workflowSessionService', () => {
     const existingTargetCard = kanbanCards.create(target.id, otherRootA.id, { sortOrder: 5 });
 
     const token = beginWorkflowTurn(worker.id);
-    requestOwnWorkCompletion(worker.id, token, 'request-1');
     finalizeOwnWorkCompletion(worker.id, token);
 
     expect(kanbanCards.getById(card.id).sortOrder).toBeGreaterThan(existingTargetCard.sortOrder);
@@ -208,7 +199,6 @@ describe('workflowSessionService', () => {
     const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
     attachRootSession(run.id, worker.id);
     const token = beginWorkflowTurn(worker.id);
-    requestOwnWorkCompletion(worker.id, token, 'request-1');
     finalizeOwnWorkCompletion(worker.id, token);
 
     // A second attempt against the now-succeeded run must be a pure no-op:
@@ -270,7 +260,6 @@ describe('workflowSessionService', () => {
 
       // A closes its own work before B finishes: A waits, card does not move.
       const aToken = beginWorkflowTurn(worker.id);
-      requestOwnWorkCompletion(worker.id, aToken, 'a-request');
       expect(finalizeOwnWorkCompletion(worker.id, aToken).status).toBe('open');
       expect(sessions.getById(worker.id).ownWorkState).toBe('closed_successfully');
       expect(sessions.getById(worker.id).subtreeOutcome).toBe('open');
@@ -278,7 +267,6 @@ describe('workflowSessionService', () => {
 
       // B finishes: success rolls up to A, and the card moves.
       const bToken = beginWorkflowTurn(b.id);
-      requestOwnWorkCompletion(b.id, bToken, 'b-request');
       const reconciled = finalizeOwnWorkCompletion(b.id, bToken);
       expect(reconciled.status).toBe('succeeded');
       expect(sessions.getById(b.id).subtreeOutcome).toBe('succeeded');
@@ -296,10 +284,8 @@ describe('workflowSessionService', () => {
       expect(sessions.getById(c.id).laneRunId).toBe(run.id);
 
       const aToken = beginWorkflowTurn(a.id);
-      requestOwnWorkCompletion(a.id, aToken, 'a-request');
       finalizeOwnWorkCompletion(a.id, aToken);
       const bToken = beginWorkflowTurn(b.id);
-      requestOwnWorkCompletion(b.id, bToken, 'b-request');
       finalizeOwnWorkCompletion(b.id, bToken);
 
       // A and B have both closed their own work, but C is still open — nothing may move.
@@ -310,7 +296,6 @@ describe('workflowSessionService', () => {
       expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
 
       const cToken = beginWorkflowTurn(c.id);
-      requestOwnWorkCompletion(c.id, cToken, 'c-request');
       const reconciled = finalizeOwnWorkCompletion(c.id, cToken);
 
       expect(reconciled.status).toBe('succeeded');

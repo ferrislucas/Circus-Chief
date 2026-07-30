@@ -126,9 +126,7 @@ export function mapScheduling(row) {
 
 /** Map inert-by-default structured workflow fields. */
 export function mapWorkflow(row) {
-  return { laneRunId: row.lane_run_id || null, ownWorkState: row.own_work_state || 'open', workflowTurnToken: row.workflow_turn_token || null,
-    completionRequestedTurnToken: row.completion_requested_turn_token || null, completionRequestKey: row.completion_request_key || null,
-    completionRequestedAt: row.completion_requested_at || null, ownWorkClosedAt: row.own_work_closed_at || null,
+  return { laneRunId: row.lane_run_id || null, ownWorkState: row.own_work_state || 'open', ownWorkClosedAt: row.own_work_closed_at || null,
     workflowUpdatedAt: row.workflow_updated_at || null, workflowReason: row.workflow_reason || null,
     // FR-5: independent lifecycle dimensions (see kanban-add-lane-run-execution-state).
     executionState: row.execution_state || 'idle', subtreeOutcome: row.subtree_outcome || 'open' };
@@ -205,10 +203,6 @@ export const DIRECT_FIELD_MAP = {
   laneTriggerDepth: 'lane_trigger_depth',
   laneRunId: 'lane_run_id',
   ownWorkState: 'own_work_state',
-  workflowTurnToken: 'workflow_turn_token',
-  completionRequestedTurnToken: 'completion_requested_turn_token',
-  completionRequestKey: 'completion_request_key',
-  completionRequestedAt: 'completion_requested_at',
   ownWorkClosedAt: 'own_work_closed_at',
   workflowUpdatedAt: 'workflow_updated_at',
   workflowReason: 'workflow_reason',

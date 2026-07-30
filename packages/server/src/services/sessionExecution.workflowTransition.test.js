@@ -29,7 +29,7 @@ import { SessionRepository } from '../db/SessionRepository.js';
 import { KanbanBoardRepository } from '../db/KanbanBoardRepository.js';
 import { KanbanLaneRepository } from '../db/KanbanLaneRepository.js';
 import { KanbanCardRepository } from '../db/KanbanCardRepository.js';
-import { createLaneRunForEntry, attachRootSession, requestOwnWorkCompletion } from './workflowSessionService.js';
+import { createLaneRunForEntry, attachRootSession } from './workflowSessionService.js';
 
 describe('W6: _executeSession triggers target-lane automation after a real success', () => {
   let projectRepo;
@@ -80,11 +80,7 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
 
   it('calls triggerStructuredTransitionAutomation exactly once with the pending descriptor (AC-2, target on-entry starts exactly once)', async () => {
     const stubAgent = {
-      execute: vi.fn(async function* (_queryParams, agentCallMeta) {
-        // Simulates the documented contract: the agent fetches its live
-        // workflowTurnToken and calls the completion endpoint mid-turn.
-        const current = sessionRepo.getById(agentCallMeta.sessionId);
-        requestOwnWorkCompletion(agentCallMeta.sessionId, current.workflowTurnToken, 'agent-request-1');
+      execute: vi.fn(async function* (_queryParams, _agentCallMeta) {
         yield { type: 'assistant', text: 'done' };
         yield { type: 'result', success: true };
       }),
@@ -105,9 +101,10 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
     expect(cardRepo.getById(card.id).laneId).toBe(target.id);
   });
 
-  it('does not call triggerStructuredTransitionAutomation when the session has no completion request (turn just ends)', async () => {
+  it('keeps the run open when the successful turn self-schedules more work', async () => {
     const stubAgent = {
-      execute: vi.fn(async function* () {
+      execute: vi.fn(async function* (_queryParams, agentCallMeta) {
+        sessionRepo.update(agentCallMeta.sessionId, { scheduledAt: Date.now() + 60_000, pendingPrompt: 'continue' });
         yield { type: 'assistant', text: 'still working' };
         yield { type: 'result', success: true };
       }),

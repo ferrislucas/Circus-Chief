@@ -144,40 +144,24 @@ export function beginWorkflowTurn(sessionId) {
   return databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!isParticipating(s) || s.own_work_state !== 'open') return null;
-    const token = id(); const time = now();
-    db.prepare(`UPDATE sessions SET workflow_turn_token=?, completion_requested_turn_token=NULL,
-      completion_request_key=NULL, completion_requested_at=NULL, workflow_updated_at=? WHERE id=?`).run(token, time, sessionId);
-    audit(db, s.lane_run_id, 'turn_started', { sessionId });
-    return token;
-  });
-}
-
-export function requestOwnWorkCompletion(sessionId, turnToken, requestKey) {
-  return databaseManager.transaction(() => {
-    const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
-    if (!s?.lane_run_id || s.own_work_state !== 'open') throw new Error('Session has no open workflow obligation');
-    if (s.workflow_turn_token !== turnToken) throw new Error('Workflow turn token is stale or invalid');
-    if (s.completion_request_key === requestKey) return { accepted: true, idempotent: true };
-    if (s.completion_request_key) throw new Error('A different completion request is already pending');
     const time = now();
-    db.prepare(`UPDATE sessions SET completion_requested_turn_token=?, completion_request_key=?, completion_requested_at=?, workflow_updated_at=? WHERE id=?`)
-      .run(turnToken, requestKey, time, time, sessionId);
-    audit(db, s.lane_run_id, 'completion_requested', { sessionId, details: { requestKey } });
-    return { accepted: true, idempotent: false };
+    db.prepare('UPDATE sessions SET execution_state=\'running\', workflow_updated_at=? WHERE id=?').run(time, sessionId);
+    audit(db, s.lane_run_id, 'turn_started', { sessionId });
+    return null;
   });
 }
 
-export function finalizeOwnWorkCompletion(sessionId, turnToken) {
+/** Close own work when a successful server-side turn has no continuation. */
+export function finalizeOwnWorkCompletion(sessionId) {
   if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return null;
   return databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!isParticipating(s) || s.own_work_state !== 'open') return null;
-    if (s.workflow_turn_token !== turnToken || s.completion_requested_turn_token !== turnToken) return null;
     // A future schedule is an explicit continuation obligation, never success.
     if (s.scheduled_at || s.pending_prompt) return null;
     const time = now();
     db.prepare(`UPDATE sessions SET own_work_state='closed_successfully', own_work_closed_at=?,
-      completion_requested_turn_token=NULL, completion_request_key=NULL, execution_state='idle', workflow_updated_at=? WHERE id=?`).run(time, time, sessionId);
+      execution_state='idle', workflow_updated_at=? WHERE id=?`).run(time, time, sessionId);
     audit(db, s.lane_run_id, 'own_work_succeeded', { sessionId });
     return reconcileLaneRun(s.lane_run_id);
   });
@@ -203,7 +187,6 @@ export function closeOwnWork(sessionId, outcome, reason = null) {
     if (!isParticipating(s) || s.own_work_state !== 'open') return null;
     const time = now();
     db.prepare(`UPDATE sessions SET own_work_state=?, workflow_reason=?, own_work_closed_at=?,
-      workflow_turn_token=NULL, completion_requested_turn_token=NULL, completion_request_key=NULL,
       execution_state='stopped', subtree_outcome=?, workflow_updated_at=? WHERE id=?`)
       .run(outcome, reason, time, outcome === 'closed_failed' ? 'failed' : 'cancelled', time, sessionId);
     audit(db, s.lane_run_id, outcome === 'closed_failed' ? 'own_work_failed' : 'own_work_cancelled', { sessionId, details: { reason } });
@@ -317,10 +300,9 @@ function moveCardForTransition(db, run, card) {
   const targetLaneId = (run.completion_mode === 'structured' && run.completion_target_lane_id) ? run.completion_target_lane_id : null;
   if (!targetLaneId) return null;
   const movedCard = kanbanCards.moveToLane(card.id, targetLaneId);
-  const projectRow = db.prepare('SELECT project_id FROM sessions WHERE id=?').get(run.workspace_id);
-  if (projectRow) {
-    broadcastToProject(projectRow.project_id, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
-      projectId: projectRow.project_id,
+  if (run.project_id) {
+    broadcastToProject(run.project_id, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
+      projectId: run.project_id,
       cardId: card.id,
       fromLaneId: card.lane_id,
       toLaneId: targetLaneId,

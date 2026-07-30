@@ -150,8 +150,6 @@ export const kanbanMigrations = [
     name: 'kanban-add-lane-run-workflow',
     up(db) {
       addColumnIfMissing(db, 'kanban_lanes', 'completion_mode', "TEXT NOT NULL DEFAULT 'legacy'");
-      db.prepare(`UPDATE kanban_lanes SET completion_mode='structured'
-        WHERE completion_target_lane_id IS NOT NULL AND completion_mode='legacy'`).run();
       addColumnIfMissing(db, 'kanban_cards', 'active_lane_run_id', 'TEXT');
       addColumnIfMissing(db, 'kanban_cards', 'lane_entry_event_id', 'TEXT');
       for (const [column, definition] of Object.entries({
@@ -201,6 +199,15 @@ export const kanbanMigrations = [
     up(db) {
       addColumnIfMissing(db, 'sessions', 'execution_state', "TEXT NOT NULL DEFAULT 'idle'");
       addColumnIfMissing(db, 'sessions', 'subtree_outcome', "TEXT NOT NULL DEFAULT 'open'");
+    },
+  },
+  {
+    name: 'kanban-drop-agent-workflow-completion-tokens',
+    up(db) {
+      const columns = getColumns(db, 'sessions');
+      for (const column of ['workflow_turn_token', 'completion_requested_turn_token', 'completion_request_key', 'completion_requested_at']) {
+        if (columns.includes(column)) db.exec(`ALTER TABLE sessions DROP COLUMN ${column}`);
+      }
     },
   },
 ];

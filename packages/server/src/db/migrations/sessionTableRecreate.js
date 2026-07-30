@@ -71,10 +71,6 @@ export const SESSIONS_ALL_CURRENT_COLUMNS = `
     pending_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
     lane_run_id TEXT,
     own_work_state TEXT NOT NULL DEFAULT 'open',
-    workflow_turn_token TEXT,
-    completion_requested_turn_token TEXT,
-    completion_request_key TEXT,
-    completion_requested_at INTEGER,
     own_work_closed_at INTEGER,
     workflow_updated_at INTEGER,
     workflow_reason TEXT,
@@ -97,9 +93,7 @@ export const SESSIONS_ALL_CURRENT_COLUMN_NAMES = [
   'reschedule_at_token_count', 'pending_prompt', 'slash_commands',
   'pending_model', 'auto_send_pending_prompt', 'agent_type',
   'lane_trigger_depth', 'pending_conversation_id', 'created_at', 'updated_at',
-  'lane_run_id', 'own_work_state', 'workflow_turn_token',
-  'completion_requested_turn_token', 'completion_request_key',
-  'completion_requested_at', 'own_work_closed_at', 'workflow_updated_at',
+  'lane_run_id', 'own_work_state', 'own_work_closed_at', 'workflow_updated_at',
   'workflow_reason', 'execution_state', 'subtree_outcome',
 ];
 

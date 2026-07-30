@@ -439,17 +439,12 @@ describe('sessionPrompts', () => {
       expect(result).not.toContain('/workflow/complete');
     });
 
-    it('documents the workflow/complete endpoint when the session participates in a lane run (W3)', () => {
+    it('does not document an agent-invoked completion endpoint for lane runs', () => {
       sessions.getById.mockReturnValue({ id: sessionId, laneRunId: 'lane-run-1' });
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
-      expect(result).toContain('Workflow Completion');
-      expect(result).toContain(`/api/sessions/${sessionId}/workflow/complete`);
-      expect(result).toContain('workflowTurnToken');
-      expect(result).toContain('idempotencyKey');
-      // Must instruct the agent to re-fetch the token rather than trust a
-      // value baked into the prompt at build time (it is minted fresh per turn).
-      expect(result).toContain(`/api/sessions/${sessionId}`);
-      expect(result).toMatch(/Finishing a turn does not.*advance/i);
+      expect(result).not.toContain('Workflow Completion');
+      expect(result).not.toContain('/workflow/complete');
+      expect(result).not.toContain('workflowTurnToken');
     });
 
     it('uses a future-safe placeholder in the session schedule example', () => {
