@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { reactive, nextTick } from 'vue';
+import { reactive, nextTick, ref } from 'vue';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 
@@ -128,6 +128,88 @@ describe('useRunningSessionSubscriptions', () => {
     expect(useSessionSubscription).toHaveBeenCalledWith('session-1');
     expect(useSessionSubscription).not.toHaveBeenCalledWith('session-2');
     expect(mockSubscriptionInstances['session-1'].subscribe).toHaveBeenCalled();
+  });
+
+  describe('caller-provided desired session IDs', () => {
+    let desiredIds;
+
+    beforeEach(() => {
+      desiredIds = ref(['chosen-1']);
+      testComponent = {
+        template: '<div>Test</div>',
+        setup() {
+          const result = useRunningSessionSubscriptions(desiredIds);
+          return { ...result };
+        },
+      };
+    });
+
+    it('subscribes exactly to supplied IDs regardless of session store status', async () => {
+      mockSessionsStore.sessions = [{ id: 'store-running', status: 'running' }];
+      wrapper = mount(testComponent, { global: { plugins: [createPinia()] } });
+      await nextTick();
+
+      expect(useSessionSubscription).toHaveBeenCalledWith('chosen-1');
+      expect(useSessionSubscription).not.toHaveBeenCalledWith('store-running');
+    });
+
+    it('reconciles additions and removals without churning unchanged subscriptions', async () => {
+      wrapper = mount(testComponent, { global: { plugins: [createPinia()] } });
+      await nextTick();
+      const first = mockSubscriptionInstances['chosen-1'];
+
+      desiredIds.value = ['chosen-1', 'chosen-2'];
+      await nextTick();
+      expect(first.unsubscribe).not.toHaveBeenCalled();
+      expect(mockSubscriptionInstances['chosen-2'].subscribe).toHaveBeenCalledTimes(1);
+
+      desiredIds.value = ['chosen-2'];
+      await nextTick();
+      expect(first.unsubscribe).toHaveBeenCalledTimes(1);
+      expect(mockSubscriptionInstances['chosen-2'].unsubscribe).not.toHaveBeenCalled();
+      expect(useSessionSubscription.mock.calls.filter(([id]) => id === 'chosen-2')).toHaveLength(1);
+    });
+
+    it('drops late streaming callbacks after a session is de-eligible', async () => {
+      wrapper = mount(testComponent, { global: { plugins: [createPinia()] } });
+      await nextTick();
+      const handlers = mockSubscriptionInstances['chosen-1']._handlers;
+      desiredIds.value = [];
+      await nextTick();
+
+      handlers.onWorkLog[0]({ id: 'late' });
+      handlers.onPartial[0]('late');
+      handlers.onThinkingPartial[0]('late');
+      handlers.onChangesUpdate[0](3);
+      expect(mockStreamingStore.addSessionWorkLog).not.toHaveBeenCalled();
+      expect(mockStreamingStore.setSessionPartialText).not.toHaveBeenCalled();
+      expect(mockStreamingStore.setPartialThinking).not.toHaveBeenCalled();
+      expect(mockStreamingStore.setSessionFileCount).not.toHaveBeenCalled();
+    });
+
+    it('aborts hydration and clears retry timers after de-eligibility', async () => {
+      globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));
+      wrapper = mount(testComponent, { global: { plugins: [createPinia()] } });
+      await nextTick();
+      await Promise.resolve();
+      await Promise.resolve();
+      const signal = globalThis.fetch.mock.calls[0][1].signal;
+
+      desiredIds.value = [];
+      await nextTick();
+      expect(signal.aborted).toBe(true);
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('rehydrates each active entry after reconnect', async () => {
+      desiredIds.value = ['chosen-1', 'chosen-2'];
+      wrapper = mount(testComponent, { global: { plugins: [createPinia()] } });
+      await nextTick();
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      reconnectCallback();
+      expect(globalThis.fetch).toHaveBeenCalledTimes(4);
+    });
   });
 
   it('subscribes to newly running sessions when store updates', async () => {

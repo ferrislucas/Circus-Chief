@@ -2,6 +2,28 @@
 import { beforeEach, afterEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 
+// jsdom does not provide IntersectionObserver. Keep the mock controllable so
+// visibility-gated components exercise their production path in tests.
+class MockIntersectionObserver {
+  static instances = [];
+
+  constructor(callback, options) {
+    this.callback = callback;
+    this.options = options;
+    this.targets = new Set();
+    MockIntersectionObserver.instances.push(this);
+  }
+
+  observe(target) { this.targets.add(target); }
+  unobserve(target) { this.targets.delete(target); }
+  disconnect() { this.targets.clear(); }
+  trigger(isIntersecting, target = [...this.targets][0]) {
+    this.callback([{ isIntersecting, target }]);
+  }
+}
+
+vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+
 // Stub window.matchMedia (jsdom does not implement it).
 // Default: wide screen (matches = false for max-width: 640px).
 // Individual tests can override:
@@ -55,6 +77,7 @@ vi.mock('posthog-js', () => ({
 // Create a fresh Pinia instance before each test
 beforeEach(() => {
   setActivePinia(createPinia());
+  MockIntersectionObserver.instances = [];
 });
 
 // Clear all mocks after each test

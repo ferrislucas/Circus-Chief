@@ -92,7 +92,9 @@ export function useRunningSessionSubscriptions(desiredSessionIds) {
     for (const id of ids) add(id);
   }
 
-  watch(() => [...currentIds()].sort(), () => reconcile(), { immediate: true });
+  // A stable key avoids reconciling on unrelated reactive changes when the
+  // effective set of IDs has not changed.
+  watch(() => [...currentIds()].sort().join(','), () => reconcile(), { immediate: true });
   const { onReconnect } = useWebSocket();
   const removeReconnectHandler = onReconnect(() => {
     for (const [id, entry] of entries) hydrate(id, entry);

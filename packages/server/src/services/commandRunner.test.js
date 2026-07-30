@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   CommandRunner,
   createCommandRunnerEnv,
@@ -16,6 +16,37 @@ describe('CommandRunner', () => {
   });
 
   describe('run', () => {
+    it('coalesces rapid output and flushes the final buffer before completion', async () => {
+      const throttledRunner = new CommandRunner({ outputBroadcastInterval: 1000, outputDbFlushInterval: 1000 });
+      const output = [];
+      let completedOutput = '';
+
+      const exitCode = await throttledRunner.run(
+        { runId: 'coalesced-output', command: 'printf first; printf second', workingDirectory: process.cwd() },
+        { onOutput: text => output.push(text), onComplete: (_code, text) => { completedOutput = text; } },
+      );
+
+      expect(exitCode).toBe(0);
+      expect(output).toHaveLength(1);
+      expect(output[0]).toContain('first');
+      expect(output[0]).toContain('second');
+      expect(completedOutput).toContain('first');
+      expect(completedOutput).toContain('second');
+    });
+
+    it('contains an output callback failure while still completing the run', async () => {
+      const onOutput = () => { throw new Error('consumer failed'); };
+      const onComplete = vi.fn();
+
+      const exitCode = await runner.run(
+        { runId: 'output-callback-failure', command: 'printf retained', workingDirectory: process.cwd() },
+        { onOutput, onComplete },
+      );
+
+      expect(exitCode).toBe(0);
+      expect(onComplete).toHaveBeenCalledWith(0, expect.stringContaining('retained'));
+    });
+
     it('strips commit attribution from command-button environments', () => {
       const env = createCommandRunnerEnv({
         PATH: '/usr/bin',

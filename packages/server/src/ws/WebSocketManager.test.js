@@ -507,6 +507,37 @@ describe('WebSocketManager', () => {
 
       clients.forEach(client => client.close());
     });
+
+    it('does not send frames to clients subscribed to neither scope', async () => {
+      manager.init(server);
+      const unrelatedClient = await connectClient();
+      const received = vi.fn();
+      unrelatedClient.on('message', received);
+
+      manager.broadcastToSessionAndProject('sess-123', 'proj-123', 'COMMAND_RUN_OUTPUT', { runId: 'run-1' });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(received).not.toHaveBeenCalled();
+      unrelatedClient.close();
+    });
+
+    it('adds authoritative scope IDs and sends only one frame per socket', async () => {
+      manager.init(server);
+      const client = await connectClient();
+      client.send(createMessage(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId: 'sess-123' }));
+      client.send(createMessage(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId: 'proj-123' }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const message = waitForMessage(client);
+      manager.broadcastToSessionAndProject('sess-123', 'proj-123', 'COMMAND_RUN_OUTPUT', {
+        runId: 'run-1', sessionId: 'wrong-session', projectId: 'wrong-project',
+      });
+
+      await expect(message).resolves.toMatchObject({
+        type: 'COMMAND_RUN_OUTPUT', sessionId: 'sess-123', projectId: 'proj-123', runId: 'run-1',
+      });
+      client.close();
+    });
   });
 
   describe('getServer', () => {
