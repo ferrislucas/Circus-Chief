@@ -18,9 +18,11 @@ const id = () => crypto.randomUUID();
 const SELECT_SESSION_BY_ID = 'SELECT * FROM sessions WHERE id=?';
 
 function audit(db, runId, type, { sessionId = null, details = null } = {}) {
+  const operationKey = `${runId}:${type}:${sessionId || '-'}:${details ? JSON.stringify(details) : '-'}`;
   db.prepare(`INSERT INTO kanban_lane_run_audit_events
-    (id, lane_run_id, session_id, event_type, details_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
-    .run(id(), runId, sessionId, type, details ? JSON.stringify(details) : null, now());
+    (id, operation_key, lane_run_id, session_id, event_type, details_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(operation_key) DO NOTHING`)
+    .run(id(), operationKey, runId, sessionId, type, details ? JSON.stringify(details) : null, now());
 }
 
 function isParticipating(session) {
@@ -388,14 +390,32 @@ export function supersedeRunForCard(cardId, reason = 'manual_move') {
   });
 }
 
+function laneRunCounts(rows) {
+  const open = rows.filter(s => s.own_work_state === 'open');
+  const scheduled = open.filter(s => s.scheduled_at).sort((a, b) => a.scheduled_at - b.scheduled_at);
+  const retrying = open.filter(s => s.execution_state === 'retrying');
+  return {
+    open, scheduled, retrying,
+    failedCount: rows.filter(s => s.own_work_state === 'closed_failed').length,
+    cancelledCount: rows.filter(s => s.own_work_state === 'cancelled').length,
+    failedSessionId: rows.find(s => s.own_work_state === 'closed_failed')?.id || null,
+  };
+}
+
 export function getRun(runId) {
   const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
   if (!run) return null; const rows = db.prepare('SELECT * FROM sessions WHERE lane_run_id=?').all(runId);
-  const open = rows.filter(s => s.own_work_state === 'open');
-  return { id: run.id, status: run.status, sourceLaneId: run.source_lane_id, targetLaneId: run.completion_target_lane_id,
+  const { open, scheduled, retrying, failedCount, cancelledCount, failedSessionId } = laneRunCounts(rows);
+  const names = db.prepare(`SELECT (SELECT name FROM kanban_lanes WHERE id=?) AS source_name,
+    (SELECT name FROM kanban_lanes WHERE id=?) AS target_name`).get(run.source_lane_id, run.completion_target_lane_id);
+  const blocker = scheduled[0] || retrying[0] || open[0] || null;
+  return { id: run.id, status: run.status, sourceLaneId: run.source_lane_id, sourceLaneName: names?.source_name || null,
+    targetLaneId: run.completion_target_lane_id, targetLaneName: names?.target_name || null,
     rootSessionId: run.root_session_id, failureReason: run.failure_reason, createdAt: run.created_at,
+    succeededAt: run.succeeded_at, failedAt: run.failed_at, cancelledAt: run.cancelled_at, supersededAt: run.superseded_at,
     openCount: open.length, scheduledCount: open.filter(s => s.scheduled_at).length,
-    failedCount: rows.filter(s => s.own_work_state === 'closed_failed').length,
-    cancelledCount: rows.filter(s => s.own_work_state === 'cancelled').length,
-    blockingSessionIds: open.map(s => s.id), blockingReason: open.some(s => s.scheduled_at) ? 'Waiting for scheduled session' : open.length ? 'Waiting for own-work completion' : null };
+    retryingCount: retrying.length, nextScheduledAt: scheduled[0]?.scheduled_at || null,
+    failedCount, failedSessionId, cancelledCount,
+    blockingSessionIds: open.map(s => s.id), blockingSessionId: blocker?.id || null,
+    blockingReason: scheduled.length ? 'Waiting for scheduled work' : retrying.length ? 'Retrying automation' : open.length ? 'Waiting for descendants' : null };
 }

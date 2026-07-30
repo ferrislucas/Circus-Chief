@@ -175,6 +175,16 @@
                     {{ cardsScheduledInfo[card.id].timeDisplay }}
                   </span>
                 </div>
+                <details v-if="card.activeLaneRun" class="lane-run-status" :class="`lane-run-${card.activeLaneRun.status}`" @click.stop>
+                  <summary><span class="lane-run-dot" />{{ laneRunLabel(card.activeLaneRun) }}</summary>
+                  <div class="lane-run-details">
+                    <strong>{{ card.activeLaneRun.sourceLaneName || lane.name }} automation</strong>
+                    <span v-if="card.activeLaneRun.blockingReason">{{ card.activeLaneRun.blockingReason }}</span>
+                    <span v-if="card.activeLaneRun.openCount">{{ card.activeLaneRun.openCount }} blocking {{ card.activeLaneRun.openCount === 1 ? 'session' : 'sessions' }} remain</span>
+                    <time v-if="card.activeLaneRun.nextScheduledAt">Next: {{ formatLaneRunTime(card.activeLaneRun.nextScheduledAt) }}</time>
+                    <router-link v-if="card.activeLaneRun.status === 'failed' && card.activeLaneRun.failedSessionId" :to="`/sessions/${card.activeLaneRun.failedSessionId}`" class="lane-run-blocker-link">Open failed session</router-link><router-link v-else-if="card.activeLaneRun.blockingSessionId" :to="`/sessions/${card.activeLaneRun.blockingSessionId}`" class="lane-run-blocker-link">View blocker</router-link>
+                  </div>
+                </details>
               </router-link>
               <CommandButtonStatusBar
                 v-if="card.sessions?.[0]"
@@ -327,6 +337,7 @@
       :card-id="selectedCardForMove?.id"
       :current-lane-id="selectedCardCurrentLaneId"
       :session-name="selectedCardForMove?.sessions?.[0]?.name"
+      :active-lane-run="selectedCardForMove?.activeLaneRun"
       @update:is-open="showMoveCardModal = $event"
       @close="closeMoveCardModal"
       @moved="onCardMoved"
@@ -336,12 +347,13 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, toRef } from 'vue';
-import { formatDistanceToNow, format } from 'date-fns';
+import { format } from 'date-fns';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
-import { findNearestScheduledTime } from '../utils/scheduleInfo.js';
 import { useCardDragDrop } from '../composables/useCardDragDrop.js';
+import { laneRunLabel, formatLaneRunTime } from '../composables/useLaneRunStatus.js';
+import { useScheduledCardInfo } from '../composables/useScheduledCardInfo.js';
 import AddSessionToLaneModal from './AddSessionToLaneModal.vue';
 import CommandButtonStatusBar from './CommandButtonStatusBar.vue';
 import LaneSettingsModal from './LaneSettingsModal.vue';
@@ -351,7 +363,6 @@ import SessionRunningSpinner from './SessionRunningSpinner.vue';
 import KanbanBoardIcon from './KanbanBoardIcon.vue';
 import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
 import './KanbanBoard.css';
-
 const props = defineProps({
   projectId: {
     type: String,
@@ -362,12 +373,10 @@ const props = defineProps({
 const kanbanStore = useKanbanStore();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
-
 // ==================== Layout state ====================
 
 const LAYOUT_MODE_KEY = 'kanbanLayoutMode';
 const VALID_LAYOUT_MODES = ['auto', 'horizontal', 'vertical'];
-
 function readLayoutMode() {
   try {
     const stored = localStorage.getItem(LAYOUT_MODE_KEY);
@@ -497,33 +506,7 @@ const newLaneName = ref('');
 const board = computed(() => kanbanStore.board);
 const loading = computed(() => kanbanStore.loading);
 const error = computed(() => kanbanStore.error);
-const cardsScheduledInfo = computed(() => {
-  const map = {};
-  if (!board.value?.lanes) return map;
-
-  for (const lane of board.value.lanes) {
-    for (const card of lane.cards || []) {
-      const session = card.sessions?.[0];
-      if (!session?.id) continue;
-
-      const nearest = findNearestScheduledTime(session.id);
-
-      if (nearest === null) {
-        map[card.id] = { showBadge: false, timeDisplay: null, absoluteTime: null };
-        continue;
-      }
-
-      const scheduledTime = new Date(nearest);
-      map[card.id] = {
-        showBadge: true,
-        timeDisplay: formatDistanceToNow(scheduledTime, { addSuffix: true }),
-        absoluteTime: format(scheduledTime, 'MMM d, h:mm a'),
-      };
-    }
-  }
-
-  return map;
-});
+const cardsScheduledInfo = useScheduledCardInfo(board);
 
 // Drag-and-drop
 const {
@@ -549,13 +532,11 @@ const fetchBoard = async () => {
     console.error('Failed to fetch kanban board:', err);
   }
 };
-
 const STATUS_INDICATORS = {
   running: '●', starting: '●', waiting: '◐', completed: '✓',
   error: '✕', stopped: '■', scheduled: '⏰',
 };
 const getStatusIndicator = (status) => STATUS_INDICATORS[status] || '○';
-
 const isCardEffectivelyRunning = (session) => {
   if (!session?.id) return false;
   if (sessionsStore.getWorkflowEffectiveStatus(session.id) === 'running') {
@@ -563,7 +544,6 @@ const isCardEffectivelyRunning = (session) => {
   }
   return ['running', 'starting'].includes(session.status);
 };
-
 // Board-level map of session id → button-status indicators. Built once per
 // recompute (rather than per-card during render) so the buttonMap and the
 // store-session lookup are constructed a single time for the whole board.

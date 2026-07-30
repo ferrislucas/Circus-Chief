@@ -150,6 +150,8 @@ export const kanbanMigrations = [
     name: 'kanban-add-lane-run-workflow',
     up(db) {
       addColumnIfMissing(db, 'kanban_lanes', 'completion_mode', "TEXT NOT NULL DEFAULT 'legacy'");
+      db.prepare(`UPDATE kanban_lanes SET completion_mode='structured'
+        WHERE completion_target_lane_id IS NOT NULL AND completion_mode='legacy'`).run();
       addColumnIfMissing(db, 'kanban_cards', 'active_lane_run_id', 'TEXT');
       addColumnIfMissing(db, 'kanban_cards', 'lane_entry_event_id', 'TEXT');
       for (const [column, definition] of Object.entries({

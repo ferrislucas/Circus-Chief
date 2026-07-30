@@ -179,6 +179,12 @@ export class KanbanLaneRepository extends BaseRepository {
    * @returns {Object}
    */
   update(id, data) {
+    // Completion targets are workflow automation, not a legacy per-session
+    // signal. Make newly-configured target lanes structured by default while
+    // still honoring an explicit shadow/legacy selection.
+    const updateData = data.completionTargetLaneId && data.completionMode === undefined
+      ? { ...data, completionMode: 'structured' }
+      : data;
     // Field mapping: camelCase -> snake_case
     const fieldMap = {
       name: 'name',
@@ -205,9 +211,9 @@ export class KanbanLaneRepository extends BaseRepository {
 
     // Build update clauses dynamically
     for (const [camelKey, snakeKey] of Object.entries(fieldMap)) {
-      if (data[camelKey] !== undefined) {
+      if (updateData[camelKey] !== undefined) {
         updates.push(`${snakeKey} = ?`);
-        values.push(convertFieldValue(camelKey, data[camelKey]));
+        values.push(convertFieldValue(camelKey, updateData[camelKey]));
       }
     }
 
