@@ -33,6 +33,11 @@ import { API_READY, PAGE_READY_TIMEOUT } from './timeouts';
  *    (historical continuity, US5).
  */
 test.describe('Opus 5 Model Availability', () => {
+  // These tests intentionally toggle a global built-in provider row. Keep the
+  // read/default assertions and the mutation in one serial sequence so a
+  // fully-parallel Playwright configuration cannot expose the transient state.
+  test.describe.configure({ mode: 'serial' });
+
   let project: any;
 
   test.beforeEach(async () => {

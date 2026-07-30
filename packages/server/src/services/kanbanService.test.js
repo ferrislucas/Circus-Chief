@@ -408,6 +408,7 @@ describe('kanbanService', () => {
       kanbanLanes.update(lanes[0].id, {
         onEnterPrompt: 'Do lane work',
         completionTargetLaneId: lanes[1].id,
+        completionMode: 'legacy',
       });
 
       // Add root to the board — on-enter trigger creates a lane child (starting).
@@ -428,6 +429,7 @@ describe('kanbanService', () => {
       kanbanLanes.update(lanes[0].id, {
         onEnterPrompt: 'Do lane work',
         completionTargetLaneId: lanes[1].id,
+        completionMode: 'legacy',
       });
 
       const root = createSession('Root');
@@ -455,6 +457,7 @@ describe('kanbanService', () => {
       kanbanLanes.update(lanes[0].id, {
         onEnterTemplateId: template.id,
         completionTargetLaneId: lanes[1].id,
+        completionMode: 'legacy',
       });
 
       const root = createSession('Root');
@@ -477,6 +480,7 @@ describe('kanbanService', () => {
       kanbanLanes.update(lanes[0].id, {
         onEnterPrompt: 'Do lane work',
         completionTargetLaneId: lanes[1].id,
+        completionMode: 'legacy',
       });
 
       const root = createSession('Root');
@@ -499,6 +503,7 @@ describe('kanbanService', () => {
       kanbanLanes.update(lanes[0].id, {
         onEnterPrompt: 'Do lane work',
         completionTargetLaneId: lanes[1].id,
+        completionMode: 'legacy',
       });
 
       const root = createSession('Root');
@@ -540,6 +545,7 @@ describe('kanbanService', () => {
       kanbanLanes.update(lanes[0].id, {
         onEnterPrompt: 'Do lane work',
         completionTargetLaneId: lanes[1].id,
+        completionMode: 'legacy',
       });
 
       const root = createSession('Root');
@@ -577,6 +583,7 @@ describe('kanbanService', () => {
       kanbanLanes.update(lanes[0].id, {
         onEnterPrompt: 'Implement the plan',
         completionTargetLaneId: lanes[1].id,
+        completionMode: 'legacy',
       });
 
       // Place the parent session on the board — this fires the on-enter trigger

@@ -175,14 +175,34 @@
                     {{ cardsScheduledInfo[card.id].timeDisplay }}
                   </span>
                 </div>
-                <details v-if="card.activeLaneRun" class="lane-run-status" :class="`lane-run-${card.activeLaneRun.status}`" @click.stop>
-                  <summary><span class="lane-run-dot" />{{ laneRunLabel(card.activeLaneRun) }}</summary>
+                <details
+                  v-if="card.activeLaneRun"
+                  class="lane-run-status"
+                  :class="`lane-run-${card.activeLaneRun.status}`"
+                  @click.stop
+                >
+                  <summary>
+                    <span class="lane-run-dot" />{{ laneRunLabel(card.activeLaneRun) }}
+                  </summary>
                   <div class="lane-run-details">
                     <strong>{{ card.activeLaneRun.sourceLaneName || lane.name }} automation</strong>
                     <span v-if="card.activeLaneRun.blockingReason">{{ card.activeLaneRun.blockingReason }}</span>
                     <span v-if="card.activeLaneRun.openCount">{{ card.activeLaneRun.openCount }} blocking {{ card.activeLaneRun.openCount === 1 ? 'session' : 'sessions' }} remain</span>
                     <time v-if="card.activeLaneRun.nextScheduledAt">Next: {{ formatLaneRunTime(card.activeLaneRun.nextScheduledAt) }}</time>
-                    <router-link v-if="card.activeLaneRun.status === 'failed' && card.activeLaneRun.failedSessionId" :to="`/sessions/${card.activeLaneRun.failedSessionId}`" class="lane-run-blocker-link">Open failed session</router-link><router-link v-else-if="card.activeLaneRun.blockingSessionId" :to="`/sessions/${card.activeLaneRun.blockingSessionId}`" class="lane-run-blocker-link">View blocker</router-link>
+                    <router-link
+                      v-if="card.activeLaneRun.status === 'failed' && card.activeLaneRun.failedSessionId"
+                      :to="`/sessions/${card.activeLaneRun.failedSessionId}`"
+                      class="lane-run-blocker-link"
+                    >
+                      Open failed session
+                    </router-link>
+                    <router-link
+                      v-else-if="card.activeLaneRun.blockingSessionId"
+                      :to="`/sessions/${card.activeLaneRun.blockingSessionId}`"
+                      class="lane-run-blocker-link"
+                    >
+                      View blocker
+                    </router-link>
                   </div>
                 </details>
               </router-link>
@@ -364,17 +384,12 @@ import KanbanBoardIcon from './KanbanBoardIcon.vue';
 import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
 import './KanbanBoard.css';
 const props = defineProps({
-  projectId: {
-    type: String,
-    required: true,
-  },
+  projectId: { type: String, required: true },
 });
-
 const kanbanStore = useKanbanStore();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
 // ==================== Layout state ====================
-
 const LAYOUT_MODE_KEY = 'kanbanLayoutMode';
 const VALID_LAYOUT_MODES = ['auto', 'horizontal', 'vertical'];
 function readLayoutMode() {
@@ -501,7 +516,6 @@ const handleLaneHeaderClick = (laneId) => {
 
 const showAddLane = ref(false);
 const newLaneName = ref('');
-
 // Computed
 const board = computed(() => kanbanStore.board);
 const loading = computed(() => kanbanStore.loading);

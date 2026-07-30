@@ -131,10 +131,26 @@ async function saveLaneSettings(page: Page) {
 }
 
 /** Open "In Progress" lane settings, pick a completion target by label, and save. */
-async function configureCompletionTarget(page: Page, sourceLane: string, targetLabel: string) {
+async function configureCompletionTarget(
+  page: Page,
+  projectId: string,
+  sourceLane: string,
+  targetLabel: string
+) {
   await openLaneSettings(page, sourceLane);
   await page.selectOption('#completion-target-lane-select', { label: targetLabel });
   await saveLaneSettings(page);
+
+  // This spec covers the legacy per-turn completion behavior. The branch's
+  // structured lane-run mode has its own contract/API coverage and requires an
+  // on-entry worker to explicitly close its obligation. Preserve this suite's
+  // original intent by selecting legacy mode explicitly after the UI updates
+  // the target (newly configured targets otherwise opt into structured mode).
+  if (targetLabel !== 'Do not move automatically') {
+    const board = await getBoard(projectId);
+    const lane = getLaneByName(board, sourceLane);
+    await setLaneOnEnter(projectId, lane.id, { completionMode: 'legacy' });
+  }
 }
 
 /** Add a (draft) session to a lane via the lane's "Add Session" modal. */
@@ -302,7 +318,7 @@ test.describe('Kanban lane completion move', () => {
     await page.click('.modal-footer .btn-secondary'); // Cancel out
 
     // (b) Change the target to a DIFFERENT lane ("Review") and confirm it updates.
-    await configureCompletionTarget(page, 'In Progress', 'Review');
+    await configureCompletionTarget(page, project.id, 'In Progress', 'Review');
     await page.reload();
     await expect(page.locator('.kanban-board')).toBeVisible();
     await openLaneSettings(page, 'In Progress');
@@ -313,7 +329,7 @@ test.describe('Kanban lane completion move', () => {
     await page.click('.modal-footer .btn-secondary');
 
     // (c) Clear it back to "do not move" and confirm it persists as null.
-    await configureCompletionTarget(page, 'In Progress', 'Do not move automatically');
+    await configureCompletionTarget(page, project.id, 'In Progress', 'Do not move automatically');
     await page.reload();
     await expect(page.locator('.kanban-board')).toBeVisible();
     await openLaneSettings(page, 'In Progress');
@@ -343,8 +359,8 @@ test.describe('Kanban lane completion move', () => {
     });
 
     // First set a target, then clear it back to "do not move" — both via the UI.
-    await configureCompletionTarget(page, 'In Progress', 'Done');
-    await configureCompletionTarget(page, 'In Progress', 'Do not move automatically');
+    await configureCompletionTarget(page, project.id, 'In Progress', 'Done');
+    await configureCompletionTarget(page, project.id, 'In Progress', 'Do not move automatically');
 
     // The cleared setting is persisted as null.
     expect(getLaneByName(await getBoard(project.id), 'In Progress').completionTargetLaneId).toBeNull();
@@ -398,7 +414,7 @@ test.describe('Kanban lane completion move', () => {
     });
 
     // Configure "In Progress" → "Done" on completion, through the UI.
-    await configureCompletionTarget(page, 'In Progress', 'Done');
+    await configureCompletionTarget(page, project.id, 'In Progress', 'Done');
 
     // Add the draft session to "In Progress" through the UI.
     await addSessionToLaneViaUI(page, 'In Progress', sessionName);
@@ -461,7 +477,7 @@ test.describe('Kanban lane completion move', () => {
       waitFor: '.kanban-board',
     });
 
-    await configureCompletionTarget(page, 'In Progress', 'Done');
+    await configureCompletionTarget(page, project.id, 'In Progress', 'Done');
     await addSessionToLaneViaUI(page, 'In Progress', sessionName);
     await expect(cardInLane(page, 'In Progress', sessionName)).toBeVisible();
 
@@ -508,7 +524,7 @@ test.describe('Kanban lane completion move', () => {
       waitFor: '.kanban-board',
     });
 
-    await configureCompletionTarget(page, 'In Progress', 'Done');
+    await configureCompletionTarget(page, project.id, 'In Progress', 'Done');
     await addSessionToLaneViaUI(page, 'In Progress', sessionName);
     await expect(cardInLane(page, 'In Progress', sessionName)).toBeVisible();
 
@@ -577,7 +593,7 @@ test.describe('Kanban lane completion move', () => {
 
     // Now configure the completion target. With the child held running, the only
     // completion that follows is the root's.
-    await configureCompletionTarget(page, 'In Progress', 'Done');
+    await configureCompletionTarget(page, project.id, 'In Progress', 'Done');
 
     await runSessionTurnViaUI(page, session.id);
 
@@ -628,7 +644,7 @@ test.describe('Kanban lane completion move', () => {
     });
 
     // "In Progress" → "Done" on completion. "To Do" has NO completion target.
-    await configureCompletionTarget(page, 'In Progress', 'Done');
+    await configureCompletionTarget(page, project.id, 'In Progress', 'Done');
 
     // Add the draft to the neutral "To Do" lane and run turn 1 there. The
     // session is now an in-progress / already-conversed session, parked in a
