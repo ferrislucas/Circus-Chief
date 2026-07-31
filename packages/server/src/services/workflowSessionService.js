@@ -389,6 +389,10 @@ function laneRunCounts(rows) {
   };
 }
 
+function findOwnWorkState(sessions, sessionId) {
+  return sessions.find(session => session.id === sessionId)?.own_work_state || null;
+}
+
 export function getRun(runId) {
   const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
   if (!run) return null; const rows = db.prepare('SELECT * FROM sessions WHERE lane_run_id=?').all(runId);
@@ -396,10 +400,9 @@ export function getRun(runId) {
   const names = db.prepare(`SELECT (SELECT name FROM kanban_lanes WHERE id=?) AS source_name,
     (SELECT name FROM kanban_lanes WHERE id=?) AS target_name`).get(run.source_lane_id, run.completion_target_lane_id);
   const blocker = scheduled[0] || retrying[0] || open[0] || null;
-  const root = rows.find(session => session.id === run.root_session_id);
   return { id: run.id, status: run.status, sourceLaneId: run.source_lane_id, sourceLaneName: names?.source_name || null,
     targetLaneId: run.completion_target_lane_id, targetLaneName: names?.target_name || null,
-    rootSessionId: run.root_session_id, rootOwnWorkState: root?.own_work_state || null,
+    rootSessionId: run.root_session_id, rootOwnWorkState: findOwnWorkState(rows, run.root_session_id),
     failureReason: run.failure_reason, createdAt: run.created_at,
     succeededAt: run.succeeded_at, failedAt: run.failed_at, cancelledAt: run.cancelled_at, supersededAt: run.superseded_at,
     openCount: open.length, scheduledCount: open.filter(s => s.scheduled_at).length,
