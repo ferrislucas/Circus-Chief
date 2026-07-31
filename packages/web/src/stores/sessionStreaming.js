@@ -98,10 +98,7 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
      */
     setPartialThinking(thinking, sessionId) {
       if (!sessionId) return;
-      this.partialThinkingBySession = {
-        ...this.partialThinkingBySession,
-        [sessionId]: thinking || null,
-      };
+      this.partialThinkingBySession[sessionId] = thinking || null;
     },
 
     /**
@@ -110,10 +107,7 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
      */
     clearPartialThinking(sessionId) {
       if (!sessionId) return;
-      this.partialThinkingBySession = {
-        ...this.partialThinkingBySession,
-        [sessionId]: null,
-      };
+      this.partialThinkingBySession[sessionId] = null;
     },
 
     /**
@@ -137,8 +131,6 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
       if (this.sessionWorkLogs[sessionId].length > 15) {
         this.sessionWorkLogs[sessionId] = this.sessionWorkLogs[sessionId].slice(-15);
       }
-      // Trigger reactivity
-      this.sessionWorkLogs = { ...this.sessionWorkLogs };
     },
 
     /**
@@ -148,10 +140,7 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
      * @param {string} text
      */
     setSessionPartialText(sessionId, text) {
-      this.sessionPartialText = {
-        ...this.sessionPartialText,
-        [sessionId]: text || '',
-      };
+      this.sessionPartialText[sessionId] = text || '';
     },
 
     /**
@@ -160,10 +149,7 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
      * @param {number} count
      */
     setSessionFileCount(sessionId, count) {
-      this.sessionFileCounts = {
-        ...this.sessionFileCounts,
-        [sessionId]: count,
-      };
+      this.sessionFileCounts[sessionId] = count;
     },
 
     /**
@@ -180,20 +166,17 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
         const existingIds = new Set(existing.map(l => l.id));
         const newLogs = workLogs.filter(l => !existingIds.has(l.id));
         if (newLogs.length) {
-          this.sessionWorkLogs = {
-            ...this.sessionWorkLogs,
-            [sessionId]: [...existing, ...newLogs].slice(-15),
-          };
+          this.sessionWorkLogs[sessionId] = [...existing, ...newLogs].slice(-15);
         }
       }
       // Set thinking/partial only if server has content and client doesn't.
       // Unlike work logs, these are ephemeral — if the client already has a value,
       // the WebSocket stream is actively providing fresher data.
       if (thinking && !this.partialThinkingBySession[sessionId]) {
-        this.partialThinkingBySession = { ...this.partialThinkingBySession, [sessionId]: thinking };
+        this.partialThinkingBySession[sessionId] = thinking;
       }
       if (partialText && !this.sessionPartialText[sessionId]) {
-        this.sessionPartialText = { ...this.sessionPartialText, [sessionId]: partialText };
+        this.sessionPartialText[sessionId] = partialText;
       }
     },
 
@@ -202,17 +185,10 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
      * @param {string} sessionId
      */
     clearSessionStreamingState(sessionId) {
-      const { [sessionId]: _wl, ...restWorkLogs } = this.sessionWorkLogs;
-      this.sessionWorkLogs = restWorkLogs;
-
-      const { [sessionId]: _pt, ...restPartialText } = this.sessionPartialText;
-      this.sessionPartialText = restPartialText;
-
-      const { [sessionId]: _th, ...restThinking } = this.partialThinkingBySession;
-      this.partialThinkingBySession = restThinking;
-
-      const { [sessionId]: _fc, ...restFileCounts } = this.sessionFileCounts;
-      this.sessionFileCounts = restFileCounts;
+      delete this.sessionWorkLogs[sessionId];
+      delete this.sessionPartialText[sessionId];
+      delete this.partialThinkingBySession[sessionId];
+      delete this.sessionFileCounts[sessionId];
     },
 
     /**
@@ -221,11 +197,8 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
      * @param {string} sessionId
      */
     clearSessionEphemeralState(sessionId) {
-      const { [sessionId]: _pt, ...restPartialText } = this.sessionPartialText;
-      this.sessionPartialText = restPartialText;
-
-      const { [sessionId]: _th, ...restThinking } = this.partialThinkingBySession;
-      this.partialThinkingBySession = restThinking;
+      delete this.sessionPartialText[sessionId];
+      delete this.partialThinkingBySession[sessionId];
     },
 
     /**

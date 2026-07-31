@@ -189,6 +189,22 @@ export class WebSocketManager {
     }
   }
 
+  /** Broadcast one serialized frame to the union of session and project subscribers. */
+  broadcastToSessionAndProject(sessionId, projectId, type, payload) {
+    const subscribers = new Set([
+      ...(this.#sessionSubscriptions.get(sessionId) || []),
+      ...(this.#projectSubscriptions.get(projectId) || []),
+    ]);
+    if (subscribers.size === 0) return;
+
+    // Scope identifiers are authoritative; a caller payload must not be able
+    // to redirect a frame to a different session or project.
+    const message = createMessage(type, { ...payload, sessionId, projectId });
+    for (const client of subscribers) {
+      if (client.readyState === 1) client.send(message);
+    }
+  }
+
   /**
    * Get WebSocket server instance
    * @returns {WebSocketServer|null}

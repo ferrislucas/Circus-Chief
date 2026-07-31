@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { commandButtons, commandRuns } from '../database.js';
-import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { requireRootSessionAndProject } from '../middleware/sessionLookup.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { databaseManager } from '../db/DatabaseManager.js';
+import { broadcastCommandEvent } from './commandEventBroadcast.js';
 
 // Error message constants
 const ERR_BUTTON_NOT_FOUND = 'Circus Command not found';
@@ -18,8 +18,7 @@ const router = Router();
  */
 function broadcastCommandOutput(ctx, output) {
   const { sessionId, projectId, runId, buttonId } = ctx;
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { sessionId, runId, buttonId, output });
-  broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { projectId, sessionId, runId, buttonId, output });
+  broadcastCommandEvent(sessionId, projectId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId, buttonId, output });
 }
 
 /**
@@ -32,9 +31,7 @@ function broadcastCommandComplete(ctx, result) {
   const { exitCode, output } = result;
   const status = exitCode === 0 ? 'success' : 'error';
   console.log(`[RUN] Command completed for runId: ${runId}, exitCode: ${exitCode}, status: ${status}`);
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, { sessionId, runId, buttonId, status, exitCode, output });
-  console.log(`[RUN] Broadcasting COMMAND_RUN_COMPLETE to project ${projectId}`);
-  broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, { projectId, sessionId, runId, buttonId, status, exitCode, output });
+  broadcastCommandEvent(sessionId, projectId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, { runId, buttonId, status, exitCode, output });
 }
 
 /**
@@ -45,8 +42,7 @@ function broadcastCommandComplete(ctx, result) {
 function broadcastCommandError(ctx, errorMessage) {
   const { sessionId, projectId, runId, buttonId } = ctx;
   console.log(`[RUN] Error for runId: ${runId}: ${errorMessage}`);
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, { sessionId, runId, buttonId, error: errorMessage });
-  broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, { projectId, sessionId, runId, buttonId, error: errorMessage });
+  broadcastCommandEvent(sessionId, projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, { runId, buttonId, error: errorMessage });
 }
 
 // GET /api/sessions/:id/circus-commands - List command buttons for the workflow project
@@ -166,17 +162,7 @@ router.delete('/:id/circus-commands/runs/:runId', requireRootSessionAndProject, 
   const projectId = req.rootSession_.projectId;
 
   // Broadcast deletion to session and project subscribers
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, {
-    runId,
-    buttonId: run.buttonId,
-    sessionId,
-  });
-  broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, {
-    runId,
-    buttonId: run.buttonId,
-    sessionId,
-    projectId,
-  });
+  broadcastCommandEvent(sessionId, projectId, WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, { runId, buttonId: run.buttonId });
 
   res.status(204).send();
 });
@@ -200,17 +186,7 @@ router.delete('/:id/circus-commands/:buttonId/runs/all', requireRootSessionAndPr
 
   // Broadcast individual COMMAND_RUN_DELETED events for each deleted run
   for (const run of deletedRuns) {
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, {
-      runId: run.id,
-      buttonId: run.buttonId,
-      sessionId,
-    });
-    broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, {
-      runId: run.id,
-      buttonId: run.buttonId,
-      sessionId,
-      projectId,
-    });
+    broadcastCommandEvent(sessionId, projectId, WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, { runId: run.id, buttonId: run.buttonId });
   }
 
   res.status(204).send();

@@ -24,7 +24,7 @@ let subscriptionRunId = 0;
  * @param {Function} summaryCallbacks.updateSummary - Update a single summary (e.g., from WebSocket)
  * @param {Function} summaryCallbacks.cleanupSummary - Clean up summary data for a deleted session
  */
-export function useProjectSessionSubscription(projectId, summaryCallbacks) {
+export function useProjectSessionSubscription(projectId, summaryCallbacks, streamingScope = {}) {
   const projectsStore = useProjectsStore();
   const sessionsStore = useSessionsStore();
   const commandButtonsStore = useCommandButtonsStore();
@@ -38,6 +38,10 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
    * Extracted to avoid excessive callback nesting inside the watch handler.
    */
   function handleCommandRunOutput(runId, sessionId, buttonId, output) {
+    const tab = streamingScope.activeTab?.value;
+    const eligibleIds = streamingScope.eligibleCommandSessionIds?.value;
+    const eligible = !tab || tab === 'commands' || (tab === 'sessions' && (eligibleIds || []).includes(sessionId));
+
     const existingRun = commandButtonsStore.runs[runId];
     const sessions = sessionsStore.sessions;
     const storeSession = sessions.find(s => s.id === sessionId);
@@ -56,8 +60,16 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
         outputTruncated: false,
       };
     }
-    commandButtonsStore.appendOutput(runId, output);
 
+    // The streaming output payload is heavy (fires per chunk); suppress it for
+    // ineligible (collapsed/off-screen) cards so they don't pay the render cost.
+    if (eligible) {
+      commandButtonsStore.appendOutput(runId, output);
+    }
+
+    // The status/lifecycle update is cheap — keep it unconditional so the
+    // running indicator stays correct for collapsed cards instead of going
+    // stale until COMMAND_RUN_COMPLETE.
     sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
       buttonId,
       status: 'running',

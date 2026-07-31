@@ -366,6 +366,65 @@ describe('useProjectSessionSubscription', () => {
       );
     });
 
+    it('suppresses only the heavy output stream for ineligible cards, keeping the running status visible', async () => {
+      const activeTab = ref('sessions');
+      const eligibleCommandSessionIds = ref(['visible-session']);
+      const scopedComponent = {
+        template: '<div>Test</div>',
+        setup() {
+          useProjectSessionSubscription(ref('test-project-1'), summaryCallbacks, {
+            activeTab,
+            eligibleCommandSessionIds,
+          });
+          return {};
+        },
+      };
+
+      mount(scopedComponent, { global: { plugins: [createPinia()] } });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const handler = mockOnCommandRunOutput.mock.calls[0][0];
+
+      // Ineligible (collapsed/off-screen) card: the heavy streaming output is
+      // suppressed, but the cheap running-status update still runs so the
+      // card's running indicator stays correct without receiving the flood.
+      handler('run-hidden', 'hidden-session', 'button-1', 'hidden output');
+      expect(mockCommandButtonsStore.appendOutput).not.toHaveBeenCalled();
+      expect(mockSessionsStore.updateSessionCommandRun).toHaveBeenCalledWith(
+        'hidden-session',
+        'button-1',
+        expect.objectContaining({ status: 'running', runId: 'run-hidden' }),
+      );
+
+      handler('run-visible', 'visible-session', 'button-1', 'visible output');
+      expect(mockCommandButtonsStore.appendOutput).toHaveBeenCalledWith('run-visible', 'visible output');
+      expect(mockSessionsStore.updateSessionCommandRun).toHaveBeenCalledWith(
+        'visible-session',
+        'button-1',
+        expect.objectContaining({ runId: 'run-visible' }),
+      );
+    });
+
+    it('continues processing command output on the Commands tab', async () => {
+      const scopedComponent = {
+        template: '<div>Test</div>',
+        setup() {
+          useProjectSessionSubscription(ref('test-project-1'), summaryCallbacks, {
+            activeTab: ref('commands'),
+            eligibleCommandSessionIds: ref([]),
+          });
+          return {};
+        },
+      };
+
+      mount(scopedComponent, { global: { plugins: [createPinia()] } });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const handler = mockOnCommandRunOutput.mock.calls[0][0];
+
+      handler('run-command-tab', 'offscreen-session', 'button-1', 'live output');
+
+      expect(mockCommandButtonsStore.appendOutput).toHaveBeenCalledWith('run-command-tab', 'live output');
+    });
+
     it('registers command run complete handler', async () => {
       const cleanup = vi.fn();
       mockOnCommandRunComplete.mockReturnValue(cleanup);

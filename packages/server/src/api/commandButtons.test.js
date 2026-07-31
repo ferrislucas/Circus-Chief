@@ -7,10 +7,14 @@ import { tmpdir } from 'os';
 import { execSync } from 'child_process';
 import { projects, sessions, commandButtons } from '../database.js';
 
-// Mock websocket before importing the router
+// Mock websocket before importing the router. broadcastToSession/broadcastToProject
+// are kept as no-op stubs because other routers mounted alongside these tests
+// (via sessions.js) still import them; the command-broadcast assertions below
+// only exercise broadcastToSessionAndProject, the real union-broadcast seam.
 vi.mock('../websocket.js', () => ({
   broadcastToSession: vi.fn(),
   broadcastToProject: vi.fn(),
+  broadcastToSessionAndProject: vi.fn(),
 }));
 
 // Mock sessionManager
@@ -37,7 +41,7 @@ vi.mock('../services/commandRunner.js', () => ({
 // Import after mocks are set up
 import commandButtonsRouter from './commandButtons.js';
 import sessionsRouter from './sessions.js';
-import { broadcastToSession, broadcastToProject } from '../websocket.js';
+import { broadcastToSession, broadcastToProject, broadcastToSessionAndProject } from '../websocket.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
@@ -391,7 +395,7 @@ describe('Command Buttons API', () => {
       expect(typeof runCall[1].onError).toBe('function'); // callbacks.onError
     });
 
-    it('broadcasts command output when commandRunner calls onOutput', async () => {
+    it('broadcasts command output via a single union broadcast to session and project', async () => {
       commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
         // Simulate command output (new signature uses callbacks object)
         callbacks.onOutput('Hello ');
@@ -405,12 +409,24 @@ describe('Command Buttons API', () => {
       // Wait for async execution
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      // Verify broadcasts were called
-      const outputBroadcasts = broadcastToSession.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT
+      // Production must route through the union broadcaster, never the legacy
+      // two-call (broadcastToSession + broadcastToProject) path.
+      expect(broadcastToSession).not.toHaveBeenCalled();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+
+      const outputBroadcasts = broadcastToSessionAndProject.mock.calls.filter(
+        (call) => call[2] === WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT && call[3].output === 'Hello '
       );
 
-      expect(outputBroadcasts.length).toBeGreaterThanOrEqual(1);
+      expect(outputBroadcasts.length).toBe(1);
+      const [calledSessionId, calledProjectId, , payload] = outputBroadcasts[0];
+      expect(calledSessionId).toBe(sessionId);
+      expect(calledProjectId).toBe(projects.getById(projectId).id);
+      expect(payload).toEqual({
+        runId: expect.any(String),
+        buttonId,
+        output: 'Hello ',
+      });
     });
 
     it('broadcasts completion when command exits successfully', async () => {
@@ -424,13 +440,15 @@ describe('Command Buttons API', () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       // Verify completion broadcast
-      const completeBroadcasts = broadcastToSession.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE
+      const completeBroadcasts = broadcastToSessionAndProject.mock.calls.filter(
+        (call) => call[2] === WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE
       );
 
-      expect(completeBroadcasts.length).toBeGreaterThan(0);
-      expect(completeBroadcasts[0][2]).toEqual({
-        sessionId,
+      expect(completeBroadcasts.length).toBe(1);
+      const [calledSessionId, calledProjectId, , payload] = completeBroadcasts[0];
+      expect(calledSessionId).toBe(sessionId);
+      expect(calledProjectId).toBe(projects.getById(projectId).id);
+      expect(payload).toEqual({
         runId: expect.any(String),
         buttonId,
         status: 'success',
@@ -449,13 +467,13 @@ describe('Command Buttons API', () => {
       // Wait for async execution
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      const completeBroadcasts = broadcastToSession.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE
+      const completeBroadcasts = broadcastToSessionAndProject.mock.calls.filter(
+        (call) => call[2] === WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE
       );
 
-      expect(completeBroadcasts.length).toBeGreaterThan(0);
-      expect(completeBroadcasts[0][2].status).toBe('error');
-      expect(completeBroadcasts[0][2].exitCode).toBe(1);
+      expect(completeBroadcasts.length).toBe(1);
+      expect(completeBroadcasts[0][3].status).toBe('error');
+      expect(completeBroadcasts[0][3].exitCode).toBe(1);
     });
 
     it('broadcasts error when commandRunner throws', async () => {
@@ -466,13 +484,15 @@ describe('Command Buttons API', () => {
       // Wait for async execution
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      const errorBroadcasts = broadcastToSession.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_ERROR
+      const errorBroadcasts = broadcastToSessionAndProject.mock.calls.filter(
+        (call) => call[2] === WS_MESSAGE_TYPES.COMMAND_RUN_ERROR
       );
 
-      expect(errorBroadcasts.length).toBeGreaterThan(0);
-      expect(errorBroadcasts[0][2]).toEqual({
-        sessionId,
+      expect(errorBroadcasts.length).toBe(1);
+      const [calledSessionId, calledProjectId, , payload] = errorBroadcasts[0];
+      expect(calledSessionId).toBe(sessionId);
+      expect(calledProjectId).toBe(projects.getById(projectId).id);
+      expect(payload).toEqual({
         runId: expect.any(String),
         buttonId,
         error: 'Command failed',
@@ -489,15 +509,15 @@ describe('Command Buttons API', () => {
       // Wait for async execution
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      const errorBroadcasts = broadcastToSession.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_ERROR
+      const errorBroadcasts = broadcastToSessionAndProject.mock.calls.filter(
+        (call) => call[2] === WS_MESSAGE_TYPES.COMMAND_RUN_ERROR
       );
 
-      expect(errorBroadcasts.length).toBeGreaterThan(0);
-      expect(errorBroadcasts[0][2].error).toBe('Something went wrong');
+      expect(errorBroadcasts.length).toBe(1);
+      expect(errorBroadcasts[0][3].error).toBe('Something went wrong');
     });
 
-    it('broadcasts initial running status to project immediately', async () => {
+    it('broadcasts initial running status to session and project immediately', async () => {
       await request(app).post(
         `/api/sessions/${sessionId}/circus-commands/${buttonId}/run`
       );
@@ -505,150 +525,18 @@ describe('Command Buttons API', () => {
       // Wait a bit for async execution to start
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      // Verify broadcastToProject was called for initial running status
-      const projectBroadcasts = broadcastToProject.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT
+      const initialBroadcasts = broadcastToSessionAndProject.mock.calls.filter(
+        (call) => call[2] === WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT && call[3].output === ''
       );
 
-      expect(projectBroadcasts.length).toBeGreaterThan(0);
-      expect(projectBroadcasts[0][0]).toBe(projects.getById(projectId).id); // projectId
-      expect(projectBroadcasts[0][2]).toEqual({
-        projectId: projects.getById(projectId).id,
-        sessionId,
+      expect(initialBroadcasts.length).toBe(1);
+      const [calledSessionId, calledProjectId, , payload] = initialBroadcasts[0];
+      expect(calledSessionId).toBe(sessionId);
+      expect(calledProjectId).toBe(projects.getById(projectId).id);
+      expect(payload).toEqual({
         runId: expect.any(String),
         buttonId,
         output: '',
-      });
-    });
-
-    it('broadcasts command output to project when commandRunner calls onOutput', async () => {
-      commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
-        // Simulate command output
-        callbacks.onOutput('Project-visible output\n');
-      });
-
-      await request(app).post(
-        `/api/sessions/${sessionId}/circus-commands/${buttonId}/run`
-      );
-
-      // Wait for async execution
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
-      // Verify broadcastToProject was called for output
-      const projectOutputBroadcasts = broadcastToProject.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT
-      );
-
-      expect(projectOutputBroadcasts.length).toBeGreaterThan(0);
-      // Find the broadcast with the project-visible output
-      const broadcastWithOutput = projectOutputBroadcasts.find(
-        (call) => call[2].output === 'Project-visible output\n'
-      );
-      expect(broadcastWithOutput).toBeDefined();
-      expect(broadcastWithOutput[2].projectId).toBe(projects.getById(projectId).id);
-    });
-
-    it('broadcasts completion to project when command exits successfully', async () => {
-      commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
-        callbacks.onComplete(0, 'output');
-      });
-
-      await request(app).post(`/api/sessions/${sessionId}/circus-commands/${buttonId}/run`);
-
-      // Wait for async execution
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
-      // Verify completion broadcast to project
-      const projectCompleteBroadcasts = broadcastToProject.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE
-      );
-
-      expect(projectCompleteBroadcasts.length).toBeGreaterThan(0);
-      expect(projectCompleteBroadcasts[0][2]).toEqual({
-        projectId: projects.getById(projectId).id,
-        sessionId,
-        runId: expect.any(String),
-        buttonId,
-        status: 'success',
-        exitCode: 0,
-        output: 'output',
-      });
-    });
-
-    it('broadcasts error to project when command fails', async () => {
-      commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
-        callbacks.onComplete(1, 'error output');
-      });
-
-      await request(app).post(`/api/sessions/${sessionId}/circus-commands/${buttonId}/run`);
-
-      // Wait for async execution
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
-      // Verify error broadcast to project
-      const projectErrorBroadcasts = broadcastToProject.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE
-      );
-
-      expect(projectErrorBroadcasts.length).toBeGreaterThan(0);
-      const errorBroadcast = projectErrorBroadcasts.find((call) => call[2].status === 'error');
-      expect(errorBroadcast).toBeDefined();
-      expect(errorBroadcast[2]).toEqual({
-        projectId: projects.getById(projectId).id,
-        sessionId,
-        runId: expect.any(String),
-        buttonId,
-        status: 'error',
-        exitCode: 1,
-        output: 'error output',
-      });
-    });
-
-    it('broadcasts error to project when commandRunner throws', async () => {
-      commandRunner.run.mockRejectedValue(new Error('Command execution failed'));
-
-      await request(app).post(`/api/sessions/${sessionId}/circus-commands/${buttonId}/run`);
-
-      // Wait for async execution
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
-      // Verify error broadcast to project
-      const projectErrorBroadcasts = broadcastToProject.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_ERROR
-      );
-
-      expect(projectErrorBroadcasts.length).toBeGreaterThan(0);
-      expect(projectErrorBroadcasts[0][2]).toEqual({
-        projectId: projects.getById(projectId).id,
-        sessionId,
-        runId: expect.any(String),
-        buttonId,
-        error: 'Command execution failed',
-      });
-    });
-
-    it('broadcasts error to project when onError callback is invoked', async () => {
-      commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
-        callbacks.onError('Command runner error');
-      });
-
-      await request(app).post(`/api/sessions/${sessionId}/circus-commands/${buttonId}/run`);
-
-      // Wait for async execution
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
-      // Verify error broadcast to project
-      const projectErrorBroadcasts = broadcastToProject.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_ERROR
-      );
-
-      expect(projectErrorBroadcasts.length).toBeGreaterThan(0);
-      expect(projectErrorBroadcasts[0][2]).toEqual({
-        projectId: projects.getById(projectId).id,
-        sessionId,
-        runId: expect.any(String),
-        buttonId,
-        error: 'Command runner error',
       });
     });
   });
@@ -800,7 +688,7 @@ describe('Command Buttons API', () => {
       expect(res.body.error).toBe('Cannot delete a running command. Kill it first.');
     });
 
-    it('broadcasts COMMAND_RUN_DELETED to session and project', async () => {
+    it('broadcasts COMMAND_RUN_DELETED to session and project via a single union broadcast', async () => {
       const { commandRuns } = await import('../database.js');
       commandRuns.create({ id: 'run-broadcast', sessionId, buttonId });
       commandRuns.complete('run-broadcast', 0, 'output');
@@ -809,27 +697,19 @@ describe('Command Buttons API', () => {
         `/api/sessions/${sessionId}/circus-commands/runs/run-broadcast`
       );
 
-      // Verify session broadcast
-      const sessionBroadcasts = broadcastToSession.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_DELETED
-      );
-      expect(sessionBroadcasts.length).toBe(1);
-      expect(sessionBroadcasts[0][2]).toEqual({
-        runId: 'run-broadcast',
-        buttonId,
-        sessionId,
-      });
+      expect(broadcastToSession).not.toHaveBeenCalled();
+      expect(broadcastToProject).not.toHaveBeenCalled();
 
-      // Verify project broadcast
-      const projectBroadcasts = broadcastToProject.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_DELETED
+      const deleteBroadcasts = broadcastToSessionAndProject.mock.calls.filter(
+        (call) => call[2] === WS_MESSAGE_TYPES.COMMAND_RUN_DELETED
       );
-      expect(projectBroadcasts.length).toBe(1);
-      expect(projectBroadcasts[0][2]).toEqual({
+      expect(deleteBroadcasts.length).toBe(1);
+      const [calledSessionId, calledProjectId, , payload] = deleteBroadcasts[0];
+      expect(calledSessionId).toBe(sessionId);
+      expect(calledProjectId).toBe(projectId);
+      expect(payload).toEqual({
         runId: 'run-broadcast',
         buttonId,
-        sessionId,
-        projectId,
       });
     });
 
@@ -910,23 +790,20 @@ describe('Command Buttons API', () => {
         `/api/sessions/${sessionId}/circus-commands/${buttonId}/runs/all`
       );
 
-      // Verify session broadcasts
-      const sessionBroadcasts = broadcastToSession.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_DELETED
-      );
-      expect(sessionBroadcasts.length).toBe(2);
+      expect(broadcastToSession).not.toHaveBeenCalled();
+      expect(broadcastToProject).not.toHaveBeenCalled();
 
-      // Verify project broadcasts
-      const projectBroadcasts = broadcastToProject.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_DELETED
+      const deleteBroadcasts = broadcastToSessionAndProject.mock.calls.filter(
+        (call) => call[2] === WS_MESSAGE_TYPES.COMMAND_RUN_DELETED
       );
-      expect(projectBroadcasts.length).toBe(2);
+      expect(deleteBroadcasts.length).toBe(2);
 
       // Verify each broadcast has the correct data
-      for (const broadcast of sessionBroadcasts) {
-        expect(broadcast[2].buttonId).toBe(buttonId);
-        expect(broadcast[2].sessionId).toBe(sessionId);
-        expect(['bulk-bc-1', 'bulk-bc-2']).toContain(broadcast[2].runId);
+      for (const [calledSessionId, calledProjectId, , payload] of deleteBroadcasts) {
+        expect(calledSessionId).toBe(sessionId);
+        expect(calledProjectId).toBe(projectId);
+        expect(payload.buttonId).toBe(buttonId);
+        expect(['bulk-bc-1', 'bulk-bc-2']).toContain(payload.runId);
       }
     });
 
@@ -951,10 +828,10 @@ describe('Command Buttons API', () => {
       expect(commandRuns.getById('bulk-completed')).toBeNull();
 
       // Only 1 broadcast (for the completed run)
-      const sessionBroadcasts = broadcastToSession.mock.calls.filter(
-        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_DELETED
+      const deleteBroadcasts = broadcastToSessionAndProject.mock.calls.filter(
+        (call) => call[2] === WS_MESSAGE_TYPES.COMMAND_RUN_DELETED
       );
-      expect(sessionBroadcasts.length).toBe(1);
+      expect(deleteBroadcasts.length).toBe(1);
     });
 
     it('actually deletes runs from the database', async () => {

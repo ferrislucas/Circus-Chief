@@ -110,10 +110,12 @@ import { useSessionsStore } from '../stores/sessions.js';
 
 const props = defineProps({
   sessionIds: { type: Array, required: true },
+  rootSessionId: { type: String, default: '' },
 });
 
 const streamingStore = useSessionStreamingStore();
 const sessionsStore = useSessionsStore();
+const collapseSessionId = computed(() => props.rootSessionId || props.sessionIds[0]);
 
 function resolveSession(id) {
   if (!id) return null;
@@ -155,9 +157,8 @@ const thinking = computed(() => {
   return '';
 });
 
-// Collapsed state uses the root session ID (first in array)
 const isCollapsed = computed(() =>
-  streamingStore.isSessionLogCollapsed(props.sessionIds[0]),
+  streamingStore.isSessionLogCollapsed(collapseSessionId.value),
 );
 
 const hasContent = computed(() => recentLogs.value.length > 0 || partialText.value || thinking.value);
@@ -173,7 +174,7 @@ const partialTextPreview = computed(() => {
 });
 
 function toggleCollapse() {
-  streamingStore.toggleSessionLogCollapsed(props.sessionIds[0]);
+  streamingStore.toggleSessionLogCollapsed(collapseSessionId.value);
 }
 </script>
 
@@ -230,6 +231,9 @@ function toggleCollapse() {
   overflow: hidden;
   max-height: 25em;
   min-height: 3em;
+  contain: content;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 6rem;
 }
 
 .log-content-inner {
