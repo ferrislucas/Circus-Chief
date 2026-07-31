@@ -32,6 +32,7 @@ import {
 } from './sessionPrompts.js';
 import { getApiBaseUrl } from './apiBaseUrl.js';
 import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
+import { readFileSync } from 'node:fs';
 
 describe('sessionPrompts', () => {
   beforeEach(() => {
@@ -445,6 +446,15 @@ describe('sessionPrompts', () => {
       expect(result).not.toContain('Workflow Completion');
       expect(result).not.toContain('/workflow/complete');
       expect(result).not.toContain('workflowTurnToken');
+    });
+
+    it('keeps the agent system-prompt reference aligned with the shipped API', () => {
+      const reference = readFileSync(new URL('../../../../docs/agent-system-prompt.md', import.meta.url), 'utf8');
+
+      expect(reference).not.toContain('/workflow/complete');
+      expect(reference).not.toContain('workflowTurnToken');
+      expect(reference).not.toContain('buildWorkflowCompletionInstructions');
+      expect(reference).toContain('A plain successful turn end means the worker\'s own work is complete');
     });
 
     it('uses a future-safe placeholder in the session schedule example', () => {

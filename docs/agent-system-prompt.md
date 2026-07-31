@@ -15,7 +15,6 @@ This document describes the system prompt injected into every agent session and 
 | 5 | Canvas write instructions | `buildCanvasWriteSystemPrompt()` | Yes |
 | 6 | Canvas read instructions | `buildCanvasReadSystemPrompt()` | Yes |
 | 7 | Session management API | `buildSessionApiInstructions()` | Yes |
-| 7b | Workflow completion contract | `buildWorkflowCompletionInstructions()` | Only when the session participates in an open structured Kanban lane run (`session.laneRunId` is set) |
 | 8 | Circus Commands | `buildCommandButtonApiInstructions()` (in `commandButtonPrompts.js`) | Yes |
 | 9 | Kanban board API | `buildKanbanApiInstructions()` | Yes |
 
@@ -62,16 +61,7 @@ The prompt provides the agent with its own session ID, project ID, and current w
 
 **Auto-retry defaults:** API-created sessions automatically retry on token-limit exhaustion and provider outages. `autoRescheduleEnabled` defaults to `true` (pass `false` to opt out), `rescheduleOnTokenLimit` and `rescheduleOnServiceError` both default to `true`, and `maxRescheduleCount` defaults to `24` (≈ one day of hourly retries). Pass an explicit `maxRescheduleCount` to adjust the cap.
 
-### Workflow Completion API (only for structured Kanban lane-run participants)
-
-FRD: "Kanban Lane-Run Structured Completion". Included only when the current session's `laneRunId` is set (i.e. it was created — directly or transitively — by a lane whose `completionMode` is `shadow` or `structured`). **A finished model turn does not, by itself, advance the Kanban card** for these sessions; the participating session must explicitly close its own-work obligation.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/sessions/{session_id}` | Returns (among other fields) `workflowTurnToken` — the opaque token identifying the *current* turn. Re-fetch before every completion call; a new token is minted on every retry/continuation. |
-| POST | `/api/sessions/{session_id}/workflow/complete` | Body: `{"turnToken": "...", "idempotencyKey": "..."}`. Closes this session's own-work obligation for the given turn. Returns `202` with `{ accepted, idempotent }`, or `409` if the token is stale/invalid or a conflicting request is already pending. |
-
-Do not call `/workflow/complete` if you scheduled further work for yourself, or if a required descendant session (created via `parentSessionId`) is still open — the lane run correctly waits for that work. See `packages/server/src/services/workflowSessionService.js` for the full state machine (own-work state, subtree outcome, lane-run status).
+**Structured lane-run workers:** A plain successful turn end means the worker's own work is complete. If the worker needs another turn — including one awaiting human input — it must schedule itself before the turn ends; the schedule keeps the lane run open. Descendants created with `parentSessionId` also remain blocking until they complete.
 
 ### Project Operations (always included)
 

@@ -44,6 +44,18 @@ describe('workflowSessionService', () => {
     expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
   });
 
+  it('treats a plain turn end without a continuation as own work done', () => {
+    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    attachRootSession(run.id, worker.id);
+    beginWorkflowTurn(worker.id);
+
+    finalizeOwnWorkCompletion(worker.id);
+
+    expect(sessions.getById(worker.id).ownWorkState).toBe('closed_successfully');
+    expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
+  });
+
   it('inherits the run atomically for descendants and waits for them', () => {
     const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
     const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });

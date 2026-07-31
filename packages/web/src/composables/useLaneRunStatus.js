@@ -6,7 +6,9 @@ export function laneRunLabel(run) {
   if (run.status === 'succeeded') return 'automation completed';
   if (run.retryingCount) return 'automation retrying';
   if (run.scheduledCount) return 'automation scheduled';
-  if (run.openCount > 1) return 'waiting for descendants';
+  // A run exposes the root's own-work state so a single open child is not
+  // mistaken for the root itself still running.
+  if (run.rootOwnWorkState === 'closed_successfully' && run.openCount) return 'waiting for descendants';
   return 'automation running';
 }
 

@@ -41,6 +41,7 @@ import {
   removeSessionFromBoard,
   triggerStructuredTransitionAutomation,
 } from './kanbanService.js';
+import { attachRootSession, createLaneRunForEntry } from './workflowSessionService.js';
 
 describe('kanbanService', () => {
   let projectId;
@@ -266,6 +267,21 @@ describe('kanbanService', () => {
   // ── handleCompletionMove ──────────────────────────────────────────
 
   describe('handleCompletionMove', () => {
+    it('does not move a structured lane card; its active lane run owns advancement', async () => {
+      const workspace = createSession('Workspace');
+      const worker = createChildSession(workspace.id, 'Structured worker');
+      const card = kanbanCards.create(lanes[0].id, workspace.id);
+      kanbanLanes.update(lanes[0].id, { completionMode: 'structured', completionTargetLaneId: lanes[1].id });
+      const lane = kanbanLanes.getById(lanes[0].id);
+      const run = createLaneRunForEntry({ projectId, workspaceId: workspace.id, cardId: card.id, lane });
+      attachRootSession(run.id, worker.id);
+
+      await handleCompletionMove(worker.id);
+
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
     it('moves an existing card to the current lane completion target', async () => {
       const session = createSession();
       kanbanCards.create(lanes[0].id, session.id);
