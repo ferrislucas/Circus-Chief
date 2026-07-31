@@ -3,10 +3,14 @@ import express from 'express';
 import request from 'supertest';
 import { projects, sessions, commandButtons, commandRuns } from '../database.js';
 
-// Mock websocket before importing the router
+// Mock websocket before importing the router. broadcastToSession/broadcastToProject
+// are kept as no-op stubs because other routers mounted alongside these tests
+// (via sessions.js) still import them; the command-broadcast assertions below
+// only exercise broadcastToSessionAndProject, the real union-broadcast seam.
 vi.mock('../websocket.js', () => ({
   broadcastToSession: vi.fn(),
   broadcastToProject: vi.fn(),
+  broadcastToSessionAndProject: vi.fn(),
 }));
 
 // Mock sessionManager
@@ -39,7 +43,8 @@ vi.mock('../services/commandRunner.js', () => ({
 // Import after mocks are set up
 import sessionsRouter from './sessions.js';
 import { commandRunner } from '../services/commandRunner.js';
-import { broadcastToProject, broadcastToSession } from '../websocket.js';
+import { broadcastToProject, broadcastToSession, broadcastToSessionAndProject } from '../websocket.js';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 describe('Sessions API - Command Routes (sessions-commands.js)', () => {
   let app;
@@ -98,6 +103,24 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       expect(res.body.runId).toBeDefined();
       expect(res.body.buttonId).toBe(button.id);
       expect(res.body.status).toBe('running');
+    });
+
+    it('broadcasts the initial running status via a single union broadcast, not the legacy two-call path', async () => {
+      const button = commandButtons.create({ projectId: project.id, label: 'Test Button', command: 'echo hello' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/circus-commands/${button.id}/run`);
+
+      expect(res.status).toBe(200);
+
+      expect(broadcastToSession).not.toHaveBeenCalled();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+      expect(broadcastToSessionAndProject).toHaveBeenCalledWith(
+        session.id,
+        project.id,
+        WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT,
+        { runId: res.body.runId, buttonId: button.id, output: '' }
+      );
     });
 
     it('runs commands against workflow root metadata and working directory through a child session', async () => {
@@ -271,7 +294,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       expect(res.body.error).toBe('Cannot delete a running command. Kill it first.');
     });
 
-    it('deletes root-owned completed runs and broadcasts root IDs through a child session', async () => {
+    it('deletes root-owned completed runs and broadcasts root IDs through a child session via a single union broadcast', async () => {
       const child = createChildSession();
       const button = commandButtons.create({ projectId: project.id, label: 'Del Button', command: 'echo del' });
       commandRuns.create({ id: 'root-del', sessionId: session.id, buttonId: button.id });
@@ -283,15 +306,16 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
 
       expect(res.status).toBe(204);
       expect(commandRuns.getById('root-del')).toBeNull();
-      expect(broadcastToSession).toHaveBeenCalledWith(
+
+      // Production must route through the union broadcaster, never the legacy
+      // two-call (broadcastToSession + broadcastToProject) path.
+      expect(broadcastToSession).not.toHaveBeenCalled();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+      expect(broadcastToSessionAndProject).toHaveBeenCalledWith(
         session.id,
-        expect.any(String),
-        expect.objectContaining({ runId: 'root-del', sessionId: session.id })
-      );
-      expect(broadcastToProject).toHaveBeenCalledWith(
         project.id,
-        expect.any(String),
-        expect.objectContaining({ runId: 'root-del', sessionId: session.id, projectId: project.id })
+        WS_MESSAGE_TYPES.COMMAND_RUN_DELETED,
+        { runId: 'root-del', buttonId: button.id }
       );
     });
 

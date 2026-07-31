@@ -70,10 +70,12 @@ vi.mock('../composables/useRunningSessionSubscriptions.js', () => ({
 }));
 
 // Mock sessionStreaming store
+const mockStreamingStore = {
+  restoreCollapsedLogState: vi.fn(),
+  isSessionLogCollapsed: vi.fn(() => false),
+};
 vi.mock('../stores/sessionStreaming.js', () => ({
-  useSessionStreamingStore: vi.fn(() => ({
-    restoreCollapsedLogState: vi.fn(),
-  })),
+  useSessionStreamingStore: vi.fn(() => mockStreamingStore),
 }));
 
 // Mock WebSocket composable
@@ -366,7 +368,7 @@ vi.mock('../components/SessionCard.vue', () => ({
   default: defineComponent({
     name: 'SessionCard',
     props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'showArchive', 'showUnarchive', 'prUrl', 'prSummary', 'canAddToBoard'],
-    emits: ['retrySummary', 'archive', 'unarchive'],
+    emits: ['retrySummary', 'archive', 'unarchive', 'visibility-change'],
     template: '<div class="session-card" :data-session-id="session.id" :data-summary="JSON.stringify(summary)" :data-pr-url="prUrl" :data-pr-summary="JSON.stringify(prSummary)"><slot /></div>',
   }),
 }));
@@ -519,6 +521,7 @@ import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useProjectSubscription } from '../composables/useWebSocket.js';
 import { useSessionFiltering } from '../composables/useSessionFiltering.js';
 import { useProjectSessionSubscription } from '../composables/useProjectSessionSubscription.js';
+import { useRunningSessionSubscriptions } from '../composables/useRunningSessionSubscriptions.js';
 
 // Helper to create a sessions store mock with proper groupedSessions getter
 function createSessionsStoreMock(sessions = [], overrides = {}) {
@@ -584,6 +587,9 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
       }
       return current || null;
     }),
+    getWorkflowSessions: vi.fn(function(rootSessionId) {
+      return this.sessions.filter(session => session.id === rootSessionId || session.parentSessionId === rootSessionId);
+    }),
     getWorkflowAggregatedStatus: vi.fn(function(sessionId) {
       // Find the session and return appropriate status
       const session = this.sessions.find(s => s.id === sessionId);
@@ -648,6 +654,8 @@ describe('SessionListView', () => {
     mockGetSessionSummariesBatch.mockResolvedValue({});
     mockGetKanbanBoard.mockReset();
     mockGetKanbanBoard.mockResolvedValue({ lanes: [], cards: [] });
+    mockStreamingStore.isSessionLogCollapsed.mockReset();
+    mockStreamingStore.isSessionLogCollapsed.mockReturnValue(false);
 
     // Setup projects store mock
     mockProjectsStore = {
@@ -710,6 +718,47 @@ describe('SessionListView', () => {
 
       expect(onSessionSummaryUpdatedCallback).not.toBeNull();
       expect(typeof onSessionSummaryUpdatedCallback).toBe('function');
+    });
+  });
+
+  describe('streaming eligibility policy', () => {
+    const subscriptionIds = () => useRunningSessionSubscriptions.mock.calls.at(-1)[0].value;
+
+    it('passes only running workflow members to the session subscription composable', async () => {
+      mockSessionsStore.sessions = [
+        { id: 'root', name: 'Root', status: 'completed' },
+        { id: 'running-child', name: 'Running child', status: 'running', parentSessionId: 'root' },
+        { id: 'idle-child', name: 'Idle child', status: 'completed', parentSessionId: 'root' },
+      ];
+      mount(SessionListView);
+      await flushPromises();
+
+      expect(subscriptionIds()).toEqual(['running-child']);
+      expect(capturedSummaryCallbacks).toBeTruthy();
+    });
+
+    it('drops a workflow from streaming when its card reports that it is off-screen', async () => {
+      mockSessionsStore.sessions = [{ id: 'root', name: 'Root', status: 'running' }];
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+      expect(subscriptionIds()).toEqual(['root']);
+
+      wrapper.findComponent({ name: 'SessionCard' }).vm.$emit('visibility-change', 'root', false);
+      await nextTick();
+      expect(subscriptionIds()).toEqual([]);
+    });
+
+    it('drops collapsed workflows and clears subscriptions outside the sessions tab', async () => {
+      mockSessionsStore.sessions = [{ id: 'root', name: 'Root', status: 'running' }];
+      mockStreamingStore.isSessionLogCollapsed.mockReturnValue(true);
+      mount(SessionListView);
+      await flushPromises();
+      expect(subscriptionIds()).toEqual([]);
+
+      mockStreamingStore.isSessionLogCollapsed.mockReturnValue(false);
+      mockRoute.name = 'ProjectCommands';
+      await nextTick();
+      expect(subscriptionIds()).toEqual([]);
     });
   });
 

@@ -59,14 +59,14 @@
         </div>
         <details class="raw-json-details">
           <summary>Show raw JSON</summary>
-          <pre class="command-pre">{{ displayContent }}</pre>
+          <pre class="command-pre low-reflow-output">{{ displayContent }}</pre>
         </details>
       </template>
 
       <!-- Fallback: Original display for outputs or when no summary available -->
       <template v-else>
         <pre
-          class="command-pre"
+          class="command-pre low-reflow-output"
           :class="{ expanded: isExpanded }"
         >{{ displayContent }}</pre>
         <button
@@ -265,6 +265,12 @@ function formatTime(ts) {
   line-height: 1.4;
   max-height: 300px;
   overflow-y: auto;
+}
+
+.low-reflow-output {
+  contain: content;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 12rem;
 }
 
 .command-pre.expanded {

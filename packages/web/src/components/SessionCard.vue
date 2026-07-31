@@ -1,6 +1,9 @@
 <template>
   <!-- Workflow card (root session with consolidated view) -->
-  <div class="workflow-card-wrapper">
+  <div
+    ref="cardElement"
+    class="workflow-card-wrapper"
+  >
     <router-link
       :to="`/sessions/${session.id}`"
       class="session-card card"
@@ -197,6 +200,7 @@
       <!-- Streaming log output for running sessions (root or children) -->
       <SessionLogStream
         v-if="hasRunningSession"
+        :root-session-id="session.id"
         :session-ids="runningSessionIds"
         data-testid="session-log-stream"
       />
@@ -227,7 +231,8 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { useElementVisibility } from '../composables/useElementVisibility.js';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
@@ -247,6 +252,9 @@ const commandButtonsStore = useCommandButtonsStore();
 const kanbanStore = useKanbanStore();
 const selectedButtonForModal = ref(null);
 const showMoveCardModal = ref(false);
+const cardElement = ref(null);
+const { isVisible } = useElementVisibility(cardElement);
+const emit = defineEmits(['archive', 'unarchive', 'star', 'addToBoard', 'retrySummary', 'visibility-change']);
 
 const props = defineProps({
   session: {
@@ -299,7 +307,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['retrySummary', 'archive', 'unarchive', 'addToBoard']);
+watch(isVisible, (visible) => emit('visibility-change', props.session.id, visible), { immediate: true });
 
 // Check if session is already on the kanban board
 const isOnBoard = computed(() => kanbanStore.isSessionOnBoard(props.session.id));
