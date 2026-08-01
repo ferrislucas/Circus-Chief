@@ -152,10 +152,14 @@ export const kanbanMigrations = [
       addColumnIfMissing(db, 'kanban_lanes', 'completion_mode', "TEXT NOT NULL DEFAULT 'legacy'");
       addColumnIfMissing(db, 'kanban_cards', 'active_lane_run_id', 'TEXT');
       addColumnIfMissing(db, 'kanban_cards', 'lane_entry_event_id', 'TEXT');
+      // Note: this intentionally does NOT (re-)create workflow_turn_token,
+      // completion_requested_turn_token, completion_request_key, or
+      // completion_requested_at. Those belonged to the removed agent-driven
+      // workflow-complete apparatus, never carried data, and are dropped by
+      // kanban-drop-agent-workflow-completion-tokens below for any existing
+      // database that still has them from before this cleanup.
       for (const [column, definition] of Object.entries({
         lane_run_id: 'TEXT', own_work_state: "TEXT NOT NULL DEFAULT 'open'",
-        workflow_turn_token: 'TEXT', completion_requested_turn_token: 'TEXT',
-        completion_request_key: 'TEXT', completion_requested_at: 'INTEGER',
         own_work_closed_at: 'INTEGER', workflow_updated_at: 'INTEGER', workflow_reason: 'TEXT',
       })) addColumnIfMissing(db, 'sessions', column, definition);
       db.exec(`
@@ -202,6 +206,11 @@ export const kanbanMigrations = [
     },
   },
   {
+    // Kept intentionally even though kanban-add-lane-run-workflow no longer
+    // creates these columns (F2 cleanup): existing databases upgraded from
+    // before that cleanup may still have them on disk. Guarded by the
+    // column-existence check below, so it is a safe no-op on any database
+    // (fresh or already-cleaned) that never had them.
     name: 'kanban-drop-agent-workflow-completion-tokens',
     up(db) {
       const columns = getColumns(db, 'sessions');

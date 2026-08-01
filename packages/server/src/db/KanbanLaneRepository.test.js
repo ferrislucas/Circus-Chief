@@ -192,6 +192,32 @@ describe('KanbanLaneRepository', () => {
       expect(updated.completionTargetLaneId).toBeNull();
     });
 
+    it('reverts completionMode to legacy when the completion target is cleared without an explicit mode (F3)', () => {
+      const source = laneRepo.create(boardId, { name: 'Source' });
+      const target = laneRepo.create(boardId, { name: 'Target' });
+      const withTarget = laneRepo.update(source.id, { completionTargetLaneId: target.id });
+      expect(withTarget.completionMode).toBe('structured');
+
+      const cleared = laneRepo.update(source.id, { completionTargetLaneId: null });
+
+      expect(cleared.completionTargetLaneId).toBeNull();
+      expect(cleared.completionMode).toBe('legacy');
+    });
+
+    it('honors an explicit completionMode when clearing the completion target (F3 boundary)', () => {
+      const source = laneRepo.create(boardId, { name: 'Source' });
+      const target = laneRepo.create(boardId, { name: 'Target' });
+      laneRepo.update(source.id, { completionTargetLaneId: target.id });
+
+      const cleared = laneRepo.update(source.id, {
+        completionTargetLaneId: null,
+        completionMode: 'shadow',
+      });
+
+      expect(cleared.completionTargetLaneId).toBeNull();
+      expect(cleared.completionMode).toBe('shadow');
+    });
+
     it('returns unchanged lane when no updates provided', () => {
       const lane = laneRepo.create(boardId, { name: 'Test' });
       const result = laneRepo.update(lane.id, {});

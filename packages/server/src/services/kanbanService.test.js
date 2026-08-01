@@ -197,6 +197,28 @@ describe('kanbanService', () => {
         'Session already has a card on the board'
       );
     });
+
+    // F1 (PR #1066 remediation): a lane with a completion target but NO
+    // on-enter automation is a common, legitimate configuration ("move this
+    // card when its own session finishes here" — no spawned worker). Since
+    // KanbanLaneRepository auto-derives completionMode='structured' whenever
+    // a target is configured (F3), addSessionToBoard's isStructured(lane)
+    // check alone would create a lane run for it — but nothing ever calls
+    // attachRootSession for a plain workspace session (that only happens
+    // inside triggerOnEnterTemplate/triggerOnEnterPrompt), so the run would
+    // stay open with a null root_session_id forever. Worse, the card's
+    // activeLaneRunId being set then permanently blocks the legacy
+    // handleCompletionMove fallback too (its `if (card.activeLaneRunId)
+    // return` guard), so the card could never advance by any path.
+    it('does not open an orphaned lane run for a structured lane with no on-enter automation', async () => {
+      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
+      expect(kanbanLanes.getById(lanes[0].id).completionMode).toBe('structured');
+
+      const session = createSession();
+      const card = await addSessionToBoard(session.id, lanes[0].id);
+
+      expect(kanbanCards.getById(card.id).activeLaneRunId).toBeNull();
+    });
   });
 
   // ── moveCard ───────────────────────────────────────────────────────

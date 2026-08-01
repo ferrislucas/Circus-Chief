@@ -1,18 +1,34 @@
-import { test, expect, Page, Locator } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import {
-  API_URL,
   BASE_URL,
   seedProject,
   seedSession,
   seedProjectTemplate,
   cleanupCreatedResources,
   navigateAndWait,
-  openSessionOverlay,
   waitForStatus,
   waitForChildSession,
-  getProjectSessions,
   updateSessionStatus,
 } from './helpers';
+import {
+  VCR_PROMPT,
+  VCR_MODEL,
+  getBoard,
+  getLaneByName,
+  findLaneOfSession,
+  setLaneOnEnter,
+  countChildSessions,
+  cardInLane,
+  cardByIdInLane,
+  openLaneSettings,
+  saveLaneSettings,
+  configureCompletionTarget,
+  addSessionToLaneViaUI,
+  runSessionTurnViaUI,
+  expectCardSettlesInLane,
+  moveCardViaUI,
+  runFollowUpTurnViaUI,
+} from './kanbanLaneRunHelpers';
 
 /**
  * UI-driven E2E coverage for the lane "On Completion" move feature.
@@ -24,6 +40,11 @@ import {
  *    fires and decides not to move (no direct status PATCH shortcut).
  *  - Test 3: a real session lifecycle moves the card from the source lane to the
  *    configured destination, through the UI and backed by the VCR cassette system.
+ *  - Test 3s: the same move, but with on-enter automation configured on the
+ *    SOURCE lane too, so a REAL structured lane run drives it end-to-end.
+ *  - Test 3legacy: the same move again, with `completionMode` pinned explicitly
+ *    to `legacy` — the deliberately-supported escape hatch for callers that
+ *    still want the old single-session signal.
  *  - Test 4: completing into a destination lane that has an on-enter CUSTOM PROMPT
  *    creates a child session (the automation runs as part of the completion move).
  *  - Test 5: same as Test 4 but the destination lane runs an on-enter TEMPLATE.
@@ -33,227 +54,20 @@ import {
  * verification. Every user-observable action for the feature under test —
  * configuring the completion target, adding the card, starting the session —
  * happens through the UI.
- */
-
-// ============================================================
-// Helpers (scoped to this spec)
-// ============================================================
-
-/**
- * The lifecycle tests start a draft session through the chat input. To keep
- * them deterministic and runnable in the default `VCR_MODE=replay`, they reuse
- * the prompt of an already-committed cassette (runSession-ec0df80145f024e5.json).
- * The cassette key is callType + a hash of this exact prompt, so the text MUST
- * match byte-for-byte. The same prompt is reused for the on-enter automation in
- * Tests 4/5 so the spawned child session also replays cleanly from that cassette.
  *
- * If you ever change this prompt, re-record with:
- *   VCR_MODE=record ./scripts/pw.sh test tests/e2e/kanban-completion-move.spec.ts
- * and commit the new cassette under tests/e2e/cassettes/.
+ * PR #1066 remediation (F1): this file used to force every lane back to
+ * `completionMode: 'legacy'` after configuring a completion target, hiding the
+ * structured lane-run path — which is what a real target selection opts into
+ * by default (KanbanLaneRepository#update) — from this suite entirely. Board
+ * / lane / card plumbing now lives in `kanbanLaneRunHelpers.ts`, shared with
+ * `kanban-lane-run-structured.spec.ts` (the dedicated structured-mode E2E
+ * suite), and no helper here silently forces a completion mode any more.
+ * Most tests below still end up exercising the legacy per-session hook simply
+ * because their source lane has no on-enter automation at the time its card
+ * is added — see kanbanService.js's `hasOnEnterAutomation` gate — which is
+ * itself real, load-bearing coverage: a completion target with no automation
+ * must keep behaving exactly as it always has, never opening a dead lane run.
  */
-const VCR_PROMPT = 'Claude E2E regression: reply with exactly "Claude E2E response."';
-const VCR_MODEL = 'claude-haiku-4-5-20251001';
-
-async function getBoard(projectId: string) {
-  const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban`);
-  if (!response.ok) throw new Error(`Failed to fetch board: ${response.status}`);
-  return response.json();
-}
-
-function getLaneByName(board: any, name: string) {
-  return board.lanes.find((lane: any) => lane.name === name);
-}
-
-/** Return the name of the lane that currently holds the given session's card, or null. */
-function findLaneOfSession(board: any, sessionId: string): string | null {
-  for (const lane of board.lanes) {
-    for (const card of lane.cards || []) {
-      if ((card.sessions || []).some((s: any) => s.id === sessionId)) {
-        return lane.name;
-      }
-    }
-  }
-  return null;
-}
-
-/** Configure a destination lane's on-enter automation via the REST API (test setup). */
-async function setLaneOnEnter(projectId: string, laneId: string, settings: object) {
-  const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban/lanes/${laneId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(settings),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to set lane on-enter automation: ${response.status} ${await response.text()}`);
-  }
-  return response.json();
-}
-
-/** Count child sessions of a parent (used for negative assertions). */
-async function countChildSessions(parentSessionId: string, projectId: string): Promise<number> {
-  const all = await getProjectSessions(projectId);
-  return all.filter((s: any) => s.parentSessionId === parentSessionId).length;
-}
-
-/** Locate a kanban lane by its exact title (avoids matching card text). */
-function laneByTitle(page: Page, title: string): Locator {
-  return page.locator('.kanban-lane').filter({
-    has: page.locator('.lane-title', { hasText: new RegExp(`^${title}$`) }),
-  });
-}
-
-/** Locate a card (by session name) inside a specific lane. */
-function cardInLane(page: Page, laneTitle: string, sessionName: string): Locator {
-  return laneByTitle(page, laneTitle).locator('.kanban-card').filter({ hasText: sessionName });
-}
-
-/**
- * Locate a card by SESSION ID inside a specific lane, via the card's
- * `/sessions/{id}` link. Use this when the card's title may change out from
- * under the test — e.g. after a turn completes, summary generation can rename
- * the session, so matching on the seeded name becomes unreliable.
- */
-function cardByIdInLane(page: Page, laneTitle: string, sessionId: string): Locator {
-  return laneByTitle(page, laneTitle)
-    .locator('.kanban-card')
-    .filter({ has: page.locator(`a[href$="/sessions/${sessionId}"]`) });
-}
-
-async function openLaneSettings(page: Page, laneTitle: string) {
-  await laneByTitle(page, laneTitle).locator('.lane-settings-btn').click();
-  await expect(page.locator('.modal-content')).toBeVisible();
-  await expect(page.locator('#completion-target-lane-select')).toBeVisible();
-}
-
-async function saveLaneSettings(page: Page) {
-  await page.click('.modal-footer .btn-primary');
-  await expect(page.locator('.modal-backdrop')).toBeHidden({ timeout: 5000 });
-}
-
-/** Open "In Progress" lane settings, pick a completion target by label, and save. */
-async function configureCompletionTarget(
-  page: Page,
-  projectId: string,
-  sourceLane: string,
-  targetLabel: string
-) {
-  await openLaneSettings(page, sourceLane);
-  await page.selectOption('#completion-target-lane-select', { label: targetLabel });
-  await saveLaneSettings(page);
-
-  // This spec covers the legacy per-turn completion behavior. The branch's
-  // structured lane-run mode has its own contract/API coverage and requires an
-  // on-entry worker to explicitly close its obligation. Preserve this suite's
-  // original intent by selecting legacy mode explicitly after the UI updates
-  // the target (newly configured targets otherwise opt into structured mode).
-  if (targetLabel !== 'Do not move automatically') {
-    const board = await getBoard(projectId);
-    const lane = getLaneByName(board, sourceLane);
-    await setLaneOnEnter(projectId, lane.id, { completionMode: 'legacy' });
-  }
-}
-
-/** Add a (draft) session to a lane via the lane's "Add Session" modal. */
-async function addSessionToLaneViaUI(page: Page, laneTitle: string, sessionName: string) {
-  await laneByTitle(page, laneTitle).locator('.add-session-btn').click();
-  await expect(page.locator('.modal-content')).toBeVisible();
-  await page.waitForSelector('.session-item', { timeout: 10000 });
-  await page.locator('.session-item').filter({ hasText: sessionName }).first().click();
-  await page.click('.modal-footer .btn-primary');
-  await expect(page.locator('.modal-backdrop')).toBeHidden({ timeout: 5000 });
-}
-
-/**
- * Ensure the chat overlay is showing the requested session before interacting.
- *
- * When a workspace has a running descendant, the overlay auto-resolves to that
- * running child (see useSessionTree.resolveOverlayTarget). In that state the
- * root's composer is not shown — the child renders its "Stop" running state
- * instead of `.btn-send-full`. So when the overlay landed on a different
- * session, switch to the target via the session picker dropdown.
- */
-async function selectOverlaySession(page: Page, sessionId: string) {
-  const picker = page.locator('[data-testid="overlay-picker-trigger"]');
-  // The picker only renders when the workspace has descendants. Without it the
-  // overlay always shows the root session, so there is nothing to switch.
-  if (!(await picker.isVisible().catch(() => false))) return;
-
-  const activeTarget = page.locator(
-    `[data-testid="session-chat-picker"] .picker-item--active[data-session-id="${sessionId}"]`
-  );
-  await picker.click();
-  await page.locator('[data-testid="session-chat-picker"]').waitFor({ state: 'visible' });
-  if ((await activeTarget.count()) === 0) {
-    await page
-      .locator(`[data-testid="session-chat-picker"] .picker-item[data-session-id="${sessionId}"]`)
-      .click();
-  } else {
-    // Already on the requested session; just close the picker.
-    await picker.click();
-  }
-}
-
-/**
- * Drive a real agent turn through the UI: open the session, type the VCR prompt
- * into the visible chat input, send, and wait for the turn to settle to
- * 'waiting' (VCR replay). This is what triggers the production completion hook.
- */
-async function runSessionTurnViaUI(page: Page, sessionId: string) {
-  await navigateAndWait(page, `${BASE_URL}/sessions/${sessionId}/summary`);
-  await openSessionOverlay(page);
-  // The overlay may auto-resolve to a running descendant; make sure we are
-  // composing against the requested session before sending.
-  await selectOverlaySession(page, sessionId);
-  await expect(page.locator('.btn-send-full').first()).toBeVisible({ timeout: 15000 });
-  const textarea = page.locator('.input-form textarea');
-  await textarea.fill(VCR_PROMPT);
-  await page.locator('.btn-send-full').first().click();
-  await waitForStatus(sessionId, 'waiting', 60000);
-}
-
-/** Poll the board until the given session's card lands in the expected lane. */
-async function expectCardSettlesInLane(projectId: string, sessionId: string, laneName: string) {
-  await expect
-    .poll(async () => findLaneOfSession(await getBoard(projectId), sessionId), { timeout: 15000 })
-    .toBe(laneName);
-}
-
-/**
- * Move a card between lanes through the kanban move modal (same flow as
- * kanban-move-card.spec.ts): hover the card, click its move button, select the
- * target lane radio, and confirm. Used to simulate a user moving an
- * already-conversing session's card into the completion-target lane.
- */
-async function moveCardViaUI(page: Page, card: Locator, toLane: string) {
-  await card.hover();
-  await card.locator('.card-move-btn').click();
-  await expect(page.locator('.modal-title')).toHaveText('Move to Lane');
-  await page
-    .locator('.lane-row')
-    .filter({ hasText: toLane })
-    .locator('input[type="radio"]')
-    .check();
-  await page.click('.modal-footer .btn-primary');
-  await expect(page.locator('.modal-backdrop')).toBeHidden({ timeout: 5000 });
-}
-
-/**
- * Drive a FOLLOW-UP agent turn (turn 2+) through the UI.
- *
- * Unlike `runSessionTurnViaUI`, this must NOT wait for status 'waiting' up front:
- * between turns the session is already 'waiting', so that check would return
- * immediately without ever observing the new turn. Instead we send the prompt and
- * let the caller use `expectCardSettlesInLane` (board poll) as the completion
- * signal — the production completion hook fires only after the turn actually
- * finishes, so the card landing in the target lane is proof the turn completed.
- */
-async function runFollowUpTurnViaUI(page: Page, sessionId: string) {
-  await navigateAndWait(page, `${BASE_URL}/sessions/${sessionId}/summary`);
-  await openSessionOverlay(page);
-  const textarea = page.locator('.input-form textarea');
-  await textarea.fill(VCR_PROMPT);
-  await page.locator('.btn-send-full').first().click();
-}
 
 // ============================================================
 // Tests
@@ -449,6 +263,114 @@ test.describe('Kanban lane completion move', () => {
     const card = done.cards.find((c: any) => (c.sessions || []).some((s: any) => s.id === session.id));
     expect(card).toBeTruthy();
     expect(card.laneId).toBe(doneLane.id);
+  });
+
+  // ----------------------------------------------------------------
+  // Test 3s (PR #1066 remediation, F1): same move as Test 3, but the source
+  // lane ALSO has on-enter automation, so entering it (with a completion
+  // target already configured) opens a REAL structured lane run — the
+  // on-entry worker becomes the run's root, and its own successful,
+  // childless completion is what advances the card (AC-2). This is the "at
+  // least one completion case runs in structured mode end-to-end" case for
+  // this file; the broader structured-mode surface (transient limits,
+  // permanent failures, scheduled descendants, manual-move supersession,
+  // target on-entry-exactly-once) has its own dedicated coverage in
+  // kanban-lane-run-structured.spec.ts.
+  // ----------------------------------------------------------------
+  test('Session completion moves card from source lane to completion target (structured mode, real lane run)', async ({
+    page,
+  }) => {
+    const sessionName = 'Structured Completion Move Session';
+    const board = await getBoard(project.id);
+    const inProgressLane = getLaneByName(board, 'In Progress');
+    const doneLane = getLaneByName(board, 'Done');
+
+    // The source lane has its own on-enter automation, configured BEFORE the
+    // completion target so the target select's later PATCH auto-derives
+    // completionMode='structured' (KanbanLaneRepository#update, F3) on a lane
+    // that genuinely has an on-entry worker to own the run.
+    await setLaneOnEnter(project.id, inProgressLane.id, { onEnterPrompt: VCR_PROMPT });
+
+    const workspace = await seedSession(project.id, {
+      prompt: 'Workspace root',
+      name: sessionName,
+      startImmediately: false,
+    });
+
+    await navigateAndWait(page, `${BASE_URL}/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
+    await configureCompletionTarget(page, project.id, 'In Progress', 'Done');
+    expect(getLaneByName(await getBoard(project.id), 'In Progress').completionMode).toBe('structured');
+
+    await addSessionToLaneViaUI(page, 'In Progress', sessionName);
+
+    // Entering the lane spawns the on-entry worker — the lane run's root —
+    // as a child of the workspace, NOT of the workspace itself completing.
+    const worker = await waitForChildSession(workspace.id, 15000);
+    expect(worker.parentSessionId).toBe(workspace.id);
+    await waitForStatus(worker.id, 'waiting', 20000);
+
+    // The worker's own, childless success is what moves the card (AC-2) —
+    // this is the real structured engine, not the legacy per-session hook.
+    await expectCardSettlesInLane(project.id, workspace.id, 'Done');
+
+    const finalBoard = await getBoard(project.id);
+    const done = getLaneByName(finalBoard, 'Done');
+    const card = done.cards.find((c: any) => (c.sessions || []).some((s: any) => s.id === workspace.id));
+    expect(card).toBeTruthy();
+    expect(card.laneId).toBe(doneLane.id);
+    expect(card.activeLaneRun).toBeNull(); // run completed and cleared
+  });
+
+  // ----------------------------------------------------------------
+  // Test 3legacy (PR #1066 remediation, F1): `completionMode: 'legacy'` is a
+  // deliberately supported, explicit escape hatch — pin it directly via the
+  // REST API (not achievable through the lane-settings UI, which only
+  // exposes the target-lane selector) and confirm the original single-session
+  // completion signal still moves the card correctly. This is the "keep a
+  // separate, explicit legacy case, labeled as such" half of the remediation
+  // — legacy is not being conflated behind `configureCompletionTarget` any
+  // more; a caller that wants it must ask for it by name.
+  // ----------------------------------------------------------------
+  test('Session completion moves card from source lane to completion target (explicit legacy mode)', async ({
+    page,
+  }) => {
+    const sessionName = 'Explicit Legacy Completion Session';
+    const board = await getBoard(project.id);
+    const doneLane = getLaneByName(board, 'Done');
+
+    const session = await seedSession(project.id, {
+      prompt: VCR_PROMPT,
+      name: sessionName,
+      model: VCR_MODEL,
+      startImmediately: false,
+    });
+
+    await navigateAndWait(page, `${BASE_URL}/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
+    await configureCompletionTarget(page, project.id, 'In Progress', 'Done');
+    // Explicitly pin legacy mode (the UI never sets this directly).
+    const inProgressLane = getLaneByName(await getBoard(project.id), 'In Progress');
+    await setLaneOnEnter(project.id, inProgressLane.id, { completionMode: 'legacy' });
+    expect(getLaneByName(await getBoard(project.id), 'In Progress').completionMode).toBe('legacy');
+
+    await addSessionToLaneViaUI(page, 'In Progress', sessionName);
+    await expect(cardInLane(page, 'In Progress', sessionName)).toBeVisible();
+
+    await runSessionTurnViaUI(page, session.id);
+    await expectCardSettlesInLane(project.id, session.id, 'Done');
+
+    const finalBoard = await getBoard(project.id);
+    const done = getLaneByName(finalBoard, 'Done');
+    const card = done.cards.find((c: any) => (c.sessions || []).some((s: any) => s.id === session.id));
+    expect(card).toBeTruthy();
+    expect(card.laneId).toBe(doneLane.id);
+    // Legacy mode never opens a lane run.
+    expect(card.activeLaneRun).toBeNull();
   });
 
   // ----------------------------------------------------------------

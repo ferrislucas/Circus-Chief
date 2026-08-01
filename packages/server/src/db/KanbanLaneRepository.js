@@ -169,6 +169,26 @@ export class KanbanLaneRepository extends BaseRepository {
   }
 
   /**
+   * Derive the completion mode for an update, unless the caller explicitly
+   * sets one. Rule (F3): completionMode auto-follows completionTargetLaneId
+   * on both directions of the transition — configuring a target makes the
+   * lane `structured`; clearing the target reverts it to `legacy` (so it
+   * stops opening no-op structured runs). An explicit `completionMode` in
+   * the payload always wins over this derivation, in either direction.
+   * @param {Object} data - Raw update payload
+   * @returns {Object} data, with completionMode filled in when derivable
+   */
+  static #deriveCompletionMode(data) {
+    if (data.completionMode !== undefined || !('completionTargetLaneId' in data)) {
+      return data;
+    }
+    return {
+      ...data,
+      completionMode: data.completionTargetLaneId ? 'structured' : 'legacy',
+    };
+  }
+
+  /**
    * Update a lane
    * @param {string} id
    * @param {Object} data
@@ -179,12 +199,7 @@ export class KanbanLaneRepository extends BaseRepository {
    * @returns {Object}
    */
   update(id, data) {
-    // Completion targets are workflow automation, not a legacy per-session
-    // signal. Make newly-configured target lanes structured by default while
-    // still honoring an explicit shadow/legacy selection.
-    const updateData = data.completionTargetLaneId && data.completionMode === undefined
-      ? { ...data, completionMode: 'structured' }
-      : data;
+    const updateData = KanbanLaneRepository.#deriveCompletionMode(data);
     // Field mapping: camelCase -> snake_case
     const fieldMap = {
       name: 'name',

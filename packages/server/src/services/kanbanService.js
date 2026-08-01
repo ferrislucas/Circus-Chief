@@ -55,6 +55,28 @@ export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}
 }
 
 /**
+ * F1 (PR #1066 remediation): a lane run's root is only ever attached from
+ * inside triggerOnEnterTemplate/triggerOnEnterPrompt (kanbanTriggers.js) —
+ * i.e. only when the lane actually spawns an on-entry worker. A lane whose
+ * completionMode auto-derived to 'structured' purely from having a
+ * completionTargetLaneId (KanbanLaneRepository#update) but with NO on-enter
+ * automation would otherwise still get a lane run opened for it here, whose
+ * root_session_id can never be attached — an orphaned run that (a) never
+ * succeeds and (b) permanently blocks the legacy handleCompletionMove
+ * fallback via the card's activeLaneRunId guard. "Just move this card when
+ * its own session finishes here, no spawned worker" is a legitimate,
+ * pre-existing configuration (see kanban-completion-move.spec.ts), so a
+ * structured lane run is only opened when there is an on-entry automation to
+ * actually own it; otherwise completion continues through the always-present
+ * legacy per-session path.
+ * @param {Object|null} lane
+ * @returns {boolean}
+ */
+function hasOnEnterAutomation(lane) {
+  return Boolean(lane?.onEnterTemplateId || lane?.onEnterPrompt);
+}
+
+/**
  * Add a session to the kanban board.
  *
  * @param {string} sessionId - The session ID
@@ -84,7 +106,7 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
   const rootSession = sessions.getById(workspaceId);
   if (rootSession) {
     const lane = kanbanLanes.getById(laneId);
-    const laneRun = isStructured(lane)
+    const laneRun = isStructured(lane) && hasOnEnterAutomation(lane)
       ? createLaneRunForEntry({ projectId: rootSession.projectId, workspaceId, cardId: card.id, lane })
       : null;
     broadcastToProject(rootSession.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_ADDED, {
@@ -140,7 +162,7 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
 
   if (session) {
     const lane = kanbanLanes.getById(targetLaneId);
-    const laneRun = isStructured(lane)
+    const laneRun = isStructured(lane) && hasOnEnterAutomation(lane)
       ? createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause: 'manual_move' })
       : null;
     broadcastToProject(session.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
@@ -179,7 +201,7 @@ export async function triggerStructuredTransitionAutomation(pending) {
   if (!workspaceSession) return;
 
   const lane = kanbanLanes.getById(targetLaneId);
-  const laneRun = isStructured(lane)
+  const laneRun = isStructured(lane) && hasOnEnterAutomation(lane)
     ? createLaneRunForEntry({
         projectId: workspaceSession.projectId,
         workspaceId: workspaceSessionId,
