@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   openAICreate: vi.fn(),
   callClaude: vi.fn(),
   buildProviderEnv: vi.fn(),
+  callCodexSummary: vi.fn(),
   agentCallLogger: {
     startCall: vi.fn(),
     updateUsage: vi.fn(),
@@ -42,6 +43,10 @@ vi.mock('./sessionProvider.js', () => ({
   buildProviderEnv: mocks.buildProviderEnv,
 }));
 
+vi.mock('./summaryCodexClient.js', () => ({
+  callCodexSummary: mocks.callCodexSummary,
+}));
+
 import { SESSION_SUMMARY_SCHEMA, callSummaryModel } from './summaryModelClient.js';
 
 describe('summaryModelClient', () => {
@@ -54,6 +59,7 @@ describe('summaryModelClient', () => {
       usage: { prompt_tokens: 3, completion_tokens: 5 },
     });
     mocks.callClaude.mockResolvedValue('{"short_summary":"ok"}');
+    mocks.callCodexSummary.mockResolvedValue('{"short_summary":"codex"}');
     mocks.buildProviderEnv.mockReturnValue({ ANTHROPIC_API_KEY: 'custom-token' });
     mocks.agentCallLogger.startCall.mockReturnValue('call-1');
   });
@@ -98,7 +104,7 @@ describe('summaryModelClient', () => {
     }));
   });
 
-  it('creates built-in OpenAI client with OPENAI_API_KEY and logs usage metadata', async () => {
+  it('routes built-in OpenAI through Codex even when OPENAI_API_KEY is present', async () => {
     process.env.OPENAI_API_KEY = 'official-key';
     const resolution = {
       model: 'gpt-5.4-mini',
@@ -113,25 +119,14 @@ describe('summaryModelClient', () => {
       logMeta: { sessionId: 'session-1', conversationId: 'conversation-1', callType: 'session-summary' },
     });
 
-    expect(result).toBe('{"short_summary":"ok"}');
-    expect(mocks.openAIInstances[0]).toEqual({ apiKey: 'official-key' });
+    expect(result).toBe('{"short_summary":"codex"}');
+    expect(mocks.callCodexSummary).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'gpt-5.4-mini', prompt: 'prompt',
+    }), undefined);
+    expect(mocks.openAIInstances).toHaveLength(0);
     expect(mocks.agentCallLogger.startCall).toHaveBeenCalledWith(expect.objectContaining({
-      sessionId: 'session-1',
-      conversationId: 'conversation-1',
-      model: 'gpt-5.4-mini',
-      metadata: {
-        providerId: 'openai-default',
-        selectionReason: 'recent-built-in-provider',
-      },
+      metadata: expect.objectContaining({ route: 'codex-cli' }),
     }));
-    expect(mocks.agentCallLogger.updateUsage).toHaveBeenCalledWith('call-1', {
-      inputTokens: 3,
-      outputTokens: 5,
-      thinkingTokens: 0,
-      cacheReadInputTokens: 0,
-      cacheCreationInputTokens: 0,
-    });
-    expect(mocks.agentCallLogger.completeCall).toHaveBeenCalledWith('call-1', { success: true });
   });
 
   it('uses custom OpenAI-compatible provider auth, base URL, and timeout', async () => {
@@ -158,17 +153,18 @@ describe('summaryModelClient', () => {
     });
   });
 
-  it('requests structured JSON schema first', async () => {
+  it('does not route a custom provider with the same model ID to Codex', async () => {
     const resolution = {
       model: 'gpt-5.4-mini',
-      providerId: 'openai-default',
-      provider: { id: 'openai-default', kind: 'openai' },
+      providerId: 'custom-openai',
+      provider: { id: 'custom-openai', isBuiltIn: false, kind: 'openai' },
       kind: 'openai',
       selectionReason: 'explicit',
     };
 
     await callSummaryModel('prompt', [], 'completed', { resolvedModel: resolution });
 
+    expect(mocks.callCodexSummary).not.toHaveBeenCalled();
     expect(mocks.openAICreate).toHaveBeenCalledWith(expect.objectContaining({
       response_format: {
         type: 'json_schema',
@@ -205,13 +201,13 @@ describe('summaryModelClient', () => {
     });
   });
 
-  it('completes OpenAI log entries as failed when calls fail', async () => {
+  it('keeps OpenAI failure logging on custom providers', async () => {
     const error = new Error('OpenAI failed');
     mocks.openAICreate.mockRejectedValue(error);
     const resolution = {
       model: 'gpt-5.4-mini',
-      providerId: 'openai-default',
-      provider: { id: 'openai-default', kind: 'openai' },
+      providerId: 'custom-openai',
+      provider: { id: 'custom-openai', isBuiltIn: false, kind: 'openai' },
       kind: 'openai',
       selectionReason: 'explicit',
     };
