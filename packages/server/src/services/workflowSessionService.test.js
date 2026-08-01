@@ -3,7 +3,7 @@ import { databaseManager, kanbanBoards, kanbanCards, kanbanLanes, projects, sess
 import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
   getRun, attachRootSession, reconcileLaneRun,
-  supersedeRunForCard, closeOwnWork, markExecutionState,
+  supersedeRunForCard, closeOwnWork, markExecutionState, markHeldForLimit,
   computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition,
 } from './workflowSessionService.js';
 
@@ -162,6 +162,61 @@ describe('workflowSessionService', () => {
     const plain = sessions.create(project.id, 'Plain', 'unrelated work');
     markExecutionState(plain.id, 'retrying');
     expect(sessions.getById(plain.id).executionState).toBe('idle');
+  });
+
+  describe('markHeldForLimit (FR-9.8)', () => {
+    function participatingWorker() {
+      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+      const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+      attachRootSession(run.id, worker.id);
+      return { worker, run };
+    }
+
+    it('pauses an open, unscheduled participating session and exposes it as the blocker', () => {
+      const { worker, run } = participatingWorker();
+
+      expect(markHeldForLimit(worker.id)).toBe(true);
+      expect(sessions.getById(worker.id).executionState).toBe('paused');
+      expect(getRun(run.id)).toEqual(expect.objectContaining({
+        pausedCount: 1,
+        blockingSessionId: worker.id,
+        blockingReason: 'Paused — provider limit or outage',
+      }));
+    });
+
+    it('does not overwrite closed, scheduled, or non-participating work', () => {
+      const { worker } = participatingWorker();
+      sessions.update(worker.id, { scheduledAt: Date.now() + 60_000, pendingPrompt: 'continue' });
+      expect(markHeldForLimit(worker.id)).toBe(false);
+      expect(sessions.getById(worker.id).executionState).not.toBe('paused');
+
+      const plain = sessions.create(project.id, 'Plain', 'unrelated work');
+      expect(markHeldForLimit(plain.id)).toBe(false);
+      expect(sessions.getById(plain.id).executionState).toBe('idle');
+    });
+
+    it('keeps scheduled work ahead of paused work in blocker precedence', () => {
+      const { worker, run } = participatingWorker();
+      expect(markHeldForLimit(worker.id)).toBe(true);
+      const scheduled = sessions.create(project.id, 'Scheduled', 'later', { parentSessionId: worker.id });
+      sessions.update(scheduled.id, { scheduledAt: Date.now() + 60_000, pendingPrompt: 'continue' });
+      expect(getRun(run.id)).toEqual(expect.objectContaining({
+        blockingSessionId: scheduled.id,
+        blockingReason: 'Waiting for scheduled work',
+      }));
+    });
+
+    it('records a distinct audit event for each separately held turn', () => {
+      const { worker, run } = participatingWorker();
+      expect(markHeldForLimit(worker.id)).toBe(true);
+      markExecutionState(worker.id, 'running');
+      expect(markHeldForLimit(worker.id)).toBe(true);
+
+      const audits = databaseManager.get().prepare(
+        "SELECT event_type FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='own_work_held_for_limit'"
+      ).all(run.id);
+      expect(audits).toHaveLength(2);
+    });
   });
 
   it('W6: the synchronous DB transition moves the card but hands off target-lane automation via pendingTargetLaneTrigger', () => {

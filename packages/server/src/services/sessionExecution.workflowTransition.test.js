@@ -29,7 +29,7 @@ import { SessionRepository } from '../db/SessionRepository.js';
 import { KanbanBoardRepository } from '../db/KanbanBoardRepository.js';
 import { KanbanLaneRepository } from '../db/KanbanLaneRepository.js';
 import { KanbanCardRepository } from '../db/KanbanCardRepository.js';
-import { createLaneRunForEntry, attachRootSession } from './workflowSessionService.js';
+import { createLaneRunForEntry, attachRootSession, getRun } from './workflowSessionService.js';
 
 describe('W6: _executeSession triggers target-lane automation after a real success', () => {
   let projectRepo;
@@ -117,5 +117,28 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
 
     expect(triggerStructuredTransitionAutomationMock).not.toHaveBeenCalled();
     expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+  });
+
+  it('does not advance the card when the turn ends gracefully on a provider usage limit', async () => {
+    const stubAgent = {
+      execute: vi.fn(async function* () {
+        yield { type: 'assistant', text: "You've reached your usage limit" };
+        yield { type: 'result', success: true, result: "You've reached your usage limit" };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    await runSession(root.id, 'do work', tempDir);
+
+    expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+    expect(getRun(run.id)).toEqual(expect.objectContaining({
+      status: 'open',
+      rootOwnWorkState: 'open',
+      pausedCount: 1,
+      blockingReason: 'Paused — provider limit or outage',
+    }));
+    expect(triggerStructuredTransitionAutomationMock).not.toHaveBeenCalled();
   });
 });

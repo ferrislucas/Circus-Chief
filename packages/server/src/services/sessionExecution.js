@@ -27,7 +27,7 @@ import { buildConversationContextForModelSwitch, buildConversationContextForCont
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState } from './workflowSessionService.js';
+import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState, markHeldForLimit } from './workflowSessionService.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
 // sessionExecution), safe because this is only called at runtime inside
 // _executeSession, long after the module graph is loaded (same pattern as
@@ -144,7 +144,7 @@ export async function _executeSession({
     }
 
     // Handle post-turn completion (work log association, status transition, summary, etc.)
-    const wasRescheduled = await handleTurnCompletion(
+    const { wasRescheduled, heldForLimit } = await handleTurnCompletion(
       sessionId,
       workingDirectory,
       { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded }
@@ -152,6 +152,9 @@ export async function _executeSession({
     // FR-4/FR-5: a self-scheduled continuation is an open obligation, not
     // success — markExecutionState no-ops for non-participating sessions.
     if (wasRescheduled) { markExecutionState(sessionId, 'scheduled'); return; }
+    // FR-9.8: a graceful provider limit/outage did not complete own work.
+    // Keep the participating obligation open so its lane run cannot advance.
+    if (heldForLimit) { markHeldForLimit(sessionId); return; }
     // W6/FR-8: the server infers own-work completion from this successful,
     // non-continuing turn; finish the async remainder (start the
     // target lane's on-enter automation exactly once) if it just happened.
