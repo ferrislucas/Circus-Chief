@@ -7,5 +7,7 @@ export {
   broadcastToSession,
   broadcastToProject,
   broadcastToSessionAndProject,
+  broadcastCommandRunOutput,
+  setCommandRunOutputAuthorizer,
   getWebSocketServer,
 } from './ws/index.js';

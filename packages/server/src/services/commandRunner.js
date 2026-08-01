@@ -24,10 +24,11 @@ export function wrapCommandForPlatform(command, currentPlatform = osModule.platf
  * Service for running commands and managing their execution
  */
 export class CommandRunner {
-  constructor({ outputBroadcastInterval = 250, outputDbFlushInterval = 500 } = {}) {
+  constructor({ outputBroadcastInterval = 250, outputDbFlushInterval = 500, outputBufferMaxBytes = 64 * 1024 } = {}) {
     this.processes = new Map();
     this.outputBroadcastInterval = outputBroadcastInterval;
     this.outputBufferFlushInterval = outputDbFlushInterval;
+    this.outputBufferMaxBytes = outputBufferMaxBytes;
   }
 
   /**
@@ -52,9 +53,8 @@ export class CommandRunner {
       startTime: Date.now(),
       sessionId,
       buttonId,
-      output: '',
-      dbOutputBuffer: '',
-      broadcastOutputBuffer: '',
+      outputChunks: [],
+      outputBytes: 0,
       lastDbWrite: Date.now(),
       bufferFlushTimer: null,
       broadcastFlushTimer: null,
@@ -68,32 +68,26 @@ export class CommandRunner {
    */
   #flushOutputBuffer(entryInput, runId) {
     const entry = entryInput;
-    if (!entry.dbOutputBuffer || !entry.sessionId || !entry.buttonId) return;
-    if (!commandRuns || typeof commandRuns.appendOutput !== 'function') return;
+    if (!entry.outputChunks.length || !entry.sessionId || !entry.buttonId) return;
+    if (!commandRuns || typeof commandRuns.appendBatch !== 'function') return;
+    const chunks = entry.outputChunks;
+    entry.outputChunks = [];
+    entry.outputBytes = 0;
     try {
-      commandRuns.appendOutput(runId, entry.dbOutputBuffer);
+      const persisted = commandRuns.appendBatch(runId, chunks);
+      for (const chunk of persisted) entry.onOutputChunk?.(chunk);
+      entry.onOutput?.(chunks.join(''));
       Object.assign(entry, { lastDbWrite: Date.now() });
     } catch (err) {
       console.warn(`[commandRunner.run] Warning: Error flushing output to database for runId: ${runId}`, err.message);
-    }
-    Object.assign(entry, { dbOutputBuffer: '' });
-  }
-
-  #flushBroadcastOutput(entry, onOutput) {
-    if (!entry.broadcastOutputBuffer) return;
-    const output = entry.broadcastOutputBuffer;
-    Object.assign(entry, { broadcastOutputBuffer: '' });
-    try { onOutput?.(output); } catch (err) {
-      console.warn('[commandRunner.run] Output callback failed:', err.message);
     }
   }
 
   #appendOutput(entry, text) {
     if (!text) return;
     Object.assign(entry, {
-      output: entry.output + text,
-      dbOutputBuffer: entry.dbOutputBuffer + text,
-      broadcastOutputBuffer: entry.broadcastOutputBuffer + text,
+      outputChunks: [...entry.outputChunks, text],
+      outputBytes: entry.outputBytes + Buffer.byteLength(text),
     });
   }
 
@@ -108,23 +102,22 @@ export class CommandRunner {
    * @param {{ entry: object, runId: string, exitCode: number|null, signal: string|null }} ctx
    * @param {function|undefined} onComplete - Completion callback
    */
-  #handleProcessClose(ctx, onComplete, onOutput) {
+  #handleProcessClose(ctx, onComplete) {
     const { entry, runId, exitCode, signal } = ctx;
     if (entry.finalized) return exitCode ?? 1;
     entry.finalized = true;
     this.#clearFlushTimers(entry);
     const remainingText = entry.outputProcessor.flush();
     this.#appendOutput(entry, remainingText);
-    this.#flushBroadcastOutput(entry, onOutput);
     this.#flushOutputBuffer(entry, runId);
     console.log(`[commandRunner.run] Process closed for runId: ${runId}, exitCode: ${exitCode}, signal: ${signal}`);
 
     if (commandRuns && typeof commandRuns.complete === 'function' && typeof commandRuns.markKilled === 'function') {
       try {
         if (signal) {
-          commandRuns.markKilled(runId, entry.output);
+          commandRuns.markKilled(runId);
         } else {
-          commandRuns.complete(runId, exitCode || 0, entry.output);
+          commandRuns.complete(runId, exitCode || 0);
         }
         console.log(`[commandRunner.run] Marked run as complete in database for runId: ${runId}`);
       } catch (dbErr) {
@@ -133,29 +126,26 @@ export class CommandRunner {
     }
 
     this.processes.delete(runId);
-    if (onComplete) onComplete(exitCode, entry.output);
+    if (onComplete) onComplete(exitCode);
     // Normalize to 1 on signal termination (signal info already logged above)
     return exitCode ?? 1;
   }
 
   /** Handle a run failure (process error or setup exception). Flushes output, marks failed, resolves. */
-  #handleRunFailure({ entry: entryParam, runId, err, onError, onOutput, resolve }) {
+  #handleRunFailure({ entry: entryParam, runId, err, onError, resolve }) {
     const entry = entryParam;
-    let errorOutput = `[Error] Failed to execute command: ${err.message}`;
     if (entry) {
       if (entry.finalized) return;
       entry.finalized = true;
       this.#clearFlushTimers(entry);
       this.#appendOutput(entry, entry.outputProcessor.flush());
-      this.#flushBroadcastOutput(entry, onOutput);
       this.#flushOutputBuffer(entry, runId);
-      errorOutput = entry.output;
     }
     const msg = entry ? `Failed to execute command: ${err.message}` : `Error running command: ${err.message}`;
     console.error(`[commandRunner.run] Error for runId: ${runId}`, err);
     if (onError) onError(msg);
     if (commandRuns && typeof commandRuns.complete === 'function') {
-      try { commandRuns.complete(runId, 1, errorOutput); } catch (dbErr) { console.warn(`[commandRunner.run] DB error for runId: ${runId}`, dbErr.message); }
+      try { commandRuns.complete(runId, 1); } catch (dbErr) { console.warn(`[commandRunner.run] DB error for runId: ${runId}`, dbErr.message); }
     }
     this.processes.delete(runId);
     resolve(1);
@@ -164,12 +154,13 @@ export class CommandRunner {
   /** Run a command and stream output via callback. Returns exit code. */
   async run(params, callbacks = {}, metadata = {}) {
     const { runId, command, workingDirectory } = params;
-    const { onOutput, onComplete, onError } = callbacks;
+    const { onOutput, onComplete, onError, onStarted } = callbacks;
     const { sessionId, buttonId } = metadata;
 
     return new Promise((resolve) => {
       try {
         this.#createDatabaseRecord(runId, sessionId, buttonId);
+        onStarted?.();
         const wrappedCommand = wrapCommandForPlatform(command);
 
         const child = spawn('sh', ['-c', wrappedCommand], {
@@ -180,18 +171,21 @@ export class CommandRunner {
         });
 
         const entry = this.#createProcessEntry(child, sessionId, buttonId);
+        entry.onOutput = (text) => {
+          try { onOutput?.(text); } catch (err) { console.warn('[commandRunner.run] Output callback failed:', err.message); }
+        };
+        entry.onOutputChunk = (chunk) => {
+          try { callbacks.onOutputChunk?.(chunk); } catch (err) { console.warn('[commandRunner.run] Output callback failed:', err.message); }
+        };
         this.processes.set(runId, entry);
 
         entry.bufferFlushTimer = setInterval(() => this.#flushOutputBuffer(entry, runId), this.outputBufferFlushInterval);
-        entry.broadcastFlushTimer = setInterval(
-          () => this.#flushBroadcastOutput(entry, onOutput),
-          this.outputBroadcastInterval,
-        );
 
         const handleData = (data) => {
           const text = entry.outputProcessor.process(data.toString());
           if (text) {
             this.#appendOutput(entry, text);
+            if (entry.outputBytes >= this.outputBufferMaxBytes) this.#flushOutputBuffer(entry, runId);
           }
         };
 
@@ -199,14 +193,14 @@ export class CommandRunner {
         child.stderr.on('data', handleData);
 
         child.on('error', (err) => {
-          this.#handleRunFailure({ entry, runId, err, onError, onOutput, resolve });
+          this.#handleRunFailure({ entry, runId, err, onError, resolve });
         });
 
         child.on('close', (exitCode, signal) => {
-          resolve(this.#handleProcessClose({ entry, runId, exitCode, signal }, onComplete, onOutput));
+          resolve(this.#handleProcessClose({ entry, runId, exitCode, signal }, onComplete));
         });
       } catch (err) {
-        this.#handleRunFailure({ entry: null, runId, err, onError, onOutput, resolve });
+        this.#handleRunFailure({ entry: null, runId, err, onError, resolve });
       }
     });
   }
@@ -286,7 +280,7 @@ export class CommandRunner {
           buttonId: entry.buttonId,
           sessionId: entry.sessionId,
           status: 'running',
-          output: entry.output,
+          output: '',
           exitCode: null,
           startedAt: entry.startTime,
         });
@@ -302,7 +296,7 @@ export class CommandRunner {
     );
     if (typeof commandRuns.complete === 'function') {
       try {
-        commandRuns.complete(dbRun.id, -1, dbRun.output || '');
+        commandRuns.complete(dbRun.id, -1);
       } catch (updateErr) {
         console.warn(
           `[commandRunner.getRunsBySession] Failed to update orphaned run: ${updateErr.message}`
@@ -328,7 +322,7 @@ export class CommandRunner {
       runId: dbRun.id,
       buttonId: dbRun.buttonId,
       status,
-      output: dbRun.output,
+      output: '',
       exitCode,
       startedAt: dbRun.startedAt,
     };
@@ -344,7 +338,7 @@ export class CommandRunner {
           runId,
           buttonId: entry.buttonId,
           status: 'running',
-          output: entry.output,
+          output: '',
           exitCode: undefined,
           startedAt: entry.startTime,
         });

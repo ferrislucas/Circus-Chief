@@ -71,6 +71,23 @@ export const miscMigrations = [
       addColumnIfMissing(db, 'command_buttons', 'show_on_list', 'INTEGER NOT NULL DEFAULT 0');
     },
   },
+  {
+    name: 'command_runs-create-output-chunks',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS command_run_output_chunks (
+          run_id TEXT NOT NULL REFERENCES command_runs(id) ON DELETE CASCADE,
+          sequence INTEGER NOT NULL,
+          content TEXT NOT NULL,
+          byte_length INTEGER NOT NULL,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+          PRIMARY KEY (run_id, sequence)
+        );
+        CREATE INDEX IF NOT EXISTS idx_command_run_output_chunks_run_sequence
+          ON command_run_output_chunks(run_id, sequence);
+      `);
+    },
+  },
 
   // --- Session templates ---
   {

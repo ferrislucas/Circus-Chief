@@ -225,17 +225,19 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
 
     async fetchRunOutput(sessionId, runId) {
       const existing = this.runs[runId];
-      if (!existing || existing.status === 'running') return; // Don't fetch for running commands (streaming via WS)
+      if (!existing) return;
       if (existing.output && existing.output.length > 0) return; // Already have output, skip
 
       try {
-        const run = await api.getCommandRun(sessionId, runId);
-        if (run.output && this.runs[runId]) {
-          const { output, truncated } = truncateOutput(run.output);
+        const page = await api.getCommandRunOutput(sessionId, runId, { limitBytes: 2 * 1024 * 1024 });
+        const output = page.chunks.map((chunk) => chunk.content).join('');
+        if (this.runs[runId]) {
+          const { output: boundedOutput, truncated } = truncateOutput(output);
           this.runs[runId] = {
             ...this.runs[runId],
-            output,
+            output: boundedOutput,
             outputTruncated: truncated,
+            outputHighWater: page.highWater,
           };
         }
       } catch (err) {

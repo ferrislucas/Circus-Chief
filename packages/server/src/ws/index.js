@@ -3,6 +3,10 @@ export { WebSocketManager, webSocketManager } from './WebSocketManager.js';
 // Legacy function exports for backward compatibility
 import { webSocketManager } from './WebSocketManager.js';
 
+export function setCommandRunOutputAuthorizer(authorizer) {
+  webSocketManager.setCommandRunOutputAuthorizer(authorizer);
+}
+
 /**
  * Initialize WebSocket server
  * @param {import('http').Server} server
@@ -43,6 +47,10 @@ export function broadcastToProject(projectId, type, payload) {
 
 export function broadcastToSessionAndProject(sessionId, projectId, type, payload) {
   webSocketManager.broadcastToSessionAndProject(sessionId, projectId, type, payload);
+}
+
+export function broadcastCommandRunOutput(runId, chunk) {
+  return webSocketManager.broadcastCommandRunOutput(runId, chunk);
 }
 
 /**

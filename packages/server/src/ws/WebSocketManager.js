@@ -1,6 +1,8 @@
 import { WebSocketServer } from 'ws';
 import { WS_MESSAGE_TYPES, parseMessage, createMessage } from '@circuschief/shared';
 
+const OUTPUT_SOCKET_HIGH_WATER_BYTES = 256 * 1024;
+
 /**
  * WebSocket manager class for handling WebSocket connections and messaging
  */
@@ -16,6 +18,15 @@ export class WebSocketManager {
 
   /** @type {Map<string, Set<import('ws').WebSocket>>} */
   #projectSubscriptions = new Map();
+
+  /** @type {Map<string, Set<import('ws').WebSocket>>} */
+  #commandRunOutputSubscriptions = new Map();
+  #outputResyncRequired = new WeakMap();
+  #commandRunOutputAuthorizer = null;
+
+  setCommandRunOutputAuthorizer(authorizer) {
+    this.#commandRunOutputAuthorizer = authorizer;
+  }
 
   /** @type {Map<string, Array<Object>>} */
   #usageUpdateBuffer = new Map();
@@ -48,6 +59,7 @@ export class WebSocketManager {
         for (const subscribers of this.#projectSubscriptions.values()) {
           subscribers.delete(ws);
         }
+        for (const subscribers of this.#commandRunOutputSubscriptions.values()) subscribers.delete(ws);
       });
 
       ws.on('error', (error) => {
@@ -69,6 +81,8 @@ export class WebSocketManager {
       [WS_MESSAGE_TYPES.UNSUBSCRIBE_SESSION]: () => this.#handleUnsubscribeSession(ws, message),
       [WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT]: () => this.#handleSubscribeProject(ws, message),
       [WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT]: () => this.#handleUnsubscribeProject(ws, message),
+      [WS_MESSAGE_TYPES.SUBSCRIBE_COMMAND_RUN_OUTPUT]: () => this.#handleSubscribeCommandRunOutput(ws, message),
+      [WS_MESSAGE_TYPES.UNSUBSCRIBE_COMMAND_RUN_OUTPUT]: () => this.#handleUnsubscribeCommandRunOutput(ws, message),
     };
     handlers[message.type]?.();
   }
@@ -117,6 +131,46 @@ export class WebSocketManager {
     const { projectId } = message;
     if (!projectId) return;
     this.#projectSubscriptions.get(projectId)?.delete(ws);
+  }
+
+  #handleSubscribeCommandRunOutput(ws, message) {
+    const { runId, sessionId } = message;
+    const authorization = runId && sessionId && this.#commandRunOutputAuthorizer?.(runId, sessionId);
+    // Deliberately return the same generic response for missing and cross-root runs.
+    if (!authorization?.allowed) {
+      if (ws.readyState === 1) ws.send(createMessage(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT_RESYNC_REQUIRED, { runId }));
+      return;
+    }
+    if (!this.#commandRunOutputSubscriptions.has(runId)) this.#commandRunOutputSubscriptions.set(runId, new Set());
+    this.#commandRunOutputSubscriptions.get(runId).add(ws);
+    if (ws.readyState === 1) ws.send(createMessage(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT_SUBSCRIBED, {
+      runId, highWater: authorization.highWater,
+    }));
+  }
+
+  #handleUnsubscribeCommandRunOutput(ws, message) {
+    if (message.runId) this.#commandRunOutputSubscriptions.get(message.runId)?.delete(ws);
+  }
+
+  /** Send a persisted output chunk to explicit viewers only. */
+  broadcastCommandRunOutput(runId, chunk) {
+    const subscribers = this.#commandRunOutputSubscriptions.get(runId);
+    if (!subscribers?.size) return;
+    const message = createMessage(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId, sequence: chunk.sequence, content: chunk.content });
+    for (const client of subscribers) {
+      if (client.readyState !== 1) continue;
+      if (client.bufferedAmount >= OUTPUT_SOCKET_HIGH_WATER_BYTES) {
+        const pending = this.#outputResyncRequired.get(client) || new Set();
+        if (!pending.has(runId)) {
+          pending.add(runId);
+          this.#outputResyncRequired.set(client, pending);
+          client.send(createMessage(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT_RESYNC_REQUIRED, { runId }));
+        }
+        continue;
+      }
+      this.#outputResyncRequired.get(client)?.delete(runId);
+      client.send(message);
+    }
   }
 
   /**
@@ -253,6 +307,7 @@ export class WebSocketManager {
     this.#clients.clear();
     this.#sessionSubscriptions.clear();
     this.#projectSubscriptions.clear();
+    this.#commandRunOutputSubscriptions.clear();
     this.#usageUpdateBuffer.clear();
   }
 }
