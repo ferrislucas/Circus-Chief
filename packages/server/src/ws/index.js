@@ -41,6 +41,10 @@ export function broadcastToProject(projectId, type, payload) {
   webSocketManager.broadcastToProject(projectId, type, payload);
 }
 
+export function broadcastToSessionAndProject(sessionId, projectId, type, payload) {
+  webSocketManager.broadcastToSessionAndProject(sessionId, projectId, type, payload);
+}
+
 /**
  * Get WebSocket server instance
  * @returns {import('ws').WebSocketServer|null}
