@@ -244,6 +244,7 @@ import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import { ansiToHtml } from '../utils/ansi.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useOutputAutoTail } from '../composables/useOutputAutoTail.js';
+import { subscribeCommandRunOutput } from '../composables/useCommandRunOutputSubscription.js';
 
 const commandButtonsStore = useCommandButtonsStore();
 
@@ -283,6 +284,7 @@ const outputContainerRef = ref(null);
 const DISPLAY_LINE_LIMIT = 200;
 const loadingOutput = ref(false);
 const { handleScroll, resetTail, handleRenderedOutput } = useOutputAutoTail(outputContainerRef);
+let unsubscribeOutput = null;
 
 // Computed property that resolves output from store first, then props
 const resolvedOutput = computed(() => {
@@ -291,7 +293,7 @@ const resolvedOutput = computed(() => {
 });
 
 // Check if we have any output (either from store or props)
-const hasOutput = computed(() => Boolean(resolvedOutput.value) || loadingOutput.value);
+const hasOutput = computed(() => Boolean(resolvedOutput.value) || props.latestRun?.hasOutput || props.latestRun?.status === 'running' || loadingOutput.value);
 
 const updateFormattedOutput = () => {
   const output = resolvedOutput.value;
@@ -485,7 +487,10 @@ watch(
 watch(
   showOutput,
   (isVisible) => {
+    unsubscribeOutput?.();
+    unsubscribeOutput = null;
     if (isVisible) {
+      unsubscribeOutput = subscribeCommandRunOutput(props.sessionId, props.latestRun?.runId);
       resetTail({ scroll: true });
     }
   }
@@ -539,6 +544,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  unsubscribeOutput?.();
   stopTimer();
 });
 </script>

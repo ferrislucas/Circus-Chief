@@ -178,6 +178,7 @@ export const allMigrations = validateMigrations([
 
   // --- Command buttons ---
   m.get('command_buttons-add-show_on_list'),
+  m.get('command_runs-create-output-chunks'),
 
   // --- Session todos ---
   c.get('session_todos-add-conversation_id'),

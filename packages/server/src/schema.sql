@@ -298,6 +298,19 @@ CREATE TABLE IF NOT EXISTS command_runs (
   completed_at INTEGER
 );
 
+-- Command output is deliberately kept out of command_runs.  Updating a large
+-- TEXT field for every flush copies the entire transcript in SQLite.
+CREATE TABLE IF NOT EXISTS command_run_output_chunks (
+  run_id TEXT NOT NULL REFERENCES command_runs(id) ON DELETE CASCADE,
+  sequence INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  byte_length INTEGER NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  PRIMARY KEY (run_id, sequence)
+);
+CREATE INDEX IF NOT EXISTS idx_command_run_output_chunks_run_sequence
+  ON command_run_output_chunks(run_id, sequence);
+
 CREATE TABLE IF NOT EXISTS project_session_defaults (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL UNIQUE,

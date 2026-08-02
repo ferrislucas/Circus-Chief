@@ -3,8 +3,8 @@ import { execSync } from 'child_process';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { createApp } from './app.js';
-import { initDatabase } from './database.js';
-import { initWebSocket, webSocketManager } from './websocket.js';
+import { initDatabase, commandRuns, sessions } from './database.js';
+import { initWebSocket, webSocketManager, setCommandRunOutputAuthorizer } from './websocket.js';
 import { parseCliOptions } from './cli.js';
 import { settings } from './db/index.js';
 import * as prStatusService from './services/prStatusService.js';
@@ -55,6 +55,11 @@ mkdirSync(dirname(dbPath), { recursive: true });
 
 // Initialize database
 initDatabase(dbPath);
+setCommandRunOutputAuthorizer((runId, requestedSessionId) => {
+  const run = commandRuns.getById(runId);
+  const rootSessionId = sessions.getRootSessionId(requestedSessionId);
+  return { allowed: Boolean(run && rootSessionId && run.sessionId === rootSessionId), highWater: run ? commandRuns.getHighWater(runId) : 0 };
+});
 console.log(`Database initialized: ${dbPath}`);
 console.log(`VCR_MODE: ${process.env.VCR_MODE || '(unset)'}`);
 
