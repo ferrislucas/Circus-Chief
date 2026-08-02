@@ -128,6 +128,14 @@ export function SessionsApi(ApiClient) {
       return this._get(`/sessions/${id}`);
     },
 
+    async getSessionPrompt(id) {
+      return this._get(`/sessions/${id}/prompt`);
+    },
+
+    async respondToSessionPrompt(id, promptId, response) {
+      return this._post(`/sessions/${id}/prompt/${promptId}/respond`, response);
+    },
+
     /**
      * Get all messages for a session
      * @param {string} id - Session ID

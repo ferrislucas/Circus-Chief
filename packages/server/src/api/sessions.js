@@ -16,6 +16,7 @@ import lifecycleRouter from './sessions-lifecycle.js';
 import streamingRouter from './sessions-streaming.js';
 import messagesRouter from './sessions-messages.js';
 import draftRouter from './sessions-draft.js';
+import promptsRouter from './sessions-prompts.js';
 
 const router = Router();
 
@@ -28,6 +29,7 @@ router.use('/', lifecycleRouter);
 router.use('/', streamingRouter);
 router.use('/', messagesRouter);
 router.use('/', draftRouter);
+router.use('/', promptsRouter);
 
 // TTL cache for files-count endpoint (60 second TTL)
 const filesCountCache = new Map();

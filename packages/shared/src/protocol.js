@@ -8,6 +8,8 @@ export const WS_MESSAGE_TYPES = {
   UNSUBSCRIBE_SESSION: 'unsubscribe:session',
   SUBSCRIBE_PROJECT: 'subscribe:project',
   UNSUBSCRIBE_PROJECT: 'unsubscribe:project',
+  SESSION_ATTEND: 'session:attend',
+  SESSION_UNATTEND: 'session:unattend',
 
   // Server -> Client
   SESSION_CREATED: 'session:created',
@@ -27,6 +29,8 @@ export const WS_MESSAGE_TYPES = {
   CANVAS_UPDATE: 'canvas:update',
   TODOS_UPDATE: 'todos:update',
   CHANGES_UPDATE: 'changes:update',
+  SESSION_PROMPT: 'session:prompt',
+  SESSION_PROMPT_RESOLVED: 'session:prompt_resolved',
 
   // Conversation events
   CONVERSATION_CREATED: 'conversation:created',

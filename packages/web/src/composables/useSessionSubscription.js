@@ -85,6 +85,10 @@ function registerEventHandlers(on, off, sessionId) {
       { filter: bySession, args: (msg) => [msg.runId, msg.buttonId] }),
     onChangesUpdate: handler(WS_MESSAGE_TYPES.CHANGES_UPDATE,
       { filter: bySession, args: (msg) => [msg.changeCount, msg.hasChanges] }),
+    onPrompt: handler(WS_MESSAGE_TYPES.SESSION_PROMPT,
+      { filter: bySession, args: (msg) => [msg.prompt] }),
+    onPromptResolved: handler(WS_MESSAGE_TYPES.SESSION_PROMPT_RESOLVED,
+      { filter: bySession, args: (msg) => [msg.promptId, msg.outcome] }),
   };
 }
 

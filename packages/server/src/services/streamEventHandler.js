@@ -530,6 +530,9 @@ export async function handleStreamEvent(sessionId, event) {
  * @param {boolean} includeConversationId - Whether to also clean up activeConversationIds
  */
 export function cleanupSessionState(sessionId, includeConversationId = false) {
+  // A parked SDK callback owns a live promise. Settling it before clearing
+  // execution state prevents it from surviving a completed/failed turn.
+  import('./promptStore.js').then(({ cancelPrompt }) => cancelPrompt(sessionId));
   textAccumulators.delete(sessionId);
   thinkingAccumulators.delete(sessionId);
   currentModels.delete(sessionId);

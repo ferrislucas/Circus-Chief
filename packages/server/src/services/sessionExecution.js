@@ -263,6 +263,7 @@ async function buildContinueParams({
     systemPrompt,
     model: effectiveModel,
     sessionEnv,
+    conversationId: activeConversation.id,
     resumeSessionId: canResume ? activeConversation.claudeSessionId : null,
     agentType,
     commitAttributionOverride,
@@ -437,6 +438,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     systemPrompt,
     model: effectiveModel,
     sessionEnv,
+    conversationId: activeConversation.id,
     agentType,
     commitAttributionOverride,
   });

@@ -6,6 +6,7 @@ import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useTemplatesStore } from '../stores/templates.js';
+import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 import { api } from './useApi.js';
 
 /**
@@ -107,7 +108,8 @@ export function useSessionInitializer({
   const summary = summaryRef;
   const hasChanges = hasChangesRef;
   const changesFileCount = changesFileCountRef;
-  const sessionsStore = useSessionsStore();
+    const sessionsStore = useSessionsStore();
+    const promptsStore = useSessionPromptsStore();
   const canvasStore = useCanvasStore();
   const todosStore = useTodosStore();
   const uiStore = useUiStore();
@@ -193,6 +195,7 @@ export function useSessionInitializer({
       onUsageUpdate, onChangesUpdate,
       onWorkLog, onWorkLogsAssociated,
       onThinkingPartial,
+      onPrompt, onPromptResolved,
     } = subscription;
 
     const handlers = [];
@@ -238,6 +241,8 @@ export function useSessionInitializer({
     handlers.push(onCanvasRemove((itemId) => { canvasStore.removeItem(itemId); }));
     handlers.push(onCanvasUpdate((item) => { canvasStore.patchItem(item); }));
     handlers.push(onTodosUpdate((todos, conversationId) => { todosStore.updateTodos(todos, conversationId); }));
+    handlers.push(onPrompt((prompt) => { promptsStore.show(prompt); }));
+    handlers.push(onPromptResolved((promptId) => { promptsStore.resolved(promptId); }));
     handlers.push(onSessionUpdate((session) => { sessionsStore.updateSession(session); }));
     handlers.push(onSummaryUpdate((newSummary) => { summary.value = newSummary; }));
     handlers.push(onConversationUpdated((conversation) => { sessionsStore.updateConversation(conversation); }));
