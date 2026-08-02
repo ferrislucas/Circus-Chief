@@ -144,10 +144,11 @@ export function beginWorkflowTurn(sessionId) {
   return databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!isParticipating(s) || s.own_work_state !== 'open') return null;
+    const executionStateBeforeTurn = s.execution_state;
     const time = now();
     db.prepare('UPDATE sessions SET execution_state=\'running\', workflow_updated_at=? WHERE id=?').run(time, sessionId);
     audit(db, s.lane_run_id, 'turn_started', { sessionId });
-    return null;
+    return { executionStateBeforeTurn };
   });
 }
 

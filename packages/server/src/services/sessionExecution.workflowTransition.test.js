@@ -22,14 +22,14 @@ vi.mock('./kanbanService.js', async (importOriginal) => {
   };
 });
 
-import { runSession } from './sessionManager.js';
+import { continueSession, runSession } from './sessionManager.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
 import { KanbanBoardRepository } from '../db/KanbanBoardRepository.js';
 import { KanbanLaneRepository } from '../db/KanbanLaneRepository.js';
 import { KanbanCardRepository } from '../db/KanbanCardRepository.js';
-import { createLaneRunForEntry, attachRootSession, getRun } from './workflowSessionService.js';
+import { createLaneRunForEntry, attachRootSession, getRun, markHeldForLimit } from './workflowSessionService.js';
 
 describe('W6: _executeSession triggers target-lane automation after a real success', () => {
   let projectRepo;
@@ -135,5 +135,44 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
       blockingReason: 'Paused — provider limit or outage',
     }));
     expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps own work open when a human sends a successful interactive follow-up', async () => {
+    const stubAgent = {
+      execute: vi.fn(async function* () {
+        yield { type: 'assistant', text: 'I can help with that.' };
+        yield { type: 'result', success: true };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    await continueSession(root.id, 'Can you clarify the approach?', tempDir, { interactive: true });
+
+    expect(sessionRepo.getById(root.id).ownWorkState).toBe('open');
+    expect(getRun(run.id).status).toBe('open');
+    expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+    expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
+  });
+
+  it('allows an interactive follow-up to complete a worker held for a provider limit', async () => {
+    const stubAgent = {
+      execute: vi.fn(async function* () {
+        yield { type: 'assistant', text: 'Work is complete.' };
+        yield { type: 'result', success: true };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+    markHeldForLimit(root.id);
+
+    await continueSession(root.id, 'Please resume and finish.', tempDir, { interactive: true });
+
+    expect(sessionRepo.getById(root.id).ownWorkState).toBe('closed_successfully');
+    expect(getRun(run.id).status).toBe('succeeded');
+    expect(cardRepo.getById(card.id).laneId).toBe(target.id);
+    expect(drainLaneEntryTriggerMock).toHaveBeenCalledTimes(1);
   });
 });

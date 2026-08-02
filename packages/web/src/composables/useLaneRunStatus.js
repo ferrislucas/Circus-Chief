@@ -12,6 +12,10 @@ export function laneRunLabel(run) {
   return 'automation running';
 }
 
+export function isPausedLaneRun(run) {
+  return run?.status === 'open' && run.blockingReason === 'Paused — provider limit or outage';
+}
+
 export function formatLaneRunTime(timestamp) {
   return format(new Date(timestamp), 'MMM d, h:mm a');
 }

@@ -199,6 +199,38 @@ describe('KanbanBoard.vue', () => {
     });
   });
 
+  describe('paused lane runs', () => {
+    it('shows Resume for a provider-limit hold and targets the held session', () => {
+      mockKanbanStoreData.board.lanes[0].cards[0].activeLaneRun = {
+        status: 'open',
+        sourceLaneName: 'To Do',
+        rootOwnWorkState: 'open',
+        openCount: 1,
+        blockingSessionId: 'held-session-1',
+        blockingReason: 'Paused — provider limit or outage',
+      };
+
+      const wrapper = mountBoard();
+      const resume = wrapper.get('.lane-run-resume-link');
+      expect(resume.text()).toBe('Resume');
+      expect(resume.attributes('to')).toBe('/sessions/held-session-1');
+    });
+
+    it('does not show Resume for a non-paused open lane run', () => {
+      mockKanbanStoreData.board.lanes[0].cards[0].activeLaneRun = {
+        status: 'open',
+        sourceLaneName: 'To Do',
+        rootOwnWorkState: 'open',
+        openCount: 1,
+        blockingSessionId: 'scheduled-session-1',
+        blockingReason: 'Waiting for scheduled work',
+      };
+
+      const wrapper = mountBoard();
+      expect(wrapper.find('.lane-run-resume-link').exists()).toBe(false);
+    });
+  });
+
   describe('Move button renders on cards', () => {
     it('each card has a move button', () => {
       const wrapper = mountBoard();

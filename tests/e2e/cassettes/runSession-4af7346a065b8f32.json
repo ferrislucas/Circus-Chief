@@ -1,0 +1,31 @@
+{
+  "prompt": "Claude E2E regression: provider usage limit.",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "claude-e2e-provider-limit",
+      "model": "claude-haiku-4-5-20251001"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "You've reached your usage limit"
+          }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "result": "You've reached your usage limit"
+    }
+  ],
+  "key": "runSession-4af7346a065b8f32",
+  "recordedAt": "2026-08-02T00:00:00.000Z"
+}

@@ -36,6 +36,11 @@ import {
 export const VCR_PROMPT = 'Claude E2E regression: reply with exactly "Claude E2E response."';
 export const VCR_MODEL = 'claude-haiku-4-5-20251001';
 
+// A deterministic graceful provider-limit result. Its cassette is deliberately
+// a runSession fixture: the human Resume action below uses VCR_PROMPT for the
+// subsequent successful continuation.
+export const LIMIT_PROMPT = 'Claude E2E regression: provider usage limit.';
+
 /**
  * A prompt with NO committed cassette. Under the default `VCR_MODE=replay`,
  * the VCR adapter throws deterministically (`VCR replay: no cassette found`)

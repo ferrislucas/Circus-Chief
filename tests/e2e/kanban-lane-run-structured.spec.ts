@@ -10,6 +10,7 @@ import {
 } from './helpers';
 import {
   VCR_PROMPT,
+  LIMIT_PROMPT,
   UNRECORDED_PROMPT,
   FORCE_PROACTIVE_RESCHEDULE_ON_ENTER,
   getBoard,
@@ -202,6 +203,49 @@ test.describe('Kanban structured lane runs', () => {
     // Visibility (FR-12): the run reports it is waiting on scheduled work.
     expect(card.activeLaneRun.blockingReason).toBe('Waiting for scheduled work');
     expect(card.activeLaneRun.scheduledCount).toBeGreaterThan(0);
+  });
+
+  test('a graceful provider limit pauses the run, then Resume completes it exactly once', async ({ page }) => {
+    const board = await getBoard(project.id);
+    const inProgress = getLaneByName(board, 'In Progress');
+    const done = getLaneByName(board, 'Done');
+
+    await setLaneOnEnter(project.id, inProgress.id, {
+      onEnterPrompt: LIMIT_PROMPT,
+      completionTargetLaneId: done.id,
+    });
+    const workspace = await seedSession(project.id, {
+      prompt: 'Workspace root',
+      name: 'Graceful Provider Limit Workspace',
+      startImmediately: false,
+    });
+
+    await navigateAndWait(page, `/projects/${project.id}/kanban`, { waitFor: '.kanban-board' });
+    await addSessionToLaneViaUI(page, 'In Progress', 'Graceful Provider Limit Workspace');
+    const worker = await waitForChildSession(workspace.id, 15000);
+    await waitForStatus(worker.id, 'waiting', 20000);
+
+    await expect
+      .poll(async () => findLaneOfSession(await getBoard(project.id), workspace.id), { timeout: 5000 })
+      .toBe('In Progress');
+    let card = findCardOfSession(await getBoard(project.id), workspace.id);
+    expect(card.activeLaneRun.status).toBe('open');
+    expect(card.activeLaneRun.blockingReason).toBe('Paused — provider limit or outage');
+    // The on-entry worker finishes after this board view's initial load; reload
+    // to assert the persisted FR-12 state rather than a websocket timing race.
+    await page.reload();
+    await page.locator('.kanban-board').waitFor({ state: 'visible' });
+    const cardInProgress = cardByIdInLane(page, 'In Progress', workspace.id);
+    await cardInProgress.locator('.lane-run-status summary').click();
+    await expect(cardInProgress.getByText('Paused — provider limit or outage')).toBeVisible();
+    await expect(cardInProgress.getByText('Resume', { exact: true })).toBeVisible();
+
+    await resumeScheduledSessionViaUI(page, worker.id);
+    await expectCardSettlesInLane(project.id, workspace.id, 'Done');
+    card = findCardOfSession(await getBoard(project.id), workspace.id);
+    expect(card.activeLaneRun).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(findLaneOfSession(await getBoard(project.id), workspace.id)).toBe('Done');
   });
 
   // ----------------------------------------------------------------

@@ -199,9 +199,9 @@
                     <router-link
                       v-else-if="card.activeLaneRun.blockingSessionId"
                       :to="`/sessions/${card.activeLaneRun.blockingSessionId}`"
-                      class="lane-run-blocker-link"
+                      :class="['lane-run-blocker-link', { 'lane-run-resume-link': isPausedLaneRun(card.activeLaneRun) }]"
                     >
-                      View blocker
+                      {{ isPausedLaneRun(card.activeLaneRun) ? 'Resume' : 'View blocker' }}
                     </router-link>
                   </div>
                 </details>
@@ -364,7 +364,6 @@
     />
   </div>
 </template>
-
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, toRef } from 'vue';
 import { format } from 'date-fns';
@@ -372,7 +371,7 @@ import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useCardDragDrop } from '../composables/useCardDragDrop.js';
-import { laneRunLabel, formatLaneRunTime } from '../composables/useLaneRunStatus.js';
+import { laneRunLabel, formatLaneRunTime, isPausedLaneRun } from '../composables/useLaneRunStatus.js';
 import { useScheduledCardInfo } from '../composables/useScheduledCardInfo.js';
 import AddSessionToLaneModal from './AddSessionToLaneModal.vue';
 import CommandButtonStatusBar from './CommandButtonStatusBar.vue';
@@ -400,7 +399,6 @@ function readLayoutMode() {
     return 'auto';
   }
 }
-
 function writeLayoutMode(value) {
   try {
     localStorage.setItem(LAYOUT_MODE_KEY, value);
@@ -408,15 +406,12 @@ function writeLayoutMode(value) {
     // ignore (e.g. private browsing with storage blocked)
   }
 }
-
 // layoutMode: 'auto' | 'horizontal' | 'vertical'
 // Read synchronously from localStorage so first render uses the restored value.
 const layoutMode = ref(readLayoutMode());
-
 watch(layoutMode, (value) => {
   writeLayoutMode(value);
 });
-
 // isNarrow: true when the viewport is <= 640px.
 // Initialized synchronously to avoid a flash on first render.
 const isNarrow = ref(
@@ -424,7 +419,6 @@ const isNarrow = ref(
     ? window.matchMedia('(max-width: 640px)').matches
     : false
 );
-
 let _mql = null;
 const onMqlChange = (e) => { isNarrow.value = e.matches; };
 

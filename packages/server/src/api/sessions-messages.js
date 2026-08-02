@@ -114,14 +114,14 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
     );
 
     if (resolved) {
-      continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, { systemPrompt: resolved.systemPrompt, fileAttachments: messageAttachments, model }).catch((error) => {
+      continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, { systemPrompt: resolved.systemPrompt, fileAttachments: messageAttachments, model, interactive: true }).catch((error) => {
         console.error(`Continue session error (${resolved.type}):`, error);
       });
       return res.json({ success: true });
     }
 
     // Standard plain text message
-    continueSession(req.session_.id, renderedContent, req.workingDirectory, { systemPrompt: req.project.systemPrompt, fileAttachments: messageAttachments, model }).catch((error) => {
+    continueSession(req.session_.id, renderedContent, req.workingDirectory, { systemPrompt: req.project.systemPrompt, fileAttachments: messageAttachments, model, interactive: true }).catch((error) => {
       console.error('Continue session error:', error);
     });
     res.json({ success: true });
