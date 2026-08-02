@@ -1,25 +1,12 @@
 import { spawn } from 'child_process';
-import * as osModule from 'os';
 import { commandRuns } from '../database.js';
-import { createRobustEnv } from './nodeSpawnHelper.js';
 import { TerminalOutputProcessor } from './terminalOutput.js';
 import { commandOutputMetrics, COMMAND_OUTPUT_METRICS } from './commandOutputMetrics.js';
+import { createCommandRunnerEnv, wrapCommandForPlatform } from './commandRunnerPlatform.js';
 
 // Re-export for backward compatibility
 export { stripAnsiCodes, TerminalOutputProcessor } from './terminalOutput.js';
-
-export function createCommandRunnerEnv(baseEnv = process.env) {
-  const env = createRobustEnv(baseEnv);
-  delete env.CIRCUSCHIEF_COMMIT_ATTRIBUTION;
-  return env;
-}
-
-export function wrapCommandForPlatform(command, currentPlatform = osModule.platform()) {
-  const cmd = JSON.stringify(command);
-  return currentPlatform === 'linux'
-    ? `script -q -e -c ${cmd} /dev/null`
-    : `script -q /dev/null sh -c ${cmd} < /dev/null`;
-}
+export { createCommandRunnerEnv, wrapCommandForPlatform } from './commandRunnerPlatform.js';
 
 /**
  * Service for running commands and managing their execution
