@@ -1,10 +1,18 @@
 import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { OPENAI_MODELS } from '@circuschief/shared';
+import { CODEX_SUMMARY_MODELS } from '@circuschief/shared';
 import { createCodexSpawner } from './codexSpawnHelper.js';
 
-export const CODEX_SUMMARY_TIMEOUT_MS = 60_000;
+// Reasoning models can take longer than an ordinary chat completion. Callers
+// may still supply a shorter timeout for an explicitly latency-sensitive flow.
+export const CODEX_SUMMARY_TIMEOUT_MS = 180_000;
+const MAX_STDERR_BYTES = 16 * 1024;
+const AUTH_FAILURE_PATTERNS = ['not logged in', 'login', 'authentication', 'authenticate', 'unauthorized'];
+const SCRUBBED_ENV_KEYS = new Set([
+  'OPENAI_API_KEY', 'OPENAI_API_BASE', 'OPENAI_BASE_URL', 'OPENAI_ORGANIZATION', 'OPENAI_ORG_ID',
+  'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'GOOGLE_API_KEY', 'GEMINI_API_KEY', 'PROVIDER_TOKEN',
+]);
 
 /** An error which is safe to show to a user or put in normal logs. */
 export class CodexSummaryError extends Error {
@@ -17,7 +25,7 @@ export class CodexSummaryError extends Error {
 }
 
 export function isSupportedCodexSummaryModel(model) {
-  return OPENAI_MODELS.some((entry) => entry.id === model);
+  return CODEX_SUMMARY_MODELS.includes(model);
 }
 
 export function buildCodexSummaryArgs({ model, schemaPath, outputPath }) {
@@ -34,8 +42,7 @@ export function buildCodexSummaryEnv(parentEnv = process.env) {
   // The CLI's persisted ChatGPT auth remains available through CODEX_HOME. API
   // credentials must not change this isolated invocation into an API call.
   for (const key of Object.keys(env)) {
-    if (key === 'OPENAI_API_KEY' || key === 'OPENAI_API_BASE' || key === 'OPENAI_BASE_URL'
-      || /(?:API_KEY|AUTH_TOKEN|TOKEN)$/i.test(key)) delete env[key];
+    if (SCRUBBED_ENV_KEYS.has(key) || /^OPENAI_.*(?:API_KEY|AUTH_TOKEN|TOKEN)$/i.test(key)) delete env[key];
   }
   return env;
 }
@@ -104,8 +111,17 @@ function runChild({ child, stdin, timeoutMs, abortController, setTimer }) {
       finish(new CodexSummaryError('CODEX_SUMMARY_TIMEOUT', 'Codex summary generation timed out. Please try again.'));
     }, timeoutMs);
     setTimer(timer);
+    // Codex emits JSONL progress and diagnostics. Consume both streams even
+    // though the structured result comes from --output-last-message; otherwise
+    // a full OS pipe can block the child before it exits.
+    let stderr = '';
+    child.stdout?.on('data', () => {});
+    child.stderr?.on('data', (chunk) => {
+      const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+      stderr = `${stderr}${text}`.slice(-MAX_STDERR_BYTES);
+    });
     child.once('error', finish);
-    child.once('exit', (code) => finish(code === 0 ? null : Object.assign(new Error('Codex exited'), { exitCode: code })));
+    child.once('exit', (code) => finish(code === 0 ? null : Object.assign(new Error('Codex exited'), { exitCode: code, stderr })));
     try { child.stdin?.end(stdin); } catch (error) { finish(error); }
   });
 }
@@ -114,8 +130,8 @@ function classifyCodexError(error) {
   if (error?.code === 'ENOENT') {
     return new CodexSummaryError('CODEX_SUMMARY_CLI_NOT_FOUND', 'Codex CLI is not installed. Install Codex and run `codex login`.');
   }
-  const detail = `${error?.message || ''}`.toLowerCase();
-  if (detail.includes('login') || detail.includes('auth')) {
+  const detail = `${error?.message || ''} ${error?.stderr || ''}`.toLowerCase();
+  if (AUTH_FAILURE_PATTERNS.some((pattern) => detail.includes(pattern))) {
     return new CodexSummaryError('CODEX_SUMMARY_AUTHENTICATION', 'Codex is not authenticated. Run `codex login` and try again.');
   }
   return new CodexSummaryError('CODEX_SUMMARY_NON_ZERO_EXIT', 'Codex could not generate a summary. Please try again.');

@@ -56,7 +56,10 @@ router.post('/:id/summary', requireRootSessionAndProject, async (req, res) => {
     }
     res.status(201).json(summary);
   } catch (error) {
-    res.status(error?.isCodexSummaryError ? 422 : 500).json({ error: error?.publicMessage || 'Failed to generate summary' });
+    const isCodexError = error?.isCodexSummaryError;
+    res.status(isCodexError ? 422 : 500).json({
+      error: isCodexError ? error.publicMessage : (error?.message || 'Failed to generate summary'),
+    });
   }
 });
 
