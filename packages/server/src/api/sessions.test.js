@@ -285,6 +285,23 @@ describe('Sessions API - workflow summary routes', () => {
     expect(res.body.sessionId).toBe(root.id);
   });
 
+  it('returns the Codex remediation error as an actionable 422', async () => {
+    summaryService.regenerateSummary.mockRejectedValueOnce(Object.assign(new Error('Codex is not authenticated.'), {
+      isCodexSummaryError: true,
+      publicMessage: 'Codex is not authenticated. Run `codex login` and try again.',
+    }));
+    const res = await request(app).post(`/api/sessions/${child.id}/summary`);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain('codex login');
+  });
+
+  it('preserves meaningful non-Codex summary failures as 500 responses', async () => {
+    summaryService.regenerateSummary.mockRejectedValueOnce(new Error('Custom OpenAI provider rejected the request'));
+    const res = await request(app).post(`/api/sessions/${child.id}/summary`);
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'Custom OpenAI provider rejected the request' });
+  });
+
   it('updates workflow root summary through a child session via saveManualSummary', async () => {
     const mockSummary = { id: 'sum-1', sessionId: root.id, shortSummary: 'Manual', fullSummary: 'manual summary' };
     summaryService.saveManualSummary.mockReturnValueOnce(mockSummary);

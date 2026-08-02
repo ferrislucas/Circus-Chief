@@ -17,6 +17,22 @@ vi.mock('./agentCallLogger.js', () => ({
   },
 }));
 
+// Built-in OpenAI summaries execute via the Codex CLI. Keep this orchestration
+// suite deterministic; command construction is covered by summaryCodexClient.
+vi.mock('./summaryCodexClient.js', () => ({
+  callCodexSummary: vi.fn(async ({ prompt }) => {
+    const status = prompt.match(/Current session status:\s*(\w+)/i)?.[1] || 'running';
+    const outcome = status === 'completed' ? 'completed' : status === 'stopped' ? 'partial' : status === 'error' ? 'failed' : 'ongoing';
+    const firstMessage = prompt.match(/(?:User|Assistant):\s+(.+?)(?:\n\n|$)/)?.[1] || '';
+    return JSON.stringify({
+      short_summary: firstMessage ? `Session completed: ${firstMessage.substring(0, 40)}...` : 'Test session completed successfully',
+      full_summary: 'This is a test session that was completed with partial success using mock mode',
+      key_actions: ['Executed test', 'Verified output'], files_modified: ['test.js'], outcome,
+      pr_url: null, session_title: 'Mock: Test Session',
+    });
+  }),
+}));
+
 // Mock the SDK to prevent real API calls in tests
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(async function* (queryParams) {
