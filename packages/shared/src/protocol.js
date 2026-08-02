@@ -8,8 +8,6 @@ export const WS_MESSAGE_TYPES = {
   UNSUBSCRIBE_SESSION: 'unsubscribe:session',
   SUBSCRIBE_PROJECT: 'subscribe:project',
   UNSUBSCRIBE_PROJECT: 'unsubscribe:project',
-  SESSION_ATTEND: 'session:attend',
-  SESSION_UNATTEND: 'session:unattend',
   SUBSCRIBE_COMMAND_RUN_OUTPUT: 'subscribe:command_run_output',
   UNSUBSCRIBE_COMMAND_RUN_OUTPUT: 'unsubscribe:command_run_output',
 

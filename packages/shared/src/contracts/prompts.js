@@ -7,9 +7,13 @@ export const PromptQuestion = z.object({
 });
 export const QuestionPromptResponse = z.object({
   action: z.enum(['answer', 'skip']), answers: z.record(z.string()).optional(),
-  annotations: z.record(z.unknown()).optional(), response: z.string().optional(),
+  annotations: z.record(z.unknown()).optional(), response: z.string().optional(), reason: z.string().optional(),
 });
-export const PermissionPromptResponse = z.object({ action: z.enum(['allow', 'always', 'deny']), reason: z.string().optional() });
+export const PermissionPromptResponse = z.object({
+  action: z.enum(['allow', 'always', 'deny']),
+  reason: z.string().optional(),
+  destination: z.enum(['session', 'projectSettings']).optional(),
+});
 export const PromptResponse = z.discriminatedUnion('action', [
   QuestionPromptResponse, PermissionPromptResponse,
 ]);

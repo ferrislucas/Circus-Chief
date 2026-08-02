@@ -34,6 +34,16 @@
           >
           <span><b>{{ option.label }}</b><small class="block text-gray-400">{{ option.description }}</small></span>
         </label>
+        <details
+          v-for="option in question.options.filter((item) => item.preview)"
+          :key="`${option.label}-preview`"
+          class="mt-1 text-gray-300"
+        >
+          <summary class="cursor-pointer text-amber-200">
+            Preview: {{ option.label }}
+          </summary>
+          <MarkdownViewer :content="option.preview" />
+        </details>
         <input
           v-model="other[question.question]"
           class="mt-1 w-full border border-gray-600 bg-gray-900 p-2 text-white"
@@ -48,7 +58,7 @@
       <button
         class="mr-2 bg-amber-500 px-3 py-2 font-medium text-black disabled:opacity-50"
         :disabled="submitting || !canSubmit"
-        @click="answer"
+        @click="submitAnswers"
       >
         Send answers
       </button>
@@ -67,7 +77,12 @@
       <p class="my-2 text-gray-300">
         {{ prompt.payload.description }}
       </p>
-      <pre class="max-h-48 overflow-auto bg-black/40 p-3 text-xs text-gray-200">{{ JSON.stringify(prompt.payload.input, null, 2) }}</pre>
+      <DiffViewer
+        v-if="isFileMutation"
+        :files="permissionDiffFiles"
+        :expand-all="true"
+      />
+      <pre v-else class="max-h-48 overflow-auto bg-black/40 p-3 text-xs text-gray-200">{{ JSON.stringify(prompt.payload.input, null, 2) }}</pre>
       <input
         v-model="reason"
         class="my-3 w-full border border-gray-600 bg-gray-900 p-2 text-white"
@@ -80,11 +95,25 @@
       >
         Allow once
       </button>
+      <label
+        v-if="prompt.payload.suggestions?.length"
+        class="mr-2 text-xs text-gray-300"
+      >
+        Apply to
+        <select
+          v-model="destination"
+          class="ml-1 border border-gray-600 bg-gray-900 p-1 text-white"
+          :disabled="submitting"
+        >
+          <option value="session">this session</option>
+          <option value="projectSettings">this project</option>
+        </select>
+      </label>
       <button
         v-if="prompt.payload.suggestions?.length"
         class="mr-2 border border-amber-400 px-3 py-2 text-amber-100"
         :disabled="submitting"
-        @click="respond({ action: 'always' })"
+        @click="respond({ action: 'always', destination })"
       >
         Always allow
       </button>
@@ -100,11 +129,56 @@
 </template>
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue';
+import { useKeyboardShortcuts } from '../composables/useKeyboardShortcuts.js';
+import DiffViewer from './DiffViewer.vue';
+import MarkdownViewer from './MarkdownViewer.vue';
 const props = defineProps({ prompt: { type: Object, default: null }, submitting: Boolean });
 const emit = defineEmits(['respond']);
-const answers = ref({}); const other = ref({}); const freeResponse = ref(''); const reason = ref(''); const card = ref(null);
-watch(() => props.prompt?.id, async () => { answers.value = {}; other.value = {}; freeResponse.value = ''; reason.value = ''; await nextTick(); card.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); });
-const canSubmit = computed(() => freeResponse.value.trim() || props.prompt?.payload.questions.every((q) => (other.value[q.question] || (Array.isArray(answers.value[q.question]) ? answers.value[q.question].length : answers.value[q.question]))));
+const answers = ref({}); const other = ref({}); const freeResponse = ref(''); const reason = ref(''); const destination = ref('session'); const card = ref(null);
+watch(() => props.prompt?.id, async () => {
+  answers.value = {};
+  for (const question of props.prompt?.payload.questions || []) if (question.multiSelect) answers.value[question.question] = [];
+  other.value = {}; freeResponse.value = ''; reason.value = ''; destination.value = 'session';
+  await nextTick();
+  if (typeof card.value?.scrollIntoView === 'function') card.value.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}, { immediate: true });
+function hasAnswer(question) {
+  const selected = answers.value[question.question];
+  return Boolean(other.value[question.question]?.trim() || (Array.isArray(selected) ? selected.length : selected));
+}
+const canSubmit = computed(() => Boolean(props.prompt?.payload.questions?.every(hasAnswer)));
+const isFileMutation = computed(() => ['Edit', 'Write'].includes(props.prompt?.payload.toolName));
+const permissionDiffFiles = computed(() => {
+  const input = props.prompt?.payload.input || {};
+  const path = input.file_path || input.path || input.filename || 'pending change';
+  const before = input.old_string || '';
+  const after = input.new_string || input.content || '';
+  return [{
+    displayPath: path, isNew: props.prompt?.payload.toolName === 'Write', isDeleted: false, isRenamed: false,
+    additions: after.split('\n').filter(Boolean).length, deletions: before.split('\n').filter(Boolean).length,
+    hunks: [{ oldStart: 1, oldLines: before ? before.split('\n').length : 0, newStart: 1, newLines: after ? after.split('\n').length : 0,
+      lines: [...before.split('\n').filter(Boolean).map((content, index) => ({ type: 'remove', content, oldLineNumber: index + 1 })), ...after.split('\n').filter(Boolean).map((content, index) => ({ type: 'add', content, newLineNumber: index + 1 }))] }],
+  }];
+});
 function respond(response) { emit('respond', response); }
-function answer() { const value = {}; for (const q of props.prompt.payload.questions) value[q.question] = other.value[q.question] || (Array.isArray(answers.value[q.question]) ? answers.value[q.question].join(', ') : answers.value[q.question]); respond({ action: 'answer', answers: value, ...(freeResponse.value.trim() ? { response: freeResponse.value.trim() } : {}) }); }
+function collectAnswers() {
+  return Object.fromEntries(props.prompt.payload.questions.map((question) => [
+    question.question,
+    other.value[question.question]?.trim() || (Array.isArray(answers.value[question.question]) ? answers.value[question.question].join(', ') : answers.value[question.question]),
+  ]));
+}
+function submitAnswers() { if (canSubmit.value) respond({ action: 'answer', answers: collectAnswers(), ...(freeResponse.value.trim() ? { response: freeResponse.value.trim() } : {}) }); }
+function chooseOption(index) {
+  const question = props.prompt?.payload.questions?.[0]; const option = question?.options?.[index];
+  if (!question || !option || props.submitting) return;
+  if (question.multiSelect) {
+    const selected = answers.value[question.question];
+    answers.value[question.question] = selected.includes(option.label) ? selected.filter((label) => label !== option.label) : [...selected, option.label];
+  } else answers.value[question.question] = option.label;
+}
+useKeyboardShortcuts({
+  '1': () => chooseOption(0), '2': () => chooseOption(1), '3': () => chooseOption(2), '4': () => chooseOption(3),
+  enter: (event) => { if (props.prompt?.kind === 'question' && canSubmit.value && !props.submitting) { event.preventDefault(); submitAnswers(); } },
+  escape: (event) => { if (props.prompt && !props.submitting) { event.preventDefault(); respond(props.prompt.kind === 'question' ? { action: 'skip' } : { action: 'deny', reason: reason.value }); } },
+});
 </script>

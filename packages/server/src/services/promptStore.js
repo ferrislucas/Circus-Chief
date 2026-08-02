@@ -78,7 +78,13 @@ function questionResult(record, response) {
 function permissionResult(record, response) {
   if (response.action === 'allow') return { behavior: 'allow' };
   if (response.action === 'always' && Array.isArray(record.payload.suggestions) && record.payload.suggestions.length) {
-    return { behavior: 'allow', updatedPermissions: record.payload.suggestions };
+    return {
+      behavior: 'allow',
+      updatedPermissions: record.payload.suggestions.map((suggestion) => ({
+        ...suggestion,
+        destination: response.destination || 'session',
+      })),
+    };
   }
   return { behavior: 'deny', message: response.reason || 'Permission denied by user.' };
 }
