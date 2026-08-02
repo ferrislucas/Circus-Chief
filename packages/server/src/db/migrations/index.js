@@ -328,6 +328,7 @@ export const allMigrations = validateMigrations([
   // --- FR-5 lifecycle dimensions: execution_state + subtree_outcome ---
   // Also must precede the sessions-table recreation below, for the same reason.
   k.get('kanban-add-lane-run-execution-state'),
+  k.get('kanban-backfill-structured-completion-mode'),
 
   // --- Remove the retired agent-driven completion token state ---
   k.get('kanban-drop-agent-workflow-completion-tokens'),

@@ -15,6 +15,7 @@ import { clearScheduledTimers } from './services/summaryService.js';
 import { commandRunner } from './services/commandRunner.js';
 import { getDefaultDbPath } from './config.js';
 import { recoverStaleStartingSessions } from './services/sessionStartupRecovery.js';
+import { drainPendingLaneEntryTriggers } from './services/kanbanService.js';
 
 /**
  * Validate Node.js environment at startup.
@@ -59,6 +60,7 @@ console.log(`VCR_MODE: ${process.env.VCR_MODE || '(unset)'}`);
 
 // Recover sessions stuck in 'starting' from a previous crashed or killed server run
 recoverStaleStartingSessions();
+void drainPendingLaneEntryTriggers();
 
 // Apply --no-analytics flag to persisted settings
 if (disableAnalytics) {

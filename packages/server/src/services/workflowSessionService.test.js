@@ -234,12 +234,14 @@ describe('workflowSessionService', () => {
 
     expect(reconciled.status).toBe('succeeded');
     expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
-    expect(reconciled.pendingTargetLaneTrigger).toEqual({
+    expect(reconciled.pendingTargetLaneTrigger).toEqual(expect.objectContaining({
       workspaceSessionId: root.id,
       targetLaneId: target.id,
       cardId: card.id,
       sourceRunId: run.id,
-    });
+    }));
+    const outbox = databaseManager.get().prepare('SELECT * FROM kanban_lane_entry_events WHERE caused_by_run_id=?').get(run.id);
+    expect(outbox).toEqual(expect.objectContaining({ status: 'pending', lane_id: target.id, card_id: card.id }));
     // No target-lane session exists yet — that only happens once the caller
     // acts on pendingTargetLaneTrigger.
     const sessionRows = databaseManager.get().prepare('SELECT id FROM sessions ORDER BY id').all();

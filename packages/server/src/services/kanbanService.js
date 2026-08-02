@@ -1,9 +1,11 @@
+import crypto from 'crypto';
 import {
   kanbanBoards,
   kanbanLanes,
   kanbanCards,
   sessions,
   projects,
+  databaseManager,
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
@@ -209,6 +211,7 @@ export async function triggerStructuredTransitionAutomation(pending) {
         lane,
         cause: 'completion',
         priorLaneRunId: sourceRunId,
+        entryEventId: pending.laneEntryEventId,
       })
     : null;
 
@@ -217,6 +220,48 @@ export async function triggerStructuredTransitionAutomation(pending) {
     depth: workspaceSession.laneTriggerDepth || 0,
     laneRunId: laneRun?.id,
   });
+}
+
+function claimLaneEntryTrigger(eventId) {
+  const token = crypto.randomUUID();
+  const time = Date.now();
+  const claimed = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+    SET claim_token=?, claimed_at=?, attempt_count=attempt_count+1, updated_at=?
+    WHERE id=? AND status='pending' AND claim_token IS NULL`).run(token, time, time, eventId);
+  return claimed.changes ? token : null;
+}
+
+/** Drain one committed completion handoff. Safe to call repeatedly. */
+export async function drainLaneEntryTrigger(eventId) {
+  const token = claimLaneEntryTrigger(eventId);
+  if (!token) return false;
+  const db = databaseManager.get();
+  const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+  try {
+    await triggerStructuredTransitionAutomation({
+      workspaceSessionId: event.workspace_id, targetLaneId: event.lane_id,
+      cardId: event.card_id, sourceRunId: event.caused_by_run_id, laneEntryEventId: event.id,
+    });
+    const time = Date.now();
+    db.prepare(`UPDATE kanban_lane_entry_events
+      SET status='completed', completed_at=?, updated_at=? WHERE id=? AND claim_token=?`)
+      .run(time, time, eventId, token);
+    return true;
+  } catch (error) {
+    db.prepare(`UPDATE kanban_lane_entry_events
+      SET claim_token=NULL, claimed_at=NULL, last_error=?, updated_at=? WHERE id=? AND claim_token=?`)
+      .run(error.message, Date.now(), eventId, token);
+    throw error;
+  }
+}
+
+/** Recover completion handoffs persisted before an unexpected process exit. */
+export async function drainPendingLaneEntryTriggers() {
+  const events = databaseManager.get().prepare(`SELECT id FROM kanban_lane_entry_events
+    WHERE status='pending' AND cause='completion' ORDER BY created_at`).all();
+  for (const { id } of events) {
+    try { await drainLaneEntryTrigger(id); } catch (error) { console.error('Kanban lane-entry recovery failed:', error); }
+  }
 }
 
 async function moveExistingSessionCard(session, card, targetLaneId) {

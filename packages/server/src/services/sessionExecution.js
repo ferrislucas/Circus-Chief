@@ -32,7 +32,7 @@ import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecuti
 // sessionExecution), safe because this is only called at runtime inside
 // _executeSession, long after the module graph is loaded (same pattern as
 // session-helpers.js's database.js <-> SessionRepository cycle).
-import { triggerStructuredTransitionAutomation } from './kanbanService.js';
+import { drainLaneEntryTrigger } from './kanbanService.js';
 
 /**
  * Build the adapter-specific default config object for
@@ -159,7 +159,7 @@ export async function _executeSession({
     // non-continuing turn; finish the async remainder (start the
     // target lane's on-enter automation exactly once) if it just happened.
     const reconciled = finalizeOwnWorkCompletion(sessionId);
-    if (reconciled?.pendingTargetLaneTrigger) await triggerStructuredTransitionAutomation(reconciled.pendingTargetLaneTrigger);
+    if (reconciled?.pendingTargetLaneTrigger) await drainLaneEntryTrigger(reconciled.pendingTargetLaneTrigger.laneEntryEventId);
   } catch (error) {
     const rescheduled = await handleSessionError(sessionId, error, {
       controller,

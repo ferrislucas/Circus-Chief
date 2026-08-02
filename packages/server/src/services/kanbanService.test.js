@@ -40,6 +40,7 @@ import {
   handleCompletionMove,
   removeSessionFromBoard,
   triggerStructuredTransitionAutomation,
+  drainLaneEntryTrigger,
 } from './kanbanService.js';
 import { attachRootSession, createLaneRunForEntry } from './workflowSessionService.js';
 
@@ -980,6 +981,24 @@ describe('kanbanService', () => {
         sourceRunId: 'source-run-1',
       })).resolves.toBeUndefined();
       expect(runSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('durable completion outbox', () => {
+    it('drains a pending completion event once and marks it completed', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work', completionMode: 'structured' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[0].id, workspace.id);
+      const eventId = 'pending-completion-event';
+      databaseManager.get().prepare(`INSERT INTO kanban_lane_entry_events
+        (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,caused_by_run_id,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,? ,?,'pending',?,?)`)
+        .run(eventId, 'completion:source-run-1', projectId, workspace.id, card.id, lanes[1].id, 'completion', 'source-run-1', Date.now(), Date.now());
+
+      expect(await drainLaneEntryTrigger(eventId)).toBe(true);
+      expect(await drainLaneEntryTrigger(eventId)).toBe(false);
+      expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?').get(eventId).status).toBe('completed');
+      expect(runSession).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -117,6 +117,16 @@ describe('KanbanLaneRepository', () => {
 
       expect(lane.completionMode).toBe('legacy');
     });
+
+    it('derives structured completion from a target unless an explicit mode is supplied', () => {
+      const target = laneRepo.create(boardId, { name: 'Target' });
+      expect(laneRepo.create(boardId, { name: 'Derived', completionTargetLaneId: target.id }))
+        .toEqual(expect.objectContaining({ completionTargetLaneId: target.id, completionMode: 'structured' }));
+      expect(laneRepo.create(boardId, { name: 'Explicit legacy', completionTargetLaneId: target.id, completionMode: 'legacy' }).completionMode)
+        .toBe('legacy');
+      expect(laneRepo.create(boardId, { name: 'Explicit structured', completionMode: 'structured' }).completionMode)
+        .toBe('structured');
+    });
   });
 
   describe('update', () => {

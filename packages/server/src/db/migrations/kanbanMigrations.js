@@ -219,4 +219,13 @@ export const kanbanMigrations = [
       }
     },
   },
+  {
+    // Existing targeted lanes predate completion-mode derivation. Only change
+    // the former default, preserving an explicit shadow/structured choice.
+    name: 'kanban-backfill-structured-completion-mode',
+    up(db) {
+      db.prepare(`UPDATE kanban_lanes SET completion_mode='structured', updated_at=?
+        WHERE completion_target_lane_id IS NOT NULL AND completion_mode='legacy'`).run(Date.now());
+    },
+  },
 ];

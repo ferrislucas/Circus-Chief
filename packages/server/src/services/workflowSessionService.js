@@ -65,20 +65,20 @@ function runForEntryEvent(db, eventId) {
   return run ? getRun(run.id) : null;
 }
 
-export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, cause = 'card_added', priorLaneRunId = null }) {
+export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, cause = 'card_added', priorLaneRunId = null, entryEventId = null }) {
   if (lane.completionMode === 'legacy') return null;
   const db = databaseManager.get();
   const causeRunId = causedByRunId(cause, priorLaneRunId);
-  if (causeRunId) {
+  if (causeRunId && !entryEventId) {
     const existingEvent = db.prepare('SELECT id FROM kanban_lane_entry_events WHERE caused_by_run_id=?').get(causeRunId);
     if (existingEvent) return runForEntryEvent(db, existingEvent.id);
   }
   try {
     return databaseManager.transaction(() => {
       const db2 = databaseManager.get(); const time = now();
-      const eventId = id(); const runId = id();
+      const eventId = entryEventId || id(); const runId = id();
       const key = `${cause}:${cardId}:${lane.id}:${eventId}`;
-      db2.prepare(`INSERT INTO kanban_lane_entry_events
+      if (!entryEventId) db2.prepare(`INSERT INTO kanban_lane_entry_events
         (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,caused_by_run_id,status,created_at,updated_at,completed_at)
         VALUES (?,?,?,?,?,?,?,?,'completed',?,?,?)`)
         .run(eventId, key, projectId, workspaceId, cardId, lane.id, cause, causeRunId, time, time, time);
@@ -338,6 +338,16 @@ function moveCardForTransition(db, run, card) {
   return targetLaneId;
 }
 
+function enqueueTargetLaneTrigger(db, { run, card, targetLaneId, time }) {
+  const eventId = id();
+  db.prepare(`INSERT INTO kanban_lane_entry_events
+    (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,caused_by_run_id,status,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,'pending',?,?)`)
+    .run(eventId, `completion:${run.id}`, run.project_id, run.workspace_id, card.id,
+      targetLaneId, 'completion', run.id, time, time);
+  return eventId;
+}
+
 /**
  * W6 (FR-8): apply a successful lane run's guarded Kanban transition.
  *
@@ -370,12 +380,13 @@ export function attemptLaneRunTransition(runId) {
   if (winner.changes === 0) return getRun(runId);
 
   const targetLaneId = moveCardForTransition(db, run, card);
+  const laneEntryEventId = targetLaneId ? enqueueTargetLaneTrigger(db, { run, card, targetLaneId, time }) : null;
   db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=? WHERE id=?').run(now(), card.id);
   audit(db, runId, 'transition_applied');
 
   const result = getRun(runId);
   if (targetLaneId) {
-    result.pendingTargetLaneTrigger = { workspaceSessionId: run.workspace_id, targetLaneId, cardId: card.id, sourceRunId: runId };
+    result.pendingTargetLaneTrigger = { workspaceSessionId: run.workspace_id, targetLaneId, cardId: card.id, sourceRunId: runId, laneEntryEventId };
   }
   return result;
 }

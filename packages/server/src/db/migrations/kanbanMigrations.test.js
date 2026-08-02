@@ -83,3 +83,15 @@ describe('kanban-add-lane-run-workflow (F2: dead token-column churn)', () => {
     }
   });
 });
+
+describe('kanban-backfill-structured-completion-mode', () => {
+  it('upgrades only targeted lanes left at the legacy default', () => {
+    const db = freshDb();
+    try {
+      db.exec("INSERT INTO projects (id,name,working_directory,created_at,updated_at) VALUES ('project','Project','/tmp',1,1); INSERT INTO kanban_boards (id,project_id,created_at,updated_at) VALUES ('board','project',1,1); INSERT INTO kanban_lanes (id,board_id,name,sort_order,completion_mode,created_at,updated_at) VALUES ('target','board','Target',0,'legacy',1,1); INSERT INTO kanban_lanes (id,board_id,name,sort_order,completion_target_lane_id,completion_mode,created_at,updated_at) VALUES ('targeted','board','Targeted',1,'target','legacy',1,1),('plain','board','Plain',2,NULL,'legacy',1,1),('shadow','board','Shadow',3,'target','shadow',1,1)");
+      allMigrations.find(({ name }) => name === 'kanban-backfill-structured-completion-mode').up(db);
+      const modes = Object.fromEntries(db.prepare('SELECT id, completion_mode FROM kanban_lanes').all().map(row => [row.id, row.completion_mode]));
+      expect(modes).toEqual({ target: 'legacy', targeted: 'structured', plain: 'legacy', shadow: 'shadow' });
+    } finally { db.close(); }
+  });
+});

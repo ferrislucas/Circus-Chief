@@ -129,10 +129,11 @@ export class KanbanLaneRepository extends BaseRepository {
    * @returns {Object}
    */
   create(boardId, data) {
+    const createData = KanbanLaneRepository.#deriveCompletionMode(data);
     const id = databaseManager.generateId();
     const now = Date.now();
-    const sortOrder = this.#resolveSortOrder(boardId, data.sortOrder);
-    const laneValues = prepareLaneValues(data);
+    const sortOrder = this.#resolveSortOrder(boardId, createData.sortOrder);
+    const laneValues = prepareLaneValues(createData);
 
     this.db
       .prepare(
@@ -142,12 +143,12 @@ export class KanbanLaneRepository extends BaseRepository {
           on_enter_auto_reschedule_enabled, on_enter_reschedule_delay_minutes,
           on_enter_reschedule_on_token_limit, on_enter_reschedule_on_service_error,
           on_enter_max_reschedule_count, on_enter_max_total_tokens,
-          on_enter_reschedule_at_token_count,
+          on_enter_reschedule_at_token_count, completion_target_lane_id,
           completion_mode,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, boardId, data.name, sortOrder, ...laneValues, data.completionMode || 'legacy', now, now);
+      .run(id, boardId, createData.name, sortOrder, ...laneValues, createData.completionTargetLaneId || null, createData.completionMode || 'legacy', now, now);
 
     return this.getById(id);
   }

@@ -11,14 +11,14 @@ import { tmpdir } from 'os';
 // chain, including "starts exactly once", is covered directly and safely in
 // kanbanService.test.js without any fire-and-forget async session execution
 // racing this test's teardown).
-const { triggerStructuredTransitionAutomationMock } = vi.hoisted(() => ({
-  triggerStructuredTransitionAutomationMock: vi.fn().mockResolvedValue(undefined),
+const { drainLaneEntryTriggerMock } = vi.hoisted(() => ({
+  drainLaneEntryTriggerMock: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('./kanbanService.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    triggerStructuredTransitionAutomation: triggerStructuredTransitionAutomationMock,
+    drainLaneEntryTrigger: drainLaneEntryTriggerMock,
   };
 });
 
@@ -48,7 +48,7 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
   let createAgentSpy;
 
   beforeEach(() => {
-    triggerStructuredTransitionAutomationMock.mockClear();
+    drainLaneEntryTriggerMock.mockClear();
     projectRepo = new ProjectRepository();
     sessionRepo = new SessionRepository();
     boardRepo = new KanbanBoardRepository();
@@ -91,13 +91,8 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
 
     await runSession(root.id, 'do work', tempDir);
 
-    expect(triggerStructuredTransitionAutomationMock).toHaveBeenCalledTimes(1);
-    expect(triggerStructuredTransitionAutomationMock).toHaveBeenCalledWith({
-      workspaceSessionId: workspace.id,
-      targetLaneId: target.id,
-      cardId: card.id,
-      sourceRunId: run.id,
-    });
+    expect(drainLaneEntryTriggerMock).toHaveBeenCalledTimes(1);
+    expect(drainLaneEntryTriggerMock).toHaveBeenCalledWith(expect.any(String));
     expect(cardRepo.getById(card.id).laneId).toBe(target.id);
   });
 
@@ -115,7 +110,7 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
 
     await runSession(root.id, 'do work', tempDir);
 
-    expect(triggerStructuredTransitionAutomationMock).not.toHaveBeenCalled();
+    expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
     expect(cardRepo.getById(card.id).laneId).toBe(source.id);
   });
 
@@ -139,6 +134,6 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
       pausedCount: 1,
       blockingReason: 'Paused — provider limit or outage',
     }));
-    expect(triggerStructuredTransitionAutomationMock).not.toHaveBeenCalled();
+    expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
   });
 });
