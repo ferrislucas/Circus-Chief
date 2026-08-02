@@ -67,6 +67,16 @@ function normalizeCreateSessionData(data) {
   };
 }
 
+const sessionPromptMethods = {
+  async getSessionPrompt(id) {
+    return this._get(`/sessions/${id}/prompt`);
+  },
+
+  async respondToSessionPrompt(id, promptId, response) {
+    return this._post(`/sessions/${id}/prompt/${promptId}/respond`, response);
+  },
+};
+
 /**
  * Sessions API resource mixin
  * Adds session-related methods to ApiClient
@@ -74,6 +84,7 @@ function normalizeCreateSessionData(data) {
  */
 export function SessionsApi(ApiClient) {
   Object.assign(ApiClient.prototype, {
+    ...sessionPromptMethods,
     /**
      * Get all sessions for a project
      * @param {string} projectId - Project ID
@@ -126,14 +137,6 @@ export function SessionsApi(ApiClient) {
      */
     async getSession(id) {
       return this._get(`/sessions/${id}`);
-    },
-
-    async getSessionPrompt(id) {
-      return this._get(`/sessions/${id}/prompt`);
-    },
-
-    async respondToSessionPrompt(id, promptId, response) {
-      return this._post(`/sessions/${id}/prompt/${promptId}/respond`, response);
     },
 
     /**

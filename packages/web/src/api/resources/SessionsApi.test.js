@@ -97,6 +97,28 @@ describe('SessionsApi', () => {
     });
   });
 
+  describe('agent prompts', () => {
+    it('fetches the active prompt for a session', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: 'prompt-1' }));
+
+      await client.getSessionPrompt('sess-123');
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/prompt', expect.any(Object));
+    });
+
+    it('posts a response to the active prompt', async () => {
+      mockFetch.mockReturnValue(mockResponse({ ok: true }));
+      const response = { answer: 'yes' };
+
+      await client.respondToSessionPrompt('sess-123', 'prompt-1', response);
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/sessions/sess-123/prompt/prompt-1/respond',
+        expect.objectContaining({ method: 'POST', body: JSON.stringify(response) })
+      );
+    });
+  });
+
   describe('createSession', () => {
     it('sends POST with JSON when no files', async () => {
       const data = { prompt: 'Hello', name: 'Test' };

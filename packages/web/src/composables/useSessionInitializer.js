@@ -108,8 +108,8 @@ export function useSessionInitializer({
   const summary = summaryRef;
   const hasChanges = hasChangesRef;
   const changesFileCount = changesFileCountRef;
-    const sessionsStore = useSessionsStore();
-    const promptsStore = useSessionPromptsStore();
+  const sessionsStore = useSessionsStore();
+  const promptsStore = useSessionPromptsStore();
   const canvasStore = useCanvasStore();
   const todosStore = useTodosStore();
   const uiStore = useUiStore();
@@ -140,6 +140,7 @@ export function useSessionInitializer({
     sessionsStore.activeConversationId = null;
     sessionsStore.workLogs = {};
     sessionsStore.clearPartialText();
+    promptsStore.clear();
     todosStore.clearTodos();
     canvasStore.items = [];
     // Reset local state
