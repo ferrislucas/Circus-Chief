@@ -126,6 +126,7 @@ import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useUiStore } from '../stores/ui.js';
 import { getStatusIconSvg } from './statusIcons';
 import { useOutputAutoTail } from '../composables/useOutputAutoTail.js';
+import { subscribeCommandRunOutput } from '../composables/useCommandRunOutputSubscription.js';
 import ActionMenu from './ActionMenu.vue';
 
 /**
@@ -214,6 +215,7 @@ const menuItems = computed(() => [
 // Template ref for output container (used for auto-tail scrolling)
 const outputContainerRef = ref(null);
 const { handleScroll, resetTail, handleRenderedOutput } = useOutputAutoTail(outputContainerRef);
+let unsubscribeOutput = null;
 
 // NEW: Elapsed time for running commands
 const elapsedTime = ref('0:00');
@@ -361,7 +363,10 @@ watch(
 watch(
   () => showOutput.value,
   (isVisible) => {
+    unsubscribeOutput?.();
+    unsubscribeOutput = null;
     if (isVisible) {
+      unsubscribeOutput = subscribeCommandRunOutput(props.sessionId, props.run?.runId);
       resetTail({ scroll: true });
     }
   },
@@ -506,6 +511,7 @@ onMounted(() => {
  * Clean up the timer to prevent memory leaks.
  */
 onBeforeUnmount(() => {
+  unsubscribeOutput?.();
   stopTimer();
 });
 

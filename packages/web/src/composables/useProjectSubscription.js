@@ -58,6 +58,14 @@ export function useProjectSubscription(projectId) {
   };
 
   // Command run handlers for real-time status icon updates on session lists
+  const onCommandRunStarted = (callback) => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) callback(msg.runId, msg.sessionId, msg.buttonId);
+    };
+    on(WS_MESSAGE_TYPES.COMMAND_RUN_STARTED, handler);
+    return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_STARTED, handler);
+  };
+
   const onCommandRunOutput = (callback) => {
     const handler = (msg) => {
       if (msg.projectId === projectId) {
@@ -158,6 +166,7 @@ export function useProjectSubscription(projectId) {
     onSessionUpdated,
     onSessionDeleted,
     onSessionSummaryUpdated,
+    onCommandRunStarted,
     onCommandRunOutput,
     onCommandRunComplete,
     onCommandRunError,

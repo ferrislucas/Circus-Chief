@@ -54,17 +54,20 @@ describe('CommandRunRepository', () => {
   });
 
   describe('appendOutput', () => {
-    it('appends text to run output', () => {
+    it('appends text as ordered output chunks', () => {
       const run = repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
       expect(run.output).toBe('');
 
       repository.appendOutput('run-1', 'line 1\n');
-      let updated = repository.getById('run-1');
-      expect(updated.output).toBe('line 1\n');
+      let page = repository.readAfter('run-1');
+      expect(page.chunks).toEqual([{ sequence: 1, content: 'line 1\n' }]);
 
       repository.appendOutput('run-1', 'line 2\n');
-      updated = repository.getById('run-1');
-      expect(updated.output).toBe('line 1\nline 2\n');
+      page = repository.readAfter('run-1');
+      expect(page.chunks).toEqual([
+        { sequence: 1, content: 'line 1\n' },
+        { sequence: 2, content: 'line 2\n' },
+      ]);
     });
 
     it('handles empty text gracefully', () => {
@@ -85,36 +88,36 @@ describe('CommandRunRepository', () => {
       repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
       repository.appendOutput('run-1', 'some output');
 
-      repository.complete('run-1', 0, 'final output');
+      repository.complete('run-1', 0);
 
       const run = repository.getById('run-1');
       expect(run.status).toBe('success');
       expect(run.exitCode).toBe(0);
-      expect(run.output).toBe('final output');
+      expect(run.hasOutput).toBe(true);
       expect(run.completedAt).toBeDefined();
     });
 
     it('marks run as error with non-zero exit code', () => {
       repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
 
-      repository.complete('run-1', 1, 'error output');
+      repository.complete('run-1', 1);
 
       const run = repository.getById('run-1');
       expect(run.status).toBe('error');
       expect(run.exitCode).toBe(1);
-      expect(run.output).toBe('error output');
+      expect(run.output).toBe('');
     });
   });
 
   describe('markKilled', () => {
-    it('marks run as killed with provided output', () => {
+    it('marks run as killed without materializing output', () => {
       repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
 
-      repository.markKilled('run-1', 'killed output');
+      repository.markKilled('run-1');
 
       const run = repository.getById('run-1');
       expect(run.status).toBe('killed');
-      expect(run.output).toBe('killed output');
+      expect(run.output).toBe('');
       expect(run.completedAt).toBeDefined();
     });
   });
@@ -458,14 +461,16 @@ describe('CommandRunRepository', () => {
   });
 
   describe('output exclusion in lightweight queries', () => {
-    it('getLatestRunsForSession includes output (needed for status modal)', () => {
+    it('getLatestRunsForSession returns output metadata without content', () => {
       repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
-      repository.complete('run-1', 0, 'full output content');
+      repository.appendOutput('run-1', 'full output content');
+      repository.complete('run-1', 0);
 
       const latestRuns = repository.getLatestRunsForSession(testSessionId);
       expect(latestRuns.length).toBe(1);
       expect(latestRuns[0].id).toBe('run-1');
-      expect(latestRuns[0].output).toBe('full output content');
+      expect(latestRuns[0].output).toBe('');
+      expect(latestRuns[0].hasOutput).toBe(true);
     });
 
     it('getLatestRunsForProject returns empty output (excludes output column)', () => {
@@ -480,12 +485,14 @@ describe('CommandRunRepository', () => {
       expect(latestRuns[0].output).toBe('');
     });
 
-    it('getById still returns full output', () => {
+    it('getById returns output metadata without full output', () => {
       repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
-      repository.complete('run-1', 0, 'full output content');
+      repository.appendOutput('run-1', 'full output content');
+      repository.complete('run-1', 0);
 
       const run = repository.getById('run-1');
-      expect(run.output).toBe('full output content');
+      expect(run.output).toBe('');
+      expect(run.hasOutput).toBe(true);
     });
   });
 

@@ -18,8 +18,23 @@ import { api } from './useApi.js';
  */
 function registerCommandHandlers(subscription, sessionId, stores) {
   const { sessionsStore, commandButtonsStore } = stores;
-  const { onCommandOutput, onCommandComplete, onCommandError, onCommandRunDeleted } = subscription;
+  const { onCommandStarted, onCommandOutput, onCommandComplete, onCommandError, onCommandRunDeleted } = subscription;
   const handlers = [];
+
+  if (onCommandStarted) handlers.push(
+    onCommandStarted((runId, buttonId) => {
+      const startedAt = Date.now();
+      if (!commandButtonsStore.runs[runId]) {
+        commandButtonsStore.runs[runId] = {
+          runId, buttonId, sessionId, status: 'running', output: '', exitCode: null,
+          startedAt, outputTruncated: false,
+        };
+      }
+      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+        buttonId, status: 'running', runId, startedAt,
+      });
+    })
+  );
 
   handlers.push(
     onCommandOutput((runId, buttonId, output) => {

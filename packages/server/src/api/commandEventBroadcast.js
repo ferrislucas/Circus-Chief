@@ -1,4 +1,4 @@
-import { broadcastToSessionAndProject } from '../websocket.js';
+import { broadcastToSessionAndProject, broadcastCommandRunOutput } from '../websocket.js';
 
 /**
  * Broadcast a command-run lifecycle event (output/complete/error/deleted) to the
@@ -15,4 +15,8 @@ import { broadcastToSessionAndProject } from '../websocket.js';
  */
 export function broadcastCommandEvent(sessionId, projectId, type, payload) {
   broadcastToSessionAndProject(sessionId, projectId, type, payload);
+}
+
+export function broadcastCommandOutput(runId, chunk) {
+  broadcastCommandRunOutput(runId, chunk);
 }

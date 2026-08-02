@@ -4,7 +4,7 @@ import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@circusc
 import { commandRunner } from '../services/commandRunner.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { databaseManager } from '../db/DatabaseManager.js';
-import { broadcastCommandEvent } from './commandEventBroadcast.js';
+import { broadcastCommandEvent, broadcastCommandOutput } from './commandEventBroadcast.js';
 
 // Error message constants
 const ERR_SESSION_NOT_FOUND = 'Session not found';
@@ -22,13 +22,16 @@ const router = Router({ mergeParams: true });
  */
 function createCommandRunCallbacks(sessionId, projectId, runId, buttonId) {
   return {
-    onOutput: (text) => {
-      broadcastCommandEvent(sessionId, projectId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId, buttonId, output: text });
+    onStarted: () => {
+      broadcastCommandEvent(sessionId, projectId, WS_MESSAGE_TYPES.COMMAND_RUN_STARTED, { runId, buttonId, status: 'running' });
     },
-    onComplete: (exitCode, output) => {
+    onOutputChunk: (chunk) => {
+      broadcastCommandOutput(runId, chunk);
+    },
+    onComplete: (exitCode) => {
       const status = exitCode === 0 ? 'success' : 'error';
       console.log(`[CommandButtons] Command completed: runId=${runId}, buttonId=${buttonId}, exitCode=${exitCode}, status=${status}`);
-      broadcastCommandEvent(sessionId, projectId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, { runId, buttonId, status, exitCode, output });
+      broadcastCommandEvent(sessionId, projectId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, { runId, buttonId, status, exitCode });
     },
     onError: (message) => {
       broadcastCommandEvent(sessionId, projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, { runId, buttonId, error: message });
@@ -142,7 +145,7 @@ router.post('/run/:buttonId', (req, res) => {
   const workingDirectory = session.gitWorktree || session.project?.workingDirectory || process.cwd();
   const runId = databaseManager.generateId();
 
-  res.json({ runId, buttonId, status: 'running', output: '' });
+  res.json({ runId, buttonId, status: 'running' });
 
   const callbacks = createCommandRunCallbacks(sessionId, session.projectId, runId, buttonId);
 
@@ -185,7 +188,8 @@ router.get('/runs', (req, res) => {
       runId: run.id,
       buttonId: run.buttonId,
       status: run.status,
-      output: run.output,
+      hasOutput: run.hasOutput,
+      outputHighWater: run.outputHighWater,
       exitCode: run.exitCode,
       startedAt: run.startedAt,
       completedAt: run.completedAt,
@@ -228,11 +232,22 @@ router.get('/runs/:runId', (req, res) => {
     runId: run.id,
     buttonId: run.buttonId,
     status: run.status,
-    output: run.output,
+      hasOutput: run.hasOutput,
+      outputHighWater: run.outputHighWater,
     exitCode: run.exitCode,
     startedAt: run.startedAt,
     completedAt: run.completedAt,
   });
+});
+
+// GET bounded persisted output. Cursor is the last fully applied sequence.
+router.get('/runs/:runId/output', (req, res) => {
+  const { sessionId, runId } = req.params;
+  const session = sessions.getById(sessionId);
+  const run = commandRuns.getById(runId);
+  if (!session || !run || run.sessionId !== sessionId) return res.status(404).json({ error: 'Run not found' });
+  const page = commandRuns.readAfter(runId, req.query.after, req.query.limitBytes);
+  res.json({ ...page, after: Number(req.query.after) || 0 });
 });
 
 // DELETE /api/sessions/:sessionId/circus-commands/runs/:runId - Delete a command run record

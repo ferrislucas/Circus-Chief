@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { createWorkLog } from './workLogService.js';
 
 const prompts = new Map();
 
@@ -13,11 +14,36 @@ function settle(record, outcome, result) {
   if (prompts.get(record.sessionId)?.id !== record.id) return false;
   prompts.delete(record.sessionId);
   record.signal?.removeEventListener('abort', record.abortListener);
+  const { toolName, content } = describePromptOutcome(record, outcome, result);
+  createWorkLog(record.sessionId, 'tool_output', content, toolName);
   broadcastToSession(record.sessionId, WS_MESSAGE_TYPES.SESSION_PROMPT_RESOLVED, {
     sessionId: record.sessionId, promptId: record.id, outcome,
   });
   record.resolve(result);
   return true;
+}
+
+export function describePromptOutcome(record, outcome, result) {
+  if (record.kind === 'question') {
+    if (outcome === 'answer') {
+      const answers = Object.entries(result.updatedInput?.answers || {})
+        .map(([question, answer]) => `${question}: ${answer}`)
+        .join('\n');
+      return { toolName: 'AskUserQuestion', content: `User answered:\n${answers}` };
+    }
+    return { toolName: 'AskUserQuestion', content: `User did not answer: ${result.message}` };
+  }
+
+  const toolName = record.payload.toolName || 'Unknown tool';
+  const outcomeText = {
+    allow: 'allowed once',
+    always: 'always allowed',
+    deny: 'denied',
+    superseded: 'superseded',
+    cancelled: 'cancelled',
+  }[outcome] || outcome;
+  const reason = result.message ? `: ${result.message}` : '';
+  return { toolName, content: `User ${outcomeText} ${toolName}${reason}` };
 }
 
 export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, agentId = null, payload, signal }) {

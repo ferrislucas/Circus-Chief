@@ -84,6 +84,12 @@ export function CommandButtonsApi(ApiClient) {
       return this._get(`/sessions/${sessionId}/circus-commands/runs/${runId}`);
     },
 
+    /** Read a bounded, cursor-based page of persisted command output. */
+    async getCommandRunOutput(sessionId, runId, { after = 0, limitBytes = 65536 } = {}) {
+      const query = new URLSearchParams({ after: String(after), limitBytes: String(limitBytes) });
+      return this._get(`/sessions/${sessionId}/circus-commands/runs/${runId}/output?${query}`);
+    },
+
     /**
      * Get the latest run for each button per session within a project
      * @param {string} projectId - Project ID
