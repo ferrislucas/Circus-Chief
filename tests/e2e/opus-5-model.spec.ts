@@ -33,6 +33,11 @@ import { API_READY, PAGE_READY_TIMEOUT } from './timeouts';
  *    (historical continuity, US5).
  */
 test.describe('Opus 5 Model Availability', () => {
+  // This suite changes the enabled state of a shared built-in provider model.
+  // Keep its tests from racing one another under Playwright's fullyParallel
+  // configuration while still allowing unrelated spec files to run in parallel.
+  test.describe.configure({ mode: 'serial' });
+
   let project: any;
 
   test.beforeEach(async () => {
