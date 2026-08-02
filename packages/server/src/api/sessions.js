@@ -149,6 +149,8 @@ router.get('/:id', requireSession, (req, res) => {
       startedAt: run.startedAt,
       completedAt: run.completedAt,
       output: run.output || null,
+      hasOutput: run.hasOutput,
+      outputHighWater: run.outputHighWater,
     };
   }
 

@@ -11,6 +11,7 @@ vi.mock('../websocket.js', () => ({
   broadcastToSession: vi.fn(),
   broadcastToProject: vi.fn(),
   broadcastToSessionAndProject: vi.fn(),
+  broadcastCommandRunOutput: vi.fn(),
 }));
 
 // Mock sessionManager
@@ -79,6 +80,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
         .get(`/api/sessions/${child.id}/circus-commands`);
 
       expect(res.status).toBe(200);
+
       expect(res.body).toHaveLength(1);
       expect(res.body[0].id).toBe(button.id);
     });
@@ -113,13 +115,15 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
 
       expect(res.status).toBe(200);
 
+      commandRunner.run.mock.calls[0][1].onStarted();
+
       expect(broadcastToSession).not.toHaveBeenCalled();
       expect(broadcastToProject).not.toHaveBeenCalled();
       expect(broadcastToSessionAndProject).toHaveBeenCalledWith(
         session.id,
         project.id,
-        WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT,
-        { runId: res.body.runId, buttonId: button.id, output: '' }
+        WS_MESSAGE_TYPES.COMMAND_RUN_STARTED,
+        { runId: res.body.runId, buttonId: button.id, status: 'running' }
       );
     });
 
@@ -226,14 +230,17 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       const child = createChildSession();
       const button = commandButtons.create({ projectId: project.id, label: 'Done Button', command: 'echo done' });
       commandRuns.create({ id: 'root-complete', sessionId: session.id, buttonId: button.id });
-      commandRuns.complete('root-complete', 0, 'done');
+      commandRuns.appendOutput('root-complete', 'done');
+      commandRuns.complete('root-complete', 0);
 
       const res = await request(app)
         .get(`/api/sessions/${child.id}/circus-commands/runs/root-complete`);
 
       expect(res.status).toBe(200);
       expect(res.body.runId).toBe('root-complete');
-      expect(res.body.output).toBe('done');
+      expect(res.body.hasOutput).toBe(true);
+      expect(res.body.outputHighWater).toBe(1);
+      expect(res.body).not.toHaveProperty('output');
     });
 
     it('does not return child-owned persisted runs through a child session', async () => {

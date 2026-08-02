@@ -245,6 +245,24 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       }
     },
 
+    async syncRunOutput(sessionId, runId, after = 0) {
+      const existing = this.runs[runId];
+      if (!existing) return after;
+      let cursor = after;
+      let hasMore = true;
+      while (hasMore) {
+        const page = await api.getCommandRunOutput(sessionId, runId, { after: cursor, limitBytes: 65536 });
+        for (const chunk of page.chunks) {
+          this.appendOutput(runId, chunk.content);
+          cursor = chunk.sequence;
+        }
+        hasMore = page.hasMore && page.chunks.length > 0;
+      }
+      this.flushPendingOutput(runId);
+      if (this.runs[runId]) this.runs[runId].outputHighWater = cursor;
+      return cursor;
+    },
+
     setOutputCollapsed(runId, isCollapsed) {
       this.collapsedStates[runId] = isCollapsed;
     },

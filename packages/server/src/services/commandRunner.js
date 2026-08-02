@@ -35,6 +35,7 @@ export class CommandRunner {
    * Create database record for a command run.
    */
   #createDatabaseRecord(runId, sessionId, buttonId) {
+    if (!sessionId || !buttonId) return;
     if (!commandRuns || typeof commandRuns.create !== 'function') return;
     try {
       commandRuns.create({ id: runId, sessionId, buttonId });
@@ -68,15 +69,16 @@ export class CommandRunner {
    */
   #flushOutputBuffer(entryInput, runId) {
     const entry = entryInput;
-    if (!entry.outputChunks.length || !entry.sessionId || !entry.buttonId) return;
-    if (!commandRuns || typeof commandRuns.appendBatch !== 'function') return;
+    if (!entry.outputChunks.length) return;
     const chunks = entry.outputChunks;
     entry.outputChunks = [];
     entry.outputBytes = 0;
+    entry.onOutput?.(chunks.join(''));
+    if (!entry.sessionId || !entry.buttonId) return;
+    if (!commandRuns || typeof commandRuns.appendBatch !== 'function') return;
     try {
       const persisted = commandRuns.appendBatch(runId, chunks);
       for (const chunk of persisted) entry.onOutputChunk?.(chunk);
-      entry.onOutput?.(chunks.join(''));
       Object.assign(entry, { lastDbWrite: Date.now() });
     } catch (err) {
       console.warn(`[commandRunner.run] Warning: Error flushing output to database for runId: ${runId}`, err.message);
@@ -160,7 +162,6 @@ export class CommandRunner {
     return new Promise((resolve) => {
       try {
         this.#createDatabaseRecord(runId, sessionId, buttonId);
-        onStarted?.();
         const wrappedCommand = wrapCommandForPlatform(command);
 
         const child = spawn('sh', ['-c', wrappedCommand], {
@@ -178,6 +179,10 @@ export class CommandRunner {
           try { callbacks.onOutputChunk?.(chunk); } catch (err) { console.warn('[commandRunner.run] Output callback failed:', err.message); }
         };
         this.processes.set(runId, entry);
+        // Do not announce the run until status lookups can observe it. Clients
+        // refresh active runs in response to this event and would otherwise
+        // race the process-map registration, clearing the running indicator.
+        onStarted?.();
 
         entry.bufferFlushTimer = setInterval(() => this.#flushOutputBuffer(entry, runId), this.outputBufferFlushInterval);
 

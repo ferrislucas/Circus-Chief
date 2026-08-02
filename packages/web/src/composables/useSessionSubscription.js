@@ -75,6 +75,8 @@ function registerEventHandlers(on, off, sessionId) {
       { filter: bySession, args: (msg) => [msg.conversationId, msg.newActiveConversation] }),
     onUsageUpdate: handler(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE,
       { filter: bySession, args: (msg) => [msg] }, { replaySessionId: sessionId }),
+    onCommandStarted: handler(WS_MESSAGE_TYPES.COMMAND_RUN_STARTED,
+      { filter: bySession, args: (msg) => [msg.runId, msg.buttonId] }),
     onCommandOutput: handler(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT,
       { filter: bySession, args: (msg) => [msg.runId, msg.buttonId, msg.output] }),
     onCommandComplete: handler(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE,

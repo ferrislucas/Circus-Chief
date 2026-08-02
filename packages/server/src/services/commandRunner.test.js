@@ -19,19 +19,16 @@ describe('CommandRunner', () => {
     it('coalesces rapid output and flushes the final buffer before completion', async () => {
       const throttledRunner = new CommandRunner({ outputBroadcastInterval: 1000, outputDbFlushInterval: 1000 });
       const output = [];
-      let completedOutput = '';
 
       const exitCode = await throttledRunner.run(
         { runId: 'coalesced-output', command: 'printf first; printf second', workingDirectory: process.cwd() },
-        { onOutput: text => output.push(text), onComplete: (_code, text) => { completedOutput = text; } },
+        { onOutput: text => output.push(text) },
       );
 
       expect(exitCode).toBe(0);
       expect(output).toHaveLength(1);
       expect(output[0]).toContain('first');
       expect(output[0]).toContain('second');
-      expect(completedOutput).toContain('first');
-      expect(completedOutput).toContain('second');
     });
 
     it('contains an output callback failure while still completing the run', async () => {
@@ -44,7 +41,7 @@ describe('CommandRunner', () => {
       );
 
       expect(exitCode).toBe(0);
-      expect(onComplete).toHaveBeenCalledWith(0, expect.stringContaining('retained'));
+      expect(onComplete).toHaveBeenCalledWith(0);
     });
 
     it('strips commit attribution from command-button environments', () => {
@@ -223,16 +220,14 @@ describe('CommandRunner', () => {
       it('calls onComplete callback with correct parameters', async () => {
         let callbackCalled = false;
         let callbackExitCode = null;
-        let callbackOutput = null;
 
         const exitCode = await runner.run(
           { runId: 'test-options-4', command: 'echo "complete test"', workingDirectory: process.cwd() },
           {
             onOutput: () => {},
-            onComplete: (code, output) => {
+            onComplete: (code) => {
               callbackCalled = true;
               callbackExitCode = code;
-              callbackOutput = output;
             },
           }
         );
@@ -240,7 +235,6 @@ describe('CommandRunner', () => {
         expect(exitCode).toBe(0);
         expect(callbackCalled).toBe(true);
         expect(callbackExitCode).toBe(0);
-        expect(callbackOutput).toContain('complete test');
       });
 
       it('calls onError callback when command fails', async () => {
@@ -515,17 +509,14 @@ describe('CommandRunner', () => {
       }
     });
 
-    it('buffers output in the process entry', async () => {
+    it('delivers buffered output through onOutput', async () => {
       const runId = 'test-buffer-1';
       let capturedOutput = '';
 
       await runner.run(
         { runId, command: 'echo "buffered output"', workingDirectory: process.cwd() },
         {
-          onOutput: () => {},
-          onComplete: (exitCode, output) => {
-            capturedOutput = output;
-          },
+          onOutput: (output) => { capturedOutput += output; },
           onError: () => {},
         },
         { sessionId: 'session-1', buttonId: 'button-1' }
@@ -534,13 +525,14 @@ describe('CommandRunner', () => {
       expect(capturedOutput).toContain('buffered output');
     });
 
-    it('passes buffered output to onComplete callback', async () => {
+    it('does not attach the transcript to the completion callback', async () => {
       let completeOutput = null;
+      let streamedOutput = '';
 
       await runner.run(
         { runId: 'test-complete-output', command: 'echo "line1"; echo "line2"', workingDirectory: process.cwd() },
         {
-          onOutput: () => {},
+          onOutput: (output) => { streamedOutput += output; },
           onComplete: (exitCode, output) => {
             completeOutput = output;
           },
@@ -549,8 +541,9 @@ describe('CommandRunner', () => {
         { sessionId: 's1', buttonId: 'b1' }
       );
 
-      expect(completeOutput).toContain('line1');
-      expect(completeOutput).toContain('line2');
+      expect(completeOutput).toBeUndefined();
+      expect(streamedOutput).toContain('line1');
+      expect(streamedOutput).toContain('line2');
     });
 
     it('works without metadata', async () => {
@@ -607,7 +600,7 @@ describe('CommandRunner', () => {
       expect(runs).toEqual([]);
     });
 
-    it('includes buffered output in returned runs', async () => {
+    it('does not materialize buffered output in returned run metadata', async () => {
       const runId = 'test-output-in-runs';
       let runsWithOutput = [];
 
@@ -624,7 +617,7 @@ describe('CommandRunner', () => {
       await runPromise;
 
       expect(runsWithOutput.length).toBe(1);
-      expect(runsWithOutput[0].output).toContain('captured');
+      expect(runsWithOutput[0].output).toBe('');
     });
   });
 
@@ -789,24 +782,23 @@ describe('CommandRunner', () => {
       expect(collectedOutput).toContain('line3');
     });
 
-    it('passes output buffer to onComplete callback', async () => {
-      let completeOutput = '';
+    it('delivers output separately from the completion callback', async () => {
+      let streamedOutput = '';
+      const onComplete = vi.fn();
 
       await runner.run(
         { runId: 'test-complete-buffer', command: 'echo "output1"; echo "output2"', workingDirectory: process.cwd() },
         {
-          onOutput: () => {},
-          onComplete: (exitCode, output) => {
-            completeOutput = output;
-          },
+          onOutput: (output) => { streamedOutput += output; },
+          onComplete,
           onError: () => {},
         },
         { sessionId: 'complete-session', buttonId: 'btn-1' }
       );
 
-      expect(completeOutput.length).toBeGreaterThan(0);
-      expect(completeOutput).toContain('output1');
-      expect(completeOutput).toContain('output2');
+      expect(onComplete).toHaveBeenCalledWith(0);
+      expect(streamedOutput).toContain('output1');
+      expect(streamedOutput).toContain('output2');
     });
 
     it('handles large output streams without losing data', async () => {
@@ -821,9 +813,7 @@ describe('CommandRunner', () => {
           onOutput: (text) => {
             totalOutputLength += text.length;
           },
-          onComplete: (exitCode, output) => {
-            totalOutputLength = output.length;
-          },
+          onComplete: () => {},
           onError: () => {},
         },
         { sessionId: 'large-session', buttonId: 'btn-1' }
