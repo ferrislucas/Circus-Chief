@@ -56,6 +56,7 @@ export function buildRunsBySession(dbRuns, runningRuns) {
     runsBySession[run.sessionId][run.buttonId] = {
       buttonId: run.buttonId, status: run.status, exitCode: run.exitCode,
       runId: run.id, startedAt: run.startedAt, completedAt: run.completedAt,
+      hasOutput: run.hasOutput, outputHighWater: run.outputHighWater,
     };
   }
   for (const run of runningRuns) {

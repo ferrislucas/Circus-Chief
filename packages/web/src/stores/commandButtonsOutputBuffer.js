@@ -39,6 +39,8 @@ export function buildRunEntry(run, runId, existing) {
     exitCode: run.exitCode ?? null,
     startedAt: run.startedAt,
     completedAt: run.completedAt,
+    hasOutput: run.hasOutput ?? existing?.hasOutput ?? Boolean(output),
+    outputHighWater: run.outputHighWater ?? existing?.outputHighWater ?? 0,
     outputTruncated: hasExistingOutput ? existing.outputTruncated : truncated,
   };
 }
@@ -162,6 +164,8 @@ export function processRunFromApi(run, sessionId, existing) {
     exitCode: run.exitCode !== undefined ? run.exitCode : null,
     startedAt: run.startedAt,
     completedAt: run.completedAt,
+    hasOutput: run.hasOutput ?? existing?.hasOutput ?? Boolean(resolvedOutput),
+    outputHighWater: run.outputHighWater ?? existing?.outputHighWater ?? 0,
     outputTruncated: resolvedTruncated,
   };
 }
