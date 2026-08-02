@@ -254,6 +254,19 @@ export const OPENAI_MODELS = [
 ];
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
 
+// This is deliberately separate from OPENAI_MODELS. The latter is the catalog
+// of models available to direct OpenAI-compatible providers; summaries run via
+// the Codex CLI and must only offer model IDs that its non-interactive runner
+// supports. Keep this list in sync with Codex CLI model support.
+export const CODEX_SUMMARY_MODELS = [
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.3-codex',
+];
+
 export const GEMINI_MODELS = [
   {
     id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Most capable reasoning model', seedId: 'google-gemini-2-5-pro',
