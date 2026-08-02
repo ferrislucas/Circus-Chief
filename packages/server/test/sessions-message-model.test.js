@@ -109,7 +109,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-6' }
+        { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-6', interactive: true }
       );
     });
 
@@ -126,7 +126,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: [], model: null }
+        { systemPrompt: null, fileAttachments: [], model: null, interactive: true }
       );
     });
 
@@ -148,7 +148,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: expect.any(Array), model: 'claude-opus-4-6' }
+        { systemPrompt: null, fileAttachments: expect.any(Array), model: 'claude-opus-4-6', interactive: true }
       );
     });
 
@@ -164,7 +164,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: [], model: 'opus' }
+        { systemPrompt: null, fileAttachments: [], model: 'opus', interactive: true }
       );
     });
 
@@ -192,7 +192,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: [], model: 'custom-provider-model-v2' }
+        { systemPrompt: null, fileAttachments: [], model: 'custom-provider-model-v2', interactive: true }
       );
       modelProviders.delete(provider.id);
     });
@@ -208,7 +208,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'First message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-6' }
+        { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-6', interactive: true }
       );
 
       // Second message with another Claude model
@@ -221,7 +221,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Second message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-7' }
+        { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-7', interactive: true }
       );
     });
   });
