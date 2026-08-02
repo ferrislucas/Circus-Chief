@@ -10,6 +10,9 @@ import {
   buildErrorRunUpdate,
 } from './commandButtonsOutputBuffer.js';
 
+export const MAX_SYNC_PAGES_PER_CALL = 32;
+export const SYNC_PAGE_BYTES = 256 * 1024;
+
 export const useCommandButtonsStore = defineStore('commandButtons', {
   state: () => ({
     buttons: [],
@@ -245,22 +248,25 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       }
     },
 
-    async syncRunOutput(sessionId, runId, after = 0) {
+    async syncRunOutput(sessionId, runId, after = 0, applyChunk) {
       const existing = this.runs[runId];
-      if (!existing) return after;
+      if (!existing) return { highWater: after, hasMore: false };
       let cursor = after;
       let hasMore = true;
-      while (hasMore) {
-        const page = await api.getCommandRunOutput(sessionId, runId, { after: cursor, limitBytes: 65536 });
+      let pages = 0;
+      while (hasMore && pages < MAX_SYNC_PAGES_PER_CALL) {
+        const page = await api.getCommandRunOutput(sessionId, runId, { after: cursor, limitBytes: SYNC_PAGE_BYTES });
+        pages += 1;
         for (const chunk of page.chunks) {
-          this.appendOutput(runId, chunk.content);
-          cursor = chunk.sequence;
+          // The subscription owns ordering and can reject an overlapping live
+          // chunk. A regular caller still appends every persisted chunk.
+          if (!applyChunk || applyChunk(chunk)) cursor = Math.max(cursor, chunk.sequence);
         }
         hasMore = page.hasMore && page.chunks.length > 0;
       }
       this.flushPendingOutput(runId);
       if (this.runs[runId]) this.runs[runId].outputHighWater = cursor;
-      return cursor;
+      return { highWater: cursor, hasMore };
     },
 
     setOutputCollapsed(runId, isCollapsed) {

@@ -1,5 +1,6 @@
 import { WebSocketServer } from 'ws';
 import { WS_MESSAGE_TYPES, parseMessage, createMessage } from '@circuschief/shared';
+import { commandOutputMetrics, COMMAND_OUTPUT_METRICS } from '../services/commandOutputMetrics.js';
 
 const OUTPUT_SOCKET_HIGH_WATER_BYTES = 256 * 1024;
 
@@ -59,7 +60,10 @@ export class WebSocketManager {
         for (const subscribers of this.#projectSubscriptions.values()) {
           subscribers.delete(ws);
         }
-        for (const subscribers of this.#commandRunOutputSubscriptions.values()) subscribers.delete(ws);
+        for (const [runId, subscribers] of this.#commandRunOutputSubscriptions) {
+          subscribers.delete(ws);
+          commandOutputMetrics.setGauge(`${COMMAND_OUTPUT_METRICS.OUTPUT_SUBSCRIBERS}:${runId}`, subscribers.size);
+        }
       });
 
       ws.on('error', (error) => {
@@ -143,13 +147,17 @@ export class WebSocketManager {
     }
     if (!this.#commandRunOutputSubscriptions.has(runId)) this.#commandRunOutputSubscriptions.set(runId, new Set());
     this.#commandRunOutputSubscriptions.get(runId).add(ws);
+    commandOutputMetrics.setGauge(`${COMMAND_OUTPUT_METRICS.OUTPUT_SUBSCRIBERS}:${runId}`, this.#commandRunOutputSubscriptions.get(runId).size);
     if (ws.readyState === 1) ws.send(createMessage(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT_SUBSCRIBED, {
       runId, highWater: authorization.highWater,
     }));
   }
 
   #handleUnsubscribeCommandRunOutput(ws, message) {
-    if (message.runId) this.#commandRunOutputSubscriptions.get(message.runId)?.delete(ws);
+    if (!message.runId) return;
+    const subscribers = this.#commandRunOutputSubscriptions.get(message.runId);
+    subscribers?.delete(ws);
+    commandOutputMetrics.setGauge(`${COMMAND_OUTPUT_METRICS.OUTPUT_SUBSCRIBERS}:${message.runId}`, subscribers?.size || 0);
   }
 
   /** Send a persisted output chunk to explicit viewers only. */
@@ -157,19 +165,23 @@ export class WebSocketManager {
     const subscribers = this.#commandRunOutputSubscriptions.get(runId);
     if (!subscribers?.size) return;
     const message = createMessage(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId, sequence: chunk.sequence, content: chunk.content });
+    commandOutputMetrics.increment(COMMAND_OUTPUT_METRICS.OUTPUT_EVENTS);
     for (const client of subscribers) {
       if (client.readyState !== 1) continue;
       if (client.bufferedAmount >= OUTPUT_SOCKET_HIGH_WATER_BYTES) {
+        commandOutputMetrics.increment(COMMAND_OUTPUT_METRICS.BACKPRESSURE_EVENTS);
         const pending = this.#outputResyncRequired.get(client) || new Set();
         if (!pending.has(runId)) {
           pending.add(runId);
           this.#outputResyncRequired.set(client, pending);
+          commandOutputMetrics.increment(COMMAND_OUTPUT_METRICS.OUTPUT_RESYNCS);
           client.send(createMessage(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT_RESYNC_REQUIRED, { runId }));
         }
         continue;
       }
       this.#outputResyncRequired.get(client)?.delete(runId);
       client.send(message);
+      commandOutputMetrics.increment(COMMAND_OUTPUT_METRICS.OUTPUT_BYTES_SENT, Buffer.byteLength(message));
     }
   }
 
@@ -179,6 +191,7 @@ export class WebSocketManager {
    * @param {Object} payload - Message payload
    */
   broadcast(type, payload) {
+    this.#recordLifecycleEvent(type);
     const message = createMessage(type, payload);
     for (const client of this.#clients) {
       if (client.readyState === 1) {
@@ -195,6 +208,7 @@ export class WebSocketManager {
    * @param {Object} payload - Message payload
    */
   broadcastToSession(sessionId, type, payload) {
+    this.#recordLifecycleEvent(type);
     const subscribers = this.#sessionSubscriptions.get(sessionId);
 
     // Buffer SESSION_USAGE_UPDATE messages if no subscribers exist
@@ -231,6 +245,7 @@ export class WebSocketManager {
    * @param {Object} payload - Message payload
    */
   broadcastToProject(projectId, type, payload) {
+    this.#recordLifecycleEvent(type);
     const subscribers = this.#projectSubscriptions.get(projectId);
     if (!subscribers || subscribers.size === 0) return;
 
@@ -245,6 +260,7 @@ export class WebSocketManager {
 
   /** Broadcast one serialized frame to the union of session and project subscribers. */
   broadcastToSessionAndProject(sessionId, projectId, type, payload) {
+    this.#recordLifecycleEvent(type);
     const subscribers = new Set([
       ...(this.#sessionSubscriptions.get(sessionId) || []),
       ...(this.#projectSubscriptions.get(projectId) || []),
@@ -265,6 +281,16 @@ export class WebSocketManager {
    */
   getServer() {
     return this.#wss;
+  }
+
+  #recordLifecycleEvent(type) {
+    if ([
+      WS_MESSAGE_TYPES.COMMAND_RUN_STARTED,
+      WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE,
+      WS_MESSAGE_TYPES.COMMAND_RUN_ERROR,
+      WS_MESSAGE_TYPES.COMMAND_RUN_KILLED,
+      WS_MESSAGE_TYPES.COMMAND_RUN_DELETED,
+    ].includes(type)) commandOutputMetrics.increment(COMMAND_OUTPUT_METRICS.LIFECYCLE_EVENTS);
   }
 
   /**

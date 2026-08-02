@@ -12,15 +12,12 @@ function installListeners() {
 
   on(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, (message) => {
     const entry = subscriptions.get(message.runId);
-    if (!entry || message.sequence <= entry.highWater) return;
-    // A missed sequence means the socket was backpressured. Re-read the
-    // persisted stream instead of attempting to repair it from live events.
-    if (message.sequence !== entry.highWater + 1) {
-      void entry.sync();
+    if (!entry) return;
+    if (entry.initializing) {
+      entry.pending.set(message.sequence, message);
       return;
     }
-    entry.store.appendOutput(message.runId, message.content);
-    entry.highWater = message.sequence;
+    entry.applyChunk(message);
   });
 
   on(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT_SUBSCRIBED, (message) => {
@@ -48,11 +45,43 @@ export function subscribeCommandRunOutput(sessionId, runId) {
       count: 1,
       store,
       highWater: store.runs[runId]?.outputHighWater || 0,
+      initializing: true,
+      pending: new Map(),
       syncing: null,
+      applyChunk(chunk) {
+        if (chunk.sequence <= this.highWater) return true;
+        // A missed sequence means the socket was backpressured. Re-read the
+        // persisted stream instead of attempting to repair it from live events.
+        if (chunk.sequence !== this.highWater + 1) {
+          void this.sync();
+          return false;
+        }
+        this.store.appendOutput(runId, chunk.content);
+        this.highWater = chunk.sequence;
+        return true;
+      },
+      drainPending() {
+        for (const chunk of [...this.pending.values()].sort((a, b) => a.sequence - b.sequence)) {
+          this.pending.delete(chunk.sequence);
+          if (!this.applyChunk(chunk)) break;
+        }
+      },
       sync() {
+        // Lightweight component-store mocks and legacy embedding contexts may
+        // not expose streaming yet; live output remains safely inactive there.
+        if (typeof store.syncRunOutput !== 'function') {
+          this.initializing = false;
+          return Promise.resolve();
+        }
         if (!this.syncing) {
-          this.syncing = store.syncRunOutput(sessionId, runId, this.highWater)
-            .then((highWater) => { this.highWater = Math.max(this.highWater, highWater); })
+          this.syncing = store.syncRunOutput(sessionId, runId, this.highWater, (chunk) => this.applyChunk(chunk))
+            .then(({ hasMore }) => {
+              this.initializing = false;
+              this.drainPending();
+              // Yield to the event loop between capped catch-up batches. This
+              // preserves single-flight sync while a producer is still ahead.
+              if (hasMore) setTimeout(() => void this.sync(), 0);
+            })
             .finally(() => { this.syncing = null; });
         }
         return this.syncing;

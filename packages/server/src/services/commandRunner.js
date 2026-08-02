@@ -3,6 +3,7 @@ import * as osModule from 'os';
 import { commandRuns } from '../database.js';
 import { createRobustEnv } from './nodeSpawnHelper.js';
 import { TerminalOutputProcessor } from './terminalOutput.js';
+import { commandOutputMetrics, COMMAND_OUTPUT_METRICS } from './commandOutputMetrics.js';
 
 // Re-export for backward compatibility
 export { stripAnsiCodes, TerminalOutputProcessor } from './terminalOutput.js';
@@ -76,17 +77,27 @@ export class CommandRunner {
     entry.onOutput?.(chunks.join(''));
     if (!entry.sessionId || !entry.buttonId) return;
     if (!commandRuns || typeof commandRuns.appendBatch !== 'function') return;
+    const startedAt = performance.now();
+    commandOutputMetrics.increment(COMMAND_OUTPUT_METRICS.FLUSH_COUNT);
     try {
       const persisted = commandRuns.appendBatch(runId, chunks);
+      commandOutputMetrics.increment(
+        COMMAND_OUTPUT_METRICS.PERSISTED_BYTES,
+        chunks.reduce((bytes, chunk) => bytes + Buffer.byteLength(chunk), 0),
+      );
       for (const chunk of persisted) entry.onOutputChunk?.(chunk);
       Object.assign(entry, { lastDbWrite: Date.now() });
     } catch (err) {
+      commandOutputMetrics.increment(COMMAND_OUTPUT_METRICS.FLUSH_FAILURES);
       console.warn(`[commandRunner.run] Warning: Error flushing output to database for runId: ${runId}`, err.message);
+    } finally {
+      commandOutputMetrics.increment(COMMAND_OUTPUT_METRICS.FLUSH_DURATION_MS, performance.now() - startedAt);
     }
   }
 
   #appendOutput(entry, text) {
     if (!text) return;
+    commandOutputMetrics.increment(COMMAND_OUTPUT_METRICS.PRODUCED_BYTES, Buffer.byteLength(text));
     Object.assign(entry, {
       outputChunks: [...entry.outputChunks, text],
       outputBytes: entry.outputBytes + Buffer.byteLength(text),
