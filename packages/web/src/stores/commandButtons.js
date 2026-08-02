@@ -10,6 +10,9 @@ import {
   buildErrorRunUpdate,
 } from './commandButtonsOutputBuffer.js';
 
+export const MAX_SYNC_PAGES_PER_CALL = 32;
+export const SYNC_PAGE_BYTES = 256 * 1024;
+
 export const useCommandButtonsStore = defineStore('commandButtons', {
   state: () => ({
     buttons: [],
@@ -225,22 +228,45 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
 
     async fetchRunOutput(sessionId, runId) {
       const existing = this.runs[runId];
-      if (!existing || existing.status === 'running') return; // Don't fetch for running commands (streaming via WS)
+      if (!existing) return;
       if (existing.output && existing.output.length > 0) return; // Already have output, skip
 
       try {
-        const run = await api.getCommandRun(sessionId, runId);
-        if (run.output && this.runs[runId]) {
-          const { output, truncated } = truncateOutput(run.output);
+        const page = await api.getCommandRunOutput(sessionId, runId, { limitBytes: 2 * 1024 * 1024 });
+        const output = page.chunks.map((chunk) => chunk.content).join('');
+        if (this.runs[runId]) {
+          const { output: boundedOutput, truncated } = truncateOutput(output);
           this.runs[runId] = {
             ...this.runs[runId],
-            output,
+            output: boundedOutput,
             outputTruncated: truncated,
+            outputHighWater: page.highWater,
           };
         }
       } catch (err) {
         console.warn(`[commandButtons] Failed to fetch output for run ${runId}:`, err.message);
       }
+    },
+
+    async syncRunOutput(sessionId, runId, after = 0, applyChunk) {
+      const existing = this.runs[runId];
+      if (!existing) return { highWater: after, hasMore: false };
+      let cursor = after;
+      let hasMore = true;
+      let pages = 0;
+      while (hasMore && pages < MAX_SYNC_PAGES_PER_CALL) {
+        const page = await api.getCommandRunOutput(sessionId, runId, { after: cursor, limitBytes: SYNC_PAGE_BYTES });
+        pages += 1;
+        for (const chunk of page.chunks) {
+          // The subscription owns ordering and can reject an overlapping live
+          // chunk. A regular caller still appends every persisted chunk.
+          if (!applyChunk || applyChunk(chunk)) cursor = Math.max(cursor, chunk.sequence);
+        }
+        hasMore = page.hasMore && page.chunks.length > 0;
+      }
+      this.flushPendingOutput(runId);
+      if (this.runs[runId]) this.runs[runId].outputHighWater = cursor;
+      return { highWater: cursor, hasMore };
     },
 
     setOutputCollapsed(runId, isCollapsed) {

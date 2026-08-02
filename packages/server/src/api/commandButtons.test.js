@@ -15,6 +15,7 @@ vi.mock('../websocket.js', () => ({
   broadcastToSession: vi.fn(),
   broadcastToProject: vi.fn(),
   broadcastToSessionAndProject: vi.fn(),
+  broadcastCommandRunOutput: vi.fn(),
 }));
 
 // Mock sessionManager
@@ -41,7 +42,7 @@ vi.mock('../services/commandRunner.js', () => ({
 // Import after mocks are set up
 import commandButtonsRouter from './commandButtons.js';
 import sessionsRouter from './sessions.js';
-import { broadcastToSession, broadcastToProject, broadcastToSessionAndProject } from '../websocket.js';
+import { broadcastToSession, broadcastToProject, broadcastToSessionAndProject, broadcastCommandRunOutput } from '../websocket.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
@@ -351,7 +352,7 @@ describe('Command Buttons API', () => {
       expect(res.body.runId).toBeDefined();
       expect(res.body.buttonId).toBe(buttonId);
       expect(res.body.status).toBe('running');
-      expect(res.body.output).toBe('');
+      expect(res.body).not.toHaveProperty('output');
     });
 
     it('returns 404 for non-existent session', async () => {
@@ -385,21 +386,21 @@ describe('Command Buttons API', () => {
       // Verify commandRunner.run was called
       expect(commandRunner.run).toHaveBeenCalled();
 
-      // New signature: run({ runId, command, workingDirectory }, { onOutput, onComplete, onError }, metadata)
+      // New signature keeps lifecycle metadata separate from persisted output chunks.
       const runCall = commandRunner.run.mock.calls[0];
       expect(runCall[0].runId).toBe(res.body.runId); // params.runId
       expect(runCall[0].command).toBe('echo test'); // params.command
       expect(typeof runCall[0].workingDirectory).toBe('string'); // params.workingDirectory
-      expect(typeof runCall[1].onOutput).toBe('function'); // callbacks.onOutput
+      expect(typeof runCall[1].onStarted).toBe('function');
+      expect(typeof runCall[1].onOutputChunk).toBe('function');
       expect(typeof runCall[1].onComplete).toBe('function'); // callbacks.onComplete
       expect(typeof runCall[1].onError).toBe('function'); // callbacks.onError
     });
 
-    it('broadcasts command output via a single union broadcast to session and project', async () => {
+    it('broadcasts persisted command output chunks by run subscription', async () => {
       commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
-        // Simulate command output (new signature uses callbacks object)
-        callbacks.onOutput('Hello ');
-        callbacks.onOutput('World\n');
+        callbacks.onOutputChunk({ sequence: 1, content: 'Hello ' });
+        callbacks.onOutputChunk({ sequence: 2, content: 'World\n' });
       });
 
       await request(app).post(
@@ -414,24 +415,13 @@ describe('Command Buttons API', () => {
       expect(broadcastToSession).not.toHaveBeenCalled();
       expect(broadcastToProject).not.toHaveBeenCalled();
 
-      const outputBroadcasts = broadcastToSessionAndProject.mock.calls.filter(
-        (call) => call[2] === WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT && call[3].output === 'Hello '
-      );
-
-      expect(outputBroadcasts.length).toBe(1);
-      const [calledSessionId, calledProjectId, , payload] = outputBroadcasts[0];
-      expect(calledSessionId).toBe(sessionId);
-      expect(calledProjectId).toBe(projects.getById(projectId).id);
-      expect(payload).toEqual({
-        runId: expect.any(String),
-        buttonId,
-        output: 'Hello ',
-      });
+      expect(broadcastCommandRunOutput).toHaveBeenNthCalledWith(1, expect.any(String), { sequence: 1, content: 'Hello ' });
+      expect(broadcastCommandRunOutput).toHaveBeenNthCalledWith(2, expect.any(String), { sequence: 2, content: 'World\n' });
     });
 
     it('broadcasts completion when command exits successfully', async () => {
       commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
-        callbacks.onComplete(0, 'output');
+        callbacks.onComplete(0);
       });
 
       await request(app).post(`/api/sessions/${sessionId}/circus-commands/${buttonId}/run`);
@@ -453,13 +443,12 @@ describe('Command Buttons API', () => {
         buttonId,
         status: 'success',
         exitCode: 0,
-        output: 'output',
       });
     });
 
     it('broadcasts error when command exits with non-zero code', async () => {
       commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
-        callbacks.onComplete(1, 'error output');
+        callbacks.onComplete(1);
       });
 
       await request(app).post(`/api/sessions/${sessionId}/circus-commands/${buttonId}/run`);
@@ -525,8 +514,9 @@ describe('Command Buttons API', () => {
       // Wait a bit for async execution to start
       await new Promise((resolve) => setTimeout(resolve, 50));
 
+      commandRunner.run.mock.calls[0][1].onStarted();
       const initialBroadcasts = broadcastToSessionAndProject.mock.calls.filter(
-        (call) => call[2] === WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT && call[3].output === ''
+        (call) => call[2] === WS_MESSAGE_TYPES.COMMAND_RUN_STARTED
       );
 
       expect(initialBroadcasts.length).toBe(1);
@@ -536,7 +526,7 @@ describe('Command Buttons API', () => {
       expect(payload).toEqual({
         runId: expect.any(String),
         buttonId,
-        output: '',
+        status: 'running',
       });
     });
   });

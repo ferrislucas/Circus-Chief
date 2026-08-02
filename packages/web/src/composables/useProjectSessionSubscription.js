@@ -78,6 +78,19 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks, strea
     });
   }
 
+  function handleCommandRunStarted(runId, sessionId, buttonId) {
+    const startedAt = Date.now();
+    if (!commandButtonsStore.runs[runId]) {
+      commandButtonsStore.runs[runId] = {
+        runId, buttonId, sessionId, status: 'running', output: '', exitCode: null,
+        startedAt, outputTruncated: false,
+      };
+    }
+    sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+      buttonId, status: 'running', runId, startedAt,
+    });
+  }
+
   /**
    * Handle command run complete.
    * Extracted to avoid excessive callback nesting inside the watch handler.
@@ -145,7 +158,7 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks, strea
     const {
       onSessionCreated, onSessionUpdated, onSessionDeleted,
       onSessionSummaryUpdated,
-      onCommandRunOutput, onCommandRunComplete, onCommandRunError, onCommandRunDeleted,
+      onCommandRunStarted, onCommandRunOutput, onCommandRunComplete, onCommandRunError, onCommandRunDeleted,
       onKanbanBoardUpdated, onKanbanCardMoved, onKanbanCardAdded, onKanbanCardRemoved,
     } = subscription;
 
@@ -161,6 +174,7 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks, strea
       callbacks.cleanupSummary(sid);
     }));
     handlers.push(onSessionSummaryUpdated((sid, summary) => { callbacks.updateSummary(sid, summary); }));
+    if (onCommandRunStarted) handlers.push(onCommandRunStarted(handleCommandRunStarted));
     handlers.push(onCommandRunOutput(handleCommandRunOutput));
     handlers.push(onCommandRunComplete(handleCommandRunComplete));
     handlers.push(onCommandRunError(handleCommandRunError));
@@ -251,6 +265,7 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks, strea
         onSessionUpdated,
         onSessionDeleted,
         onSessionSummaryUpdated,
+        onCommandRunStarted,
         onCommandRunOutput,
         onCommandRunComplete,
         onCommandRunError,
@@ -268,6 +283,7 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks, strea
         {
           onSessionCreated, onSessionUpdated, onSessionDeleted,
           onSessionSummaryUpdated,
+          onCommandRunStarted,
           onCommandRunOutput, onCommandRunComplete, onCommandRunError, onCommandRunDeleted,
           onKanbanBoardUpdated, onKanbanCardMoved, onKanbanCardAdded, onKanbanCardRemoved,
         },

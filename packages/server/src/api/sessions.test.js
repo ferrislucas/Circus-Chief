@@ -227,7 +227,8 @@ describe('Sessions API - workflow-root command metadata', () => {
     });
     const button = commandButtons.create({ projectId: project.id, label: 'Build', command: 'echo build' });
     commandRuns.create({ id: 'root-run', sessionId: root.id, buttonId: button.id });
-    commandRuns.complete('root-run', 0, 'done');
+    commandRuns.appendOutput('root-run', 'done');
+    commandRuns.complete('root-run', 0);
 
     const res = await request(app).get(`/api/sessions/${child.id}`);
 
@@ -238,9 +239,11 @@ describe('Sessions API - workflow-root command metadata', () => {
       expect.objectContaining({
         buttonId: button.id,
         runId: 'root-run',
-        output: 'done',
+        status: 'success',
+        exitCode: 0,
       }),
     ]);
+    expect(res.body.latestCommandRuns[0].output).toBeNull();
   });
 });
 

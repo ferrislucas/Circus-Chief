@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { useCommandButtonsStore } from './commandButtons.js';
+import { MAX_SYNC_PAGES_PER_CALL, useCommandButtonsStore } from './commandButtons.js';
 
 // Mock the API module
 vi.mock('../composables/useApi.js', () => ({
@@ -12,6 +12,7 @@ vi.mock('../composables/useApi.js', () => ({
     getActiveRuns: vi.fn(),
     killCommandRun: vi.fn(),
     getCommandRun: vi.fn(),
+    getCommandRunOutput: vi.fn(),
     deleteCommandRun: vi.fn(),
     deleteAllRunsForButton: vi.fn(),
     getLatestRunsForProject: vi.fn(),
@@ -1119,23 +1120,20 @@ describe('CommandButtons Store', () => {
         },
       };
 
-      api.getCommandRun.mockResolvedValue({
-        runId: 'r1',
-        buttonId: 'b1',
-        status: 'success',
-        output: 'fetched output',
-        exitCode: 0,
-        startedAt: Date.now(),
-        completedAt: Date.now(),
+      api.getCommandRunOutput.mockResolvedValue({
+        chunks: [{ sequence: 1, content: 'fetched ' }, { sequence: 2, content: 'output' }],
+        highWater: 2,
+        hasMore: false,
       });
 
       await store.fetchRunOutput('sess-1', 'r1');
 
       expect(store.runs['r1'].output).toBe('fetched output');
       expect(store.runs['r1'].outputTruncated).toBe(false);
+      expect(store.runs['r1'].outputHighWater).toBe(2);
     });
 
-    it('skips fetch when run is currently running', async () => {
+    it('fetches persisted chunks while a run is currently running', async () => {
       const store = useCommandButtonsStore();
       store.runs = {
         'r1': {
@@ -1151,7 +1149,11 @@ describe('CommandButtons Store', () => {
 
       await store.fetchRunOutput('sess-1', 'r1');
 
-      expect(api.getCommandRun).not.toHaveBeenCalled();
+      expect(api.getCommandRunOutput).toHaveBeenCalledWith(
+        'sess-1',
+        'r1',
+        { limitBytes: 2 * 1024 * 1024 }
+      );
     });
 
     it('skips fetch when output is already loaded', async () => {
@@ -1170,7 +1172,7 @@ describe('CommandButtons Store', () => {
 
       await store.fetchRunOutput('sess-1', 'r1');
 
-      expect(api.getCommandRun).not.toHaveBeenCalled();
+      expect(api.getCommandRunOutput).not.toHaveBeenCalled();
     });
 
     it('handles API error gracefully', async () => {
@@ -1188,7 +1190,7 @@ describe('CommandButtons Store', () => {
       };
 
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      api.getCommandRun.mockRejectedValue(new Error('Network error'));
+      api.getCommandRunOutput.mockRejectedValue(new Error('Network error'));
 
       await store.fetchRunOutput('sess-1', 'r1');
 
@@ -1219,12 +1221,10 @@ describe('CommandButtons Store', () => {
 
       // Create output with more than 2000 lines
       const longOutput = Array.from({ length: 2500 }, (_, i) => `Line ${i + 1}`).join('\n');
-      api.getCommandRun.mockResolvedValue({
-        runId: 'r1',
-        buttonId: 'b1',
-        status: 'success',
-        output: longOutput,
-        exitCode: 0,
+      api.getCommandRunOutput.mockResolvedValue({
+        chunks: [{ sequence: 1, content: longOutput }],
+        highWater: 1,
+        hasMore: false,
       });
 
       await store.fetchRunOutput('sess-1', 'r1');
@@ -1239,7 +1239,22 @@ describe('CommandButtons Store', () => {
 
       await store.fetchRunOutput('sess-1', 'nonexistent-run-id');
 
-      expect(api.getCommandRun).not.toHaveBeenCalled();
+      expect(api.getCommandRunOutput).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('syncRunOutput', () => {
+    it('bounds each catch-up invocation and preserves its cursor for a later retry', async () => {
+      const store = useCommandButtonsStore();
+      store.runs = { r1: { runId: 'r1', output: '', outputTruncated: false } };
+      api.getCommandRunOutput.mockImplementation(async (_sessionId, _runId, { after }) => ({
+        chunks: [{ sequence: after + 1, content: 'x' }], highWater: after + 1, hasMore: true,
+      }));
+
+      const result = await store.syncRunOutput('sess-1', 'r1');
+
+      expect(api.getCommandRunOutput).toHaveBeenCalledTimes(MAX_SYNC_PAGES_PER_CALL);
+      expect(result).toEqual({ highWater: MAX_SYNC_PAGES_PER_CALL, hasMore: true });
     });
   });
 

@@ -8,6 +8,8 @@ export const WS_MESSAGE_TYPES = {
   UNSUBSCRIBE_SESSION: 'unsubscribe:session',
   SUBSCRIBE_PROJECT: 'subscribe:project',
   UNSUBSCRIBE_PROJECT: 'unsubscribe:project',
+  SUBSCRIBE_COMMAND_RUN_OUTPUT: 'subscribe:command_run_output',
+  UNSUBSCRIBE_COMMAND_RUN_OUTPUT: 'unsubscribe:command_run_output',
 
   // Server -> Client
   SESSION_CREATED: 'session:created',
@@ -38,9 +40,13 @@ export const WS_MESSAGE_TYPES = {
 
   // Command button events
   COMMAND_RUN_OUTPUT: 'command:run:output',
+  COMMAND_RUN_STARTED: 'command:run:started',
   COMMAND_RUN_COMPLETE: 'command:run:complete',
   COMMAND_RUN_ERROR: 'command:run:error',
+  COMMAND_RUN_KILLED: 'command:run:killed',
   COMMAND_RUN_DELETED: 'command:run:deleted',
+  COMMAND_RUN_OUTPUT_SUBSCRIBED: 'command:run:output_subscribed',
+  COMMAND_RUN_OUTPUT_RESYNC_REQUIRED: 'command:run:output_resync_required',
 
   // System metrics events
   SYSTEM_METRICS: 'system:metrics',

@@ -610,34 +610,36 @@ test.describe('WebSocket Communication', () => {
   // ===========================================================================
 
   test.describe('Category 6: Command Events', () => {
-    test('26. command:run:output broadcasts to session subscribers', async () => {
+    test('26. command:run:output broadcasts to explicit run-output subscribers', async () => {
       test.setTimeout(30000);
       const project = await seedProject('WS Cmd Output', process.cwd());
       const session = await seedSession(project.id, { prompt: 'test', startImmediately: false });
       const button = await seedCommandButton(project.id, {
         label: 'Echo Test',
-        command: 'echo "hello world"',
+        command: 'sleep 1; echo "hello world"',
       });
 
       const ws = await connect();
       subscribeToSession(ws, session.id);
       await new Promise(r => setTimeout(r, 100));
 
-      // The server first sends an empty-output "running" broadcast, then sends the actual output.
-      // Use a matcher to skip the initial empty broadcast and wait for real output.
+      const { runId } = await runCommandButton(session.id, button.id);
+      const subscribedPromise = waitForWSMessage(ws, 'command:run:output_subscribed', 10000);
+      ws.send(JSON.stringify({ type: 'subscribe:command_run_output', runId, sessionId: session.id }));
+      await subscribedPromise;
+
       const msgPromise = waitForWSMessage(
         ws,
         'command:run:output',
         20000,
-        (m: any) => m.output && m.output.length > 0
+        (m: any) => m.content && m.content.length > 0
       );
-      await runCommandButton(session.id, button.id);
       const msg = await msgPromise;
 
       expect(msg.type).toBe('command:run:output');
-      expect(msg.sessionId).toBe(session.id);
-      expect(msg.buttonId).toBe(button.id);
-      expect(msg.output).toContain('hello world');
+      expect(msg.runId).toBe(runId);
+      expect(msg.sequence).toBeGreaterThan(0);
+      expect(msg.content).toContain('hello world');
     });
 
     test('27. command:run:complete broadcasts to session subscribers', async () => {

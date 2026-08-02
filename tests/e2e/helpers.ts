@@ -1089,7 +1089,22 @@ export async function runCommandButtonAndWait(
   timeout = 30000
 ) {
   const { runId } = await runCommandButton(sessionId, buttonId);
-  return waitForCommandRunComplete(sessionId, runId, timeout);
+  const run = await waitForCommandRunComplete(sessionId, runId, timeout);
+  const chunks: Array<{ sequence: number; content: string }> = [];
+  let after = 0;
+  let hasMore = true;
+  while (hasMore) {
+    const response = await fetch(
+      `${API_URL}/api/sessions/${sessionId}/circus-commands/runs/${runId}/output?after=${after}&limitBytes=${1024 * 1024}`
+    );
+    if (!response.ok) throw new Error(`Failed to fetch command output: ${response.status}`);
+    const page = await response.json();
+    chunks.push(...page.chunks);
+    hasMore = page.hasMore;
+    if (page.chunks.length) after = page.chunks[page.chunks.length - 1].sequence;
+    else break;
+  }
+  return { ...run, output: chunks.map(chunk => chunk.content).join('') };
 }
 
 /**

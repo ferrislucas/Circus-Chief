@@ -4,7 +4,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { requireRootSessionAndProject } from '../middleware/sessionLookup.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { databaseManager } from '../db/DatabaseManager.js';
-import { broadcastCommandEvent } from './commandEventBroadcast.js';
+import { broadcastCommandEvent, broadcastCommandOutput } from './commandEventBroadcast.js';
 
 // Error message constants
 const ERR_BUTTON_NOT_FOUND = 'Circus Command not found';
@@ -16,11 +16,6 @@ const router = Router();
  * @param {{ sessionId: string, projectId: string, runId: string, buttonId: string }} ctx - Context
  * @param {string} output - Output text
  */
-function broadcastCommandOutput(ctx, output) {
-  const { sessionId, projectId, runId, buttonId } = ctx;
-  broadcastCommandEvent(sessionId, projectId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId, buttonId, output });
-}
-
 /**
  * Broadcast command completion to session and project subscribers.
  * @param {{ sessionId: string, projectId: string, runId: string, buttonId: string }} ctx - Context
@@ -28,10 +23,10 @@ function broadcastCommandOutput(ctx, output) {
  */
 function broadcastCommandComplete(ctx, result) {
   const { sessionId, projectId, runId, buttonId } = ctx;
-  const { exitCode, output } = result;
+  const { exitCode } = result;
   const status = exitCode === 0 ? 'success' : 'error';
   console.log(`[RUN] Command completed for runId: ${runId}, exitCode: ${exitCode}, status: ${status}`);
-  broadcastCommandEvent(sessionId, projectId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, { runId, buttonId, status, exitCode, output });
+  broadcastCommandEvent(sessionId, projectId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, { runId, buttonId, status, exitCode });
 }
 
 /**
@@ -71,15 +66,12 @@ router.post('/:id/circus-commands/:buttonId/run', requireRootSessionAndProject, 
   console.log(`[RUN] Generated runId: ${runId} for command: ${button.command}`);
 
   // Return immediately with runId
-  res.json({ runId, buttonId, status: 'running', output: '' });
+  res.json({ runId, buttonId, status: 'running' });
 
   // Capture middleware values for use in async callbacks
   const projectId = req.rootSession_.projectId;
   const workingDirectory = req.rootWorkingDirectory;
   const ctx = { sessionId, projectId, runId, buttonId };
-
-  // Broadcast initial "running" status immediately so session list can show the running indicator
-  broadcastCommandOutput(ctx, '');
 
   // Execute command asynchronously
   (async () => {
@@ -88,11 +80,11 @@ router.post('/:id/circus-commands/:buttonId/run', requireRootSessionAndProject, 
       await commandRunner.run(
         { runId, command: button.command, workingDirectory },
         {
-          onOutput: (text) => {
-            console.log(`[RUN] Output received for runId: ${runId}`);
-            broadcastCommandOutput(ctx, text);
+          onStarted: () => broadcastCommandEvent(sessionId, projectId, WS_MESSAGE_TYPES.COMMAND_RUN_STARTED, { runId, buttonId, status: 'running' }),
+          onOutputChunk: (chunk) => {
+            broadcastCommandOutput(runId, chunk);
           },
-          onComplete: (exitCode, output) => broadcastCommandComplete(ctx, { exitCode, output }),
+          onComplete: (exitCode) => broadcastCommandComplete(ctx, { exitCode }),
           onError: (message) => broadcastCommandError(ctx, message),
         },
         { sessionId, buttonId }
@@ -136,11 +128,20 @@ router.get('/:id/circus-commands/runs/:runId', requireRootSessionAndProject, (re
     runId: run.id,
     buttonId: run.buttonId,
     status: run.status,
-    output: run.output,
+    hasOutput: run.hasOutput,
+    outputHighWater: run.outputHighWater,
     exitCode: run.exitCode,
     startedAt: run.startedAt,
     completedAt: run.completedAt,
   });
+});
+
+router.get('/:id/circus-commands/runs/:runId/output', requireRootSessionAndProject, (req, res) => {
+  const { runId } = req.params;
+  const run = commandRuns.getById(runId);
+  if (!run || run.sessionId !== req.rootSessionId) return res.status(404).json({ error: 'Run not found' });
+  const page = commandRuns.readAfter(runId, req.query.after, req.query.limitBytes);
+  res.json({ ...page, after: Number(req.query.after) || 0 });
 });
 
 // DELETE /api/sessions/:id/circus-commands/runs/:runId - Delete a command run record
