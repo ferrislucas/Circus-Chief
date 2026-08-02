@@ -298,23 +298,28 @@ export const FORCE_PROACTIVE_RESCHEDULE_ON_ENTER = {
  * `scheduling-reschedule.spec.ts`'s "scheduler starts session when
  * scheduledAt time is reached" test.
  *
- * Clears the schedule and any token-threshold that would otherwise
- * immediately re-trigger a proactive reschedule, then drives a real turn
- * through the UI so the actual production turn-completion / lane-run
- * reconciliation path runs end-to-end.
+ * Clears only the token-threshold that would otherwise immediately re-trigger
+ * a proactive reschedule, then invokes the production scheduler's explicit
+ * run-now hand-off. A chat message is intentionally not used here: messages
+ * sent by a person are interactive and, unless resuming a paused provider
+ * limit, must not declare the worker's own lane work complete.
  */
 export async function resumeScheduledSessionViaUI(
-  page: Page,
+  _page: Page,
   sessionId: string,
   options: { prompt?: string; rescheduleAtTokenCount?: number | null } = {}
 ) {
   const { prompt = VCR_PROMPT, rescheduleAtTokenCount = null } = options;
   await updateSessionScheduling(sessionId, {
-    status: 'waiting',
-    scheduledAt: null,
     rescheduleAtTokenCount,
+    pendingPrompt: prompt,
   });
-  await runFollowUpTurnViaUI(page, sessionId, prompt);
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/run-scheduled-now`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to run scheduled session ${sessionId}: ${response.status} ${await response.text()}`);
+  }
   await waitForStatus(sessionId, 'waiting', 60000);
 }
 

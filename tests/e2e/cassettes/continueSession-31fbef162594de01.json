@@ -1,0 +1,43 @@
+{
+  "prompt": "Claude E2E regression scheduled continuation with replayed conversation context.",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "claude-e2e-regression",
+      "model": "claude-haiku-4-5-20251001"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "delta": {
+          "type": "text_delta",
+          "text": "Claude E2E response."
+        }
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Claude E2E response."
+          }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "usage": {
+        "input_tokens": 12,
+        "output_tokens": 5
+      }
+    }
+  ],
+  "key": "continueSession-31fbef162594de01",
+  "recordedAt": "2026-08-02T00:00:00.000Z"
+}

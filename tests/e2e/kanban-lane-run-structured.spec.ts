@@ -23,6 +23,7 @@ import {
   cardByIdInLane,
   moveCardViaUI,
   resumeScheduledSessionViaUI,
+  runFollowUpTurnViaUI,
 } from './kanbanLaneRunHelpers';
 
 /**
@@ -240,7 +241,10 @@ test.describe('Kanban structured lane runs', () => {
     await expect(cardInProgress.getByText('Paused — provider limit or outage')).toBeVisible();
     await expect(cardInProgress.getByText('Resume', { exact: true })).toBeVisible();
 
-    await resumeScheduledSessionViaUI(page, worker.id);
+    // A graceful provider-limit result is paused, not scheduled. Exercise the
+    // actual user-facing Resume semantics with a successful follow-up turn.
+    await runFollowUpTurnViaUI(page, worker.id);
+    await waitForStatus(worker.id, 'waiting', 60000);
     await expectCardSettlesInLane(project.id, workspace.id, 'Done');
     card = findCardOfSession(await getBoard(project.id), workspace.id);
     expect(card.activeLaneRun).toBeNull();
