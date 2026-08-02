@@ -245,10 +245,10 @@ export async function _doGenerateSummary(sessionId, retryCount = 0, force = fals
     return summary;
   } catch (error) {
     console.error(`[SummaryService] Failed to generate summary for session ${sessionId}:`, {
-      error: error.message,
-      stack: error.stack,
-      sessionId,
+      error: error.isCodexSummaryError ? error.publicMessage : error.message,
+      category: error.code || 'unknown', sessionId,
     });
+    if (userInitiated && error.isCodexSummaryError) throw error;
     return null;
   } finally {
     broadcastGeneratingStatus(sessionId, false);

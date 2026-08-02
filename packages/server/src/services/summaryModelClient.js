@@ -2,16 +2,43 @@ import OpenAI from 'openai';
 import { callClaude, SESSION_SUMMARY_SCHEMA } from './summaryClaudeClient.js';
 import { agentCallLogger } from './agentCallLogger.js';
 import { buildProviderEnv } from './sessionProvider.js';
-import { resolveSummaryModel } from './summaryModelResolver.js';
+import { BUILT_IN_OPENAI_PROVIDER_ID, resolveSummaryModel } from './summaryModelResolver.js';
+import { callCodexSummary } from './summaryCodexClient.js';
 
 export { SESSION_SUMMARY_SCHEMA };
 
 export async function callSummaryModel(prompt, recentMessages, sessionStatus, options = {}) {
   const resolution = options.resolvedModel || resolveSummaryModel(options.summarySettings || {});
+  if (isBuiltInCodexResolution(resolution)) {
+    return callBuiltInCodexSummary(prompt, resolution, options);
+  }
   if (resolution.kind === 'openai') {
     return callOpenAISummaryModel(prompt, resolution, options);
   }
   return callAnthropicSummaryModel({ prompt, recentMessages, sessionStatus, resolution, options });
+}
+
+async function callBuiltInCodexSummary(prompt, resolution, options) {
+  const callId = startOpenAISummaryLog(options.logMeta, resolution, prompt.length, 'codex-cli');
+  try {
+    const result = await callCodexSummary({
+      prompt,
+      systemPrompt: options.systemPrompt,
+      model: resolution.model,
+      jsonSchema: options.jsonSchema || SESSION_SUMMARY_SCHEMA,
+    }, options.codexDependencies);
+    if (callId) agentCallLogger.completeCall(callId, { success: true });
+    return result;
+  } catch (error) {
+    if (callId) agentCallLogger.completeCall(callId, { success: false, error });
+    throw error;
+  }
+}
+
+export function isBuiltInCodexResolution(resolution) {
+  return resolution?.providerId === BUILT_IN_OPENAI_PROVIDER_ID
+    && resolution?.provider?.isBuiltIn === true
+    && resolution?.kind === 'openai';
 }
 
 function callAnthropicSummaryModel({ prompt, recentMessages, sessionStatus, resolution, options }) {
@@ -68,7 +95,7 @@ async function callOpenAISummaryModel(prompt, resolution, options) {
   }
 }
 
-function startOpenAISummaryLog(logMeta, resolution, promptLength) {
+function startOpenAISummaryLog(logMeta, resolution, promptLength, route = 'direct-api') {
   if (!logMeta) return null;
   return agentCallLogger.startCall({
     sessionId: logMeta.sessionId,
@@ -80,6 +107,7 @@ function startOpenAISummaryLog(logMeta, resolution, promptLength) {
     metadata: {
       ...(resolution.providerId ? { providerId: resolution.providerId } : {}),
       ...(resolution.selectionReason ? { selectionReason: resolution.selectionReason } : {}),
+      route,
     },
   });
 }
