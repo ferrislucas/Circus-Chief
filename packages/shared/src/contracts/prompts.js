@@ -6,8 +6,8 @@ export const PromptQuestion = z.object({
   options: z.array(PromptOption).min(2).max(4), multiSelect: z.boolean(),
 });
 export const QuestionPromptResponse = z.object({
-  action: z.enum(['answer', 'skip']), answers: z.record(z.string()).optional(),
-  annotations: z.record(z.unknown()).optional(), response: z.string().optional(), reason: z.string().optional(),
+  action: z.enum(['answer', 'skip']), answers: z.record(z.string(), z.string()).optional(),
+  annotations: z.record(z.string(), z.unknown()).optional(), response: z.string().optional(), reason: z.string().optional(),
 });
 export const PermissionPromptResponse = z.object({
   action: z.enum(['allow', 'always', 'deny']),

@@ -13,4 +13,20 @@ describe('PromptResponse', () => {
       destination: 'projectSettings',
     });
   });
+
+  it('parses a populated answers map and annotations object without throwing', () => {
+    // Regression test: z.record() requires an explicit key schema in Zod v4
+    // (z.record(valueSchema) alone silently builds a broken schema that only
+    // fails once a non-empty record is actually parsed).
+    const result = PromptResponse.parse({
+      action: 'answer',
+      answers: { 'Which deployment target?': 'Staging' },
+      annotations: { 'Which deployment target?': { note: 'Safer default', preview: '## Staging plan' } },
+    });
+    expect(result).toMatchObject({
+      action: 'answer',
+      answers: { 'Which deployment target?': 'Staging' },
+      annotations: { 'Which deployment target?': { note: 'Safer default', preview: '## Staging plan' } },
+    });
+  });
 });

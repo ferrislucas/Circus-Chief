@@ -1,0 +1,60 @@
+{
+  "prompt": "E2E demo: propose a gated config edit that requires permission approval.",
+  "model": "claude-haiku-4-5-20251001",
+  "gatedToolCalls": [
+    {
+      "toolName": "Edit",
+      "input": {
+        "file_path": "packages/server/src/index.js",
+        "old_string": "const PORT = 5000;",
+        "new_string": "const PORT = process.env.PORT || 5000;"
+      },
+      "opts": {
+        "toolUseID": "toolu_demo_permission_1",
+        "agentID": null,
+        "title": "Edit packages/server/src/index.js",
+        "displayName": "Edit",
+        "description": "Make the server port configurable via the PORT environment variable.",
+        "suggestions": [
+          {
+            "type": "addRules",
+            "behavior": "allow",
+            "rules": [
+              {
+                "toolName": "Edit",
+                "ruleContent": "packages/server/src/index.js"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "e2e-demo-permission",
+      "model": "claude-haiku-4-5-20251001"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Applied the edit to make PORT configurable."
+          }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "result": "Applied the edit to make PORT configurable."
+    }
+  ],
+  "key": "runSession-f464dd3f5d0ffcfc",
+  "recordedAt": "2026-08-02T00:00:00.000Z"
+}
