@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { VCRAgentAdapter } from './VCRAgentAdapter.js';
@@ -67,6 +67,24 @@ describe('VCRAgentAdapter', () => {
   });
 
   describe('replay mode', () => {
+    it('replays gated tool calls through the query canUseTool callback', async () => {
+      const key = CassetteStore.buildKey('runSession', 'gated prompt');
+      CassetteStore.save(testCassetteDir, key, {
+        prompt: 'gated prompt',
+        events: [{ type: 'result', subtype: 'success' }],
+        gatedToolCalls: [{ toolName: 'AskUserQuestion', input: { questions: [] }, opts: { toolUseID: 'tool-1' } }],
+      });
+      process.env.VCR_MODE = 'replay';
+      const canUseTool = vi.fn().mockResolvedValue({ behavior: 'allow' });
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      const received = [];
+      for await (const event of adapter.execute({ prompt: 'gated prompt', options: { canUseTool } }, { callType: 'runSession' })) received.push(event);
+
+      expect(canUseTool).toHaveBeenCalledWith('AskUserQuestion', { questions: [] }, { toolUseID: 'tool-1' });
+      expect(received).toEqual([{ type: 'result', subtype: 'success' }]);
+    });
+
     it('should replay from existing cassette', async () => {
       // First, save a cassette
       const key = CassetteStore.buildKey('runSession', 'test prompt');

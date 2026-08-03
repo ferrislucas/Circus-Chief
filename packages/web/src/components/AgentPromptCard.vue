@@ -13,6 +13,7 @@
         v-for="(question, index) in prompt.payload.questions"
         :key="question.question"
         class="mb-4 border-l-2 border-amber-500/50 pl-3"
+        @focusin="focusedQuestion = index"
       >
         <span
           v-if="question.header"
@@ -134,11 +135,11 @@ import DiffViewer from './DiffViewer.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 const props = defineProps({ prompt: { type: Object, default: null }, submitting: Boolean });
 const emit = defineEmits(['respond']);
-const answers = ref({}); const other = ref({}); const freeResponse = ref(''); const reason = ref(''); const destination = ref('session'); const card = ref(null);
+const answers = ref({}); const other = ref({}); const freeResponse = ref(''); const reason = ref(''); const destination = ref('session'); const focusedQuestion = ref(0); const card = ref(null);
 watch(() => props.prompt?.id, async () => {
   answers.value = {};
   for (const question of props.prompt?.payload.questions || []) if (question.multiSelect) answers.value[question.question] = [];
-  other.value = {}; freeResponse.value = ''; reason.value = ''; destination.value = 'session';
+  other.value = {}; freeResponse.value = ''; reason.value = ''; destination.value = 'session'; focusedQuestion.value = 0;
   await nextTick();
   if (typeof card.value?.scrollIntoView === 'function') card.value.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }, { immediate: true });
@@ -169,16 +170,24 @@ function collectAnswers() {
 }
 function submitAnswers() { if (canSubmit.value) respond({ action: 'answer', answers: collectAnswers(), ...(freeResponse.value.trim() ? { response: freeResponse.value.trim() } : {}) }); }
 function chooseOption(index) {
-  const question = props.prompt?.payload.questions?.[0]; const option = question?.options?.[index];
+  const question = props.prompt?.payload.questions?.[focusedQuestion.value]; const option = question?.options?.[index];
   if (!question || !option || props.submitting) return;
   if (question.multiSelect) {
     const selected = answers.value[question.question];
     answers.value[question.question] = selected.includes(option.label) ? selected.filter((label) => label !== option.label) : [...selected, option.label];
   } else answers.value[question.question] = option.label;
 }
+function isTypingTarget(event) {
+  const target = event.target;
+  return target instanceof HTMLElement && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable);
+}
+function promptShortcut(event, action) {
+  if (!props.prompt || props.submitting || isTypingTarget(event)) return;
+  action(event);
+}
 useKeyboardShortcuts({
-  '1': () => chooseOption(0), '2': () => chooseOption(1), '3': () => chooseOption(2), '4': () => chooseOption(3),
-  enter: (event) => { if (props.prompt?.kind === 'question' && canSubmit.value && !props.submitting) { event.preventDefault(); submitAnswers(); } },
-  escape: (event) => { if (props.prompt && !props.submitting) { event.preventDefault(); respond(props.prompt.kind === 'question' ? { action: 'skip' } : { action: 'deny', reason: reason.value }); } },
+  '1': (event) => promptShortcut(event, () => chooseOption(0)), '2': (event) => promptShortcut(event, () => chooseOption(1)), '3': (event) => promptShortcut(event, () => chooseOption(2)), '4': (event) => promptShortcut(event, () => chooseOption(3)),
+  enter: (event) => promptShortcut(event, () => { if (props.prompt.kind === 'question' && canSubmit.value) { event.preventDefault(); submitAnswers(); } }),
+  escape: (event) => promptShortcut(event, () => { event.preventDefault(); respond(props.prompt.kind === 'question' ? { action: 'skip' } : { action: 'deny', reason: reason.value }); }),
 });
 </script>

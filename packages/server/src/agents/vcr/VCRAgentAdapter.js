@@ -43,11 +43,11 @@ export class VCRAgentAdapter {
       if (!cassette) {
         throw new Error(`VCR replay: no cassette found for "${key}"`);
       }
-      yield* this.replay(cassette);
+      yield* this.replay(cassette, queryParams);
     } else if (this.mode === 'auto') {
       const cassette = CassetteStore.load(this.cassetteDir, key);
       if (cassette) {
-        yield* this.replay(cassette);
+        yield* this.replay(cassette, queryParams);
       } else {
         yield* this.record(key, queryParams, meta);
       }
@@ -76,7 +76,12 @@ export class VCRAgentAdapter {
    * @param {object} cassette - Cassette to replay
    * @returns {AsyncGenerator} Generator yielding events
    */
-  async *replay(cassette) {
+  async *replay(cassette, queryParams = {}) {
+    // Prompt interactions are control callbacks in the real SDK, not stream
+    // events. Cassettes model them explicitly so replay follows the live path.
+    for (const gatedCall of cassette.gatedToolCalls || []) {
+      await queryParams.options?.canUseTool?.(gatedCall.toolName, gatedCall.input, gatedCall.opts || {});
+    }
     for (const event of cassette.events) {
       // Small delay to simulate streaming
       await new Promise((resolve) => setTimeout(resolve, 5));

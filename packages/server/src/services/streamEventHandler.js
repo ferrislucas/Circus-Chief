@@ -163,6 +163,12 @@ export async function broadcastChangesUpdate(sessionId, projectId, workingDirect
  * @param {Object} event
  */
 function handleSystemEvent(sessionId, event) {
+  if (event.subtype === 'permission_denied') {
+    const toolName = event.tool_name || event.toolName || 'Unknown tool';
+    const reason = event.error || event.message || event.reason || 'Permission was denied.';
+    createWorkLog(sessionId, 'tool_output', `Permission denied for ${toolName}: ${typeof reason === 'string' ? reason : JSON.stringify(reason)}`, toolName);
+    return;
+  }
   // Store Claude's session info
   if (event.subtype !== 'init') return;
 

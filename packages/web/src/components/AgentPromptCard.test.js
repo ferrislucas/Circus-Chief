@@ -24,4 +24,24 @@ describe('AgentPromptCard', () => {
     await wrapper.get('textarea').setValue('Some context');
     expect(wrapper.get('button').attributes('disabled')).toBeDefined();
   });
+
+  it('does not apply prompt shortcuts while typing in a text field', async () => {
+    const onRespond = vi.fn();
+    const singleQuestion = { id: 'prompt-shortcuts', kind: 'question', payload: { questions: [{ question: 'Choose', options: [{ label: 'A', description: 'first' }] }] } };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: singleQuestion, onRespond } });
+
+    const other = wrapper.get('input[placeholder="Other…"]');
+    await other.trigger('keydown', { key: '1' });
+    await other.trigger('keydown', { key: 'Enter' });
+
+    expect(wrapper.get('input[type="radio"]').element.checked).toBe(false);
+    expect(onRespond).not.toHaveBeenCalled();
+  });
+
+  it('keeps shortcuts inactive when no prompt is displayed', async () => {
+    const onRespond = vi.fn();
+    mount(AgentPromptCard, { props: { prompt: null, onRespond } });
+    await document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(onRespond).not.toHaveBeenCalled();
+  });
 });

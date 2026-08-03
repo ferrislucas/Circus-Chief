@@ -26,6 +26,7 @@ import {
   cleanupSessionState,
   broadcastSessionStatus,
 } from './streamEventHandler.js';
+import { cancelPrompt } from './promptStore.js';
 // Import execution helpers from sessionExecution.js
 import {
   createAgentForSession,
@@ -362,7 +363,6 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
  * @param {string} sessionId
  */
 export async function stopSession(sessionId) {
-  const { cancelPrompt } = await import('./promptStore.js');
   cancelPrompt(sessionId);
   const sessionData = activeSessions.get(sessionId);
 
@@ -397,10 +397,9 @@ export function restartSession(sessionId) {
  * @returns {boolean} true if session was active and cleaned up
  */
 export function cleanupActiveSession(sessionId) {
-  // Dynamic import is not suitable for this synchronous cleanup hook; cancellation also
-  // occurs through the controller's AbortSignal registered by the prompt store.
   const sessionData = activeSessions.get(sessionId);
   if (sessionData) {
+    cancelPrompt(sessionId);
     sessionData.controller.abort();
     activeSessions.delete(sessionId);
     return true;

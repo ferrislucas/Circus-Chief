@@ -1834,6 +1834,16 @@ describe('streamEventHandler', () => {
       expect(sessions.touch).not.toHaveBeenCalled();
     });
 
+    it('renders system permission_denied events as a visible work log', async () => {
+      await handleStreamEvent('sess-1', {
+        type: 'system', subtype: 'permission_denied', tool_name: 'Bash', error: 'Command was denied',
+      });
+
+      expect(workLogs.create).toHaveBeenCalledWith(
+        'sess-1', 'tool_output', expect.stringContaining('Command was denied'), { messageId: null, toolName: 'Bash' }
+      );
+    });
+
     it('creates and broadcasts visible assistant messages for final result errors', async () => {
       sessions.getById.mockReturnValue({ agentType: 'codex', projectId: 'proj-1' });
       activeConversationIds.set('sess-1', 'conv-1');

@@ -7,7 +7,6 @@ import { broadcastToSession } from '../websocket.js';
 import { createWorkLog } from './workLogService.js';
 import {
   cancelPrompt,
-  describePromptOutcome,
   getPrompt,
   parkPrompt,
   respondToPrompt,
@@ -86,8 +85,13 @@ describe('promptStore work-log emission', () => {
     expect(createWorkLog).toHaveBeenCalledTimes(1);
   });
 
-  it('describes a cancelled question using its user-visible denial message', () => {
-    expect(describePromptOutcome({ kind: 'question' }, 'cancelled', { message: 'Session was cancelled.' }))
-      .toEqual({ toolName: 'AskUserQuestion', content: 'User did not answer: Session was cancelled.' });
+  it('logs the user-visible cancellation wording for question prompts', async () => {
+    const cancelled = park('question-cancelled', 'question');
+    cancelPrompt('question-cancelled');
+    await cancelled.promise;
+
+    expect(createWorkLog).toHaveBeenCalledWith(
+      'question-cancelled', 'tool_output', 'User did not answer: Session was cancelled.', 'AskUserQuestion'
+    );
   });
 });

@@ -23,7 +23,7 @@ function settle(record, outcome, result) {
   return true;
 }
 
-export function describePromptOutcome(record, outcome, result) {
+function describePromptOutcome(record, outcome, result) {
   if (record.kind === 'question') {
     if (outcome === 'answer') {
       const answers = Object.entries(result.updatedInput?.answers || {})
