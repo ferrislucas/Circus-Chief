@@ -105,9 +105,43 @@ describe('KanbanLaneRepository', () => {
 
       expect(lane.completionTargetLaneId).toBeNull();
     });
+
+    it('creates a lane with structured completion mode (W2: activation no longer gated)', () => {
+      const lane = laneRepo.create(boardId, { name: 'Structured Lane', completionMode: 'structured' });
+
+      expect(lane.completionMode).toBe('structured');
+    });
+
+    it('defaults completionMode to legacy when omitted', () => {
+      const lane = laneRepo.create(boardId, { name: 'Plain Lane' });
+
+      expect(lane.completionMode).toBe('legacy');
+    });
+
+    it('derives structured completion from a target unless an explicit mode is supplied', () => {
+      const target = laneRepo.create(boardId, { name: 'Target' });
+      expect(laneRepo.create(boardId, { name: 'Derived', completionTargetLaneId: target.id }))
+        .toEqual(expect.objectContaining({ completionTargetLaneId: target.id, completionMode: 'structured' }));
+      expect(laneRepo.create(boardId, { name: 'Explicit legacy', completionTargetLaneId: target.id, completionMode: 'legacy' }).completionMode)
+        .toBe('legacy');
+      expect(laneRepo.create(boardId, { name: 'Explicit structured', completionMode: 'structured' }).completionMode)
+        .toBe('structured');
+    });
   });
 
   describe('update', () => {
+    it('persists structured completion mode (W2: activation no longer gated)', () => {
+      const lane = laneRepo.create(boardId, { name: 'Workflow lane' });
+      const updated = laneRepo.update(lane.id, { completionMode: 'structured' });
+      expect(updated.completionMode).toBe('structured');
+    });
+
+    it('persists shadow completion mode', () => {
+      const lane = laneRepo.create(boardId, { name: 'Shadow lane' });
+      const updated = laneRepo.update(lane.id, { completionMode: 'shadow' });
+      expect(updated.completionMode).toBe('shadow');
+    });
+
     it('updates lane name', () => {
       const lane = laneRepo.create(boardId, { name: 'Original' });
       const updated = laneRepo.update(lane.id, { name: 'Updated' });
@@ -166,6 +200,32 @@ describe('KanbanLaneRepository', () => {
       const updated = laneRepo.update(source.id, { completionTargetLaneId: null });
 
       expect(updated.completionTargetLaneId).toBeNull();
+    });
+
+    it('reverts completionMode to legacy when the completion target is cleared without an explicit mode (F3)', () => {
+      const source = laneRepo.create(boardId, { name: 'Source' });
+      const target = laneRepo.create(boardId, { name: 'Target' });
+      const withTarget = laneRepo.update(source.id, { completionTargetLaneId: target.id });
+      expect(withTarget.completionMode).toBe('structured');
+
+      const cleared = laneRepo.update(source.id, { completionTargetLaneId: null });
+
+      expect(cleared.completionTargetLaneId).toBeNull();
+      expect(cleared.completionMode).toBe('legacy');
+    });
+
+    it('honors an explicit completionMode when clearing the completion target (F3 boundary)', () => {
+      const source = laneRepo.create(boardId, { name: 'Source' });
+      const target = laneRepo.create(boardId, { name: 'Target' });
+      laneRepo.update(source.id, { completionTargetLaneId: target.id });
+
+      const cleared = laneRepo.update(source.id, {
+        completionTargetLaneId: null,
+        completionMode: 'shadow',
+      });
+
+      expect(cleared.completionTargetLaneId).toBeNull();
+      expect(cleared.completionMode).toBe('shadow');
     });
 
     it('returns unchanged lane when no updates provided', () => {

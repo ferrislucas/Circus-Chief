@@ -2031,8 +2031,7 @@ describe('summaryService', () => {
     });
 
     it('regenerateSummary for a parent with descendants works when disableSessionSummaries is true', async () => {
-      const child = sessions.create(projectId, 'Disabled merge child', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Disabled merge child', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
       sessionSummaries.create(child.id, {
         shortSummary: 'Child completed',
         fullSummary: 'Child completed full',
@@ -2143,8 +2142,7 @@ describe('summaryService', () => {
     it('getSummary with generateIfMissing=false returns existing summary without repairing stale descendant projection', async () => {
       // Issue #3 fix: getSummary(sessionId, false) must NOT perform write-on-read repairs
       // even when the descendant state is stale.
-      const child = sessions.create(projectId, 'Disabled read child', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Disabled read child', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
       sessionSummaries.create(sessionId, {
         shortSummary: 'Parent own',
         fullSummary: 'Parent own full',
@@ -2373,8 +2371,7 @@ describe('summaryService', () => {
 
     it('onSessionComplete skips all summary work for child sessions when disabled', async () => {
       // Create a child session
-      const childSession = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
-      sessions.update(childSession.id, { parentSessionId: sessionId });
+      const childSession = sessions.create(projectId, 'Child Session', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
 
       // Add enough messages for the child
       messages.create(childSession.id, 'assistant', 'Child response 1');
@@ -2407,8 +2404,7 @@ describe('summaryService', () => {
 
     it('propagateToParent does not generate parent summary when disabled', async () => {
       // Create a child session
-      const childSession = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
-      sessions.update(childSession.id, { parentSessionId: sessionId });
+      const childSession = sessions.create(projectId, 'Child Session', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
 
       // Disable session summaries
       settings.setSummarySettings({ disableSessionSummaries: true });
@@ -3012,8 +3008,7 @@ describe('summaryService', () => {
       messages.create(parentSession.id, 'user', 'Parent follow-up');
 
       // Create a child session with parentSessionId set
-      const childSession = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
-      sessions.update(childSession.id, { parentSessionId: parentSession.id });
+      const childSession = sessions.create(projectId, 'Child Session', 'Child prompt', { mode: 'standard', parentSessionId: parentSession.id });
 
       vi.clearAllMocks();
 
@@ -3217,8 +3212,7 @@ describe('summaryService', () => {
   describe('workflow fingerprint persistence', () => {
     it('stores workflowFingerprint in generated summary when session has descendants', async () => {
       // Create a child session
-      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Child Session', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
       messages.create(child.id, 'assistant', 'Child response');
       const childMessages = messages.getBySessionId(child.id);
       const lastChildMessage = childMessages.at(-1);
@@ -3260,8 +3254,7 @@ describe('summaryService', () => {
         )
         .run(lowMsgSessionId, projectId, 'Low Message Root', 'running', 'standard', now, now);
 
-      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: lowMsgSessionId });
+      const child = sessions.create(projectId, 'Child', 'Child prompt', { mode: 'standard', parentSessionId: lowMsgSessionId });
       const childMessages = messages.getBySessionId(child.id);
       const lastChildMessage = childMessages.at(-1);
       sessionSummaries.create(child.id, {
@@ -3336,8 +3329,7 @@ describe('summaryService', () => {
       messages.create(root.id, 'assistant', 'Root response');
       messages.create(root.id, 'user', 'Root follow-up');
 
-      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: root.id });
+      const child = sessions.create(projectId, 'Child Session', 'Child prompt', { mode: 'standard', parentSessionId: root.id });
 
       const data = {
         shortSummary: 'Child-triggered manual save',
@@ -3395,8 +3387,7 @@ describe('summaryService', () => {
       messages.create(root.id, 'assistant', 'Root response 1');
       messages.create(root.id, 'user', 'Root follow-up');
 
-      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: root.id });
+      const child = sessions.create(projectId, 'Child', 'Child prompt', { mode: 'standard', parentSessionId: root.id });
       const childMessages = messages.getBySessionId(child.id);
       const lastChildMessage = childMessages.at(-1);
       sessionSummaries.create(child.id, {
@@ -3613,8 +3604,7 @@ describe('summaryService', () => {
 
   describe('parent propagation gating', () => {
     it('rebuilds parent visible fields from owned state and replaces stale child fields', () => {
-      const child = sessions.create(projectId, 'Child replacement', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Child replacement', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
 
       sessionSummaries.create(sessionId, {
         shortSummary: 'Parent visible',
@@ -3661,8 +3651,7 @@ describe('summaryService', () => {
     });
 
     it('uses owned context for own-message generation without descendant prompt context', async () => {
-      const child = sessions.create(projectId, 'Child prompt isolation', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Child prompt isolation', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
       sessionSummaries.create(child.id, {
         shortSummary: 'Child-only summary',
         fullSummary: 'Child-only full summary',
@@ -3700,8 +3689,7 @@ describe('summaryService', () => {
     });
 
     it('does not feed legacy merged parent summaries back into own-message generation', async () => {
-      const child = sessions.create(projectId, 'Legacy prompt child', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Legacy prompt child', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
       sessionSummaries.create(child.id, {
         shortSummary: 'Child-only legacy summary',
         fullSummary: 'Child-only legacy full summary',
@@ -3732,8 +3720,7 @@ describe('summaryService', () => {
     });
 
     it('persists owned LLM output and keeps visible parent summary merged with descendants', async () => {
-      const child = sessions.create(projectId, 'Child visible merge', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Child visible merge', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
       sessionSummaries.create(child.id, {
         shortSummary: 'Child done',
         fullSummary: 'Child full',
@@ -3757,8 +3744,7 @@ describe('summaryService', () => {
     });
 
     it('propagates child updates to ancestors without calling the summary model', async () => {
-      const child = sessions.create(projectId, 'Child zero llm', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Child zero llm', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
       sessionSummaries.create(sessionId, {
         shortSummary: 'Parent own',
         fullSummary: 'Parent own full',
@@ -3788,8 +3774,7 @@ describe('summaryService', () => {
     });
 
     it('does not mark parent projection fresh when a child has unsummarized messages', async () => {
-      const child = sessions.create(projectId, 'Child unsummarized', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Child unsummarized', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
       const childMessages = messages.getBySessionId(child.id);
       const lastChildMessage = childMessages.at(-1);
       sessionSummaries.create(child.id, {
@@ -3815,8 +3800,7 @@ describe('summaryService', () => {
     });
 
     it('describes errored child orchestrator work as failed', () => {
-      const child = sessions.create(projectId, 'Errored child', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId, status: 'error' });
+      const child = sessions.create(projectId, 'Errored child', 'Child prompt', { mode: 'standard', parentSessionId: sessionId, status: 'error' });
       sessionSummaries.create(child.id, {
         shortSummary: 'Child failed',
         fullSummary: 'Child failed full',
@@ -3835,8 +3819,7 @@ describe('summaryService', () => {
     });
 
     it('does not treat legacy visible structured fields as parent-owned during deterministic merge', () => {
-      const child = sessions.create(projectId, 'Legacy child', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Legacy child', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
       sessionSummaries.create(sessionId, {
         shortSummary: 'Legacy parent',
         fullSummary: 'Legacy parent full',
@@ -3863,8 +3846,7 @@ describe('summaryService', () => {
     });
 
     it('getSummary with generateIfMissing generates real own content over a stale synthetic parent summary', async () => {
-      const child = sessions.create(projectId, 'Synthetic child', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Synthetic child', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
       sessionSummaries.create(child.id, {
         shortSummary: 'Child-only contribution',
         fullSummary: 'Child-only full',
@@ -3892,8 +3874,7 @@ describe('summaryService', () => {
 
     it('calls propagateToParent on first child summary creation', async () => {
       // Set up a child session under the main sessionId
-      const child = sessions.create(projectId, 'Child for propagation', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Child for propagation', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
       messages.create(child.id, 'assistant', 'Child response 1');
       messages.create(child.id, 'user', 'Child message 2');
 
@@ -3913,8 +3894,7 @@ describe('summaryService', () => {
     });
 
     it('calls propagateToParent when child semantic summary content changes', async () => {
-      const child = sessions.create(projectId, 'Child semantic change', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Child semantic change', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
       messages.create(child.id, 'assistant', 'Child initial response');
       messages.create(child.id, 'user', 'Child follow-up');
 
@@ -3942,8 +3922,7 @@ describe('summaryService', () => {
     });
 
     it('does not call propagateToParent when child summary semantic content is unchanged', async () => {
-      const child = sessions.create(projectId, 'Child no-change', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Child no-change', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
       messages.create(child.id, 'assistant', 'Child response');
       messages.create(child.id, 'user', 'Child follow-up');
 
@@ -3984,8 +3963,7 @@ describe('summaryService', () => {
     });
 
     it('parent propagation still respects global disableSessionSummaries', async () => {
-      const child = sessions.create(projectId, 'Child disabled', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Child disabled', 'Child prompt', { mode: 'standard', parentSessionId: sessionId });
       messages.create(child.id, 'assistant', 'Child response');
       messages.create(child.id, 'user', 'Child follow-up');
 
@@ -4016,8 +3994,7 @@ describe('summaryService', () => {
         )
         .run(lowMsgRootId, projectId, 'Low Msg Root', 'running', 'standard', now, now);
 
-      const child = sessions.create(projectId, 'Child under low root', 'prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: lowMsgRootId });
+      const child = sessions.create(projectId, 'Child under low root', 'prompt', { mode: 'standard', parentSessionId: lowMsgRootId });
       const childMessages = messages.getBySessionId(child.id);
       const lastChildMessage = childMessages.at(-1);
       sessionSummaries.create(child.id, {
@@ -4051,8 +4028,7 @@ describe('summaryService', () => {
   describe('getSummary — write-on-read guard (Issue #3)', () => {
     it('does not update the DB when generateIfMissing=false and descendant state is stale', async () => {
       // Set up parent + child with a stale fingerprint
-      const child = sessions.create(projectId, 'Stale child', 'child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Stale child', 'child prompt', { mode: 'standard', parentSessionId: sessionId });
 
       // Build parent summary (captures current fingerprint)
       const initial = buildMergedParentSummary(sessionId);
@@ -4082,8 +4058,7 @@ describe('summaryService', () => {
     });
 
     it('updates the DB when generateIfMissing=true and descendant state is stale', async () => {
-      const child = sessions.create(projectId, 'Stale child for repair', 'child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Stale child for repair', 'child prompt', { mode: 'standard', parentSessionId: sessionId });
 
       // Build initial parent summary
       const initial = buildMergedParentSummary(sessionId);
@@ -4114,8 +4089,7 @@ describe('summaryService', () => {
 
   describe('getOwnSummaryParts ?? fix (Issue #4)', () => {
     it('preserves ownShortSummary empty string rather than converting it to null', () => {
-      const child = sessions.create(projectId, 'Child for ?? fix', 'child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Child for ?? fix', 'child prompt', { mode: 'standard', parentSessionId: sessionId });
       sessionSummaries.upsert(child.id, {
         shortSummary: 'Child done',
         fullSummary: 'Child full',
@@ -4140,8 +4114,7 @@ describe('summaryService', () => {
     });
 
     it('preserves ownOutcome empty string rather than converting it to null', () => {
-      const child = sessions.create(projectId, 'Child for ownOutcome ?? fix', 'child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId: sessionId });
+      const child = sessions.create(projectId, 'Child for ownOutcome ?? fix', 'child prompt', { mode: 'standard', parentSessionId: sessionId });
       sessionSummaries.upsert(child.id, {
         shortSummary: 'Child done',
         fullSummary: 'Child full',

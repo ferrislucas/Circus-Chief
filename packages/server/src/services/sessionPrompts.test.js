@@ -32,6 +32,7 @@ import {
 } from './sessionPrompts.js';
 import { getApiBaseUrl } from './apiBaseUrl.js';
 import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
+import { readFileSync } from 'node:fs';
 
 describe('sessionPrompts', () => {
   beforeEach(() => {
@@ -415,20 +416,45 @@ describe('sessionPrompts', () => {
       expect(result).toContain('Add a Session to this Workspace');
       expect(result).toContain('/api/workspaces/');
       expect(result).toContain('/sessions');
-      // Prompt is still the only required field
+      // Prompt is the only required field for workspace creation
       expect(result).toContain('-d \'{"prompt": "Your task description here"}\'');
       expect(result).toContain('Only `prompt` is required');
-      // parentSessionId is NOT exposed as an agent-facing field
-      expect(result).not.toContain('`parentSessionId`');
+      // parentSessionId IS exposed and required for adding a session to a workspace
+      expect(result).toContain('`parentSessionId`');
       // Model and other optional fields still documented
       expect(result).toContain('`model`');
       expect(result).toContain('`startImmediately`');
     });
 
-    it('instructs agent to pass afterSessionId to chain sessions', () => {
+    it('instructs agent to pass a required parentSessionId to chain sessions', () => {
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
-      expect(result).toContain('afterSessionId');
+      expect(result).toContain('parentSessionId');
+      expect(result).not.toContain('afterSessionId');
       expect(result).toContain(sessionId); // current session ID as the example value
+    });
+
+    it('omits workflow completion instructions when the session is not a lane-run participant', () => {
+      sessions.getById.mockReturnValue({ id: sessionId, laneRunId: null });
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+      expect(result).not.toContain('Workflow Completion');
+      expect(result).not.toContain('/workflow/complete');
+    });
+
+    it('does not document an agent-invoked completion endpoint for lane runs', () => {
+      sessions.getById.mockReturnValue({ id: sessionId, laneRunId: 'lane-run-1' });
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+      expect(result).not.toContain('Workflow Completion');
+      expect(result).not.toContain('/workflow/complete');
+      expect(result).not.toContain('workflowTurnToken');
+    });
+
+    it('keeps the agent system-prompt reference aligned with the shipped API', () => {
+      const reference = readFileSync(new URL('../../../../docs/agent-system-prompt.md', import.meta.url), 'utf8');
+
+      expect(reference).not.toContain('/workflow/complete');
+      expect(reference).not.toContain('workflowTurnToken');
+      expect(reference).not.toContain('buildWorkflowCompletionInstructions');
+      expect(reference).toContain('A plain successful turn end means the worker\'s own work is complete');
     });
 
     it('uses a future-safe placeholder in the session schedule example', () => {

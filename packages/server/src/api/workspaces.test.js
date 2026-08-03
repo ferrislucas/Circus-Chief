@@ -223,54 +223,79 @@ describe('Workspace facade API', () => {
   // POST /api/workspaces/:workspaceId/sessions
   // ---------------------------------------------------------------------------
   describe('POST /api/workspaces/:workspaceId/sessions', () => {
-    it('attaches new session at the workspace root by default', async () => {
+    it('attaches new session directly to the explicit workspace root parentSessionId', async () => {
       const root = sessions.create(project.id, 'Root', 'root');
 
       const res = await request(app)
         .post(`/api/workspaces/${root.id}/sessions`)
-        .send({ prompt: 'Continue from root' })
+        .send({ prompt: 'Continue from root', parentSessionId: root.id })
         .expect(201);
 
       expect(res.body.parentSessionId).toBe(root.id);
       expect(res.body.projectId).toBe(project.id);
     });
 
-    it('attaches after afterSessionId when it belongs to the workspace', async () => {
+    it('attaches to parentSessionId when it belongs to the workspace', async () => {
       const root = sessions.create(project.id, 'Root', 'root');
       const child = sessions.create(project.id, 'Child', 'child', { parentSessionId: root.id });
 
       const res = await request(app)
         .post(`/api/workspaces/${root.id}/sessions`)
-        .send({ prompt: 'Chain from child', afterSessionId: child.id })
+        .send({ prompt: 'Chain from child', parentSessionId: child.id })
         .expect(201);
 
       expect(res.body.parentSessionId).toBe(child.id);
     });
 
-    it('falls back to root when afterSessionId is from a different workspace', async () => {
+    it('rejects parentSessionId from a different workspace', async () => {
       const root = sessions.create(project.id, 'Root', 'root');
       const otherRoot = sessions.create(project.id, 'Other root', 'other');
 
       const res = await request(app)
         .post(`/api/workspaces/${root.id}/sessions`)
-        .send({ prompt: 'Fallback test', afterSessionId: otherRoot.id })
-        .expect(201);
+        .send({ prompt: 'Cross-workspace test', parentSessionId: otherRoot.id })
+        .expect(400);
 
-      // afterSessionId belongs to a different workspace → falls back to root
-      expect(res.body.parentSessionId).toBe(root.id);
+      expect(res.body.error).toBe('Parent session does not belong to this workspace');
+      expect(sessions.getByProjectId(project.id)).toHaveLength(2);
     });
 
-    it('normalises a child workspace ID to its root (forgiving)', async () => {
+    it('rejects a completely unknown parentSessionId', async () => {
+      const root = sessions.create(project.id, 'Root', 'root');
+      const unknownId = '00000000-0000-4000-a000-000000000099';
+
+      const res = await request(app)
+        .post(`/api/workspaces/${root.id}/sessions`)
+        .send({ prompt: 'Unknown parent', parentSessionId: unknownId })
+        .expect(404);
+
+      expect(res.body.error).toBe('Parent session not found');
+      expect(sessions.getByProjectId(project.id)).toHaveLength(1);
+    });
+
+    it('returns 400 when parentSessionId is missing', async () => {
+      const root = sessions.create(project.id, 'Root', 'root');
+
+      const res = await request(app)
+        .post(`/api/workspaces/${root.id}/sessions`)
+        .send({ prompt: 'No parent given' })
+        .expect(400);
+
+      expect(sessions.getByProjectId(project.id)).toHaveLength(1);
+      expect(res.body.error).toBeTruthy();
+    });
+
+    it('normalises a child workspace ID to its root when resolving the workspace', async () => {
       const root = sessions.create(project.id, 'Root', 'root');
       const child = sessions.create(project.id, 'Child', 'child', { parentSessionId: root.id });
 
-      // Pass child ID as workspace ID — should resolve to root
+      // Pass child ID as workspace ID — should resolve to root, but the
+      // explicit parentSessionId still determines the direct parent.
       const res = await request(app)
         .post(`/api/workspaces/${child.id}/sessions`)
-        .send({ prompt: 'Via child id' })
+        .send({ prompt: 'Via child id', parentSessionId: root.id })
         .expect(201);
 
-      // Parent should be the root (since no afterSessionId was given)
       expect(res.body.parentSessionId).toBe(root.id);
     });
 
@@ -280,7 +305,7 @@ describe('Workspace facade API', () => {
 
       const res = await request(app)
         .post(`/api/workspaces/${root.id}/sessions`)
-        .send({ prompt: 'Future session', scheduledAt })
+        .send({ prompt: 'Future session', parentSessionId: root.id, scheduledAt })
         .expect(201);
 
       expect(res.body.status).toBe('scheduled');
@@ -292,7 +317,7 @@ describe('Workspace facade API', () => {
 
       await request(app)
         .post(`/api/workspaces/${root.id}/sessions`)
-        .send({ prompt: 'Broadcast check' })
+        .send({ prompt: 'Broadcast check', parentSessionId: root.id })
         .expect(201);
 
       expect(broadcastToProject).toHaveBeenCalledWith(
@@ -307,14 +332,14 @@ describe('Workspace facade API', () => {
 
       await request(app)
         .post(`/api/workspaces/${root.id}/sessions`)
-        .send({})
+        .send({ parentSessionId: root.id })
         .expect(400);
     });
 
     it('returns 404 for unknown workspace ID', async () => {
       await request(app)
         .post('/api/workspaces/00000000-0000-0000-0000-000000000000/sessions')
-        .send({ prompt: 'Nope' })
+        .send({ prompt: 'Nope', parentSessionId: '00000000-0000-4000-a000-000000000001' })
         .expect(404);
     });
   });
@@ -359,21 +384,33 @@ describe('Workspace facade API', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // afterSessionId edge cases (#5)
+  // parentSessionId contract edge cases (#5)
   // ---------------------------------------------------------------------------
-  describe('afterSessionId edge cases', () => {
-    it('falls back to root when afterSessionId is a completely unknown UUID', async () => {
+  describe('parentSessionId contract edge cases', () => {
+    it('rejects the retired afterSessionId field name outright, even alongside a valid parentSessionId', async () => {
+      // Includes a valid parentSessionId so this proves afterSessionId itself
+      // is rejected, not merely that parentSessionId was missing.
       const root = sessions.create(project.id, 'Root', 'root');
-      // A well-formed UUIDv4 that is guaranteed not to exist in the database
-      const unknownId = '00000000-0000-4000-a000-000000000099';
 
       const res = await request(app)
         .post(`/api/workspaces/${root.id}/sessions`)
-        .send({ prompt: 'Unknown after id', afterSessionId: unknownId })
-        .expect(201);
+        .send({ prompt: 'Legacy field name', parentSessionId: root.id, afterSessionId: root.id })
+        .expect(400);
 
-      // Unknown session → falls back to workspace root
-      expect(res.body.parentSessionId).toBe(root.id);
+      expect(sessions.getByProjectId(project.id)).toHaveLength(1);
+      expect(res.body.error).toBeTruthy();
+    });
+
+    it('rejects the retired afterSessionId field name when parentSessionId is missing', async () => {
+      const root = sessions.create(project.id, 'Root', 'root');
+
+      const res = await request(app)
+        .post(`/api/workspaces/${root.id}/sessions`)
+        .send({ prompt: 'Legacy field name', afterSessionId: root.id })
+        .expect(400);
+
+      expect(sessions.getByProjectId(project.id)).toHaveLength(1);
+      expect(res.body.error).toBeTruthy();
     });
   });
 });

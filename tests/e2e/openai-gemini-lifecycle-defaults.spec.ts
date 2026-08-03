@@ -65,7 +65,7 @@ test.describe('OpenAI built-in catalog lifecycle defaults', () => {
     const session = await seedSession(project.id, {
       prompt: 'Test OpenAI lifecycle defaults in model selector',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
     await waitForSessionReady(session.id);
@@ -99,7 +99,7 @@ test.describe('OpenAI built-in catalog lifecycle defaults', () => {
       prompt: 'Existing session pinned to retired gpt-5.5',
       model: 'gpt-5.5',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
     await waitForSessionReady(session.id);
@@ -155,7 +155,7 @@ test.describe('Gemini built-in catalog lifecycle defaults', () => {
     const session = await seedSession(project.id, {
       prompt: 'Test Gemini lifecycle defaults in model selector',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
     await waitForSessionReady(session.id);

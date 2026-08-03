@@ -84,11 +84,14 @@ class SchedulerService {
    * @returns {boolean} true if started, false if gated off
    */
   startIfEnabled(sessionManager, env = process.env) {
+    // Keep the execution dependency available even when periodic polling is
+    // disabled (notably in VCR-backed E2E runs). Explicit "run now" requests
+    // still need to use the exact same scheduler hand-off as a due session.
+    this.initialize(sessionManager);
     if (env.VCR_MODE && env.VCR_MODE.length > 0) {
       console.log('[SchedulerService] VCR_MODE set, scheduler disabled');
       return false;
     }
-    this.initialize(sessionManager);
     this.start();
     return true;
   }

@@ -7,6 +7,7 @@ import {
   applySessionFilters,
   mapTokenUsage,
   mapScheduling,
+  mapWorkflow,
   parseCreateConfig,
   buildUpdateClauses,
   DEFAULT_AGENT_TYPE,
@@ -54,6 +55,7 @@ export class SessionRepository extends BaseRepository {
       ...mapScheduling(row),
       // Kanban fields
       laneTriggerDepth: row.lane_trigger_depth || 0,
+      ...mapWorkflow(row),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       lastActivityAt: row.last_activity_at ?? null,
@@ -91,27 +93,31 @@ export class SessionRepository extends BaseRepository {
 
     const id = databaseManager.generateId();
     const now = Date.now();
+    // Resolve workflow lineage before insertion; children are never parented outside a run.
+    const parentWorkflow = config.parentSessionId
+      ? this.db.prepare('SELECT lane_run_id, own_work_state FROM sessions WHERE id = ?').get(config.parentSessionId)
+      : null;
+    if (parentWorkflow?.lane_run_id) {
+      if (parentWorkflow.own_work_state !== 'open') {
+        throw new Error('Cannot create a child from a terminal workflow session');
+      }
+      // FR-3.6/W7: reject late children under a run that has already gone
+      // terminal or been superseded (e.g. a manual move superseded the run
+      // while this parent's own own_work_state row was never touched).
+      const runStatus = this.db.prepare('SELECT status FROM kanban_lane_runs WHERE id = ?').get(parentWorkflow.lane_run_id)?.status;
+      if (runStatus && runStatus !== 'open') {
+        throw new Error('Cannot create a child under a terminal or superseded lane run');
+      }
+    }
+    const laneRunId = parentWorkflow?.lane_run_id || null;
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, provider_id, effort_level, agent_type, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, provider_id, effort_level, agent_type, lane_run_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(
-        id,
-        projectId,
-        name,
-        config.status,
-        config.mode,
-        config.thinkingEnabled ? 1 : 0,
-        config.gitBranch,
-        config.parentSessionId,
-        config.model,
-        config.providerId,
-        config.effortLevel,
-        agentType,
-        now,
-        now
-      );
+      .run(id, projectId, name, config.status, config.mode, config.thinkingEnabled ? 1 : 0,
+        config.gitBranch, config.parentSessionId, config.model, config.providerId, config.effortLevel,
+        agentType, laneRunId, now, now);
 
     // Create initial conversation
     const conversation = conversations.create(id, 'Initial', true);

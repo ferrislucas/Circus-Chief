@@ -146,4 +146,86 @@ export const kanbanMigrations = [
       }
     },
   },
+  {
+    name: 'kanban-add-lane-run-workflow',
+    up(db) {
+      addColumnIfMissing(db, 'kanban_lanes', 'completion_mode', "TEXT NOT NULL DEFAULT 'legacy'");
+      addColumnIfMissing(db, 'kanban_cards', 'active_lane_run_id', 'TEXT');
+      addColumnIfMissing(db, 'kanban_cards', 'lane_entry_event_id', 'TEXT');
+      // Note: this intentionally does NOT (re-)create workflow_turn_token,
+      // completion_requested_turn_token, completion_request_key, or
+      // completion_requested_at. Those belonged to the removed agent-driven
+      // workflow-complete apparatus, never carried data, and are dropped by
+      // kanban-drop-agent-workflow-completion-tokens below for any existing
+      // database that still has them from before this cleanup.
+      for (const [column, definition] of Object.entries({
+        lane_run_id: 'TEXT', own_work_state: "TEXT NOT NULL DEFAULT 'open'",
+        own_work_closed_at: 'INTEGER', workflow_updated_at: 'INTEGER', workflow_reason: 'TEXT',
+      })) addColumnIfMissing(db, 'sessions', column, definition);
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS kanban_lane_entry_events (
+          id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL UNIQUE, project_id TEXT NOT NULL,
+          workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, lane_id TEXT NOT NULL, cause TEXT NOT NULL,
+          caused_by_run_id TEXT, status TEXT NOT NULL DEFAULT 'pending', claim_token TEXT, claimed_at INTEGER,
+          attempt_count INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL, completed_at INTEGER
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_lane_entry_completion_cause ON kanban_lane_entry_events(caused_by_run_id) WHERE caused_by_run_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_lane_entry_recovery ON kanban_lane_entry_events(status, created_at);
+        CREATE TABLE IF NOT EXISTS kanban_lane_runs (
+          id TEXT PRIMARY KEY, lane_entry_event_id TEXT NOT NULL UNIQUE, prior_lane_run_id TEXT,
+          project_id TEXT NOT NULL, workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, source_lane_id TEXT NOT NULL,
+          completion_target_lane_id TEXT, completion_mode TEXT NOT NULL, root_session_id TEXT UNIQUE,
+          status TEXT NOT NULL DEFAULT 'open', failure_reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+          succeeded_at INTEGER, failed_at INTEGER, cancelled_at INTEGER, superseded_at INTEGER, transition_applied_at INTEGER
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_lane_runs_one_open_card ON kanban_lane_runs(card_id) WHERE status = 'open';
+        CREATE INDEX IF NOT EXISTS idx_lane_runs_card_status ON kanban_lane_runs(card_id, status);
+        CREATE INDEX IF NOT EXISTS idx_lane_runs_workspace ON kanban_lane_runs(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_lane_runs_root ON kanban_lane_runs(root_session_id);
+        CREATE TABLE IF NOT EXISTS kanban_lane_run_audit_events (
+          id TEXT PRIMARY KEY, operation_key TEXT UNIQUE, lane_run_id TEXT NOT NULL, session_id TEXT,
+          event_type TEXT NOT NULL, details_json TEXT, created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_lane_run_audit_run ON kanban_lane_run_audit_events(lane_run_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_sessions_lane_run ON sessions(lane_run_id);
+      `);
+    },
+  },
+  {
+    // FR-5: separate lifecycle dimensions. execution_state tracks what the
+    // process is doing right now; subtree_outcome tracks the aggregate
+    // outcome of this session's own work plus every blocking descendant.
+    // Both are independent of own_work_state (which only tracks *this*
+    // session's own obligation). Must run before sessions-immutable-parent_
+    // session_id, whose table recreation copies the complete current shape.
+    name: 'kanban-add-lane-run-execution-state',
+    up(db) {
+      addColumnIfMissing(db, 'sessions', 'execution_state', "TEXT NOT NULL DEFAULT 'idle'");
+      addColumnIfMissing(db, 'sessions', 'subtree_outcome', "TEXT NOT NULL DEFAULT 'open'");
+    },
+  },
+  {
+    // Kept intentionally even though kanban-add-lane-run-workflow no longer
+    // creates these columns (F2 cleanup): existing databases upgraded from
+    // before that cleanup may still have them on disk. Guarded by the
+    // column-existence check below, so it is a safe no-op on any database
+    // (fresh or already-cleaned) that never had them.
+    name: 'kanban-drop-agent-workflow-completion-tokens',
+    up(db) {
+      const columns = getColumns(db, 'sessions');
+      for (const column of ['workflow_turn_token', 'completion_requested_turn_token', 'completion_request_key', 'completion_requested_at']) {
+        if (columns.includes(column)) db.exec(`ALTER TABLE sessions DROP COLUMN ${column}`);
+      }
+    },
+  },
+  {
+    // Existing targeted lanes predate completion-mode derivation. Only change
+    // the former default, preserving an explicit shadow/structured choice.
+    name: 'kanban-backfill-structured-completion-mode',
+    up(db) {
+      db.prepare(`UPDATE kanban_lanes SET completion_mode='structured', updated_at=?
+        WHERE completion_target_lane_id IS NOT NULL AND completion_mode='legacy'`).run(Date.now());
+    },
+  },
 ];

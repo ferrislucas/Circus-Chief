@@ -546,13 +546,12 @@ Please review the above work.
       // A is the root (no parent)
       const sessionA = sessions.create(projectId, 'Session A', 'Prompt A', 'standard');
 
-      // B is child of A
-      const sessionB = sessions.create(projectId, 'Session B', 'Prompt B', 'standard');
-      sessions.update(sessionB.id, { parentSessionId: sessionA.id });
+      // B is child of A (parentSessionId must be set at create() time; it is
+      // immutable thereafter — see sessionTableRecreate.js)
+      const sessionB = sessions.create(projectId, 'Session B', 'Prompt B', { mode: 'standard', parentSessionId: sessionA.id });
 
       // C is child of B
-      const sessionC = sessions.create(projectId, 'Session C', 'Prompt C', 'standard');
-      sessions.update(sessionC.id, { parentSessionId: sessionB.id });
+      const sessionC = sessions.create(projectId, 'Session C', 'Prompt C', { mode: 'standard', parentSessionId: sessionB.id });
 
       // Get the updated sessions
       const updatedB = sessions.getById(sessionB.id);
@@ -575,15 +574,27 @@ Please review the above work.
     });
 
     it('getRootSession handles orphaned chains gracefully', () => {
-      // Create a chain where the middle session gets deleted
+      // parent_session_id is immutable and FK-enforced (ON DELETE RESTRICT,
+      // see sessionTableRecreate.js), so a live parent can no longer be
+      // deleted out from under a surviving child via the normal repository
+      // API. Simulate a *legacy* orphaned row instead — e.g. a session
+      // whose ancestor was removed by out-of-band data surgery before this
+      // constraint existed — by bypassing FK enforcement directly at the SQL
+      // level, and confirm getRootSession still degrades gracefully.
       const sessionA = sessions.create(projectId, 'Session A', 'Prompt A', 'standard');
-      const sessionB = sessions.create(projectId, 'Session B', 'Prompt B', 'standard');
-      sessions.update(sessionB.id, { parentSessionId: sessionA.id });
-      const sessionC = sessions.create(projectId, 'Session C', 'Prompt C', 'standard');
-      sessions.update(sessionC.id, { parentSessionId: sessionB.id });
+      const sessionB = sessions.create(projectId, 'Session B', 'Prompt B', { mode: 'standard', parentSessionId: sessionA.id });
+      const sessionC = sessions.create(projectId, 'Session C', 'Prompt C', { mode: 'standard', parentSessionId: sessionB.id });
 
-      // Delete session A (the root)
-      sessions.delete(sessionA.id);
+      // Delete session A (the root) the way legacy/out-of-band data repair
+      // would: with FK enforcement off, simulating a pre-existing orphan.
+      const db = sessions.db;
+      const foreignKeysEnabled = db.pragma('foreign_keys', { simple: true });
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionA.id);
+      } finally {
+        db.pragma(`foreign_keys = ${foreignKeysEnabled ? 'ON' : 'OFF'}`);
+      }
 
       // Get updated C
       const updatedC = sessions.getById(sessionC.id);
@@ -592,6 +603,14 @@ Please review the above work.
       const root = getRootSession(updatedC);
       expect(root.id).toBe(sessionB.id);
       expect(root.name).toBe('Session B');
+    });
+
+    it('rejects deleting a session while a live child still references it (parent_session_id ON DELETE RESTRICT)', () => {
+      const sessionA = sessions.create(projectId, 'Session A', 'Prompt A', 'standard');
+      sessions.create(projectId, 'Session B', 'Prompt B', { mode: 'standard', parentSessionId: sessionA.id });
+
+      expect(() => sessions.delete(sessionA.id)).toThrow();
+      expect(sessions.getById(sessionA.id)).toBeTruthy();
     });
 
     // ============================================================

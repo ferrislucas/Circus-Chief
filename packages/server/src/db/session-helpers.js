@@ -124,6 +124,14 @@ export function mapScheduling(row) {
   };
 }
 
+/** Map inert-by-default structured workflow fields. */
+export function mapWorkflow(row) {
+  return { laneRunId: row.lane_run_id || null, ownWorkState: row.own_work_state || 'open', ownWorkClosedAt: row.own_work_closed_at || null,
+    workflowUpdatedAt: row.workflow_updated_at || null, workflowReason: row.workflow_reason || null,
+    // FR-5: independent lifecycle dimensions (see kanban-add-lane-run-execution-state).
+    executionState: row.execution_state || 'idle', subtreeOutcome: row.subtree_outcome || 'open' };
+}
+
 /** Default values for session-create config fields */
 const CONFIG_DEFAULTS = {
   mode: 'yolo',
@@ -177,7 +185,11 @@ export const DIRECT_FIELD_MAP = {
   model: 'model',
   providerId: 'provider_id',
   nextTemplateId: 'next_template_id',
-  parentSessionId: 'parent_session_id',
+  // parentSessionId is intentionally NOT mapped here: parentage is set once at
+  // create() time (see the direct INSERT in SessionRepository.create()) and is
+  // immutable thereafter. A DB-level trigger (see sessionTableRecreate.js)
+  // enforces this even against direct SQL, so no application-layer path should
+  // attempt to reparent an existing session via update().
   scheduledAt: 'scheduled_at',
   rescheduleDelayMinutes: 'reschedule_delay_minutes',
   maxRescheduleCount: 'max_reschedule_count',
@@ -189,6 +201,13 @@ export const DIRECT_FIELD_MAP = {
   pendingConversationId: 'pending_conversation_id',
   effortLevel: 'effort_level',
   laneTriggerDepth: 'lane_trigger_depth',
+  laneRunId: 'lane_run_id',
+  ownWorkState: 'own_work_state',
+  ownWorkClosedAt: 'own_work_closed_at',
+  workflowUpdatedAt: 'workflow_updated_at',
+  workflowReason: 'workflow_reason',
+  executionState: 'execution_state',
+  subtreeOutcome: 'subtree_outcome',
   agentType: 'agent_type',
 };
 

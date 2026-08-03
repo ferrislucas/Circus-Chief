@@ -177,7 +177,15 @@ export const sessionActions = {
     this.loading = true;
     this.error = null;
     try {
-      const session = await api.createSession(projectId, data);
+      // POST /api/projects/:id/sessions creates root sessions only — a
+      // request that specifies a parentSessionId must go through the
+      // workspace route instead, which requires and validates it against
+      // the workspace tree. Keeping this branch here means callers (e.g.
+      // NewSessionView's "Parent Workspace" picker) don't need to know
+      // which endpoint to use.
+      const session = data?.parentSessionId
+        ? await api.createWorkspaceSession(data.parentSessionId, data)
+        : await api.createSession(projectId, data);
       this.sessions.unshift(session);
       return session;
     } catch (err) { this.error = err.message; throw err; }

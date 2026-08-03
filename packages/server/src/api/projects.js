@@ -231,6 +231,17 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
       return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
     }
 
+    // This route creates a root session (workspace) only. Submitting a
+    // parent is rejected outright rather than honored — same-workspace child
+    // creation must go through POST /api/workspaces/:workspaceId/sessions,
+    // which requires and validates parentSessionId against the workspace tree.
+    if (req.body?.parentSessionId != null) {
+      return res.status(400).json({
+        error: 'parentSessionId is not accepted here; POST /api/projects/:id/sessions creates a root session only. '
+          + 'Use POST /api/workspaces/:workspaceId/sessions to create a child session.',
+      });
+    }
+
     const prepared = await validateAndPrepareSessionConfig(req.body, req.files, req.params.id, project);
     if (prepared.error) {
       return res.status(prepared.status).json({ error: prepared.error });

@@ -28,8 +28,7 @@ describe('childSessionContext', () => {
     });
 
     it('returns child sessions', () => {
-      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId });
+      sessions.create(projectId, 'Child Session', 'Child prompt', { mode: 'standard', parentSessionId });
 
       const children = getChildSessions(parentSessionId);
       expect(children.length).toBe(1);
@@ -37,10 +36,8 @@ describe('childSessionContext', () => {
     });
 
     it('returns multiple child sessions', () => {
-      const child1 = sessions.create(projectId, 'Child 1', 'Prompt 1', 'standard');
-      const child2 = sessions.create(projectId, 'Child 2', 'Prompt 2', 'standard');
-      sessions.update(child1.id, { parentSessionId });
-      sessions.update(child2.id, { parentSessionId });
+      sessions.create(projectId, 'Child 1', 'Prompt 1', { mode: 'standard', parentSessionId });
+      sessions.create(projectId, 'Child 2', 'Prompt 2', { mode: 'standard', parentSessionId });
 
       const children = getChildSessions(parentSessionId);
       expect(children.length).toBe(2);
@@ -54,16 +51,14 @@ describe('childSessionContext', () => {
     });
 
     it('includes WORKFLOW DESCENDANT SUMMARIES header', () => {
-      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId });
+      sessions.create(projectId, 'Child Session', 'Child prompt', { mode: 'standard', parentSessionId });
 
       const result = buildChildSessionContext(parentSessionId);
       expect(result).toContain('WORKFLOW DESCENDANT SUMMARIES');
     });
 
     it('includes child session name and IDs', () => {
-      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId });
+      const child = sessions.create(projectId, 'Child Session', 'Child prompt', { mode: 'standard', parentSessionId });
 
       const result = buildChildSessionContext(parentSessionId);
       expect(result).toContain('Child Session');
@@ -72,16 +67,14 @@ describe('childSessionContext', () => {
     });
 
     it('includes child status', () => {
-      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId, status: 'stopped' });
+      sessions.create(projectId, 'Child Session', 'Child prompt', { mode: 'standard', parentSessionId, status: 'stopped' });
 
       const result = buildChildSessionContext(parentSessionId);
       expect(result).toContain('Status: stopped');
     });
 
     it('includes full summary details when summary exists', () => {
-      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId });
+      const child = sessions.create(projectId, 'Child Session', 'Child prompt', { mode: 'standard', parentSessionId });
 
       sessionSummaries.create(child.id, {
         shortSummary: 'Feature X implemented',
@@ -102,8 +95,7 @@ describe('childSessionContext', () => {
     });
 
     it('includes fullSummary truncated to 1500 chars', () => {
-      const child = sessions.create(projectId, 'Child', 'Prompt', 'standard');
-      sessions.update(child.id, { parentSessionId });
+      const child = sessions.create(projectId, 'Child', 'Prompt', { mode: 'standard', parentSessionId });
 
       const longSummary = 'x'.repeat(2000);
       sessionSummaries.create(child.id, {
@@ -119,8 +111,7 @@ describe('childSessionContext', () => {
     });
 
     it('limits key actions to 8', () => {
-      const child = sessions.create(projectId, 'Child', 'Prompt', 'standard');
-      sessions.update(child.id, { parentSessionId });
+      const child = sessions.create(projectId, 'Child', 'Prompt', { mode: 'standard', parentSessionId });
 
       const manyActions = Array.from({ length: 12 }, (_, i) => `Action ${i + 1}`);
       sessionSummaries.create(child.id, {
@@ -138,8 +129,7 @@ describe('childSessionContext', () => {
     });
 
     it('limits files modified to 20', () => {
-      const child = sessions.create(projectId, 'Child', 'Prompt', 'standard');
-      sessions.update(child.id, { parentSessionId });
+      const child = sessions.create(projectId, 'Child', 'Prompt', { mode: 'standard', parentSessionId });
 
       const manyFiles = Array.from({ length: 25 }, (_, i) => `file${i + 1}.js`);
       sessionSummaries.create(child.id, {
@@ -157,8 +147,7 @@ describe('childSessionContext', () => {
     });
 
     it('includes PR state and CI status when present', () => {
-      const child = sessions.create(projectId, 'Child', 'Prompt', 'standard');
-      sessions.update(child.id, { parentSessionId });
+      const child = sessions.create(projectId, 'Child', 'Prompt', { mode: 'standard', parentSessionId });
 
       sessionSummaries.create(child.id, {
         shortSummary: 'Short',
@@ -177,8 +166,7 @@ describe('childSessionContext', () => {
     });
 
     it('includes CI failures when present', () => {
-      const child = sessions.create(projectId, 'Child', 'Prompt', 'standard');
-      sessions.update(child.id, { parentSessionId });
+      const child = sessions.create(projectId, 'Child', 'Prompt', { mode: 'standard', parentSessionId });
 
       sessionSummaries.create(child.id, {
         shortSummary: 'Short',
@@ -193,8 +181,7 @@ describe('childSessionContext', () => {
     });
 
     it('includes merge conflict status when present', () => {
-      const child = sessions.create(projectId, 'Child', 'Prompt', 'standard');
-      sessions.update(child.id, { parentSessionId });
+      const child = sessions.create(projectId, 'Child', 'Prompt', { mode: 'standard', parentSessionId });
 
       sessionSummaries.create(child.id, {
         shortSummary: 'Short',
@@ -208,8 +195,7 @@ describe('childSessionContext', () => {
     });
 
     it('shows placeholder for descendants without summaries showing status and message count', () => {
-      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId, status: 'running' });
+      sessions.create(projectId, 'Child Session', 'Child prompt', { mode: 'standard', parentSessionId, status: 'running' });
       // No summary for child
 
       const result = buildChildSessionContext(parentSessionId);
@@ -218,11 +204,9 @@ describe('childSessionContext', () => {
     });
 
     it('includes grandchildren (recursive)', () => {
-      const child = sessions.create(projectId, 'Child', 'Prompt', 'standard');
-      sessions.update(child.id, { parentSessionId });
+      const child = sessions.create(projectId, 'Child', 'Prompt', { mode: 'standard', parentSessionId });
 
-      const grandchild = sessions.create(projectId, 'Grandchild', 'Prompt', 'standard');
-      sessions.update(grandchild.id, { parentSessionId: child.id });
+      const grandchild = sessions.create(projectId, 'Grandchild', 'Prompt', { mode: 'standard', parentSessionId: child.id });
 
       sessionSummaries.create(grandchild.id, {
         shortSummary: 'Grandchild work done',
@@ -239,8 +223,7 @@ describe('childSessionContext', () => {
       // Each child contributes ~1700 chars (full summary truncated to 1500 + overhead).
       // Need at least 8 children to exceed the 12000 char total limit.
       for (let i = 0; i < 8; i++) {
-        const child = sessions.create(projectId, `Child ${i}`, 'Prompt', 'standard');
-        sessions.update(child.id, { parentSessionId });
+        const child = sessions.create(projectId, `Child ${i}`, 'Prompt', { mode: 'standard', parentSessionId });
         sessionSummaries.create(child.id, {
           shortSummary: `Child ${i} summary`,
           fullSummary: 'x'.repeat(2500),
@@ -293,8 +276,7 @@ describe('childSessionContext', () => {
     });
 
     it('aggregates files from child sessions', () => {
-      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId });
+      const child = sessions.create(projectId, 'Child Session', 'Child prompt', { mode: 'standard', parentSessionId });
 
       sessionSummaries.create(child.id, {
         shortSummary: 'Test',
@@ -310,8 +292,7 @@ describe('childSessionContext', () => {
     });
 
     it('deduplicates files across parent and child', () => {
-      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
-      sessions.update(child.id, { parentSessionId });
+      const child = sessions.create(projectId, 'Child Session', 'Child prompt', { mode: 'standard', parentSessionId });
 
       sessionSummaries.create(child.id, {
         shortSummary: 'Test',
@@ -330,11 +311,9 @@ describe('childSessionContext', () => {
     });
 
     it('recursively aggregates from grandchildren', () => {
-      const child = sessions.create(projectId, 'Child', 'Prompt', 'standard');
-      sessions.update(child.id, { parentSessionId });
+      const child = sessions.create(projectId, 'Child', 'Prompt', { mode: 'standard', parentSessionId });
 
-      const grandchild = sessions.create(projectId, 'Grandchild', 'Prompt', 'standard');
-      sessions.update(grandchild.id, { parentSessionId: child.id });
+      const grandchild = sessions.create(projectId, 'Grandchild', 'Prompt', { mode: 'standard', parentSessionId: child.id });
 
       sessionSummaries.create(grandchild.id, {
         shortSummary: 'Test',
@@ -350,8 +329,7 @@ describe('childSessionContext', () => {
     });
 
     it('handles children with no summary', () => {
-      const child = sessions.create(projectId, 'Child', 'Prompt', 'standard');
-      sessions.update(child.id, { parentSessionId });
+      sessions.create(projectId, 'Child', 'Prompt', { mode: 'standard', parentSessionId });
       // No summary for child
 
       const result = aggregateFilesModified(parentSessionId, ['parent-file.js']);

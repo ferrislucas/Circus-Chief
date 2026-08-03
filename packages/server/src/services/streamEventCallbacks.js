@@ -68,7 +68,7 @@ function associateAndCleanupWorkLogs(sessionId) {
  * @param {string} sessionId
  * @param {string} workingDirectory
  * @param {{ checkProactiveReschedule?: Function, handleAutoSendIfNeeded?: Function, handleTemplateTriggerIfNeeded?: Function }} callbacks
- * @returns {Promise<boolean>} True if rescheduled, false otherwise
+ * @returns {Promise<{wasRescheduled: boolean, heldForLimit: boolean}>}
  */
 async function handleActiveSessionCompletion(sessionId, workingDirectory, callbacks) {
   sessions.update(sessionId, { status: 'waiting', error: null });
@@ -91,7 +91,7 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   if (!wasScheduledMidTurn && checkProactiveReschedule) {
     wasProactivelyRescheduled = await checkProactiveReschedule(sessionId);
     if (wasProactivelyRescheduled) {
-      return true; // Session was rescheduled, don't continue with normal completion
+      return { wasRescheduled: true, heldForLimit: false }; // Session was rescheduled, don't continue with normal completion
     }
   }
 
@@ -136,7 +136,7 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
     await handleTemplateTriggerIfNeeded(sessionId);
   }
 
-  return wasProactivelyRescheduled;
+  return { wasRescheduled: wasProactivelyRescheduled, heldForLimit: shouldHoldKanbanCompletion };
 }
 
 /**
@@ -153,7 +153,7 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
   // Sessions with final errors should not transition to waiting
   if (finalErrorSessionIds.has(sessionId)) {
     finalErrorSessionIds.delete(sessionId);
-    return false;
+    return { wasRescheduled: false, heldForLimit: false };
   }
 
   // Session ready for follow-up - set to waiting instead of completed
@@ -162,7 +162,7 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
     return handleActiveSessionCompletion(sessionId, workingDirectory, callbacks);
   }
 
-  return false;
+  return { wasRescheduled: false, heldForLimit: false };
 }
 
 /**
