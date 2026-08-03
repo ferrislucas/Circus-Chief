@@ -35,6 +35,7 @@ export const REQUIRED_INDEXES = {
   idx_sessions_next_template: ['next_template_id'],
   idx_sessions_parent: ['parent_session_id'],
   idx_sessions_scheduled: ['scheduled_at'],
+  idx_sessions_lane_run: ['lane_run_id'],
   idx_messages_conversation: ['conversation_id'],
   idx_canvas_deleted: ['deleted_at'],
   idx_todos_conversation: ['conversation_id'],

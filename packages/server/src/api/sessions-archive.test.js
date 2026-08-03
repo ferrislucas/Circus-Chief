@@ -153,11 +153,10 @@ describe('Sessions Archive API', () => {
       const parentSession = sessions.create(project.id, 'Parent Session', 'parent prompt');
       sessions.update(parentSession.id, { status: 'stopped' });
 
-      const childSession = sessions.create(project.id, 'Child Session', 'child prompt');
+      const childSession = sessions.create(project.id, 'Child Session', 'child prompt', { parentSessionId: parentSession.id });
       sessions.update(childSession.id, {
         status: 'stopped',
         gitWorktree: '/path/to/wt',
-        parentSessionId: parentSession.id,
       });
       projects.update(project.id, { onSessionDeleted: './cleanup.sh' });
 

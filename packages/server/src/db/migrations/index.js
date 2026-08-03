@@ -326,4 +326,22 @@ export const allMigrations = validateMigrations([
   // --- Normalize retired Claude model ids in CONFIG columns only ---
   // (lanes/templates/defaults. Record columns like sessions.model are preserved.)
   m.get('normalize-stale-claude-model-ids'),
+
+  // --- Durable Kanban lane-run workflow ---
+  // This must precede the sessions-table recreation below.  The recreation
+  // copies the complete current sessions shape, including these columns.
+  k.get('kanban-add-lane-run-workflow'),
+
+  // --- FR-5 lifecycle dimensions: execution_state + subtree_outcome ---
+  // Also must precede the sessions-table recreation below, for the same reason.
+  k.get('kanban-add-lane-run-execution-state'),
+  k.get('kanban-backfill-structured-completion-mode'),
+
+  // --- Remove the retired agent-driven completion token state ---
+  k.get('kanban-drop-agent-workflow-completion-tokens'),
+
+  // --- Enforce immutable session parentage (deferred ON DELETE NO ACTION + trigger) ---
+  // Must run after repairMissingSessionParentsFromWorktree so that one-time
+  // NULL -> value backfill has already happened before the trigger is asserted.
+  s.get('sessions-immutable-parent_session_id'),
 ]);

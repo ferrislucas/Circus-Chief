@@ -425,17 +425,17 @@ describe('kanbanTriggers', () => {
         expect.objectContaining({ rootSession: session })
       );
 
-      // Creates the session with correct name and settings
+      // Creates the session with correct name, settings, and direct parent
+      // (parentSessionId is set atomically at creation, not via a follow-up update)
       expect(sessions.create).toHaveBeenCalledWith(
         'p1',
         'Review Template (lane: Review)',
         'Review: Did some work',
-        expect.objectContaining({ status: 'starting' })
+        expect.objectContaining({ status: 'starting', parentSessionId: 's1' })
       );
 
-      // Updates session with parentSessionId and depth
+      // Updates session with remaining fields not supported by create()
       expect(sessions.update).toHaveBeenCalledWith('new-1', expect.objectContaining({
-        parentSessionId: 's1',
         laneTriggerDepth: 1,
         nextTemplateId: null,
       }));
@@ -565,17 +565,17 @@ describe('kanbanTriggers', () => {
         expect.objectContaining({ rootSession: session })
       );
 
-      // Creates session with lane settings
+      // Creates session with lane settings and direct parent (parentSessionId
+      // is set atomically at creation, not via a follow-up update)
       expect(sessions.create).toHaveBeenCalledWith(
         'p1',
         'Lane prompt (lane: In Progress)',
         'Work on: Test Session',
-        expect.objectContaining({ status: 'starting' })
+        expect.objectContaining({ status: 'starting', parentSessionId: 's1' })
       );
 
-      // Updates with parentSessionId and depth
+      // Updates with remaining fields not supported by create()
       expect(sessions.update).toHaveBeenCalledWith('new-prompt-1', expect.objectContaining({
-        parentSessionId: 's1',
         laneTriggerDepth: 1,
       }));
 
@@ -613,8 +613,13 @@ describe('kanbanTriggers', () => {
 
       await triggerOnEnterPrompt('s1', autoRescheduleLane);
 
+      expect(sessions.create).toHaveBeenCalledWith(
+        'p1',
+        'Lane prompt (lane: In Progress)',
+        'Work on: Test Session',
+        expect.objectContaining({ parentSessionId: 's1' })
+      );
       expect(sessions.update).toHaveBeenCalledWith('new-prompt-1', expect.objectContaining({
-        parentSessionId: 's1',
         laneTriggerDepth: 1,
         autoRescheduleEnabled: true,
         rescheduleDelayMinutes: 30,
@@ -655,7 +660,7 @@ describe('kanbanTriggers', () => {
       await triggerOnEnterPrompt('s1', lane);
 
       const updateCall = sessions.update.mock.calls.find(
-        (call) => call[0] === 'new-prompt-1' && call[1].parentSessionId
+        (call) => call[0] === 'new-prompt-1' && Object.hasOwn(call[1], 'laneTriggerDepth')
       );
       expect(updateCall).toBeDefined();
       expect(updateCall[1]).not.toHaveProperty('autoRescheduleEnabled');

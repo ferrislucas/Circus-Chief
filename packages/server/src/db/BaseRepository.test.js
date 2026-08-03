@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
+import { projects, sessions } from './index.js';
 
 describe('BaseRepository', () => {
   // Uses global setup from test/setup.js
@@ -112,6 +113,21 @@ describe('BaseRepository', () => {
     it('does not throw for non-existent id', () => {
       const repo = new BaseRepository('projects', mapProject);
       expect(() => repo.delete('non-existent')).not.toThrow();
+    });
+
+    it('deletes a project whose sessions form a multi-level parent/child chain', () => {
+      // The deferred parent FK prevents orphaning a surviving child while
+      // allowing a project cascade to remove the complete session tree.
+      const project = projects.create('Cascade FK Project', '/tmp/cascade-fk-project');
+      const grandparent = sessions.create(project.id, 'Grandparent', 'Prompt');
+      const parent = sessions.create(project.id, 'Parent', 'Prompt', { parentSessionId: grandparent.id });
+      const child = sessions.create(project.id, 'Child', 'Prompt', { parentSessionId: parent.id });
+
+      expect(() => projects.delete(project.id)).not.toThrow();
+
+      expect(sessions.getById(grandparent.id)).toBeNull();
+      expect(sessions.getById(parent.id)).toBeNull();
+      expect(sessions.getById(child.id)).toBeNull();
     });
   });
 });

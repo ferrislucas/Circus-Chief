@@ -1,6 +1,13 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 
+// W2 (FRD: Kanban Lane-Run Structured Completion): `legacy`, `shadow`, and
+// `structured` are all fully creatable/updatable modes. The request-level
+// `completionMode` enum (packages/shared/src/contracts/kanban.js) is the
+// single validation gate; there is no separate runtime kill-switch here.
+// `shadow` computes lane-run outcomes without moving the card (see
+// attemptLaneRunTransition); `structured` also drives the Kanban transition.
+
 /**
  * Convert a boolean value to SQLite integer (1/0) or null.
  * @param {boolean|null|undefined} value
@@ -93,6 +100,7 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterMaxTotalTokens: row.on_enter_max_total_tokens,
       onEnterRescheduleAtTokenCount: row.on_enter_reschedule_at_token_count,
       completionTargetLaneId: row.completion_target_lane_id,
+      completionMode: row.completion_mode || 'legacy',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -121,10 +129,11 @@ export class KanbanLaneRepository extends BaseRepository {
    * @returns {Object}
    */
   create(boardId, data) {
+    const createData = KanbanLaneRepository.#deriveCompletionMode(data);
     const id = databaseManager.generateId();
     const now = Date.now();
-    const sortOrder = this.#resolveSortOrder(boardId, data.sortOrder);
-    const laneValues = prepareLaneValues(data);
+    const sortOrder = this.#resolveSortOrder(boardId, createData.sortOrder);
+    const laneValues = prepareLaneValues(createData);
 
     this.db
       .prepare(
@@ -134,11 +143,12 @@ export class KanbanLaneRepository extends BaseRepository {
           on_enter_auto_reschedule_enabled, on_enter_reschedule_delay_minutes,
           on_enter_reschedule_on_token_limit, on_enter_reschedule_on_service_error,
           on_enter_max_reschedule_count, on_enter_max_total_tokens,
-          on_enter_reschedule_at_token_count,
+          on_enter_reschedule_at_token_count, completion_target_lane_id,
+          completion_mode,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, boardId, data.name, sortOrder, ...laneValues, now, now);
+      .run(id, boardId, createData.name, sortOrder, ...laneValues, createData.completionTargetLaneId || null, createData.completionMode || 'legacy', now, now);
 
     return this.getById(id);
   }
@@ -160,6 +170,26 @@ export class KanbanLaneRepository extends BaseRepository {
   }
 
   /**
+   * Derive the completion mode for an update, unless the caller explicitly
+   * sets one. Rule (F3): completionMode auto-follows completionTargetLaneId
+   * on both directions of the transition — configuring a target makes the
+   * lane `structured`; clearing the target reverts it to `legacy` (so it
+   * stops opening no-op structured runs). An explicit `completionMode` in
+   * the payload always wins over this derivation, in either direction.
+   * @param {Object} data - Raw update payload
+   * @returns {Object} data, with completionMode filled in when derivable
+   */
+  static #deriveCompletionMode(data) {
+    if (data.completionMode !== undefined || !('completionTargetLaneId' in data)) {
+      return data;
+    }
+    return {
+      ...data,
+      completionMode: data.completionTargetLaneId ? 'structured' : 'legacy',
+    };
+  }
+
+  /**
    * Update a lane
    * @param {string} id
    * @param {Object} data
@@ -170,6 +200,7 @@ export class KanbanLaneRepository extends BaseRepository {
    * @returns {Object}
    */
   update(id, data) {
+    const updateData = KanbanLaneRepository.#deriveCompletionMode(data);
     // Field mapping: camelCase -> snake_case
     const fieldMap = {
       name: 'name',
@@ -188,6 +219,7 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterMaxTotalTokens: 'on_enter_max_total_tokens',
       onEnterRescheduleAtTokenCount: 'on_enter_reschedule_at_token_count',
       completionTargetLaneId: 'completion_target_lane_id',
+      completionMode: 'completion_mode',
     };
 
     const updates = [];
@@ -195,9 +227,9 @@ export class KanbanLaneRepository extends BaseRepository {
 
     // Build update clauses dynamically
     for (const [camelKey, snakeKey] of Object.entries(fieldMap)) {
-      if (data[camelKey] !== undefined) {
+      if (updateData[camelKey] !== undefined) {
         updates.push(`${snakeKey} = ?`);
-        values.push(convertFieldValue(camelKey, data[camelKey]));
+        values.push(convertFieldValue(camelKey, updateData[camelKey]));
       }
     }
 

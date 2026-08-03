@@ -32,6 +32,33 @@ export const DEFAULT_MAX_FAILOVER_ATTEMPTS = 10;
 /** Default maximum number of automatic reschedules for an API-created session. */
 export const DEFAULT_MAX_RESCHEDULE_COUNT = 24;
 
+/**
+ * Kanban structured lane-run lifecycle enums (FRD: Kanban Lane-Run Structured
+ * Completion, FR-5). These are the single source of truth shared by the
+ * server (schema/services), the web client, and the Zod contracts — do not
+ * redeclare these literal lists elsewhere.
+ */
+
+/** What a session's process is doing right now, independent of its workflow obligation. */
+export const SESSION_EXECUTION_STATES = [
+  'queued', 'starting', 'running', 'scheduled', 'retrying', 'paused', 'idle', 'stopped',
+];
+
+/** Whether *this* session's own work (excluding descendants) is still an open obligation. */
+export const SESSION_OWN_WORK_STATES = [
+  'open', 'closed_successfully', 'closed_failed', 'cancelled',
+];
+
+/** Aggregate outcome of a session's own work plus every blocking descendant. */
+export const SESSION_SUBTREE_OUTCOMES = [
+  'open', 'succeeded', 'failed', 'cancelled',
+];
+
+/** Durable lane-run status. */
+export const LANE_RUN_STATUSES = [
+  'open', 'succeeded', 'failed', 'cancelled', 'superseded',
+];
+
 export const DEFAULT_SYSTEM_PROMPT = `You are an AI coding assistant. You help users with software engineering tasks including writing code, debugging, refactoring, and explaining code. You have full access to the shell and can execute any commands needed to assist the user. Be helpful, accurate, and thorough.
 
 IMPORTANT: Your working directory is already set correctly for this session. NEVER use \`cd\` to change to a hardcoded project path before running commands (e.g., \`cd /path/to/project && git status\`). This bypasses git worktree isolation and causes commands to run in the wrong directory. Always run commands directly without changing directory.

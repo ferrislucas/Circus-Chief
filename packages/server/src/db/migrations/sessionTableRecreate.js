@@ -9,6 +9,19 @@ const TABLE_SESSIONS = 'sessions';
 const SESSIONS_TARGET_MODE_DEFAULT = "'yolo'";
 const SESSIONS_TARGET_THINKING_ENABLED_DEFAULT = '1';
 
+// Keep table recreation in lockstep with schema.sql. SQLite drops a table's
+// indexes during recreation, so every sessions index must be restored here.
+export const SESSIONS_INDEX_DDL = [
+  'CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id)',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived)',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_starred ON sessions(archived, starred)',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_next_template ON sessions(next_template_id)',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id)',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_scheduled ON sessions(scheduled_at) WHERE scheduled_at IS NOT NULL',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_lane_run ON sessions(lane_run_id)',
+];
+
 /**
  * SQL column definitions for the sessions table with current defaults.
  */
@@ -30,7 +43,7 @@ export const SESSIONS_ALL_CURRENT_COLUMNS = `
     model TEXT,
     provider_id TEXT,
     next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
-    parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+    parent_session_id TEXT REFERENCES sessions(id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
     input_tokens INTEGER DEFAULT 0,
     output_tokens INTEGER DEFAULT 0,
     thinking_tokens INTEGER DEFAULT 0,
@@ -56,6 +69,13 @@ export const SESSIONS_ALL_CURRENT_COLUMNS = `
     agent_type TEXT DEFAULT 'claude-code',
     lane_trigger_depth INTEGER NOT NULL DEFAULT 0,
     pending_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+    lane_run_id TEXT,
+    own_work_state TEXT NOT NULL DEFAULT 'open',
+    own_work_closed_at INTEGER,
+    workflow_updated_at INTEGER,
+    workflow_reason TEXT,
+    execution_state TEXT NOT NULL DEFAULT 'idle',
+    subtree_outcome TEXT NOT NULL DEFAULT 'open',
     created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
     updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 `;
@@ -73,6 +93,8 @@ export const SESSIONS_ALL_CURRENT_COLUMN_NAMES = [
   'reschedule_at_token_count', 'pending_prompt', 'slash_commands',
   'pending_model', 'auto_send_pending_prompt', 'agent_type',
   'lane_trigger_depth', 'pending_conversation_id', 'created_at', 'updated_at',
+  'lane_run_id', 'own_work_state', 'own_work_closed_at', 'workflow_updated_at',
+  'workflow_reason', 'execution_state', 'subtree_outcome',
 ];
 
 /**
@@ -97,13 +119,7 @@ export function recreateSessionsTable(db, columnsSql, allColumnNames) {
       SELECT ${selectColumns} FROM sessions;
       DROP TABLE sessions;
       ALTER TABLE sessions_new RENAME TO sessions;
-      CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
-      CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
-      CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived);
-      CREATE INDEX IF NOT EXISTS idx_sessions_starred ON sessions(archived, starred);
-      CREATE INDEX IF NOT EXISTS idx_sessions_next_template ON sessions(next_template_id);
-      CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
-      CREATE INDEX IF NOT EXISTS idx_sessions_scheduled ON sessions(scheduled_at) WHERE scheduled_at IS NOT NULL;
+      ${SESSIONS_INDEX_DDL.join(';\n      ')};
     `);
 
     const foreignKeyViolations = db.pragma('foreign_key_check');
@@ -113,6 +129,57 @@ export function recreateSessionsTable(db, columnsSql, allColumnNames) {
   } finally {
     db.pragma(`foreign_keys = ${foreignKeysEnabled ? 'ON' : 'OFF'}`);
   }
+}
+
+/**
+ * Name of the trigger that enforces immutable session parentage.
+ * Exported so tests/migrations can reference it without duplicating the string.
+ */
+export const PARENT_IMMUTABILITY_TRIGGER = 'trg_sessions_parent_session_id_immutable';
+
+/**
+ * Create (idempotently) the trigger that rejects any UPDATE changing a
+ * non-null parent_session_id. A one-time NULL -> value backfill is allowed;
+ * value -> different-value and value -> NULL are both rejected.
+ * @param {import('better-sqlite3').Database} db
+ */
+export function createParentImmutabilityTrigger(db) {
+  db.exec(`
+    DROP TRIGGER IF EXISTS ${PARENT_IMMUTABILITY_TRIGGER};
+    CREATE TRIGGER ${PARENT_IMMUTABILITY_TRIGGER}
+    BEFORE UPDATE OF parent_session_id ON sessions
+    FOR EACH ROW
+    WHEN OLD.parent_session_id IS NOT NULL
+      AND (NEW.parent_session_id IS NULL OR NEW.parent_session_id <> OLD.parent_session_id)
+    BEGIN
+      SELECT RAISE(ABORT, 'parent_session_id is immutable once set');
+    END;
+  `);
+}
+
+/**
+ * Migrate the sessions table so that:
+ *  - parent_session_id uses deferred ON DELETE NO ACTION (instead of SET NULL), and
+ *  - a trigger rejects any attempt to change a non-null parent_session_id.
+ * NO ACTION preserves the no-orphan invariant while allowing a project delete
+ * to cascade through an entire session tree. RESTRICT cannot be used here
+ * because SQLite applies it immediately, even on a deferred foreign key.
+ * No-op (besides re-asserting the trigger) if the table already has the
+ * target foreign-key behavior.
+ * @param {import('better-sqlite3').Database} db
+ */
+export function migrateSessionsImmutableParentage(db) {
+  const parentFkAlreadyImmutable = db
+    .pragma('foreign_key_list(sessions)')
+    .some((fk) => fk.table === 'sessions' && fk.from === 'parent_session_id' && fk.on_delete === 'NO ACTION');
+
+  if (!parentFkAlreadyImmutable) {
+    recreateSessionsTable(db, SESSIONS_ALL_CURRENT_COLUMNS, SESSIONS_ALL_CURRENT_COLUMN_NAMES);
+  }
+
+  // Always (re)assert the trigger: it's cheap, idempotent, and must survive
+  // any other table-recreate migration that rebuilds `sessions` without it.
+  createParentImmutabilityTrigger(db);
 }
 
 /**

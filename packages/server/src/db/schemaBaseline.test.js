@@ -72,7 +72,10 @@ describe('schema baseline', () => {
         'max_reschedule_count', 'max_total_tokens', 'reschedule_count',
         'reschedule_at_token_count', 'pending_prompt', 'slash_commands',
         'pending_model', 'auto_send_pending_prompt', 'agent_type',
-        'lane_trigger_depth', 'created_at', 'updated_at', 'pending_conversation_id',
+        'lane_trigger_depth', 'lane_run_id', 'own_work_state',
+        'own_work_closed_at', 'workflow_updated_at', 'workflow_reason',
+        'execution_state', 'subtree_outcome',
+        'created_at', 'updated_at', 'pending_conversation_id',
         'resolved_model', 'resolved_provider_id',
       ]);
     });
@@ -86,6 +89,10 @@ describe('schema baseline', () => {
       expect(byName.get('reschedule_delay_minutes').dflt_value).toBe(String(DEFAULT_RESCHEDULE_DELAY_MINUTES));
       expect(byName.get('agent_type').dflt_value).toBe("'claude-code'");
       expect(byName.get('pr_url_auto_link_disabled').dflt_value).toBe('0');
+      // FR-5: execution_state and subtree_outcome are independent of
+      // own_work_state and must default to their "not yet obligated" values.
+      expect(byName.get('execution_state').dflt_value).toBe("'idle'");
+      expect(byName.get('subtree_outcome').dflt_value).toBe("'open'");
     });
   });
 
@@ -116,6 +123,7 @@ describe('schema baseline', () => {
       expect(tables).toEqual(expect.arrayContaining([
         'project_session_defaults', 'app_settings', 'providers', 'provider_models',
         'kanban_boards', 'kanban_lanes', 'kanban_cards', 'kanban_card_sessions',
+        'kanban_lane_entry_events', 'kanban_lane_runs', 'kanban_lane_run_audit_events',
       ]));
 
       expect(columnNames(db, 'projects')).toEqual(expect.arrayContaining(['worktree_path', 'kanban_enabled']));
@@ -125,7 +133,8 @@ describe('schema baseline', () => {
       expect(columnNames(db, 'conversations')).toEqual(expect.arrayContaining(['model', 'parent_conversation_id', 'branch_from_message_id']));
       expect(columnNames(db, 'session_summaries')).toEqual(expect.arrayContaining(['last_summarized_message_id', 'workflow_fingerprint']));
       expect(columnNames(db, 'message_attachments')).toEqual(expect.arrayContaining(['file_path']));
-      expect(columnNames(db, 'kanban_lanes')).toEqual(expect.arrayContaining(['on_enter_reschedule_delay_minutes', 'completion_target_lane_id']));
+      expect(columnNames(db, 'kanban_lanes')).toEqual(expect.arrayContaining(['on_enter_reschedule_delay_minutes', 'completion_target_lane_id', 'completion_mode']));
+      expect(columnNames(db, 'kanban_cards')).toEqual(expect.arrayContaining(['active_lane_run_id', 'lane_entry_event_id']));
     });
   });
 
@@ -144,6 +153,7 @@ describe('schema baseline', () => {
       expect(byName.get('on_enter_max_total_tokens')).toBeTruthy();
       expect(byName.get('on_enter_reschedule_at_token_count')).toBeTruthy();
       expect(byName.get('completion_target_lane_id')).toBeTruthy();
+      expect(byName.get('completion_mode').dflt_value).toBe("'legacy'");
     });
   });
 
@@ -204,6 +214,7 @@ describe('schema baseline', () => {
       for (const indexName of [
         'idx_sessions_project', 'idx_sessions_status', 'idx_sessions_archived',
         'idx_sessions_next_template', 'idx_sessions_parent', 'idx_messages_conversation',
+        'idx_sessions_lane_run', 'idx_lane_entry_recovery', 'idx_lane_runs_card_status',
         'idx_canvas_deleted', 'idx_todos_conversation', 'idx_project_defaults_projectId',
         'idx_conversations_parent', 'idx_agent_call_logs_agent_type',
         'idx_agent_call_logs_call_type', 'idx_agent_call_logs_status',

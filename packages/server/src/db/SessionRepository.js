@@ -7,10 +7,12 @@ import {
   applySessionFilters,
   mapTokenUsage,
   mapScheduling,
+  mapWorkflow,
   parseCreateConfig,
   buildUpdateClauses,
   DEFAULT_AGENT_TYPE,
   resolveInitialAgentTypeFromModel,
+  resolveInheritedLaneRunId,
 } from './session-helpers.js';
 
 /**
@@ -58,6 +60,7 @@ export class SessionRepository extends BaseRepository {
       ...mapScheduling(row),
       // Kanban fields
       laneTriggerDepth: row.lane_trigger_depth || 0,
+      ...mapWorkflow(row),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       lastActivityAt: row.last_activity_at ?? null,
@@ -95,27 +98,16 @@ export class SessionRepository extends BaseRepository {
 
     const id = databaseManager.generateId();
     const now = Date.now();
+    // Resolve workflow lineage before insertion; children are never parented outside a run.
+    const laneRunId = resolveInheritedLaneRunId(this.db, config.parentSessionId);
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, provider_id, effort_level, agent_type, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, provider_id, effort_level, agent_type, lane_run_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(
-        id,
-        projectId,
-        name,
-        config.status,
-        config.mode,
-        config.thinkingEnabled ? 1 : 0,
-        config.gitBranch,
-        config.parentSessionId,
-        config.model,
-        config.providerId,
-        config.effortLevel,
-        agentType,
-        now,
-        now
-      );
+      .run(id, projectId, name, config.status, config.mode, config.thinkingEnabled ? 1 : 0,
+        config.gitBranch, config.parentSessionId, config.model, config.providerId, config.effortLevel,
+        agentType, laneRunId, now, now);
 
     // Create initial conversation
     const conversation = conversations.create(id, 'Initial', true);

@@ -14,6 +14,10 @@ import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
 import { MessageRepository } from '../db/MessageRepository.js';
 import { ConversationRepository } from '../db/ConversationRepository.js';
+import { KanbanBoardRepository } from '../db/KanbanBoardRepository.js';
+import { KanbanLaneRepository } from '../db/KanbanLaneRepository.js';
+import { KanbanCardRepository } from '../db/KanbanCardRepository.js';
+import { createLaneRunForEntry, attachRootSession, getRun } from './workflowSessionService.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { mkdtempSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
@@ -1221,6 +1225,46 @@ describe('summary service integration', () => {
 
       // Verify onSessionComplete was called (session is truly complete now)
       expect(summaryServiceMock.onSessionComplete).toHaveBeenCalledWith(session.id);
+    });
+  });
+
+  describe('stopSession workflow cancellation (W4, FR-9.4)', () => {
+    it('closes the own-work obligation as cancelled for a lane-run participant, without moving its card', async () => {
+      const { stopSession } = await import('./sessionManager.js');
+
+      const boardRepo = new KanbanBoardRepository();
+      const laneRepo = new KanbanLaneRepository();
+      const cardRepo = new KanbanCardRepository();
+
+      const projectId = session.projectId;
+      const board = boardRepo.create(projectId);
+      const [source, target] = laneRepo.getByBoardId(board.id);
+      const workspace = sessionRepo.create(projectId, 'Workspace', 'work');
+      const card = cardRepo.create(source.id, workspace.id);
+      const root = sessionRepo.create(projectId, 'Lane prompt', 'do work', { parentSessionId: workspace.id });
+      const run = createLaneRunForEntry({
+        projectId,
+        workspaceId: workspace.id,
+        cardId: card.id,
+        lane: { ...laneRepo.getById(source.id), completionMode: 'structured', completionTargetLaneId: target.id },
+      });
+      attachRootSession(run.id, root.id);
+
+      await stopSession(root.id);
+
+      const updated = sessionRepo.getById(root.id);
+      expect(updated.ownWorkState).toBe('cancelled');
+      expect(updated.workflowReason).toBe('Stopped by user');
+      expect(getRun(run.id).status).toBe('cancelled');
+      expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+    });
+
+    it('is a no-op for a session that does not participate in a lane run', async () => {
+      const { stopSession } = await import('./sessionManager.js');
+
+      // `session` (from the outer beforeEach) is a plain, non-participating session.
+      await expect(stopSession(session.id)).resolves.not.toThrow();
+      expect(sessionRepo.getById(session.id).ownWorkState).toBe('open');
     });
   });
 

@@ -26,6 +26,12 @@ import { isTierRef } from '@circuschief/shared';
 import { runSessionWithTierFailover, hasResolvableTierMembers, applyStaleTierFallback } from './sessionTierFailover.js';
 import { schedulerService } from './schedulerService.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
+import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState, markHeldForLimit } from './workflowSessionService.js';
+// W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
+// sessionExecution), safe because this is only called at runtime inside
+// _executeSession, long after the module graph is loaded (same pattern as
+// session-helpers.js's database.js <-> SessionRepository cycle).
+import { drainLaneEntryTrigger } from './kanbanService.js';
 // continueSessionCore lives in sessionContinuation.js (extracted to keep this
 // file under the max-lines limit); re-exported here so sessionManager.js's
 // existing `from './sessionExecution.js'` import keeps working unchanged.
@@ -127,6 +133,54 @@ export function createAgentForSession(agentType = 'claude-code', config = {}) {
 }
 
 /**
+ * Post-turn workflow bookkeeping for a turn that completed without throwing.
+ *
+ * Each early return leaves the session's own-work obligation open; only the
+ * final branch infers own-work completion and drains the target lane's
+ * on-enter automation.
+ *
+ * @param {Object} opts
+ * @param {string} opts.sessionId
+ * @param {boolean} opts.interactive
+ * @param {Object|null} opts.workflowTurn - Snapshot from beginWorkflowTurn()
+ * @param {boolean} opts.wasRescheduled
+ * @param {boolean} opts.heldForLimit
+ */
+async function finishWorkflowTurn({ sessionId, interactive, workflowTurn, wasRescheduled, heldForLimit }) {
+  // FR-4/FR-5: a self-scheduled continuation is an open obligation, not success.
+  if (wasRescheduled) return markExecutionState(sessionId, 'scheduled');
+  // FR-9.8: a graceful provider limit/outage leaves the lane obligation open.
+  if (heldForLimit) return markHeldForLimit(sessionId);
+  // W6/FR-8: the server infers own-work completion from this successful,
+  // non-continuing turn; finish the async remainder (start the target lane's
+  // on-enter automation exactly once) if it just happened.
+  if (interactive && workflowTurn?.executionStateBeforeTurn !== 'paused') return;
+  const reconciled = finalizeOwnWorkCompletion(sessionId);
+  if (reconciled?.pendingTargetLaneTrigger) {
+    await drainLaneEntryTrigger(reconciled.pendingTargetLaneTrigger.laneEntryEventId);
+  }
+}
+
+/**
+ * Tier failover: when this attempt is part of a tier failover loop AND the
+ * error is failover-eligible, the normal error-handling side effects
+ * (status=error, visible error message, SESSION_ERROR broadcast, summary
+ * generation) must be skipped — they would be misleading since we're about to
+ * transparently retry on the next tier member. The caller rethrows instead so
+ * the failover loop in sessionTierFailover.js can catch it and advance.
+ *
+ * @param {string} sessionId
+ * @param {Error} error
+ * @param {Object|null} tierContext
+ * @returns {boolean} true when the error should be rethrown untouched
+ */
+function shouldRethrowForTierFailover(sessionId, error, tierContext) {
+  if (!tierContext) return false;
+  const currentSession = sessions.getById(sessionId);
+  return Boolean(currentSession && isTierFailoverEligibleError(currentSession, error, sessionId, tierContext));
+}
+
+/**
  * Execute the agent stream loop and handle post-turn completion, errors, and cleanup.
  * This is the shared core of runSession, continueSession, and continueSessionWithExistingMessage.
  * @param {Object} options
@@ -140,7 +194,6 @@ export function createAgentForSession(agentType = 'claude-code', config = {}) {
  * @param {Function} options.callbacks.handleTemplateTriggerIfNeeded - Template trigger handler
  * @param {Function} options.callbacks.handleAutoSendIfNeeded - Auto-send handler
  * @param {boolean} [options.broadcastConversationStateOnError] - Whether to broadcast conversation state on error
- * @param {boolean} [options.cleanupConversationId] - Whether to clean up activeConversationIds in finally
  * @param {string} [options.errorLabel] - Label for error logging
  * @param {Object|null} [options.tierContext] - Tier failover context passed to shouldRescheduleOnError
  */
@@ -153,12 +206,12 @@ export async function _executeSession({
   workingDirectory,
   callbacks,
   broadcastConversationStateOnError = false,
-  cleanupConversationId = false,
+  cleanupConversationId = false, interactive = false,
   errorLabel = 'Session error',
   tierContext = null,
 }) {
   const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded } = callbacks;
-
+  const workflowTurn = beginWorkflowTurn(sessionId);
   try {
     // Run the query with the agent (SDK via gateway, or mock)
     for await (const event of agent.execute(queryParams, agentCallMeta)) {
@@ -166,29 +219,15 @@ export async function _executeSession({
 
       await handleStreamEvent(sessionId, event);
     }
-
     // Handle post-turn completion (work log association, status transition, summary, etc.)
-    const wasRescheduled = await handleTurnCompletion(
+    const { wasRescheduled, heldForLimit } = await handleTurnCompletion(
       sessionId,
       workingDirectory,
       { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded }
     );
-    if (wasRescheduled) {
-      return;
-    }
+    await finishWorkflowTurn({ sessionId, interactive, workflowTurn, wasRescheduled, heldForLimit });
   } catch (error) {
-    // Tier failover: if this attempt is part of a tier failover loop AND the
-    // error is failover-eligible, skip the normal error-handling side effects
-    // entirely (status=error, visible error message, SESSION_ERROR broadcast,
-    // summary generation) — those would be misleading since we're about to
-    // transparently retry on the next tier member. Just rethrow so the
-    // failover loop in sessionTierFailover.js can catch it and advance.
-    if (tierContext) {
-      const currentSession = sessions.getById(sessionId);
-      if (currentSession && isTierFailoverEligibleError(currentSession, error, sessionId, tierContext)) {
-        throw error;
-      }
-    }
+    if (shouldRethrowForTierFailover(sessionId, error, tierContext)) throw error;
 
     const rescheduled = await handleSessionError(sessionId, error, {
       controller,
@@ -200,8 +239,18 @@ export async function _executeSession({
       handleTemplateTriggerIfNeeded,
     });
     if (rescheduled) {
+      // FR-9.1/FR-9.5: a transient error with an automatic retry/reschedule
+      // keeps the session (and its lane run) open — only the execution_state
+      // dimension moves, own_work_state is untouched.
+      markExecutionState(sessionId, 'retrying');
       return; // Don't throw - session was rescheduled
     }
+    // FR-9.2/FR-9.4: distinguish a user-initiated stop (must land as
+    // 'cancelled', never a failure) from a genuine permanent error (must land
+    // as 'closed_failed'). Both are terminal — neither may be interpreted as
+    // success, and reconcileLaneRun() below fails/cancels the lane run so a
+    // structured card never advances past this session.
+    closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message);
     throw error;
   } finally {
     cleanupSessionState(sessionId, cleanupConversationId);

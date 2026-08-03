@@ -6,6 +6,7 @@ import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
 import { resolveTierRefForContinue } from './tierResolutionService.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
+import { closeOwnWork } from './workflowSessionService.js';
 import {
   shouldRescheduleOnError,
   _checkProactiveReschedule,
@@ -404,6 +405,11 @@ export async function stopSession(sessionId) {
 
   sessions.update(sessionId, { status: 'stopped' });
   broadcastSessionStatus(sessionId, 'stopped');
+
+  // FR-9.4: a user-stopped blocking session must not be interpreted as
+  // success — close its own-work obligation as cancelled (no-op if it isn't
+  // a lane-run participant, or its own work is already closed).
+  closeOwnWork(sessionId, 'cancelled', 'Stopped by user');
 
   // Trigger summary generation on stop (session is truly complete now)
   summaryService.onSessionComplete(sessionId);

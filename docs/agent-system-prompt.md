@@ -43,7 +43,7 @@ The prompt provides the agent with its own session ID, project ID, and current w
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/projects/{projectId}/workspaces` | Create a new workspace. Required body field: `prompt`. See optional fields below. |
-| POST | `/api/workspaces/{workspaceId}/sessions` | Add a session to the current workspace. Required body field: `prompt`. Use `afterSessionId` to chain the new session after the current session. |
+| POST | `/api/workspaces/{workspaceId}/sessions` | Add a session to the current workspace. Required body fields: `prompt`, `parentSessionId`. `parentSessionId` must reference a session in this workspace (the root or a descendant); pass the current session ID to chain, or the workspace ID to attach directly to the root. Unknown or cross-workspace values are rejected — there is no fallback. |
 | POST | `/api/sessions/{session_id}/message` | Send a follow-up message. Body: `{"content": "..."}` |
 | GET | `/api/sessions` | List all active sessions |
 | GET | `/api/sessions/{session_id}` | Get session details |
@@ -55,11 +55,13 @@ The prompt provides the agent with its own session ID, project ID, and current w
 | DELETE | `/api/sessions/{session_id}` | Delete a session |
 | PATCH | `/api/sessions/{session_id}` | Update session settings. Example body: `{"thinkingEnabled": true, "effortLevel": "high"}` |
 
-**Optional fields for workspace/session creation:** `name`, `mode`, `thinkingEnabled` (boolean), `effortLevel` (low/medium/high/max/auto), `model`, `providerId`, `gitBranch`, `gitMode`, `templateId`, `nextTemplateId`, `parentSessionId` (to create a related follow-up session from the current session), `startImmediately`, `scheduledAt` (ISO 8601 date-time string with timezone, e.g. `"2026-06-12T14:00:00Z"`), `autoRescheduleEnabled`, `rescheduleDelayMinutes`, `rescheduleOnTokenLimit`, `rescheduleOnServiceError`, `maxRescheduleCount`, `maxTotalTokens`, `rescheduleAtTokenCount`, and `afterSessionId` when adding a session to an existing workspace.
+**Optional fields for workspace/session creation:** `name`, `mode`, `thinkingEnabled` (boolean), `effortLevel` (low/medium/high/max/auto), `model`, `providerId`, `gitBranch`, `gitMode`, `templateId`, `nextTemplateId`, `startImmediately`, `scheduledAt` (ISO 8601 date-time string with timezone, e.g. `"2026-06-12T14:00:00Z"`), `autoRescheduleEnabled`, `rescheduleDelayMinutes`, `rescheduleOnTokenLimit`, `rescheduleOnServiceError`, `maxRescheduleCount`, `maxTotalTokens`, and `rescheduleAtTokenCount`. `parentSessionId` is **required** (not optional) when adding a session to an existing workspace via `POST /api/workspaces/{workspaceId}/sessions`; it is not accepted at all when creating a new workspace (`parentSessionId` is always forced to `null` there).
 
 **Session update behavior:** `PATCH /api/sessions/{sessionId}` accepts `scheduledAt` as either an ISO 8601 string or a numeric epoch-milliseconds value. The API normalizes valid values to epoch milliseconds and rejects invalid inputs with `400`.
 
 **Auto-retry defaults:** API-created sessions automatically retry on token-limit exhaustion and provider outages. `autoRescheduleEnabled` defaults to `true` (pass `false` to opt out), `rescheduleOnTokenLimit` and `rescheduleOnServiceError` both default to `true`, and `maxRescheduleCount` defaults to `24` (≈ one day of hourly retries). Pass an explicit `maxRescheduleCount` to adjust the cap.
+
+**Structured lane-run workers:** A plain successful turn end means the worker's own work is complete. If the worker needs another turn — including one awaiting human input — it must schedule itself before the turn ends; the schedule keeps the lane run open. Descendants created with `parentSessionId` also remain blocking until they complete.
 
 ### Project Operations (always included)
 

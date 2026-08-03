@@ -460,7 +460,7 @@ describe('streamEventHandler', () => {
 
       const result = await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(result).toBe(true);
+      expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
       // Should not call handleTemplateTriggerIfNeeded when rescheduled
       expect(mockHandleTemplate).not.toHaveBeenCalled();
     });
@@ -605,9 +605,10 @@ describe('streamEventHandler', () => {
       const mockCheckReschedule = vi.fn().mockResolvedValue(false);
       const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
 
-      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+      const result = await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
+      expect(result).toEqual({ wasRescheduled: false, heldForLimit: true });
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
       expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
       expect(mockHandleTemplate).toHaveBeenCalledWith('sess-1');
@@ -654,7 +655,7 @@ describe('streamEventHandler', () => {
 
       // Proactive reschedule still ran and fired.
       expect(mockCheckReschedule).toHaveBeenCalledWith('sess-1');
-      expect(result).toBe(true);
+      expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
       // The card must not advance...
       expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
       // ...and the next-template trigger must not fire (the session was rescheduled)...
@@ -683,7 +684,7 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toBe(true);
+      expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
       expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
       // Unchanged legacy behavior: reschedule short-circuits before other side effects.
       expect(summaryService.extractPrUrlIfNeeded).not.toHaveBeenCalled();
@@ -851,7 +852,7 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toBe(false);
+      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
       expect(workLogs.associatePendingLogs).toHaveBeenCalledWith('sess-1', 'msg-last');
       expect(lastMessageIds.has('sess-1')).toBe(false);
       expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
@@ -892,7 +893,7 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toBe(false);
+      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
       expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
@@ -936,7 +937,7 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toBe(false);
+      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
       expect(mockCheckReschedule).not.toHaveBeenCalled();
       expect(session).toMatchObject({
         status: 'scheduled',
@@ -977,7 +978,7 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toBe(false);
+      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
       expect(broadcastToSession).toHaveBeenCalledWith(
@@ -1087,7 +1088,7 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toBe(false);
+      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
       // Auto-send must NOT fire — schedule wins
       expect(mockAutoSend).not.toHaveBeenCalled();
     });

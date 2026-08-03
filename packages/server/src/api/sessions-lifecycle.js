@@ -12,6 +12,7 @@ import { validateScheduledAt } from './scheduledAtValidation.js';
 import { validateModelId } from './model-validation.js';
 import { broadcastSessionUpdate } from './sessions-patch.js';
 import { activeSessions } from '../services/streamEventHandler.js';
+import { schedulerService } from '../services/schedulerService.js';
 import {
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
@@ -181,6 +182,26 @@ router.post('/:id/schedule', requireSession, (req, res) => {
   const updated = sessions.update(req.params.id, result.updateData);
   broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, result.updateData);
   res.json(updated);
+});
+
+// POST /api/sessions/:id/run-scheduled-now - Run a pending scheduled turn now.
+//
+// This is the manual equivalent of the scheduler finding a due session. It
+// deliberately delegates to SchedulerService instead of posting a chat
+// message: chat messages are interactive and must not implicitly complete
+// structured lane work, while scheduled continuations are system work.
+router.post('/:id/run-scheduled-now', requireSession, async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (session.status !== 'scheduled' || !session.scheduledAt || !session.pendingPrompt) {
+    return res.status(409).json({ error: 'Session has no pending scheduled turn' });
+  }
+
+  try {
+    await schedulerService.startScheduledSession(session);
+    res.json(sessions.getById(req.params.id));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // POST /api/sessions/:id/duplicate - Duplicate a session

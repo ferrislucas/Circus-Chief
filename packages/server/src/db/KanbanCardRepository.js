@@ -14,6 +14,8 @@ export class KanbanCardRepository extends BaseRepository {
       id: row.id,
       laneId: row.lane_id,
       sortOrder: row.sort_order,
+      activeLaneRunId: row.active_lane_run_id || null,
+      laneEntryEventId: row.lane_entry_event_id || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

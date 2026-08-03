@@ -178,6 +178,43 @@ export function mapScheduling(row) {
   };
 }
 
+/** Map inert-by-default structured workflow fields. */
+export function mapWorkflow(row) {
+  return { laneRunId: row.lane_run_id || null, ownWorkState: row.own_work_state || 'open', ownWorkClosedAt: row.own_work_closed_at || null,
+    workflowUpdatedAt: row.workflow_updated_at || null, workflowReason: row.workflow_reason || null,
+    // FR-5: independent lifecycle dimensions (see kanban-add-lane-run-execution-state).
+    executionState: row.execution_state || 'idle', subtreeOutcome: row.subtree_outcome || 'open' };
+}
+
+/**
+ * Resolve the lane run a new child session inherits from its parent.
+ *
+ * Children are never parented outside a run, so this also enforces the two
+ * "late child" guards before insertion:
+ *  - the parent's own work must still be open, and
+ *  - FR-3.6/W7: the parent's lane run must not already be terminal or
+ *    superseded (e.g. a manual move superseded the run while this parent's
+ *    own_work_state row was never touched).
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {string|null} parentSessionId
+ * @returns {string|null} the inherited lane_run_id, or null when unparented
+ * @throws {Error} when the parent or its run has already gone terminal
+ */
+export function resolveInheritedLaneRunId(db, parentSessionId) {
+  if (!parentSessionId) return null;
+  const parent = db.prepare('SELECT lane_run_id, own_work_state FROM sessions WHERE id = ?').get(parentSessionId);
+  if (!parent?.lane_run_id) return null;
+  if (parent.own_work_state !== 'open') {
+    throw new Error('Cannot create a child from a terminal workflow session');
+  }
+  const runStatus = db.prepare('SELECT status FROM kanban_lane_runs WHERE id = ?').get(parent.lane_run_id)?.status;
+  if (runStatus && runStatus !== 'open') {
+    throw new Error('Cannot create a child under a terminal or superseded lane run');
+  }
+  return parent.lane_run_id;
+}
+
 /** Default values for session-create config fields */
 const CONFIG_DEFAULTS = {
   mode: 'yolo',
@@ -231,7 +268,11 @@ export const DIRECT_FIELD_MAP = {
   model: 'model',
   providerId: 'provider_id',
   nextTemplateId: 'next_template_id',
-  parentSessionId: 'parent_session_id',
+  // parentSessionId is intentionally NOT mapped here: parentage is set once at
+  // create() time (see the direct INSERT in SessionRepository.create()) and is
+  // immutable thereafter. A DB-level trigger (see sessionTableRecreate.js)
+  // enforces this even against direct SQL, so no application-layer path should
+  // attempt to reparent an existing session via update().
   scheduledAt: 'scheduled_at',
   rescheduleDelayMinutes: 'reschedule_delay_minutes',
   maxRescheduleCount: 'max_reschedule_count',
@@ -243,6 +284,13 @@ export const DIRECT_FIELD_MAP = {
   pendingConversationId: 'pending_conversation_id',
   effortLevel: 'effort_level',
   laneTriggerDepth: 'lane_trigger_depth',
+  laneRunId: 'lane_run_id',
+  ownWorkState: 'own_work_state',
+  ownWorkClosedAt: 'own_work_closed_at',
+  workflowUpdatedAt: 'workflow_updated_at',
+  workflowReason: 'workflow_reason',
+  executionState: 'execution_state',
+  subtreeOutcome: 'subtree_outcome',
   agentType: 'agent_type',
   resolvedModel: 'resolved_model',
   resolvedProviderId: 'resolved_provider_id',

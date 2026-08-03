@@ -179,7 +179,7 @@ async function setupConversationAndMessage(sessionId, content, fileAttachments) 
  */
 export async function continueSessionCore(sessionId, content, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
-  const { systemPrompt = null, fileAttachments = [], model = null } = options;
+  const { systemPrompt = null, fileAttachments = [], model = null, interactive = false } = options;
   // Check if session is already running
   if (activeSessions.has(sessionId)) {
     throw new Error('Session is already processing');
@@ -239,6 +239,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     callbacks,
     broadcastConversationStateOnError: true,
     cleanupConversationId: true,
+    interactive,
     errorLabel: 'Continue session error',
   });
 }

@@ -182,7 +182,12 @@ test.describe('Circus Command Output Auto-Tail', () => {
     await expect
       .poll(async () => latestLineMarker(page, outputContent), { timeout: 5000 })
       .toBeGreaterThan(markerBeforeContinuedFollow);
-    expect(await isAtBottom(page, outputContent)).toBe(true);
+    // The output render and the auto-tail layout effect occur in separate
+    // browser frames. Wait for both rather than racing the effect after the
+    // new marker first appears.
+    await expect
+      .poll(async () => isAtBottom(page, outputContent), { timeout: 5000 })
+      .toBe(true);
 
     // Manual upward scroll pauses tailing; later output must not move it.
     await page.locator(outputContent).evaluate((el) => {

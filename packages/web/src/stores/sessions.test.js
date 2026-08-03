@@ -9,6 +9,7 @@ vi.mock('../composables/useApi.js', () => ({
     getSession: vi.fn(),
     getSessionMessages: vi.fn(),
     createSession: vi.fn(),
+    createWorkspaceSession: vi.fn(),
     sendMessage: vi.fn(),
     stopSession: vi.fn(),
     restartSession: vi.fn(),
@@ -38,6 +39,42 @@ describe('Sessions Store', () => {
     setActivePinia(createPinia());
     // Reset all API mocks before each test
     vi.clearAllMocks();
+  });
+
+  describe('createSession', () => {
+    it('calls api.createSession (root creation) when no parentSessionId is given', async () => {
+      const store = useSessionsStore();
+      const created = { id: 'root-1', name: 'New', status: 'waiting', projectId: 'proj-1' };
+      api.createSession.mockResolvedValue(created);
+
+      const result = await store.createSession('proj-1', { prompt: 'hi' });
+
+      expect(api.createSession).toHaveBeenCalledWith('proj-1', { prompt: 'hi' });
+      expect(api.createWorkspaceSession).not.toHaveBeenCalled();
+      expect(result).toEqual(created);
+      expect(store.sessions[0]).toEqual(created);
+    });
+
+    it('routes to api.createWorkspaceSession when parentSessionId is present, since POST /api/projects/:id/sessions rejects it', async () => {
+      const store = useSessionsStore();
+      const created = { id: 'child-1', name: 'New', status: 'waiting', projectId: 'proj-1', parentSessionId: 'root-1' };
+      api.createWorkspaceSession.mockResolvedValue(created);
+
+      const result = await store.createSession('proj-1', { prompt: 'hi', parentSessionId: 'root-1' });
+
+      expect(api.createWorkspaceSession).toHaveBeenCalledWith('root-1', { prompt: 'hi', parentSessionId: 'root-1' });
+      expect(api.createSession).not.toHaveBeenCalled();
+      expect(result).toEqual(created);
+      expect(store.sessions[0]).toEqual(created);
+    });
+
+    it('propagates and records the error when creation fails', async () => {
+      const store = useSessionsStore();
+      api.createSession.mockRejectedValue(new Error('boom'));
+
+      await expect(store.createSession('proj-1', { prompt: 'hi' })).rejects.toThrow('boom');
+      expect(store.error).toBe('boom');
+    });
   });
 
   describe('updateSessionMode', () => {

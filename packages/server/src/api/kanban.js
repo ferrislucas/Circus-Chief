@@ -16,41 +16,11 @@ import {
 } from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
 import { validateModelId } from './model-validation.js';
+import { getRun } from '../services/workflowSessionService.js';
+import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
 
 const router = Router({ mergeParams: true });
 const LANE_NOT_FOUND_ERROR = 'Lane not found';
-
-/**
- * Helper to build full board response with lanes and cards
- */
-function buildFullBoardResponse(board) {
-  if (!board) return null;
-
-  const lanes = kanbanLanes.getByBoardId(board.id);
-  const allCards = kanbanCards.getByBoardId(board.id);
-
-  // Group cards by lane
-  const cardsByLane = {};
-  for (const lane of lanes) {
-    cardsByLane[lane.id] = [];
-  }
-  for (const card of allCards) {
-    if (cardsByLane[card.laneId]) {
-      cardsByLane[card.laneId].push(card);
-    }
-  }
-
-  return {
-    id: board.id,
-    projectId: board.projectId,
-    lanes: lanes.map(lane => ({
-      ...lane,
-      cards: cardsByLane[lane.id] || [],
-    })),
-    createdAt: board.createdAt,
-    updatedAt: board.updatedAt,
-  };
-}
 
 // ============== Board Endpoints ==============
 
@@ -71,6 +41,12 @@ router.get('/', (req, res) => {
   const fullBoard = buildFullBoardResponse(board);
 
   res.json(fullBoard);
+});
+
+router.get('/lane-runs/:runId', (req, res) => {
+  const run = getRun(req.params.runId);
+  if (!run) return res.status(404).json({ error: 'Lane run not found' });
+  res.json(run);
 });
 
 /**

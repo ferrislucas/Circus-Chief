@@ -68,6 +68,25 @@ function normalizeCreateSessionData(data) {
 }
 
 /**
+ * Shared submit logic for session-creation endpoints: uses FormData when
+ * files are attached, otherwise plain JSON.
+ * @param {import('../ApiClient.js').ApiClient} apiClient
+ * @param {string} path - Endpoint path (e.g. `/projects/:id/sessions`)
+ * @param {Object} data - Session data (may include a files array)
+ * @returns {Promise<Object>}
+ */
+function submitSessionCreate(apiClient, path, data) {
+  const { files, ...jsonData } = normalizeCreateSessionData(data);
+
+  if (files && files.length > 0) {
+    const formData = buildSessionFormData(jsonData, files);
+    return apiClient._uploadFormData(path, formData);
+  }
+
+  return apiClient._post(path, jsonData);
+}
+
+/**
  * Sessions API resource mixin
  * Adds session-related methods to ApiClient
  * @param {import('../ApiClient.js').ApiClient} ApiClient
@@ -108,15 +127,21 @@ export function SessionsApi(ApiClient) {
      * @returns {Promise<Object>}
      */
     async createSession(projectId, data) {
-      const { files, ...jsonData } = normalizeCreateSessionData(data);
+      return submitSessionCreate(this, `/projects/${projectId}/sessions`, data);
+    },
 
-      // Use FormData if files are attached, otherwise JSON
-      if (files && files.length > 0) {
-        const formData = buildSessionFormData(jsonData, files);
-        return this._uploadFormData(`/projects/${projectId}/sessions`, formData);
-      }
-
-      return this._post(`/projects/${projectId}/sessions`, jsonData);
+    /**
+     * Create a new session as a child within an existing workspace.
+     * Unlike createSession() (root/workspace creation only), this requires
+     * `data.parentSessionId` — the server validates it belongs to the
+     * workspace tree and rejects unknown/cross-workspace parents outright.
+     * @param {string} workspaceId - Workspace ID (the root session's id, or
+     *   any descendant session id — the server normalizes to the root)
+     * @param {Object} data - Session data, must include parentSessionId
+     * @returns {Promise<Object>}
+     */
+    async createWorkspaceSession(workspaceId, data) {
+      return submitSessionCreate(this, `/workspaces/${workspaceId}/sessions`, data);
     },
 
     /**

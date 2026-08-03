@@ -35,6 +35,7 @@ vi.mock('../services/gitService.js', async (importOriginal) => {
 
 // Import after mocks are set up
 import projectsRouter, { validateWorktreePath } from './projects.js';
+import { workspacesRouter } from './workspaces.js';
 import { broadcastToProject } from '../websocket.js';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { WS_MESSAGE_TYPES, buildTierRef } from '@circuschief/shared';
@@ -50,6 +51,10 @@ describe('Projects API', () => {
     app = express();
     app.use(express.json());
     app.use('/api/projects', projectsRouter);
+    // Child-session creation now lives on the workspace route (see
+    // "child session git worktree inheritance" below) — mounted here so
+    // those tests can exercise the real parentSessionId-validated path.
+    app.use('/api/workspaces', workspacesRouter);
 
     // Create temp directory for project
     tempDir = mkdtempSync(join(tmpdir(), 'projects-api-test-'));
@@ -199,31 +204,36 @@ describe('Projects API', () => {
       expect(sessions.getByProjectId(projectId)).toHaveLength(0);
     });
 
-    it('returns 404 when parentSessionId references a missing session', async () => {
+    it('rejects any submitted parentSessionId outright (root-session creation only)', async () => {
+      // POST /api/projects/:id/sessions creates a root session (workspace) only.
+      // Same-workspace child creation must go through
+      // POST /api/workspaces/:workspaceId/sessions instead — this route never
+      // honors or validates a submitted parent, it rejects the request before
+      // even checking whether the parent exists.
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Child prompt',
         parentSessionId: 'missing-parent-session',
       });
 
-      expect(res.status).toBe(404);
-      expect(res.body.error).toBe('Parent session not found');
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/parentSessionId/);
       expect(setupGitForSession).not.toHaveBeenCalled();
       expect(sessions.getByProjectId(projectId)).toHaveLength(0);
     });
 
-    it('rejects parentSessionId from another project', async () => {
-      const otherProject = projects.create('Other Project', tempDir);
-      const otherParent = sessions.create(otherProject.id, 'Other Parent', 'Parent prompt');
+    it('rejects a submitted parentSessionId even when it references a valid session in the same project', async () => {
+      const parent = sessions.create(projectId, 'Parent', 'Parent prompt');
 
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Child prompt',
-        parentSessionId: otherParent.id,
+        parentSessionId: parent.id,
       });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe('Parent session does not belong to this project');
+      expect(res.body.error).toMatch(/parentSessionId/);
       expect(setupGitForSession).not.toHaveBeenCalled();
-      expect(sessions.getByProjectId(projectId)).toHaveLength(0);
+      // Only the parent session should exist; no child was created.
+      expect(sessions.getByProjectId(projectId)).toHaveLength(1);
     });
 
     it('persists providerId for JSON session creation', async () => {
@@ -1885,12 +1895,17 @@ describe('Projects API', () => {
   });
 
   describe('child session git worktree inheritance', () => {
+    // Child-session creation lives on POST /api/workspaces/:workspaceId/sessions
+    // (POST /api/projects/:id/sessions rejects any submitted parentSessionId —
+    // see "rejects any submitted parentSessionId outright" above). Both routes
+    // share the same underlying createSessionRow/setupAndStartSession path, so
+    // this exercises the identical git-worktree-inheritance behavior.
     it('inherits gitWorktree from parent session instead of calling setupGitForSession', async () => {
       // Create a parent session that has a gitWorktree
       const parentSession = sessions.create(projectId, 'Parent Session', 'running');
       sessions.update(parentSession.id, { gitWorktree: '/tmp/parent-worktree' });
 
-      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+      const res = await request(app).post(`/api/workspaces/${parentSession.id}/sessions`).send({
         prompt: 'Child prompt',
         parentSessionId: parentSession.id,
         gitMode: 'worktree',
@@ -1912,7 +1927,7 @@ describe('Projects API', () => {
       const parentSession = sessions.create(projectId, 'Parent Session', 'running');
       sessions.update(parentSession.id, { gitWorktree: null });
 
-      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+      const res = await request(app).post(`/api/workspaces/${parentSession.id}/sessions`).send({
         prompt: 'Child prompt',
         parentSessionId: parentSession.id,
         gitMode: 'worktree',
@@ -1930,7 +1945,7 @@ describe('Projects API', () => {
       expect(childSession.gitWorktree).toBeNull();
     });
 
-    it('calls setupGitForSession when no parentSessionId is provided', async () => {
+    it('calls setupGitForSession for a standalone (root) session with no parent', async () => {
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Standalone prompt',
         gitMode: 'worktree',
@@ -1955,7 +1970,7 @@ describe('Projects API', () => {
       const parentSession = sessions.create(projectId, 'Parent No Worktree', 'running');
       // Don't set gitWorktree - it defaults to null
 
-      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+      const res = await request(app).post(`/api/workspaces/${parentSession.id}/sessions`).send({
         prompt: 'Child of non-worktree parent',
         parentSessionId: parentSession.id,
         gitMode: 'worktree',

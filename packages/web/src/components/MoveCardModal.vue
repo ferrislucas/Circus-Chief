@@ -26,6 +26,12 @@
       </div>
 
       <div class="modal-body">
+        <p
+          v-if="activeLaneRun && activeLaneRun.status === 'open'"
+          class="lane-run-warning"
+        >
+          Moving this card supersedes its active automation run. Its sessions can continue, but they can no longer move this card.
+        </p>
         <div class="moving-info">
           <span class="moving-label">Moving:</span>
           <span class="moving-session-name">{{ displayName }}</span>
@@ -153,6 +159,10 @@ const props = defineProps({
   sessionName: {
     type: String,
     default: '',
+  },
+  activeLaneRun: {
+    type: Object,
+    default: null,
   },
 });
 
@@ -335,6 +345,16 @@ onUnmounted(() => {
   padding: 1.5rem;
   flex: 1;
   overflow-y: auto;
+}
+
+.lane-run-warning {
+  margin: 0 0 1rem;
+  padding: .75rem;
+  border-left: 3px solid #f59e0b;
+  background: rgba(245, 158, 11, .1);
+  color: var(--color-text);
+  font-size: .875rem;
+  line-height: 1.4;
 }
 
 .modal-footer {
