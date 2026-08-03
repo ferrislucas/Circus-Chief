@@ -47,12 +47,12 @@ function describePromptOutcome(record, outcome, result) {
 }
 
 export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, agentId = null, payload, signal }) {
+  const existing = prompts.get(sessionId);
+  if (existing) settle(existing, 'superseded', { behavior: 'deny', message: 'This interaction was superseded.' });
   const questions = payload.questions || [];
   if (kind === 'question' && new Set(questions.map(({ question }) => question)).size !== questions.length) {
     return Promise.resolve({ behavior: 'deny', message: 'Please re-ask using distinct question text.' });
   }
-  const existing = prompts.get(sessionId);
-  if (existing) settle(existing, 'superseded', { behavior: 'deny', message: 'This interaction was superseded.' });
   return new Promise((resolve, reject) => {
     const record = { id: randomUUID(), sessionId, conversationId, kind, toolUseId, agentId, payload,
       createdAt: Date.now(), resolve, reject, signal, abortListener: null };
@@ -85,6 +85,9 @@ function permissionResult(record, response) {
         destination: response.destination || 'session',
       })),
     };
+  }
+  if (response.action === 'always') {
+    return { behavior: 'deny', message: 'Always allow is unavailable for this permission request.' };
   }
   return { behavior: 'deny', message: response.reason || 'Permission denied by user.' };
 }

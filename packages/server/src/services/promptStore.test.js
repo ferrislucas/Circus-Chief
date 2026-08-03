@@ -94,4 +94,27 @@ describe('promptStore work-log emission', () => {
       'question-cancelled', 'tool_output', 'User did not answer: Session was cancelled.', 'AskUserQuestion'
     );
   });
+
+  it('supersedes an existing prompt before rejecting duplicate question text', async () => {
+    const existing = park('duplicate-question', 'permission');
+
+    const duplicate = parkPrompt({
+      sessionId: 'duplicate-question', conversationId: 'conv-1', kind: 'question',
+      payload: { questions: [{ question: 'Same' }, { question: 'Same' }], input: {} },
+    });
+
+    await expect(existing.promise).resolves.toMatchObject({ behavior: 'deny', message: 'This interaction was superseded.' });
+    await expect(duplicate).resolves.toMatchObject({ behavior: 'deny', message: 'Please re-ask using distinct question text.' });
+    expect(getPrompt('duplicate-question')).toBeNull();
+  });
+
+  it('explains when always allow is unavailable for a permission prompt', async () => {
+    const { promise, prompt } = park('no-suggestions', 'permission', { toolName: 'Bash', input: {} });
+
+    respondToPrompt('no-suggestions', prompt.id, { action: 'always' });
+
+    await expect(promise).resolves.toMatchObject({
+      behavior: 'deny', message: 'Always allow is unavailable for this permission request.',
+    });
+  });
 });

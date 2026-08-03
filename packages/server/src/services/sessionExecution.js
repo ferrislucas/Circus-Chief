@@ -9,6 +9,8 @@ import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
 import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
 export { buildQueryParams } from './queryParamBuilder.js';
 import { buildQueryParams } from './queryParamBuilder.js';
+/* eslint-disable max-lines */
+
 import {
   buildPromptWithAttachments,
 } from './sessionPrompts.js';
@@ -27,6 +29,12 @@ import { buildConversationContextForModelSwitch, buildConversationContextForCont
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState, markHeldForLimit } from './workflowSessionService.js';
+// W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
+// sessionExecution), safe because this is only called at runtime inside
+// _executeSession, long after the module graph is loaded (same pattern as
+// session-helpers.js's database.js <-> SessionRepository cycle).
+import { drainLaneEntryTrigger } from './kanbanService.js';
 
 /**
  * Build the adapter-specific default config object for
@@ -111,7 +119,6 @@ export function createAgentForSession(agentType = 'claude-code', config = {}) {
  * @param {Function} options.callbacks.handleTemplateTriggerIfNeeded - Template trigger handler
  * @param {Function} options.callbacks.handleAutoSendIfNeeded - Auto-send handler
  * @param {boolean} [options.broadcastConversationStateOnError] - Whether to broadcast conversation state on error
- * @param {boolean} [options.cleanupConversationId] - Whether to clean up activeConversationIds in finally
  * @param {string} [options.errorLabel] - Label for error logging
  */
 export async function _executeSession({
@@ -123,11 +130,10 @@ export async function _executeSession({
   workingDirectory,
   callbacks,
   broadcastConversationStateOnError = false,
-  cleanupConversationId = false,
+  cleanupConversationId = false, interactive = false,
   errorLabel = 'Session error',
 }) {
-  const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded } = callbacks;
-
+  const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded } = callbacks; const workflowTurn = beginWorkflowTurn(sessionId);
   try {
     // Run the query with the agent (SDK via gateway, or mock)
     for await (const event of agent.execute(queryParams, agentCallMeta)) {
@@ -135,16 +141,22 @@ export async function _executeSession({
 
       await handleStreamEvent(sessionId, event);
     }
-
     // Handle post-turn completion (work log association, status transition, summary, etc.)
-    const wasRescheduled = await handleTurnCompletion(
+    const { wasRescheduled, heldForLimit } = await handleTurnCompletion(
       sessionId,
       workingDirectory,
       { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded }
     );
-    if (wasRescheduled) {
-      return;
-    }
+    // FR-4/FR-5: a self-scheduled continuation is an open obligation, not success.
+    if (wasRescheduled) { markExecutionState(sessionId, 'scheduled'); return; }
+    // FR-9.8: a graceful provider limit/outage leaves the lane obligation open.
+    if (heldForLimit) { markHeldForLimit(sessionId); return; }
+    // W6/FR-8: the server infers own-work completion from this successful,
+    // non-continuing turn; finish the async remainder (start the
+    // target lane's on-enter automation exactly once) if it just happened.
+    if (interactive && workflowTurn?.executionStateBeforeTurn !== 'paused') return;
+    const reconciled = finalizeOwnWorkCompletion(sessionId);
+    if (reconciled?.pendingTargetLaneTrigger) await drainLaneEntryTrigger(reconciled.pendingTargetLaneTrigger.laneEntryEventId);
   } catch (error) {
     const rescheduled = await handleSessionError(sessionId, error, {
       controller,
@@ -155,8 +167,18 @@ export async function _executeSession({
       handleTemplateTriggerIfNeeded,
     });
     if (rescheduled) {
+      // FR-9.1/FR-9.5: a transient error with an automatic retry/reschedule
+      // keeps the session (and its lane run) open — only the execution_state
+      // dimension moves, own_work_state is untouched.
+      markExecutionState(sessionId, 'retrying');
       return; // Don't throw - session was rescheduled
     }
+    // FR-9.2/FR-9.4: distinguish a user-initiated stop (must land as
+    // 'cancelled', never a failure) from a genuine permanent error (must land
+    // as 'closed_failed'). Both are terminal — neither may be interpreted as
+    // success, and reconcileLaneRun() below fails/cancels the lane run so a
+    // structured card never advances past this session.
+    closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message);
     throw error;
   } finally {
     cleanupSessionState(sessionId, cleanupConversationId);
@@ -268,7 +290,6 @@ async function buildContinueParams({
     agentType,
     commitAttributionOverride,
   });
-
   // Logging metadata for agent call tracking
   const agentCallMeta = {
     sessionId,
@@ -322,7 +343,7 @@ async function setupConversationAndMessage(sessionId, content, fileAttachments) 
  */
 export async function continueSessionCore(sessionId, content, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
-  const { systemPrompt = null, fileAttachments = [], model = null } = options;
+  const { systemPrompt = null, fileAttachments = [], model = null, interactive = false } = options;
   // Check if session is already running
   if (activeSessions.has(sessionId)) {
     throw new Error('Session is already processing');
@@ -365,7 +386,6 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     modelChanged: modelEnv.modelChanged, activeConversation, promptWithAttachments,
     workingDirectory, controller, agentType, agent,
   });
-
   await _executeSession({
     sessionId,
     agent,
@@ -376,6 +396,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     callbacks,
     broadcastConversationStateOnError: true,
     cleanupConversationId: true,
+    interactive,
     errorLabel: 'Continue session error',
   });
 }
@@ -443,10 +464,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     commitAttributionOverride,
   });
 
-  // Log query params for debugging third-party provider issues
   console.log(`[SessionManager] runSession: model=${queryParams.options?.model || '[default]'} baseUrl=${queryParams.options?.env?.ANTHROPIC_BASE_URL || '[not set]'}`);
-
-  // Logging metadata for agent call tracking
   const agentCallMeta = {
     sessionId,
     conversationId: activeConversation.id,

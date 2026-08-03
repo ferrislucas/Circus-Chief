@@ -83,7 +83,10 @@
         :files="permissionDiffFiles"
         :expand-all="true"
       />
-      <pre v-else class="max-h-48 overflow-auto bg-black/40 p-3 text-xs text-gray-200">{{ JSON.stringify(prompt.payload.input, null, 2) }}</pre>
+      <pre
+        v-else
+        class="max-h-48 overflow-auto bg-black/40 p-3 text-xs text-gray-200"
+      >{{ JSON.stringify(prompt.payload.input, null, 2) }}</pre>
       <input
         v-model="reason"
         class="my-3 w-full border border-gray-600 bg-gray-900 p-2 text-white"
@@ -154,11 +157,13 @@ const permissionDiffFiles = computed(() => {
   const path = input.file_path || input.path || input.filename || 'pending change';
   const before = input.old_string || '';
   const after = input.new_string || input.content || '';
+  const beforeLines = before === '' ? [] : before.split('\n');
+  const afterLines = after === '' ? [] : after.split('\n');
   return [{
     displayPath: path, isNew: props.prompt?.payload.toolName === 'Write', isDeleted: false, isRenamed: false,
-    additions: after.split('\n').filter(Boolean).length, deletions: before.split('\n').filter(Boolean).length,
-    hunks: [{ oldStart: 1, oldLines: before ? before.split('\n').length : 0, newStart: 1, newLines: after ? after.split('\n').length : 0,
-      lines: [...before.split('\n').filter(Boolean).map((content, index) => ({ type: 'remove', content, oldLineNumber: index + 1 })), ...after.split('\n').filter(Boolean).map((content, index) => ({ type: 'add', content, newLineNumber: index + 1 }))] }],
+    additions: afterLines.length, deletions: beforeLines.length,
+    hunks: [{ oldStart: 1, oldLines: beforeLines.length, newStart: 1, newLines: afterLines.length,
+      lines: [...beforeLines.map((content, index) => ({ type: 'remove', content, oldLineNumber: index + 1 })), ...afterLines.map((content, index) => ({ type: 'add', content, newLineNumber: index + 1 }))] }],
   }];
 });
 function respond(response) { emit('respond', response); }
@@ -168,7 +173,21 @@ function collectAnswers() {
     other.value[question.question]?.trim() || (Array.isArray(answers.value[question.question]) ? answers.value[question.question].join(', ') : answers.value[question.question]),
   ]));
 }
-function submitAnswers() { if (canSubmit.value) respond({ action: 'answer', answers: collectAnswers(), ...(freeResponse.value.trim() ? { response: freeResponse.value.trim() } : {}) }); }
+function collectAnnotations() {
+  return Object.fromEntries(props.prompt.payload.questions.flatMap((question) => {
+    const selected = answers.value[question.question];
+    const labels = Array.isArray(selected) ? selected : [selected];
+    const previews = question.options.filter((option) => labels.includes(option.label) && option.preview).map((option) => option.preview);
+    const note = other.value[question.question]?.trim();
+    if (!note && previews.length === 0) return [];
+    return [[question.question, { ...(note ? { note } : {}), ...(previews.length ? { preview: previews.join('\n\n') } : {}) }]];
+  }));
+}
+function submitAnswers() {
+  if (!canSubmit.value) return;
+  const annotations = collectAnnotations();
+  respond({ action: 'answer', answers: collectAnswers(), ...(Object.keys(annotations).length ? { annotations } : {}), ...(freeResponse.value.trim() ? { response: freeResponse.value.trim() } : {}) });
+}
 function chooseOption(index) {
   const question = props.prompt?.payload.questions?.[focusedQuestion.value]; const option = question?.options?.[index];
   if (!question || !option || props.submitting) return;

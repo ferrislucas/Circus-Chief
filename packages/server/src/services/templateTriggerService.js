@@ -151,11 +151,13 @@ function fetchTriggerContext(sessionId) {
  * @returns {{ createOpts: Object, postCreateUpdate: Object }}
  */
 function buildChildSessionOptions(template, parentSession, settings) {
+  // parentSessionId is set atomically at creation time — avoids a window where
+  // the new row briefly has no parent (see create-then-reparent race).
   const createOpts = {
     mode: settings.mode,
     thinkingEnabled: settings.thinkingEnabled,
     gitBranch: settings.gitBranch,
-    parentSessionId: null,
+    parentSessionId: parentSession.id,
     status: 'starting',
     model: settings.model,
     effortLevel: settings.effortLevel,
@@ -163,7 +165,6 @@ function buildChildSessionOptions(template, parentSession, settings) {
   };
 
   const postCreateUpdate = {
-    parentSessionId: parentSession.id,
     nextTemplateId: template.nextTemplateId || null,
     autoRescheduleEnabled: settings.autoRescheduleEnabled,
     rescheduleOnTokenLimit: settings.rescheduleOnTokenLimit,

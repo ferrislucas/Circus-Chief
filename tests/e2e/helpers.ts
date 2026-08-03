@@ -528,22 +528,29 @@ export async function seedSession(
         ? new Date(data.scheduledAt).toISOString()
         : data.scheduledAt;
 
-  // Default gitMode/gitBranch so tests pass for git-repo-backed projects
+  // Default to the existing checkout so tests do not create branches/worktrees.
+  // "current" is the canonical API value for that behavior.
   // Default autoRescheduleEnabled to false so tests get deterministic panel behavior
   // (the REST API now defaults it to true for agent convenience)
   const payload = {
-    gitMode: 'none',
+    gitMode: 'current',
     gitBranch: 'main',
     autoRescheduleEnabled: false,
     ...data,
     ...(scheduledAt !== undefined ? { scheduledAt } : {}),
   };
-  const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`, {
+  const endpoint = data.parentSessionId
+    ? `${API_URL}/api/workspaces/${data.parentSessionId}/sessions`
+    : `${API_URL}/api/projects/${projectId}/workspaces`;
+  const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error('Failed to seed session');
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Failed to seed session (${response.status}): ${errorBody}`);
+  }
   const session = await response.json();
   // Track for scoped cleanup
   createdResources.sessions.add(session.id);

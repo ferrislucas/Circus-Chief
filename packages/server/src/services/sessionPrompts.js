@@ -1,7 +1,10 @@
 import { sessions, attachments } from '../database.js';
 import { DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
 import { buildCommandButtonApiInstructions } from './commandButtonPrompts.js';
-import { buildSessionApiInstructions, buildKanbanApiInstructions } from './sessionApiPrompts.js';
+import {
+  buildSessionApiInstructions,
+  buildKanbanApiInstructions,
+} from './sessionApiPrompts.js';
 import { getApiBaseUrl } from './apiBaseUrl.js';
 
 export { getApiBaseUrl };

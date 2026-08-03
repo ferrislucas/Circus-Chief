@@ -3,7 +3,10 @@
  * Each export is an array of { name, up(db) } migration objects.
  */
 import { addColumnIfMissing, getColumns, getTableSql } from './migrationUtils.js';
-import { migrateSessionsDefaultModeAndThinking } from './sessionTableRecreate.js';
+import {
+  migrateSessionsDefaultModeAndThinking,
+  migrateSessionsImmutableParentage,
+} from './sessionTableRecreate.js';
 
 // Table name constants for migrations
 const TABLE_SESSIONS = 'sessions';
@@ -320,6 +323,12 @@ export const sessionsMigrations = [
           AND scheduled_at GLOB '????-??-??T??:??:??*'
       `).run();
     },
+  },
+
+  // --- Immutable parentage: deferred ON DELETE NO ACTION + update-rejecting trigger ---
+  {
+    name: 'sessions-immutable-parent_session_id',
+    up(db) { migrateSessionsImmutableParentage(db); },
   },
 
 ];

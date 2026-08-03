@@ -143,8 +143,7 @@ describe('Session Templates Integration', () => {
 
     it('session includes parentSessionId in response', async () => {
       const parentSession = sessions.create(project.id, 'Parent', 'Parent prompt');
-      const childSession = sessions.create(project.id, 'Child', 'Child prompt');
-      sessions.update(childSession.id, { parentSessionId: parentSession.id });
+      const childSession = sessions.create(project.id, 'Child', 'Child prompt', { parentSessionId: parentSession.id });
 
       const res = await request(app).get(`/api/sessions/${childSession.id}`);
 

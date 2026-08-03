@@ -44,7 +44,7 @@ test.describe('Draft session model preservation on start', () => {
         prompt: 'Test prompt for draft session',
         startImmediately: false,
         model: 'claude-opus-4-6',
-        gitMode: 'none',
+        gitMode: 'current',
         gitBranch: 'main',
       }),
     });
@@ -72,7 +72,7 @@ test.describe('Draft session model preservation on start', () => {
         prompt: 'Test prompt for starting draft',
         startImmediately: false,
         model: 'claude-opus-4-6',
-        gitMode: 'none',
+        gitMode: 'current',
         gitBranch: 'main',
       }),
     });
@@ -137,7 +137,7 @@ test.describe('Draft session model preservation on start', () => {
         prompt: 'Test model resolution',
         startImmediately: false,
         model: 'claude-opus-4-6',
-        gitMode: 'none',
+        gitMode: 'current',
         gitBranch: 'main',
       }),
     });
@@ -192,7 +192,7 @@ test.describe('Draft session model preservation on start', () => {
         prompt: 'Test model override',
         startImmediately: false,
         model: 'claude-opus-4-6',
-        gitMode: 'none',
+        gitMode: 'current',
         gitBranch: 'main',
       }),
     });
@@ -233,7 +233,7 @@ test.describe('Draft session model preservation on start', () => {
         prompt: 'Test session.model fallback',
         startImmediately: false,
         model: 'claude-opus-4-6',
-        gitMode: 'none',
+        gitMode: 'current',
         gitBranch: 'main',
       }),
     });
@@ -278,7 +278,7 @@ test.describe('Draft session model preservation on start', () => {
         prompt: 'Test pendingModel cleanup',
         startImmediately: false,
         model: 'claude-opus-4-6',
-        gitMode: 'none',
+        gitMode: 'current',
         gitBranch: 'main',
       }),
     });

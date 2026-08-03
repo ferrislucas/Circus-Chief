@@ -1,45 +1,17 @@
+import crypto from 'crypto';
 import {
   kanbanBoards,
   kanbanLanes,
   kanbanCards,
   sessions,
   projects,
+  databaseManager,
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
-
-/**
- * Helper to build full board response with lanes and cards
- */
-function buildFullBoardResponse(board) {
-  if (!board) return null;
-
-  const lanes = kanbanLanes.getByBoardId(board.id);
-  const allCards = kanbanCards.getByBoardId(board.id);
-
-  // Group cards by lane
-  const cardsByLane = {};
-  for (const lane of lanes) {
-    cardsByLane[lane.id] = [];
-  }
-  for (const card of allCards) {
-    if (cardsByLane[card.laneId]) {
-      cardsByLane[card.laneId].push(card);
-    }
-  }
-
-  return {
-    id: board.id,
-    projectId: board.projectId,
-    lanes: lanes.map((lane) => ({
-      ...lane,
-      cards: cardsByLane[lane.id] || [],
-    })),
-    createdAt: board.createdAt,
-    updatedAt: board.updatedAt,
-  };
-}
+import { createLaneRunForEntry, supersedeRunForCard, isStructured } from './workflowSessionService.js';
+import { buildFullBoardResponse } from './kanbanBoardResponse.js';
 
 /**
  * Get the full board with all lanes and cards for a project.
@@ -69,8 +41,8 @@ function resolveWorkspaceId(sessionId) {
   return sessions.getRootSessionId(sessionId) || sessionId;
 }
 
-async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
-  const { runOnEnterTemplate = true, depth = 0 } = options;
+export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
+  const { runOnEnterTemplate = true, depth = 0, laneRunId = null } = options;
 
   if (!runOnEnterTemplate) {
     return;
@@ -78,10 +50,32 @@ async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
 
   const lane = kanbanLanes.getByIdWithTemplate(laneId);
   if (lane?.onEnterTemplateId) {
-    await triggerOnEnterTemplate(sessionId, lane, { depth });
+    await triggerOnEnterTemplate(sessionId, lane, { depth, laneRunId });
   } else if (lane?.onEnterPrompt) {
-    await triggerOnEnterPrompt(sessionId, lane, { depth });
+    await triggerOnEnterPrompt(sessionId, lane, { depth, laneRunId });
   }
+}
+
+/**
+ * F1 (PR #1066 remediation): a lane run's root is only ever attached from
+ * inside triggerOnEnterTemplate/triggerOnEnterPrompt (kanbanTriggers.js) —
+ * i.e. only when the lane actually spawns an on-entry worker. A lane whose
+ * completionMode auto-derived to 'structured' purely from having a
+ * completionTargetLaneId (KanbanLaneRepository#update) but with NO on-enter
+ * automation would otherwise still get a lane run opened for it here, whose
+ * root_session_id can never be attached — an orphaned run that (a) never
+ * succeeds and (b) permanently blocks the legacy handleCompletionMove
+ * fallback via the card's activeLaneRunId guard. "Just move this card when
+ * its own session finishes here, no spawned worker" is a legitimate,
+ * pre-existing configuration (see kanban-completion-move.spec.ts), so a
+ * structured lane run is only opened when there is an on-entry automation to
+ * actually own it; otherwise completion continues through the always-present
+ * legacy per-session path.
+ * @param {Object|null} lane
+ * @returns {boolean}
+ */
+function hasOnEnterAutomation(lane) {
+  return Boolean(lane?.onEnterTemplateId || lane?.onEnterPrompt);
 }
 
 /**
@@ -113,6 +107,10 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
   // Get root session to find project ID for broadcast and lane entry automation.
   const rootSession = sessions.getById(workspaceId);
   if (rootSession) {
+    const lane = kanbanLanes.getById(laneId);
+    const laneRun = isStructured(lane) && hasOnEnterAutomation(lane)
+      ? createLaneRunForEntry({ projectId: rootSession.projectId, workspaceId, cardId: card.id, lane })
+      : null;
     broadcastToProject(rootSession.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_ADDED, {
       projectId: rootSession.projectId,
       card,
@@ -125,6 +123,7 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
     await triggerLaneEntryAutomation(workspaceId, laneId, {
       runOnEnterTemplate,
       depth: depth || rootDepth,
+      laneRunId: laneRun?.id,
     });
   }
 
@@ -152,6 +151,10 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
 
   const fromLaneId = card.laneId;
 
+  // A human/API move revokes an open run before changing lanes. Completion
+  // transitions use their own guarded SQL path and never call this service.
+  supersedeRunForCard(cardId, 'manual_move');
+
   // Move the card
   const movedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
 
@@ -160,6 +163,10 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
   const session = sessionId ? sessions.getById(sessionId) : null;
 
   if (session) {
+    const lane = kanbanLanes.getById(targetLaneId);
+    const laneRun = isStructured(lane) && hasOnEnterAutomation(lane)
+      ? createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause: 'manual_move' })
+      : null;
     broadcastToProject(session.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
       projectId: session.projectId,
       cardId,
@@ -168,10 +175,93 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
       card: movedCard,
     });
 
-    await triggerLaneEntryAutomation(sessionId, targetLaneId, { runOnEnterTemplate, depth });
+    await triggerLaneEntryAutomation(sessionId, targetLaneId, { runOnEnterTemplate, depth, laneRunId: laneRun?.id });
   }
 
   return movedCard;
+}
+
+/**
+ * W6 (FRD: Kanban Lane-Run Structured Completion, FR-8): finish a
+ * structured lane-run's transition into the target lane's on-enter
+ * automation.
+ *
+ * The DB transition itself (marking the run succeeded, moving the card,
+ * assigning sort_order, broadcasting KANBAN_CARD_MOVED) already happened
+ * synchronously and atomically inside workflowSessionService.js's
+ * attemptLaneRunTransition — that module cannot import this one (kanbanService
+ * -> kanbanTriggers -> sessionManager -> sessionExecution -> workflowSessionService
+ * would cycle), so it hands back a `pendingTargetLaneTrigger` descriptor for
+ * the necessarily-async remainder: creating (for a structured/shadow target
+ * lane) the next lane run and starting its on-enter session.
+ *
+ * @param {{ workspaceSessionId: string, targetLaneId: string, cardId: string, sourceRunId: string }} pending
+ */
+export async function triggerStructuredTransitionAutomation(pending) {
+  const { workspaceSessionId, targetLaneId, cardId, sourceRunId } = pending;
+  const workspaceSession = sessions.getById(workspaceSessionId);
+  if (!workspaceSession) return;
+
+  const lane = kanbanLanes.getById(targetLaneId);
+  const laneRun = isStructured(lane) && hasOnEnterAutomation(lane)
+    ? createLaneRunForEntry({
+        projectId: workspaceSession.projectId,
+        workspaceId: workspaceSessionId,
+        cardId,
+        lane,
+        cause: 'completion',
+        priorLaneRunId: sourceRunId,
+        entryEventId: pending.laneEntryEventId,
+      })
+    : null;
+
+  await triggerLaneEntryAutomation(workspaceSessionId, targetLaneId, {
+    runOnEnterTemplate: true,
+    depth: workspaceSession.laneTriggerDepth || 0,
+    laneRunId: laneRun?.id,
+  });
+}
+
+function claimLaneEntryTrigger(eventId) {
+  const token = crypto.randomUUID();
+  const time = Date.now();
+  const claimed = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+    SET claim_token=?, claimed_at=?, attempt_count=attempt_count+1, updated_at=?
+    WHERE id=? AND status='pending' AND claim_token IS NULL`).run(token, time, time, eventId);
+  return claimed.changes ? token : null;
+}
+
+/** Drain one committed completion handoff. Safe to call repeatedly. */
+export async function drainLaneEntryTrigger(eventId) {
+  const token = claimLaneEntryTrigger(eventId);
+  if (!token) return false;
+  const db = databaseManager.get();
+  const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+  try {
+    await triggerStructuredTransitionAutomation({
+      workspaceSessionId: event.workspace_id, targetLaneId: event.lane_id,
+      cardId: event.card_id, sourceRunId: event.caused_by_run_id, laneEntryEventId: event.id,
+    });
+    const time = Date.now();
+    db.prepare(`UPDATE kanban_lane_entry_events
+      SET status='completed', completed_at=?, updated_at=? WHERE id=? AND claim_token=?`)
+      .run(time, time, eventId, token);
+    return true;
+  } catch (error) {
+    db.prepare(`UPDATE kanban_lane_entry_events
+      SET claim_token=NULL, claimed_at=NULL, last_error=?, updated_at=? WHERE id=? AND claim_token=?`)
+      .run(error.message, Date.now(), eventId, token);
+    throw error;
+  }
+}
+
+/** Recover completion handoffs persisted before an unexpected process exit. */
+export async function drainPendingLaneEntryTriggers() {
+  const events = databaseManager.get().prepare(`SELECT id FROM kanban_lane_entry_events
+    WHERE status='pending' AND cause='completion' ORDER BY created_at`).all();
+  for (const { id } of events) {
+    try { await drainLaneEntryTrigger(id); } catch (error) { console.error('Kanban lane-entry recovery failed:', error); }
+  }
 }
 
 async function moveExistingSessionCard(session, card, targetLaneId) {
@@ -238,12 +328,16 @@ export async function handleCompletionMove(sessionId) {
     return;
   }
 
-  const currentLane = kanbanLanes.getById(card.laneId);
-  if (!currentLane?.completionTargetLaneId) {
-    return;
-  }
+  // Structured/shadow runs own completion. The legacy completion hook must
+  // never race a persisted run into moving a card.
+  if (card.activeLaneRunId) return;
 
-  const targetLaneId = currentLane.completionTargetLaneId;
+  const currentLane = kanbanLanes.getById(card.laneId);
+  // A shadow run clears activeLaneRunId after evaluation, so it needs an
+  // explicit guard against the legacy hook reopening the card. Structured
+  // runs retain the active-run guard until their server-driven transition.
+  const targetLaneId = legacyCompletionTarget(currentLane);
+  if (!targetLaneId) return;
   if (targetLaneId === currentLane.id) {
     return;
   }
@@ -268,6 +362,10 @@ export async function handleCompletionMove(sessionId) {
   await moveExistingSessionCard(rootSession, card, targetLaneId);
 }
 
+function legacyCompletionTarget(lane) {
+  return lane?.completionMode === 'shadow' ? null : lane?.completionTargetLaneId;
+}
+
 /**
  * Remove a session from the board (called when session is deleted).
  *
@@ -285,6 +383,7 @@ export function removeSessionFromBoard(sessionId) {
   const rootSession = sessions.getById(workspaceId);
   const projectId = rootSession?.projectId;
 
+  supersedeRunForCard(card.id, 'card_removed');
   kanbanCards.delete(card.id);
 
   if (projectId) {

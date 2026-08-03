@@ -33,9 +33,9 @@ import { API_READY, PAGE_READY_TIMEOUT } from './timeouts';
  *    (historical continuity, US5).
  */
 test.describe('Opus 5 Model Availability', () => {
-  // This suite changes the enabled state of a shared built-in provider model.
-  // Keep its tests from racing one another under Playwright's fullyParallel
-  // configuration while still allowing unrelated spec files to run in parallel.
+  // These tests intentionally toggle a global built-in provider row. Keep the
+  // read/default assertions and the mutation in one serial sequence so a
+  // fully-parallel Playwright configuration cannot expose the transient state.
   test.describe.configure({ mode: 'serial' });
 
   let project: any;
@@ -104,7 +104,7 @@ test.describe('Opus 5 Model Availability', () => {
     const session = await seedSession(project.id, {
       prompt: 'Test Opus generation defaults in model selector',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
 
@@ -168,7 +168,7 @@ test.describe('Opus 5 Model Availability', () => {
       const session = await seedSession(project.id, {
         prompt: 'Test selecting a re-enabled Opus 4.8',
         startImmediately: false,
-        gitMode: 'none',
+        gitMode: 'current',
         gitBranch: 'main',
       });
 
@@ -219,7 +219,7 @@ test.describe('Opus 5 Model Availability', () => {
     const session = await seedSession(project.id, {
       prompt: 'Test selecting Opus 5',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
 
@@ -269,7 +269,7 @@ test.describe('Opus 5 Model Availability', () => {
       prompt: 'Existing session with Opus 4.6',
       model: 'claude-opus-4-6',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
 
@@ -307,7 +307,7 @@ test.describe('Opus 5 Model Availability', () => {
       prompt: 'Existing session with Opus 4.8',
       model: 'claude-opus-4-8',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
 

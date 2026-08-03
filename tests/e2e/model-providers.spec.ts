@@ -367,7 +367,7 @@ test.describe('Model Provider - Session Model Selection', () => {
     const session = await seedSession(project.id, {
       prompt: 'Test custom model selection',
       startImmediately: false,
-      gitMode: 'none',
+      gitMode: 'current',
       gitBranch: 'main',
     });
 

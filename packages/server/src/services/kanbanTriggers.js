@@ -10,6 +10,7 @@ import { renderTemplatePrompt, getRootSession } from './templateTriggerService.j
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
 import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
+import { attachRootSession } from './workflowSessionService.js';
 
 // Maximum depth for recursive lane-entry template triggers
 export const MAX_LANE_TRIGGER_DEPTH = 5;
@@ -132,7 +133,8 @@ export function getTemplateSessionSettings(template, session) {
  * @param {number} depth - Current trigger depth
  * @returns {{ newSession: Object, renderedPrompt: string, settings: Object }}
  */
-async function buildChildSessionFromTemplate(template, session, lane, depth) {
+async function buildChildSessionFromTemplate(template, session, lane, options = {}) {
+  const { depth, laneRunId = null } = options;
   // Render prompt with workspace context
   const rootSession = getRootSession(session);
   const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
@@ -141,7 +143,8 @@ async function buildChildSessionFromTemplate(template, session, lane, depth) {
     { rootSession, rootSummary }
   );
 
-  // Get settings and create session
+  // Get settings and create session with its direct parent set atomically at
+  // creation time — avoids a window where the new row briefly has no parent.
   const settings = getTemplateSessionSettings(template, session);
   const newSession = sessions.create(session.projectId, `${template.name} (lane: ${lane.name})`, renderedPrompt, {
     mode: settings.mode,
@@ -150,11 +153,12 @@ async function buildChildSessionFromTemplate(template, session, lane, depth) {
     status: 'starting',
     model: settings.model,
     agentType: resolveAgentTypeFromModel(settings.model),
-  });
-
-  // Configure session
-  sessions.update(newSession.id, {
     parentSessionId: session.id,
+  });
+  if (laneRunId) attachRootSession(laneRunId, newSession.id);
+
+  // Configure remaining fields not supported by create()
+  sessions.update(newSession.id, {
     nextTemplateId: template.nextTemplateId || null,
     laneTriggerDepth: depth + 1,
   });
@@ -163,7 +167,7 @@ async function buildChildSessionFromTemplate(template, session, lane, depth) {
 }
 
 export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
-  const { depth = 0 } = options;
+  const { depth = 0, laneRunId = null } = options;
 
   if (depth >= MAX_LANE_TRIGGER_DEPTH) {
     console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
@@ -183,7 +187,9 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
   console.log(`Kanban: Triggering on-enter template "${template.name}" for session "${session.name}" entering lane "${lane.name}"`);
 
   try {
-    const { newSession, renderedPrompt, settings } = await buildChildSessionFromTemplate(template, session, lane, depth);
+    const { newSession, renderedPrompt, settings } = await buildChildSessionFromTemplate(
+      template, session, lane, { depth, laneRunId }
+    );
 
     // Determine working directory
     const { workingDirectory, gitWorktree } = await determineWorkingDirectory(session, project, {
@@ -228,7 +234,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
  * @param {number} depth - Current trigger depth
  * @returns {Promise<{ newSession: Object, renderedPrompt: string, settings: Object }>}
  */
-async function buildChildSessionFromPrompt(lane, session, depth) {
+async function buildChildSessionFromPrompt(lane, session, depth, laneRunId = null) {
   // Render prompt with workspace context
   const rootSession = getRootSession(session);
   const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
@@ -237,16 +243,19 @@ async function buildChildSessionFromPrompt(lane, session, depth) {
     { rootSession, rootSummary }
   );
 
-  // Get settings and create session
+  // Get settings and create session with its direct parent set atomically at
+  // creation time — avoids a window where the new row briefly has no parent.
   const settings = getLaneSessionSettings(lane, session);
   const newSession = sessions.create(session.projectId, `Lane prompt (lane: ${lane.name})`, renderedPrompt, {
     ...settings,
     status: 'starting',
     agentType: resolveAgentTypeFromModel(settings.model),
+    parentSessionId: session.id,
   });
+  if (laneRunId) attachRootSession(laneRunId, newSession.id);
 
-  // Configure session
-  const sessionUpdates = { parentSessionId: session.id, laneTriggerDepth: depth + 1 };
+  // Configure remaining fields not supported by create()
+  const sessionUpdates = { laneTriggerDepth: depth + 1 };
   if (lane.onEnterAutoRescheduleEnabled) {
     Object.assign(sessionUpdates, {
       autoRescheduleEnabled: true,
@@ -264,7 +273,7 @@ async function buildChildSessionFromPrompt(lane, session, depth) {
 }
 
 export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
-  const { depth = 0 } = options;
+  const { depth = 0, laneRunId = null } = options;
 
   if (depth >= MAX_LANE_TRIGGER_DEPTH) {
     console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
@@ -278,7 +287,7 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
   console.log(`Kanban: Triggering on-enter prompt for session "${session.name}" entering lane "${lane.name}"`);
 
   try {
-    const { newSession, renderedPrompt, settings } = await buildChildSessionFromPrompt(lane, session, depth);
+    const { newSession, renderedPrompt, settings } = await buildChildSessionFromPrompt(lane, session, depth, laneRunId);
 
     // Determine working directory
     const { workingDirectory, gitWorktree } = await determineWorkingDirectory(session, project);

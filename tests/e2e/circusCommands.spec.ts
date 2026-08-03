@@ -43,6 +43,10 @@ test.describe('Circus Commands', () => {
     // Expand output section
     await page.click('.output-header');
 
+    // Completion and output delivery are separate WebSocket events. Wait for
+    // the output buffer to render instead of racing the final output page.
+    await expect(page.locator('.output-text')).toContainText('Line 3', { timeout: 5000 });
+
     // Verify output is displayed with the expected content
     const outputText = page.locator('.output-text');
     await expect(outputText).toContainText('Line 1');

@@ -912,7 +912,8 @@ test.describe('Effort Level Feature - E2E Tests', () => {
       const sessions = [];
 
       for (let i = 0; i < 100; i++) {
-        const effortLevel = ['low', 'medium', 'high', 'max', null][i % 5];
+        // The strict creation API uses "auto" to represent a persisted null effort.
+        const effortLevel = ['low', 'medium', 'high', 'max', 'auto'][i % 5];
         const session = await seedSession(project.id, {
           prompt: `Performance test session ${i}`,
           effortLevel,

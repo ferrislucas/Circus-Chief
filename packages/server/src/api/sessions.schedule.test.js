@@ -275,7 +275,7 @@ describe('Sessions API - POST /:id/schedule', () => {
       handleTemplateTriggerIfNeeded: mockTemplateTrigger,
     });
 
-    expect(result).toBe(false);
+    expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
     expect(sessions.getById(session.id)).toEqual(expect.objectContaining({
       status: 'scheduled',
       scheduledAt,
