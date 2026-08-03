@@ -437,6 +437,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_starred ON sessions(archived, starred);
 CREATE INDEX IF NOT EXISTS idx_sessions_next_template ON sessions(next_template_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_scheduled ON sessions(scheduled_at) WHERE scheduled_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sessions_lane_run ON sessions(lane_run_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_parent ON conversations(parent_conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON conversation_messages(session_id);
