@@ -292,7 +292,7 @@ test.describe('Model Tiers', () => {
       const session = await seedSession(project.id, {
         prompt: 'Tier failover notice test prompt',
         startImmediately: false,
-        gitMode: 'none',
+        gitMode: 'current',
         gitBranch: 'main',
       });
 
