@@ -79,4 +79,45 @@ describe('AgentPromptCard', () => {
       { type: 'add', content: 'updated', newLineNumber: 3 },
     ]);
   });
+
+  it('uses semantic option cards and only reveals previews for focused or selected options', async () => {
+    const withPreviews = { id: 'previews', kind: 'question', payload: { questions: [{
+      question: 'Choose', options: [
+        { label: 'A', description: 'first', preview: 'Preview A' },
+        { label: 'B', description: 'second', preview: 'Preview B' },
+      ],
+    }] } };
+    const wrapper = mount(AgentPromptCard, { attachTo: document.body, props: { prompt: withPreviews } });
+
+    expect(wrapper.findAll('.option-card')).toHaveLength(3);
+    await flushPromises();
+    wrapper.findAll('.option-control')[1].element.focus();
+    await nextTick();
+    expect(wrapper.text()).toContain('Preview B');
+    expect(wrapper.text()).not.toContain('Preview A');
+    await wrapper.findAll('.option-control')[0].setValue(true);
+    expect(wrapper.findAll('.option-card')[0].classes()).toContain('is-selected');
+    expect(wrapper.text()).toContain('Preview A');
+    wrapper.unmount();
+  });
+
+  it('focuses the first answer control when a question is shown', async () => {
+    const wrapper = mount(AgentPromptCard, { attachTo: document.body, props: { prompt } });
+    await flushPromises();
+    expect(document.activeElement).toBe(wrapper.find('.option-control').element);
+    wrapper.unmount();
+  });
+
+  it('reveals denial details only after Deny is chosen and disables all decision controls while pending', async () => {
+    const permission = { id: 'permission', kind: 'permission', payload: { toolName: 'Bash', input: { command: 'ls' }, suggestions: [{ type: 'addRules', rules: [] }] } };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: permission, submitting: false } });
+    expect(wrapper.find('.deny-reason').exists()).toBe(false);
+    await wrapper.get('.deny-action').trigger('click');
+    expect(wrapper.find('.deny-reason').exists()).toBe(true);
+    expect(wrapper.find('.permission-evidence').text()).toContain('Proposed change');
+    await wrapper.setProps({ submitting: true });
+    expect(wrapper.get('.prompt-primary-action').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('.deny-reason input').attributes('disabled')).toBeDefined();
+    expect(wrapper.find('.pending-state').text()).toContain('Saving decision');
+  });
 });
