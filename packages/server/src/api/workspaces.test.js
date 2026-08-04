@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { projects, sessions } from '../database.js';
+import { kanbanBoards, kanbanCards, kanbanLanes, projects, sessions } from '../database.js';
+import { attachRootSession, createLaneRunForEntry, supersedeRunForCard } from '../services/workflowSessionService.js';
 
 // Mock websocket
 vi.mock('../websocket.js', () => ({
@@ -245,6 +246,28 @@ describe('Workspace facade API', () => {
         .expect(201);
 
       expect(res.body.parentSessionId).toBe(child.id);
+    });
+
+    it('creates a detached child from a workflow participant after its run is superseded', async () => {
+      const root = sessions.create(project.id, 'Root', 'root');
+      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+      const board = kanbanBoards.create(project.id);
+      const [source] = kanbanLanes.getByBoardId(board.id);
+      const card = kanbanCards.create(source.id, root.id);
+      const run = createLaneRunForEntry({
+        projectId: project.id, workspaceId: root.id, cardId: card.id,
+        lane: { ...source, completionMode: 'structured' },
+      });
+      attachRootSession(run.id, worker.id);
+      supersedeRunForCard(card.id, 'manual_move');
+
+      const res = await request(app)
+        .post(`/api/workspaces/${root.id}/sessions`)
+        .send({ prompt: 'Continue after workflow', parentSessionId: worker.id })
+        .expect(201);
+
+      expect(res.body.parentSessionId).toBe(worker.id);
+      expect(res.body.laneRunId).toBeNull();
     });
 
     it('rejects parentSessionId from a different workspace', async () => {
