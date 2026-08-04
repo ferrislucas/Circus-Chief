@@ -15,6 +15,7 @@ vi.mock('./useApi.js', () => ({
   api: {
     getSessionSummary: vi.fn().mockResolvedValue(null),
     getSessionChanges: vi.fn().mockResolvedValue({ staged: '', unstaged: '', untracked: '' }),
+    getSessionPrompt: vi.fn().mockResolvedValue(null),
   },
 }));
 
@@ -62,7 +63,7 @@ vi.mock('./useWebSocket.js', () => ({
     }),
   }));
 
-import { useSessionSubscription, ensureSubscribed } from './useWebSocket.js';
+import { useSessionSubscription, ensureSubscribed, useWebSocket } from './useWebSocket.js';
 
 describe('useSessionInitializer', () => {
   let pinia;
@@ -418,6 +419,20 @@ describe('useSessionInitializer', () => {
       mockSubscription.onPromptResolved.mock.calls[0][0]('prompt-1');
       expect(promptsStore.prompt).toBeNull();
     });
+  });
+
+  it('rehydrates prompts after reconnect', async () => {
+    let reconnect;
+    useWebSocket.mockReturnValue({ isConnected: { value: true }, onReconnect: vi.fn((callback) => { reconnect = callback; return () => {}; }) });
+    const promptsStore = useSessionPromptsStore();
+    vi.spyOn(promptsStore, 'hydrate').mockResolvedValue();
+    const { initializeSession } = createInitializer();
+    sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
+
+    await initializeSession('session-1');
+    await reconnect();
+
+    expect(promptsStore.hydrate).toHaveBeenCalledWith('session-1');
   });
 
   describe('re-initialization', () => {

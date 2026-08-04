@@ -423,16 +423,7 @@ export const useKanbanStore = defineStore('kanban', {
           const sessionIndex = card.sessions?.findIndex((s) => s.id === session.id);
           if (sessionIndex !== -1 && sessionIndex !== undefined) {
             // Update session data in the card
-            card.sessions[sessionIndex] = {
-              ...card.sessions[sessionIndex],
-              name: session.name,
-              status: session.status,
-              mode: session.mode,
-              costUsd: session.costUsd,
-              starred: session.starred,
-              prUrl: session.prUrl,
-              updatedAt: session.updatedAt,
-            };
+            card.sessions[sessionIndex] = { ...card.sessions[sessionIndex], ...session };
             return; // Found and updated, exit early
           }
         }

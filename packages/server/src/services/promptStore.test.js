@@ -94,6 +94,26 @@ describe('promptStore work-log emission', () => {
     await question.promise;
   });
 
+  it('keeps question prompts parked when answers are incomplete or do not match their questions', async () => {
+    const { promise, prompt } = park('invalid-question', 'question', {
+      input: { questions: [
+        { question: 'Environment?', options: [{ label: 'Staging' }, { label: 'Production' }], multiSelect: false },
+        { question: 'Checks?', options: [{ label: 'Unit' }, { label: 'E2E' }], multiSelect: true },
+      ] },
+      questions: [
+        { question: 'Environment?', options: [{ label: 'Staging' }, { label: 'Production' }], multiSelect: false },
+        { question: 'Checks?', options: [{ label: 'Unit' }, { label: 'E2E' }], multiSelect: true },
+      ],
+    });
+
+    expect(respondToPrompt('invalid-question', prompt.id, { action: 'answer', answers: { 'Environment?': 'Staging' } })).toBeNull();
+    expect(respondToPrompt('invalid-question', prompt.id, { action: 'answer', answers: { 'Environment?': 'Unknown', 'Checks?': 'Unit' } })).toBeNull();
+    expect(getPrompt('invalid-question')?.id).toBe(prompt.id);
+
+    expect(respondToPrompt('invalid-question', prompt.id, { action: 'answer', answers: { 'Environment?': 'Production', 'Checks?': 'Unit, E2E' } })).toBe(true);
+    await expect(promise).resolves.toMatchObject({ behavior: 'allow' });
+  });
+
   it('logs the user-visible cancellation wording for question prompts', async () => {
     const cancelled = park('question-cancelled', 'question');
     cancelPrompt('question-cancelled');

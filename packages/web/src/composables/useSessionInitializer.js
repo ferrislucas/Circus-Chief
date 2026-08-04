@@ -332,6 +332,11 @@ export function useSessionInitializer({
         await sessionsStore.fetchMessages(sessionId, false, sessionsStore.activeConversationId);
         await sessionsStore.fetchWorkLogs(sessionId);
         await canvasStore.fetchItems(sessionId);
+        try {
+          await promptsStore.hydrate(sessionId);
+        } catch (error) {
+          console.debug('Failed to refresh pending agent prompt:', error);
+        }
         await checkForChanges();
         if (refreshGitStatus) {
           refreshGitStatus({ fetch: false });

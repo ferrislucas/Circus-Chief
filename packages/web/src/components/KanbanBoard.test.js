@@ -166,6 +166,12 @@ describe('KanbanBoard.vue', () => {
     });
   }
 
+  it('shows needs input when a descendant session is pending input', () => {
+    mockKanbanStoreData.board.lanes[0].cards[0].sessions.push({ id: 'child-1', name: 'Child', pendingAgentInput: true });
+    const wrapper = mountBoard();
+    expect(wrapper.find('[aria-label="Agent input required"]').exists()).toBe(true);
+  });
+
   describe('Component renders correctly', () => {
     it('exports a Vue component', () => {
       expect(KanbanBoard).toBeDefined();

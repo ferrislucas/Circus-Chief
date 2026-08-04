@@ -82,9 +82,29 @@ export function cancelPrompt(sessionId, reason = 'Session was cancelled.') {
   return record ? settle(record, 'cancelled', { behavior: 'deny', message: reason }) : false;
 }
 function questionResult(record, response) {
+  if (response.action === 'answer' && !hasValidQuestionAnswers(record.payload.questions, response.answers)) return null;
   return response.action === 'answer'
-    ? { behavior: 'allow', updatedInput: { ...record.payload.input, answers: response.answers || {}, ...(response.annotations ? { annotations: response.annotations } : {}), ...(response.response ? { response: response.response } : {}) } }
+    ? { behavior: 'allow', updatedInput: { ...record.payload.input, answers: response.answers, ...(response.annotations ? { annotations: response.annotations } : {}), ...(response.response ? { response: response.response } : {}) } }
     : { behavior: 'deny', message: response.reason || 'Proceed on your best judgment and state your assumption.' };
+}
+
+function hasValidQuestionAnswers(questions, answers) {
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return false;
+  const expected = questions || [];
+  const expectedKeys = new Set(expected.map(({ question }) => question));
+  if (Object.keys(answers).length !== expectedKeys.size || !Object.keys(answers).every((key) => expectedKeys.has(key))) return false;
+
+  return expected.every((question) => {
+    const answer = answers[question.question];
+    if (typeof answer !== 'string' || !answer.trim()) return false;
+    const options = new Set((question.options || []).map(({ label }) => label));
+    if (!options.size) return true;
+    const selected = answer.split(',').map((value) => value.trim()).filter(Boolean);
+    return selected.length > 0
+      && (question.multiSelect || selected.length === 1)
+      && new Set(selected).size === selected.length
+      && selected.every((value) => options.has(value));
+  });
 }
 
 function permissionResult(record, response) {
@@ -109,5 +129,6 @@ export function respondToPrompt(sessionId, promptId, response) {
   if (!record || record.id !== promptId) return false;
   if (!PROMPT_ACTIONS_BY_KIND[record.kind]?.has(response.action)) return null;
   const result = record.kind === 'question' ? questionResult(record, response) : permissionResult(record, response);
+  if (!result) return null;
   return settle(record, response.action, result);
 }

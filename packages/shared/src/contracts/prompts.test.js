@@ -29,4 +29,16 @@ describe('PromptResponse', () => {
       annotations: { 'Which deployment target?': { note: 'Safer default', preview: '## Staging plan' } },
     });
   });
+
+  it.each([
+    undefined,
+    {},
+    { 'Which deployment target?': '' },
+  ])('rejects incomplete question answers: %j', (answers) => {
+    expect(PromptResponse.safeParse({ action: 'answer', answers }).success).toBe(false);
+  });
+
+  it('continues to accept permission responses without answers', () => {
+    expect(PromptResponse.safeParse({ action: 'allow' }).success).toBe(true);
+  });
 });
