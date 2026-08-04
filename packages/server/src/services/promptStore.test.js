@@ -38,7 +38,7 @@ describe('promptStore work-log emission', () => {
 
   it('logs skipped questions and permission decisions with their originating tool', async () => {
     const skipped = park('question-skip', 'question');
-    respondToPrompt('question-skip', skipped.prompt.id, { action: 'skip', reason: 'Use the default.' });
+    respondToPrompt('question-skip', skipped.prompt.id, { action: 'cancel', reason: 'Use the default.' });
     await skipped.promise;
 
     const allowed = park('permission-allow', 'permission');
@@ -46,7 +46,7 @@ describe('promptStore work-log emission', () => {
     await allowed.promise;
 
     const always = park('permission-always', 'permission');
-    respondToPrompt('permission-always', always.prompt.id, { action: 'always' });
+    respondToPrompt('permission-always', always.prompt.id, { action: 'always_allow' });
     await always.promise;
 
     const denied = park('permission-deny', 'permission');
@@ -85,6 +85,15 @@ describe('promptStore work-log emission', () => {
     expect(createWorkLog).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects actions that do not belong to the parked prompt kind without settling it', async () => {
+    const question = park('kind-mismatch', 'question');
+    expect(respondToPrompt('kind-mismatch', question.prompt.id, { action: 'allow' })).toBeNull();
+    expect(getPrompt('kind-mismatch')?.id).toBe(question.prompt.id);
+    expect(createWorkLog).not.toHaveBeenCalled();
+    cancelPrompt('kind-mismatch');
+    await question.promise;
+  });
+
   it('logs the user-visible cancellation wording for question prompts', async () => {
     const cancelled = park('question-cancelled', 'question');
     cancelPrompt('question-cancelled');
@@ -111,7 +120,7 @@ describe('promptStore work-log emission', () => {
   it('explains when always allow is unavailable for a permission prompt', async () => {
     const { promise, prompt } = park('no-suggestions', 'permission', { toolName: 'Bash', input: {} });
 
-    respondToPrompt('no-suggestions', prompt.id, { action: 'always' });
+    respondToPrompt('no-suggestions', prompt.id, { action: 'always_allow' });
 
     await expect(promise).resolves.toMatchObject({
       behavior: 'deny', message: 'Always allow is unavailable for this permission request.',

@@ -1,4 +1,5 @@
 import { parkPrompt } from './promptStore.js';
+import logger from '../logger.js';
 
 export function buildInteractionCallbacks({ sessionId, conversationId }) {
   return {
@@ -10,7 +11,10 @@ export function buildInteractionCallbacks({ sessionId, conversationId }) {
       };
       return parkPrompt({ sessionId, conversationId, kind, toolUseId: opts.toolUseID, agentId: opts.agentID, payload, signal: opts.signal });
     },
-    onUserDialog: async () => ({ behavior: 'cancelled' }),
+    onUserDialog: async (dialog = {}) => {
+      logger.warn('Unsupported Claude user dialog cancelled', { sessionId, conversationId, dialogKind: dialog.dialogKind || null });
+      return { behavior: 'cancelled' };
+    },
     onElicitation: async () => ({ action: 'decline' }),
   };
 }

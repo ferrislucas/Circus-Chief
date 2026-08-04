@@ -6,6 +6,15 @@ import AgentPromptCard from './AgentPromptCard.vue';
 const prompt = { id: 'prompt-1', kind: 'question', payload: { questions: [{ question: 'Choose', multiSelect: true, options: [{ label: 'A', description: 'first' }, { label: 'B', description: 'second' }] }] } };
 
 describe('AgentPromptCard', () => {
+  it('combines selected multi-select options with a custom Other answer', async () => {
+    const onRespond = vi.fn();
+    const multiOtherPrompt = { id: 'multi-other', kind: 'question', payload: { questions: [{ question: 'Pick', multiSelect: true, options: [{ label: 'One', description: '' }, { label: 'Two', description: '' }] }] } };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: multiOtherPrompt, onRespond } });
+    await wrapper.findAll('input[type="checkbox"]')[0].setValue(true);
+    await wrapper.find('.other-input').setValue(' Three ');
+    await wrapper.get('button.prompt-primary-action').trigger('click');
+    expect(onRespond).toHaveBeenCalledWith(expect.objectContaining({ answers: { Pick: 'One, Three' } }));
+  });
   it('joins multi-select values and requires every question to be answered', async () => {
     const onRespond = vi.fn();
     const wrapper = mount(AgentPromptCard, { props: { prompt, onRespond } });

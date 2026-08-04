@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { PromptResponse } from './prompts.js';
 
 describe('PromptResponse', () => {
-  it('keeps an optional skip reason through contract validation', () => {
-    expect(PromptResponse.parse({ action: 'skip', reason: 'Use the default' })).toMatchObject({
-      action: 'skip', reason: 'Use the default',
+  it('keeps an optional cancellation reason through contract validation', () => {
+    expect(PromptResponse.parse({ action: 'cancel', reason: 'Use the default' })).toMatchObject({
+      action: 'cancel', reason: 'Use the default',
     });
   });
 
   it('accepts the explicit always-allow destination', () => {
-    expect(PromptResponse.parse({ action: 'always', destination: 'projectSettings' })).toMatchObject({
+    expect(PromptResponse.parse({ action: 'always_allow', destination: 'projectSettings' })).toMatchObject({
       destination: 'projectSettings',
     });
   });

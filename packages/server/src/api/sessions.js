@@ -17,6 +17,7 @@ import streamingRouter from './sessions-streaming.js';
 import messagesRouter from './sessions-messages.js';
 import draftRouter from './sessions-draft.js';
 import promptsRouter from './sessions-prompts.js';
+import { hasPendingPrompt } from '../services/promptStore.js';
 
 const router = Router();
 
@@ -87,14 +88,14 @@ export function invalidateFilesCountCache(sessionId) {
 // GET /api/sessions - Get all active/waiting sessions across all projects
 router.get('/', (req, res) => {
   const activeSessions = sessions.getActiveAndWaiting();
-  res.json(activeSessions);
+  res.json(activeSessions.map((session) => ({ ...session, pendingAgentInput: hasPendingPrompt(session.id) })));
 });
 
 // GET /api/sessions/scheduled - Get all scheduled sessions (optionally filtered by project)
 router.get('/scheduled', (req, res) => {
   const { projectId } = req.query;
   const scheduledSessions = sessions.getScheduledSessions(projectId || null);
-  res.json(scheduledSessions);
+  res.json(scheduledSessions.map((session) => ({ ...session, pendingAgentInput: hasPendingPrompt(session.id) })));
 });
 
 // POST /api/sessions/summaries/batch - Get summaries for multiple sessions in one request
@@ -169,7 +170,7 @@ router.get('/:id', requireSession, (req, res) => {
 
   const latestCommandRuns = Object.values(runsByButton);
 
-  res.json({ ...req.session_, hasResponses, latestCommandRuns });
+  res.json({ ...req.session_, pendingAgentInput: hasPendingPrompt(req.params.id), hasResponses, latestCommandRuns });
 });
 
 // GET /api/sessions/:id/changes - Get git changes for session

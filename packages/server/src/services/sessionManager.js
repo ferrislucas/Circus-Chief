@@ -295,6 +295,7 @@ function buildExistingMessageQueryParams({
     systemPrompt,
     model: effectiveModel,
     sessionEnv,
+    conversationId,
     resumeSessionId: canResume ? conversation.claudeSessionId : null,
   });
 

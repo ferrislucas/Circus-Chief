@@ -77,7 +77,7 @@
       <footer class="prompt-actions">
         <span v-if="submitting" class="pending-state" role="status">Sending response…</span>
         <button class="btn prompt-primary-action" :disabled="submitting || !canSubmit" @click="submitAnswers">Send answers</button>
-        <button class="btn-link prompt-quiet-action" :disabled="submitting" @click="respond({ action: 'skip' })">Skip and let the agent decide</button>
+        <button class="btn-link prompt-quiet-action" :disabled="submitting" @click="respond({ action: 'cancel' })">Skip and let the agent decide</button>
       </footer>
     </template>
 
@@ -95,7 +95,7 @@
         <span v-if="submitting" class="pending-state" role="status">Saving decision…</span>
         <button ref="allowOnce" class="btn prompt-primary-action" :disabled="submitting" @click="respond({ action: 'allow' })">Allow once</button>
         <div v-if="prompt.payload.suggestions?.length" class="always-allow">
-          <button class="btn btn-secondary" :disabled="submitting" @click="respond({ action: 'always', destination })">Always allow</button>
+          <button class="btn btn-secondary" :disabled="submitting" @click="respond({ action: 'always_allow', destination })">Always allow</button>
           <label class="permission-scope">Scope
             <select v-model="destination" :disabled="submitting"><option value="session">This session</option><option value="projectSettings">This project</option></select>
           </label>
@@ -166,7 +166,12 @@ const permissionDiffFiles = computed(() => {
   return [{ displayPath: path, isNew: props.prompt?.payload.toolName === 'Write', isDeleted: false, isRenamed: false, additions: afterLines.length, deletions: beforeLines.length, hunks: [{ oldStart: 1, oldLines: beforeLines.length, newStart: 1, newLines: afterLines.length, lines: [...beforeLines.map((content, index) => ({ type: 'remove', content, oldLineNumber: index + 1 })), ...afterLines.map((content, index) => ({ type: 'add', content, newLineNumber: index + 1 }))] }] }];
 });
 function respond(response) { emit('respond', response); }
-function collectAnswers() { return Object.fromEntries(props.prompt.payload.questions.map((question) => [question.question, other.value[question.question]?.trim() || (Array.isArray(answers.value[question.question]) ? answers.value[question.question].join(', ') : answers.value[question.question]) ])); }
+function normalizedAnswer(question) {
+  const selected = answers.value[question.question]; const custom = other.value[question.question]?.trim();
+  if (!Array.isArray(selected)) return custom || selected;
+  return [...selected, ...(custom ? [custom] : [])].join(', ');
+}
+function collectAnswers() { return Object.fromEntries(props.prompt.payload.questions.map((question) => [question.question, normalizedAnswer(question)])); }
 function collectAnnotations() {
   return Object.fromEntries(props.prompt.payload.questions.flatMap((question) => {
     const selected = answers.value[question.question]; const labels = Array.isArray(selected) ? selected : [selected];
@@ -185,7 +190,7 @@ function promptShortcut(event, action) { if (!props.prompt || props.submitting |
 useKeyboardShortcuts({
   '1': (event) => promptShortcut(event, () => chooseOption(0)), '2': (event) => promptShortcut(event, () => chooseOption(1)), '3': (event) => promptShortcut(event, () => chooseOption(2)), '4': (event) => promptShortcut(event, () => chooseOption(3)),
   enter: (event) => promptShortcut(event, () => { if (props.prompt.kind === 'question' && canSubmit.value) { event.preventDefault(); submitAnswers(); } }),
-  escape: (event) => promptShortcut(event, () => { event.preventDefault(); respond(props.prompt.kind === 'question' ? { action: 'skip' } : { action: 'deny', reason: reason.value }); }),
+  escape: (event) => promptShortcut(event, () => { event.preventDefault(); respond(props.prompt.kind === 'question' ? { action: 'cancel' } : { action: 'deny', reason: reason.value }); }),
 });
 </script>
 

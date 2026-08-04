@@ -3,11 +3,17 @@ import { api } from '../composables/useApi.js';
 import { useUiStore } from './ui.js';
 
 export const useSessionPromptsStore = defineStore('sessionPrompts', {
-  state: () => ({ prompt: null, submitting: false }),
+  state: () => ({ prompt: null, submitting: false, versions: {} }),
   actions: {
-    async hydrate(sessionId) { this.prompt = await api.getSessionPrompt(sessionId); },
-    show(prompt) { this.prompt = prompt; },
-    resolved(promptId) { if (this.prompt?.id === promptId) this.prompt = null; },
+    bumpVersion(sessionId) { this.versions[sessionId] = (this.versions[sessionId] || 0) + 1; },
+    async hydrate(sessionId) {
+      const version = this.versions[sessionId] || 0;
+      const prompt = await api.getSessionPrompt(sessionId);
+      // A websocket mutation after this request began is newer than its response.
+      if ((this.versions[sessionId] || 0) === version) this.prompt = prompt;
+    },
+    show(prompt) { if (prompt?.sessionId) this.bumpVersion(prompt.sessionId); this.prompt = prompt; },
+    resolved(promptId) { if (this.prompt?.id === promptId) { this.bumpVersion(this.prompt.sessionId); this.prompt = null; } },
     async respond(sessionId, response) {
       if (!this.prompt || this.submitting) return;
       const promptId = this.prompt.id;
@@ -26,6 +32,6 @@ export const useSessionPromptsStore = defineStore('sessionPrompts', {
       }
       finally { this.submitting = false; }
     },
-    clear() { this.prompt = null; this.submitting = false; },
+    clear() { if (this.prompt?.sessionId) this.bumpVersion(this.prompt.sessionId); this.prompt = null; this.submitting = false; },
   },
 });

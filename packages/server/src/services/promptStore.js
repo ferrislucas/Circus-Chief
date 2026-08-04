@@ -1,9 +1,19 @@
 import { randomUUID } from 'crypto';
-import { broadcastToSession } from '../websocket.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { createWorkLog } from './workLogService.js';
+import { sessions } from '../database.js';
+import { PROMPT_ACTIONS_BY_KIND } from '@circuschief/shared/contracts/prompts';
 
 const prompts = new Map();
+
+function broadcastPendingInput(record, pendingAgentInput) {
+  const session = sessions.getById(record.sessionId);
+  if (!session) return;
+  const payload = { sessionId: record.sessionId, session: { ...session, pendingAgentInput } };
+  broadcastToSession(record.sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, payload);
+  broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, { ...payload, projectId: session.projectId });
+}
 
 function project(record) {
   const { resolve: _resolve, reject: _reject, abortListener: _abortListener, signal: _signal, ...wire } = record;
@@ -13,6 +23,7 @@ function project(record) {
 function settle(record, outcome, result) {
   if (prompts.get(record.sessionId)?.id !== record.id) return false;
   prompts.delete(record.sessionId);
+  broadcastPendingInput(record, false);
   record.signal?.removeEventListener('abort', record.abortListener);
   const { toolName, content } = describePromptOutcome(record, outcome, result);
   createWorkLog(record.sessionId, 'tool_output', content, toolName);
@@ -37,7 +48,7 @@ function describePromptOutcome(record, outcome, result) {
   const toolName = record.payload.toolName || 'Unknown tool';
   const outcomeText = {
     allow: 'allowed once',
-    always: 'always allowed',
+    always_allow: 'always allowed',
     deny: 'denied',
     superseded: 'superseded',
     cancelled: 'cancelled',
@@ -59,6 +70,7 @@ export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, 
     record.abortListener = () => settle(record, 'cancelled', { behavior: 'deny', message: 'Session was cancelled.' });
     signal?.addEventListener('abort', record.abortListener, { once: true });
     prompts.set(sessionId, record);
+    broadcastPendingInput(record, true);
     broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PROMPT, { sessionId, prompt: project(record) });
   });
 }
@@ -77,7 +89,7 @@ function questionResult(record, response) {
 
 function permissionResult(record, response) {
   if (response.action === 'allow') return { behavior: 'allow' };
-  if (response.action === 'always' && Array.isArray(record.payload.suggestions) && record.payload.suggestions.length) {
+  if (response.action === 'always_allow' && Array.isArray(record.payload.suggestions) && record.payload.suggestions.length) {
     return {
       behavior: 'allow',
       updatedPermissions: record.payload.suggestions.map((suggestion) => ({
@@ -86,7 +98,7 @@ function permissionResult(record, response) {
       })),
     };
   }
-  if (response.action === 'always') {
+  if (response.action === 'always_allow') {
     return { behavior: 'deny', message: 'Always allow is unavailable for this permission request.' };
   }
   return { behavior: 'deny', message: response.reason || 'Permission denied by user.' };
@@ -95,6 +107,7 @@ function permissionResult(record, response) {
 export function respondToPrompt(sessionId, promptId, response) {
   const record = prompts.get(sessionId);
   if (!record || record.id !== promptId) return false;
+  if (!PROMPT_ACTIONS_BY_KIND[record.kind]?.has(response.action)) return null;
   const result = record.kind === 'question' ? questionResult(record, response) : permissionResult(record, response);
   return settle(record, response.action, result);
 }
