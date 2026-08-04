@@ -93,23 +93,17 @@ export class SessionRepository extends BaseRepository {
 
     const id = databaseManager.generateId();
     const now = Date.now();
-    // Resolve workflow lineage before insertion; children are never parented outside a run.
+    // Resolve workflow lineage before insertion. A child always preserves the
+    // requested parent; it only joins a lane run while that workflow is open.
     const parentWorkflow = config.parentSessionId
       ? this.db.prepare('SELECT lane_run_id, own_work_state FROM sessions WHERE id = ?').get(config.parentSessionId)
       : null;
-    if (parentWorkflow?.lane_run_id) {
-      if (parentWorkflow.own_work_state !== 'open') {
-        throw new Error('Cannot create a child from a terminal workflow session');
-      }
-      // FR-3.6/W7: reject late children under a run that has already gone
-      // terminal or been superseded (e.g. a manual move superseded the run
-      // while this parent's own own_work_state row was never touched).
-      const runStatus = this.db.prepare('SELECT status FROM kanban_lane_runs WHERE id = ?').get(parentWorkflow.lane_run_id)?.status;
-      if (runStatus && runStatus !== 'open') {
-        throw new Error('Cannot create a child under a terminal or superseded lane run');
-      }
-    }
-    const laneRunId = parentWorkflow?.lane_run_id || null;
+    const runStatus = parentWorkflow?.lane_run_id
+      ? this.db.prepare('SELECT status FROM kanban_lane_runs WHERE id = ?').get(parentWorkflow.lane_run_id)?.status
+      : null;
+    const laneRunId = parentWorkflow?.own_work_state === 'open' && runStatus === 'open'
+      ? parentWorkflow.lane_run_id
+      : null;
     this.db
       .prepare(
         `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, provider_id, effort_level, agent_type, lane_run_id, created_at, updated_at)
