@@ -189,30 +189,19 @@ export function mapWorkflow(row) {
 /**
  * Resolve the lane run a new child session inherits from its parent.
  *
- * Children are never parented outside a run, so this also enforces the two
- * "late child" guards before insertion:
- *  - the parent's own work must still be open, and
- *  - FR-3.6/W7: the parent's lane run must not already be terminal or
- *    superseded (e.g. a manual move superseded the run while this parent's
- *    own_work_state row was never touched).
+ * A child always preserves its requested parent, but only inherits workflow
+ * membership while both the parent's own work and its lane run remain open.
  *
  * @param {import('better-sqlite3').Database} db
  * @param {string|null} parentSessionId
- * @returns {string|null} the inherited lane_run_id, or null when unparented
- * @throws {Error} when the parent or its run has already gone terminal
+ * @returns {string|null} the inherited lane_run_id, or null when detached
  */
 export function resolveInheritedLaneRunId(db, parentSessionId) {
   if (!parentSessionId) return null;
   const parent = db.prepare('SELECT lane_run_id, own_work_state FROM sessions WHERE id = ?').get(parentSessionId);
   if (!parent?.lane_run_id) return null;
-  if (parent.own_work_state !== 'open') {
-    throw new Error('Cannot create a child from a terminal workflow session');
-  }
   const runStatus = db.prepare('SELECT status FROM kanban_lane_runs WHERE id = ?').get(parent.lane_run_id)?.status;
-  if (runStatus && runStatus !== 'open') {
-    throw new Error('Cannot create a child under a terminal or superseded lane run');
-  }
-  return parent.lane_run_id;
+  return parent.own_work_state === 'open' && runStatus === 'open' ? parent.lane_run_id : null;
 }
 
 /** Default values for session-create config fields */

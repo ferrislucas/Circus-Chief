@@ -445,7 +445,7 @@ describe('workflowSessionService', () => {
       expect(openRunsForCard).toHaveLength(1);
     });
 
-    it('rejects creating a blocking child under a superseded lane run (FR-3.6 late-child rejection)', () => {
+    it('creates a detached child under a superseded lane run without changing the historical run', () => {
       const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
       const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
       attachRootSession(run.id, worker.id);
@@ -454,9 +454,32 @@ describe('workflowSessionService', () => {
       supersedeRunForCard(card.id, 'manual_move');
       expect(sessions.getById(worker.id).ownWorkState).toBe('open');
       expect(getRun(run.id).status).toBe('superseded');
+      const cardLaneId = kanbanCards.getById(card.id).laneId;
 
-      expect(() => sessions.create(project.id, 'Late child', 'too late', { parentSessionId: worker.id }))
-        .toThrow('Cannot create a child under a terminal or superseded lane run');
+      const child = sessions.create(project.id, 'Late child', 'continue work', { parentSessionId: worker.id });
+
+      expect(child.parentSessionId).toBe(worker.id);
+      expect(child.laneRunId).toBeNull();
+      expect(getRun(run.id).status).toBe('superseded');
+      expect(kanbanCards.getById(card.id).laneId).toBe(cardLaneId);
+    });
+
+    it('creates a detached child after the parent closes and its run completes', () => {
+      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+      const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+      attachRootSession(run.id, worker.id);
+
+      finalizeOwnWorkCompletion(worker.id, beginWorkflowTurn(worker.id));
+      expect(sessions.getById(worker.id).ownWorkState).toBe('closed_successfully');
+      expect(getRun(run.id).status).toBe('succeeded');
+      const cardLaneId = kanbanCards.getById(card.id).laneId;
+
+      const child = sessions.create(project.id, 'Late child', 'continue work', { parentSessionId: worker.id });
+
+      expect(child.parentSessionId).toBe(worker.id);
+      expect(child.laneRunId).toBeNull();
+      expect(getRun(run.id).status).toBe('succeeded');
+      expect(kanbanCards.getById(card.id).laneId).toBe(cardLaneId);
     });
 
     it('still allows children while the run is genuinely open', () => {

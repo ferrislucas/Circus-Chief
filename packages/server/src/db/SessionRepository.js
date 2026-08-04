@@ -98,7 +98,8 @@ export class SessionRepository extends BaseRepository {
 
     const id = databaseManager.generateId();
     const now = Date.now();
-    // Resolve workflow lineage before insertion; children are never parented outside a run.
+    // Resolve workflow lineage before insertion. A child always preserves the
+    // requested parent; it only joins a lane run while that workflow is open.
     const laneRunId = resolveInheritedLaneRunId(this.db, config.parentSessionId);
     this.db
       .prepare(
