@@ -3,6 +3,7 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
 import { resolveAgentTypeFromModel } from './sessionProvider.js';
+import { resolveModelForAgentKind } from './sessionAgentGuard.js';
 import { validateModelId } from '../api/model-validation.js';
 
 /**
@@ -105,6 +106,19 @@ function getOrCreateInitialMessage(session, options) {
   return initialMessage;
 }
 
+function deriveAgentTypeForDraft(session, model) {
+  if (!model) {
+    return session.agentType;
+  }
+
+  const resolved = resolveModelForAgentKind(model);
+  if (resolved.unresolved) {
+    return session.agentType;
+  }
+
+  return resolveAgentTypeFromModel(resolved.modelId, resolved.providerIdHint);
+}
+
 /**
  * Starts a draft session by resolving the prompt, creating messages if needed,
  * and kicking off the session manager.
@@ -135,7 +149,14 @@ export async function startDraft(session, options = {}) {
   // Resolve the agent type from the selected model before launching.
   // Draft sessions have no assistant messages yet, so the session is still
   // choosing its initial runtime – the selected model determines agentType.
-  const agentType = model ? resolveAgentTypeFromModel(model) : session.agentType;
+  // `model` may be a tier ref (Work Item 2): resolve it to its active
+  // member's (modelId, providerId) first — a raw `tier::<id>` handed to
+  // resolveAgentTypeFromModel would silently fall through to 'claude-code'.
+  // The actual start-time tier-failover path re-derives this again per
+  // attempt, but persisting the correct kind here avoids a window where the
+  // session row (and any UI reading it before the run loop reconciles)
+  // shows the wrong agent kind.
+  const agentType = deriveAgentTypeForDraft(session, model);
 
   // Get or create the initial user message
   const initialMessage = getOrCreateInitialMessage(session, options);

@@ -13,6 +13,13 @@
           Model Providers
         </router-link>
         <router-link
+          to="/settings/tiers"
+          class="tab"
+          :class="{ active: activeTab === 'tiers' }"
+        >
+          Model Tiers
+        </router-link>
+        <router-link
           to="/settings/summary"
           class="tab"
           :class="{ active: activeTab === 'summary' }"
@@ -68,6 +75,7 @@ const router = useRouter();
 
 const tabs = [
   { id: 'providers', label: 'Model Providers', path: '/settings/providers' },
+  { id: 'tiers', label: 'Model Tiers', path: '/settings/tiers' },
   { id: 'summary', label: 'Summary Settings', path: '/settings/summary' },
   { id: 'general', label: 'Settings', path: '/settings/general' },
   { id: 'logs', label: 'Logs', path: '/settings/logs' },

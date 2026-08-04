@@ -76,6 +76,7 @@ describe('schema baseline', () => {
         'own_work_closed_at', 'workflow_updated_at', 'workflow_reason',
         'execution_state', 'subtree_outcome',
         'created_at', 'updated_at', 'pending_conversation_id',
+        'resolved_model', 'resolved_provider_id',
       ]);
     });
   });

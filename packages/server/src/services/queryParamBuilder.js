@@ -6,6 +6,20 @@ import {
   getPermissionModeForSession,
   getSandboxModeForSession,
 } from './sessionPrompts.js';
+import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
+
+/**
+ * `pw.sh` always sets VCR_MODE=replay by default for E2E runs. The scripted
+ * spawn-capture seam (e2eSpawnCapture.js — see model-tiers-e2e-coverage-plan.md
+ * Phase 1) needs the REAL requested model to reach the spawn helpers so it can
+ * be matched against a per-(providerId, modelId) scripted outcome; forcing the
+ * fixed VCR cassette model here would silently break that. Mirrors the same
+ * gate `sessionExecution.js#createAgentForSession` already uses to skip the
+ * VCRAgentAdapter wrapper when spawn capture is enabled.
+ */
+function isVcrModeActive() {
+  return Boolean(process.env.VCR_MODE) && !isE2ESpawnCaptureEnabled();
+}
 
 /**
  * Build query parameters for the Claude Code adapter.
@@ -15,7 +29,7 @@ function buildClaudeCodeQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt,
   model, sessionEnv, resumeSessionId = null, claudeMcpConfigHomeDirectory,
 }) {
-  const isVCR = Boolean(process.env.VCR_MODE);
+  const isVCR = isVcrModeActive();
   const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : model;
   const { mcpServers } = resolveClaudeMcpServers({
     workingDirectory,
@@ -55,7 +69,7 @@ function buildCodexQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
   claudeMcpConfigHomeDirectory,
 }) {
-  const isVCR = Boolean(process.env.VCR_MODE);
+  const isVCR = isVcrModeActive();
   const effectiveModel = isVCR ? 'gpt-4o-mini' : model;
   const { mcpServers } = resolveCodexMcpServers({
     workingDirectory,
@@ -89,7 +103,7 @@ function buildCodexQueryParams({
 function buildGeminiQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
 }) {
-  const isVCR = Boolean(process.env.VCR_MODE);
+  const isVCR = isVcrModeActive();
   const effectiveModel = isVCR ? 'gemini-2.5-flash' : model;
 
   return {

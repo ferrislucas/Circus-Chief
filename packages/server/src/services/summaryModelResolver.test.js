@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { modelProviders, projects, sessions } from '../database.js';
 import {
   BUILT_IN_ANTHROPIC_PROVIDER_ID,
@@ -180,5 +180,111 @@ describe('summaryModelResolver', () => {
       selectionReason: 'explicit',
     });
     expect(resolved.provider).toMatchObject({ id: BUILT_IN_ANTHROPIC_PROVIDER_ID, isBuiltIn: true });
+  });
+
+  // Fix 9: graceful degradation when a tier-bound summary model has all members in cooldown
+  describe('tier summary model degradation (Fix 9)', () => {
+    let tierProvider;
+
+    beforeEach(async () => {
+      const { modelTiers } = await import('../database.js');
+      const { markUnhealthy, clearUnhealthy } = await import('./tierResolutionService.js');
+
+      tierProvider = modelProviders.create({ name: 'Tier Provider', kind: 'anthropic' });
+      // Expose helpers on the suite for afterEach cleanup
+      suite.tierProvider = tierProvider;
+      suite.markUnhealthy = markUnhealthy;
+      suite.clearUnhealthy = clearUnhealthy;
+      suite.modelTiers = modelTiers;
+    });
+
+    // Use a plain object as a shared context for this nested describe block
+    const suite = {};
+
+    it('falls back to default summary model when all tier members are cooled down', async () => {
+      const { buildTierRef } = await import('@circuschief/shared');
+      const tier = suite.modelTiers.create({
+        name: 'Summary Tier',
+        members: [{ providerId: suite.tierProvider.id, modelId: 'model-cooled', position: 0 }],
+      });
+      suite.markUnhealthy(suite.tierProvider.id, 'model-cooled', 60_000);
+
+      const resolved = resolveSummaryModel({ summaryModel: buildTierRef(tier.id), summaryProviderId: null });
+
+      // Must NOT throw, must fall back to the default Anthropic model
+      expect(resolved).toBeDefined();
+      expect(resolved.model).toBe(DEFAULT_ANTHROPIC_SUMMARY_MODEL);
+      expect(resolved.isDefault).toBe(true);
+
+      // Cleanup
+      suite.clearUnhealthy(suite.tierProvider.id, 'model-cooled');
+    });
+
+    it('resolves normally when a tier member is healthy', async () => {
+      const { buildTierRef } = await import('@circuschief/shared');
+      const tier = suite.modelTiers.create({
+        name: 'Healthy Tier',
+        members: [{ providerId: suite.tierProvider.id, modelId: 'claude-haiku-4-5-20251001', position: 0 }],
+      });
+      // The resolved model needs a valid provider — add it to the provider
+      modelProviders.addModel(suite.tierProvider.id, {
+        modelId: 'claude-haiku-4-5-20251001',
+        displayName: 'Haiku test',
+      });
+
+      const resolved = resolveSummaryModel({ summaryModel: buildTierRef(tier.id), summaryProviderId: null });
+
+      expect(resolved.model).toBe('claude-haiku-4-5-20251001');
+      expect(resolved.providerId).toBe(suite.tierProvider.id);
+      expect(resolved.isDefault).toBe(false);
+    });
+
+    // Work Item 1: resolve-time defense-in-depth. Even if a Google-kind tier
+    // ever slips past write-time validation (legacy row, cooldown-driven
+    // member change), resolveSummaryModel must never hand a Google model to
+    // callSummaryModel's Anthropic client — it should degrade the same way
+    // an exhausted tier does.
+    it('falls back to default summary model when the active tier member is an unsupported (Google) provider kind', async () => {
+      const { buildTierRef } = await import('@circuschief/shared');
+      const googleProvider = modelProviders.create({ name: 'Summary Resolver Google Provider', kind: 'google' });
+      modelProviders.addModel(googleProvider.id, {
+        modelId: 'summary-resolver-gemini-model',
+        displayName: 'Gemini Model',
+      });
+      const tier = suite.modelTiers.create({
+        name: 'Google Summary Tier',
+        members: [{ providerId: googleProvider.id, modelId: 'summary-resolver-gemini-model', position: 0 }],
+      });
+
+      const resolved = resolveSummaryModel({ summaryModel: buildTierRef(tier.id), summaryProviderId: null });
+
+      expect(resolved.model).toBe(DEFAULT_ANTHROPIC_SUMMARY_MODEL);
+      expect(resolved.kind).toBe('anthropic');
+      expect(resolved.isDefault).toBe(true);
+
+      modelProviders.delete(googleProvider.id);
+    });
+
+    it('routes to OpenAI when the active tier member is an OpenAI model', async () => {
+      const { buildTierRef } = await import('@circuschief/shared');
+      const openaiProvider = modelProviders.create({ name: 'Summary Resolver OpenAI Tier Provider', kind: 'openai' });
+      modelProviders.addModel(openaiProvider.id, {
+        modelId: 'summary-resolver-openai-tier-model',
+        displayName: 'OpenAI Tier Model',
+      });
+      const tier = suite.modelTiers.create({
+        name: 'OpenAI Summary Tier',
+        members: [{ providerId: openaiProvider.id, modelId: 'summary-resolver-openai-tier-model', position: 0 }],
+      });
+
+      const resolved = resolveSummaryModel({ summaryModel: buildTierRef(tier.id), summaryProviderId: null });
+
+      expect(resolved.model).toBe('summary-resolver-openai-tier-model');
+      expect(resolved.providerId).toBe(openaiProvider.id);
+      expect(resolved.kind).toBe('openai');
+      expect(resolved.isDefault).toBe(false);
+
+      modelProviders.delete(openaiProvider.id);
+    });
   });
 });

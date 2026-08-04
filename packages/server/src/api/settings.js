@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { modelProviders, settings } from '../db/index.js';
 import { DEFAULT_SESSION_TITLE_PROMPT } from '../services/summaryService.js';
+import { SUPPORTED_SUMMARY_PROVIDER_KINDS } from '../services/summaryModelResolver.js';
+import { getTierMembersResolved } from '../services/tierResolutionService.js';
+import { isTierRef, parseTierRef } from '@circuschief/shared';
 
 const router = Router();
-const SUPPORTED_SUMMARY_PROVIDER_KINDS = new Set(['anthropic', 'openai']);
 
 /**
  * GET /api/settings/token-weights
@@ -147,6 +149,33 @@ function validateSummaryModelSelection(summaryModel, summaryProviderId) {
   if (!summaryModel) {
     if (summaryProviderId !== null) {
       return 'summaryProviderId must be null when summaryModel is empty';
+    }
+    return null;
+  }
+
+  // Fix 7: a tier ref has no single owning provider — bypass provider
+  // ownership validation entirely and require summaryProviderId to be null
+  // (the concrete provider is resolved per-run from the tier's active
+  // member by summaryModelResolver.resolveSummaryModel).
+  if (isTierRef(summaryModel)) {
+    if (summaryProviderId !== null) {
+      return 'summaryProviderId must be null when summaryModel is a tier reference';
+    }
+
+    // A summary tier must not resolve — now or via failover — to a provider
+    // kind that summaryModelClient.callSummaryModel can't route (only
+    // 'anthropic' and 'openai' are supported; e.g. 'google' would silently
+    // mis-route to the Anthropic client at run time). Validate every
+    // resolvable member, not just the currently-active one, so a later
+    // failover member can't silently be unsupported.
+    const tierId = parseTierRef(summaryModel);
+    const members = tierId ? getTierMembersResolved(tierId) : [];
+    const hasUnsupportedMember = members.some((member) => {
+      const memberProvider = modelProviders.getById(member.providerId);
+      return !SUPPORTED_SUMMARY_PROVIDER_KINDS.has(memberProvider?.kind || 'anthropic');
+    });
+    if (hasUnsupportedMember) {
+      return 'summaryModel tier must contain only Anthropic or OpenAI models';
     }
     return null;
   }

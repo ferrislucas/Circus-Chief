@@ -189,3 +189,27 @@ Authentication is configured via `GEMINI_API_KEY`. Additional Google Cloud varia
 | Resume | ❌ |
 
 Supported Google models: Gemini 2.5 Pro, Gemini 2.5 Flash (default), Gemini 2.5 Flash Lite.
+
+## Model Tiers
+
+A **model tier** is a named, ordered list of models — possibly spanning multiple providers/agent types — that can be bound anywhere a single model can be selected: sessions, templates, kanban lane automation, project defaults, and the summary generator. Tiers are managed under **Settings → Model Tiers** (`/settings/tiers`).
+
+**Failover scope (v1):** failover only happens **at new-session start**. When a session bound to a tier starts, the system tries the first member; if that model fails to start (provider outage, rate limit, or a quota/"out of tokens" error), it advances to the next tier member — potentially crossing providers — until one starts successfully or the tier is exhausted. Once a session has produced its first assistant message, its agent type is locked (`sessionAgentGuard.checkCrossKindSwitch`) and no further failover occurs; a model that fails mid-conversation follows the existing error / auto-reschedule behavior unchanged.
+
+A tier member that fails is marked unhealthy for a short cooldown window so subsequent new-session resolutions skip it until it recovers.
+
+**Storage convention:** existing model-bearing fields (`sessions.model`, `session_templates.model`, `kanban_lanes.on_enter_model`, project defaults, summary settings) hold either a concrete model or a tier reference, using a `tier::<tierId>` sentinel. The sentinel is resolved exactly once, at execution time, into a concrete `(modelId, providerId)` pair — it never appears in agent adapter calls.
+
+**Key files:**
+
+| Area | File |
+|------|------|
+| Schema | `packages/server/src/db/migrations/modelTiersMigrations.js` (`model_tiers`, `model_tier_members`) |
+| Repository | `packages/server/src/db/ModelTierRepository.js` |
+| REST API | `packages/server/src/api/modelTiers.js` (`/api/tiers`) |
+| Resolution | `packages/server/src/services/tierResolutionService.js` (resolves a tier reference to the first healthy member) |
+| Failover | `packages/server/src/services/sessionTierFailover.js` (walks the tier at session start on a triggering error) |
+| Web UI | `packages/web/src/views/ModelTiersView.vue`, plus a "Tiers" group added to `components/ModelSelector.vue` (and therefore every consumer of it) |
+| Shared contracts | `packages/shared/src/contracts/modelTiers.js` |
+
+Failover events are logged to the existing agent log stream (**Settings → Logs**) and surfaced as a non-blocking notice in the session UI, naming the from/to models and the reason. The summary-generation surface only accepts tiers whose members resolve to Anthropic or OpenAI models (Google models aren't supported for summaries, same as for a concrete model selection).

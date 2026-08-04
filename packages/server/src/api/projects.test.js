@@ -6,7 +6,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync } from 'child_process';
 import crypto from 'crypto';
-import { projects, sessions, sessionTemplates, commandButtons, commandRuns, modelProviders, projectDefaults } from '../database.js';
+import { projects, sessions, sessionTemplates, commandButtons, commandRuns, modelProviders, projectDefaults, modelTiers } from '../database.js';
 
 // Mock websocket and sessionManager before importing the router
 vi.mock('../websocket.js', () => ({
@@ -38,7 +38,7 @@ import projectsRouter, { validateWorktreePath } from './projects.js';
 import { workspacesRouter } from './workspaces.js';
 import { broadcastToProject } from '../websocket.js';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { WS_MESSAGE_TYPES, buildTierRef } from '@circuschief/shared';
 
 describe('Projects API', () => {
   let app;
@@ -1630,6 +1630,113 @@ describe('Projects API', () => {
       expect(res.body.error).toContain('Invalid model id "not-a-real-model"');
       expect(res.body.error).toContain('Valid model ids are:');
       expect(res.body.error).toContain('gpt-5.6-sol');
+    });
+
+    describe('Model Tier bindings (remediation Work Item 1)', () => {
+      let tierProvider;
+      let tier;
+
+      beforeEach(() => {
+        tierProvider = modelProviders.create({
+          name: 'Session Create Tier Provider',
+          kind: 'openai',
+          baseUrl: 'https://api.tier-create-test.example',
+          apiKey: 'test-key',
+        });
+        modelProviders.addModel(tierProvider.id, {
+          modelId: 'session-create-tier-model',
+          displayName: 'Session Create Tier Model',
+          tier: 'custom',
+        });
+        tier = modelTiers.create({
+          name: 'Session Create Tier Test',
+          members: [{ providerId: tierProvider.id, modelId: 'session-create-tier-model', position: 0 }],
+        });
+      });
+
+      it('accepts a tier ref as the explicit model and persists the sentinel', async () => {
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Tier-bound session',
+          model: buildTierRef(tier.id),
+          gitMode: 'worktree',
+          gitBranch: 'test-branch',
+        });
+
+        expect(res.status).toBe(201);
+        const session = sessions.getById(res.body.id);
+        expect(session.model).toBe(buildTierRef(tier.id));
+      });
+
+      it('clears a stray concrete providerId when the model is a tier ref', async () => {
+        const strayProvider = modelProviders.create({
+          name: 'Stray Provider',
+          kind: 'openai',
+          baseUrl: 'https://api.stray-test.example',
+          apiKey: 'test-key',
+        });
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Tier-bound session with stray providerId',
+          model: buildTierRef(tier.id),
+          providerId: strayProvider.id,
+          gitMode: 'worktree',
+          gitBranch: 'test-branch',
+        });
+
+        expect(res.status).toBe(201);
+        const session = sessions.getById(res.body.id);
+        expect(session.model).toBe(buildTierRef(tier.id));
+        expect(session.providerId).toBeNull();
+      });
+
+      it('normalizes away a project-default providerId when the explicit model is a tier ref', async () => {
+        const defaultProvider = modelProviders.create({
+          name: 'Project Default Provider For Tier Test',
+          kind: 'openai',
+          baseUrl: 'https://api.project-default-test.example',
+          apiKey: 'test-key',
+        });
+        await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+          model: 'opus',
+          providerId: defaultProvider.id,
+        });
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Tier-bound session overriding project default provider',
+          model: buildTierRef(tier.id),
+          gitMode: 'worktree',
+          gitBranch: 'test-branch',
+        });
+
+        expect(res.status).toBe(201);
+        const session = sessions.getById(res.body.id);
+        expect(session.model).toBe(buildTierRef(tier.id));
+        expect(session.providerId).toBeNull();
+      });
+
+      it('rejects a tier ref that resolves to no enabled members', async () => {
+        const emptyTier = modelTiers.create({ name: 'Session Create Empty Tier Test', members: [] });
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Session bound to an empty tier',
+          model: buildTierRef(emptyTier.id),
+          gitMode: 'worktree',
+          gitBranch: 'test-branch',
+        });
+
+        expect(res.status).toBe(400);
+      });
+
+      it('rejects a malformed tier ref', async () => {
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Session bound to a malformed tier ref',
+          model: 'tier::',
+          gitMode: 'worktree',
+          gitBranch: 'test-branch',
+        });
+
+        expect(res.status).toBe(400);
+      });
     });
 
     it('session model is null when no project default and no param', async () => {

@@ -1,9 +1,23 @@
 import { sessions, messages } from '../database.js';
 import { schedulerService } from './schedulerService.js';
+import { isTierRef } from '@circuschief/shared';
+import { findNextHealthyTierMember } from './tierResolutionService.js';
+import { sessionHasNoAssistantMessages } from './sessionAgentGuard.js';
 
 /**
- * Check if error message matches token limit patterns
- * @param {string} message - Error message to check
+ * Check if error message matches token limit patterns.
+ *
+ * Intentionally broad: the patterns below also catch generic non-quota phrases
+ * such as "limit", "cap", and "exceeded". This breadth is a deliberate choice
+ * for auto-reschedule decisions — we prefer false-positive reschedules (retrying
+ * a session that could have continued) over false-negative ones (not retrying
+ * when we should).
+ *
+ * Note: do NOT use this function for start-time tier failover eligibility — it
+ * is too broad and can match non-quota errors like "Unexpected token in JSON".
+ * Use matchesStartFailoverEligibleError instead (Fix 4 / F16).
+ *
+ * @param {string} message - Error message to check (should be lowercased by caller)
  * @returns {boolean} True if matches token limit error
  */
 export function matchesTokenLimitError(message) {
@@ -20,6 +34,47 @@ export function matchesTokenLimitError(message) {
   ];
 
   return patterns.some(pattern => message.includes(pattern));
+}
+
+/**
+ * Check if an error qualifies for start-time tier failover (Fix 4 / F16).
+ *
+ * Uses a tighter pattern set than matchesTokenLimitError to avoid spurious
+ * cross-provider failover on non-quota errors (e.g. "Unexpected token in JSON"
+ * contains "token" but is a JSON parse error, not a capacity error).
+ *
+ * Covers the PRD-specified triggers: overload / 503 / 529 / rate limit / quota /
+ * out of tokens / insufficient credit / billing — plus the matchesServiceError
+ * patterns (service unavailability) which are already tight.
+ *
+ * Prompt-size errors (context length / context window / max_tokens) are
+ * intentionally excluded: an oversized prompt is not an outage or quota
+ * exhaustion, so failing over to another provider won't fix it and can mask
+ * a real prompt-size bug by silently bouncing across providers. These stay
+ * covered by matchesTokenLimitError for the broader auto-reschedule decision.
+ *
+ * @param {string} message - Error message to check (should be lowercased by caller)
+ * @returns {boolean} True if the error should trigger start-time tier failover
+ */
+export function matchesStartFailoverEligibleError(message) {
+  // Delegate to matchesServiceError for service-level outage patterns
+  if (matchesServiceError(message)) return true;
+
+  // Quota / billing patterns (tighter than matchesTokenLimitError). 'billing'
+  // alone is intentionally excluded — too broad and can trigger a spurious
+  // cross-provider failover on unrelated text (e.g. a work-summary sentence
+  // that happens to mention "billing"). Use specific phrases that match real
+  // provider wording instead (still covers PRD F16's "spending/billing limit
+  // reached").
+  const quotaPatterns = [
+    'quota',
+    'rate limit',
+    'out of tokens',
+    'insufficient credit',
+    'billing limit',
+    'billing hard limit',
+  ];
+  return quotaPatterns.some(pattern => message.includes(pattern));
 }
 
 /**
@@ -91,13 +146,72 @@ function logSkippedReschedule(setting) {
 }
 
 /**
+ * Determine whether an error occurring on a tier-bound session's start attempt
+ * should trigger failover to the next tier member, rather than the normal
+ * error/auto-reschedule handling.
+ *
+ * All of the following must hold:
+ *  - `session.model` is a tier ref (`tier::<id>`)
+ *  - `tierContext` was supplied (i.e. this attempt is part of the tier failover loop)
+ *  - the error matches a failover-eligible pattern (service error or token/limit error)
+ *  - the session has produced no assistant messages yet (start-only boundary)
+ *  - there is another healthy member to advance to
+ *
+ * @param {object} session - Session object
+ * @param {Error} error - Error that occurred
+ * @param {string|null} sessionId - Session ID
+ * @param {{ currentMemberId?: string, currentMemberProviderId?: string, attemptsUsed?: number, maxAttempts?: number }|null} tierContext
+ * @returns {boolean}
+ */
+export function isTierFailoverEligibleError(session, error, sessionId = null, tierContext = null) {
+  if (!isTierRef(session.model) || !tierContext || tierContext.currentMemberId === undefined) {
+    return false;
+  }
+
+  const errorMessage = error.message.toLowerCase();
+  // Use the tighter failover-specific matcher (Fix 4) rather than the broad
+  // matchesTokenLimitError to avoid spurious cross-provider failover on
+  // non-quota errors such as JSON parse errors containing "token".
+  const isEligible = matchesStartFailoverEligibleError(errorMessage);
+  if (!isEligible || !sessionId || !sessionHasNoAssistantMessages(sessionId)) {
+    return false;
+  }
+
+  // Fix 5: use the SAME cap-aware, forward-only resolver the failover loop
+  // (sessionTierFailover.js) uses to decide whether to advance, so this
+  // suppression check can never disagree with it. Previously this used
+  // hasNextHealthyMember, a whole-list existence check unaware of the
+  // DEFAULT_MAX_FAILOVER_ATTEMPTS cap — for a >10-member tier that could
+  // report a "next member" that the loop would never actually attempt,
+  // suppressing normal error handling with nothing left to fail over to.
+  return findNextHealthyTierMember(
+    session.model,
+    { modelId: tierContext.currentMemberId, providerId: tierContext.currentMemberProviderId },
+    { attemptsUsed: tierContext.attemptsUsed, maxAttempts: tierContext.maxAttempts }
+  ) !== null;
+}
+
+/**
  * Check if an error should trigger automatic rescheduling
  * @param {object} session - Session object
  * @param {Error} error - Error that occurred
  * @param {string} sessionId - Session ID
+ * @param {{ currentMemberId?: string, currentMemberProviderId?: string }} [tierContext]
+ *   - When provided and session is tier-bound, used to determine failover eligibility.
  * @returns {boolean} True if should reschedule
  */
-export function shouldRescheduleOnError(session, error, sessionId = null) {
+export function shouldRescheduleOnError(session, error, sessionId = null, tierContext = null) {
+  // Tier failover interception:
+  // If the session is bound to a tier AND the error is failover-eligible AND
+  // the conversation has not started yet AND there's a next healthy member,
+  // suppress auto-reschedule so the failover loop can throw and advance.
+  if (isTierFailoverEligibleError(session, error, sessionId, tierContext)) {
+    console.log(
+      '[SessionManager] Tier failover eligible: suppressing auto-reschedule to advance to next member'
+    );
+    return false;
+  }
+
   // Check if auto-reschedule is enabled first (master switch)
   if (!session.autoRescheduleEnabled) {
     console.log('[SessionManager] autoRescheduleEnabled is false, skipping all rescheduling');

@@ -1,0 +1,357 @@
+.model-tiers-view {
+  max-width: 900px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: var(--color-text);
+}
+
+.description {
+  color: var(--color-text-soft);
+  font-size: 0.875rem;
+  margin-bottom: 1.5rem;
+  max-width: 680px;
+}
+
+.loading,
+.empty-state {
+  color: var(--color-text-soft);
+  padding: 2rem 0;
+}
+
+/* Tier cards */
+.tiers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.tier-card {
+  background: var(--color-bg-card, #1f2937);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+.tier-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.tier-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.tier-name {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.tier-meta {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.tier-description {
+  font-size: 0.8125rem;
+  color: var(--color-text-soft);
+}
+
+.tier-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Members */
+.members-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.25rem;
+  background: var(--color-bg-muted, rgba(255,255,255,0.04));
+  font-size: 0.8125rem;
+}
+
+.member-position {
+  color: var(--color-text-muted, #6b7280);
+  min-width: 1.25rem;
+  text-align: center;
+}
+
+.member-info,
+.member-edit-info {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex: 1;
+}
+
+.member-model {
+  color: var(--color-text);
+  font-family: monospace;
+  font-size: 0.8125rem;
+}
+
+.member-provider {
+  color: var(--color-text-soft);
+  font-size: 0.75rem;
+}
+
+.members-empty {
+  font-size: 0.8125rem;
+  color: var(--color-text-soft);
+  font-style: italic;
+  padding: 0.25rem 0;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal {
+  background: var(--color-bg-card, #1f2937);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-sm {
+  max-width: 400px;
+}
+
+.modal h3 {
+  margin: 0 0 1.25rem;
+  font-size: 1.125rem;
+  color: var(--color-text);
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+  margin-bottom: 0.375rem;
+}
+
+.required {
+  color: var(--color-error, #f87171);
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  color: var(--color-text);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+/* Members section in modal */
+.members-section {
+  margin-bottom: 1rem;
+}
+
+.members-section-header {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+  margin-bottom: 0.5rem;
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #6b7280);
+}
+
+.member-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.25rem;
+  background: var(--color-bg-muted, rgba(255,255,255,0.04));
+  margin-bottom: 0.25rem;
+  font-size: 0.8125rem;
+}
+
+.member-controls {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.add-member-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.member-select {
+  flex: 1;
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  color: var(--color-text);
+  padding: 0.375rem 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+.error-message {
+  color: var(--color-error, #f87171);
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}
+
+/* Buttons */
+.btn-primary {
+  background: var(--color-primary, #06b6d4);
+  color: #fff;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.btn-primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--color-primary, #06b6d4);
+  border: 1px solid var(--color-primary, #06b6d4);
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-text-soft);
+  border: 1px solid var(--color-border);
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.btn-ghost:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-hover, #4b5563);
+}
+
+.btn-danger-ghost {
+  background: transparent;
+  color: var(--color-error, #f87171);
+  border: 1px solid transparent;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.btn-danger-ghost:hover {
+  border-color: var(--color-error, #f87171);
+}
+
+.btn-danger {
+  background: var(--color-error, #f87171);
+  color: #fff;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.btn-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-icon {
+  background: transparent;
+  color: var(--color-text-soft);
+  border: none;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.btn-icon:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.btn-icon:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.btn-icon-danger:hover:not(:disabled) {
+  color: var(--color-error, #f87171);
+  background: rgba(248, 113, 113, 0.1);
+}
