@@ -156,7 +156,7 @@ function serializeQuestionAnswers(questions, answers, customAnswers = {}) {
     const custom = customAnswers[question.question]?.trim();
     // “Other” is mutually exclusive with predefined selections, so only one
     // source reaches the SDK's string-only answer field.
-    const answer = custom && !question.multiSelect
+    const answer = custom
       ? custom
       : selected.join(', ');
     return [question.question, answer];

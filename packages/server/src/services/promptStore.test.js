@@ -153,13 +153,29 @@ describe('promptStore work-log emission', () => {
     });
   });
 
-  it('preserves comma-containing option labels and custom answers without parsing them', async () => {
+  it('passes a multi-select Other answer to the SDK unchanged', async () => {
     const { promise, prompt } = park('multi-other', 'question', {
       input: { questions: [{ question: 'Checks?', options: [{ label: 'Unit, fast' }, { label: 'E2E ✓' }], multiSelect: true }] },
       questions: [{ question: 'Checks?', options: [{ label: 'Unit, fast' }, { label: 'E2E ✓' }], multiSelect: true }],
     });
 
     expect(respondToPrompt('multi-other', prompt.id, {
+      action: 'answer',
+      answers: { 'Checks?': [] },
+      customAnswers: { 'Checks?': 'Run smoke tests, then notify QA!' },
+    })).toBe(true);
+    await expect(promise).resolves.toMatchObject({
+      behavior: 'allow', updatedInput: { answers: { 'Checks?': 'Run smoke tests, then notify QA!' } },
+    });
+  });
+
+  it('joins ordinary multi-select choices in the existing SDK format', async () => {
+    const { promise, prompt } = park('multi-options', 'question', {
+      input: { questions: [{ question: 'Checks?', options: [{ label: 'Unit, fast' }, { label: 'E2E ✓' }], multiSelect: true }] },
+      questions: [{ question: 'Checks?', options: [{ label: 'Unit, fast' }, { label: 'E2E ✓' }], multiSelect: true }],
+    });
+
+    expect(respondToPrompt('multi-options', prompt.id, {
       action: 'answer', answers: { 'Checks?': ['Unit, fast', 'E2E ✓'] },
     })).toBe(true);
     await expect(promise).resolves.toMatchObject({
