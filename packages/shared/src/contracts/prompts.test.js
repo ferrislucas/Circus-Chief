@@ -20,26 +20,32 @@ describe('PromptResponse', () => {
     // fails once a non-empty record is actually parsed).
     const result = PromptResponse.parse({
       action: 'answer',
-      answers: { 'Which deployment target?': 'Staging' },
-      annotations: { 'Which deployment target?': { note: 'Safer default', preview: '## Staging plan' } },
+      answers: { 'Which deployment target?': ['Staging'] },
+      annotations: { 'Which deployment target?': { notes: 'Safer default', preview: '## Staging plan' } },
     });
     expect(result).toMatchObject({
       action: 'answer',
-      answers: { 'Which deployment target?': 'Staging' },
-      annotations: { 'Which deployment target?': { note: 'Safer default', preview: '## Staging plan' } },
+      answers: { 'Which deployment target?': ['Staging'] },
+      annotations: { 'Which deployment target?': { notes: 'Safer default', preview: '## Staging plan' } },
     });
   });
 
-  it('accepts an explicit custom answer alongside predefined selections', () => {
+  it('accepts an explicit custom answer with an empty predefined selection', () => {
     expect(PromptResponse.safeParse({
-      action: 'answer', answers: { Checks: 'Unit' }, customAnswers: { Checks: 'Accessibility, performance' },
+      action: 'answer', answers: { Checks: [] }, customAnswers: { Checks: 'Accessibility, performance' },
     }).success).toBe(true);
+  });
+
+  it('rejects obsolete singular note annotations and string selections', () => {
+    expect(PromptResponse.safeParse({
+      action: 'answer', answers: { Choice: 'A' }, annotations: { Choice: { note: 'legacy' } },
+    }).success).toBe(false);
   });
 
   it.each([
     undefined,
     {},
-    { 'Which deployment target?': '' },
+    { 'Which deployment target?': [] },
   ])('rejects incomplete question answers: %j', (answers) => {
     expect(PromptResponse.safeParse({ action: 'answer', answers }).success).toBe(false);
   });

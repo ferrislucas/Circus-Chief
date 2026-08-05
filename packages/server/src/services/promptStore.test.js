@@ -29,14 +29,14 @@ describe('promptStore work-log emission', () => {
   it('logs question answers before broadcasting resolution', async () => {
     const { promise, prompt } = park('question-answer', 'question');
 
-    expect(respondToPrompt('question-answer', prompt.id, { action: 'answer', answers: { 'Which approach?': 'Ship it' } })).toBe(true);
+    expect(respondToPrompt('question-answer', prompt.id, { action: 'answer', answers: { 'Which approach?': ['Ship it'] } })).toBe(true);
     await expect(promise).resolves.toMatchObject({ behavior: 'allow' });
 
     expect(createWorkLog).toHaveBeenCalledWith('question-answer', 'tool_output', 'User answered:\nWhich approach?: Ship it', 'AskUserQuestion');
     expect(createWorkLog.mock.invocationCallOrder[0]).toBeLessThan(broadcastToSession.mock.invocationCallOrder.at(-1));
   });
 
-  it('logs skipped questions and permission decisions with their originating tool', async () => {
+  it('records reconstructable, sanitized permission-decision history for every outcome', async () => {
     const skipped = park('question-skip', 'question');
     respondToPrompt('question-skip', skipped.prompt.id, { action: 'cancel', reason: 'Use the default.' });
     await skipped.promise;
@@ -54,9 +54,17 @@ describe('promptStore work-log emission', () => {
     await denied.promise;
 
     expect(createWorkLog).toHaveBeenNthCalledWith(1, 'question-skip', 'tool_output', 'User did not answer: Use the default.', 'AskUserQuestion');
-    expect(createWorkLog).toHaveBeenNthCalledWith(2, 'permission-allow', 'tool_output', 'User allowed once Bash', 'Bash');
-    expect(createWorkLog).toHaveBeenNthCalledWith(3, 'permission-always', 'tool_output', 'User always allowed Bash', 'Bash');
-    expect(createWorkLog).toHaveBeenNthCalledWith(4, 'permission-deny', 'tool_output', 'User denied Bash: Do not run tests now.', 'Bash');
+    for (const index of [2, 3, 4]) {
+      const [, , content, toolName] = createWorkLog.mock.calls[index - 1];
+      expect(toolName).toBe('Bash');
+      expect(content).toContain('Permission decision');
+      expect(content).toContain('Tool: Bash');
+      expect(content).toContain('Input: {"command":"yarn test"}');
+    }
+    expect(createWorkLog.mock.calls[1][2]).toContain('Outcome: allow once');
+    expect(createWorkLog.mock.calls[2][2]).toContain('Outcome: always allow');
+    expect(createWorkLog.mock.calls[2][2]).toContain('Scope: session');
+    expect(createWorkLog.mock.calls[3][2]).toContain('Reason: Do not run tests now.');
   });
 
   it('logs superseded and cancelled prompts once, including when cancellation comes from abort', async () => {
@@ -71,9 +79,26 @@ describe('promptStore work-log emission', () => {
     controller.abort();
     await aborted.promise;
 
-    expect(createWorkLog).toHaveBeenCalledWith('replacement', 'tool_output', 'User superseded Bash: This interaction was superseded.', 'Bash');
-    expect(createWorkLog).toHaveBeenCalledWith('replacement', 'tool_output', 'User cancelled Bash: Stopped by user.', 'Bash');
-    expect(createWorkLog).toHaveBeenCalledWith('aborted', 'tool_output', 'User cancelled Bash: Session was cancelled.', 'Bash');
+    expect(createWorkLog).toHaveBeenCalledWith('replacement', 'tool_output', expect.stringContaining('Outcome: superseded'), 'Bash');
+    expect(createWorkLog).toHaveBeenCalledWith('replacement', 'tool_output', expect.stringContaining('Reason: Stopped by user.'), 'Bash');
+    expect(createWorkLog).toHaveBeenCalledWith('aborted', 'tool_output', expect.stringContaining('Reason: Session was cancelled.'), 'Bash');
+  });
+
+  it('redacts credentials while retaining permission context in history', async () => {
+    const { promise, prompt } = park('redacted-history', 'permission', {
+      toolName: 'Bash', title: 'Deploy', blockedPath: '/protected/.env', decisionReason: 'Needs approval',
+      input: { command: 'deploy', api_key: 'very-secret', nested: { token: 'also-secret' } },
+    });
+    respondToPrompt('redacted-history', prompt.id, { action: 'deny' });
+    await promise;
+    const content = createWorkLog.mock.calls.at(-1)[2];
+    expect(content).toContain('Title: Deploy');
+    expect(content).toContain('Blocked path: /protected/.env');
+    expect(content).toContain('Decision context: Needs approval');
+    expect(content).toContain('Reason: Permission denied by user.');
+    expect(content).toContain('[redacted]');
+    expect(content).not.toContain('very-secret');
+    expect(content).not.toContain('also-secret');
   });
 
   it('does not log a stale second response', async () => {
@@ -106,11 +131,11 @@ describe('promptStore work-log emission', () => {
       ],
     });
 
-    expect(respondToPrompt('invalid-question', prompt.id, { action: 'answer', answers: { 'Environment?': 'Staging' } })).toBeNull();
-    expect(respondToPrompt('invalid-question', prompt.id, { action: 'answer', answers: { 'Environment?': 'Unknown', 'Checks?': 'Unit' } })).toBeNull();
+    expect(respondToPrompt('invalid-question', prompt.id, { action: 'answer', answers: { 'Environment?': ['Staging'] } })).toBeNull();
+    expect(respondToPrompt('invalid-question', prompt.id, { action: 'answer', answers: { 'Environment?': ['Unknown'], 'Checks?': ['Unit'] } })).toBeNull();
     expect(getPrompt('invalid-question')?.id).toBe(prompt.id);
 
-    expect(respondToPrompt('invalid-question', prompt.id, { action: 'answer', answers: { 'Environment?': 'Production', 'Checks?': 'Unit, E2E' } })).toBe(true);
+    expect(respondToPrompt('invalid-question', prompt.id, { action: 'answer', answers: { 'Environment?': ['Production'], 'Checks?': ['Unit', 'E2E'] } })).toBe(true);
     await expect(promise).resolves.toMatchObject({ behavior: 'allow' });
   });
 
@@ -121,24 +146,24 @@ describe('promptStore work-log emission', () => {
     });
 
     expect(respondToPrompt('single-other', prompt.id, {
-      action: 'answer', answers: { 'Environment?': '' }, customAnswers: { 'Environment?': 'Preview deployment' },
+      action: 'answer', answers: { 'Environment?': [] }, customAnswers: { 'Environment?': 'Preview deployment' },
     })).toBe(true);
     await expect(promise).resolves.toMatchObject({
       behavior: 'allow', updatedInput: { answers: { 'Environment?': 'Preview deployment' } },
     });
   });
 
-  it('preserves commas in declared custom multi-select answers while validating selections', async () => {
+  it('preserves comma-containing option labels and custom answers without parsing them', async () => {
     const { promise, prompt } = park('multi-other', 'question', {
-      input: { questions: [{ question: 'Checks?', options: [{ label: 'Unit' }, { label: 'E2E' }], multiSelect: true }] },
-      questions: [{ question: 'Checks?', options: [{ label: 'Unit' }, { label: 'E2E' }], multiSelect: true }],
+      input: { questions: [{ question: 'Checks?', options: [{ label: 'Unit, fast' }, { label: 'E2E ✓' }], multiSelect: true }] },
+      questions: [{ question: 'Checks?', options: [{ label: 'Unit, fast' }, { label: 'E2E ✓' }], multiSelect: true }],
     });
 
     expect(respondToPrompt('multi-other', prompt.id, {
-      action: 'answer', answers: { 'Checks?': 'Unit' }, customAnswers: { 'Checks?': 'Accessibility, performance' },
+      action: 'answer', answers: { 'Checks?': ['Unit, fast', 'E2E ✓'] },
     })).toBe(true);
     await expect(promise).resolves.toMatchObject({
-      behavior: 'allow', updatedInput: { answers: { 'Checks?': 'Unit, Accessibility, performance' } },
+      behavior: 'allow', updatedInput: { answers: { 'Checks?': 'Unit, fast, E2E ✓' } },
     });
   });
 
@@ -149,13 +174,26 @@ describe('promptStore work-log emission', () => {
     });
 
     expect(respondToPrompt('invalid-other', prompt.id, {
-      action: 'answer', answers: { 'Environment?': '' }, customAnswers: { 'Environment?': '   ' },
+      action: 'answer', answers: { 'Environment?': [] }, customAnswers: { 'Environment?': '   ' },
     })).toBeNull();
     expect(respondToPrompt('invalid-other', prompt.id, {
-      action: 'answer', answers: { 'Environment?': 'Staging' }, customAnswers: { Unknown: 'Custom' },
+      action: 'answer', answers: { 'Environment?': ['Staging'] }, customAnswers: { Unknown: 'Custom' },
     })).toBeNull();
     expect(getPrompt('invalid-other')?.id).toBe(prompt.id);
     cancelPrompt('invalid-other');
+    await promise;
+  });
+
+  it('rejects contradictory selections and Other answers without settling', async () => {
+    const { promise, prompt } = park('contradictory-other', 'question', {
+      input: { questions: [{ question: 'Environment?', options: [{ label: 'Staging' }, { label: 'Production' }], multiSelect: false }] },
+      questions: [{ question: 'Environment?', options: [{ label: 'Staging' }, { label: 'Production' }], multiSelect: false }],
+    });
+    expect(respondToPrompt('contradictory-other', prompt.id, {
+      action: 'answer', answers: { 'Environment?': ['Staging'] }, customAnswers: { 'Environment?': 'Custom environment' },
+    })).toBeNull();
+    expect(getPrompt('contradictory-other')?.id).toBe(prompt.id);
+    cancelPrompt('contradictory-other');
     await promise;
   });
 

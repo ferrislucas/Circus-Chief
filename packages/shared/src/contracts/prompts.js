@@ -5,24 +5,27 @@ export const PromptQuestion = z.object({
   question: z.string().min(1), header: z.string().max(12).optional(),
   options: z.array(PromptOption).min(2).max(4), multiSelect: z.boolean(),
 });
+export const PromptAnnotation = z.object({
+  notes: z.string().min(1).optional(),
+  preview: z.string().min(1).optional(),
+}).strict();
 export const QuestionPromptResponse = z.union([
   z.object({
     action: z.literal('answer'),
-    // Predefined selections are serialized as strings for the Claude callback.
-    // A question answered through “Other” deliberately has an empty selection
-    // and carries its free text separately in customAnswers.
-    answers: z.record(z.string(), z.string()).refine((answers) => Object.keys(answers).length > 0, {
+    // Values remain structured until the Claude SDK boundary, where its
+    // documented comma-delimited representation is constructed.
+    answers: z.record(z.string(), z.array(z.string().min(1))).refine((answers) => Object.keys(answers).length > 0, {
       message: 'At least one answer is required',
     }),
     customAnswers: z.record(z.string(), z.string().trim().min(1)).optional(),
-    annotations: z.record(z.string(), z.unknown()).optional(), response: z.string().optional(), reason: z.string().optional(),
+    annotations: z.record(z.string(), PromptAnnotation).optional(), response: z.string().optional(), reason: z.string().optional(),
   }).refine((response) => (
-    Object.values(response.answers).some((answer) => answer.trim())
+    Object.values(response.answers).some((answer) => answer.length)
     || Object.values(response.customAnswers || {}).some((answer) => answer.trim())
   ), { message: 'At least one non-empty answer is required' }),
   z.object({
     action: z.literal('cancel'),
-    annotations: z.record(z.string(), z.unknown()).optional(), response: z.string().optional(), reason: z.string().optional(),
+    annotations: z.record(z.string(), PromptAnnotation).optional(), response: z.string().optional(), reason: z.string().optional(),
   }),
 ]);
 export const PermissionPromptResponse = z.object({

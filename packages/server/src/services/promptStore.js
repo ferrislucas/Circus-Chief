@@ -46,15 +46,32 @@ function describePromptOutcome(record, outcome, result) {
   }
 
   const toolName = record.payload.toolName || 'Unknown tool';
-  const outcomeText = {
-    allow: 'allowed once',
-    always_allow: 'always allowed',
-    deny: 'denied',
-    superseded: 'superseded',
-    cancelled: 'cancelled',
+  return { toolName, content: permissionHistoryLines(record, outcome, result).join('\n') };
+}
+
+function permissionHistoryLines(record, outcome, result) {
+  const toolName = record.payload.toolName || 'Unknown tool';
+  const decision = {
+    allow: 'allow once', always_allow: 'always allow', deny: 'deny',
+    superseded: 'superseded', cancelled: 'cancelled',
   }[outcome] || outcome;
-  const reason = result.message ? `: ${result.message}` : '';
-  return { toolName, content: `User ${outcomeText} ${toolName}${reason}` };
+  return [
+    'Permission decision', `Outcome: ${decision}`, `Tool: ${toolName}`,
+    record.payload.title && `Title: ${record.payload.title}`,
+    record.payload.blockedPath && `Blocked path: ${record.payload.blockedPath}`,
+    `Input: ${JSON.stringify(redactSensitiveValues(record.payload.input || {}))}`,
+    record.payload.decisionReason && `Decision context: ${record.payload.decisionReason}`,
+    outcome === 'always_allow' && `Scope: ${result.updatedPermissions?.[0]?.destination || 'session'}`,
+    result.message && `Reason: ${result.message}`,
+  ].filter(Boolean);
+}
+
+const SENSITIVE_KEY = /(?:api[_-]?key|authorization|credential|password|secret|token)/i;
+function redactSensitiveValues(value, key = '') {
+  if (SENSITIVE_KEY.test(key)) return '[redacted]';
+  if (Array.isArray(value)) return value.map((item) => redactSensitiveValues(item));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, redactSensitiveValues(item, name)]));
+  return value;
 }
 
 export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, agentId = null, payload, signal }) {
@@ -113,13 +130,20 @@ function hasValidQuestionAnswers(questions, answers, customAnswers = {}) {
 }
 
 function isValidQuestionAnswer(answer, customAnswer, options, multiSelect) {
-  if (typeof answer !== 'string' || !isValidCustomAnswer(customAnswer)) return false;
-  const selected = answer.split(',').map((value) => value.trim()).filter(Boolean);
+  if (!isStructuredSelection(answer) || !isValidCustomAnswer(customAnswer)) return false;
+  const selected = answer;
   if (!options.size) return Boolean(selected.length || customAnswer?.trim());
-  return Boolean(selected.length || customAnswer?.trim())
-    && (multiSelect || selected.length <= 1)
+  return hasQuestionAnswer(selected, customAnswer)
+    && selectionFitsQuestion(selected, options, multiSelect, customAnswer);
+}
+
+function isStructuredSelection(answer) { return Array.isArray(answer) && answer.every((value) => typeof value === 'string' && value); }
+function hasQuestionAnswer(selected, customAnswer) { return Boolean(selected.length || customAnswer?.trim()); }
+function selectionFitsQuestion(selected, options, multiSelect, customAnswer) {
+  return (multiSelect || selected.length <= 1)
     && new Set(selected).size === selected.length
-    && selected.every((value) => options.has(value));
+    && selected.every((value) => options.has(value))
+    && !(selected.length && customAnswer?.trim());
 }
 
 function isValidCustomAnswer(customAnswer) {
@@ -128,13 +152,13 @@ function isValidCustomAnswer(customAnswer) {
 
 function serializeQuestionAnswers(questions, answers, customAnswers = {}) {
   return Object.fromEntries((questions || []).map((question) => {
-    const selected = answers[question.question].trim();
+    const selected = answers[question.question];
     const custom = customAnswers[question.question]?.trim();
-    // A custom single-select response intentionally replaces a selected option.
-    // Multi-select retains selected options and adds the custom response last.
+    // “Other” is mutually exclusive with predefined selections, so only one
+    // source reaches the SDK's string-only answer field.
     const answer = custom && !question.multiSelect
       ? custom
-      : [selected, custom].filter(Boolean).join(', ');
+      : selected.join(', ');
     return [question.question, answer];
   }));
 }

@@ -6,15 +6,17 @@ import AgentPromptCard from './AgentPromptCard.vue';
 const prompt = { id: 'prompt-1', kind: 'question', payload: { questions: [{ question: 'Choose', multiSelect: true, options: [{ label: 'A', description: 'first' }, { label: 'B', description: 'second' }] }] } };
 
 describe('AgentPromptCard', () => {
-  it('combines selected multi-select options with a custom Other answer', async () => {
+  it('makes Other mutually exclusive with selected options', async () => {
     const onRespond = vi.fn();
     const multiOtherPrompt = { id: 'multi-other', kind: 'question', payload: { questions: [{ question: 'Pick', multiSelect: true, options: [{ label: 'One', description: '' }, { label: 'Two', description: '' }] }] } };
     const wrapper = mount(AgentPromptCard, { props: { prompt: multiOtherPrompt, onRespond } });
     await wrapper.findAll('input[type="checkbox"]')[0].setValue(true);
     await wrapper.find('.other-input').setValue(' Three ');
     await wrapper.get('button.prompt-primary-action').trigger('click');
+    expect(wrapper.find('input[type="checkbox"]').element.checked).toBe(false);
+    await wrapper.get('button.prompt-primary-action').trigger('click');
     expect(onRespond).toHaveBeenCalledWith(expect.objectContaining({
-      answers: { Pick: 'One' }, customAnswers: { Pick: 'Three' },
+      answers: { Pick: [] }, customAnswers: { Pick: 'Three' },
     }));
   });
   it('joins multi-select values and requires every question to be answered', async () => {
@@ -27,7 +29,7 @@ describe('AgentPromptCard', () => {
     await nextTick();
     expect(wrapper.get('button').attributes('disabled')).toBeUndefined();
     await wrapper.get('button').trigger('click');
-    expect(onRespond).toHaveBeenCalledWith({ action: 'answer', answers: { Choose: 'A, B' } });
+    expect(onRespond).toHaveBeenCalledWith({ action: 'answer', answers: { Choose: ['A', 'B'] } });
   });
 
   it('does not treat free response as an answer to unanswered questions', async () => {
@@ -56,20 +58,20 @@ describe('AgentPromptCard', () => {
     expect(onRespond).not.toHaveBeenCalled();
   });
 
-  it('returns selected previews and per-question notes as annotations', async () => {
+  it('returns selected previews and per-question notes as annotations without mixing Other state', async () => {
     const onRespond = vi.fn();
     const annotated = { id: 'annotated', kind: 'question', payload: { questions: [{
       question: 'Choose', options: [{ label: 'A', description: 'first', preview: 'Preview A' }], multiSelect: false,
     }] } };
     const wrapper = mount(AgentPromptCard, { props: { prompt: annotated, onRespond } });
 
-    await wrapper.get('input[type="radio"]').setValue(true);
     await wrapper.get('input[placeholder="Other…"]').setValue('Because it is safer');
+    await wrapper.get('input[type="radio"]').setValue(true);
     await wrapper.get('button').trigger('click');
 
     expect(onRespond).toHaveBeenCalledWith({
-      action: 'answer', answers: { Choose: 'A' }, customAnswers: { Choose: 'Because it is safer' },
-      annotations: { Choose: { note: 'Because it is safer', preview: 'Preview A' } },
+      action: 'answer', answers: { Choose: ['A'] },
+      annotations: { Choose: { preview: 'Preview A' } },
     });
   });
 

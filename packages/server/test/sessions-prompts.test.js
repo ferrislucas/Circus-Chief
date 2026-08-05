@@ -25,14 +25,14 @@ describe('session prompt responses', () => {
 
     const invalid = await request(app)
       .post(`/api/sessions/${session.id}/prompt/${prompt.id}/respond`)
-      .send({ action: 'answer', answers: { 'Deploy where?': 'Production', unexpected: 'value' } });
+      .send({ action: 'answer', answers: { 'Deploy where?': ['Production'], unexpected: ['value'] } });
 
     expect(invalid.status).toBe(422);
     expect(getPrompt(session.id)?.id).toBe(prompt.id);
 
     const valid = await request(app)
       .post(`/api/sessions/${session.id}/prompt/${prompt.id}/respond`)
-      .send({ action: 'answer', answers: { 'Deploy where?': 'Production' } });
+      .send({ action: 'answer', answers: { 'Deploy where?': ['Production'] } });
 
     expect(valid.status).toBe(200);
     await expect(promptPromise).resolves.toMatchObject({ behavior: 'allow' });

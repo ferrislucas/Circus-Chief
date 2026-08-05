@@ -39,6 +39,7 @@
               :name="`question-${index}`"
               :value="option.label"
               :disabled="submitting"
+              @change="clearOther(question)"
             >
             <span class="option-indicator" aria-hidden="true" />
             <span class="option-copy">
@@ -61,6 +62,7 @@
             <span class="option-copy"><strong>Other</strong><small>Give the agent your own answer.</small></span>
             <input
               v-model="other[question.question]"
+              @input="selectOther(question)"
               class="form-input other-input"
               placeholder="Other…"
               :disabled="submitting"
@@ -168,7 +170,7 @@ const permissionDiffFiles = computed(() => {
 function respond(response) { emit('respond', response); }
 function selectedAnswer(question) {
   const selected = answers.value[question.question];
-  return Array.isArray(selected) ? selected.join(', ') : selected || '';
+  return Array.isArray(selected) ? selected : selected ? [selected] : [];
 }
 function collectAnswers() { return Object.fromEntries(props.prompt.payload.questions.map((question) => [question.question, selectedAnswer(question)])); }
 function collectCustomAnswers() {
@@ -179,17 +181,22 @@ function collectCustomAnswers() {
 }
 function collectAnnotations() {
   return Object.fromEntries(props.prompt.payload.questions.flatMap((question) => {
+    const custom = other.value[question.question]?.trim();
+    if (custom) return [[question.question, { notes: custom }]];
     const selected = answers.value[question.question]; const labels = Array.isArray(selected) ? selected : [selected];
-    const previews = question.options.filter((option) => labels.includes(option.label) && option.preview).map((option) => option.preview); const note = other.value[question.question]?.trim();
-    return !note && previews.length === 0 ? [] : [[question.question, { ...(note ? { note } : {}), ...(previews.length ? { preview: previews.join('\n\n') } : {}) }]];
+    const previews = question.options.filter((option) => labels.includes(option.label) && option.preview).map((option) => option.preview);
+    return previews.length ? [[question.question, { preview: previews.join('\n\n') }]] : [];
   }));
 }
 function submitAnswers() { if (!canSubmit.value) return; const annotations = collectAnnotations(); const customAnswers = collectCustomAnswers(); respond({ action: 'answer', answers: collectAnswers(), ...(Object.keys(customAnswers).length ? { customAnswers } : {}), ...(Object.keys(annotations).length ? { annotations } : {}), ...(freeResponse.value.trim() ? { response: freeResponse.value.trim() } : {}) }); }
 function chooseOption(index) {
   const question = props.prompt?.payload.questions?.[focusedOption.value.question]; const option = question?.options?.[index];
   if (!question || !option || props.submitting) return;
+  other.value[question.question] = '';
   if (question.multiSelect) { const selected = answers.value[question.question]; answers.value[question.question] = selected.includes(option.label) ? selected.filter((label) => label !== option.label) : [...selected, option.label]; } else answers.value[question.question] = option.label;
 }
+function selectOther(question) { answers.value[question.question] = question.multiSelect ? [] : ''; }
+function clearOther(question) { other.value[question.question] = ''; }
 function isTypingTarget(event) { const target = event.target; return target instanceof HTMLElement && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable); }
 function promptShortcut(event, action) { if (!props.prompt || props.submitting || isTypingTarget(event)) return; action(event); }
 useKeyboardShortcuts({
