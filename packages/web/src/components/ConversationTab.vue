@@ -26,8 +26,8 @@
     <TodoDrawer />
 
     <AgentPromptCard
-      :prompt="promptsStore.prompt"
-      :submitting="promptsStore.submitting"
+      :prompt="promptsStore.promptFor(sessionId)"
+      :submitting="promptsStore.isSubmitting(sessionId)"
       @respond="promptsStore.respond(sessionId, $event)"
     />
 

@@ -22,14 +22,14 @@ export const QuestionPromptResponse = z.union([
     customAnswers: z.record(z.string(), z.string().refine((value) => value.trim().length > 0, {
       message: 'Custom answers cannot be blank',
     })).optional(),
-    annotations: z.record(z.string(), PromptAnnotation).optional(), response: z.string().optional(), reason: z.string().optional(),
+    annotations: z.record(z.string(), PromptAnnotation).optional(), reason: z.string().optional(),
   }).refine((response) => (
     Object.values(response.answers).some((answer) => answer.length)
     || Object.values(response.customAnswers || {}).some((answer) => answer.trim())
   ), { message: 'At least one non-empty answer is required' }),
   z.object({
     action: z.literal('cancel'),
-    annotations: z.record(z.string(), PromptAnnotation).optional(), response: z.string().optional(), reason: z.string().optional(),
+    annotations: z.record(z.string(), PromptAnnotation).optional(), reason: z.string().optional(),
   }),
 ]);
 export const PermissionPromptResponse = z.object({

@@ -6,6 +6,7 @@ import { sessions } from '../database.js';
 import { PROMPT_ACTIONS_BY_KIND } from '@circuschief/shared/contracts/prompts';
 
 const prompts = new Map();
+const CANCELLED_MESSAGE = 'Session was cancelled.';
 
 function broadcastPendingInput(record, pendingAgentInput) {
   const session = sessions.getById(record.sessionId);
@@ -75,6 +76,8 @@ function redactSensitiveValues(value, key = '') {
 }
 
 export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, agentId = null, payload, signal }) {
+  // An abort listener added after a signal is already aborted will never fire.
+  if (signal?.aborted) return Promise.resolve({ behavior: 'deny', message: CANCELLED_MESSAGE });
   const existing = prompts.get(sessionId);
   if (existing) settle(existing, 'superseded', { behavior: 'deny', message: 'This interaction was superseded.' });
   const questions = payload.questions || [];
@@ -84,7 +87,7 @@ export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, 
   return new Promise((resolve, reject) => {
     const record = { id: randomUUID(), sessionId, conversationId, kind, toolUseId, agentId, payload,
       createdAt: Date.now(), resolve, reject, signal, abortListener: null };
-    record.abortListener = () => settle(record, 'cancelled', { behavior: 'deny', message: 'Session was cancelled.' });
+    record.abortListener = () => settle(record, 'cancelled', { behavior: 'deny', message: CANCELLED_MESSAGE });
     signal?.addEventListener('abort', record.abortListener, { once: true });
     prompts.set(sessionId, record);
     broadcastPendingInput(record, true);
@@ -94,12 +97,12 @@ export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, 
 
 export function getPrompt(sessionId) { const record = prompts.get(sessionId); return record ? project(record) : null; }
 export function hasPendingPrompt(sessionId) { return prompts.has(sessionId); }
-export function cancelPrompt(sessionId, reason = 'Session was cancelled.') {
+export function cancelPrompt(sessionId, reason = CANCELLED_MESSAGE) {
   const record = prompts.get(sessionId);
   return record ? settle(record, 'cancelled', { behavior: 'deny', message: reason }) : false;
 }
 function questionResult(record, response) {
-  if (response.action === 'answer' && !hasValidQuestionAnswers(record.payload.questions, response.answers, response.customAnswers)) return null;
+  if (response.action === 'answer' && !hasValidQuestionAnswers(record.payload.questions, response.answers, response.customAnswers, response.annotations)) return null;
   return response.action === 'answer'
     ? { behavior: 'allow', updatedInput: {
       ...record.payload.input,
@@ -108,18 +111,16 @@ function questionResult(record, response) {
       // mistaken for additional predefined selections.
       answers: serializeQuestionAnswers(record.payload.questions, response.answers, response.customAnswers),
       ...(response.annotations ? { annotations: response.annotations } : {}),
-      ...(response.response ? { response: response.response } : {}),
     } }
     : { behavior: 'deny', message: response.reason || 'Proceed on your best judgment and state your assumption.' };
 }
 
-function hasValidQuestionAnswers(questions, answers, customAnswers = {}) {
-  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return false;
-  if (!customAnswers || typeof customAnswers !== 'object' || Array.isArray(customAnswers)) return false;
+function hasValidQuestionAnswers(questions, answers, customAnswers = {}, annotations = {}) {
   const expected = questions || [];
   const expectedKeys = new Set(expected.map(({ question }) => question));
-  if (Object.keys(answers).length !== expectedKeys.size || !Object.keys(answers).every((key) => expectedKeys.has(key))) return false;
-  if (!Object.keys(customAnswers).every((key) => expectedKeys.has(key))) return false;
+  if (!hasCompleteAnswerSet(answers, expectedKeys) || !hasKnownPromptKeys(customAnswers, expectedKeys) || !hasKnownPromptKeys(annotations, expectedKeys)) return false;
+  if (!annotations || typeof annotations !== 'object' || Array.isArray(annotations)) return false;
+  if (!Object.keys(annotations).every((key) => expectedKeys.has(key))) return false;
 
   return expected.every((question) => {
     const answer = answers[question.question];
@@ -127,6 +128,18 @@ function hasValidQuestionAnswers(questions, answers, customAnswers = {}) {
     const options = new Set((question.options || []).map(({ label }) => label));
     return isValidQuestionAnswer(answer, customAnswer, options, question.multiSelect);
   });
+}
+
+function hasCompleteAnswerSet(answers, expectedKeys) {
+  return hasKnownPromptKeys(answers, expectedKeys)
+    && Object.keys(answers).length === expectedKeys.size;
+}
+
+function hasKnownPromptKeys(value, expectedKeys) {
+  return Boolean(value)
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && Object.keys(value).every((key) => expectedKeys.has(key));
 }
 
 function isValidQuestionAnswer(answer, customAnswer, options, multiSelect) {

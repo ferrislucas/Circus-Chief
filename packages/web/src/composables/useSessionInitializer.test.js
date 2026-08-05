@@ -335,12 +335,12 @@ describe('useSessionInitializer', () => {
       const promptsStore = useSessionPromptsStore();
       const { initializeSession, cleanup } = createInitializer();
       sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
-      promptsStore.prompt = { id: 'prompt-1' };
+      promptsStore.show({ id: 'prompt-1', sessionId: 'session-1' });
 
       await initializeSession('session-1');
       cleanup();
 
-      expect(promptsStore.prompt).toBeNull();
+      expect(promptsStore.promptFor('session-1')).toBeNull();
     });
 
     it('clears summary', async () => {
@@ -412,12 +412,12 @@ describe('useSessionInitializer', () => {
 
       await initializeSession('session-1');
 
-      const prompt = { id: 'prompt-1', question: 'Continue?' };
+      const prompt = { id: 'prompt-1', sessionId: 'session-1', question: 'Continue?' };
       mockSubscription.onPrompt.mock.calls[0][0](prompt);
-      expect(promptsStore.prompt).toEqual(prompt);
+      expect(promptsStore.promptFor('session-1')).toEqual(prompt);
 
-      mockSubscription.onPromptResolved.mock.calls[0][0]('prompt-1');
-      expect(promptsStore.prompt).toBeNull();
+      mockSubscription.onPromptResolved.mock.calls[0][0]('prompt-1', 'session-1');
+      expect(promptsStore.promptFor('session-1')).toBeNull();
     });
   });
 

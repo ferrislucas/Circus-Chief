@@ -90,7 +90,7 @@ function registerEventHandlers(on, off, sessionId) {
     onPrompt: handler(WS_MESSAGE_TYPES.SESSION_PROMPT,
       { filter: bySession, args: (msg) => [msg.prompt] }),
     onPromptResolved: handler(WS_MESSAGE_TYPES.SESSION_PROMPT_RESOLVED,
-      { filter: bySession, args: (msg) => [msg.promptId, msg.outcome] }),
+      { filter: bySession, args: (msg) => [msg.promptId, msg.sessionId, msg.outcome] }),
   };
 }
 

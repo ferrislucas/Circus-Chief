@@ -46,9 +46,9 @@ describe('AgentPromptCard', () => {
     expect(onRespond).toHaveBeenCalledWith({ action: 'answer', answers: { Choose: ['A', 'B'] } });
   });
 
-  it('does not treat free response as an answer to unanswered questions', async () => {
+  it('does not treat an optional question note as an answer to unanswered questions', async () => {
     const wrapper = mount(AgentPromptCard, { props: { prompt } });
-    await wrapper.get('textarea').setValue('Some context');
+    await wrapper.get('.question-note').setValue('Some context');
     expect(wrapper.get('button').attributes('disabled')).toBeDefined();
   });
 
@@ -72,20 +72,32 @@ describe('AgentPromptCard', () => {
     expect(onRespond).not.toHaveBeenCalled();
   });
 
-  it('returns selected previews and per-question notes as annotations without mixing Other state', async () => {
+  it('returns selected previews and per-question notes without mixing Other state', async () => {
     const onRespond = vi.fn();
     const annotated = { id: 'annotated', kind: 'question', payload: { questions: [{
       question: 'Choose', options: [{ label: 'A', description: 'first', preview: 'Preview A' }], multiSelect: false,
     }] } };
     const wrapper = mount(AgentPromptCard, { props: { prompt: annotated, onRespond } });
 
-    await wrapper.get('input[placeholder="Other…"]').setValue('Because it is safer');
+    await wrapper.get('.question-note').setValue('Because it is safer');
     await wrapper.get('input[type="radio"]').setValue(true);
     await wrapper.get('button').trigger('click');
 
     expect(onRespond).toHaveBeenCalledWith({
       action: 'answer', answers: { Choose: ['A'] },
-      annotations: { Choose: { preview: 'Preview A' } },
+      annotations: { Choose: { notes: 'Because it is safer', preview: 'Preview A' } },
+    });
+  });
+
+  it('keeps Other as the answer and merges a distinct per-question note', async () => {
+    const onRespond = vi.fn();
+    const wrapper = mount(AgentPromptCard, { props: { prompt, onRespond } });
+    await wrapper.get('.other-input').setValue('  Custom answer  ');
+    await wrapper.get('.question-note').setValue('Why this is needed');
+    await wrapper.get('button.prompt-primary-action').trigger('click');
+    expect(onRespond).toHaveBeenCalledWith({
+      action: 'answer', answers: { Choose: [] }, customAnswers: { Choose: '  Custom answer  ' },
+      annotations: { Choose: { notes: 'Why this is needed' } },
     });
   });
 

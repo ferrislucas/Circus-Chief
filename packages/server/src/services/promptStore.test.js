@@ -213,6 +213,17 @@ describe('promptStore work-log emission', () => {
     await promise;
   });
 
+  it('rejects annotations for questions that were not asked', async () => {
+    const { promise, prompt } = park('invalid-annotation', 'question');
+    expect(respondToPrompt('invalid-annotation', prompt.id, {
+      action: 'answer', answers: { 'Which approach?': ['Ship it'] },
+      annotations: { Unknown: { notes: 'Not an asked question' } },
+    })).toBeNull();
+    expect(getPrompt('invalid-annotation')?.id).toBe(prompt.id);
+    cancelPrompt('invalid-annotation');
+    await promise;
+  });
+
   it('logs the user-visible cancellation wording for question prompts', async () => {
     const cancelled = park('question-cancelled', 'question');
     cancelPrompt('question-cancelled');
@@ -234,6 +245,29 @@ describe('promptStore work-log emission', () => {
     await expect(existing.promise).resolves.toMatchObject({ behavior: 'deny', message: 'This interaction was superseded.' });
     await expect(duplicate).resolves.toMatchObject({ behavior: 'deny', message: 'Please re-ask using distinct question text.' });
     expect(getPrompt('duplicate-question')).toBeNull();
+  });
+
+  it('immediately denies an already-aborted prompt without replacing a live prompt', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const denied = parkPrompt({
+      sessionId: 'already-aborted', conversationId: 'conv-1', kind: 'permission',
+      payload: permissionPayload, signal: controller.signal,
+    });
+
+    await expect(denied).resolves.toEqual({ behavior: 'deny', message: 'Session was cancelled.' });
+    expect(getPrompt('already-aborted')).toBeNull();
+    expect(broadcastToSession).not.toHaveBeenCalled();
+
+    const live = park('already-aborted-live', 'permission');
+    const rejected = parkPrompt({
+      sessionId: 'already-aborted-live', conversationId: 'conv-1', kind: 'permission',
+      payload: permissionPayload, signal: controller.signal,
+    });
+    await expect(rejected).resolves.toEqual({ behavior: 'deny', message: 'Session was cancelled.' });
+    expect(getPrompt('already-aborted-live')?.id).toBe(live.prompt.id);
+    cancelPrompt('already-aborted-live');
+    await live.promise;
   });
 
   it('explains when always allow is unavailable for a permission prompt', async () => {

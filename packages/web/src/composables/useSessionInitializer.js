@@ -133,6 +133,7 @@ export function useSessionInitializer({
 
   // Track current subscription instance - recreated on session change
   let currentSubscription = null;
+  let currentSessionId = null;
   let cleanups = [];
 
   /**
@@ -142,6 +143,7 @@ export function useSessionInitializer({
   function cleanup() {
     // Reset polling state via composable
     resetPolling();
+    const sessionId = currentSessionId;
     if (currentSubscription) {
       currentSubscription.unsubscribe();
       currentSubscription = null;
@@ -155,12 +157,13 @@ export function useSessionInitializer({
     sessionsStore.activeConversationId = null;
     sessionsStore.workLogs = {};
     sessionsStore.clearPartialText();
-    promptsStore.clear();
+    promptsStore.clear(sessionId);
     todosStore.clearTodos();
     canvasStore.items = [];
     // Reset local state
     summary.value = null;
     canvasStore.$reset();
+    currentSessionId = null;
   }
 
   /**
@@ -258,7 +261,7 @@ export function useSessionInitializer({
     handlers.push(onCanvasUpdate((item) => { canvasStore.patchItem(item); }));
     handlers.push(onTodosUpdate((todos, conversationId) => { todosStore.updateTodos(todos, conversationId); }));
     handlers.push(onPrompt((prompt) => { promptsStore.show(prompt); }));
-    handlers.push(onPromptResolved((promptId) => { promptsStore.resolved(promptId); }));
+    handlers.push(onPromptResolved((promptId, promptSessionId) => { promptsStore.resolved(promptId, promptSessionId); }));
     handlers.push(onSessionUpdate((session) => { sessionsStore.updateSession(session); }));
     handlers.push(onSummaryUpdate((newSummary) => { summary.value = newSummary; }));
     handlers.push(onConversationUpdated((conversation) => { sessionsStore.updateConversation(conversation); }));
@@ -363,6 +366,7 @@ export function useSessionInitializer({
    */
   async function initializeSession(sessionId) {
     // STEP 1: Create new subscription for this session
+    currentSessionId = sessionId;
     currentSubscription = useSessionSubscription(sessionId);
 
     // STEP 2: Subscribe via the subscription object AND await connection

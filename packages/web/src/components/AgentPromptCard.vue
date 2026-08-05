@@ -69,12 +69,12 @@
             >
           </label>
         </div>
-      </div>
 
-      <label class="additional-response">
-        <span>Additional context <em>optional</em></span>
-        <textarea v-model="freeResponse" class="form-input form-textarea" :disabled="submitting" placeholder="Anything else the agent should know?" />
-      </label>
+        <label class="additional-response question-notes">
+          <span>Note <em>optional</em></span>
+          <textarea v-model="notes[question.question]" class="form-input form-textarea question-note" :disabled="submitting" placeholder="Why this choice?" />
+        </label>
+      </div>
 
       <footer class="prompt-actions">
         <span v-if="submitting" class="pending-state" role="status">Sending response…</span>
@@ -123,7 +123,7 @@ const props = defineProps({ prompt: { type: Object, default: null }, submitting:
 const emit = defineEmits(['respond']);
 const answers = ref({});
 const other = ref({});
-const freeResponse = ref('');
+const notes = ref({});
 const reason = ref('');
 const destination = ref('session');
 const focusedOption = ref({ question: 0, label: null });
@@ -139,7 +139,7 @@ function setFirstAnswerControl(questionIndex, optionIndex, element) {
 watch(() => props.prompt?.id, async () => {
   answers.value = {};
   for (const question of props.prompt?.payload.questions || []) if (question.multiSelect) answers.value[question.question] = [];
-  other.value = {}; freeResponse.value = ''; reason.value = ''; destination.value = 'session'; showDenyReason.value = false;
+  other.value = {}; notes.value = {}; reason.value = ''; destination.value = 'session'; showDenyReason.value = false;
   focusedOption.value = { question: 0, label: null }; firstAnswerControls.value = [];
   await nextTick();
   if (typeof card.value?.scrollIntoView === 'function') card.value.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -181,14 +181,14 @@ function collectCustomAnswers() {
 }
 function collectAnnotations() {
   return Object.fromEntries(props.prompt.payload.questions.flatMap((question) => {
-    const custom = other.value[question.question];
-    if (custom?.trim()) return [[question.question, { notes: custom }]];
+    const note = notes.value[question.question];
     const selected = answers.value[question.question]; const labels = Array.isArray(selected) ? selected : [selected];
     const previews = question.options.filter((option) => labels.includes(option.label) && option.preview).map((option) => option.preview);
-    return previews.length ? [[question.question, { preview: previews.join('\n\n') }]] : [];
+    const annotation = { ...(note?.trim() ? { notes: note } : {}), ...(previews.length ? { preview: previews.join('\n\n') } : {}) };
+    return Object.keys(annotation).length ? [[question.question, annotation]] : [];
   }));
 }
-function submitAnswers() { if (!canSubmit.value) return; const annotations = collectAnnotations(); const customAnswers = collectCustomAnswers(); respond({ action: 'answer', answers: collectAnswers(), ...(Object.keys(customAnswers).length ? { customAnswers } : {}), ...(Object.keys(annotations).length ? { annotations } : {}), ...(freeResponse.value.trim() ? { response: freeResponse.value.trim() } : {}) }); }
+function submitAnswers() { if (!canSubmit.value) return; const annotations = collectAnnotations(); const customAnswers = collectCustomAnswers(); respond({ action: 'answer', answers: collectAnswers(), ...(Object.keys(customAnswers).length ? { customAnswers } : {}), ...(Object.keys(annotations).length ? { annotations } : {}) }); }
 function chooseOption(index) {
   const question = props.prompt?.payload.questions?.[focusedOption.value.question]; const option = question?.options?.[index];
   if (!question || !option || props.submitting) return;
