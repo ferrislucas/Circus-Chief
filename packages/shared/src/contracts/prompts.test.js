@@ -36,6 +36,16 @@ describe('PromptResponse', () => {
     }).success).toBe(true);
   });
 
+  it('preserves meaningful custom-answer whitespace while rejecting blank input', () => {
+    const result = PromptResponse.safeParse({
+      action: 'answer', answers: { Checks: [] }, customAnswers: { Checks: '  Accessibility, performance  ' },
+    });
+    expect(result).toMatchObject({ success: true, data: { customAnswers: { Checks: '  Accessibility, performance  ' } } });
+    expect(PromptResponse.safeParse({
+      action: 'answer', answers: { Checks: [] }, customAnswers: { Checks: '   ' },
+    }).success).toBe(false);
+  });
+
   it('rejects obsolete singular note annotations and string selections', () => {
     expect(PromptResponse.safeParse({
       action: 'answer', answers: { Choice: 'A' }, annotations: { Choice: { note: 'legacy' } },

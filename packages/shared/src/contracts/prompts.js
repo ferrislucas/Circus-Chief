@@ -17,7 +17,11 @@ export const QuestionPromptResponse = z.union([
     answers: z.record(z.string(), z.array(z.string().min(1))).refine((answers) => Object.keys(answers).length > 0, {
       message: 'At least one answer is required',
     }),
-    customAnswers: z.record(z.string(), z.string().trim().min(1)).optional(),
+    // Validate that custom input is meaningful without normalizing the value
+    // the user entered. The raw string is passed through to the SDK.
+    customAnswers: z.record(z.string(), z.string().refine((value) => value.trim().length > 0, {
+      message: 'Custom answers cannot be blank',
+    })).optional(),
     annotations: z.record(z.string(), PromptAnnotation).optional(), response: z.string().optional(), reason: z.string().optional(),
   }).refine((response) => (
     Object.values(response.answers).some((answer) => answer.length)

@@ -139,21 +139,21 @@ describe('promptStore work-log emission', () => {
     await expect(promise).resolves.toMatchObject({ behavior: 'allow' });
   });
 
-  it('accepts a declared non-empty custom answer for a single-select question', async () => {
+  it('preserves a declared custom answer for a single-select question', async () => {
     const { promise, prompt } = park('single-other', 'question', {
       input: { questions: [{ question: 'Environment?', options: [{ label: 'Staging' }, { label: 'Production' }], multiSelect: false }] },
       questions: [{ question: 'Environment?', options: [{ label: 'Staging' }, { label: 'Production' }], multiSelect: false }],
     });
 
     expect(respondToPrompt('single-other', prompt.id, {
-      action: 'answer', answers: { 'Environment?': [] }, customAnswers: { 'Environment?': 'Preview deployment' },
+      action: 'answer', answers: { 'Environment?': [] }, customAnswers: { 'Environment?': '  Preview deployment  ' },
     })).toBe(true);
     await expect(promise).resolves.toMatchObject({
-      behavior: 'allow', updatedInput: { answers: { 'Environment?': 'Preview deployment' } },
+      behavior: 'allow', updatedInput: { answers: { 'Environment?': '  Preview deployment  ' } },
     });
   });
 
-  it('passes a multi-select Other answer to the SDK unchanged', async () => {
+  it('preserves a custom answer for a multi-select question', async () => {
     const { promise, prompt } = park('multi-other', 'question', {
       input: { questions: [{ question: 'Checks?', options: [{ label: 'Unit, fast' }, { label: 'E2E ✓' }], multiSelect: true }] },
       questions: [{ question: 'Checks?', options: [{ label: 'Unit, fast' }, { label: 'E2E ✓' }], multiSelect: true }],
@@ -162,10 +162,10 @@ describe('promptStore work-log emission', () => {
     expect(respondToPrompt('multi-other', prompt.id, {
       action: 'answer',
       answers: { 'Checks?': [] },
-      customAnswers: { 'Checks?': 'Run smoke tests, then notify QA!' },
+      customAnswers: { 'Checks?': '  Run smoke tests, then notify QA!  ' },
     })).toBe(true);
     await expect(promise).resolves.toMatchObject({
-      behavior: 'allow', updatedInput: { answers: { 'Checks?': 'Run smoke tests, then notify QA!' } },
+      behavior: 'allow', updatedInput: { answers: { 'Checks?': '  Run smoke tests, then notify QA!  ' } },
     });
   });
 

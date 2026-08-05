@@ -6,7 +6,7 @@ import AgentPromptCard from './AgentPromptCard.vue';
 const prompt = { id: 'prompt-1', kind: 'question', payload: { questions: [{ question: 'Choose', multiSelect: true, options: [{ label: 'A', description: 'first' }, { label: 'B', description: 'second' }] }] } };
 
 describe('AgentPromptCard', () => {
-  it('makes Other mutually exclusive with selected options', async () => {
+  it('makes Other mutually exclusive with selected options and preserves multi-select whitespace', async () => {
     const onRespond = vi.fn();
     const multiOtherPrompt = { id: 'multi-other', kind: 'question', payload: { questions: [{ question: 'Pick', multiSelect: true, options: [{ label: 'One', description: '' }, { label: 'Two', description: '' }] }] } };
     const wrapper = mount(AgentPromptCard, { props: { prompt: multiOtherPrompt, onRespond } });
@@ -16,7 +16,21 @@ describe('AgentPromptCard', () => {
     expect(wrapper.find('input[type="checkbox"]').element.checked).toBe(false);
     await wrapper.get('button.prompt-primary-action').trigger('click');
     expect(onRespond).toHaveBeenCalledWith(expect.objectContaining({
-      answers: { Pick: [] }, customAnswers: { Pick: 'Three' },
+      answers: { Pick: [] }, customAnswers: { Pick: ' Three ' },
+    }));
+  });
+  it('preserves meaningful single-select Other whitespace and does not submit whitespace-only input', async () => {
+    const onRespond = vi.fn();
+    const singleOtherPrompt = { id: 'single-other', kind: 'question', payload: { questions: [{ question: 'Pick', multiSelect: false, options: [{ label: 'One', description: '' }, { label: 'Two', description: '' }] }] } };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: singleOtherPrompt, onRespond } });
+
+    await wrapper.find('.other-input').setValue('   ');
+    expect(wrapper.get('button.prompt-primary-action').attributes('disabled')).toBeDefined();
+    await wrapper.find('.other-input').setValue('  Custom pick  ');
+    await wrapper.get('button.prompt-primary-action').trigger('click');
+
+    expect(onRespond).toHaveBeenCalledWith(expect.objectContaining({
+      answers: { Pick: [] }, customAnswers: { Pick: '  Custom pick  ' },
     }));
   });
   it('joins multi-select values and requires every question to be answered', async () => {

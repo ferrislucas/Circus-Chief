@@ -30,6 +30,13 @@ describe('session prompt responses', () => {
     expect(invalid.status).toBe(422);
     expect(getPrompt(session.id)?.id).toBe(prompt.id);
 
+    const blankCustomAnswer = await request(app)
+      .post(`/api/sessions/${session.id}/prompt/${prompt.id}/respond`)
+      .send({ action: 'answer', answers: { 'Deploy where?': [] }, customAnswers: { 'Deploy where?': '   ' } });
+
+    expect(blankCustomAnswer.status).toBe(422);
+    expect(getPrompt(session.id)?.id).toBe(prompt.id);
+
     const valid = await request(app)
       .post(`/api/sessions/${session.id}/prompt/${prompt.id}/respond`)
       .send({ action: 'answer', answers: { 'Deploy where?': ['Production'] } });
@@ -37,5 +44,30 @@ describe('session prompt responses', () => {
     expect(valid.status).toBe(200);
     await expect(promptPromise).resolves.toMatchObject({ behavior: 'allow' });
     cancelPrompt(session.id);
+  });
+
+  it('preserves meaningful custom-answer whitespace through the response API', async () => {
+    const project = projects.create('Whitespace project', '/tmp/prompts');
+    const session = sessions.create(project.id, 'Whitespace session', 'Ask a question');
+    const promptPromise = parkPrompt({
+      sessionId: session.id, conversationId: 'conversation-2', kind: 'question',
+      payload: {
+        input: { questions: [{ question: 'Deploy where?', options: [{ label: 'Staging' }, { label: 'Production' }], multiSelect: false }] },
+        questions: [{ question: 'Deploy where?', options: [{ label: 'Staging' }, { label: 'Production' }], multiSelect: false }],
+      },
+    });
+    const prompt = getPrompt(session.id);
+    const app = express();
+    app.use(express.json());
+    app.use('/api/sessions', sessionsRouter);
+
+    const response = await request(app)
+      .post(`/api/sessions/${session.id}/prompt/${prompt.id}/respond`)
+      .send({ action: 'answer', answers: { 'Deploy where?': [] }, customAnswers: { 'Deploy where?': '  Preview deployment  ' } });
+
+    expect(response.status).toBe(200);
+    await expect(promptPromise).resolves.toMatchObject({
+      updatedInput: { answers: { 'Deploy where?': '  Preview deployment  ' } },
+    });
   });
 });

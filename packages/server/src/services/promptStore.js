@@ -153,10 +153,10 @@ function isValidCustomAnswer(customAnswer) {
 function serializeQuestionAnswers(questions, answers, customAnswers = {}) {
   return Object.fromEntries((questions || []).map((question) => {
     const selected = answers[question.question];
-    const custom = customAnswers[question.question]?.trim();
+    const custom = customAnswers[question.question];
     // “Other” is mutually exclusive with predefined selections, so only one
     // source reaches the SDK's string-only answer field.
-    const answer = custom
+    const answer = custom?.trim()
       ? custom
       : selected.join(', ');
     return [question.question, answer];

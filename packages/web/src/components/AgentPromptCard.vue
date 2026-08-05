@@ -175,14 +175,14 @@ function selectedAnswer(question) {
 function collectAnswers() { return Object.fromEntries(props.prompt.payload.questions.map((question) => [question.question, selectedAnswer(question)])); }
 function collectCustomAnswers() {
   return Object.fromEntries(props.prompt.payload.questions.flatMap((question) => {
-    const custom = other.value[question.question]?.trim();
-    return custom ? [[question.question, custom]] : [];
+    const custom = other.value[question.question];
+    return custom?.trim() ? [[question.question, custom]] : [];
   }));
 }
 function collectAnnotations() {
   return Object.fromEntries(props.prompt.payload.questions.flatMap((question) => {
-    const custom = other.value[question.question]?.trim();
-    if (custom) return [[question.question, { notes: custom }]];
+    const custom = other.value[question.question];
+    if (custom?.trim()) return [[question.question, { notes: custom }]];
     const selected = answers.value[question.question]; const labels = Array.isArray(selected) ? selected : [selected];
     const previews = question.options.filter((option) => labels.includes(option.label) && option.preview).map((option) => option.preview);
     return previews.length ? [[question.question, { preview: previews.join('\n\n') }]] : [];
