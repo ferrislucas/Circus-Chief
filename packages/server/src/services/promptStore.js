@@ -82,29 +82,61 @@ export function cancelPrompt(sessionId, reason = 'Session was cancelled.') {
   return record ? settle(record, 'cancelled', { behavior: 'deny', message: reason }) : false;
 }
 function questionResult(record, response) {
-  if (response.action === 'answer' && !hasValidQuestionAnswers(record.payload.questions, response.answers)) return null;
+  if (response.action === 'answer' && !hasValidQuestionAnswers(record.payload.questions, response.answers, response.customAnswers)) return null;
   return response.action === 'answer'
-    ? { behavior: 'allow', updatedInput: { ...record.payload.input, answers: response.answers, ...(response.annotations ? { annotations: response.annotations } : {}), ...(response.response ? { response: response.response } : {}) } }
+    ? { behavior: 'allow', updatedInput: {
+      ...record.payload.input,
+      // Validate selections and free text separately, then serialize only at
+      // the SDK boundary. This keeps commas in an Other answer from being
+      // mistaken for additional predefined selections.
+      answers: serializeQuestionAnswers(record.payload.questions, response.answers, response.customAnswers),
+      ...(response.annotations ? { annotations: response.annotations } : {}),
+      ...(response.response ? { response: response.response } : {}),
+    } }
     : { behavior: 'deny', message: response.reason || 'Proceed on your best judgment and state your assumption.' };
 }
 
-function hasValidQuestionAnswers(questions, answers) {
+function hasValidQuestionAnswers(questions, answers, customAnswers = {}) {
   if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return false;
+  if (!customAnswers || typeof customAnswers !== 'object' || Array.isArray(customAnswers)) return false;
   const expected = questions || [];
   const expectedKeys = new Set(expected.map(({ question }) => question));
   if (Object.keys(answers).length !== expectedKeys.size || !Object.keys(answers).every((key) => expectedKeys.has(key))) return false;
+  if (!Object.keys(customAnswers).every((key) => expectedKeys.has(key))) return false;
 
   return expected.every((question) => {
     const answer = answers[question.question];
-    if (typeof answer !== 'string' || !answer.trim()) return false;
+    const customAnswer = customAnswers[question.question];
     const options = new Set((question.options || []).map(({ label }) => label));
-    if (!options.size) return true;
-    const selected = answer.split(',').map((value) => value.trim()).filter(Boolean);
-    return selected.length > 0
-      && (question.multiSelect || selected.length === 1)
-      && new Set(selected).size === selected.length
-      && selected.every((value) => options.has(value));
+    return isValidQuestionAnswer(answer, customAnswer, options, question.multiSelect);
   });
+}
+
+function isValidQuestionAnswer(answer, customAnswer, options, multiSelect) {
+  if (typeof answer !== 'string' || !isValidCustomAnswer(customAnswer)) return false;
+  const selected = answer.split(',').map((value) => value.trim()).filter(Boolean);
+  if (!options.size) return Boolean(selected.length || customAnswer?.trim());
+  return Boolean(selected.length || customAnswer?.trim())
+    && (multiSelect || selected.length <= 1)
+    && new Set(selected).size === selected.length
+    && selected.every((value) => options.has(value));
+}
+
+function isValidCustomAnswer(customAnswer) {
+  return customAnswer === undefined || (typeof customAnswer === 'string' && Boolean(customAnswer.trim()));
+}
+
+function serializeQuestionAnswers(questions, answers, customAnswers = {}) {
+  return Object.fromEntries((questions || []).map((question) => {
+    const selected = answers[question.question].trim();
+    const custom = customAnswers[question.question]?.trim();
+    // A custom single-select response intentionally replaces a selected option.
+    // Multi-select retains selected options and adds the custom response last.
+    const answer = custom && !question.multiSelect
+      ? custom
+      : [selected, custom].filter(Boolean).join(', ');
+    return [question.question, answer];
+  }));
 }
 
 function permissionResult(record, response) {

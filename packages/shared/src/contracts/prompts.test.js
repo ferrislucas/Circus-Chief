@@ -30,6 +30,12 @@ describe('PromptResponse', () => {
     });
   });
 
+  it('accepts an explicit custom answer alongside predefined selections', () => {
+    expect(PromptResponse.safeParse({
+      action: 'answer', answers: { Checks: 'Unit' }, customAnswers: { Checks: 'Accessibility, performance' },
+    }).success).toBe(true);
+  });
+
   it.each([
     undefined,
     {},

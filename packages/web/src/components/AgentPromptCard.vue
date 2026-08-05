@@ -166,12 +166,17 @@ const permissionDiffFiles = computed(() => {
   return [{ displayPath: path, isNew: props.prompt?.payload.toolName === 'Write', isDeleted: false, isRenamed: false, additions: afterLines.length, deletions: beforeLines.length, hunks: [{ oldStart: 1, oldLines: beforeLines.length, newStart: 1, newLines: afterLines.length, lines: [...beforeLines.map((content, index) => ({ type: 'remove', content, oldLineNumber: index + 1 })), ...afterLines.map((content, index) => ({ type: 'add', content, newLineNumber: index + 1 }))] }] }];
 });
 function respond(response) { emit('respond', response); }
-function normalizedAnswer(question) {
-  const selected = answers.value[question.question]; const custom = other.value[question.question]?.trim();
-  if (!Array.isArray(selected)) return custom || selected;
-  return [...selected, ...(custom ? [custom] : [])].join(', ');
+function selectedAnswer(question) {
+  const selected = answers.value[question.question];
+  return Array.isArray(selected) ? selected.join(', ') : selected || '';
 }
-function collectAnswers() { return Object.fromEntries(props.prompt.payload.questions.map((question) => [question.question, normalizedAnswer(question)])); }
+function collectAnswers() { return Object.fromEntries(props.prompt.payload.questions.map((question) => [question.question, selectedAnswer(question)])); }
+function collectCustomAnswers() {
+  return Object.fromEntries(props.prompt.payload.questions.flatMap((question) => {
+    const custom = other.value[question.question]?.trim();
+    return custom ? [[question.question, custom]] : [];
+  }));
+}
 function collectAnnotations() {
   return Object.fromEntries(props.prompt.payload.questions.flatMap((question) => {
     const selected = answers.value[question.question]; const labels = Array.isArray(selected) ? selected : [selected];
@@ -179,7 +184,7 @@ function collectAnnotations() {
     return !note && previews.length === 0 ? [] : [[question.question, { ...(note ? { note } : {}), ...(previews.length ? { preview: previews.join('\n\n') } : {}) }]];
   }));
 }
-function submitAnswers() { if (!canSubmit.value) return; const annotations = collectAnnotations(); respond({ action: 'answer', answers: collectAnswers(), ...(Object.keys(annotations).length ? { annotations } : {}), ...(freeResponse.value.trim() ? { response: freeResponse.value.trim() } : {}) }); }
+function submitAnswers() { if (!canSubmit.value) return; const annotations = collectAnnotations(); const customAnswers = collectCustomAnswers(); respond({ action: 'answer', answers: collectAnswers(), ...(Object.keys(customAnswers).length ? { customAnswers } : {}), ...(Object.keys(annotations).length ? { annotations } : {}), ...(freeResponse.value.trim() ? { response: freeResponse.value.trim() } : {}) }); }
 function chooseOption(index) {
   const question = props.prompt?.payload.questions?.[focusedOption.value.question]; const option = question?.options?.[index];
   if (!question || !option || props.submitting) return;

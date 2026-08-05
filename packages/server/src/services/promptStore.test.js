@@ -114,6 +114,51 @@ describe('promptStore work-log emission', () => {
     await expect(promise).resolves.toMatchObject({ behavior: 'allow' });
   });
 
+  it('accepts a declared non-empty custom answer for a single-select question', async () => {
+    const { promise, prompt } = park('single-other', 'question', {
+      input: { questions: [{ question: 'Environment?', options: [{ label: 'Staging' }, { label: 'Production' }], multiSelect: false }] },
+      questions: [{ question: 'Environment?', options: [{ label: 'Staging' }, { label: 'Production' }], multiSelect: false }],
+    });
+
+    expect(respondToPrompt('single-other', prompt.id, {
+      action: 'answer', answers: { 'Environment?': '' }, customAnswers: { 'Environment?': 'Preview deployment' },
+    })).toBe(true);
+    await expect(promise).resolves.toMatchObject({
+      behavior: 'allow', updatedInput: { answers: { 'Environment?': 'Preview deployment' } },
+    });
+  });
+
+  it('preserves commas in declared custom multi-select answers while validating selections', async () => {
+    const { promise, prompt } = park('multi-other', 'question', {
+      input: { questions: [{ question: 'Checks?', options: [{ label: 'Unit' }, { label: 'E2E' }], multiSelect: true }] },
+      questions: [{ question: 'Checks?', options: [{ label: 'Unit' }, { label: 'E2E' }], multiSelect: true }],
+    });
+
+    expect(respondToPrompt('multi-other', prompt.id, {
+      action: 'answer', answers: { 'Checks?': 'Unit' }, customAnswers: { 'Checks?': 'Accessibility, performance' },
+    })).toBe(true);
+    await expect(promise).resolves.toMatchObject({
+      behavior: 'allow', updatedInput: { answers: { 'Checks?': 'Unit, Accessibility, performance' } },
+    });
+  });
+
+  it('rejects empty custom answers and unknown custom-answer keys without settling', async () => {
+    const { promise, prompt } = park('invalid-other', 'question', {
+      input: { questions: [{ question: 'Environment?', options: [{ label: 'Staging' }, { label: 'Production' }], multiSelect: false }] },
+      questions: [{ question: 'Environment?', options: [{ label: 'Staging' }, { label: 'Production' }], multiSelect: false }],
+    });
+
+    expect(respondToPrompt('invalid-other', prompt.id, {
+      action: 'answer', answers: { 'Environment?': '' }, customAnswers: { 'Environment?': '   ' },
+    })).toBeNull();
+    expect(respondToPrompt('invalid-other', prompt.id, {
+      action: 'answer', answers: { 'Environment?': 'Staging' }, customAnswers: { Unknown: 'Custom' },
+    })).toBeNull();
+    expect(getPrompt('invalid-other')?.id).toBe(prompt.id);
+    cancelPrompt('invalid-other');
+    await promise;
+  });
+
   it('logs the user-visible cancellation wording for question prompts', async () => {
     const cancelled = park('question-cancelled', 'question');
     cancelPrompt('question-cancelled');

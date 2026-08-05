@@ -13,7 +13,9 @@ describe('AgentPromptCard', () => {
     await wrapper.findAll('input[type="checkbox"]')[0].setValue(true);
     await wrapper.find('.other-input').setValue(' Three ');
     await wrapper.get('button.prompt-primary-action').trigger('click');
-    expect(onRespond).toHaveBeenCalledWith(expect.objectContaining({ answers: { Pick: 'One, Three' } }));
+    expect(onRespond).toHaveBeenCalledWith(expect.objectContaining({
+      answers: { Pick: 'One' }, customAnswers: { Pick: 'Three' },
+    }));
   });
   it('joins multi-select values and requires every question to be answered', async () => {
     const onRespond = vi.fn();
@@ -66,7 +68,7 @@ describe('AgentPromptCard', () => {
     await wrapper.get('button').trigger('click');
 
     expect(onRespond).toHaveBeenCalledWith({
-      action: 'answer', answers: { Choose: 'Because it is safer' },
+      action: 'answer', answers: { Choose: 'A' }, customAnswers: { Choose: 'Because it is safer' },
       annotations: { Choose: { note: 'Because it is safer', preview: 'Preview A' } },
     });
   });
