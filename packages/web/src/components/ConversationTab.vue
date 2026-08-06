@@ -335,7 +335,11 @@ function restoreInitialInput() {
 
 // Lifecycle
 onMounted(async () => {
-  await promptsStore.hydrate(props.sessionId);
+  try {
+    await promptsStore.hydrate(props.sessionId);
+  } catch (error) {
+    console.debug('Failed to load pending agent prompt:', error);
+  }
   restoreInitialInput();
 
   if (sessionsStore.conversations.length === 0 ||
