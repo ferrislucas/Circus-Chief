@@ -33,7 +33,7 @@ export const useSessionPromptsStore = defineStore('sessionPrompts', {
       this.submitting[sessionId] = true;
       try {
         await api.respondToSessionPrompt(sessionId, promptId, response);
-        this.resolved(promptId);
+        this.resolved(promptId, sessionId);
       } catch (error) {
         const status = error?.status || error?.response?.status;
         if (status === 409) {

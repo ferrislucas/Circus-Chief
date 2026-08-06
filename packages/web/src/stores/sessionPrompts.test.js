@@ -59,6 +59,8 @@ describe('sessionPrompts hydration ordering', () => {
     store.show({ ...prompt, id: 'other-prompt', sessionId: 'session-2' });
     await store.respond('session-2', { action: 'cancel' });
     expect(api.respondToSessionPrompt).toHaveBeenCalledWith('session-2', 'other-prompt', { action: 'cancel' });
+    expect(store.promptFor('session-2')).toBeNull();
+    expect(store.promptFor('session-1')).toEqual(prompt);
     await store.respond('missing-session', { action: 'cancel' });
     expect(api.respondToSessionPrompt).toHaveBeenCalledTimes(1);
   });
