@@ -33,6 +33,14 @@
 
       <div class="actions">
         <button
+          class="btn btn-primary"
+          data-testid="scheduled-start-now-btn"
+          :disabled="startingNow"
+          @click="handleStartNow"
+        >
+          {{ startingNow ? 'Starting...' : 'Start Now' }}
+        </button>
+        <button
           class="btn btn-secondary"
           @click="showEditModal = true"
         >
@@ -64,6 +72,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useScheduleCancel } from '../composables/useScheduleCancel.js';
+import { useScheduleStartNow } from '../composables/useScheduleStartNow.js';
 import SchedulingEditModal from './SchedulingEditModal.vue';
 
 const props = defineProps({
@@ -75,11 +84,16 @@ const props = defineProps({
 
 const sessionsStore = useInjectedSessionsStore();
 const { cancelling, cancelScheduledSession } = useScheduleCancel(sessionsStore);
+const { startingNow, startScheduledNow } = useScheduleStartNow(sessionsStore);
 const showEditModal = ref(false);
 const countdownTime = ref(new Date());
 let countdownInterval = null;
 
 const hasScheduledTime = computed(() => props.session.status === 'scheduled' && Boolean(props.session.scheduledAt));
+
+async function handleStartNow() {
+  await startScheduledNow(props.session);
+}
 
 const scheduledTime = computed(() => (hasScheduledTime.value ? new Date(props.session.scheduledAt) : null));
 

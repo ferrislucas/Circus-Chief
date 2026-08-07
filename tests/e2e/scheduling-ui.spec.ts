@@ -239,8 +239,9 @@ test.describe('Scheduling UI', () => {
       // Close the chat to go back to the summary tab
       await closeSessionChat(page);
 
-      // Click the Edit button inside a ScheduledChildCard
-      await page.click('.timing-action-btn');
+      // Click the Edit button inside a ScheduledChildCard. Start Now is the
+      // first timing action, so select the intended action by its label.
+      await page.getByRole('button', { name: 'Edit', exact: true }).click();
 
       // Verify modal opens with datetime picker
       const editModal = page.locator('.modal-backdrop');

@@ -125,9 +125,11 @@ describe('SchedulingInfo.vue', () => {
       });
 
       const buttons = wrapper.findAll('.actions button');
-      expect(buttons.length).toBe(2); // Edit Schedule and Cancel
-      expect(buttons[0].text()).toBe('Edit Schedule');
-      expect(buttons[1].text()).toBe('Cancel');
+      expect(buttons.length).toBe(3);
+      expect(buttons[0].text()).toBe('Start Now');
+      expect(buttons[0].classes()).toContain('btn-primary');
+      expect(buttons[1].text()).toBe('Edit Schedule');
+      expect(buttons[2].text()).toBe('Cancel');
     });
 
     it('shows auto-reschedule badge for scheduled workspace with reschedule enabled', () => {
@@ -241,7 +243,7 @@ describe('SchedulingInfo.vue', () => {
         },
       });
 
-      const cancelButton = wrapper.findAll('.actions button')[1];
+      const cancelButton = wrapper.findAll('.actions button')[2];
       await cancelButton.trigger('click');
       await wrapper.vm.$nextTick();
 
@@ -257,7 +259,7 @@ describe('SchedulingInfo.vue', () => {
         },
       });
 
-      const cancelButton = wrapper.findAll('.actions button')[1];
+      const cancelButton = wrapper.findAll('.actions button')[2];
       await cancelButton.trigger('click');
       await wrapper.vm.$nextTick();
 
@@ -276,7 +278,7 @@ describe('SchedulingInfo.vue', () => {
         },
       });
 
-      const cancelButton = wrapper.findAll('.actions button')[1];
+      const cancelButton = wrapper.findAll('.actions button')[2];
       await cancelButton.trigger('click');
       await wrapper.vm.$nextTick();
 
@@ -292,7 +294,7 @@ describe('SchedulingInfo.vue', () => {
         },
       });
 
-      const cancelButton = wrapper.findAll('.actions button')[1];
+      const cancelButton = wrapper.findAll('.actions button')[2];
       await cancelButton.trigger('click');
       await wrapper.vm.$nextTick();
 
@@ -312,7 +314,7 @@ describe('SchedulingInfo.vue', () => {
         },
       });
 
-      const cancelButton = wrapper.findAll('.actions button')[1];
+      const cancelButton = wrapper.findAll('.actions button')[2];
       await cancelButton.trigger('click');
       await wrapper.vm.$nextTick();
 
@@ -333,7 +335,7 @@ describe('SchedulingInfo.vue', () => {
         },
       });
 
-      const cancelButton = wrapper.findAll('.actions button')[1];
+      const cancelButton = wrapper.findAll('.actions button')[2];
       await cancelButton.trigger('click');
       await new Promise((resolve) => setTimeout(resolve, 50));
       await wrapper.vm.$nextTick();
@@ -351,7 +353,7 @@ describe('SchedulingInfo.vue', () => {
         },
       });
 
-      const cancelButton = wrapper.findAll('.actions button')[1];
+      const cancelButton = wrapper.findAll('.actions button')[2];
       await cancelButton.trigger('click');
       await new Promise((resolve) => setTimeout(resolve, 50));
       await wrapper.vm.$nextTick();
