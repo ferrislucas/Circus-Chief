@@ -231,6 +231,15 @@ export const sessionActions = {
     } catch (err) { this.error = err.message; throw err; }
   },
 
+  async runScheduledNow(id) {
+    this.error = null;
+    try {
+      const updated = await api.runScheduledNow(id);
+      this._updateSessionInAllLists(id, updated);
+      return updated;
+    } catch (err) { this.error = err.message; throw err; }
+  },
+
   async deleteSession(id) {
     this.error = null;
     const deletedIds = new Set([

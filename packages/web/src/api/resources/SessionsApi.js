@@ -399,5 +399,14 @@ export function SessionsApi(ApiClient) {
     async scheduleSession(id, data) {
       return this._post(`/sessions/${id}/schedule`, data);
     },
+
+    /**
+     * Start a scheduled session immediately.
+     * @param {string} id - Session ID
+     * @returns {Promise<Object>}
+     */
+    async runScheduledNow(id) {
+      return this._post(`/sessions/${id}/run-scheduled-now`);
+    },
   });
 }

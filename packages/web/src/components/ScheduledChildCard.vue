@@ -29,15 +29,23 @@
         </div>
         <div class="timing-actions">
           <button
+            class="btn-link timing-action-btn btn-start-now"
+            data-testid="scheduled-start-now-btn"
+            :disabled="loading || startingNow"
+            @click="handleStartNow"
+          >
+            {{ startingNow ? 'Starting...' : 'Start Now' }}
+          </button>
+          <button
             class="btn-link timing-action-btn"
-            :disabled="loading"
+            :disabled="loading || startingNow"
             @click="showEditModal = true"
           >
             Edit
           </button>
           <button
             class="btn-link timing-action-btn btn-cancel"
-            :disabled="loading"
+            :disabled="loading || startingNow"
             @click="handleCancel"
           >
             Cancel
@@ -97,6 +105,7 @@ import { ref, computed } from 'vue';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
+import { useScheduleStartNow } from '../composables/useScheduleStartNow.js';
 import OrchestrationPanel from './OrchestrationPanel.vue';
 import SchedulingEditModal from './SchedulingEditModal.vue';
 import AutoRescheduleModal from './AutoRescheduleModal.vue';
@@ -109,6 +118,7 @@ const props = defineProps({
 const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 const loading = ref(false);
+const { startingNow, startScheduledNow } = useScheduleStartNow(sessionsStore);
 const showEditModal = ref(false);
 const showAutoRescheduleModal = ref(false);
 
@@ -119,6 +129,10 @@ function handleSessionClick() {
 }
 
 const hasScheduledTime = computed(() => props.session.status === 'scheduled' && Boolean(props.session.scheduledAt));
+
+async function handleStartNow() {
+  await startScheduledNow(props.session);
+}
 
 const scheduledTimeDisplay = computed(() => {
   if (!hasScheduledTime.value) return '';

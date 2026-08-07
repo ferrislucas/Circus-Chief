@@ -143,7 +143,7 @@ describe('ScheduledChildCard.vue', () => {
 
   it('shows Edit button that opens SchedulingEditModal', async () => {
     const wrapper = mountComponent();
-    const editBtn = wrapper.findAll('.timing-action-btn')[0];
+    const editBtn = wrapper.findAll('.timing-action-btn')[1];
     expect(editBtn.text()).toBe('Edit');
 
     await editBtn.trigger('click');
@@ -158,7 +158,7 @@ describe('ScheduledChildCard.vue', () => {
   it('SchedulingEditModal closes on @close event', async () => {
     const wrapper = mountComponent();
     // Open the modal
-    await wrapper.findAll('.timing-action-btn')[0].trigger('click');
+    await wrapper.findAll('.timing-action-btn')[1].trigger('click');
     await wrapper.vm.$nextTick();
 
     const modal = wrapper.findComponent({ name: 'SchedulingEditModal' });
@@ -175,7 +175,7 @@ describe('ScheduledChildCard.vue', () => {
     window.confirm = vi.fn().mockReturnValue(true);
 
     const wrapper = mountComponent();
-    const cancelBtn = wrapper.findAll('.timing-action-btn')[1];
+    const cancelBtn = wrapper.findAll('.timing-action-btn')[2];
     expect(cancelBtn.text()).toBe('Cancel');
 
     await cancelBtn.trigger('click');
@@ -190,7 +190,7 @@ describe('ScheduledChildCard.vue', () => {
     window.confirm = vi.fn().mockReturnValue(false);
 
     const wrapper = mountComponent();
-    const cancelBtn = wrapper.findAll('.timing-action-btn')[1];
+    const cancelBtn = wrapper.findAll('.timing-action-btn')[2];
     await cancelBtn.trigger('click');
     await wrapper.vm.$nextTick();
 
