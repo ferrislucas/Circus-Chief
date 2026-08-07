@@ -44,6 +44,7 @@ The prompt provides the agent with its own session ID, project ID, and current w
 |--------|----------|-------------|
 | POST | `/api/projects/{projectId}/workspaces` | Create a new workspace. Required body field: `prompt`. See optional fields below. |
 | POST | `/api/workspaces/{workspaceId}/sessions` | Add a session to the current workspace. Required body fields: `prompt`, `parentSessionId`. `parentSessionId` must reference a session in this workspace (the root or a descendant); pass the current session ID to chain, or the workspace ID to attach directly to the root. Unknown or cross-workspace values are rejected — there is no fallback. |
+| GET | `/api/providers` | List configured providers. Each entry has `kind` (`anthropic`/`openai`/`google`) and a `models` array of `{modelId, displayName, tier, enabled, lifecycle}` — the authoritative list of valid `model` values for workspace/session creation. |
 | POST | `/api/sessions/{session_id}/message` | Send a follow-up message. Body: `{"content": "..."}` |
 | GET | `/api/sessions` | List all active sessions |
 | GET | `/api/sessions/{session_id}` | Get session details |

@@ -23,6 +23,12 @@ Optional fields: same as creating a workspace. Add \`scheduledAt\` to schedule t
 
 **Note:** "workspace" here refers to a group of related sessions. This is distinct from the Codex \`workspace-write\` sandbox mode — those are separate concepts.
 
+### List Providers & Available Models
+\`\`\`bash
+curl ${apiUrl}/api/providers
+\`\`\`
+Returns configured providers, each with \`kind\` (\`anthropic\` | \`openai\` | \`google\`) and a \`models\` array of \`{modelId, displayName, tier, enabled, lifecycle}\`. Use a \`models[].modelId\` value as the \`model\` field when creating a workspace/session (see below) — this is the authoritative list of accepted values.
+
 ### Send a Follow-up Message
 \`\`\`bash
 curl -X POST ${apiUrl}/api/sessions/<session_id>/message \\
