@@ -43,11 +43,11 @@ export class VCRAgentAdapter {
       if (!cassette) {
         throw new Error(`VCR replay: no cassette found for "${key}"`);
       }
-      yield* this.replay(cassette);
+      yield* this.replay(cassette, queryParams);
     } else if (this.mode === 'auto') {
       const cassette = CassetteStore.load(this.cassetteDir, key);
       if (cassette) {
-        yield* this.replay(cassette);
+        yield* this.replay(cassette, queryParams);
       } else {
         yield* this.record(key, queryParams, meta);
       }
@@ -76,7 +76,12 @@ export class VCRAgentAdapter {
    * @param {object} cassette - Cassette to replay
    * @returns {AsyncGenerator} Generator yielding events
    */
-  async *replay(cassette) {
+  async *replay(cassette, queryParams = {}) {
+    // Prompt interactions are control callbacks in the real SDK, not stream
+    // events. Cassettes model them explicitly so replay follows the live path.
+    for (const gatedCall of cassette.gatedToolCalls || []) {
+      await queryParams.options?.canUseTool?.(gatedCall.toolName, gatedCall.input, gatedCall.opts || {});
+    }
     for (const event of cassette.events) {
       // Small delay to simulate streaming
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -93,9 +98,11 @@ export class VCRAgentAdapter {
    */
   async *record(key, queryParams, meta) {
     const events = [];
+    const gatedToolCalls = [];
+    const instrumentedParams = this.instrumentCanUseTool(queryParams, gatedToolCalls);
 
     // Execute real query and collect events
-    for await (const event of this.innerAgent.execute(queryParams, meta)) {
+    for await (const event of this.innerAgent.execute(instrumentedParams, meta)) {
       events.push(CassetteStore.deepCopyEvent(event));
       yield event;
     }
@@ -105,7 +112,39 @@ export class VCRAgentAdapter {
       prompt: queryParams.prompt?.substring(0, 500),
       model: queryParams.options?.model,
       events,
+      ...(gatedToolCalls.length ? { gatedToolCalls } : {}),
     });
+  }
+
+  /**
+   * Wrap options.canUseTool so record mode captures each gated interaction
+   * (a question or permission prompt) in call order, alongside the resolved
+   * callback result, into `gatedToolCalls`. This lets replay() reproduce the
+   * same interaction deterministically without hand-editing the cassette.
+   *
+   * The abort signal is stripped from `opts` before capture: it is not
+   * serializable and carries no information relevant to replay.
+   */
+  instrumentCanUseTool(queryParams, gatedToolCalls) {
+    const canUseTool = queryParams.options?.canUseTool;
+    if (!canUseTool) return queryParams;
+    return {
+      ...queryParams,
+      options: {
+        ...queryParams.options,
+        canUseTool: async (toolName, input, opts = {}) => {
+          const { signal: _signal, ...safeOpts } = opts;
+          const result = await canUseTool(toolName, input, opts);
+          gatedToolCalls.push({
+            toolName,
+            input: CassetteStore.deepCopyEvent(input),
+            opts: CassetteStore.deepCopyEvent(safeOpts),
+            result: CassetteStore.deepCopyEvent(result),
+          });
+          return result;
+        },
+      },
+    };
   }
 
   /**

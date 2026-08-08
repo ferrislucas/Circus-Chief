@@ -9,6 +9,8 @@ import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
 import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
 export { buildQueryParams } from './queryParamBuilder.js';
 import { buildQueryParams } from './queryParamBuilder.js';
+/* eslint-disable max-lines */
+
 import {
   buildPromptWithAttachments,
 } from './sessionPrompts.js';
@@ -283,11 +285,11 @@ async function buildContinueParams({
     systemPrompt,
     model: effectiveModel,
     sessionEnv,
+    conversationId: activeConversation.id,
     resumeSessionId: canResume ? activeConversation.claudeSessionId : null,
     agentType,
     commitAttributionOverride,
   });
-
   // Logging metadata for agent call tracking
   const agentCallMeta = {
     sessionId,
@@ -384,7 +386,6 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     modelChanged: modelEnv.modelChanged, activeConversation, promptWithAttachments,
     workingDirectory, controller, agentType, agent,
   });
-
   await _executeSession({
     sessionId,
     agent,
@@ -458,14 +459,12 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     systemPrompt,
     model: effectiveModel,
     sessionEnv,
+    conversationId: activeConversation.id,
     agentType,
     commitAttributionOverride,
   });
 
-  // Log query params for debugging third-party provider issues
   console.log(`[SessionManager] runSession: model=${queryParams.options?.model || '[default]'} baseUrl=${queryParams.options?.env?.ANTHROPIC_BASE_URL || '[not set]'}`);
-
-  // Logging metadata for agent call tracking
   const agentCallMeta = {
     sessionId,
     conversationId: activeConversation.id,

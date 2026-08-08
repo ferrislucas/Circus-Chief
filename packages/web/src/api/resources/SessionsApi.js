@@ -67,6 +67,16 @@ function normalizeCreateSessionData(data) {
   };
 }
 
+const sessionPromptMethods = {
+  async getSessionPrompt(id) {
+    return this._get(`/sessions/${id}/prompt`);
+  },
+
+  async respondToSessionPrompt(id, promptId, response) {
+    return this._post(`/sessions/${id}/prompt/${promptId}/respond`, response);
+  },
+};
+
 /**
  * Shared submit logic for session-creation endpoints: uses FormData when
  * files are attached, otherwise plain JSON.
@@ -93,6 +103,7 @@ function submitSessionCreate(apiClient, path, data) {
  */
 export function SessionsApi(ApiClient) {
   Object.assign(ApiClient.prototype, {
+    ...sessionPromptMethods,
     /**
      * Get all sessions for a project
      * @param {string} projectId - Project ID

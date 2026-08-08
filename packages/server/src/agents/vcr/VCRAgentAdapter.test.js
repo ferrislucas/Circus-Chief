@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { VCRAgentAdapter } from './VCRAgentAdapter.js';
@@ -16,6 +16,19 @@ describe('VCRAgentAdapter', () => {
     },
     supportsResume: () => true,
     getCapabilities: () => ({ tools: ['all'] }),
+  });
+
+  // Mock inner agent that invokes options.canUseTool for each gated call
+  // before yielding events, simulating the real SDK gating a tool mid-turn.
+  const createGatedMockAgent = (events, gatedCalls) => ({
+    async *execute(queryParams, _meta) {
+      for (const call of gatedCalls) {
+        await queryParams.options.canUseTool(call.toolName, call.input, call.opts);
+      }
+      for (const event of events) {
+        yield event;
+      }
+    },
   });
 
   beforeEach(() => {
@@ -64,9 +77,86 @@ describe('VCRAgentAdapter', () => {
       expect(cassette.model).toBe('claude-haiku-4-5-20251001');
       expect(cassette.events).toEqual(events);
     });
+
+    it('captures gated tool calls in order, with their resolved results, for deterministic replay', async () => {
+      process.env.VCR_MODE = 'record';
+      const events = [{ type: 'result', subtype: 'success' }];
+      const canUseTool = vi.fn()
+        .mockResolvedValueOnce({ behavior: 'allow' })
+        .mockResolvedValueOnce({ behavior: 'deny', message: 'no' });
+      const gatedCalls = [
+        { toolName: 'AskUserQuestion', input: { questions: [{ question: 'Which?' }] }, opts: { toolUseID: 'tool-1', signal: new AbortController().signal } },
+        { toolName: 'Bash', input: { command: 'ls' }, opts: { toolUseID: 'tool-2' } },
+      ];
+      const mockAgent = createGatedMockAgent(events, gatedCalls);
+      const adapter = new VCRAgentAdapter(mockAgent, { cassetteDir: testCassetteDir });
+      const queryParams = { prompt: 'gated record prompt', options: { canUseTool } };
+
+      const collected = [];
+      for await (const event of adapter.execute(queryParams, { callType: 'runSession' })) collected.push(event);
+      expect(collected).toEqual(events);
+
+      const key = CassetteStore.buildKey('runSession', 'gated record prompt');
+      const cassette = CassetteStore.load(testCassetteDir, key);
+      expect(cassette.gatedToolCalls).toEqual([
+        { toolName: 'AskUserQuestion', input: { questions: [{ question: 'Which?' }] }, opts: { toolUseID: 'tool-1' }, result: { behavior: 'allow' } },
+        { toolName: 'Bash', input: { command: 'ls' }, opts: { toolUseID: 'tool-2' }, result: { behavior: 'deny', message: 'no' } },
+      ]);
+      expect(canUseTool).toHaveBeenCalledTimes(2);
+    });
+
+    it('omits gatedToolCalls when a recorded run has no gated interactions', async () => {
+      process.env.VCR_MODE = 'record';
+      const events = [{ type: 'result', subtype: 'success' }];
+      const mockAgent = createMockAgent(events);
+      const adapter = new VCRAgentAdapter(mockAgent, { cassetteDir: testCassetteDir });
+
+      for await (const _event of adapter.execute({ prompt: 'no gated calls' }, { callType: 'runSession' })) { /* drain */ }
+
+      const key = CassetteStore.buildKey('runSession', 'no gated calls');
+      const cassette = CassetteStore.load(testCassetteDir, key);
+      expect(cassette.gatedToolCalls).toBeUndefined();
+    });
+
+    it('replays a freshly recorded gated cassette without hand-editing it, reproducing equivalent callback behavior', async () => {
+      process.env.VCR_MODE = 'record';
+      const recordCanUseTool = vi.fn().mockResolvedValue({ behavior: 'allow' });
+      const mockAgent = createGatedMockAgent([{ type: 'result', subtype: 'success' }], [
+        { toolName: 'AskUserQuestion', input: { questions: [{ question: 'Proceed?' }] }, opts: { toolUseID: 'tool-9' } },
+      ]);
+      const recordAdapter = new VCRAgentAdapter(mockAgent, { cassetteDir: testCassetteDir });
+      for await (const _event of recordAdapter.execute({ prompt: 'record then replay', options: { canUseTool: recordCanUseTool } }, { callType: 'runSession' })) { /* drain */ }
+
+      process.env.VCR_MODE = 'replay';
+      const replayCanUseTool = vi.fn().mockResolvedValue({ behavior: 'deny', message: 'live decision' });
+      const replayAdapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+      const received = [];
+      for await (const event of replayAdapter.execute({ prompt: 'record then replay', options: { canUseTool: replayCanUseTool } }, { callType: 'runSession' })) received.push(event);
+
+      expect(replayCanUseTool).toHaveBeenCalledWith('AskUserQuestion', { questions: [{ question: 'Proceed?' }] }, { toolUseID: 'tool-9' });
+      expect(received).toEqual([{ type: 'result', subtype: 'success' }]);
+    });
   });
 
   describe('replay mode', () => {
+    it('replays gated tool calls through the query canUseTool callback', async () => {
+      const key = CassetteStore.buildKey('runSession', 'gated prompt');
+      CassetteStore.save(testCassetteDir, key, {
+        prompt: 'gated prompt',
+        events: [{ type: 'result', subtype: 'success' }],
+        gatedToolCalls: [{ toolName: 'AskUserQuestion', input: { questions: [] }, opts: { toolUseID: 'tool-1' } }],
+      });
+      process.env.VCR_MODE = 'replay';
+      const canUseTool = vi.fn().mockResolvedValue({ behavior: 'allow' });
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      const received = [];
+      for await (const event of adapter.execute({ prompt: 'gated prompt', options: { canUseTool } }, { callType: 'runSession' })) received.push(event);
+
+      expect(canUseTool).toHaveBeenCalledWith('AskUserQuestion', { questions: [] }, { toolUseID: 'tool-1' });
+      expect(received).toEqual([{ type: 'result', subtype: 'success' }]);
+    });
+
     it('should replay from existing cassette', async () => {
       // First, save a cassette
       const key = CassetteStore.buildKey('runSession', 'test prompt');

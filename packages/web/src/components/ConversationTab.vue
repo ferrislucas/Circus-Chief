@@ -25,6 +25,12 @@
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
 
+    <AgentPromptCard
+      :prompt="promptsStore.promptFor(sessionId)"
+      :submitting="promptsStore.isSubmitting(sessionId)"
+      @respond="promptsStore.respond(sessionId, $event)"
+    />
+
     <RunningState
       v-if="sessionsStore.currentSession?.status === 'running'"
       :active-model-display-name="activeModelDisplayName"
@@ -135,6 +141,8 @@ import AutoRescheduleModal from './AutoRescheduleModal.vue';
 import SchedulingInfo from './SchedulingInfo.vue';
 import SlashCommandWizard from './SlashCommandWizard.vue';
 import StaleBadge from './StaleBadge.vue';
+import AgentPromptCard from './AgentPromptCard.vue';
+import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 import { useProjectsStore } from '../stores/projects.js';
 
 const props = defineProps({
@@ -164,6 +172,7 @@ const projectsStore = useProjectsStore();
 const { getModelDisplayName } = useModelInfo();
 const { isStale } = useConnectionStatus();
 const route = useRoute();
+const promptsStore = useSessionPromptsStore();
 
 // Session control composable
 const {
@@ -326,6 +335,11 @@ function restoreInitialInput() {
 
 // Lifecycle
 onMounted(async () => {
+  try {
+    await promptsStore.hydrate(props.sessionId);
+  } catch (error) {
+    console.debug('Failed to load pending agent prompt:', error);
+  }
   restoreInitialInput();
 
   if (sessionsStore.conversations.length === 0 ||
