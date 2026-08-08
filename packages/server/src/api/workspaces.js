@@ -34,6 +34,21 @@ const ERR_WORKSPACE_NOT_FOUND = 'Workspace not found';
 const projectWorkspacesRouter = Router();
 const workspacesRouter = Router();
 
+// These timings are intentionally response headers rather than a metrics sink:
+// they are production-safe, immediately visible in browser waterfalls, and keep
+// the list/detail contract measurable without recording user content.
+function sendWorkspaceJson(res, payload, startedAt) {
+  const serializeStartedAt = performance.now();
+  const body = JSON.stringify(payload);
+  const serializationMs = performance.now() - serializeStartedAt;
+  const totalMs = performance.now() - startedAt;
+  res.set({
+    'Server-Timing': `workspace;dur=${totalMs.toFixed(1)}, serialize;dur=${serializationMs.toFixed(1)}`,
+    'X-Response-Bytes': String(Buffer.byteLength(body)),
+  });
+  return res.type('application/json').send(body);
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -114,6 +129,60 @@ function handleCreateError(res, session, error, label) {
   return res.status(500).json({ error: error.message || 'Internal server error' });
 }
 
+function parseWorkspaceCardOptions({ archived, starred, limit, offset, status, scheduled }) {
+  const parsedLimit = Number.parseInt(limit, 10);
+  const parsedOffset = offset === undefined ? 0 : Number.parseInt(offset, 10);
+  const valid = Number.isInteger(parsedLimit) && parsedLimit >= 1 && parsedLimit <= 50
+    && Number.isInteger(parsedOffset) && parsedOffset >= 0
+    && ['running', 'idle', undefined].includes(status)
+    && ['true', 'false', undefined].includes(scheduled);
+  if (!valid) return null;
+  return {
+    archived: archived === 'true',
+    starred: starred === 'true' ? true : starred === 'false' ? false : null,
+    status: status || null,
+    scheduled: scheduled === 'true' ? true : scheduled === 'false' ? false : null,
+    limit: parsedLimit,
+    offset: parsedOffset,
+  };
+}
+
+function sendWorkspaceCards(res, projectId, query, startedAt) {
+  const options = parseWorkspaceCardOptions(query);
+  if (!options) return res.status(400).json({ error: 'Invalid workspace card pagination or filters' });
+  const pagePlusOne = sessions.getWorkspaceCards(projectId, { ...options, limit: options.limit + 1 });
+  return sendWorkspaceJson(res, {
+    workspaces: pagePlusOne.slice(0, options.limit),
+    pagination: { limit: options.limit, offset: options.offset, hasMore: pagePlusOne.length > options.limit },
+  }, startedAt);
+}
+
+function listProjectWorkspaces(req, res) {
+  const startedAt = performance.now();
+  const project = projects.getById(req.params.projectId);
+  if (!project) return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
+
+  const { archived, starred, limit, offset, view } = req.query;
+  if (view === 'cards') return sendWorkspaceCards(res, req.params.projectId, req.query, startedAt);
+
+  const archivedFilter = archived === 'true' ? true : archived === 'false' ? false : null;
+  const starredFilter = starred === 'true' ? true : starred === 'false' ? false : null;
+  const parsedLimit = limit ? parseInt(limit, 10) : null;
+  const parsedOffset = offset ? parseInt(offset, 10) : 0;
+  const workspaces = sessions.getRootsByProjectId(req.params.projectId, {
+    archived: archivedFilter, starred: starredFilter, limit: parsedLimit, offset: parsedOffset,
+  });
+  if (parsedLimit === null) return res.json(workspaces);
+
+  const total = sessions.getRootsCountByProjectId(req.params.projectId, {
+    archived: archivedFilter, starred: starredFilter,
+  });
+  return res.json({
+    workspaces,
+    pagination: { total, limit: parsedLimit, offset: parsedOffset, hasMore: parsedOffset + workspaces.length < total },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/projects/:projectId/workspaces — list workspaces (root sessions)
 //
@@ -121,49 +190,7 @@ function handleCreateError(res, session, error, label) {
 //   Without `limit` query param → bare array of root session rows.
 //   With `limit` query param    → { workspaces: [...], pagination: { total, limit, offset, hasMore } }
 // ---------------------------------------------------------------------------
-projectWorkspacesRouter.get('/:projectId/workspaces', (req, res) => {
-  const project = projects.getById(req.params.projectId);
-  if (!project) {
-    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
-  }
-
-  const { archived, starred, limit, offset } = req.query;
-  let archivedFilter = null;
-  if (archived === 'true') archivedFilter = true;
-  else if (archived === 'false') archivedFilter = false;
-
-  let starredFilter = null;
-  if (starred === 'true') starredFilter = true;
-  else if (starred === 'false') starredFilter = false;
-
-  const parsedLimit = limit ? parseInt(limit, 10) : null;
-  const parsedOffset = offset ? parseInt(offset, 10) : 0;
-
-  const workspaces = sessions.getRootsByProjectId(req.params.projectId, {
-    archived: archivedFilter,
-    starred: starredFilter,
-    limit: parsedLimit,
-    offset: parsedOffset,
-  });
-
-  if (parsedLimit !== null) {
-    const total = sessions.getRootsCountByProjectId(req.params.projectId, {
-      archived: archivedFilter,
-      starred: starredFilter,
-    });
-    return res.json({
-      workspaces,
-      pagination: {
-        total,
-        limit: parsedLimit,
-        offset: parsedOffset,
-        hasMore: parsedOffset + workspaces.length < total,
-      },
-    });
-  }
-
-  return res.json(workspaces);
-});
+projectWorkspacesRouter.get('/:projectId/workspaces', listProjectWorkspaces);
 
 // ---------------------------------------------------------------------------
 // POST /api/projects/:projectId/workspaces — create a new workspace
@@ -200,20 +227,31 @@ projectWorkspacesRouter.post('/:projectId/workspaces', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/workspaces/:workspaceId — workspace detail with its session tree
+// GET /api/workspaces/:workspaceId — workspace detail shell with its session tree
 // ---------------------------------------------------------------------------
 workspacesRouter.get('/:workspaceId', (req, res) => {
+  const startedAt = performance.now();
   const resolved = resolveWorkspace(res, req.params.workspaceId);
   if (!resolved) return;
 
   const { workspace } = resolved;
-  const descendantIds = sessions.getAllDescendantIds(workspace.id);
-  const descendants = descendantIds.length > 0 ? sessions.getByIds(descendantIds) : [];
+  const members = sessions.getWorkspaceMembers(workspace.id);
+  const root = members.find(member => member.id === workspace.id);
+  // Keep the root fields and `sessions` alias during the compatibility window;
+  // both now use the compact allowlisted projection rather than raw rows.
+  return sendWorkspaceJson(res, {
+    ...root,
+    sessions: members.filter(member => member.id !== workspace.id),
+    workspace: root,
+    members,
+  }, startedAt);
+});
 
-  return res.json({
-    ...workspace,
-    sessions: descendants,
-  });
+// GET /api/workspaces/:workspaceId/members — cacheable lightweight tree only.
+workspacesRouter.get('/:workspaceId/members', (req, res) => {
+  const resolved = resolveWorkspace(res, req.params.workspaceId);
+  if (!resolved) return;
+  return res.json({ workspaceId: resolved.workspace.id, members: sessions.getWorkspaceMembers(resolved.workspace.id) });
 });
 
 // ---------------------------------------------------------------------------

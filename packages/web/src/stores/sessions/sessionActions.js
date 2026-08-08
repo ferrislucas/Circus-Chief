@@ -42,17 +42,6 @@ function getDescendantSessionIds(sessions, sessionId) {
  * @param {Array} targetList - The list to add to
  * @param {Object} sessionData - The session data
  */
-/**
- * Fetch child sessions for a given parent and merge them into the sessions list.
- */
-async function fetchChildSessions(sessionsList, projectId, parentId) {
-  try {
-    const projectSessions = await api.getProjectSessions(projectId);
-    const childSessions = projectSessions.filter(s => s.parentSessionId === parentId);
-    const newChildren = childSessions.filter(child => !sessionsList.find(s => s.id === child.id));
-    sessionsList.push(...newChildren);
-  } catch (error) { console.error('Failed to fetch child sessions:', error); }
-}
 
 function moveSessionBetweenLists(sourceList, targetList, sessionData) {
   const existingSession = sourceList.find((s) => s.id === sessionData.id);
@@ -61,22 +50,8 @@ function moveSessionBetweenLists(sourceList, targetList, sessionData) {
   return sourceList.filter((s) => s.id !== sessionData.id);
 }
 
-/**
- * Fetch ancestor sessions that are not already in the sessions array.
- * @param {Array} sessions - The current sessions array
- * @param {string|null} startParentId - The first parentSessionId to follow
- */
-async function fetchAncestorSessions(sessions, startParentId) {
-  let parentId = startParentId;
-  while (parentId) {
-    const existingParent = sessions.find((s) => s.id === parentId);
-    if (existingParent) { parentId = existingParent.parentSessionId; continue; }
-    try {
-      const parentSession = await api.getSession(parentId);
-      sessions.push(parentSession);
-      parentId = parentSession.parentSessionId;
-    } catch (error) { console.error('Failed to fetch parent session:', error); break; }
-  }
+function upsertSessionListMembers(list, members) {
+  for (const member of members) updateSessionInList(list, member, true);
 }
 
 /**
@@ -143,7 +118,11 @@ export const sessionActions = {
     if (showLoading) this.loading = true;
     this.error = null;
     try {
-      const fetchedSession = await api.getSession(id);
+      // The detail session and lightweight workspace shell are independent.
+      // This replaces the old serial ancestor walk plus project-wide child fetch.
+      const [fetchedSession, workspaceDetail] = await Promise.all([
+        api.getSession(id), api.getWorkspaceDetail(id).catch(() => null),
+      ]);
       // Guard: only set currentSession if the user is still viewing this session.
       // This prevents stale in-flight requests (e.g., from polling that was active
       // for a previous session) from overwriting currentSession after navigation.
@@ -163,12 +142,7 @@ export const sessionActions = {
       } else {
         this.sessions.push(fetchedSession);
       }
-      if (this.currentSession?.parentSessionId) {
-        await fetchAncestorSessions(this.sessions, this.currentSession.parentSessionId);
-      }
-      if (this.currentSession?.projectId) {
-        await fetchChildSessions(this.sessions, this.currentSession.projectId, id);
-      }
+      if (workspaceDetail?.members) upsertSessionListMembers(this.sessions, workspaceDetail.members);
     } catch (err) { this.error = err.message; }
     finally { if (showLoading) this.loading = false; }
   },
