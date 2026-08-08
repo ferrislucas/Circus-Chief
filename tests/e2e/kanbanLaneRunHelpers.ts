@@ -2,8 +2,10 @@ import { expect, Page, Locator } from '@playwright/test';
 import {
   API_URL,
   BASE_URL,
+  getSession,
   navigateAndWait,
   openSessionOverlay,
+  updatePendingPrompt,
   updateSessionScheduling,
   waitForStatus,
 } from './helpers';
@@ -146,26 +148,50 @@ export async function saveLaneSettings(page: Page) {
   await expect(page.locator('.modal-backdrop')).toBeHidden({ timeout: 5000 });
 }
 
+/** A lightweight on-enter prompt for tests that only need to satisfy the
+ * "a completion target requires on-entry automation" contract and never
+ * actually execute the automation (e.g. pure target-persistence UI tests).
+ * Tests that DO expect the automation to run should pass their own
+ * VCR-cassette-backed prompt to `configureAutomatedLane` instead. */
+export const LANE_AUTOMATION_PROMPT = 'Lane automation trigger (E2E fixture, not expected to execute)';
+
 /**
- * Open a source lane's settings, pick a completion target by label, and save.
+ * Open a source lane's settings, configure its on-entry automation (prompt or
+ * template) AND its completion target in the SAME save, and save.
  *
- * Configuring a target through this path is exactly the real UI flow — the
- * server (KanbanLaneRepository#update, F3) auto-opts the lane into
- * `structured` completion mode whenever a target is set and no explicit
- * `completionMode` is supplied. Callers that need the LEGACY per-turn
- * behavior instead must opt out explicitly (see `kanban-completion-move.spec.ts`'s
- * dedicated legacy test) — this helper no longer forces `legacy` behind the
- * scenes (PR #1066 remediation, F1): doing so was hiding the structured path
- * from E2E coverage entirely.
+ * Kanban lane hard-cutover contract (KanbanLaneRepository#assertConfiguration):
+ * a lane cannot carry a completion target unless it has on-entry automation.
+ * This helper is the only supported way E2E tests configure a completion
+ * target — it requires a prompt or a template label so a caller cannot
+ * accidentally produce the invalid target-only combination the UI now
+ * rejects (see `LaneSettingsModal.vue`'s `isValid`/`targetRequiresAutomation`).
+ *
+ * Replaces the removed `configureCompletionTarget` helper (hard-cutover
+ * remediation, Phase 1): that helper only ever set the target and relied on
+ * the server auto-deriving a (now-removed) `completionMode`, which is no
+ * longer a valid save.
  */
-export async function configureCompletionTarget(
+export async function configureAutomatedLane(
   page: Page,
   _projectId: string,
   sourceLane: string,
-  targetLabel: string
+  options: { prompt?: string; templateLabel?: string; targetLabel?: string }
 ) {
+  const { prompt, templateLabel, targetLabel } = options;
+  if (!prompt && !templateLabel) {
+    throw new Error('configureAutomatedLane requires a prompt or a templateLabel to configure on-entry automation');
+  }
   await openLaneSettings(page, sourceLane);
-  await page.selectOption('#completion-target-lane-select', { label: targetLabel });
+  if (templateLabel) {
+    await page.locator('input[type="radio"][value="template"]').check();
+    await page.selectOption('#template-select', { label: templateLabel });
+  } else {
+    await page.locator('input[type="radio"][value="prompt"]').check();
+    await page.locator('#custom-prompt').fill(prompt as string);
+  }
+  if (targetLabel !== undefined) {
+    await page.selectOption('#completion-target-lane-select', { label: targetLabel });
+  }
   await saveLaneSettings(page);
 }
 
@@ -310,10 +336,12 @@ export async function resumeScheduledSessionViaUI(
   options: { prompt?: string; rescheduleAtTokenCount?: number | null } = {}
 ) {
   const { prompt = VCR_PROMPT, rescheduleAtTokenCount = null } = options;
-  await updateSessionScheduling(sessionId, {
-    rescheduleAtTokenCount,
-    pendingPrompt: prompt,
-  });
+  // `pendingPrompt` is not one of the general PATCH /api/sessions/:id fields
+  // (see FIELD_DEFINITIONS in sessions-patch.js) — it must go through the
+  // dedicated endpoint, or the session's existing pendingPrompt is silently
+  // left untouched.
+  await updatePendingPrompt(sessionId, prompt);
+  await updateSessionScheduling(sessionId, { rescheduleAtTokenCount });
   const response = await fetch(`${API_URL}/api/sessions/${sessionId}/run-scheduled-now`, {
     method: 'POST',
   });
@@ -321,6 +349,35 @@ export async function resumeScheduledSessionViaUI(
     throw new Error(`Failed to run scheduled session ${sessionId}: ${response.status} ${await response.text()}`);
   }
   await waitForStatus(sessionId, 'waiting', 60000);
+}
+
+/**
+ * Attempt to resume a session as though its schedule had come due, WITHOUT
+ * assuming that resume succeeds — unlike `resumeScheduledSessionViaUI`.
+ *
+ * Use this to prove a stale/superseded lane-run worker fails closed (Phase 2
+ * ownership guarantee, `claimWorkflowSessionStart` in
+ * workflowSessionService.js): once `supersedeRunForCard` has run, it clears
+ * the worker's `scheduled_at`/`pending_prompt` as part of superseding the
+ * run, so this helper first restores them (simulating some external trigger
+ * — e.g. a real scheduler tick that raced the supersession — still reaching
+ * the session) purely so the `/run-scheduled-now` endpoint's shallow
+ * `status`/`scheduledAt`/`pendingPrompt` gate can be reached at all. The
+ * deeper ownership guard is what must then reject it: the endpoint no-ops
+ * (200, session left untouched) rather than actually starting a turn, so the
+ * session must never reach 'waiting' afterwards.
+ */
+export async function attemptResumeStaleWorker(sessionId: string, options: { prompt?: string } = {}) {
+  const { prompt = VCR_PROMPT } = options;
+  await updatePendingPrompt(sessionId, prompt);
+  await updateSessionScheduling(sessionId, {
+    scheduledAt: Date.now(),
+    rescheduleAtTokenCount: null,
+  });
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/run-scheduled-now`, {
+    method: 'POST',
+  });
+  return response;
 }
 
 export async function moveCardViaUI(page: Page, card: Locator, toLane: string) {

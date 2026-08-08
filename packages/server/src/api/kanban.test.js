@@ -198,7 +198,9 @@ describe('Kanban API', () => {
 
     it('accepts completionTargetLaneId null', async () => {
       setupBoard();
-      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
+      // A completion target requires on-entry automation (KanbanLaneRepository
+      // hard-cutover contract).
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', completionTargetLaneId: lanes[1].id });
 
       const res = await request(app)
         .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
@@ -210,6 +212,7 @@ describe('Kanban API', () => {
 
     it('accepts completionTargetLaneId for another lane on the same board', async () => {
       setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work' });
 
       const res = await request(app)
         .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)

@@ -66,7 +66,7 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
       projectId: project.id,
       workspaceId: workspace.id,
       cardId: card.id,
-      lane: { ...laneRepo.getById(source.id), completionMode: 'structured', completionTargetLaneId: target.id },
+      lane: { ...laneRepo.getById(source.id), completionTargetLaneId: target.id },
     });
     attachRootSession(run.id, root.id);
   });

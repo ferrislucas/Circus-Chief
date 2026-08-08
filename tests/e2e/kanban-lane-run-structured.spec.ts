@@ -7,6 +7,7 @@ import {
   waitForStatus,
   waitForChildSession,
   getProjectSessions,
+  getSession,
 } from './helpers';
 import {
   VCR_PROMPT,
@@ -23,6 +24,7 @@ import {
   cardByIdInLane,
   moveCardViaUI,
   resumeScheduledSessionViaUI,
+  attemptResumeStaleWorker,
   runFollowUpTurnViaUI,
 } from './kanbanLaneRunHelpers';
 
@@ -84,7 +86,7 @@ test.describe('Kanban structured lane runs', () => {
       completionTargetLaneId: done.id,
       ...FORCE_PROACTIVE_RESCHEDULE_ON_ENTER,
     });
-    expect(getLaneByName(await getBoard(project.id), 'In Progress').completionMode).toBe('structured');
+    expect(getLaneByName(await getBoard(project.id), 'In Progress').completionTargetLaneId).toBe(done.id);
 
     const workspace = await seedSession(project.id, {
       prompt: 'Workspace root',
@@ -399,13 +401,21 @@ test.describe('Kanban structured lane runs', () => {
     // Review has no target/automation, so no new run opens either.
     expect(findCardOfSession(boardNow, workspace.id).activeLaneRun).toBeNull();
 
-    // The OLD run's root session (still pointed at the superseded run) is
-    // now resumed and finishes successfully for real.
-    await resumeScheduledSessionViaUI(page, worker.id);
-    await waitForStatus(worker.id, 'waiting', 30000);
+    // The OLD run's root session (still pointed at the superseded run) is now
+    // resumed as though its schedule had come due. `supersedeRunForCard`
+    // already cleared its scheduling as part of superseding the run, so this
+    // restores it first purely to reach the scheduler's shallow gate — the
+    // deeper ownership guard (`claimWorkflowSessionStart`) must then reject
+    // it: the endpoint no-ops instead of actually starting a turn.
+    const resumeResponse = await attemptResumeStaleWorker(worker.id);
+    expect(resumeResponse.status).toBe(200);
 
-    // Its late success must never move the card, nor start Done's automation.
-    await new Promise((r) => setTimeout(r, 1500));
+    // Give a real (incorrect) start time to fire, then assert the stale
+    // worker never actually ran and the card never moved, nor did Done's
+    // automation start.
+    await new Promise((r) => setTimeout(r, 2000));
+    const staleWorker = await getSession(worker.id);
+    expect(staleWorker.status).not.toBe('waiting');
     boardNow = await getBoard(project.id);
     expect(findLaneOfSession(boardNow, workspace.id)).toBe('Review');
     expect(findCardOfSession(boardNow, workspace.id).activeLaneRun).toBeNull();
