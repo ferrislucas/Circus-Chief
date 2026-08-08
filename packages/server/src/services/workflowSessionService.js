@@ -29,16 +29,42 @@ function isParticipating(session) {
   return Boolean(session?.lane_run_id);
 }
 
+function activeRunOwnsSession(db, session) {
+  if (!isParticipating(session)) return true;
+  return Boolean(db.prepare(`SELECT 1 FROM kanban_lane_runs r
+    JOIN kanban_cards c ON c.id=r.card_id
+    WHERE r.id=? AND r.status='open' AND c.active_lane_run_id=r.id AND c.lane_id=r.source_lane_id`)
+    .get(session.lane_run_id));
+}
+
+/** Scheduler/start guard. Stale lane workers lose their pending work before
+ * they can create another provider process. */
+export function claimWorkflowSessionStart(sessionId) {
+  return databaseManager.transaction(() => {
+    const db = databaseManager.get(); const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
+    if (!session?.lane_run_id) return true;
+    if (session.own_work_state === 'open' && activeRunOwnsSession(db, session)) {
+      audit(db, session.lane_run_id, 'scheduled_start_claimed', { sessionId });
+      return true;
+    }
+    const time = now();
+    db.prepare(`UPDATE sessions SET scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL,
+      auto_send_pending_prompt=0, execution_state='stopped', workflow_updated_at=? WHERE id=?`).run(time, sessionId);
+    audit(db, session.lane_run_id, 'stale_start_rejected', { sessionId });
+    return false;
+  });
+}
+
 /**
- * True when a lane's completion is governed by the durable lane-run engine
- * (either `shadow`, which computes outcomes without moving the card, or
- * `structured`, which also drives the Kanban transition) rather than the
- * legacy single-session completion signal.
- * @param {{ completionMode?: string }|null|undefined} lane
+ * A lane is automated only when it has entry work. Target-only lanes are
+ * rejected at configuration time rather than silently borrowing a session.
  * @returns {boolean}
  */
 export function isStructured(lane) {
-  return Boolean(lane?.completionMode && lane.completionMode !== 'legacy');
+  // Target-only lanes are rejected by the lane repository, but retaining
+  // this guard makes reconciliation of a pre-cutover row deterministic:
+  // it receives a durable owner rather than falling back to legacy moves.
+  return Boolean(lane?.completionTargetLaneId || lane?.onEnterTemplateId || lane?.onEnterPrompt);
 }
 
 /** True for a better-sqlite3 UNIQUE constraint violation, across driver versions. */
@@ -66,7 +92,7 @@ function runForEntryEvent(db, eventId) {
 }
 
 export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, cause = 'card_added', priorLaneRunId = null, entryEventId = null }) {
-  if (lane.completionMode === 'legacy') return null;
+  if (!isStructured(lane)) return null;
   const db = databaseManager.get();
   const causeRunId = causedByRunId(cause, priorLaneRunId);
   if (causeRunId && !entryEventId) {
@@ -84,10 +110,10 @@ export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, ca
         .run(eventId, key, projectId, workspaceId, cardId, lane.id, cause, causeRunId, time, time, time);
       db2.prepare(`INSERT INTO kanban_lane_runs
         (id,lane_entry_event_id,prior_lane_run_id,project_id,workspace_id,card_id,source_lane_id,
-         completion_target_lane_id,completion_mode,root_session_id,status,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,'open',?,?)`)
+         completion_target_lane_id,root_session_id,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,'open',?,?)`)
         .run(runId, eventId, priorLaneRunId, projectId, workspaceId, cardId, lane.id,
-          lane.completionTargetLaneId, lane.completionMode, null, time, time);
+          lane.completionTargetLaneId, null, time, time);
       db2.prepare(`UPDATE kanban_cards SET active_lane_run_id=?, lane_entry_event_id=?, updated_at=? WHERE id=?`)
         .run(runId, eventId, time, cardId);
       audit(db2, runId, 'run_created', { details: { cause, laneId: lane.id } });
@@ -143,7 +169,7 @@ export function beginWorkflowTurn(sessionId) {
   if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return null;
   return databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
-    if (!isParticipating(s) || s.own_work_state !== 'open') return null;
+    if (!isParticipating(s) || s.own_work_state !== 'open' || !activeRunOwnsSession(db, s)) return null;
     const executionStateBeforeTurn = s.execution_state;
     const time = now();
     db.prepare('UPDATE sessions SET execution_state=\'running\', workflow_updated_at=? WHERE id=?').run(time, sessionId);
@@ -320,11 +346,11 @@ export function reconcileLaneRun(runId) {
  * method the manual-move path uses) and broadcast KANBAN_CARD_MOVED,
  * mirroring kanbanService.moveCard's broadcast payload shape. No-op — does
  * not move or broadcast — when there is no structured target lane (e.g.
- * `shadow` mode, or `structured` mode with no completionTargetLaneId).
+ * when the lane has no completion target).
  * @returns {string|null} The target lane id, or null if nothing moved
  */
 function moveCardForTransition(db, run, card) {
-  const targetLaneId = (run.completion_mode === 'structured' && run.completion_target_lane_id) ? run.completion_target_lane_id : null;
+  const targetLaneId = run.completion_target_lane_id || null;
   if (!targetLaneId) return null;
   const movedCard = kanbanCards.moveToLane(card.id, targetLaneId);
   if (run.project_id) {
@@ -405,8 +431,17 @@ export function supersedeRunForCard(cardId, reason = 'manual_move') {
     if (!card?.active_lane_run_id) return null; const time = now();
     db.prepare(`UPDATE kanban_lane_runs SET status='superseded', superseded_at=?, updated_at=?, failure_reason=? WHERE id=? AND status='open'`)
       .run(time, time, reason, card.active_lane_run_id);
+    db.prepare(`UPDATE sessions SET own_work_state='cancelled', own_work_closed_at=?, workflow_reason=?,
+      workflow_updated_at=?, execution_state=CASE WHEN execution_state='running' THEN execution_state ELSE 'stopped' END,
+      scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, auto_send_pending_prompt=0
+      WHERE lane_run_id=? AND own_work_state='open'`)
+      .run(time, reason, time, card.active_lane_run_id);
     db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=? WHERE id=?').run(time, cardId);
-    audit(db, card.active_lane_run_id, 'run_superseded', { details: { reason } }); return getRun(card.active_lane_run_id);
+    audit(db, card.active_lane_run_id, 'run_superseded', { details: { reason } });
+    for (const member of db.prepare('SELECT id FROM sessions WHERE lane_run_id=?').all(card.active_lane_run_id)) {
+      audit(db, card.active_lane_run_id, 'member_cancelled_on_supersession', { sessionId: member.id, details: { reason } });
+    }
+    return getRun(card.active_lane_run_id);
   });
 }
 

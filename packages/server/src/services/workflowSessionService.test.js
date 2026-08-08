@@ -19,7 +19,7 @@ describe('workflowSessionService', () => {
   });
 
   function structuredLane() {
-    return { ...kanbanLanes.getById(source.id), completionMode: 'structured', completionTargetLaneId: target.id };
+    return { ...kanbanLanes.getById(source.id), onEnterPrompt: 'Perform lane work', completionTargetLaneId: target.id };
   }
 
   it('advances when the server finalizes a successful turn without an agent callback', () => {
@@ -450,9 +450,9 @@ describe('workflowSessionService', () => {
       const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
       attachRootSession(run.id, worker.id);
 
-      // Manual move supersedes the run without touching worker.own_work_state.
+      // Manual move revokes every open obligation in the run.
       supersedeRunForCard(card.id, 'manual_move');
-      expect(sessions.getById(worker.id).ownWorkState).toBe('open');
+      expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
       expect(getRun(run.id).status).toBe('superseded');
       const cardLaneId = kanbanCards.getById(card.id).laneId;
 

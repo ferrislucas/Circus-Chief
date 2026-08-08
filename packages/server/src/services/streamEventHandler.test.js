@@ -529,7 +529,7 @@ describe('streamEventHandler', () => {
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
     });
 
     it('does not call kanban completion hooks when session was aborted', async () => {
@@ -571,7 +571,7 @@ describe('streamEventHandler', () => {
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
     });
 
@@ -592,7 +592,7 @@ describe('streamEventHandler', () => {
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
     });
 
     it('does not call kanban completion hooks when the result event carries usage-limit text, but still sets waiting', async () => {
@@ -722,7 +722,7 @@ describe('streamEventHandler', () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
-      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
     });
 
     it('skips template trigger when auto-send fires', async () => {
@@ -898,7 +898,7 @@ describe('streamEventHandler', () => {
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
       expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
       expect(diffService.getChanges).toHaveBeenCalledWith('/workspace');
-      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
 
       // Auto-send and template trigger must NOT fire for this turn
       expect(mockAutoSend).not.toHaveBeenCalled();
@@ -951,7 +951,7 @@ describe('streamEventHandler', () => {
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
       expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
       expect(diffService.getChanges).toHaveBeenCalledWith('/workspace');
-      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
       expect(mockAutoSend).not.toHaveBeenCalled();
       expect(mockHandleTemplate).not.toHaveBeenCalled();
     });

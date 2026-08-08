@@ -26,7 +26,6 @@ export const CreateKanbanLaneRequest = z.object({
   onEnterMaxRescheduleCount: z.number().nullable().optional(),
   onEnterMaxTotalTokens: z.number().nullable().optional(),
   onEnterRescheduleAtTokenCount: z.number().nullable().optional(),
-  completionMode: z.enum(['legacy', 'shadow', 'structured']).optional(),
 }).refine(
   (data) => {
     // Mutual exclusivity: can't have both template and prompt set
@@ -57,7 +56,6 @@ export const UpdateKanbanLaneRequest = z.object({
   onEnterMaxTotalTokens: z.number().nullable().optional(),
   onEnterRescheduleAtTokenCount: z.number().nullable().optional(),
   completionTargetLaneId: z.string().uuid().nullable().optional(),
-  completionMode: z.enum(['legacy', 'shadow', 'structured']).optional(),
 }).refine(
   (data) => {
     // Mutual exclusivity: can't have both template and prompt set
@@ -92,7 +90,6 @@ export const KanbanLaneResponse = z.object({
   onEnterMaxTotalTokens: z.number().nullable(),
   onEnterRescheduleAtTokenCount: z.number().nullable(),
   completionTargetLaneId: z.string().uuid().nullable(),
-  completionMode: z.enum(['legacy', 'shadow', 'structured']).default('legacy'),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
