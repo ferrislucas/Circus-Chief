@@ -132,7 +132,8 @@ describe('schema baseline', () => {
       expect(columnNames(db, 'conversations')).toEqual(expect.arrayContaining(['model', 'parent_conversation_id', 'branch_from_message_id']));
       expect(columnNames(db, 'session_summaries')).toEqual(expect.arrayContaining(['last_summarized_message_id', 'workflow_fingerprint']));
       expect(columnNames(db, 'message_attachments')).toEqual(expect.arrayContaining(['file_path']));
-      expect(columnNames(db, 'kanban_lanes')).toEqual(expect.arrayContaining(['on_enter_reschedule_delay_minutes', 'completion_target_lane_id', 'completion_mode']));
+      expect(columnNames(db, 'kanban_lanes')).toEqual(expect.arrayContaining(['on_enter_reschedule_delay_minutes', 'completion_target_lane_id']));
+      expect(columnNames(db, 'kanban_lanes')).not.toContain('completion_mode');
       expect(columnNames(db, 'kanban_cards')).toEqual(expect.arrayContaining(['active_lane_run_id', 'lane_entry_event_id']));
     });
   });
@@ -152,7 +153,7 @@ describe('schema baseline', () => {
       expect(byName.get('on_enter_max_total_tokens')).toBeTruthy();
       expect(byName.get('on_enter_reschedule_at_token_count')).toBeTruthy();
       expect(byName.get('completion_target_lane_id')).toBeTruthy();
-      expect(byName.get('completion_mode').dflt_value).toBe("'legacy'");
+      expect(byName.has('completion_mode')).toBe(false);
     });
   });
 

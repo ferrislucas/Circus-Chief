@@ -2,6 +2,7 @@ import { sessions, messages, conversations, projects, attachments } from '../dat
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
+import { claimWorkflowSessionStart } from './workflowSessionService.js';
 
 function broadcastRescheduledSession(sessionId, updated) {
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
@@ -198,6 +199,10 @@ class SchedulerService {
   async startScheduledSession(session) {
     if (!this.sessionManager) {
       throw new Error('SchedulerService not initialized with sessionManager');
+    }
+
+    if (!claimWorkflowSessionStart(session.id)) {
+      return;
     }
 
     console.log(`[SchedulerService] Starting scheduled session ${session.id}: ${session.name}`);

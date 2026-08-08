@@ -382,7 +382,6 @@ CREATE TABLE IF NOT EXISTS kanban_lanes (
   on_enter_max_total_tokens INTEGER,
   on_enter_reschedule_at_token_count INTEGER,
   completion_target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
-  completion_mode TEXT NOT NULL DEFAULT 'legacy',
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -416,7 +415,7 @@ CREATE INDEX IF NOT EXISTS idx_lane_entry_recovery ON kanban_lane_entry_events(s
 CREATE TABLE IF NOT EXISTS kanban_lane_runs (
   id TEXT PRIMARY KEY, lane_entry_event_id TEXT NOT NULL UNIQUE, prior_lane_run_id TEXT,
   project_id TEXT NOT NULL, workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, source_lane_id TEXT NOT NULL,
-  completion_target_lane_id TEXT, completion_mode TEXT NOT NULL, root_session_id TEXT UNIQUE,
+  completion_target_lane_id TEXT, root_session_id TEXT UNIQUE,
   status TEXT NOT NULL DEFAULT 'open', failure_reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
   succeeded_at INTEGER, failed_at INTEGER, cancelled_at INTEGER, superseded_at INTEGER, transition_applied_at INTEGER
 );

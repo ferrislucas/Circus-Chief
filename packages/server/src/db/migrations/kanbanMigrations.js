@@ -149,7 +149,6 @@ export const kanbanMigrations = [
   {
     name: 'kanban-add-lane-run-workflow',
     up(db) {
-      addColumnIfMissing(db, 'kanban_lanes', 'completion_mode', "TEXT NOT NULL DEFAULT 'legacy'");
       addColumnIfMissing(db, 'kanban_cards', 'active_lane_run_id', 'TEXT');
       addColumnIfMissing(db, 'kanban_cards', 'lane_entry_event_id', 'TEXT');
       // Note: this intentionally does NOT (re-)create workflow_turn_token,
@@ -175,7 +174,7 @@ export const kanbanMigrations = [
         CREATE TABLE IF NOT EXISTS kanban_lane_runs (
           id TEXT PRIMARY KEY, lane_entry_event_id TEXT NOT NULL UNIQUE, prior_lane_run_id TEXT,
           project_id TEXT NOT NULL, workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, source_lane_id TEXT NOT NULL,
-          completion_target_lane_id TEXT, completion_mode TEXT NOT NULL, root_session_id TEXT UNIQUE,
+          completion_target_lane_id TEXT, root_session_id TEXT UNIQUE,
           status TEXT NOT NULL DEFAULT 'open', failure_reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
           succeeded_at INTEGER, failed_at INTEGER, cancelled_at INTEGER, superseded_at INTEGER, transition_applied_at INTEGER
         );
@@ -220,12 +219,20 @@ export const kanbanMigrations = [
     },
   },
   {
-    // Existing targeted lanes predate completion-mode derivation. Only change
-    // the former default, preserving an explicit shadow/structured choice.
-    name: 'kanban-backfill-structured-completion-mode',
+    // Hard cutover: lane configuration now determines execution ownership;
+    // The retired mode column is neither read nor retained in the schema.
+    name: 'kanban-drop-completion-mode-hard-cutover',
     up(db) {
-      db.prepare(`UPDATE kanban_lanes SET completion_mode='structured', updated_at=?
-        WHERE completion_target_lane_id IS NOT NULL AND completion_mode='legacy'`).run(Date.now());
+      const laneColumns = getColumns(db, 'kanban_lanes');
+      const runColumns = getColumns(db, 'kanban_lane_runs');
+      const foreignKeysEnabled = db.pragma('foreign_keys', { simple: true });
+      db.pragma('foreign_keys = OFF');
+      try {
+        if (laneColumns.includes('completion_mode')) db.exec('ALTER TABLE kanban_lanes DROP COLUMN completion_mode');
+        if (runColumns.includes('completion_mode')) db.exec('ALTER TABLE kanban_lane_runs DROP COLUMN completion_mode');
+      } finally {
+        db.pragma(`foreign_keys = ${foreignKeysEnabled ? 'ON' : 'OFF'}`);
+      }
     },
   },
 ];
