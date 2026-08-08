@@ -4,8 +4,18 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { createWorkLog } from './workLogService.js';
 import { sessions } from '../database.js';
 import { PROMPT_ACTIONS_BY_KIND } from '@circuschief/shared/contracts/prompts';
-import { buildSafeToolInputSummary } from './promptSafeSummary.js';
+import { buildSafeToolInputSummary, buildSafeHeadline, buildSafeBlockedPath } from './promptDurableSummary.js';
 
+// Sessions hold an *ordered queue* of parked prompts, not a single record.
+//
+// Why: the SDK dispatches `can_use_tool` control requests concurrently, not
+// serially — `processPendingPermissionRequests` in the SDK fires every
+// pending request without awaiting the previous one, and parallel `tool_use`
+// blocks in a single assistant message are routine. Treating a second
+// arrival as "supersedes the first" (the original design) silently
+// auto-denies the first tool call the moment the model does two things at
+// once. Only the head of the queue is ever surfaced to the client; later
+// arrivals wait their turn and are promoted to head as earlier ones resolve.
 const prompts = new Map();
 const CANCELLED_MESSAGE = 'Session was cancelled.';
 
@@ -22,16 +32,39 @@ function project(record) {
   return wire;
 }
 
+// Removes a record from its session's queue by identity, from anywhere in
+// the queue (not just the head), so abort/cancel can settle a non-head
+// record without disturbing the rest of the queue's order.
+function removeFromQueue(sessionId, id) {
+  const queue = prompts.get(sessionId);
+  if (!queue) return null;
+  const index = queue.findIndex((record) => record.id === id);
+  if (index === -1) return null;
+  const [record] = queue.splice(index, 1);
+  if (queue.length === 0) prompts.delete(sessionId);
+  return { record, wasHead: index === 0, queue };
+}
+
 function settle(record, outcome, result) {
-  if (prompts.get(record.sessionId)?.id !== record.id) return false;
-  prompts.delete(record.sessionId);
-  broadcastPendingInput(record, false);
+  const removal = removeFromQueue(record.sessionId, record.id);
+  if (!removal) return false;
   record.signal?.removeEventListener('abort', record.abortListener);
   const { toolName, content } = describePromptOutcome(record, outcome, result);
   createWorkLog(record.sessionId, 'tool_output', content, toolName);
   broadcastToSession(record.sessionId, WS_MESSAGE_TYPES.SESSION_PROMPT_RESOLVED, {
     sessionId: record.sessionId, promptId: record.id, outcome,
   });
+  if (removal.queue.length === 0) {
+    // Queue drained: only now does the "needs attention" badge clear. One
+    // prompt resolving must not clear it while a sibling is still queued.
+    broadcastPendingInput(record, false);
+  } else if (removal.wasHead) {
+    // Promote the new head so a client that already rendered the resolved
+    // prompt gets the next one without polling.
+    broadcastToSession(record.sessionId, WS_MESSAGE_TYPES.SESSION_PROMPT, {
+      sessionId: record.sessionId, prompt: project(removal.queue[0]),
+    });
+  }
   record.resolve(result);
   return true;
 }
@@ -57,16 +90,20 @@ function permissionHistoryLines(record, outcome, result) {
     allow: 'allow once', always_allow: 'always allow', deny: 'deny',
     superseded: 'superseded', cancelled: 'cancelled',
   }[outcome] || outcome;
-  // Durable history persists only an allowlisted, tool-specific summary of
-  // the input — never the raw payload the live approval card shows. See
-  // promptSafeSummary.js for why key-name redaction is not sufficient here.
+  // Durable history persists only allowlisted, safe-by-default content —
+  // never the raw input, `title`, or `decisionReason` the live approval card
+  // shows. See promptDurableSummary.js for why key-name redaction is not
+  // sufficient here: `title` is a full bridge-rendered sentence that can
+  // embed the exact command (and any credentials in it), so it is replaced
+  // with `displayName` (a short noun-phrase label) for the durable headline.
   const inputSummary = buildSafeToolInputSummary(toolName, record.payload.input);
+  const headline = buildSafeHeadline(record.payload.displayName, toolName);
+  const blockedPath = buildSafeBlockedPath(record.payload.blockedPath);
   return [
     'Permission decision', `Outcome: ${decision}`, `Tool: ${toolName}`,
-    record.payload.title && `Title: ${record.payload.title}`,
-    record.payload.blockedPath && `Blocked path: ${record.payload.blockedPath}`,
+    `Headline: ${headline}`,
+    blockedPath && `Blocked path: ${blockedPath}`,
     Object.keys(inputSummary).length && `Input summary: ${JSON.stringify(inputSummary)}`,
-    record.payload.decisionReason && `Decision context: ${record.payload.decisionReason}`,
     outcome === 'always_allow' && `Scope: ${result.updatedPermissions?.[0]?.destination || 'session'}`,
     result.message && `Reason: ${result.message}`,
   ].filter(Boolean);
@@ -75,8 +112,9 @@ function permissionHistoryLines(record, outcome, result) {
 export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, agentId = null, payload, signal }) {
   // An abort listener added after a signal is already aborted will never fire.
   if (signal?.aborted) return Promise.resolve({ behavior: 'deny', message: CANCELLED_MESSAGE });
-  const existing = prompts.get(sessionId);
-  if (existing) settle(existing, 'superseded', { behavior: 'deny', message: 'This interaction was superseded.' });
+  // A duplicate question *within a single call* is a validation error, not a
+  // concurrency conflict — reject it outright without touching this
+  // session's existing queue.
   const questions = payload.questions || [];
   if (kind === 'question' && new Set(questions.map(({ question }) => question)).size !== questions.length) {
     return Promise.resolve({ behavior: 'deny', message: 'Please re-ask using distinct question text.' });
@@ -86,17 +124,35 @@ export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, 
       createdAt: Date.now(), resolve, reject, signal, abortListener: null };
     record.abortListener = () => settle(record, 'cancelled', { behavior: 'deny', message: CANCELLED_MESSAGE });
     signal?.addEventListener('abort', record.abortListener, { once: true });
-    prompts.set(sessionId, record);
+    const queue = prompts.get(sessionId);
+    if (queue) {
+      // Not the head: queued silently. It is surfaced (SESSION_PROMPT) only
+      // once it becomes the head, in `settle`.
+      queue.push(record);
+      return;
+    }
+    prompts.set(sessionId, [record]);
     broadcastPendingInput(record, true);
     broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PROMPT, { sessionId, prompt: project(record) });
   });
 }
 
-export function getPrompt(sessionId) { const record = prompts.get(sessionId); return record ? project(record) : null; }
-export function hasPendingPrompt(sessionId) { return prompts.has(sessionId); }
+export function getPrompt(sessionId) {
+  const record = prompts.get(sessionId)?.[0];
+  return record ? project(record) : null;
+}
+// Full queue in arrival order, head first. `getPrompt` (head only) is what
+// clients hydrate from; this is for introspection (tests, diagnostics).
+export function getPromptQueue(sessionId) { return (prompts.get(sessionId) || []).map(project); }
+export function hasPendingPrompt(sessionId) { return Boolean(prompts.get(sessionId)?.length); }
 export function cancelPrompt(sessionId, reason = CANCELLED_MESSAGE) {
-  const record = prompts.get(sessionId);
-  return record ? settle(record, 'cancelled', { behavior: 'deny', message: reason }) : false;
+  const queue = prompts.get(sessionId);
+  if (!queue || !queue.length) return false;
+  // Snapshot before iterating: `settle` mutates (splices) the live queue.
+  for (const record of [...queue]) {
+    settle(record, 'cancelled', { behavior: 'deny', message: reason });
+  }
+  return true;
 }
 function questionResult(record, response) {
   if (response.action === 'answer' && !hasValidQuestionAnswers(record.payload.questions, response.answers, response.customAnswers, response.annotations)) return null;
@@ -115,9 +171,10 @@ function questionResult(record, response) {
 function hasValidQuestionAnswers(questions, answers, customAnswers = {}, annotations = {}) {
   const expected = questions || [];
   const expectedKeys = new Set(expected.map(({ question }) => question));
+  // hasKnownPromptKeys already verifies annotations is a plain object whose
+  // keys are all expected question texts; re-checking that here would be
+  // dead code duplicating the same object-ness and key-membership checks.
   if (!hasCompleteAnswerSet(answers, expectedKeys) || !hasKnownPromptKeys(customAnswers, expectedKeys) || !hasKnownPromptKeys(annotations, expectedKeys)) return false;
-  if (!annotations || typeof annotations !== 'object' || Array.isArray(annotations)) return false;
-  if (!Object.keys(annotations).every((key) => expectedKeys.has(key))) return false;
 
   return expected.every((question) => {
     const answer = answers[question.question];
@@ -190,8 +247,13 @@ function permissionResult(record, response) {
   return { behavior: 'deny', message: response.reason || 'Permission denied by user.' };
 }
 
+// Only the queue head is ever surfaced to a client (`getPrompt` returns it,
+// and it is the one carried in the SESSION_PROMPT broadcast), so a response
+// resolves the head deterministically. A `promptId` for a queued-but-not-head
+// prompt — stale by definition, since the client cannot have rendered it yet —
+// is rejected as not-current rather than resolved out of order.
 export function respondToPrompt(sessionId, promptId, response) {
-  const record = prompts.get(sessionId);
+  const record = prompts.get(sessionId)?.[0];
   if (!record || record.id !== promptId) return false;
   if (!PROMPT_ACTIONS_BY_KIND[record.kind]?.has(response.action)) return null;
   const result = record.kind === 'question' ? questionResult(record, response) : permissionResult(record, response);

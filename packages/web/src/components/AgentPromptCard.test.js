@@ -177,6 +177,85 @@ describe('AgentPromptCard', () => {
     wrapper.unmount();
   });
 
+  it('does not deny a permission prompt on Escape; it reveals the deny-reason panel and requires an explicit confirmation to actually deny', async () => {
+    const onRespond = vi.fn();
+    const permission = { id: 'escape-permission', kind: 'permission', payload: { toolName: 'Bash', input: { command: 'ls' } } };
+    const wrapper = mount(AgentPromptCard, { attachTo: document.body, props: { prompt: permission, onRespond } });
+    await flushPromises();
+    expect(wrapper.find('.deny-reason').exists()).toBe(false);
+
+    await document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await nextTick();
+
+    expect(onRespond).not.toHaveBeenCalled();
+    expect(wrapper.find('.deny-reason').exists()).toBe(true);
+
+    // A second Escape (while the panel is already open) still must not deny —
+    // only the explicit "Confirm deny" action (or Enter in the reason field)
+    // does.
+    await document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await nextTick();
+    expect(onRespond).not.toHaveBeenCalled();
+
+    await wrapper.get('.deny-reason button').trigger('click');
+    expect(onRespond).toHaveBeenCalledWith({ action: 'deny', reason: '' });
+    wrapper.unmount();
+  });
+
+  it('still treats Escape as a non-destructive skip for a question prompt', async () => {
+    const onRespond = vi.fn();
+    const wrapper = mount(AgentPromptCard, { attachTo: document.body, props: { prompt, onRespond } });
+    await flushPromises();
+
+    await document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await nextTick();
+
+    expect(onRespond).toHaveBeenCalledWith({ action: 'cancel' });
+    wrapper.unmount();
+  });
+
+  it('does not act on Escape when focus is outside the card (an overlay or modal elsewhere on the page)', async () => {
+    const onRespond = vi.fn();
+    const permission = { id: 'escape-outside', kind: 'permission', payload: { toolName: 'Bash', input: { command: 'ls' } } };
+    const outside = document.createElement('input');
+    document.body.appendChild(outside);
+    const wrapper = mount(AgentPromptCard, { attachTo: document.body, props: { prompt: permission, onRespond } });
+    await flushPromises();
+    outside.focus();
+    expect(document.activeElement).toBe(outside);
+
+    await document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await nextTick();
+
+    expect(onRespond).not.toHaveBeenCalled();
+    expect(wrapper.find('.deny-reason').exists()).toBe(false);
+    wrapper.unmount();
+    outside.remove();
+  });
+
+  it('acts only on the focused card when two AgentPromptCard instances are mounted at once (main view + SessionChatOverlay)', async () => {
+    const onRespondMain = vi.fn();
+    const onRespondOverlay = vi.fn();
+    const mainPermission = { id: 'main-view', kind: 'permission', payload: { toolName: 'Bash', input: { command: 'ls' } } };
+    const overlayPermission = { id: 'overlay', kind: 'permission', payload: { toolName: 'Bash', input: { command: 'pwd' } } };
+    const mainWrapper = mount(AgentPromptCard, { attachTo: document.body, props: { prompt: mainPermission, onRespond: onRespondMain } });
+    const overlayWrapper = mount(AgentPromptCard, { attachTo: document.body, props: { prompt: overlayPermission, onRespond: onRespondOverlay } });
+    await flushPromises();
+    // Whichever card the user actually has focus in — the overlay, here.
+    overlayWrapper.get('.prompt-primary-action').element.focus();
+    expect(document.activeElement).toBe(overlayWrapper.get('.prompt-primary-action').element);
+
+    await document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await nextTick();
+
+    expect(onRespondMain).not.toHaveBeenCalled();
+    expect(mainWrapper.find('.deny-reason').exists()).toBe(false);
+    expect(overlayWrapper.find('.deny-reason').exists()).toBe(true);
+
+    mainWrapper.unmount();
+    overlayWrapper.unmount();
+  });
+
   it('reveals denial details only after Deny is chosen and disables all decision controls while pending', async () => {
     const permission = { id: 'permission', kind: 'permission', payload: { toolName: 'Bash', input: { command: 'ls' }, suggestions: [{ type: 'addRules', rules: [] }] } };
     const wrapper = mount(AgentPromptCard, { props: { prompt: permission, submitting: false } });

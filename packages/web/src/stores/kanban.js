@@ -1,5 +1,12 @@
 import { defineStore } from 'pinia';
 import { api } from '../composables/useApi.js';
+import { KanbanCardSessionResponse } from '@circuschief/shared/contracts/kanban';
+
+// Kept adjacent to `KanbanCardSessionResponse` (instead of a hand-maintained
+// list) so the allowlist below cannot silently drift from the contract: a
+// field added to the server response without being added here is still
+// dropped, safely, rather than requiring both to be updated in lockstep.
+const KANBAN_CARD_SESSION_FIELDS = Object.keys(KanbanCardSessionResponse.shape);
 
 export const useKanbanStore = defineStore('kanban', {
   state: () => ({
@@ -422,8 +429,19 @@ export const useKanbanStore = defineStore('kanban', {
         for (const card of lane.cards || []) {
           const sessionIndex = card.sessions?.findIndex((s) => s.id === session.id);
           if (sessionIndex !== -1 && sessionIndex !== undefined) {
-            // Update session data in the card
-            card.sessions[sessionIndex] = { ...card.sessions[sessionIndex], ...session };
+            // Only copy allowlisted fields onto the card. A blind `...session`
+            // spread would let every field the server ever adds to a
+            // `session:updated` broadcast land in kanban card state,
+            // bypassing `KanbanCardSessionResponse` entirely. A field this
+            // update omits (e.g. a partial broadcast) must not clobber the
+            // existing value, so only own-keys actually present are applied.
+            const current = card.sessions[sessionIndex];
+            const allowedUpdates = Object.fromEntries(
+              KANBAN_CARD_SESSION_FIELDS
+                .filter((field) => Object.hasOwn(session, field))
+                .map((field) => [field, session[field]]),
+            );
+            card.sessions[sessionIndex] = { ...current, ...allowedUpdates };
             return; // Found and updated, exit early
           }
         }

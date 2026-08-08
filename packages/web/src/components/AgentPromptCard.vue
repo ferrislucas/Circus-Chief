@@ -208,11 +208,31 @@ function chooseOption(index) {
 function selectOther(question) { answers.value[question.question] = question.multiSelect ? [] : ''; }
 function clearOther(question) { other.value[question.question] = ''; }
 function isTypingTarget(event) { const target = event.target; return target instanceof HTMLElement && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable); }
-function promptShortcut(event, action) { if (!props.prompt || props.submitting || isTypingTarget(event)) return; action(event); }
+// `useKeyboardShortcuts` registers a single document-level listener shared by
+// every mounted instance (main view, SessionChatOverlay, ...). Without this,
+// a shortcut aimed at one card — or at an unrelated overlay/modal elsewhere
+// on the page — would also fire every OTHER mounted card's handler. Scoping
+// on "is focus currently inside this card" keeps each instance's shortcuts
+// acting only on itself, and only while the user is actually interacting
+// with it.
+function isFocusWithinCard() { return Boolean(card.value && document.activeElement && card.value.contains(document.activeElement)); }
+function promptShortcut(event, action) { if (!props.prompt || props.submitting || isTypingTarget(event) || !isFocusWithinCard()) return; action(event); }
 useKeyboardShortcuts({
   '1': (event) => promptShortcut(event, () => chooseOption(0)), '2': (event) => promptShortcut(event, () => chooseOption(1)), '3': (event) => promptShortcut(event, () => chooseOption(2)), '4': (event) => promptShortcut(event, () => chooseOption(3)),
   enter: (event) => promptShortcut(event, () => { if (props.prompt.kind === 'question' && canSubmit.value) { event.preventDefault(); submitAnswers(); } }),
-  escape: (event) => promptShortcut(event, () => { event.preventDefault(); respond(props.prompt.kind === 'question' ? { action: 'cancel' } : { action: 'deny', reason: reason.value }); }),
+  // Question-prompt Escape stays a genuine, non-destructive skip: the agent
+  // proceeds on its own judgment, nothing is lost. A permission prompt is
+  // different — denying a tool call is a one-way decision the agent acts on
+  // immediately, so Escape only *reveals* the same deny-reason affordance
+  // the "Deny" link opens; only that panel's explicit "Confirm deny" (or
+  // Enter in the reason field) actually emits the deny. A second Escape
+  // while the panel is already open still does not deny — it is not an
+  // "are you sure" confirmation gesture here, just the same reveal.
+  escape: (event) => promptShortcut(event, () => {
+    event.preventDefault();
+    if (props.prompt.kind === 'question') { respond({ action: 'cancel' }); return; }
+    showDenyReason.value = true;
+  }),
 });
 </script>
 

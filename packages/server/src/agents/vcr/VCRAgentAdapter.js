@@ -73,20 +73,74 @@ export class VCRAgentAdapter {
 
   /**
    * Replay from a cassette
+   *
+   * Gated calls are interleaved at the position they were recorded at
+   * (`afterEventIndex`: how many events had already been yielded), not all
+   * fired before the first event — a live session interleaves them with the
+   * stream, and an E2E spec asserting on that ordering (e.g. "system/init
+   * arrives before the approval card appears") needs replay to match it.
+   *
+   * Cassettes recorded before position tracking existed have no
+   * `afterEventIndex` on their gated calls; those are treated as position 0
+   * (fire before any event), reproducing the old, unconditional-before-all
+   * behavior so existing cassettes keep replaying without migration.
+   *
    * @param {object} cassette - Cassette to replay
    * @returns {AsyncGenerator} Generator yielding events
    */
   async *replay(cassette, queryParams = {}) {
-    // Prompt interactions are control callbacks in the real SDK, not stream
-    // events. Cassettes model them explicitly so replay follows the live path.
-    for (const gatedCall of cassette.gatedToolCalls || []) {
-      await queryParams.options?.canUseTool?.(gatedCall.toolName, gatedCall.input, gatedCall.opts || {});
-    }
-    for (const event of cassette.events) {
+    const callsByPosition = this.groupGatedCallsByPosition(cassette.gatedToolCalls);
+
+    await this.invokeGatedCallsAt(callsByPosition, 0, queryParams);
+    for (let index = 0; index < cassette.events.length; index += 1) {
       // Small delay to simulate streaming
       await new Promise((resolve) => setTimeout(resolve, 5));
-      yield event;
+      yield cassette.events[index];
+      await this.invokeGatedCallsAt(callsByPosition, index + 1, queryParams);
     }
+  }
+
+  /**
+   * @param {Array} gatedToolCalls
+   * @returns {Map<number, object[]>} gated calls keyed by the event index
+   *   they occurred after (backward-compatible default: 0)
+   */
+  groupGatedCallsByPosition(gatedToolCalls) {
+    const byPosition = new Map();
+    for (const call of gatedToolCalls || []) {
+      const position = call.afterEventIndex ?? 0;
+      if (!byPosition.has(position)) byPosition.set(position, []);
+      byPosition.get(position).push(call);
+    }
+    return byPosition;
+  }
+
+  /**
+   * Invoke every gated call recorded at `position`, in order, comparing each
+   * observed result against the recorded one.
+   */
+  async invokeGatedCallsAt(callsByPosition, position, queryParams) {
+    for (const call of callsByPosition.get(position) || []) {
+      const observed = await queryParams.options?.canUseTool?.(call.toolName, call.input, call.opts || {});
+      this.assertResultMatchesRecording(call, observed);
+    }
+  }
+
+  /**
+   * A cassette without `result` predates result capture — nothing to verify
+   * against. Otherwise, a host that produces a different decision than the
+   * one recorded means the cassette is stale or the host regressed; either
+   * way, replay should fail loudly rather than silently diverge from the
+   * recording.
+   */
+  assertResultMatchesRecording(call, observed) {
+    if (call.result === undefined) return;
+    if (JSON.stringify(observed) === JSON.stringify(call.result)) return;
+    throw new Error(
+      `VCR replay: canUseTool("${call.toolName}") returned a result that diverges from the recording.\n` +
+      `  Recorded: ${JSON.stringify(call.result)}\n` +
+      `  Observed: ${JSON.stringify(observed)}`
+    );
   }
 
   /**
@@ -99,7 +153,7 @@ export class VCRAgentAdapter {
   async *record(key, queryParams, meta) {
     const events = [];
     const gatedToolCalls = [];
-    const instrumentedParams = this.instrumentCanUseTool(queryParams, gatedToolCalls);
+    const instrumentedParams = this.instrumentCanUseTool(queryParams, gatedToolCalls, events);
 
     // Execute real query and collect events
     for await (const event of this.innerAgent.execute(instrumentedParams, meta)) {
@@ -124,8 +178,13 @@ export class VCRAgentAdapter {
    *
    * The abort signal is stripped from `opts` before capture: it is not
    * serializable and carries no information relevant to replay.
+   *
+   * `events` is the same array `record()` pushes yielded events into; its
+   * length *at the moment this callback fires* is how many events the live
+   * session had already produced by then, so `afterEventIndex` records this
+   * call's true position in the interleaved timeline (see `replay()`).
    */
-  instrumentCanUseTool(queryParams, gatedToolCalls) {
+  instrumentCanUseTool(queryParams, gatedToolCalls, events) {
     const canUseTool = queryParams.options?.canUseTool;
     if (!canUseTool) return queryParams;
     return {
@@ -134,12 +193,14 @@ export class VCRAgentAdapter {
         ...queryParams.options,
         canUseTool: async (toolName, input, opts = {}) => {
           const { signal: _signal, ...safeOpts } = opts;
+          const afterEventIndex = events.length;
           const result = await canUseTool(toolName, input, opts);
           gatedToolCalls.push({
             toolName,
             input: CassetteStore.deepCopyEvent(input),
             opts: CassetteStore.deepCopyEvent(safeOpts),
             result: CassetteStore.deepCopyEvent(result),
+            afterEventIndex,
           });
           return result;
         },

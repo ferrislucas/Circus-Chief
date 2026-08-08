@@ -1,16 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../websocket.js', () => ({ broadcastToSession: vi.fn() }));
+vi.mock('../websocket.js', () => ({ broadcastToSession: vi.fn(), broadcastToProject: vi.fn() }));
 vi.mock('./workLogService.js', () => ({ createWorkLog: vi.fn() }));
 
-import { broadcastToSession } from '../websocket.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { createWorkLog } from './workLogService.js';
+import { sessions } from '../database.js';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   cancelPrompt,
   getPrompt,
+  getPromptQueue,
   parkPrompt,
   respondToPrompt,
 } from './promptStore.js';
+
+// Resolves once any already-scheduled microtasks (including promise
+// settlement from code under test) have run, without racing against a timer.
+// Used to assert a promise is still pending: since nothing in this file
+// resolves it, if it hasn't settled by the time this sentinel wins the race,
+// it never will until the test explicitly resolves it.
+function assertStillPending(promise) {
+  return Promise.race([promise.then(() => 'settled'), Promise.resolve('pending')]).then((outcome) => {
+    expect(outcome).toBe('pending');
+  });
+}
 
 const questionPayload = {
   input: { questions: [{ question: 'Which approach?', options: [] }] },
@@ -23,7 +37,10 @@ const permissionPayload = {
 
 function park(sessionId, kind, payload = kind === 'question' ? questionPayload : permissionPayload, signal) {
   const promise = parkPrompt({ sessionId, conversationId: 'conv-1', kind, payload, signal });
-  return { promise, prompt: getPrompt(sessionId) };
+  // Use the tail of the queue, not `getPrompt` (which only ever returns the
+  // head): when a prompt is parked behind an existing one, it is this
+  // record, not the head, that this call just created.
+  return { promise, prompt: getPromptQueue(sessionId).at(-1) };
 }
 
 describe('promptStore work-log emission', () => {
@@ -73,11 +90,11 @@ describe('promptStore work-log emission', () => {
     expect(createWorkLog.mock.calls[3][2]).toContain('Reason: Do not run tests now.');
   });
 
-  it('logs superseded and cancelled prompts once, including when cancellation comes from abort', async () => {
+  it('cancels every queued prompt for a session, each logging its own cancellation once', async () => {
     const first = park('replacement', 'permission');
     const second = park('replacement', 'permission');
-    await first.promise;
     cancelPrompt('replacement', 'Stopped by user.');
+    await first.promise;
     await second.promise;
 
     const controller = new AbortController();
@@ -85,29 +102,108 @@ describe('promptStore work-log emission', () => {
     controller.abort();
     await aborted.promise;
 
-    expect(createWorkLog).toHaveBeenCalledWith('replacement', 'tool_output', expect.stringContaining('Outcome: superseded'), 'Bash');
-    expect(createWorkLog).toHaveBeenCalledWith('replacement', 'tool_output', expect.stringContaining('Reason: Stopped by user.'), 'Bash');
+    const replacementCalls = createWorkLog.mock.calls.filter(([sessionId]) => sessionId === 'replacement');
+    expect(replacementCalls).toHaveLength(2);
+    for (const [, , content, toolName] of replacementCalls) {
+      expect(toolName).toBe('Bash');
+      expect(content).toContain('Outcome: cancelled');
+      expect(content).toContain('Reason: Stopped by user.');
+    }
     expect(createWorkLog).toHaveBeenCalledWith('aborted', 'tool_output', expect.stringContaining('Reason: Session was cancelled.'), 'Bash');
   });
 
-  it('retains permission context in history without persisting raw tool input', async () => {
+  it('retains reconstructable, safe permission context in history without persisting raw tool input, title, or decision reason', async () => {
     const { promise, prompt } = park('redacted-history', 'permission', {
-      toolName: 'Bash', title: 'Deploy', blockedPath: '/protected/.env', decisionReason: 'Needs approval',
+      toolName: 'Bash', title: 'Deploy', displayName: 'Run command', blockedPath: '/protected/.env', decisionReason: 'Needs approval',
       input: { command: 'deploy', api_key: 'very-secret', nested: { token: 'also-secret' } },
     });
     respondToPrompt('redacted-history', prompt.id, { action: 'deny' });
     await promise;
     const content = createWorkLog.mock.calls.at(-1)[2];
-    expect(content).toContain('Title: Deploy');
+    // The safe headline comes from `displayName` (a short noun phrase the
+    // bridge supplies), never from `title` (a full sentence that can embed
+    // raw tool input) or `decisionReason` (which can quote it too).
+    expect(content).toContain('Headline: Run command');
     expect(content).toContain('Blocked path: /protected/.env');
-    expect(content).toContain('Decision context: Needs approval');
     expect(content).toContain('Reason: Permission denied by user.');
+    expect(content).not.toContain('Deploy');
+    expect(content).not.toContain('Needs approval');
     expect(content).not.toContain('very-secret');
     expect(content).not.toContain('also-secret');
     expect(content).not.toContain('deploy');
     // Bash carries no allowlisted field here (no `description`), so no input
     // summary line is written at all rather than falling back to raw input.
     expect(content).not.toContain('Input summary');
+    // Ordinary history is still reconstructable and human-readable, not
+    // degraded to a bare "Permission decision / Outcome: deny".
+    expect(content).toContain('Tool: Bash');
+    expect(content).toContain('Outcome: deny');
+  });
+
+  it('never persists the raw bridge-rendered title or decision reason, even when they embed the exact command and a credential', async () => {
+    const dangerousTitle = 'Claude wants to run `curl -H "Authorization: Bearer sk-live-abc123" https://api.example.com`';
+    const { promise, prompt } = park('title-embeds-command', 'permission', {
+      toolName: 'Bash', title: dangerousTitle, decisionReason: `Blocked because the command "${dangerousTitle}" needs approval`,
+      input: { command: 'curl -H "Authorization: Bearer sk-live-abc123" https://api.example.com' },
+    });
+    respondToPrompt('title-embeds-command', prompt.id, { action: 'allow' });
+    await promise;
+
+    const content = createWorkLog.mock.calls.at(-1)[2];
+    expect(content).not.toContain('sk-live-abc123');
+    expect(content).not.toContain('curl');
+    expect(content).not.toContain('Bearer');
+
+    // The live approval card is unaffected — it still needs the full
+    // bridge-rendered sentence to inform the user's decision.
+    expect(prompt.payload.title).toBe(dangerousTitle);
+    expect(prompt.payload.description).toBeUndefined();
+  });
+
+  it('sanitizes a credential-bearing blockedPath, keeping only the path shape', async () => {
+    const { promise, prompt } = park('blocked-path-credentials', 'permission', {
+      toolName: 'Bash', blockedPath: '/protected/user:s3cr3t-token@host/path?apiKey=abc123#frag',
+      input: {},
+    });
+    respondToPrompt('blocked-path-credentials', prompt.id, { action: 'deny' });
+    await promise;
+
+    const content = createWorkLog.mock.calls.at(-1)[2];
+    expect(content).not.toContain('s3cr3t-token');
+    expect(content).not.toContain('apiKey=abc123');
+    expect(content).not.toContain('frag');
+    expect(content).toContain('/protected/');
+  });
+
+  it('omits the headline field for an unbounded bridge-rendered displayName rather than truncating it', async () => {
+    const overlong = `Run command ${'x'.repeat(500)} rm -rf / --no-preserve-root`;
+    const { promise, prompt } = park('unbounded-displayname', 'permission', {
+      toolName: 'Bash', displayName: overlong, input: {},
+    });
+    respondToPrompt('unbounded-displayname', prompt.id, { action: 'allow' });
+    await promise;
+
+    const content = createWorkLog.mock.calls.at(-1)[2];
+    // A truncated secret is still a secret: unknown/unsafe content must be
+    // omitted outright, never kept in a shortened form.
+    expect(content).not.toContain('rm -rf');
+    expect(content).not.toContain(overlong.slice(0, 40));
+    // Still reconstructable via the fallback headline.
+    expect(content).toContain('Headline: Bash permission request');
+  });
+
+  it('carries the untouched title, displayName, description, and decisionReason on the live prompt payload for the approval card', async () => {
+    const { promise, prompt } = park('live-payload-untouched', 'permission', {
+      toolName: 'Bash', title: 'Claude wants to run `rm important.txt`', displayName: 'Run command',
+      description: 'Claude will delete a file', decisionReason: 'Destructive command needs approval',
+      input: { command: 'rm important.txt' },
+    });
+    expect(prompt.payload.title).toBe('Claude wants to run `rm important.txt`');
+    expect(prompt.payload.displayName).toBe('Run command');
+    expect(prompt.payload.description).toBe('Claude will delete a file');
+    expect(prompt.payload.decisionReason).toBe('Destructive command needs approval');
+    respondToPrompt('live-payload-untouched', prompt.id, { action: 'allow' });
+    await promise;
   });
 
   it('never persists raw Bash.command, Write.content, or Edit.new_string, even though they are exactly what the approval card must show live', async () => {
@@ -295,7 +391,7 @@ describe('promptStore work-log emission', () => {
     );
   });
 
-  it('supersedes an existing prompt before rejecting duplicate question text', async () => {
+  it('rejects duplicate-question-text without disturbing an existing parked prompt', async () => {
     const existing = park('duplicate-question', 'permission');
 
     const duplicate = parkPrompt({
@@ -303,9 +399,12 @@ describe('promptStore work-log emission', () => {
       payload: { questions: [{ question: 'Same' }, { question: 'Same' }], input: {} },
     });
 
-    await expect(existing.promise).resolves.toMatchObject({ behavior: 'deny', message: 'This interaction was superseded.' });
     await expect(duplicate).resolves.toMatchObject({ behavior: 'deny', message: 'Please re-ask using distinct question text.' });
-    expect(getPrompt('duplicate-question')).toBeNull();
+    // The rejected duplicate never touches the queue: the existing prompt is
+    // still parked and still the head, not superseded.
+    expect(getPrompt('duplicate-question')?.id).toBe(existing.prompt.id);
+    cancelPrompt('duplicate-question');
+    await existing.promise;
   });
 
   it('immediately denies an already-aborted prompt without replacing a live prompt', async () => {
@@ -339,5 +438,123 @@ describe('promptStore work-log emission', () => {
     await expect(promise).resolves.toMatchObject({
       behavior: 'deny', message: 'Always allow is unavailable for this permission request.',
     });
+  });
+});
+
+describe('promptStore concurrent prompt queue', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessions.getById = vi.fn(() => null);
+  });
+
+  it('parks a second concurrent prompt for the same session instead of auto-denying the first', async () => {
+    const first = park('concurrent', 'permission');
+    const second = park('concurrent', 'permission');
+
+    await assertStillPending(first.promise);
+    await assertStillPending(second.promise);
+    expect(createWorkLog).not.toHaveBeenCalled();
+    // FIFO: the user answers in arrival order.
+    expect(getPrompt('concurrent')?.id).toBe(first.prompt.id);
+  });
+
+  it('resolves the first prompt and promotes the second to head without settling it', async () => {
+    const first = park('concurrent-handoff', 'permission');
+    const second = park('concurrent-handoff', 'permission');
+
+    expect(respondToPrompt('concurrent-handoff', first.prompt.id, { action: 'allow' })).toBe(true);
+    await expect(first.promise).resolves.toMatchObject({ behavior: 'allow' });
+    await assertStillPending(second.promise);
+    expect(getPrompt('concurrent-handoff')?.id).toBe(second.prompt.id);
+
+    expect(respondToPrompt('concurrent-handoff', second.prompt.id, { action: 'allow' })).toBe(true);
+    await expect(second.promise).resolves.toMatchObject({ behavior: 'allow' });
+    expect(getPrompt('concurrent-handoff')).toBeNull();
+  });
+
+  it('broadcasts SESSION_PROMPT for the newly-surfaced head when the previous head resolves', async () => {
+    const first = park('concurrent-broadcast', 'permission');
+    const second = park('concurrent-broadcast', 'permission');
+    broadcastToSession.mockClear();
+
+    respondToPrompt('concurrent-broadcast', first.prompt.id, { action: 'allow' });
+    await first.promise;
+
+    expect(broadcastToSession).toHaveBeenCalledWith(
+      'concurrent-broadcast',
+      WS_MESSAGE_TYPES.SESSION_PROMPT,
+      expect.objectContaining({ sessionId: 'concurrent-broadcast', prompt: expect.objectContaining({ id: second.prompt.id }) }),
+    );
+    cancelPrompt('concurrent-broadcast');
+    await second.promise;
+  });
+
+  it('keeps pendingAgentInput true across the handoff and clears it only once the queue drains', async () => {
+    const session = { id: 'concurrent-pending', projectId: 'proj-1' };
+    sessions.getById = vi.fn(() => session);
+
+    const first = park('concurrent-pending', 'permission');
+    const second = park('concurrent-pending', 'permission');
+
+    respondToPrompt('concurrent-pending', first.prompt.id, { action: 'allow' });
+    await first.promise;
+
+    // Resolving the first (with a sibling still queued) must not have
+    // broadcast pendingAgentInput: false.
+    expect(broadcastToSession).not.toHaveBeenCalledWith(
+      'concurrent-pending', expect.anything(),
+      expect.objectContaining({ session: expect.objectContaining({ pendingAgentInput: false }) }),
+    );
+
+    respondToPrompt('concurrent-pending', second.prompt.id, { action: 'allow' });
+    await second.promise;
+
+    expect(broadcastToProject).toHaveBeenCalledWith(
+      'proj-1', expect.anything(),
+      expect.objectContaining({ session: expect.objectContaining({ pendingAgentInput: false }) }),
+    );
+  });
+
+  it('cancels every queued prompt when the session is stopped, each writing exactly one work-log entry', async () => {
+    const first = park('drain-all', 'permission');
+    const second = park('drain-all', 'permission');
+    const third = park('drain-all', 'permission');
+
+    expect(cancelPrompt('drain-all', 'Session stopped.')).toBe(true);
+
+    await expect(first.promise).resolves.toMatchObject({ behavior: 'deny', message: 'Session stopped.' });
+    await expect(second.promise).resolves.toMatchObject({ behavior: 'deny', message: 'Session stopped.' });
+    await expect(third.promise).resolves.toMatchObject({ behavior: 'deny', message: 'Session stopped.' });
+
+    const calls = createWorkLog.mock.calls.filter(([sessionId]) => sessionId === 'drain-all');
+    expect(calls).toHaveLength(3);
+    expect(getPrompt('drain-all')).toBeNull();
+  });
+
+  it('cancels only the aborted prompt and leaves a sibling queued and answerable', async () => {
+    const controller = new AbortController();
+    const first = park('per-prompt-abort', 'permission', permissionPayload, controller.signal);
+    const second = park('per-prompt-abort', 'permission');
+
+    controller.abort();
+    await expect(first.promise).resolves.toMatchObject({ behavior: 'deny', message: 'Session was cancelled.' });
+    await assertStillPending(second.promise);
+    expect(getPrompt('per-prompt-abort')?.id).toBe(second.prompt.id);
+
+    expect(respondToPrompt('per-prompt-abort', second.prompt.id, { action: 'allow' })).toBe(true);
+    await expect(second.promise).resolves.toMatchObject({ behavior: 'allow' });
+  });
+
+  it('rejects a response for a queued-but-not-head promptId as not-current, without settling it', async () => {
+    const first = park('not-current', 'permission');
+    const second = park('not-current', 'permission');
+
+    expect(respondToPrompt('not-current', second.prompt.id, { action: 'allow' })).toBe(false);
+    await assertStillPending(second.promise);
+    expect(getPrompt('not-current')?.id).toBe(first.prompt.id);
+
+    cancelPrompt('not-current');
+    await first.promise;
+    await second.promise;
   });
 });
