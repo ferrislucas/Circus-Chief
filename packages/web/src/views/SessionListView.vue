@@ -182,7 +182,7 @@
       </div>
 
       <div
-        v-else-if="workspaceList.cards.length === 0"
+        v-else-if="workspaceList.cards.length === 0 && !workspaceList.hasActiveFilters"
         class="empty-state"
       >
         <p>No workspaces yet. Start a new workspace to interact with the agent.</p>

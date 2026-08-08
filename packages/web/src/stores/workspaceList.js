@@ -26,6 +26,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
   }),
   getters: {
     cards: state => state.orderedIds.map(id => state.cardsById[id]).filter(Boolean),
+    hasActiveFilters: state => Object.values(state.query).some(value => value !== undefined && value !== null && value !== ''),
   },
   actions: {
     _install(projectId, query, result, { append = false } = {}) {

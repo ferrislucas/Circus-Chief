@@ -50,6 +50,10 @@ function moveSessionBetweenLists(sourceList, targetList, sessionData) {
   return sourceList.filter((s) => s.id !== sessionData.id);
 }
 
+function upsertSessionListMembers(list, members) {
+  for (const member of members) updateSessionInList(list, member, true);
+}
+
 /**
  * Session CRUD and lifecycle actions for the sessions store.
  * These are spread directly into the Pinia store actions, so `this` refers to the store instance.
@@ -138,13 +142,7 @@ export const sessionActions = {
       } else {
         this.sessions.push(fetchedSession);
       }
-      if (workspaceDetail?.members) {
-        for (const member of workspaceDetail.members) {
-          const memberIndex = this.sessions.findIndex(session => session.id === member.id);
-          if (memberIndex !== -1) this.sessions[memberIndex] = { ...this.sessions[memberIndex], ...member };
-          else this.sessions.push(member);
-        }
-      }
+      if (workspaceDetail?.members) upsertSessionListMembers(this.sessions, workspaceDetail.members);
     } catch (err) { this.error = err.message; }
     finally { if (showLoading) this.loading = false; }
   },
