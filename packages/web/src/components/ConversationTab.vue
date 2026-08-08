@@ -173,7 +173,7 @@ const {
 } = useSessionControl({
   getSessionId: () => props.sessionId,
 });
-const { startingNow, startScheduledNow } = useScheduleStartNow(sessionsStore);
+const { startingNow, startScheduledNow } = useScheduleStartNow(sessionsStore, () => sessionsStore.currentSession?.id);
 
 // Local state
 const input = ref('');
@@ -229,9 +229,19 @@ const unassociatedWorkLogs = computed(() => sessionsStore.getUnassociatedWorkLog
 
 const inputHasContent = computed(() => input.value.trim().length > 0);
 
+// True while ANY schedule mutation (Start Now, Edit save, Cancel) is in
+// flight for the current session, regardless of which control triggered it
+// (e.g. SchedulingInfo's Cancel button, rendered alongside this form). See
+// `scheduleMutationInFlight` in perSessionGetters.js. Optional-chained like
+// `hasRecentSend` elsewhere in this file, since some store test doubles
+// don't implement every getter.
+const scheduleMutationInFlight = computed(() =>
+  Boolean(sessionsStore.currentSession?.id && sessionsStore.scheduleMutationInFlight?.(sessionsStore.currentSession.id))
+);
+
 const isSendDisabled = computed(() => {
   if (isStale.value) return true;
-  return !inputHasContent.value || sending.value || startingNow.value;
+  return !inputHasContent.value || sending.value || scheduleMutationInFlight.value;
 });
 
 const sendButtonDisabledReason = computed(() => {
@@ -243,6 +253,9 @@ const sendButtonDisabledReason = computed(() => {
   }
   if (sending.value) {
     return 'Message is being sent...';
+  }
+  if (scheduleMutationInFlight.value) {
+    return 'Schedule action in progress...';
   }
   return null;
 });

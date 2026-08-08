@@ -687,4 +687,39 @@ describe('SessionsApi', () => {
       }));
     });
   });
+
+  describe('runScheduledNow', () => {
+    it('sends POST with no body when no prompt override is given', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+
+      await client.runScheduledNow('sess-123');
+
+      const callArgs = mockFetch.mock.calls[0];
+      expect(callArgs[0]).toBe('/api/sessions/sess-123/run-scheduled-now');
+      expect(callArgs[1].method).toBe('POST');
+      expect(callArgs[1].body).toBeUndefined();
+    });
+
+    it('sends the edited prompt directly in the request body — a single atomic call, not a preceding save', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+
+      await client.runScheduledNow('sess-123', { prompt: 'edited prompt' });
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/run-scheduled-now', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ prompt: 'edited prompt' }),
+      }));
+    });
+
+    it('returns the started session', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting', scheduledAt: null, pendingPrompt: null }));
+
+      const result = await client.runScheduledNow('sess-123');
+
+      expect(result.status).toBe('starting');
+      expect(result.scheduledAt).toBeNull();
+      expect(result.pendingPrompt).toBeNull();
+    });
+  });
 });

@@ -60,4 +60,21 @@ export const perSessionGetters = {
     if (!ts) return false;
     return Date.now() - ts < RECENT_SEND_TTL_MS;
   },
+
+  /**
+   * Returns the kind of schedule-related mutation currently in flight for a
+   * session on this store instance ('starting' | 'cancelling' | null).
+   *
+   * This is deliberately keyed by session id on the store itself (rather
+   * than a local ref inside each composable instance) so every control
+   * touching a given scheduled session — the "Start Now" button in
+   * `SchedulingInfo`/`ScheduledChildCard`, the prompt submit button in
+   * `ConversationTab`, and the Edit/Cancel actions — shares one in-flight
+   * state and disables together, regardless of which component instance
+   * triggered the mutation. See `beginScheduleMutation`/`endScheduleMutation`.
+   */
+  scheduleMutationInFlight: (state) => (sessionId) => {
+    if (!sessionId || !state.scheduleMutationsInFlight) return null;
+    return state.scheduleMutationsInFlight[sessionId] || null;
+  },
 };

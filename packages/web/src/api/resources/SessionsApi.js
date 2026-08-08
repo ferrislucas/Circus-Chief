@@ -402,11 +402,19 @@ export function SessionsApi(ApiClient) {
 
     /**
      * Start a scheduled session immediately.
+     *
+     * When `prompt` is provided, it overrides the persisted `pendingPrompt`
+     * for this launch. The server applies the override atomically with its
+     * claim on the scheduled session — there is no separate "save the
+     * edited prompt" request before this one, so a racing poller tick or
+     * second manual request can never observe half of the edit.
+     *
      * @param {string} id - Session ID
+     * @param {{ prompt?: string }} [options]
      * @returns {Promise<Object>}
      */
-    async runScheduledNow(id) {
-      return this._post(`/sessions/${id}/run-scheduled-now`);
+    async runScheduledNow(id, { prompt } = {}) {
+      return this._post(`/sessions/${id}/run-scheduled-now`, prompt !== undefined ? { prompt } : undefined);
     },
   });
 }
