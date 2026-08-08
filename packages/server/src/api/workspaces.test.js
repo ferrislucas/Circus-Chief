@@ -97,6 +97,30 @@ describe('Workspace facade API', () => {
       expect(res.body.pagination.hasMore).toBe(true);
     });
 
+    it('returns a compact, root-only card projection for the optimized list', async () => {
+      const root = sessions.create(project.id, 'Root', 'p');
+      sessions.create(project.id, 'Running child', 'p', { parentSessionId: root.id, status: 'running' });
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=50&status=running`)
+        .expect(200);
+
+      expect(res.body.workspaces).toHaveLength(1);
+      expect(res.body.workspaces[0]).toMatchObject({
+        id: root.id, name: 'Root', runningCount: 2, memberCount: 1,
+      });
+      expect(res.body.workspaces[0]).not.toHaveProperty('pendingPrompt');
+      expect(res.body.workspaces[0]).not.toHaveProperty('sessions');
+      expect(res.headers['server-timing']).toContain('workspace;dur=');
+      expect(Number(res.headers['x-response-bytes'])).toBeGreaterThan(0);
+    });
+
+    it('caps the optimized card page at 50 items', async () => {
+      await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=51`)
+        .expect(400);
+    });
+
     it('returns 404 for unknown project', async () => {
       await request(app)
         .get('/api/projects/unknown-id/workspaces')
@@ -199,6 +223,9 @@ describe('Workspace facade API', () => {
       const childIds = res.body.sessions.map((s) => s.id);
       expect(childIds).toContain(child.id);
       expect(childIds).toContain(grandchild.id);
+      expect(res.body.workspace).toMatchObject({ id: root.id, parentSessionId: null });
+      expect(res.body.members).toHaveLength(3);
+      expect(res.body.members[0]).not.toHaveProperty('pendingPrompt');
     });
 
     it('normalises a child ID to its workspace root (forgiving)', async () => {
