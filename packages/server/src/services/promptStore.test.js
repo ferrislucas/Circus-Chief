@@ -16,7 +16,10 @@ const questionPayload = {
   input: { questions: [{ question: 'Which approach?', options: [] }] },
   questions: [{ question: 'Which approach?', options: [] }],
 };
-const permissionPayload = { toolName: 'Bash', input: { command: 'yarn test' }, suggestions: [{ type: 'addRules', rules: [] }] };
+const permissionPayload = {
+  toolName: 'Bash', input: { command: 'yarn test', description: 'Run the test suite' },
+  suggestions: [{ type: 'addRules', rules: [] }],
+};
 
 function park(sessionId, kind, payload = kind === 'question' ? questionPayload : permissionPayload, signal) {
   const promise = parkPrompt({ sessionId, conversationId: 'conv-1', kind, payload, signal });
@@ -59,7 +62,10 @@ describe('promptStore work-log emission', () => {
       expect(toolName).toBe('Bash');
       expect(content).toContain('Permission decision');
       expect(content).toContain('Tool: Bash');
-      expect(content).toContain('Input: {"command":"yarn test"}');
+      // Only the allowlisted, tool-specific safe summary is persisted — never
+      // the raw command a user is being asked to approve.
+      expect(content).toContain('Input summary: {"description":"Run the test suite"}');
+      expect(content).not.toContain('yarn test');
     }
     expect(createWorkLog.mock.calls[1][2]).toContain('Outcome: allow once');
     expect(createWorkLog.mock.calls[2][2]).toContain('Outcome: always allow');
@@ -84,7 +90,7 @@ describe('promptStore work-log emission', () => {
     expect(createWorkLog).toHaveBeenCalledWith('aborted', 'tool_output', expect.stringContaining('Reason: Session was cancelled.'), 'Bash');
   });
 
-  it('redacts credentials while retaining permission context in history', async () => {
+  it('retains permission context in history without persisting raw tool input', async () => {
     const { promise, prompt } = park('redacted-history', 'permission', {
       toolName: 'Bash', title: 'Deploy', blockedPath: '/protected/.env', decisionReason: 'Needs approval',
       input: { command: 'deploy', api_key: 'very-secret', nested: { token: 'also-secret' } },
@@ -96,9 +102,64 @@ describe('promptStore work-log emission', () => {
     expect(content).toContain('Blocked path: /protected/.env');
     expect(content).toContain('Decision context: Needs approval');
     expect(content).toContain('Reason: Permission denied by user.');
-    expect(content).toContain('[redacted]');
     expect(content).not.toContain('very-secret');
     expect(content).not.toContain('also-secret');
+    expect(content).not.toContain('deploy');
+    // Bash carries no allowlisted field here (no `description`), so no input
+    // summary line is written at all rather than falling back to raw input.
+    expect(content).not.toContain('Input summary');
+  });
+
+  it('never persists raw Bash.command, Write.content, or Edit.new_string, even though they are exactly what the approval card must show live', async () => {
+    const bash = park('sensitive-bash', 'permission', { toolName: 'Bash', input: { command: 'curl -H "Authorization: Bearer sk-live-abc123" https://api.example.com' } });
+    respondToPrompt('sensitive-bash', bash.prompt.id, { action: 'deny' });
+    await bash.promise;
+
+    const write = park('sensitive-write', 'permission', { toolName: 'Write', input: { file_path: 'secrets.env', content: 'API_KEY=sk-live-abc123' } });
+    respondToPrompt('sensitive-write', write.prompt.id, { action: 'allow' });
+    await write.promise;
+
+    const edit = park('sensitive-edit', 'permission', { toolName: 'Edit', input: { file_path: 'config.js', old_string: 'token = "old"', new_string: 'token = "sk-live-abc123"' } });
+    respondToPrompt('sensitive-edit', edit.prompt.id, { action: 'allow' });
+    await edit.promise;
+
+    // Live approval-card data (the transient, pre-resolution payload) must
+    // still carry the full raw input — only durable history is restricted.
+    expect(bash.prompt.payload.input.command).toContain('Bearer sk-live-abc123');
+
+    const bashContent = createWorkLog.mock.calls[0][2];
+    const writeContent = createWorkLog.mock.calls[1][2];
+    const editContent = createWorkLog.mock.calls[2][2];
+    for (const content of [bashContent, writeContent, editContent]) {
+      expect(content).not.toContain('sk-live-abc123');
+      expect(content).not.toContain('curl');
+      expect(content).not.toContain('API_KEY');
+      expect(content).not.toContain('token = ');
+    }
+    expect(writeContent).toContain('Input summary: {"file_path":"secrets.env"}');
+    expect(editContent).toContain('Input summary: {"file_path":"config.js"}');
+  });
+
+  it('never persists a secret stashed under an innocuous, non-allowlisted key — proving key-name-only redaction is not a valid boundary', async () => {
+    const { promise, prompt } = park('innocuous-key', 'permission', {
+      toolName: 'Bash', input: { command: 'ls', notes: 'sk-live-secret-under-a-safe-looking-key' },
+    });
+    respondToPrompt('innocuous-key', prompt.id, { action: 'allow' });
+    await promise;
+    const content = createWorkLog.mock.calls.at(-1)[2];
+    expect(content).not.toContain('sk-live-secret-under-a-safe-looking-key');
+    expect(content).not.toContain('ls');
+  });
+
+  it('omits input entirely for unrecognized tools rather than persisting arbitrary scalar input', async () => {
+    const { promise, prompt } = park('unknown-tool', 'permission', {
+      toolName: 'CustomMcpTool', input: { value: 'private-key-material-BEGIN', anything: 'goes here' },
+    });
+    respondToPrompt('unknown-tool', prompt.id, { action: 'allow' });
+    await promise;
+    const content = createWorkLog.mock.calls.at(-1)[2];
+    expect(content).not.toContain('private-key-material-BEGIN');
+    expect(content).not.toContain('Input summary');
   });
 
   it('does not log a stale second response', async () => {

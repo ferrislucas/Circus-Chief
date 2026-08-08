@@ -9,6 +9,7 @@
   >
     <header class="prompt-header">
       <span class="prompt-status">Needs input</span>
+      <span v-if="subagentLabel" class="prompt-origin" :title="`Raised by subagent ${prompt.agentId}`">Subagent · {{ subagentLabel }}</span>
       <p class="prompt-context">{{ prompt.kind === 'question' ? 'The agent is waiting for your guidance.' : 'The agent needs approval to continue.' }}</p>
     </header>
 
@@ -159,6 +160,15 @@ function hasAnswer(question) {
   return Boolean(other.value[question.question]?.trim() || (Array.isArray(selected) ? selected.length : selected));
 }
 const canSubmit = computed(() => Boolean(props.prompt?.payload.questions?.every(hasAnswer)));
+// Main-agent prompts (no agentId) render no origin metadata. Subagent
+// prompts get a short, visually stable label; the full id stays available
+// via the `title` attribute so it's never lost, just not spelled out inline
+// where a long identifier could overflow the card.
+const subagentLabel = computed(() => {
+  const id = props.prompt?.agentId;
+  if (!id) return null;
+  return id.length > 12 ? `${id.slice(0, 12)}…` : id;
+});
 const isFileMutation = computed(() => ['Edit', 'Write'].includes(props.prompt?.payload.toolName));
 const permissionDiffFiles = computed(() => {
   const input = props.prompt?.payload.input || {};
@@ -211,6 +221,7 @@ useKeyboardShortcuts({
 .prompt-header { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1.15rem; }
 .prompt-status { color: #f2c462; font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .prompt-status::before { content: '◆'; margin-right: .45rem; font-size: .58rem; }
+.prompt-origin { flex: 0 1 auto; min-width: 0; max-width: 14rem; padding: .1rem .45rem; overflow: hidden; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-text-soft); font-size: .68rem; font-weight: 600; letter-spacing: .02em; text-overflow: ellipsis; white-space: nowrap; }
 .prompt-context, .permission-intro p { color: var(--color-text-soft); font-size: .85rem; }
 .question-block + .question-block { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--color-border); }
 .question-heading { display: flex; align-items: flex-start; gap: .65rem; margin-bottom: .75rem; }

@@ -4,6 +4,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { createWorkLog } from './workLogService.js';
 import { sessions } from '../database.js';
 import { PROMPT_ACTIONS_BY_KIND } from '@circuschief/shared/contracts/prompts';
+import { buildSafeToolInputSummary } from './promptSafeSummary.js';
 
 const prompts = new Map();
 const CANCELLED_MESSAGE = 'Session was cancelled.';
@@ -56,23 +57,19 @@ function permissionHistoryLines(record, outcome, result) {
     allow: 'allow once', always_allow: 'always allow', deny: 'deny',
     superseded: 'superseded', cancelled: 'cancelled',
   }[outcome] || outcome;
+  // Durable history persists only an allowlisted, tool-specific summary of
+  // the input — never the raw payload the live approval card shows. See
+  // promptSafeSummary.js for why key-name redaction is not sufficient here.
+  const inputSummary = buildSafeToolInputSummary(toolName, record.payload.input);
   return [
     'Permission decision', `Outcome: ${decision}`, `Tool: ${toolName}`,
     record.payload.title && `Title: ${record.payload.title}`,
     record.payload.blockedPath && `Blocked path: ${record.payload.blockedPath}`,
-    `Input: ${JSON.stringify(redactSensitiveValues(record.payload.input || {}))}`,
+    Object.keys(inputSummary).length && `Input summary: ${JSON.stringify(inputSummary)}`,
     record.payload.decisionReason && `Decision context: ${record.payload.decisionReason}`,
     outcome === 'always_allow' && `Scope: ${result.updatedPermissions?.[0]?.destination || 'session'}`,
     result.message && `Reason: ${result.message}`,
   ].filter(Boolean);
-}
-
-const SENSITIVE_KEY = /(?:api[_-]?key|authorization|credential|password|secret|token)/i;
-function redactSensitiveValues(value, key = '') {
-  if (SENSITIVE_KEY.test(key)) return '[redacted]';
-  if (Array.isArray(value)) return value.map((item) => redactSensitiveValues(item));
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, redactSensitiveValues(item, name)]));
-  return value;
 }
 
 export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, agentId = null, payload, signal }) {

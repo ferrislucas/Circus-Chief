@@ -101,6 +101,36 @@ describe('AgentPromptCard', () => {
     });
   });
 
+  it('shows a concise, accessible subagent origin indicator on question prompts raised by a subagent', async () => {
+    const subagentPrompt = { ...prompt, agentId: 'agent-98765432-abcdef' };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: subagentPrompt } });
+    const origin = wrapper.get('.prompt-origin');
+    expect(origin.text()).toContain('Subagent');
+    expect(origin.attributes('title')).toContain('agent-98765432-abcdef');
+  });
+
+  it('shows a subagent origin indicator on permission prompts raised by a subagent', async () => {
+    const permission = { id: 'permission-subagent', kind: 'permission', agentId: 'agent-55555555', payload: { toolName: 'Bash', input: { command: 'ls' } } };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: permission } });
+    const origin = wrapper.get('.prompt-origin');
+    expect(origin.text()).toContain('Subagent');
+    expect(origin.attributes('title')).toContain('agent-55555555');
+  });
+
+  it('does not render subagent metadata for main-agent prompts (no agentId)', async () => {
+    const wrapper = mount(AgentPromptCard, { props: { prompt } });
+    expect(wrapper.find('.prompt-origin').exists()).toBe(false);
+  });
+
+  it('truncates a long subagent identifier visually while keeping the full id accessible via title, so the card cannot overflow', async () => {
+    const longId = `agent-${'x'.repeat(64)}`;
+    const subagentPrompt = { ...prompt, agentId: longId };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: subagentPrompt } });
+    const origin = wrapper.get('.prompt-origin');
+    expect(origin.text().length).toBeLessThan(longId.length);
+    expect(origin.attributes('title')).toContain(longId);
+  });
+
   it('keeps blank lines in permission diff line numbers and counts', async () => {
     const permission = { id: 'diff', kind: 'permission', payload: {
       toolName: 'Edit', input: { file_path: 'example.txt', old_string: 'first\n\nthird', new_string: 'first\n\nupdated' },
