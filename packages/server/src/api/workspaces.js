@@ -34,6 +34,21 @@ const ERR_WORKSPACE_NOT_FOUND = 'Workspace not found';
 const projectWorkspacesRouter = Router();
 const workspacesRouter = Router();
 
+// These timings are intentionally response headers rather than a metrics sink:
+// they are production-safe, immediately visible in browser waterfalls, and keep
+// the list/detail contract measurable without recording user content.
+function sendWorkspaceJson(res, payload, startedAt) {
+  const serializeStartedAt = performance.now();
+  const body = JSON.stringify(payload);
+  const serializationMs = performance.now() - serializeStartedAt;
+  const totalMs = performance.now() - startedAt;
+  res.set({
+    'Server-Timing': `workspace;dur=${totalMs.toFixed(1)}, serialize;dur=${serializationMs.toFixed(1)}`,
+    'X-Response-Bytes': String(Buffer.byteLength(body)),
+  });
+  return res.type('application/json').send(body);
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -122,12 +137,40 @@ function handleCreateError(res, session, error, label) {
 //   With `limit` query param    → { workspaces: [...], pagination: { total, limit, offset, hasMore } }
 // ---------------------------------------------------------------------------
 projectWorkspacesRouter.get('/:projectId/workspaces', (req, res) => {
+  const startedAt = performance.now();
   const project = projects.getById(req.params.projectId);
   if (!project) {
     return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
-  const { archived, starred, limit, offset } = req.query;
+  const { archived, starred, limit, offset, view, status, scheduled } = req.query;
+
+  // The card view is the bounded hot-path used by the workspace list. Keep the
+  // original response below for compatibility with automation and integrations.
+  if (view === 'cards') {
+    const parsedLimit = Number.parseInt(limit, 10);
+    const parsedOffset = offset === undefined ? 0 : Number.parseInt(offset, 10);
+    if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 50
+      || !Number.isInteger(parsedOffset) || parsedOffset < 0
+      || !['running', 'idle', undefined].includes(status)
+      || !['true', 'false', undefined].includes(scheduled)) {
+      return res.status(400).json({ error: 'Invalid workspace card pagination or filters' });
+    }
+    const pagePlusOne = sessions.getWorkspaceCards(req.params.projectId, {
+      archived: archived === 'true',
+      starred: starred === 'true' ? true : starred === 'false' ? false : null,
+      status: status || null,
+      scheduled: scheduled === 'true' ? true : scheduled === 'false' ? false : null,
+      limit: parsedLimit + 1,
+      offset: parsedOffset,
+    });
+    const hasMore = pagePlusOne.length > parsedLimit;
+    const cards = pagePlusOne.slice(0, parsedLimit);
+    return sendWorkspaceJson(res, {
+      workspaces: cards,
+      pagination: { limit: parsedLimit, offset: parsedOffset, hasMore },
+    }, startedAt);
+  }
   let archivedFilter = null;
   if (archived === 'true') archivedFilter = true;
   else if (archived === 'false') archivedFilter = false;
@@ -200,20 +243,31 @@ projectWorkspacesRouter.post('/:projectId/workspaces', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/workspaces/:workspaceId — workspace detail with its session tree
+// GET /api/workspaces/:workspaceId — workspace detail shell with its session tree
 // ---------------------------------------------------------------------------
 workspacesRouter.get('/:workspaceId', (req, res) => {
+  const startedAt = performance.now();
   const resolved = resolveWorkspace(res, req.params.workspaceId);
   if (!resolved) return;
 
   const { workspace } = resolved;
-  const descendantIds = sessions.getAllDescendantIds(workspace.id);
-  const descendants = descendantIds.length > 0 ? sessions.getByIds(descendantIds) : [];
+  const members = sessions.getWorkspaceMembers(workspace.id);
+  const root = members.find(member => member.id === workspace.id);
+  // Keep the root fields and `sessions` alias during the compatibility window;
+  // both now use the compact allowlisted projection rather than raw rows.
+  return sendWorkspaceJson(res, {
+    ...root,
+    sessions: members.filter(member => member.id !== workspace.id),
+    workspace: root,
+    members,
+  }, startedAt);
+});
 
-  return res.json({
-    ...workspace,
-    sessions: descendants,
-  });
+// GET /api/workspaces/:workspaceId/members — cacheable lightweight tree only.
+workspacesRouter.get('/:workspaceId/members', (req, res) => {
+  const resolved = resolveWorkspace(res, req.params.workspaceId);
+  if (!resolved) return;
+  return res.json({ workspaceId: resolved.workspace.id, members: sessions.getWorkspaceMembers(resolved.workspace.id) });
 });
 
 // ---------------------------------------------------------------------------

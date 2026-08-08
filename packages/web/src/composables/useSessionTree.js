@@ -28,22 +28,6 @@ export function useSessionTree(currentSessionId, sessionChainReady) {
 
   // ── Session chain helpers ──────────────────────────────────────────
 
-  async function mergeProjectSessionsToStore(projectId) {
-    try {
-      const projectSessions = await api.getProjectSessions(projectId, false, null);
-      for (const s of projectSessions) {
-        const idx = sessionsStore.sessions.findIndex(existing => existing.id === s.id);
-        if (idx >= 0) {
-          sessionsStore.sessions[idx] = s;
-        } else {
-          sessionsStore.sessions.push(s);
-        }
-      }
-    } catch {
-      // Not critical if project sessions fail to load
-    }
-  }
-
   function findRootSession(sessionId) {
     const root = sessionsStore.getRootSession(sessionId);
     if (root) return { root, earlyReturn: null };
@@ -73,8 +57,6 @@ export function useSessionTree(currentSessionId, sessionChainReady) {
     }
 
     const session = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
-    if (session?.projectId) await mergeProjectSessionsToStore(session.projectId);
-
     const { root, earlyReturn } = findRootSession(sessionId);
     if (earlyReturn) { sessionChain.value = sortSessionChain(earlyReturn); return; }
     if (!root) return;
