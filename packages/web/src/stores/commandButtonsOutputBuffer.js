@@ -46,6 +46,25 @@ export function buildRunEntry(run, runId, existing) {
 }
 
 /**
+ * Append text to a run's rendered output immediately (no throttling buffer).
+ * @param {Object} store - The Pinia store instance
+ * @param {string} runId - The run ID
+ * @param {string} text - The text to append
+ */
+function patchRunOutput(store, runId, text) {
+  const { output, truncated } = truncateOutput(store.runs[runId].output + text);
+  store.$patch({
+    runs: {
+      [runId]: {
+        ...store.runs[runId],
+        output,
+        outputTruncated: store.runs[runId].outputTruncated || truncated,
+      },
+    },
+  });
+}
+
+/**
  * Flush buffered output to the run state.
  * Called on a timer to batch updates and reduce reactivity overhead.
  * @param {Object} store - The Pinia store instance (with runs, _outputBuffers, _flushTimers, $patch)
@@ -67,20 +86,8 @@ export function flushOutput(store, runId) {
     return;
   }
 
-  // Combine existing output with buffer
-  const combined = store.runs[runId].output + buffer;
-  const { output, truncated } = truncateOutput(combined);
-
-  // Update state in one batch
-  store.$patch({
-    runs: {
-      [runId]: {
-        ...store.runs[runId],
-        output,
-        outputTruncated: store.runs[runId].outputTruncated || truncated,
-      },
-    },
-  });
+  // Combine existing output with buffer in one batched state update
+  patchRunOutput(store, runId, buffer);
 
   // Clear the buffer
   delete store._outputBuffers[runId];
@@ -94,8 +101,14 @@ export function flushOutput(store, runId) {
  * @param {Object} store - The Pinia store instance
  * @param {string} runId - The run ID
  * @param {string} text - The text to append
+ * @param {Object} [options]
+ * @param {boolean} [options.allowAfterCompletion=false] - Set by callers that
+ *   dedupe by persisted sequence number (the command-run output subscription).
+ *   Their catch-up chunks may legitimately land after the completion event -
+ *   e.g. a resync issued because the socket was backpressured - and dropping
+ *   them would truncate the tail of the run permanently.
  */
-export function appendOutput(store, runId, text) {
+export function appendOutput(store, runId, text, { allowAfterCompletion = false } = {}) {
   if (!store.runs[runId]) {
     return;
   }
@@ -103,6 +116,9 @@ export function appendOutput(store, runId, text) {
   // Ignore output for completed runs to prevent duplication
   // (WS output events can arrive after the complete event due to race conditions)
   if (store.runs[runId].status !== 'running') {
+    // The throttled buffer path is finalized once a run completes, so
+    // sequenced catch-up text is applied straight to the rendered output.
+    if (allowAfterCompletion && text) patchRunOutput(store, runId, text);
     return;
   }
 

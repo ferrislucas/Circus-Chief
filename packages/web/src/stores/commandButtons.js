@@ -203,8 +203,8 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       }
     },
 
-    appendOutput(runId, text) {
-      appendOutputHelper(this, runId, text);
+    appendOutput(runId, text, options) {
+      appendOutputHelper(this, runId, text, options);
     },
 
     flushPendingOutput(runId) {

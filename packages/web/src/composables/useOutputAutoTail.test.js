@@ -170,6 +170,27 @@ describe('useOutputAutoTail', () => {
     expect(el.scrollTop).toBe(50000);
   });
 
+  it('a scroll-away before an already-scheduled frame runs keeps the pane paused', async () => {
+    const el = createFakeElement({ scrollHeight: 1000, scrollTop: 700, clientHeight: 300 });
+    const elRef = ref(el);
+    const { api } = mountComposable(elRef);
+
+    // Output arrives while tailing, so a scroll-to-bottom frame is queued.
+    api().handleRenderedOutput();
+    await nextTick();
+    expect(rafQueue.length).toBe(1);
+
+    // The user scrolls to the top before that frame gets a chance to run.
+    el.scrollTop = 0;
+    api().handleScroll();
+    expect(api().isTailing.value).toBe(false);
+
+    flushFrames();
+
+    expect(el.scrollTop).toBe(0);
+    expect(api().isTailing.value).toBe(false);
+  });
+
   it('repeated notifications before the frame runs coalesce to one frame', async () => {
     const el = createFakeElement({ scrollHeight: 1000, scrollTop: 700, clientHeight: 300 });
     const elRef = ref(el);

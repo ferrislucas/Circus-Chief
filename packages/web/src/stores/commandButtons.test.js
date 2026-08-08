@@ -624,6 +624,30 @@ describe('CommandButtons Store', () => {
       expect(store.runs['run-1'].output).toBe('error output');
     });
 
+    it('appendOutput applies sequenced catch-up text that lands after completion', () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'run-1': { runId: 'run-1', status: 'success', output: 'LINE 67\n', outputTruncated: false },
+      };
+
+      // A resync issued while the run was still going can only resolve after
+      // the completion event; its chunks must still reach the rendered output.
+      store.appendOutput('run-1', 'LINE 68\n', { allowAfterCompletion: true });
+
+      expect(store.runs['run-1'].output).toBe('LINE 67\nLINE 68\n');
+    });
+
+    it('appendOutput applies sequenced catch-up text for errored runs too', () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'run-1': { runId: 'run-1', status: 'error', output: 'boom', outputTruncated: false },
+      };
+
+      store.appendOutput('run-1', ' trailing', { allowAfterCompletion: true });
+
+      expect(store.runs['run-1'].output).toBe('boom trailing');
+    });
+
     it('completeRun updates status and exit code', () => {
       const store = useCommandButtonsStore();
       store.runs = {

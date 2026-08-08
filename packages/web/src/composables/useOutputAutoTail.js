@@ -55,6 +55,10 @@ export function useOutputAutoTail(containerRef) {
     frameId = null;
     pendingFrame = false;
     if (disposed) return;
+    // A frame scheduled while tailing can still be pending when the user
+    // scrolls away. Re-read the state at frame time so a paused pane is never
+    // yanked back to the bottom by work queued before the pause.
+    if (!isTailing.value) return;
     const el = containerRef.value;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
