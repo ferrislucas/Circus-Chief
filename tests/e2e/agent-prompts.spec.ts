@@ -24,6 +24,10 @@ import {
 // already-running session). The prompt must be sent verbatim.
 const QUESTION_PROMPT = 'E2E demo: ask the user which deployment target to use before proceeding.';
 const PERMISSION_PROMPT = 'E2E demo: propose a gated config edit that requires permission approval.';
+// This cassette records the SDK result expected after selecting project scope.
+// It is intentionally distinct from PERMISSION_PROMPT, whose cassette is used
+// by the allow-once and denial tests.
+const PROJECT_ALWAYS_ALLOW_PROMPT = 'E2E demo: grant a project-scoped always-allow rule for the gated config edit.';
 
 /**
  * Poll the session until the server reports a parked prompt
@@ -119,17 +123,20 @@ test.describe('Interactive Agent Prompts', () => {
     await waitForStatus(session.id, 'waiting', 60000);
   });
 
-  test('permission prompt: always allow honors the selected project scope', async ({ page }) => {
-    const session = await seedAndStartSession(project.id, 'Always Allow Prompt', PERMISSION_PROMPT);
+  test('permission prompt: always allow sends the project-scoped SDK permission update and completes the operation', async ({ page }) => {
+    const session = await seedAndStartSession(project.id, 'Always Allow Prompt', PROJECT_ALWAYS_ALLOW_PROMPT);
     const card = await openChatAndSurfacePrompt(page, session.id);
 
     await card.locator('.permission-scope select').selectOption('projectSettings');
     await card.getByRole('button', { name: 'Always allow' }).click();
 
     await expect(card).not.toBeVisible({ timeout: 10000 });
+    // The VCR fixture contains the precise PermissionResult that Claude Code
+    // expects for this response. Replay rejects a plain allow or an update
+    // with the wrong destination before it yields the result event.
     await waitForStatus(session.id, 'waiting', 60000);
-    const logs = flattenWorkLogs(await getSessionWorkLogs(session.id));
-    expect(logs.some((log: any) => log.content.includes('Outcome: always allow') && log.content.includes('Scope: projectSettings'))).toBe(true);
+    const messages = await getSessionMessages(session.id);
+    expect(messages.some((message: any) => message.role === 'assistant' && message.content.includes('Applied the edit'))).toBe(true);
   });
 
   test('permission prompt: reload hydrates the parked prompt and preserves its identity', async ({ page }) => {
