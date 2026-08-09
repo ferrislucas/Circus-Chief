@@ -177,7 +177,7 @@ export function isRecoverableRootlessHandoff(db, run) {
  */
 export function reconcileKanbanOwnership({ dryRun = true } = {}) {
   const db = databaseManager.get();
-  const initial = auditKanbanInvariants(db);
+  const _initial = auditKanbanInvariants(db);
   // Invalid legacy lane configuration is local to the affected lane/project.
   // Preserve it for diagnosis, but do not let it prevent recovery of valid
   // projects. Target-only lanes cannot create structured entry runs, so they

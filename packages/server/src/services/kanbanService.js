@@ -226,6 +226,7 @@ export async function triggerStructuredTransitionAutomation(pending) {
 }
 
 const ENTRY_EVENT_LEASE_MS = 5 * 60 * 1000;
+const ENTRY_EVENT_RENEWAL_MS = Math.floor(ENTRY_EVENT_LEASE_MS / 3);
 const MAX_ENTRY_EVENT_ATTEMPTS = 8;
 const RETRY_BASE_MS = 1_000;
 const RETRY_MAX_MS = 5 * 60 * 1000;
@@ -257,6 +258,36 @@ function claimLaneEntryTrigger(eventId) {
     WHERE id=? AND status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=?)
       AND attempt_count < ?`).run(token, time, time + ENTRY_EVENT_LEASE_MS, time, eventId, time, MAX_ENTRY_EVENT_ATTEMPTS);
   return claimed.changes ? token : null;
+}
+
+/**
+ * Keeps an outbox claim alive while the child-session setup/provider dispatch
+ * is in flight. Every transition remains token-fenced; a failed renewal
+ * closes the guard so a stale worker cannot acknowledge or publish success.
+ */
+function createLaneEntryClaimGuard(eventId, token) {
+  const db = databaseManager.get();
+  let current = true;
+  const renew = () => {
+    if (!current) return;
+    const now = Date.now();
+    const changed = db.prepare(`UPDATE kanban_lane_entry_events
+      SET claim_expires_at=?, updated_at=?
+      WHERE id=? AND status='claimed' AND claim_token=? AND claim_expires_at>?`)
+      .run(now + ENTRY_EVENT_LEASE_MS, now, eventId, token, now).changes;
+    if (changed !== 1) current = false;
+  };
+  const timer = setInterval(renew, ENTRY_EVENT_RENEWAL_MS);
+  timer.unref?.();
+  return {
+    assertCurrent() {
+      if (!current) throw new Error('Lane-entry claim ownership was lost');
+      const owner = db.prepare(`SELECT 1 FROM kanban_lane_entry_events
+        WHERE id=? AND status='claimed' AND claim_token=? AND claim_expires_at>?`).get(eventId, token, Date.now());
+      if (!owner) { current = false; throw new Error('Lane-entry claim ownership was lost'); }
+    },
+    stop() { clearInterval(timer); },
+  };
 }
 
 function completeVerifiedLaneEntry(eventId, rootSessionId, token) {
@@ -323,6 +354,7 @@ function resolveDeliveryState(event) {
 async function drainLaneEntryTriggerImpl(eventId, options = {}) {
   const token = claimLaneEntryTrigger(eventId);
   if (!token) return false;
+  const claim = createLaneEntryClaimGuard(eventId, token);
   const db = databaseManager.get();
   const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
   const valid = event && db.prepare('SELECT 1 FROM kanban_cards WHERE id=?').get(event.card_id);
@@ -336,9 +368,11 @@ async function drainLaneEntryTriggerImpl(eventId, options = {}) {
     const time = Date.now();
     db.prepare(`UPDATE kanban_lane_entry_events SET status='invalid', last_error=?,
       completed_at=?, updated_at=?, claim_token=NULL, claim_expires_at=NULL WHERE id=? AND claim_token=?`).run(reason, time, time, eventId, token);
+    claim.stop();
     return false;
   }
   try {
+    claim.assertCurrent();
     const resolved = resolveDeliveryState(event);
     if (resolved.state === 'ownership_conflict') throw new Error(resolved.reason);
     if (resolved.state === 'ambiguous_dispatch') throw new Error(resolved.reason);
@@ -346,11 +380,13 @@ async function drainLaneEntryTriggerImpl(eventId, options = {}) {
     if (resolved.state === 'needs_delivery') {
       const delivery = await triggerLaneEntryAutomation(event.workspace_id, event.lane_id, {
         runOnEnterTemplate: true, depth: options.depth || 0, laneRunId: resolved.run.id,
-        beforeDispatch: () => markDispatchIntent(event.id, token),
+        beforeDispatch: () => { claim.assertCurrent(); return markDispatchIntent(event.id, token); },
       });
       rootSessionId = delivery?.rootSessionId;
+      claim.assertCurrent();
       acknowledgeDispatch(event.id, token);
     }
+    claim.assertCurrent();
     return completeVerifiedLaneEntry(event.id, rootSessionId, token);
   } catch (error) {
     const time = Date.now();
@@ -362,6 +398,8 @@ async function drainLaneEntryTriggerImpl(eventId, options = {}) {
       WHERE id=? AND claim_token=?`)
       .run(exhausted ? 1 : 0, nextAttemptAt, String(error.message || 'delivery failed').slice(0, 240), time, exhausted ? 1 : 0, time, eventId, token);
     throw error;
+  } finally {
+    claim.stop();
   }
 }
 

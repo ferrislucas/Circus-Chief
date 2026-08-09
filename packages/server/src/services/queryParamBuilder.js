@@ -13,7 +13,7 @@ import {
  */
 function buildClaudeCodeQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt,
-  model, sessionEnv, resumeSessionId = null, claudeMcpConfigHomeDirectory,
+  model, sessionEnv, resumeSessionId = null, claudeMcpConfigHomeDirectory, idempotencyKey = null,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : model;
@@ -37,6 +37,9 @@ function buildClaudeCodeQueryParams({
       spawnClaudeCodeProcess: createClaudeCodeSpawner(),
       model: effectiveModel,
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
+      // Kept in execution metadata even though the Claude SDK has no native
+      // idempotent-start header.  Adapters must never silently lose this key.
+      ...(idempotencyKey ? { idempotencyKey } : {}),
       ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
     },
   };
@@ -53,7 +56,7 @@ function buildClaudeCodeQueryParams({
  */
 function buildCodexQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
-  claudeMcpConfigHomeDirectory,
+  claudeMcpConfigHomeDirectory, idempotencyKey = null,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   const effectiveModel = isVCR ? 'gpt-4o-mini' : model;
@@ -71,6 +74,7 @@ function buildCodexQueryParams({
       model: effectiveModel,
       effortLevel: session?.effortLevel ?? null,
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
+      ...(idempotencyKey ? { idempotencyKey } : {}),
       sandboxMode: getSandboxModeForSession(session?.mode),
       ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
     },
@@ -88,6 +92,7 @@ function buildCodexQueryParams({
  */
 function buildGeminiQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
+  idempotencyKey = null,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   const effectiveModel = isVCR ? 'gemini-2.5-flash' : model;
@@ -101,6 +106,7 @@ function buildGeminiQueryParams({
       model: effectiveModel,
       approvalMode: getGeminiApprovalModeForSession(session?.mode),
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
+      ...(idempotencyKey ? { idempotencyKey } : {}),
     },
   };
 }

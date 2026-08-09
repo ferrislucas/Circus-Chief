@@ -317,4 +317,15 @@ export const kanbanMigrations = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_lane_entry_health_status_created ON kanban_lane_entry_events(status, created_at)');
     },
   },
+  {
+    name: 'kanban-api-operation-leases-and-canonical-responses',
+    up(db) {
+      addColumnIfMissing(db, 'kanban_api_operations', 'owner_token', 'TEXT');
+      addColumnIfMissing(db, 'kanban_api_operations', 'lease_expires_at', 'INTEGER');
+      addColumnIfMissing(db, 'kanban_api_operations', 'attempt_count', "INTEGER NOT NULL DEFAULT 0");
+      addColumnIfMissing(db, 'kanban_api_operations', 'response_status', 'INTEGER');
+      addColumnIfMissing(db, 'kanban_api_operations', 'terminal_error', 'TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_kanban_api_operations_lease ON kanban_api_operations(status, lease_expires_at)');
+    },
+  },
 ];

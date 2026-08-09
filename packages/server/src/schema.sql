@@ -417,7 +417,8 @@ CREATE TABLE IF NOT EXISTS kanban_lane_entry_events (
 CREATE TABLE IF NOT EXISTS kanban_api_operations (
   id TEXT PRIMARY KEY, project_id TEXT NOT NULL, operation_key TEXT NOT NULL,
   endpoint TEXT NOT NULL, payload_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'processing',
-  result_json TEXT, lane_entry_event_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  owner_token TEXT, lease_expires_at INTEGER, attempt_count INTEGER NOT NULL DEFAULT 0,
+  response_status INTEGER, result_json TEXT, terminal_error TEXT, lane_entry_event_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
   UNIQUE(project_id, endpoint, operation_key)
 );
 CREATE INDEX IF NOT EXISTS idx_kanban_api_operations_updated ON kanban_api_operations(updated_at);

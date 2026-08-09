@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- execution lifecycle and its dispatch fencing share one boundary */
 import { sessions, messages, attachments, conversations } from '../database.js';
 import { createCodexSpawner } from './codexSpawnHelper.js';
 import { createGeminiSpawner } from './geminiSpawnHelper.js';
@@ -24,7 +25,6 @@ import { rejectedSessionExecution, startedSessionExecution } from './sessionStar
 // _executeSession, long after the module graph is loaded (same pattern as
 // session-helpers.js's database.js <-> SessionRepository cycle).
 import { drainLaneEntryTrigger } from './kanbanService.js';
-
 /**
  * Build the adapter-specific default config object for
  * {@link createAgentForSession}. Callers may pass an explicit `config` to
@@ -69,7 +69,6 @@ async function resolveInitialSessionModelEnv(session, model) {
     commitAttributionOverride,
   };
 }
-
 /**
  * Create the agent for a session, using gateway + logging + VCR.
  *
@@ -93,7 +92,6 @@ export function createAgentForSession(agentType = 'claude-code', config = {}) {
   // Always wrap with logging
   return new LoggingAgentWrapper(agent);
 }
-
 /** Execute the agent stream loop and handle post-turn completion, errors, and cleanup.
  * This is the shared core of runSession, continueSession, and continueSessionWithExistingMessage.
  * @param {Object} options
@@ -409,7 +407,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
  */
 export async function runSessionCore(sessionId, prompt, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
-  const { systemPrompt = null, fileAttachments = [], model = null, interactive = false } = options;
+  const { systemPrompt = null, fileAttachments = [], model = null, interactive = false, idempotencyKey = null } = options;
   // Get session for settings
   let session = sessions.getById(sessionId);
   if (!session) throw new Error('Session not found');
@@ -461,6 +459,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     sessionEnv,
     agentType,
     commitAttributionOverride,
+    idempotencyKey,
   });
 
   // Log query params for debugging third-party provider issues
@@ -475,6 +474,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     model,
     effortLevel: session.effortLevel,
     promptLength: promptWithAttachments.length,
+    ...(idempotencyKey ? { dispatchIdempotencyKey: idempotencyKey } : {}),
   };
 
   return _executeSession({

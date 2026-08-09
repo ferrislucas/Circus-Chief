@@ -23,6 +23,7 @@ import { isApiError } from '../errors/ApiError.js';
 
 const router = Router({ mergeParams: true });
 const LANE_NOT_FOUND_ERROR = 'Lane not found';
+const OPERATION_LEASE_MS = 30_000;
 
 function canonicalPayload(payload) {
   return JSON.stringify(Object.fromEntries(Object.keys(payload || {}).sort().map((key) => [key, payload[key]])));
@@ -40,17 +41,27 @@ function beginOperation(req, endpoint) {
   if (!key) return { keyed: false };
   const payloadHash = crypto.createHash('sha256').update(canonicalPayload(req.body)).digest('hex');
   const db = databaseManager.get();
-  const existing = db.prepare(`SELECT * FROM kanban_api_operations
+  let existing = db.prepare(`SELECT * FROM kanban_api_operations
     WHERE project_id=? AND endpoint=? AND operation_key=?`).get(req.params.projectId, endpoint, key);
   if (existing) {
     if (existing.payload_hash !== payloadHash) return { conflict: true };
-    return { keyed: true, existing };
+    // A completed operation is immutable and always replays its canonical
+    // status/body.  A live owner is never allowed to mutate on a duplicate.
+    if (existing.status !== 'processing' || existing.lease_expires_at > Date.now()) return { keyed: true, existing };
+    const token = crypto.randomUUID(); const now = Date.now();
+    const taken = db.prepare(`UPDATE kanban_api_operations
+      SET owner_token=?, lease_expires_at=?, attempt_count=attempt_count+1, updated_at=?
+      WHERE id=? AND status='processing' AND lease_expires_at<=?`).run(token, now + OPERATION_LEASE_MS, now, existing.id, now);
+    if (!taken.changes) return beginOperation(req, endpoint);
+    existing = db.prepare('SELECT * FROM kanban_api_operations WHERE id=?').get(existing.id);
+    return { keyed: true, operation: { ...existing, token } };
   }
-  const operation = { id: crypto.randomUUID(), projectId: req.params.projectId, key, endpoint, payloadHash };
+  const now = Date.now(); const token = crypto.randomUUID();
+  const operation = { id: crypto.randomUUID(), projectId: req.params.projectId, key, endpoint, payloadHash, token };
   try {
     db.prepare(`INSERT INTO kanban_api_operations
-      (id,project_id,operation_key,endpoint,payload_hash,status,created_at,updated_at)
-      VALUES (?,?,?,?,?,'processing',?,?)`).run(operation.id, operation.projectId, key, endpoint, payloadHash, Date.now(), Date.now());
+      (id,project_id,operation_key,endpoint,payload_hash,status,owner_token,lease_expires_at,attempt_count,created_at,updated_at)
+      VALUES (?,?,?,?,?,'processing',?,?,1,?,?)`).run(operation.id, operation.projectId, key, endpoint, payloadHash, token, now + OPERATION_LEASE_MS, now, now);
     return { keyed: true, operation };
   } catch (error) {
     if (!/UNIQUE constraint failed/.test(error.message)) throw error;
@@ -61,17 +72,20 @@ function beginOperation(req, endpoint) {
 function replayOrPending(res, operation) {
   if (!operation?.existing) return false;
   if (operation.existing.status === 'completed' && operation.existing.result_json) {
-    return res.json(JSON.parse(operation.existing.result_json));
+    return res.status(operation.existing.response_status || 200).json(JSON.parse(operation.existing.result_json));
   }
-  return res.status(202).json({ operationId: operation.existing.id, status: operation.existing.status });
+  return res.status(202).set('Retry-After', '1').json({ operationId: operation.existing.id, status: operation.existing.status });
 }
 
-function completeOperation(operation, response, eventId = null) {
+function completeOperation(operation, response, eventId = null, responseStatus = 200) {
   if (!operation?.keyed || !operation.operation) return response;
   const body = { ...response, operationId: operation.operation.id,
     delivery: eventId ? { eventId, status: 'pending' } : null };
-  databaseManager.get().prepare(`UPDATE kanban_api_operations SET status='completed', result_json=?, lane_entry_event_id=?, updated_at=? WHERE id=?`)
-    .run(JSON.stringify(body), eventId, Date.now(), operation.operation.id);
+  const updated = databaseManager.get().prepare(`UPDATE kanban_api_operations
+    SET status='completed', response_status=?, result_json=?, lane_entry_event_id=?, owner_token=NULL, lease_expires_at=NULL, updated_at=?
+    WHERE id=? AND status='processing' AND owner_token=?`)
+    .run(responseStatus, JSON.stringify(body), eventId, Date.now(), operation.operation.id, operation.operation.token);
+  if (updated.changes !== 1) throw new Error('Kanban operation ownership was lost before result persistence');
   return body;
 }
 
@@ -338,7 +352,7 @@ router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req,
   try {
     const card = await addSessionToBoard(workspaceId, laneId);
     const eventId = kanbanCards.getById(card.id)?.laneEntryEventId || null;
-    res.status(201).json(completeOperation(operation, card, eventId));
+    res.status(201).json(completeOperation(operation, card, eventId, 201));
   } catch (error) {
     if (error.message === 'Session already has a card on the board') {
       return res.status(409).json({ error: error.message });
