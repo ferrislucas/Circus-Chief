@@ -375,7 +375,9 @@ const workflowCardFromCard = card => {
   const rootSessionId = card.id;
   return {
     rootSessionId,
-    runningSessionIds: isRunningSession(card) || card.runningCount > 0 ? [rootSessionId] : [],
+    // The card contract carries the running descendants, so list subscriptions
+    // follow the session producing output instead of an idle workspace root.
+    runningSessionIds: card.runningSessionIds || (isRunningSession(card) ? [rootSessionId] : []),
     memberIds: [rootSessionId],
     eligible: activeTab.value === 'sessions'
       && cardVisibilityByRootId.value[rootSessionId] !== false

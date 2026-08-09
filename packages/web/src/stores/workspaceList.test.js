@@ -49,4 +49,32 @@ describe('workspace list request lifecycle', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(store.cards).toHaveLength(4);
   });
+
+  it('does not append a page after its query context has been replaced', async () => {
+    const page = deferred();
+    const store = useWorkspaceListStore();
+    store._install('project-a', { status: 'running' }, {
+      workspaces: [{ id: 'running-workspace' }],
+      pagination: { hasMore: true, nextCursor: 'running-next' },
+    });
+    api.getWorkspaceCards.mockImplementationOnce(() => page.promise)
+      .mockResolvedValueOnce({
+        workspaces: [{ id: 'idle-workspace' }],
+        pagination: { hasMore: false, nextCursor: null },
+    });
+
+    const more = store.loadMore();
+    const replacement = store.load('project-b', { status: 'idle' });
+    await replacement;
+    page.resolve({
+      workspaces: [{ id: 'stale-running-workspace' }],
+      pagination: { hasMore: false, nextCursor: null },
+    });
+    await more;
+
+    expect(store.projectId).toBe('project-b');
+    expect(store.query).toEqual({ status: 'idle' });
+    expect(store.cards).toEqual([{ id: 'idle-workspace' }]);
+    expect(store.loadingMore).toBe(false);
+  });
 });
