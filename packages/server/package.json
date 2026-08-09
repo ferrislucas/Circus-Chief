@@ -15,6 +15,7 @@
     "db:inspect-schema": "node src/scripts/inspectDatabaseSchema.js",
     "db:validate-baseline": "node src/scripts/validateDatabaseBaseline.js",
     "kanban:reconcile": "node src/scripts/reconcileKanban.js --dry-run",
+    "kanban:recover": "node src/scripts/reconcileKanban.js --dry-run --json",
     "test": "vitest run",
     "test:coverage": "node ../../scripts/with-coverage-lock.mjs vitest run --coverage",
     "test:watch": "vitest"
