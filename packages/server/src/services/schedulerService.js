@@ -111,15 +111,22 @@ class SchedulerService {
 
     for (const session of dueSessions) {
       try {
-        await this.startScheduledSession(session);
+        const result = await this.startScheduledSession(session);
+        if (result && result.claimed === false) {
+          // Another caller (a manual "Start Now" request, or another poll
+          // tick racing this one) already claimed the session first. That's
+          // a successful outcome from the poller's point of view — nothing
+          // further to do here.
+          console.log(`[SchedulerService] Session ${session.id} was not claimed (already started elsewhere, or no longer eligible); skipping`);
+        }
       } catch (error) {
+        // startScheduledSession has already recorded any pre-launch failure
+        // on the session record itself (see `_recoverFromPrelaunchFailure`).
+        // Errors from an in-flight turn are recorded by the normal turn
+        // error-handling path (sessionExecution.js), not here. This catch
+        // only exists to keep one session's failure from stopping the rest
+        // of the due-session sweep.
         console.error(`[SchedulerService] Error starting scheduled session ${session.id}:`, error);
-        // Mark session as error
-        sessions.update(session.id, {
-          status: 'error',
-          error: `Failed to start scheduled session: ${error.message}`,
-        });
-        broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'error' });
       }
     }
   }
@@ -149,22 +156,21 @@ class SchedulerService {
 
   /**
    * Handle the fresh-session branch of startScheduledSession.
-   * Creates the initial user message, updates status, and starts the session.
-   * @param {object} session - Session object
+   * Creates the initial user message and starts the session. By this point
+   * the claim has already transitioned the session to 'starting' and the
+   * caller has already cleared the scheduling fields — this only performs
+   * the actual launch work.
+   * @param {object} session - Claimed session snapshot
    * @param {string} prompt - Raw prompt text
    * @param {string} effectivePrompt - Prompt after slash command resolution
    * @param {string} effectiveSystemPrompt - System prompt after resolution
    * @param {string} workingDirectory - Working directory
    * @param {Array} sessionAttachments - Attachments for context
+   * @param {string} activeConversationId - Conversation to attach the initial message to
    */
-  async startFreshScheduledSession({ session, prompt, effectivePrompt, effectiveSystemPrompt, workingDirectory, sessionAttachments }) {
-    const activeConv = conversations.getActiveBySessionId(session.id);
-    if (!activeConv) {
-      throw new Error(`No active conversation found for session ${session.id}`);
-    }
-
+  async startFreshScheduledSession({ session, prompt, effectivePrompt, effectiveSystemPrompt, workingDirectory, sessionAttachments, activeConversationId }) {
     // Create the initial user message
-    const userMessage = messages.create(session.id, 'user', prompt, { toolUse: null, conversationId: activeConv.id });
+    const userMessage = messages.create(session.id, 'user', prompt, { toolUse: null, conversationId: activeConversationId });
 
     // Link any pending file attachments to the user message
     if (sessionAttachments && sessionAttachments.length > 0) {
@@ -177,14 +183,6 @@ class SchedulerService {
       message: userMessage,
     });
 
-    // Update status from 'scheduled' to 'starting' and clear pendingPrompt
-    sessions.update(session.id, {
-      status: 'starting',
-      scheduledAt: null,
-      pendingPrompt: null,
-    });
-    broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'starting' });
-
     return this.sessionManager.runSession(
       session.id,
       effectivePrompt,
@@ -193,14 +191,64 @@ class SchedulerService {
     );
   }
 
+  /**
+   * Resolve and validate everything needed to launch a claimed scheduled
+   * session, without mutating anything. Kept separate from the actual
+   * launch so a failure here can be recovered without having discarded the
+   * claimed session's scheduling data (see `_recoverFromPrelaunchFailure`).
+   * @param {object} claimed - Session snapshot returned by `sessions.claimScheduled`
+   */
+  async _prepareScheduledLaunch(claimed) {
+    const project = projects.getById(claimed.projectId);
+    if (!project) {
+      throw new Error(`Project not found for session ${claimed.id}`);
+    }
+
+    const workingDirectory = claimed.gitWorktree || project.workingDirectory;
+
+    const { prompt, effectivePrompt, effectiveSystemPrompt, sessionAttachments } =
+      await this.resolveScheduledPrompt(claimed, workingDirectory, project.systemPrompt);
+
+    const hasAssistantResponses = !claimed.pendingConversationId
+      && messages.getBySessionId(claimed.id).some((msg) => msg.role === 'assistant');
+
+    let activeConversationId = null;
+    if (!claimed.pendingConversationId && !hasAssistantResponses) {
+      // Fresh scheduled session: validate the conversation to attach the
+      // initial user message to exists before committing to the launch.
+      const activeConv = conversations.getActiveBySessionId(claimed.id);
+      if (!activeConv) {
+        throw new Error(`No active conversation found for session ${claimed.id}`);
+      }
+      activeConversationId = activeConv.id;
+    }
+
+    return { workingDirectory, prompt, effectivePrompt, effectiveSystemPrompt, sessionAttachments, hasAssistantResponses, activeConversationId };
+  }
+
+  /**
+   * Recover a session whose claim succeeded but failed before reaching the
+   * durable launch boundary (i.e. before any message was created or the
+   * session manager was invoked). The claim never cleared `scheduledAt` /
+   * `pendingPrompt` / `pendingConversationId`, so they are still intact in
+   * the DB — this only needs to record the failure, not restore data.
+   * @param {object} claimed - Session snapshot returned by `sessions.claimScheduled`
+   * @param {Error} error - The pre-launch failure
+   */
+  _recoverFromPrelaunchFailure(claimed, error) {
+    console.error(`[SchedulerService] Pre-launch failure for scheduled session ${claimed.id}:`, error);
+    sessions.update(claimed.id, {
+      status: 'error',
+      error: `Failed to start scheduled session: ${error.message}`,
+    });
+    broadcastToSession(claimed.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: claimed.id, status: 'error' });
+  }
+
   /** Clear a stale start after its executor re-checks lane-run ownership. */
   rejectScheduledStart(session) {
     const updated = sessions.update(session.id, {
-      status: 'stopped',
-      scheduledAt: null,
-      pendingPrompt: null,
-      pendingModel: null,
-      pendingConversationId: null,
+      status: 'stopped', scheduledAt: null, pendingPrompt: null,
+      pendingModel: null, pendingConversationId: null,
     });
     broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'stopped' });
     if (updated?.projectId) {
@@ -210,110 +258,111 @@ class SchedulerService {
     }
   }
 
-  /** A scheduled executor must use the explicit session-start result contract. */
   static didExecutorStart(result, expectedSessionId) {
     return didSessionExecutionStart(result, expectedSessionId);
   }
 
   finishScheduledStart(session, executorResult) {
+    // Existing non-workflow executors historically resolve without a receipt.
+    // Lane workers require the explicit contract because their durable event
+    // acknowledgement depends on proving the provider handoff occurred.
+    if (!session.laneRunId && executorResult === undefined) {
+      return startedSessionExecution(session.id);
+    }
     if (!SchedulerService.didExecutorStart(executorResult, session.id)) {
       this.rejectScheduledStart(session);
       return rejectedSessionExecution(session.id, executorResult?.started === false && executorResult.reason
-        ? executorResult.reason
-        : 'invalid_executor_response');
+        ? executorResult.reason : 'invalid_executor_response');
     }
     return startedSessionExecution(session.id);
   }
 
+  scheduledStartResult(session, executorResult) {
+    const result = this.finishScheduledStart(session, executorResult);
+    if (!session.laneRunId && result.started) return { claimed: true };
+    if (!result.started) return result;
+    return { claimed: true, ...result };
+  }
+
   /**
-   * Start a scheduled session
-   * @param {object} session - Session to start
+   * Start a scheduled session — the single entry point used by both the
+   * 30s poller (`checkScheduledSessions`) and the manual
+   * `POST /:id/run-scheduled-now` endpoint.
+   *
+   * Atomically claims the session first (`sessions.claimScheduled`) so the
+   * two entry points — or two overlapping manual requests — can never both
+   * launch an agent for the same due session. A lost race is not an error:
+   * it means another caller already started the session, so this resolves
+   * to `{ claimed: false }` rather than throwing.
+   *
+   * @param {object} session - Session to start (only `session.id` is used;
+   *   the authoritative data comes from the claim itself)
+   * @param {{ promptOverride?: string }} [options] - Optional prompt text to
+   *   use instead of the persisted `pendingPrompt`, applied atomically with
+   *   the claim (see `SessionRepository.claimScheduled`).
+   * @returns {Promise<{ claimed: boolean }>}
    */
-  // This remains the single audited hand-off path for all scheduled starts.
-  // eslint-disable-next-line max-statements
-  async startScheduledSession(session) {
+  async startScheduledSession(session, { promptOverride } = {}) {
     if (!this.sessionManager) {
       throw new Error('SchedulerService not initialized with sessionManager');
     }
 
     if (!claimWorkflowSessionStart(session.id)) {
-      return { started: false, reason: 'lane_run_ownership_lost', sessionId: session.id };
+      return { claimed: false, started: false, reason: 'lane_run_ownership_lost', sessionId: session.id };
     }
 
-    console.log(`[SchedulerService] Starting scheduled session ${session.id}: ${session.name}`);
-
-    // Get the project for working directory and system prompt
-    const project = projects.getById(session.projectId);
-    if (!project) {
-      throw new Error(`Project not found for session ${session.id}`);
+    const claimed = sessions.claimScheduled(session.id, { promptOverride });
+    if (!claimed) {
+      return { claimed: false };
     }
 
-    // Determine working directory
-    const workingDirectory = session.gitWorktree || project.workingDirectory;
+    console.log(`[SchedulerService] Starting scheduled session ${claimed.id}: ${claimed.name}`);
+    broadcastToSession(claimed.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: claimed.id, status: 'starting' });
 
-    // Use pendingPrompt as the message to send
-    if (!session.pendingPrompt || session.pendingPrompt.trim() === '') {
-      throw new Error(`No pendingPrompt found for session ${session.id}`);
+    let launch;
+    try {
+      launch = await this._prepareScheduledLaunch(claimed);
+    } catch (error) {
+      this._recoverFromPrelaunchFailure(claimed, error);
+      throw error;
     }
 
-    // Resolve skill/command invocations
-    const { prompt, effectivePrompt, effectiveSystemPrompt, sessionAttachments } =
-      await this.resolveScheduledPrompt(session, workingDirectory, project.systemPrompt);
+    const { workingDirectory, prompt, effectivePrompt, effectiveSystemPrompt, sessionAttachments, hasAssistantResponses, activeConversationId } = launch;
 
-    // A manual move can supersede a run while prompt resolution awaits disk IO.
-    // Re-check immediately before any state mutation or provider handoff.
-    if (session.laneRunId && !activeLaneRunOwnsSession(session.id)) {
-      return { started: false, reason: 'lane_run_ownership_lost', sessionId: session.id };
+    // Prompt resolution may yield to disk IO while a manual move supersedes
+    // this lane run. Fence the durable clear and provider handoff.
+    if (claimed.laneRunId && !activeLaneRunOwnsSession(claimed.id)) {
+      return { claimed: true, ...this.finishScheduledStart(claimed, rejectedSessionExecution(claimed.id, 'lane_run_ownership_lost')) };
     }
 
-    // Check for existing-message retry first (takes precedence over fresh/continuation branches)
-    if (session.pendingConversationId) {
-      const pendingConversationId = session.pendingConversationId;
+    // Durable boundary: everything needed to launch has resolved
+    // successfully, so it's now safe to clear the scheduling fields. Any
+    // failure past this point is a normal in-flight turn failure, handled
+    // by the existing turn error-handling path rather than by this method.
+    sessions.update(claimed.id, { scheduledAt: null, pendingPrompt: null, pendingConversationId: null });
 
-      // Clear scheduler state and transition to starting
-      sessions.update(session.id, {
-        status: 'starting',
-        scheduledAt: null,
-        pendingPrompt: null,
-        pendingConversationId: null,
-      });
-      broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'starting' });
-
+    if (claimed.pendingConversationId) {
       const startResult = await this.sessionManager.continueSessionWithExistingMessage(
-        session.id,
-        pendingConversationId,
+        claimed.id,
+        claimed.pendingConversationId,
         workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, model: session.pendingModel }
+        { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel }
       );
-      return this.finishScheduledStart(session, startResult);
-    }
-
-    // Get the session messages to determine if this is initial or continuation
-    const sessionMessages = messages.getBySessionId(session.id);
-    const hasAssistantResponses = sessionMessages.some((msg) => msg.role === 'assistant');
-
-    // Determine if this is an initial run or a continuation
-    if (hasAssistantResponses) {
-      // Session has conversation history - this is a scheduled continuation
-      sessions.update(session.id, {
-        status: 'starting',
-        scheduledAt: null,
-        pendingPrompt: null,
-      });
-      broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'starting' });
-
+      return this.scheduledStartResult(claimed, startResult);
+    } else if (hasAssistantResponses) {
       const startResult = await this.sessionManager.continueSession(
-        session.id,
+        claimed.id,
         effectivePrompt,
         workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel }
+        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel }
       );
-      return this.finishScheduledStart(session, startResult);
+      return this.scheduledStartResult(claimed, startResult);
+    } else {
+      const startResult = await this.startFreshScheduledSession({
+        session: claimed, prompt, effectivePrompt, effectiveSystemPrompt, workingDirectory, sessionAttachments, activeConversationId,
+      });
+      return this.scheduledStartResult(claimed, startResult);
     }
-
-    // Fresh session - initial run
-    const startResult = await this.startFreshScheduledSession({ session, prompt, effectivePrompt, effectiveSystemPrompt, workingDirectory, sessionAttachments });
-    return this.finishScheduledStart(session, startResult);
   }
 
   /**
@@ -332,9 +381,6 @@ class SchedulerService {
       return false;
     }
 
-    // A stale provider-error path must never recreate a schedule after a
-    // manual move/supersession. Re-read ownership immediately before every
-    // scheduling write, rather than relying on the turn's original session.
     // Check reschedule limits
     if (this.hasReachedLimits(session)) {
       console.log(`[SchedulerService] Session ${sessionId} has reached reschedule limits`);
@@ -366,8 +412,6 @@ class SchedulerService {
       pendingConversationId,
       error: `Rescheduled (${newRescheduleCount}x): ${reason}`,
     });
-    // Ordinary sessions retain the lightweight, existing update path. Lane
-    // participants use the transactional ownership gate above.
     const updated = session.laneRunId ? withActiveLaneRunOwnership(sessionId, update) : update();
     if (!updated) return false;
 

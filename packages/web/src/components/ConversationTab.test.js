@@ -3222,10 +3222,12 @@ describe('ConversationTab - Model selector persistence on stop', () => {
   let mockSessionsStore;
   let mockUiStore;
   let consoleError;
+  let scheduleMutations;
 
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
+    scheduleMutations = reactive({});
 
     mockSessionsStore = {
       messages: [],
@@ -3269,6 +3271,28 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       updateRunningUsage: vi.fn(),
       switchConversation: vi.fn().mockResolvedValue(),
       branchConversation: vi.fn().mockResolvedValue({ id: 'conv-2' }),
+      // Mirrors the real store's reconciliation (`_updateSessionInAllLists`)
+      // so integration tests can assert on the displayed session, not just
+      // on the mock call — the default result clears scheduling fields,
+      // matching the server's actual response shape.
+      runScheduledNow: vi.fn().mockImplementation(async (id) => {
+        const result = { id, status: 'starting', scheduledAt: null, pendingPrompt: null };
+        if (mockSessionsStore.currentSession?.id === id) {
+          Object.assign(mockSessionsStore.currentSession, result);
+        }
+        return result;
+      }),
+      updateSessionFields: vi.fn().mockResolvedValue({}),
+      // Reactive so cross-component coordination (SchedulingInfo's Start Now
+      // disabling InputForm's submit button, and vice versa) is genuinely
+      // exercised via Vue reactivity, not just asserted against mock calls.
+      scheduleMutationInFlight: (id) => scheduleMutations[id] || null,
+      beginScheduleMutation: (id, kind) => {
+        if (scheduleMutations[id]) return false;
+        scheduleMutations[id] = kind;
+        return true;
+      },
+      endScheduleMutation: (id) => { delete scheduleMutations[id]; },
     };
 
     mockUiStore = {
@@ -3320,6 +3344,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
           SlashCommandWizard: { template: '<div class="slash-command-wizard-stub"></div>' },
           ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
           AutoRescheduleModal: { template: '<div class="auto-reschedule-modal-stub"></div>' },
+          SchedulingEditModal: { template: '<div class="scheduling-edit-modal-stub"></div>' },
         },
       },
     });
@@ -3696,6 +3721,125 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
       expect(schedulingInfo.exists()).toBe(true);
       expect(schedulingInfo.props('session')).toEqual(testSession);
+    });
+  });
+
+  describe('Scheduled submission routing (single-launch, atomic prompt override)', () => {
+    function setupScheduledSession(overrides = {}) {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        thinkingEnabled: false,
+        mode: 'standard',
+        scheduledAt: Date.now() + 3600000,
+        pendingPrompt: 'Hello from schedule',
+        autoRescheduleEnabled: false,
+        ...overrides,
+      };
+    }
+
+    it('routes a scheduled submission only to runScheduledNow — never the draft-start or interactive-message paths', async () => {
+      setupScheduledSession();
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.btn-send-full').text()).toContain('Start Now');
+
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.runScheduledNow).toHaveBeenCalledWith('sess-123', undefined);
+      expect(mockSessionsStore.startSession).not.toHaveBeenCalled();
+      expect(mockSessionsStore.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('sends the current textarea content as an atomic prompt override when the user edited it', async () => {
+      setupScheduledSession({ pendingPrompt: 'saved prompt' });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('edited prompt');
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.runScheduledNow).toHaveBeenCalledWith('sess-123', 'edited prompt');
+    });
+
+    it('does not send an override when the textarea content matches the persisted pendingPrompt', async () => {
+      setupScheduledSession({ pendingPrompt: 'saved prompt' });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+      // The textarea auto-restores pendingPrompt on mount; submit without editing it.
+      expect(wrapper.find('textarea').element.value).toBe('saved prompt');
+
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.runScheduledNow).toHaveBeenCalledWith('sess-123', undefined);
+    });
+
+    it('clears scheduledAt/pendingPrompt from the displayed session once the server confirms the start', async () => {
+      setupScheduledSession();
+      // Uses the default mock implementation, which mirrors the real store's
+      // reconciliation of the returned session onto `currentSession`.
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.currentSession.scheduledAt).toBeNull();
+      expect(mockSessionsStore.currentSession.pendingPrompt).toBeNull();
+    });
+
+    it('cross-control: a schedule mutation claimed by another control (e.g. SchedulingInfo) disables the prompt submit button too', async () => {
+      // SchedulingInfo.vue is mocked out in this file (see the vi.mock at the
+      // top), so this exercises the coordination contract directly: a claim
+      // made anywhere against the shared store's in-flight state must be
+      // reflected by ConversationTab's own submit button. A DOM-level
+      // click-through with the real SchedulingInfo component is covered by
+      // ConversationTab.scheduledCoordination.test.js.
+      setupScheduledSession();
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const submitBtn = wrapper.find('.btn-send-full');
+      expect(submitBtn.attributes('disabled')).toBeUndefined();
+
+      mockSessionsStore.beginScheduleMutation('sess-123', 'starting');
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.btn-send-full').attributes('disabled')).toBeDefined();
+
+      mockSessionsStore.endScheduleMutation('sess-123');
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.btn-send-full').attributes('disabled')).toBeUndefined();
+    });
+
+    it('rapid double-submit of the scheduled prompt form only starts the session once', async () => {
+      setupScheduledSession();
+      let resolveStart;
+      mockSessionsStore.runScheduledNow.mockImplementation(
+        () => new Promise((resolve) => { resolveStart = resolve; })
+      );
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const form = wrapper.find('form');
+      const firstSubmit = form.trigger('submit.prevent');
+      const secondSubmit = form.trigger('submit.prevent');
+      await Promise.all([firstSubmit, secondSubmit]);
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.runScheduledNow).toHaveBeenCalledTimes(1);
+      resolveStart({ id: 'sess-123', status: 'starting' });
     });
   });
 });

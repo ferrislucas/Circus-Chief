@@ -15,13 +15,6 @@
       >
         ← Back to list
       </button>
-      <span
-        v-if="showBackButton"
-        class="breadcrumb-separator"
-      >/</span>
-      <div class="viewer-filename-wrapper">
-        <span class="viewer-filename">{{ item.filename || 'Untitled' }}</span>
-      </div>
 
       <div class="header-actions">
         <!-- Edit/Done toggle for markdown files -->
@@ -309,7 +302,6 @@ function formatLastModified(timestamp) { return timestamp ? `Modified ${formatRe
   gap: 0.75rem;
 }
 
-.breadcrumb-container,
 .header-actions {
   display: flex;
   align-items: center;

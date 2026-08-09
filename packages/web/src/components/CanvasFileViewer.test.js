@@ -110,7 +110,7 @@ describe('CanvasFileViewer', () => {
       const wrapper = mountComponent();
 
       expect(wrapper.find('.breadcrumb-back').exists()).toBe(true);
-      expect(wrapper.find('.breadcrumb-separator').exists()).toBe(true);
+      expect(wrapper.find('.breadcrumb-separator').exists()).toBe(false);
       expect(wrapper.find('.breadcrumb-back').text()).toBe('← Back to list');
     });
   });
