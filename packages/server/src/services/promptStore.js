@@ -89,6 +89,22 @@ function persistPromptOutcome(record, outcome, result) {
   }
 }
 
+// Requests rejected before entering the queue still change the agent's
+// behavior. Record that decision with structural metadata only: the raw tool
+// input and question text can contain credentials or other private content.
+function persistPreParkDenial({ sessionId, kind, payload, reason }) {
+  try {
+    const toolName = kind === 'question' ? 'AskUserQuestion' : (payload?.toolName || 'Unknown tool');
+    createWorkLog(sessionId, 'tool_output', [
+      'Interactive prompt denied before parking',
+      `Kind: ${kind}`,
+      `Reason: ${reason}`,
+    ].join('\n'), toolName);
+  } catch (error) {
+    reportPromptSideEffectFailure({ sessionId, id: null }, 'persist pre-park prompt denial', error);
+  }
+}
+
 function broadcastPromptResolution(record, outcome) {
   safelyBroadcast(record, 'broadcast prompt resolution', () => broadcastToSession(
     record.sessionId,
@@ -155,20 +171,26 @@ function permissionHistoryLines(record, outcome, result) {
 
 export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, agentId = null, payload, signal, expiryMs = PROMPT_EXPIRY_MS }) {
   // An abort listener added after a signal is already aborted will never fire.
-  if (signal?.aborted) return Promise.resolve({ behavior: 'deny', message: CANCELLED_MESSAGE });
+  if (signal?.aborted) {
+    persistPreParkDenial({ sessionId, kind, payload, reason: 'aborted_before_park' });
+    return Promise.resolve({ behavior: 'deny', message: CANCELLED_MESSAGE });
+  }
   // A duplicate question *within a single call* is a validation error, not a
   // concurrency conflict — reject it outright without touching this
   // session's existing queue.
   const questions = payload.questions || [];
   if (kind === 'question' && questions.length === 0) {
+    persistPreParkDenial({ sessionId, kind, payload, reason: 'invalid_request' });
     return Promise.resolve({ behavior: 'deny', message: 'Please re-ask with at least one question.' });
   }
   if (kind === 'question' && new Set(questions.map(({ question }) => question)).size !== questions.length) {
+    persistPreParkDenial({ sessionId, kind, payload, reason: 'invalid_request' });
     return Promise.resolve({ behavior: 'deny', message: 'Please re-ask using distinct question text.' });
   }
   return new Promise((resolve) => {
     const queue = prompts.get(sessionId);
     if (queue?.length >= MAX_PROMPTS_PER_SESSION) {
+      persistPreParkDenial({ sessionId, kind, payload, reason: 'prompt_capacity_exceeded' });
       resolve({ behavior: 'deny', message: CAPACITY_MESSAGE });
       return;
     }

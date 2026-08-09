@@ -28,6 +28,7 @@ const PERMISSION_PROMPT = 'E2E demo: propose a gated config edit that requires p
 // It is intentionally distinct from PERMISSION_PROMPT, whose cassette is used
 // by the allow-once and denial tests.
 const PROJECT_ALWAYS_ALLOW_PROMPT = 'E2E demo: grant a project-scoped always-allow rule for the gated config edit.';
+const DENY_PERMISSION_PROMPT = 'E2E demo: deny the gated config edit and confirm no edit occurs.';
 
 /**
  * Poll the session until the server reports a parked prompt
@@ -156,7 +157,7 @@ test.describe('Interactive Agent Prompts', () => {
   });
 
   test('permission prompt: Escape reveals denial without resolving the SDK callback', async ({ page }) => {
-    const session = await seedAndStartSession(project.id, 'Escape Denial Prompt', PERMISSION_PROMPT);
+    const session = await seedAndStartSession(project.id, 'Escape Denial Prompt', DENY_PERMISSION_PROMPT);
     const card = await openChatAndSurfacePrompt(page, session.id);
 
     await card.locator('button.prompt-primary-action').focus();
@@ -171,6 +172,8 @@ test.describe('Interactive Agent Prompts', () => {
     await waitForStatus(session.id, 'waiting', 60000);
     const logs = flattenWorkLogs(await getSessionWorkLogs(session.id));
     expect(logs.some((log: any) => log.content.includes('Outcome: deny') && !log.content.includes('Do not modify server configuration.'))).toBe(true);
+    const messages = await getSessionMessages(session.id);
+    expect(messages.some((message: any) => message.role === 'assistant' && message.content.includes('Applied the edit'))).toBe(false);
   });
 
   test('stop clears a parked prompt and the session does not hang', async ({ page }) => {

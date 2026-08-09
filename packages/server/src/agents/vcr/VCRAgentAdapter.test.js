@@ -2,12 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { VCRAgentAdapter } from './VCRAgentAdapter.js';
 import { CassetteStore } from './CassetteStore.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRootCassetteDir = path.resolve(__dirname, '..', '..', '..', '..', '..', 'tests', 'e2e', 'cassettes');
 
 describe('VCRAgentAdapter', () => {
   let testCassetteDir;
@@ -360,23 +356,21 @@ describe('VCRAgentAdapter', () => {
       expect(received).toEqual([{ type: 'result', subtype: 'success' }]);
     });
 
-    it('replays a real pre-existing gated cassette recorded before position/result tracking existed, unchanged', async () => {
-      const fixtureDir = repoRootCassetteDir;
-      const fixtureKey = 'runSession-f464dd3f5d0ffcfc';
-      const fixture = CassetteStore.load(fixtureDir, fixtureKey);
-      expect(fixture).not.toBeNull();
-      expect(fixture.gatedToolCalls[0].afterEventIndex).toBeUndefined();
-      expect(fixture.gatedToolCalls[0].result).toBeUndefined();
+    it('rejects a gated cassette that has no recorded callback result', async () => {
+      const fixtureKey = CassetteStore.buildKey('runSession', 'missing gated result');
+      CassetteStore.save(testCassetteDir, fixtureKey, {
+        prompt: 'missing gated result',
+        events: [{ type: 'result', subtype: 'success' }],
+        gatedToolCalls: [{ toolName: 'Edit', input: { file_path: 'safe.txt' }, opts: { toolUseID: 'tool-1' } }],
+      });
 
       process.env.VCR_MODE = 'replay';
       const canUseTool = vi.fn().mockResolvedValue({ behavior: 'allow' });
-      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: fixtureDir });
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
 
-      const received = [];
-      for await (const event of adapter.execute({ prompt: fixture.prompt, options: { canUseTool } }, { callType: 'runSession' })) received.push(event);
-
-      expect(canUseTool).toHaveBeenCalledWith('Edit', fixture.gatedToolCalls[0].input, fixture.gatedToolCalls[0].opts);
-      expect(received).toEqual(fixture.events);
+      await expect((async () => {
+        for await (const _event of adapter.execute({ prompt: 'missing gated result', options: { canUseTool } }, { callType: 'runSession' })) { /* drain */ }
+      })()).rejects.toThrow(/without a recorded result/i);
     });
   });
 
@@ -386,7 +380,7 @@ describe('VCRAgentAdapter', () => {
       CassetteStore.save(testCassetteDir, key, {
         prompt: 'gated prompt',
         events: [{ type: 'result', subtype: 'success' }],
-        gatedToolCalls: [{ toolName: 'AskUserQuestion', input: { questions: [] }, opts: { toolUseID: 'tool-1' } }],
+        gatedToolCalls: [{ toolName: 'AskUserQuestion', input: { questions: [] }, opts: { toolUseID: 'tool-1' }, result: { behavior: 'allow' } }],
       });
       process.env.VCR_MODE = 'replay';
       const canUseTool = vi.fn().mockResolvedValue({ behavior: 'allow' });

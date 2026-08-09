@@ -80,10 +80,10 @@ export class VCRAgentAdapter {
    * stream, and an E2E spec asserting on that ordering (e.g. "system/init
    * arrives before the approval card appears") needs replay to match it.
    *
-   * Cassettes recorded before position tracking existed have no
-   * `afterEventIndex` on their gated calls; those are treated as position 0
-   * (fire before any event), reproducing the old, unconditional-before-all
-   * behavior so existing cassettes keep replaying without migration.
+   * Each gated call must include the callback result that authorized or
+   * denied it. A missing result is an invalid cassette, not a permissive
+   * compatibility case: replaying a prerecorded success independently of a
+   * user's decision would make authorization tests meaningless.
    *
    * @param {object} cassette - Cassette to replay
    * @returns {AsyncGenerator} Generator yielding events
@@ -139,7 +139,12 @@ export class VCRAgentAdapter {
    * recording.
    */
   assertResultMatchesRecording(call, observed, cassetteKey = 'unknown') {
-    if (call.result === undefined) return;
+    if (call.result === undefined) {
+      throw new Error(
+        `VCR replay: cassette "${cassetteKey}" has a gated canUseTool("${call.toolName}") call without a recorded result. ` +
+        'Re-record this cassette with the agent-prompt cassette generator.'
+      );
+    }
     if (JSON.stringify(observed) === JSON.stringify(call.result)) return;
     throw new Error(
       `VCR replay: cassette "${cassetteKey}" canUseTool("${call.toolName}") returned a result that diverges from the recording.\n` +

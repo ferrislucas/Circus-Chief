@@ -89,6 +89,21 @@ describe('promptStore work-log emission', () => {
 
     await expect(promise).resolves.toEqual({ behavior: 'deny', message: 'Please re-ask with at least one question.' });
     expect(getPrompt('empty-questions')).toBeNull();
+    expect(createWorkLog).toHaveBeenCalledWith('empty-questions', 'tool_output', 'Interactive prompt denied before parking\nKind: question\nReason: invalid_request', 'AskUserQuestion');
+  });
+
+  it('audits an already-aborted request without parking or retaining its sensitive input', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const promise = parkPrompt({
+      sessionId: 'already-aborted', conversationId: 'conv-1', kind: 'permission', signal: controller.signal,
+      payload: { toolName: 'Bash', input: { command: 'deploy --token top-secret' } },
+    });
+
+    await expect(promise).resolves.toEqual({ behavior: 'deny', message: 'Session was cancelled.' });
+    expect(getPrompt('already-aborted')).toBeNull();
+    expect(createWorkLog).toHaveBeenCalledWith('already-aborted', 'tool_output', 'Interactive prompt denied before parking\nKind: permission\nReason: aborted_before_park', 'Bash');
+    expect(createWorkLog.mock.calls.at(-1)[2]).not.toContain('top-secret');
   });
 
   it('rejects cancel as an invalid permission action instead of treating it as a denial alias', () => {
@@ -679,6 +694,7 @@ describe('promptStore bounded lifecycle', () => {
 
     await expect(rejected).resolves.toEqual({ behavior: 'deny', message: 'Too many approval requests are pending. Please continue without this action.' });
     expect(getPromptQueue('capacity')).toHaveLength(MAX_PROMPTS_PER_SESSION);
+    expect(createWorkLog).toHaveBeenCalledWith('capacity', 'tool_output', 'Interactive prompt denied before parking\nKind: permission\nReason: prompt_capacity_exceeded', 'Bash');
     controller.abort();
     expect(getPromptQueue('capacity')).toHaveLength(MAX_PROMPTS_PER_SESSION);
     cancelPrompt('capacity');
