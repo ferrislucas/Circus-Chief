@@ -214,7 +214,7 @@ describe('schema baseline', () => {
       for (const indexName of [
         'idx_sessions_project', 'idx_sessions_status', 'idx_sessions_archived',
         'idx_sessions_next_template', 'idx_sessions_parent', 'idx_messages_conversation',
-        'idx_sessions_lane_run', 'idx_lane_entry_recovery', 'idx_lane_runs_card_status',
+        'idx_sessions_lane_run', 'idx_lane_entry_recovery', 'idx_lane_entry_health_status_created', 'idx_lane_runs_card_status',
         'idx_canvas_deleted', 'idx_todos_conversation', 'idx_project_defaults_projectId',
         'idx_conversations_parent', 'idx_agent_call_logs_agent_type',
         'idx_agent_call_logs_call_type', 'idx_agent_call_logs_status',

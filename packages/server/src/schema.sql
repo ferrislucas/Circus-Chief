@@ -423,6 +423,7 @@ CREATE TABLE IF NOT EXISTS kanban_api_operations (
 CREATE INDEX IF NOT EXISTS idx_kanban_api_operations_updated ON kanban_api_operations(updated_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_lane_entry_completion_cause ON kanban_lane_entry_events(caused_by_run_id) WHERE caused_by_run_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_lane_entry_recovery ON kanban_lane_entry_events(status, next_attempt_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_lane_entry_health_status_created ON kanban_lane_entry_events(status, created_at);
 CREATE TABLE IF NOT EXISTS kanban_lane_runs (
   id TEXT PRIMARY KEY, lane_entry_event_id TEXT NOT NULL UNIQUE, prior_lane_run_id TEXT,
   project_id TEXT NOT NULL, workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, source_lane_id TEXT NOT NULL,

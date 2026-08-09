@@ -26,4 +26,16 @@ describe('runStartupPreflight', () => {
       workersEnabled: true,
     });
   });
+
+  it('keeps valid-project delivery workers running when another project has invalid lane configuration', () => {
+    const report = { ok: false, violations: [{ type: 'invalid_lane', projectId: 'broken-project', severity: 'error' }] };
+    const reconciliation = { blocked: false, applied: true };
+
+    expect(runStartupPreflight({ reconcile: () => reconciliation, audit: () => report })).toEqual({
+      ok: false,
+      report,
+      reconciliation,
+      workersEnabled: true,
+    });
+  });
 });

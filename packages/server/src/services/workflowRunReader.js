@@ -19,8 +19,11 @@ function blockerDetails({ scheduled, retrying, paused, open }) {
   return { session: sessions?.[0] || null, reason: reason || null };
 }
 
-export function getRun(runId) {
-  const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
+/** Read a run, optionally fencing it to the project owning the request. */
+export function getRun(runId, projectId = null) {
+  const db = databaseManager.get(); const run = projectId
+    ? db.prepare('SELECT * FROM kanban_lane_runs WHERE id=? AND project_id=?').get(runId, projectId)
+    : db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
   if (!run) return null; const rows = db.prepare('SELECT * FROM sessions WHERE lane_run_id=?').all(runId);
   const { open, scheduled, retrying, paused, failedCount, cancelledCount, failedSessionId } = laneRunCounts(rows);
   const names = db.prepare(`SELECT (SELECT name FROM kanban_lanes WHERE id=?) AS source_name,

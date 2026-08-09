@@ -35,14 +35,14 @@ describe('workflowSessionService', () => {
     expect(getRun(run.id).openCount).toBe(0);
   });
 
-  it('reports invalid target-only lanes and refuses to reconcile them', () => {
+  it('reports invalid target-only lanes without blocking valid-project reconciliation', () => {
     databaseManager.get().prepare('UPDATE kanban_lanes SET completion_target_lane_id=? WHERE id=?').run(target.id, source.id);
     const report = auditKanbanInvariants();
     expect(report.ok).toBe(false);
     expect(report.violations).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'invalid_lane', laneId: source.id }),
     ]));
-    expect(reconcileKanbanOwnership({ dryRun: false })).toEqual(expect.objectContaining({ blocked: true, applied: false }));
+    expect(reconcileKanbanOwnership({ dryRun: false })).toEqual(expect.objectContaining({ blocked: false, applied: true }));
   });
 
   it('preserves a user-scheduled board session that never belonged to a lane run', () => {

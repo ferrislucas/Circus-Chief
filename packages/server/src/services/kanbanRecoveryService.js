@@ -10,31 +10,38 @@ import { supersedeLaneRun } from './workflowSessionService.js';
  * separate from startup preflight: a healthy boot must still degrade when a
  * later provider outage exhausts delivery attempts. */
 // eslint-disable-next-line complexity, sonarjs/cognitive-complexity -- classifications are deliberately explicit/stable
-export function getKanbanDeliveryHealth(db = databaseManager.get(), time = Date.now()) {
-  // Keep this aggregate-only. Health is called during incidents, when an
-  // unbounded scan/deserialization of a large completed-event history is the
-  // least useful extra load we can add.
-  const counts = db.prepare(`SELECT
-    SUM(status = 'completed') AS completed,
-    SUM(status = 'invalid') AS quarantined,
-    SUM(status = 'failed') AS exhausted,
-    SUM(status = 'claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at <= ?) AS stalled,
-    SUM(status NOT IN ('completed', 'invalid', 'failed') AND delivery_phase = 'dispatch_intent') AS ambiguous,
-    SUM(status = 'claimed' AND NOT (claim_expires_at IS NOT NULL AND claim_expires_at <= ?)
-      AND delivery_phase != 'dispatch_intent') AS claimed,
-    SUM(status NOT IN ('completed', 'invalid', 'failed', 'claimed') AND delivery_phase != 'dispatch_intent') AS pending,
-    MIN(CASE WHEN status != 'completed' THEN created_at END) AS oldest_relevant_at
-    FROM kanban_lane_entry_events`).get(time, time);
-  for (const key of ['pending', 'claimed', 'stalled', 'ambiguous', 'exhausted', 'quarantined', 'completed']) {
-    counts[key] = Number(counts[key] || 0);
-  }
+export function getKanbanDeliveryHealth(db = databaseManager.get(), time = Date.now(), thresholds = {}) {
+  // Each query is constrained by status. This lets SQLite use the recovery
+  // index and keeps routine health checks independent of terminal history.
+  const count = (sql, ...params) => Number(db.prepare(sql).get(...params).count || 0);
+  const pending = db.prepare(`SELECT count(*) count, min(created_at) oldest FROM kanban_lane_entry_events
+    WHERE status='pending' AND delivery_phase != 'dispatch_intent'`).get();
+  const counts = {
+    pending: Number(pending.count || 0),
+    claimed: count(`SELECT count(*) count FROM kanban_lane_entry_events
+      WHERE status='claimed' AND (claim_expires_at IS NULL OR claim_expires_at > ?) AND delivery_phase != 'dispatch_intent'`, time),
+    stalled: count(`SELECT count(*) count FROM kanban_lane_entry_events
+      WHERE status='claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at <= ?`, time),
+    ambiguous: count(`SELECT count(*) count FROM kanban_lane_entry_events
+      WHERE status IN ('pending','claimed') AND delivery_phase='dispatch_intent'`),
+    exhausted: count("SELECT count(*) count FROM kanban_lane_entry_events WHERE status='failed'"),
+    quarantined: count("SELECT count(*) count FROM kanban_lane_entry_events WHERE status='invalid'"),
+    completed: count("SELECT count(*) count FROM kanban_lane_entry_events WHERE status='completed'"),
+  };
   const reasons = [];
   if (counts.exhausted) reasons.push('exhausted delivery events');
   if (counts.quarantined) reasons.push('quarantined delivery events');
   if (counts.stalled) reasons.push('expired delivery claims');
   if (counts.ambiguous) reasons.push('ambiguous provider dispatches');
-  return { status: reasons.length ? 'degraded' : 'operational', reasons, counts,
-    oldestRelevantAgeMs: counts.oldest_relevant_at === null ? null : Math.max(0, time - counts.oldest_relevant_at) };
+  const oldestRelevantAgeMs = pending.oldest == null ? null : Math.max(0, time - pending.oldest);
+  const pendingWarning = thresholds.pendingWarning ?? 25;
+  const pendingCritical = thresholds.pendingCritical ?? 100;
+  const oldestWarningMs = thresholds.oldestWarningMs ?? 5 * 60 * 1000;
+  const oldestCriticalMs = thresholds.oldestCriticalMs ?? 30 * 60 * 1000;
+  let severity = reasons.length ? 'warning' : 'healthy';
+  if (counts.pending >= pendingCritical || (oldestRelevantAgeMs !== null && oldestRelevantAgeMs >= oldestCriticalMs)) severity = 'critical';
+  else if (counts.pending >= pendingWarning || (oldestRelevantAgeMs !== null && oldestRelevantAgeMs >= oldestWarningMs)) severity = 'warning';
+  return { status: severity === 'healthy' ? 'operational' : 'degraded', severity, reasons, counts, oldestRelevantAgeMs };
 }
 
 function issue(type, reason, row, severity = 'error') {
@@ -171,8 +178,10 @@ export function isRecoverableRootlessHandoff(db, run) {
 export function reconcileKanbanOwnership({ dryRun = true } = {}) {
   const db = databaseManager.get();
   const initial = auditKanbanInvariants(db);
-  const invalidLanes = initial.violations.filter((v) => v.type.startsWith('invalid_lane'));
-  if (invalidLanes.length) return { applied: false, blocked: true, report: initial, changes: [] };
+  // Invalid legacy lane configuration is local to the affected lane/project.
+  // Preserve it for diagnosis, but do not let it prevent recovery of valid
+  // projects. Target-only lanes cannot create structured entry runs, so they
+  // are naturally quarantined until an operator fixes their configuration.
 
   const changes = [];
   const openRuns = db.prepare(`SELECT r.*, c.active_lane_run_id, c.lane_id card_lane_id FROM kanban_lane_runs r

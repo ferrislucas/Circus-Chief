@@ -7,6 +7,7 @@ import {
   kanbanBoards,
   kanbanLanes,
   kanbanCards,
+  databaseManager,
 } from '../database.js';
 
 // Mock websocket before importing the router
@@ -93,6 +94,32 @@ describe('Kanban API', () => {
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Project not found');
+    });
+  });
+
+  describe('GET /api/projects/:projectId/kanban/lane-runs/:runId', () => {
+    it('does not reveal a lane run through another project route', async () => {
+      const { lanes: projectLanes } = setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(projectLanes[0].id, session.id);
+      const runId = 'project-scoped-run';
+      databaseManager.get().prepare(`INSERT INTO kanban_lane_entry_events
+        (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,'pending',?,?)`)
+        .run('project-scoped-event', 'project-scoped-key', projectId, session.id, card.id, projectLanes[0].id, 'card_added', 1, 1);
+      databaseManager.get().prepare(`INSERT INTO kanban_lane_runs
+        (id,lane_entry_event_id,project_id,workspace_id,card_id,source_lane_id,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?, 'open', ?, ?)`)
+        .run(runId, 'project-scoped-event', projectId, session.id, card.id, projectLanes[0].id, 1, 1);
+      const otherProject = projects.create('Other project', '/tmp/other');
+
+      const own = await request(app).get(`/api/projects/${projectId}/kanban/lane-runs/${runId}`);
+      const foreign = await request(app).get(`/api/projects/${otherProject.id}/kanban/lane-runs/${runId}`);
+      const missing = await request(app).get(`/api/projects/${otherProject.id}/kanban/lane-runs/not-a-run`);
+
+      expect(own.status).toBe(200);
+      expect(foreign.status).toBe(404);
+      expect(foreign.body).toEqual(missing.body);
     });
   });
 

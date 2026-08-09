@@ -229,7 +229,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
     const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
-      idempotencyKey: dispatchKey,
+      ...(dispatchKey ? { idempotencyKey: dispatchKey } : {}),
     });
     if (!accepted) return undelivered('provider dispatch was not accepted');
 
@@ -327,7 +327,7 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
     const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
-      idempotencyKey: dispatchKey,
+      ...(dispatchKey ? { idempotencyKey: dispatchKey } : {}),
     });
     if (!accepted) return undelivered('provider dispatch was not accepted');
 

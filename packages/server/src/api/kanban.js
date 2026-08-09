@@ -110,7 +110,7 @@ router.get('/', (req, res) => {
 });
 
 router.get('/lane-runs/:runId', (req, res) => {
-  const run = getRun(req.params.runId);
+  const run = getRun(req.params.runId, req.params.projectId);
   if (!run) return res.status(404).json({ error: 'Lane run not found' });
   res.json(run);
 });

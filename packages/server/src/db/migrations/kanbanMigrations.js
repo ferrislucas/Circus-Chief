@@ -311,4 +311,10 @@ export const kanbanMigrations = [
       CREATE INDEX IF NOT EXISTS idx_kanban_api_operations_updated ON kanban_api_operations(updated_at);`);
     },
   },
+  {
+    name: 'kanban-delivery-health-status-index',
+    up(db) {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_lane_entry_health_status_created ON kanban_lane_entry_events(status, created_at)');
+    },
+  },
 ];
