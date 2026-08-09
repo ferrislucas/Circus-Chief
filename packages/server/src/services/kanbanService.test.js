@@ -636,8 +636,16 @@ describe('kanbanService', () => {
       });
       expect(rootlessTargetRun.rootSessionId).toBeNull();
 
-      reconcileKanbanOwnership({ dryRun: false });
+      // Simulate a process dying after it claimed delivery and created the
+      // target run, but before it could attach the new root session.
+      databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+        SET claim_token='abandoned-process', claimed_at=?, attempt_count=1 WHERE id=?`)
+        .run(Date.now(), eventId);
+
+      const recovery = reconcileKanbanOwnership({ dryRun: false });
       expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_runs WHERE id=?').get(rootlessTargetRun.id).status).toBe('open');
+      expect(databaseManager.get().prepare('SELECT claim_token FROM kanban_lane_entry_events WHERE id=?').get(eventId).claim_token).toBeNull();
+      expect(recovery.report.ok).toBe(true);
 
       expect(await drainLaneEntryTrigger(eventId)).toBe(true);
       const resumed = databaseManager.get().prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(rootlessTargetRun.id);

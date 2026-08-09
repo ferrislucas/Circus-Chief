@@ -14,6 +14,7 @@ import { broadcastSessionUpdate } from './sessions-patch.js';
 import { activeSessions } from '../services/streamEventHandler.js';
 import { schedulerService } from '../services/schedulerService.js';
 import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
+import { runNowFailureResponse } from '../services/sessionRunNowFailure.js';
 import {
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
@@ -203,10 +204,8 @@ router.post('/:id/run-scheduled-now', requireSession, async (req, res) => {
   try {
     const result = await schedulerService.startScheduledSession(session);
     if (!result?.started) {
-      return res.status(409).json({
-        error: 'Session no longer owns an active lane run',
-        code: 'LANE_RUN_OWNERSHIP_LOST',
-      });
+      const failure = runNowFailureResponse(result?.reason);
+      return res.status(failure.status).json({ error: failure.error, code: failure.code });
     }
     res.json(sessions.getById(req.params.id));
   } catch (error) {

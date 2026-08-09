@@ -7,6 +7,9 @@ export function rejectedSessionExecution(sessionId, reason) {
   return { started: false, sessionId, reason };
 }
 
-export function didSessionExecutionStart(result) {
-  return result?.started === true && typeof result.sessionId === 'string';
+export function didSessionExecutionStart(result, expectedSessionId) {
+  return result?.started === true
+    && typeof result.sessionId === 'string'
+    && result.sessionId.length > 0
+    && result.sessionId === expectedSessionId;
 }

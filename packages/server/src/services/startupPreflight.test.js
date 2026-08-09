@@ -14,4 +14,16 @@ describe('runStartupPreflight', () => {
     });
     expect(reconcile).toHaveBeenCalledWith({ dryRun: false });
   });
+
+  it('keeps workers enabled when recovery leaves only a recoverable observation', () => {
+    const report = { ok: true, violations: [{ type: 'run_root', severity: 'warning' }] };
+    const reconciliation = { blocked: false, applied: true };
+
+    expect(runStartupPreflight({ reconcile: () => reconciliation, audit: () => report })).toEqual({
+      ok: true,
+      report,
+      reconciliation,
+      workersEnabled: true,
+    });
+  });
 });

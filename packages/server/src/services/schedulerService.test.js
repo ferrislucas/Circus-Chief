@@ -80,11 +80,15 @@ describe('SchedulerService', () => {
       [{ started: false }],
       [{ started: 'true' }],
     ])('fails closed for an ambiguous executor result: %j', (result) => {
-      expect(SchedulerService.didExecutorStart(result)).toBe(false);
+      expect(SchedulerService.didExecutorStart(result, 'session-1')).toBe(false);
     });
 
     it('accepts only an explicit started result', () => {
-      expect(SchedulerService.didExecutorStart({ started: true, sessionId: 'session-1' })).toBe(true);
+      expect(SchedulerService.didExecutorStart({ started: true, sessionId: 'session-1' }, 'session-1')).toBe(true);
+    });
+
+    it('fails closed when the executor reports a different session as started', () => {
+      expect(SchedulerService.didExecutorStart({ started: true, sessionId: 'another-session' }, 'session-1')).toBe(false);
     });
 
     it('preserves an explicit executor rejection reason', () => {

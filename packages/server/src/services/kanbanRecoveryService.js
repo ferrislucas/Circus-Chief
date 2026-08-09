@@ -27,7 +27,10 @@ function auditOpenRunInvariant(violations, db, row) {
   if (!row.card_lane_id) violations.push(issue('orphan_open_run', 'open run has no card', base));
   else if (row.active_lane_run_id !== row.run_id) violations.push(issue('stale_run_pointer', 'open run is not the card active run', base));
   else if (row.card_lane_id !== row.source_lane_id) violations.push(issue('run_lane_mismatch', 'card is no longer in the run source lane', base));
-  if (!row.root_session_id) violations.push(issue('run_root', 'open run has no root session', base));
+  if (!row.root_session_id) {
+    const severity = isRecoverableRootlessHandoff(db, row) ? 'warning' : 'error';
+    violations.push(issue('run_root', 'open run has no root session', base, severity));
+  }
   else if (!db.prepare('SELECT 1 FROM sessions WHERE id=? AND lane_run_id=?').get(row.root_session_id, row.run_id)) {
     violations.push(issue('run_root', 'run root is not a member of its run', base));
   }
@@ -44,7 +47,7 @@ export function auditKanbanInvariants(db = databaseManager.get()) {
     auditLaneInvariant(violations, lane, laneById.get(lane.completion_target_lane_id));
   }
 
-  for (const row of db.prepare(`SELECT r.id run_id, r.card_id, r.source_lane_id, r.root_session_id, r.workspace_id,
+  for (const row of db.prepare(`SELECT r.*, r.id run_id,
       c.active_lane_run_id, c.lane_id card_lane_id FROM kanban_lane_runs r
       LEFT JOIN kanban_cards c ON c.id=r.card_id WHERE r.status='open'`).all()) {
     auditOpenRunInvariant(violations, db, row);
@@ -66,7 +69,7 @@ export function auditKanbanInvariants(db = databaseManager.get()) {
       attemptCount: row.attempt_count, lastError: row.last_error, createdAt: row.created_at }));
 
   return {
-    ok: violations.length === 0,
+    ok: !violations.some((violation) => violation.severity === 'error'),
     generatedAt: Date.now(),
     summary: { lanes: lanes.length, openRuns: db.prepare("SELECT count(*) count FROM kanban_lane_runs WHERE status='open'").get().count,
       violations: violations.length, pendingOrClaimedEntryEvents: entryEvents.length },
@@ -76,7 +79,7 @@ export function auditKanbanInvariants(db = databaseManager.get()) {
 
 export function formatKanbanInvariantReport(report) {
   const lines = [`Kanban preflight: ${report.ok ? 'PASS' : 'FAIL'} (${report.summary.violations} violation(s))`];
-  for (const item of report.violations) lines.push(`- ${item.type}: ${item.reason} [card=${item.cardId || '-'} lane=${item.laneId || '-'} session=${item.sessionId || '-'} run=${item.runId || '-'}]`);
+  for (const item of report.violations) lines.push(`- ${item.severity}: ${item.type}: ${item.reason} [card=${item.cardId || '-'} lane=${item.laneId || '-'} session=${item.sessionId || '-'} run=${item.runId || '-'}]`);
   if (report.entryEvents.length) lines.push(`- ${report.entryEvents.length} pending/claimed lane-entry event(s)`);
   return lines.join('\n');
 }
@@ -123,11 +126,11 @@ export function isRecoverableRootlessHandoff(db, run) {
     JOIN kanban_lane_entry_events e ON e.id=?
     LEFT JOIN kanban_lane_runs source ON source.id=e.caused_by_run_id
     WHERE c.id=?`).get(run.lane_entry_event_id, run.card_id);
-  // An active lease is owned by another live delivery attempt. It is not safe
-  // to reinterpret it during startup; a stale lease is explicitly recoverable.
   if (!row) return false;
-  const leaseIsLive = row.claim_token && row.claimed_at >= Date.now() - 5 * 60 * 1000;
-  return !leaseIsLive && rootlessHandoffMatchesEvent(row, run);
+  // A process that died after claiming an event has no opportunity to renew
+  // its lease. The durable run and matching event are stronger evidence than
+  // the clock, so startup may reclaim even a fresh-looking abandoned claim.
+  return rootlessHandoffMatchesEvent(row, run);
 }
 
 /**
@@ -145,6 +148,9 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
     LEFT JOIN kanban_cards c ON c.id=r.card_id WHERE r.status='open'`).all()
   const preservedRootlessRunIds = openRuns
     .filter((run) => isRecoverableRootlessHandoff(db, run)).map((run) => run.id);
+  const preservedEntryEventIds = openRuns
+    .filter((run) => preservedRootlessRunIds.includes(run.id))
+    .map((run) => run.lane_entry_event_id);
   const staleRunIds = openRuns
     .filter((run) => !preservedRootlessRunIds.includes(run.id))
     .filter((run) => !run.card_lane_id || run.active_lane_run_id !== run.id || run.card_lane_id !== run.source_lane_id
@@ -156,8 +162,12 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
     const stalePointers = db.prepare(`UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=?
       WHERE active_lane_run_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM kanban_lane_runs r WHERE r.id=active_lane_run_id AND r.status='open')`).run(now).changes;
     if (stalePointers) changes.push({ type: 'cleared_stale_card_pointers', count: stalePointers });
+    const recoveredClaim = preservedEntryEventIds.length
+      ? ` OR id IN (${preservedEntryEventIds.map(() => '?').join(',')})`
+      : '';
     const released = db.prepare(`UPDATE kanban_lane_entry_events SET claim_token=NULL, claimed_at=NULL, updated_at=?
-      WHERE status='pending' AND claim_token IS NOT NULL AND claimed_at < ?`).run(now, now - 5 * 60 * 1000).changes;
+      WHERE status='pending' AND claim_token IS NOT NULL AND (claimed_at < ?${recoveredClaim})`)
+      .run(now, now - 5 * 60 * 1000, ...preservedEntryEventIds).changes;
     if (released) changes.push({ type: 'reclaimed_entry_claims', count: released });
     const cancelled = db.prepare(`UPDATE sessions SET scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL,
       auto_send_pending_prompt=0, execution_state='idle', workflow_reason='reconciliation_unowned_worker', workflow_updated_at=?

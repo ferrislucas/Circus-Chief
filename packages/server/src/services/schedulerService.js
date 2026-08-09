@@ -211,12 +211,12 @@ class SchedulerService {
   }
 
   /** A scheduled executor must use the explicit session-start result contract. */
-  static didExecutorStart(result) {
-    return didSessionExecutionStart(result);
+  static didExecutorStart(result, expectedSessionId) {
+    return didSessionExecutionStart(result, expectedSessionId);
   }
 
   finishScheduledStart(session, executorResult) {
-    if (!SchedulerService.didExecutorStart(executorResult)) {
+    if (!SchedulerService.didExecutorStart(executorResult, session.id)) {
       this.rejectScheduledStart(session);
       return rejectedSessionExecution(session.id, executorResult?.started === false && executorResult.reason
         ? executorResult.reason
