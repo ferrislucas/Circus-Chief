@@ -89,6 +89,40 @@ function hasUnambiguousRootTree(db, run) {
   return true;
 }
 
+function rootlessHandoffMatchesEvent(row, run) {
+  return [
+    row.active_lane_run_id === run.id,
+    row.card_lane_id === run.source_lane_id,
+    row.lane_entry_event_id === run.lane_entry_event_id,
+    row.project_id === run.project_id,
+    row.workspace_id === run.workspace_id,
+    row.event_card_id === run.card_id,
+    row.event_lane_id === run.source_lane_id,
+    row.cause === 'completion',
+    ['pending', 'claimed'].includes(row.event_status),
+    row.source_status === 'succeeded',
+    row.transition_applied_at !== null,
+  ].every(Boolean);
+}
+
+/** A completion handoff is recoverable only when every persisted owner agrees. */
+export function isRecoverableRootlessHandoff(db, run) {
+  if (run.root_session_id || !run.lane_entry_event_id) return false;
+  const row = db.prepare(`SELECT c.active_lane_run_id, c.lane_id card_lane_id, c.lane_entry_event_id,
+      e.project_id, e.workspace_id, e.card_id event_card_id, e.lane_id event_lane_id,
+      e.cause, e.status event_status, e.claim_token, e.claimed_at,
+      source.status source_status, source.transition_applied_at
+    FROM kanban_cards c
+    JOIN kanban_lane_entry_events e ON e.id=?
+    LEFT JOIN kanban_lane_runs source ON source.id=e.caused_by_run_id
+    WHERE c.id=?`).get(run.lane_entry_event_id, run.card_id);
+  // An active lease is owned by another live delivery attempt. It is not safe
+  // to reinterpret it during startup; a stale lease is explicitly recoverable.
+  if (!row) return false;
+  const leaseIsLive = row.claim_token && row.claimed_at >= Date.now() - 5 * 60 * 1000;
+  return !leaseIsLive && rootlessHandoffMatchesEvent(row, run);
+}
+
 /**
  * Normalize only demonstrably stale state.  It is intentionally conservative:
  * ambiguous history is cancelled, never attached to a newly-created run.
@@ -100,8 +134,12 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
   if (invalidLanes.length) return { applied: false, blocked: true, report: initial, changes: [] };
 
   const changes = [];
-  const staleRunIds = db.prepare(`SELECT r.*, c.active_lane_run_id, c.lane_id card_lane_id FROM kanban_lane_runs r
+  const openRuns = db.prepare(`SELECT r.*, c.active_lane_run_id, c.lane_id card_lane_id FROM kanban_lane_runs r
     LEFT JOIN kanban_cards c ON c.id=r.card_id WHERE r.status='open'`).all()
+  const preservedRootlessRunIds = openRuns
+    .filter((run) => isRecoverableRootlessHandoff(db, run)).map((run) => run.id);
+  const staleRunIds = openRuns
+    .filter((run) => !preservedRootlessRunIds.includes(run.id))
     .filter((run) => !run.card_lane_id || run.active_lane_run_id !== run.id || run.card_lane_id !== run.source_lane_id
       || !hasUnambiguousRootTree(db, run)).map((run) => run.id);
 
@@ -121,5 +159,6 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
     if (cancelled) changes.push({ type: 'cancelled_unowned_workers', count: cancelled });
   }
   if (staleRunIds.length) changes.unshift({ type: 'superseded_runs', runIds: staleRunIds });
+  if (preservedRootlessRunIds.length) changes.unshift({ type: 'preserved_recoverable_rootless_handoffs', runIds: preservedRootlessRunIds });
   return { applied: !dryRun, blocked: false, report: auditKanbanInvariants(db), changes };
 }

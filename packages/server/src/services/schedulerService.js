@@ -3,6 +3,7 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
 import { claimWorkflowSessionStart, withActiveLaneRunOwnership, activeLaneRunOwnsSession } from './workflowSessionService.js';
+import { didSessionExecutionStart, rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 
 function broadcastRescheduledSession(sessionId, updated) {
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
@@ -209,17 +210,19 @@ class SchedulerService {
     }
   }
 
-  /** Normalize legacy boolean executor responses and explicit start results. */
+  /** A scheduled executor must use the explicit session-start result contract. */
   static didExecutorStart(result) {
-    return result !== false && result?.started !== false;
+    return didSessionExecutionStart(result);
   }
 
   finishScheduledStart(session, executorResult) {
     if (!SchedulerService.didExecutorStart(executorResult)) {
       this.rejectScheduledStart(session);
-      return { started: false, reason: 'lane_run_ownership_lost', sessionId: session.id };
+      return rejectedSessionExecution(session.id, executorResult?.started === false && executorResult.reason
+        ? executorResult.reason
+        : 'invalid_executor_response');
     }
-    return { started: true, sessionId: session.id };
+    return startedSessionExecution(session.id);
   }
 
   /**

@@ -41,6 +41,8 @@ import {
   triggerStructuredTransitionAutomation,
   drainLaneEntryTrigger,
 } from './kanbanService.js';
+import { createLaneRunForEntry } from './workflowSessionService.js';
+import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
 
 describe('kanbanService', () => {
   let projectId;
@@ -609,6 +611,43 @@ describe('kanbanService', () => {
   });
 
   describe('durable completion outbox', () => {
+    it('preserves and resumes a valid rootless target run after restart reconciliation', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
+      const sourceRunId = 'source-run-recovery';
+      const eventId = 'completion-recovery-event';
+      const time = Date.now();
+      databaseManager.get().prepare(`INSERT INTO kanban_lane_runs
+        (id,lane_entry_event_id,project_id,workspace_id,card_id,source_lane_id,status,created_at,updated_at,succeeded_at,transition_applied_at)
+        VALUES (?,?,?,?,?,?,'succeeded',?,?,?,?)`)
+        .run(sourceRunId, 'source-entry-event-recovery', projectId, workspace.id, card.id, lanes[0].id,
+          time, time, time, time);
+      databaseManager.get().prepare(`INSERT INTO kanban_lane_entry_events
+        (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,caused_by_run_id,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,'pending',?,?)`)
+        .run(eventId, `completion:${sourceRunId}`, projectId, workspace.id, card.id, lanes[1].id,
+          'completion', sourceRunId, time, time);
+
+      const rootlessTargetRun = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id,
+        lane: kanbanLanes.getById(lanes[1].id), cause: 'completion',
+        priorLaneRunId: sourceRunId, entryEventId: eventId,
+      });
+      expect(rootlessTargetRun.rootSessionId).toBeNull();
+
+      reconcileKanbanOwnership({ dryRun: false });
+      expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_runs WHERE id=?').get(rootlessTargetRun.id).status).toBe('open');
+
+      expect(await drainLaneEntryTrigger(eventId)).toBe(true);
+      const resumed = databaseManager.get().prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(rootlessTargetRun.id);
+      expect(resumed).toEqual(expect.objectContaining({ status: 'open', root_session_id: expect.any(String) }));
+      expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?').get(eventId).status).toBe('completed');
+      expect(await drainLaneEntryTrigger(eventId)).toBe(false);
+      expect(databaseManager.get().prepare('SELECT count(*) count FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(eventId).count).toBe(1);
+      expect(runSession).toHaveBeenCalledTimes(1);
+    });
+
     it('drains a pending completion event once and marks it completed', async () => {
       kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
       const workspace = createSession('Workspace');

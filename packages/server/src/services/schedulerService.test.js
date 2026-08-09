@@ -41,9 +41,9 @@ describe('SchedulerService', () => {
   beforeEach(() => {
     scheduler = new SchedulerService();
     mockSessionManager = {
-      runSession: vi.fn().mockResolvedValue(undefined),
-      continueSession: vi.fn().mockResolvedValue(undefined),
-      continueSessionWithExistingMessage: vi.fn().mockResolvedValue(undefined),
+      runSession: vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' }),
+      continueSession: vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' }),
+      continueSessionWithExistingMessage: vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' }),
     };
     vi.clearAllMocks();
 
@@ -67,6 +67,33 @@ describe('SchedulerService', () => {
 
     it('has default poll interval of 30 seconds', () => {
       expect(scheduler.pollInterval).toBe(30000);
+    });
+  });
+
+  describe('scheduled executor start contract', () => {
+    it.each([
+      [undefined],
+      [null],
+      [true],
+      [false],
+      [{}],
+      [{ started: false }],
+      [{ started: 'true' }],
+    ])('fails closed for an ambiguous executor result: %j', (result) => {
+      expect(SchedulerService.didExecutorStart(result)).toBe(false);
+    });
+
+    it('accepts only an explicit started result', () => {
+      expect(SchedulerService.didExecutorStart({ started: true, sessionId: 'session-1' })).toBe(true);
+    });
+
+    it('preserves an explicit executor rejection reason', () => {
+      scheduler.initialize(mockSessionManager);
+      const session = { id: 'session-1', projectId: 'project-1' };
+
+      expect(scheduler.finishScheduledStart(session, {
+        started: false, sessionId: session.id, reason: 'executor_declined',
+      })).toEqual({ started: false, sessionId: session.id, reason: 'executor_declined' });
     });
   });
 
@@ -317,7 +344,7 @@ describe('SchedulerService', () => {
 
     it('continues session when there are existing assistant messages', async () => {
       scheduler.initialize(mockSessionManager);
-      mockSessionManager.continueSession = vi.fn().mockResolvedValue(undefined);
+      mockSessionManager.continueSession = vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' });
       const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Follow-up message', pendingConversationId: null, pendingModel: 'claude-opus-4-5' };
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
@@ -334,9 +361,9 @@ describe('SchedulerService', () => {
     });
 
     it.each([
-      ['fresh session', (session) => { messages.getBySessionId.mockReturnValue([]); conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' }); messages.create.mockReturnValue({ id: 'msg-1' }); mockSessionManager.runSession.mockResolvedValue(false); }],
-      ['continuation', () => { messages.getBySessionId.mockReturnValue([{ role: 'assistant' }]); mockSessionManager.continueSession.mockResolvedValue(false); }],
-      ['existing-message continuation', (session) => { session.pendingConversationId = 'conv-99'; mockSessionManager.continueSessionWithExistingMessage.mockResolvedValue(false); }],
+      ['fresh session', (session) => { messages.getBySessionId.mockReturnValue([]); conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' }); messages.create.mockReturnValue({ id: 'msg-1' }); mockSessionManager.runSession.mockResolvedValue({ started: false, sessionId: session.id, reason: 'lane_run_ownership_lost' }); }],
+      ['continuation', (session) => { messages.getBySessionId.mockReturnValue([{ role: 'assistant' }]); mockSessionManager.continueSession.mockResolvedValue({ started: false, sessionId: session.id, reason: 'lane_run_ownership_lost' }); }],
+      ['existing-message continuation', (session) => { const scheduledSession = session; scheduledSession.pendingConversationId = 'conv-99'; mockSessionManager.continueSessionWithExistingMessage.mockResolvedValue({ started: false, sessionId: scheduledSession.id, reason: 'lane_run_ownership_lost' }); }],
     ])('returns ownership rejection and clears stale scheduler state for a declined %s', async (_name, configure) => {
       scheduler.initialize(mockSessionManager);
       const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Continue', pendingConversationId: null, pendingModel: null, scheduledAt: 1234 };
@@ -398,7 +425,7 @@ describe('SchedulerService', () => {
 
     it('uses continueSessionWithExistingMessage when pendingConversationId is set', async () => {
       scheduler.initialize(mockSessionManager);
-      mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue(undefined);
+      mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' });
       const session = {
         id: 'session-1',
         name: 'Test Session',
@@ -426,7 +453,7 @@ describe('SchedulerService', () => {
 
     it('clears pendingConversationId and pendingPrompt when using existing-message retry', async () => {
       scheduler.initialize(mockSessionManager);
-      mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue(undefined);
+      mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' });
       const session = {
         id: 'session-1',
         name: 'Test Session',
@@ -451,7 +478,7 @@ describe('SchedulerService', () => {
 
     it('pendingConversationId takes precedence over hasAssistantResponses check', async () => {
       scheduler.initialize(mockSessionManager);
-      mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue(undefined);
+      mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' });
       const session = {
         id: 'session-1',
         name: 'Test Session',

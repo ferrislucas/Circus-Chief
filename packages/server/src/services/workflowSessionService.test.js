@@ -55,6 +55,19 @@ describe('workflowSessionService', () => {
     expect(reconcileKanbanOwnership({ dryRun: false }).changes).toEqual([]);
   });
 
+  it('supersedes a rootless open run without a resumable completion handoff', () => {
+    const run = createLaneRunForEntry({
+      projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane(),
+    });
+
+    const recovery = reconcileKanbanOwnership({ dryRun: false });
+
+    expect(getRun(run.id).status).toBe('superseded');
+    expect(recovery.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'superseded_runs', runIds: [run.id] }),
+    ]));
+  });
+
   it('keeps scheduled work open even with a valid completion request', () => {
     const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
     const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });

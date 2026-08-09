@@ -6,6 +6,7 @@ import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
 import { activeLaneRunOwnsSession, closeOwnWork } from './workflowSessionService.js';
+import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 import {
   shouldRescheduleOnError,
   _checkProactiveReschedule,
@@ -317,7 +318,9 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   let session = context.session;
   const { conversation, lastUserMessage } = context;
 
-  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) return false;
+  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
+    return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
+  }
 
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
@@ -358,6 +361,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
     errorLabel: 'Continue session with existing message error',
   });
+  return startedSessionExecution(sessionId);
 }
 
 /**

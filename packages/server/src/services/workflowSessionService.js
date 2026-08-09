@@ -17,6 +17,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 const now = () => Date.now();
 const id = () => crypto.randomUUID();
 const SELECT_SESSION_BY_ID = 'SELECT * FROM sessions WHERE id=?';
+const OPEN_RUN_STATUS = 'open';
 
 function audit(db, runId, type, { sessionId = null, details = null } = {}) {
   const operationKey = `${runId}:${type}:${sessionId || '-'}:${details ? JSON.stringify(details) : '-'}`;
@@ -129,13 +130,20 @@ function runForEntryEvent(db, eventId) {
   return run ? getRun(run.id) : null;
 }
 
+function reusableRunForEntryEvent(db, eventId) {
+  const run = runForEntryEvent(db, eventId);
+  if (run?.status === OPEN_RUN_STATUS) return run;
+  if (run) throw new Error(`Lane-entry event ${eventId} is tied to terminal run ${run.id}`);
+  return null;
+}
+
 export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, cause = 'card_added', priorLaneRunId = null, entryEventId = null }) {
   if (!isStructured(lane)) return null;
   const db = databaseManager.get();
   const causeRunId = causedByRunId(cause, priorLaneRunId);
   if (causeRunId && !entryEventId) {
     const existingEvent = db.prepare('SELECT id FROM kanban_lane_entry_events WHERE caused_by_run_id=?').get(causeRunId);
-    if (existingEvent) return runForEntryEvent(db, existingEvent.id);
+    if (existingEvent) return reusableRunForEntryEvent(db, existingEvent.id);
   }
   try {
     return databaseManager.transaction(() => {
@@ -166,7 +174,7 @@ export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, ca
     if (!isUniqueConstraintError(error)) throw error;
     if (causeRunId) {
       const winningEvent = db.prepare('SELECT id FROM kanban_lane_entry_events WHERE caused_by_run_id=?').get(causeRunId);
-      if (winningEvent) return runForEntryEvent(db, winningEvent.id);
+      if (winningEvent) return reusableRunForEntryEvent(db, winningEvent.id);
     }
     const activeRunId = db.prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?').get(cardId)?.active_lane_run_id;
     return activeRunId ? getRun(activeRunId) : null;
