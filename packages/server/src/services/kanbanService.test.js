@@ -244,6 +244,20 @@ describe('kanbanService', () => {
       const event = databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE card_id=?').get(card.id);
       expect(['pending', 'claimed']).toContain(event.status);
     });
+
+    it('does not complete an entry event when provider dispatch rejects asynchronously', async () => {
+      const template = sessionTemplates.create({ projectId, name: 'Rejected dispatch', prompt: 'do something' });
+      kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+      runSession.mockRejectedValueOnce(new Error('provider unavailable'));
+
+      const card = await addSessionToBoard(createSession().id, lanes[0].id);
+
+      await vi.waitFor(() => {
+        const event = databaseManager.get().prepare('SELECT status, last_error FROM kanban_lane_entry_events WHERE card_id=?').get(card.id);
+        expect(event.status).toBe('pending');
+        expect(event.last_error).toContain('provider dispatch was not accepted');
+      });
+    });
   });
 
   // ── moveCard ───────────────────────────────────────────────────────

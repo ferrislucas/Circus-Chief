@@ -83,7 +83,7 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
  * @param {Object} options
  */
 export function startChildSession(newSession, prompt, workingDirectory, options) {
-  runSession(newSession.id, prompt, workingDirectory, options).catch((error) => {
+  return runSession(newSession.id, prompt, workingDirectory, options).then(() => true).catch((error) => {
     console.error(`Kanban: Error running on-enter session ${newSession.id}:`, error);
     const errorSession = sessions.update(newSession.id, { status: 'error', error: error.message });
     broadcastToProject(newSession.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
@@ -91,6 +91,7 @@ export function startChildSession(newSession, prompt, workingDirectory, options)
       sessionId: newSession.id,
       session: errorSession,
     });
+    return false;
   });
 }
 
@@ -217,10 +218,11 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
       session: sessions.getById(newSession.id),
     });
 
-    startChildSession(newSession, renderedPrompt, workingDirectory, {
+    const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
     });
+    if (!accepted) return undelivered('provider dispatch was not accepted');
 
     console.log(`Kanban: Created and started on-enter session ${newSession.id}`);
     return { delivered: true, rootSessionId: newSession.id };
@@ -312,10 +314,11 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
       session: sessions.getById(newSession.id),
     });
 
-    startChildSession(newSession, renderedPrompt, workingDirectory, {
+    const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
     });
+    if (!accepted) return undelivered('provider dispatch was not accepted');
 
     console.log(`Kanban: Created and started on-enter prompt session ${newSession.id}`);
     return { delivered: true, rootSessionId: newSession.id };

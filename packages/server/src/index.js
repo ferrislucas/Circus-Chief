@@ -75,7 +75,7 @@ const preflight = runStartupPreflight();
 setAutomationPreflightStatus(preflight);
 if (!preflight.workersEnabled) {
   console.error(formatKanbanInvariantReport(preflight.report));
-  console.error('Kanban preflight failed; HTTP serving remains available but scheduler and entry delivery are disabled');
+  console.error('Kanban preflight failed; HTTP serving and unrelated scheduling remain available, but Kanban entry delivery is disabled');
 } else {
   startLaneEntryRetryWorker();
 }
@@ -95,8 +95,9 @@ const server = createServer(app);
 // Initialize WebSocket for app
 initWebSocket(server);
 
-// Initialize and start scheduler service (gated off under VCR_MODE)
-if (preflight.workersEnabled) schedulerService.startIfEnabled(sessionManager);
+// Scheduler readiness is independent of Kanban automation readiness. A bad
+// board configuration must never strand unrelated scheduled sessions.
+schedulerService.startIfEnabled(sessionManager);
 
 // Start PR status polling service
 prStatusService.start();

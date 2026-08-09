@@ -12,6 +12,12 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
 import { createLaneRunForEntry, supersedeRunForCard, isStructured } from './workflowSessionService.js';
 import { buildFullBoardResponse } from './kanbanBoardResponse.js';
+import {
+  beginLaneEntryDelivery,
+  isLaneEntryDeliveryStopping,
+  stopLaneEntryDelivery,
+  trackLaneEntryDelivery,
+} from './laneEntryDeliveryCoordinator.js';
 
 /**
  * Get the full board with all lanes and cards for a project.
@@ -231,6 +237,7 @@ const RETRY_JITTER = 0.2;
  * failed API request.
  */
 function scheduleLaneEntryDelivery(eventId, options) {
+  if (isLaneEntryDeliveryStopping()) return;
   void drainLaneEntryTrigger(eventId, options).catch((error) => {
     console.error(`Kanban lane-entry delivery ${eventId} failed; queued for retry:`, error);
   });
@@ -289,7 +296,7 @@ function resolveDeliveryState(event) {
 
 /** Drain one committed completion handoff. Safe to call repeatedly. */
 // eslint-disable-next-line complexity -- deliberately linear durable state machine
-export async function drainLaneEntryTrigger(eventId, options = {}) {
+async function drainLaneEntryTriggerImpl(eventId, options = {}) {
   const token = claimLaneEntryTrigger(eventId);
   if (!token) return false;
   const db = databaseManager.get();
@@ -331,6 +338,16 @@ export async function drainLaneEntryTrigger(eventId, options = {}) {
   }
 }
 
+/**
+ * Drain one event while registering it with the shared delivery lifecycle.
+ * This public boundary is intentionally used by HTTP, completion, and retry
+ * callers alike so graceful shutdown cannot miss a source of side effects.
+ */
+export function drainLaneEntryTrigger(eventId, options = {}) {
+  if (isLaneEntryDeliveryStopping()) return Promise.resolve(false);
+  return trackLaneEntryDelivery(drainLaneEntryTriggerImpl(eventId, options));
+}
+
 /** Reclaim only leases that have actually expired (shared by startup and polling). */
 export function reclaimExpiredLaneEntryClaims(time = Date.now()) {
   return databaseManager.get().prepare(`UPDATE kanban_lane_entry_events SET status='pending', claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, updated_at=?
@@ -361,6 +378,7 @@ const RETRY_POLL_MS = 1_000;
 export function startLaneEntryRetryWorker() {
   if (retryTimer) return;
   retryStopping = false;
+  beginLaneEntryDelivery();
   const tick = async () => {
     if (retryStopping || retryInFlight) return;
     retryInFlight = drainPendingLaneEntryTriggers().catch((error) => {
@@ -378,8 +396,7 @@ export async function stopLaneEntryRetryWorker(timeoutMs = 5_000) {
   retryStopping = true;
   if (retryTimer) clearInterval(retryTimer);
   retryTimer = null;
-  if (!retryInFlight) return;
-  await Promise.race([retryInFlight, new Promise((resolve) => setTimeout(resolve, timeoutMs))]);
+  await stopLaneEntryDelivery(timeoutMs, () => retryInFlight);
 }
 
 /**
