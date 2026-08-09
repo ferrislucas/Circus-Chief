@@ -486,7 +486,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     promptLength: promptWithAttachments.length,
   };
 
-  await _executeSession({
+  return _executeSession({
     sessionId,
     agent,
     queryParams,
@@ -495,6 +495,5 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     workingDirectory,
     callbacks,
     errorLabel: 'Session error',
-  });
-  return startedSessionExecution(sessionId);
+  }).then(() => startedSessionExecution(sessionId));
 }
