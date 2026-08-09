@@ -309,6 +309,21 @@ describe('workflowSessionService', () => {
     }
   });
 
+  it('leaves no session scheduled after its lane run is superseded', () => {
+    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    attachRootSession(run.id, worker.id);
+    sessions.update(worker.id, { scheduledAt: Date.now() + 60_000, pendingPrompt: 'continue' });
+    databaseManager.get().prepare("UPDATE sessions SET status='scheduled' WHERE id=?").run(worker.id);
+
+    supersedeRunForCard(card.id, 'manual_move');
+
+    expect(sessions.getScheduledSessions()).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: worker.id }),
+    ]));
+    expect(sessions.getById(worker.id).status).toBe('stopped');
+  });
+
   describe('computeSubtreeOutcome (W5: pure FR-6 roll-up rule)', () => {
     it('is open when own work is still open, regardless of children', () => {
       expect(computeSubtreeOutcome('open', [])).toBe('open');
