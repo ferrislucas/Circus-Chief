@@ -1,15 +1,13 @@
 import { sessions, messages, attachments, conversations } from '../database.js';
-import { createCodexSpawner } from './codexSpawnHelper.js';
-import { createGeminiSpawner } from './geminiSpawnHelper.js';
 import { resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
 import { reconcileAgentTypeForRun, deriveAgentTypeUpdate } from './sessionAgentGuard.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
 import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
 import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
+import { buildAgentConfig } from './sessionAgentConfig.js';
 export { buildQueryParams } from './queryParamBuilder.js';
 import { buildQueryParams } from './queryParamBuilder.js';
-/* eslint-disable max-lines */
 
 import {
   buildPromptWithAttachments,
@@ -35,23 +33,6 @@ import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecuti
 // _executeSession, long after the module graph is loaded (same pattern as
 // session-helpers.js's database.js <-> SessionRepository cycle).
 import { drainLaneEntryTrigger } from './kanbanService.js';
-
-/**
- * Build the adapter-specific default config object for
- * {@link createAgentForSession}. Callers may pass an explicit `config` to
- * override these defaults.
- * @param {string} agentType
- * @returns {Object}
- */
-function buildAgentConfig(agentType) {
-  if (agentType === 'codex') {
-    return { spawnCodexProcess: createCodexSpawner() };
-  }
-  if (agentType === 'gemini') {
-    return { spawnGeminiProcess: createGeminiSpawner() };
-  }
-  return {};
-}
 
 export function buildAgentEnv(sessionEnv, commitAttributionOverride) {
   const env = { ...(sessionEnv || {}) };

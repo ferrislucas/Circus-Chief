@@ -5,6 +5,7 @@ import { createWorkLog } from './workLogService.js';
 import { sessions } from '../database.js';
 import { PROMPT_ACTIONS_BY_KIND } from '@circuschief/shared/contracts/prompts';
 import { buildSafeToolInputSummary, buildSafeHeadline, buildSafeBlockedPath } from './promptDurableSummary.js';
+import logger from '../logger.js';
 
 // Sessions hold an *ordered queue* of parked prompts, not a single record.
 //
@@ -49,24 +50,60 @@ function settle(record, outcome, result) {
   const removal = removeFromQueue(record.sessionId, record.id);
   if (!removal) return false;
   record.signal?.removeEventListener('abort', record.abortListener);
-  const { toolName, content } = describePromptOutcome(record, outcome, result);
-  createWorkLog(record.sessionId, 'tool_output', content, toolName);
-  broadcastToSession(record.sessionId, WS_MESSAGE_TYPES.SESSION_PROMPT_RESOLVED, {
-    sessionId: record.sessionId, promptId: record.id, outcome,
-  });
+
+  // State removal happens first for exactly-once semantics. The SDK callback
+  // must always settle after that transition: audit and websocket failures are
+  // observable operational errors, but cannot strand the blocked agent or
+  // prevent the next queued interaction from being surfaced.
+  persistPromptOutcome(record, outcome, result);
+  broadcastPromptResolution(record, outcome);
   if (removal.queue.length === 0) {
     // Queue drained: only now does the "needs attention" badge clear. One
     // prompt resolving must not clear it while a sibling is still queued.
-    broadcastPendingInput(record, false);
+    safelyBroadcast(record, 'clear pending prompt badge', () => broadcastPendingInput(record, false));
   } else if (removal.wasHead) {
     // Promote the new head so a client that already rendered the resolved
     // prompt gets the next one without polling.
-    broadcastToSession(record.sessionId, WS_MESSAGE_TYPES.SESSION_PROMPT, {
+    safelyBroadcast(record, 'surface next queued prompt', () => broadcastToSession(record.sessionId, WS_MESSAGE_TYPES.SESSION_PROMPT, {
       sessionId: record.sessionId, prompt: project(removal.queue[0]),
-    });
+    }));
   }
   record.resolve(result);
   return true;
+}
+
+function persistPromptOutcome(record, outcome, result) {
+  try {
+    const { toolName, content } = describePromptOutcome(record, outcome, result);
+    createWorkLog(record.sessionId, 'tool_output', content, toolName);
+  } catch (error) {
+    reportPromptSideEffectFailure(record, 'persist prompt decision', error);
+  }
+}
+
+function broadcastPromptResolution(record, outcome) {
+  safelyBroadcast(record, 'broadcast prompt resolution', () => broadcastToSession(
+    record.sessionId,
+    WS_MESSAGE_TYPES.SESSION_PROMPT_RESOLVED,
+    { sessionId: record.sessionId, promptId: record.id, outcome },
+  ));
+}
+
+function safelyBroadcast(record, operation, broadcast) {
+  try {
+    broadcast();
+  } catch (error) {
+    reportPromptSideEffectFailure(record, operation, error);
+  }
+}
+
+function reportPromptSideEffectFailure(record, operation, error) {
+  // Never include the prompt payload here: tool input can contain secrets.
+  logger.error(`Failed to ${operation} for interactive prompt`, {
+    sessionId: record.sessionId,
+    promptId: record.id,
+    error: error instanceof Error ? error.message : String(error),
+  });
 }
 
 function describePromptOutcome(record, outcome, result) {

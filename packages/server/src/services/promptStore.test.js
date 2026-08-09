@@ -46,6 +46,29 @@ function park(sessionId, kind, payload = kind === 'question' ? questionPayload :
 describe('promptStore work-log emission', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it('settles the live callback and promotes queued work when work-log persistence fails', async () => {
+    const session = { id: 'work-log-failure', projectId: 'proj-1' };
+    sessions.getById = vi.fn(() => session);
+    createWorkLog.mockImplementationOnce(() => { throw new Error('database unavailable'); });
+    const first = park('work-log-failure', 'permission');
+    const second = park('work-log-failure', 'permission');
+
+    expect(respondToPrompt('work-log-failure', first.prompt.id, { action: 'allow' })).toBe(true);
+
+    await expect(first.promise).resolves.toMatchObject({ behavior: 'allow' });
+    await assertStillPending(second.promise);
+    expect(getPrompt('work-log-failure')?.id).toBe(second.prompt.id);
+    expect(respondToPrompt('work-log-failure', first.prompt.id, { action: 'deny' })).toBe(false);
+    expect(broadcastToSession).toHaveBeenCalledWith(
+      'work-log-failure',
+      WS_MESSAGE_TYPES.SESSION_PROMPT,
+      expect.objectContaining({ prompt: expect.objectContaining({ id: second.prompt.id }) }),
+    );
+
+    expect(respondToPrompt('work-log-failure', second.prompt.id, { action: 'allow' })).toBe(true);
+    await expect(second.promise).resolves.toMatchObject({ behavior: 'allow' });
+  });
+
   it('logs question answers before broadcasting resolution', async () => {
     const { promise, prompt } = park('question-answer', 'question');
 

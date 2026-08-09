@@ -7,6 +7,7 @@ import {
   openSessionOverlay,
   getSession,
   getSessionMessages,
+  getSessionWorkLogs,
   waitForStatus,
   stopSession,
 } from './helpers';
@@ -51,6 +52,10 @@ async function seedAndStartSession(projectId: string, name: string, prompt: stri
     mode: 'standard',
   });
   return session;
+}
+
+function flattenWorkLogs(groupedLogs: Record<string, any[]>) {
+  return Object.values(groupedLogs).flat();
 }
 
 async function openChatAndSurfacePrompt(page: Page, sessionId: string) {
@@ -112,6 +117,53 @@ test.describe('Interactive Agent Prompts', () => {
 
     await expect(card).not.toBeVisible({ timeout: 10000 });
     await waitForStatus(session.id, 'waiting', 60000);
+  });
+
+  test('permission prompt: always allow honors the selected project scope', async ({ page }) => {
+    const session = await seedAndStartSession(project.id, 'Always Allow Prompt', PERMISSION_PROMPT);
+    const card = await openChatAndSurfacePrompt(page, session.id);
+
+    await card.locator('.permission-scope select').selectOption('projectSettings');
+    await card.getByRole('button', { name: 'Always allow' }).click();
+
+    await expect(card).not.toBeVisible({ timeout: 10000 });
+    await waitForStatus(session.id, 'waiting', 60000);
+    const logs = flattenWorkLogs(await getSessionWorkLogs(session.id));
+    expect(logs.some((log: any) => log.content.includes('Outcome: always allow') && log.content.includes('Scope: projectSettings'))).toBe(true);
+  });
+
+  test('permission prompt: reload hydrates the parked prompt and preserves its identity', async ({ page }) => {
+    const session = await seedAndStartSession(project.id, 'Hydrated Prompt', PERMISSION_PROMPT);
+    const initialCard = await openChatAndSurfacePrompt(page, session.id);
+    const initialTitle = await initialCard.locator('.permission-intro h3').textContent();
+
+    await page.reload();
+    await expect(page.locator('[data-testid="session-detail"][data-ready="true"]')).toBeVisible();
+    const hydratedCard = await openSessionOverlay(page).then((chat) => chat.locator('.agent-prompt-card'));
+    await expect(hydratedCard).toBeVisible({ timeout: 15000 });
+    await expect(hydratedCard.locator('.permission-intro h3')).toHaveText(initialTitle || '');
+
+    await hydratedCard.locator('button.prompt-primary-action').click();
+    await expect(hydratedCard).not.toBeVisible({ timeout: 10000 });
+    await waitForStatus(session.id, 'waiting', 60000);
+  });
+
+  test('permission prompt: Escape reveals denial without resolving the SDK callback', async ({ page }) => {
+    const session = await seedAndStartSession(project.id, 'Escape Denial Prompt', PERMISSION_PROMPT);
+    const card = await openChatAndSurfacePrompt(page, session.id);
+
+    await card.locator('button.prompt-primary-action').focus();
+    await page.keyboard.press('Escape');
+    await expect(card.locator('.deny-reason')).toBeVisible();
+    await expect(card).toBeVisible();
+    expect((await getSession(session.id)).pendingAgentInput).toBe(true);
+
+    await card.locator('.deny-reason input').fill('Do not modify server configuration.');
+    await card.getByRole('button', { name: 'Confirm deny' }).click();
+    await expect(card).not.toBeVisible({ timeout: 10000 });
+    await waitForStatus(session.id, 'waiting', 60000);
+    const logs = flattenWorkLogs(await getSessionWorkLogs(session.id));
+    expect(logs.some((log: any) => log.content.includes('Outcome: deny') && log.content.includes('Reason: Do not modify server configuration.'))).toBe(true);
   });
 
   test('stop clears a parked prompt and the session does not hang', async ({ page }) => {
