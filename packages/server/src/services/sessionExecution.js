@@ -352,7 +352,9 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   if (!session) {
     throw new Error('Session not found');
   }
-  if (session.laneRunId && !activeLaneRunOwnsSession(sessionId)) return false;
+  // A closed lane run only blocks system-owned work. Human follow-ups must
+  // remain available after a workflow completes or a card is manually moved.
+  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) return false;
 
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
@@ -412,11 +414,11 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
  */
 export async function runSessionCore(sessionId, prompt, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
-  const { systemPrompt = null, fileAttachments = [], model = null } = options;
+  const { systemPrompt = null, fileAttachments = [], model = null, interactive = false } = options;
   // Get session for settings
   let session = sessions.getById(sessionId);
   if (!session) throw new Error('Session not found');
-  if (session.laneRunId && !activeLaneRunOwnsSession(sessionId)) return false;
+  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) return false;
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 

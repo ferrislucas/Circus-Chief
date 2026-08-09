@@ -166,7 +166,7 @@ export async function handleAutoSendIfNeeded(sessionId) {
  */
 export async function runSession(sessionId, prompt, workingDirectory, options = {}) {
   // Delegate to sessionExecution.js, passing callbacks to avoid circular imports
-  await runSessionCore(sessionId, prompt, workingDirectory, {
+  return runSessionCore(sessionId, prompt, workingDirectory, {
     options,
     callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
   });
@@ -181,7 +181,7 @@ export async function runSession(sessionId, prompt, workingDirectory, options = 
  */
 export async function continueSession(sessionId, content, workingDirectory, options = {}) {
   // Delegate to sessionExecution.js, passing callbacks to avoid circular imports
-  await continueSessionCore(sessionId, content, workingDirectory, {
+  return continueSessionCore(sessionId, content, workingDirectory, {
     options,
     callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
   });

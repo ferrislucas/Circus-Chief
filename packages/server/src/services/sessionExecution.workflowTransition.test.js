@@ -175,4 +175,25 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
     expect(cardRepo.getById(card.id).laneId).toBe(target.id);
     expect(drainLaneEntryTriggerMock).toHaveBeenCalledTimes(1);
   });
+
+  it('runs an interactive turn after its lane run has succeeded, but rejects a system turn', async () => {
+    const stubAgent = {
+      execute: vi.fn(async function* () {
+        yield { type: 'assistant', text: 'done' };
+        yield { type: 'result', success: true };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    await runSession(root.id, 'do work', tempDir);
+    expect(getRun(run.id).status).toBe('succeeded');
+
+    await continueSession(root.id, 'A human follow-up', tempDir, { interactive: true });
+    expect(stubAgent.execute).toHaveBeenCalledTimes(2);
+
+    await runSession(root.id, 'A stale system turn', tempDir);
+    expect(stubAgent.execute).toHaveBeenCalledTimes(2);
+  });
 });
