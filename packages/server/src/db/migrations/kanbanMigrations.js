@@ -225,10 +225,40 @@ export const kanbanMigrations = [
     up(db) {
       const laneColumns = getColumns(db, 'kanban_lanes');
       const runColumns = getColumns(db, 'kanban_lane_runs');
+      // A table recreation, rather than DROP COLUMN, removes old CHECK
+      // constraints and makes the persisted lane contract exactly match the
+      // fresh-schema baseline. Existing rows are copied as configuration and
+      // historical runs/events remain untouched diagnostic history.
+      if (laneColumns.includes('completion_mode')) {
+        const foreignKeysEnabled = db.pragma('foreign_keys', { simple: true });
+        db.pragma('foreign_keys = OFF');
+        try {
+          db.exec(`CREATE TABLE kanban_lanes_cutover (
+            id TEXT PRIMARY KEY, board_id TEXT NOT NULL REFERENCES kanban_boards(id) ON DELETE CASCADE,
+            name TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0,
+            on_enter_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
+            on_enter_prompt TEXT, on_enter_mode TEXT, on_enter_model TEXT, on_enter_effort_level TEXT,
+            on_enter_thinking_enabled INTEGER, on_enter_auto_reschedule_enabled INTEGER DEFAULT 0,
+            on_enter_reschedule_delay_minutes INTEGER DEFAULT 60,
+            on_enter_reschedule_on_token_limit INTEGER DEFAULT 1,
+            on_enter_reschedule_on_service_error INTEGER DEFAULT 1,
+            on_enter_max_reschedule_count INTEGER, on_enter_max_total_tokens INTEGER,
+            on_enter_reschedule_at_token_count INTEGER,
+            completion_target_lane_id TEXT REFERENCES kanban_lanes_cutover(id) ON DELETE SET NULL,
+            created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000), updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+          );
+          INSERT INTO kanban_lanes_cutover (id,board_id,name,sort_order,on_enter_template_id,on_enter_prompt,on_enter_mode,on_enter_model,on_enter_effort_level,on_enter_thinking_enabled,on_enter_auto_reschedule_enabled,on_enter_reschedule_delay_minutes,on_enter_reschedule_on_token_limit,on_enter_reschedule_on_service_error,on_enter_max_reschedule_count,on_enter_max_total_tokens,on_enter_reschedule_at_token_count,completion_target_lane_id,created_at,updated_at)
+          SELECT id,board_id,name,sort_order,on_enter_template_id,on_enter_prompt,on_enter_mode,on_enter_model,on_enter_effort_level,on_enter_thinking_enabled,on_enter_auto_reschedule_enabled,on_enter_reschedule_delay_minutes,on_enter_reschedule_on_token_limit,on_enter_reschedule_on_service_error,on_enter_max_reschedule_count,on_enter_max_total_tokens,on_enter_reschedule_at_token_count,completion_target_lane_id,created_at,updated_at FROM kanban_lanes;
+          DROP TABLE kanban_lanes;
+          ALTER TABLE kanban_lanes_cutover RENAME TO kanban_lanes;
+          CREATE INDEX IF NOT EXISTS idx_kanban_lanes_board ON kanban_lanes(board_id, sort_order);`);
+        } finally {
+          db.pragma(`foreign_keys = ${foreignKeysEnabled ? 'ON' : 'OFF'}`);
+        }
+      }
       const foreignKeysEnabled = db.pragma('foreign_keys', { simple: true });
       db.pragma('foreign_keys = OFF');
       try {
-        if (laneColumns.includes('completion_mode')) db.exec('ALTER TABLE kanban_lanes DROP COLUMN completion_mode');
         if (runColumns.includes('completion_mode')) db.exec('ALTER TABLE kanban_lane_runs DROP COLUMN completion_mode');
       } finally {
         db.pragma(`foreign_keys = ${foreignKeysEnabled ? 'ON' : 'OFF'}`);

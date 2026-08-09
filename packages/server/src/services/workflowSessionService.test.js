@@ -6,6 +6,7 @@ import {
   supersedeRunForCard, closeOwnWork, markExecutionState, markHeldForLimit,
   computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition,
 } from './workflowSessionService.js';
+import { auditKanbanInvariants, reconcileKanbanOwnership } from './kanbanRecoveryService.js';
 
 describe('workflowSessionService', () => {
   let project; let board; let source; let target; let root; let card;
@@ -32,6 +33,27 @@ describe('workflowSessionService', () => {
     expect(finalizeOwnWorkCompletion(worker.id, token).status).toBe('succeeded');
     expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
     expect(getRun(run.id).openCount).toBe(0);
+  });
+
+  it('reports invalid target-only lanes and refuses to reconcile them', () => {
+    databaseManager.get().prepare('UPDATE kanban_lanes SET completion_target_lane_id=? WHERE id=?').run(target.id, source.id);
+    const report = auditKanbanInvariants();
+    expect(report.ok).toBe(false);
+    expect(report.violations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'invalid_lane', laneId: source.id }),
+    ]));
+    expect(reconcileKanbanOwnership({ dryRun: false })).toEqual(expect.objectContaining({ blocked: true, applied: false }));
+  });
+
+  it('cancels a scheduled card worker with no durable run and is idempotent', () => {
+    sessions.update(root.id, { scheduledAt: Date.now() + 60_000, pendingPrompt: 'old worker' });
+    expect(auditKanbanInvariants().violations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'unowned_worker', sessionId: root.id }),
+    ]));
+    const first = reconcileKanbanOwnership({ dryRun: false });
+    expect(first.changes).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'cancelled_unowned_workers', count: 1 })]));
+    expect(sessions.getById(root.id).scheduledAt).toBeNull();
+    expect(reconcileKanbanOwnership({ dryRun: false }).changes).toEqual([]);
   });
 
   it('keeps scheduled work open even with a valid completion request', () => {

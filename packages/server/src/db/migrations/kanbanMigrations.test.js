@@ -84,6 +84,25 @@ describe('kanban-add-lane-run-workflow (F2: dead token-column churn)', () => {
   });
 });
 
+describe('kanban-drop-completion-mode-hard-cutover', () => {
+  it('recreates legacy lane tables without completion_mode and preserves lane rows', () => {
+    const db = freshDb();
+    try {
+      db.exec('ALTER TABLE kanban_lanes ADD COLUMN completion_mode TEXT');
+      db.prepare("INSERT INTO projects (id,name,working_directory,created_at,updated_at) VALUES ('p','P','/tmp',1,1)").run();
+      db.prepare("INSERT INTO kanban_boards (id,project_id,created_at,updated_at) VALUES ('b','p',1,1)").run();
+      db.prepare("INSERT INTO kanban_lanes (id,board_id,name,sort_order,created_at,updated_at,completion_mode) VALUES ('l','b','Lane',0,1,1,'legacy')").run();
+      const migration = allMigrations.find((item) => item.name === 'kanban-drop-completion-mode-hard-cutover');
+      migration.up(db);
+      expect(getColumns(db, 'kanban_lanes')).not.toContain('completion_mode');
+      expect(db.prepare('SELECT id, name FROM kanban_lanes WHERE id=?').get('l')).toEqual({ id: 'l', name: 'Lane' });
+      expect(() => migration.up(db)).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+});
+
 // Note: there is no 'kanban-backfill-structured-completion-mode' migration in
 // the current chain (hard-cutover removed the completion_mode concept
 // entirely — see 'kanban-drop-completion-mode-hard-cutover' below). This

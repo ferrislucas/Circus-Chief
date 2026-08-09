@@ -614,6 +614,13 @@ describe('kanbanService', () => {
       // (drainLaneEntryTrigger revalidates card.lane_id === event.lane_id).
       const card = kanbanCards.create(lanes[1].id, workspace.id);
       const eventId = 'pending-completion-event';
+      // Completion outbox delivery is owned by a real, committed source
+      // transition. A stale/superseded source is intentionally rejected.
+      databaseManager.get().prepare(`INSERT INTO kanban_lane_runs
+        (id,lane_entry_event_id,project_id,workspace_id,card_id,source_lane_id,status,created_at,updated_at,succeeded_at,transition_applied_at)
+        VALUES (?,?,?,?,?,?,'succeeded',?,?,?,?)`)
+        .run('source-run-1', 'source-entry-event', projectId, workspace.id, card.id, lanes[0].id,
+          Date.now(), Date.now(), Date.now(), Date.now());
       databaseManager.get().prepare(`INSERT INTO kanban_lane_entry_events
         (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,caused_by_run_id,status,created_at,updated_at)
         VALUES (?,?,?,?,?,?,? ,?,'pending',?,?)`)

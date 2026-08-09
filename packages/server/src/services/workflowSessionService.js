@@ -11,6 +11,7 @@ import { databaseManager } from '../db/DatabaseManager.js';
 // kanbanService.js/kanbanTriggers.js — see attemptLaneRunTransition below).
 import { kanbanCards } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
+import { activeSessions } from './streamEventHandler.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 const now = () => Date.now();
@@ -35,6 +36,41 @@ function activeRunOwnsSession(db, session) {
     JOIN kanban_cards c ON c.id=r.card_id
     WHERE r.id=? AND r.status='open' AND c.active_lane_run_id=r.id AND c.lane_id=r.source_lane_id`)
     .get(session.lane_run_id));
+}
+
+/**
+ * The single ownership predicate for every asynchronous lane-worker action.
+ * Keep this in the database layer rather than trusting a session object read
+ * before an await: a manual move may supersede the run at any point.
+ */
+export function activeLaneRunOwnsSession(sessionId) {
+  const db = databaseManager.get();
+  const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
+  return Boolean(session?.own_work_state === 'open' && activeRunOwnsSession(db, session));
+}
+
+/** Execute a synchronous write only while a lane worker still owns its run.
+ * The predicate and write share one SQLite transaction, closing the gap
+ * between an explicit schedule/reschedule request and a manual move. */
+export function withActiveLaneRunOwnership(sessionId, mutation) {
+  return databaseManager.transaction(() => {
+    const db = databaseManager.get();
+    const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
+    if (!session) return null;
+    if (session.lane_run_id && (session.own_work_state !== 'open' || !activeRunOwnsSession(db, session))) {
+      return null;
+    }
+    return mutation();
+  });
+}
+
+/** Clear state which could otherwise revive a superseded worker. */
+function clearExecutableMemberState(db, runId, reason, time) {
+  return db.prepare(`UPDATE sessions SET own_work_state='cancelled', own_work_closed_at=?, workflow_reason=?,
+    workflow_updated_at=?, execution_state=CASE WHEN execution_state='running' THEN execution_state ELSE 'stopped' END,
+    scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_conversation_id=NULL,
+    auto_send_pending_prompt=0, reschedule_count=0
+    WHERE lane_run_id=? AND own_work_state='open'`).run(time, reason, time, runId);
 }
 
 /** Scheduler/start guard. Stale lane workers lose their pending work before
@@ -235,10 +271,11 @@ export function closeOwnWork(sessionId, outcome, reason = null) {
  * @param {string} executionState
  */
 export function markExecutionState(sessionId, executionState) {
-  const db = databaseManager.get();
-  const s = db.prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId);
-  if (!isParticipating(s)) return;
-  db.prepare('UPDATE sessions SET execution_state=?, workflow_updated_at=? WHERE id=?').run(executionState, now(), sessionId);
+  databaseManager.transaction(() => {
+    const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
+    if (!isParticipating(s) || !activeRunOwnsSession(db, s)) return;
+    db.prepare('UPDATE sessions SET execution_state=?, workflow_updated_at=? WHERE id=?').run(executionState, now(), sessionId);
+  });
 }
 
 /**
@@ -418,6 +455,31 @@ export function attemptLaneRunTransition(runId) {
   return result;
 }
 
+export function supersedeLaneRun(runId, reason = 'manual_move') {
+  const candidate = databaseManager.get().prepare('SELECT id FROM kanban_lane_runs WHERE id=? AND status=\'open\'').get(runId);
+  if (!candidate) return null;
+  const result = databaseManager.transaction(() => {
+    const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
+    if (!run || run.status !== 'open') return null;
+    const time = now();
+    db.prepare(`UPDATE kanban_lane_runs SET status='superseded', superseded_at=?, updated_at=?, failure_reason=? WHERE id=? AND status='open'`)
+      .run(time, time, reason, runId);
+    clearExecutableMemberState(db, runId, reason, time);
+    db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=? WHERE active_lane_run_id=?').run(time, runId);
+    audit(db, runId, 'run_superseded', { details: { reason } });
+    for (const member of db.prepare('SELECT id FROM sessions WHERE lane_run_id=?').all(runId)) {
+      audit(db, runId, 'member_cancelled_on_supersession', { sessionId: member.id, details: { reason } });
+    }
+    return getRun(runId);
+  });
+  if (result) {
+    for (const { id: sessionId } of databaseManager.get().prepare('SELECT id FROM sessions WHERE lane_run_id=?').all(result.id)) {
+      activeSessions.get(sessionId)?.controller?.abort();
+    }
+  }
+  return result;
+}
+
 export function supersedeRunForCard(cardId, reason = 'manual_move') {
   // Legacy cards never participate in lane runs. Keep their move hot path
   // read-only instead of opening a transaction merely to discover that fact.
@@ -426,23 +488,7 @@ export function supersedeRunForCard(cardId, reason = 'manual_move') {
     .get(cardId)?.active_lane_run_id;
   if (!activeLaneRun) return null;
 
-  return databaseManager.transaction(() => {
-    const db = databaseManager.get(); const card = db.prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?').get(cardId);
-    if (!card?.active_lane_run_id) return null; const time = now();
-    db.prepare(`UPDATE kanban_lane_runs SET status='superseded', superseded_at=?, updated_at=?, failure_reason=? WHERE id=? AND status='open'`)
-      .run(time, time, reason, card.active_lane_run_id);
-    db.prepare(`UPDATE sessions SET own_work_state='cancelled', own_work_closed_at=?, workflow_reason=?,
-      workflow_updated_at=?, execution_state=CASE WHEN execution_state='running' THEN execution_state ELSE 'stopped' END,
-      scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, auto_send_pending_prompt=0
-      WHERE lane_run_id=? AND own_work_state='open'`)
-      .run(time, reason, time, card.active_lane_run_id);
-    db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=? WHERE id=?').run(time, cardId);
-    audit(db, card.active_lane_run_id, 'run_superseded', { details: { reason } });
-    for (const member of db.prepare('SELECT id FROM sessions WHERE lane_run_id=?').all(card.active_lane_run_id)) {
-      audit(db, card.active_lane_run_id, 'member_cancelled_on_supersession', { sessionId: member.id, details: { reason } });
-    }
-    return getRun(card.active_lane_run_id);
-  });
+  return supersedeLaneRun(activeLaneRun, reason);
 }
 
 function laneRunCounts(rows) {

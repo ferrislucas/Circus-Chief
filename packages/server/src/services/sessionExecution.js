@@ -27,7 +27,7 @@ import { buildConversationContextForModelSwitch, buildConversationContextForCont
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState, markHeldForLimit } from './workflowSessionService.js';
+import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState, markHeldForLimit, activeLaneRunOwnsSession } from './workflowSessionService.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
 // sessionExecution), safe because this is only called at runtime inside
 // _executeSession, long after the module graph is loaded (same pattern as
@@ -352,6 +352,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   if (!session) {
     throw new Error('Session not found');
   }
+  if (session.laneRunId && !activeLaneRunOwnsSession(sessionId)) return false;
 
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
@@ -412,11 +413,12 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
 export async function runSessionCore(sessionId, prompt, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
   const { systemPrompt = null, fileAttachments = [], model = null } = options;
-  const controller = new AbortController();
-  activeSessions.set(sessionId, { controller });
-
   // Get session for settings
   let session = sessions.getById(sessionId);
+  if (!session) throw new Error('Session not found');
+  if (session.laneRunId && !activeLaneRunOwnsSession(sessionId)) return false;
+  const controller = new AbortController();
+  activeSessions.set(sessionId, { controller });
 
   // Get the active conversation for this session (created in SessionRepository.create)
   const activeConversation = conversations.ensureActiveConversation(sessionId);

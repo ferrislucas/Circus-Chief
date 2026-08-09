@@ -13,6 +13,7 @@ import { validateModelId } from './model-validation.js';
 import { broadcastSessionUpdate } from './sessions-patch.js';
 import { activeSessions } from '../services/streamEventHandler.js';
 import { schedulerService } from '../services/schedulerService.js';
+import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
 import {
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
@@ -178,8 +179,11 @@ router.post('/:id/schedule', requireSession, (req, res) => {
   if (result.error) {
     return res.status(result.status).json(result.error);
   }
-
-  const updated = sessions.update(req.params.id, result.updateData);
+  const update = () => sessions.update(req.params.id, result.updateData);
+  const updated = req.session_.laneRunId ? withActiveLaneRunOwnership(req.params.id, update) : update();
+  if (!updated) {
+    return res.status(409).json({ error: 'Session no longer owns an active lane run' });
+  }
   broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, result.updateData);
   res.json(updated);
 });

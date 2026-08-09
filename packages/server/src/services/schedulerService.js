@@ -2,7 +2,7 @@ import { sessions, messages, conversations, projects, attachments } from '../dat
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
-import { claimWorkflowSessionStart } from './workflowSessionService.js';
+import { claimWorkflowSessionStart, withActiveLaneRunOwnership } from './workflowSessionService.js';
 
 function broadcastRescheduledSession(sessionId, updated) {
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
@@ -289,6 +289,9 @@ class SchedulerService {
       return false;
     }
 
+    // A stale provider-error path must never recreate a schedule after a
+    // manual move/supersession. Re-read ownership immediately before every
+    // scheduling write, rather than relying on the turn's original session.
     // Check reschedule limits
     if (this.hasReachedLimits(session)) {
       console.log(`[SchedulerService] Session ${sessionId} has reached reschedule limits`);
@@ -312,7 +315,7 @@ class SchedulerService {
     const { pendingPrompt, pendingConversationId } = this._resolvePendingPrompt(sessionId, retryExistingMessage, conversationId);
 
     // Update session to scheduled status with new time and pendingPrompt
-    const updated = sessions.update(sessionId, {
+    const update = () => sessions.update(sessionId, {
       status: 'scheduled',
       scheduledAt: newScheduledAt,
       rescheduleCount: newRescheduleCount,
@@ -320,6 +323,10 @@ class SchedulerService {
       pendingConversationId,
       error: `Rescheduled (${newRescheduleCount}x): ${reason}`,
     });
+    // Ordinary sessions retain the lightweight, existing update path. Lane
+    // participants use the transactional ownership gate above.
+    const updated = session.laneRunId ? withActiveLaneRunOwnership(sessionId, update) : update();
+    if (!updated) return false;
 
     broadcastRescheduledSession(sessionId, updated);
 

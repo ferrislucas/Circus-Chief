@@ -200,12 +200,15 @@ export async function triggerStructuredTransitionAutomation(pending) {
   });
 }
 
+const ENTRY_EVENT_LEASE_MS = 5 * 60 * 1000;
+const MAX_ENTRY_EVENT_ATTEMPTS = 8;
+
 function claimLaneEntryTrigger(eventId) {
   const token = crypto.randomUUID();
   const time = Date.now();
   const claimed = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
     SET claim_token=?, claimed_at=?, attempt_count=attempt_count+1, updated_at=?
-    WHERE id=? AND status='pending' AND claim_token IS NULL`).run(token, time, time, eventId);
+    WHERE id=? AND status='pending' AND claim_token IS NULL AND attempt_count < ?`).run(token, time, time, eventId, MAX_ENTRY_EVENT_ATTEMPTS);
   return claimed.changes ? token : null;
 }
 
@@ -217,9 +220,16 @@ export async function drainLaneEntryTrigger(eventId) {
   const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
   const valid = event && db.prepare(`SELECT 1 FROM kanban_cards c JOIN kanban_lanes l ON l.id=c.lane_id
     WHERE c.id=? AND c.lane_id=?`).get(event.card_id, event.lane_id);
-  if (!valid) {
-    db.prepare(`UPDATE kanban_lane_entry_events SET status='invalid', last_error='card no longer belongs to entry lane',
-      completed_at=?, updated_at=? WHERE id=? AND claim_token=?`).run(Date.now(), Date.now(), eventId, token);
+  // A completion handoff is valid only if its source run actually performed
+  // this exact guarded transition. This prevents an old outbox event from
+  // spawning work after a manual move or a superseded source worker.
+  const sourceValid = !event?.caused_by_run_id || db.prepare(`SELECT 1 FROM kanban_lane_runs
+    WHERE id=? AND status='succeeded' AND transition_applied_at IS NOT NULL`).get(event.caused_by_run_id);
+  if (!valid || !sourceValid) {
+    const reason = !valid ? 'card no longer belongs to entry lane' : 'source run no longer owns a completed transition';
+    const time = Date.now();
+    db.prepare(`UPDATE kanban_lane_entry_events SET status='invalid', last_error=?,
+      completed_at=?, updated_at=? WHERE id=? AND claim_token=?`).run(reason, time, time, eventId, token);
     return false;
   }
   try {
@@ -233,20 +243,29 @@ export async function drainLaneEntryTrigger(eventId) {
       .run(time, time, eventId, token);
     return true;
   } catch (error) {
+    const time = Date.now();
+    const exhausted = event.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS;
     db.prepare(`UPDATE kanban_lane_entry_events
-      SET claim_token=NULL, claimed_at=NULL, last_error=?, updated_at=? WHERE id=? AND claim_token=?`)
-      .run(error.message, Date.now(), eventId, token);
+      SET status=CASE WHEN ? THEN 'failed' ELSE 'pending' END,
+        claim_token=NULL, claimed_at=NULL, last_error=?, updated_at=?, completed_at=CASE WHEN ? THEN ? ELSE completed_at END
+      WHERE id=? AND claim_token=?`)
+      .run(exhausted ? 1 : 0, error.message, time, exhausted ? 1 : 0, time, eventId, token);
     throw error;
   }
 }
 
 /** Recover completion handoffs persisted before an unexpected process exit. */
 export async function drainPendingLaneEntryTriggers() {
-  const leaseExpiry = Date.now() - 5 * 60 * 1000;
+  const leaseExpiry = Date.now() - ENTRY_EVENT_LEASE_MS;
   databaseManager.get().prepare(`UPDATE kanban_lane_entry_events SET claim_token=NULL, claimed_at=NULL, updated_at=?
     WHERE status='pending' AND claim_token IS NOT NULL AND claimed_at < ?`).run(Date.now(), leaseExpiry);
+  // Terminally expose exhausted deliveries instead of endlessly spinning a
+  // startup loop. Pending event age/attempt_count/last_error remain directly
+  // queryable through the durable outbox table for operations visibility.
+  databaseManager.get().prepare(`UPDATE kanban_lane_entry_events SET status='failed', last_error=COALESCE(last_error, 'delivery attempts exhausted'),
+    completed_at=?, updated_at=? WHERE status='pending' AND attempt_count >= ?`).run(Date.now(), Date.now(), MAX_ENTRY_EVENT_ATTEMPTS);
   const events = databaseManager.get().prepare(`SELECT id FROM kanban_lane_entry_events
-    WHERE status='pending' AND cause='completion' ORDER BY created_at`).all();
+    WHERE status='pending' ORDER BY created_at`).all();
   for (const { id } of events) {
     try { await drainLaneEntryTrigger(id); } catch (error) { console.error('Kanban lane-entry recovery failed:', error); }
   }

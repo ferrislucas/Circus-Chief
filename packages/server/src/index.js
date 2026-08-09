@@ -16,6 +16,7 @@ import { commandRunner } from './services/commandRunner.js';
 import { getDefaultDbPath } from './config.js';
 import { recoverStaleStartingSessions } from './services/sessionStartupRecovery.js';
 import { drainPendingLaneEntryTriggers } from './services/kanbanService.js';
+import { auditKanbanInvariants, formatKanbanInvariantReport, reconcileKanbanOwnership } from './services/kanbanRecoveryService.js';
 
 /**
  * Validate Node.js environment at startup.
@@ -65,6 +66,15 @@ console.log(`VCR_MODE: ${process.env.VCR_MODE || '(unset)'}`);
 
 // Recover sessions stuck in 'starting' from a previous crashed or killed server run
 recoverStaleStartingSessions();
+// Do not start workers or drain the entry outbox until durable ownership has
+// been normalized and independently audited. A bad lane configuration is a
+// hard stop: selecting a fallback executor would reintroduce the retired mode.
+const reconciliation = reconcileKanbanOwnership({ dryRun: false });
+const preflight = auditKanbanInvariants();
+if (reconciliation.blocked || !preflight.ok) {
+  console.error(formatKanbanInvariantReport(preflight));
+  throw new Error('Kanban preflight failed; scheduler and entry delivery remain disabled');
+}
 void drainPendingLaneEntryTriggers();
 
 // Apply --no-analytics flag to persisted settings
