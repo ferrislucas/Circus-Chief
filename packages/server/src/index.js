@@ -16,7 +16,8 @@ import { commandRunner } from './services/commandRunner.js';
 import { getDefaultDbPath } from './config.js';
 import { recoverStaleStartingSessions } from './services/sessionStartupRecovery.js';
 import { drainPendingLaneEntryTriggers } from './services/kanbanService.js';
-import { auditKanbanInvariants, formatKanbanInvariantReport, reconcileKanbanOwnership } from './services/kanbanRecoveryService.js';
+import { formatKanbanInvariantReport } from './services/kanbanRecoveryService.js';
+import { runStartupPreflight } from './services/startupPreflight.js';
 
 /**
  * Validate Node.js environment at startup.
@@ -69,13 +70,13 @@ recoverStaleStartingSessions();
 // Do not start workers or drain the entry outbox until durable ownership has
 // been normalized and independently audited. A bad lane configuration is a
 // hard stop: selecting a fallback executor would reintroduce the retired mode.
-const reconciliation = reconcileKanbanOwnership({ dryRun: false });
-const preflight = auditKanbanInvariants();
-if (reconciliation.blocked || !preflight.ok) {
-  console.error(formatKanbanInvariantReport(preflight));
-  throw new Error('Kanban preflight failed; scheduler and entry delivery remain disabled');
+const preflight = runStartupPreflight();
+if (!preflight.workersEnabled) {
+  console.error(formatKanbanInvariantReport(preflight.report));
+  console.error('Kanban preflight failed; HTTP serving remains available but scheduler and entry delivery are disabled');
+} else {
+  void drainPendingLaneEntryTriggers();
 }
-void drainPendingLaneEntryTriggers();
 
 // Apply --no-analytics flag to persisted settings
 if (disableAnalytics) {
@@ -93,7 +94,7 @@ const server = createServer(app);
 initWebSocket(server);
 
 // Initialize and start scheduler service (gated off under VCR_MODE)
-schedulerService.startIfEnabled(sessionManager);
+if (preflight.workersEnabled) schedulerService.startIfEnabled(sessionManager);
 
 // Start PR status polling service
 prStatusService.start();
