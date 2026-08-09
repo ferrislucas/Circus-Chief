@@ -304,6 +304,7 @@ import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useWorkspaceListStore } from '../stores/workspaceList.js';
+import { useSummaries } from '../composables/useSummaries.js';
 import { useRunningSessionSubscriptions } from '../composables/useRunningSessionSubscriptions.js';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import SessionCard from '../components/SessionCard.vue';
@@ -325,6 +326,14 @@ const sessionsStore = useSessionsStore();
 const kanbanStore = useKanbanStore();
 const workspaceList = useWorkspaceListStore();
 const streamingStore = useSessionStreamingStore();
+
+const {
+  summaries,
+  loadingSummaries,
+  summaryErrors,
+  fetchSummariesBatch,
+  retryFetchSummary,
+} = useSummaries();
 
 streamingStore.restoreCollapsedLogState();
 
@@ -430,6 +439,7 @@ watch(
       newFilter !== oldFilter
     ) {
       await sessionsStore.fetchArchivedSessions(projectId.value, { reset: true });
+      await fetchSummariesBatch(sessionsStore.archivedSessions);
     }
   }
 );
@@ -438,11 +448,13 @@ async function loadArchivedSessions() {
   if (!archivedLoaded.value) {
     await sessionsStore.fetchArchivedSessions(projectId.value, { reset: true });
     archivedLoaded.value = true;
+    await fetchSummariesBatch(sessionsStore.archivedSessions);
   }
 }
 
 async function loadMoreArchived() {
   await sessionsStore.loadMoreArchivedSessions(projectId.value);
+  await fetchSummariesBatch(sessionsStore.archivedSessions);
 }
 
 // Archive modal state
