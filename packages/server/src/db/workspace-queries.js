@@ -1,7 +1,7 @@
 import { ACTIVITY_FIELDS_SQL } from './session-helpers.js';
 
 /** Return the lightweight workspace-card projection used by the list view. */
-export function getWorkspaceCards(db, projectId, { archived = false, starred = null, status = null, scheduled = null, limit = 50, offset = 0 } = {}) {
+export function getWorkspaceCards(db, projectId, { archived = false, starred = null, status = null, scheduled = null, limit = 50, cursor = null } = {}) {
   const filters = ['s.project_id = ?', 's.parent_session_id IS NULL', 's.archived = ?'];
   const params = [projectId, archived ? 1 : 0];
   if (starred !== null) { filters.push('s.starred = ?'); params.push(starred ? 1 : 0); }
@@ -12,6 +12,17 @@ export function getWorkspaceCards(db, projectId, { archived = false, starred = n
   if (scheduled === true) eligibility.push('a.scheduled_count > 0');
   if (scheduled === false) eligibility.push('a.scheduled_count = 0');
   const having = eligibility.length ? ` AND ${eligibility.join(' AND ')}` : '';
+  const cursorPredicate = cursor ? `WHERE starred < ?
+      OR (starred = ? AND activityOrder < ?)
+      OR (starred = ? AND activityOrder = ? AND updatedAt < ?)
+      OR (starred = ? AND activityOrder = ? AND updatedAt = ? AND createdAt < ?)
+      OR (starred = ? AND activityOrder = ? AND updatedAt = ? AND createdAt = ? AND id < ?)` : '';
+  const cursorParams = cursor ? [
+    cursor.starred, cursor.starred, cursor.activityOrder,
+    cursor.starred, cursor.activityOrder, cursor.updatedAt,
+    cursor.starred, cursor.activityOrder, cursor.updatedAt, cursor.createdAt,
+    cursor.starred, cursor.activityOrder, cursor.updatedAt, cursor.createdAt, cursor.id,
+  ] : [];
   const sql = `
     WITH RECURSIVE tree(root_id, id) AS (
       SELECT id, id FROM sessions WHERE project_id = ? AND parent_session_id IS NULL
@@ -26,6 +37,7 @@ export function getWorkspaceCards(db, projectId, { archived = false, starred = n
         COUNT(*) - 1 AS member_count
       FROM tree JOIN sessions s ON s.id = tree.id GROUP BY tree.root_id
     )
+    , workspace_card_base AS (
     SELECT s.id, s.project_id AS projectId, s.name, s.status, s.starred, s.archived,
       s.pr_url AS prUrl, s.scheduled_at AS scheduledAt, s.created_at AS createdAt,
       s.updated_at AS updatedAt, ${ACTIVITY_FIELDS_SQL},
@@ -40,10 +52,15 @@ export function getWorkspaceCards(db, projectId, { archived = false, starred = n
     LEFT JOIN kanban_cards kc ON kc.id = kcs.card_id
     LEFT JOIN kanban_lanes kl ON kl.id = kc.lane_id
     WHERE ${filters.join(' AND ')}${having}
-    ORDER BY s.starred DESC, COALESCE(last_activity_at, s.updated_at, s.created_at) DESC,
-      s.updated_at DESC, s.created_at DESC, s.rowid DESC
-    LIMIT ? OFFSET ?`;
-  const rows = db.prepare(sql).all(projectId, ...params, limit, offset);
+    ), workspace_cards AS (
+      SELECT workspace_card_base.*, COALESCE(last_activity_at, updatedAt, createdAt) AS activityOrder
+      FROM workspace_card_base
+    )
+    SELECT * FROM workspace_cards
+    ${cursorPredicate}
+    ORDER BY starred DESC, activityOrder DESC, updatedAt DESC, createdAt DESC, id DESC
+    LIMIT ?`;
+  const rows = db.prepare(sql).all(projectId, ...params, ...cursorParams, limit);
   return rows.map(toWorkspaceCard);
 }
 

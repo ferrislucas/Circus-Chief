@@ -121,6 +121,31 @@ describe('Workspace facade API', () => {
         .expect(400);
     });
 
+    it('uses an opaque cursor to continue without repeating a workspace', async () => {
+      const first = sessions.create(project.id, 'First', 'p');
+      const second = sessions.create(project.id, 'Second', 'p');
+      const third = sessions.create(project.id, 'Third', 'p');
+
+      const pageOne = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2`)
+        .expect(200);
+      expect(pageOne.body.pagination.nextCursor).toEqual(expect.any(String));
+
+      const pageTwo = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&cursor=${encodeURIComponent(pageOne.body.pagination.nextCursor)}`)
+        .expect(200);
+      const ids = [...pageOne.body.workspaces, ...pageTwo.body.workspaces].map(({ id }) => id);
+      expect(new Set(ids)).toEqual(new Set([first.id, second.id, third.id]));
+      expect(ids).toHaveLength(3);
+      expect(pageTwo.body.pagination.nextCursor).toBeNull();
+    });
+
+    it('rejects malformed optimized-list cursors', async () => {
+      await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&cursor=not-a-cursor`)
+        .expect(400);
+    });
+
     it('returns 404 for unknown project', async () => {
       await request(app)
         .get('/api/projects/unknown-id/workspaces')

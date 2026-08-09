@@ -169,8 +169,8 @@ export class SessionRepository extends BaseRepository {
    * set-based query.  Keeping this here also prevents a future session column from
    * accidentally becoming part of the list payload.
    */
-  getWorkspaceCards(projectId, { archived = false, starred = null, status = null, scheduled = null, limit = 50, offset = 0 } = {}) {
-    return getWorkspaceCards(this.db, projectId, { archived, starred, status, scheduled, limit, offset });
+  getWorkspaceCards(projectId, { archived = false, starred = null, status = null, scheduled = null, limit = 50, cursor = null } = {}) {
+    return getWorkspaceCards(this.db, projectId, { archived, starred, status, scheduled, limit, cursor });
   }
 
   /**

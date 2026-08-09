@@ -22,7 +22,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
     loadingMore: false,
     error: null,
     hasMore: false,
-    offset: 0,
+    nextCursor: null,
   }),
   getters: {
     cards: state => state.orderedIds.map(id => state.cardsById[id]).filter(Boolean),
@@ -41,11 +41,11 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       }
       this.projectId = projectId;
       this.query = query;
-      this.offset = this.orderedIds.length;
       this.hasMore = Boolean(result.pagination?.hasMore);
+      this.nextCursor = result.pagination?.nextCursor || null;
       snapshots.set(queryKey(projectId, query), {
         cardsById: { ...this.cardsById }, orderedIds: [...this.orderedIds],
-        offset: this.offset, hasMore: this.hasMore,
+        nextCursor: this.nextCursor, hasMore: this.hasMore,
       });
     },
     async load(projectId, query = {}, { force = false } = {}) {
@@ -54,7 +54,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       if (cached && !force) {
         this.projectId = projectId; this.query = query;
         this.cardsById = { ...cached.cardsById }; this.orderedIds = [...cached.orderedIds];
-        this.offset = cached.offset; this.hasMore = cached.hasMore;
+        this.nextCursor = cached.nextCursor; this.hasMore = cached.hasMore;
         // Paint the cache now; revalidate without blocking it.
         this.revalidate(projectId, query);
         return;
@@ -64,18 +64,48 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
     },
     async revalidate(projectId, query = {}) {
       const key = queryKey(projectId, query);
+      // A new query invalidates the former route's commit boundary. Keep only
+      // one active list request: leaving a route must not install stale cards.
+      if (this._requestController && this._activeRequestKey !== key) this._requestController.abort();
+      this._activeRequestKey = key;
       if (!inFlight.has(key)) {
-        inFlight.set(key, api.getWorkspaceCards(projectId, { ...query, limit: PAGE_SIZE, offset: 0 })
-          .finally(() => inFlight.delete(key)));
+        const controller = new AbortController();
+        this._requestController = controller;
+        // Refresh every page currently on screen. Replacing a multi-page cache
+        // with only page one makes a cached return visibly collapse.
+        const loadedExtent = this.projectId === projectId && queryKey(projectId, this.query) === key
+          ? this.orderedIds.length : PAGE_SIZE;
+        const promise = (async () => {
+          let cursor = null;
+          let result;
+          const cards = [];
+          do {
+            result = await api.getWorkspaceCards(projectId, {
+              ...query, limit: PAGE_SIZE, cursor, signal: controller.signal,
+            });
+            cards.push(...(result.workspaces || []));
+            cursor = result.pagination?.nextCursor || null;
+          } while (cards.length < loadedExtent && result.pagination?.hasMore && cursor);
+          return { workspaces: cards, pagination: result?.pagination || {} };
+        })();
+        inFlight.set(key, { promise, controller });
+        promise.finally(() => {
+          if (inFlight.get(key)?.promise === promise) inFlight.delete(key);
+        });
       }
+      const request = inFlight.get(key);
       try {
-        const result = await inFlight.get(key);
-        if (this.projectId === null || (this.projectId === projectId && queryKey(projectId, this.query) === key)) {
+        const result = await request.promise;
+        if (this._activeRequestKey === key) {
           this._install(projectId, query, result);
         }
       } catch (error) {
-        if (!this.cards.length) this.error = error.message || 'Failed to load workspaces';
-        throw error;
+        if (error?.name !== 'AbortError' && this._activeRequestKey === key) {
+          if (!this.cards.length) this.error = error.message || 'Failed to load workspaces';
+          throw error;
+        }
+      } finally {
+        if (this._requestController === request.controller) this._requestController = null;
       }
     },
     async loadMore() {
@@ -83,7 +113,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.loadingMore = true;
       try {
         const result = await api.getWorkspaceCards(this.projectId, {
-          ...this.query, limit: PAGE_SIZE, offset: this.offset,
+          ...this.query, limit: PAGE_SIZE, cursor: this.nextCursor,
         });
         this._install(this.projectId, this.query, result, { append: true });
       } finally { this.loadingMore = false; }

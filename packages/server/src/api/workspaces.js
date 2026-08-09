@@ -143,11 +143,32 @@ function hasValidWorkspaceCardFilters(status, scheduled) {
     && ['true', 'false', undefined].includes(scheduled);
 }
 
-function parseWorkspaceCardOptions({ archived, starred, limit, offset, status, scheduled }) {
+function decodeWorkspaceCursor(value) {
+  if (!value || typeof value !== 'string' || value.length > 512) return value ? null : null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    if (!Array.isArray(parsed) || parsed.length !== 5
+      || ![0, 1].includes(parsed[0]) || !parsed.slice(1, 4).every(Number.isFinite)
+      || typeof parsed[4] !== 'string' || !parsed[4]) return null;
+    return { starred: parsed[0], activityOrder: parsed[1], updatedAt: parsed[2], createdAt: parsed[3], id: parsed[4] };
+  } catch { return null; }
+}
+
+function encodeWorkspaceCursor(card) {
+  return Buffer.from(JSON.stringify([
+    card.starred ? 1 : 0,
+    card.lastActivityAt ?? card.updatedAt ?? card.createdAt,
+    card.updatedAt,
+    card.createdAt,
+    card.id,
+  ])).toString('base64url');
+}
+
+function parseWorkspaceCardOptions({ archived, starred, limit, cursor, status, scheduled }) {
   const parsedLimit = Number.parseInt(limit, 10);
-  const parsedOffset = offset === undefined ? 0 : Number.parseInt(offset, 10);
+  const parsedCursor = decodeWorkspaceCursor(cursor);
   const valid = Number.isInteger(parsedLimit) && parsedLimit >= 1 && parsedLimit <= 50
-    && Number.isInteger(parsedOffset) && parsedOffset >= 0
+    && (cursor === undefined || parsedCursor !== null)
     && hasValidWorkspaceCardFilters(status, scheduled);
   if (!valid) return null;
   return {
@@ -156,7 +177,7 @@ function parseWorkspaceCardOptions({ archived, starred, limit, offset, status, s
     status: status || null,
     scheduled: parseBooleanFilter(scheduled),
     limit: parsedLimit,
-    offset: parsedOffset,
+    cursor: parsedCursor,
   };
 }
 
@@ -166,7 +187,11 @@ function sendWorkspaceCards(res, projectId, query, startedAt) {
   const pagePlusOne = sessions.getWorkspaceCards(projectId, { ...options, limit: options.limit + 1 });
   return sendWorkspaceJson(res, {
     workspaces: pagePlusOne.slice(0, options.limit),
-    pagination: { limit: options.limit, offset: options.offset, hasMore: pagePlusOne.length > options.limit },
+    pagination: {
+      limit: options.limit,
+      hasMore: pagePlusOne.length > options.limit,
+      nextCursor: pagePlusOne.length > options.limit ? encodeWorkspaceCursor(pagePlusOne[options.limit - 1]) : null,
+    },
   }, startedAt);
 }
 
