@@ -18,6 +18,7 @@ import { recoverStaleStartingSessions } from './services/sessionStartupRecovery.
 import { drainPendingLaneEntryTriggers } from './services/kanbanService.js';
 import { formatKanbanInvariantReport } from './services/kanbanRecoveryService.js';
 import { runStartupPreflight } from './services/startupPreflight.js';
+import { setAutomationPreflightStatus } from './services/automationStatusService.js';
 
 /**
  * Validate Node.js environment at startup.
@@ -71,6 +72,7 @@ recoverStaleStartingSessions();
 // been normalized and independently audited. A bad lane configuration is a
 // hard stop: selecting a fallback executor would reintroduce the retired mode.
 const preflight = runStartupPreflight();
+setAutomationPreflightStatus(preflight);
 if (!preflight.workersEnabled) {
   console.error(formatKanbanInvariantReport(preflight.report));
   console.error('Kanban preflight failed; HTTP serving remains available but scheduler and entry delivery are disabled');

@@ -233,7 +233,8 @@ export const kanbanMigrations = [
         const foreignKeysEnabled = db.pragma('foreign_keys', { simple: true });
         db.pragma('foreign_keys = OFF');
         try {
-          db.exec(`CREATE TABLE kanban_lanes_cutover (
+          db.transaction(() => {
+            db.exec(`CREATE TABLE kanban_lanes_cutover (
             id TEXT PRIMARY KEY, board_id TEXT NOT NULL REFERENCES kanban_boards(id) ON DELETE CASCADE,
             name TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0,
             on_enter_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
@@ -252,25 +253,27 @@ export const kanbanMigrations = [
           DROP TABLE kanban_lanes;
           ALTER TABLE kanban_lanes_cutover RENAME TO kanban_lanes;
           CREATE INDEX IF NOT EXISTS idx_kanban_lanes_board ON kanban_lanes(board_id, sort_order);`);
+            // Target-only lanes were valid before the hard cutover but cannot own
+            // a durable run. Preserve their identity for recovery, then clear the
+            // now-invalid target so an upgrade can boot and be repaired in the UI.
+            const time = Date.now();
+            db.exec(`CREATE TABLE IF NOT EXISTS kanban_migration_notes (
+              lane_id TEXT PRIMARY KEY, note TEXT NOT NULL, created_at INTEGER NOT NULL
+            )`);
+            db.prepare(`INSERT OR IGNORE INTO kanban_migration_notes (lane_id, note, created_at)
+              SELECT id, 'Cleared target-only completion target during hard cutover', ?
+              FROM kanban_lanes WHERE completion_target_lane_id IS NOT NULL
+                AND (on_enter_prompt IS NULL OR trim(on_enter_prompt)='')
+                AND on_enter_template_id IS NULL`).run(time);
+            db.prepare(`UPDATE kanban_lanes SET completion_target_lane_id=NULL, updated_at=?
+              WHERE completion_target_lane_id IS NOT NULL
+                AND (on_enter_prompt IS NULL OR trim(on_enter_prompt)='')
+                AND on_enter_template_id IS NULL`).run(time);
+            if (db.pragma('foreign_key_check').length) throw new Error('Foreign key check failed during Kanban hard cutover');
+          })();
         } finally {
           db.pragma(`foreign_keys = ${foreignKeysEnabled ? 'ON' : 'OFF'}`);
         }
-        // Target-only lanes were valid before the hard cutover but cannot own
-        // a durable run. Preserve their identity for recovery, then clear the
-        // now-invalid target so an upgrade can boot and be repaired in the UI.
-        const time = Date.now();
-        db.exec(`CREATE TABLE IF NOT EXISTS kanban_migration_notes (
-          lane_id TEXT PRIMARY KEY, note TEXT NOT NULL, created_at INTEGER NOT NULL
-        )`);
-        db.prepare(`INSERT OR IGNORE INTO kanban_migration_notes (lane_id, note, created_at)
-          SELECT id, 'Cleared target-only completion target during hard cutover', ?
-          FROM kanban_lanes WHERE completion_target_lane_id IS NOT NULL
-            AND (on_enter_prompt IS NULL OR trim(on_enter_prompt)='')
-            AND on_enter_template_id IS NULL`).run(time);
-        db.prepare(`UPDATE kanban_lanes SET completion_target_lane_id=NULL, updated_at=?
-          WHERE completion_target_lane_id IS NOT NULL
-            AND (on_enter_prompt IS NULL OR trim(on_enter_prompt)='')
-            AND on_enter_template_id IS NULL`).run(time);
       }
       const foreignKeysEnabled = db.pragma('foreign_keys', { simple: true });
       db.pragma('foreign_keys = OFF');

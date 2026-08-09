@@ -1,5 +1,6 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
+import { ApiError } from '../errors/ApiError.js';
 
 /**
  * Convert a boolean value to SQLite integer (1/0) or null.
@@ -222,15 +223,21 @@ export class KanbanLaneRepository extends BaseRepository {
   #assertConfiguration(boardId, lane) {
     const hasAutomation = Boolean(lane.onEnterTemplateId || lane.onEnterPrompt?.trim());
     if (lane.completionTargetLaneId && !hasAutomation) {
-      throw new Error('A completion target requires an on-entry prompt or template');
+      throw new ApiError('A completion target requires an on-entry prompt or template', {
+        code: 'KANBAN_LANE_AUTOMATION_REQUIRED', field: 'completionTargetLaneId',
+      });
     }
     if (!lane.completionTargetLaneId) return;
     const target = this.getById(lane.completionTargetLaneId);
     if (!target || target.boardId !== boardId) {
-      throw new Error('Completion target must belong to the same board');
+      throw new ApiError('Completion target must belong to the same board', {
+        code: 'KANBAN_LANE_INVALID_TARGET', field: 'completionTargetLaneId',
+      });
     }
     if (target.id === lane.id) {
-      throw new Error('A lane cannot target itself');
+      throw new ApiError('A lane cannot target itself', {
+        code: 'KANBAN_LANE_INVALID_TARGET', field: 'completionTargetLaneId',
+      });
     }
   }
 

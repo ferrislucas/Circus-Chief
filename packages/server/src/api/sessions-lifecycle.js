@@ -201,7 +201,13 @@ router.post('/:id/run-scheduled-now', requireSession, async (req, res) => {
   }
 
   try {
-    await schedulerService.startScheduledSession(session);
+    const result = await schedulerService.startScheduledSession(session);
+    if (!result?.started) {
+      return res.status(409).json({
+        error: 'Session no longer owns an active lane run',
+        code: 'LANE_RUN_OWNERSHIP_LOST',
+      });
+    }
     res.json(sessions.getById(req.params.id));
   } catch (error) {
     res.status(500).json({ error: error.message });

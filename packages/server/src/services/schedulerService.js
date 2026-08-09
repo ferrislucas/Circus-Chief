@@ -2,7 +2,7 @@ import { sessions, messages, conversations, projects, attachments } from '../dat
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
-import { claimWorkflowSessionStart, withActiveLaneRunOwnership } from './workflowSessionService.js';
+import { claimWorkflowSessionStart, withActiveLaneRunOwnership, activeLaneRunOwnsSession } from './workflowSessionService.js';
 
 function broadcastRescheduledSession(sessionId, updated) {
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
@@ -196,13 +196,15 @@ class SchedulerService {
    * Start a scheduled session
    * @param {object} session - Session to start
    */
+  // This remains the single audited hand-off path for all scheduled starts.
+  // eslint-disable-next-line max-statements
   async startScheduledSession(session) {
     if (!this.sessionManager) {
       throw new Error('SchedulerService not initialized with sessionManager');
     }
 
     if (!claimWorkflowSessionStart(session.id)) {
-      return;
+      return { started: false, reason: 'lane_run_ownership_lost', sessionId: session.id };
     }
 
     console.log(`[SchedulerService] Starting scheduled session ${session.id}: ${session.name}`);
@@ -225,6 +227,12 @@ class SchedulerService {
     const { prompt, effectivePrompt, effectiveSystemPrompt, sessionAttachments } =
       await this.resolveScheduledPrompt(session, workingDirectory, project.systemPrompt);
 
+    // A manual move can supersede a run while prompt resolution awaits disk IO.
+    // Re-check immediately before any state mutation or provider handoff.
+    if (session.laneRunId && !activeLaneRunOwnsSession(session.id)) {
+      return { started: false, reason: 'lane_run_ownership_lost', sessionId: session.id };
+    }
+
     // Check for existing-message retry first (takes precedence over fresh/continuation branches)
     if (session.pendingConversationId) {
       const pendingConversationId = session.pendingConversationId;
@@ -244,7 +252,7 @@ class SchedulerService {
         workingDirectory,
         { systemPrompt: effectiveSystemPrompt, model: session.pendingModel }
       );
-      return;
+      return { started: true, sessionId: session.id };
     }
 
     // Get the session messages to determine if this is initial or continuation
@@ -271,6 +279,7 @@ class SchedulerService {
       // Fresh session - initial run
       await this.startFreshScheduledSession({ session, prompt, effectivePrompt, effectiveSystemPrompt, workingDirectory, sessionAttachments });
     }
+    return { started: true, sessionId: session.id };
   }
 
   /**

@@ -1,5 +1,14 @@
+<!-- eslint-disable max-lines -->
 <template>
   <div class="kanban-board">
+    <div
+      v-if="automationWarning"
+      class="automation-warning"
+      role="alert"
+      data-testid="automation-warning"
+    >
+      <strong>Automation unavailable.</strong> {{ automationWarning }} Manual board access is still available.
+    </div>
     <!-- Board header bar: always rendered (outside the loading/error/empty chain) -->
     <div class="board-header-bar">
       <div class="layout-toggle">
@@ -365,6 +374,7 @@
   </div>
 </template>
 <script setup>
+/* eslint-disable max-lines */
 import { ref, reactive, computed, onMounted, onUnmounted, watch, toRef } from 'vue';
 import { format } from 'date-fns';
 import { useKanbanStore } from '../stores/kanban.js';
@@ -381,6 +391,7 @@ import PrIndicators from './PrIndicators.vue';
 import SessionRunningSpinner from './SessionRunningSpinner.vue';
 import KanbanBoardIcon from './KanbanBoardIcon.vue';
 import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
+import { api } from '../api/ApiClient.js';
 import './KanbanBoard.css';
 const props = defineProps({
   projectId: { type: String, required: true },
@@ -388,6 +399,18 @@ const props = defineProps({
 const kanbanStore = useKanbanStore();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
+const automationWarning = ref('Checking automation status…');
+
+async function fetchAutomationStatus() {
+  try {
+    const info = await api.getServerInfo();
+    const status = info.automationStatus;
+    automationWarning.value = status?.automation === 'operational' ? ''
+      : (status?.message || 'Unable to verify whether lane automation and scheduling are available.');
+  } catch {
+    automationWarning.value = 'Unable to verify whether lane automation and scheduling are available.';
+  }
+}
 // ==================== Layout state ====================
 const LAYOUT_MODE_KEY = 'kanbanLayoutMode';
 const VALID_LAYOUT_MODES = ['auto', 'horizontal', 'vertical'];
@@ -423,6 +446,7 @@ let _mql = null;
 const onMqlChange = (e) => { isNarrow.value = e.matches; };
 
 onMounted(() => {
+  fetchAutomationStatus();
   if (typeof window !== 'undefined' && window.matchMedia) {
     _mql = window.matchMedia('(max-width: 640px)');
     isNarrow.value = _mql.matches;

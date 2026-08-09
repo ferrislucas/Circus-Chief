@@ -56,6 +56,16 @@ describe('KanbanLaneRepository', () => {
   });
 
   describe('create', () => {
+    it('rejects a target-only lane with a typed validation error', () => {
+      const target = laneRepo.getByBoardId(boardId)[0];
+      try {
+        laneRepo.create(boardId, { name: 'Invalid', completionTargetLaneId: target.id });
+        throw new Error('Expected lane creation to fail');
+      } catch (error) {
+        expect(error).toMatchObject({ code: 'KANBAN_LANE_AUTOMATION_REQUIRED', status: 400, field: 'completionTargetLaneId' });
+      }
+    });
+
     it('creates a lane with name', () => {
       const lane = laneRepo.create(boardId, { name: 'Custom Lane' });
 

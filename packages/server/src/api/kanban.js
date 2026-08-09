@@ -17,6 +17,7 @@ import {
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
 import { getRun } from '../services/workflowSessionService.js';
 import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
+import { isApiError } from '../errors/ApiError.js';
 
 const router = Router({ mergeParams: true });
 const LANE_NOT_FOUND_ERROR = 'Lane not found';
@@ -89,7 +90,13 @@ router.post('/lanes', (req, res) => {
     return res.status(404).json({ error: 'Board not found' });
   }
 
-  const lane = kanbanLanes.create(board.id, result.data);
+  let lane;
+  try {
+    lane = kanbanLanes.create(board.id, result.data);
+  } catch (error) {
+    if (isApiError(error)) return res.status(error.status).json({ error: error.message, code: error.code, field: error.field });
+    throw error;
+  }
 
   // Broadcast updated board
   const fullBoard = buildFullBoardResponse(board);
@@ -105,6 +112,8 @@ router.post('/lanes', (req, res) => {
  * PATCH /api/projects/:projectId/kanban/lanes/:laneId
  * Update a lane
  */
+// Validation branches intentionally stay adjacent to the route contract.
+// eslint-disable-next-line max-statements
 router.patch('/lanes/:laneId', (req, res) => {
   const { projectId, laneId } = req.params;
 
@@ -137,7 +146,13 @@ router.patch('/lanes/:laneId', (req, res) => {
     }
   }
 
-  const updated = kanbanLanes.update(laneId, result.data);
+  let updated;
+  try {
+    updated = kanbanLanes.update(laneId, result.data);
+  } catch (error) {
+    if (isApiError(error)) return res.status(error.status).json({ error: error.message, code: error.code, field: error.field });
+    throw error;
+  }
 
   // Broadcast updated board
   const fullBoard = buildFullBoardResponse(board);
