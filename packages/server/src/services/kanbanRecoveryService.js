@@ -165,9 +165,9 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
     const recoveredClaim = preservedEntryEventIds.length
       ? ` OR id IN (${preservedEntryEventIds.map(() => '?').join(',')})`
       : '';
-    const released = db.prepare(`UPDATE kanban_lane_entry_events SET claim_token=NULL, claimed_at=NULL, updated_at=?
-      WHERE status='pending' AND claim_token IS NOT NULL AND (claimed_at < ?${recoveredClaim})`)
-      .run(now, now - 5 * 60 * 1000, ...preservedEntryEventIds).changes;
+    const released = db.prepare(`UPDATE kanban_lane_entry_events SET status='pending', claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, updated_at=?
+      WHERE ((status='claimed' AND claim_expires_at < ?) OR (status='pending' AND claim_token IS NOT NULL AND claimed_at < ?)${recoveredClaim})`)
+      .run(now, now - 5 * 60 * 1000, now - 5 * 60 * 1000, ...preservedEntryEventIds).changes;
     if (released) changes.push({ type: 'reclaimed_entry_claims', count: released });
     const cancelled = db.prepare(`UPDATE sessions SET scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL,
       auto_send_pending_prompt=0, execution_state='idle', workflow_reason='reconciliation_unowned_worker', workflow_updated_at=?

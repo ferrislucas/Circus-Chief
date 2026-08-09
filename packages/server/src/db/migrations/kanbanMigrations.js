@@ -166,11 +166,11 @@ export const kanbanMigrations = [
           id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL UNIQUE, project_id TEXT NOT NULL,
           workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, lane_id TEXT NOT NULL, cause TEXT NOT NULL,
           caused_by_run_id TEXT, status TEXT NOT NULL DEFAULT 'pending', claim_token TEXT, claimed_at INTEGER,
-          attempt_count INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at INTEGER NOT NULL,
+          claim_expires_at INTEGER, next_attempt_at INTEGER, attempt_count INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL, completed_at INTEGER
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_lane_entry_completion_cause ON kanban_lane_entry_events(caused_by_run_id) WHERE caused_by_run_id IS NOT NULL;
-        CREATE INDEX IF NOT EXISTS idx_lane_entry_recovery ON kanban_lane_entry_events(status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_lane_entry_recovery ON kanban_lane_entry_events(status, next_attempt_at, created_at);
         CREATE TABLE IF NOT EXISTS kanban_lane_runs (
           id TEXT PRIMARY KEY, lane_entry_event_id TEXT NOT NULL UNIQUE, prior_lane_run_id TEXT,
           project_id TEXT NOT NULL, workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, source_lane_id TEXT NOT NULL,
@@ -189,6 +189,9 @@ export const kanbanMigrations = [
         CREATE INDEX IF NOT EXISTS idx_lane_run_audit_run ON kanban_lane_run_audit_events(lane_run_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_sessions_lane_run ON sessions(lane_run_id);
       `);
+      addColumnIfMissing(db, 'kanban_lane_entry_events', 'claim_expires_at', 'INTEGER');
+      addColumnIfMissing(db, 'kanban_lane_entry_events', 'next_attempt_at', 'INTEGER');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_lane_entry_recovery_due ON kanban_lane_entry_events(status, next_attempt_at, created_at)');
     },
   },
   {
@@ -282,6 +285,14 @@ export const kanbanMigrations = [
       } finally {
         db.pragma(`foreign_keys = ${foreignKeysEnabled ? 'ON' : 'OFF'}`);
       }
+    },
+  },
+  {
+    name: 'kanban-lane-entry-retry-schedule',
+    up(db) {
+      addColumnIfMissing(db, 'kanban_lane_entry_events', 'claim_expires_at', 'INTEGER');
+      addColumnIfMissing(db, 'kanban_lane_entry_events', 'next_attempt_at', 'INTEGER');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_lane_entry_recovery_due ON kanban_lane_entry_events(status, next_attempt_at, created_at)');
     },
   },
 ];

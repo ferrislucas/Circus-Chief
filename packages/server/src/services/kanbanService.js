@@ -99,12 +99,9 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
     // Lane entry automation fires on the workspace root (consistent with
     // "all sessions in a workspace move together").
     const rootDepth = rootSession.laneTriggerDepth || 0;
-    const delivery = await triggerLaneEntryAutomation(workspaceId, laneId, {
-      runOnEnterTemplate,
-      depth: depth || rootDepth,
-      laneRunId: laneRun?.id,
-    });
-    completeVerifiedLaneEntry(laneRun?.laneEntryEventId, delivery.rootSessionId);
+    // Every automated entry is committed before it is delivered.  This is the
+    // durable success boundary for add/move/completion alike.
+    if (laneRun) await drainLaneEntryTrigger(laneRun.laneEntryEventId, { depth: depth || rootDepth });
   }
 
   return card;
@@ -155,8 +152,7 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
       card: movedCard,
     });
 
-    const delivery = await triggerLaneEntryAutomation(sessionId, targetLaneId, { runOnEnterTemplate, depth, laneRunId: laneRun?.id });
-    completeVerifiedLaneEntry(laneRun?.laneEntryEventId, delivery.rootSessionId);
+    if (laneRun) await drainLaneEntryTrigger(laneRun.laneEntryEventId, { depth });
   }
 
   return movedCard;
@@ -184,7 +180,9 @@ export async function triggerStructuredTransitionAutomation(pending) {
   if (!workspaceSession) return;
 
   const lane = kanbanLanes.getById(targetLaneId);
-  const laneRun = isStructured(lane)
+  const laneRun = pending.laneEntryEventId
+    ? databaseManager.get().prepare('SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(pending.laneEntryEventId)
+    : isStructured(lane)
     ? createLaneRunForEntry({
         projectId: workspaceSession.projectId,
         workspaceId: workspaceSessionId,
@@ -196,6 +194,10 @@ export async function triggerStructuredTransitionAutomation(pending) {
       })
     : null;
 
+  if (pending.laneEntryEventId && (laneRun?.lane_entry_event_id || laneRun?.laneEntryEventId)) {
+    return drainLaneEntryTrigger(laneRun.lane_entry_event_id || laneRun.laneEntryEventId, { depth: workspaceSession.laneTriggerDepth || 0 });
+  }
+
   return triggerLaneEntryAutomation(workspaceSessionId, targetLaneId, {
     runOnEnterTemplate: true,
     depth: workspaceSession.laneTriggerDepth || 0,
@@ -205,69 +207,101 @@ export async function triggerStructuredTransitionAutomation(pending) {
 
 const ENTRY_EVENT_LEASE_MS = 5 * 60 * 1000;
 const MAX_ENTRY_EVENT_ATTEMPTS = 8;
+const RETRY_BASE_MS = 1_000;
+const RETRY_MAX_MS = 5 * 60 * 1000;
+const RETRY_JITTER = 0.2;
+
+export function laneEntryRetryDelay(attempt, random = Math.random) {
+  const capped = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * (2 ** Math.max(0, attempt - 1)));
+  return Math.round(capped * (1 - RETRY_JITTER + random() * RETRY_JITTER * 2));
+}
 
 function claimLaneEntryTrigger(eventId) {
   const token = crypto.randomUUID();
   const time = Date.now();
   const claimed = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
-    SET claim_token=?, claimed_at=?, attempt_count=attempt_count+1, updated_at=?
-    WHERE id=? AND status='pending' AND claim_token IS NULL AND attempt_count < ?`).run(token, time, time, eventId, MAX_ENTRY_EVENT_ATTEMPTS);
+    SET status='claimed', claim_token=?, claimed_at=?, claim_expires_at=?, attempt_count=attempt_count+1, updated_at=?
+    WHERE id=? AND status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=?)
+      AND attempt_count < ?`).run(token, time, time + ENTRY_EVENT_LEASE_MS, time, eventId, time, MAX_ENTRY_EVENT_ATTEMPTS);
   return claimed.changes ? token : null;
 }
 
-function completeVerifiedLaneEntry(eventId, rootSessionId) {
-  if (!eventId || !rootSessionId) return;
+function completeVerifiedLaneEntry(eventId, rootSessionId, token) {
+  if (!eventId || !rootSessionId || !token) return false;
   const db = databaseManager.get();
   const owner = db.prepare(`SELECT 1 FROM kanban_lane_runs
     WHERE lane_entry_event_id=? AND status='open' AND root_session_id=?`).get(eventId, rootSessionId);
   if (!owner) throw new Error('Lane-entry delivery did not attach the expected run root');
   const time = Date.now();
-  const completed = db.prepare(`UPDATE kanban_lane_entry_events SET status='completed', completed_at=?, updated_at=?
-    WHERE id=? AND status='pending' AND claim_token IS NULL`).run(time, time, eventId);
+  const completed = db.prepare(`UPDATE kanban_lane_entry_events SET status='completed', completed_at=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL
+    WHERE id=? AND status='claimed' AND claim_token=?`).run(time, time, eventId, token);
   if (completed.changes !== 1) throw new Error('Lane-entry event could not be completed after root verification');
+  return true;
+}
+
+function resolveDeliveryState(event) {
+  const db = databaseManager.get();
+  let run = db.prepare('SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(event.id);
+  // Compatibility for durable events written by versions which committed the
+  // event before creating its target run. New entry sources create both in one
+  // transaction; this branch never creates a replacement once a run exists.
+  if (!run) {
+    const lane = kanbanLanes.getById(event.lane_id);
+    if (!lane || !isStructured(lane)) return { state: 'ownership_conflict', reason: 'target lane run is missing' };
+    const created = createLaneRunForEntry({ projectId: event.project_id, workspaceId: event.workspace_id,
+      cardId: event.card_id, lane, cause: event.cause, priorLaneRunId: event.caused_by_run_id, entryEventId: event.id });
+    run = created && db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(created.id);
+  }
+  if (!run) return { state: 'ownership_conflict', reason: 'target lane run is missing' };
+  if (!run.root_session_id) return { state: 'needs_delivery', run };
+  const owner = db.prepare(`WITH RECURSIVE ancestors(id, parent_session_id) AS (
+    SELECT id, parent_session_id FROM sessions WHERE id=? UNION ALL
+    SELECT s.id, s.parent_session_id FROM sessions s JOIN ancestors a ON a.parent_session_id=s.id
+  ) SELECT 1 FROM sessions s WHERE s.id=? AND s.project_id=? AND EXISTS (SELECT 1 FROM ancestors WHERE id=?)`)
+    .get(run.root_session_id, run.root_session_id, run.project_id, run.workspace_id);
+  return owner ? { state: 'already_delivered', run, rootSessionId: run.root_session_id } : { state: 'ownership_conflict', reason: 'attached root does not belong to target run workspace' };
 }
 
 /** Drain one committed completion handoff. Safe to call repeatedly. */
-export async function drainLaneEntryTrigger(eventId) {
+// eslint-disable-next-line complexity -- deliberately linear durable state machine
+export async function drainLaneEntryTrigger(eventId, options = {}) {
   const token = claimLaneEntryTrigger(eventId);
   if (!token) return false;
   const db = databaseManager.get();
   const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
-  const valid = event && db.prepare(`SELECT 1 FROM kanban_cards c JOIN kanban_lanes l ON l.id=c.lane_id
-    WHERE c.id=? AND c.lane_id=?`).get(event.card_id, event.lane_id);
+  const valid = event && db.prepare('SELECT 1 FROM kanban_cards WHERE id=?').get(event.card_id);
   // A completion handoff is valid only if its source run actually performed
   // this exact guarded transition. This prevents an old outbox event from
   // spawning work after a manual move or a superseded source worker.
   const sourceValid = !event?.caused_by_run_id || db.prepare(`SELECT 1 FROM kanban_lane_runs
     WHERE id=? AND status='succeeded' AND transition_applied_at IS NOT NULL`).get(event.caused_by_run_id);
   if (!valid || !sourceValid) {
-    const reason = !valid ? 'card no longer belongs to entry lane' : 'source run no longer owns a completed transition';
+    const reason = !valid ? 'target card no longer exists' : 'source run no longer owns a completed transition';
     const time = Date.now();
     db.prepare(`UPDATE kanban_lane_entry_events SET status='invalid', last_error=?,
-      completed_at=?, updated_at=? WHERE id=? AND claim_token=?`).run(reason, time, time, eventId, token);
+      completed_at=?, updated_at=?, claim_token=NULL, claim_expires_at=NULL WHERE id=? AND claim_token=?`).run(reason, time, time, eventId, token);
     return false;
   }
   try {
-    const delivery = await triggerStructuredTransitionAutomation({
-      workspaceSessionId: event.workspace_id, targetLaneId: event.lane_id,
-      cardId: event.card_id, sourceRunId: event.caused_by_run_id, laneEntryEventId: event.id,
-    });
-    const ownsExpectedRoot = !event.caused_by_run_id || db.prepare(`SELECT 1 FROM kanban_lane_runs
-      WHERE lane_entry_event_id=? AND status='open' AND root_session_id=?`).get(event.id, delivery.rootSessionId);
-    if (!ownsExpectedRoot) throw new Error('Lane-entry delivery did not attach the expected run root');
-    const time = Date.now();
-    db.prepare(`UPDATE kanban_lane_entry_events
-      SET status='completed', completed_at=?, updated_at=? WHERE id=? AND claim_token=?`)
-      .run(time, time, eventId, token);
-    return true;
+    const resolved = resolveDeliveryState(event);
+    if (resolved.state === 'ownership_conflict') throw new Error(resolved.reason);
+    let rootSessionId = resolved.rootSessionId;
+    if (resolved.state === 'needs_delivery') {
+      const delivery = await triggerLaneEntryAutomation(event.workspace_id, event.lane_id, {
+        runOnEnterTemplate: true, depth: options.depth || 0, laneRunId: resolved.run.id,
+      });
+      rootSessionId = delivery?.rootSessionId;
+    }
+    return completeVerifiedLaneEntry(event.id, rootSessionId, token);
   } catch (error) {
     const time = Date.now();
     const exhausted = event.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS;
+    const nextAttemptAt = exhausted ? null : time + laneEntryRetryDelay(event.attempt_count);
     db.prepare(`UPDATE kanban_lane_entry_events
       SET status=CASE WHEN ? THEN 'failed' ELSE 'pending' END,
-        claim_token=NULL, claimed_at=NULL, last_error=?, updated_at=?, completed_at=CASE WHEN ? THEN ? ELSE completed_at END
+        claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=?, last_error=?, updated_at=?, completed_at=CASE WHEN ? THEN ? ELSE completed_at END
       WHERE id=? AND claim_token=?`)
-      .run(exhausted ? 1 : 0, error.message, time, exhausted ? 1 : 0, time, eventId, token);
+      .run(exhausted ? 1 : 0, nextAttemptAt, String(error.message || 'delivery failed').slice(0, 240), time, exhausted ? 1 : 0, time, eventId, token);
     throw error;
   }
 }
@@ -275,18 +309,48 @@ export async function drainLaneEntryTrigger(eventId) {
 /** Recover completion handoffs persisted before an unexpected process exit. */
 export async function drainPendingLaneEntryTriggers() {
   const leaseExpiry = Date.now() - ENTRY_EVENT_LEASE_MS;
-  databaseManager.get().prepare(`UPDATE kanban_lane_entry_events SET claim_token=NULL, claimed_at=NULL, updated_at=?
-    WHERE status='pending' AND claim_token IS NOT NULL AND claimed_at < ?`).run(Date.now(), leaseExpiry);
+  databaseManager.get().prepare(`UPDATE kanban_lane_entry_events SET status='pending', claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, updated_at=?
+    WHERE status='claimed' AND claim_expires_at < ?`).run(Date.now(), leaseExpiry);
   // Terminally expose exhausted deliveries instead of endlessly spinning a
   // startup loop. Pending event age/attempt_count/last_error remain directly
   // queryable through the durable outbox table for operations visibility.
   databaseManager.get().prepare(`UPDATE kanban_lane_entry_events SET status='failed', last_error=COALESCE(last_error, 'delivery attempts exhausted'),
     completed_at=?, updated_at=? WHERE status='pending' AND attempt_count >= ?`).run(Date.now(), Date.now(), MAX_ENTRY_EVENT_ATTEMPTS);
   const events = databaseManager.get().prepare(`SELECT id FROM kanban_lane_entry_events
-    WHERE status='pending' ORDER BY created_at`).all();
+    WHERE status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at LIMIT 50`).all(Date.now());
   for (const { id } of events) {
     try { await drainLaneEntryTrigger(id); } catch (error) { console.error('Kanban lane-entry recovery failed:', error); }
   }
+}
+
+let retryTimer = null;
+let retryInFlight = null;
+let retryStopping = false;
+const RETRY_POLL_MS = 1_000;
+
+/** Start the bounded durable outbox poller after startup recovery is complete. */
+export function startLaneEntryRetryWorker() {
+  if (retryTimer) return;
+  retryStopping = false;
+  const tick = async () => {
+    if (retryStopping || retryInFlight) return;
+    retryInFlight = drainPendingLaneEntryTriggers().catch((error) => {
+      console.error('Kanban lane-entry retry worker failed:', error);
+    }).finally(() => { retryInFlight = null; });
+    await retryInFlight;
+  };
+  retryTimer = setInterval(tick, RETRY_POLL_MS);
+  retryTimer.unref?.();
+  void tick();
+}
+
+/** Stop accepting retry work and wait only a bounded time for an active claim. */
+export async function stopLaneEntryRetryWorker(timeoutMs = 5_000) {
+  retryStopping = true;
+  if (retryTimer) clearInterval(retryTimer);
+  retryTimer = null;
+  if (!retryInFlight) return;
+  await Promise.race([retryInFlight, new Promise((resolve) => setTimeout(resolve, timeoutMs))]);
 }
 
 /**

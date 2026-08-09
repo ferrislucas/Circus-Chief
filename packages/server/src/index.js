@@ -15,7 +15,7 @@ import { clearScheduledTimers } from './services/summaryService.js';
 import { commandRunner } from './services/commandRunner.js';
 import { getDefaultDbPath } from './config.js';
 import { recoverStaleStartingSessions } from './services/sessionStartupRecovery.js';
-import { drainPendingLaneEntryTriggers } from './services/kanbanService.js';
+import { startLaneEntryRetryWorker, stopLaneEntryRetryWorker } from './services/kanbanService.js';
 import { formatKanbanInvariantReport } from './services/kanbanRecoveryService.js';
 import { runStartupPreflight } from './services/startupPreflight.js';
 import { setAutomationPreflightStatus } from './services/automationStatusService.js';
@@ -77,7 +77,7 @@ if (!preflight.workersEnabled) {
   console.error(formatKanbanInvariantReport(preflight.report));
   console.error('Kanban preflight failed; HTTP serving remains available but scheduler and entry delivery are disabled');
 } else {
-  void drainPendingLaneEntryTriggers();
+  startLaneEntryRetryWorker();
 }
 
 // Apply --no-analytics flag to persisted settings
@@ -120,6 +120,7 @@ function shutdown(signal) {
 
   // Stop periodic services
   schedulerService.stop();
+  void stopLaneEntryRetryWorker();
   prStatusService.stop();
   systemMonitor.stop();
 

@@ -26,7 +26,7 @@ export function getRun(runId) {
   const names = db.prepare(`SELECT (SELECT name FROM kanban_lanes WHERE id=?) AS source_name,
     (SELECT name FROM kanban_lanes WHERE id=?) AS target_name`).get(run.source_lane_id, run.completion_target_lane_id);
   const blocker = blockerDetails({ scheduled, retrying, paused, open });
-  return { id: run.id, status: run.status, sourceLaneId: run.source_lane_id, sourceLaneName: names?.source_name || null,
+  return { id: run.id, laneEntryEventId: run.lane_entry_event_id, status: run.status, sourceLaneId: run.source_lane_id, sourceLaneName: names?.source_name || null,
     targetLaneId: run.completion_target_lane_id, targetLaneName: names?.target_name || null,
     rootSessionId: run.root_session_id, rootOwnWorkState: rows.find((session) => session.id === run.root_session_id)?.own_work_state || null,
     failureReason: run.failure_reason, createdAt: run.created_at,
