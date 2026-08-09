@@ -35,6 +35,10 @@ function overlayState() {
     // instance so markers set via Send/Start in the overlay don't leak into
     // the main store (and vice-versa). See `markRecentSend` / `hasRecentSend`.
     recentSends: {},
+    // Per-session in-flight schedule mutation kind, scoped per overlay
+    // instance for the same reason as `recentSends`. See
+    // `scheduleMutationInFlight` in perSessionGetters.js.
+    scheduleMutationsInFlight: {},
   };
 }
 
@@ -163,6 +167,14 @@ const delegatedSessionActions = {
     return this.updateSessionFields(sessionId, { mode });
   },
 
+  async runScheduledNow(sessionId, prompt) {
+    const result = await useSessionsStore().runScheduledNow(sessionId, prompt);
+    if (this.currentSession?.id === sessionId) {
+      this.currentSession = { ...this.currentSession, ...result };
+    }
+    return result;
+  },
+
   async updateSessionFields(sessionId, updates) {
     const result = await useSessionsStore().updateSessionFields(sessionId, updates);
     if (this.currentSession?.id === sessionId) {
@@ -226,7 +238,7 @@ const overlayActions = {
  * Delegated actions (affect global session lists - call through to main store):
  *   updateSessionStatus, updateSession, stopSession, restartSession, startSession,
  *   sendMessage, updateSessionModel, updateSessionThinking, updateSessionMode,
- *   updateSessionFields, updateNextTemplate, updateAutoSendPendingPrompt
+ *   updateSessionFields, updateNextTemplate, updateAutoSendPendingPrompt, runScheduledNow
  */
 export function createOverlaySessionsStore() {
   const storeId = `overlay-sessions-${++overlayCounter}`;

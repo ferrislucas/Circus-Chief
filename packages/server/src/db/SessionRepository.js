@@ -10,6 +10,7 @@ import {
   mapWorkflow,
   parseCreateConfig,
   buildUpdateClauses,
+  claimScheduledRow,
   DEFAULT_AGENT_TYPE,
   resolveAgentTypeFromModel,
 } from './session-helpers.js';
@@ -245,6 +246,17 @@ export class SessionRepository extends BaseRepository {
     this.db.prepare(`UPDATE sessions SET ${updates.join(', ')} WHERE id = ?`).run(...values);
 
     return this.getById(id);
+  }
+
+  /**
+   * Atomically claim a due scheduled session for execution. See
+   * `claimScheduledRow` in session-helpers.js for the full contract.
+   * @param {string} id - Session id to claim.
+   * @param {{ promptOverride?: string }} [options]
+   * @returns {object|null}
+   */
+  claimScheduled(id, { promptOverride } = {}) {
+    return claimScheduledRow(this, id, promptOverride);
   }
 
   /**
