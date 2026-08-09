@@ -13,6 +13,7 @@ import {
   getPromptQueue,
   MAX_PROMPTS_PER_SESSION,
   parkPrompt,
+  PROMPT_EXPIRY_MS,
   respondToPrompt,
 } from './promptStore.js';
 
@@ -618,6 +619,10 @@ describe('promptStore concurrent prompt queue', () => {
 describe('promptStore bounded lifecycle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('allows 24 hours for user input by default', () => {
+    expect(PROMPT_EXPIRY_MS).toBe(24 * 60 * 60 * 1000);
   });
 
   it('expires an unanswered head exactly once and promotes the next prompt', async () => {

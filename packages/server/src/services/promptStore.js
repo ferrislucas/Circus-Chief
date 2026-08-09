@@ -20,8 +20,9 @@ import logger from '../logger.js';
 const prompts = new Map();
 const CANCELLED_MESSAGE = 'Session was cancelled.';
 // A parked callback retains an SDK control request and potentially sensitive
-// in-memory tool input. Keep both bounded even if a browser disconnects.
-export const PROMPT_EXPIRY_MS = 5 * 60 * 1000;
+// in-memory tool input. Allow a full day for asynchronous user input while
+// retaining a fail-closed upper bound if the prompt is abandoned.
+export const PROMPT_EXPIRY_MS = 24 * 60 * 60 * 1000;
 export const MAX_PROMPTS_PER_SESSION = 8;
 const EXPIRED_MESSAGE = 'This approval request expired. Please continue without it.';
 const CAPACITY_MESSAGE = 'Too many approval requests are pending. Please continue without this action.';
