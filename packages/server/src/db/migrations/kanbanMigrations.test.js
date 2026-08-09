@@ -101,6 +101,28 @@ describe('kanban-drop-completion-mode-hard-cutover', () => {
       db.close();
     }
   });
+
+  it('clears target-only completion targets and records them for operator review', () => {
+    const db = freshDb();
+    try {
+      db.exec('ALTER TABLE kanban_lanes ADD COLUMN completion_mode TEXT');
+      db.prepare("INSERT INTO projects (id,name,working_directory,created_at,updated_at) VALUES ('p','P','/tmp',1,1)").run();
+      db.prepare("INSERT INTO kanban_boards (id,project_id,created_at,updated_at) VALUES ('b','p',1,1)").run();
+      db.prepare("INSERT INTO kanban_lanes (id,board_id,name,sort_order,created_at,updated_at,completion_mode) VALUES ('target','b','Target',0,1,1,'legacy')").run();
+      db.prepare("INSERT INTO kanban_lanes (id,board_id,name,sort_order,completion_target_lane_id,created_at,updated_at,completion_mode) VALUES ('plain','b','Plain',1,'target',1,1,'legacy')").run();
+      db.prepare("INSERT INTO kanban_lanes (id,board_id,name,sort_order,on_enter_prompt,completion_target_lane_id,created_at,updated_at,completion_mode) VALUES ('automated','b','Automated',2,'work','target',1,1,'legacy')").run();
+      const migration = allMigrations.find((item) => item.name === 'kanban-drop-completion-mode-hard-cutover');
+
+      migration.up(db);
+
+      expect(db.prepare('SELECT completion_target_lane_id AS target FROM kanban_lanes WHERE id=?').get('plain').target).toBeNull();
+      expect(db.prepare('SELECT completion_target_lane_id AS target FROM kanban_lanes WHERE id=?').get('automated').target).toBe('target');
+      expect(db.prepare('SELECT lane_id AS laneId FROM kanban_migration_notes WHERE lane_id=?').get('plain')).toEqual({ laneId: 'plain' });
+      expect(() => migration.up(db)).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
 });
 
 // Note: there is no 'kanban-backfill-structured-completion-mode' migration in
