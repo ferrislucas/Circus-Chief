@@ -170,7 +170,7 @@ test.describe('Interactive Agent Prompts', () => {
     await expect(card).not.toBeVisible({ timeout: 10000 });
     await waitForStatus(session.id, 'waiting', 60000);
     const logs = flattenWorkLogs(await getSessionWorkLogs(session.id));
-    expect(logs.some((log: any) => log.content.includes('Outcome: deny') && log.content.includes('Reason: Do not modify server configuration.'))).toBe(true);
+    expect(logs.some((log: any) => log.content.includes('Outcome: deny') && !log.content.includes('Do not modify server configuration.'))).toBe(true);
   });
 
   test('stop clears a parked prompt and the session does not hang', async ({ page }) => {

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { VCRAgentAdapter } from './VCRAgentAdapter.js';
@@ -9,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRootCassetteDir = path.resolve(__dirname, '..', '..', '..', '..', '..', 'tests', 'e2e', 'cassettes');
 
 describe('VCRAgentAdapter', () => {
-  const testCassetteDir = path.join('tests', 'cassettes', 'temp-adapter-test');
+  let testCassetteDir;
 
   // Mock inner agent
   const createMockAgent = (events) => ({
@@ -36,19 +37,31 @@ describe('VCRAgentAdapter', () => {
   });
 
   beforeEach(() => {
-    // Clean up test directory
-    if (fs.existsSync(testCassetteDir)) {
-      fs.rmSync(testCassetteDir, { recursive: true, force: true });
-    }
+    // Each test gets a private absolute directory. This keeps parallel
+    // workers and separate worktrees from deleting one another's cassettes.
+    testCassetteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'circuschief-vcr-'));
   });
 
   afterEach(() => {
-    // Clean up after test
-    if (fs.existsSync(testCassetteDir)) {
+    if (testCassetteDir && fs.existsSync(testCassetteDir)) {
       fs.rmSync(testCassetteDir, { recursive: true, force: true });
     }
+    testCassetteDir = undefined;
     // Reset VCR_MODE
     delete process.env.VCR_MODE;
+  });
+
+  it('allocates distinct absolute cassette directories for concurrent fixtures', () => {
+    const anotherFixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'circuschief-vcr-'));
+    try {
+      expect(path.isAbsolute(testCassetteDir)).toBe(true);
+      expect(anotherFixtureDir).not.toBe(testCassetteDir);
+      fs.writeFileSync(path.join(testCassetteDir, 'first.json'), '{}');
+      fs.rmSync(testCassetteDir, { recursive: true, force: true });
+      expect(fs.existsSync(anotherFixtureDir)).toBe(true);
+    } finally {
+      fs.rmSync(anotherFixtureDir, { recursive: true, force: true });
+    }
   });
 
   describe('record mode', () => {

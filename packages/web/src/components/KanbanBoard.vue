@@ -145,7 +145,11 @@
                   </h4>
                 </div>
                 <div class="card-meta">
-                  <span v-if="card.sessions?.some((session) => session.pendingAgentInput)" class="status-badge status-waiting" aria-label="Agent input required">needs input</span>
+                  <span
+                    v-if="card.sessions?.some((session) => session.pendingAgentInput)"
+                    class="status-badge status-waiting"
+                    aria-label="Agent input required"
+                  >needs input</span>
                   <span
                     v-if="card.sessions[0].mode"
                     class="card-mode"

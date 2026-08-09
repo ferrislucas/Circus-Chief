@@ -71,13 +71,13 @@ describe('promptStore work-log emission', () => {
     await expect(second.promise).resolves.toMatchObject({ behavior: 'allow' });
   });
 
-  it('logs question answers before broadcasting resolution', async () => {
+  it('logs a safe question-answer audit summary before broadcasting resolution', async () => {
     const { promise, prompt } = park('question-answer', 'question');
 
     expect(respondToPrompt('question-answer', prompt.id, { action: 'answer', answers: { 'Which approach?': ['Ship it'] } })).toBe(true);
     await expect(promise).resolves.toMatchObject({ behavior: 'allow' });
 
-    expect(createWorkLog).toHaveBeenCalledWith('question-answer', 'tool_output', 'User answered:\nWhich approach?: Ship it', 'AskUserQuestion');
+    expect(createWorkLog).toHaveBeenCalledWith('question-answer', 'tool_output', 'User answered\nQuestions answered: 1\nSelections recorded: 1', 'AskUserQuestion');
     expect(createWorkLog.mock.invocationCallOrder[0]).toBeLessThan(broadcastToSession.mock.invocationCallOrder.at(-1));
   });
 
@@ -113,7 +113,7 @@ describe('promptStore work-log emission', () => {
     respondToPrompt('permission-deny', denied.prompt.id, { action: 'deny', reason: 'Do not run tests now.' });
     await denied.promise;
 
-    expect(createWorkLog).toHaveBeenNthCalledWith(1, 'question-skip', 'tool_output', 'User did not answer: Use the default.', 'AskUserQuestion');
+    expect(createWorkLog).toHaveBeenNthCalledWith(1, 'question-skip', 'tool_output', 'User did not answer', 'AskUserQuestion');
     for (const index of [2, 3, 4]) {
       const [, , content, toolName] = createWorkLog.mock.calls[index - 1];
       expect(toolName).toBe('Bash');
@@ -127,7 +127,7 @@ describe('promptStore work-log emission', () => {
     expect(createWorkLog.mock.calls[1][2]).toContain('Outcome: allow once');
     expect(createWorkLog.mock.calls[2][2]).toContain('Outcome: always allow');
     expect(createWorkLog.mock.calls[2][2]).toContain('Scope: session');
-    expect(createWorkLog.mock.calls[3][2]).toContain('Reason: Do not run tests now.');
+    expect(createWorkLog.mock.calls[3][2]).not.toContain('Do not run tests now.');
   });
 
   it('cancels every queued prompt for a session, each logging its own cancellation once', async () => {
@@ -147,9 +147,9 @@ describe('promptStore work-log emission', () => {
     for (const [, , content, toolName] of replacementCalls) {
       expect(toolName).toBe('Bash');
       expect(content).toContain('Outcome: cancelled');
-      expect(content).toContain('Reason: Stopped by user.');
+      expect(content).not.toContain('Stopped by user.');
     }
-    expect(createWorkLog).toHaveBeenCalledWith('aborted', 'tool_output', expect.stringContaining('Reason: Session was cancelled.'), 'Bash');
+    expect(createWorkLog).toHaveBeenCalledWith('aborted', 'tool_output', expect.not.stringContaining('Session was cancelled.'), 'Bash');
   });
 
   it('retains reconstructable, safe permission context in history without persisting raw tool input, title, or decision reason', async () => {
@@ -165,7 +165,7 @@ describe('promptStore work-log emission', () => {
     // raw tool input) or `decisionReason` (which can quote it too).
     expect(content).toContain('Headline: Run command');
     expect(content).toContain('Blocked path: [path omitted]');
-    expect(content).toContain('Reason: Permission denied by user.');
+    expect(content).not.toContain('Permission denied by user.');
     expect(content).not.toContain('Deploy');
     expect(content).not.toContain('Needs approval');
     expect(content).not.toContain('very-secret');
@@ -286,6 +286,26 @@ describe('promptStore work-log emission', () => {
     const content = createWorkLog.mock.calls.at(-1)[2];
     expect(content).not.toContain('sk-live-secret-under-a-safe-looking-key');
     expect(content).not.toContain('ls');
+  });
+
+  it('keeps question free text and permission denial reasons out of durable logs and resolution broadcasts', async () => {
+    const questionCanary = 'sk-live-question-answer-canary';
+    const denialCanary = 'sk-live-denial-reason-canary';
+    const question = park('durable-question-canary', 'question');
+    respondToPrompt('durable-question-canary', question.prompt.id, {
+      action: 'answer', answers: { 'Which approach?': [] }, customAnswers: { 'Which approach?': questionCanary },
+    });
+    await question.promise;
+
+    const permission = park('durable-denial-canary', 'permission');
+    respondToPrompt('durable-denial-canary', permission.prompt.id, { action: 'deny', reason: denialCanary });
+    await permission.promise;
+
+    const durableOutput = JSON.stringify({ workLogs: createWorkLog.mock.calls, broadcasts: broadcastToSession.mock.calls });
+    expect(durableOutput).not.toContain(questionCanary);
+    expect(durableOutput).not.toContain(denialCanary);
+    expect(durableOutput).toContain('Questions answered: 1');
+    expect(durableOutput).toContain('Outcome: deny');
   });
 
   it('omits input entirely for unrecognized tools rather than persisting arbitrary scalar input', async () => {
@@ -428,7 +448,7 @@ describe('promptStore work-log emission', () => {
     await cancelled.promise;
 
     expect(createWorkLog).toHaveBeenCalledWith(
-      'question-cancelled', 'tool_output', 'User did not answer: Session was cancelled.', 'AskUserQuestion'
+      'question-cancelled', 'tool_output', 'User did not answer', 'AskUserQuestion'
     );
   });
 

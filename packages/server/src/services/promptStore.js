@@ -117,12 +117,12 @@ function reportPromptSideEffectFailure(record, operation, error) {
 function describePromptOutcome(record, outcome, result) {
   if (record.kind === 'question') {
     if (outcome === 'answer') {
-      const answers = Object.entries(result.updatedInput?.answers || {})
-        .map(([question, answer]) => `${question}: ${answer}`)
-        .join('\n');
-      return { toolName: 'AskUserQuestion', content: `User answered:\n${answers}` };
+      // Question text, selected labels, annotations, and free-text answers
+      // are needed by the live callback, but must not enter durable history.
+      const answerCount = Object.keys(result.updatedInput?.answers || {}).length;
+      return { toolName: 'AskUserQuestion', content: `User answered\nQuestions answered: ${answerCount}\nSelections recorded: ${answerCount}` };
     }
-    return { toolName: 'AskUserQuestion', content: `User did not answer: ${result.message}` };
+    return { toolName: 'AskUserQuestion', content: 'User did not answer' };
   }
 
   const toolName = record.payload.toolName || 'Unknown tool';
@@ -150,7 +150,6 @@ function permissionHistoryLines(record, outcome, result) {
     blockedPath && `Blocked path: ${blockedPath}`,
     Object.keys(inputSummary).length && `Input summary: ${JSON.stringify(inputSummary)}`,
     outcome === 'always_allow' && `Scope: ${result.updatedPermissions?.[0]?.destination || 'session'}`,
-    result.message && `Reason: ${result.message}`,
   ].filter(Boolean);
 }
 

@@ -54,7 +54,11 @@
 
           <!-- Session status badges -->
           <p class="session-meta">
-            <span v-if="session.pendingAgentInput" class="status-badge status-waiting" aria-label="Agent input required">needs input</span>
+            <span
+              v-if="session.pendingAgentInput"
+              class="status-badge status-waiting"
+              aria-label="Agent input required"
+            >needs input</span>
             <!-- Running status badge -->
             <span
               v-if="workflowStatus.runningCount > 0"
