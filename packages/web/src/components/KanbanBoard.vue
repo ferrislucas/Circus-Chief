@@ -400,15 +400,26 @@ const kanbanStore = useKanbanStore();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
 const automationWarning = ref('Checking automation status…');
+const AUTOMATION_STATUS_REFRESH_MS = 30_000;
+let automationStatusInterval = null;
+let automationStatusRequestInFlight = false;
 
 async function fetchAutomationStatus() {
+  if (automationStatusRequestInFlight) return;
+  automationStatusRequestInFlight = true;
   try {
     const info = await api.getServerInfo();
     const status = info.automationStatus;
     automationWarning.value = status?.automation === 'operational' ? ''
       : (status?.message || 'Unable to verify whether lane automation and scheduling are available.');
   } catch {
-    automationWarning.value = 'Unable to verify whether lane automation and scheduling are available.';
+    // Do not replace a known degraded status with a less useful transient
+    // network error. The next successful poll will still update the banner.
+    if (!automationWarning.value) {
+      automationWarning.value = 'Unable to verify whether lane automation and scheduling are available.';
+    }
+  } finally {
+    automationStatusRequestInFlight = false;
   }
 }
 // ==================== Layout state ====================
@@ -447,6 +458,7 @@ const onMqlChange = (e) => { isNarrow.value = e.matches; };
 
 onMounted(() => {
   fetchAutomationStatus();
+  automationStatusInterval = setInterval(fetchAutomationStatus, AUTOMATION_STATUS_REFRESH_MS);
   if (typeof window !== 'undefined' && window.matchMedia) {
     _mql = window.matchMedia('(max-width: 640px)');
     isNarrow.value = _mql.matches;
@@ -455,6 +467,10 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (automationStatusInterval) {
+    clearInterval(automationStatusInterval);
+    automationStatusInterval = null;
+  }
   if (_mql) {
     _mql.removeEventListener('change', onMqlChange);
     _mql = null;

@@ -182,6 +182,42 @@ describe('Kanban API', () => {
 
       expect(res.status).toBe(404);
     });
+
+    it('persists a valid completion target on creation', async () => {
+      setupBoard();
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/lanes`)
+        .send({ name: 'Automated', onEnterPrompt: 'Do the work', completionTargetLaneId: lanes[0].id });
+
+      expect(res.status).toBe(201);
+      expect(res.body.completionTargetLaneId).toBe(lanes[0].id);
+    });
+
+    it('rejects a completion target from another board on creation', async () => {
+      setupBoard();
+      const otherProject = projects.create('Other Project', '/tmp/other', null);
+      const otherBoard = kanbanBoards.getOrCreateForProject(otherProject.id);
+      const otherLane = kanbanLanes.getByBoardId(otherBoard.id)[0];
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/lanes`)
+        .send({ name: 'Automated', onEnterPrompt: 'Do the work', completionTargetLaneId: otherLane.id });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Completion target lane must be on the same board');
+    });
+
+    it('rejects a nonexistent completion target on creation', async () => {
+      setupBoard();
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/lanes`)
+        .send({ name: 'Automated', onEnterPrompt: 'Do the work', completionTargetLaneId: '550e8400-e29b-41d4-a716-446655440099' });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Completion target lane not found');
+    });
   });
 
   describe('PATCH /api/projects/:projectId/kanban/lanes/:laneId', () => {

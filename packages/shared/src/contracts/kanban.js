@@ -26,6 +26,7 @@ export const CreateKanbanLaneRequest = z.object({
   onEnterMaxRescheduleCount: z.number().nullable().optional(),
   onEnterMaxTotalTokens: z.number().nullable().optional(),
   onEnterRescheduleAtTokenCount: z.number().nullable().optional(),
+  completionTargetLaneId: z.string().uuid().nullable().optional(),
 }).refine(
   (data) => {
     // Mutual exclusivity: can't have both template and prompt set

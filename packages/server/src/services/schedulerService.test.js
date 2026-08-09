@@ -333,6 +333,25 @@ describe('SchedulerService', () => {
       expect(mockSessionManager.runSession).not.toHaveBeenCalled();
     });
 
+    it.each([
+      ['fresh session', (session) => { messages.getBySessionId.mockReturnValue([]); conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' }); messages.create.mockReturnValue({ id: 'msg-1' }); mockSessionManager.runSession.mockResolvedValue(false); }],
+      ['continuation', () => { messages.getBySessionId.mockReturnValue([{ role: 'assistant' }]); mockSessionManager.continueSession.mockResolvedValue(false); }],
+      ['existing-message continuation', (session) => { session.pendingConversationId = 'conv-99'; mockSessionManager.continueSessionWithExistingMessage.mockResolvedValue(false); }],
+    ])('returns ownership rejection and clears stale scheduler state for a declined %s', async (_name, configure) => {
+      scheduler.initialize(mockSessionManager);
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Continue', pendingConversationId: null, pendingModel: null, scheduledAt: 1234 };
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+      attachments.getBySessionId.mockReturnValue([]);
+      configure(session);
+
+      const result = await scheduler.startScheduledSession(session);
+
+      expect(result).toEqual({ started: false, reason: 'lane_run_ownership_lost', sessionId: session.id });
+      expect(sessions.update).toHaveBeenLastCalledWith(session.id, expect.objectContaining({
+        status: 'stopped', scheduledAt: null, pendingPrompt: null, pendingModel: null,
+      }));
+    });
+
     it('links file attachments to user message for fresh scheduled session', async () => {
       scheduler.initialize(mockSessionManager);
       const session = {

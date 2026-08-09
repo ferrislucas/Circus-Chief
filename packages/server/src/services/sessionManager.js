@@ -5,7 +5,7 @@ import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
-import { closeOwnWork } from './workflowSessionService.js';
+import { activeLaneRunOwnsSession, closeOwnWork } from './workflowSessionService.js';
 import {
   shouldRescheduleOnError,
   _checkProactiveReschedule,
@@ -312,10 +312,12 @@ function buildExistingMessageQueryParams({
 }
 
 export async function continueSessionWithExistingMessage(sessionId, conversationId, workingDirectory, options = {}) {
-  const { systemPrompt = null, model = null } = options;
+  const { systemPrompt = null, model = null, interactive = false } = options;
   const context = validateAndFetchContinueContext(sessionId, conversationId);
   let session = context.session;
   const { conversation, lastUserMessage } = context;
+
+  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) return false;
 
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });

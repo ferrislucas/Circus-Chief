@@ -184,12 +184,42 @@ class SchedulerService {
     });
     broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'starting' });
 
-    await this.sessionManager.runSession(
+    return this.sessionManager.runSession(
       session.id,
       effectivePrompt,
       workingDirectory,
       { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel }
     );
+  }
+
+  /** Clear a stale start after its executor re-checks lane-run ownership. */
+  rejectScheduledStart(session) {
+    const updated = sessions.update(session.id, {
+      status: 'stopped',
+      scheduledAt: null,
+      pendingPrompt: null,
+      pendingModel: null,
+      pendingConversationId: null,
+    });
+    broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'stopped' });
+    if (updated?.projectId) {
+      broadcastToProject(updated.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId: updated.projectId, sessionId: session.id, session: updated,
+      });
+    }
+  }
+
+  /** Normalize legacy boolean executor responses and explicit start results. */
+  static didExecutorStart(result) {
+    return result !== false && result?.started !== false;
+  }
+
+  finishScheduledStart(session, executorResult) {
+    if (!SchedulerService.didExecutorStart(executorResult)) {
+      this.rejectScheduledStart(session);
+      return { started: false, reason: 'lane_run_ownership_lost', sessionId: session.id };
+    }
+    return { started: true, sessionId: session.id };
   }
 
   /**
@@ -246,13 +276,13 @@ class SchedulerService {
       });
       broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'starting' });
 
-      await this.sessionManager.continueSessionWithExistingMessage(
+      const startResult = await this.sessionManager.continueSessionWithExistingMessage(
         session.id,
         pendingConversationId,
         workingDirectory,
         { systemPrompt: effectiveSystemPrompt, model: session.pendingModel }
       );
-      return { started: true, sessionId: session.id };
+      return this.finishScheduledStart(session, startResult);
     }
 
     // Get the session messages to determine if this is initial or continuation
@@ -269,17 +299,18 @@ class SchedulerService {
       });
       broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'starting' });
 
-      await this.sessionManager.continueSession(
+      const startResult = await this.sessionManager.continueSession(
         session.id,
         effectivePrompt,
         workingDirectory,
         { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel }
       );
-    } else {
-      // Fresh session - initial run
-      await this.startFreshScheduledSession({ session, prompt, effectivePrompt, effectiveSystemPrompt, workingDirectory, sessionAttachments });
+      return this.finishScheduledStart(session, startResult);
     }
-    return { started: true, sessionId: session.id };
+
+    // Fresh session - initial run
+    const startResult = await this.startFreshScheduledSession({ session, prompt, effectivePrompt, effectiveSystemPrompt, workingDirectory, sessionAttachments });
+    return this.finishScheduledStart(session, startResult);
   }
 
   /**

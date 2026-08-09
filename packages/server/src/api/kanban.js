@@ -22,6 +22,19 @@ import { isApiError } from '../errors/ApiError.js';
 const router = Router({ mergeParams: true });
 const LANE_NOT_FOUND_ERROR = 'Lane not found';
 
+function completionTargetError(boardId, targetLaneId, sourceLaneId = null) {
+  if (targetLaneId === undefined || targetLaneId === null) return null;
+  if (targetLaneId === sourceLaneId) {
+    return { status: 400, error: 'Completion target lane cannot be the same lane' };
+  }
+  const targetLane = kanbanLanes.getById(targetLaneId);
+  if (!targetLane) return { status: 404, error: 'Completion target lane not found' };
+  if (targetLane.boardId !== boardId) {
+    return { status: 400, error: 'Completion target lane must be on the same board' };
+  }
+  return null;
+}
+
 // ============== Board Endpoints ==============
 
 /**
@@ -90,6 +103,9 @@ router.post('/lanes', (req, res) => {
     return res.status(404).json({ error: 'Board not found' });
   }
 
+  const targetError = completionTargetError(board.id, result.data.completionTargetLaneId);
+  if (targetError) return res.status(targetError.status).json({ error: targetError.error });
+
   let lane;
   try {
     lane = kanbanLanes.create(board.id, result.data);
@@ -132,19 +148,8 @@ router.patch('/lanes/:laneId', (req, res) => {
     return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
   }
 
-  if (result.data.completionTargetLaneId !== undefined && result.data.completionTargetLaneId !== null) {
-    if (result.data.completionTargetLaneId === laneId) {
-      return res.status(400).json({ error: 'Completion target lane cannot be the same lane' });
-    }
-
-    const targetLane = kanbanLanes.getById(result.data.completionTargetLaneId);
-    if (!targetLane) {
-      return res.status(404).json({ error: 'Completion target lane not found' });
-    }
-    if (targetLane.boardId !== lane.boardId) {
-      return res.status(400).json({ error: 'Completion target lane must be on the same board' });
-    }
-  }
+  const targetError = completionTargetError(lane.boardId, result.data.completionTargetLaneId, laneId);
+  if (targetError) return res.status(targetError.status).json({ error: targetError.error });
 
   let updated;
   try {
