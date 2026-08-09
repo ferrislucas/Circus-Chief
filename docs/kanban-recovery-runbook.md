@@ -37,6 +37,21 @@ reachable but reports `automation: "degraded"` and a safe recovery message; the
 board displays the same warning. Run the recovery command and restart the
 server to restore automation.
 
+The same status now includes live `deliveryHealth`: pending, actively claimed,
+stalled, ambiguous, exhausted, quarantined, and completed event counts plus
+the oldest outstanding age. `ambiguous` means a child was allocated and a
+provider dispatch intent was written, but no provider acknowledgement was
+persisted. Do not manually retry it: preserve the provider records and
+quarantine or reconcile it before creating replacement work. Exhausted,
+stalled, and quarantined entries degrade Kanban health even after a clean
+startup preflight.
+
+Mutating card-add and card-move calls accept an optional `Idempotency-Key`.
+Replaying the same key and payload returns the original operation result;
+reusing a key with different input returns `409`. Keyed mutation responses
+include `operationId` and delivery identity, which can be queried at
+`GET /api/projects/:projectId/kanban/operations/:operationId`.
+
 Calls that attempt to run or schedule a superseded lane worker receive `409`
 with `code: "LANE_RUN_OWNERSHIP_LOST"`. Re-open the board and act on the current
 card/run instead of retrying the stale request. Invalid lane configurations

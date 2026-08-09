@@ -6,6 +6,34 @@
 import { databaseManager } from '../database.js';
 import { supersedeLaneRun } from './workflowSessionService.js';
 
+/** A bounded, request-time view of durable delivery health.  This is kept
+ * separate from startup preflight: a healthy boot must still degrade when a
+ * later provider outage exhausts delivery attempts. */
+// eslint-disable-next-line complexity, sonarjs/cognitive-complexity -- classifications are deliberately explicit/stable
+export function getKanbanDeliveryHealth(db = databaseManager.get(), time = Date.now()) {
+  const rows = db.prepare(`SELECT status, delivery_phase, claim_expires_at, created_at
+    FROM kanban_lane_entry_events`).all();
+  const counts = { pending: 0, claimed: 0, stalled: 0, ambiguous: 0, exhausted: 0, quarantined: 0, completed: 0 };
+  let oldestRelevantAt = null;
+  for (const row of rows) {
+    if (row.status === 'completed') { counts.completed += 1; continue; }
+    if (row.status === 'invalid') { counts.quarantined += 1; }
+    else if (row.status === 'failed') { counts.exhausted += 1; }
+    else if (row.status === 'claimed' && row.claim_expires_at && row.claim_expires_at <= time) { counts.stalled += 1; }
+    else if (row.delivery_phase === 'dispatch_intent') { counts.ambiguous += 1; }
+    else if (row.status === 'claimed') { counts.claimed += 1; }
+    else { counts.pending += 1; }
+    if (row.status !== 'completed' && (oldestRelevantAt === null || row.created_at < oldestRelevantAt)) oldestRelevantAt = row.created_at;
+  }
+  const reasons = [];
+  if (counts.exhausted) reasons.push('exhausted delivery events');
+  if (counts.quarantined) reasons.push('quarantined delivery events');
+  if (counts.stalled) reasons.push('expired delivery claims');
+  if (counts.ambiguous) reasons.push('ambiguous provider dispatches');
+  return { status: reasons.length ? 'degraded' : 'operational', reasons, counts,
+    oldestRelevantAgeMs: oldestRelevantAt === null ? null : Math.max(0, time - oldestRelevantAt) };
+}
+
 function issue(type, reason, row, severity = 'error') {
   return { type, reason, severity, ...row };
 }

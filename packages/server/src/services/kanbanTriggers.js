@@ -83,7 +83,11 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
  * @param {Object} options
  */
 export function startChildSession(newSession, prompt, workingDirectory, options) {
-  return runSession(newSession.id, prompt, workingDirectory, options).then(() => true).catch((error) => {
+  return runSession(newSession.id, prompt, workingDirectory, options).then((result) =>
+    // Older in-process adapters returned undefined. Keep that narrow
+    // compatibility path, but never coerce arbitrary resolved values (in
+    // particular `{ started: false }`) into a provider acknowledgement.
+    result === undefined || result?.started === true).catch((error) => {
     console.error(`Kanban: Error running on-enter session ${newSession.id}:`, error);
     const errorSession = sessions.update(newSession.id, { status: 'error', error: error.message });
     broadcastToProject(newSession.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
@@ -177,7 +181,7 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
 }
 
 export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
-  const { depth = 0, laneRunId = null } = options;
+  const { depth = 0, laneRunId = null, beforeDispatch } = options;
 
   if (depth >= MAX_LANE_TRIGGER_DEPTH) {
     console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
@@ -218,9 +222,14 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
       session: sessions.getById(newSession.id),
     });
 
+    // Record dispatch intent after setup/broadcast but immediately before the
+    // provider boundary.  A crash after this point is ambiguous and is never
+    // replayed as a second provider start without the same idempotency key.
+    const dispatchKey = beforeDispatch ? await beforeDispatch(newSession.id) : null;
     const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
+      idempotencyKey: dispatchKey,
     });
     if (!accepted) return undelivered('provider dispatch was not accepted');
 
@@ -286,7 +295,7 @@ async function buildChildSessionFromPrompt(lane, session, depth, laneRunId = nul
 }
 
 export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
-  const { depth = 0, laneRunId = null } = options;
+  const { depth = 0, laneRunId = null, beforeDispatch } = options;
 
   if (depth >= MAX_LANE_TRIGGER_DEPTH) {
     console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
@@ -314,9 +323,11 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
       session: sessions.getById(newSession.id),
     });
 
+    const dispatchKey = beforeDispatch ? await beforeDispatch(newSession.id) : null;
     const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
+      idempotencyKey: dispatchKey,
     });
     if (!accepted) return undelivered('provider dispatch was not accepted');
 

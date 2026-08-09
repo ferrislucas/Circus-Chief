@@ -1,5 +1,7 @@
+/* eslint-disable max-lines -- route-local idempotency keeps mutation contracts together */
 import { Router } from 'express';
-import { kanbanBoards, kanbanLanes, kanbanCards, projects, sessions } from '../database.js';
+import crypto from 'crypto';
+import { kanbanBoards, kanbanLanes, kanbanCards, projects, sessions, databaseManager } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
@@ -21,6 +23,57 @@ import { isApiError } from '../errors/ApiError.js';
 
 const router = Router({ mergeParams: true });
 const LANE_NOT_FOUND_ERROR = 'Lane not found';
+
+function canonicalPayload(payload) {
+  return JSON.stringify(Object.fromEntries(Object.keys(payload || {}).sort().map((key) => [key, payload[key]])));
+}
+
+function idempotencyKey(req) {
+  const key = req.get('Idempotency-Key');
+  return key && key.length <= 255 ? key : null;
+}
+
+/** Reserve a durable API operation. Unkeyed calls retain legacy semantics,
+ * while keyed calls get database-enforced replay protection. */
+function beginOperation(req, endpoint) {
+  const key = idempotencyKey(req);
+  if (!key) return { keyed: false };
+  const payloadHash = crypto.createHash('sha256').update(canonicalPayload(req.body)).digest('hex');
+  const db = databaseManager.get();
+  const existing = db.prepare(`SELECT * FROM kanban_api_operations
+    WHERE project_id=? AND endpoint=? AND operation_key=?`).get(req.params.projectId, endpoint, key);
+  if (existing) {
+    if (existing.payload_hash !== payloadHash) return { conflict: true };
+    return { keyed: true, existing };
+  }
+  const operation = { id: crypto.randomUUID(), projectId: req.params.projectId, key, endpoint, payloadHash };
+  try {
+    db.prepare(`INSERT INTO kanban_api_operations
+      (id,project_id,operation_key,endpoint,payload_hash,status,created_at,updated_at)
+      VALUES (?,?,?,?,?,'processing',?,?)`).run(operation.id, operation.projectId, key, endpoint, payloadHash, Date.now(), Date.now());
+    return { keyed: true, operation };
+  } catch (error) {
+    if (!/UNIQUE constraint failed/.test(error.message)) throw error;
+    return beginOperation(req, endpoint);
+  }
+}
+
+function replayOrPending(res, operation) {
+  if (!operation?.existing) return false;
+  if (operation.existing.status === 'completed' && operation.existing.result_json) {
+    return res.json(JSON.parse(operation.existing.result_json));
+  }
+  return res.status(202).json({ operationId: operation.existing.id, status: operation.existing.status });
+}
+
+function completeOperation(operation, response, eventId = null) {
+  if (!operation?.keyed || !operation.operation) return response;
+  const body = { ...response, operationId: operation.operation.id,
+    delivery: eventId ? { eventId, status: 'pending' } : null };
+  databaseManager.get().prepare(`UPDATE kanban_api_operations SET status='completed', result_json=?, lane_entry_event_id=?, updated_at=? WHERE id=?`)
+    .run(JSON.stringify(body), eventId, Date.now(), operation.operation.id);
+  return body;
+}
 
 function completionTargetError(boardId, targetLaneId, sourceLaneId = null) {
   if (targetLaneId === undefined || targetLaneId === null) return null;
@@ -60,6 +113,19 @@ router.get('/lane-runs/:runId', (req, res) => {
   const run = getRun(req.params.runId);
   if (!run) return res.status(404).json({ error: 'Lane run not found' });
   res.json(run);
+});
+
+/** GET /api/projects/:projectId/kanban/operations/:operationId */
+router.get('/operations/:operationId', (req, res) => {
+  const operation = databaseManager.get().prepare(`SELECT id, status, lane_entry_event_id, created_at, updated_at
+    FROM kanban_api_operations WHERE id=? AND project_id=?`).get(req.params.operationId, req.params.projectId);
+  if (!operation) return res.status(404).json({ error: 'Kanban operation not found' });
+  const event = operation.lane_entry_event_id && databaseManager.get().prepare(`SELECT id, status, delivery_phase,
+    attempt_count, last_error, created_at, updated_at FROM kanban_lane_entry_events WHERE id=?`).get(operation.lane_entry_event_id);
+  res.json({ operationId: operation.id, status: operation.status, createdAt: operation.created_at,
+    updatedAt: operation.updated_at, delivery: event && { eventId: event.id, status: event.status,
+      phase: event.delivery_phase, attemptCount: event.attempt_count, lastError: event.last_error,
+      createdAt: event.created_at, updatedAt: event.updated_at } });
 });
 
 /**
@@ -251,6 +317,9 @@ router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req,
   }
 
   const { laneId } = result.data;
+  const operation = beginOperation(req, 'card_add');
+  if (operation.conflict) return res.status(409).json({ error: 'Idempotency-Key was already used with a different payload' });
+  if (replayOrPending(res, operation)) return;
   // req.bodyRootSessionId is the normalized workspace root, already validated.
   const workspaceId = req.bodyRootSessionId;
 
@@ -268,7 +337,8 @@ router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req,
 
   try {
     const card = await addSessionToBoard(workspaceId, laneId);
-    res.status(201).json(card);
+    const eventId = kanbanCards.getById(card.id)?.laneEntryEventId || null;
+    res.status(201).json(completeOperation(operation, card, eventId));
   } catch (error) {
     if (error.message === 'Session already has a card on the board') {
       return res.status(409).json({ error: error.message });
@@ -295,6 +365,9 @@ router.patch('/cards/:cardId/move', async (req, res) => {
   }
 
   const { targetLaneId, sortOrder, runOnEnterTemplate } = result.data;
+  const operation = beginOperation(req, `card_move:${cardId}`);
+  if (operation.conflict) return res.status(409).json({ error: 'Idempotency-Key was already used with a different payload' });
+  if (replayOrPending(res, operation)) return;
 
   // Verify target lane exists
   const targetLane = kanbanLanes.getById(targetLaneId);
@@ -307,7 +380,8 @@ router.patch('/cards/:cardId/move', async (req, res) => {
       sortOrder,
       runOnEnterTemplate,
     });
-    res.json(movedCard);
+    const eventId = kanbanCards.getById(cardId)?.laneEntryEventId || null;
+    res.json(completeOperation(operation, movedCard, eventId));
   } catch (error) {
     console.error('Failed to move kanban card:', error);
     res.status(500).json({ error: error.message });
@@ -354,6 +428,9 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
   }
 
   const { targetLaneId, sortOrder, runOnEnterTemplate } = result.data;
+  const operation = beginOperation(req, `workspace_move:${workspaceId}`);
+  if (operation.conflict) return res.status(409).json({ error: 'Idempotency-Key was already used with a different payload' });
+  if (replayOrPending(res, operation)) return;
 
   const targetLane = kanbanLanes.getById(targetLaneId);
   if (!targetLane) {
@@ -365,7 +442,8 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
       sortOrder,
       runOnEnterTemplate,
     });
-    res.json(movedCard);
+    const eventId = kanbanCards.getById(card.id)?.laneEntryEventId || null;
+    res.json(completeOperation(operation, movedCard, eventId));
   } catch (error) {
     console.error('Failed to move kanban card by workspace:', error);
     res.status(500).json({ error: error.message });

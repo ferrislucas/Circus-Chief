@@ -295,4 +295,21 @@ export const kanbanMigrations = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_lane_entry_recovery_due ON kanban_lane_entry_events(status, next_attempt_at, created_at)');
     },
   },
+  {
+    name: 'kanban-durable-delivery-and-api-operations',
+    up(db) {
+      // These are additive so historical events remain conservative: an old
+      // event without an acknowledgement is never silently called delivered.
+      addColumnIfMissing(db, 'kanban_lane_entry_events', 'delivery_phase', "TEXT NOT NULL DEFAULT 'pending'");
+      addColumnIfMissing(db, 'kanban_lane_entry_events', 'dispatch_key', 'TEXT');
+      addColumnIfMissing(db, 'kanban_lane_entry_events', 'dispatch_acknowledged_at', 'INTEGER');
+      db.exec(`CREATE TABLE IF NOT EXISTS kanban_api_operations (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, operation_key TEXT NOT NULL,
+        endpoint TEXT NOT NULL, payload_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'processing',
+        result_json TEXT, lane_entry_event_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        UNIQUE(project_id, endpoint, operation_key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_kanban_api_operations_updated ON kanban_api_operations(updated_at);`);
+    },
+  },
 ];

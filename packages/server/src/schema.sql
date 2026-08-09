@@ -408,8 +408,19 @@ CREATE TABLE IF NOT EXISTS kanban_lane_entry_events (
   workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, lane_id TEXT NOT NULL, cause TEXT NOT NULL,
   caused_by_run_id TEXT, status TEXT NOT NULL DEFAULT 'pending', claim_token TEXT, claimed_at INTEGER,
   claim_expires_at INTEGER, next_attempt_at INTEGER, attempt_count INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL, completed_at INTEGER
+  updated_at INTEGER NOT NULL, completed_at INTEGER, delivery_phase TEXT NOT NULL DEFAULT 'pending',
+  dispatch_key TEXT, dispatch_acknowledged_at INTEGER
 );
+-- Allocation and provider acknowledgement are intentionally separate.  A
+-- root_session_id only proves child ownership; it must never be treated as a
+-- provider dispatch acknowledgement.
+CREATE TABLE IF NOT EXISTS kanban_api_operations (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, operation_key TEXT NOT NULL,
+  endpoint TEXT NOT NULL, payload_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'processing',
+  result_json TEXT, lane_entry_event_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  UNIQUE(project_id, endpoint, operation_key)
+);
+CREATE INDEX IF NOT EXISTS idx_kanban_api_operations_updated ON kanban_api_operations(updated_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_lane_entry_completion_cause ON kanban_lane_entry_events(caused_by_run_id) WHERE caused_by_run_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_lane_entry_recovery ON kanban_lane_entry_events(status, next_attempt_at, created_at);
 CREATE TABLE IF NOT EXISTS kanban_lane_runs (

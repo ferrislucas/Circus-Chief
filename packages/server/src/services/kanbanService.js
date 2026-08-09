@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- one durable state machine is easier to audit together */
 import crypto from 'crypto';
 import {
   kanbanBoards,
@@ -48,16 +49,16 @@ function resolveWorkspaceId(sessionId) {
 }
 
 export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
-  const { runOnEnterTemplate = true, depth = 0, laneRunId = null } = options;
+  const { runOnEnterTemplate = true, depth = 0, laneRunId = null, beforeDispatch } = options;
 
   if (!runOnEnterTemplate) return { delivered: true, rootSessionId: null };
 
   const lane = kanbanLanes.getByIdWithTemplate(laneId);
   let result = { delivered: true, rootSessionId: null };
   if (lane?.onEnterTemplateId) {
-    result = await triggerOnEnterTemplate(sessionId, lane, { depth, laneRunId });
+    result = await triggerOnEnterTemplate(sessionId, lane, { depth, laneRunId, beforeDispatch });
   } else if (lane?.onEnterPrompt) {
-    result = await triggerOnEnterPrompt(sessionId, lane, { depth, laneRunId });
+    result = await triggerOnEnterPrompt(sessionId, lane, { depth, laneRunId, beforeDispatch });
   }
   if (!result?.delivered) throw new Error(`Lane-entry delivery failed: ${result?.reason || 'unknown error'}`);
   return result;
@@ -265,10 +266,28 @@ function completeVerifiedLaneEntry(eventId, rootSessionId, token) {
     WHERE lane_entry_event_id=? AND status='open' AND root_session_id=?`).get(eventId, rootSessionId);
   if (!owner) throw new Error('Lane-entry delivery did not attach the expected run root');
   const time = Date.now();
-  const completed = db.prepare(`UPDATE kanban_lane_entry_events SET status='completed', completed_at=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL
-    WHERE id=? AND status='claimed' AND claim_token=?`).run(time, time, eventId, token);
+  const completed = db.prepare(`UPDATE kanban_lane_entry_events SET status='completed', delivery_phase='completed', completed_at=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL
+    WHERE id=? AND status='claimed' AND claim_token=? AND dispatch_acknowledged_at IS NOT NULL`).run(time, time, eventId, token);
   if (completed.changes !== 1) throw new Error('Lane-entry event could not be completed after root verification');
   return true;
+}
+
+function markDispatchIntent(eventId, token) {
+  const db = databaseManager.get(); const time = Date.now();
+  const key = crypto.randomUUID();
+  const result = db.prepare(`UPDATE kanban_lane_entry_events
+    SET delivery_phase='dispatch_intent', dispatch_key=COALESCE(dispatch_key, ?), updated_at=?
+    WHERE id=? AND status='claimed' AND claim_token=?`).run(key, time, eventId, token);
+  if (result.changes !== 1) throw new Error('Lane-entry claim was lost before provider dispatch');
+  return db.prepare('SELECT dispatch_key FROM kanban_lane_entry_events WHERE id=?').get(eventId).dispatch_key;
+}
+
+function acknowledgeDispatch(eventId, token) {
+  const time = Date.now();
+  const result = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+    SET delivery_phase='dispatch_acknowledged', dispatch_acknowledged_at=?, updated_at=?
+    WHERE id=? AND status='claimed' AND claim_token=? AND delivery_phase='dispatch_intent'`).run(time, time, eventId, token);
+  if (result.changes !== 1) throw new Error('Lane-entry claim was lost before dispatch acknowledgement');
 }
 
 function resolveDeliveryState(event) {
@@ -291,11 +310,16 @@ function resolveDeliveryState(event) {
     SELECT s.id, s.parent_session_id FROM sessions s JOIN ancestors a ON a.parent_session_id=s.id
   ) SELECT 1 FROM sessions s WHERE s.id=? AND s.project_id=? AND EXISTS (SELECT 1 FROM ancestors WHERE id=?)`)
     .get(run.root_session_id, run.root_session_id, run.project_id, run.workspace_id);
-  return owner ? { state: 'already_delivered', run, rootSessionId: run.root_session_id } : { state: 'ownership_conflict', reason: 'attached root does not belong to target run workspace' };
+  if (!owner) return { state: 'ownership_conflict', reason: 'attached root does not belong to target run workspace' };
+  if (event.dispatch_acknowledged_at) return { state: 'already_delivered', run, rootSessionId: run.root_session_id };
+  // We deliberately refuse to infer acknowledgement from ownership.  This
+  // leaves pre-ack crashes visible and safe instead of risking a duplicate.
+  return { state: 'ambiguous_dispatch', reason: 'child ownership exists without provider dispatch acknowledgement' };
 }
 
 /** Drain one committed completion handoff. Safe to call repeatedly. */
 // eslint-disable-next-line complexity -- deliberately linear durable state machine
+// eslint-disable-next-line max-statements, complexity -- durable transition boundaries are intentionally linear
 async function drainLaneEntryTriggerImpl(eventId, options = {}) {
   const token = claimLaneEntryTrigger(eventId);
   if (!token) return false;
@@ -317,12 +341,15 @@ async function drainLaneEntryTriggerImpl(eventId, options = {}) {
   try {
     const resolved = resolveDeliveryState(event);
     if (resolved.state === 'ownership_conflict') throw new Error(resolved.reason);
+    if (resolved.state === 'ambiguous_dispatch') throw new Error(resolved.reason);
     let rootSessionId = resolved.rootSessionId;
     if (resolved.state === 'needs_delivery') {
       const delivery = await triggerLaneEntryAutomation(event.workspace_id, event.lane_id, {
         runOnEnterTemplate: true, depth: options.depth || 0, laneRunId: resolved.run.id,
+        beforeDispatch: () => markDispatchIntent(event.id, token),
       });
       rootSessionId = delivery?.rootSessionId;
+      acknowledgeDispatch(event.id, token);
     }
     return completeVerifiedLaneEntry(event.id, rootSessionId, token);
   } catch (error) {

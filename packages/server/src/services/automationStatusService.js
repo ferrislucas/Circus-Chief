@@ -17,5 +17,13 @@ export function setAutomationPreflightStatus(preflight) {
 }
 
 export function getAutomationStatus() {
-  return { http: 'available', ...status };
+  try {
+    const delivery = getKanbanDeliveryHealth();
+    return { http: 'available', ...status,
+      kanban: status.kanban === 'degraded' ? 'degraded' : delivery.status,
+      deliveryHealth: delivery };
+  } catch {
+    return { http: 'available', ...status };
+  }
 }
+import { getKanbanDeliveryHealth } from './kanbanRecoveryService.js';
