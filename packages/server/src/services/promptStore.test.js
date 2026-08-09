@@ -11,6 +11,7 @@ import {
   cancelPrompt,
   getPrompt,
   getPromptQueue,
+  MAX_PROMPTS_PER_SESSION,
   parkPrompt,
   respondToPrompt,
 } from './promptStore.js';
@@ -594,5 +595,51 @@ describe('promptStore concurrent prompt queue', () => {
     cancelPrompt('not-current');
     await first.promise;
     await second.promise;
+  });
+});
+
+describe('promptStore bounded lifecycle', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('expires an unanswered head exactly once and promotes the next prompt', async () => {
+    const firstPromise = parkPrompt({ sessionId: 'expiry-handoff', conversationId: 'conv-1', kind: 'permission', payload: permissionPayload, expiryMs: 1 });
+    const first = { promise: firstPromise, prompt: getPrompt('expiry-handoff') };
+    const secondPromise = parkPrompt({ sessionId: 'expiry-handoff', conversationId: 'conv-1', kind: 'permission', payload: permissionPayload, expiryMs: 30 });
+    const second = { promise: secondPromise, prompt: getPromptQueue('expiry-handoff').at(-1) };
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await expect(first.promise).resolves.toEqual({ behavior: 'deny', message: 'This approval request expired. Please continue without it.' });
+    expect(getPrompt('expiry-handoff')?.id).toBe(second.prompt.id);
+    expect(createWorkLog).toHaveBeenCalledTimes(1);
+
+    expect(respondToPrompt('expiry-handoff', second.prompt.id, { action: 'allow' })).toBe(true);
+    await expect(second.promise).resolves.toEqual({ behavior: 'allow' });
+  });
+
+  it('expires queued prompts before they can be promoted', async () => {
+    const first = parkPrompt({ sessionId: 'queued-expiry', conversationId: 'conv-1', kind: 'permission', payload: permissionPayload, expiryMs: 1 });
+    const second = parkPrompt({ sessionId: 'queued-expiry', conversationId: 'conv-1', kind: 'permission', payload: permissionPayload, expiryMs: 1 });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await expect(first).resolves.toMatchObject({ behavior: 'deny' });
+    await expect(second).resolves.toMatchObject({ behavior: 'deny' });
+    expect(getPrompt('queued-expiry')).toBeNull();
+  });
+
+  it('rejects excess prompts without retaining them or attaching listeners', async () => {
+    const parked = Array.from({ length: MAX_PROMPTS_PER_SESSION }, () => park('capacity', 'permission'));
+    const controller = new AbortController();
+    const rejected = parkPrompt({ sessionId: 'capacity', conversationId: 'conv-1', kind: 'permission', payload: permissionPayload, signal: controller.signal });
+
+    await expect(rejected).resolves.toEqual({ behavior: 'deny', message: 'Too many approval requests are pending. Please continue without this action.' });
+    expect(getPromptQueue('capacity')).toHaveLength(MAX_PROMPTS_PER_SESSION);
+    controller.abort();
+    expect(getPromptQueue('capacity')).toHaveLength(MAX_PROMPTS_PER_SESSION);
+    cancelPrompt('capacity');
+    await Promise.all(parked.map(({ promise }) => promise));
   });
 });

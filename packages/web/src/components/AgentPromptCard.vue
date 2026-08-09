@@ -9,8 +9,14 @@
   >
     <header class="prompt-header">
       <span class="prompt-status">Needs input</span>
-      <span v-if="subagentLabel" class="prompt-origin" :title="`Raised by subagent ${prompt.agentId}`">Subagent · {{ subagentLabel }}</span>
-      <p class="prompt-context">{{ prompt.kind === 'question' ? 'The agent is waiting for your guidance.' : 'The agent needs approval to continue.' }}</p>
+      <span
+        v-if="subagentLabel"
+        class="prompt-origin"
+        :title="`Raised by subagent ${prompt.agentId}`"
+      >Subagent · {{ subagentLabel }}</span>
+      <p class="prompt-context">
+        {{ prompt.kind === 'question' ? 'The agent is waiting for your guidance.' : 'The agent needs approval to continue.' }}
+      </p>
     </header>
 
     <template v-if="prompt.kind === 'question'">
@@ -20,11 +26,17 @@
         class="question-block"
       >
         <div class="question-heading">
-          <span v-if="question.header" class="question-chip">{{ question.header }}</span>
+          <span
+            v-if="question.header"
+            class="question-chip"
+          >{{ question.header }}</span>
           <h3>{{ question.question }}</h3>
         </div>
 
-        <div class="option-list" :aria-label="question.question">
+        <div
+          class="option-list"
+          :aria-label="question.question"
+        >
           <label
             v-for="(option, optionIndex) in question.options"
             :key="option.label"
@@ -42,13 +54,23 @@
               :disabled="submitting"
               @change="clearOther(question)"
             >
-            <span class="option-indicator" aria-hidden="true" />
+            <span
+              class="option-indicator"
+              aria-hidden="true"
+            />
             <span class="option-copy">
               <strong>{{ option.label }}</strong>
               <small v-if="option.description">{{ option.description }}</small>
             </span>
-            <span v-if="isOptionSelected(question, option.label)" class="selected-mark" aria-hidden="true">Selected</span>
-            <div v-if="option.preview && shouldShowPreview(index, question, option)" class="option-preview">
+            <span
+              v-if="isOptionSelected(question, option.label)"
+              class="selected-mark"
+              aria-hidden="true"
+            >Selected</span>
+            <div
+              v-if="option.preview && shouldShowPreview(index, question, option)"
+              class="option-preview"
+            >
               <span>Preview</span>
               <MarkdownViewer :content="option.preview" />
             </div>
@@ -59,55 +81,132 @@
             :class="{ 'is-selected': Boolean(other[question.question]?.trim()), 'is-focused': isOptionFocused(index, 'other') }"
             @focusin="setFocusedOption(index, 'other')"
           >
-            <span class="option-indicator option-indicator--other" aria-hidden="true">+</span>
+            <span
+              class="option-indicator option-indicator--other"
+              aria-hidden="true"
+            >+</span>
             <span class="option-copy"><strong>Other</strong><small>Give the agent your own answer.</small></span>
             <input
               v-model="other[question.question]"
-              @input="selectOther(question)"
               class="form-input other-input"
               placeholder="Other…"
               :disabled="submitting"
+              @input="selectOther(question)"
             >
           </label>
         </div>
 
         <label class="additional-response question-notes">
           <span>Note <em>optional</em></span>
-          <textarea v-model="notes[question.question]" class="form-input form-textarea question-note" :disabled="submitting" placeholder="Why this choice?" />
+          <textarea
+            v-model="notes[question.question]"
+            class="form-input form-textarea question-note"
+            :disabled="submitting"
+            placeholder="Why this choice?"
+          />
         </label>
       </div>
 
       <footer class="prompt-actions">
-        <span v-if="submitting" class="pending-state" role="status">Sending response…</span>
-        <button class="btn prompt-primary-action" :disabled="submitting || !canSubmit" @click="submitAnswers">Send answers</button>
-        <button class="btn-link prompt-quiet-action" :disabled="submitting" @click="respond({ action: 'cancel' })">Skip and let the agent decide</button>
+        <span
+          v-if="submitting"
+          class="pending-state"
+          role="status"
+        >Sending response…</span>
+        <button
+          class="btn prompt-primary-action"
+          :disabled="submitting || !canSubmit"
+          @click="submitAnswers"
+        >
+          Send answers
+        </button>
+        <button
+          class="btn-link prompt-quiet-action"
+          :disabled="submitting"
+          @click="respond({ action: 'cancel' })"
+        >
+          Skip and let the agent decide
+        </button>
       </footer>
     </template>
 
     <template v-else>
       <div class="permission-intro">
         <h3>{{ prompt.payload.title || prompt.payload.displayName || prompt.payload.toolName }}</h3>
-        <p v-if="prompt.payload.description">{{ prompt.payload.description }}</p>
+        <p v-if="prompt.payload.description">
+          {{ prompt.payload.description }}
+        </p>
       </div>
-      <section class="permission-evidence" aria-label="Proposed change">
-        <div class="evidence-heading"><span>Proposed change</span><code>{{ prompt.payload.toolName }}</code></div>
-        <DiffViewer v-if="isFileMutation" :files="permissionDiffFiles" :expand-all="true" />
+      <section
+        class="permission-evidence"
+        aria-label="Proposed change"
+      >
+        <div class="evidence-heading">
+          <span>Proposed change</span><code>{{ prompt.payload.toolName }}</code>
+        </div>
+        <DiffViewer
+          v-if="isFileMutation"
+          :files="permissionDiffFiles"
+          :expand-all="true"
+        />
         <pre v-else>{{ JSON.stringify(prompt.payload.input, null, 2) }}</pre>
       </section>
       <footer class="prompt-actions permission-actions">
-        <span v-if="submitting" class="pending-state" role="status">Saving decision…</span>
-        <button ref="allowOnce" class="btn prompt-primary-action" :disabled="submitting" @click="respond({ action: 'allow' })">Allow once</button>
-        <div v-if="prompt.payload.suggestions?.length" class="always-allow">
-          <button class="btn btn-secondary" :disabled="submitting" @click="respond({ action: 'always_allow', destination })">Always allow</button>
+        <span
+          v-if="submitting"
+          class="pending-state"
+          role="status"
+        >Saving decision…</span>
+        <button
+          ref="allowOnce"
+          class="btn prompt-primary-action"
+          :disabled="submitting"
+          @click="respond({ action: 'allow' })"
+        >
+          Allow once
+        </button>
+        <div
+          v-if="prompt.payload.suggestions?.length"
+          class="always-allow"
+        >
+          <button
+            class="btn btn-secondary"
+            :disabled="submitting"
+            @click="respond({ action: 'always_allow', destination })"
+          >
+            Always allow
+          </button>
           <label class="permission-scope">Scope
-            <select v-model="destination" :disabled="submitting"><option value="session">This session</option><option value="projectSettings">This project</option></select>
+            <select
+              v-model="destination"
+              :disabled="submitting"
+            ><option value="session">This session</option><option value="projectSettings">This project</option></select>
           </label>
         </div>
-        <button class="btn-link deny-action" :disabled="submitting" @click="showDenyReason = !showDenyReason">{{ showDenyReason ? 'Cancel denial' : 'Deny' }}</button>
-        <label v-if="showDenyReason" class="deny-reason">
+        <button
+          class="btn-link deny-action"
+          :disabled="submitting"
+          @click="showDenyReason = !showDenyReason"
+        >
+          {{ showDenyReason ? 'Cancel denial' : 'Deny' }}
+        </button>
+        <label
+          v-if="showDenyReason"
+          class="deny-reason"
+        >
           <span>Reason <em>optional</em></span>
-          <input v-model="reason" class="form-input" :disabled="submitting" placeholder="Explain why this should not run" @keyup.enter="respond({ action: 'deny', reason })">
-          <button class="btn btn-outline-danger" :disabled="submitting" @click="respond({ action: 'deny', reason })">Confirm deny</button>
+          <input
+            v-model="reason"
+            class="form-input"
+            :disabled="submitting"
+            placeholder="Explain why this should not run"
+            @keyup.enter="respond({ action: 'deny', reason })"
+          >
+          <button
+            class="btn btn-outline-danger"
+            :disabled="submitting"
+            @click="respond({ action: 'deny', reason })"
+          >Confirm deny</button>
         </label>
       </footer>
     </template>

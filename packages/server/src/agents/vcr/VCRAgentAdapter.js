@@ -120,10 +120,15 @@ export class VCRAgentAdapter {
    * observed result against the recorded one.
    */
   async invokeGatedCallsAt(callsByPosition, position, queryParams, cassetteKey) {
-    for (const call of callsByPosition.get(position) || []) {
+    // The SDK can issue multiple control requests from one assistant event.
+    // Register every callback before awaiting any response so replay exercises
+    // the same queueing and multi-tab races as a live session.
+    const calls = callsByPosition.get(position) || [];
+    const pending = calls.map(async (call) => {
       const observed = await queryParams.options?.canUseTool?.(call.toolName, call.input, call.opts || {});
       this.assertResultMatchesRecording(call, observed, cassetteKey);
-    }
+    });
+    await Promise.all(pending);
   }
 
   /**
@@ -163,6 +168,10 @@ export class VCRAgentAdapter {
     }
 
     // Save cassette
+    // Cassettes are committed test fixtures. Refuse to persist a recording
+    // that looks like it contains credentials rather than relying on a later
+    // reviewer to notice them in a broad JSON diff.
+    this.assertSafeGatedToolCalls(gatedToolCalls);
     CassetteStore.save(this.cassetteDir, key, {
       prompt: queryParams.prompt?.substring(0, 500),
       model: queryParams.options?.model,
@@ -195,18 +204,51 @@ export class VCRAgentAdapter {
         canUseTool: async (toolName, input, opts = {}) => {
           const { signal: _signal, ...safeOpts } = opts;
           const afterEventIndex = events.length;
-          const result = await canUseTool(toolName, input, opts);
-          gatedToolCalls.push({
+          // Allocate the cassette entry at invocation time, not settlement
+          // time. Concurrent callbacks can resolve in any order; their
+          // recording must preserve SDK invocation order for deterministic
+          // replay.
+          const call = {
             toolName,
             input: CassetteStore.deepCopyEvent(input),
             opts: CassetteStore.deepCopyEvent(safeOpts),
-            result: CassetteStore.deepCopyEvent(result),
             afterEventIndex,
-          });
+          };
+          gatedToolCalls.push(call);
+          const result = await canUseTool(toolName, input, opts);
+          call.result = CassetteStore.deepCopyEvent(result);
           return result;
         },
       },
     };
+  }
+
+  assertSafeGatedToolCalls(calls) {
+    for (const call of calls) this.assertSafeFixtureValue(call, 'gatedToolCalls');
+  }
+
+  assertSafeFixtureValue(value, path = '') {
+    if (value === null || value === undefined || typeof value === 'boolean' || typeof value === 'number') return;
+    if (typeof value === 'string') {
+      // Tokens, credentials in URLs, Authorization headers, and dotenv-style
+      // assignments cover the common ways a tool prompt leaks a secret.
+      if (/(?:api[_-]?key|access[_-]?token|secret|password|authorization)\s*[:=]|https?:\/\/[^\s/@]+:[^\s/@]+@|\b(?:sk|ghp|xoxb)_[A-Za-z0-9_-]{8,}/i.test(value)) {
+        throw new Error(`VCR recording rejected: sensitive data detected in ${path}. Use sanitized fixture data.`);
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => this.assertSafeFixtureValue(item, `${path}[${index}]`));
+      return;
+    }
+    if (typeof value === 'object') {
+      for (const [key, item] of Object.entries(value)) {
+        if (/^(?:api[_-]?key|access[_-]?token|secret|password|authorization)$/i.test(key)) {
+          throw new Error(`VCR recording rejected: sensitive field ${path}.${key}. Use sanitized fixture data.`);
+        }
+        this.assertSafeFixtureValue(item, `${path}.${key}`);
+      }
+    }
   }
 
   /**

@@ -19,6 +19,12 @@ import logger from '../logger.js';
 // arrivals wait their turn and are promoted to head as earlier ones resolve.
 const prompts = new Map();
 const CANCELLED_MESSAGE = 'Session was cancelled.';
+// A parked callback retains an SDK control request and potentially sensitive
+// in-memory tool input. Keep both bounded even if a browser disconnects.
+export const PROMPT_EXPIRY_MS = 5 * 60 * 1000;
+export const MAX_PROMPTS_PER_SESSION = 8;
+const EXPIRED_MESSAGE = 'This approval request expired. Please continue without it.';
+const CAPACITY_MESSAGE = 'Too many approval requests are pending. Please continue without this action.';
 
 function broadcastPendingInput(record, pendingAgentInput) {
   const session = sessions.getById(record.sessionId);
@@ -29,7 +35,7 @@ function broadcastPendingInput(record, pendingAgentInput) {
 }
 
 function project(record) {
-  const { resolve: _resolve, abortListener: _abortListener, signal: _signal, ...wire } = record;
+  const { resolve: _resolve, abortListener: _abortListener, signal: _signal, expiryTimer: _expiryTimer, ...wire } = record;
   return wire;
 }
 
@@ -50,6 +56,7 @@ function settle(record, outcome, result) {
   const removal = removeFromQueue(record.sessionId, record.id);
   if (!removal) return false;
   record.signal?.removeEventListener('abort', record.abortListener);
+  clearTimeout(record.expiryTimer);
 
   // State removal happens first for exactly-once semantics. The SDK callback
   // must always settle after that transition: audit and websocket failures are
@@ -146,7 +153,7 @@ function permissionHistoryLines(record, outcome, result) {
   ].filter(Boolean);
 }
 
-export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, agentId = null, payload, signal }) {
+export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, agentId = null, payload, signal, expiryMs = PROMPT_EXPIRY_MS }) {
   // An abort listener added after a signal is already aborted will never fire.
   if (signal?.aborted) return Promise.resolve({ behavior: 'deny', message: CANCELLED_MESSAGE });
   // A duplicate question *within a single call* is a validation error, not a
@@ -160,11 +167,17 @@ export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, 
     return Promise.resolve({ behavior: 'deny', message: 'Please re-ask using distinct question text.' });
   }
   return new Promise((resolve) => {
-    const record = { id: randomUUID(), sessionId, conversationId, kind, toolUseId, agentId, payload,
-      createdAt: Date.now(), resolve, signal, abortListener: null };
-    record.abortListener = () => settle(record, 'cancelled', { behavior: 'deny', message: CANCELLED_MESSAGE });
-    signal?.addEventListener('abort', record.abortListener, { once: true });
     const queue = prompts.get(sessionId);
+    if (queue?.length >= MAX_PROMPTS_PER_SESSION) {
+      resolve({ behavior: 'deny', message: CAPACITY_MESSAGE });
+      return;
+    }
+    const record = { id: randomUUID(), sessionId, conversationId, kind, toolUseId, agentId, payload,
+      createdAt: Date.now(), resolve, signal, abortListener: null, expiryTimer: null };
+    record.abortListener = () => settle(record, 'cancelled', { behavior: 'deny', message: CANCELLED_MESSAGE });
+    record.expiryTimer = setTimeout(() => settle(record, 'expired', { behavior: 'deny', message: EXPIRED_MESSAGE }), expiryMs);
+    record.expiryTimer.unref?.();
+    signal?.addEventListener('abort', record.abortListener, { once: true });
     if (queue) {
       // Not the head: queued silently. It is surfaced (SESSION_PROMPT) only
       // once it becomes the head, in `settle`.
@@ -172,8 +185,10 @@ export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, 
       return;
     }
     prompts.set(sessionId, [record]);
-    broadcastPendingInput(record, true);
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PROMPT, { sessionId, prompt: project(record) });
+    // A websocket outage is recoverable: the record remains available to the
+    // REST hydration endpoint and will still expire/cancel safely.
+    safelyBroadcast(record, 'set pending prompt badge', () => broadcastPendingInput(record, true));
+    safelyBroadcast(record, 'publish interactive prompt', () => broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PROMPT, { sessionId, prompt: project(record) }));
   });
 }
 

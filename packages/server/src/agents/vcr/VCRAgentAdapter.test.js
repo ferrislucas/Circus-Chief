@@ -124,6 +124,18 @@ describe('VCRAgentAdapter', () => {
       expect(cassette.gatedToolCalls).toBeUndefined();
     });
 
+    it('refuses to write a cassette when a gated tool payload contains a secret', async () => {
+      process.env.VCR_MODE = 'record';
+      const adapter = new VCRAgentAdapter(createGatedMockAgent([], [
+        { toolName: 'Bash', input: { command: 'curl -H "Authorization: Bearer sk_live_abcdefghijklmnop" example.test' }, opts: {} },
+      ]), { cassetteDir: testCassetteDir });
+      const prompt = 'unsafe gated record prompt';
+
+      const draining = (async () => { for await (const _event of adapter.execute({ prompt, options: { canUseTool: vi.fn().mockResolvedValue({ behavior: 'allow' }) } }, { callType: 'runSession' })) { /* drain */ } })();
+      await expect(draining).rejects.toThrow('VCR recording rejected: sensitive data detected');
+      expect(CassetteStore.load(testCassetteDir, CassetteStore.buildKey('runSession', prompt))).toBeNull();
+    });
+
     it('replays a freshly recorded gated cassette without hand-editing it, reproducing equivalent callback behavior', async () => {
       process.env.VCR_MODE = 'record';
       const recordCanUseTool = vi.fn().mockResolvedValue({ behavior: 'allow' });
@@ -161,6 +173,51 @@ describe('VCRAgentAdapter', () => {
           }
         }
       },
+    });
+
+    it('registers simultaneous replay callbacks before either decision settles', async () => {
+      process.env.VCR_MODE = 'replay';
+      const key = CassetteStore.buildKey('runSession', 'concurrent replay');
+      CassetteStore.save(testCassetteDir, key, {
+        events: [],
+        gatedToolCalls: [
+          { toolName: 'Bash', input: { command: 'first' }, opts: {}, result: { behavior: 'allow' }, afterEventIndex: 0 },
+          { toolName: 'Bash', input: { command: 'second' }, opts: {}, result: { behavior: 'allow' }, afterEventIndex: 0 },
+        ],
+      });
+      const resolvers = [];
+      const canUseTool = vi.fn(() => new Promise((resolve) => resolvers.push(resolve)));
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+      const draining = (async () => { for await (const _event of adapter.execute({ prompt: 'concurrent replay', options: { canUseTool } }, { callType: 'runSession' })) { /* drain */ } })();
+
+      await vi.waitFor(() => expect(canUseTool).toHaveBeenCalledTimes(2));
+      resolvers[1]({ behavior: 'allow' });
+      resolvers[0]({ behavior: 'allow' });
+      await draining;
+      expect(canUseTool.mock.calls.map(([, input]) => input.command)).toEqual(['first', 'second']);
+    });
+
+    it('records concurrent callbacks in invocation order even when they resolve in reverse', async () => {
+      process.env.VCR_MODE = 'record';
+      const resolvers = [];
+      const canUseTool = vi.fn(() => new Promise((resolve) => resolvers.push(resolve)));
+      const concurrentAgent = {
+        async *execute(queryParams) {
+          const first = queryParams.options.canUseTool('Bash', { command: 'first' }, {});
+          const second = queryParams.options.canUseTool('Bash', { command: 'second' }, {});
+          await Promise.all([first, second]);
+          yield { type: 'result', subtype: 'success' };
+        },
+      };
+      const adapter = new VCRAgentAdapter(concurrentAgent, { cassetteDir: testCassetteDir });
+      const draining = (async () => { for await (const _event of adapter.execute({ prompt: 'concurrent record', options: { canUseTool } }, { callType: 'runSession' })) { /* drain */ } })();
+
+      await vi.waitFor(() => expect(canUseTool).toHaveBeenCalledTimes(2));
+      resolvers[1]({ behavior: 'allow' });
+      resolvers[0]({ behavior: 'allow' });
+      await draining;
+      const cassette = CassetteStore.load(testCassetteDir, CassetteStore.buildKey('runSession', 'concurrent record'));
+      expect(cassette.gatedToolCalls.map(({ input }) => input.command)).toEqual(['first', 'second']);
     });
 
     it('captures the position of a gated call relative to the event stream during record', async () => {
