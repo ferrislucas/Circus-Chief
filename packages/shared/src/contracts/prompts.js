@@ -1,10 +1,5 @@
 import { z } from 'zod';
 
-export const PromptOption = z.object({ label: z.string(), description: z.string(), preview: z.string().optional() });
-export const PromptQuestion = z.object({
-  question: z.string().min(1), header: z.string().max(12).optional(),
-  options: z.array(PromptOption).min(2).max(4), multiSelect: z.boolean(),
-});
 export const PromptAnnotation = z.object({
   notes: z.string().min(1).optional(),
   preview: z.string().min(1).optional(),
@@ -33,17 +28,15 @@ export const QuestionPromptResponse = z.union([
   }),
 ]);
 export const PermissionPromptResponse = z.object({
-  action: z.enum(['allow', 'always_allow', 'deny', 'cancel']),
+  action: z.enum(['allow', 'always_allow', 'deny']),
   reason: z.string().optional(),
   destination: z.enum(['session', 'projectSettings']).optional(),
 });
 
 export const PROMPT_ACTIONS_BY_KIND = Object.freeze({
   question: new Set(['answer', 'cancel']),
-  permission: new Set(['allow', 'always_allow', 'deny', 'cancel']),
+  permission: new Set(['allow', 'always_allow', 'deny']),
 });
-// Both response families deliberately share `cancel`; kind-specific validation
-// happens against the parked prompt on the server, where its kind is known.
 export const PromptResponse = z.union([
   QuestionPromptResponse, PermissionPromptResponse,
 ]);

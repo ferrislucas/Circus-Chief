@@ -258,7 +258,7 @@ describe('VCRAgentAdapter', () => {
         for await (const _e of adapter.execute({ prompt: 'mismatched result', options: { canUseTool } }, { callType: 'runSession' })) { /* drain */ }
       })();
 
-      await expect(executePromise).rejects.toThrow(/AskUserQuestion/);
+      await expect(executePromise).rejects.toThrow(new RegExp(`cassette "${key}"[\\s\\S]*re-record`, 'i'));
     });
 
     it('does not throw when the replayed result matches the recorded one', async () => {

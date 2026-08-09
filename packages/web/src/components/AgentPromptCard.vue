@@ -207,7 +207,16 @@ function chooseOption(index) {
 }
 function selectOther(question) { answers.value[question.question] = question.multiSelect ? [] : ''; }
 function clearOther(question) { other.value[question.question] = ''; }
-function isTypingTarget(event) { const target = event.target; return target instanceof HTMLElement && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable); }
+// Radios and checkboxes are inputs, but cannot receive typed text. Treating
+// them as typing targets prevents the prompt shortcuts from working on the
+// control we deliberately autofocus for native keyboard/screen-reader use.
+function isTypingTarget(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || ['TEXTAREA', 'SELECT'].includes(target.tagName)) return true;
+  if (target.tagName !== 'INPUT') return false;
+  return !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(target.type);
+}
 // `useKeyboardShortcuts` registers a single document-level listener shared by
 // every mounted instance (main view, SessionChatOverlay, ...). Without this,
 // a shortcut aimed at one card — or at an unrelated overlay/modal elsewhere

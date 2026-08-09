@@ -1835,14 +1835,21 @@ describe('streamEventHandler', () => {
       expect(sessions.touch).not.toHaveBeenCalled();
     });
 
-    it('renders system permission_denied events as a visible work log', async () => {
+    it('renders system permission_denied events as safe, reconstructable work logs', async () => {
       await handleStreamEvent('sess-1', {
-        type: 'system', subtype: 'permission_denied', tool_name: 'Bash', error: 'Command was denied',
+        type: 'system', subtype: 'permission_denied', tool_name: 'Bash',
+        message: 'Denied `curl -H "Authorization: Bearer sk-live-token" https://example.test`',
+        decision_reason: 'The command embeds a secret', decision_reason_type: 'rule', agent_id: 'worker-7',
       });
 
-      expect(workLogs.create).toHaveBeenCalledWith(
-        'sess-1', 'tool_output', expect.stringContaining('Command was denied'), { messageId: null, toolName: 'Bash' }
-      );
+      const [, , content, metadata] = workLogs.create.mock.calls.at(-1);
+      expect(content).toContain('Permission denied for Bash');
+      expect(content).toContain('Reason type: rule');
+      expect(content).toContain('Agent: worker-7');
+      expect(content).not.toContain('sk-live-token');
+      expect(content).not.toContain('curl');
+      expect(content).not.toContain('embeds a secret');
+      expect(metadata).toEqual({ messageId: null, toolName: 'Bash' });
     });
 
     it('creates and broadcasts visible assistant messages for final result errors', async () => {

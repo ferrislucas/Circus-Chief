@@ -56,6 +56,21 @@ describe('promptStore work-log emission', () => {
     expect(createWorkLog.mock.invocationCallOrder[0]).toBeLessThan(broadcastToSession.mock.invocationCallOrder.at(-1));
   });
 
+  it('fails closed instead of parking an empty question set that cannot be answered', async () => {
+    const promise = parkPrompt({
+      sessionId: 'empty-questions', conversationId: 'conv-1', kind: 'question',
+      payload: { input: { questions: [] }, questions: [] },
+    });
+
+    await expect(promise).resolves.toEqual({ behavior: 'deny', message: 'Please re-ask with at least one question.' });
+    expect(getPrompt('empty-questions')).toBeNull();
+  });
+
+  it('rejects cancel as an invalid permission action instead of treating it as a denial alias', () => {
+    const { prompt } = park('permission-cancel', 'permission');
+    expect(respondToPrompt('permission-cancel', prompt.id, { action: 'cancel' })).toBeNull();
+  });
+
   it('records reconstructable, sanitized permission-decision history for every outcome', async () => {
     const skipped = park('question-skip', 'question');
     respondToPrompt('question-skip', skipped.prompt.id, { action: 'cancel', reason: 'Use the default.' });

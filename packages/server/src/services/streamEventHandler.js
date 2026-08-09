@@ -18,6 +18,7 @@ import {
 export { createWorkLog } from './workLogService.js';
 import { createWorkLog } from './workLogService.js';
 import { cancelPrompt } from './promptStore.js';
+import { buildSafeDenialSummary } from './promptDurableSummary.js';
 
 // ── Shared module-level state ──────────────────────────────────────────────
 
@@ -164,9 +165,12 @@ export async function broadcastChangesUpdate(sessionId, projectId, workingDirect
  */
 function handleSystemEvent(sessionId, event) {
   if (event.subtype === 'permission_denied') {
-    const toolName = event.tool_name || event.toolName || 'Unknown tool';
-    const reason = event.error || event.message || event.reason || 'Permission was denied.';
-    createWorkLog(sessionId, 'tool_output', `Permission denied for ${toolName}: ${typeof reason === 'string' ? reason : JSON.stringify(reason)}`, toolName);
+    const toolName = event.tool_name || 'Unknown tool';
+    createWorkLog(sessionId, 'tool_output', buildSafeDenialSummary({
+      toolName,
+      decisionReasonType: event.decision_reason_type,
+      agentId: event.agent_id,
+    }), toolName);
     return;
   }
   // Store Claude's session info

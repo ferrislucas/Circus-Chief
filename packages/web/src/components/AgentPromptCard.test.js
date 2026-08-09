@@ -3,6 +3,11 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import AgentPromptCard from './AgentPromptCard.vue';
 
+async function pressKey(key) {
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+  await nextTick();
+}
+
 const prompt = { id: 'prompt-1', kind: 'question', payload: { questions: [{ question: 'Choose', multiSelect: true, options: [{ label: 'A', description: 'first' }, { label: 'B', description: 'second' }] }] } };
 
 describe('AgentPromptCard', () => {
@@ -184,8 +189,7 @@ describe('AgentPromptCard', () => {
     await flushPromises();
     expect(wrapper.find('.deny-reason').exists()).toBe(false);
 
-    await document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await nextTick();
+    await pressKey('Escape');
 
     expect(onRespond).not.toHaveBeenCalled();
     expect(wrapper.find('.deny-reason').exists()).toBe(true);
@@ -193,8 +197,7 @@ describe('AgentPromptCard', () => {
     // A second Escape (while the panel is already open) still must not deny —
     // only the explicit "Confirm deny" action (or Enter in the reason field)
     // does.
-    await document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await nextTick();
+    await pressKey('Escape');
     expect(onRespond).not.toHaveBeenCalled();
 
     await wrapper.get('.deny-reason button').trigger('click');
@@ -202,13 +205,24 @@ describe('AgentPromptCard', () => {
     wrapper.unmount();
   });
 
-  it('still treats Escape as a non-destructive skip for a question prompt', async () => {
+  it('selects question options and submits from the focused radio control', async () => {
     const onRespond = vi.fn();
     const wrapper = mount(AgentPromptCard, { attachTo: document.body, props: { prompt, onRespond } });
     await flushPromises();
 
-    await document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await nextTick();
+    await pressKey('2');
+    expect(wrapper.findAll('.option-control')[1].element.checked).toBe(true);
+    await pressKey('Enter');
+    expect(onRespond).toHaveBeenCalledWith(expect.objectContaining({ action: 'answer' }));
+    wrapper.unmount();
+  });
+
+  it('still treats Escape as a non-destructive skip for a question prompt from the focused radio control', async () => {
+    const onRespond = vi.fn();
+    const wrapper = mount(AgentPromptCard, { attachTo: document.body, props: { prompt, onRespond } });
+    await flushPromises();
+
+    await pressKey('Escape');
 
     expect(onRespond).toHaveBeenCalledWith({ action: 'cancel' });
     wrapper.unmount();
@@ -217,15 +231,14 @@ describe('AgentPromptCard', () => {
   it('does not act on Escape when focus is outside the card (an overlay or modal elsewhere on the page)', async () => {
     const onRespond = vi.fn();
     const permission = { id: 'escape-outside', kind: 'permission', payload: { toolName: 'Bash', input: { command: 'ls' } } };
-    const outside = document.createElement('input');
+    const outside = document.createElement('button');
     document.body.appendChild(outside);
     const wrapper = mount(AgentPromptCard, { attachTo: document.body, props: { prompt: permission, onRespond } });
     await flushPromises();
     outside.focus();
     expect(document.activeElement).toBe(outside);
 
-    await document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await nextTick();
+    await pressKey('Escape');
 
     expect(onRespond).not.toHaveBeenCalled();
     expect(wrapper.find('.deny-reason').exists()).toBe(false);

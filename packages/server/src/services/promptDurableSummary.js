@@ -100,8 +100,27 @@ export function buildSafeBlockedPath(blockedPath) {
   if (typeof blockedPath !== 'string' || !blockedPath) return null;
   const withoutFragment = blockedPath.split('#')[0];
   const withoutQuery = withoutFragment.split('?')[0];
-  // Strip a userinfo-style `user:pass@` (or bare `token@`) segment wherever
-  // it appears in the path, not just after a URL-style `//` prefix — a
-  // blockedPath is a filesystem path, not necessarily a URL.
-  return withoutQuery.replace(/\/[^/]*@/, '/');
+  // Strip userinfo-shaped credentials wherever they appear in the path. The
+  // colon is intentional: `/@scope` and `user@example.com.template` are
+  // ordinary file-path segments, while `user:password@host` is credential
+  // syntax. Keep the host/path context after removing only the secret.
+  return withoutQuery.replace(/\/[^/:\s]+:[^/@\s]+@/g, '/');
+}
+
+// Permission-denied events also contain bridge-provided free text (`message`
+// and `decision_reason`). Keep only bounded structural fields in durable
+// history; the interactive prompt retains the rich transient context.
+export function buildSafeDenialSummary({ toolName, decisionReasonType, agentId }) {
+  const safeToolName = typeof toolName === 'string' && toolName ? toolName : 'Unknown tool';
+  const safeReasonType = typeof decisionReasonType === 'string' && /^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/.test(decisionReasonType)
+    ? decisionReasonType
+    : null;
+  const safeAgentId = typeof agentId === 'string' && agentId.length > 0 && agentId.length <= 128
+    ? agentId
+    : null;
+  return [
+    `Permission denied for ${safeToolName}`,
+    safeReasonType && `Reason type: ${safeReasonType}`,
+    safeAgentId && `Agent: ${safeAgentId}`,
+  ].filter(Boolean).join('\n');
 }

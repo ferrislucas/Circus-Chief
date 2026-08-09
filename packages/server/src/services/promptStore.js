@@ -28,7 +28,7 @@ function broadcastPendingInput(record, pendingAgentInput) {
 }
 
 function project(record) {
-  const { resolve: _resolve, reject: _reject, abortListener: _abortListener, signal: _signal, ...wire } = record;
+  const { resolve: _resolve, abortListener: _abortListener, signal: _signal, ...wire } = record;
   return wire;
 }
 
@@ -116,12 +116,15 @@ export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, 
   // concurrency conflict — reject it outright without touching this
   // session's existing queue.
   const questions = payload.questions || [];
+  if (kind === 'question' && questions.length === 0) {
+    return Promise.resolve({ behavior: 'deny', message: 'Please re-ask with at least one question.' });
+  }
   if (kind === 'question' && new Set(questions.map(({ question }) => question)).size !== questions.length) {
     return Promise.resolve({ behavior: 'deny', message: 'Please re-ask using distinct question text.' });
   }
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const record = { id: randomUUID(), sessionId, conversationId, kind, toolUseId, agentId, payload,
-      createdAt: Date.now(), resolve, reject, signal, abortListener: null };
+      createdAt: Date.now(), resolve, signal, abortListener: null };
     record.abortListener = () => settle(record, 'cancelled', { behavior: 'deny', message: CANCELLED_MESSAGE });
     signal?.addEventListener('abort', record.abortListener, { once: true });
     const queue = prompts.get(sessionId);

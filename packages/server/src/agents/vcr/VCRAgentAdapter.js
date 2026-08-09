@@ -43,11 +43,11 @@ export class VCRAgentAdapter {
       if (!cassette) {
         throw new Error(`VCR replay: no cassette found for "${key}"`);
       }
-      yield* this.replay(cassette, queryParams);
+      yield* this.replay(cassette, queryParams, key);
     } else if (this.mode === 'auto') {
       const cassette = CassetteStore.load(this.cassetteDir, key);
       if (cassette) {
-        yield* this.replay(cassette, queryParams);
+        yield* this.replay(cassette, queryParams, key);
       } else {
         yield* this.record(key, queryParams, meta);
       }
@@ -88,15 +88,15 @@ export class VCRAgentAdapter {
    * @param {object} cassette - Cassette to replay
    * @returns {AsyncGenerator} Generator yielding events
    */
-  async *replay(cassette, queryParams = {}) {
+  async *replay(cassette, queryParams = {}, cassetteKey = 'unknown') {
     const callsByPosition = this.groupGatedCallsByPosition(cassette.gatedToolCalls);
 
-    await this.invokeGatedCallsAt(callsByPosition, 0, queryParams);
+    await this.invokeGatedCallsAt(callsByPosition, 0, queryParams, cassetteKey);
     for (let index = 0; index < cassette.events.length; index += 1) {
       // Small delay to simulate streaming
       await new Promise((resolve) => setTimeout(resolve, 5));
       yield cassette.events[index];
-      await this.invokeGatedCallsAt(callsByPosition, index + 1, queryParams);
+      await this.invokeGatedCallsAt(callsByPosition, index + 1, queryParams, cassetteKey);
     }
   }
 
@@ -119,10 +119,10 @@ export class VCRAgentAdapter {
    * Invoke every gated call recorded at `position`, in order, comparing each
    * observed result against the recorded one.
    */
-  async invokeGatedCallsAt(callsByPosition, position, queryParams) {
+  async invokeGatedCallsAt(callsByPosition, position, queryParams, cassetteKey) {
     for (const call of callsByPosition.get(position) || []) {
       const observed = await queryParams.options?.canUseTool?.(call.toolName, call.input, call.opts || {});
-      this.assertResultMatchesRecording(call, observed);
+      this.assertResultMatchesRecording(call, observed, cassetteKey);
     }
   }
 
@@ -133,13 +133,14 @@ export class VCRAgentAdapter {
    * way, replay should fail loudly rather than silently diverge from the
    * recording.
    */
-  assertResultMatchesRecording(call, observed) {
+  assertResultMatchesRecording(call, observed, cassetteKey = 'unknown') {
     if (call.result === undefined) return;
     if (JSON.stringify(observed) === JSON.stringify(call.result)) return;
     throw new Error(
-      `VCR replay: canUseTool("${call.toolName}") returned a result that diverges from the recording.\n` +
+      `VCR replay: cassette "${cassetteKey}" canUseTool("${call.toolName}") returned a result that diverges from the recording.\n` +
       `  Recorded: ${JSON.stringify(call.result)}\n` +
-      `  Observed: ${JSON.stringify(observed)}`
+      `  Observed: ${JSON.stringify(observed)}\n` +
+      '  Remedy: re-record this cassette with the agent-prompt cassette generator.'
     );
   }
 
