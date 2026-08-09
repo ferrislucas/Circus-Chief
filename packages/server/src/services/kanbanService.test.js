@@ -122,6 +122,22 @@ describe('kanbanService', () => {
   // ── addSessionToBoard ──────────────────────────────────────────────
 
   describe('addSessionToBoard', () => {
+    it('rolls back the card when durable lane-entry intent cannot be recorded', async () => {
+      const template = sessionTemplates.create({ projectId, name: 'Entry', prompt: 'do something' });
+      kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+      const session = createSession();
+      const db = databaseManager.get();
+      db.exec(`CREATE TRIGGER fail_lane_entry_event_insert BEFORE INSERT ON kanban_lane_entry_events
+        BEGIN SELECT injected_lane_entry_event_failure(); END;`);
+
+      try {
+        await expect(addSessionToBoard(session.id, lanes[0].id)).rejects.toThrow('no such function: injected_lane_entry_event_failure');
+        expect(kanbanCards.getBySessionId(session.id)).toBeNull();
+      } finally {
+        db.exec('DROP TRIGGER IF EXISTS fail_lane_entry_event_insert');
+      }
+    });
+
     it('adds a session to a lane', async () => {
       const session = createSession();
       const card = await addSessionToBoard(session.id, lanes[0].id);
@@ -233,6 +249,23 @@ describe('kanbanService', () => {
   // ── moveCard ───────────────────────────────────────────────────────
 
   describe('moveCard', () => {
+    it('rolls back supersession and card movement when durable lane-entry intent cannot be recorded', async () => {
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const template = sessionTemplates.create({ projectId, name: 'Entry', prompt: 'do something' });
+      kanbanLanes.update(lanes[1].id, { onEnterTemplateId: template.id });
+      const db = databaseManager.get();
+      db.exec(`CREATE TRIGGER fail_lane_entry_event_insert BEFORE INSERT ON kanban_lane_entry_events
+        BEGIN SELECT injected_lane_entry_event_failure(); END;`);
+
+      try {
+        await expect(moveCard(card.id, lanes[1].id)).rejects.toThrow('no such function: injected_lane_entry_event_failure');
+        expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
+      } finally {
+        db.exec('DROP TRIGGER IF EXISTS fail_lane_entry_event_insert');
+      }
+    });
+
     it('moves a card to a different lane', async () => {
       const session = createSession();
       const card = await addSessionToBoard(session.id, lanes[0].id);

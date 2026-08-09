@@ -75,21 +75,25 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
   // Normalize to workspace root — all cards are keyed to the root session.
   const workspaceId = resolveWorkspaceId(sessionId);
 
-  // Check if session already has a card
-  const existingCard = kanbanCards.getBySessionId(workspaceId);
-  if (existingCard) {
-    throw new Error('Session already has a card on the board');
-  }
-
-  const card = kanbanCards.create(laneId, workspaceId, { sortOrder });
-
-  // Get root session to find project ID for broadcast and lane entry automation.
+  // The board transition and its durable intent are one unit of work.  In
+  // particular, never expose a card that entered an automated lane without
+  // its lane-entry event/run after a crash or constraint failure.
   const rootSession = sessions.getById(workspaceId);
-  if (rootSession) {
-    const lane = kanbanLanes.getById(laneId);
-    const laneRun = runOnEnterTemplate && isStructured(lane)
-      ? createLaneRunForEntry({ projectId: rootSession.projectId, workspaceId, cardId: card.id, lane })
+  const lane = kanbanLanes.getById(laneId);
+  const { card, laneRun } = databaseManager.transaction(() => {
+    if (kanbanCards.getBySessionId(workspaceId)) {
+      throw new Error('Session already has a card on the board');
+    }
+    const createdCard = kanbanCards.create(laneId, workspaceId, { sortOrder });
+    const createdRun = rootSession && runOnEnterTemplate && isStructured(lane)
+      ? createLaneRunForEntry({ projectId: rootSession.projectId, workspaceId, cardId: createdCard.id, lane })
       : null;
+    return { card: createdCard, laneRun: createdRun };
+  });
+
+  // Delivery remains detached from the committed mutation. It only wakes the
+  // durable worker and therefore cannot invalidate a successful transition.
+  if (rootSession) {
     broadcastToProject(rootSession.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_ADDED, {
       projectId: rootSession.projectId,
       card,
@@ -134,22 +138,22 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
 
   const fromLaneId = card.laneId;
 
-  // A human/API move revokes an open run before changing lanes. Completion
-  // transitions use their own guarded SQL path and never call this service.
-  supersedeRunForCard(cardId, 'manual_move');
-
-  // Move the card
-  const movedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
-
   // Get session for project ID and broadcast
   const sessionId = card.sessions?.[0]?.id;
   const session = sessionId ? sessions.getById(sessionId) : null;
-
-  if (session) {
-    const lane = kanbanLanes.getById(targetLaneId);
-    const laneRun = runOnEnterTemplate && isStructured(lane)
+  const lane = kanbanLanes.getById(targetLaneId);
+  // Supersession, movement, and the successor entry intent must commit
+  // together. A delivery failure after this point is retryable outbox work.
+  const { movedCard, laneRun } = databaseManager.transaction(() => {
+    supersedeRunForCard(cardId, 'manual_move');
+    const updatedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
+    const createdRun = session && runOnEnterTemplate && isStructured(lane)
       ? createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause: 'manual_move' })
       : null;
+    return { movedCard: updatedCard, laneRun: createdRun };
+  });
+
+  if (session) {
     broadcastToProject(session.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
       projectId: session.projectId,
       cardId,
