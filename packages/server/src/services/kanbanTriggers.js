@@ -16,6 +16,15 @@ import { attachRootSession } from './workflowSessionService.js';
 export const MAX_LANE_TRIGGER_DEPTH = 5;
 
 /**
+ * A lane-entry delivery must be observable by its caller.  In particular,
+ * recovery must never confuse a missing configuration or a failed setup with
+ * a successfully delivered outbox event.
+ */
+function undelivered(reason) {
+  return { delivered: false, reason };
+}
+
+/**
  * Get session and project for lane trigger, returning null if not found.
  * @param {string} sessionId
  * @returns {{session: Object, project: Object}|null}
@@ -171,17 +180,17 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
 
   if (depth >= MAX_LANE_TRIGGER_DEPTH) {
     console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
-    return;
+    return undelivered('lane trigger depth limit reached');
   }
 
   const template = sessionTemplates.getById(lane.onEnterTemplateId);
   if (!template) {
     console.warn(`Kanban: On-enter template ${lane.onEnterTemplateId} not found for lane ${lane.id}`);
-    return;
+    return undelivered('on-enter template not found');
   }
 
   const context = getSessionAndProjectForTrigger(sessionId);
-  if (!context) return;
+  if (!context) return undelivered('workspace session or project not found');
   const { session, project } = context;
 
   console.log(`Kanban: Triggering on-enter template "${template.name}" for session "${session.name}" entering lane "${lane.name}"`);
@@ -214,8 +223,10 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
     });
 
     console.log(`Kanban: Created and started on-enter session ${newSession.id}`);
+    return { delivered: true, rootSessionId: newSession.id };
   } catch (error) {
     console.error(`Kanban: Failed to trigger on-enter template for session ${sessionId}:`, error);
+    return undelivered(error instanceof Error ? error.message : 'template delivery failed');
   }
 }
 
@@ -277,11 +288,11 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
 
   if (depth >= MAX_LANE_TRIGGER_DEPTH) {
     console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
-    return;
+    return undelivered('lane trigger depth limit reached');
   }
 
   const context = getSessionAndProjectForTrigger(sessionId);
-  if (!context) return;
+  if (!context) return undelivered('workspace session or project not found');
   const { session, project } = context;
 
   console.log(`Kanban: Triggering on-enter prompt for session "${session.name}" entering lane "${lane.name}"`);
@@ -307,7 +318,9 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
     });
 
     console.log(`Kanban: Created and started on-enter prompt session ${newSession.id}`);
+    return { delivered: true, rootSessionId: newSession.id };
   } catch (error) {
     console.error(`Kanban: Failed to trigger on-enter prompt for session ${sessionId}:`, error);
+    return undelivered(error instanceof Error ? error.message : 'prompt delivery failed');
   }
 }

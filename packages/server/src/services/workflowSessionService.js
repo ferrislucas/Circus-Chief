@@ -155,8 +155,8 @@ export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, ca
       const key = `${cause}:${cardId}:${lane.id}:${eventId}`;
       if (!entryEventId) db2.prepare(`INSERT INTO kanban_lane_entry_events
         (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,caused_by_run_id,status,created_at,updated_at,completed_at)
-        VALUES (?,?,?,?,?,?,?,?,'completed',?,?,?)`)
-        .run(eventId, key, projectId, workspaceId, cardId, lane.id, cause, causeRunId, time, time, time);
+        VALUES (?,?,?,?,?,?,?,?,'pending',?,?,NULL)`)
+        .run(eventId, key, projectId, workspaceId, cardId, lane.id, cause, causeRunId, time, time);
       db2.prepare(`INSERT INTO kanban_lane_runs
         (id,lane_entry_event_id,prior_lane_run_id,project_id,workspace_id,card_id,source_lane_id,
          completion_target_lane_id,root_session_id,status,created_at,updated_at)

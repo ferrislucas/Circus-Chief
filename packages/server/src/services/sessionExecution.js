@@ -94,8 +94,7 @@ export function createAgentForSession(agentType = 'claude-code', config = {}) {
   return new LoggingAgentWrapper(agent);
 }
 
-/**
- * Execute the agent stream loop and handle post-turn completion, errors, and cleanup.
+/** Execute the agent stream loop and handle post-turn completion, errors, and cleanup.
  * This is the shared core of runSession, continueSession, and continueSessionWithExistingMessage.
  * @param {Object} options
  * @param {string} options.sessionId - Session ID
@@ -110,6 +109,7 @@ export function createAgentForSession(agentType = 'claude-code', config = {}) {
  * @param {boolean} [options.broadcastConversationStateOnError] - Whether to broadcast conversation state on error
  * @param {string} [options.errorLabel] - Label for error logging
  */
+// eslint-disable-next-line max-statements, complexity -- lifecycle boundaries must remain adjacent.
 export async function _executeSession({
   sessionId,
   agent,
@@ -123,6 +123,11 @@ export async function _executeSession({
   errorLabel = 'Session error',
 }) {
   const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded } = callbacks; const workflowTurn = beginWorkflowTurn(sessionId);
+  // Last ownership fence before the irreversible provider call.
+  if (!interactive && !workflowTurn && !activeLaneRunOwnsSession(sessionId)) {
+    cleanupSessionState(sessionId, cleanupConversationId);
+    return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
+  }
   try {
     // Run the query with the agent (SDK via gateway, or mock)
     for await (const event of agent.execute(queryParams, agentCallMeta)) {
@@ -131,11 +136,7 @@ export async function _executeSession({
       await handleStreamEvent(sessionId, event);
     }
     // Handle post-turn completion (work log association, status transition, summary, etc.)
-    const { wasRescheduled, heldForLimit } = await handleTurnCompletion(
-      sessionId,
-      workingDirectory,
-      { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded }
-    );
+    const { wasRescheduled, heldForLimit } = await handleTurnCompletion(sessionId, workingDirectory, { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded });
     // FR-4/FR-5: a self-scheduled continuation is an open obligation, not success.
     if (wasRescheduled) { markExecutionState(sessionId, 'scheduled'); return; }
     // FR-9.8: a graceful provider limit/outage leaves the lane obligation open.
@@ -381,7 +382,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     workingDirectory, controller, agentType, agent,
   });
 
-  await _executeSession({
+  const execution = await _executeSession({
     sessionId,
     agent,
     queryParams,
@@ -394,7 +395,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     interactive,
     errorLabel: 'Continue session error',
   });
-  return startedSessionExecution(sessionId);
+  return execution || startedSessionExecution(sessionId);
 }
 
 /**
@@ -485,5 +486,5 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     workingDirectory,
     callbacks,
     errorLabel: 'Session error',
-  }).then(() => startedSessionExecution(sessionId));
+  }).then((execution) => execution || startedSessionExecution(sessionId));
 }

@@ -351,7 +351,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     lastUserMessage, workingDirectory, controller, agentType, agent,
   });
 
-  await _executeSession({
+  const execution = await _executeSession({
     sessionId,
     agent,
     queryParams,
@@ -361,7 +361,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
     errorLabel: 'Continue session with existing message error',
   });
-  return startedSessionExecution(sessionId);
+  return execution || startedSessionExecution(sessionId);
 }
 
 /**

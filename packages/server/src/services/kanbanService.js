@@ -44,16 +44,17 @@ function resolveWorkspaceId(sessionId) {
 export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
   const { runOnEnterTemplate = true, depth = 0, laneRunId = null } = options;
 
-  if (!runOnEnterTemplate) {
-    return;
-  }
+  if (!runOnEnterTemplate) return { delivered: true, rootSessionId: null };
 
   const lane = kanbanLanes.getByIdWithTemplate(laneId);
+  let result = { delivered: true, rootSessionId: null };
   if (lane?.onEnterTemplateId) {
-    await triggerOnEnterTemplate(sessionId, lane, { depth, laneRunId });
+    result = await triggerOnEnterTemplate(sessionId, lane, { depth, laneRunId });
   } else if (lane?.onEnterPrompt) {
-    await triggerOnEnterPrompt(sessionId, lane, { depth, laneRunId });
+    result = await triggerOnEnterPrompt(sessionId, lane, { depth, laneRunId });
   }
+  if (!result?.delivered) throw new Error(`Lane-entry delivery failed: ${result?.reason || 'unknown error'}`);
+  return result;
 }
 
 /**
@@ -98,11 +99,12 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
     // Lane entry automation fires on the workspace root (consistent with
     // "all sessions in a workspace move together").
     const rootDepth = rootSession.laneTriggerDepth || 0;
-    await triggerLaneEntryAutomation(workspaceId, laneId, {
+    const delivery = await triggerLaneEntryAutomation(workspaceId, laneId, {
       runOnEnterTemplate,
       depth: depth || rootDepth,
       laneRunId: laneRun?.id,
     });
+    completeVerifiedLaneEntry(laneRun?.laneEntryEventId, delivery.rootSessionId);
   }
 
   return card;
@@ -153,7 +155,8 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
       card: movedCard,
     });
 
-    await triggerLaneEntryAutomation(sessionId, targetLaneId, { runOnEnterTemplate, depth, laneRunId: laneRun?.id });
+    const delivery = await triggerLaneEntryAutomation(sessionId, targetLaneId, { runOnEnterTemplate, depth, laneRunId: laneRun?.id });
+    completeVerifiedLaneEntry(laneRun?.laneEntryEventId, delivery.rootSessionId);
   }
 
   return movedCard;
@@ -193,7 +196,7 @@ export async function triggerStructuredTransitionAutomation(pending) {
       })
     : null;
 
-  await triggerLaneEntryAutomation(workspaceSessionId, targetLaneId, {
+  return triggerLaneEntryAutomation(workspaceSessionId, targetLaneId, {
     runOnEnterTemplate: true,
     depth: workspaceSession.laneTriggerDepth || 0,
     laneRunId: laneRun?.id,
@@ -210,6 +213,18 @@ function claimLaneEntryTrigger(eventId) {
     SET claim_token=?, claimed_at=?, attempt_count=attempt_count+1, updated_at=?
     WHERE id=? AND status='pending' AND claim_token IS NULL AND attempt_count < ?`).run(token, time, time, eventId, MAX_ENTRY_EVENT_ATTEMPTS);
   return claimed.changes ? token : null;
+}
+
+function completeVerifiedLaneEntry(eventId, rootSessionId) {
+  if (!eventId || !rootSessionId) return;
+  const db = databaseManager.get();
+  const owner = db.prepare(`SELECT 1 FROM kanban_lane_runs
+    WHERE lane_entry_event_id=? AND status='open' AND root_session_id=?`).get(eventId, rootSessionId);
+  if (!owner) throw new Error('Lane-entry delivery did not attach the expected run root');
+  const time = Date.now();
+  const completed = db.prepare(`UPDATE kanban_lane_entry_events SET status='completed', completed_at=?, updated_at=?
+    WHERE id=? AND status='pending' AND claim_token IS NULL`).run(time, time, eventId);
+  if (completed.changes !== 1) throw new Error('Lane-entry event could not be completed after root verification');
 }
 
 /** Drain one committed completion handoff. Safe to call repeatedly. */
@@ -233,10 +248,13 @@ export async function drainLaneEntryTrigger(eventId) {
     return false;
   }
   try {
-    await triggerStructuredTransitionAutomation({
+    const delivery = await triggerStructuredTransitionAutomation({
       workspaceSessionId: event.workspace_id, targetLaneId: event.lane_id,
       cardId: event.card_id, sourceRunId: event.caused_by_run_id, laneEntryEventId: event.id,
     });
+    const ownsExpectedRoot = !event.caused_by_run_id || db.prepare(`SELECT 1 FROM kanban_lane_runs
+      WHERE lane_entry_event_id=? AND status='open' AND root_session_id=?`).get(event.id, delivery.rootSessionId);
+    if (!ownsExpectedRoot) throw new Error('Lane-entry delivery did not attach the expected run root');
     const time = Date.now();
     db.prepare(`UPDATE kanban_lane_entry_events
       SET status='completed', completed_at=?, updated_at=? WHERE id=? AND claim_token=?`)

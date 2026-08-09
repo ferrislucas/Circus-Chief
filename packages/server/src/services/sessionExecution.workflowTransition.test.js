@@ -29,7 +29,7 @@ import { SessionRepository } from '../db/SessionRepository.js';
 import { KanbanBoardRepository } from '../db/KanbanBoardRepository.js';
 import { KanbanLaneRepository } from '../db/KanbanLaneRepository.js';
 import { KanbanCardRepository } from '../db/KanbanCardRepository.js';
-import { createLaneRunForEntry, attachRootSession, getRun, markHeldForLimit } from './workflowSessionService.js';
+import { createLaneRunForEntry, attachRootSession, getRun, markHeldForLimit, supersedeRunForCard } from './workflowSessionService.js';
 
 describe('W6: _executeSession triggers target-lane automation after a real success', () => {
   let projectRepo;
@@ -195,5 +195,28 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
 
     await runSession(root.id, 'A stale system turn', tempDir);
     expect(stubAgent.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not call the provider when ownership is lost after admission but before execution', async () => {
+    const stubAgent = {
+      execute: vi.fn(async function* () {
+        yield { type: 'result', success: true };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    // runSession has already passed its initial ownership check by the time
+    // it creates the provider adapter. Superseding here reproduces the final
+    // race immediately before _executeSession's provider boundary.
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockImplementation(() => {
+      supersedeRunForCard(card.id, 'test_race');
+      return stubAgent;
+    });
+
+    const result = await runSession(root.id, 'do work', tempDir);
+
+    expect(result).toEqual({ started: false, sessionId: root.id, reason: 'lane_run_ownership_lost' });
+    expect(stubAgent.execute).not.toHaveBeenCalled();
+    expect(getRun(run.id).status).toBe('superseded');
   });
 });
