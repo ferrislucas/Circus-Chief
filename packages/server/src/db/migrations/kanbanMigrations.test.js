@@ -102,7 +102,7 @@ describe('kanban-drop-completion-mode-hard-cutover', () => {
     }
   });
 
-  it('clears target-only completion targets and records them for operator review', () => {
+  it('preserves target-only completion targets and records them for operator remediation', () => {
     const db = freshDb();
     try {
       db.exec('ALTER TABLE kanban_lanes ADD COLUMN completion_mode TEXT');
@@ -115,9 +115,12 @@ describe('kanban-drop-completion-mode-hard-cutover', () => {
 
       migration.up(db);
 
-      expect(db.prepare('SELECT completion_target_lane_id AS target FROM kanban_lanes WHERE id=?').get('plain').target).toBeNull();
+      expect(db.prepare('SELECT completion_target_lane_id AS target FROM kanban_lanes WHERE id=?').get('plain').target).toBe('target');
       expect(db.prepare('SELECT completion_target_lane_id AS target FROM kanban_lanes WHERE id=?').get('automated').target).toBe('target');
-      expect(db.prepare('SELECT lane_id AS laneId FROM kanban_migration_notes WHERE lane_id=?').get('plain')).toEqual({ laneId: 'plain' });
+      expect(db.prepare('SELECT lane_id AS laneId, note FROM kanban_migration_notes WHERE lane_id=?').get('plain')).toEqual({
+        laneId: 'plain',
+        note: 'Legacy completion target requires on-entry automation before lane runs can be enabled',
+      });
       expect(() => migration.up(db)).not.toThrow();
     } finally {
       db.close();

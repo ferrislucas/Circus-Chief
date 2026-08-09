@@ -11,19 +11,22 @@ import { supersedeLaneRun } from './workflowSessionService.js';
  * later provider outage exhausts delivery attempts. */
 // eslint-disable-next-line complexity, sonarjs/cognitive-complexity -- classifications are deliberately explicit/stable
 export function getKanbanDeliveryHealth(db = databaseManager.get(), time = Date.now()) {
-  const rows = db.prepare(`SELECT status, delivery_phase, claim_expires_at, created_at
-    FROM kanban_lane_entry_events`).all();
-  const counts = { pending: 0, claimed: 0, stalled: 0, ambiguous: 0, exhausted: 0, quarantined: 0, completed: 0 };
-  let oldestRelevantAt = null;
-  for (const row of rows) {
-    if (row.status === 'completed') { counts.completed += 1; continue; }
-    if (row.status === 'invalid') { counts.quarantined += 1; }
-    else if (row.status === 'failed') { counts.exhausted += 1; }
-    else if (row.status === 'claimed' && row.claim_expires_at && row.claim_expires_at <= time) { counts.stalled += 1; }
-    else if (row.delivery_phase === 'dispatch_intent') { counts.ambiguous += 1; }
-    else if (row.status === 'claimed') { counts.claimed += 1; }
-    else { counts.pending += 1; }
-    if (row.status !== 'completed' && (oldestRelevantAt === null || row.created_at < oldestRelevantAt)) oldestRelevantAt = row.created_at;
+  // Keep this aggregate-only. Health is called during incidents, when an
+  // unbounded scan/deserialization of a large completed-event history is the
+  // least useful extra load we can add.
+  const counts = db.prepare(`SELECT
+    SUM(status = 'completed') AS completed,
+    SUM(status = 'invalid') AS quarantined,
+    SUM(status = 'failed') AS exhausted,
+    SUM(status = 'claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at <= ?) AS stalled,
+    SUM(status NOT IN ('completed', 'invalid', 'failed') AND delivery_phase = 'dispatch_intent') AS ambiguous,
+    SUM(status = 'claimed' AND NOT (claim_expires_at IS NOT NULL AND claim_expires_at <= ?)
+      AND delivery_phase != 'dispatch_intent') AS claimed,
+    SUM(status NOT IN ('completed', 'invalid', 'failed', 'claimed') AND delivery_phase != 'dispatch_intent') AS pending,
+    MIN(CASE WHEN status != 'completed' THEN created_at END) AS oldest_relevant_at
+    FROM kanban_lane_entry_events`).get(time, time);
+  for (const key of ['pending', 'claimed', 'stalled', 'ambiguous', 'exhausted', 'quarantined', 'completed']) {
+    counts[key] = Number(counts[key] || 0);
   }
   const reasons = [];
   if (counts.exhausted) reasons.push('exhausted delivery events');
@@ -31,7 +34,7 @@ export function getKanbanDeliveryHealth(db = databaseManager.get(), time = Date.
   if (counts.stalled) reasons.push('expired delivery claims');
   if (counts.ambiguous) reasons.push('ambiguous provider dispatches');
   return { status: reasons.length ? 'degraded' : 'operational', reasons, counts,
-    oldestRelevantAgeMs: oldestRelevantAt === null ? null : Math.max(0, time - oldestRelevantAt) };
+    oldestRelevantAgeMs: counts.oldest_relevant_at === null ? null : Math.max(0, time - counts.oldest_relevant_at) };
 }
 
 function issue(type, reason, row, severity = 'error') {

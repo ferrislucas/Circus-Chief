@@ -10,7 +10,7 @@ Stop workers for the copy and point `DB_PATH` at it. The default command opens t
 DB_PATH=/safe/copies/incident.db yarn workspace @circuschief/server kanban:recover
 ```
 
-Resolve every reported invalid lane configuration before an apply: a completion target requires on-entry automation and targets must remain on the same board.
+Resolve every reported invalid lane configuration before an apply: a completion target requires on-entry automation and targets must remain on the same board. The hard-cutover migration intentionally preserves legacy target-only routing instead of clearing it; those lanes are recorded in `kanban_migration_notes` and block automation until repaired deliberately.
 
 ## Maintenance-window apply
 
