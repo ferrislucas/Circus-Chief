@@ -27,6 +27,7 @@ import {
   cleanupSessionState,
   broadcastSessionStatus,
 } from './streamEventHandler.js';
+import { cancelPrompt } from './promptStore.js';
 // Import execution helpers from sessionExecution.js
 import {
   createAgentForSession,
@@ -294,6 +295,7 @@ function buildExistingMessageQueryParams({
     systemPrompt,
     model: effectiveModel,
     sessionEnv,
+    conversationId,
     resumeSessionId: canResume ? conversation.claudeSessionId : null,
   });
 
@@ -363,6 +365,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
  * @param {string} sessionId
  */
 export async function stopSession(sessionId) {
+  cancelPrompt(sessionId);
   const sessionData = activeSessions.get(sessionId);
 
   if (sessionData) {
@@ -403,6 +406,7 @@ export function restartSession(sessionId) {
 export function cleanupActiveSession(sessionId) {
   const sessionData = activeSessions.get(sessionId);
   if (sessionData) {
+    cancelPrompt(sessionId);
     sessionData.controller.abort();
     activeSessions.delete(sessionId);
     return true;

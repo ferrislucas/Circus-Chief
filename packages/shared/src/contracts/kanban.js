@@ -120,6 +120,7 @@ export const KanbanCardSessionResponse = z.object({
   costUsd: z.number().optional(),
   starred: z.boolean().optional(),
   prUrl: z.string().nullable().optional(),
+  pendingAgentInput: z.boolean().default(false),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
