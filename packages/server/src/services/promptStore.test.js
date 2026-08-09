@@ -120,7 +120,7 @@ describe('promptStore work-log emission', () => {
       expect(content).toContain('Tool: Bash');
       // Only the allowlisted, tool-specific safe summary is persisted — never
       // the raw command a user is being asked to approve.
-      expect(content).toContain('Input summary: {"description":"Run the test suite"}');
+      expect(content).not.toContain('Input summary');
       expect(content).not.toContain('yarn test');
     }
     expect(createWorkLog.mock.calls[1][2]).toContain('Outcome: allow once');
@@ -163,7 +163,7 @@ describe('promptStore work-log emission', () => {
     // bridge supplies), never from `title` (a full sentence that can embed
     // raw tool input) or `decisionReason` (which can quote it too).
     expect(content).toContain('Headline: Run command');
-    expect(content).toContain('Blocked path: /protected/.env');
+    expect(content).toContain('Blocked path: [path omitted]');
     expect(content).toContain('Reason: Permission denied by user.');
     expect(content).not.toContain('Deploy');
     expect(content).not.toContain('Needs approval');
@@ -199,7 +199,7 @@ describe('promptStore work-log emission', () => {
     expect(prompt.payload.description).toBeUndefined();
   });
 
-  it('sanitizes a credential-bearing blockedPath, keeping only the path shape', async () => {
+  it('redacts a credential-bearing blockedPath from durable history', async () => {
     const { promise, prompt } = park('blocked-path-credentials', 'permission', {
       toolName: 'Bash', blockedPath: '/protected/user:s3cr3t-token@host/path?apiKey=abc123#frag',
       input: {},
@@ -211,7 +211,8 @@ describe('promptStore work-log emission', () => {
     expect(content).not.toContain('s3cr3t-token');
     expect(content).not.toContain('apiKey=abc123');
     expect(content).not.toContain('frag');
-    expect(content).toContain('/protected/');
+    expect(content).toContain('Blocked path: [path omitted]');
+    expect(content).not.toContain('/protected/');
   });
 
   it('omits the headline field for an unbounded bridge-rendered displayName rather than truncating it', async () => {
@@ -271,8 +272,8 @@ describe('promptStore work-log emission', () => {
       expect(content).not.toContain('API_KEY');
       expect(content).not.toContain('token = ');
     }
-    expect(writeContent).toContain('Input summary: {"file_path":"secrets.env"}');
-    expect(editContent).toContain('Input summary: {"file_path":"config.js"}');
+    expect(writeContent).toContain('Input summary: {"file_path":"[path omitted]"}');
+    expect(editContent).toContain('Input summary: {"file_path":"[path omitted]"}');
   });
 
   it('never persists a secret stashed under an innocuous, non-allowlisted key — proving key-name-only redaction is not a valid boundary', async () => {
@@ -476,6 +477,22 @@ describe('promptStore work-log emission', () => {
 
     await expect(promise).resolves.toMatchObject({
       behavior: 'deny', message: 'Always allow is unavailable for this permission request.',
+    });
+  });
+
+  it.each(['session', 'projectSettings'])('passes every SDK suggestion through unchanged with the %s destination', async (destination) => {
+    const suggestions = [
+      { type: 'addRules', rules: [{ toolName: 'Bash', rule: 'Bash(git status)' }] },
+      { type: 'replaceRules', rules: [{ toolName: 'Write', rule: 'Write(src/**)' }] },
+    ];
+    const { promise, prompt } = park(`always-${destination}`, 'permission', {
+      toolName: 'Bash', input: { command: 'git status' }, suggestions,
+    });
+
+    expect(respondToPrompt(`always-${destination}`, prompt.id, { action: 'always_allow', destination })).toBe(true);
+    await expect(promise).resolves.toEqual({
+      behavior: 'allow',
+      updatedPermissions: suggestions.map((suggestion) => ({ ...suggestion, destination })),
     });
   });
 });

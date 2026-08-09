@@ -33,49 +33,31 @@
  * history goes through this allowlist.
  */
 
-const SAFE_INPUT_FIELDS_BY_TOOL = {
-  Bash: ['description'],
-  Write: ['file_path'],
-  Edit: ['file_path'],
-  MultiEdit: ['file_path'],
-  NotebookEdit: ['notebook_path'],
-  Read: ['file_path'],
-  Glob: ['pattern', 'path'],
-  Grep: ['pattern', 'path', 'glob'],
-  WebFetch: ['url'],
-  WebSearch: ['query'],
-  Task: ['description', 'subagent_type'],
+const SAFE_PATH_FIELDS_BY_TOOL = {
+  Write: ['file_path'], Edit: ['file_path'], MultiEdit: ['file_path'],
+  NotebookEdit: ['notebook_path'], Read: ['file_path'],
 };
 
-// Fields whose string values may themselves embed credentials (e.g.
-// `https://user:token@host/...` or a `?api_key=...` query string) even
-// though the field itself is allowlisted.
-const URL_LIKE_FIELDS = new Set(['url']);
+// A durable log must not become an inventory of a user's filesystem.  The
+// request does not carry a trusted workspace root, so it cannot prove that a
+// path is workspace-relative; keeping any path (including its basename)
+// would disclose names such as customers, home directories, or secrets.
+// Search, glob, command, description, and URL values are arbitrary free text
+// under a different key and are likewise deliberately absent.  Additions to
+// this allowlist require an explicit, safe transformation—not raw retention.
+const REDACTED_PATH = '[path omitted]';
 
 export function buildSafeToolInputSummary(toolName, input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
-  const allowedFields = SAFE_INPUT_FIELDS_BY_TOOL[toolName];
+  const allowedFields = SAFE_PATH_FIELDS_BY_TOOL[toolName];
   if (!allowedFields) return {};
 
   const summary = {};
   for (const field of allowedFields) {
     if (!(field in input) || typeof input[field] !== 'string') continue;
-    summary[field] = URL_LIKE_FIELDS.has(field) ? stripUrlCredentials(input[field]) : input[field];
+    summary[field] = REDACTED_PATH;
   }
   return summary;
-}
-
-function stripUrlCredentials(value) {
-  try {
-    const url = new URL(value);
-    url.username = '';
-    url.password = '';
-    url.search = '';
-    url.hash = '';
-    return url.toString();
-  } catch {
-    return '[omitted: unparseable url]';
-  }
 }
 
 // Bridge-supplied `displayName` is documented as a short noun phrase (e.g.
@@ -91,20 +73,11 @@ export function buildSafeHeadline(displayName, toolName) {
   return `${toolName || 'Unknown tool'} permission request`;
 }
 
-// `blockedPath` is documented as "the file path that triggered the
-// permission request" — expected to be a filesystem path, not a URL, so it
-// is not run through `stripUrlCredentials` (most paths fail `new URL()`).
-// Query strings, fragments, and userinfo-style credentials are stripped by
-// shape while the path itself is preserved for context.
+// `blockedPath` is bridge-provided and has no trusted workspace context, so
+// preserve only the fact that a path caused the block.  This also covers URLs
+// and Windows paths without relying on fragile credential-pattern detection.
 export function buildSafeBlockedPath(blockedPath) {
-  if (typeof blockedPath !== 'string' || !blockedPath) return null;
-  const withoutFragment = blockedPath.split('#')[0];
-  const withoutQuery = withoutFragment.split('?')[0];
-  // Strip userinfo-shaped credentials wherever they appear in the path. The
-  // colon is intentional: `/@scope` and `user@example.com.template` are
-  // ordinary file-path segments, while `user:password@host` is credential
-  // syntax. Keep the host/path context after removing only the secret.
-  return withoutQuery.replace(/\/[^/:\s]+:[^/@\s]+@/g, '/');
+  return typeof blockedPath === 'string' && blockedPath ? REDACTED_PATH : null;
 }
 
 // Permission-denied events also contain bridge-provided free text (`message`
