@@ -15,8 +15,11 @@ import { projectWorkspacesRouter, workspacesRouter } from './workspaces.js';
 import { getDbPath } from '../database.js';
 import { schedulerService } from '../services/schedulerService.js';
 import { isE2ESpawnCaptureEnabled } from '../services/e2eSpawnCapture.js';
+import internalDataRouter from './internalData.js';
 
 const router = Router();
+
+router.use('/internal/data/v1', internalDataRouter);
 
 // Lightweight identity endpoint — lets tools (e.g. pw.sh) verify which
 // worktree / working directory this server instance belongs to, which
