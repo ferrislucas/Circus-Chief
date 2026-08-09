@@ -101,7 +101,13 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
     const rootDepth = rootSession.laneTriggerDepth || 0;
     // Every automated entry is committed before it is delivered.  This is the
     // durable success boundary for add/move/completion alike.
-    if (laneRun) await drainLaneEntryTrigger(laneRun.laneEntryEventId, { depth: depth || rootDepth });
+    if (laneRun) {
+      scheduleLaneEntryDelivery(laneRun.laneEntryEventId, { depth: depth || rootDepth });
+      // Let the accepted handoff reach its first asynchronous boundary so
+      // callers retain the established immediate session-created UX, without
+      // making their result dependent on delivery success.
+      await new Promise((resolve) => setImmediate(resolve));
+    }
   }
 
   return card;
@@ -152,7 +158,10 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
       card: movedCard,
     });
 
-    if (laneRun) await drainLaneEntryTrigger(laneRun.laneEntryEventId, { depth });
+    if (laneRun) {
+      scheduleLaneEntryDelivery(laneRun.laneEntryEventId, { depth });
+      await new Promise((resolve) => setImmediate(resolve));
+    }
   }
 
   return movedCard;
@@ -210,6 +219,18 @@ const MAX_ENTRY_EVENT_ATTEMPTS = 8;
 const RETRY_BASE_MS = 1_000;
 const RETRY_MAX_MS = 5 * 60 * 1000;
 const RETRY_JITTER = 0.2;
+
+/**
+ * Delivery is deliberately detached from the board mutation. The entry event
+ * and its run are already committed, so a provider/setup failure must become
+ * retryable outbox state rather than turn a successful add or move into a
+ * failed API request.
+ */
+function scheduleLaneEntryDelivery(eventId, options) {
+  void drainLaneEntryTrigger(eventId, options).catch((error) => {
+    console.error(`Kanban lane-entry delivery ${eventId} failed; queued for retry:`, error);
+  });
+}
 
 export function laneEntryRetryDelay(attempt, random = Math.random) {
   const capped = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * (2 ** Math.max(0, attempt - 1)));
@@ -306,11 +327,15 @@ export async function drainLaneEntryTrigger(eventId, options = {}) {
   }
 }
 
-/** Recover completion handoffs persisted before an unexpected process exit. */
+/** Reclaim only leases that have actually expired (shared by startup and polling). */
+export function reclaimExpiredLaneEntryClaims(time = Date.now()) {
+  return databaseManager.get().prepare(`UPDATE kanban_lane_entry_events SET status='pending', claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, updated_at=?
+    WHERE status='claimed' AND claim_expires_at <= ?`).run(time, time).changes;
+}
+
 export async function drainPendingLaneEntryTriggers() {
-  const leaseExpiry = Date.now() - ENTRY_EVENT_LEASE_MS;
-  databaseManager.get().prepare(`UPDATE kanban_lane_entry_events SET status='pending', claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, updated_at=?
-    WHERE status='claimed' AND claim_expires_at < ?`).run(Date.now(), leaseExpiry);
+  const time = Date.now();
+  reclaimExpiredLaneEntryClaims(time);
   // Terminally expose exhausted deliveries instead of endlessly spinning a
   // startup loop. Pending event age/attempt_count/last_error remain directly
   // queryable through the durable outbox table for operations visibility.

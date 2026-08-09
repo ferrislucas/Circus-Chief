@@ -32,6 +32,7 @@ import {
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { runSession } from './sessionManager.js';
+import { renderTemplatePrompt } from './templateTriggerService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   getFullBoard,
@@ -40,6 +41,7 @@ import {
   removeSessionFromBoard,
   triggerStructuredTransitionAutomation,
   drainLaneEntryTrigger,
+  reclaimExpiredLaneEntryClaims,
 } from './kanbanService.js';
 import { createLaneRunForEntry } from './workflowSessionService.js';
 import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
@@ -212,6 +214,19 @@ describe('kanbanService', () => {
       const card = await addSessionToBoard(session.id, lanes[0].id);
 
       expect(kanbanCards.getById(card.id).activeLaneRunId).toBeNull();
+    });
+
+    it('commits the board mutation even when asynchronous entry delivery fails', async () => {
+      const template = sessionTemplates.create({ projectId, name: 'Failing entry', prompt: 'do something' });
+      kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+      renderTemplatePrompt.mockRejectedValueOnce(new Error('template unavailable'));
+      const session = createSession();
+
+      const card = await addSessionToBoard(session.id, lanes[0].id);
+
+      expect(kanbanCards.getById(card.id)).not.toBeNull();
+      const event = databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE card_id=?').get(card.id);
+      expect(['pending', 'claimed']).toContain(event.status);
     });
   });
 
@@ -611,6 +626,20 @@ describe('kanbanService', () => {
   });
 
   describe('durable completion outbox', () => {
+    it('reclaims a claim at its exact expiry, not five minutes later', () => {
+      const expiry = Date.now();
+      databaseManager.get().prepare(`INSERT INTO kanban_lane_entry_events
+        (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,status,claim_token,claimed_at,claim_expires_at,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,'claimed',?,?,?,?,?)`)
+        .run('exact-expiry-event', 'exact-expiry-key', projectId, 'workspace', 'card', lanes[0].id,
+          'card_added', 'claim', expiry - 1, expiry, expiry - 1, expiry - 1);
+
+      expect(reclaimExpiredLaneEntryClaims(expiry - 1)).toBe(0);
+      expect(reclaimExpiredLaneEntryClaims(expiry)).toBe(1);
+      expect(databaseManager.get().prepare('SELECT status, claim_token FROM kanban_lane_entry_events WHERE id=?')
+        .get('exact-expiry-event')).toEqual({ status: 'pending', claim_token: null });
+    });
+
     it('preserves and resumes a valid rootless target run after restart reconciliation', async () => {
       kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
       const workspace = createSession('Workspace');

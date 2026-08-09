@@ -106,21 +106,22 @@ systemMonitor.start();
 
 // Graceful shutdown
 let shuttingDown = false;
-function shutdown(signal) {
+async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`${signal} received, shutting down gracefully`);
 
-  // Safety net: force exit after 5 seconds
+  // Safety net: the entry worker gets its documented five-second drain bound
+  // before process exit is forced.
   const forceTimeout = setTimeout(() => {
     console.error('Graceful shutdown timed out, forcing exit');
     process.exit(1);
-  }, 5000);
+  }, 6000);
   forceTimeout.unref();
 
   // Stop periodic services
   schedulerService.stop();
-  void stopLaneEntryRetryWorker();
+  await stopLaneEntryRetryWorker();
   prStatusService.stop();
   systemMonitor.stop();
 
