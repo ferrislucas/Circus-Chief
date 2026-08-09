@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { seedProject, seedSession, cleanupAll, navigateAndWait, openSessionOverlay, closeSessionChat } from './helpers';
+import { seedProject, seedSession, cleanupAll, navigateAndWait, openSessionOverlay, closeSessionChat, waitForStatus, getSession, API_URL } from './helpers';
+import { VCR_PROMPT, VCR_MODEL } from './kanbanLaneRunHelpers';
 
 test.describe('Scheduling UI', () => {
   test.describe.configure({ timeout: 60000 });
@@ -239,13 +240,109 @@ test.describe('Scheduling UI', () => {
       // Close the chat to go back to the summary tab
       await closeSessionChat(page);
 
-      // Click the Edit button inside a ScheduledChildCard
-      await page.click('.timing-action-btn');
+      // Click the Edit button inside a ScheduledChildCard. Start Now is the
+      // first timing action, so select the intended action by its label.
+      await page.getByRole('button', { name: 'Edit', exact: true }).click();
 
       // Verify modal opens with datetime picker
       const editModal = page.locator('.modal-backdrop');
       await expect(editModal).toBeVisible();
       await expect(page.locator('input[type="datetime-local"]')).toBeVisible();
+    });
+  });
+
+  test.describe('Start Now (immediate execution)', () => {
+    // Regression coverage for the remediation plan's atomic claim + shared
+    // UI coordination work: clicking the real "Start Now" button (not the
+    // API directly, unlike resumeScheduledSessionViaUI) must start the
+    // session immediately and clear scheduledAt/pendingPrompt, for both a
+    // scheduled draft (no prior messages) and a scheduled continuation
+    // (existing history).
+    test('clicking Start Now on a scheduled draft starts it immediately and clears scheduledAt/pendingPrompt', async ({ page }) => {
+      const session = await seedSession(project.id, {
+        prompt: VCR_PROMPT,
+        model: VCR_MODEL,
+        startImmediately: false,
+        scheduledAt: new Date(Date.now() + 3600000),
+      });
+
+      await navigateAndWait(page, `/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
+
+      const chatContent = page.locator('.session-chat-content');
+      const startNowBtn = chatContent.locator('[data-testid="scheduled-start-now-btn"]');
+      await expect(startNowBtn).toBeVisible({ timeout: 10000 });
+      await startNowBtn.click();
+
+      // The scheduling panel disappears once the session leaves 'scheduled'.
+      await expect(chatContent.locator('.scheduling-info.scheduled-panel')).not.toBeVisible({ timeout: 10000 });
+
+      const started = await waitForStatus(session.id, 'waiting', 60000);
+      expect(started.scheduledAt).toBeNull();
+      expect(started.pendingPrompt).toBeNull();
+    });
+
+    test('clicking Start Now on a scheduled continuation launches it immediately and clears scheduling fields', async ({ page }) => {
+      // First turn, started immediately so the session has assistant history
+      // (this is what makes the follow-up a "continuation" rather than a
+      // fresh scheduled draft — a different branch in schedulerService).
+      const session = await seedSession(project.id, { prompt: VCR_PROMPT, model: VCR_MODEL, startImmediately: true });
+      await waitForStatus(session.id, 'waiting', 60000);
+
+      // Schedule a follow-up turn via the same race-free endpoint the real
+      // UI uses for this (POST .../schedule) rather than a raw PATCH — this
+      // is what SchedulingEditModal / auto-reschedule actually call, and
+      // (unlike a generic PATCH) is specifically documented to be safe on a
+      // running-turn-completion race for an existing session.
+      const scheduleResponse = await fetch(`${API_URL}/api/sessions/${session.id}/schedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: VCR_PROMPT, scheduledAt: new Date(Date.now() + 3600000).toISOString() }),
+      });
+      expect(scheduleResponse.ok).toBe(true);
+
+      await navigateAndWait(page, `/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
+
+      const chatContent = page.locator('.session-chat-content');
+      const startNowBtn = chatContent.locator('[data-testid="scheduled-start-now-btn"]');
+      await expect(startNowBtn).toBeVisible({ timeout: 10000 });
+      await startNowBtn.click();
+
+      // Assert the launch itself (claim + durable-clear), not full turn
+      // completion — the second VCR-recorded turn on the same session isn't
+      // guaranteed to have a matching cassette in every environment, but the
+      // atomic claim clearing scheduledAt/pendingPrompt as soon as the
+      // continuation is committed is exactly what this test needs to prove.
+      await expect
+        .poll(async () => (await getSession(session.id))?.status, { timeout: 15000 })
+        .not.toBe('scheduled');
+
+      const launched = await getSession(session.id);
+      expect(launched.scheduledAt).toBeNull();
+      expect(launched.pendingPrompt).toBeNull();
+    });
+
+    test('the prompt submit button also starts a scheduled session immediately (not just the Start Now button)', async ({ page }) => {
+      const session = await seedSession(project.id, {
+        prompt: VCR_PROMPT,
+        model: VCR_MODEL,
+        startImmediately: false,
+        scheduledAt: new Date(Date.now() + 3600000),
+      });
+
+      await navigateAndWait(page, `/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
+
+      const chatContent = page.locator('.session-chat-content');
+      const submitBtn = chatContent.locator('.btn-send-full');
+      await expect(submitBtn).toBeVisible({ timeout: 5000 });
+      await expect(submitBtn).toContainText('Start Now');
+      await submitBtn.click();
+
+      const started = await waitForStatus(session.id, 'waiting', 60000);
+      expect(started.scheduledAt).toBeNull();
+      expect(started.pendingPrompt).toBeNull();
     });
   });
 });

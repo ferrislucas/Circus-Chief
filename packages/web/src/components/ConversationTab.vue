@@ -53,7 +53,7 @@
       :is-draft="isDraft"
       :is-scheduled-draft="isScheduledDraft"
       :is-scheduled-for-future="isScheduledForFuture"
-      :sending="sending"
+      :sending="sending || startingNow"
       :restarting="restarting"
       :toggling-thinking="togglingThinking"
       :save-status="saveStatus"
@@ -129,6 +129,7 @@ import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
 import { useDraftSaving } from '../composables/useDraftSaving.js';
 import { useSessionControl } from '../composables/useSessionControl.js';
+import { useScheduleStartNow } from '../composables/useScheduleStartNow.js';
 import { useConnectionStatus } from '../composables/useConnectionStatus.js';
 import { appendTemplatePromptValue, buildTemplateSettingsFields } from '../utils/templateApply.js';
 import TodoDrawer from './TodoDrawer.vue';
@@ -181,6 +182,7 @@ const {
 } = useSessionControl({
   getSessionId: () => props.sessionId,
 });
+const { startingNow, startScheduledNow } = useScheduleStartNow(sessionsStore, () => sessionsStore.currentSession?.id);
 
 // Local state
 const input = ref('');
@@ -236,16 +238,19 @@ const unassociatedWorkLogs = computed(() => sessionsStore.getUnassociatedWorkLog
 
 const inputHasContent = computed(() => input.value.trim().length > 0);
 
+// True while ANY schedule mutation (Start Now, Edit save, Cancel) is in
+// flight for the current session, regardless of which control triggered it
+// (e.g. SchedulingInfo's Cancel button, rendered alongside this form). See
+// `scheduleMutationInFlight` in perSessionGetters.js. Optional-chained like
+// `hasRecentSend` elsewhere in this file, since some store test doubles
+// don't implement every getter.
+const scheduleMutationInFlight = computed(() =>
+  Boolean(sessionsStore.currentSession?.id && sessionsStore.scheduleMutationInFlight?.(sessionsStore.currentSession.id))
+);
+
 const isSendDisabled = computed(() => {
   if (isStale.value) return true;
-  if (sessionsStore.currentSession?.status === 'scheduled') {
-    const scheduledTime = new Date(sessionsStore.currentSession.scheduledAt);
-    const now = new Date();
-    if (scheduledTime > now) {
-      return true;
-    }
-  }
-  return !inputHasContent.value || sending.value;
+  return !inputHasContent.value || sending.value || scheduleMutationInFlight.value;
 });
 
 const sendButtonDisabledReason = computed(() => {
@@ -258,12 +263,8 @@ const sendButtonDisabledReason = computed(() => {
   if (sending.value) {
     return 'Message is being sent...';
   }
-  if (sessionsStore.currentSession?.status === 'scheduled') {
-    const scheduledTime = new Date(sessionsStore.currentSession.scheduledAt);
-    const now = new Date();
-    if (scheduledTime > now) {
-      return `Workspace is scheduled for ${formatDistanceToNow(scheduledTime, { addSuffix: true })}`;
-    }
+  if (scheduleMutationInFlight.value) {
+    return 'Schedule action in progress...';
   }
   return null;
 });
@@ -575,7 +576,14 @@ async function handleFormSubmit(options = {}) {
 
   const textareaRef = inputFormRef.value?.textareaRef;
   const currentValue = getSubmittedInputValue(textareaRef);
-  if (isDraft.value || isScheduledDraft.value) {
+  if (sessionsStore.currentSession?.status === 'scheduled') {
+    const success = await startScheduledNow(sessionsStore.currentSession, currentValue);
+    if (success) {
+      clearSubmittedInput(textareaRef);
+      attachedFiles.value = [];
+      inputFormRef.value?.clearFiles();
+    }
+  } else if (isDraft.value || isScheduledDraft.value) {
     const sessionModel = selectedModel.value
       || sessionsStore.currentSession?.pendingModel
       || sessionsStore.currentSession?.model;

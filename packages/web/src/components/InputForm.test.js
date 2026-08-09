@@ -140,9 +140,10 @@ describe('InputForm', () => {
       expect(wrapper.find('.btn-send-full').exists()).toBe(true);
     });
 
-    it('should not render send button when scheduled for future', () => {
-      const wrapper = mountComponent({ isScheduledForFuture: true });
-      expect(wrapper.find('.btn-send-full').exists()).toBe(false);
+    it('should render start-now button when scheduled for future', () => {
+      const wrapper = mountComponent({ isScheduledForFuture: true, sessionStatus: 'scheduled' });
+      expect(wrapper.find('.btn-send-full').exists()).toBe(true);
+      expect(wrapper.find('.btn-send-full').text()).toBe('Start Now');
     });
   });
 
@@ -185,6 +186,11 @@ describe('InputForm', () => {
     it('should show "Send" text when not sending', () => {
       const wrapper = mountComponent({ sending: false, isSendDisabled: false });
       expect(wrapper.find('.btn-send-full').text()).toBe('Send');
+    });
+
+    it('shows "Start Now" for a scheduled session', () => {
+      const wrapper = mountComponent({ sessionStatus: 'scheduled', isSendDisabled: false });
+      expect(wrapper.find('.btn-send-full').text()).toBe('Start Now');
     });
 
     it('should show loading spinner when sending', () => {

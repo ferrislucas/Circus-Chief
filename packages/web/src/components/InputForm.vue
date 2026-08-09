@@ -52,7 +52,7 @@
 
     <!-- Send button row -->
     <div
-      v-if="!isScheduledForFuture && !isRunning"
+      v-if="!isRunning"
       class="send-button-row"
     >
       <div
@@ -82,7 +82,7 @@
             v-if="sending"
             class="loading-spinner"
           />
-          {{ sending ? 'Sending...' : 'Send' }}
+          {{ sending ? 'Sending...' : (sessionStatus === 'scheduled' ? 'Start Now' : 'Send') }}
         </button>
       </template>
     </div>
