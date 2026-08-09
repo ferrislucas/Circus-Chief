@@ -51,14 +51,24 @@ describe('VCRAgentAdapter', () => {
     delete process.env.VCR_MODE;
   });
 
-  it('allocates distinct absolute cassette directories for concurrent fixtures', () => {
+  it('keeps simultaneous VCR contexts isolated when one fixture is cleaned up', async () => {
     const anotherFixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'circuschief-vcr-'));
     try {
       expect(path.isAbsolute(testCassetteDir)).toBe(true);
       expect(anotherFixtureDir).not.toBe(testCassetteDir);
-      fs.writeFileSync(path.join(testCassetteDir, 'first.json'), '{}');
+
+      process.env.VCR_MODE = 'record';
+      const first = new VCRAgentAdapter(createMockAgent([{ type: 'result', subtype: 'first' }]), { cassetteDir: testCassetteDir });
+      const second = new VCRAgentAdapter(createMockAgent([{ type: 'result', subtype: 'second' }]), { cassetteDir: anotherFixtureDir });
+      await Promise.all([
+        (async () => { for await (const _event of first.execute({ prompt: 'first canary' }, { callType: 'runSession' })) { /* drain */ } })(),
+        (async () => { for await (const _event of second.execute({ prompt: 'second canary' }, { callType: 'runSession' })) { /* drain */ } })(),
+      ]);
+
       fs.rmSync(testCassetteDir, { recursive: true, force: true });
-      expect(fs.existsSync(anotherFixtureDir)).toBe(true);
+      expect(CassetteStore.load(anotherFixtureDir, CassetteStore.buildKey('runSession', 'second canary'))).toMatchObject({
+        events: [{ type: 'result', subtype: 'second' }],
+      });
     } finally {
       fs.rmSync(anotherFixtureDir, { recursive: true, force: true });
     }
@@ -527,9 +537,10 @@ describe('VCRAgentAdapter', () => {
 
   describe('codex event shape round-trip', () => {
     it('records then replays Codex-shaped events identically', async () => {
-      const codexDir = path.join('tests', 'cassettes', 'temp-codex-test');
-      // Clean at start
-      if (fs.existsSync(codexDir)) fs.rmSync(codexDir, { recursive: true, force: true });
+      // Reuse this test's private fixture directory. A repository-relative
+      // scratch directory is unsafe when Vitest workers or worktrees run in
+      // parallel: one test's cleanup can delete another's recording.
+      const codexDir = testCassetteDir;
 
       try {
         const codexEvents = [
@@ -568,7 +579,6 @@ describe('VCRAgentAdapter', () => {
         }
         expect(replayed).toEqual(codexEvents);
       } finally {
-        if (fs.existsSync(codexDir)) fs.rmSync(codexDir, { recursive: true, force: true });
         delete process.env.VCR_MODE;
       }
     });
