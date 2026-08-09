@@ -168,11 +168,13 @@ describe('kanbanService', () => {
       kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
       const session = createSession();
 
-      await addSessionToBoard(session.id, lanes[0].id, { runOnEnterTemplate: false });
+      const card = await addSessionToBoard(session.id, lanes[0].id, { runOnEnterTemplate: false });
 
       const allSessions = sessions.getByProjectId(projectId);
       expect(allSessions).toHaveLength(1);
       expect(runSession).not.toHaveBeenCalled();
+      expect(databaseManager.get().prepare('SELECT count(*) AS count FROM kanban_lane_runs').get().count).toBe(0);
+      expect(kanbanCards.getById(card.id).activeLaneRunId).toBeNull();
     });
 
     it('normalizes a child session id to the workspace root', async () => {
@@ -273,6 +275,8 @@ describe('kanbanService', () => {
         WS_MESSAGE_TYPES.KANBAN_CARD_MOVED,
         expect.anything()
       );
+      expect(databaseManager.get().prepare('SELECT count(*) AS count FROM kanban_lane_runs').get().count).toBe(0);
+      expect(kanbanCards.getById(card.id).activeLaneRunId).toBeNull();
     });
   });
 
