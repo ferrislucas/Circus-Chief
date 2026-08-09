@@ -6,8 +6,6 @@
 import { databaseManager } from '../database.js';
 import { supersedeLaneRun } from './workflowSessionService.js';
 
-const executableWhere = "(s.scheduled_at IS NOT NULL OR s.execution_state IN ('running', 'starting', 'retrying', 'paused'))";
-
 function issue(type, reason, row, severity = 'error') {
   return { type, reason, severity, ...row };
 }
@@ -52,14 +50,6 @@ export function auditKanbanInvariants(db = databaseManager.get()) {
       )`).all()) {
     violations.push(issue('stale_card_pointer', 'card points at a non-open lane run', { cardId: row.card_id, runId: row.run_id, boardId: row.board_id, projectId: row.project_id }));
   }
-
-  const unownedWorkers = db.prepare(`SELECT s.id session_id, s.project_id, s.scheduled_at, s.execution_state,
-      cs.card_id, c.lane_id FROM sessions s JOIN kanban_card_sessions cs ON cs.session_id=s.id
-      JOIN kanban_cards c ON c.id=cs.card_id WHERE s.lane_run_id IS NULL AND ${executableWhere}`).all();
-  for (const row of unownedWorkers) violations.push(issue('unowned_worker', 'board worker is executable without a lane run', {
-    sessionId: row.session_id, projectId: row.project_id, cardId: row.card_id, laneId: row.lane_id,
-    scheduledAt: row.scheduled_at, executionState: row.execution_state,
-  }));
 
   const entryEvents = db.prepare(`SELECT id, project_id, workspace_id, card_id, lane_id, cause, status, claim_token,
       claimed_at, attempt_count, last_error, created_at FROM kanban_lane_entry_events
@@ -126,7 +116,7 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
     if (released) changes.push({ type: 'reclaimed_entry_claims', count: released });
     const cancelled = db.prepare(`UPDATE sessions SET scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL,
       auto_send_pending_prompt=0, execution_state='idle', workflow_reason='reconciliation_unowned_worker', workflow_updated_at=?
-      WHERE lane_run_id IS NULL AND id IN (SELECT session_id FROM kanban_card_sessions)
+      WHERE lane_run_id IN (SELECT id FROM kanban_lane_runs WHERE status IN ('superseded', 'failed', 'cancelled'))
         AND (scheduled_at IS NOT NULL OR execution_state IN ('running', 'starting', 'retrying', 'paused'))`).run(now).changes;
     if (cancelled) changes.push({ type: 'cancelled_unowned_workers', count: cancelled });
   }

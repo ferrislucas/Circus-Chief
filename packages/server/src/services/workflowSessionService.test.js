@@ -45,14 +45,13 @@ describe('workflowSessionService', () => {
     expect(reconcileKanbanOwnership({ dryRun: false })).toEqual(expect.objectContaining({ blocked: true, applied: false }));
   });
 
-  it('cancels a scheduled card worker with no durable run and is idempotent', () => {
+  it('preserves a user-scheduled board session that never belonged to a lane run', () => {
     sessions.update(root.id, { scheduledAt: Date.now() + 60_000, pendingPrompt: 'old worker' });
-    expect(auditKanbanInvariants().violations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'unowned_worker', sessionId: root.id }),
-    ]));
     const first = reconcileKanbanOwnership({ dryRun: false });
-    expect(first.changes).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'cancelled_unowned_workers', count: 1 })]));
-    expect(sessions.getById(root.id).scheduledAt).toBeNull();
+    expect(first.changes).toEqual([]);
+    expect(sessions.getById(root.id)).toEqual(expect.objectContaining({
+      scheduledAt: expect.any(Number), pendingPrompt: 'old worker',
+    }));
     expect(reconcileKanbanOwnership({ dryRun: false }).changes).toEqual([]);
   });
 
