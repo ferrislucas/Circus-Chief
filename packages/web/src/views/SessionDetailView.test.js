@@ -123,6 +123,7 @@ vi.mock('../composables/useApi.js', () => ({
     getSessionSummary: vi.fn().mockResolvedValue(null),
     updateSession: vi.fn(),
     getSession: vi.fn(),
+    getWorkspaceDetail: vi.fn().mockResolvedValue(null),
     getConversations: vi.fn(),
     getSessionChanges: vi.fn().mockResolvedValue({ staged: '', unstaged: '', untracked: '' }),
     getKanbanBoard: vi.fn().mockResolvedValue(null),
@@ -5529,13 +5530,11 @@ describe('SessionDetailView', () => {
       const root = wrapper.find('[data-testid="session-detail"]');
       expect(root.attributes('data-ready')).toBe('true');
 
-      // Control buildSessionChain's settle point for the NEW session so the
-      // intermediate `sessionChainReady=false` state is observable. When
-      // api.getProjectSessions returns a still-pending promise, the route
-      // watcher cannot resolve and data-ready must remain "false".
-      let resolveProjectSessions;
-      api.getProjectSessions.mockImplementationOnce(
-        () => new Promise((resolve) => { resolveProjectSessions = resolve; }),
+      // Hold the new session fetch open so the route watcher remains between
+      // resetting readiness and rebuilding the session chain.
+      let resolveSessionFetch;
+      sessionsStore.fetchSession.mockImplementationOnce(
+        () => new Promise((resolve) => { resolveSessionFetch = resolve; }),
       );
 
       // Prepare the new session in the store so the watcher's
@@ -5555,7 +5554,7 @@ describe('SessionDetailView', () => {
       expect(root.attributes('data-ready')).toBe('false');
 
       // Unblock and verify recovery.
-      resolveProjectSessions([]);
+      resolveSessionFetch();
       await flushPromises();
       await nextTick();
 

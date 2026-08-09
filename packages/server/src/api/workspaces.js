@@ -132,19 +132,29 @@ function handleCreateError(res, session, error, label) {
   return res.status(500).json({ error: error.message || 'Internal server error' });
 }
 
+function parseBooleanFilter(value) {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return null;
+}
+
+function hasValidWorkspaceCardFilters(status, scheduled) {
+  return ['running', 'idle', undefined].includes(status)
+    && ['true', 'false', undefined].includes(scheduled);
+}
+
 function parseWorkspaceCardOptions({ archived, starred, limit, offset, status, scheduled }) {
   const parsedLimit = Number.parseInt(limit, 10);
   const parsedOffset = offset === undefined ? 0 : Number.parseInt(offset, 10);
   const valid = Number.isInteger(parsedLimit) && parsedLimit >= 1 && parsedLimit <= 50
     && Number.isInteger(parsedOffset) && parsedOffset >= 0
-    && ['running', 'idle', undefined].includes(status)
-    && ['true', 'false', undefined].includes(scheduled);
+    && hasValidWorkspaceCardFilters(status, scheduled);
   if (!valid) return null;
   return {
     archived: archived === 'true',
-    starred: starred === 'true' ? true : starred === 'false' ? false : null,
+    starred: parseBooleanFilter(starred),
     status: status || null,
-    scheduled: scheduled === 'true' ? true : scheduled === 'false' ? false : null,
+    scheduled: parseBooleanFilter(scheduled),
     limit: parsedLimit,
     offset: parsedOffset,
   };
