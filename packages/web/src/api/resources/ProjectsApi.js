@@ -24,12 +24,12 @@ export function ProjectsApi(ApiClient) {
 
     /** Fetch the bounded workspace-card read model used by the list view. */
     async getWorkspaceCards(projectId, options = {}) {
-      const { limit = 50, offset = 0, archived = false, starred = null, status = null, scheduled = null } = options;
-      const params = { view: 'cards', limit, offset, archived };
+      const { limit = 50, cursor = null, archived = false, starred = null, status = null, scheduled = null, signal } = options;
+      const params = { view: 'cards', limit, cursor, archived };
       if (starred !== null) params.starred = starred;
       if (status) params.status = status;
       if (scheduled !== null) params.scheduled = scheduled;
-      return this._get(this._buildQueryPath(`/projects/${projectId}/workspaces`, params));
+      return this._get(this._buildQueryPath(`/projects/${projectId}/workspaces`, params), { signal });
     },
 
     async getWorkspaceDetail(workspaceId) {

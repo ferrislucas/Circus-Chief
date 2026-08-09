@@ -45,12 +45,13 @@ export class ApiClient {
    * @param {Object} data - Request body data
    * @returns {Promise<any>}
    */
-  async #request(method, path, data = null) {
+  async #request(method, path, data = null, requestOptions = {}) {
     const options = {
       method,
       headers: {
         'Content-Type': 'application/json',
       },
+      ...requestOptions,
     };
 
     if (data && method !== 'GET') {
@@ -115,8 +116,8 @@ export class ApiClient {
    * @param {string} path - API path
    * @returns {Promise<any>}
    */
-  _get(path) {
-    return this.#request('GET', path);
+  _get(path, options = {}) {
+    return this.#request('GET', path, null, options);
   }
 
   /**
