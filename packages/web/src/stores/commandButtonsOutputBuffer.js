@@ -20,6 +20,24 @@ export function truncateOutput(text) {
 }
 
 /**
+ * Resolve the client-side high-water cursor for a run entry.
+ *
+ * Client-side the cursor tracks how much output has actually been rendered, so
+ * the server's cursor only applies when its output snapshot does. Adopting it
+ * alongside an empty snapshot (lightweight queries exclude output) would make
+ * later catch-up reads skip the very chunks that still need to be displayed.
+ *
+ * @param {Object} run - The run data from API
+ * @param {Object|undefined} existing - Existing run entry if present
+ * @param {boolean} hasServerOutput - Whether the API response carried output
+ * @returns {number} The cursor to store
+ */
+function resolveOutputHighWater(run, existing, hasServerOutput) {
+  if (!hasServerOutput) return existing?.outputHighWater ?? 0;
+  return run.outputHighWater ?? existing?.outputHighWater ?? 0;
+}
+
+/**
  * Build a run entry, preserving existing output if API returned empty.
  * @param {Object} run - The run data from API
  * @param {string} runId - The resolved run ID
@@ -40,7 +58,7 @@ export function buildRunEntry(run, runId, existing) {
     startedAt: run.startedAt,
     completedAt: run.completedAt,
     hasOutput: run.hasOutput ?? existing?.hasOutput ?? Boolean(output),
-    outputHighWater: run.outputHighWater ?? existing?.outputHighWater ?? 0,
+    outputHighWater: resolveOutputHighWater(run, existing, Boolean(output)),
     outputTruncated: hasExistingOutput ? existing.outputTruncated : truncated,
   };
 }
@@ -181,7 +199,7 @@ export function processRunFromApi(run, sessionId, existing) {
     startedAt: run.startedAt,
     completedAt: run.completedAt,
     hasOutput: run.hasOutput ?? existing?.hasOutput ?? Boolean(resolvedOutput),
-    outputHighWater: run.outputHighWater ?? existing?.outputHighWater ?? 0,
+    outputHighWater: resolveOutputHighWater(run, existing, Boolean(output)),
     outputTruncated: resolvedTruncated,
   };
 }

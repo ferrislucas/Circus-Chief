@@ -119,6 +119,41 @@ describe('subscribeCommandRunOutput', () => {
     await vi.waitFor(() => expect(store.syncRunOutput).toHaveBeenCalledTimes(3));
   });
 
+  it('publishes the applied cursor so a later viewer does not replay output', async () => {
+    await subscribeAndSettleInitialSync();
+    store.advanceOutputHighWater = vi.fn();
+
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 1, content: 'LINE 1\n' });
+
+    expect(store.advanceOutputHighWater).toHaveBeenCalledWith(RUN_ID, 1);
+  });
+
+  it('skips chunks a snapshot fetch rendered while the catch-up read was open', async () => {
+    await subscribeAndSettleInitialSync();
+
+    // Expanding a collapsed pane reads the same persisted stream from the start.
+    // Whichever loader lands second must not append output twice.
+    store.runs[RUN_ID] = { ...store.runs[RUN_ID], status: 'success', outputHighWater: 2 };
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 1, content: 'LINE 1\n' });
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 2, content: 'LINE 2\n' });
+
+    expect(store.appendOutput).not.toHaveBeenCalled();
+
+    // The stream still continues from where the snapshot left off.
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 3, content: 'LINE 3\n' });
+    expect(store.appendOutput).toHaveBeenCalledWith(RUN_ID, 'LINE 3\n', { allowAfterCompletion: true });
+  });
+
+  it('resumes a catch-up read from the output already rendered by the store', async () => {
+    await subscribeAndSettleInitialSync();
+    store.runs[RUN_ID] = { ...store.runs[RUN_ID], outputHighWater: 5 };
+    store.syncRunOutput.mockResolvedValueOnce({ highWater: 5, hasMore: false });
+
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT_RESYNC_REQUIRED, { runId: RUN_ID });
+
+    expect(store.syncRunOutput).toHaveBeenLastCalledWith(SESSION_ID, RUN_ID, 5, expect.any(Function));
+  });
+
   it('shares one socket subscription across viewers and releases it on the last unsubscribe', async () => {
     const unsubscribeA = await subscribeAndSettleInitialSync();
     const unsubscribeB = subscribeCommandRunOutput(SESSION_ID, RUN_ID);

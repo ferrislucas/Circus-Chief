@@ -50,6 +50,11 @@ export function subscribeCommandRunOutput(sessionId, runId) {
       syncing: null,
       resyncQueued: false,
       applyChunk(chunk) {
+        // The store cursor records what is already rendered. A snapshot fetch
+        // (expanding a collapsed pane) reads the same persisted stream from the
+        // start and can land mid-catch-up, so adopt its progress before
+        // deciding whether this chunk still needs to be appended.
+        this.adoptRenderedCursor();
         if (chunk.sequence <= this.highWater) return true;
         // A missed sequence means the socket was backpressured. Re-read the
         // persisted stream instead of attempting to repair it from live events.
@@ -61,7 +66,15 @@ export function subscribeCommandRunOutput(sessionId, runId) {
         // completing mid-catch-up must not discard the remaining output.
         this.store.appendOutput(runId, chunk.content, { allowAfterCompletion: true });
         this.highWater = chunk.sequence;
+        // Publish the cursor so a snapshot fetch, or a subscription created
+        // later for the same run, resumes here instead of replaying output.
+        this.store.advanceOutputHighWater?.(runId, chunk.sequence);
         return true;
+      },
+      /** Raise the in-memory cursor to the output already rendered by the store. */
+      adoptRenderedCursor() {
+        const rendered = this.store.runs[runId]?.outputHighWater || 0;
+        if (rendered > this.highWater) this.highWater = rendered;
       },
       drainPending() {
         for (const chunk of [...this.pending.values()].sort((a, b) => a.sequence - b.sequence)) {
@@ -84,6 +97,7 @@ export function subscribeCommandRunOutput(sessionId, runId) {
           return this.syncing;
         }
         this.resyncQueued = false;
+        this.adoptRenderedCursor();
         this.syncing = store.syncRunOutput(sessionId, runId, this.highWater, (chunk) => this.applyChunk(chunk))
           .then(({ hasMore }) => {
             this.initializing = false;

@@ -13,6 +13,17 @@ import {
 export const MAX_SYNC_PAGES_PER_CALL = 32;
 export const SYNC_PAGE_BYTES = 256 * 1024;
 
+/**
+ * Whether a run's persisted output has already been delivered to this client,
+ * either rendered into `output` or applied by a catch-up read (tracked by the
+ * high-water cursor, since appends can still be sitting in the flush buffer).
+ * @param {Object} run - Run entry from the store
+ * @returns {boolean}
+ */
+function hasRenderedOutput(run) {
+  return Boolean(run.output && run.output.length > 0) || (run.outputHighWater || 0) > 0;
+}
+
 export const useCommandButtonsStore = defineStore('commandButtons', {
   state: () => ({
     buttons: [],
@@ -229,18 +240,24 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
     async fetchRunOutput(sessionId, runId) {
       const existing = this.runs[runId];
       if (!existing) return;
-      if (existing.output && existing.output.length > 0) return; // Already have output, skip
+      // A non-zero cursor means a catch-up read has already applied chunks -
+      // possibly still sitting in the throttled buffer rather than in `output`.
+      if (hasRenderedOutput(existing)) return; // Already have output, skip
 
       try {
         const page = await api.getCommandRunOutput(sessionId, runId, { limitBytes: 2 * 1024 * 1024 });
         const output = page.chunks.map((chunk) => chunk.content).join('');
-        if (this.runs[runId]) {
+        const current = this.runs[runId];
+        // A live catch-up read for the same run may have rendered this output
+        // while the request was in flight; overwriting it would duplicate or
+        // truncate what the viewer is already looking at.
+        if (current && !hasRenderedOutput(current)) {
           const { output: boundedOutput, truncated } = truncateOutput(output);
           this.runs[runId] = {
-            ...this.runs[runId],
+            ...current,
             output: boundedOutput,
             outputTruncated: truncated,
-            outputHighWater: page.highWater,
+            outputHighWater: Math.max(page.highWater || 0, current.outputHighWater || 0),
           };
         }
       } catch (err) {
@@ -248,10 +265,23 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       }
     },
 
+    /**
+     * Record how far the rendered output has been applied. The cursor is shared
+     * state: a snapshot fetch and a live catch-up read can both write output,
+     * and whichever runs second must not replay what is already on screen.
+     */
+    advanceOutputHighWater(runId, sequence) {
+      const run = this.runs[runId];
+      if (!run) return;
+      if (sequence > (run.outputHighWater || 0)) run.outputHighWater = sequence;
+    },
+
     async syncRunOutput(sessionId, runId, after = 0, applyChunk) {
       const existing = this.runs[runId];
       if (!existing) return { highWater: after, hasMore: false };
-      let cursor = after;
+      // Never re-read below what is already rendered - `after` is captured by
+      // the caller before awaiting and can be stale by the time we run.
+      let cursor = Math.max(after, existing.outputHighWater || 0);
       let hasMore = true;
       let pages = 0;
       while (hasMore && pages < MAX_SYNC_PAGES_PER_CALL) {
@@ -265,7 +295,7 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
         hasMore = page.hasMore && page.chunks.length > 0;
       }
       this.flushPendingOutput(runId);
-      if (this.runs[runId]) this.runs[runId].outputHighWater = cursor;
+      this.advanceOutputHighWater(runId, cursor);
       return { highWater: cursor, hasMore };
     },
 

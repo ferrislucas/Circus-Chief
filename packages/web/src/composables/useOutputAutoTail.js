@@ -21,8 +21,9 @@ export const OUTPUT_BOTTOM_TOLERANCE_PX = 16;
  *   has changed (post-render), and only schedules a scroll when already
  *   tailing.
  *
- * Programmatic scrolling performed by this composable never mutates
- * `isTailing` itself - only `handleScroll` (a real user scroll event) does.
+ * Programmatic scrolling performed by this composable never pauses tailing:
+ * `handleScroll` ignores the scroll events its own scroll-to-bottom produces,
+ * so only a real user scroll away from the bottom changes `isTailing`.
  *
  * @param {import('vue').Ref<HTMLElement|null>} containerRef - template ref
  *   for the element that owns vertical scrolling.
@@ -33,6 +34,10 @@ export function useOutputAutoTail(containerRef) {
   let pendingFrame = false;
   let frameId = null;
   let disposed = false;
+  // Offset written by our own scroll-to-bottom, awaiting the scroll event it
+  // will produce. Null whenever no such event is outstanding, so ordinary user
+  // scrolling is always evaluated.
+  let pendingProgrammaticTop = null;
 
   function getDistanceFromBottom(el) {
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -48,6 +53,13 @@ export function useOutputAutoTail(containerRef) {
   function handleScroll() {
     const el = containerRef.value;
     if (!el) return;
+    // The scroll event for our own scroll-to-bottom is delivered asynchronously,
+    // by which time streaming output may already have grown the container. The
+    // pane then measures far from the bottom even though the user never moved
+    // it, which would strand the tail. Consume that one event by its offset.
+    const programmaticTop = pendingProgrammaticTop;
+    pendingProgrammaticTop = null;
+    if (programmaticTop !== null && el.scrollTop === programmaticTop) return;
     isTailing.value = getDistanceFromBottom(el) <= OUTPUT_BOTTOM_TOLERANCE_PX;
   }
 
@@ -61,7 +73,12 @@ export function useOutputAutoTail(containerRef) {
     if (!isTailing.value) return;
     const el = containerRef.value;
     if (!el) return;
+    const before = el.scrollTop;
     el.scrollTop = el.scrollHeight;
+    // Record the clamped result so the scroll event this produces is not
+    // mistaken for the user scrolling away from the bottom. An unchanged offset
+    // emits no event, so nothing is left armed to swallow a later user scroll.
+    if (el.scrollTop !== before) pendingProgrammaticTop = el.scrollTop;
   }
 
   /**
