@@ -341,6 +341,20 @@ export class SessionRepository extends BaseRepository {
   }
 
   /**
+   * Atomically claim a scheduled session. The expected timestamp is part of
+   * the predicate so a stale scheduler read can never start a rescheduled
+   * session. `starting` is deliberately set before any prompt/file work.
+   */
+  claimScheduled(id, expectedScheduledAt, claimedAt = Date.now()) {
+    const result = this.db.prepare(
+      `UPDATE sessions
+       SET status = 'starting', scheduled_at = NULL, updated_at = ?
+       WHERE id = ? AND status = 'scheduled' AND scheduled_at = ? AND archived = 0`
+    ).run(claimedAt, id, expectedScheduledAt);
+    return result.changes === 1 ? this.getById(id) : null;
+  }
+
+  /**
    * Get sessions stuck in 'starting' whose updated_at is older than the given cutoff timestamp.
    * Used by the boot-time stale-startup recovery sweep.
    * @param {number} cutoff - Absolute timestamp; rows with updated_at < cutoff are stale.

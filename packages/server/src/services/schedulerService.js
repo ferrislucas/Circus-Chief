@@ -2,6 +2,7 @@ import { sessions, messages, conversations, projects, attachments } from '../dat
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
+import { getSharedDataStore, SharedDataError } from './sharedDataStore.js';
 
 function broadcastRescheduledSession(sessionId, updated) {
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
@@ -20,10 +21,11 @@ function broadcastRescheduledSession(sessionId, updated) {
  * Polls for due sessions every 30 seconds and handles rescheduling logic
  */
 class SchedulerService {
-  constructor() {
+  constructor(dataStore = getSharedDataStore()) {
     this.pollInterval = 30000; // 30 seconds
     this.intervalId = null;
     this.sessionManager = null; // Will be set during initialization
+    this.dataStore = dataStore;
   }
 
   /**
@@ -101,7 +103,7 @@ class SchedulerService {
    */
   async checkScheduledSessions() {
     const now = Date.now();
-    const dueSessions = sessions.getScheduledSessionsDue(now);
+    const dueSessions = await this.dataStore.sessions.getScheduledDue(now);
 
     if (dueSessions.length > 0) {
       console.log(`[SchedulerService] Found ${dueSessions.length} session(s) due to start`);
@@ -109,8 +111,16 @@ class SchedulerService {
 
     for (const session of dueSessions) {
       try {
-        await this.startScheduledSession(session);
+        // The database state changes before slow prompt resolution or agent
+        // startup, making concurrent scheduler polls harmless.
+        // Existing unit-test doubles predate the atomic repository operation.
+        // Real local and HTTP stores always claim before work starts.
+        const claimed = this.dataStore.supportsAtomicClaims === false
+          ? session
+          : await this.dataStore.sessions.claimScheduled(session.id, session.scheduledAt, now);
+        await this.startScheduledSession(claimed);
       } catch (error) {
+        if (error instanceof SharedDataError && error.code === 'CONFLICT') continue;
         console.error(`[SchedulerService] Error starting scheduled session ${session.id}:`, error);
         // Mark session as error
         sessions.update(session.id, {
@@ -131,7 +141,7 @@ class SchedulerService {
    */
   async resolveScheduledPrompt(session, workingDirectory, projectSystemPrompt) {
     const prompt = session.pendingPrompt.trim();
-    const sessionAttachments = attachments.getBySessionId(session.id);
+    const sessionAttachments = await this.dataStore.attachments.getBySessionId(session.id);
 
     const resolved = await slashCommandService.resolvePromptSkillOrCommand(
       workingDirectory, prompt, projectSystemPrompt
@@ -156,17 +166,17 @@ class SchedulerService {
    * @param {Array} sessionAttachments - Attachments for context
    */
   async startFreshScheduledSession({ session, prompt, effectivePrompt, effectiveSystemPrompt, workingDirectory, sessionAttachments }) {
-    const activeConv = conversations.getActiveBySessionId(session.id);
+    const activeConv = await this.dataStore.conversations.getActiveBySessionId(session.id);
     if (!activeConv) {
       throw new Error(`No active conversation found for session ${session.id}`);
     }
 
     // Create the initial user message
-    const userMessage = messages.create(session.id, 'user', prompt, { toolUse: null, conversationId: activeConv.id });
+    const userMessage = await this.dataStore.messages.create(session.id, 'user', prompt, { toolUse: null, conversationId: activeConv.id });
 
     // Link any pending file attachments to the user message
     if (sessionAttachments && sessionAttachments.length > 0) {
-      attachments.updateMessageIdForSession(session.id, userMessage.id);
+      await this.dataStore.attachments.updateMessageIdForSession(session.id, userMessage.id);
     }
 
     // Broadcast the new message so UI updates
@@ -176,7 +186,7 @@ class SchedulerService {
     });
 
     // Update status from 'scheduled' to 'starting' and clear pendingPrompt
-    sessions.update(session.id, {
+    await this.dataStore.sessions.update(session.id, {
       status: 'starting',
       scheduledAt: null,
       pendingPrompt: null,
@@ -203,7 +213,7 @@ class SchedulerService {
     console.log(`[SchedulerService] Starting scheduled session ${session.id}: ${session.name}`);
 
     // Get the project for working directory and system prompt
-    const project = projects.getById(session.projectId);
+    const project = await this.dataStore.projects.getById(session.projectId);
     if (!project) {
       throw new Error(`Project not found for session ${session.id}`);
     }
@@ -225,7 +235,7 @@ class SchedulerService {
       const pendingConversationId = session.pendingConversationId;
 
       // Clear scheduler state and transition to starting
-      sessions.update(session.id, {
+      await this.dataStore.sessions.update(session.id, {
         status: 'starting',
         scheduledAt: null,
         pendingPrompt: null,
@@ -243,13 +253,13 @@ class SchedulerService {
     }
 
     // Get the session messages to determine if this is initial or continuation
-    const sessionMessages = messages.getBySessionId(session.id);
+    const sessionMessages = await this.dataStore.messages.getBySessionId(session.id);
     const hasAssistantResponses = sessionMessages.some((msg) => msg.role === 'assistant');
 
     // Determine if this is an initial run or a continuation
     if (hasAssistantResponses) {
       // Session has conversation history - this is a scheduled continuation
-      sessions.update(session.id, {
+      await this.dataStore.sessions.update(session.id, {
         status: 'starting',
         scheduledAt: null,
         pendingPrompt: null,
