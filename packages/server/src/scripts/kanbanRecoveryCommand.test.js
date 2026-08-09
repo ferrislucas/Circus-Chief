@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import serverPackage from '../../package.json' with { type: 'json' };
 import { DatabaseManager } from '../db/DatabaseManager.js';
 import { KANBAN_RECOVERY_VERSION, parseRecoveryArguments, runKanbanRecovery } from './kanbanRecoveryCommand.js';
+
+const require = createRequire(import.meta.url);
+const serverPackage = require('../../package.json');
 
 function digest(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');

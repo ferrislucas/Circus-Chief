@@ -9,10 +9,13 @@ import { databaseManager } from '../db/DatabaseManager.js';
 // db/ layer only — safe to import: db/index.js never depends on any
 // services/ module, so this cannot create an import cycle (contrast with
 // kanbanService.js/kanbanTriggers.js — see attemptLaneRunTransition below).
-import { kanbanCards } from '../database.js';
-import { broadcastToProject } from '../websocket.js';
 import { activeSessions } from './streamEventHandler.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { getRun } from './workflowRunReader.js';
+import { recomputeSubtreeOutcomes } from './workflowSessionState.js';
+import { enqueueTargetLaneTrigger, moveCardForTransition } from './workflowLaneTransition.js';
+
+export { getRun } from './workflowRunReader.js';
+export { computeSubtreeOutcome, recomputeSubtreeOutcomes } from './workflowSessionState.js';
 
 const now = () => Date.now();
 const id = () => crypto.randomUUID();
@@ -319,50 +322,6 @@ export function markHeldForLimit(sessionId) {
  * @param {string[]} childSubtreeOutcomes - already-computed outcomes of direct children
  * @returns {'open'|'succeeded'|'failed'|'cancelled'}
  */
-export function computeSubtreeOutcome(ownWorkState, childSubtreeOutcomes) {
-  if (ownWorkState === 'closed_failed' || childSubtreeOutcomes.includes('failed')) return 'failed';
-  if (ownWorkState === 'cancelled' || childSubtreeOutcomes.includes('cancelled')) return 'cancelled';
-  if (ownWorkState !== 'closed_successfully') return 'open';
-  if (childSubtreeOutcomes.some((o) => o !== 'succeeded')) return 'open';
-  return 'succeeded';
-}
-
-/**
- * FR-6.4: persisted sessions are the source of truth. Recompute every
- * member's subtree_outcome bottom-up (leaves to root) from the member rows
- * themselves — not from any cached counter — and persist any value that
- * changed. Safe to call repeatedly (idempotent) and usable standalone as a
- * reconciliation query, independent of reconcileLaneRun.
- * @param {string} runId
- * @returns {string|null} The recomputed root subtree outcome, or null if the run has no root yet
- */
-export function recomputeSubtreeOutcomes(runId) {
-  const db = databaseManager.get();
-  const run = db.prepare('SELECT root_session_id FROM kanban_lane_runs WHERE id=?').get(runId);
-  if (!run?.root_session_id) return null;
-  const members = db.prepare('SELECT id, parent_session_id, own_work_state, subtree_outcome FROM sessions WHERE lane_run_id=?').all(runId);
-  const byParent = new Map();
-  for (const m of members) {
-    if (!byParent.has(m.parent_session_id)) byParent.set(m.parent_session_id, []);
-    byParent.get(m.parent_session_id).push(m);
-  }
-  const byId = new Map(members.map((m) => [m.id, m]));
-  const computed = new Map();
-  const time = now();
-  function resolve(node) {
-    if (computed.has(node.id)) return computed.get(node.id);
-    const childOutcomes = (byParent.get(node.id) || []).map((child) => resolve(child));
-    const outcome = computeSubtreeOutcome(node.own_work_state, childOutcomes);
-    computed.set(node.id, outcome);
-    if (outcome !== node.subtree_outcome) {
-      db.prepare('UPDATE sessions SET subtree_outcome=?, workflow_updated_at=? WHERE id=?').run(outcome, time, node.id);
-    }
-    return outcome;
-  }
-  const root = byId.get(run.root_session_id);
-  return root ? resolve(root) : null;
-}
-
 // W4 (FR-9): closeOwnWork() is the single entry point that ever sets
 // own_work_state to closed_failed/cancelled — see sessionExecution.js
 // (permanent execution failure) and sessionManager.js#stopSession (user
@@ -396,32 +355,6 @@ export function reconcileLaneRun(runId) {
  * when the lane has no completion target).
  * @returns {string|null} The target lane id, or null if nothing moved
  */
-function moveCardForTransition(db, run, card) {
-  const targetLaneId = run.completion_target_lane_id || null;
-  if (!targetLaneId) return null;
-  const movedCard = kanbanCards.moveToLane(card.id, targetLaneId);
-  if (run.project_id) {
-    broadcastToProject(run.project_id, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
-      projectId: run.project_id,
-      cardId: card.id,
-      fromLaneId: card.lane_id,
-      toLaneId: targetLaneId,
-      card: movedCard,
-    });
-  }
-  return targetLaneId;
-}
-
-function enqueueTargetLaneTrigger(db, { run, card, targetLaneId, time }) {
-  const eventId = id();
-  db.prepare(`INSERT INTO kanban_lane_entry_events
-    (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,caused_by_run_id,status,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,'pending',?,?)`)
-    .run(eventId, `completion:${run.id}`, run.project_id, run.workspace_id, card.id,
-      targetLaneId, 'completion', run.id, time, time);
-  return eventId;
-}
-
 /**
  * W6 (FR-8): apply a successful lane run's guarded Kanban transition.
  *
@@ -453,7 +386,7 @@ export function attemptLaneRunTransition(runId) {
     .run(time, time, time, runId);
   if (winner.changes === 0) return getRun(runId);
 
-  const targetLaneId = moveCardForTransition(db, run, card);
+  const targetLaneId = moveCardForTransition(run, card);
   const laneEntryEventId = targetLaneId ? enqueueTargetLaneTrigger(db, { run, card, targetLaneId, time }) : null;
   db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=? WHERE id=?').run(now(), card.id);
   audit(db, runId, 'transition_applied');
@@ -499,51 +432,4 @@ export function supersedeRunForCard(cardId, reason = 'manual_move') {
   if (!activeLaneRun) return null;
 
   return supersedeLaneRun(activeLaneRun, reason);
-}
-
-function laneRunCounts(rows) {
-  const open = rows.filter(s => s.own_work_state === 'open');
-  const scheduled = open.filter(s => s.scheduled_at).sort((a, b) => a.scheduled_at - b.scheduled_at);
-  const retrying = open.filter(s => s.execution_state === 'retrying');
-  const paused = open.filter(s => s.execution_state === 'paused');
-  return {
-    open, scheduled, retrying, paused,
-    failedCount: rows.filter(s => s.own_work_state === 'closed_failed').length,
-    cancelledCount: rows.filter(s => s.own_work_state === 'cancelled').length,
-    failedSessionId: rows.find(s => s.own_work_state === 'closed_failed')?.id || null,
-  };
-}
-
-function findOwnWorkState(sessions, sessionId) {
-  return sessions.find(session => session.id === sessionId)?.own_work_state || null;
-}
-
-function blockerDetails({ scheduled, retrying, paused, open }) {
-  const groups = [
-    [scheduled, 'Waiting for scheduled work'],
-    [retrying, 'Retrying automation'],
-    [paused, 'Paused — provider limit or outage'],
-    [open, 'Waiting for descendants'],
-  ];
-  const [sessions, reason] = groups.find(([members]) => members.length) || [];
-  return { session: sessions?.[0] || null, reason: reason || null };
-}
-
-export function getRun(runId) {
-  const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
-  if (!run) return null; const rows = db.prepare('SELECT * FROM sessions WHERE lane_run_id=?').all(runId);
-  const { open, scheduled, retrying, paused, failedCount, cancelledCount, failedSessionId } = laneRunCounts(rows);
-  const names = db.prepare(`SELECT (SELECT name FROM kanban_lanes WHERE id=?) AS source_name,
-    (SELECT name FROM kanban_lanes WHERE id=?) AS target_name`).get(run.source_lane_id, run.completion_target_lane_id);
-  const blocker = blockerDetails({ scheduled, retrying, paused, open });
-  return { id: run.id, status: run.status, sourceLaneId: run.source_lane_id, sourceLaneName: names?.source_name || null,
-    targetLaneId: run.completion_target_lane_id, targetLaneName: names?.target_name || null,
-    rootSessionId: run.root_session_id, rootOwnWorkState: findOwnWorkState(rows, run.root_session_id),
-    failureReason: run.failure_reason, createdAt: run.created_at,
-    succeededAt: run.succeeded_at, failedAt: run.failed_at, cancelledAt: run.cancelled_at, supersededAt: run.superseded_at,
-    openCount: open.length, scheduledCount: open.filter(s => s.scheduled_at).length,
-    retryingCount: retrying.length, pausedCount: paused.length, nextScheduledAt: scheduled[0]?.scheduled_at || null,
-    failedCount, failedSessionId, cancelledCount,
-    blockingSessionIds: open.map(s => s.id), blockingSessionId: blocker.session?.id || null,
-    blockingReason: blocker.reason };
 }

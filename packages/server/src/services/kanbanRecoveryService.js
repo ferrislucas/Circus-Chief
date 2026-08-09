@@ -14,6 +14,25 @@ function hasAutomation(lane) {
   return Boolean(lane.on_enter_prompt || lane.on_enter_template_id);
 }
 
+function auditLaneInvariant(violations, lane, target) {
+  const base = { projectId: lane.project_id, boardId: lane.board_id, laneId: lane.id, targetLaneId: lane.completion_target_lane_id };
+  if (!hasAutomation(lane)) violations.push(issue('invalid_lane', 'completion target requires on-entry automation', base));
+  if (!target) violations.push(issue('invalid_lane_target', 'completion target does not exist', base));
+  else if (target.id === lane.id) violations.push(issue('invalid_lane_target', 'completion target cannot reference its own lane', base));
+  else if (target.board_id !== lane.board_id) violations.push(issue('invalid_lane_target', 'completion target belongs to another board', base));
+}
+
+function auditOpenRunInvariant(violations, db, row) {
+  const base = { runId: row.run_id, cardId: row.card_id, workspaceId: row.workspace_id, laneId: row.source_lane_id };
+  if (!row.card_lane_id) violations.push(issue('orphan_open_run', 'open run has no card', base));
+  else if (row.active_lane_run_id !== row.run_id) violations.push(issue('stale_run_pointer', 'open run is not the card active run', base));
+  else if (row.card_lane_id !== row.source_lane_id) violations.push(issue('run_lane_mismatch', 'card is no longer in the run source lane', base));
+  if (!row.root_session_id) violations.push(issue('run_root', 'open run has no root session', base));
+  else if (!db.prepare('SELECT 1 FROM sessions WHERE id=? AND lane_run_id=?').get(row.root_session_id, row.run_id)) {
+    violations.push(issue('run_root', 'run root is not a member of its run', base));
+  }
+}
+
 /** Return a stable report suitable for both operators and JSON automation. */
 export function auditKanbanInvariants(db = databaseManager.get()) {
   const violations = [];
@@ -22,25 +41,13 @@ export function auditKanbanInvariants(db = databaseManager.get()) {
 
   for (const lane of lanes) {
     if (!lane.completion_target_lane_id) continue;
-    const target = laneById.get(lane.completion_target_lane_id);
-    const base = { projectId: lane.project_id, boardId: lane.board_id, laneId: lane.id, targetLaneId: lane.completion_target_lane_id };
-    if (!hasAutomation(lane)) violations.push(issue('invalid_lane', 'completion target requires on-entry automation', base));
-    if (!target) violations.push(issue('invalid_lane_target', 'completion target does not exist', base));
-    else if (target.id === lane.id) violations.push(issue('invalid_lane_target', 'completion target cannot reference its own lane', base));
-    else if (target.board_id !== lane.board_id) violations.push(issue('invalid_lane_target', 'completion target belongs to another board', base));
+    auditLaneInvariant(violations, lane, laneById.get(lane.completion_target_lane_id));
   }
 
   for (const row of db.prepare(`SELECT r.id run_id, r.card_id, r.source_lane_id, r.root_session_id, r.workspace_id,
       c.active_lane_run_id, c.lane_id card_lane_id FROM kanban_lane_runs r
       LEFT JOIN kanban_cards c ON c.id=r.card_id WHERE r.status='open'`).all()) {
-    const base = { runId: row.run_id, cardId: row.card_id, workspaceId: row.workspace_id, laneId: row.source_lane_id };
-    if (!row.card_lane_id) violations.push(issue('orphan_open_run', 'open run has no card', base));
-    else if (row.active_lane_run_id !== row.run_id) violations.push(issue('stale_run_pointer', 'open run is not the card active run', base));
-    else if (row.card_lane_id !== row.source_lane_id) violations.push(issue('run_lane_mismatch', 'card is no longer in the run source lane', base));
-    if (!row.root_session_id) violations.push(issue('run_root', 'open run has no root session', base));
-    else if (!db.prepare('SELECT 1 FROM sessions WHERE id=? AND lane_run_id=?').get(row.root_session_id, row.run_id)) {
-      violations.push(issue('run_root', 'run root is not a member of its run', base));
-    }
+    auditOpenRunInvariant(violations, db, row);
   }
 
   for (const row of db.prepare(`SELECT c.id card_id, c.active_lane_run_id run_id, l.board_id, b.project_id
