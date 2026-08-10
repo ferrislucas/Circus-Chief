@@ -26,20 +26,34 @@ const LANE_NOT_FOUND_ERROR = 'Lane not found';
 const OPERATION_LEASE_MS = 30_000;
 
 function canonicalPayload(payload) {
-  return JSON.stringify(Object.fromEntries(Object.keys(payload || {}).sort().map((key) => [key, payload[key]])));
+  if (Array.isArray(payload)) return payload.map(canonicalPayload);
+  if (payload && typeof payload === 'object') {
+    return Object.fromEntries(Object.keys(payload).sort().map((key) => [key, canonicalPayload(payload[key])]));
+  }
+  return payload;
 }
 
-function idempotencyKey(req) {
+/**
+ * Validate this once, before any route validation or business mutation.  A
+ * supplied key is a request contract, so treating an invalid key as though it
+ * were absent would permit an accidental duplicate mutation on retry.
+ */
+function validateIdempotencyKey(req, res, next) {
   const key = req.get('Idempotency-Key');
-  return key && key.length <= 255 ? key : null;
+  if (key === undefined) return next();
+  if (key.length === 0 || key.length > 255 || !/^[\x21-\x7e]+$/.test(key)) {
+    return res.status(400).json({ error: 'Idempotency-Key must be 1-255 visible ASCII characters without whitespace' });
+  }
+  req.kanbanIdempotencyKey = key;
+  return next();
 }
 
 /** Reserve a durable API operation. Unkeyed calls retain legacy semantics,
  * while keyed calls get database-enforced replay protection. */
 function beginOperation(req, endpoint) {
-  const key = idempotencyKey(req);
+  const key = req.kanbanIdempotencyKey;
   if (!key) return { keyed: false };
-  const payloadHash = crypto.createHash('sha256').update(canonicalPayload(req.body)).digest('hex');
+  const payloadHash = crypto.createHash('sha256').update(JSON.stringify(canonicalPayload(req.body))).digest('hex');
   const db = databaseManager.get();
   let existing = db.prepare(`SELECT * FROM kanban_api_operations
     WHERE project_id=? AND endpoint=? AND operation_key=?`).get(req.params.projectId, endpoint, key);
@@ -68,6 +82,8 @@ function beginOperation(req, endpoint) {
     return beginOperation(req, endpoint);
   }
 }
+
+router.use(validateIdempotencyKey);
 
 function replayOrPending(res, operation) {
   if (!operation?.existing) return false;

@@ -64,6 +64,85 @@ describe('Kanban API', () => {
     });
   }
 
+  describe('Idempotency-Key validation', () => {
+    it.each([
+      ['', 'an empty key'],
+      ['   ', 'a whitespace-only key'],
+      ['contains space', 'a key containing whitespace'],
+      ['x'.repeat(256), 'an overlong key'],
+    ])('rejects %s before a card mutation (%s)', async (key) => {
+      const { lanes: boardLanes } = setupBoard();
+      const session = createSession();
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send({ workspaceId: session.id, laneId: boardLanes[0].id });
+
+      expect(res.status).toBe(400);
+      expect(kanbanCards.getBySessionId(session.id)).toBeNull();
+    });
+
+    it('replays the original 201 response byte-for-byte for a completed card add', async () => {
+      const { lanes: boardLanes } = setupBoard();
+      const session = createSession();
+      const key = 'card-add-replay';
+      const body = { workspaceId: session.id, laneId: boardLanes[0].id };
+
+      const first = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send(body);
+      const replay = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send(body);
+
+      expect(first.status).toBe(201);
+      expect(replay.status).toBe(201);
+      expect(replay.text).toBe(first.text);
+      expect(kanbanCards.getBySessionId(session.id)).toMatchObject({ id: first.body.id });
+    });
+
+    it('rejects reuse of a key with a different payload without another mutation', async () => {
+      const { lanes: boardLanes } = setupBoard();
+      const firstSession = createSession('First');
+      const secondSession = createSession('Second');
+      const key = 'card-add-conflict';
+
+      await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send({ workspaceId: firstSession.id, laneId: boardLanes[0].id });
+      const conflict = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send({ workspaceId: secondSession.id, laneId: boardLanes[0].id });
+
+      expect(conflict.status).toBe(409);
+      expect(kanbanCards.getBySessionId(secondSession.id)).toBeNull();
+    });
+
+    it('accepts a 255-character key and preserves legacy behavior without a key', async () => {
+      const { lanes: boardLanes } = setupBoard();
+      const keyedSession = createSession('Keyed Session');
+      const legacySession = createSession('Legacy Session');
+
+      const keyed = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', 'k'.repeat(255))
+        .send({ workspaceId: keyedSession.id, laneId: boardLanes[0].id });
+      const legacy = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .send({ workspaceId: legacySession.id, laneId: boardLanes[0].id });
+
+      expect(keyed.status).toBe(201);
+      expect(keyed.body.operationId).toEqual(expect.any(String));
+      expect(legacy.status).toBe(201);
+      expect(legacy.body.operationId).toBeUndefined();
+    });
+  });
+
   // ============== Board Endpoints ==============
 
   describe('GET /api/projects/:projectId/kanban', () => {
