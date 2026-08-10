@@ -49,16 +49,16 @@ function resolveWorkspaceId(sessionId) {
 }
 
 export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
-  const { runOnEnterTemplate = true, depth = 0, laneRunId = null, beforeDispatch } = options;
+  const { runOnEnterTemplate = true, depth = 0, laneRunId = null, beforeDispatch, abortController } = options;
 
   if (!runOnEnterTemplate) return { delivered: true, rootSessionId: null };
 
   const lane = kanbanLanes.getByIdWithTemplate(laneId);
   let result = { delivered: true, rootSessionId: null };
   if (lane?.onEnterTemplateId) {
-    result = await triggerOnEnterTemplate(sessionId, lane, { depth, laneRunId, beforeDispatch });
+    result = await triggerOnEnterTemplate(sessionId, lane, { depth, laneRunId, beforeDispatch, abortController });
   } else if (lane?.onEnterPrompt) {
-    result = await triggerOnEnterPrompt(sessionId, lane, { depth, laneRunId, beforeDispatch });
+    result = await triggerOnEnterPrompt(sessionId, lane, { depth, laneRunId, beforeDispatch, abortController });
   }
   if (!result?.delivered) throw new Error(`Lane-entry delivery failed: ${result?.reason || 'unknown error'}`);
   return result;
@@ -77,7 +77,7 @@ export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}
  * @throws {Error} If session already has a card on the board
  */
 export async function addSessionToBoard(sessionId, laneId, options = {}) {
-  const { sortOrder, runOnEnterTemplate = true, depth = 0 } = options;
+  const { sortOrder, runOnEnterTemplate = true, depth = 0, finalizeMutation } = options;
 
   // Normalize to workspace root — all cards are keyed to the root session.
   const workspaceId = resolveWorkspaceId(sessionId);
@@ -87,7 +87,7 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
   // its lane-entry event/run after a crash or constraint failure.
   const rootSession = sessions.getById(workspaceId);
   const lane = kanbanLanes.getById(laneId);
-  const { card, laneRun } = databaseManager.transaction(() => {
+  const { card, laneRun, finalizedResult } = databaseManager.transaction(() => {
     if (kanbanCards.getBySessionId(workspaceId)) {
       throw new Error('Session already has a card on the board');
     }
@@ -95,7 +95,8 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
     const createdRun = rootSession && runOnEnterTemplate && isStructured(lane)
       ? createLaneRunForEntry({ projectId: rootSession.projectId, workspaceId, cardId: createdCard.id, lane })
       : null;
-    return { card: createdCard, laneRun: createdRun };
+    const result = finalizeMutation?.({ card: createdCard, eventId: createdRun?.laneEntryEventId || null });
+    return { card: createdCard, laneRun: createdRun, finalizedResult: result };
   });
 
   // Delivery remains detached from the committed mutation. It only wakes the
@@ -121,7 +122,7 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
     }
   }
 
-  return card;
+  return finalizedResult ?? card;
 }
 
 /**
@@ -136,7 +137,7 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
  * @returns {Promise<Object>} The moved card
  */
 export async function moveCard(cardId, targetLaneId, options = {}) {
-  const { sortOrder, runOnEnterTemplate = true, depth = 0 } = options;
+  const { sortOrder, runOnEnterTemplate = true, depth = 0, finalizeMutation } = options;
 
   const card = kanbanCards.getByIdWithLane(cardId);
   if (!card) {
@@ -151,13 +152,14 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
   const lane = kanbanLanes.getById(targetLaneId);
   // Supersession, movement, and the successor entry intent must commit
   // together. A delivery failure after this point is retryable outbox work.
-  const { movedCard, laneRun } = databaseManager.transaction(() => {
+  const { movedCard, laneRun, finalizedResult } = databaseManager.transaction(() => {
     supersedeRunForCard(cardId, 'manual_move');
     const updatedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
     const createdRun = session && runOnEnterTemplate && isStructured(lane)
       ? createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause: 'manual_move' })
       : null;
-    return { movedCard: updatedCard, laneRun: createdRun };
+    const result = finalizeMutation?.({ card: updatedCard, eventId: createdRun?.laneEntryEventId || null });
+    return { movedCard: updatedCard, laneRun: createdRun, finalizedResult: result };
   });
 
   if (session) {
@@ -175,7 +177,7 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
     }
   }
 
-  return movedCard;
+  return finalizedResult ?? movedCard;
 }
 
 /**
@@ -265,7 +267,7 @@ function claimLaneEntryTrigger(eventId) {
  * is in flight. Every transition remains token-fenced; a failed renewal
  * closes the guard so a stale worker cannot acknowledge or publish success.
  */
-function createLaneEntryClaimGuard(eventId, token) {
+function createLaneEntryClaimGuard(eventId, token, abortController) {
   const db = databaseManager.get();
   let current = true;
   const renew = () => {
@@ -275,7 +277,10 @@ function createLaneEntryClaimGuard(eventId, token) {
       SET claim_expires_at=?, updated_at=?
       WHERE id=? AND status='claimed' AND claim_token=? AND claim_expires_at>?`)
       .run(now + ENTRY_EVENT_LEASE_MS, now, eventId, token, now).changes;
-    if (changed !== 1) current = false;
+    if (changed !== 1) {
+      current = false;
+      abortController?.abort(new Error('Lane-entry claim ownership was lost'));
+    }
   };
   const timer = setInterval(renew, ENTRY_EVENT_RENEWAL_MS);
   timer.unref?.();
@@ -284,7 +289,11 @@ function createLaneEntryClaimGuard(eventId, token) {
       if (!current) throw new Error('Lane-entry claim ownership was lost');
       const owner = db.prepare(`SELECT 1 FROM kanban_lane_entry_events
         WHERE id=? AND status='claimed' AND claim_token=? AND claim_expires_at>?`).get(eventId, token, Date.now());
-      if (!owner) { current = false; throw new Error('Lane-entry claim ownership was lost'); }
+      if (!owner) {
+        current = false;
+        abortController?.abort(new Error('Lane-entry claim ownership was lost'));
+        throw new Error('Lane-entry claim ownership was lost');
+      }
     },
     stop() { clearInterval(timer); },
   };
@@ -354,7 +363,8 @@ function resolveDeliveryState(event) {
 async function drainLaneEntryTriggerImpl(eventId, options = {}) {
   const token = claimLaneEntryTrigger(eventId);
   if (!token) return false;
-  const claim = createLaneEntryClaimGuard(eventId, token);
+  const abortController = new AbortController();
+  const claim = createLaneEntryClaimGuard(eventId, token, abortController);
   const db = databaseManager.get();
   const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
   const valid = event && db.prepare('SELECT 1 FROM kanban_cards WHERE id=?').get(event.card_id);
@@ -380,6 +390,7 @@ async function drainLaneEntryTriggerImpl(eventId, options = {}) {
     if (resolved.state === 'needs_delivery') {
       const delivery = await triggerLaneEntryAutomation(event.workspace_id, event.lane_id, {
         runOnEnterTemplate: true, depth: options.depth || 0, laneRunId: resolved.run.id,
+        abortController,
         beforeDispatch: () => { claim.assertCurrent(); return markDispatchIntent(event.id, token); },
       });
       rootSessionId = delivery?.rootSessionId;

@@ -11,9 +11,30 @@ import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
 import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
 import { attachRootSession } from './workflowSessionService.js';
+import {
+  assertKanbanProviderIdempotency,
+  supportsKanbanProviderIdempotency,
+} from './kanbanProviderCapability.js';
 
 // Maximum depth for recursive lane-entry template triggers
 export const MAX_LANE_TRIGGER_DEPTH = 5;
+
+/** Durable lane delivery may only use a transport that forwards the stable
+ * dispatch key to the provider. Today that contract is implemented solely by
+ * the explicitly selected Codex direct-API transport. */
+export function supportsProviderIdempotency(model) {
+  return supportsKanbanProviderIdempotency(model, resolveProviderMetadataFromModel);
+}
+
+function assertDispatchCapability(model, beforeDispatch) {
+  if (beforeDispatch && !supportsProviderIdempotency(model)) {
+    assertKanbanProviderIdempotency(model);
+  }
+}
+
+function throwIfAborted(controller) {
+  if (controller?.signal.aborted) throw controller.signal.reason || new Error('Lane-entry delivery was aborted');
+}
 
 /**
  * A lane-entry delivery must be observable by its caller.  In particular,
@@ -54,6 +75,7 @@ export function getSessionAndProjectForTrigger(sessionId) {
  * @returns {Promise<{workingDirectory: string, gitWorktree: string|null}>}
  */
 export async function determineWorkingDirectory(parentSession, project, gitOptions = {}) {
+  throwIfAborted(gitOptions.abortController);
   if (parentSession.gitWorktree) {
     console.log(`Kanban: Inheriting parent worktree: ${parentSession.gitWorktree}`);
     return { workingDirectory: parentSession.gitWorktree, gitWorktree: parentSession.gitWorktree };
@@ -69,6 +91,7 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
       commitAttributionOverride:
         resolveProviderMetadataFromModel(gitOptions.model)?.commitAttributionOverride ?? null,
     });
+    throwIfAborted(gitOptions.abortController);
     return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
   }
 
@@ -180,8 +203,9 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
   return { newSession, renderedPrompt, settings };
 }
 
+// eslint-disable-next-line max-statements -- capability, cancellation, setup, and dispatch fences form one boundary
 export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
-  const { depth = 0, laneRunId = null, beforeDispatch } = options;
+  const { depth = 0, laneRunId = null, beforeDispatch, abortController } = options;
 
   if (depth >= MAX_LANE_TRIGGER_DEPTH) {
     console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
@@ -197,6 +221,8 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
   const context = getSessionAndProjectForTrigger(sessionId);
   if (!context) return undelivered('workspace session or project not found');
   const { session, project } = context;
+  assertDispatchCapability(getTemplateSessionSettings(template, session).model, beforeDispatch);
+  throwIfAborted(abortController);
 
   console.log(`Kanban: Triggering on-enter template "${template.name}" for session "${session.name}" entering lane "${lane.name}"`);
 
@@ -211,6 +237,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
       gitBranch: settings.gitBranch,
       sessionId: newSession.id,
       model: settings.model,
+      abortController,
     });
     if (gitWorktree) {
       sessions.update(newSession.id, { gitWorktree });
@@ -226,10 +253,12 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
     // provider boundary.  A crash after this point is ambiguous and is never
     // replayed as a second provider start without the same idempotency key.
     const dispatchKey = beforeDispatch ? await beforeDispatch(newSession.id) : null;
+    throwIfAborted(abortController);
     const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
       ...(dispatchKey ? { idempotencyKey: dispatchKey } : {}),
+      ...(abortController ? { abortController } : {}),
     });
     if (!accepted) return undelivered('provider dispatch was not accepted');
 
@@ -295,7 +324,7 @@ async function buildChildSessionFromPrompt(lane, session, depth, laneRunId = nul
 }
 
 export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
-  const { depth = 0, laneRunId = null, beforeDispatch } = options;
+  const { depth = 0, laneRunId = null, beforeDispatch, abortController } = options;
 
   if (depth >= MAX_LANE_TRIGGER_DEPTH) {
     console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
@@ -305,6 +334,8 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
   const context = getSessionAndProjectForTrigger(sessionId);
   if (!context) return undelivered('workspace session or project not found');
   const { session, project } = context;
+  assertDispatchCapability(getLaneSessionSettings(lane, session).model, beforeDispatch);
+  throwIfAborted(abortController);
 
   console.log(`Kanban: Triggering on-enter prompt for session "${session.name}" entering lane "${lane.name}"`);
 
@@ -312,7 +343,7 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
     const { newSession, renderedPrompt, settings } = await buildChildSessionFromPrompt(lane, session, depth, laneRunId);
 
     // Determine working directory
-    const { workingDirectory, gitWorktree } = await determineWorkingDirectory(session, project);
+    const { workingDirectory, gitWorktree } = await determineWorkingDirectory(session, project, { abortController });
     if (gitWorktree) {
       sessions.update(newSession.id, { gitWorktree });
     }
@@ -324,10 +355,12 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
     });
 
     const dispatchKey = beforeDispatch ? await beforeDispatch(newSession.id) : null;
+    throwIfAborted(abortController);
     const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
       ...(dispatchKey ? { idempotencyKey: dispatchKey } : {}),
+      ...(abortController ? { abortController } : {}),
     });
     if (!accepted) return undelivered('provider dispatch was not accepted');
 

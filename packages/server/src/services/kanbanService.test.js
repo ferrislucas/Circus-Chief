@@ -21,6 +21,13 @@ vi.mock('./sessionManager.js', () => ({
   runSession: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('./sessionProvider.js', () => ({
+  resolveAgentTypeFromModel: vi.fn().mockReturnValue('codex'),
+  resolveProviderMetadataFromModel: vi.fn().mockReturnValue({
+    kind: 'openai', authToken: 'test-key', commitAttributionOverride: null,
+  }),
+}));
+
 import {
   kanbanBoards,
   kanbanLanes,
@@ -53,6 +60,7 @@ describe('kanbanService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.USE_CODEX_DIRECT_API = '1';
 
     const project = projects.create('Test Project', '/tmp/test');
     projectId = project.id;
@@ -122,6 +130,19 @@ describe('kanbanService', () => {
   // ── addSessionToBoard ──────────────────────────────────────────────
 
   describe('addSessionToBoard', () => {
+    it('rolls back the card and lane-entry intent when operation finalization fails', async () => {
+      const session = createSession();
+
+      await expect(addSessionToBoard(session.id, lanes[0].id, {
+        finalizeMutation: () => { throw new Error('operation ownership lost'); },
+      })).rejects.toThrow('operation ownership lost');
+
+      expect(kanbanCards.getBySessionId(session.id)).toBeNull();
+      expect(databaseManager.get().prepare(
+        'SELECT COUNT(*) AS count FROM kanban_lane_entry_events WHERE workspace_id=?'
+      ).get(session.id).count).toBe(0);
+    });
+
     it('rolls back the card when durable lane-entry intent cannot be recorded', async () => {
       const template = sessionTemplates.create({ projectId, name: 'Entry', prompt: 'do something' });
       kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });

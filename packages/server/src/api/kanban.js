@@ -23,6 +23,9 @@ import { isApiError } from '../errors/ApiError.js';
 
 const router = Router({ mergeParams: true });
 const LANE_NOT_FOUND_ERROR = 'Lane not found';
+const CARD_NOT_FOUND_ERROR = 'Card not found';
+const TARGET_LANE_NOT_FOUND_ERROR = 'Target lane not found';
+const WORKSPACE_CARD_NOT_FOUND_ERROR = 'No card found for this workspace';
 const OPERATION_LEASE_MS = 30_000;
 
 function canonicalPayload(payload) {
@@ -103,6 +106,23 @@ function completeOperation(operation, response, eventId = null, responseStatus =
     .run(responseStatus, JSON.stringify(body), eventId, Date.now(), operation.operation.id, operation.operation.token);
   if (updated.changes !== 1) throw new Error('Kanban operation ownership was lost before result persistence');
   return body;
+}
+
+function sendTerminalOperationResponse(res, operation, responseStatus, response) {
+  return res.status(responseStatus).json(completeOperation(operation, response, null, responseStatus));
+}
+
+function boardForProject(projectId) {
+  return kanbanBoards.getByProjectId(projectId);
+}
+
+function cardBelongsToBoard(card, board) {
+  if (!card || !board) return false;
+  return kanbanLanes.getById(card.laneId)?.boardId === board.id;
+}
+
+function laneBelongsToBoard(lane, board) {
+  return Boolean(lane && board && lane.boardId === board.id);
 }
 
 function completionTargetError(boardId, targetLaneId, sourceLaneId = null) {
@@ -274,8 +294,10 @@ router.delete('/lanes/:laneId', (req, res) => {
 
   const lane = kanbanLanes.getById(laneId);
   if (!lane) {
-    return res.status(404).json({ error: 'Lane not found' });
+    return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
   }
+  const projectBoard = boardForProject(req.params.projectId);
+  if (!laneBelongsToBoard(lane, projectBoard)) return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
 
   kanbanLanes.delete(laneId);
 
@@ -356,22 +378,27 @@ router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req,
   // Check if workspace already has a card
   const existingCard = kanbanCards.getBySessionId(workspaceId);
   if (existingCard) {
-    return res.status(409).json({ error: 'Session already has a card on the board' });
+    return sendTerminalOperationResponse(res, operation, 409, { error: 'Session already has a card on the board' });
   }
 
   // Verify lane exists
   const lane = kanbanLanes.getById(laneId);
   if (!lane) {
-    return res.status(404).json({ error: 'Lane not found' });
+    return sendTerminalOperationResponse(res, operation, 404, { error: LANE_NOT_FOUND_ERROR });
+  }
+  const board = boardForProject(req.params.projectId);
+  if (!laneBelongsToBoard(lane, board)) {
+    return sendTerminalOperationResponse(res, operation, 404, { error: LANE_NOT_FOUND_ERROR });
   }
 
   try {
-    const card = await addSessionToBoard(workspaceId, laneId);
-    const eventId = kanbanCards.getById(card.id)?.laneEntryEventId || null;
-    res.status(201).json(completeOperation(operation, card, eventId, 201));
+    const response = await addSessionToBoard(workspaceId, laneId, {
+      finalizeMutation: ({ card, eventId }) => completeOperation(operation, card, eventId, 201),
+    });
+    res.status(201).json(response);
   } catch (error) {
     if (error.message === 'Session already has a card on the board') {
-      return res.status(409).json({ error: error.message });
+      return sendTerminalOperationResponse(res, operation, 409, { error: error.message });
     }
     res.status(500).json({ error: error.message });
   }
@@ -391,8 +418,10 @@ router.patch('/cards/:cardId/move', async (req, res) => {
 
   const card = kanbanCards.getByIdWithLane(cardId);
   if (!card) {
-    return res.status(404).json({ error: 'Card not found' });
+    return res.status(404).json({ error: CARD_NOT_FOUND_ERROR });
   }
+  const board = boardForProject(req.params.projectId);
+  if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: CARD_NOT_FOUND_ERROR });
 
   const { targetLaneId, sortOrder, runOnEnterTemplate } = result.data;
   const operation = beginOperation(req, `card_move:${cardId}`);
@@ -402,16 +431,19 @@ router.patch('/cards/:cardId/move', async (req, res) => {
   // Verify target lane exists
   const targetLane = kanbanLanes.getById(targetLaneId);
   if (!targetLane) {
-    return res.status(404).json({ error: 'Target lane not found' });
+    return sendTerminalOperationResponse(res, operation, 404, { error: TARGET_LANE_NOT_FOUND_ERROR });
+  }
+  if (!laneBelongsToBoard(targetLane, board)) {
+    return sendTerminalOperationResponse(res, operation, 404, { error: TARGET_LANE_NOT_FOUND_ERROR });
   }
 
   try {
-    const movedCard = await moveCardService(cardId, targetLaneId, {
+    const response = await moveCardService(cardId, targetLaneId, {
       sortOrder,
       runOnEnterTemplate,
+      finalizeMutation: ({ card: movedCard, eventId }) => completeOperation(operation, movedCard, eventId),
     });
-    const eventId = kanbanCards.getById(cardId)?.laneEntryEventId || null;
-    res.json(completeOperation(operation, movedCard, eventId));
+    res.json(response);
   } catch (error) {
     console.error('Failed to move kanban card:', error);
     res.status(500).json({ error: error.message });
@@ -427,8 +459,10 @@ router.delete('/cards/:cardId', (req, res) => {
 
   const card = kanbanCards.getByIdWithLane(cardId);
   if (!card) {
-    return res.status(404).json({ error: 'Card not found' });
+    return res.status(404).json({ error: CARD_NOT_FOUND_ERROR });
   }
+  const board = boardForProject(projectId);
+  if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: CARD_NOT_FOUND_ERROR });
 
   deleteCardById(card, projectId);
   res.status(204).send();
@@ -441,16 +475,24 @@ router.delete('/cards/:cardId', (req, res) => {
  * Move the workspace's card to a different lane.
  * No card ID needed — the agent addresses by workspace ID.
  */
+// eslint-disable-next-line max-statements -- ownership and idempotency fences stay adjacent to the mutation
 router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
   const { workspaceId: rawWorkspaceId } = req.params;
 
   // Normalize to workspace root (forgiving if a child id is passed)
   const workspaceId = sessions.getRootSessionId(rawWorkspaceId) || rawWorkspaceId;
 
+  const workspace = sessions.getById(workspaceId);
+  if (!workspace || workspace.projectId !== req.params.projectId) {
+    return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
+  }
+
   const card = kanbanCards.getBySessionId(workspaceId);
   if (!card) {
-    return res.status(404).json({ error: 'No card found for this workspace' });
+    return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
   }
+  const board = boardForProject(req.params.projectId);
+  if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
 
   const result = MoveKanbanCardRequest.safeParse(req.body);
   if (!result.success) {
@@ -464,16 +506,19 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
 
   const targetLane = kanbanLanes.getById(targetLaneId);
   if (!targetLane) {
-    return res.status(404).json({ error: 'Target lane not found' });
+    return sendTerminalOperationResponse(res, operation, 404, { error: TARGET_LANE_NOT_FOUND_ERROR });
+  }
+  if (!laneBelongsToBoard(targetLane, board)) {
+    return sendTerminalOperationResponse(res, operation, 404, { error: TARGET_LANE_NOT_FOUND_ERROR });
   }
 
   try {
-    const movedCard = await moveCardService(card.id, targetLaneId, {
+    const response = await moveCardService(card.id, targetLaneId, {
       sortOrder,
       runOnEnterTemplate,
+      finalizeMutation: ({ card: movedCard, eventId }) => completeOperation(operation, movedCard, eventId),
     });
-    const eventId = kanbanCards.getById(card.id)?.laneEntryEventId || null;
-    res.json(completeOperation(operation, movedCard, eventId));
+    res.json(response);
   } catch (error) {
     console.error('Failed to move kanban card by workspace:', error);
     res.status(500).json({ error: error.message });
@@ -491,10 +536,17 @@ router.delete('/cards/by-workspace/:workspaceId', (req, res) => {
   // Normalize to workspace root (forgiving if a child id is passed)
   const workspaceId = sessions.getRootSessionId(rawWorkspaceId) || rawWorkspaceId;
 
+  const workspace = sessions.getById(workspaceId);
+  if (!workspace || workspace.projectId !== projectId) {
+    return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
+  }
+
   const card = kanbanCards.getBySessionId(workspaceId);
   if (!card) {
-    return res.status(404).json({ error: 'No card found for this workspace' });
+    return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
   }
+  const board = boardForProject(projectId);
+  if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
 
   deleteCardById(card, projectId);
   res.status(204).send();
@@ -514,13 +566,14 @@ router.put('/lanes/:laneId/cards/reorder', (req, res) => {
 
   const lane = kanbanLanes.getById(laneId);
   if (!lane) {
-    return res.status(404).json({ error: 'Lane not found' });
+    return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
   }
+  const board = boardForProject(projectId);
+  if (!laneBelongsToBoard(lane, board)) return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
 
   kanbanCards.reorder(laneId, result.data);
 
   // Broadcast updated board
-  const board = kanbanBoards.getByProjectId(projectId);
   const fullBoard = buildFullBoardResponse(board);
   broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, {
     projectId,

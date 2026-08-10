@@ -57,3 +57,8 @@ with `code: "LANE_RUN_OWNERSHIP_LOST"`. Re-open the board and act on the current
 card/run instead of retrying the stale request. Invalid lane configurations
 (such as a completion target without on-entry automation) return a 400 with a
 stable `KANBAN_LANE_*` code and field name.
+
+Completed keyed API operations are retained for 30 days, then removed in
+bounded batches of 500 once per hour. Processing operations are never removed.
+Cleanup logs both the number deleted and the remaining eligible backlog; a
+non-zero backlog is expected to drain over subsequent hourly batches.

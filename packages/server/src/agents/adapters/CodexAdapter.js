@@ -182,9 +182,11 @@ export class CodexAdapter extends BaseAgent {
       messages: buildChatMessages(queryParams.prompt, systemPrompt),
       stream: true,
     };
-    const stream = options.idempotencyKey
-      ? await client.chat.completions.create(request, { headers: { 'Idempotency-Key': options.idempotencyKey } })
-      : await client.chat.completions.create(request);
+    const requestOptions = {
+      ...(options.idempotencyKey && { headers: { 'Idempotency-Key': options.idempotencyKey } }),
+      ...(abortController?.signal && { signal: abortController.signal }),
+    };
+    const stream = await client.chat.completions.create(request, requestOptions);
 
     const onAbort = () => {
       try { stream?.controller?.abort?.(); } catch { /* ignore */ }

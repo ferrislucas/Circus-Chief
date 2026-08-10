@@ -405,16 +405,19 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
  * @param {Object} [config.options] - Session options (systemPrompt, fileAttachments, model)
  * @param {Object} config.callbacks - Callback functions from sessionManager
  */
+// eslint-disable-next-line max-statements, complexity -- initial execution validation and lifecycle intentionally remain linear
 export async function runSessionCore(sessionId, prompt, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
-  const { systemPrompt = null, fileAttachments = [], model = null, interactive = false, idempotencyKey = null } = options;
+  const { systemPrompt = null, fileAttachments = [], model = null, interactive = false,
+    idempotencyKey = null, abortController = null } = options;
   // Get session for settings
   let session = sessions.getById(sessionId);
   if (!session) throw new Error('Session not found');
   if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
-  const controller = new AbortController();
+  const controller = abortController || new AbortController();
+  if (controller.signal.aborted) return rejectedSessionExecution(sessionId, 'dispatch_aborted');
   activeSessions.set(sessionId, { controller });
 
   // Get the active conversation for this session (created in SessionRepository.create)

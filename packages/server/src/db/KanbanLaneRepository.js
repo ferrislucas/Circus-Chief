@@ -1,6 +1,7 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { ApiError } from '../errors/ApiError.js';
+import { supportsKanbanProviderIdempotency } from '../services/kanbanProviderCapability.js';
 
 /**
  * Convert a boolean value to SQLite integer (1/0) or null.
@@ -64,6 +65,19 @@ function convertFieldValue(fieldName, value) {
     return null;
   }
   return value ? 1 : 0;
+}
+
+function assertAutomationProvider(db, lane, hasAutomation) {
+  const templateModel = lane.onEnterTemplateId
+    ? db.prepare('SELECT model FROM session_templates WHERE id=?').get(lane.onEnterTemplateId)?.model
+    : null;
+  const configuredModel = templateModel || lane.onEnterModel;
+  if (hasAutomation && lane.completionTargetLaneId && configuredModel
+    && !supportsKanbanProviderIdempotency(configuredModel)) {
+    throw new ApiError('Lane automation requires a credentialed OpenAI direct-API model', {
+      code: 'KANBAN_LANE_PROVIDER_NOT_IDEMPOTENT', field: 'onEnterModel',
+    });
+  }
 }
 
 /**
@@ -222,6 +236,7 @@ export class KanbanLaneRepository extends BaseRepository {
   /** Reject configurations that cannot have one unambiguous lane-run owner. */
   #assertConfiguration(boardId, lane) {
     const hasAutomation = Boolean(lane.onEnterTemplateId || lane.onEnterPrompt?.trim());
+    assertAutomationProvider(this.db, lane, hasAutomation);
     if (lane.completionTargetLaneId && !hasAutomation) {
       throw new ApiError('A completion target requires an on-entry prompt or template', {
         code: 'KANBAN_LANE_AUTOMATION_REQUIRED', field: 'completionTargetLaneId',

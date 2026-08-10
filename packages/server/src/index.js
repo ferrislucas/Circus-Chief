@@ -19,6 +19,7 @@ import { startLaneEntryRetryWorker, stopLaneEntryRetryWorker } from './services/
 import { formatKanbanInvariantReport } from './services/kanbanRecoveryService.js';
 import { runStartupPreflight } from './services/startupPreflight.js';
 import { setAutomationPreflightStatus } from './services/automationStatusService.js';
+import { startKanbanOperationRetention, stopKanbanOperationRetention } from './services/kanbanOperationRetention.js';
 
 /**
  * Validate Node.js environment at startup.
@@ -73,6 +74,7 @@ recoverStaleStartingSessions();
 // hard stop: selecting a fallback executor would reintroduce the retired mode.
 const preflight = runStartupPreflight();
 setAutomationPreflightStatus(preflight);
+startKanbanOperationRetention();
 if (!preflight.workersEnabled) {
   console.error(formatKanbanInvariantReport(preflight.report));
   console.error('Kanban preflight failed; HTTP serving and unrelated scheduling remain available, but Kanban entry delivery is disabled');
@@ -123,6 +125,7 @@ async function shutdown(signal) {
   // Stop periodic services
   schedulerService.stop();
   await stopLaneEntryRetryWorker();
+  stopKanbanOperationRetention();
   prStatusService.stop();
   systemMonitor.stop();
 

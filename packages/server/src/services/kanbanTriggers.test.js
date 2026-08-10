@@ -35,7 +35,7 @@ import { broadcastToProject } from '../websocket.js';
 import { renderTemplatePrompt, getRootSession } from './templateTriggerService.js';
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
-import { resolveAgentTypeFromModel } from './sessionProvider.js';
+import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
 import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 import {
   MAX_LANE_TRIGGER_DEPTH,
@@ -46,6 +46,7 @@ import {
   getTemplateSessionSettings,
   triggerOnEnterTemplate,
   triggerOnEnterPrompt,
+  supportsProviderIdempotency,
 } from './kanbanTriggers.js';
 
 describe('kanbanTriggers', () => {
@@ -56,6 +57,28 @@ describe('kanbanTriggers', () => {
   describe('MAX_LANE_TRIGGER_DEPTH', () => {
     it('is 5', () => {
       expect(MAX_LANE_TRIGGER_DEPTH).toBe(5);
+    });
+  });
+
+  describe('provider idempotency capability', () => {
+    it('fails closed before creating a child for an unsupported durable dispatch', async () => {
+      sessionTemplates.getById.mockReturnValue({ id: 't1', name: 'Template', prompt: 'go' });
+      sessions.getById.mockReturnValue({ id: 's1', projectId: 'p1', model: 'claude' });
+      projects.getById.mockReturnValue({ id: 'p1', workingDirectory: '/tmp/p1' });
+      resolveProviderMetadataFromModel.mockReturnValue(null);
+
+      await expect(triggerOnEnterTemplate('s1', {
+        id: 'l1', name: 'Lane', onEnterTemplateId: 't1',
+      }, { beforeDispatch: vi.fn() })).rejects.toThrow('does not support idempotent dispatch');
+
+      expect(sessions.create).not.toHaveBeenCalled();
+    });
+
+    it('recognizes only credentialed OpenAI direct API dispatch', () => {
+      process.env.USE_CODEX_DIRECT_API = '1';
+      resolveProviderMetadataFromModel.mockReturnValue({ kind: 'openai', authToken: 'key' });
+      expect(supportsProviderIdempotency('gpt')).toBe(true);
+      delete process.env.USE_CODEX_DIRECT_API;
     });
   });
 
