@@ -74,10 +74,14 @@ describe('kanbanTriggers', () => {
       expect(sessions.create).not.toHaveBeenCalled();
     });
 
-    it('recognizes only credentialed OpenAI direct API dispatch', () => {
+    it('requires an explicit idempotent-dispatch contract from the provider', () => {
       process.env.USE_CODEX_DIRECT_API = '1';
-      resolveProviderMetadataFromModel.mockReturnValue({ kind: 'openai', authToken: 'key' });
+      resolveProviderMetadataFromModel.mockReturnValue({
+        kind: 'openai', authToken: 'key', supportsIdempotentDispatch: true,
+      });
       expect(supportsProviderIdempotency('gpt')).toBe(true);
+      resolveProviderMetadataFromModel.mockReturnValue({ kind: 'openai', authToken: 'key' });
+      expect(supportsProviderIdempotency('compatible-but-unproven')).toBe(false);
       delete process.env.USE_CODEX_DIRECT_API;
     });
   });

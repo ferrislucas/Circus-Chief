@@ -49,16 +49,21 @@ function resolveWorkspaceId(sessionId) {
 }
 
 export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
-  const { runOnEnterTemplate = true, depth = 0, laneRunId = null, beforeDispatch, abortController } = options;
+  const { runOnEnterTemplate = true, depth = 0, laneRunId = null, childSessionId = null,
+    beforeDispatch, abortController } = options;
 
   if (!runOnEnterTemplate) return { delivered: true, rootSessionId: null };
 
   const lane = kanbanLanes.getByIdWithTemplate(laneId);
   let result = { delivered: true, rootSessionId: null };
   if (lane?.onEnterTemplateId) {
-    result = await triggerOnEnterTemplate(sessionId, lane, { depth, laneRunId, beforeDispatch, abortController });
+    result = await triggerOnEnterTemplate(sessionId, lane, {
+      depth, laneRunId, childSessionId, beforeDispatch, abortController,
+    });
   } else if (lane?.onEnterPrompt) {
-    result = await triggerOnEnterPrompt(sessionId, lane, { depth, laneRunId, beforeDispatch, abortController });
+    result = await triggerOnEnterPrompt(sessionId, lane, {
+      depth, laneRunId, childSessionId, beforeDispatch, abortController,
+    });
   }
   if (!result?.delivered) throw new Error(`Lane-entry delivery failed: ${result?.reason || 'unknown error'}`);
   return result;
@@ -352,6 +357,11 @@ function resolveDeliveryState(event) {
     .get(run.root_session_id, run.root_session_id, run.project_id, run.workspace_id);
   if (!owner) return { state: 'ownership_conflict', reason: 'attached root does not belong to target run workspace' };
   if (event.dispatch_acknowledged_at) return { state: 'already_delivered', run, rootSessionId: run.root_session_id };
+  // Child allocation is setup state, not evidence of a provider call. Reuse
+  // the same child after any failure before durable dispatch intent.
+  if (event.delivery_phase !== 'dispatch_intent' || !event.dispatch_key) {
+    return { state: 'needs_delivery', run, rootSessionId: run.root_session_id };
+  }
   // We deliberately refuse to infer acknowledgement from ownership.  This
   // leaves pre-ack crashes visible and safe instead of risking a duplicate.
   return { state: 'ambiguous_dispatch', reason: 'child ownership exists without provider dispatch acknowledgement' };
@@ -390,6 +400,7 @@ async function drainLaneEntryTriggerImpl(eventId, options = {}) {
     if (resolved.state === 'needs_delivery') {
       const delivery = await triggerLaneEntryAutomation(event.workspace_id, event.lane_id, {
         runOnEnterTemplate: true, depth: options.depth || 0, laneRunId: resolved.run.id,
+        childSessionId: resolved.rootSessionId,
         abortController,
         beforeDispatch: () => { claim.assertCurrent(); return markDispatchIntent(event.id, token); },
       });

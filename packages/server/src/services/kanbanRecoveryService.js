@@ -62,7 +62,7 @@ function auditLaneInvariant(violations, lane, target) {
 }
 
 function auditLaneProvider(violations, lane) {
-  if (!hasAutomation(lane) || !lane.completion_target_lane_id) return;
+  if (!hasAutomation(lane)) return;
   const model = lane.on_enter_template_id ? lane.template_model : lane.on_enter_model;
   if (!supportsKanbanProviderIdempotency(model)) {
     violations.push(issue('invalid_lane_provider',

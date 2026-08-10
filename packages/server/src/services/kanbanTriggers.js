@@ -171,7 +171,7 @@ export function getTemplateSessionSettings(template, session) {
  * @returns {{ newSession: Object, renderedPrompt: string, settings: Object }}
  */
 async function buildChildSessionFromTemplate(template, session, lane, options = {}) {
-  const { depth, laneRunId = null } = options;
+  const { depth, laneRunId = null, childSessionId = null } = options;
   // Render prompt with workspace context
   const rootSession = getRootSession(session);
   const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
@@ -183,7 +183,7 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
   // Get settings and create session with its direct parent set atomically at
   // creation time — avoids a window where the new row briefly has no parent.
   const settings = getTemplateSessionSettings(template, session);
-  const newSession = sessions.create(session.projectId, `${template.name} (lane: ${lane.name})`, renderedPrompt, {
+  const newSession = childSessionId ? sessions.getById(childSessionId) : sessions.create(session.projectId, `${template.name} (lane: ${lane.name})`, renderedPrompt, {
     mode: settings.mode,
     thinkingEnabled: settings.thinkingEnabled,
     gitBranch: settings.gitBranch,
@@ -192,7 +192,8 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
     agentType: resolveAgentTypeFromModel(settings.model),
     parentSessionId: session.id,
   });
-  if (laneRunId) attachRootSession(laneRunId, newSession.id);
+  if (!newSession) throw new Error('attached lane-entry child session is missing');
+  if (laneRunId && !childSessionId) attachRootSession(laneRunId, newSession.id);
 
   // Configure remaining fields not supported by create()
   sessions.update(newSession.id, {
@@ -203,9 +204,9 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
   return { newSession, renderedPrompt, settings };
 }
 
-// eslint-disable-next-line max-statements -- capability, cancellation, setup, and dispatch fences form one boundary
+// eslint-disable-next-line max-statements, complexity -- capability, cancellation, setup, and dispatch fences form one boundary
 export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
-  const { depth = 0, laneRunId = null, beforeDispatch, abortController } = options;
+  const { depth = 0, laneRunId = null, childSessionId = null, beforeDispatch, abortController } = options;
 
   if (depth >= MAX_LANE_TRIGGER_DEPTH) {
     console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
@@ -228,17 +229,20 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
 
   try {
     const { newSession, renderedPrompt, settings } = await buildChildSessionFromTemplate(
-      template, session, lane, { depth, laneRunId }
+      template, session, lane, { depth, laneRunId, childSessionId }
     );
 
     // Determine working directory
-    const { workingDirectory, gitWorktree } = await determineWorkingDirectory(session, project, {
+    const existingChild = childSessionId ? sessions.getById(childSessionId) : null;
+    const { workingDirectory, gitWorktree } = existingChild?.gitWorktree
+      ? { workingDirectory: existingChild.gitWorktree, gitWorktree: existingChild.gitWorktree }
+      : await determineWorkingDirectory(session, project, {
       gitMode: settings.gitMode,
       gitBranch: settings.gitBranch,
       sessionId: newSession.id,
       model: settings.model,
       abortController,
-    });
+      });
     if (gitWorktree) {
       sessions.update(newSession.id, { gitWorktree });
     }
@@ -285,7 +289,8 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
  * @param {number} depth - Current trigger depth
  * @returns {Promise<{ newSession: Object, renderedPrompt: string, settings: Object }>}
  */
-async function buildChildSessionFromPrompt(lane, session, depth, laneRunId = null) {
+async function buildChildSessionFromPrompt(lane, session, options = {}) {
+  const { depth, laneRunId = null, childSessionId = null } = options;
   // Render prompt with workspace context
   const rootSession = getRootSession(session);
   const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
@@ -297,13 +302,14 @@ async function buildChildSessionFromPrompt(lane, session, depth, laneRunId = nul
   // Get settings and create session with its direct parent set atomically at
   // creation time — avoids a window where the new row briefly has no parent.
   const settings = getLaneSessionSettings(lane, session);
-  const newSession = sessions.create(session.projectId, `Lane prompt (lane: ${lane.name})`, renderedPrompt, {
+  const newSession = childSessionId ? sessions.getById(childSessionId) : sessions.create(session.projectId, `Lane prompt (lane: ${lane.name})`, renderedPrompt, {
     ...settings,
     status: 'starting',
     agentType: resolveAgentTypeFromModel(settings.model),
     parentSessionId: session.id,
   });
-  if (laneRunId) attachRootSession(laneRunId, newSession.id);
+  if (!newSession) throw new Error('attached lane-entry child session is missing');
+  if (laneRunId && !childSessionId) attachRootSession(laneRunId, newSession.id);
 
   // Configure remaining fields not supported by create()
   const sessionUpdates = { laneTriggerDepth: depth + 1 };
@@ -324,7 +330,7 @@ async function buildChildSessionFromPrompt(lane, session, depth, laneRunId = nul
 }
 
 export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
-  const { depth = 0, laneRunId = null, beforeDispatch, abortController } = options;
+  const { depth = 0, laneRunId = null, childSessionId = null, beforeDispatch, abortController } = options;
 
   if (depth >= MAX_LANE_TRIGGER_DEPTH) {
     console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
@@ -340,10 +346,15 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
   console.log(`Kanban: Triggering on-enter prompt for session "${session.name}" entering lane "${lane.name}"`);
 
   try {
-    const { newSession, renderedPrompt, settings } = await buildChildSessionFromPrompt(lane, session, depth, laneRunId);
+    const { newSession, renderedPrompt, settings } = await buildChildSessionFromPrompt(
+      lane, session, { depth, laneRunId, childSessionId }
+    );
 
     // Determine working directory
-    const { workingDirectory, gitWorktree } = await determineWorkingDirectory(session, project, { abortController });
+    const existingChild = childSessionId ? sessions.getById(childSessionId) : null;
+    const { workingDirectory, gitWorktree } = existingChild?.gitWorktree
+      ? { workingDirectory: existingChild.gitWorktree, gitWorktree: existingChild.gitWorktree }
+      : await determineWorkingDirectory(session, project, { abortController });
     if (gitWorktree) {
       sessions.update(newSession.id, { gitWorktree });
     }

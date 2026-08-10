@@ -25,7 +25,13 @@ vi.mock('./sessionProvider.js', () => ({
   resolveAgentTypeFromModel: vi.fn().mockReturnValue('codex'),
   resolveProviderMetadataFromModel: vi.fn().mockReturnValue({
     kind: 'openai', authToken: 'test-key', commitAttributionOverride: null,
+    supportsIdempotentDispatch: true,
   }),
+}));
+
+vi.mock('./kanbanProviderCapability.js', () => ({
+  supportsKanbanProviderIdempotency: vi.fn().mockReturnValue(true),
+  assertKanbanProviderIdempotency: vi.fn(),
 }));
 
 import {
@@ -52,6 +58,7 @@ import {
 } from './kanbanService.js';
 import { createLaneRunForEntry } from './workflowSessionService.js';
 import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
+import { resolveProviderMetadataFromModel } from './sessionProvider.js';
 
 describe('kanbanService', () => {
   let projectId;
@@ -61,6 +68,10 @@ describe('kanbanService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.USE_CODEX_DIRECT_API = '1';
+    resolveProviderMetadataFromModel.mockReturnValue({
+      kind: 'openai', authToken: 'test-key', commitAttributionOverride: null,
+      supportsIdempotentDispatch: true,
+    });
 
     const project = projects.create('Test Project', '/tmp/test');
     projectId = project.id;
@@ -465,13 +476,9 @@ describe('kanbanService', () => {
       const card = kanbanCards.create(lanes[0].id, session.id);
 
       // Configure lane 1 with agent settings
-      kanbanLanes.update(lanes[1].id, {
-        onEnterPrompt: 'do something',
-        onEnterMode: 'plan',
-        onEnterModel: 'claude-sonnet-4-20250514',
-        onEnterEffortLevel: 'high',
-        onEnterThinkingEnabled: true,
-      });
+      databaseManager.get().prepare(`UPDATE kanban_lanes SET on_enter_prompt=?, on_enter_mode=?,
+        on_enter_model=?, on_enter_effort_level=?, on_enter_thinking_enabled=1 WHERE id=?`)
+        .run('do something', 'plan', 'claude-sonnet-4-20250514', 'high', lanes[1].id);
 
       vi.clearAllMocks();
       await moveCard(card.id, lanes[1].id);
@@ -572,10 +579,8 @@ describe('kanbanService', () => {
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
 
-      kanbanLanes.update(lanes[1].id, {
-        onEnterPrompt: 'do something',
-        onEnterModel: 'claude-sonnet-4-20250514',
-      });
+      databaseManager.get().prepare('UPDATE kanban_lanes SET on_enter_prompt=?, on_enter_model=? WHERE id=?')
+        .run('do something', 'claude-sonnet-4-20250514', lanes[1].id);
 
       vi.clearAllMocks();
       await moveCard(card.id, lanes[1].id);
@@ -599,7 +604,8 @@ describe('kanbanService', () => {
         model: 'claude-opus-4-20250514',
       });
 
-      kanbanLanes.update(lanes[1].id, { onEnterTemplateId: template.id });
+      databaseManager.get().prepare('UPDATE kanban_lanes SET on_enter_template_id=? WHERE id=?')
+        .run(template.id, lanes[1].id);
 
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
@@ -751,6 +757,35 @@ describe('kanbanService', () => {
       expect(await drainLaneEntryTrigger(eventId)).toBe(false);
       expect(databaseManager.get().prepare('SELECT count(*) count FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(eventId).count).toBe(1);
       expect(runSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('reuses an attached child when retrying a failure before dispatch intent', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue safely' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
+      const eventId = 'pre-intent-retry-event';
+      const time = Date.now();
+      databaseManager.get().prepare(`INSERT INTO kanban_lane_entry_events
+        (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,'pending',?,?)`)
+        .run(eventId, eventId, projectId, workspace.id, card.id, lanes[1].id, 'card_moved', time, time);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id,
+        lane: kanbanLanes.getById(lanes[1].id), entryEventId: eventId,
+      });
+      const child = createChildSession(workspace.id, 'Allocated child');
+      databaseManager.get().prepare('UPDATE kanban_lane_runs SET root_session_id=? WHERE id=?')
+        .run(child.id, run.id);
+      databaseManager.get().prepare('UPDATE sessions SET lane_run_id=? WHERE id=?').run(run.id, child.id);
+
+      expect(await drainLaneEntryTrigger(eventId)).toBe(true);
+
+      expect(sessions.getByProjectId(projectId).filter((item) => item.id !== workspace.id)).toHaveLength(1);
+      expect(runSession).toHaveBeenCalledTimes(1);
+      expect(databaseManager.get().prepare(`SELECT status, delivery_phase, dispatch_key
+        FROM kanban_lane_entry_events WHERE id=?`).get(eventId)).toEqual({
+        status: 'completed', delivery_phase: 'completed', dispatch_key: expect.any(String),
+      });
     });
 
     it('drains a pending completion event once and marks it completed', async () => {

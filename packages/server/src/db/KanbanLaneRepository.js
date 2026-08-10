@@ -72,9 +72,8 @@ function assertAutomationProvider(db, lane, hasAutomation) {
     ? db.prepare('SELECT model FROM session_templates WHERE id=?').get(lane.onEnterTemplateId)?.model
     : null;
   const configuredModel = templateModel || lane.onEnterModel;
-  if (hasAutomation && lane.completionTargetLaneId && configuredModel
-    && !supportsKanbanProviderIdempotency(configuredModel)) {
-    throw new ApiError('Lane automation requires a credentialed OpenAI direct-API model', {
+  if (hasAutomation && configuredModel && !supportsKanbanProviderIdempotency(configuredModel)) {
+    throw new ApiError('Lane automation requires an OpenAI direct-API provider with an explicit idempotent-dispatch contract', {
       code: 'KANBAN_LANE_PROVIDER_NOT_IDEMPOTENT', field: 'onEnterModel',
     });
   }
