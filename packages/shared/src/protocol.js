@@ -29,6 +29,8 @@ export const WS_MESSAGE_TYPES = {
   CANVAS_UPDATE: 'canvas:update',
   TODOS_UPDATE: 'todos:update',
   CHANGES_UPDATE: 'changes:update',
+  SESSION_PROMPT: 'session:prompt',
+  SESSION_PROMPT_RESOLVED: 'session:prompt_resolved',
 
   // Conversation events
   CONVERSATION_CREATED: 'conversation:created',

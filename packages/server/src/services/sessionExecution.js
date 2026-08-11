@@ -1,17 +1,25 @@
-/* eslint-disable max-lines -- execution lifecycle and its dispatch fencing share one boundary */
 import { sessions, messages, attachments, conversations } from '../database.js';
-import { createCodexSpawner } from './codexSpawnHelper.js';
-import { createGeminiSpawner } from './geminiSpawnHelper.js';
 import { resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
 import { reconcileAgentTypeForRun, deriveAgentTypeUpdate } from './sessionAgentGuard.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
 import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
 import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
+import { buildAgentConfig } from './sessionAgentConfig.js';
 export { buildQueryParams } from './queryParamBuilder.js';
 import { buildQueryParams } from './queryParamBuilder.js';
-import { buildPromptWithAttachments } from './sessionPrompts.js';
-import { activeSessions, activeConversationIds, handleStreamEvent, handleTurnCompletion, handleSessionError, cleanupSessionState, broadcastSessionStatus } from './streamEventHandler.js';
+import {
+  buildPromptWithAttachments,
+} from './sessionPrompts.js';
+import {
+  activeSessions,
+  activeConversationIds,
+  handleStreamEvent,
+  handleTurnCompletion,
+  handleSessionError,
+  cleanupSessionState,
+  broadcastSessionStatus,
+} from './streamEventHandler.js';
 import { shouldRescheduleOnError, _checkProactiveReschedule } from './sessionErrors.js';
 import { schedulerService } from './schedulerService.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
@@ -25,22 +33,6 @@ import { rejectedSessionExecution, startedSessionExecution } from './sessionStar
 // _executeSession, long after the module graph is loaded (same pattern as
 // session-helpers.js's database.js <-> SessionRepository cycle).
 import { drainLaneEntryTrigger } from './kanbanService.js';
-/**
- * Build the adapter-specific default config object for
- * {@link createAgentForSession}. Callers may pass an explicit `config` to
- * override these defaults.
- * @param {string} agentType
- * @returns {Object}
- */
-function buildAgentConfig(agentType) {
-  if (agentType === 'codex') {
-    return { spawnCodexProcess: createCodexSpawner() };
-  }
-  if (agentType === 'gemini') {
-    return { spawnGeminiProcess: createGeminiSpawner() };
-  }
-  return {};
-}
 
 export function buildAgentEnv(sessionEnv, commitAttributionOverride) {
   const env = { ...(sessionEnv || {}) };
@@ -273,11 +265,11 @@ async function buildContinueParams({
     systemPrompt,
     model: effectiveModel,
     sessionEnv,
+    conversationId: activeConversation.id,
     resumeSessionId: canResume ? activeConversation.claudeSessionId : null,
     agentType,
     commitAttributionOverride,
   });
-
   // Logging metadata for agent call tracking
   const agentCallMeta = {
     sessionId,
@@ -379,7 +371,6 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     modelChanged: modelEnv.modelChanged, activeConversation, promptWithAttachments,
     workingDirectory, controller, agentType, agent,
   });
-
   const execution = await _executeSession({
     sessionId,
     agent,
@@ -460,15 +451,13 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     systemPrompt,
     model: effectiveModel,
     sessionEnv,
+    conversationId: activeConversation.id,
     agentType,
     commitAttributionOverride,
     idempotencyKey,
   });
 
-  // Log query params for debugging third-party provider issues
   console.log(`[SessionManager] runSession: model=${queryParams.options?.model || '[default]'} baseUrl=${queryParams.options?.env?.ANTHROPIC_BASE_URL || '[not set]'}`);
-
-  // Logging metadata for agent call tracking
   const agentCallMeta = {
     sessionId,
     conversationId: activeConversation.id,

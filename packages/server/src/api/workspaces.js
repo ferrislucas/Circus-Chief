@@ -27,6 +27,9 @@ import {
   CreateWorkspaceRequest,
   CreateWorkspaceSessionRequest,
 } from '@circuschief/shared/contracts/workspaces';
+import { hasPendingPrompt } from '../services/promptStore.js';
+
+const withPendingAgentInput = (session) => ({ ...session, pendingAgentInput: hasPendingPrompt(session.id) });
 
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
 const ERR_WORKSPACE_NOT_FOUND = 'Workspace not found';
@@ -152,7 +155,7 @@ projectWorkspacesRouter.get('/:projectId/workspaces', (req, res) => {
       starred: starredFilter,
     });
     return res.json({
-      workspaces,
+      workspaces: workspaces.map(withPendingAgentInput),
       pagination: {
         total,
         limit: parsedLimit,
@@ -162,7 +165,7 @@ projectWorkspacesRouter.get('/:projectId/workspaces', (req, res) => {
     });
   }
 
-  return res.json(workspaces);
+  return res.json(workspaces.map(withPendingAgentInput));
 });
 
 // ---------------------------------------------------------------------------
@@ -211,8 +214,8 @@ workspacesRouter.get('/:workspaceId', (req, res) => {
   const descendants = descendantIds.length > 0 ? sessions.getByIds(descendantIds) : [];
 
   return res.json({
-    ...workspace,
-    sessions: descendants,
+    ...withPendingAgentInput(workspace),
+    sessions: descendants.map(withPendingAgentInput),
   });
 });
 

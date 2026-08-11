@@ -15,6 +15,10 @@ import {
   createVisibleFinalErrorMessage,
   normalizeFinalErrorMessage,
 } from './visibleFinalErrorMessage.js';
+export { createWorkLog } from './workLogService.js';
+import { createWorkLog } from './workLogService.js';
+import { cancelPrompt } from './promptStore.js';
+import { buildSafeDenialSummary } from './promptDurableSummary.js';
 
 // ── Shared module-level state ──────────────────────────────────────────────
 
@@ -72,25 +76,6 @@ export function getResultEvent(sessionId) {
 }
 
 // ── Helper functions ───────────────────────────────────────────────────────
-
-/**
- * Create and broadcast a work log entry
- * Work logs are always created as unassociated during the turn,
- * then associated with the message when the turn completes.
- * @param {string} sessionId
- * @param {string} type - 'thinking', 'tool_input', or 'tool_output'
- * @param {string} content
- * @param {string|null} toolName
- */
-export function createWorkLog(sessionId, type, content, toolName = null) {
-  // Always create as unassociated - will be associated at end of turn
-  const log = workLogs.create(sessionId, type, content, { messageId: null, toolName });
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_WORK_LOG, {
-    sessionId,
-    log
-  });
-  return log;
-}
 
 /**
  * Associate pending work logs with a message and broadcast the event
@@ -179,6 +164,15 @@ export async function broadcastChangesUpdate(sessionId, projectId, workingDirect
  * @param {Object} event
  */
 function handleSystemEvent(sessionId, event) {
+  if (event.subtype === 'permission_denied') {
+    const toolName = event.tool_name || 'Unknown tool';
+    createWorkLog(sessionId, 'tool_output', buildSafeDenialSummary({
+      toolName,
+      decisionReasonType: event.decision_reason_type,
+      agentId: event.agent_id,
+    }), toolName);
+    return;
+  }
   // Store Claude's session info
   if (event.subtype !== 'init') return;
 
@@ -530,6 +524,9 @@ export async function handleStreamEvent(sessionId, event) {
  * @param {boolean} includeConversationId - Whether to also clean up activeConversationIds
  */
 export function cleanupSessionState(sessionId, includeConversationId = false) {
+  // A parked SDK callback owns a live promise. Settling it before clearing
+  // execution state prevents it from surviving a completed/failed turn.
+  cancelPrompt(sessionId);
   textAccumulators.delete(sessionId);
   thinkingAccumulators.delete(sessionId);
   currentModels.delete(sessionId);

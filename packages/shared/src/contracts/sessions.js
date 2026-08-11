@@ -80,6 +80,7 @@ export const SessionResponse = z.object({
   rescheduleAtTokenCount: z.number().nullable(),
   // Kanban fields
   laneTriggerDepth: z.number(),
+  pendingAgentInput: z.boolean().default(false),
   createdAt: z.number(),
   updatedAt: z.number(),
   lastActivityAt: z.number().nullable(),

@@ -6,6 +6,7 @@ import {
   getPermissionModeForSession,
   getSandboxModeForSession,
 } from './sessionPrompts.js';
+import { buildInteractionCallbacks } from './promptCallbacks.js';
 
 /**
  * Build query parameters for the Claude Code adapter.
@@ -13,7 +14,8 @@ import {
  */
 function buildClaudeCodeQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt,
-  model, sessionEnv, resumeSessionId = null, claudeMcpConfigHomeDirectory, idempotencyKey = null,
+  model, sessionEnv, resumeSessionId = null, claudeMcpConfigHomeDirectory,
+  conversationId = null, idempotencyKey = null,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : model;
@@ -40,6 +42,8 @@ function buildClaudeCodeQueryParams({
       // Kept in execution metadata even though the Claude SDK has no native
       // idempotent-start header.  Adapters must never silently lose this key.
       ...(idempotencyKey ? { idempotencyKey } : {}),
+      ...buildInteractionCallbacks({ sessionId, conversationId }),
+      toolConfig: { askUserQuestion: { previewFormat: 'markdown' } },
       ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
     },
   };

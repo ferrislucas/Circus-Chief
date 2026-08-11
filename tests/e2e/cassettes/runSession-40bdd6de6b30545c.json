@@ -1,0 +1,17 @@
+{
+  "prompt": "E2E demo: deny the gated config edit and confirm no edit occurs.",
+  "model": "claude-haiku-4-5-20251001",
+  "gatedToolCalls": [{
+    "toolName": "Edit",
+    "input": {"file_path": "packages/server/src/index.js", "old_string": "const PORT = 5000;", "new_string": "const PORT = process.env.PORT || 5000;"},
+    "opts": {"toolUseID": "toolu_demo_permission_deny", "agentID": null, "title": "Edit packages/server/src/index.js", "displayName": "Edit", "description": "Make the server port configurable via the PORT environment variable."},
+    "result": {"behavior": "deny", "message": "Do not modify server configuration."}
+  }],
+  "events": [
+    {"type": "system", "subtype": "init", "session_id": "e2e-demo-permission-deny", "model": "claude-haiku-4-5-20251001"},
+    {"type": "assistant", "message": {"content": [{"type": "text", "text": "Permission was denied, so I did not apply the edit."}]}},
+    {"type": "result", "subtype": "success", "is_error": false, "result": "Permission was denied, so I did not apply the edit."}
+  ],
+  "key": "runSession-40bdd6de6b30545c",
+  "recordedAt": "2026-08-09T00:00:00.000Z"
+}
