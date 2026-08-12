@@ -219,6 +219,7 @@
             :pr-summary="null"
             @retry-summary="retryFetchSummary"
             @archive="handleArchive"
+            @star="handleStar"
             @add-to-board="handleAddToBoard"
             @visibility-change="handleCardVisibility"
           />
@@ -298,7 +299,7 @@
 </template>
 
 <script setup>
-import { onMounted, watch, computed, ref } from 'vue';
+import { onMounted, onUnmounted, watch, computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
@@ -306,6 +307,7 @@ import { useKanbanStore } from '../stores/kanban.js';
 import { useWorkspaceListStore } from '../stores/workspaceList.js';
 import { useSummaries } from '../composables/useSummaries.js';
 import { useRunningSessionSubscriptions } from '../composables/useRunningSessionSubscriptions.js';
+import { useProjectSubscription, useWebSocket } from '../composables/useWebSocket.js';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import SessionCard from '../components/SessionCard.vue';
 import SessionFiltersPanel from '../components/SessionFiltersPanel.vue';
@@ -377,7 +379,9 @@ const workflowCardFromCard = card => {
     rootSessionId,
     // The card contract carries the running descendants, so list subscriptions
     // follow the session producing output instead of an idle workspace root.
-    runningSessionIds: card.runningSessionIds || (isRunningSession(card) ? [rootSessionId] : []),
+    runningSessionIds: card.runningSessionIds?.length
+      ? card.runningSessionIds
+      : (isRunningSession(card) || card.runningCount > 0 ? [rootSessionId] : []),
     memberIds: [rootSessionId],
     eligible: activeTab.value === 'sessions'
       && cardVisibilityByRootId.value[rootSessionId] !== false
@@ -415,6 +419,44 @@ function workspaceQuery() {
     scheduled: sessionsStore.scheduledFilter === 'scheduled' ? true : sessionsStore.scheduledFilter === 'not-scheduled' ? false : null,
   };
 }
+
+// Own project-scoped reconciliation independently from the legacy full-session
+// collection. Subscribing before the initial list watcher and revalidating once
+// closes the snapshot/subscription race without downloading every session.
+const projectSubscription = useProjectSubscription(projectId.value);
+const cleanupProjectHandlers = [];
+let reconciliationQueued = false;
+function revalidateWorkspaceCards() {
+  if (reconciliationQueued || typeof workspaceList.revalidate !== 'function') return;
+  reconciliationQueued = true;
+  queueMicrotask(() => {
+    reconciliationQueued = false;
+    workspaceList.revalidate(projectId.value, workspaceQuery()).catch(() => {});
+  });
+}
+function registerProjectHandler(name, handler = revalidateWorkspaceCards) {
+  if (typeof projectSubscription[name] === 'function') {
+    cleanupProjectHandlers.push(projectSubscription[name](handler));
+  }
+}
+projectSubscription.subscribe();
+registerProjectHandler('onSessionCreated');
+registerProjectHandler('onSessionUpdated');
+registerProjectHandler('onSessionDeleted', (sessionId) => {
+  if (workspaceList.cardsById?.[sessionId]) workspaceList.removeCard(sessionId);
+  else revalidateWorkspaceCards();
+});
+registerProjectHandler('onSessionSummaryUpdated', (sessionId, summary) => {
+  if (workspaceList.cardsById?.[sessionId]) {
+    workspaceList.patchCard(sessionId, { summaryPreview: summary?.shortSummary || null });
+  } else revalidateWorkspaceCards();
+});
+for (const event of ['onCommandRunStarted', 'onCommandRunComplete', 'onCommandRunError',
+  'onCommandRunDeleted', 'onKanbanBoardUpdated', 'onKanbanCardMoved',
+  'onKanbanCardAdded', 'onKanbanCardRemoved']) registerProjectHandler(event);
+const removeReconnectHandler = typeof useWebSocket === 'function'
+  ? useWebSocket().onReconnect?.(revalidateWorkspaceCards) : null;
+revalidateWorkspaceCards();
 
 watch([projectId, () => sessionsStore.statusFilter, () => sessionsStore.starredFilter, () => sessionsStore.scheduledFilter],
   ([id]) => { if (id && activeTab.value === 'sessions') workspaceList.load(id, workspaceQuery()).catch(() => {}); },
@@ -470,6 +512,10 @@ function handleArchive(sessionId) {
   showArchiveModal.value = true;
 }
 
+function handleStar({ id, starred }) {
+  workspaceList.patchCard?.(id, { starred, updatedAt: Date.now() });
+}
+
 // The Kanban card (if any) for the session-to-archive's workflow. A card is keyed
 // to the workflow root, so resolve the root first and fall back to the session id
 // in case the ancestor chain isn't fully loaded in the store.
@@ -494,6 +540,7 @@ async function confirmArchive({ runCleanup, removeFromBoard } = {}) {
   const workflowCard = archiveWorkflowCard.value;
   try {
     await sessionsStore.archiveSession(sessionToArchive.value.id, { cleanup: runCleanup });
+    workspaceList.removeCard?.(sessionToArchive.value.id);
     uiStore.success('Session archived');
 
     if (removeFromBoard && workflowCard && archiveProjectId) {
@@ -573,6 +620,7 @@ async function addSessionToLane(lane) {
       uiStore.success(`Session added to "${lane.name}"`);
     }
     closeLaneSelectorModal();
+    revalidateWorkspaceCards();
   } catch (err) {
     console.error('Failed to update session board lane:', err);
     uiStore.error(err.message || 'Failed to update session board lane');
@@ -602,6 +650,12 @@ onMounted(() => {
   sessionsStore.restoreScheduledFilter();
 
   // Board data is deferred to the Kanban tab; card DTOs include their lane.
+});
+
+onUnmounted(() => {
+  for (const cleanup of cleanupProjectHandlers) cleanup?.();
+  removeReconnectHandler?.();
+  projectSubscription.unsubscribe();
 });
 
 // Cleanup on unmount

@@ -1,6 +1,9 @@
 import { ACTIVITY_FIELDS_SQL } from './session-helpers.js';
 
 /** Return the lightweight workspace-card projection used by the list view. */
+// The SQL is intentionally kept together so its CTE scope and parameter order
+// can be audited as one query unit.
+// eslint-disable-next-line max-lines-per-function, complexity, sonarjs/cognitive-complexity
 export function getWorkspaceCards(db, projectId, { archived = false, starred = null, status = null, scheduled = null, limit = 50, cursor = null } = {}) {
   const filters = ['s.project_id = ?', 's.parent_session_id IS NULL', 's.archived = ?'];
   const params = [projectId, archived ? 1 : 0];
@@ -23,9 +26,30 @@ export function getWorkspaceCards(db, projectId, { archived = false, starred = n
     cursor.starred, cursor.activityOrder, cursor.updatedAt, cursor.createdAt,
     cursor.starred, cursor.activityOrder, cursor.updatedAt, cursor.createdAt, cursor.id,
   ] : [];
+  // Aggregate-dependent filters must inspect all roots until a maintained
+  // projection is available.  The overwhelmingly common unfiltered path can
+  // and should select its root page first, so descendant traversal is bounded
+  // by page size rather than project size.
+  const pageRootsFirst = eligibility.length === 0;
+  const rootScope = pageRootsFirst ? `
+    root_candidates AS (
+      SELECT s.id, s.starred, s.updated_at AS updatedAt, s.created_at AS createdAt,
+        ${ACTIVITY_FIELDS_SQL}
+      FROM sessions s WHERE ${filters.join(' AND ')}
+    ), ordered_roots AS (
+      SELECT *, COALESCE(last_activity_at, updatedAt, createdAt) AS activityOrder
+      FROM root_candidates
+    ), selected_roots AS (
+      SELECT id FROM ordered_roots ${cursorPredicate}
+      ORDER BY starred DESC, activityOrder DESC, updatedAt DESC, createdAt DESC, id DESC
+      LIMIT ?
+    ),` : '';
+  const treeSeed = pageRootsFirst
+    ? 'SELECT s.id, s.id FROM sessions s JOIN selected_roots r ON r.id = s.id'
+    : 'SELECT id, id FROM sessions WHERE project_id = ? AND parent_session_id IS NULL';
   const sql = `
-    WITH RECURSIVE tree(root_id, id) AS (
-      SELECT id, id FROM sessions WHERE project_id = ? AND parent_session_id IS NULL
+    WITH RECURSIVE ${rootScope} tree(root_id, id) AS (
+      ${treeSeed}
       UNION ALL
       SELECT tree.root_id, s.id FROM sessions s JOIN tree ON s.parent_session_id = tree.id
     ), aggregates AS (
@@ -53,16 +77,19 @@ export function getWorkspaceCards(db, projectId, { archived = false, starred = n
     LEFT JOIN kanban_card_sessions kcs ON kcs.session_id = s.id
     LEFT JOIN kanban_cards kc ON kc.id = kcs.card_id
     LEFT JOIN kanban_lanes kl ON kl.id = kc.lane_id
-    WHERE ${filters.join(' AND ')}${having}
+    WHERE ${pageRootsFirst ? 's.id IN (SELECT id FROM selected_roots)' : filters.join(' AND ')}${having}
     ), workspace_cards AS (
       SELECT workspace_card_base.*, COALESCE(last_activity_at, updatedAt, createdAt) AS activityOrder
       FROM workspace_card_base
     )
     SELECT * FROM workspace_cards
-    ${cursorPredicate}
+    ${pageRootsFirst ? '' : cursorPredicate}
     ORDER BY starred DESC, activityOrder DESC, updatedAt DESC, createdAt DESC, id DESC
     LIMIT ?`;
-  const rows = db.prepare(sql).all(projectId, ...params, ...cursorParams, limit);
+  const sqlParams = pageRootsFirst
+    ? [...params, ...cursorParams, limit, limit]
+    : [projectId, ...params, ...cursorParams, limit];
+  const rows = db.prepare(sql).all(...sqlParams);
   return rows.map(toWorkspaceCard);
 }
 

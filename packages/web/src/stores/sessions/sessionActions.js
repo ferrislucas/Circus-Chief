@@ -115,13 +115,20 @@ export const sessionActions = {
   },
 
   async fetchSession(id, showLoading = true) {
+    this._sessionFetchController?.abort();
+    const controller = new AbortController();
+    this._sessionFetchController = controller;
     if (showLoading) this.loading = true;
     this.error = null;
     try {
       // The detail session and lightweight workspace shell are independent.
       // This replaces the old serial ancestor walk plus project-wide child fetch.
       const [fetchedSession, workspaceDetail] = await Promise.all([
-        api.getSession(id), api.getWorkspaceDetail(id).catch(() => null),
+        api.getSession(id, { signal: controller.signal }),
+        api.getWorkspaceDetail(id, { signal: controller.signal }).catch((error) => {
+          if (error?.name === 'AbortError') throw error;
+          return null;
+        }),
       ]);
       // Guard: only set currentSession if the user is still viewing this session.
       // This prevents stale in-flight requests (e.g., from polling that was active
@@ -143,8 +150,14 @@ export const sessionActions = {
         this.sessions.push(fetchedSession);
       }
       if (workspaceDetail?.members) upsertSessionListMembers(this.sessions, workspaceDetail.members);
-    } catch (err) { this.error = err.message; }
-    finally { if (showLoading) this.loading = false; }
+    } catch (err) {
+      if (err?.name !== 'AbortError' && this._sessionFetchController === controller) this.error = err.message;
+    } finally {
+      if (this._sessionFetchController === controller) {
+        this._sessionFetchController = null;
+        if (showLoading) this.loading = false;
+      }
+    }
   },
 
   async createSession(projectId, data) {

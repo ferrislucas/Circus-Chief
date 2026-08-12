@@ -143,46 +143,61 @@ function hasValidWorkspaceCardFilters(status, scheduled) {
     && ['true', 'false', undefined].includes(scheduled);
 }
 
-function decodeWorkspaceCursor(value) {
+function hasValidCursorPosition(position) {
+  return Array.isArray(position) && position.length === 5
+    && [0, 1].includes(position[0]) && position.slice(1, 4).every(Number.isFinite)
+    && typeof position[4] === 'string' && Boolean(position[4]);
+}
+
+function decodeWorkspaceCursor(value, expectedContext) {
   if (!value || typeof value !== 'string' || value.length > 512) return value ? null : null;
   try {
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
-    if (!Array.isArray(parsed) || parsed.length !== 5
-      || ![0, 1].includes(parsed[0]) || !parsed.slice(1, 4).every(Number.isFinite)
-      || typeof parsed[4] !== 'string' || !parsed[4]) return null;
-    return { starred: parsed[0], activityOrder: parsed[1], updatedAt: parsed[2], createdAt: parsed[3], id: parsed[4] };
+    if (parsed?.version !== 1 || JSON.stringify(parsed.context) !== JSON.stringify(expectedContext)
+      || !hasValidCursorPosition(parsed.position)) return null;
+    const [starred, activityOrder, updatedAt, createdAt, id] = parsed.position;
+    return { starred, activityOrder, updatedAt, createdAt, id };
   } catch { return null; }
 }
 
-function encodeWorkspaceCursor(card) {
-  return Buffer.from(JSON.stringify([
-    card.starred ? 1 : 0,
-    card.lastActivityAt ?? card.updatedAt ?? card.createdAt,
-    card.updatedAt,
-    card.createdAt,
-    card.id,
-  ])).toString('base64url');
+function encodeWorkspaceCursor(card, context) {
+  return Buffer.from(JSON.stringify({
+    version: 1,
+    context,
+    position: [
+      card.starred ? 1 : 0,
+      card.lastActivityAt ?? card.updatedAt ?? card.createdAt,
+      card.updatedAt,
+      card.createdAt,
+      card.id,
+    ],
+  })).toString('base64url');
 }
 
-function parseWorkspaceCardOptions({ archived, starred, limit, cursor, status, scheduled }) {
+function parseWorkspaceCardOptions(projectId, { archived, starred, limit, cursor, status, scheduled }) {
   const parsedLimit = Number.parseInt(limit, 10);
-  const parsedCursor = decodeWorkspaceCursor(cursor);
+  const context = {
+    projectId,
+    archived: archived === 'true',
+    starred: parseBooleanFilter(starred),
+    status: status || null,
+    scheduled: parseBooleanFilter(scheduled),
+  };
+  const parsedCursor = decodeWorkspaceCursor(cursor, context);
   const valid = Number.isInteger(parsedLimit) && parsedLimit >= 1 && parsedLimit <= 50
     && (cursor === undefined || parsedCursor !== null)
     && hasValidWorkspaceCardFilters(status, scheduled);
   if (!valid) return null;
   return {
-    archived: archived === 'true',
-    starred: parseBooleanFilter(starred),
-    status: status || null,
-    scheduled: parseBooleanFilter(scheduled),
+    ...context,
     limit: parsedLimit,
     cursor: parsedCursor,
+    cursorContext: context,
   };
 }
 
 function sendWorkspaceCards(res, projectId, query, startedAt) {
-  const options = parseWorkspaceCardOptions(query);
+  const options = parseWorkspaceCardOptions(projectId, query);
   if (!options) return res.status(400).json({ error: 'Invalid workspace card pagination or filters' });
   const pagePlusOne = sessions.getWorkspaceCards(projectId, { ...options, limit: options.limit + 1 });
   return sendWorkspaceJson(res, {
@@ -190,7 +205,8 @@ function sendWorkspaceCards(res, projectId, query, startedAt) {
     pagination: {
       limit: options.limit,
       hasMore: pagePlusOne.length > options.limit,
-      nextCursor: pagePlusOne.length > options.limit ? encodeWorkspaceCursor(pagePlusOne[options.limit - 1]) : null,
+      nextCursor: pagePlusOne.length > options.limit
+        ? encodeWorkspaceCursor(pagePlusOne[options.limit - 1], options.cursorContext) : null,
     },
   }, startedAt);
 }

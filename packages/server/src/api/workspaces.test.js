@@ -147,6 +147,24 @@ describe('Workspace facade API', () => {
         .expect(400);
     });
 
+    it('rejects optimized-list cursors reused with a different query context', async () => {
+      sessions.create(project.id, 'One', 'p');
+      sessions.create(project.id, 'Two', 'p');
+
+      const firstPage = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=1&starred=false`)
+        .expect(200);
+
+      await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=1&starred=true&cursor=${encodeURIComponent(firstPage.body.pagination.nextCursor)}`)
+        .expect(400);
+
+      const otherProject = projects.create('Other Project', '/tmp/other');
+      await request(app)
+        .get(`/api/projects/${otherProject.id}/workspaces?view=cards&limit=1&starred=false&cursor=${encodeURIComponent(firstPage.body.pagination.nextCursor)}`)
+        .expect(400);
+    });
+
     it('returns 404 for unknown project', async () => {
       await request(app)
         .get('/api/projects/unknown-id/workspaces')
