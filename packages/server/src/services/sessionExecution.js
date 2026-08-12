@@ -5,7 +5,8 @@ import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
 import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
 import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
-import { buildAgentConfig } from './sessionAgentConfig.js';
+import { buildAgentConfig, buildAgentEnv } from './sessionAgentConfig.js';
+export { buildAgentEnv } from './sessionAgentConfig.js';
 export { buildQueryParams } from './queryParamBuilder.js';
 import { buildQueryParams } from './queryParamBuilder.js';
 import {
@@ -33,16 +34,6 @@ import { rejectedSessionExecution, startedSessionExecution } from './sessionStar
 // _executeSession, long after the module graph is loaded (same pattern as
 // session-helpers.js's database.js <-> SessionRepository cycle).
 import { drainLaneEntryTrigger } from './kanbanService.js';
-
-export function buildAgentEnv(sessionEnv, commitAttributionOverride) {
-  const env = { ...(sessionEnv || {}) };
-  if (commitAttributionOverride) {
-    env.CIRCUSCHIEF_COMMIT_ATTRIBUTION = commitAttributionOverride;
-  } else {
-    delete env.CIRCUSCHIEF_COMMIT_ATTRIBUTION;
-  }
-  return env;
-}
 
 async function resolveInitialSessionModelEnv(session, model) {
   const effectiveModel = model || session.model;
