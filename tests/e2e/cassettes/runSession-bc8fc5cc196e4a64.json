@@ -1,0 +1,101 @@
+{
+  "prompt": "E2E demo: ask the user which deployment target to use before proceeding.",
+  "model": "claude-haiku-4-5-20251001",
+  "gatedToolCalls": [
+    {
+      "toolName": "AskUserQuestion",
+      "input": {
+        "questions": [
+          {
+            "question": "Which deployment target should I use for this release?",
+            "header": "Deploy Target",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Staging",
+                "description": "Deploy to the staging environment for validation before a production rollout.",
+                "preview": "## Staging deploy plan\n\n- Build the `staging` bundle\n- Run smoke tests against the staging API\n- Notify #eng-staging on completion"
+              },
+              {
+                "label": "Production",
+                "description": "Deploy directly to production. Skips the staging validation step.",
+                "preview": "## Production deploy plan\n\n- Build the `production` bundle\n- Run the full release checklist\n- Page on-call if the deploy fails"
+              },
+              {
+                "label": "Canary",
+                "description": "Roll out to 5% of production traffic first, then expand after monitoring."
+              }
+            ]
+          }
+        ]
+      },
+      "opts": {
+        "toolUseID": "toolu_demo_question_1",
+        "agentID": null
+      },
+      "result": {
+        "behavior": "allow",
+        "updatedInput": {
+          "questions": [
+            {
+              "question": "Which deployment target should I use for this release?",
+              "header": "Deploy Target",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Staging",
+                  "description": "Deploy to the staging environment for validation before a production rollout.",
+                  "preview": "## Staging deploy plan\n\n- Build the `staging` bundle\n- Run smoke tests against the staging API\n- Notify #eng-staging on completion"
+                },
+                {
+                  "label": "Production",
+                  "description": "Deploy directly to production. Skips the staging validation step.",
+                  "preview": "## Production deploy plan\n\n- Build the `production` bundle\n- Run the full release checklist\n- Page on-call if the deploy fails"
+                },
+                {
+                  "label": "Canary",
+                  "description": "Roll out to 5% of production traffic first, then expand after monitoring."
+                }
+              ]
+            }
+          ],
+          "answers": {
+            "Which deployment target should I use for this release?": "Staging"
+          },
+          "annotations": {
+            "Which deployment target should I use for this release?": {
+              "preview": "## Staging deploy plan\n\n- Build the `staging` bundle\n- Run smoke tests against the staging API\n- Notify #eng-staging on completion"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "e2e-demo-question",
+      "model": "claude-haiku-4-5-20251001"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Thanks — deploying to the target you selected now."
+          }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "result": "Thanks — deploying to the target you selected now."
+    }
+  ],
+  "key": "runSession-bc8fc5cc196e4a64",
+  "recordedAt": "2026-08-02T00:00:00.000Z"
+}

@@ -27,6 +27,9 @@ import {
   CreateWorkspaceRequest,
   CreateWorkspaceSessionRequest,
 } from '@circuschief/shared/contracts/workspaces';
+import { hasPendingPrompt } from '../services/promptStore.js';
+
+const withPendingAgentInput = (session) => ({ ...session, pendingAgentInput: hasPendingPrompt(session.id) });
 
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
 const ERR_WORKSPACE_NOT_FOUND = 'Workspace not found';
@@ -207,13 +210,13 @@ function listProjectWorkspaces(req, res) {
   const workspaces = sessions.getRootsByProjectId(req.params.projectId, {
     archived: archivedFilter, starred: starredFilter, limit: parsedLimit, offset: parsedOffset,
   });
-  if (parsedLimit === null) return res.json(workspaces);
+  if (parsedLimit === null) return res.json(workspaces.map(withPendingAgentInput));
 
   const total = sessions.getRootsCountByProjectId(req.params.projectId, {
     archived: archivedFilter, starred: starredFilter,
   });
   return res.json({
-    workspaces,
+    workspaces: workspaces.map(withPendingAgentInput),
     pagination: { total, limit: parsedLimit, offset: parsedOffset, hasMore: parsedOffset + workspaces.length < total },
   });
 }
@@ -270,7 +273,7 @@ workspacesRouter.get('/:workspaceId', (req, res) => {
   if (!resolved) return;
 
   const { workspace } = resolved;
-  const members = sessions.getWorkspaceMembers(workspace.id);
+  const members = sessions.getWorkspaceMembers(workspace.id).map(withPendingAgentInput);
   const root = members.find(member => member.id === workspace.id);
   // Keep the root fields and `sessions` alias during the compatibility window;
   // both now use the compact allowlisted projection rather than raw rows.
@@ -286,7 +289,8 @@ workspacesRouter.get('/:workspaceId', (req, res) => {
 workspacesRouter.get('/:workspaceId/members', (req, res) => {
   const resolved = resolveWorkspace(res, req.params.workspaceId);
   if (!resolved) return;
-  return res.json({ workspaceId: resolved.workspace.id, members: sessions.getWorkspaceMembers(resolved.workspace.id) });
+  const members = sessions.getWorkspaceMembers(resolved.workspace.id).map(withPendingAgentInput);
+  return res.json({ workspaceId: resolved.workspace.id, members });
 });
 
 // ---------------------------------------------------------------------------

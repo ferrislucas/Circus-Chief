@@ -51,11 +51,14 @@ describe('CanvasFileViewerHeader', () => {
   }
 
   describe('rendering', () => {
-    it('renders filename on its own line', () => {
+    it('renders the filename exactly once in the top row', () => {
       const wrapper = mountComponent();
 
-      expect(wrapper.find('.viewer-filename').exists()).toBe(true);
-      expect(wrapper.find('.viewer-filename').text()).toBe('test-file.md');
+      const filenames = wrapper.findAll('.viewer-filename');
+      expect(filenames).toHaveLength(1);
+      expect(filenames[0].text()).toBe('test-file.md');
+      expect(wrapper.find('.viewer-header-top .viewer-filename').exists()).toBe(true);
+      expect(wrapper.find('.viewer-header-middle .viewer-filename').exists()).toBe(false);
     });
 
     it('renders three-line layout structure', () => {
@@ -78,6 +81,7 @@ describe('CanvasFileViewerHeader', () => {
 
       expect(wrapper.find('.breadcrumb-back').exists()).toBe(true);
       expect(wrapper.find('.breadcrumb-back').text()).toBe('← Back to list');
+      expect(wrapper.find('.breadcrumb-separator').exists()).toBe(false);
     });
 
     it('hides breadcrumb when showBackButton is false', () => {

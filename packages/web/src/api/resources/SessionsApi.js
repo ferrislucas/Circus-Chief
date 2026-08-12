@@ -67,6 +67,16 @@ function normalizeCreateSessionData(data) {
   };
 }
 
+const sessionPromptMethods = {
+  async getSessionPrompt(id) {
+    return this._get(`/sessions/${id}/prompt`);
+  },
+
+  async respondToSessionPrompt(id, promptId, response) {
+    return this._post(`/sessions/${id}/prompt/${promptId}/respond`, response);
+  },
+};
+
 /**
  * Shared submit logic for session-creation endpoints: uses FormData when
  * files are attached, otherwise plain JSON.
@@ -93,6 +103,7 @@ function submitSessionCreate(apiClient, path, data) {
  */
 export function SessionsApi(ApiClient) {
   Object.assign(ApiClient.prototype, {
+    ...sessionPromptMethods,
     /**
      * Get all sessions for a project
      * @param {string} projectId - Project ID
@@ -398,6 +409,23 @@ export function SessionsApi(ApiClient) {
      */
     async scheduleSession(id, data) {
       return this._post(`/sessions/${id}/schedule`, data);
+    },
+
+    /**
+     * Start a scheduled session immediately.
+     *
+     * When `prompt` is provided, it overrides the persisted `pendingPrompt`
+     * for this launch. The server applies the override atomically with its
+     * claim on the scheduled session — there is no separate "save the
+     * edited prompt" request before this one, so a racing poller tick or
+     * second manual request can never observe half of the edit.
+     *
+     * @param {string} id - Session ID
+     * @param {{ prompt?: string }} [options]
+     * @returns {Promise<Object>}
+     */
+    async runScheduledNow(id, { prompt } = {}) {
+      return this._post(`/sessions/${id}/run-scheduled-now`, prompt !== undefined ? { prompt } : undefined);
     },
   });
 }

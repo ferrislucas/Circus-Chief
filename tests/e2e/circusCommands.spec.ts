@@ -48,11 +48,10 @@ test.describe('Circus Commands', () => {
     await expect(page.locator('.output-text')).toContainText('Line 3', { timeout: 5000 });
 
     // Verify output is displayed with the expected content
-    const outputText = await page.textContent('.output-text');
-    expect(outputText).toBeTruthy();
-    expect(outputText).toContain('Line 1');
-    expect(outputText).toContain('Line 2');
-    expect(outputText).toContain('Line 3');
+    const outputText = page.locator('.output-text');
+    await expect(outputText).toContainText('Line 1');
+    await expect(outputText).toContainText('Line 2');
+    await expect(outputText).toContainText('Line 3');
   });
 
   test('navigate between tabs with output persisting', async ({ page }) => {

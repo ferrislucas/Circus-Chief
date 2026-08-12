@@ -205,6 +205,22 @@ export const sessionActions = {
     } catch (err) { this.error = err.message; throw err; }
   },
 
+  /**
+   * Start a scheduled session immediately.
+   * @param {string} id - Session ID
+   * @param {string} [prompt] - Overrides the persisted pendingPrompt for this
+   *   launch, applied atomically with the server's claim. Omit to use
+   *   whatever pendingPrompt is already persisted.
+   */
+  async runScheduledNow(id, prompt) {
+    this.error = null;
+    try {
+      const updated = await api.runScheduledNow(id, prompt !== undefined ? { prompt } : undefined);
+      this._updateSessionInAllLists(id, updated);
+      return updated;
+    } catch (err) { this.error = err.message; throw err; }
+  },
+
   async deleteSession(id) {
     this.error = null;
     const deletedIds = new Set([

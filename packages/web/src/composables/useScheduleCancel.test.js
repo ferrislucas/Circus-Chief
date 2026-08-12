@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { reactive } from 'vue';
 import { useScheduleCancel } from './useScheduleCancel.js';
 
 // Shared mock object so the composable and tests reference the same spies
@@ -12,8 +13,18 @@ vi.mock('../stores/ui.js', () => ({
 }));
 
 function createMockSessionsStore() {
+  // Reactive so `cancelling`'s computed genuinely tracks mutation state,
+  // matching how the real Pinia store's state works.
+  const mutations = reactive({});
   return {
     updateSessionFields: vi.fn().mockResolvedValue(undefined),
+    scheduleMutationInFlight: vi.fn((id) => mutations[id] || null),
+    beginScheduleMutation: vi.fn((id, kind) => {
+      if (mutations[id]) return false;
+      mutations[id] = kind;
+      return true;
+    }),
+    endScheduleMutation: vi.fn((id) => { delete mutations[id]; }),
   };
 }
 
@@ -27,7 +38,7 @@ describe('useScheduleCancel', () => {
   });
 
   function createCancel(overrides = {}) {
-    return useScheduleCancel(overrides.store || sessionsStore);
+    return useScheduleCancel(overrides.store || sessionsStore, overrides.sessionIdSource || 'sess-1');
   }
 
   it('returns a cancelling ref initialised to false', () => {

@@ -28,6 +28,7 @@ vi.mock('../composables/useApi.js', () => ({
     unarchiveSession: vi.fn(),
     toggleSessionStar: vi.fn(),
     duplicateSession: vi.fn(),
+    runScheduledNow: vi.fn(),
   },
 }));
 
@@ -416,6 +417,35 @@ describe('createOverlaySessionsStore', () => {
     await overlayStore.startSession('sess-1', 'Test prompt', 'claude-sonnet-4');
 
     expect(api.startSession).toHaveBeenCalledWith('sess-1', 'Test prompt', 'claude-sonnet-4', undefined);
+  });
+
+  it('delegated action: runScheduledNow calls through to main store and reconciles currentSession', async () => {
+    const overlayStore = createOverlaySessionsStore();
+    overlayStore.currentSession = { id: 'sess-1', status: 'scheduled', scheduledAt: 12345, pendingPrompt: 'Hello' };
+
+    api.runScheduledNow.mockResolvedValue({ id: 'sess-1', status: 'starting', scheduledAt: null, pendingPrompt: null });
+
+    const result = await overlayStore.runScheduledNow('sess-1', 'edited prompt');
+
+    expect(api.runScheduledNow).toHaveBeenCalledWith('sess-1', { prompt: 'edited prompt' });
+    expect(result.status).toBe('starting');
+    // The overlay's own currentSession reflects the authoritative response
+    // immediately, not just via a later websocket broadcast.
+    expect(overlayStore.currentSession.status).toBe('starting');
+    expect(overlayStore.currentSession.scheduledAt).toBeNull();
+    expect(overlayStore.currentSession.pendingPrompt).toBeNull();
+  });
+
+  it('runScheduledNow does not touch currentSession when it belongs to a different session', async () => {
+    const overlayStore = createOverlaySessionsStore();
+    overlayStore.currentSession = { id: 'other-session', status: 'waiting' };
+
+    api.runScheduledNow.mockResolvedValue({ id: 'sess-1', status: 'starting' });
+
+    await overlayStore.runScheduledNow('sess-1');
+
+    expect(overlayStore.currentSession.id).toBe('other-session');
+    expect(overlayStore.currentSession.status).toBe('waiting');
   });
 
   it('delegated action: sendMessage calls through to main store', async () => {
