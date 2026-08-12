@@ -12,6 +12,26 @@ function queryKey(projectId, query) {
   return `${projectId}:${JSON.stringify(query)}`;
 }
 
+function cardMatchesQuery(card, query) {
+  return [
+    query.archived === undefined || Boolean(card.archived) === Boolean(query.archived),
+    query.starred === null || query.starred === undefined || Boolean(card.starred) === query.starred,
+    query.status !== 'running' || card.runningCount > 0,
+    query.status !== 'idle' || !(card.runningCount > 0),
+    query.scheduled !== true || card.scheduledCount > 0,
+    query.scheduled !== false || !(card.scheduledCount > 0),
+  ].every(Boolean);
+}
+
+const orderValue = card => card.lastActivityAt ?? card.updatedAt ?? card.createdAt ?? 0;
+function compareCards(left, right) {
+  return Number(Boolean(right.starred)) - Number(Boolean(left.starred))
+    || orderValue(right) - orderValue(left)
+    || (right.updatedAt ?? 0) - (left.updatedAt ?? 0)
+    || (right.createdAt ?? 0) - (left.createdAt ?? 0)
+    || right.id.localeCompare(left.id);
+}
+
 function abortPendingLoadMore(store) {
   store._loadMoreController?.abort();
 }
@@ -53,6 +73,13 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
     hasActiveFilters: state => Object.values(state.query).some(value => value !== undefined && value !== null && value !== ''),
   },
   actions: {
+    _saveSnapshot() {
+      if (!this.projectId) return;
+      snapshots.set(queryKey(this.projectId, this.query), {
+        cardsById: { ...this.cardsById }, orderedIds: [...this.orderedIds],
+        nextCursor: this.nextCursor, hasMore: this.hasMore,
+      });
+    },
     _install(projectId, query, result, { append = false } = {}) {
       const cards = result.workspaces || [];
       if (!append) {
@@ -67,10 +94,30 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.query = query;
       this.hasMore = Boolean(result.pagination?.hasMore);
       this.nextCursor = result.pagination?.nextCursor || null;
-      snapshots.set(queryKey(projectId, query), {
-        cardsById: { ...this.cardsById }, orderedIds: [...this.orderedIds],
-        nextCursor: this.nextCursor, hasMore: this.hasMore,
-      });
+      this._saveSnapshot();
+    },
+    reconcileCard(card) {
+      if (!card?.id || card.projectId !== this.projectId) return;
+      if (!cardMatchesQuery(card, this.query)) {
+        this.removeCard(card.id);
+        return;
+      }
+      this.cardsById[card.id] = { ...this.cardsById[card.id], ...card };
+      if (!this.orderedIds.includes(card.id)) this.orderedIds.push(card.id);
+      this.orderedIds.sort((leftId, rightId) => compareCards(this.cardsById[leftId], this.cardsById[rightId]));
+      this._saveSnapshot();
+    },
+    patchCard(cardId, patch) {
+      const current = this.cardsById[cardId];
+      if (current) this.reconcileCard({ ...current, ...patch });
+    },
+    removeCard(cardId) {
+      if (!this.cardsById[cardId]) return;
+      const next = { ...this.cardsById };
+      delete next[cardId];
+      this.cardsById = next;
+      this.orderedIds = this.orderedIds.filter(id => id !== cardId);
+      this._saveSnapshot();
     },
     async load(projectId, query = {}, { force = false } = {}) {
       const key = queryKey(projectId, query);

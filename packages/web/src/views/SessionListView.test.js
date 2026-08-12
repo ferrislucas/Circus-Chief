@@ -114,6 +114,7 @@ vi.mock('../stores/workspaceList.js', () => ({
 
 // Mock WebSocket composable
 vi.mock('../composables/useWebSocket.js', () => ({
+  useWebSocket: vi.fn(() => ({ onReconnect: vi.fn(() => vi.fn()) })),
   useProjectSubscription: vi.fn(() => ({
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
@@ -738,7 +739,7 @@ describe('SessionListView', () => {
     }
   }
 
-  describe.skip('legacy project-wide WebSocket subscription', () => {
+  describe('workspace-card project subscription', () => {
     it('subscribes to project updates on mount', async () => {
       mount(SessionListView);
       await flushPromises();

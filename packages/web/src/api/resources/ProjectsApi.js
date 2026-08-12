@@ -32,8 +32,8 @@ export function ProjectsApi(ApiClient) {
       return this._get(this._buildQueryPath(`/projects/${projectId}/workspaces`, params), { signal });
     },
 
-    async getWorkspaceDetail(workspaceId) {
-      return this._get(`/workspaces/${workspaceId}`);
+    async getWorkspaceDetail(workspaceId, { signal } = {}) {
+      return this._get(`/workspaces/${workspaceId}`, { signal });
     },
 
     async getWorkspaceMembers(workspaceId) {

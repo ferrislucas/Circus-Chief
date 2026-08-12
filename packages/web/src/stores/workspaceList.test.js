@@ -30,6 +30,30 @@ describe('workspace list request lifecycle', () => {
     expect(store.query).toEqual({ status: 'idle' });
   });
 
+  it('reconciles card updates through filters, ordering, and the cached snapshot', async () => {
+    const store = useWorkspaceListStore();
+    store._install('project-a', { starred: true }, {
+      workspaces: [
+        { id: 'older', projectId: 'project-a', starred: true, updatedAt: 10, createdAt: 1 },
+        { id: 'newer', projectId: 'project-a', starred: true, updatedAt: 20, createdAt: 2 },
+      ],
+      pagination: { hasMore: false, nextCursor: null },
+    });
+
+    store.reconcileCard({ id: 'older', projectId: 'project-a', starred: true, updatedAt: 30, createdAt: 1 });
+    expect(store.orderedIds).toEqual(['older', 'newer']);
+
+    store.reconcileCard({ id: 'older', projectId: 'project-a', starred: false, updatedAt: 31, createdAt: 1 });
+    expect(store.orderedIds).toEqual(['newer']);
+
+    api.getWorkspaceCards.mockResolvedValueOnce({
+      workspaces: [{ id: 'newer', projectId: 'project-a', starred: true, updatedAt: 20, createdAt: 2 }],
+      pagination: { hasMore: false, nextCursor: null },
+    });
+    await store.load('project-a', { starred: true });
+    expect(store.orderedIds).toEqual(['newer']);
+  });
+
   it('keeps the cached page extent while revalidating', async () => {
     const store = useWorkspaceListStore();
     store._install('project-a', {}, {
