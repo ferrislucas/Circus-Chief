@@ -326,7 +326,7 @@ async function fetchAutomationStatus() {
   try {
     const info = await api.getServerInfo();
     const status = info.automationStatus;
-    automationWarning.value = status?.automation === 'operational' ? ''
+    automationWarning.value = status?.kanban === 'operational' ? ''
       : (status?.message || 'Unable to verify whether lane automation and scheduling are available.');
   } catch {
     // Do not replace a known degraded status with a less useful transient
