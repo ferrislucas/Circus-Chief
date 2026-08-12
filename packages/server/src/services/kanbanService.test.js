@@ -29,11 +29,6 @@ vi.mock('./sessionProvider.js', () => ({
   }),
 }));
 
-vi.mock('./kanbanProviderCapability.js', () => ({
-  supportsKanbanProviderIdempotency: vi.fn().mockReturnValue(true),
-  assertKanbanProviderIdempotency: vi.fn(),
-}));
-
 import {
   kanbanBoards,
   kanbanLanes,

@@ -11,26 +11,9 @@ import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
 import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
 import { attachRootSession } from './workflowSessionService.js';
-import {
-  assertKanbanProviderIdempotency,
-  supportsKanbanProviderIdempotency,
-} from './kanbanProviderCapability.js';
 
 // Maximum depth for recursive lane-entry template triggers
 export const MAX_LANE_TRIGGER_DEPTH = 5;
-
-/** Durable lane delivery may only use a transport that forwards the stable
- * dispatch key to the provider. Today that contract is implemented solely by
- * the explicitly selected Codex direct-API transport. */
-export function supportsProviderIdempotency(model) {
-  return supportsKanbanProviderIdempotency(model, resolveProviderMetadataFromModel);
-}
-
-function assertDispatchCapability(model, beforeDispatch) {
-  if (beforeDispatch && !supportsProviderIdempotency(model)) {
-    assertKanbanProviderIdempotency(model);
-  }
-}
 
 function throwIfAborted(controller) {
   if (controller?.signal.aborted) throw controller.signal.reason || new Error('Lane-entry delivery was aborted');
@@ -222,7 +205,6 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
   const context = getSessionAndProjectForTrigger(sessionId);
   if (!context) return undelivered('workspace session or project not found');
   const { session, project } = context;
-  assertDispatchCapability(getTemplateSessionSettings(template, session).model, beforeDispatch);
   throwIfAborted(abortController);
 
   console.log(`Kanban: Triggering on-enter template "${template.name}" for session "${session.name}" entering lane "${lane.name}"`);
@@ -254,14 +236,13 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
     });
 
     // Record dispatch intent after setup/broadcast but immediately before the
-    // provider boundary.  A crash after this point is ambiguous and is never
-    // replayed as a second provider start without the same idempotency key.
-    const dispatchKey = beforeDispatch ? await beforeDispatch(newSession.id) : null;
+    // provider boundary. A crash after this point remains an ambiguous dispatch
+    // and is not replayed automatically.
+    if (beforeDispatch) await beforeDispatch(newSession.id);
     throwIfAborted(abortController);
     const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
-      ...(dispatchKey ? { idempotencyKey: dispatchKey } : {}),
       ...(abortController ? { abortController } : {}),
     });
     if (!accepted) return undelivered('provider dispatch was not accepted');
@@ -340,7 +321,6 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
   const context = getSessionAndProjectForTrigger(sessionId);
   if (!context) return undelivered('workspace session or project not found');
   const { session, project } = context;
-  assertDispatchCapability(getLaneSessionSettings(lane, session).model, beforeDispatch);
   throwIfAborted(abortController);
 
   console.log(`Kanban: Triggering on-enter prompt for session "${session.name}" entering lane "${lane.name}"`);
@@ -365,12 +345,11 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
       session: sessions.getById(newSession.id),
     });
 
-    const dispatchKey = beforeDispatch ? await beforeDispatch(newSession.id) : null;
+    if (beforeDispatch) await beforeDispatch(newSession.id);
     throwIfAborted(abortController);
     const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
-      ...(dispatchKey ? { idempotencyKey: dispatchKey } : {}),
       ...(abortController ? { abortController } : {}),
     });
     if (!accepted) return undelivered('provider dispatch was not accepted');

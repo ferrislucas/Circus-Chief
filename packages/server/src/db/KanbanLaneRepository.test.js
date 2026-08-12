@@ -56,6 +56,29 @@ describe('KanbanLaneRepository', () => {
   });
 
   describe('create', () => {
+    it.each(['claude-sonnet-4-5', 'gpt-5-codex', 'gemini-2.5-pro'])(
+      'accepts automated lanes using the configured model %s',
+      (model) => {
+        const lane = laneRepo.create(boardId, {
+          name: `Automated ${model}`,
+          onEnterPrompt: 'Continue the work',
+          onEnterModel: model,
+        });
+
+        expect(lane.onEnterModel).toBe(model);
+      }
+    );
+
+    it('accepts a null model so automation can inherit the session model', () => {
+      const lane = laneRepo.create(boardId, {
+        name: 'Inherited model',
+        onEnterPrompt: 'Continue the work',
+        onEnterModel: null,
+      });
+
+      expect(lane.onEnterModel).toBeNull();
+    });
+
     it('rejects a target-only lane with a typed validation error', () => {
       const target = laneRepo.getByBoardId(boardId)[0];
       try {

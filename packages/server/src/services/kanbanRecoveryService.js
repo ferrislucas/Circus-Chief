@@ -5,7 +5,6 @@
  */
 import { databaseManager } from '../database.js';
 import { supersedeLaneRun } from './workflowSessionService.js';
-import { supportsKanbanProviderIdempotency } from './kanbanProviderCapability.js';
 
 /** A bounded, request-time view of durable delivery health.  This is kept
  * separate from startup preflight: a healthy boot must still degrade when a
@@ -61,16 +60,6 @@ function auditLaneInvariant(violations, lane, target) {
   else if (target.board_id !== lane.board_id) violations.push(issue('invalid_lane_target', 'completion target belongs to another board', base));
 }
 
-function auditLaneProvider(violations, lane) {
-  if (!hasAutomation(lane)) return;
-  const model = lane.on_enter_template_id ? lane.template_model : lane.on_enter_model;
-  if (!supportsKanbanProviderIdempotency(model)) {
-    violations.push(issue('invalid_lane_provider',
-      'lane automation is not configured for a credentialed idempotent OpenAI direct-API transport',
-      { projectId: lane.project_id, boardId: lane.board_id, laneId: lane.id, model: model || null }));
-  }
-}
-
 function auditOpenRunInvariant(violations, db, row) {
   const base = { runId: row.run_id, cardId: row.card_id, workspaceId: row.workspace_id, laneId: row.source_lane_id };
   if (!row.card_lane_id) violations.push(issue('orphan_open_run', 'open run has no card', base));
@@ -93,7 +82,6 @@ export function auditKanbanInvariants(db = databaseManager.get()) {
   const laneById = new Map(lanes.map((lane) => [lane.id, lane]));
 
   for (const lane of lanes) {
-    auditLaneProvider(violations, lane);
     if (lane.completion_target_lane_id) auditLaneInvariant(violations, lane, laneById.get(lane.completion_target_lane_id));
   }
 

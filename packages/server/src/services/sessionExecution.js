@@ -400,7 +400,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
 export async function runSessionCore(sessionId, prompt, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
   const { systemPrompt = null, fileAttachments = [], model = null, interactive = false,
-    idempotencyKey = null, abortController = null } = options;
+    abortController = null } = options;
   // Get session for settings
   let session = sessions.getById(sessionId);
   if (!session) throw new Error('Session not found');
@@ -454,7 +454,6 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     conversationId: activeConversation.id,
     agentType,
     commitAttributionOverride,
-    idempotencyKey,
   });
 
   console.log(`[SessionManager] runSession: model=${queryParams.options?.model || '[default]'} baseUrl=${queryParams.options?.env?.ANTHROPIC_BASE_URL || '[not set]'}`);
@@ -466,7 +465,6 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     model,
     effortLevel: session.effortLevel,
     promptLength: promptWithAttachments.length,
-    ...(idempotencyKey ? { dispatchIdempotencyKey: idempotencyKey } : {}),
   };
 
   return _executeSession({

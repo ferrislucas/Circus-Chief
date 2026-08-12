@@ -16,6 +16,6 @@ export function runStartupPreflight({
   // must not stop delivery for every other project. Ownership corruption is
   // still a global safety stop because it cannot be scoped reliably.
   const onlyInvalidConfiguration = report.violations?.length > 0
-    && report.violations.every((violation) => ['invalid_lane', 'invalid_lane_target', 'invalid_lane_provider'].includes(violation.type));
+    && report.violations.every((violation) => ['invalid_lane', 'invalid_lane_target'].includes(violation.type));
   return { ok, report, reconciliation, workersEnabled: ok || onlyInvalidConfiguration };
 }
