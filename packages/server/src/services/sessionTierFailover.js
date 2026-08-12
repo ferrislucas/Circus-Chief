@@ -1,6 +1,6 @@
 import { sessions, modelTiers } from '../database.js';
 import { reconcileAgentTypeForRun, sessionHasNoAssistantMessages } from './sessionAgentGuard.js';
-import { parseTierRef, WS_MESSAGE_TYPES, DEFAULT_MAX_FAILOVER_ATTEMPTS } from '@circuschief/shared';
+import { parseTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   getTierMembersResolved,
   markUnhealthy,
@@ -104,9 +104,9 @@ async function attemptRunWithModel(
  * `_executeSession`, is the correct terminal behavior).
  *
  * @param {Error} error
- * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string, attemptsUsed: number, maxAttempts: number }} ctx
+ * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string }} ctx
  */
-function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, attemptsUsed, maxAttempts }) {
+function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName }) {
   const errMsg = error.message?.toLowerCase() || '';
   // Use the tighter failover-specific matcher (Fix 4) to avoid spurious failover
   // on non-quota errors (e.g. "Unexpected token in JSON" contains "token").
@@ -119,10 +119,11 @@ function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, 
   }
 
   // Find the member that will actually be attempted next (Fix 5): a single
-  // ordered scan that only considers members after this one's position, skips
-  // cooldown, and respects the attempt cap — so the notice never names a
-  // member the loop won't really try.
-  const nextMember = findNextHealthyTierMember(tierRef, member, { attemptsUsed, maxAttempts });
+  // ordered scan that only considers members after this one's position and
+  // skips cooldown — so the notice never names a member the loop won't
+  // really try. The tier is exhausted, not capped: every eligible member
+  // beyond the one that just failed is attemptable.
+  const nextMember = findNextHealthyTierMember(tierRef, member);
 
   if (!nextMember) {
     // Nothing will actually be attempted next — rethrow WITHOUT cooling down so
@@ -244,27 +245,13 @@ export async function runSessionWithTierFailover(
   // Ensure the model stored on the session is the tier ref
   sessions.update(sessionId, { model: tierRef });
 
-  let attemptsUsed = 0;
-  const maxAttempts = Math.min(members.length, DEFAULT_MAX_FAILOVER_ATTEMPTS);
-
   for (const member of members) {
     // Skip members already in cooldown
     if (isUnhealthy(member.providerId, member.modelId)) continue;
 
-    // Hard cap on failover attempts (Fix 7)
-    if (attemptsUsed >= maxAttempts) break;
-    attemptsUsed++;
-
     const tierContext = {
       currentMemberId: member.modelId,
       currentMemberProviderId: member.providerId,
-      // Fix 5: carry the same cap-aware bookkeeping the loop uses to decide
-      // whether to advance, so the suppression check in sessionErrors.js
-      // (isTierFailoverEligibleError) can use the identical resolver and can
-      // never disagree with this loop about whether a next member will
-      // actually be attempted.
-      attemptsUsed,
-      maxAttempts,
     };
 
     // _executeSession's finally block removes sessionId from activeSessions after
@@ -286,7 +273,7 @@ export async function runSessionWithTierFailover(
       return; // done
     } catch (error) {
       // Advances to the next member (loop continue) or rethrows on terminal errors.
-      handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, attemptsUsed, maxAttempts });
+      handleTierMemberFailure(error, { sessionId, member, tierRef, tierName });
     }
   }
 

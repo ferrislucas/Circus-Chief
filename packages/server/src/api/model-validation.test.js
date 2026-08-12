@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { modelProviders, modelTiers } from '../database.js';
-import { validateModelId, validateModelAndProvider } from './model-validation.js';
+import { validateModelId, validateModelAndProvider, validateTierMembers } from './model-validation.js';
 import { buildTierRef } from '@circuschief/shared';
 
 describe('validateModelId', () => {
@@ -219,5 +219,91 @@ describe('validateModelAndProvider', () => {
 
   it('propagates the underlying model validation error', () => {
     expect(validateModelAndProvider('not-a-real-model', null).error).toContain('Invalid model id');
+  });
+});
+
+// ── Work Item 3: catalog/ownership validation for tier members ─────────────
+
+describe('validateTierMembers', () => {
+  it('accepts an empty member list', () => {
+    expect(validateTierMembers([])).toEqual({ value: [] });
+  });
+
+  it('accepts a valid single-provider member list', () => {
+    const provider = modelProviders.create({ name: 'Tier Members Valid Provider', kind: 'anthropic' });
+    modelProviders.addModel(provider.id, { modelId: 'tier-members-valid-model', displayName: 'Model' });
+    const members = [{ providerId: provider.id, modelId: 'tier-members-valid-model', position: 0 }];
+
+    expect(validateTierMembers(members)).toEqual({ value: members });
+  });
+
+  it('accepts a valid cross-provider member list, preserving configured order', () => {
+    const providerA = modelProviders.create({ name: 'Tier Members Cross A', kind: 'anthropic' });
+    const providerB = modelProviders.create({ name: 'Tier Members Cross B', kind: 'openai' });
+    modelProviders.addModel(providerA.id, { modelId: 'cross-model-a', displayName: 'A' });
+    modelProviders.addModel(providerB.id, { modelId: 'cross-model-b', displayName: 'B' });
+    const members = [
+      { providerId: providerB.id, modelId: 'cross-model-b', position: 0 },
+      { providerId: providerA.id, modelId: 'cross-model-a', position: 1 },
+    ];
+
+    expect(validateTierMembers(members)).toEqual({ value: members });
+  });
+
+  it('rejects an unknown provider id', () => {
+    const result = validateTierMembers([
+      { providerId: 'nonexistent-provider', modelId: 'whatever', position: 0 },
+    ]);
+    expect(result.error).toContain('nonexistent-provider');
+  });
+
+  it('rejects an unknown model id for a real provider', () => {
+    const provider = modelProviders.create({ name: 'Tier Members Unknown Model Provider', kind: 'anthropic' });
+    const result = validateTierMembers([
+      { providerId: provider.id, modelId: 'not-a-real-model-id', position: 0 },
+    ]);
+    expect(result.error).toContain('not-a-real-model-id');
+    expect(result.error).toContain(provider.id);
+  });
+
+  it('rejects a real model id paired with the wrong provider', () => {
+    // gpt-5.5 is owned by the built-in openai-default provider, not anthropic-default.
+    const result = validateTierMembers([
+      { providerId: 'anthropic-default', modelId: 'gpt-5.5', position: 0 },
+    ]);
+    expect(result.error).toContain('gpt-5.5');
+    expect(result.error).toContain('anthropic-default');
+  });
+
+  it('rejects the whole list atomically when it contains a mix of valid and invalid members', () => {
+    const provider = modelProviders.create({ name: 'Tier Members Mixed Provider', kind: 'anthropic' });
+    modelProviders.addModel(provider.id, { modelId: 'mixed-valid-model', displayName: 'Valid' });
+    const result = validateTierMembers([
+      { providerId: provider.id, modelId: 'mixed-valid-model', position: 0 },
+      { providerId: provider.id, modelId: 'mixed-invalid-model', position: 1 },
+    ]);
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain('mixed-invalid-model');
+  });
+
+  it('accepts a disabled-but-present model (write-time validity ignores model-level enabled)', () => {
+    // claude-opus-4-8 is seeded on the built-in anthropic-default provider
+    // with enabled: false / lifecycle: 'older' — it must still be a valid
+    // tier member (existence + ownership only, not the enabled flag).
+    const result = validateTierMembers([
+      { providerId: 'anthropic-default', modelId: 'claude-opus-4-8', position: 0 },
+    ]);
+    expect(result.error).toBeUndefined();
+  });
+
+  it('accepts a model owned by a disabled provider (write-time validity ignores provider-level enabled)', () => {
+    const provider = modelProviders.create({ name: 'Tier Members Disabled Provider', kind: 'anthropic' });
+    modelProviders.addModel(provider.id, { modelId: 'disabled-provider-model', displayName: 'Model' });
+    modelProviders.update(provider.id, { enabled: false });
+
+    const result = validateTierMembers([
+      { providerId: provider.id, modelId: 'disabled-provider-model', position: 0 },
+    ]);
+    expect(result.error).toBeUndefined();
   });
 });

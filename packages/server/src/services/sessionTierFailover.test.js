@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { buildTierRef, DEFAULT_MAX_FAILOVER_ATTEMPTS } from '@circuschief/shared';
+import { buildTierRef } from '@circuschief/shared';
 
 // Mock the SDK to prevent real API calls — capture queryParams for assertions
 const { mockQuery } = vi.hoisted(() => ({
@@ -240,15 +240,56 @@ describe('runSessionCore tier failover (integration)', () => {
     }
   });
 
-  // Fix 7: DEFAULT_MAX_FAILOVER_ATTEMPTS cap
-  it('respects DEFAULT_MAX_FAILOVER_ATTEMPTS and stops after the cap is reached', async () => {
-    // Build a tier with more members than the default cap would allow if it were low,
-    // but for practical purposes just verify the cap is applied (we can't easily set
-    // 11 failing members in a unit test; instead verify the cap logic is imported and
-    // the loop exits without exhausting all 2 members unnaturally).
-    //
-    // This is a smoke test: with 2 members both failing, the loop tries both and stops.
-    // The important contract is that it never tries more than DEFAULT_MAX_FAILOVER_ATTEMPTS.
+  // Work Item 1: an ordered tier is exhausted before failure — no arbitrary
+  // attempt cap. A member beyond position ten can still succeed, and an
+  // >10-member tier that fully fails only reaches terminal error status
+  // after every eligible member has actually been attempted.
+  it('succeeds on an eligible member beyond position ten, attempting every prior member exactly once in order', async () => {
+    const members = [];
+    for (let i = 0; i < 11; i++) {
+      const provider = modelProviders.create({ name: `Big Provider ${i}`, kind: 'anthropic' });
+      modelProviders.addModel(provider.id, { modelId: `big-model-${i}`, displayName: `Big Model ${i}` });
+      members.push({ providerId: provider.id, modelId: `big-model-${i}`, position: i });
+    }
+    const bigTier = modelTiers.create({ name: 'Big Tier', members });
+    sessionRepo.update(session.id, { model: buildTierRef(bigTier.id) });
+
+    const attemptedProviderIds = [];
+    let callCount = 0;
+    mockQuery.mockImplementation(async function* () {
+      attemptedProviderIds.push(members[callCount].providerId);
+      callCount++;
+      if (callCount <= 10) {
+        throw new Error('Error: 529 Service overloaded');
+      }
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'big-model-10', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Eleventh response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    // All eleven members were attempted, in configured order, exactly once each.
+    expect(mockQuery).toHaveBeenCalledTimes(11);
+    expect(attemptedProviderIds).toEqual(members.map((m) => m.providerId));
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe(buildTierRef(bigTier.id));
+    expect(updated.resolvedModel).toBe('big-model-10');
+    expect(updated.resolvedProviderId).toBe(members[10].providerId);
+    expect(updated.status).not.toBe('error');
+  });
+
+  it('reaches terminal error status only after every member of an >10-member tier has been attempted', async () => {
+    const members = [];
+    for (let i = 0; i < 12; i++) {
+      const provider = modelProviders.create({ name: `Exhaust Provider ${i}`, kind: 'anthropic' });
+      modelProviders.addModel(provider.id, { modelId: `exhaust-model-${i}`, displayName: `Exhaust Model ${i}` });
+      members.push({ providerId: provider.id, modelId: `exhaust-model-${i}`, position: i });
+    }
+    const exhaustTier = modelTiers.create({ name: 'Exhaust Tier', members });
+    sessionRepo.update(session.id, { model: buildTierRef(exhaustTier.id) });
+
     // eslint-disable-next-line require-yield -- always throws before yielding
     mockQuery.mockImplementation(async function* () {
       throw new Error('Error: 529 Service overloaded');
@@ -258,60 +299,27 @@ describe('runSessionCore tier failover (integration)', () => {
       runSession(session.id, 'Initial prompt', tempDir, { model: null })
     ).rejects.toThrow(/529/);
 
-    // With 2 members both failing, exactly 2 calls should be made (≤ DEFAULT_MAX_FAILOVER_ATTEMPTS)
-    expect(mockQuery.mock.calls.length).toBeLessThanOrEqual(2);
-  });
-
-  // Work Item 2 (Fix 5): unify the failover suppression check with the
-  // loop's cap-aware advance check so they can never disagree.
-  it('reaches normal terminal error handling (not a silent hang) when a >10-member tier fails past the attempt cap', async () => {
-    // 12 members: the first 10 fail with an eligible service error; members
-    // 11-12 would succeed but must never actually be attempted because
-    // DEFAULT_MAX_FAILOVER_ATTEMPTS (10) caps the loop.
-    //
-    // Before Fix 5, the suppression check (isTierFailoverEligibleError) used
-    // an uncapped whole-list scan (hasNextHealthyMember) that saw members
-    // 11/12 as "a next member exists" and suppressed _executeSession's normal
-    // error handling (status='error', SESSION_ERROR broadcast) for the 10th
-    // attempt's failure — while the failover loop's own cap-aware check
-    // correctly refused to advance to member 11. The error then propagated
-    // with the session left in a non-terminal state: a silent hang,
-    // contradicting PRD AC #5. After the fix, both checks share
-    // findNextHealthyTierMember, so the 10th attempt's failure reaches the
-    // normal error path and the session ends up with status='error'.
-    const capMembers = [];
-    for (let i = 0; i < 12; i++) {
-      const provider = modelProviders.create({ name: `Cap Provider ${i}`, kind: 'anthropic' });
-      modelProviders.addModel(provider.id, { modelId: `cap-model-${i}`, displayName: `Cap Model ${i}` });
-      capMembers.push({ providerId: provider.id, modelId: `cap-model-${i}`, position: i });
-    }
-    const capTier = modelTiers.create({ name: 'Cap Tier', members: capMembers });
-    sessionRepo.update(session.id, { model: buildTierRef(capTier.id) });
-
-    let callCount = 0;
-    mockQuery.mockImplementation(async function* () {
-      callCount++;
-      if (callCount <= DEFAULT_MAX_FAILOVER_ATTEMPTS) {
-        throw new Error('Error: 529 Service overloaded');
-      }
-      // Never reached — members beyond the cap must not be attempted.
-      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'cap-model', slash_commands: [] };
-      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
-      yield { type: 'result', subtype: 'success' };
-    });
-
-    await expect(
-      runSession(session.id, 'Initial prompt', tempDir, { model: null })
-    ).rejects.toThrow(/529/);
-
-    // Exactly DEFAULT_MAX_FAILOVER_ATTEMPTS attempts were made — the cap stopped
-    // the loop before members 11/12 were ever tried.
-    expect(mockQuery).toHaveBeenCalledTimes(DEFAULT_MAX_FAILOVER_ATTEMPTS);
+    // Every eligible member was attempted — no silent hang, no arbitrary cap.
+    expect(mockQuery).toHaveBeenCalledTimes(12);
 
     const updated = sessionRepo.getById(session.id);
-    // Terminal error handling ran for the final (capped) attempt.
     expect(updated.status).toBe('error');
     expect(updated.error).toContain('529');
+  });
+
+  it("skips a cooled-down member without consuming a later member's turn", async () => {
+    // Pre-cool member A (position 0) so the loop must skip straight to B.
+    const { markUnhealthy: markUnhealthyDirect } = await import('./tierResolutionService.js');
+    markUnhealthyDirect(providerA.id, 'model-a');
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    // Only B was attempted — the cooldown skip did not consume an attempt
+    // that would otherwise have been available to a later member.
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe('model-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
   });
 });
 

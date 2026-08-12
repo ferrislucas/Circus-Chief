@@ -26,9 +26,6 @@ export const DEFAULT_RESCHEDULE_DELAY_MINUTES = 60;
 /** Cooldown period (ms) before a failed tier member is retried in the same process. */
 export const DEFAULT_TIER_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 
-/** Maximum number of failover attempts within a single start operation (capped to tier size). */
-export const DEFAULT_MAX_FAILOVER_ATTEMPTS = 10;
-
 /** Default maximum number of automatic reschedules for an API-created session. */
 export const DEFAULT_MAX_RESCHEDULE_COUNT = 24;
 

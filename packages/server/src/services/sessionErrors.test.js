@@ -635,4 +635,39 @@ describe('start-time failover trigger set — matchesStartFailoverEligibleError 
       expect(matchesStartFailoverEligibleError(msg.toLowerCase())).toBe(false);
     });
   });
+
+  // Work Item 2: widen the classifier to accept an Error-like object and
+  // check a numeric `status` code, for SDK errors (Anthropic Agent SDK,
+  // OpenAI client) whose message text may not contain any of the patterns
+  // above at all. The session path's existing string-only usage must be
+  // completely unaffected.
+  describe('Error-object status-code support (Work Item 2)', () => {
+    it.each([429, 500, 503, 529])('treats a bare Error with status %i as failover-eligible', (status) => {
+      const error = Object.assign(new Error('Something went wrong'), { status });
+      expect(matchesStartFailoverEligibleError(error)).toBe(true);
+    });
+
+    it.each([400, 401, 404, 422])('does not treat status %i as failover-eligible on its own', (status) => {
+      const error = Object.assign(new Error('Something went wrong'), { status });
+      expect(matchesStartFailoverEligibleError(error)).toBe(false);
+    });
+
+    it('still matches on message text when passed an Error object with no status', () => {
+      const error = new Error('Error: 529 Service overloaded');
+      expect(matchesStartFailoverEligibleError(error)).toBe(true);
+    });
+
+    it('a status code does not override the prompt-size exclusion when the message is the real signal', () => {
+      // A 400 "context length exceeded" is a prompt-size error, not an
+      // outage — must still be excluded even though 400 isn't in the
+      // eligible status set anyway (guards against a future status-set change).
+      const error = Object.assign(new Error('context length exceeded'), { status: 400 });
+      expect(matchesStartFailoverEligibleError(error)).toBe(false);
+    });
+
+    it('continues to accept plain lowercased strings unchanged (session path)', () => {
+      expect(matchesStartFailoverEligibleError('error: 529 service overloaded')).toBe(true);
+      expect(matchesStartFailoverEligibleError('invalid api key')).toBe(false);
+    });
+  });
 });

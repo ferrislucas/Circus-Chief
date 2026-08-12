@@ -1,13 +1,38 @@
 import { Router } from 'express';
-import { modelTiers } from '../database.js';
+import { modelTiers, settings } from '../database.js';
 import {
   CreateTierRequest,
   UpdateTierRequest,
 } from '@circuschief/shared/contracts/modelTiers';
+import { isTierRef, parseTierRef } from '@circuschief/shared';
+import { validateTierMembers } from './model-validation.js';
+import { tierHasUnsupportedSummaryKindMember } from '../services/summaryModelResolver.js';
 
 const ERR_TIER_NOT_FOUND = 'Tier not found';
 
 const router = Router();
+
+/**
+ * Work Item 3: when a tier being updated is the currently configured
+ * summary tier, a member set change cannot smuggle in a provider kind
+ * `callSummaryModel` can't route (e.g. 'google') — that guard is normally
+ * enforced at summary-settings write time (api/settings.js), but a later
+ * edit to the tier itself would otherwise bypass it entirely.
+ * @param {string} tierId
+ * @param {Array<{providerId: string, modelId: string}>} members
+ * @returns {string|null} An error message, or null if the edit is allowed.
+ */
+function checkSummaryTierKindGuard(tierId, members) {
+  const summarySettings = settings.getSummarySettings();
+  const isConfiguredSummaryTier =
+    isTierRef(summarySettings.summaryModel) && parseTierRef(summarySettings.summaryModel) === tierId;
+  if (!isConfiguredSummaryTier) return null;
+
+  if (tierHasUnsupportedSummaryKindMember(members)) {
+    return 'This tier is the configured summary model — members must be Anthropic or OpenAI only (see Settings → Summary Settings)';
+  }
+  return null;
+}
 
 // GET /api/tiers — list all tiers with members
 router.get('/', (_req, res) => {
@@ -37,6 +62,11 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
+  const memberValidation = validateTierMembers(result.data.members);
+  if (memberValidation.error) {
+    return res.status(400).json({ error: memberValidation.error });
+  }
+
   try {
     const tier = modelTiers.create(result.data);
     res.status(201).json(tier);
@@ -56,6 +86,18 @@ router.patch('/:id', (req, res) => {
   const result = UpdateTierRequest.safeParse(req.body);
   if (!result.success) {
     return res.status(400).json({ error: result.error.issues[0].message });
+  }
+
+  if (result.data.members) {
+    const memberValidation = validateTierMembers(result.data.members);
+    if (memberValidation.error) {
+      return res.status(400).json({ error: memberValidation.error });
+    }
+
+    const summaryGuardError = checkSummaryTierKindGuard(req.params.id, result.data.members);
+    if (summaryGuardError) {
+      return res.status(400).json({ error: summaryGuardError });
+    }
   }
 
   try {

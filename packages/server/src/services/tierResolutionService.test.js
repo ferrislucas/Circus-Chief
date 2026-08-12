@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   resolveActiveModel,
-  hasNextHealthyMember,
   findNextHealthyTierMember,
   resolveTierRefForContinue,
   getTierMembersResolved,
@@ -101,55 +100,6 @@ describe('tierResolutionService', () => {
     });
   });
 
-  describe('hasNextHealthyMember', () => {
-    it('returns true when another healthy member exists', () => {
-      const tier = modelTiers.create({
-        name: 'Tier',
-        members: [
-          { providerId: providerA.id, modelId: 'model-a', position: 0 },
-          { providerId: providerB.id, modelId: 'model-b', position: 1 },
-        ],
-      });
-
-      const tierRef = buildTierRef(tier.id);
-      expect(
-        hasNextHealthyMember(tierRef, { excludeModelId: 'model-a', excludeProviderId: providerA.id })
-      ).toBe(true);
-    });
-
-    it('returns false when no other healthy member exists', () => {
-      const tier = modelTiers.create({
-        name: 'Tier',
-        members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
-      });
-
-      const tierRef = buildTierRef(tier.id);
-      expect(
-        hasNextHealthyMember(tierRef, { excludeModelId: 'model-a', excludeProviderId: providerA.id })
-      ).toBe(false);
-    });
-
-    it('excludes cooled-down members from the healthy count', () => {
-      const tier = modelTiers.create({
-        name: 'Tier',
-        members: [
-          { providerId: providerA.id, modelId: 'model-a', position: 0 },
-          { providerId: providerB.id, modelId: 'model-b', position: 1 },
-        ],
-      });
-      markUnhealthy(providerB.id, 'model-b');
-
-      const tierRef = buildTierRef(tier.id);
-      expect(
-        hasNextHealthyMember(tierRef, { excludeModelId: 'model-a', excludeProviderId: providerA.id })
-      ).toBe(false);
-    });
-
-    it('returns false for an invalid tier ref', () => {
-      expect(hasNextHealthyMember('tier::', { excludeModelId: 'x', excludeProviderId: 'y' })).toBe(false);
-    });
-  });
-
   describe('findNextHealthyTierMember (Fix 5)', () => {
     let providerC;
 
@@ -190,20 +140,6 @@ describe('tierResolutionService', () => {
       // A fails; B (next in position) is in cooldown, so C is the real next attempt.
       const next = findNextHealthyTierMember(tierRef, { modelId: 'model-a', providerId: providerA.id });
       expect(next).toMatchObject({ providerId: providerC.id, modelId: 'model-c', position: 2 });
-    });
-
-    it('returns null when the attempt cap prevents reaching a member that would otherwise be healthy', () => {
-      const tier = buildAbcTier();
-      const tierRef = buildTierRef(tier.id);
-
-      // 2 attempts already used, cap is 2 — C exists and is healthy, but the
-      // loop will never actually try it.
-      const next = findNextHealthyTierMember(
-        tierRef,
-        { modelId: 'model-b', providerId: providerB.id },
-        { attemptsUsed: 2, maxAttempts: 2 }
-      );
-      expect(next).toBeNull();
     });
 
     it('returns null when no member exists after the failed position', () => {

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { modelProviders, settings } from '../db/index.js';
 import { DEFAULT_SESSION_TITLE_PROMPT } from '../services/summaryService.js';
-import { SUPPORTED_SUMMARY_PROVIDER_KINDS } from '../services/summaryModelResolver.js';
+import { SUPPORTED_SUMMARY_PROVIDER_KINDS, tierHasUnsupportedSummaryKindMember } from '../services/summaryModelResolver.js';
 import { getTierMembersResolved } from '../services/tierResolutionService.js';
 import { isTierRef, parseTierRef } from '@circuschief/shared';
 
@@ -170,11 +170,7 @@ function validateSummaryModelSelection(summaryModel, summaryProviderId) {
     // failover member can't silently be unsupported.
     const tierId = parseTierRef(summaryModel);
     const members = tierId ? getTierMembersResolved(tierId) : [];
-    const hasUnsupportedMember = members.some((member) => {
-      const memberProvider = modelProviders.getById(member.providerId);
-      return !SUPPORTED_SUMMARY_PROVIDER_KINDS.has(memberProvider?.kind || 'anthropic');
-    });
-    if (hasUnsupportedMember) {
+    if (tierHasUnsupportedSummaryKindMember(members)) {
       return 'summaryModel tier must contain only Anthropic or OpenAI models';
     }
     return null;

@@ -36,6 +36,13 @@ export function matchesTokenLimitError(message) {
   return patterns.some(pattern => message.includes(pattern));
 }
 
+// Numeric SDK error statuses treated as failover-eligible outages/overload
+// conditions (Work Item 2). The Anthropic Agent SDK and the OpenAI client
+// both throw errors carrying a numeric `error.status` that may not appear in
+// `error.message` at all — the message-substring patterns below can't catch
+// those, so this is an additive check, not a replacement for them.
+const FAILOVER_ELIGIBLE_STATUS_CODES = new Set([429, 500, 503, 529]);
+
 /**
  * Check if an error qualifies for start-time tier failover (Fix 4 / F16).
  *
@@ -53,10 +60,19 @@ export function matchesTokenLimitError(message) {
  * a real prompt-size bug by silently bouncing across providers. These stay
  * covered by matchesTokenLimitError for the broader auto-reschedule decision.
  *
- * @param {string} message - Error message to check (should be lowercased by caller)
+ * Accepts either a plain (already-lowercased) message string — the session
+ * path's existing, unchanged usage — or an Error-like object with a
+ * `message` and optionally a numeric `status` (Work Item 2 — the summary
+ * path throws SDK errors whose status code may not be reflected in the
+ * message text at all).
+ *
+ * @param {string|{message?: string, status?: number}} messageOrError
  * @returns {boolean} True if the error should trigger start-time tier failover
  */
-export function matchesStartFailoverEligibleError(message) {
+export function matchesStartFailoverEligibleError(messageOrError) {
+  const isErrorLike = typeof messageOrError === 'object' && messageOrError !== null;
+  const message = (isErrorLike ? messageOrError.message || '' : messageOrError || '').toLowerCase();
+
   // Delegate to matchesServiceError for service-level outage patterns
   if (matchesServiceError(message)) return true;
 
@@ -74,7 +90,14 @@ export function matchesStartFailoverEligibleError(message) {
     'billing limit',
     'billing hard limit',
   ];
-  return quotaPatterns.some(pattern => message.includes(pattern));
+  if (quotaPatterns.some(pattern => message.includes(pattern))) return true;
+
+  // Status-code check (SDK errors). Never applied to prompt-size errors —
+  // those don't carry these status codes, so this can't accidentally
+  // override the exclusion above.
+  if (isErrorLike && FAILOVER_ELIGIBLE_STATUS_CODES.has(messageOrError.status)) return true;
+
+  return false;
 }
 
 /**
@@ -160,7 +183,7 @@ function logSkippedReschedule(setting) {
  * @param {object} session - Session object
  * @param {Error} error - Error that occurred
  * @param {string|null} sessionId - Session ID
- * @param {{ currentMemberId?: string, currentMemberProviderId?: string, attemptsUsed?: number, maxAttempts?: number }|null} tierContext
+ * @param {{ currentMemberId?: string, currentMemberProviderId?: string }|null} tierContext
  * @returns {boolean}
  */
 export function isTierFailoverEligibleError(session, error, sessionId = null, tierContext = null) {
@@ -177,18 +200,14 @@ export function isTierFailoverEligibleError(session, error, sessionId = null, ti
     return false;
   }
 
-  // Fix 5: use the SAME cap-aware, forward-only resolver the failover loop
+  // Fix 5: use the SAME forward-only resolver the failover loop
   // (sessionTierFailover.js) uses to decide whether to advance, so this
-  // suppression check can never disagree with it. Previously this used
-  // hasNextHealthyMember, a whole-list existence check unaware of the
-  // DEFAULT_MAX_FAILOVER_ATTEMPTS cap — for a >10-member tier that could
-  // report a "next member" that the loop would never actually attempt,
-  // suppressing normal error handling with nothing left to fail over to.
-  return findNextHealthyTierMember(
-    session.model,
-    { modelId: tierContext.currentMemberId, providerId: tierContext.currentMemberProviderId },
-    { attemptsUsed: tierContext.attemptsUsed, maxAttempts: tierContext.maxAttempts }
-  ) !== null;
+  // suppression check can never disagree with it. The tier is exhausted
+  // before failure — there is no attempt cap to be aware of.
+  return findNextHealthyTierMember(session.model, {
+    modelId: tierContext.currentMemberId,
+    providerId: tierContext.currentMemberProviderId,
+  }) !== null;
 }
 
 /**

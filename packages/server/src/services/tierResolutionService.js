@@ -1,4 +1,4 @@
-import { isTierRef, parseTierRef, DEFAULT_TIER_COOLDOWN_MS, DEFAULT_MAX_FAILOVER_ATTEMPTS } from '@circuschief/shared';
+import { isTierRef, parseTierRef, DEFAULT_TIER_COOLDOWN_MS } from '@circuschief/shared';
 import { modelTiers, modelProviders } from '../database.js';
 
 /**
@@ -138,48 +138,23 @@ export function resolveActiveModel(modelOrRef, context = {}) {
 }
 
 /**
- * Check whether there is a healthy member available after excluding a specific
- * (providerId, modelId) pair. Used by the failover decision logic to determine
- * whether to advance to the next member.
- *
- * @param {string} tierRef - Tier ref sentinel string
- * @param {{ excludeModelId: string, excludeProviderId: string }} opts
- * @returns {boolean}
- */
-export function hasNextHealthyMember(tierRef, { excludeModelId, excludeProviderId }) {
-  const tierId = parseTierRef(tierRef);
-  if (!tierId) return false;
-
-  const members = getTierMembersResolved(tierId);
-  return members.some(
-    (m) =>
-      !(m.providerId === excludeProviderId && m.modelId === excludeModelId) &&
-      !isUnhealthy(m.providerId, m.modelId)
-  );
-}
-
-/**
  * Find the single next tier member that would actually be attempted after
  * `failedMember`, for both (a) the failover-vs-terminal decision and (b) the
  * failover notice/log payload — one ordered scan shared by both so they can
  * never disagree (Fix 5).
  *
- * Unlike {@link hasNextHealthyMember} (a plain existence check over the whole
- * member list), this:
- *   - only considers members strictly AFTER `failedMember`'s position,
- *   - skips members currently in cooldown,
- *   - respects the failover attempt cap — once `attemptsUsed` has reached the
- *     effective max, no further member will actually be tried, so this
- *     returns `null` even if a healthy member technically exists later in
- *     the list.
+ * A pure forward-only, cooldown-aware scan: only considers members strictly
+ * AFTER `failedMember`'s position and skips members currently in cooldown.
+ * The tier is exhausted before failure — there is no attempt cap. The loop
+ * that calls this (`runSessionWithTierFailover`) iterates a finite,
+ * DB-ordered, de-duplicated member list with no re-entry path that could
+ * revisit a member, so `members.length` is itself the termination bound.
  *
  * @param {string} tierRef - Tier ref sentinel string.
  * @param {{ modelId: string, providerId: string }} failedMember - The member that just failed.
- * @param {{ attemptsUsed?: number, maxAttempts?: number }} [options]
  * @returns {{ providerId: string, modelId: string, position: number }|null}
  */
-export function findNextHealthyTierMember(tierRef, failedMember, options = {}) {
-  const { attemptsUsed = 0, maxAttempts = DEFAULT_MAX_FAILOVER_ATTEMPTS } = options;
+export function findNextHealthyTierMember(tierRef, failedMember) {
   const tierId = parseTierRef(tierRef);
   if (!tierId) return null;
 
@@ -188,9 +163,6 @@ export function findNextHealthyTierMember(tierRef, failedMember, options = {}) {
     (m) => m.providerId === failedMember.providerId && m.modelId === failedMember.modelId
   );
   if (failedIndex === -1) return null;
-
-  const effectiveMax = Math.min(members.length, maxAttempts);
-  if (attemptsUsed >= effectiveMax) return null;
 
   for (let i = failedIndex + 1; i < members.length; i++) {
     const candidate = members[i];

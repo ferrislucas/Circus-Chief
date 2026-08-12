@@ -20,6 +20,25 @@ export const CHEAPEST_SUMMARY_MODEL_BY_BUILT_IN_PROVIDER = Object.freeze({
   [BUILT_IN_OPENAI_PROVIDER_ID]: DEFAULT_OPENAI_SUMMARY_MODEL,
 });
 
+/**
+ * Check whether any member of a tier member list resolves to a provider
+ * kind that `callSummaryModel` can't route (i.e. outside
+ * SUPPORTED_SUMMARY_PROVIDER_KINDS). Extracted (Work Item 3) so both
+ * write-time guards can share one predicate:
+ *   - api/settings.js — choosing a tier AS the summary model.
+ *   - api/modelTiers.js — editing a tier that is ALREADY the configured
+ *     summary tier (closing the bypass where a later tier edit could smuggle
+ *     an unsupported-kind member past the settings-time check).
+ * @param {Array<{providerId: string}>} members
+ * @returns {boolean}
+ */
+export function tierHasUnsupportedSummaryKindMember(members) {
+  return members.some((member) => {
+    const provider = modelProviders.getById(member.providerId);
+    return !SUPPORTED_SUMMARY_PROVIDER_KINDS.has(provider?.kind || 'anthropic');
+  });
+}
+
 const ANTHROPIC_TIER_NAMES = new Set(['sonnet', 'opus', 'haiku']);
 
 export function isKnownBuiltInAnthropicModel(modelId) {
@@ -106,7 +125,17 @@ export function resolveSummaryModel(summarySettings = {}) {
   return defaultAnthropicResolution('fallback');
 }
 
-function resolveExplicitSummaryModel(summaryModel, summaryProviderId) {
+/**
+ * Resolve a concrete (summaryModel, summaryProviderId) pair to a full
+ * resolution object. Exported (Work Item 2) so `callSummaryModel`'s own
+ * tier-traversal loop can build a per-member resolution the same way the
+ * single-shot path does, for every eligible member it attempts — not just
+ * the first one.
+ * @param {string} summaryModel
+ * @param {string} summaryProviderId
+ * @returns {{ model: string, provider: Object, providerId: string, kind: string, isDefault: boolean, selectionReason: string }}
+ */
+export function resolveExplicitSummaryModel(summaryModel, summaryProviderId) {
   if (!summaryProviderId) {
     throw new Error('summaryProviderId is required when summaryModel is set');
   }

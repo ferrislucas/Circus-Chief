@@ -101,3 +101,46 @@ export function validateModelAndProvider(model, providerId, options = {}) {
 
   return { model: modelResult.value, providerId };
 }
+
+/**
+ * Validate a Model Tier's member list at write time (create/update) — Work
+ * Item 3. A member is valid when its provider exists AND owns a
+ * non-removed `provider_models` row for that `modelId`, mirroring
+ * `getTierMembersResolved`'s ownership filter.
+ *
+ * Deliberately NOT checked here (both are runtime-resolution concerns, not
+ * write-time validity — see the Model Tier Review Remediation Plan, Work
+ * Item 3):
+ *   - Model-level `enabled` — `getModels` returns non-removed models
+ *     regardless of `enabled`, and tier resolution never checks it either.
+ *   - Provider-level `enabled` — rejecting a disabled provider's models at
+ *     write time would make an unrelated tier uneditable whenever a user
+ *     temporarily disables a provider.
+ *
+ * The member list is validated atomically: the first invalid pair fails the
+ * whole request, so a tier is never partially persisted with a mix of valid
+ * and invalid members.
+ *
+ * @param {Array<{providerId: string, modelId: string}>} members
+ * @returns {{ error?: string, value?: Array }}
+ */
+export function validateTierMembers(members) {
+  if (!Array.isArray(members)) {
+    return { error: 'members must be an array' };
+  }
+
+  for (const member of members) {
+    const provider = modelProviders.getById(member.providerId);
+    if (!provider) {
+      return { error: `Invalid tier member: unknown provider "${member.providerId}"` };
+    }
+    const ownsModel = provider.models?.some((model) => model.modelId === member.modelId);
+    if (!ownsModel) {
+      return {
+        error: `Invalid tier member: provider "${member.providerId}" does not own model "${member.modelId}"`,
+      };
+    }
+  }
+
+  return { value: members };
+}
