@@ -1,6 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
 import { readFileSync, existsSync } from 'fs';
 
+// The sandbox pre-installs a pinned Chromium build outside Playwright's own
+// browser cache (see /opt/pw-browsers). When the installed @playwright/test
+// version expects a newer bundled revision than what's pre-installed, launch
+// the pre-installed binary directly instead of letting Playwright try to
+// download one (network access to the Playwright CDN is not available here).
+const PREINSTALLED_CHROMIUM = '/opt/pw-browsers/chromium';
+const launchOptions = existsSync(PREINSTALLED_CHROMIUM)
+  ? { executablePath: PREINSTALLED_CHROMIUM }
+  : {};
+
 function getBaseURL(): string {
   if (process.env.BASE_URL) return process.env.BASE_URL;
 
@@ -29,6 +39,7 @@ export default defineConfig({
     trace: 'on-first-retry',
     actionTimeout: 10000, // Timeout for individual actions
     navigationTimeout: 30000, // Timeout for navigation
+    launchOptions,
   },
   projects: [
     {
