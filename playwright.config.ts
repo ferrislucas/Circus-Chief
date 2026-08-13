@@ -44,7 +44,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { browserName: 'chromium' },
+      use: { browserName: 'chromium', ...launchOptions },
       // Exclude overlay-specific specs that require the mobile chat handle,
       // full-screen overlay, or overlay-only UI elements (pickers, scroll-to-bottom).
       // Those run in the iphone-14 / ipad-pro projects below.
@@ -59,12 +59,12 @@ export default defineConfig({
     // the full-screen overlay.
     {
       name: 'iphone-14',
-      use: { browserName: 'chromium', ...devices['iPhone 14'] },
+      use: { browserName: 'chromium', ...devices['iPhone 14'], ...launchOptions },
       testMatch: /session-chat-overlay(-layout|-scroll|-auto-select)?\.spec\.ts$|session-overlay-auto-open\.spec\.ts$|stale-spinner-after-reconnect\.spec\.ts$|session-chat-picker-all-children\.spec\.ts$|session-selector-switch\.spec\.ts$|scroll-to-bottom\.spec\.ts$/,
     },
     {
       name: 'ipad-pro',
-      use: { browserName: 'chromium', ...devices['iPad Pro 11'] },
+      use: { browserName: 'chromium', ...devices['iPad Pro 11'], ...launchOptions },
       // Only the layout regression tests run on iPad Pro. They exercise overlay
       // geometry at wide viewports (744px, 800px, 834px) and need special
       // handling to open the overlay (which is hidden at >=641px) by
