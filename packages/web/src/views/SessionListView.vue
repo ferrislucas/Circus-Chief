@@ -305,6 +305,7 @@ import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useWorkspaceListStore } from '../stores/workspaceList.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useSummaries } from '../composables/useSummaries.js';
 import { useRunningSessionSubscriptions } from '../composables/useRunningSessionSubscriptions.js';
 import { useProjectSubscription, useWebSocket } from '../composables/useWebSocket.js';
@@ -327,6 +328,7 @@ const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
 const kanbanStore = useKanbanStore();
 const workspaceList = useWorkspaceListStore();
+const commandButtonsStore = useCommandButtonsStore();
 const streamingStore = useSessionStreamingStore();
 
 const {
@@ -382,7 +384,7 @@ const workflowCardFromCard = card => {
     runningSessionIds: card.runningSessionIds?.length
       ? card.runningSessionIds
       : (isRunningSession(card) || card.runningCount > 0 ? [rootSessionId] : []),
-    memberIds: [rootSessionId],
+    memberIds: card.memberIds?.length ? card.memberIds : [rootSessionId],
     eligible: activeTab.value === 'sessions'
       && cardVisibilityByRootId.value[rootSessionId] !== false
       && !streamingStore.isSessionLogCollapsed(rootSessionId),
@@ -458,6 +460,12 @@ const removeReconnectHandler = typeof useWebSocket === 'function'
   ? useWebSocket().onReconnect?.(revalidateWorkspaceCards) : null;
 revalidateWorkspaceCards();
 
+watch(projectId, (id) => {
+  if (!id) return;
+  Promise.resolve(projectsStore.fetchProject(id)).catch(() => {});
+  Promise.resolve(commandButtonsStore.fetchButtons(id)).catch(() => {});
+}, { immediate: true });
+
 watch([projectId, () => sessionsStore.statusFilter, () => sessionsStore.starredFilter, () => sessionsStore.scheduledFilter],
   ([id]) => { if (id && activeTab.value === 'sessions') workspaceList.load(id, workspaceQuery()).catch(() => {}); },
   { immediate: true });
@@ -507,7 +515,9 @@ const sessionToArchive = ref(null);
 const archiving = ref(false);
 
 function handleArchive(sessionId) {
-  const session = sessionsStore.sessions.find(s => s.id === sessionId);
+  const session = sessionsStore.sessions.find(s => s.id === sessionId)
+    || workspaceList.cardsById?.[sessionId]
+    || workspaceList.cards.find(card => card.id === sessionId);
   sessionToArchive.value = session || { id: sessionId };
   showArchiveModal.value = true;
 }
@@ -523,6 +533,9 @@ const archiveWorkflowCard = computed(() => {
   const sessionId = sessionToArchive.value?.id;
   if (!sessionId) return null;
   const rootId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
+  const compactKanban = workspaceList.cardsById?.[rootId]?.kanban
+    || workspaceList.cards.find(card => card.id === rootId)?.kanban;
+  if (compactKanban) return { id: compactKanban.cardId, laneId: compactKanban.laneId };
   return (
     kanbanStore.getCardBySessionId(rootId) ||
     kanbanStore.getCardBySessionId(sessionId) ||

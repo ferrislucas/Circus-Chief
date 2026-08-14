@@ -56,6 +56,7 @@ export function getWorkspaceCards(db, projectId, { archived = false, starred = n
       SELECT tree.root_id,
         SUM(CASE WHEN s.status IN ('running', 'starting') THEN 1 ELSE 0 END) AS running_count,
         GROUP_CONCAT(CASE WHEN s.status IN ('running', 'starting') THEN s.id END) AS running_session_ids,
+        GROUP_CONCAT(s.id) AS member_ids,
         SUM(CASE WHEN s.status = 'scheduled' THEN 1 ELSE 0 END) AS scheduled_count,
         MIN(CASE WHEN s.status = 'scheduled' THEN s.scheduled_at END) AS nearest_scheduled_at,
         SUM(CASE WHEN s.status = 'waiting' THEN 1 ELSE 0 END) AS waiting_count,
@@ -64,10 +65,12 @@ export function getWorkspaceCards(db, projectId, { archived = false, starred = n
     )
     , workspace_card_base AS (
     SELECT s.id, s.project_id AS projectId, s.name, s.status, s.starred, s.archived,
-      s.pr_url AS prUrl, s.scheduled_at AS scheduledAt, s.created_at AS createdAt,
+      s.pr_url AS prUrl, s.git_worktree AS gitWorktree,
+      s.scheduled_at AS scheduledAt, s.created_at AS createdAt,
       s.updated_at AS updatedAt, ${ACTIVITY_FIELDS_SQL},
       a.running_count AS runningCount, a.scheduled_count AS scheduledCount,
       a.running_session_ids AS runningSessionIds,
+      a.member_ids AS memberIds,
       a.waiting_count AS waitingCount, a.member_count AS memberCount,
       a.nearest_scheduled_at AS nearestScheduledAt,
       ss.short_summary AS summaryPreview,
@@ -97,9 +100,11 @@ function toWorkspaceCard(row) {
   return {
     id: row.id, projectId: row.projectId, name: row.name, status: row.status,
     starred: Boolean(row.starred), archived: Boolean(row.archived), prUrl: row.prUrl,
+    gitWorktree: row.gitWorktree || null,
     scheduledAt: row.scheduledAt, createdAt: row.createdAt, updatedAt: row.updatedAt,
     lastActivityAt: row.last_activity_at, runningCount: row.runningCount,
     runningSessionIds: row.runningSessionIds ? row.runningSessionIds.split(',') : [],
+    memberIds: row.memberIds ? row.memberIds.split(',') : [row.id],
     scheduledCount: row.scheduledCount, waitingCount: row.waitingCount,
     memberCount: row.memberCount, nearestScheduledAt: row.nearestScheduledAt || null,
     summaryPreview: row.summaryPreview || null,
