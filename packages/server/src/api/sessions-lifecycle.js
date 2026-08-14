@@ -13,6 +13,8 @@ import { validateModelId } from './model-validation.js';
 import { broadcastSessionUpdate } from './sessions-patch.js';
 import { activeSessions } from '../services/streamEventHandler.js';
 import { schedulerService } from '../services/schedulerService.js';
+import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
+import { runNowFailureResponse } from '../services/sessionRunNowFailure.js';
 import {
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
@@ -179,7 +181,11 @@ router.post('/:id/schedule', requireSession, (req, res) => {
     return res.status(result.status).json(result.error);
   }
 
-  const updated = sessions.update(req.params.id, result.updateData);
+  const update = () => sessions.update(req.params.id, result.updateData);
+  const updated = req.session_.laneRunId ? withActiveLaneRunOwnership(req.params.id, update) : update();
+  if (!updated) {
+    return res.status(409).json({ error: 'Session no longer owns an active lane run' });
+  }
   broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, result.updateData);
   res.json(updated);
 });
@@ -190,14 +196,55 @@ router.post('/:id/schedule', requireSession, (req, res) => {
 // deliberately delegates to SchedulerService instead of posting a chat
 // message: chat messages are interactive and must not implicitly complete
 // structured lane work, while scheduled continuations are system work.
+//
+// Request body (optional):
+//   prompt {string} - overrides the persisted pendingPrompt for this launch.
+//     Applied atomically with the server-side claim inside SchedulerService,
+//     not via a preceding PATCH, so a racing poller/manual request can never
+//     observe half of the edit. Must be a non-empty string when provided; an
+//     invalid override is rejected before any claim is attempted.
+//
+// Concurrency: this endpoint and the scheduler poller both funnel through
+// SchedulerService.startScheduledSession's atomic claim, so at most one of
+// any number of racing manual/manual or manual/poller calls actually
+// launches an agent. A caller that loses the race is not an error — the
+// session is already being started by the winner, so this responds 200
+// with the current session state (idempotent "already started" outcome).
 router.post('/:id/run-scheduled-now', requireSession, async (req, res) => {
   const session = sessions.getById(req.params.id);
-  if (session.status !== 'scheduled' || !session.scheduledAt || !session.pendingPrompt) {
+
+  // This is a fast-fail for genuinely invalid input, NOT the concurrency
+  // boundary — that lives entirely in SessionRepository.claimScheduled's
+  // atomic compare-and-set. A session already flipped to 'starting' by a
+  // race winner (another manual request, or the poller) is a legitimate
+  // "I already got what I wanted" outcome here, not an error, so it falls
+  // through to the claim attempt below (which will cleanly lose and return
+  // the current state) rather than 409ing.
+  if (session.status === 'scheduled') {
+    if (!session.scheduledAt || !session.pendingPrompt) {
+      return res.status(409).json({ error: 'Session has no pending scheduled turn' });
+    }
+  } else if (session.status !== 'starting') {
     return res.status(409).json({ error: 'Session has no pending scheduled turn' });
   }
 
+  let promptOverride;
+  if (req.body && req.body.prompt !== undefined) {
+    if (typeof req.body.prompt !== 'string' || req.body.prompt.trim() === '') {
+      return res.status(400).json({ error: 'prompt must be a non-empty string' });
+    }
+    promptOverride = req.body.prompt;
+  }
+
   try {
-    await schedulerService.startScheduledSession(session);
+    const result = await schedulerService.startScheduledSession(session, { promptOverride });
+    if (result?.reason && !result.started) {
+      const failure = runNowFailureResponse(result.reason);
+      return res.status(failure.status).json({ error: failure.error, code: failure.code });
+    }
+    // Whether this request won the claim or lost it to a concurrent
+    // request/poller tick, the outcome the caller wanted — the session no
+    // longer sitting idle in 'scheduled' — has been achieved either way.
     res.json(sessions.getById(req.params.id));
   } catch (error) {
     res.status(500).json({ error: error.message });

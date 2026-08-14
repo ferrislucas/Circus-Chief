@@ -128,6 +128,8 @@ const mockOnPartial = vi.fn(() => vi.fn());
 const mockOnSessionUpdate = vi.fn(() => vi.fn());
 const mockOnConversationCreated = vi.fn(() => vi.fn());
 const mockOnConversationUpdated = vi.fn(() => vi.fn());
+const mockOnPrompt = vi.fn(() => vi.fn());
+const mockOnPromptResolved = vi.fn(() => vi.fn());
 
 vi.mock('../composables/useSessionSubscription.js', () => ({
   useSessionSubscription: () => ({
@@ -140,6 +142,8 @@ vi.mock('../composables/useSessionSubscription.js', () => ({
     onConversationCreated: mockOnConversationCreated,
     onConversationUpdated: mockOnConversationUpdated,
     onTierFailover: vi.fn(() => vi.fn()),
+    onPrompt: mockOnPrompt,
+    onPromptResolved: mockOnPromptResolved,
   }),
 }));
 

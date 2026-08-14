@@ -1246,7 +1246,7 @@ describe('summary service integration', () => {
         projectId,
         workspaceId: workspace.id,
         cardId: card.id,
-        lane: { ...laneRepo.getById(source.id), completionMode: 'structured', completionTargetLaneId: target.id },
+        lane: { ...laneRepo.getById(source.id), completionTargetLaneId: target.id },
       });
       attachRootSession(run.id, root.id);
 

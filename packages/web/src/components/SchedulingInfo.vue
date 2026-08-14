@@ -33,17 +33,28 @@
 
       <div class="actions">
         <button
+          class="btn btn-primary"
+          data-testid="scheduled-start-now-btn"
+          :disabled="mutationInFlight"
+          @click="handleStartNow"
+        >
+          {{ startingNow ? 'Starting...' : 'Start Now' }}
+        </button>
+        <button
           class="btn btn-secondary"
+          data-testid="scheduled-edit-btn"
+          :disabled="mutationInFlight"
           @click="showEditModal = true"
         >
           Edit Schedule
         </button>
         <button
           class="btn btn-danger"
-          :disabled="cancelling"
+          data-testid="scheduled-cancel-btn"
+          :disabled="mutationInFlight"
           @click="cancelScheduledSession(session.id)"
         >
-          Cancel
+          {{ cancelling ? 'Cancelling...' : 'Cancel' }}
         </button>
       </div>
     </div>
@@ -64,6 +75,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useScheduleCancel } from '../composables/useScheduleCancel.js';
+import { useScheduleStartNow } from '../composables/useScheduleStartNow.js';
 import SchedulingEditModal from './SchedulingEditModal.vue';
 
 const props = defineProps({
@@ -74,12 +86,24 @@ const props = defineProps({
 });
 
 const sessionsStore = useInjectedSessionsStore();
-const { cancelling, cancelScheduledSession } = useScheduleCancel(sessionsStore);
+const sessionIdSource = () => props.session.id;
+const { cancelling, cancelScheduledSession } = useScheduleCancel(sessionsStore, sessionIdSource);
+const { startingNow, startScheduledNow } = useScheduleStartNow(sessionsStore, sessionIdSource);
 const showEditModal = ref(false);
 const countdownTime = ref(new Date());
 let countdownInterval = null;
 
+// Any schedule mutation in flight for this session — Start Now, Cancel, or
+// (once wired) an Edit save — disables every action together so rapid
+// clicks across different buttons can't double-fire. See
+// `scheduleMutationInFlight` in perSessionGetters.js.
+const mutationInFlight = computed(() => Boolean(sessionsStore.scheduleMutationInFlight?.(props.session.id)));
+
 const hasScheduledTime = computed(() => props.session.status === 'scheduled' && Boolean(props.session.scheduledAt));
+
+async function handleStartNow() {
+  await startScheduledNow(props.session);
+}
 
 const scheduledTime = computed(() => (hasScheduledTime.value ? new Date(props.session.scheduledAt) : null));
 

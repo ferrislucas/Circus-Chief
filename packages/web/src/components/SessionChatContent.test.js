@@ -94,6 +94,8 @@ vi.mock('../composables/useSessionSubscription.js', () => ({
     onConversationCreated: vi.fn(() => vi.fn()),
     onConversationUpdated: vi.fn(() => vi.fn()),
     onTierFailover: vi.fn(() => vi.fn()),
+    onPrompt: vi.fn(() => vi.fn()),
+    onPromptResolved: vi.fn(() => vi.fn()),
   }),
 }));
 

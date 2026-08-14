@@ -6,6 +6,7 @@ import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useTemplatesStore } from '../stores/templates.js';
+import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 import { api } from './useApi.js';
 
 /**
@@ -123,6 +124,7 @@ export function useSessionInitializer({
   const hasChanges = hasChangesRef;
   const changesFileCount = changesFileCountRef;
   const sessionsStore = useSessionsStore();
+  const promptsStore = useSessionPromptsStore();
   const canvasStore = useCanvasStore();
   const todosStore = useTodosStore();
   const uiStore = useUiStore();
@@ -131,6 +133,7 @@ export function useSessionInitializer({
 
   // Track current subscription instance - recreated on session change
   let currentSubscription = null;
+  let currentSessionId = null;
   let cleanups = [];
 
   /**
@@ -140,6 +143,7 @@ export function useSessionInitializer({
   function cleanup() {
     // Reset polling state via composable
     resetPolling();
+    const sessionId = currentSessionId;
     if (currentSubscription) {
       currentSubscription.unsubscribe();
       currentSubscription = null;
@@ -153,11 +157,13 @@ export function useSessionInitializer({
     sessionsStore.activeConversationId = null;
     sessionsStore.workLogs = {};
     sessionsStore.clearPartialText();
+    promptsStore.clear(sessionId);
     todosStore.clearTodos();
     canvasStore.items = [];
     // Reset local state
     summary.value = null;
     canvasStore.$reset();
+    currentSessionId = null;
   }
 
   /**
@@ -208,6 +214,7 @@ export function useSessionInitializer({
       onUsageUpdate, onChangesUpdate,
       onWorkLog, onWorkLogsAssociated,
       onThinkingPartial,
+      onPrompt, onPromptResolved,
     } = subscription;
 
     const handlers = [];
@@ -253,6 +260,8 @@ export function useSessionInitializer({
     handlers.push(onCanvasRemove((itemId) => { canvasStore.removeItem(itemId); }));
     handlers.push(onCanvasUpdate((item) => { canvasStore.patchItem(item); }));
     handlers.push(onTodosUpdate((todos, conversationId) => { todosStore.updateTodos(todos, conversationId); }));
+    handlers.push(onPrompt((prompt) => { promptsStore.show(prompt); }));
+    handlers.push(onPromptResolved((promptId, promptSessionId) => { promptsStore.resolved(promptId, promptSessionId); }));
     handlers.push(onSessionUpdate((session) => { sessionsStore.updateSession(session); }));
     handlers.push(onSummaryUpdate((newSummary) => { summary.value = newSummary; }));
     handlers.push(onConversationUpdated((conversation) => { sessionsStore.updateConversation(conversation); }));
@@ -326,6 +335,11 @@ export function useSessionInitializer({
         await sessionsStore.fetchMessages(sessionId, false, sessionsStore.activeConversationId);
         await sessionsStore.fetchWorkLogs(sessionId);
         await canvasStore.fetchItems(sessionId);
+        try {
+          await promptsStore.hydrate(sessionId);
+        } catch (error) {
+          console.debug('Failed to refresh pending agent prompt:', error);
+        }
         await checkForChanges();
         if (refreshGitStatus) {
           refreshGitStatus({ fetch: false });
@@ -352,6 +366,7 @@ export function useSessionInitializer({
    */
   async function initializeSession(sessionId) {
     // STEP 1: Create new subscription for this session
+    currentSessionId = sessionId;
     currentSubscription = useSessionSubscription(sessionId);
 
     // STEP 2: Subscribe via the subscription object AND await connection

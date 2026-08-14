@@ -1,13 +1,25 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { reactive } from 'vue';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import SchedulingInfo from './SchedulingInfo.vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 
-// Shared mock instances so the composable and tests reference the same spies
+// Shared mock instances so the composable and tests reference the same spies.
+// `mutations` is reactive (not a plain object) so the `scheduleMutationInFlight`
+// getter is a genuine Vue reactive dependency, matching the real Pinia store.
+const mutations = reactive({});
 const sharedSessionsStore = {
   updateSessionFields: vi.fn(),
+  runScheduledNow: vi.fn(),
+  scheduleMutationInFlight: (id) => mutations[id] || null,
+  beginScheduleMutation: (id, kind) => {
+    if (mutations[id]) return false;
+    mutations[id] = kind;
+    return true;
+  },
+  endScheduleMutation: (id) => { delete mutations[id]; },
 };
 
 const sharedUiStore = {
@@ -30,6 +42,8 @@ describe('SchedulingInfo.vue', () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     sharedSessionsStore.updateSessionFields.mockResolvedValue(undefined);
+    sharedSessionsStore.runScheduledNow.mockResolvedValue(undefined);
+    for (const key of Object.keys(mutations)) delete mutations[key];
   });
 
   afterEach(() => {
@@ -125,9 +139,11 @@ describe('SchedulingInfo.vue', () => {
       });
 
       const buttons = wrapper.findAll('.actions button');
-      expect(buttons.length).toBe(2); // Edit Schedule and Cancel
-      expect(buttons[0].text()).toBe('Edit Schedule');
-      expect(buttons[1].text()).toBe('Cancel');
+      expect(buttons.length).toBe(3);
+      expect(buttons[0].text()).toBe('Start Now');
+      expect(buttons[0].classes()).toContain('btn-primary');
+      expect(buttons[1].text()).toBe('Edit Schedule');
+      expect(buttons[2].text()).toBe('Cancel');
     });
 
     it('shows auto-reschedule badge for scheduled workspace with reschedule enabled', () => {
@@ -241,7 +257,7 @@ describe('SchedulingInfo.vue', () => {
         },
       });
 
-      const cancelButton = wrapper.findAll('.actions button')[1];
+      const cancelButton = wrapper.find('[data-testid="scheduled-cancel-btn"]');
       await cancelButton.trigger('click');
       await wrapper.vm.$nextTick();
 
@@ -257,7 +273,7 @@ describe('SchedulingInfo.vue', () => {
         },
       });
 
-      const cancelButton = wrapper.findAll('.actions button')[1];
+      const cancelButton = wrapper.find('[data-testid="scheduled-cancel-btn"]');
       await cancelButton.trigger('click');
       await wrapper.vm.$nextTick();
 
@@ -276,7 +292,7 @@ describe('SchedulingInfo.vue', () => {
         },
       });
 
-      const cancelButton = wrapper.findAll('.actions button')[1];
+      const cancelButton = wrapper.find('[data-testid="scheduled-cancel-btn"]');
       await cancelButton.trigger('click');
       await wrapper.vm.$nextTick();
 
@@ -292,7 +308,7 @@ describe('SchedulingInfo.vue', () => {
         },
       });
 
-      const cancelButton = wrapper.findAll('.actions button')[1];
+      const cancelButton = wrapper.find('[data-testid="scheduled-cancel-btn"]');
       await cancelButton.trigger('click');
       await wrapper.vm.$nextTick();
 
@@ -312,7 +328,7 @@ describe('SchedulingInfo.vue', () => {
         },
       });
 
-      const cancelButton = wrapper.findAll('.actions button')[1];
+      const cancelButton = wrapper.find('[data-testid="scheduled-cancel-btn"]');
       await cancelButton.trigger('click');
       await wrapper.vm.$nextTick();
 
@@ -333,7 +349,7 @@ describe('SchedulingInfo.vue', () => {
         },
       });
 
-      const cancelButton = wrapper.findAll('.actions button')[1];
+      const cancelButton = wrapper.find('[data-testid="scheduled-cancel-btn"]');
       await cancelButton.trigger('click');
       await new Promise((resolve) => setTimeout(resolve, 50));
       await wrapper.vm.$nextTick();
@@ -351,12 +367,83 @@ describe('SchedulingInfo.vue', () => {
         },
       });
 
-      const cancelButton = wrapper.findAll('.actions button')[1];
+      const cancelButton = wrapper.find('[data-testid="scheduled-cancel-btn"]');
       await cancelButton.trigger('click');
       await new Promise((resolve) => setTimeout(resolve, 50));
       await wrapper.vm.$nextTick();
 
       expect(cancelButton.attributes('disabled')).toBeUndefined();
+    });
+
+    it('disables Start Now and Edit Schedule together while Cancel is in flight', async () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      let resolveCancel;
+      sharedSessionsStore.updateSessionFields.mockImplementation(
+        () => new Promise((resolve) => { resolveCancel = resolve; })
+      );
+
+      const wrapper = mount(SchedulingInfo, { props: { session: scheduledSession } });
+      const startBtn = wrapper.find('[data-testid="scheduled-start-now-btn"]');
+      const editBtn = wrapper.find('[data-testid="scheduled-edit-btn"]');
+      const cancelBtn = wrapper.find('[data-testid="scheduled-cancel-btn"]');
+
+      await cancelBtn.trigger('click');
+      await wrapper.vm.$nextTick();
+
+      expect(startBtn.attributes('disabled')).toBeDefined();
+      expect(editBtn.attributes('disabled')).toBeDefined();
+
+      resolveCancel();
+      await wrapper.vm.$nextTick();
+      await wrapper.vm.$nextTick();
+
+      expect(startBtn.attributes('disabled')).toBeUndefined();
+      expect(editBtn.attributes('disabled')).toBeUndefined();
+    });
+
+    it('rapid double-click on Cancel only confirms/cancels once (handler-level guard)', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      let resolveCancel;
+      sharedSessionsStore.updateSessionFields.mockImplementation(
+        () => new Promise((resolve) => { resolveCancel = resolve; })
+      );
+
+      const wrapper = mount(SchedulingInfo, { props: { session: scheduledSession } });
+      const cancelBtn = wrapper.find('[data-testid="scheduled-cancel-btn"]');
+
+      const firstClick = cancelBtn.trigger('click');
+      const secondClick = cancelBtn.trigger('click');
+      await Promise.all([firstClick, secondClick]);
+
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(sharedSessionsStore.updateSessionFields).toHaveBeenCalledTimes(1);
+      resolveCancel();
+    });
+
+    it('cross-control: clicking Start Now disables the Cancel and Edit Schedule buttons too', async () => {
+      let resolveStart;
+      sharedSessionsStore.runScheduledNow.mockImplementation(
+        () => new Promise((resolve) => { resolveStart = resolve; })
+      );
+
+      const wrapper = mount(SchedulingInfo, { props: { session: scheduledSession } });
+      const startBtn = wrapper.find('[data-testid="scheduled-start-now-btn"]');
+      const editBtn = wrapper.find('[data-testid="scheduled-edit-btn"]');
+      const cancelBtn = wrapper.find('[data-testid="scheduled-cancel-btn"]');
+
+      await startBtn.trigger('click');
+      await wrapper.vm.$nextTick();
+
+      expect(startBtn.text()).toBe('Starting...');
+      expect(editBtn.attributes('disabled')).toBeDefined();
+      expect(cancelBtn.attributes('disabled')).toBeDefined();
+
+      resolveStart();
+      await wrapper.vm.$nextTick();
+      await wrapper.vm.$nextTick();
+
+      expect(editBtn.attributes('disabled')).toBeUndefined();
+      expect(cancelBtn.attributes('disabled')).toBeUndefined();
     });
   });
 });

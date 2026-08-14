@@ -8,6 +8,7 @@ vi.mock('../database.js', () => ({
     getScheduledSessionsDue: vi.fn(),
     getById: vi.fn(),
     update: vi.fn(),
+    claimScheduled: vi.fn(),
   },
   messages: {
     getBySessionId: vi.fn(),
@@ -41,9 +42,9 @@ describe('SchedulerService', () => {
   beforeEach(() => {
     scheduler = new SchedulerService();
     mockSessionManager = {
-      runSession: vi.fn().mockResolvedValue(undefined),
-      continueSession: vi.fn().mockResolvedValue(undefined),
-      continueSessionWithExistingMessage: vi.fn().mockResolvedValue(undefined),
+      runSession: vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' }),
+      continueSession: vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' }),
+      continueSessionWithExistingMessage: vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' }),
     };
     vi.clearAllMocks();
 
@@ -67,6 +68,37 @@ describe('SchedulerService', () => {
 
     it('has default poll interval of 30 seconds', () => {
       expect(scheduler.pollInterval).toBe(30000);
+    });
+  });
+
+  describe('scheduled executor start contract', () => {
+    it.each([
+      [undefined],
+      [null],
+      [true],
+      [false],
+      [{}],
+      [{ started: false }],
+      [{ started: 'true' }],
+    ])('fails closed for an ambiguous executor result: %j', (result) => {
+      expect(SchedulerService.didExecutorStart(result, 'session-1')).toBe(false);
+    });
+
+    it('accepts only an explicit started result', () => {
+      expect(SchedulerService.didExecutorStart({ started: true, sessionId: 'session-1' }, 'session-1')).toBe(true);
+    });
+
+    it('fails closed when the executor reports a different session as started', () => {
+      expect(SchedulerService.didExecutorStart({ started: true, sessionId: 'another-session' }, 'session-1')).toBe(false);
+    });
+
+    it('preserves an explicit executor rejection reason', () => {
+      scheduler.initialize(mockSessionManager);
+      const session = { id: 'session-1', projectId: 'project-1' };
+
+      expect(scheduler.finishScheduledStart(session, {
+        started: false, sessionId: session.id, reason: 'executor_declined',
+      })).toEqual({ started: false, sessionId: session.id, reason: 'executor_declined' });
     });
   });
 
@@ -208,28 +240,41 @@ describe('SchedulerService', () => {
       startSpy.mockRestore();
     });
 
-    it('handles errors when starting sessions', async () => {
+    it('swallows a per-session failure and continues the sweep (recovery is startScheduledSession\'s job)', async () => {
       scheduler.initialize(mockSessionManager);
-      const dueSession = {
-        id: 'session-1',
-        name: 'Test Session',
-      };
+      const dueSessions = [
+        { id: 'session-1', name: 'Session 1' },
+        { id: 'session-2', name: 'Session 2' },
+      ];
 
-      sessions.getScheduledSessionsDue.mockReturnValue([dueSession]);
+      sessions.getScheduledSessionsDue.mockReturnValue(dueSessions);
 
       const error = new Error('Failed to start session');
-      vi.spyOn(scheduler, 'startScheduledSession').mockRejectedValueOnce(error);
+      const startSpy = vi.spyOn(scheduler, 'startScheduledSession');
+      startSpy.mockRejectedValueOnce(error);
+      startSpy.mockResolvedValueOnce({ claimed: true });
 
-      await scheduler.checkScheduledSessions();
+      await expect(scheduler.checkScheduledSessions()).resolves.toBeUndefined();
 
-      expect(sessions.update).toHaveBeenCalledWith('session-1', {
-        status: 'error',
-        error: expect.stringContaining('Failed to start scheduled session'),
-      });
-      expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
-        sessionId: 'session-1',
-        status: 'error',
-      });
+      // checkScheduledSessions no longer writes to the session record itself —
+      // startScheduledSession is solely responsible for recording pre-launch
+      // failures (see the dedicated recovery tests below). This loop only
+      // needs to keep going after one session's failure.
+      expect(startSpy).toHaveBeenCalledTimes(2);
+      startSpy.mockRestore();
+    });
+
+    it('does not treat a lost claim (already started elsewhere) as an error', async () => {
+      scheduler.initialize(mockSessionManager);
+      const dueSession = { id: 'session-1', name: 'Test Session' };
+      sessions.getScheduledSessionsDue.mockReturnValue([dueSession]);
+
+      const startSpy = vi.spyOn(scheduler, 'startScheduledSession').mockResolvedValueOnce({ claimed: false });
+
+      await expect(scheduler.checkScheduledSessions()).resolves.toBeUndefined();
+
+      expect(sessions.update).not.toHaveBeenCalled();
+      startSpy.mockRestore();
     });
 
     it('ignores sessions when no sessions are due', async () => {
@@ -245,6 +290,17 @@ describe('SchedulerService', () => {
   });
 
   describe('startScheduledSession', () => {
+    // Helper: make sessions.claimScheduled behave like the real repository
+    // method for a single-caller (non-racing) test — succeeds once, returns
+    // the pre-claim snapshot (optionally with the prompt override applied).
+    function stubSuccessfulClaim(session) {
+      sessions.claimScheduled.mockImplementation((id, { promptOverride } = {}) => {
+        if (id !== session.id) return null;
+        const hasOverride = typeof promptOverride === 'string' && promptOverride.trim() !== '';
+        return hasOverride ? { ...session, pendingPrompt: promptOverride } : session;
+      });
+    }
+
     it('throws error if not initialized', async () => {
       const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1' };
 
@@ -253,32 +309,90 @@ describe('SchedulerService', () => {
       );
     });
 
-    it('throws error if project not found', async () => {
+    it('claims the session before doing any other work', async () => {
       scheduler.initialize(mockSessionManager);
-      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1' };
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Hello' };
+      sessions.claimScheduled.mockReturnValue(null);
+
+      const result = await scheduler.startScheduledSession(session);
+
+      expect(sessions.claimScheduled).toHaveBeenCalledWith('session-1', { promptOverride: undefined });
+      expect(result).toEqual({ claimed: false });
+      // A lost claim must never reach project lookup, prompt resolution, or launch.
+      expect(projects.getById).not.toHaveBeenCalled();
+      expect(mockSessionManager.runSession).not.toHaveBeenCalled();
+      expect(mockSessionManager.continueSession).not.toHaveBeenCalled();
+    });
+
+    it('forwards an explicit prompt override to the atomic claim', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'saved prompt', pendingModel: null };
+      stubSuccessfulClaim(session);
+
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+      messages.getBySessionId.mockReturnValue([]);
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
+      messages.create.mockReturnValue({ id: 'msg-1', sessionId: 'session-1', role: 'user', content: 'edited prompt', conversationId: 'conv-1' });
+      attachments.getBySessionId.mockReturnValue([]);
+
+      const result = await scheduler.startScheduledSession(session, { promptOverride: 'edited prompt' });
+
+      expect(sessions.claimScheduled).toHaveBeenCalledWith('session-1', { promptOverride: 'edited prompt' });
+      // The launched turn uses the override the winning claim carried, not the stale persisted prompt.
+      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'edited prompt', '/tmp', expect.objectContaining({}));
+      expect(result).toEqual({ claimed: true });
+    });
+
+    it('records a recoverable error and preserves scheduling fields when project lookup fails', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Hello' };
+      stubSuccessfulClaim(session);
 
       projects.getById.mockReturnValue(null);
 
       await expect(scheduler.startScheduledSession(session)).rejects.toThrow(
         'Project not found for session session-1'
       );
+
+      // Recorded as a recoverable error...
+      expect(sessions.update).toHaveBeenCalledWith('session-1', {
+        status: 'error',
+        error: expect.stringContaining('Project not found for session session-1'),
+      });
+      expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
+        sessionId: 'session-1',
+        status: 'error',
+      });
+      // ...and the scheduling fields were never cleared (the claim never
+      // touched them, and this failure happened before the durable-clear step).
+      expect(sessions.update).not.toHaveBeenCalledWith('session-1', expect.objectContaining({ scheduledAt: null }));
+      expect(mockSessionManager.runSession).not.toHaveBeenCalled();
     });
 
-    it('throws error if no pendingPrompt found', async () => {
+    it('records a recoverable error when no active conversation exists for a fresh session', async () => {
       scheduler.initialize(mockSessionManager);
-      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: null };
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Hello' };
+      stubSuccessfulClaim(session);
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
       messages.getBySessionId.mockReturnValue([]);
+      conversations.getActiveBySessionId.mockReturnValue(null);
 
       await expect(scheduler.startScheduledSession(session)).rejects.toThrow(
-        'No pendingPrompt found for session session-1'
+        'No active conversation found for session session-1'
       );
+
+      expect(sessions.update).toHaveBeenCalledWith('session-1', {
+        status: 'error',
+        error: expect.stringContaining('No active conversation found for session session-1'),
+      });
+      expect(messages.create).not.toHaveBeenCalled();
     });
 
     it('updates session status and runs fresh session', async () => {
       scheduler.initialize(mockSessionManager);
       const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Hello', pendingModel: 'claude-sonnet-4-5' };
+      stubSuccessfulClaim(session);
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp', systemPrompt: 'Be helpful' });
       messages.getBySessionId.mockReturnValue([]);
@@ -286,23 +400,28 @@ describe('SchedulerService', () => {
       messages.create.mockReturnValue({ id: 'msg-1', sessionId: 'session-1', role: 'user', content: 'Hello', conversationId: 'conv-1' });
       attachments.getBySessionId.mockReturnValue([]);
 
-      await scheduler.startScheduledSession(session);
+      const result = await scheduler.startScheduledSession(session);
 
+      // The claim itself (mocked here) is responsible for the scheduled ->
+      // starting transition; this durable-clear update only needs to null
+      // out the scheduling fields once the launch is committed.
       expect(sessions.update).toHaveBeenCalledWith('session-1', {
-        status: 'starting',
         scheduledAt: null,
         pendingPrompt: null,
+        pendingConversationId: null,
       });
       expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
         sessionId: 'session-1',
         status: 'starting',
       });
       expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp', { systemPrompt: 'Be helpful', fileAttachments: [], model: 'claude-sonnet-4-5' });
+      expect(result).toEqual({ claimed: true });
     });
 
     it('uses gitWorktree for working directory when available', async () => {
       scheduler.initialize(mockSessionManager);
       const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', gitWorktree: '/tmp/worktree', pendingPrompt: 'Hello', pendingModel: null };
+      stubSuccessfulClaim(session);
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp/main' });
       messages.getBySessionId.mockReturnValue([]);
@@ -317,8 +436,9 @@ describe('SchedulerService', () => {
 
     it('continues session when there are existing assistant messages', async () => {
       scheduler.initialize(mockSessionManager);
-      mockSessionManager.continueSession = vi.fn().mockResolvedValue(undefined);
+      mockSessionManager.continueSession = vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' });
       const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Follow-up message', pendingConversationId: null, pendingModel: 'claude-opus-4-5' };
+      stubSuccessfulClaim(session);
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
       messages.getBySessionId.mockReturnValue([
@@ -333,12 +453,33 @@ describe('SchedulerService', () => {
       expect(mockSessionManager.runSession).not.toHaveBeenCalled();
     });
 
+    it.each([
+      ['fresh session', (session) => { messages.getBySessionId.mockReturnValue([]); conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' }); messages.create.mockReturnValue({ id: 'msg-1' }); mockSessionManager.runSession.mockResolvedValue({ started: false, sessionId: session.id, reason: 'lane_run_ownership_lost' }); }],
+      ['continuation', (session) => { messages.getBySessionId.mockReturnValue([{ role: 'assistant' }]); mockSessionManager.continueSession.mockResolvedValue({ started: false, sessionId: session.id, reason: 'lane_run_ownership_lost' }); }],
+      ['existing-message continuation', (session) => { const scheduledSession = session; scheduledSession.pendingConversationId = 'conv-99'; mockSessionManager.continueSessionWithExistingMessage.mockResolvedValue({ started: false, sessionId: scheduledSession.id, reason: 'lane_run_ownership_lost' }); }],
+    ])('returns ownership rejection and clears stale scheduler state for a declined %s', async (_name, configure) => {
+      scheduler.initialize(mockSessionManager);
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Continue', pendingConversationId: null, pendingModel: null, scheduledAt: 1234 };
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+      attachments.getBySessionId.mockReturnValue([]);
+      configure(session);
+      stubSuccessfulClaim(session);
+
+      const result = await scheduler.startScheduledSession(session);
+
+      expect(result).toEqual({ started: false, reason: 'lane_run_ownership_lost', sessionId: session.id });
+      expect(sessions.update).toHaveBeenLastCalledWith(session.id, expect.objectContaining({
+        status: 'stopped', scheduledAt: null, pendingPrompt: null, pendingModel: null,
+      }));
+    });
+
     it('links file attachments to user message for fresh scheduled session', async () => {
       scheduler.initialize(mockSessionManager);
       const session = {
         id: 'session-1', name: 'Test Session', projectId: 'project-1',
         pendingPrompt: 'Analyze file', pendingModel: null,
       };
+      stubSuccessfulClaim(session);
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
       messages.getBySessionId.mockReturnValue([]);
@@ -362,6 +503,7 @@ describe('SchedulerService', () => {
         id: 'session-1', name: 'Test Session', projectId: 'project-1',
         pendingPrompt: 'Hello', pendingModel: null,
       };
+      stubSuccessfulClaim(session);
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
       messages.getBySessionId.mockReturnValue([]);
@@ -379,7 +521,7 @@ describe('SchedulerService', () => {
 
     it('uses continueSessionWithExistingMessage when pendingConversationId is set', async () => {
       scheduler.initialize(mockSessionManager);
-      mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue(undefined);
+      mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' });
       const session = {
         id: 'session-1',
         name: 'Test Session',
@@ -388,6 +530,7 @@ describe('SchedulerService', () => {
         pendingConversationId: 'conv-99',
         pendingModel: 'claude-sonnet-4-5',
       };
+      stubSuccessfulClaim(session);
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp', systemPrompt: 'Be helpful' });
       attachments.getBySessionId.mockReturnValue([]);
@@ -407,7 +550,7 @@ describe('SchedulerService', () => {
 
     it('clears pendingConversationId and pendingPrompt when using existing-message retry', async () => {
       scheduler.initialize(mockSessionManager);
-      mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue(undefined);
+      mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' });
       const session = {
         id: 'session-1',
         name: 'Test Session',
@@ -416,6 +559,7 @@ describe('SchedulerService', () => {
         pendingConversationId: 'conv-99',
         pendingModel: null,
       };
+      stubSuccessfulClaim(session);
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
       attachments.getBySessionId.mockReturnValue([]);
@@ -423,7 +567,6 @@ describe('SchedulerService', () => {
       await scheduler.startScheduledSession(session);
 
       expect(sessions.update).toHaveBeenCalledWith('session-1', {
-        status: 'starting',
         scheduledAt: null,
         pendingPrompt: null,
         pendingConversationId: null,
@@ -432,7 +575,7 @@ describe('SchedulerService', () => {
 
     it('pendingConversationId takes precedence over hasAssistantResponses check', async () => {
       scheduler.initialize(mockSessionManager);
-      mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue(undefined);
+      mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' });
       const session = {
         id: 'session-1',
         name: 'Test Session',
@@ -441,6 +584,7 @@ describe('SchedulerService', () => {
         pendingConversationId: 'conv-initial',
         pendingModel: null,
       };
+      stubSuccessfulClaim(session);
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
       // Even if session-wide messages shows no assistant (fresh session), pendingConversationId wins
@@ -451,6 +595,74 @@ describe('SchedulerService', () => {
 
       expect(mockSessionManager.continueSessionWithExistingMessage).toHaveBeenCalled();
       expect(mockSessionManager.runSession).not.toHaveBeenCalled();
+    });
+
+    describe('concurrency (manual/manual and manual/poller races)', () => {
+      it('only one of two concurrent claims for the same session succeeds', async () => {
+        scheduler.initialize(mockSessionManager);
+        const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Hello', pendingModel: null };
+
+        // Simulate a real compare-and-set: the first caller to reach the
+        // claim wins; every subsequent caller for the same id gets null.
+        let claimedAlready = false;
+        sessions.claimScheduled.mockImplementation((id) => {
+          if (id !== session.id || claimedAlready) return null;
+          claimedAlready = true;
+          return session;
+        });
+
+        projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+        messages.getBySessionId.mockReturnValue([]);
+        conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
+        messages.create.mockReturnValue({ id: 'msg-1', sessionId: 'session-1', role: 'user', content: 'Hello', conversationId: 'conv-1' });
+        attachments.getBySessionId.mockReturnValue([]);
+
+        // One call represents the manual "Start Now" request, the other the
+        // poller finding the same due session — both race the same claim.
+        const [manual, poller] = await Promise.all([
+          scheduler.startScheduledSession(session),
+          scheduler.startScheduledSession(session),
+        ]);
+
+        const outcomes = [manual.claimed, poller.claimed].sort();
+        expect(outcomes).toEqual([false, true]);
+
+        // Exactly one agent launch, regardless of which caller won.
+        expect(mockSessionManager.runSession).toHaveBeenCalledTimes(1);
+        expect(messages.create).toHaveBeenCalledTimes(1);
+      });
+
+      it('two concurrent manual requests for the same session produce exactly one launch', async () => {
+        scheduler.initialize(mockSessionManager);
+        mockSessionManager.continueSession = vi.fn().mockResolvedValue(undefined);
+        const session = {
+          id: 'session-1', name: 'Test Session', projectId: 'project-1',
+          pendingPrompt: 'Follow-up', pendingConversationId: null, pendingModel: null,
+        };
+
+        let claimedAlready = false;
+        sessions.claimScheduled.mockImplementation((id) => {
+          if (id !== session.id || claimedAlready) return null;
+          claimedAlready = true;
+          return session;
+        });
+
+        projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+        messages.getBySessionId.mockReturnValue([
+          { role: 'user', content: 'First message' },
+          { role: 'assistant', content: 'Response' },
+        ]);
+        attachments.getBySessionId.mockReturnValue([]);
+
+        const results = await Promise.all([
+          scheduler.startScheduledSession(session),
+          scheduler.startScheduledSession(session),
+        ]);
+
+        expect(results.filter((r) => r.claimed)).toHaveLength(1);
+        expect(results.filter((r) => !r.claimed)).toHaveLength(1);
+        expect(mockSessionManager.continueSession).toHaveBeenCalledTimes(1);
+      });
     });
   });
 

@@ -191,6 +191,7 @@ import { ref, computed, provide, onMounted, onUnmounted, watch } from 'vue';
 import { calculateTokenTotal, formatTokenCount } from '@circuschief/shared';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
+import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 import { useSessionSubscription } from '../composables/useSessionSubscription.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { api } from '../composables/useApi.js';
@@ -232,6 +233,7 @@ const emit = defineEmits([
 
 const mainSessionsStore = useSessionsStore();
 const uiStore = useUiStore();
+const promptsStore = useSessionPromptsStore();
 
 const overlaySessionsStore = createOverlaySessionsStore();
 const overlayTodosStore = createOverlayTodosStore();
@@ -531,6 +533,9 @@ function setupSubscription(sessionId) {
     const reason = payload.reason ? ` (${payload.reason})` : '';
     uiStore.info(`${from} unavailable${reason} — starting on ${to} (tier: ${tier})`);
   }));
+  wsCleanups.push(currentSubscription.onPrompt((prompt) => promptsStore.show(prompt)));
+  wsCleanups.push(currentSubscription.onPromptResolved((promptId, promptSessionId) => promptsStore.resolved(promptId, promptSessionId)));
+  promptsStore.hydrate(sessionId).catch((error) => console.debug('Failed to load pending agent prompt:', error));
 
   const session = mainSessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
   if (session?.status === 'running' || session?.status === 'starting') {

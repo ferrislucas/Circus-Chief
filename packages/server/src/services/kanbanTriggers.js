@@ -16,6 +16,19 @@ import { attachRootSession } from './workflowSessionService.js';
 // Maximum depth for recursive lane-entry template triggers
 export const MAX_LANE_TRIGGER_DEPTH = 5;
 
+function throwIfAborted(controller) {
+  if (controller?.signal.aborted) throw controller.signal.reason || new Error('Lane-entry delivery was aborted');
+}
+
+/**
+ * A lane-entry delivery must be observable by its caller.  In particular,
+ * recovery must never confuse a missing configuration or a failed setup with
+ * a successfully delivered outbox event.
+ */
+function undelivered(reason) {
+  return { delivered: false, reason };
+}
+
 /**
  * Get session and project for lane trigger, returning null if not found.
  * @param {string} sessionId
@@ -46,6 +59,7 @@ export function getSessionAndProjectForTrigger(sessionId) {
  * @returns {Promise<{workingDirectory: string, gitWorktree: string|null}>}
  */
 export async function determineWorkingDirectory(parentSession, project, gitOptions = {}) {
+  throwIfAborted(gitOptions.abortController);
   if (parentSession.gitWorktree) {
     console.log(`Kanban: Inheriting parent worktree: ${parentSession.gitWorktree}`);
     return { workingDirectory: parentSession.gitWorktree, gitWorktree: parentSession.gitWorktree };
@@ -60,6 +74,7 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
       worktreeBasePath: project.worktreePath || null,
       commitAttributionOverride: resolveCommitAttributionOverrideForModel(gitOptions.model),
     });
+    throwIfAborted(gitOptions.abortController);
     return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
   }
 
@@ -74,7 +89,11 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
  * @param {Object} options
  */
 export function startChildSession(newSession, prompt, workingDirectory, options) {
-  runSession(newSession.id, prompt, workingDirectory, options).catch((error) => {
+  return runSession(newSession.id, prompt, workingDirectory, options).then((result) =>
+    // Older in-process adapters returned undefined. Keep that narrow
+    // compatibility path, but never coerce arbitrary resolved values (in
+    // particular `{ started: false }`) into a provider acknowledgement.
+    result === undefined || result?.started === true).catch((error) => {
     console.error(`Kanban: Error running on-enter session ${newSession.id}:`, error);
     const errorSession = sessions.update(newSession.id, { status: 'error', error: error.message });
     broadcastToProject(newSession.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
@@ -82,6 +101,7 @@ export function startChildSession(newSession, prompt, workingDirectory, options)
       sessionId: newSession.id,
       session: errorSession,
     });
+    return false;
   });
 }
 
@@ -134,7 +154,7 @@ export function getTemplateSessionSettings(template, session) {
  * @returns {{ newSession: Object, renderedPrompt: string, settings: Object }}
  */
 async function buildChildSessionFromTemplate(template, session, lane, options = {}) {
-  const { depth, laneRunId = null } = options;
+  const { depth, laneRunId = null, childSessionId = null } = options;
   // Render prompt with workspace context
   const rootSession = getRootSession(session);
   const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
@@ -146,7 +166,7 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
   // Get settings and create session with its direct parent set atomically at
   // creation time — avoids a window where the new row briefly has no parent.
   const settings = getTemplateSessionSettings(template, session);
-  const newSession = sessions.create(session.projectId, `${template.name} (lane: ${lane.name})`, renderedPrompt, {
+  const newSession = childSessionId ? sessions.getById(childSessionId) : sessions.create(session.projectId, `${template.name} (lane: ${lane.name})`, renderedPrompt, {
     mode: settings.mode,
     thinkingEnabled: settings.thinkingEnabled,
     gitBranch: settings.gitBranch,
@@ -155,7 +175,8 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
     agentType: deriveAgentTypeForModelOrTier(settings.model),
     parentSessionId: session.id,
   });
-  if (laneRunId) attachRootSession(laneRunId, newSession.id);
+  if (!newSession) throw new Error('attached lane-entry child session is missing');
+  if (laneRunId && !childSessionId) attachRootSession(laneRunId, newSession.id);
 
   // Configure remaining fields not supported by create()
   sessions.update(newSession.id, {
@@ -166,38 +187,44 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
   return { newSession, renderedPrompt, settings };
 }
 
+// eslint-disable-next-line max-statements, complexity -- capability, cancellation, setup, and dispatch fences form one boundary
 export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
-  const { depth = 0, laneRunId = null } = options;
+  const { depth = 0, laneRunId = null, childSessionId = null, beforeDispatch, abortController } = options;
 
   if (depth >= MAX_LANE_TRIGGER_DEPTH) {
     console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
-    return;
+    return undelivered('lane trigger depth limit reached');
   }
 
   const template = sessionTemplates.getById(lane.onEnterTemplateId);
   if (!template) {
     console.warn(`Kanban: On-enter template ${lane.onEnterTemplateId} not found for lane ${lane.id}`);
-    return;
+    return undelivered('on-enter template not found');
   }
 
   const context = getSessionAndProjectForTrigger(sessionId);
-  if (!context) return;
+  if (!context) return undelivered('workspace session or project not found');
   const { session, project } = context;
+  throwIfAborted(abortController);
 
   console.log(`Kanban: Triggering on-enter template "${template.name}" for session "${session.name}" entering lane "${lane.name}"`);
 
   try {
     const { newSession, renderedPrompt, settings } = await buildChildSessionFromTemplate(
-      template, session, lane, { depth, laneRunId }
+      template, session, lane, { depth, laneRunId, childSessionId }
     );
 
     // Determine working directory
-    const { workingDirectory, gitWorktree } = await determineWorkingDirectory(session, project, {
+    const existingChild = childSessionId ? sessions.getById(childSessionId) : null;
+    const { workingDirectory, gitWorktree } = existingChild?.gitWorktree
+      ? { workingDirectory: existingChild.gitWorktree, gitWorktree: existingChild.gitWorktree }
+      : await determineWorkingDirectory(session, project, {
       gitMode: settings.gitMode,
       gitBranch: settings.gitBranch,
       sessionId: newSession.id,
       model: settings.model,
-    });
+      abortController,
+      });
     if (gitWorktree) {
       sessions.update(newSession.id, { gitWorktree });
     }
@@ -208,14 +235,23 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
       session: sessions.getById(newSession.id),
     });
 
-    startChildSession(newSession, renderedPrompt, workingDirectory, {
+    // Record dispatch intent after setup/broadcast but immediately before the
+    // provider boundary. A crash after this point remains an ambiguous dispatch
+    // and is not replayed automatically.
+    if (beforeDispatch) await beforeDispatch(newSession.id);
+    throwIfAborted(abortController);
+    const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
+      ...(abortController ? { abortController } : {}),
     });
+    if (!accepted) return undelivered('provider dispatch was not accepted');
 
     console.log(`Kanban: Created and started on-enter session ${newSession.id}`);
+    return { delivered: true, rootSessionId: newSession.id };
   } catch (error) {
     console.error(`Kanban: Failed to trigger on-enter template for session ${sessionId}:`, error);
+    return undelivered(error instanceof Error ? error.message : 'template delivery failed');
   }
 }
 
@@ -234,7 +270,8 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
  * @param {number} depth - Current trigger depth
  * @returns {Promise<{ newSession: Object, renderedPrompt: string, settings: Object }>}
  */
-async function buildChildSessionFromPrompt(lane, session, depth, laneRunId = null) {
+async function buildChildSessionFromPrompt(lane, session, options = {}) {
+  const { depth, laneRunId = null, childSessionId = null } = options;
   // Render prompt with workspace context
   const rootSession = getRootSession(session);
   const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
@@ -246,13 +283,14 @@ async function buildChildSessionFromPrompt(lane, session, depth, laneRunId = nul
   // Get settings and create session with its direct parent set atomically at
   // creation time — avoids a window where the new row briefly has no parent.
   const settings = getLaneSessionSettings(lane, session);
-  const newSession = sessions.create(session.projectId, `Lane prompt (lane: ${lane.name})`, renderedPrompt, {
+  const newSession = childSessionId ? sessions.getById(childSessionId) : sessions.create(session.projectId, `Lane prompt (lane: ${lane.name})`, renderedPrompt, {
     ...settings,
     status: 'starting',
     agentType: deriveAgentTypeForModelOrTier(settings.model),
     parentSessionId: session.id,
   });
-  if (laneRunId) attachRootSession(laneRunId, newSession.id);
+  if (!newSession) throw new Error('attached lane-entry child session is missing');
+  if (laneRunId && !childSessionId) attachRootSession(laneRunId, newSession.id);
 
   // Configure remaining fields not supported by create()
   const sessionUpdates = { laneTriggerDepth: depth + 1 };
@@ -273,24 +311,30 @@ async function buildChildSessionFromPrompt(lane, session, depth, laneRunId = nul
 }
 
 export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
-  const { depth = 0, laneRunId = null } = options;
+  const { depth = 0, laneRunId = null, childSessionId = null, beforeDispatch, abortController } = options;
 
   if (depth >= MAX_LANE_TRIGGER_DEPTH) {
     console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
-    return;
+    return undelivered('lane trigger depth limit reached');
   }
 
   const context = getSessionAndProjectForTrigger(sessionId);
-  if (!context) return;
+  if (!context) return undelivered('workspace session or project not found');
   const { session, project } = context;
+  throwIfAborted(abortController);
 
   console.log(`Kanban: Triggering on-enter prompt for session "${session.name}" entering lane "${lane.name}"`);
 
   try {
-    const { newSession, renderedPrompt, settings } = await buildChildSessionFromPrompt(lane, session, depth, laneRunId);
+    const { newSession, renderedPrompt, settings } = await buildChildSessionFromPrompt(
+      lane, session, { depth, laneRunId, childSessionId }
+    );
 
     // Determine working directory
-    const { workingDirectory, gitWorktree } = await determineWorkingDirectory(session, project);
+    const existingChild = childSessionId ? sessions.getById(childSessionId) : null;
+    const { workingDirectory, gitWorktree } = existingChild?.gitWorktree
+      ? { workingDirectory: existingChild.gitWorktree, gitWorktree: existingChild.gitWorktree }
+      : await determineWorkingDirectory(session, project, { abortController });
     if (gitWorktree) {
       sessions.update(newSession.id, { gitWorktree });
     }
@@ -301,13 +345,19 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
       session: sessions.getById(newSession.id),
     });
 
-    startChildSession(newSession, renderedPrompt, workingDirectory, {
+    if (beforeDispatch) await beforeDispatch(newSession.id);
+    throwIfAborted(abortController);
+    const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
+      ...(abortController ? { abortController } : {}),
     });
+    if (!accepted) return undelivered('provider dispatch was not accepted');
 
     console.log(`Kanban: Created and started on-enter prompt session ${newSession.id}`);
+    return { delivered: true, rootSessionId: newSession.id };
   } catch (error) {
     console.error(`Kanban: Failed to trigger on-enter prompt for session ${sessionId}:`, error);
+    return undelivered(error instanceof Error ? error.message : 'prompt delivery failed');
   }
 }

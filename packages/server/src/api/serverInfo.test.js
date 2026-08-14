@@ -47,6 +47,7 @@ describe('GET /api/server-info', () => {
     expect(res.body.vcrMode).toBeNull();
     expect(typeof res.body.schedulerRunning).toBe('boolean');
     expect(typeof res.body.e2eSpawnCaptureEnabled).toBe('boolean');
+    expect(res.body.automationStatus).toMatchObject({ http: 'available', scheduler: expect.any(String), kanban: expect.any(String) });
   });
 
   it('dbPath matches the path the DB was initialized with', async () => {

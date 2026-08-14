@@ -298,4 +298,43 @@ export const perSessionActions = {
     }
     this._recentSendTimers = {};
   },
+
+  // ==================== SCHEDULE MUTATION COORDINATION ====================
+  //
+  // Tracks which schedule-related mutation (Start Now / Cancel) is in
+  // flight per session on this store instance, so every control touching a
+  // given scheduled session disables together — see the
+  // `scheduleMutationInFlight` getter for the full rationale.
+
+  /**
+   * Claim the in-flight slot for a session's schedule mutation. Returns
+   * `false` (and does nothing) if another mutation is already in flight for
+   * this session on this store instance — callers should bail out rather
+   * than proceed, so a guard here is effective even if a rapid double-click
+   * beats the template's `:disabled` binding to the click handler.
+   * @param {string} sessionId
+   * @param {string} kind - 'starting' | 'cancelling'
+   * @returns {boolean} true if the caller now owns the in-flight slot
+   */
+  beginScheduleMutation(sessionId, kind) {
+    if (!sessionId) return false;
+    if (!this.scheduleMutationsInFlight) this.scheduleMutationsInFlight = {};
+    if (this.scheduleMutationsInFlight[sessionId]) return false;
+    this.scheduleMutationsInFlight = { ...this.scheduleMutationsInFlight, [sessionId]: kind };
+    return true;
+  },
+
+  /**
+   * Release the in-flight slot for a session's schedule mutation. Safe to
+   * call unconditionally from a `finally` block, including when
+   * `beginScheduleMutation` returned false (no-op in that case).
+   * @param {string} sessionId
+   */
+  endScheduleMutation(sessionId) {
+    if (!sessionId || !this.scheduleMutationsInFlight) return;
+    if (!(sessionId in this.scheduleMutationsInFlight)) return;
+    const next = { ...this.scheduleMutationsInFlight };
+    delete next[sessionId];
+    this.scheduleMutationsInFlight = next;
+  },
 };

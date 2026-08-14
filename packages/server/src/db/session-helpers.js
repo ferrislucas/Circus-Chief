@@ -323,3 +323,28 @@ export function buildUpdateClauses(data) {
 
   return { updates, values };
 }
+
+/**
+ * Implements SessionRepository.claimScheduled: atomically claim a due
+ * scheduled session (compare-and-set on `status = 'scheduled'`) so the 30s
+ * poller and manual "Start Now" requests can race the same row safely.
+ * Extracted from the repository class to keep that file within the
+ * project's max-lines budget. Does NOT clear scheduled_at/pending_prompt/
+ * pending_conversation_id; the caller clears those once it has durably
+ * recorded the launch, so a pre-launch failure stays retryable.
+ * @param {import('./SessionRepository.js').SessionRepository} repo
+ * @param {string} id
+ * @param {string} [promptOverride]
+ * @returns {object|null} Pre-claim snapshot (pendingPrompt overridden if
+ *   given), or null if not claimable / already claimed.
+ */
+export function claimScheduledRow(repo, id, promptOverride) {
+  const before = repo.getById(id);
+  if (!before || before.status !== 'scheduled' || !before.scheduledAt || !before.pendingPrompt) return null;
+  const result = repo.db
+    .prepare(`UPDATE sessions SET status = 'starting', updated_at = ? WHERE id = ? AND status = 'scheduled'`)
+    .run(Date.now(), id);
+  if (result.changes !== 1) return null;
+  const hasOverride = typeof promptOverride === 'string' && promptOverride.trim() !== '';
+  return hasOverride ? { ...before, pendingPrompt: promptOverride } : before;
+}

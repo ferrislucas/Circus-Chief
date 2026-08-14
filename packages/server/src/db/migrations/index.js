@@ -335,7 +335,6 @@ export const allMigrations = validateMigrations([
   // --- FR-5 lifecycle dimensions: execution_state + subtree_outcome ---
   // Also must precede the sessions-table recreation below, for the same reason.
   k.get('kanban-add-lane-run-execution-state'),
-  k.get('kanban-backfill-structured-completion-mode'),
 
   // --- Remove the retired agent-driven completion token state ---
   k.get('kanban-drop-agent-workflow-completion-tokens'),
@@ -344,4 +343,16 @@ export const allMigrations = validateMigrations([
   // Must run after repairMissingSessionParentsFromWorktree so that one-time
   // NULL -> value backfill has already happened before the trigger is asserted.
   s.get('sessions-immutable-parent_session_id'),
+
+  // --- Kanban hard cutover: lane configuration is the only execution mode ---
+  k.get('kanban-drop-completion-mode-hard-cutover'),
+
+  // --- Durable Kanban delivery, observability, and API operation ownership ---
+  // Keep these after the lane-run tables are created. Existing databases need
+  // the additive delivery columns even though fresh databases get them from
+  // schema.sql.
+  k.get('kanban-lane-entry-retry-schedule'),
+  k.get('kanban-durable-delivery-and-api-operations'),
+  k.get('kanban-delivery-health-status-index'),
+  k.get('kanban-api-operation-leases-and-canonical-responses'),
 ]);

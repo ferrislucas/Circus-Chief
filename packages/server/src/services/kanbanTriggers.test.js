@@ -482,11 +482,13 @@ describe('kanbanTriggers', () => {
       expect(sessions.update).toHaveBeenCalledWith('new-1', { gitWorktree: '/tmp/existing-worktree' });
     });
 
-    it('does not throw when renderTemplatePrompt fails', async () => {
+    it('reports a failed delivery when template rendering fails', async () => {
       renderTemplatePrompt.mockRejectedValue(new Error('render failed'));
 
-      // Should not throw -- error is caught internally
-      await expect(triggerOnEnterTemplate('s1', lane)).resolves.toBeUndefined();
+      await expect(triggerOnEnterTemplate('s1', lane)).resolves.toEqual({
+        delivered: false,
+        reason: 'render failed',
+      });
     });
 
     it('fetches root summary for workspace context in template rendering', async () => {
@@ -667,10 +669,13 @@ describe('kanbanTriggers', () => {
       expect(updateCall[1]).not.toHaveProperty('rescheduleDelayMinutes');
     });
 
-    it('does not throw when renderTemplatePrompt fails', async () => {
+    it('reports a failed delivery when prompt rendering fails', async () => {
       renderTemplatePrompt.mockRejectedValue(new Error('render error'));
 
-      await expect(triggerOnEnterPrompt('s1', lane)).resolves.toBeUndefined();
+      await expect(triggerOnEnterPrompt('s1', lane)).resolves.toEqual({
+        delivered: false,
+        reason: 'render error',
+      });
     });
 
     it('sets gitWorktree on new session when parent has worktree', async () => {

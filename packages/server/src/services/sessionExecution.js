@@ -26,7 +26,8 @@ import { isTierRef } from '@circuschief/shared';
 import { runSessionWithTierFailover, hasResolvableTierMembers, applyStaleTierFallback } from './sessionTierFailover.js';
 import { schedulerService } from './schedulerService.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
-import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState, markHeldForLimit } from './workflowSessionService.js';
+import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState, markHeldForLimit, activeLaneRunOwnsSession } from './workflowSessionService.js';
+import { rejectedSessionExecution } from './sessionStartResult.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
 // sessionExecution), safe because this is only called at runtime inside
 // _executeSession, long after the module graph is loaded (same pattern as
@@ -212,6 +213,11 @@ export async function _executeSession({
 }) {
   const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded } = callbacks;
   const workflowTurn = beginWorkflowTurn(sessionId);
+  // Last ownership fence before the irreversible provider call.
+  if (!interactive && !workflowTurn && !activeLaneRunOwnsSession(sessionId)) {
+    cleanupSessionState(sessionId, cleanupConversationId);
+    return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
+  }
   try {
     // Run the query with the agent (SDK via gateway, or mock)
     for await (const event of agent.execute(queryParams, agentCallMeta)) {
@@ -268,12 +274,18 @@ export async function _executeSession({
  */
 export async function runSessionCore(sessionId, prompt, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
-  const { systemPrompt = null, fileAttachments = [], model = null } = options;
-  const controller = new AbortController();
+  const { systemPrompt = null, fileAttachments = [], model = null, interactive = false,
+    abortController = null } = options;
+  let session = sessions.getById(sessionId);
+  if (!session) throw new Error('Session not found');
+  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
+    return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
+  }
+  const controller = abortController || new AbortController();
+  if (controller.signal.aborted) return rejectedSessionExecution(sessionId, 'dispatch_aborted');
   activeSessions.set(sessionId, { controller });
 
   // Get session for settings
-  let session = sessions.getById(sessionId);
 
   // Get the active conversation for this session (created in SessionRepository.create)
   const activeConversation = conversations.ensureActiveConversation(sessionId);

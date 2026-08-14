@@ -9,6 +9,7 @@ import { broadcastSummaryUpdate } from '../services/summaryBroadcast.js';
 import { requireSession } from '../middleware/sessionLookup.js';
 import { validateModelId } from './model-validation.js';
 import { validateScheduledAt } from './scheduledAtValidation.js';
+import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
 import {
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
@@ -317,7 +318,17 @@ router.patch('/:id', requireSession, (req, res) => {
   }
   Object.assign(updateData, agentTypeUpdate);
 
-  const updated = sessions.update(req.params.id, updateData);
+  const schedulingMutation = Object.hasOwn(updateData, 'scheduledAt') || updateData.status === 'scheduled';
+  const update = () => sessions.update(req.params.id, updateData);
+  const updated = schedulingMutation && req.session_.laneRunId
+    ? withActiveLaneRunOwnership(req.params.id, update)
+    : update();
+  if (!updated) {
+    return res.status(409).json({
+      error: 'Session no longer owns an active lane run',
+      code: 'LANE_RUN_OWNERSHIP_LOST',
+    });
+  }
   handlePrUrlSideEffects(req.session_, req.params.id, updateData);
   broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, updateData);
   res.json(updated);

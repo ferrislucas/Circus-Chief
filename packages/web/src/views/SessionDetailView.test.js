@@ -168,6 +168,8 @@ vi.mock('../composables/useWebSocket.js', () => {
       onWorkLog: h(),
       onWorkLogsAssociated: h(),
       onThinkingPartial: h(),
+      onPrompt: h(),
+      onPromptResolved: h(),
       onCommandOutput: h(),
       onCommandComplete: h(),
       onCommandError: h(),

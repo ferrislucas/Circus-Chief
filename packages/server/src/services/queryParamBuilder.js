@@ -7,6 +7,7 @@ import {
   getSandboxModeForSession,
 } from './sessionPrompts.js';
 import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
+import { buildInteractionCallbacks } from './promptCallbacks.js';
 
 /**
  * `pw.sh` always sets VCR_MODE=replay by default for E2E runs. The scripted
