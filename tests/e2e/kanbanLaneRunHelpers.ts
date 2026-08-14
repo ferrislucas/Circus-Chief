@@ -352,32 +352,19 @@ export async function resumeScheduledSessionViaUI(
 }
 
 /**
- * Attempt to resume a session as though its schedule had come due, WITHOUT
- * assuming that resume succeeds — unlike `resumeScheduledSessionViaUI`.
- *
- * Use this to prove a stale/superseded lane-run worker fails closed (Phase 2
- * ownership guarantee, `claimWorkflowSessionStart` in
- * workflowSessionService.js): once `supersedeRunForCard` has run, it clears
- * the worker's `scheduled_at`/`pending_prompt` as part of superseding the
- * run, so this helper first restores them (simulating some external trigger
- * — e.g. a real scheduler tick that raced the supersession — still reaching
- * the session) purely so the `/run-scheduled-now` endpoint's shallow
- * `status`/`scheduledAt`/`pendingPrompt` gate can be reached at all. The
- * deeper ownership guard is what must then reject it: the endpoint no-ops
- * (200, session left untouched) rather than actually starting a turn, so the
- * session must never reach 'waiting' afterwards.
+ * Ask a superseded worker to schedule more work. The scheduling mutation is
+ * itself ownership-fenced, so callers assert the explicit 409 response
+ * instead of first restoring stale executable state.
  */
-export async function attemptResumeStaleWorker(sessionId: string, options: { prompt?: string } = {}) {
-  const { prompt = VCR_PROMPT } = options;
-  await updatePendingPrompt(sessionId, prompt);
-  await updateSessionScheduling(sessionId, {
-    scheduledAt: Date.now(),
-    rescheduleAtTokenCount: null,
+export async function attemptResumeStaleWorker(sessionId: string) {
+  return fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      scheduledAt: Date.now(),
+      rescheduleAtTokenCount: null,
+    }),
   });
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/run-scheduled-now`, {
-    method: 'POST',
-  });
-  return response;
 }
 
 export async function moveCardViaUI(page: Page, card: Locator, toLane: string) {

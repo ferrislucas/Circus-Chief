@@ -401,14 +401,13 @@ test.describe('Kanban structured lane runs', () => {
     // Review has no target/automation, so no new run opens either.
     expect(findCardOfSession(boardNow, workspace.id).activeLaneRun).toBeNull();
 
-    // The OLD run's root session (still pointed at the superseded run) is now
-    // resumed as though its schedule had come due. `supersedeRunForCard`
-    // already cleared its scheduling as part of superseding the run, so this
-    // restores it first purely to reach the scheduler's shallow gate — the
-    // deeper ownership guard (`claimWorkflowSessionStart`) must then reject
-    // it: the endpoint no-ops instead of actually starting a turn.
+    // The old worker may not recreate executable scheduling state after its
+    // run has been superseded. The write itself is ownership-fenced.
     const resumeResponse = await attemptResumeStaleWorker(worker.id);
-    expect(resumeResponse.status).toBe(200);
+    expect(resumeResponse.status).toBe(409);
+    expect(await resumeResponse.json()).toEqual(expect.objectContaining({
+      code: 'LANE_RUN_OWNERSHIP_LOST',
+    }));
 
     // Give a real (incorrect) start time to fire, then assert the stale
     // worker never actually ran and the card never moved, nor did Done's
@@ -469,7 +468,6 @@ test.describe('Kanban structured lane runs', () => {
         { timeout: 15000 }
       )
       .toBe(true);
-    await waitForStatus(sourceWorker.id, 'waiting', 20000);
 
     await expectCardSettlesInLane(project.id, workspace.id, 'Done');
 

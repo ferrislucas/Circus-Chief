@@ -202,34 +202,19 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
  * @param {{ workspaceSessionId: string, targetLaneId: string, cardId: string, sourceRunId: string }} pending
  */
 export async function triggerStructuredTransitionAutomation(pending) {
-  const { workspaceSessionId, targetLaneId, cardId, sourceRunId } = pending;
+  const { workspaceSessionId } = pending;
   const workspaceSession = sessions.getById(workspaceSessionId);
   if (!workspaceSession) return;
 
-  const lane = kanbanLanes.getById(targetLaneId);
   const laneRun = pending.laneEntryEventId
     ? databaseManager.get().prepare('SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(pending.laneEntryEventId)
-    : isStructured(lane)
-    ? createLaneRunForEntry({
-        projectId: workspaceSession.projectId,
-        workspaceId: workspaceSessionId,
-        cardId,
-        lane,
-        cause: 'completion',
-        priorLaneRunId: sourceRunId,
-        entryEventId: pending.laneEntryEventId,
-      })
     : null;
 
-  if (pending.laneEntryEventId && (laneRun?.lane_entry_event_id || laneRun?.laneEntryEventId)) {
-    return drainLaneEntryTrigger(laneRun.lane_entry_event_id || laneRun.laneEntryEventId, { depth: workspaceSession.laneTriggerDepth || 0 });
-  }
-
-  return triggerLaneEntryAutomation(workspaceSessionId, targetLaneId, {
-    runOnEnterTemplate: true,
-    depth: workspaceSession.laneTriggerDepth || 0,
-    laneRunId: laneRun?.id,
-  });
+  // Completion commits an automated lane's entry event and run together.
+  // A descriptor without its run is an invariant violation, not a request to
+  // reconstruct ownership after the card move has already been exposed.
+  if (!laneRun) throw new Error(`Target lane run is missing for entry event ${pending.laneEntryEventId || 'unknown'}`);
+  return drainLaneEntryTrigger(laneRun.lane_entry_event_id, { depth: workspaceSession.laneTriggerDepth || 0 });
 }
 
 const ENTRY_EVENT_LEASE_MS = 5 * 60 * 1000;

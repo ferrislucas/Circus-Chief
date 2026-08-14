@@ -650,12 +650,26 @@ describe('kanbanService', () => {
       kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
       const workspace = createSession('Workspace');
       const card = kanbanCards.create(lanes[0].id, workspace.id);
+      const sourceRun = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id,
+        lane: { ...lanes[0], onEnterPrompt: 'source work' },
+      });
+      databaseManager.get().prepare(`UPDATE kanban_lane_runs
+        SET status='succeeded', transition_applied_at=?, succeeded_at=? WHERE id=?`)
+        .run(Date.now(), Date.now(), sourceRun.id);
+      kanbanCards.moveToLane(card.id, lanes[1].id);
+      const targetLane = kanbanLanes.getById(lanes[1].id);
+      const targetRun = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: targetLane,
+        cause: 'completion', priorLaneRunId: sourceRun.id,
+      });
 
       await triggerStructuredTransitionAutomation({
         workspaceSessionId: workspace.id,
         targetLaneId: lanes[1].id,
         cardId: card.id,
-        sourceRunId: 'source-run-1',
+        sourceRunId: sourceRun.id,
+        laneEntryEventId: targetRun.laneEntryEventId,
       });
 
       expect(runSession).toHaveBeenCalledTimes(1);
@@ -664,20 +678,20 @@ describe('kanbanService', () => {
       expect(newSessions[0].laneRunId).toBeTruthy();
 
       const newRun = databaseManager.get().prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(newSessions[0].laneRunId);
-      expect(newRun.prior_lane_run_id).toBe('source-run-1');
+      expect(newRun.prior_lane_run_id).toBe(sourceRun.id);
       expect(newRun.source_lane_id).toBe(lanes[1].id);
     });
 
-    it('does not create a lane run when the target lane is plain legacy (no automation started twice)', async () => {
+    it('rejects a completion descriptor that has no atomically-created target run', async () => {
       const workspace = createSession('Workspace');
       const card = kanbanCards.create(lanes[0].id, workspace.id);
 
-      await triggerStructuredTransitionAutomation({
+      await expect(triggerStructuredTransitionAutomation({
         workspaceSessionId: workspace.id,
         targetLaneId: lanes[1].id, // no onEnterPrompt/onEnterTemplateId — not structured
         cardId: card.id,
         sourceRunId: 'source-run-1',
-      });
+      })).rejects.toThrow('Target lane run is missing');
 
       expect(runSession).not.toHaveBeenCalled();
       expect(sessions.getByProjectId(projectId)).toHaveLength(1);

@@ -259,6 +259,7 @@ describe('workflowSessionService', () => {
     // attemptLaneRunTransition) — starting the target lane's on-enter session
     // is necessarily async and is the caller's job (sessionExecution.js calls
     // kanbanService.triggerStructuredTransitionAutomation with this value).
+    kanbanLanes.update(target.id, { onEnterPrompt: 'perform target work' });
     const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
     const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
     attachRootSession(run.id, worker.id);
@@ -276,11 +277,31 @@ describe('workflowSessionService', () => {
     }));
     const outbox = databaseManager.get().prepare('SELECT * FROM kanban_lane_entry_events WHERE caused_by_run_id=?').get(run.id);
     expect(outbox).toEqual(expect.objectContaining({ status: 'pending', lane_id: target.id, card_id: card.id }));
+    const targetRun = databaseManager.get().prepare('SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(outbox.id);
+    expect(targetRun).toEqual(expect.objectContaining({ source_lane_id: target.id, prior_lane_run_id: run.id, status: 'open' }));
     // No target-lane session exists yet — that only happens once the caller
     // acts on pendingTargetLaneTrigger.
     const sessionRows = databaseManager.get().prepare('SELECT id FROM sessions ORDER BY id').all();
     expect(sessionRows.map(({ id }) => id)).toEqual(expect.arrayContaining([root.id, worker.id]));
     expect(sessionRows).toHaveLength(2);
+  });
+
+  it('does not create an orphan entry event when completion moves into an unautomated lane', () => {
+    const plainTarget = kanbanLanes.create(board.id, { name: 'Done' });
+    const automatedSource = kanbanLanes.create(board.id, {
+      name: 'Automated source', onEnterPrompt: 'work', completionTargetLaneId: plainTarget.id,
+    });
+    kanbanCards.moveToLane(card.id, automatedSource.id);
+    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: automatedSource });
+    attachRootSession(run.id, worker.id);
+
+    const reconciled = finalizeOwnWorkCompletion(worker.id, beginWorkflowTurn(worker.id));
+
+    expect(reconciled.status).toBe('succeeded');
+    expect(reconciled.pendingTargetLaneTrigger).toBeUndefined();
+    expect(kanbanCards.getById(card.id)).toEqual(expect.objectContaining({ laneId: plainTarget.id, activeLaneRunId: null }));
+    expect(databaseManager.get().prepare('SELECT * FROM kanban_lane_entry_events WHERE caused_by_run_id=?').get(run.id)).toBeUndefined();
   });
 
   it('W6: assigns the target-lane card a sort_order at the end of its existing cards', () => {

@@ -59,6 +59,7 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
     project = projectRepo.create('W6 Project', tempDir);
     const board = boardRepo.create(project.id);
     [source, target] = laneRepo.getByBoardId(board.id);
+    target = laneRepo.update(target.id, { onEnterPrompt: 'perform target work' });
     workspace = sessionRepo.create(project.id, 'Workspace', 'work');
     card = cardRepo.create(source.id, workspace.id);
     root = sessionRepo.create(project.id, 'Lane prompt', 'do work', { parentSessionId: workspace.id });

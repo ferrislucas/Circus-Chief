@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- lane-run invariants are kept in one auditable state machine */
 /** Durable state machine for structured Kanban lane runs.
  *
  * This deliberately treats execution status as separate from workflow state:
@@ -12,7 +13,7 @@ import { databaseManager } from '../db/DatabaseManager.js';
 import { activeSessions } from './streamEventHandler.js';
 import { getRun } from './workflowRunReader.js';
 import { recomputeSubtreeOutcomes } from './workflowSessionState.js';
-import { enqueueTargetLaneTrigger, moveCardForTransition } from './workflowLaneTransition.js';
+import { moveCardForTransition } from './workflowLaneTransition.js';
 
 export { getRun } from './workflowRunReader.js';
 export { computeSubtreeOutcome, recomputeSubtreeOutcomes } from './workflowSessionState.js';
@@ -387,13 +388,40 @@ export function attemptLaneRunTransition(runId) {
   if (winner.changes === 0) return getRun(runId);
 
   const targetLaneId = moveCardForTransition(run, card);
-  const laneEntryEventId = targetLaneId ? enqueueTargetLaneTrigger(db, { run, card, targetLaneId, time }) : null;
-  db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=? WHERE id=?').run(now(), card.id);
+  const targetLane = targetLaneId
+    ? db.prepare('SELECT * FROM kanban_lanes WHERE id=?').get(targetLaneId)
+    : null;
+  const laneRun = targetLane && isStructured({
+    completionTargetLaneId: targetLane.completion_target_lane_id,
+    onEnterTemplateId: targetLane.on_enter_template_id,
+    onEnterPrompt: targetLane.on_enter_prompt,
+  })
+    ? createLaneRunForEntry({
+        projectId: run.project_id,
+        workspaceId: run.workspace_id,
+        cardId: card.id,
+        lane: {
+          id: targetLane.id,
+          completionTargetLaneId: targetLane.completion_target_lane_id,
+          onEnterTemplateId: targetLane.on_enter_template_id,
+          onEnterPrompt: targetLane.on_enter_prompt,
+        },
+        cause: 'completion',
+        priorLaneRunId: runId,
+      })
+    : null;
+  if (!laneRun) db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE id=?').run(now(), card.id);
   audit(db, runId, 'transition_applied');
 
   const result = getRun(runId);
-  if (targetLaneId) {
-    result.pendingTargetLaneTrigger = { workspaceSessionId: run.workspace_id, targetLaneId, cardId: card.id, sourceRunId: runId, laneEntryEventId };
+  if (laneRun) {
+    result.pendingTargetLaneTrigger = {
+      workspaceSessionId: run.workspace_id,
+      targetLaneId,
+      cardId: card.id,
+      sourceRunId: runId,
+      laneEntryEventId: laneRun.laneEntryEventId,
+    };
   }
   return result;
 }
