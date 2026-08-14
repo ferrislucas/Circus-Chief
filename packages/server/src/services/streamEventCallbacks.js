@@ -149,7 +149,30 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
     return handleActiveSessionCompletion(sessionId, workingDirectory, callbacks);
   }
 
+  finalizeAbortedTurnStatus(sessionId);
   return { wasRescheduled: false, heldForLimit: false };
+}
+
+/**
+ * Land a terminal status for a turn that ended without one.
+ *
+ * An aborted turn is not ready for follow-up, so it must not land 'waiting' —
+ * but it still has to land somewhere. An abort makes the stream loop exit
+ * gracefully rather than throw, so the error path never runs either, and a
+ * turn returning from handleTurnCompletion without a status write stayed
+ * 'running' forever.
+ *
+ * Guarded on 'running' so this only closes out a turn nobody else accounted
+ * for: callers that already recorded an outcome (stopSession, lane-run
+ * supersession) and sessions restarted since the abort keep the status they
+ * were given.
+ *
+ * @param {string} sessionId
+ */
+function finalizeAbortedTurnStatus(sessionId) {
+  if (sessions.getById(sessionId)?.status !== 'running') return;
+  sessions.update(sessionId, { status: 'stopped' });
+  broadcastSessionStatus(sessionId, 'stopped');
 }
 
 /**

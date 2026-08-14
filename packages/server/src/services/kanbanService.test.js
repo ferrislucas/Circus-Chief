@@ -51,7 +51,7 @@ import {
   drainLaneEntryTrigger,
   reclaimExpiredLaneEntryClaims,
 } from './kanbanService.js';
-import { createLaneRunForEntry } from './workflowSessionService.js';
+import { createLaneRunForEntry, attachRootSession, getRun } from './workflowSessionService.js';
 import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
 import { resolveProviderMetadataFromModel } from './sessionProvider.js';
 
@@ -342,6 +342,46 @@ describe('kanbanService', () => {
 
     it('throws when card does not exist', async () => {
       await expect(moveCard('non-existent', lanes[0].id)).rejects.toThrow('Card not found');
+    });
+
+    it('does not cancel a lane worker that moves its own card', async () => {
+      // A lane prompt may tell the worker to choose its exit lane. That move
+      // arrives mid-turn against the worker's own run, so treating it as a
+      // supersession made the agent abort itself and strand its own status.
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: session.id, cardId: card.id,
+        lane: { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'review', completionTargetLaneId: lanes[2].id },
+      });
+      const worker = sessions.create(projectId, 'Worker', 'lane work', { parentSessionId: session.id });
+      attachRootSession(run.id, worker.id);
+      databaseManager.get().prepare("UPDATE sessions SET status='running' WHERE id=?").run(worker.id);
+
+      await moveCard(card.id, lanes[1].id, { actorWorkspaceId: session.id });
+
+      expect(sessions.getById(worker.id).status).toBe('running');
+      expect(sessions.getById(worker.id).ownWorkState).toBe('open');
+      expect(getRun(run.id).status).toBe('succeeded');
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[1].id);
+    });
+
+    it('still cancels a lane worker when the move comes from outside (no actor)', async () => {
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: session.id, cardId: card.id,
+        lane: { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'review', completionTargetLaneId: lanes[2].id },
+      });
+      const worker = sessions.create(projectId, 'Worker', 'lane work', { parentSessionId: session.id });
+      attachRootSession(run.id, worker.id);
+      databaseManager.get().prepare("UPDATE sessions SET status='running' WHERE id=?").run(worker.id);
+
+      await moveCard(card.id, lanes[1].id);
+
+      expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
+      expect(sessions.getById(worker.id).status).toBe('stopped');
+      expect(getRun(run.id).status).toBe('superseded');
     });
 
     it('skips on-enter template when runOnEnterTemplate is false', async () => {

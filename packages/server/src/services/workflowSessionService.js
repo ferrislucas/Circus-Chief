@@ -69,11 +69,20 @@ export function withActiveLaneRunOwnership(sessionId, mutation) {
   });
 }
 
-/** Clear state which could otherwise revive a superseded worker. */
+/** Clear state which could otherwise revive a superseded worker.
+ *
+ * Supersession is the authoritative end of a member's work, so it must land a
+ * terminal status itself. It cannot delegate that write to the abort unwinding
+ * in sessionExecution.js: the aborted turn exits the stream loop gracefully
+ * (no throw), and handleTurnCompletion deliberately skips its status write for
+ * an aborted controller — so nothing downstream would ever record an outcome
+ * and the member would stay 'running' forever. 'waiting' members are already
+ * idle and stay as they are, so a finished session remains open to follow-ups.
+ */
 function clearExecutableMemberState(db, runId, reason, time) {
   return db.prepare(`UPDATE sessions SET own_work_state='cancelled', own_work_closed_at=?, workflow_reason=?,
-    workflow_updated_at=?, execution_state=CASE WHEN execution_state='running' THEN execution_state ELSE 'stopped' END,
-    status=CASE WHEN status='scheduled' THEN 'stopped' ELSE status END,
+    workflow_updated_at=?, execution_state='stopped',
+    status=CASE WHEN status IN ('scheduled','running') THEN 'stopped' ELSE status END,
     scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_conversation_id=NULL,
     auto_send_pending_prompt=0, reschedule_count=0
     WHERE lane_run_id=? AND own_work_state='open'`).run(time, reason, time, runId);
@@ -458,6 +467,56 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
     }
   }
   return result;
+}
+
+/**
+ * Close a lane run because its own worker moved its card, rather than
+ * superseding it.
+ *
+ * A lane prompt may instruct the worker to pick its exit lane (the Review PR
+ * lane routes a rejected PR to "Needs attention" instead of letting the
+ * completion target advance it to Done). That move arrives while the worker is
+ * mid-turn, and the card's active run is the worker's *own* run — so treating
+ * it as a supersession makes the agent abort itself, killing the turn between
+ * its request and the response it is waiting on.
+ *
+ * The worker is finishing its work, not being interrupted, so the run closes
+ * as succeeded with its transition already applied. Nothing about the session
+ * is touched: own work stays open and the turn ends normally through
+ * handleTurnCompletion, which lands 'waiting'/'idle' as usual.
+ * finalizeOwnWorkCompletion then closes own work successfully and
+ * reconcileLaneRun no-ops on the already-closed run, so the completion target
+ * cannot override the lane the worker chose.
+ *
+ * @param {string} cardId
+ * @param {string|null} actorWorkspaceId - Workspace the move was addressed to
+ * @returns {Object|null} The closed run, or null when this is not a self-move
+ */
+export function completeRunForSelfMove(cardId, actorWorkspaceId) {
+  if (!actorWorkspaceId) return null;
+  return databaseManager.transaction(() => {
+    const db = databaseManager.get();
+    const activeLaneRunId = db.prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?')
+      .get(cardId)?.active_lane_run_id;
+    if (!activeLaneRunId) return null;
+    const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=? AND status=\'open\'').get(activeLaneRunId);
+    // Only the run's own workspace can self-move: a move addressed to any
+    // other workspace, or from the UI (which addresses cards by id and sends
+    // no actor), is a genuine outside interruption and must still supersede.
+    if (!run || run.workspace_id !== actorWorkspaceId || !run.root_session_id) return null;
+    // An already-closed obligation means this worker is no longer the one
+    // responsible for the run, so its move carries no completion meaning.
+    const root = db.prepare(SELECT_SESSION_BY_ID).get(run.root_session_id);
+    if (root?.own_work_state !== 'open') return null;
+
+    const time = now();
+    db.prepare(`UPDATE kanban_lane_runs SET status='succeeded', succeeded_at=?, transition_applied_at=?,
+      updated_at=? WHERE id=? AND status='open'`).run(time, time, time, activeLaneRunId);
+    db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE id=?')
+      .run(time, cardId);
+    audit(db, activeLaneRunId, 'run_closed_by_self_move', { sessionId: run.root_session_id });
+    return getRun(activeLaneRunId);
+  });
 }
 
 export function supersedeRunForCard(cardId, reason = 'manual_move') {

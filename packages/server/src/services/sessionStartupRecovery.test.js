@@ -8,7 +8,7 @@ vi.mock('../websocket.js', () => ({
 }));
 
 import { broadcastToProject } from '../websocket.js';
-import { recoverStaleStartingSessions } from './sessionStartupRecovery.js';
+import { recoverStaleStartingSessions, recoverOrphanedRunningSessions } from './sessionStartupRecovery.js';
 
 function createProject() {
   return projects.create('Test Project', '/tmp/test');
@@ -83,6 +83,56 @@ describe('recoverStaleStartingSessions', () => {
     backdateSession(session.id, 5000);
 
     recoverStaleStartingSessions();
+
+    expect(broadcastToProject).toHaveBeenCalledWith(
+      project.id,
+      WS_MESSAGE_TYPES.SESSION_UPDATED,
+      expect.objectContaining({ sessionId: session.id })
+    );
+  });
+});
+
+describe('recoverOrphanedRunningSessions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('stops a running session left behind by a previous process', () => {
+    const project = createProject();
+    const session = createSessionWithStatus(project.id, 'running');
+
+    const { recovered } = recoverOrphanedRunningSessions();
+    expect(recovered).toBe(1);
+
+    const updated = sessions.getById(session.id);
+    expect(updated.status).toBe('stopped');
+    expect(updated.executionState).toBe('stopped');
+  });
+
+  it('recovers a freshly-updated running session, since no cutoff applies', () => {
+    // Agent processes never outlive the server, so recency is not evidence of
+    // liveness — a 'running' row at boot is always an orphan.
+    const project = createProject();
+    const session = createSessionWithStatus(project.id, 'running');
+
+    expect(recoverOrphanedRunningSessions().recovered).toBe(1);
+    expect(sessions.getById(session.id).status).toBe('stopped');
+  });
+
+  it('leaves non-running sessions alone', () => {
+    const project = createProject();
+    for (const status of ['waiting', 'stopped', 'error', 'starting', 'scheduled']) {
+      createSessionWithStatus(project.id, status);
+    }
+
+    expect(recoverOrphanedRunningSessions().recovered).toBe(0);
+  });
+
+  it('broadcasts SESSION_UPDATED for each recovered session', () => {
+    const project = createProject();
+    const session = createSessionWithStatus(project.id, 'running');
+
+    recoverOrphanedRunningSessions();
 
     expect(broadcastToProject).toHaveBeenCalledWith(
       project.id,

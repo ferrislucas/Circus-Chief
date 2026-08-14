@@ -516,6 +516,9 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
     const response = await moveCardService(card.id, targetLaneId, {
       sortOrder,
       runOnEnterTemplate,
+      // This route is how an agent addresses its own board card, so a move
+      // whose actor matches the card's active run is a self-directed exit.
+      actorWorkspaceId: workspaceId,
       finalizeMutation: ({ card: movedCard, eventId }) => completeOperation(operation, movedCard, eventId),
     });
     res.json(response);

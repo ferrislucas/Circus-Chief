@@ -50,3 +50,45 @@ export function recoverStaleStartingSessions() {
 
   return { recovered: stale.length };
 }
+
+/**
+ * Find sessions still marked 'running' from a previous process and mark them
+ * stopped.
+ *
+ * Agent processes do not survive the server that spawned them, so a 'running'
+ * row at boot is always an orphan. This is the backstop for turns whose
+ * terminal status write never happened — a killed process, or an abort that
+ * unwound without any handler recording an outcome. Sessions land on 'stopped'
+ * rather than 'error' because an orphaned row is not evidence that the work
+ * itself failed, and 'stopped' leaves the session able to receive follow-ups.
+ *
+ * Call once during server boot, after initDatabase() and before any services start.
+ *
+ * @returns {{ recovered: number }} Count of sessions recovered.
+ */
+export function recoverOrphanedRunningSessions() {
+  const orphaned = sessions.getOrphanedRunningSessions();
+
+  for (const session of orphaned) {
+    const updatedSession = sessions.update(session.id, {
+      status: 'stopped',
+      executionState: 'stopped',
+    });
+
+    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId: session.projectId,
+      sessionId: session.id,
+      session: updatedSession,
+    });
+
+    console.warn(
+      `[sessionStartupRecovery] Recovered orphaned running session ${session.id} (project ${session.projectId})`
+    );
+  }
+
+  if (orphaned.length > 0) {
+    console.log(`[sessionStartupRecovery] Recovered ${orphaned.length} orphaned running session(s).`);
+  }
+
+  return { recovered: orphaned.length };
+}

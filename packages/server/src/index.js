@@ -14,7 +14,7 @@ import * as sessionManager from './services/sessionManager.js';
 import { clearScheduledTimers } from './services/summaryService.js';
 import { commandRunner } from './services/commandRunner.js';
 import { getDefaultDbPath } from './config.js';
-import { recoverStaleStartingSessions } from './services/sessionStartupRecovery.js';
+import { recoverStaleStartingSessions, recoverOrphanedRunningSessions } from './services/sessionStartupRecovery.js';
 import { startLaneEntryRetryWorker, stopLaneEntryRetryWorker } from './services/kanbanService.js';
 import { formatKanbanInvariantReport } from './services/kanbanRecoveryService.js';
 import { runStartupPreflight } from './services/startupPreflight.js';
@@ -69,6 +69,10 @@ console.log(`VCR_MODE: ${process.env.VCR_MODE || '(unset)'}`);
 
 // Recover sessions stuck in 'starting' from a previous crashed or killed server run
 recoverStaleStartingSessions();
+// Agent processes never outlive the server, so any surviving 'running' row is
+// an orphan — from a kill, or from a turn that unwound without recording an
+// outcome. Reap before workers start so the board never shows phantom work.
+recoverOrphanedRunningSessions();
 // Do not start workers or drain the entry outbox until durable ownership has
 // been normalized and independently audited. A bad lane configuration is a
 // hard stop: selecting a fallback executor would reintroduce the retired mode.

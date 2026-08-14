@@ -357,14 +357,28 @@ export class SessionRepository extends BaseRepository {
    * @param {number} cutoff - Absolute timestamp; rows with updated_at < cutoff are stale.
    * @returns {Array<object>}
    */
-  getStaleStartingSessions(cutoff) {
-    const rows = this.db
-      .prepare(
-        `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s
-         WHERE status = 'starting' AND updated_at < ? AND archived = 0`
-      )
-      .all(cutoff);
-    return this.mapAll(rows);
+  getStaleStartingSessions(cutoff) { return this.getRecoverableSessions('starting', cutoff); }
+
+  /**
+   * Sessions left in 'running' by a previous process. Agent processes are
+   * children of the server, so no session can still be genuinely running at
+   * boot — every such row is orphaned regardless of how recently it was
+   * touched, so no staleness cutoff applies.
+   * @returns {Array<object>}
+   */
+  getOrphanedRunningSessions() { return this.getRecoverableSessions('running'); }
+
+  /**
+   * Non-archived sessions in `status`. With a `cutoff`, only those untouched
+   * since it; without one, every match regardless of recency.
+   * @param {string} status
+   * @param {number} [cutoff] - Absolute timestamp; rows with updated_at < cutoff match.
+   * @returns {Array<object>}
+   */
+  getRecoverableSessions(status, cutoff) {
+    const staleOnly = cutoff === undefined ? '' : ' AND updated_at < ?';
+    const sql = `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s WHERE status = ? AND archived = 0${staleOnly}`;
+    return this.mapAll(this.db.prepare(sql).all(...(cutoff === undefined ? [status] : [status, cutoff])));
   }
 
   /** Get all scheduled sessions, optionally filtered by project */

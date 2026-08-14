@@ -3,7 +3,7 @@ import { databaseManager, kanbanBoards, kanbanCards, kanbanLanes, projects, sess
 import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
   getRun, attachRootSession, reconcileLaneRun,
-  supersedeRunForCard, closeOwnWork, markExecutionState, markHeldForLimit,
+  supersedeRunForCard, completeRunForSelfMove, closeOwnWork, markExecutionState, markHeldForLimit,
   computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition,
 } from './workflowSessionService.js';
 import { auditKanbanInvariants, reconcileKanbanOwnership } from './kanbanRecoveryService.js';
@@ -396,6 +396,113 @@ describe('workflowSessionService', () => {
       expect.objectContaining({ id: worker.id }),
     ]));
     expect(sessions.getById(worker.id).status).toBe('stopped');
+  });
+
+  describe('self-move (a lane worker choosing its own exit lane)', () => {
+    function runningWorker() {
+      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+      const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+      attachRootSession(run.id, worker.id);
+      beginWorkflowTurn(worker.id);
+      databaseManager.get().prepare("UPDATE sessions SET status='running' WHERE id=?").run(worker.id);
+      return { worker, run };
+    }
+
+    it('leaves the worker running so its in-flight turn can finish', () => {
+      const { worker, run } = runningWorker();
+
+      expect(completeRunForSelfMove(card.id, root.id)).toEqual(expect.objectContaining({ status: 'succeeded' }));
+
+      // The whole point: the request that triggered this must not kill the
+      // turn that issued it. Own work stays open for normal completion.
+      const after = sessions.getById(worker.id);
+      expect(after.status).toBe('running');
+      expect(after.ownWorkState).toBe('open');
+      expect(after.executionState).toBe('running');
+      expect(getRun(run.id).status).toBe('succeeded');
+    });
+
+    it('lands waiting/idle when the turn completes, not stuck running', () => {
+      const { worker } = runningWorker();
+      completeRunForSelfMove(card.id, root.id);
+
+      finalizeOwnWorkCompletion(worker.id);
+
+      const after = sessions.getById(worker.id);
+      expect(after.ownWorkState).toBe('closed_successfully');
+      expect(after.executionState).toBe('idle');
+    });
+
+    it('does not let the completion target override the lane the worker chose', () => {
+      const { worker, run } = runningWorker();
+      completeRunForSelfMove(card.id, root.id);
+      // Worker moves its card somewhere other than the completion target.
+      kanbanCards.moveToLane(card.id, source.id);
+
+      finalizeOwnWorkCompletion(worker.id);
+
+      expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+      expect(kanbanCards.getById(card.id).laneId).not.toBe(target.id);
+      expect(attemptLaneRunTransition(run.id).pendingTargetLaneTrigger).toBeUndefined();
+    });
+
+    it('still supersedes an outside move, which must interrupt the worker', () => {
+      const { worker, run } = runningWorker();
+
+      // No actor: a UI move addresses the card by id and is a real interruption.
+      expect(completeRunForSelfMove(card.id, null)).toBeNull();
+      supersedeRunForCard(card.id, 'manual_move');
+
+      expect(getRun(run.id).status).toBe('superseded');
+      expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
+    });
+
+    it('is not a self-move when a different workspace addresses the card', () => {
+      runningWorker();
+      const other = sessions.create(project.id, 'Other workspace', 'unrelated');
+
+      expect(completeRunForSelfMove(card.id, other.id)).toBeNull();
+    });
+
+    it('is not a self-move once the worker no longer owns an open obligation', () => {
+      const { worker } = runningWorker();
+      closeOwnWork(worker.id, 'closed_failed', 'boom');
+
+      expect(completeRunForSelfMove(card.id, root.id)).toBeNull();
+    });
+
+    it('is a no-op for a card with no active run', () => {
+      expect(completeRunForSelfMove(card.id, root.id)).toBeNull();
+    });
+  });
+
+  it('lands a terminal status on a running member when its run is superseded', () => {
+    // Regression: supersession aborts the member's agent, but the aborted turn
+    // exits the stream loop gracefully, so nothing downstream recorded an
+    // outcome and the member stayed 'running' forever.
+    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    attachRootSession(run.id, worker.id);
+    beginWorkflowTurn(worker.id);
+    databaseManager.get().prepare("UPDATE sessions SET status='running' WHERE id=?").run(worker.id);
+
+    supersedeRunForCard(card.id, 'manual_move');
+
+    const after = sessions.getById(worker.id);
+    expect(after.status).toBe('stopped');
+    expect(after.executionState).toBe('stopped');
+  });
+
+  it('leaves an already-finished member waiting when its run is superseded', () => {
+    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    attachRootSession(run.id, worker.id);
+    databaseManager.get().prepare("UPDATE sessions SET status='waiting' WHERE id=?").run(worker.id);
+
+    supersedeRunForCard(card.id, 'manual_move');
+
+    // A finished session stays open to follow-up messages.
+    expect(sessions.getById(worker.id).status).toBe('waiting');
   });
 
   describe('computeSubtreeOutcome (W5: pure FR-6 roll-up rule)', () => {
