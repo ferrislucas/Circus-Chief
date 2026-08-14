@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { DEFAULT_SERVER_PORT } from '@circuschief/shared';
+import { DEFAULT_SERVER_PORT, DEFAULT_SERVER_HOST } from '@circuschief/shared';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -12,6 +12,7 @@ function showHelp() {
 
 Options:
   -p, --port <number>  Port to listen on (env: PORT, default: ${DEFAULT_SERVER_PORT})
+  -H, --host <address> Network address to bind to (env: HOST, default: ${DEFAULT_SERVER_HOST})
   --no-analytics       Disable anonymous usage analytics
   -h, --help           Show this help message
   -V, --version        Show version number`);
@@ -39,6 +40,11 @@ export function parseCliOptions(argv = process.argv) {
           type: 'string',
           short: 'p',
           default: process.env.PORT || String(DEFAULT_SERVER_PORT),
+        },
+        host: {
+          type: 'string',
+          short: 'H',
+          default: process.env.HOST || DEFAULT_SERVER_HOST,
         },
         help: {
           type: 'boolean',
@@ -78,5 +84,24 @@ export function parseCliOptions(argv = process.argv) {
     process.exit(1);
   }
 
-  return { port, disableAnalytics: values['no-analytics'] };
+  const host = values.host.trim();
+  if (host === '') {
+    console.error(`Error: Invalid host "${values.host}". Must be a non-empty address.`);
+    process.exit(1);
+  }
+
+  return { port, host, disableAnalytics: values['no-analytics'] };
+}
+
+const WILDCARD_HOSTS = new Set(['0.0.0.0', '::']);
+
+/**
+ * Return a URL-safe representation of a server bind address.
+ *
+ * @returns {{ urlHost: string, wildcard: boolean }}
+ */
+export function describeBindHost(host) {
+  if (WILDCARD_HOSTS.has(host)) return { urlHost: 'localhost', wildcard: true };
+
+  return { urlHost: host.includes(':') ? `[${host}]` : host, wildcard: false };
 }
