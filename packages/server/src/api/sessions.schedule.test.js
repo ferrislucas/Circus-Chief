@@ -7,7 +7,6 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as diffService from '../services/diffService.js';
 import * as gitService from '../services/gitService.js';
-import * as kanbanService from '../services/kanbanService.js';
 import {
   activeSessions,
   handleTurnCompletion,
@@ -33,10 +32,6 @@ vi.mock('../services/diffService.js', () => ({
 
 vi.mock('../services/gitService.js', () => ({
   isGitRepo: vi.fn().mockResolvedValue(true),
-}));
-
-vi.mock('../services/kanbanService.js', () => ({
-  handleCompletionMove: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock prStatusService (needed by sessions-patch.js)
@@ -299,7 +294,6 @@ describe('Sessions API - POST /:id/schedule', () => {
         session: expect.objectContaining({ status: 'scheduled' }),
       }),
     );
-    expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith(session.id);
     expect(mockAutoSend).not.toHaveBeenCalled();
     expect(mockTemplateTrigger).not.toHaveBeenCalled();
   });

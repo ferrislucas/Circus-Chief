@@ -97,6 +97,28 @@ describe('SessionsApi', () => {
     });
   });
 
+  describe('agent prompts', () => {
+    it('fetches the active prompt for a session', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: 'prompt-1' }));
+
+      await client.getSessionPrompt('sess-123');
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/prompt', expect.any(Object));
+    });
+
+    it('posts a response to the active prompt', async () => {
+      mockFetch.mockReturnValue(mockResponse({ ok: true }));
+      const response = { answer: 'yes' };
+
+      await client.respondToSessionPrompt('sess-123', 'prompt-1', response);
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/sessions/sess-123/prompt/prompt-1/respond',
+        expect.objectContaining({ method: 'POST', body: JSON.stringify(response) })
+      );
+    });
+  });
+
   describe('createSession', () => {
     it('sends POST with JSON when no files', async () => {
       const data = { prompt: 'Hello', name: 'Test' };
@@ -685,6 +707,41 @@ describe('SessionsApi', () => {
         method: 'POST',
         body: JSON.stringify(scheduleData),
       }));
+    });
+  });
+
+  describe('runScheduledNow', () => {
+    it('sends POST with no body when no prompt override is given', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+
+      await client.runScheduledNow('sess-123');
+
+      const callArgs = mockFetch.mock.calls[0];
+      expect(callArgs[0]).toBe('/api/sessions/sess-123/run-scheduled-now');
+      expect(callArgs[1].method).toBe('POST');
+      expect(callArgs[1].body).toBeUndefined();
+    });
+
+    it('sends the edited prompt directly in the request body — a single atomic call, not a preceding save', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+
+      await client.runScheduledNow('sess-123', { prompt: 'edited prompt' });
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/run-scheduled-now', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ prompt: 'edited prompt' }),
+      }));
+    });
+
+    it('returns the started session', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting', scheduledAt: null, pendingPrompt: null }));
+
+      const result = await client.runScheduledNow('sess-123');
+
+      expect(result.status).toBe('starting');
+      expect(result.scheduledAt).toBeNull();
+      expect(result.pendingPrompt).toBeNull();
     });
   });
 });

@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { copyDatabaseBackups } from './dbUtils.js';
+import { copyDatabaseBackups, verifyDatabaseBackup } from './dbUtils.js';
 import { validateDatabaseBaseline } from './validateDatabaseBaseline.js';
 import { DatabaseManager } from '../db/DatabaseManager.js';
 
@@ -36,6 +36,7 @@ describe('database utility scripts', () => {
       for (const file of result.copied) {
         expect(existsSync(file.target)).toBe(true);
       }
+      expect(verifyDatabaseBackup(result)).toEqual(expect.objectContaining({ ok: true }));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

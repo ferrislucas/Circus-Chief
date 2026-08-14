@@ -108,6 +108,23 @@ describe('Kanban Contracts', () => {
       });
       expect(result.success).toBe(true);
     });
+
+    it('accepts a valid completionTargetLaneId without stripping it', () => {
+      const result = CreateKanbanLaneRequest.safeParse({
+        name: 'Automated',
+        onEnterPrompt: 'Do the work',
+        completionTargetLaneId: UUID3,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data.completionTargetLaneId).toBe(UUID3);
+    });
+
+    it('rejects an invalid completionTargetLaneId', () => {
+      expect(CreateKanbanLaneRequest.safeParse({
+        name: 'Automated', completionTargetLaneId: 'not-a-uuid',
+      }).success).toBe(false);
+    });
   });
 
   // ── UpdateKanbanLaneRequest ──────────────────────────────────────

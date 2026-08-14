@@ -47,6 +47,9 @@ export const useSessionsStore = defineStore('sessions', {
     // textarea on remount. Keys are session IDs, values are Date.now()
     // timestamps. Entries older than 5s are considered expired.
     recentSends: {},
+    // Per-session in-flight schedule mutation kind ('starting' | 'cancelling').
+    // See the `scheduleMutationInFlight` getter for the full rationale.
+    scheduleMutationsInFlight: {},
   }),
 
   getters: {

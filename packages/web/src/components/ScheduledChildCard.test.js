@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { reactive } from 'vue';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ScheduledChildCard from './ScheduledChildCard.vue';
@@ -27,9 +28,18 @@ describe('ScheduledChildCard.vue', () => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
 
+    const mutations = reactive({});
     mockSessionsStore = {
       updateSessionFields: vi.fn().mockResolvedValue(undefined),
       updateNextTemplate: vi.fn().mockResolvedValue(undefined),
+      runScheduledNow: vi.fn().mockResolvedValue(undefined),
+      scheduleMutationInFlight: vi.fn((id) => mutations[id] || null),
+      beginScheduleMutation: vi.fn((id, kind) => {
+        if (mutations[id]) return false;
+        mutations[id] = kind;
+        return true;
+      }),
+      endScheduleMutation: vi.fn((id) => { delete mutations[id]; }),
     };
     mockUiStore = {
       success: vi.fn(),
@@ -143,7 +153,7 @@ describe('ScheduledChildCard.vue', () => {
 
   it('shows Edit button that opens SchedulingEditModal', async () => {
     const wrapper = mountComponent();
-    const editBtn = wrapper.findAll('.timing-action-btn')[0];
+    const editBtn = wrapper.find('[data-testid="scheduled-edit-btn"]');
     expect(editBtn.text()).toBe('Edit');
 
     await editBtn.trigger('click');
@@ -158,7 +168,7 @@ describe('ScheduledChildCard.vue', () => {
   it('SchedulingEditModal closes on @close event', async () => {
     const wrapper = mountComponent();
     // Open the modal
-    await wrapper.findAll('.timing-action-btn')[0].trigger('click');
+    await wrapper.find('[data-testid="scheduled-edit-btn"]').trigger('click');
     await wrapper.vm.$nextTick();
 
     const modal = wrapper.findComponent({ name: 'SchedulingEditModal' });
@@ -175,14 +185,14 @@ describe('ScheduledChildCard.vue', () => {
     window.confirm = vi.fn().mockReturnValue(true);
 
     const wrapper = mountComponent();
-    const cancelBtn = wrapper.findAll('.timing-action-btn')[1];
+    const cancelBtn = wrapper.find('[data-testid="scheduled-cancel-btn"]');
     expect(cancelBtn.text()).toBe('Cancel');
 
     await cancelBtn.trigger('click');
     await wrapper.vm.$nextTick();
 
     expect(window.confirm).toHaveBeenCalledWith('Cancel this scheduled workspace?');
-    expect(mockSessionsStore.updateSessionFields).toHaveBeenCalledWith('sess-1', { status: 'stopped' });
+    expect(mockSessionsStore.updateSessionFields).toHaveBeenCalledWith('sess-1', { status: 'stopped', scheduledAt: null });
     expect(mockUiStore.success).toHaveBeenCalledWith('Workspace cancelled');
   });
 
@@ -190,12 +200,58 @@ describe('ScheduledChildCard.vue', () => {
     window.confirm = vi.fn().mockReturnValue(false);
 
     const wrapper = mountComponent();
-    const cancelBtn = wrapper.findAll('.timing-action-btn')[1];
+    const cancelBtn = wrapper.find('[data-testid="scheduled-cancel-btn"]');
     await cancelBtn.trigger('click');
     await wrapper.vm.$nextTick();
 
     expect(window.confirm).toHaveBeenCalled();
     expect(mockSessionsStore.updateSessionFields).not.toHaveBeenCalled();
+  });
+
+  it('disables Start Now, Edit, and Cancel together while Cancel is in flight', async () => {
+    window.confirm = vi.fn().mockReturnValue(true);
+    let resolveCancel;
+    mockSessionsStore.updateSessionFields.mockImplementation(() => new Promise((resolve) => { resolveCancel = resolve; }));
+
+    const wrapper = mountComponent();
+    const startBtn = wrapper.find('[data-testid="scheduled-start-now-btn"]');
+    const editBtn = wrapper.find('[data-testid="scheduled-edit-btn"]');
+    const cancelBtn = wrapper.find('[data-testid="scheduled-cancel-btn"]');
+
+    await cancelBtn.trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(startBtn.attributes('disabled')).toBeDefined();
+    expect(editBtn.attributes('disabled')).toBeDefined();
+    expect(cancelBtn.attributes('disabled')).toBeDefined();
+    expect(cancelBtn.text()).toBe('Cancelling...');
+
+    resolveCancel();
+    await wrapper.vm.$nextTick();
+    await wrapper.vm.$nextTick();
+
+    expect(startBtn.attributes('disabled')).toBeUndefined();
+    expect(editBtn.attributes('disabled')).toBeUndefined();
+    expect(cancelBtn.attributes('disabled')).toBeUndefined();
+  });
+
+  it('rapid double-click on Start Now only triggers one runScheduledNow call (handler-level guard, not just template disabling)', async () => {
+    let resolveStart;
+    mockSessionsStore.runScheduledNow.mockImplementation(() => new Promise((resolve) => { resolveStart = resolve; }));
+
+    const wrapper = mountComponent();
+    const startBtn = wrapper.find('[data-testid="scheduled-start-now-btn"]');
+
+    // Fire both clicks before awaiting either, so the second click's handler
+    // runs before Vue has flushed the `:disabled` binding update from the
+    // first — this exercises `beginScheduleMutation`'s synchronous guard,
+    // not template disabling.
+    const firstClick = startBtn.trigger('click');
+    const secondClick = startBtn.trigger('click');
+    await Promise.all([firstClick, secondClick]);
+
+    expect(mockSessionsStore.runScheduledNow).toHaveBeenCalledTimes(1);
+    resolveStart();
   });
 
   it('renders OrchestrationPanel', () => {
