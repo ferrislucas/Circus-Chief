@@ -13,6 +13,8 @@ import { validateModelId } from './model-validation.js';
 import { broadcastSessionUpdate } from './sessions-patch.js';
 import { activeSessions } from '../services/streamEventHandler.js';
 import { schedulerService } from '../services/schedulerService.js';
+import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
+import { runNowFailureResponse } from '../services/sessionRunNowFailure.js';
 import {
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
@@ -179,7 +181,11 @@ router.post('/:id/schedule', requireSession, (req, res) => {
     return res.status(result.status).json(result.error);
   }
 
-  const updated = sessions.update(req.params.id, result.updateData);
+  const update = () => sessions.update(req.params.id, result.updateData);
+  const updated = req.session_.laneRunId ? withActiveLaneRunOwnership(req.params.id, update) : update();
+  if (!updated) {
+    return res.status(409).json({ error: 'Session no longer owns an active lane run' });
+  }
   broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, result.updateData);
   res.json(updated);
 });
@@ -231,7 +237,11 @@ router.post('/:id/run-scheduled-now', requireSession, async (req, res) => {
   }
 
   try {
-    await schedulerService.startScheduledSession(session, { promptOverride });
+    const result = await schedulerService.startScheduledSession(session, { promptOverride });
+    if (result?.reason && !result.started) {
+      const failure = runNowFailureResponse(result.reason);
+      return res.status(failure.status).json({ error: failure.error, code: failure.code });
+    }
     // Whether this request won the claim or lost it to a concurrent
     // request/poller tick, the outcome the caller wanted — the session no
     // longer sitting idle in 'scheduled' — has been achieved either way.

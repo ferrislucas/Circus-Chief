@@ -107,6 +107,13 @@
               {{ targetLane.name }}
             </option>
           </select>
+          <p
+            v-if="targetRequiresAutomation"
+            class="form-help form-error"
+            data-testid="target-automation-warning"
+          >
+            A completion target requires on-entry automation. Choose a template or prompt below, or clear the target above.
+          </p>
         </div>
 
         <!-- Automation Type -->
@@ -119,6 +126,7 @@
                 type="radio"
                 value="none"
                 name="automation"
+                @change="handleAutomationTypeChange('none')"
               >
               <span>None</span>
             </label>
@@ -128,6 +136,7 @@
                 type="radio"
                 value="template"
                 name="automation"
+                @change="handleAutomationTypeChange('template')"
               >
               <span>Run a template</span>
             </label>
@@ -137,6 +146,7 @@
                 type="radio"
                 value="prompt"
                 name="automation"
+                @change="handleAutomationTypeChange('prompt')"
               >
               <span>Run a custom prompt</span>
             </label>
@@ -382,6 +392,15 @@
         </div>
       </div>
 
+      <div
+        v-if="saveError"
+        class="save-error-banner"
+        role="alert"
+        data-testid="save-error-banner"
+      >
+        {{ saveError }}
+      </div>
+
       <div class="modal-footer">
         <button
           class="btn btn-secondary"
@@ -430,6 +449,7 @@ const projectsStore = useProjectsStore();
 
 const saving = ref(false);
 const deleting = ref(false);
+const saveError = ref('');
 const automationType = ref('none');
 const showAgentSettings = ref(false);
 const showSlashCommandWizard = ref(false);
@@ -475,10 +495,15 @@ const completionTargetLanes = computed(() =>
   (kanbanStore.board?.lanes || []).filter((lane) => lane.id !== props.lane?.id)
 );
 
+const targetRequiresAutomation = computed(() =>
+  Boolean(form.completionTargetLaneId) && automationType.value === 'none'
+);
+
 const isValid = computed(() => {
   if (!form.name.trim()) return false;
   if (automationType.value === 'template' && !form.onEnterTemplateId) return false;
   if (automationType.value === 'prompt' && !form.onEnterPrompt.trim()) return false;
+  if (targetRequiresAutomation.value) return false;
   return true;
 });
 
@@ -545,6 +570,7 @@ function buildAgentSettings(formData) {
 }
 
 function resetForm() {
+  saveError.value = '';
   if (props.lane) {
     const data = buildFormFromLane(props.lane);
     Object.assign(form, data);
@@ -585,6 +611,19 @@ function handleSlashCommandInsert({ text }) {
       textarea.selectionStart = textarea.selectionEnd = start + text.length;
       textarea.focus();
     });
+  }
+}
+
+/**
+ * Handle a user-initiated change of the on-entry automation type.
+ * A lane cannot keep a completion target once its on-entry automation is
+ * removed, so clear the target and inform the user when that happens.
+ * @param {string} newType - The automation type the user just selected
+ */
+function handleAutomationTypeChange(newType) {
+  if (newType === 'none' && form.completionTargetLaneId) {
+    form.completionTargetLaneId = null;
+    uiStore.info('Completion target cleared because on-entry automation was removed.');
   }
 }
 
@@ -674,6 +713,7 @@ async function handleSave() {
   if (!props.lane || !isValid.value) return;
 
   saving.value = true;
+  saveError.value = '';
   try {
     const data = { name: form.name.trim() };
 
@@ -693,7 +733,8 @@ async function handleSave() {
     close();
   } catch (err) {
     console.error('Failed to save lane settings:', err);
-    uiStore.error(err.message || 'Failed to save lane settings');
+    saveError.value = err.message || 'Failed to save lane settings';
+    uiStore.error(saveError.value);
   } finally {
     saving.value = false;
   }
@@ -866,6 +907,20 @@ watch(
   margin-top: 0.25rem;
   font-size: 0.875rem;
   color: var(--color-text-soft);
+}
+
+.form-error {
+  color: #ef4444;
+}
+
+.save-error-banner {
+  margin: 0 1.5rem 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  font-size: 0.875rem;
 }
 
 .automation-options {

@@ -21,6 +21,14 @@ vi.mock('./sessionManager.js', () => ({
   runSession: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('./sessionProvider.js', () => ({
+  resolveAgentTypeFromModel: vi.fn().mockReturnValue('codex'),
+  resolveProviderMetadataFromModel: vi.fn().mockReturnValue({
+    kind: 'openai', authToken: 'test-key', commitAttributionOverride: null,
+    supportsIdempotentDispatch: true,
+  }),
+}));
+
 import {
   kanbanBoards,
   kanbanLanes,
@@ -32,17 +40,20 @@ import {
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { runSession } from './sessionManager.js';
+import { renderTemplatePrompt } from './templateTriggerService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   getFullBoard,
   addSessionToBoard,
   moveCard,
-  handleCompletionMove,
   removeSessionFromBoard,
   triggerStructuredTransitionAutomation,
   drainLaneEntryTrigger,
+  reclaimExpiredLaneEntryClaims,
 } from './kanbanService.js';
-import { attachRootSession, createLaneRunForEntry } from './workflowSessionService.js';
+import { createLaneRunForEntry } from './workflowSessionService.js';
+import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
+import { resolveProviderMetadataFromModel } from './sessionProvider.js';
 
 describe('kanbanService', () => {
   let projectId;
@@ -51,6 +62,11 @@ describe('kanbanService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.USE_CODEX_DIRECT_API = '1';
+    resolveProviderMetadataFromModel.mockReturnValue({
+      kind: 'openai', authToken: 'test-key', commitAttributionOverride: null,
+      supportsIdempotentDispatch: true,
+    });
 
     const project = projects.create('Test Project', '/tmp/test');
     projectId = project.id;
@@ -120,6 +136,35 @@ describe('kanbanService', () => {
   // ── addSessionToBoard ──────────────────────────────────────────────
 
   describe('addSessionToBoard', () => {
+    it('rolls back the card and lane-entry intent when operation finalization fails', async () => {
+      const session = createSession();
+
+      await expect(addSessionToBoard(session.id, lanes[0].id, {
+        finalizeMutation: () => { throw new Error('operation ownership lost'); },
+      })).rejects.toThrow('operation ownership lost');
+
+      expect(kanbanCards.getBySessionId(session.id)).toBeNull();
+      expect(databaseManager.get().prepare(
+        'SELECT COUNT(*) AS count FROM kanban_lane_entry_events WHERE workspace_id=?'
+      ).get(session.id).count).toBe(0);
+    });
+
+    it('rolls back the card when durable lane-entry intent cannot be recorded', async () => {
+      const template = sessionTemplates.create({ projectId, name: 'Entry', prompt: 'do something' });
+      kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+      const session = createSession();
+      const db = databaseManager.get();
+      db.exec(`CREATE TRIGGER fail_lane_entry_event_insert BEFORE INSERT ON kanban_lane_entry_events
+        BEGIN SELECT injected_lane_entry_event_failure(); END;`);
+
+      try {
+        await expect(addSessionToBoard(session.id, lanes[0].id)).rejects.toThrow('no such function: injected_lane_entry_event_failure');
+        expect(kanbanCards.getBySessionId(session.id)).toBeNull();
+      } finally {
+        db.exec('DROP TRIGGER IF EXISTS fail_lane_entry_event_insert');
+      }
+    });
+
     it('adds a session to a lane', async () => {
       const session = createSession();
       const card = await addSessionToBoard(session.id, lanes[0].id);
@@ -170,11 +215,13 @@ describe('kanbanService', () => {
       kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
       const session = createSession();
 
-      await addSessionToBoard(session.id, lanes[0].id, { runOnEnterTemplate: false });
+      const card = await addSessionToBoard(session.id, lanes[0].id, { runOnEnterTemplate: false });
 
       const allSessions = sessions.getByProjectId(projectId);
       expect(allSessions).toHaveLength(1);
       expect(runSession).not.toHaveBeenCalled();
+      expect(databaseManager.get().prepare('SELECT count(*) AS count FROM kanban_lane_runs').get().count).toBe(0);
+      expect(kanbanCards.getById(card.id).activeLaneRunId).toBeNull();
     });
 
     it('normalizes a child session id to the workspace root', async () => {
@@ -199,32 +246,67 @@ describe('kanbanService', () => {
       );
     });
 
-    // F1 (PR #1066 remediation): a lane with a completion target but NO
-    // on-enter automation is a common, legitimate configuration ("move this
-    // card when its own session finishes here" — no spawned worker). Since
-    // KanbanLaneRepository auto-derives completionMode='structured' whenever
-    // a target is configured (F3), addSessionToBoard's isStructured(lane)
-    // check alone would create a lane run for it — but nothing ever calls
-    // attachRootSession for a plain workspace session (that only happens
-    // inside triggerOnEnterTemplate/triggerOnEnterPrompt), so the run would
-    // stay open with a null root_session_id forever. Worse, the card's
-    // activeLaneRunId being set then permanently blocks the legacy
-    // handleCompletionMove fallback too (its `if (card.activeLaneRunId)
-    // return` guard), so the card could never advance by any path.
-    it('does not open an orphaned lane run for a structured lane with no on-enter automation', async () => {
-      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
-      expect(kanbanLanes.getById(lanes[0].id).completionMode).toBe('structured');
-
+    // Hard-cutover contract (KanbanLaneRepository#assertConfiguration): a
+    // lane cannot even carry a completion target without on-entry automation
+    // any more, so the "target-only lane opens an orphaned, rootless run"
+    // failure mode this used to regression-test can no longer be constructed.
+    // See KanbanLaneRepository.test.js's "rejects a completion target when
+    // the lane has no on-entry automation" for the current guard.
+    it('does not open a lane run for a plain lane with neither automation nor a target', async () => {
       const session = createSession();
       const card = await addSessionToBoard(session.id, lanes[0].id);
 
       expect(kanbanCards.getById(card.id).activeLaneRunId).toBeNull();
+    });
+
+    it('commits the board mutation even when asynchronous entry delivery fails', async () => {
+      const template = sessionTemplates.create({ projectId, name: 'Failing entry', prompt: 'do something' });
+      kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+      renderTemplatePrompt.mockRejectedValueOnce(new Error('template unavailable'));
+      const session = createSession();
+
+      const card = await addSessionToBoard(session.id, lanes[0].id);
+
+      expect(kanbanCards.getById(card.id)).not.toBeNull();
+      const event = databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE card_id=?').get(card.id);
+      expect(['pending', 'claimed']).toContain(event.status);
+    });
+
+    it('does not complete an entry event when provider dispatch rejects asynchronously', async () => {
+      const template = sessionTemplates.create({ projectId, name: 'Rejected dispatch', prompt: 'do something' });
+      kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+      runSession.mockRejectedValueOnce(new Error('provider unavailable'));
+
+      const card = await addSessionToBoard(createSession().id, lanes[0].id);
+
+      await vi.waitFor(() => {
+        const event = databaseManager.get().prepare('SELECT status, last_error FROM kanban_lane_entry_events WHERE card_id=?').get(card.id);
+        expect(event.status).toBe('pending');
+        expect(event.last_error).toContain('provider dispatch was not accepted');
+      });
     });
   });
 
   // ── moveCard ───────────────────────────────────────────────────────
 
   describe('moveCard', () => {
+    it('rolls back supersession and card movement when durable lane-entry intent cannot be recorded', async () => {
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const template = sessionTemplates.create({ projectId, name: 'Entry', prompt: 'do something' });
+      kanbanLanes.update(lanes[1].id, { onEnterTemplateId: template.id });
+      const db = databaseManager.get();
+      db.exec(`CREATE TRIGGER fail_lane_entry_event_insert BEFORE INSERT ON kanban_lane_entry_events
+        BEGIN SELECT injected_lane_entry_event_failure(); END;`);
+
+      try {
+        await expect(moveCard(card.id, lanes[1].id)).rejects.toThrow('no such function: injected_lane_entry_event_failure');
+        expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
+      } finally {
+        db.exec('DROP TRIGGER IF EXISTS fail_lane_entry_event_insert');
+      }
+    });
+
     it('moves a card to a different lane', async () => {
       const session = createSession();
       const card = await addSessionToBoard(session.id, lanes[0].id);
@@ -284,375 +366,8 @@ describe('kanbanService', () => {
         WS_MESSAGE_TYPES.KANBAN_CARD_MOVED,
         expect.anything()
       );
-    });
-  });
-
-  // ── handleCompletionMove ──────────────────────────────────────────
-
-  describe('handleCompletionMove', () => {
-    it('does not move a structured lane card; its active lane run owns advancement', async () => {
-      const workspace = createSession('Workspace');
-      const worker = createChildSession(workspace.id, 'Structured worker');
-      const card = kanbanCards.create(lanes[0].id, workspace.id);
-      kanbanLanes.update(lanes[0].id, { completionMode: 'structured', completionTargetLaneId: lanes[1].id });
-      const lane = kanbanLanes.getById(lanes[0].id);
-      const run = createLaneRunForEntry({ projectId, workspaceId: workspace.id, cardId: card.id, lane });
-      attachRootSession(run.id, worker.id);
-
-      await handleCompletionMove(worker.id);
-
-      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
-      expect(broadcastToProject).not.toHaveBeenCalled();
-    });
-
-    it('moves an existing card to the current lane completion target', async () => {
-      const session = createSession();
-      kanbanCards.create(lanes[0].id, session.id);
-      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
-
-      await handleCompletionMove(session.id);
-
-      const card = kanbanCards.getBySessionId(session.id);
-      expect(card.laneId).toBe(lanes[1].id);
-      expect(broadcastToProject).toHaveBeenCalledWith(
-        projectId,
-        WS_MESSAGE_TYPES.KANBAN_CARD_MOVED,
-        expect.objectContaining({
-          fromLaneId: lanes[0].id,
-          toLaneId: lanes[1].id,
-        })
-      );
-    });
-
-    it('does nothing when the session has no card and no ancestors with a card', async () => {
-      const session = createSession();
-
-      await handleCompletionMove(session.id);
-
-      expect(kanbanCards.getBySessionId(session.id)).toBeNull();
-      expect(broadcastToProject).not.toHaveBeenCalled();
-    });
-
-    it('moves the parent card when a lane-triggered child session completes', async () => {
-      // Parent has the card; child (spawned by on-enter prompt) has no card
-      const parent = createSession('Parent');
-      kanbanCards.create(lanes[0].id, parent.id);
-      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
-
-      const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: parent.id });
-      sessions.update(child.id, { laneTriggerDepth: 1 });
-
-      await handleCompletionMove(child.id);
-
-      const card = kanbanCards.getBySessionId(parent.id);
-      expect(card.laneId).toBe(lanes[1].id);
-      expect(broadcastToProject).toHaveBeenCalledWith(
-        projectId,
-        WS_MESSAGE_TYPES.KANBAN_CARD_MOVED,
-        expect.objectContaining({
-          fromLaneId: lanes[0].id,
-          toLaneId: lanes[1].id,
-        })
-      );
-    });
-
-    it('walks the full ancestor chain when a grandchild session completes', async () => {
-      // Root has the card; child and grandchild have none (nested lane triggers)
-      const root = createSession('Root');
-      kanbanCards.create(lanes[0].id, root.id);
-      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
-
-      const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: root.id });
-      sessions.update(child.id, { laneTriggerDepth: 1 });
-
-      const grandchild = sessions.create(projectId, 'Grandchild', 'Prompt', { parentSessionId: child.id });
-      sessions.update(grandchild.id, { laneTriggerDepth: 2 });
-
-      await handleCompletionMove(grandchild.id);
-
-      const card = kanbanCards.getBySessionId(root.id);
-      expect(card.laneId).toBe(lanes[1].id);
-    });
-
-    it('does nothing when child has no card and parent also has no card', async () => {
-      const parent = createSession('Parent');
-      // No card for parent either
-      const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: parent.id });
-
-      await handleCompletionMove(child.id);
-
-      expect(broadcastToProject).not.toHaveBeenCalled();
-    });
-
-    it('does nothing when the current lane has no completion target', async () => {
-      const session = createSession();
-      kanbanCards.create(lanes[0].id, session.id);
-
-      await handleCompletionMove(session.id);
-
-      const card = kanbanCards.getBySessionId(session.id);
-      expect(card.laneId).toBe(lanes[0].id);
-      expect(broadcastToProject).not.toHaveBeenCalled();
-    });
-
-    it('does nothing when the completion target equals the current lane', async () => {
-      const session = createSession();
-      kanbanCards.create(lanes[0].id, session.id);
-      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[0].id });
-
-      await handleCompletionMove(session.id);
-
-      const card = kanbanCards.getBySessionId(session.id);
-      expect(card.laneId).toBe(lanes[0].id);
-      expect(broadcastToProject).not.toHaveBeenCalled();
-    });
-
-    it('does nothing when the completion target is on another board', async () => {
-      const session = createSession();
-      kanbanCards.create(lanes[0].id, session.id);
-      const otherProject = projects.create('Other Project', '/tmp/other', null);
-      const otherBoard = kanbanBoards.create(otherProject.id);
-      const otherLanes = kanbanLanes.getByBoardId(otherBoard.id);
-      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: otherLanes[0].id });
-
-      await handleCompletionMove(session.id);
-
-      const card = kanbanCards.getBySessionId(session.id);
-      expect(card.laneId).toBe(lanes[0].id);
-      expect(broadcastToProject).not.toHaveBeenCalled();
-    });
-
-    it('moves the workspace card when invoked with a child session id', async () => {
-      const root = createSession('Root');
-      const child = createChildSession(root.id);
-      kanbanCards.create(lanes[0].id, root.id);
-      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
-
-      await handleCompletionMove(child.id);
-
-      const rootCard = kanbanCards.getBySessionId(root.id);
-      expect(rootCard.laneId).toBe(lanes[1].id);
-    });
-  });
-
-  // ── handleCompletionMove: guard against premature advance ────────────
-  //
-  // When the workspace root completes in a lane with on-enter automation, the
-  // card must NOT advance while a lane-triggered descendant is still incomplete.
-  // Only the lane-created child completing (as the actual lane work) should
-  // advance the card.
-
-  describe('handleCompletionMove guard: root completion deferred while lane child is active', () => {
-    it('does not move the card when root completes in an onEnterPrompt lane while a child is still starting', async () => {
-      kanbanLanes.update(lanes[0].id, {
-        onEnterPrompt: 'Do lane work',
-        completionTargetLaneId: lanes[1].id,
-        completionMode: 'legacy',
-      });
-
-      // Add root to the board — on-enter trigger creates a lane child (starting).
-      const root = createSession('Root');
-      await addSessionToBoard(root.id, lanes[0].id);
-      vi.clearAllMocks();
-
-      // Root completes while the lane child is still in 'starting'.
-      await handleCompletionMove(root.id);
-
-      // Card must remain in the source lane.
-      const card = kanbanCards.getBySessionId(root.id);
-      expect(card.laneId).toBe(lanes[0].id);
-      expect(broadcastToProject).not.toHaveBeenCalled();
-    });
-
-    it('does not move the card when root completes in an onEnterPrompt lane while a child is running', async () => {
-      kanbanLanes.update(lanes[0].id, {
-        onEnterPrompt: 'Do lane work',
-        completionTargetLaneId: lanes[1].id,
-        completionMode: 'legacy',
-      });
-
-      const root = createSession('Root');
-      await addSessionToBoard(root.id, lanes[0].id);
-
-      // Advance the lane child to 'running'.
-      const allSessions = sessions.getByProjectId(projectId);
-      const child = allSessions.find((s) => s.parentSessionId === root.id);
-      sessions.update(child.id, { status: 'running' });
-      vi.clearAllMocks();
-
-      await handleCompletionMove(root.id);
-
-      const card = kanbanCards.getBySessionId(root.id);
-      expect(card.laneId).toBe(lanes[0].id);
-      expect(broadcastToProject).not.toHaveBeenCalled();
-    });
-
-    it('does not move the card when root completes in an onEnterTemplateId lane while a child is running', async () => {
-      const template = sessionTemplates.create({
-        projectId,
-        name: 'Lane Template',
-        prompt: 'Do template work',
-      });
-      kanbanLanes.update(lanes[0].id, {
-        onEnterTemplateId: template.id,
-        completionTargetLaneId: lanes[1].id,
-        completionMode: 'legacy',
-      });
-
-      const root = createSession('Root');
-      await addSessionToBoard(root.id, lanes[0].id);
-
-      // Advance the lane child to 'running'.
-      const allSessions = sessions.getByProjectId(projectId);
-      const child = allSessions.find((s) => s.parentSessionId === root.id);
-      sessions.update(child.id, { status: 'running' });
-      vi.clearAllMocks();
-
-      await handleCompletionMove(root.id);
-
-      const card = kanbanCards.getBySessionId(root.id);
-      expect(card.laneId).toBe(lanes[0].id);
-      expect(broadcastToProject).not.toHaveBeenCalled();
-    });
-
-    it('does not move the card when root completes in an automation lane while a child is scheduled', async () => {
-      kanbanLanes.update(lanes[0].id, {
-        onEnterPrompt: 'Do lane work',
-        completionTargetLaneId: lanes[1].id,
-        completionMode: 'legacy',
-      });
-
-      const root = createSession('Root');
-      await addSessionToBoard(root.id, lanes[0].id);
-
-      // Set the lane child to 'scheduled'.
-      const allSessions = sessions.getByProjectId(projectId);
-      const child = allSessions.find((s) => s.parentSessionId === root.id);
-      sessions.update(child.id, { status: 'scheduled' });
-      vi.clearAllMocks();
-
-      await handleCompletionMove(root.id);
-
-      const card = kanbanCards.getBySessionId(root.id);
-      expect(card.laneId).toBe(lanes[0].id);
-      expect(broadcastToProject).not.toHaveBeenCalled();
-    });
-
-    it('moves the card when root completes in an automation lane and the child is already stopped', async () => {
-      kanbanLanes.update(lanes[0].id, {
-        onEnterPrompt: 'Do lane work',
-        completionTargetLaneId: lanes[1].id,
-        completionMode: 'legacy',
-      });
-
-      const root = createSession('Root');
-      await addSessionToBoard(root.id, lanes[0].id);
-
-      // Mark the lane child as stopped (finished).
-      const allSessions = sessions.getByProjectId(projectId);
-      const child = allSessions.find((s) => s.parentSessionId === root.id);
-      sessions.update(child.id, { status: 'stopped' });
-      vi.clearAllMocks();
-
-      await handleCompletionMove(root.id);
-
-      // No incomplete lane children → root completion should advance the card.
-      const card = kanbanCards.getBySessionId(root.id);
-      expect(card.laneId).toBe(lanes[1].id);
-      expect(broadcastToProject).toHaveBeenCalledWith(
-        projectId,
-        WS_MESSAGE_TYPES.KANBAN_CARD_MOVED,
-        expect.objectContaining({ fromLaneId: lanes[0].id, toLaneId: lanes[1].id })
-      );
-    });
-
-    it('moves the card when root completes in a lane with NO on-enter automation (guard does not apply)', async () => {
-      // Plain lane: no onEnterPrompt, no onEnterTemplateId
-      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
-
-      const root = createSession('Root');
-      kanbanCards.create(lanes[0].id, root.id);
-      vi.clearAllMocks();
-
-      await handleCompletionMove(root.id);
-
-      const card = kanbanCards.getBySessionId(root.id);
-      expect(card.laneId).toBe(lanes[1].id);
-    });
-
-    it('moves the card when the lane-created child (laneTriggerDepth > 0) completes', async () => {
-      kanbanLanes.update(lanes[0].id, {
-        onEnterPrompt: 'Do lane work',
-        completionTargetLaneId: lanes[1].id,
-        completionMode: 'legacy',
-      });
-
-      const root = createSession('Root');
-      await addSessionToBoard(root.id, lanes[0].id);
-
-      const allSessions = sessions.getByProjectId(projectId);
-      const child = allSessions.find((s) => s.parentSessionId === root.id);
-      expect(child.laneTriggerDepth).toBe(1);
-      vi.clearAllMocks();
-
-      // Child completing → card should advance (child IS the lane work).
-      await handleCompletionMove(child.id);
-
-      const card = kanbanCards.getBySessionId(root.id);
-      expect(card.laneId).toBe(lanes[1].id);
-      expect(broadcastToProject).toHaveBeenCalledWith(
-        projectId,
-        WS_MESSAGE_TYPES.KANBAN_CARD_MOVED,
-        expect.objectContaining({ fromLaneId: lanes[0].id, toLaneId: lanes[1].id })
-      );
-    });
-  });
-
-  // ── on-enter prompt child completing advances the parent's card ───────
-  //
-  // Regression test for the bug where a card placed in a lane with both an
-  // onEnterPrompt AND a completionTargetLaneId would never advance: the
-  // on-enter trigger spawns a cardless child to do the work, and when that
-  // child finished its turn handleCompletionMove found no card and returned
-  // early, leaving the parent's card stuck in the originating lane forever.
-
-  describe('on-enter prompt child completing advances the parent card', () => {
-    it('moves the parent card when the lane-triggered child session completes its turn', async () => {
-      // Configure the lane with both an on-enter prompt and a completion target.
-      kanbanLanes.update(lanes[0].id, {
-        onEnterPrompt: 'Implement the plan',
-        completionTargetLaneId: lanes[1].id,
-        completionMode: 'legacy',
-      });
-
-      // Place the parent session on the board — this fires the on-enter trigger
-      // and creates a child session (runSession is mocked; the child is created
-      // synchronously by buildChildSessionFromPrompt before runSession is called).
-      const parent = createSession('Parent');
-      await addSessionToBoard(parent.id, lanes[0].id);
-
-      // Find the child that the on-enter trigger created.
-      const allSessions = sessions.getByProjectId(projectId);
-      const child = allSessions.find((s) => s.parentSessionId === parent.id);
-      expect(child).toBeDefined();
-      expect(kanbanCards.getBySessionId(child.id)).toBeNull(); // child has no card
-
-      vi.clearAllMocks();
-
-      // Simulate the child completing its turn.
-      await handleCompletionMove(child.id);
-
-      // The parent's card should have advanced to the completion target lane.
-      const card = kanbanCards.getBySessionId(parent.id);
-      expect(card.laneId).toBe(lanes[1].id);
-      expect(broadcastToProject).toHaveBeenCalledWith(
-        projectId,
-        WS_MESSAGE_TYPES.KANBAN_CARD_MOVED,
-        expect.objectContaining({
-          fromLaneId: lanes[0].id,
-          toLaneId: lanes[1].id,
-        })
-      );
+      expect(databaseManager.get().prepare('SELECT count(*) AS count FROM kanban_lane_runs').get().count).toBe(0);
+      expect(kanbanCards.getById(card.id).activeLaneRunId).toBeNull();
     });
   });
 
@@ -670,7 +385,7 @@ describe('kanbanService', () => {
     it('does not advance a waiting session when added to a completion-target lane', async () => {
       const session = createSession();
       sessions.update(session.id, { status: 'waiting' });
-      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', completionTargetLaneId: lanes[1].id });
 
       await addSessionToBoard(session.id, lanes[0].id);
 
@@ -682,7 +397,7 @@ describe('kanbanService', () => {
       const session = createSession();
       const card = await addSessionToBoard(session.id, lanes[0].id);
       sessions.update(session.id, { status: 'waiting' });
-      kanbanLanes.update(lanes[2].id, { completionTargetLaneId: lanes[3].id });
+      kanbanLanes.update(lanes[2].id, { onEnterPrompt: 'Do the work', completionTargetLaneId: lanes[3].id });
 
       await moveCard(card.id, lanes[2].id);
 
@@ -756,13 +471,9 @@ describe('kanbanService', () => {
       const card = kanbanCards.create(lanes[0].id, session.id);
 
       // Configure lane 1 with agent settings
-      kanbanLanes.update(lanes[1].id, {
-        onEnterPrompt: 'do something',
-        onEnterMode: 'plan',
-        onEnterModel: 'claude-sonnet-4-20250514',
-        onEnterEffortLevel: 'high',
-        onEnterThinkingEnabled: true,
-      });
+      databaseManager.get().prepare(`UPDATE kanban_lanes SET on_enter_prompt=?, on_enter_mode=?,
+        on_enter_model=?, on_enter_effort_level=?, on_enter_thinking_enabled=1 WHERE id=?`)
+        .run('do something', 'plan', 'claude-sonnet-4-20250514', 'high', lanes[1].id);
 
       vi.clearAllMocks();
       await moveCard(card.id, lanes[1].id);
@@ -863,10 +574,8 @@ describe('kanbanService', () => {
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
 
-      kanbanLanes.update(lanes[1].id, {
-        onEnterPrompt: 'do something',
-        onEnterModel: 'claude-sonnet-4-20250514',
-      });
+      databaseManager.get().prepare('UPDATE kanban_lanes SET on_enter_prompt=?, on_enter_model=? WHERE id=?')
+        .run('do something', 'claude-sonnet-4-20250514', lanes[1].id);
 
       vi.clearAllMocks();
       await moveCard(card.id, lanes[1].id);
@@ -890,7 +599,8 @@ describe('kanbanService', () => {
         model: 'claude-opus-4-20250514',
       });
 
-      kanbanLanes.update(lanes[1].id, { onEnterTemplateId: template.id });
+      databaseManager.get().prepare('UPDATE kanban_lanes SET on_enter_template_id=? WHERE id=?')
+        .run(template.id, lanes[1].id);
 
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
@@ -937,15 +647,29 @@ describe('kanbanService', () => {
 
   describe('triggerStructuredTransitionAutomation', () => {
     it('starts the target lane on-enter prompt exactly once and links the new run to the source run', async () => {
-      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work', completionMode: 'structured' });
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
       const workspace = createSession('Workspace');
       const card = kanbanCards.create(lanes[0].id, workspace.id);
+      const sourceRun = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id,
+        lane: { ...lanes[0], onEnterPrompt: 'source work' },
+      });
+      databaseManager.get().prepare(`UPDATE kanban_lane_runs
+        SET status='succeeded', transition_applied_at=?, succeeded_at=? WHERE id=?`)
+        .run(Date.now(), Date.now(), sourceRun.id);
+      kanbanCards.moveToLane(card.id, lanes[1].id);
+      const targetLane = kanbanLanes.getById(lanes[1].id);
+      const targetRun = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: targetLane,
+        cause: 'completion', priorLaneRunId: sourceRun.id,
+      });
 
       await triggerStructuredTransitionAutomation({
         workspaceSessionId: workspace.id,
         targetLaneId: lanes[1].id,
         cardId: card.id,
-        sourceRunId: 'source-run-1',
+        sourceRunId: sourceRun.id,
+        laneEntryEventId: targetRun.laneEntryEventId,
       });
 
       expect(runSession).toHaveBeenCalledTimes(1);
@@ -954,20 +678,20 @@ describe('kanbanService', () => {
       expect(newSessions[0].laneRunId).toBeTruthy();
 
       const newRun = databaseManager.get().prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(newSessions[0].laneRunId);
-      expect(newRun.prior_lane_run_id).toBe('source-run-1');
+      expect(newRun.prior_lane_run_id).toBe(sourceRun.id);
       expect(newRun.source_lane_id).toBe(lanes[1].id);
     });
 
-    it('does not create a lane run when the target lane is plain legacy (no automation started twice)', async () => {
+    it('rejects a completion descriptor that has no atomically-created target run', async () => {
       const workspace = createSession('Workspace');
       const card = kanbanCards.create(lanes[0].id, workspace.id);
 
-      await triggerStructuredTransitionAutomation({
+      await expect(triggerStructuredTransitionAutomation({
         workspaceSessionId: workspace.id,
-        targetLaneId: lanes[1].id, // no onEnterPrompt/onEnterTemplateId, legacy completionMode
+        targetLaneId: lanes[1].id, // no onEnterPrompt/onEnterTemplateId — not structured
         cardId: card.id,
         sourceRunId: 'source-run-1',
-      });
+      })).rejects.toThrow('Target lane run is missing');
 
       expect(runSession).not.toHaveBeenCalled();
       expect(sessions.getByProjectId(projectId)).toHaveLength(1);
@@ -985,11 +709,110 @@ describe('kanbanService', () => {
   });
 
   describe('durable completion outbox', () => {
-    it('drains a pending completion event once and marks it completed', async () => {
-      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work', completionMode: 'structured' });
+    it('reclaims a claim at its exact expiry, not five minutes later', () => {
+      const expiry = Date.now();
+      databaseManager.get().prepare(`INSERT INTO kanban_lane_entry_events
+        (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,status,claim_token,claimed_at,claim_expires_at,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,'claimed',?,?,?,?,?)`)
+        .run('exact-expiry-event', 'exact-expiry-key', projectId, 'workspace', 'card', lanes[0].id,
+          'card_added', 'claim', expiry - 1, expiry, expiry - 1, expiry - 1);
+
+      expect(reclaimExpiredLaneEntryClaims(expiry - 1)).toBe(0);
+      expect(reclaimExpiredLaneEntryClaims(expiry)).toBe(1);
+      expect(databaseManager.get().prepare('SELECT status, claim_token FROM kanban_lane_entry_events WHERE id=?')
+        .get('exact-expiry-event')).toEqual({ status: 'pending', claim_token: null });
+    });
+
+    it('preserves and resumes a valid rootless target run after restart reconciliation', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
       const workspace = createSession('Workspace');
-      const card = kanbanCards.create(lanes[0].id, workspace.id);
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
+      const sourceRunId = 'source-run-recovery';
+      const eventId = 'completion-recovery-event';
+      const time = Date.now();
+      databaseManager.get().prepare(`INSERT INTO kanban_lane_runs
+        (id,lane_entry_event_id,project_id,workspace_id,card_id,source_lane_id,status,created_at,updated_at,succeeded_at,transition_applied_at)
+        VALUES (?,?,?,?,?,?,'succeeded',?,?,?,?)`)
+        .run(sourceRunId, 'source-entry-event-recovery', projectId, workspace.id, card.id, lanes[0].id,
+          time, time, time, time);
+      databaseManager.get().prepare(`INSERT INTO kanban_lane_entry_events
+        (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,caused_by_run_id,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,'pending',?,?)`)
+        .run(eventId, `completion:${sourceRunId}`, projectId, workspace.id, card.id, lanes[1].id,
+          'completion', sourceRunId, time, time);
+
+      const rootlessTargetRun = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id,
+        lane: kanbanLanes.getById(lanes[1].id), cause: 'completion',
+        priorLaneRunId: sourceRunId, entryEventId: eventId,
+      });
+      expect(rootlessTargetRun.rootSessionId).toBeNull();
+
+      // Simulate a process dying after it claimed delivery and created the
+      // target run, but before it could attach the new root session.
+      databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+        SET claim_token='abandoned-process', claimed_at=?, attempt_count=1 WHERE id=?`)
+        .run(Date.now(), eventId);
+
+      const recovery = reconcileKanbanOwnership({ dryRun: false });
+      expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_runs WHERE id=?').get(rootlessTargetRun.id).status).toBe('open');
+      expect(databaseManager.get().prepare('SELECT claim_token FROM kanban_lane_entry_events WHERE id=?').get(eventId).claim_token).toBeNull();
+      expect(recovery.report.ok).toBe(true);
+
+      expect(await drainLaneEntryTrigger(eventId)).toBe(true);
+      const resumed = databaseManager.get().prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(rootlessTargetRun.id);
+      expect(resumed).toEqual(expect.objectContaining({ status: 'open', root_session_id: expect.any(String) }));
+      expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?').get(eventId).status).toBe('completed');
+      expect(await drainLaneEntryTrigger(eventId)).toBe(false);
+      expect(databaseManager.get().prepare('SELECT count(*) count FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(eventId).count).toBe(1);
+      expect(runSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('reuses an attached child when retrying a failure before dispatch intent', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue safely' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
+      const eventId = 'pre-intent-retry-event';
+      const time = Date.now();
+      databaseManager.get().prepare(`INSERT INTO kanban_lane_entry_events
+        (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,'pending',?,?)`)
+        .run(eventId, eventId, projectId, workspace.id, card.id, lanes[1].id, 'card_moved', time, time);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id,
+        lane: kanbanLanes.getById(lanes[1].id), entryEventId: eventId,
+      });
+      const child = createChildSession(workspace.id, 'Allocated child');
+      databaseManager.get().prepare('UPDATE kanban_lane_runs SET root_session_id=? WHERE id=?')
+        .run(child.id, run.id);
+      databaseManager.get().prepare('UPDATE sessions SET lane_run_id=? WHERE id=?').run(run.id, child.id);
+
+      expect(await drainLaneEntryTrigger(eventId)).toBe(true);
+
+      expect(sessions.getByProjectId(projectId).filter((item) => item.id !== workspace.id)).toHaveLength(1);
+      expect(runSession).toHaveBeenCalledTimes(1);
+      expect(databaseManager.get().prepare(`SELECT status, delivery_phase, dispatch_key
+        FROM kanban_lane_entry_events WHERE id=?`).get(eventId)).toEqual({
+        status: 'completed', delivery_phase: 'completed', dispatch_key: expect.any(String),
+      });
+    });
+
+    it('drains a pending completion event once and marks it completed', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
+      const workspace = createSession('Workspace');
+      // The card must already be in the event's target lane: an entry event
+      // represents a transition that already committed synchronously, with
+      // only the async on-enter automation trigger left to drain
+      // (drainLaneEntryTrigger revalidates card.lane_id === event.lane_id).
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
       const eventId = 'pending-completion-event';
+      // Completion outbox delivery is owned by a real, committed source
+      // transition. A stale/superseded source is intentionally rejected.
+      databaseManager.get().prepare(`INSERT INTO kanban_lane_runs
+        (id,lane_entry_event_id,project_id,workspace_id,card_id,source_lane_id,status,created_at,updated_at,succeeded_at,transition_applied_at)
+        VALUES (?,?,?,?,?,?,'succeeded',?,?,?,?)`)
+        .run('source-run-1', 'source-entry-event', projectId, workspace.id, card.id, lanes[0].id,
+          Date.now(), Date.now(), Date.now(), Date.now());
       databaseManager.get().prepare(`INSERT INTO kanban_lane_entry_events
         (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,caused_by_run_id,status,created_at,updated_at)
         VALUES (?,?,?,?,?,?,? ,?,'pending',?,?)`)

@@ -256,7 +256,7 @@ describe('Workspace facade API', () => {
       const card = kanbanCards.create(source.id, root.id);
       const run = createLaneRunForEntry({
         projectId: project.id, workspaceId: root.id, cardId: card.id,
-        lane: { ...source, completionMode: 'structured' },
+        lane: { ...source, onEnterPrompt: 'Do the lane work' },
       });
       attachRootSession(run.id, worker.id);
       supersedeRunForCard(card.id, 'manual_move');

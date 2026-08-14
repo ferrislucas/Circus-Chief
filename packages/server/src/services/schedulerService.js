@@ -2,6 +2,8 @@ import { sessions, messages, conversations, projects, attachments } from '../dat
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
+import { claimWorkflowSessionStart, withActiveLaneRunOwnership, activeLaneRunOwnsSession } from './workflowSessionService.js';
+import { didSessionExecutionStart, rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 
 function broadcastRescheduledSession(sessionId, updated) {
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
@@ -181,7 +183,7 @@ class SchedulerService {
       message: userMessage,
     });
 
-    await this.sessionManager.runSession(
+    return this.sessionManager.runSession(
       session.id,
       effectivePrompt,
       workingDirectory,
@@ -242,6 +244,46 @@ class SchedulerService {
     broadcastToSession(claimed.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: claimed.id, status: 'error' });
   }
 
+  /** Clear a stale start after its executor re-checks lane-run ownership. */
+  rejectScheduledStart(session) {
+    const updated = sessions.update(session.id, {
+      status: 'stopped', scheduledAt: null, pendingPrompt: null,
+      pendingModel: null, pendingConversationId: null,
+    });
+    broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'stopped' });
+    if (updated?.projectId) {
+      broadcastToProject(updated.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId: updated.projectId, sessionId: session.id, session: updated,
+      });
+    }
+  }
+
+  static didExecutorStart(result, expectedSessionId) {
+    return didSessionExecutionStart(result, expectedSessionId);
+  }
+
+  finishScheduledStart(session, executorResult) {
+    // Existing non-workflow executors historically resolve without a receipt.
+    // Lane workers require the explicit contract because their durable event
+    // acknowledgement depends on proving the provider handoff occurred.
+    if (!session.laneRunId && executorResult === undefined) {
+      return startedSessionExecution(session.id);
+    }
+    if (!SchedulerService.didExecutorStart(executorResult, session.id)) {
+      this.rejectScheduledStart(session);
+      return rejectedSessionExecution(session.id, executorResult?.started === false && executorResult.reason
+        ? executorResult.reason : 'invalid_executor_response');
+    }
+    return startedSessionExecution(session.id);
+  }
+
+  scheduledStartResult(session, executorResult) {
+    const result = this.finishScheduledStart(session, executorResult);
+    if (!session.laneRunId && result.started) return { claimed: true };
+    if (!result.started) return result;
+    return { claimed: true, ...result };
+  }
+
   /**
    * Start a scheduled session — the single entry point used by both the
    * 30s poller (`checkScheduledSessions`) and the manual
@@ -265,6 +307,10 @@ class SchedulerService {
       throw new Error('SchedulerService not initialized with sessionManager');
     }
 
+    if (!claimWorkflowSessionStart(session.id)) {
+      return { claimed: false, started: false, reason: 'lane_run_ownership_lost', sessionId: session.id };
+    }
+
     const claimed = sessions.claimScheduled(session.id, { promptOverride });
     if (!claimed) {
       return { claimed: false };
@@ -283,6 +329,12 @@ class SchedulerService {
 
     const { workingDirectory, prompt, effectivePrompt, effectiveSystemPrompt, sessionAttachments, hasAssistantResponses, activeConversationId } = launch;
 
+    // Prompt resolution may yield to disk IO while a manual move supersedes
+    // this lane run. Fence the durable clear and provider handoff.
+    if (claimed.laneRunId && !activeLaneRunOwnsSession(claimed.id)) {
+      return { claimed: true, ...this.finishScheduledStart(claimed, rejectedSessionExecution(claimed.id, 'lane_run_ownership_lost')) };
+    }
+
     // Durable boundary: everything needed to launch has resolved
     // successfully, so it's now safe to clear the scheduling fields. Any
     // failure past this point is a normal in-flight turn failure, handled
@@ -290,26 +342,27 @@ class SchedulerService {
     sessions.update(claimed.id, { scheduledAt: null, pendingPrompt: null, pendingConversationId: null });
 
     if (claimed.pendingConversationId) {
-      await this.sessionManager.continueSessionWithExistingMessage(
+      const startResult = await this.sessionManager.continueSessionWithExistingMessage(
         claimed.id,
         claimed.pendingConversationId,
         workingDirectory,
         { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel }
       );
+      return this.scheduledStartResult(claimed, startResult);
     } else if (hasAssistantResponses) {
-      await this.sessionManager.continueSession(
+      const startResult = await this.sessionManager.continueSession(
         claimed.id,
         effectivePrompt,
         workingDirectory,
         { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel }
       );
+      return this.scheduledStartResult(claimed, startResult);
     } else {
-      await this.startFreshScheduledSession({
+      const startResult = await this.startFreshScheduledSession({
         session: claimed, prompt, effectivePrompt, effectiveSystemPrompt, workingDirectory, sessionAttachments, activeConversationId,
       });
+      return this.scheduledStartResult(claimed, startResult);
     }
-
-    return { claimed: true };
   }
 
   /**
@@ -351,7 +404,7 @@ class SchedulerService {
     const { pendingPrompt, pendingConversationId } = this._resolvePendingPrompt(sessionId, retryExistingMessage, conversationId);
 
     // Update session to scheduled status with new time and pendingPrompt
-    const updated = sessions.update(sessionId, {
+    const update = () => sessions.update(sessionId, {
       status: 'scheduled',
       scheduledAt: newScheduledAt,
       rescheduleCount: newRescheduleCount,
@@ -359,6 +412,8 @@ class SchedulerService {
       pendingConversationId,
       error: `Rescheduled (${newRescheduleCount}x): ${reason}`,
     });
+    const updated = session.laneRunId ? withActiveLaneRunOwnership(sessionId, update) : update();
+    if (!updated) return false;
 
     broadcastRescheduledSession(sessionId, updated);
 

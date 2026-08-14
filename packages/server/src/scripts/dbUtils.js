@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, copyFileSync, mkdtempSync, rmSync, readFileSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { basename, join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { getDefaultDbPath } from '../config.js';
@@ -40,6 +41,24 @@ export function copyDatabaseBackups(dbPath = getActiveDbPath(), timestamp = new 
   }
 
   return { dbPath, backupDir, copied, missing };
+}
+
+function fileDigest(path) {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+/** Verify that every copied database file still exactly matches its source. */
+export function verifyDatabaseBackup(backup) {
+  if (!backup?.copied?.length) return { ok: false, reason: 'no database files were copied', files: [] };
+  const files = backup.copied.map(({ source, target }) => {
+    const sourceExists = existsSync(source);
+    const targetExists = existsSync(target);
+    const sourceSize = sourceExists ? statSync(source).size : null;
+    const targetSize = targetExists ? statSync(target).size : null;
+    const matches = sourceExists && targetExists && sourceSize === targetSize && fileDigest(source) === fileDigest(target);
+    return { source, target, sourceSize, targetSize, matches };
+  });
+  return { ok: files.every((file) => file.matches), files };
 }
 
 export function createFreshBaselineDb() {

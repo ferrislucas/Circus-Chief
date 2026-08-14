@@ -15,7 +15,11 @@ import { clearScheduledTimers } from './services/summaryService.js';
 import { commandRunner } from './services/commandRunner.js';
 import { getDefaultDbPath } from './config.js';
 import { recoverStaleStartingSessions } from './services/sessionStartupRecovery.js';
-import { drainPendingLaneEntryTriggers } from './services/kanbanService.js';
+import { startLaneEntryRetryWorker, stopLaneEntryRetryWorker } from './services/kanbanService.js';
+import { formatKanbanInvariantReport } from './services/kanbanRecoveryService.js';
+import { runStartupPreflight } from './services/startupPreflight.js';
+import { setAutomationPreflightStatus } from './services/automationStatusService.js';
+import { startKanbanOperationRetention, stopKanbanOperationRetention } from './services/kanbanOperationRetention.js';
 
 /**
  * Validate Node.js environment at startup.
@@ -65,7 +69,18 @@ console.log(`VCR_MODE: ${process.env.VCR_MODE || '(unset)'}`);
 
 // Recover sessions stuck in 'starting' from a previous crashed or killed server run
 recoverStaleStartingSessions();
-void drainPendingLaneEntryTriggers();
+// Do not start workers or drain the entry outbox until durable ownership has
+// been normalized and independently audited. A bad lane configuration is a
+// hard stop: selecting a fallback executor would reintroduce the retired mode.
+const preflight = runStartupPreflight();
+setAutomationPreflightStatus(preflight);
+startKanbanOperationRetention();
+if (!preflight.workersEnabled) {
+  console.error(formatKanbanInvariantReport(preflight.report));
+  console.error('Kanban preflight failed; HTTP serving and unrelated scheduling remain available, but Kanban entry delivery is disabled');
+} else {
+  startLaneEntryRetryWorker();
+}
 
 // Apply --no-analytics flag to persisted settings
 if (disableAnalytics) {
@@ -82,7 +97,8 @@ const server = createServer(app);
 // Initialize WebSocket for app
 initWebSocket(server);
 
-// Initialize and start scheduler service (gated off under VCR_MODE)
+// Scheduler readiness is independent of Kanban automation readiness. A bad
+// board configuration must never strand unrelated scheduled sessions.
 schedulerService.startIfEnabled(sessionManager);
 
 // Start PR status polling service
@@ -93,20 +109,23 @@ systemMonitor.start();
 
 // Graceful shutdown
 let shuttingDown = false;
-function shutdown(signal) {
+async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`${signal} received, shutting down gracefully`);
 
-  // Safety net: force exit after 5 seconds
+  // Safety net: the entry worker gets its documented five-second drain bound
+  // before process exit is forced.
   const forceTimeout = setTimeout(() => {
     console.error('Graceful shutdown timed out, forcing exit');
     process.exit(1);
-  }, 5000);
+  }, 6000);
   forceTimeout.unref();
 
   // Stop periodic services
   schedulerService.stop();
+  await stopLaneEntryRetryWorker();
+  stopKanbanOperationRetention();
   prStatusService.stop();
   systemMonitor.stop();
 
