@@ -340,4 +340,13 @@ export const allMigrations = validateMigrations([
 
   // --- Kanban hard cutover: lane configuration is the only execution mode ---
   k.get('kanban-drop-completion-mode-hard-cutover'),
+
+  // --- Durable Kanban delivery, observability, and API operation ownership ---
+  // Keep these after the lane-run tables are created. Existing databases need
+  // the additive delivery columns even though fresh databases get them from
+  // schema.sql.
+  k.get('kanban-lane-entry-retry-schedule'),
+  k.get('kanban-durable-delivery-and-api-operations'),
+  k.get('kanban-delivery-health-status-index'),
+  k.get('kanban-api-operation-leases-and-canonical-responses'),
 ]);

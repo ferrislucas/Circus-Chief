@@ -12,4 +12,20 @@ describe('migration registration', () => {
     expect(workflowIndex).toBeGreaterThanOrEqual(0);
     expect(workflowIndex).toBeLessThan(immutableParentageIndex);
   });
+
+  it('registers durable delivery migrations after the lane-run workflow', () => {
+    const names = allMigrations.map(({ name }) => name);
+    const workflowIndex = names.indexOf('kanban-add-lane-run-workflow');
+    const durableDeliveryMigrations = [
+      'kanban-lane-entry-retry-schedule',
+      'kanban-durable-delivery-and-api-operations',
+      'kanban-delivery-health-status-index',
+      'kanban-api-operation-leases-and-canonical-responses',
+    ];
+
+    for (const name of durableDeliveryMigrations) {
+      expect(names).toContain(name);
+      expect(names.indexOf(name)).toBeGreaterThan(workflowIndex);
+    }
+  });
 });
