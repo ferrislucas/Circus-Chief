@@ -310,14 +310,22 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  // Supplied by the bounded workspace-card API. Legacy callers continue to
+  // derive this from the hydrated session tree.
+  workflowAggregate: {
+    type: Object,
+    default: null,
+  },
 });
 
 watch(isVisible, (visible) => emit('visibility-change', props.session.id, visible), { immediate: true });
 
 // Check if session is already on the kanban board
-const isOnBoard = computed(() => kanbanStore.isSessionOnBoard(props.session.id));
-const sessionCard = computed(() => kanbanStore.getCardBySessionId(props.session.id));
+const isOnBoard = computed(() => Boolean(props.session.kanban) || kanbanStore.isSessionOnBoard(props.session.id));
+const sessionCard = computed(() => kanbanStore.getCardBySessionId(props.session.id)
+  || (props.session.kanban ? { id: props.session.kanban.cardId, laneId: props.session.kanban.laneId } : null));
 const sessionLane = computed(() => {
+  if (props.session.kanban) return { id: props.session.kanban.laneId, name: props.session.kanban.laneName };
   if (!sessionCard.value) return null;
   return kanbanStore.getLaneById(sessionCard.value.laneId);
 });
@@ -338,6 +346,14 @@ function getWorkflowSessions() {
 
 // Get workflow status including all descendant sessions (full tree traversal)
 const workflowStatus = computed(() => {
+  if (props.workflowAggregate) {
+    return {
+      runningCount: props.workflowAggregate.runningCount || 0,
+      scheduledCount: props.workflowAggregate.scheduledCount || 0,
+      totalCount: (props.workflowAggregate.memberCount || 0) + 1,
+      effectiveStatus: (props.workflowAggregate.runningCount || 0) > 0 ? 'running' : 'idle',
+    };
+  }
   const allSessions = getWorkflowSessions();
   const runningStatuses = ['running', 'starting'];
 
@@ -358,6 +374,11 @@ const workflowStatus = computed(() => {
 
 // Collect all running/starting session IDs in the workflow (full tree traversal)
 const runningSessionIds = computed(() => {
+  if (props.workflowAggregate) {
+    return props.workflowAggregate.runningSessionIds?.length
+      ? props.workflowAggregate.runningSessionIds
+      : (props.workflowAggregate.runningCount > 0 ? [props.session.id] : []);
+  }
   const runningStatuses = ['running', 'starting'];
   return getWorkflowSessions()
     .filter(s => runningStatuses.includes(s.status))
@@ -366,7 +387,8 @@ const runningSessionIds = computed(() => {
 
 const hasRunningSession = computed(() => runningSessionIds.value.length > 0);
 
-const nearestScheduledAt = computed(() => findNearestScheduledTime(props.session.id));
+const nearestScheduledAt = computed(() => props.workflowAggregate?.nearestScheduledAt
+  || findNearestScheduledTime(props.session.id));
 
 const scheduledTimeDisplay = computed(() => {
   if (!nearestScheduledAt.value) return null;
@@ -399,8 +421,15 @@ const buttonStatusesToDisplay = computed(() => {
 
 const getStatusIcon = (status) => getStatusIconSvg(status);
 
-const onStarClick = () => {
-  sessionsStore.toggleSessionStar(props.session.id);
+const onStarClick = async () => {
+  const previous = Boolean(props.session.starred);
+  emit('star', { id: props.session.id, starred: !previous });
+  try {
+    const updated = await sessionsStore.toggleSessionStar(props.session.id);
+    emit('star', { id: props.session.id, starred: Boolean(updated?.starred) });
+  } catch {
+    emit('star', { id: props.session.id, starred: previous });
+  }
 };
 </script>
 

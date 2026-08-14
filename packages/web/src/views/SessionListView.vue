@@ -163,7 +163,7 @@
     <!-- Sessions Tab -->
     <div v-if="activeTab === 'sessions'">
       <div
-        v-if="sessionsStore.loading"
+        v-if="workspaceList.loading && workspaceList.cards.length === 0"
         class="skeleton-list"
       >
         <div
@@ -175,14 +175,14 @@
       </div>
 
       <div
-        v-else-if="sessionsStore.error"
+        v-else-if="workspaceList.error"
         class="error-message"
       >
-        {{ sessionsStore.error }}
+        {{ workspaceList.error }}
       </div>
 
       <div
-        v-else-if="sessionsStore.sessions.length === 0"
+        v-else-if="workspaceList.cards.length === 0 && !workspaceList.hasActiveFilters"
         class="empty-state"
       >
         <p>No workspaces yet. Start a new workspace to interact with the agent.</p>
@@ -195,7 +195,7 @@
       </div>
 
       <div
-        v-else-if="filteredGroupedSessions.length === 0"
+        v-else-if="workspaceList.cards.length === 0"
         class="empty-state"
       >
         <p>No workspaces match the current filter.</p>
@@ -206,24 +206,32 @@
         class="session-list"
       >
         <template
-          v-for="group in filteredGroupedSessions"
-          :key="group.parent.id"
+          v-for="workspace in workspaceList.cards"
+          :key="workspace.id"
         >
           <SessionCard
-            :session="group.parent"
+            :session="workspace"
             :show-summary="true"
-            :summary="summaries[group.parent.id]"
-            :summary-loading="loadingSummaries[group.parent.id]"
-            :summary-error="summaryErrors[group.parent.id]"
+            :summary="workspace.summaryPreview ? { shortSummary: workspace.summaryPreview } : null"
+            :workflow-aggregate="workspace"
             :show-archive="true"
-            :pr-url="group.parent.prUrl"
-            :pr-summary="summaries[group.parent.id]"
+            :pr-url="workspace.prUrl"
+            :pr-summary="workspacePrSummary(workspace)"
             @retry-summary="retryFetchSummary"
             @archive="handleArchive"
+            @star="handleStar"
             @add-to-board="handleAddToBoard"
             @visibility-change="handleCardVisibility"
           />
         </template>
+        <button
+          v-if="workspaceList.hasMore"
+          class="btn btn-secondary"
+          :disabled="workspaceList.loadingMore"
+          @click="workspaceList.loadMore()"
+        >
+          {{ workspaceList.loadingMore ? 'Loading…' : 'Load more' }}
+        </button>
       </div>
     </div>
 
@@ -296,11 +304,14 @@ import { useRoute, useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useKanbanStore } from '../stores/kanban.js';
+import { useWorkspaceListStore } from '../stores/workspaceList.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useSummaries } from '../composables/useSummaries.js';
-import { useSessionFiltering } from '../composables/useSessionFiltering.js';
-import { useProjectSessionSubscription } from '../composables/useProjectSessionSubscription.js';
 import { useRunningSessionSubscriptions } from '../composables/useRunningSessionSubscriptions.js';
+import { useProjectRealtimeStoreSync } from '../composables/useProjectRealtimeStoreSync.js';
+import { useProjectSubscription, useWebSocket } from '../composables/useWebSocket.js';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
+import { workspacePrSummary } from '../utils/workspaceCard.js';
 import SessionCard from '../components/SessionCard.vue';
 import SessionFiltersPanel from '../components/SessionFiltersPanel.vue';
 import ArchivedTabContent from '../components/ArchivedTabContent.vue';
@@ -318,7 +329,17 @@ const router = useRouter();
 const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
 const kanbanStore = useKanbanStore();
+const workspaceList = useWorkspaceListStore();
+const commandButtonsStore = useCommandButtonsStore();
 const streamingStore = useSessionStreamingStore();
+
+const {
+  summaries,
+  loadingSummaries,
+  summaryErrors,
+  fetchSummariesBatch,
+  retryFetchSummary,
+} = useSummaries();
 
 streamingStore.restoreCollapsedLogState();
 
@@ -352,31 +373,20 @@ function handleTabChange(tab) {
 // Get projectId as computed to handle route changes
 const projectId = computed(() => route.params.id);
 
-// Use composable for summary management
-const {
-  summaries,
-  loadingSummaries,
-  summaryErrors,
-  fetchSummariesBatch,
-  retryFetchSummary,
-  updateSummary,
-  cleanupSummary,
-} = useSummaries();
-
-// Use composable for filtering (provides filteredGroupedSessions + filter toggles)
-const { filteredGroupedSessions } = useSessionFiltering();
-
 // A workflow is eligible only while the card is rendered, expanded, and in the
 // observer's prefetch margin. Keep this policy here so subscriptions stay pure.
 const cardVisibilityByRootId = ref({});
 const isRunningSession = session => ['running', 'starting'].includes(session.status);
-const workflowCardFromGroup = ({ parent }) => {
-  const rootSessionId = parent.id;
-  const members = sessionsStore.getWorkflowSessions(rootSessionId);
+const workflowCardFromCard = card => {
+  const rootSessionId = card.id;
   return {
     rootSessionId,
-    runningSessionIds: members.filter(isRunningSession).map(session => session.id),
-    memberIds: members.map(session => session.id),
+    // The card contract carries the running descendants, so list subscriptions
+    // follow the session producing output instead of an idle workspace root.
+    runningSessionIds: card.runningSessionIds?.length
+      ? card.runningSessionIds
+      : (isRunningSession(card) || card.runningCount > 0 ? [rootSessionId] : []),
+    memberIds: card.memberIds?.length ? card.memberIds : [rootSessionId],
     eligible: activeTab.value === 'sessions'
       && cardVisibilityByRootId.value[rootSessionId] !== false
       && !streamingStore.isSessionLogCollapsed(rootSessionId),
@@ -385,8 +395,7 @@ const workflowCardFromGroup = ({ parent }) => {
 const eligibleIdsFor = key => [...new Set(eligibleWorkflowCards.value
   .filter(card => card.eligible)
   .flatMap(card => card[key]))];
-const eligibleWorkflowCards = computed(() => filteredGroupedSessions.value
-  .map(({ parent }) => workflowCardFromGroup({ parent })));
+const eligibleWorkflowCards = computed(() => workspaceList.cards.map(workflowCardFromCard));
 const eligibleSessionIds = computed(() => eligibleIdsFor('runningSessionIds'));
 const eligibleCommandSessionIds = computed(() => eligibleIdsFor('memberIds'));
 
@@ -396,32 +405,79 @@ function handleCardVisibility(rootSessionId, visible) {
   cardVisibilityByRootId.value[rootSessionId] = visible;
 }
 
-watch(filteredGroupedSessions, groups => {
-  const rendered = new Set(groups.map(group => group.parent.id));
+watch(() => workspaceList.orderedIds, ids => {
+  const rendered = new Set(ids);
   for (const id of Object.keys(cardVisibilityByRootId.value)) {
     if (!rendered.has(id)) delete cardVisibilityByRootId.value[id];
   }
 }, { immediate: true });
 
 // Use composable for WebSocket subscription management
-const { archivedLoaded } = useProjectSessionSubscription(projectId, {
-  fetchSummariesBatch,
-  updateSummary,
-  cleanupSummary,
-}, { activeTab, eligibleCommandSessionIds });
+const archivedLoaded = ref(false);
 
-// Watch for sessions changes and fetch summaries (debounced to avoid burst of API calls
-// when multiple WebSocket updates arrive in quick succession)
-let fetchSummariesTimer = null;
-watch(
-  () => sessionsStore.sessions,
-  () => {
-    clearTimeout(fetchSummariesTimer);
-    fetchSummariesTimer = setTimeout(() => {
-      fetchSummariesBatch(sessionsStore.sessions);
-    }, 400);
+function workspaceQuery() {
+  return {
+    archived: false,
+    starred: sessionsStore.starredFilter === 'starred' ? true : sessionsStore.starredFilter === 'unstarred' ? false : null,
+    status: sessionsStore.statusFilter,
+    scheduled: sessionsStore.scheduledFilter === 'scheduled' ? true : sessionsStore.scheduledFilter === 'not-scheduled' ? false : null,
+  };
+}
+
+// Own project-scoped reconciliation independently from the legacy full-session
+// collection. Subscribing before the initial list watcher and revalidating once
+// closes the snapshot/subscription race without downloading every session.
+const projectSubscription = useProjectSubscription(projectId.value);
+const cleanupProjectHandlers = [];
+let reconciliationQueued = false;
+function revalidateWorkspaceCards() {
+  if (reconciliationQueued || typeof workspaceList.revalidate !== 'function') return;
+  reconciliationQueued = true;
+  queueMicrotask(() => {
+    reconciliationQueued = false;
+    workspaceList.revalidate(projectId.value, workspaceQuery()).catch(() => {});
+  });
+}
+function registerProjectHandler(name, handler = revalidateWorkspaceCards) {
+  if (typeof projectSubscription[name] === 'function') {
+    cleanupProjectHandlers.push(projectSubscription[name](handler));
   }
-);
+}
+projectSubscription.subscribe();
+registerProjectHandler('onSessionCreated');
+registerProjectHandler('onSessionUpdated');
+registerProjectHandler('onSessionDeleted', (sessionId) => {
+  if (workspaceList.cardsById?.[sessionId]) workspaceList.removeCard(sessionId);
+  else revalidateWorkspaceCards();
+});
+registerProjectHandler('onSessionSummaryUpdated', (sessionId, summary) => {
+  if (workspaceList.cardsById?.[sessionId]) {
+    workspaceList.patchCard(sessionId, { summaryPreview: summary?.shortSummary || null });
+  } else revalidateWorkspaceCards();
+});
+for (const event of ['onCommandRunStarted', 'onCommandRunComplete', 'onCommandRunError',
+  'onCommandRunDeleted', 'onKanbanBoardUpdated', 'onKanbanCardMoved',
+  'onKanbanCardAdded', 'onKanbanCardRemoved']) registerProjectHandler(event);
+// Card reconciliation above only refreshes the list read model. Command-run and
+// Kanban stores still need the pushed payloads applied so the Kanban tab and the
+// inline command output panes stay live without a session-wide download.
+const cleanupStoreSync = useProjectRealtimeStoreSync(projectSubscription, {
+  activeTab,
+  eligibleCommandSessionIds,
+});
+const removeReconnectHandler = typeof useWebSocket === 'function'
+  ? useWebSocket().onReconnect?.(revalidateWorkspaceCards) : null;
+revalidateWorkspaceCards();
+
+watch(projectId, (id) => {
+  if (!id) return;
+  Promise.resolve(projectsStore.fetchProject(id)).catch(() => {});
+  Promise.resolve(commandButtonsStore.fetchButtons(id)).catch(() => {});
+}, { immediate: true });
+
+watch([projectId, () => sessionsStore.statusFilter, () => sessionsStore.starredFilter, () => sessionsStore.scheduledFilter],
+  ([id]) => { if (id && activeTab.value === 'sessions') workspaceList.load(id, workspaceQuery()).catch(() => {}); },
+  { immediate: true });
 
 // Watch for route changes to load archived sessions when needed
 watch(
@@ -444,7 +500,7 @@ watch(
       newFilter !== oldFilter
     ) {
       await sessionsStore.fetchArchivedSessions(projectId.value, { reset: true });
-      fetchSummariesBatch(sessionsStore.archivedSessions);
+      await fetchSummariesBatch(sessionsStore.archivedSessions);
     }
   }
 );
@@ -453,13 +509,13 @@ async function loadArchivedSessions() {
   if (!archivedLoaded.value) {
     await sessionsStore.fetchArchivedSessions(projectId.value, { reset: true });
     archivedLoaded.value = true;
-    fetchSummariesBatch(sessionsStore.archivedSessions);
+    await fetchSummariesBatch(sessionsStore.archivedSessions);
   }
 }
 
 async function loadMoreArchived() {
   await sessionsStore.loadMoreArchivedSessions(projectId.value);
-  fetchSummariesBatch(sessionsStore.archivedSessions);
+  await fetchSummariesBatch(sessionsStore.archivedSessions);
 }
 
 // Archive modal state
@@ -468,9 +524,15 @@ const sessionToArchive = ref(null);
 const archiving = ref(false);
 
 function handleArchive(sessionId) {
-  const session = sessionsStore.sessions.find(s => s.id === sessionId);
+  const session = sessionsStore.sessions.find(s => s.id === sessionId)
+    || workspaceList.cardsById?.[sessionId]
+    || workspaceList.cards.find(card => card.id === sessionId);
   sessionToArchive.value = session || { id: sessionId };
   showArchiveModal.value = true;
+}
+
+function handleStar({ id, starred }) {
+  workspaceList.patchCard?.(id, { starred, updatedAt: Date.now() });
 }
 
 // The Kanban card (if any) for the session-to-archive's workflow. A card is keyed
@@ -480,6 +542,9 @@ const archiveWorkflowCard = computed(() => {
   const sessionId = sessionToArchive.value?.id;
   if (!sessionId) return null;
   const rootId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
+  const compactKanban = workspaceList.cardsById?.[rootId]?.kanban
+    || workspaceList.cards.find(card => card.id === rootId)?.kanban;
+  if (compactKanban) return { id: compactKanban.cardId, laneId: compactKanban.laneId };
   return (
     kanbanStore.getCardBySessionId(rootId) ||
     kanbanStore.getCardBySessionId(sessionId) ||
@@ -497,6 +562,7 @@ async function confirmArchive({ runCleanup, removeFromBoard } = {}) {
   const workflowCard = archiveWorkflowCard.value;
   try {
     await sessionsStore.archiveSession(sessionToArchive.value.id, { cleanup: runCleanup });
+    workspaceList.removeCard?.(sessionToArchive.value.id);
     uiStore.success('Session archived');
 
     if (removeFromBoard && workflowCard && archiveProjectId) {
@@ -541,7 +607,17 @@ const currentLaneIdForSessionToAdd = computed(() => {
   return getLaneIdForSession(sessionToAdd.value.id);
 });
 
-function handleAddToBoard(session) {
+async function handleAddToBoard(session) {
+  // This is a secondary interaction: load the complete board only when the
+  // lane picker is actually opened, never on the list critical path.
+  if (!kanbanStore.board) {
+    try {
+      await kanbanStore.fetchBoard(route.params.id);
+    } catch (error) {
+      uiStore.error(error.message || 'Failed to load Kanban lanes');
+      return;
+    }
+  }
   sessionToAdd.value = session;
   showLaneSelectorModal.value = true;
 }
@@ -566,6 +642,7 @@ async function addSessionToLane(lane) {
       uiStore.success(`Session added to "${lane.name}"`);
     }
     closeLaneSelectorModal();
+    revalidateWorkspaceCards();
   } catch (err) {
     console.error('Failed to update session board lane:', err);
     uiStore.error(err.message || 'Failed to update session board lane');
@@ -594,17 +671,14 @@ onMounted(() => {
   sessionsStore.restoreStarredFilter();
   sessionsStore.restoreScheduledFilter();
 
-  // Fetch kanban board for SessionCard "Add to Board" button and lane indicators
-  const mountProjectId = route.params.id;
-  if (mountProjectId) {
-    kanbanStore.fetchBoard(mountProjectId).catch(err => {
-      console.warn('Failed to fetch kanban board:', err);
-    });
-  }
+  // Board data is deferred to the Kanban tab; card DTOs include their lane.
 });
 
 // Cleanup on unmount
 onUnmounted(() => {
-  clearTimeout(fetchSummariesTimer);
+  for (const cleanup of cleanupProjectHandlers) cleanup?.();
+  cleanupStoreSync();
+  removeReconnectHandler?.();
+  projectSubscription.unsubscribe();
 });
 </script>

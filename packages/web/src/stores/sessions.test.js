@@ -7,6 +7,7 @@ vi.mock('../composables/useApi.js', () => ({
   api: {
     getProjectSessions: vi.fn(),
     getSession: vi.fn(),
+    getWorkspaceDetail: vi.fn(),
     getSessionMessages: vi.fn(),
     createSession: vi.fn(),
     createWorkspaceSession: vi.fn(),
@@ -39,6 +40,28 @@ describe('Sessions Store', () => {
     setActivePinia(createPinia());
     // Reset all API mocks before each test
     vi.clearAllMocks();
+    api.getWorkspaceDetail.mockResolvedValue(null);
+  });
+
+  it('aborts superseded detail requests and commits only the final session', async () => {
+    const store = useSessionsStore();
+    let firstSignal;
+    api.getSession
+      .mockImplementationOnce((_id, options) => {
+        firstSignal = options.signal;
+        return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => {
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        }));
+      })
+      .mockResolvedValueOnce({ id: 'session-b', name: 'B' });
+
+    const first = store.fetchSession('session-a');
+    const second = store.fetchSession('session-b');
+    await Promise.all([first, second]);
+
+    expect(firstSignal.aborted).toBe(true);
+    expect(store.currentSession).toMatchObject({ id: 'session-b' });
+    expect(store.error).toBeNull();
   });
 
   describe('createSession', () => {

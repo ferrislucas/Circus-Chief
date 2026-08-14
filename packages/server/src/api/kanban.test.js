@@ -7,6 +7,8 @@ import {
   kanbanBoards,
   kanbanLanes,
   kanbanCards,
+  commandButtons,
+  commandRuns,
   databaseManager,
 } from '../database.js';
 
@@ -178,6 +180,24 @@ describe('Kanban API', () => {
       expect(res.body.projectId).toBe(projectId);
       expect(res.body.lanes).toHaveLength(4);
       expect(res.body.lanes[0].cards).toHaveLength(1);
+    });
+
+    it('includes the latest command runs for each card session', async () => {
+      setupBoard();
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+      const button = commandButtons.create({
+        projectId, label: 'Build', command: 'echo build', showOnList: true,
+      });
+      const run = commandRuns.create({ id: databaseManager.generateId(), sessionId: session.id, buttonId: button.id });
+      commandRuns.complete(run.id, 0);
+
+      const res = await request(app).get(`/api/projects/${projectId}/kanban`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.lanes[0].cards[0].sessions[0].latestCommandRuns).toEqual([
+        expect.objectContaining({ buttonId: button.id, runId: run.id, status: 'success', exitCode: 0 }),
+      ]);
     });
 
     it('auto-creates board on first access', async () => {

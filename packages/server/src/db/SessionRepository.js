@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- workspace projections live in workspace-queries; remaining lifecycle methods share this repository's mapping contract. */
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { messages, conversations } from './index.js';
@@ -14,6 +15,7 @@ import {
   DEFAULT_AGENT_TYPE,
   resolveAgentTypeFromModel,
 } from './session-helpers.js';
+import { getWorkspaceCards, getWorkspaceMembers } from './workspace-queries.js';
 
 /**
  * Session repository class
@@ -159,6 +161,24 @@ export class SessionRepository extends BaseRepository {
     const params = [projectId];
     sql = applySessionFilters(sql, params, { archived, starred });
     return this.db.prepare(sql).get(...params).count;
+  }
+
+  /**
+   * Purpose-built list projection for workspace cards.  Unlike getRootsByProjectId,
+   * this deliberately selects a small allowlist and computes workflow state in one
+   * set-based query.  Keeping this here also prevents a future session column from
+   * accidentally becoming part of the list payload.
+   */
+  getWorkspaceCards(projectId, { archived = false, starred = null, status = null, scheduled = null, limit = 50, cursor = null } = {}) {
+    return getWorkspaceCards(this.db, projectId, { archived, starred, status, scheduled, limit, cursor });
+  }
+
+  /**
+   * Small, explicit tree projection for a workspace shell. It intentionally
+   * excludes prompts, messages, logs, command output, and other pane data.
+   */
+  getWorkspaceMembers(rootId) {
+    return getWorkspaceMembers(this.db, rootId);
   }
 
   /** Get count of sessions for a project with optional archived/starred filters */

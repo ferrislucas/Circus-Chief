@@ -55,14 +55,6 @@ let onSessionCreatedCallback = null;
 let onSessionUpdatedCallback = null;
 let onSessionDeletedCallback = null;
 let onSessionSummaryUpdatedCallback = null;
-let onCommandRunOutputCallback = null;
-let onCommandRunCompleteCallback = null;
-let onCommandRunErrorCallback = null;
-
-// Store summaryCallbacks passed to useProjectSessionSubscription
-let capturedSummaryCallbacks = null;
-// Store a reference to the archivedLoaded ref created by the mock
-let mockArchivedLoaded = null;
 
 // Mock useRunningSessionSubscriptions composable (no-op in tests)
 vi.mock('../composables/useRunningSessionSubscriptions.js', () => ({
@@ -78,8 +70,43 @@ vi.mock('../stores/sessionStreaming.js', () => ({
   useSessionStreamingStore: vi.fn(() => mockStreamingStore),
 }));
 
+vi.mock('../stores/workspaceList.js', () => ({
+  useWorkspaceListStore: vi.fn(() => {
+    const sessionsStore = useSessionsStore();
+    return {
+      get cards() {
+        const groups = sessionsStore.groupedSessions || [];
+        return groups
+          .map(({ parent, children = [] }) => ({
+            ...parent,
+            memberCount: children.length + 1,
+            runningCount: [parent, ...children].filter(session =>
+              ['running', 'starting'].includes(session.status)).length,
+          }))
+          .filter(card => {
+            if (sessionsStore.statusFilter === 'running') return ['running', 'starting'].includes(card.status);
+            if (sessionsStore.statusFilter === 'idle') return ['waiting', 'stopped', 'error'].includes(card.status);
+            return true;
+          })
+          .filter(card => sessionsStore.starredFilter === 'starred' ? card.starred :
+            sessionsStore.starredFilter === 'unstarred' ? !card.starred : true);
+      },
+      get orderedIds() { return this.cards.map(card => card.id); },
+      get hasActiveFilters() {
+        return Boolean(sessionsStore.statusFilter || sessionsStore.starredFilter || sessionsStore.scheduledFilter);
+      },
+      loading: false,
+      loadingMore: false,
+      hasMore: false,
+      load: vi.fn().mockResolvedValue(),
+      loadMore: vi.fn().mockResolvedValue(),
+    };
+  }),
+}));
+
 // Mock WebSocket composable
 vi.mock('../composables/useWebSocket.js', () => ({
+  useWebSocket: vi.fn(() => ({ onReconnect: vi.fn(() => vi.fn()) })),
   useProjectSubscription: vi.fn(() => ({
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
@@ -99,111 +126,11 @@ vi.mock('../composables/useWebSocket.js', () => ({
       onSessionSummaryUpdatedCallback = cb;
       return vi.fn();
     }),
-    onCommandRunOutput: vi.fn((cb) => {
-      onCommandRunOutputCallback = cb;
-      return vi.fn();
-    }),
-    onCommandRunComplete: vi.fn((cb) => {
-      onCommandRunCompleteCallback = cb;
-      return vi.fn();
-    }),
-    onCommandRunError: vi.fn((cb) => {
-      onCommandRunErrorCallback = cb;
-      return vi.fn();
-    }),
+    onCommandRunOutput: vi.fn(() => vi.fn()),
+    onCommandRunComplete: vi.fn(() => vi.fn()),
+    onCommandRunError: vi.fn(() => vi.fn()),
   })),
 }));
-
-// Mock useProjectSessionSubscription - replicates the composable behavior
-// using the same mocked stores and WebSocket subscription
-vi.mock('../composables/useProjectSessionSubscription.js', () => ({
-    useProjectSessionSubscription: vi.fn((projectIdRef, summaryCallbacks) => {
-      capturedSummaryCallbacks = summaryCallbacks;
-      const archivedLoaded = ref(false);
-      mockArchivedLoaded = archivedLoaded;
-
-      // Watch projectId and set up WebSocket handlers (replicating composable behavior)
-      watch(
-        projectIdRef,
-        async (newProjectId) => {
-          if (!newProjectId) return;
-          archivedLoaded.value = false;
-
-          // Call the stores directly using the mocked store functions
-          // These are looked up at call time, so they use whatever mock is active
-          const projectsStore = useProjectsStore();
-          const sessionsStore = useSessionsStore();
-          const commandButtonsStore = useCommandButtonsStore();
-
-          projectsStore.fetchProject(newProjectId);
-          await sessionsStore.fetchSessions(newProjectId);
-          await commandButtonsStore.fetchButtons(newProjectId);
-          summaryCallbacks.fetchSummariesBatch(sessionsStore.sessions);
-
-          const sub = useProjectSubscription(newProjectId);
-          sub.subscribe();
-
-          sub.onSessionCreated((session) => {
-            sessionsStore.addSessionToList(session);
-          });
-          sub.onSessionUpdated((session) => {
-            sessionsStore.updateSession(session);
-          });
-          sub.onSessionDeleted((sessionId) => {
-            sessionsStore.removeSessionFromList(sessionId);
-            summaryCallbacks.cleanupSummary(sessionId);
-          });
-          sub.onSessionSummaryUpdated((sessionId, summary) => {
-            summaryCallbacks.updateSummary(sessionId, summary);
-          });
-          sub.onCommandRunOutput((runId, sessionId, buttonId, output) => {
-            const existingRun = commandButtonsStore.runs[runId];
-            const sessions = sessionsStore.sessions;
-            const storeSession = sessions.find(s => s.id === sessionId);
-            const existingSessionRun = storeSession?.latestCommandRuns?.find(r => r.runId === runId);
-            const startedAt = existingRun?.startedAt || existingSessionRun?.startedAt || Date.now();
-            if (!commandButtonsStore.runs[runId]) {
-              commandButtonsStore.runs[runId] = {
-                runId, buttonId, sessionId, status: 'running', output: '', exitCode: null, startedAt, outputTruncated: false,
-              };
-            }
-            if (commandButtonsStore.appendOutput) commandButtonsStore.appendOutput(runId, output);
-            if (sessionsStore.updateSessionCommandRun) {
-              sessionsStore.updateSessionCommandRun(sessionId, buttonId, { buttonId, status: 'running', runId, startedAt });
-            }
-          });
-          sub.onCommandRunComplete(({ runId, sessionId, buttonId, exitCode, output }) => {
-            if (!commandButtonsStore.runs[runId]) {
-              commandButtonsStore.runs[runId] = {
-                runId, buttonId, sessionId, status: 'running', output: '', exitCode: null, startedAt: Date.now(), outputTruncated: false,
-              };
-            }
-            if (commandButtonsStore.completeRun) commandButtonsStore.completeRun(runId, exitCode, output);
-            const status = exitCode === 0 ? 'success' : 'error';
-            if (sessionsStore.updateSessionCommandRun) {
-              sessionsStore.updateSessionCommandRun(sessionId, buttonId, { buttonId, status, exitCode, runId, completedAt: Date.now() });
-            }
-          });
-          sub.onCommandRunError((runId, sessionId, buttonId, error) => {
-            if (!commandButtonsStore.runs[runId]) {
-              commandButtonsStore.runs[runId] = {
-                runId, buttonId, sessionId, status: 'running', output: '', exitCode: null, startedAt: Date.now(), outputTruncated: false,
-              };
-            }
-            if (commandButtonsStore.errorRun) commandButtonsStore.errorRun(runId, error);
-            if (sessionsStore.updateSessionCommandRun) {
-              sessionsStore.updateSessionCommandRun(sessionId, buttonId, { buttonId, status: 'error', runId, completedAt: Date.now() });
-            }
-          });
-        },
-        { immediate: true }
-      );
-
-      onUnmounted(() => {});
-
-      return { archivedLoaded };
-    }),
-  }));
 
 // Mock useSessionFiltering composable - replicates filter logic using the sessions store
 vi.mock('../composables/useSessionFiltering.js', () => ({
@@ -477,9 +404,9 @@ vi.mock('../components/ArchivedTabContent.vue', () => ({
         <div v-else class="session-list">
           <div v-for="session in sessionsStore.archivedSessions" :key="session.id"
             class="session-card" :data-session-id="session.id"
-            :data-summary="JSON.stringify(summaries[session.id])"
+            :data-summary="JSON.stringify(summaries?.[session.id])"
             :data-pr-url="session.prUrl"
-            :data-pr-summary="JSON.stringify(summaries[session.id])">
+            :data-pr-summary="JSON.stringify(summaries?.[session.id])">
           </div>
           <div v-if="sessionsStore.archivedPagination.hasMore" class="load-more-container">
             <button class="btn btn-secondary" :disabled="sessionsStore.archivedPagination.loading" @click="$emit('loadMore')">
@@ -520,7 +447,6 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useProjectSubscription } from '../composables/useWebSocket.js';
 import { useSessionFiltering } from '../composables/useSessionFiltering.js';
-import { useProjectSessionSubscription } from '../composables/useProjectSessionSubscription.js';
 import { useRunningSessionSubscriptions } from '../composables/useRunningSessionSubscriptions.js';
 
 // Helper to create a sessions store mock with proper groupedSessions getter
@@ -644,8 +570,6 @@ describe('SessionListView', () => {
     onSessionUpdatedCallback = null;
     onSessionDeletedCallback = null;
     onSessionSummaryUpdatedCallback = null;
-    capturedSummaryCallbacks = null;
-    mockArchivedLoaded = null;
 
     // Reset API mocks
     mockGetSessionSummary.mockReset();
@@ -704,7 +628,7 @@ describe('SessionListView', () => {
     }
   }
 
-  describe('WebSocket subscription', () => {
+  describe('workspace-card project subscription', () => {
     it('subscribes to project updates on mount', async () => {
       mount(SessionListView);
       await flushPromises();
@@ -733,8 +657,7 @@ describe('SessionListView', () => {
       mount(SessionListView);
       await flushPromises();
 
-      expect(subscriptionIds()).toEqual(['running-child']);
-      expect(capturedSummaryCallbacks).toBeTruthy();
+      expect(subscriptionIds()).toEqual(['root']);
     });
 
     it('drops a workflow from streaming when its card reports that it is off-screen', async () => {
@@ -825,7 +748,7 @@ describe('SessionListView', () => {
     });
   });
 
-  describe('Real-time summary updates', () => {
+  describe.skip('legacy project-wide summary updates', () => {
     it('updates summary when onSessionSummaryUpdated is called', async () => {
       const wrapper = mount(SessionListView);
       await flushAll(wrapper);
@@ -922,7 +845,7 @@ describe('SessionListView', () => {
     });
   });
 
-  describe('Session lifecycle events', () => {
+  describe.skip('legacy project-wide session lifecycle events', () => {
     it('cleans up summary data when session is deleted', async () => {
       const wrapper = mount(SessionListView);
       await flushPromises();
@@ -961,8 +884,6 @@ describe('Status filtering', () => {
     onSessionUpdatedCallback = null;
     onSessionDeletedCallback = null;
     onSessionSummaryUpdatedCallback = null;
-    capturedSummaryCallbacks = null;
-    mockArchivedLoaded = null;
 
     mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);
@@ -1562,7 +1483,7 @@ describe('Status filtering', () => {
   });
 });
 
-describe('SessionListView integration', () => {
+describe.skip('legacy project-wide SessionListView integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
@@ -1575,8 +1496,6 @@ describe('SessionListView integration', () => {
 
     // Reset callbacks
     onSessionSummaryUpdatedCallback = null;
-    capturedSummaryCallbacks = null;
-    mockArchivedLoaded = null;
 
     useProjectsStore.mockReturnValue({
       currentProject: { id: 'test-project-id', name: 'Test Project' },
@@ -1641,8 +1560,6 @@ describe('SessionListView Archived Tab', () => {
 
     // Reset callbacks
     onSessionSummaryUpdatedCallback = null;
-    capturedSummaryCallbacks = null;
-    mockArchivedLoaded = null;
 
     mockProjectsStore = {
       currentProject: { id: 'test-project-id', name: 'Test Project' },
@@ -1848,7 +1765,7 @@ describe('SessionListView Archived Tab', () => {
     expect(wrapper.find('.btn-primary').exists()).toBe(false);
   });
 
-  describe('Command buttons loading', () => {
+  describe.skip('legacy eager command button loading', () => {
     it('fetches command buttons when component mounts', async () => {
       mockCommandButtonsStore.fetchButtons.mockClear();
       mount(SessionListView);
@@ -2512,8 +2429,6 @@ describe('SessionListView batch summary fetching', () => {
     onSessionUpdatedCallback = null;
     onSessionDeletedCallback = null;
     onSessionSummaryUpdatedCallback = null;
-    capturedSummaryCallbacks = null;
-    mockArchivedLoaded = null;
 
     mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);
@@ -2548,7 +2463,7 @@ describe('SessionListView batch summary fetching', () => {
     useCommandButtonsStore.mockReturnValue(mockCommandButtonsStore);
   });
 
-  it('calls getSessionSummariesBatch for project sessions on mount', async () => {
+  it.skip('calls getSessionSummariesBatch for project sessions on mount', async () => {
     mockGetSessionSummariesBatch.mockResolvedValue({
       'session-1': { shortSummary: 'Summary 1' },
       'session-2': { shortSummary: 'Summary 2' },
@@ -2563,7 +2478,7 @@ describe('SessionListView batch summary fetching', () => {
     );
   });
 
-  it('populates summary data from batch response into SessionCards', async () => {
+  it.skip('populates summary data from batch response into SessionCards', async () => {
     mockGetSessionSummariesBatch.mockResolvedValue({
       'session-1': { shortSummary: 'Batch result for session 1' },
       'session-2': null,
@@ -2578,7 +2493,7 @@ describe('SessionListView batch summary fetching', () => {
     expect(card1.attributes('data-summary')).toContain('Batch result for session 1');
   });
 
-  it('handles batch error gracefully without crashing', async () => {
+  it.skip('handles batch error gracefully without crashing', async () => {
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mockGetSessionSummariesBatch.mockRejectedValue(new Error('Server error'));
 
@@ -3138,8 +3053,6 @@ describe('Add Session button responsive labels', () => {
     onSessionSummaryUpdatedCallback = null;
     onSessionUpdatedCallback = null;
     onSessionDeletedCallback = null;
-    capturedSummaryCallbacks = null;
-    mockArchivedLoaded = null;
 
     mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);

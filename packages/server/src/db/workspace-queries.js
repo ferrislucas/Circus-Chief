@@ -1,0 +1,152 @@
+import { ACTIVITY_FIELDS_SQL } from './session-helpers.js';
+
+/** Return the lightweight workspace-card projection used by the list view. */
+// The SQL is intentionally kept together so its CTE scope and parameter order
+// can be audited as one query unit.
+// eslint-disable-next-line max-lines-per-function, complexity, sonarjs/cognitive-complexity
+export function getWorkspaceCards(db, projectId, { archived = false, starred = null, status = null, scheduled = null, limit = 50, cursor = null } = {}) {
+  const filters = ['s.project_id = ?', 's.parent_session_id IS NULL', 's.archived = ?'];
+  const params = [projectId, archived ? 1 : 0];
+  if (starred !== null) { filters.push('s.starred = ?'); params.push(starred ? 1 : 0); }
+
+  const eligibility = [];
+  if (status === 'running') eligibility.push('a.running_count > 0');
+  if (status === 'idle') eligibility.push('a.running_count = 0');
+  if (scheduled === true) eligibility.push('a.scheduled_count > 0');
+  if (scheduled === false) eligibility.push('a.scheduled_count = 0');
+  const having = eligibility.length ? ` AND ${eligibility.join(' AND ')}` : '';
+  const cursorPredicate = cursor ? `WHERE starred < ?
+      OR (starred = ? AND activityOrder < ?)
+      OR (starred = ? AND activityOrder = ? AND updatedAt < ?)
+      OR (starred = ? AND activityOrder = ? AND updatedAt = ? AND createdAt < ?)
+      OR (starred = ? AND activityOrder = ? AND updatedAt = ? AND createdAt = ? AND id < ?)` : '';
+  const cursorParams = cursor ? [
+    cursor.starred, cursor.starred, cursor.activityOrder,
+    cursor.starred, cursor.activityOrder, cursor.updatedAt,
+    cursor.starred, cursor.activityOrder, cursor.updatedAt, cursor.createdAt,
+    cursor.starred, cursor.activityOrder, cursor.updatedAt, cursor.createdAt, cursor.id,
+  ] : [];
+  // Aggregate-dependent filters must inspect all roots until a maintained
+  // projection is available.  The overwhelmingly common unfiltered path can
+  // and should select its root page first, so descendant traversal is bounded
+  // by page size rather than project size.
+  const pageRootsFirst = eligibility.length === 0;
+  const rootScope = pageRootsFirst ? `
+    root_candidates AS (
+      SELECT s.id, s.starred, s.updated_at AS updatedAt, s.created_at AS createdAt,
+        ${ACTIVITY_FIELDS_SQL}
+      FROM sessions s WHERE ${filters.join(' AND ')}
+    ), ordered_roots AS (
+      SELECT *, COALESCE(last_activity_at, updatedAt, createdAt) AS activityOrder
+      FROM root_candidates
+    ), selected_roots AS (
+      SELECT id FROM ordered_roots ${cursorPredicate}
+      ORDER BY starred DESC, activityOrder DESC, updatedAt DESC, createdAt DESC, id DESC
+      LIMIT ?
+    ),` : '';
+  const treeSeed = pageRootsFirst
+    ? 'SELECT s.id, s.id FROM sessions s JOIN selected_roots r ON r.id = s.id'
+    : 'SELECT id, id FROM sessions WHERE project_id = ? AND parent_session_id IS NULL';
+  const sql = `
+    WITH RECURSIVE ${rootScope} tree(root_id, id) AS (
+      ${treeSeed}
+      UNION ALL
+      SELECT tree.root_id, s.id FROM sessions s JOIN tree ON s.parent_session_id = tree.id
+    ), aggregates AS (
+      SELECT tree.root_id,
+        SUM(CASE WHEN s.status IN ('running', 'starting') THEN 1 ELSE 0 END) AS running_count,
+        GROUP_CONCAT(CASE WHEN s.status IN ('running', 'starting') THEN s.id END) AS running_session_ids,
+        GROUP_CONCAT(s.id) AS member_ids,
+        SUM(CASE WHEN s.status = 'scheduled' THEN 1 ELSE 0 END) AS scheduled_count,
+        MIN(CASE WHEN s.status = 'scheduled' THEN s.scheduled_at END) AS nearest_scheduled_at,
+        SUM(CASE WHEN s.status = 'waiting' THEN 1 ELSE 0 END) AS waiting_count,
+        COUNT(*) - 1 AS member_count
+      FROM tree JOIN sessions s ON s.id = tree.id GROUP BY tree.root_id
+    )
+    , workspace_card_base AS (
+    SELECT s.id, s.project_id AS projectId, s.name, s.status, s.starred, s.archived,
+      s.pr_url AS prUrl, s.git_worktree AS gitWorktree,
+      s.scheduled_at AS scheduledAt, s.created_at AS createdAt,
+      s.updated_at AS updatedAt, ${ACTIVITY_FIELDS_SQL},
+      a.running_count AS runningCount, a.scheduled_count AS scheduledCount,
+      a.running_session_ids AS runningSessionIds,
+      a.member_ids AS memberIds,
+      a.waiting_count AS waitingCount, a.member_count AS memberCount,
+      a.nearest_scheduled_at AS nearestScheduledAt,
+      ss.short_summary AS summaryPreview,
+      ss.pr_state AS prState, ss.has_merge_conflicts AS hasMergeConflicts, ss.ci_status AS ciStatus,
+      kc.id AS kanbanCardId, kl.id AS laneId, kl.name AS laneName
+    FROM sessions s JOIN aggregates a ON a.root_id = s.id
+    LEFT JOIN session_summaries ss ON ss.session_id = s.id
+    LEFT JOIN kanban_card_sessions kcs ON kcs.session_id = s.id
+    LEFT JOIN kanban_cards kc ON kc.id = kcs.card_id
+    LEFT JOIN kanban_lanes kl ON kl.id = kc.lane_id
+    WHERE ${pageRootsFirst ? 's.id IN (SELECT id FROM selected_roots)' : filters.join(' AND ')}${having}
+    ), workspace_cards AS (
+      SELECT workspace_card_base.*, COALESCE(last_activity_at, updatedAt, createdAt) AS activityOrder
+      FROM workspace_card_base
+    )
+    SELECT * FROM workspace_cards
+    ${pageRootsFirst ? '' : cursorPredicate}
+    ORDER BY starred DESC, activityOrder DESC, updatedAt DESC, createdAt DESC, id DESC
+    LIMIT ?`;
+  const sqlParams = pageRootsFirst
+    ? [...params, ...cursorParams, limit, limit]
+    : [projectId, ...params, ...cursorParams, limit];
+  const rows = db.prepare(sql).all(...sqlParams);
+  return rows.map(toWorkspaceCard);
+}
+
+function toWorkspaceCard(row) {
+  return {
+    id: row.id, projectId: row.projectId, name: row.name, status: row.status,
+    starred: Boolean(row.starred), archived: Boolean(row.archived), prUrl: row.prUrl,
+    gitWorktree: row.gitWorktree || null,
+    scheduledAt: row.scheduledAt, createdAt: row.createdAt, updatedAt: row.updatedAt,
+    lastActivityAt: row.last_activity_at, runningCount: row.runningCount,
+    runningSessionIds: row.runningSessionIds ? row.runningSessionIds.split(',') : [],
+    memberIds: row.memberIds ? row.memberIds.split(',') : [row.id],
+    scheduledCount: row.scheduledCount, waitingCount: row.waitingCount,
+    memberCount: row.memberCount, nearestScheduledAt: row.nearestScheduledAt || null,
+    summaryPreview: row.summaryPreview || null,
+    // PR/CI indicators are scalar summary fields, so the card can render them
+    // without the list fetching a summary per workspace.
+    prState: row.prState || null,
+    hasMergeConflicts: row.hasMergeConflicts === null || row.hasMergeConflicts === undefined
+      ? null : Boolean(row.hasMergeConflicts),
+    ciStatus: row.ciStatus || null,
+    kanban: row.kanbanCardId ? { cardId: row.kanbanCardId, laneId: row.laneId, laneName: row.laneName } : null,
+  };
+}
+
+/** Return the compact ancestor/descendant tree used by a workspace shell. */
+export function getWorkspaceMembers(db, rootId) {
+  const rows = db.prepare(`
+    WITH RECURSIVE tree(id, parent_session_id, depth, path) AS (
+      SELECT id, parent_session_id, 0, id FROM sessions WHERE id = ?
+      UNION ALL
+      SELECT s.id, s.parent_session_id, tree.depth + 1, tree.path || '/' || s.id
+      FROM sessions s JOIN tree ON s.parent_session_id = tree.id
+      WHERE instr(tree.path, s.id) = 0
+    )
+    SELECT s.id, s.project_id AS projectId, s.parent_session_id AS parentSessionId,
+      s.name, s.status, s.starred, s.archived, s.scheduled_at AS scheduledAt,
+      s.created_at AS createdAt, s.updated_at AS updatedAt, tree.depth,
+      ${ACTIVITY_FIELDS_SQL},
+      ss.short_summary AS summaryPreview
+    FROM tree JOIN sessions s ON s.id = tree.id
+    LEFT JOIN session_summaries ss ON ss.session_id = s.id ORDER BY tree.path
+  `).all(rootId);
+  return rows.map(row => ({
+    id: row.id, projectId: row.projectId, parentSessionId: row.parentSessionId,
+    name: row.name, status: row.status, starred: Boolean(row.starred),
+    archived: Boolean(row.archived), scheduledAt: row.scheduledAt,
+    createdAt: row.createdAt, updatedAt: row.updatedAt, depth: row.depth,
+    // Recency drives session-picker ordering and overlay auto-select, so the
+    // member projection has to carry it rather than leaving consumers to guess
+    // from updatedAt.
+    lastActivityAt: row.last_activity_at ?? null,
+    lastMessageAt: row.last_message_at ?? null,
+    summaryPreview: row.summaryPreview || null,
+  }));
+}
