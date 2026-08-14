@@ -27,7 +27,7 @@ import { runSessionWithTierFailover, hasResolvableTierMembers, applyStaleTierFal
 import { schedulerService } from './schedulerService.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState, markHeldForLimit, activeLaneRunOwnsSession } from './workflowSessionService.js';
-import { rejectedSessionExecution } from './sessionStartResult.js';
+import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
 // sessionExecution), safe because this is only called at runtime inside
 // _executeSession, long after the module graph is loaded (same pattern as
@@ -264,28 +264,18 @@ export async function _executeSession({
 }
 
 /**
- * Run a Claude session (initial session start)
- * @param {string} sessionId
- * @param {string} prompt
- * @param {string} workingDirectory
- * @param {Object} config - Session options and callbacks
- * @param {Object} [config.options] - Session options (systemPrompt, fileAttachments, model)
- * @param {Object} config.callbacks - Callback functions from sessionManager
+ * Prepare the shared per-start state for {@link runSessionCore}: register the
+ * abort controller, ensure the active conversation, flip the session to
+ * 'running', attach any pending file attachments, and build the final prompt.
+ *
+ * Extracted from runSessionCore so the entry point stays within the
+ * complexity/statement budget now that it also has to branch across the
+ * tier-failover and standard start paths.
+ *
+ * @returns {{ session: Object, activeConversation: Object, promptWithAttachments: string }}
  */
-export async function runSessionCore(sessionId, prompt, workingDirectory, config = {}) {
-  const { options = {}, callbacks } = config;
-  const { systemPrompt = null, fileAttachments = [], model = null, interactive = false,
-    abortController = null } = options;
-  let session = sessions.getById(sessionId);
-  if (!session) throw new Error('Session not found');
-  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
-    return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
-  }
-  const controller = abortController || new AbortController();
-  if (controller.signal.aborted) return rejectedSessionExecution(sessionId, 'dispatch_aborted');
+function beginSessionStart(sessionId, prompt, { model, fileAttachments, controller }) {
   activeSessions.set(sessionId, { controller });
-
-  // Get session for settings
 
   // Get the active conversation for this session (created in SessionRepository.create)
   const activeConversation = conversations.ensureActiveConversation(sessionId);
@@ -293,7 +283,6 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
 
   // Update status to running and track the user-requested model (short format) on the session
   sessions.update(sessionId, { status: 'running', ...(model && { model }) });
-  session = sessions.getById(sessionId);
   broadcastSessionStatus(sessionId, 'running');
 
   // Note: Initial user message is already created in SessionRepository.create()
@@ -303,51 +292,94 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     attachments.updateMessageIdForSession(sessionId, initialMessage.id);
   }
 
-  // Build prompt with attachment context
-  const promptWithAttachments = buildPromptWithAttachments(prompt, fileAttachments);
+  return {
+    session: sessions.getById(sessionId),
+    activeConversation,
+    promptWithAttachments: buildPromptWithAttachments(prompt, fileAttachments),
+  };
+}
 
-  // ── Tier failover path ────────────────────────────────────────────────────
-  const effectiveModelField = model || session.model;
-  if (isTierRef(effectiveModelField)) {
-    if (hasResolvableTierMembers(effectiveModelField)) {
-      await runSessionWithTierFailover(sessionId, promptWithAttachments, workingDirectory, {
-        systemPrompt,
-        activeConversation,
-        controller,
-        callbacks,
-        tierRef: effectiveModelField,
-      });
-      return;
-    }
-
-    // Fix 6: the tier ref no longer resolves to any member (deleted / emptied /
-    // every member's provider or model was removed) — this is a stale binding,
-    // not a live "all members failed" exhaustion (that case is handled inside
-    // runSessionWithTierFailover and correctly falls through to normal error
-    // handling instead). Degrade to a concrete fallback so a new or scheduled
-    // session doesn't fail outright on a binding the user can no longer fix
-    // from within this session.
-    const fallback = applyStaleTierFallback(sessionId, session, effectiveModelField);
-    await _runStandardSession(sessionId, promptWithAttachments, workingDirectory, {
-      session: fallback.session,
-      model: fallback.model,
+/**
+ * Tier-bound start path: run the tier's members in order via the failover loop,
+ * or — when the ref no longer resolves to any member — degrade to a concrete
+ * fallback model on the standard path.
+ *
+ * @returns {Promise<Object|undefined>} A start-result when the start was
+ *   rejected before dispatch, otherwise undefined.
+ */
+async function _runTierBoundSession(sessionId, promptWithAttachments, workingDirectory, ctx) {
+  const { session, tierRef, systemPrompt, activeConversation, controller, callbacks } = ctx;
+  if (hasResolvableTierMembers(tierRef)) {
+    return runSessionWithTierFailover(sessionId, promptWithAttachments, workingDirectory, {
       systemPrompt,
       activeConversation,
       controller,
       callbacks,
+      tierRef,
     });
-    return;
   }
 
-  // ── Standard (non-tier) path ──────────────────────────────────────────────
-  await _runStandardSession(sessionId, promptWithAttachments, workingDirectory, {
-    session,
-    model,
+  // Fix 6: the tier ref no longer resolves to any member (deleted / emptied /
+  // every member's provider or model was removed) — this is a stale binding,
+  // not a live "all members failed" exhaustion (that case is handled inside
+  // runSessionWithTierFailover and correctly falls through to normal error
+  // handling instead). Degrade to a concrete fallback so a new or scheduled
+  // session doesn't fail outright on a binding the user can no longer fix
+  // from within this session.
+  const fallback = applyStaleTierFallback(sessionId, session, tierRef);
+  return _runStandardSession(sessionId, promptWithAttachments, workingDirectory, {
+    session: fallback.session,
+    model: fallback.model,
     systemPrompt,
     activeConversation,
     controller,
     callbacks,
   });
+}
+
+/**
+ * Run a Claude session (initial session start)
+ * @param {string} sessionId
+ * @param {string} prompt
+ * @param {string} workingDirectory
+ * @param {Object} config - Session options and callbacks
+ * @param {Object} [config.options] - Session options (systemPrompt, fileAttachments, model)
+ * @param {Object} config.callbacks - Callback functions from sessionManager
+ * @returns {Promise<Object>} Structured start result (see sessionStartResult.js)
+ */
+export async function runSessionCore(sessionId, prompt, workingDirectory, config = {}) {
+  const { options = {}, callbacks } = config;
+  const { systemPrompt = null, fileAttachments = [], model = null, interactive = false,
+    abortController = null } = options;
+  // Get session for settings
+  const existing = sessions.getById(sessionId);
+  if (!existing) throw new Error('Session not found');
+  if (!interactive && existing.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
+    return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
+  }
+  const controller = abortController || new AbortController();
+  if (controller.signal.aborted) return rejectedSessionExecution(sessionId, 'dispatch_aborted');
+
+  const { session, activeConversation, promptWithAttachments } =
+    beginSessionStart(sessionId, prompt, { model, fileAttachments, controller });
+
+  const startCtx = { session, systemPrompt, activeConversation, controller, callbacks };
+
+  // ── Tier failover path ────────────────────────────────────────────────────
+  const effectiveModelField = model || session.model;
+  const execution = isTierRef(effectiveModelField)
+    ? await _runTierBoundSession(sessionId, promptWithAttachments, workingDirectory, {
+      ...startCtx, tierRef: effectiveModelField,
+    })
+    // ── Standard (non-tier) path ────────────────────────────────────────────
+    : await _runStandardSession(sessionId, promptWithAttachments, workingDirectory, {
+      ...startCtx, model,
+    });
+
+  // A start path only returns a result when the dispatch was rejected before
+  // reaching the provider (e.g. lane-run ownership lost); anything else means
+  // the provider handoff was accepted.
+  return execution || startedSessionExecution(sessionId);
 }
 
 /**
@@ -385,6 +417,7 @@ async function _runStandardSession(
     systemPrompt,
     model: effectiveModel,
     sessionEnv,
+    conversationId: activeConversation.id,
     agentType,
     commitAttributionOverride,
   });
@@ -403,7 +436,7 @@ async function _runStandardSession(
     promptLength: promptWithAttachments.length,
   };
 
-  await _executeSession({
+  return _executeSession({
     sessionId,
     agent,
     queryParams,

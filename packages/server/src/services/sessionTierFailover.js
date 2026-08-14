@@ -61,6 +61,7 @@ async function attemptRunWithModel(
     systemPrompt,
     model: effectiveModel,
     sessionEnv,
+    conversationId: activeConversation.id,
     agentType,
     commitAttributionOverride,
   });
@@ -79,7 +80,7 @@ async function attemptRunWithModel(
     promptLength: promptWithAttachments.length,
   };
 
-  await _executeSession({
+  return _executeSession({
     sessionId,
     agent,
     queryParams,
@@ -261,7 +262,7 @@ export async function runSessionWithTierFailover(
     activeSessions.set(sessionId, { controller });
 
     try {
-      await attemptRunWithModel(sessionId, promptWithAttachments, workingDirectory, {
+      const execution = await attemptRunWithModel(sessionId, promptWithAttachments, workingDirectory, {
         systemPrompt,
         activeConversation,
         controller,
@@ -269,8 +270,13 @@ export async function runSessionWithTierFailover(
         tierContext,
       });
 
+      // A rejected dispatch (e.g. lane-run ownership lost before the provider
+      // call) never reached this member's provider, so it is neither a success
+      // to snapshot nor a failure to fail over from — surface it verbatim.
+      if (execution && !execution.started) return execution;
+
       snapshotSuccessfulMember(sessionId, tierRef, member);
-      return; // done
+      return execution; // done
     } catch (error) {
       // Advances to the next member (loop continue) or rethrows on terminal errors.
       handleTierMemberFailure(error, { sessionId, member, tierRef, tierName });

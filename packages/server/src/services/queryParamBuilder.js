@@ -29,6 +29,7 @@ function isVcrModeActive() {
 function buildClaudeCodeQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt,
   model, sessionEnv, resumeSessionId = null, claudeMcpConfigHomeDirectory,
+  conversationId = null,
 }) {
   const isVCR = isVcrModeActive();
   const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : model;
@@ -52,6 +53,8 @@ function buildClaudeCodeQueryParams({
       spawnClaudeCodeProcess: createClaudeCodeSpawner(),
       model: effectiveModel,
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
+      ...buildInteractionCallbacks({ sessionId, conversationId }),
+      toolConfig: { askUserQuestion: { previewFormat: 'markdown' } },
       ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
     },
   };

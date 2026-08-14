@@ -10,6 +10,7 @@ import { activeSessions, activeConversationIds, broadcastSessionStatus } from '.
 import { buildPromptWithAttachments } from './sessionPrompts.js';
 import { createAgentForSession, buildAgentEnv, _executeSession } from './sessionExecution.js';
 import { resolveTierRefForContinue } from './tierResolutionService.js';
+import { startedSessionExecution } from './sessionStartResult.js';
 
 /**
  * Build prompt with conversation context for a continuation.
@@ -229,7 +230,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     workingDirectory, controller, agentType, agent,
   });
 
-  await _executeSession({
+  const execution = await _executeSession({
     sessionId,
     agent,
     queryParams,
@@ -242,4 +243,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     interactive,
     errorLabel: 'Continue session error',
   });
+  // _executeSession only returns a result when it rejected the dispatch before
+  // the provider call; otherwise the handoff was accepted.
+  return execution || startedSessionExecution(sessionId);
 }
