@@ -177,11 +177,15 @@ export class CodexAdapter extends BaseAgent {
       model,
     };
 
-    const stream = await client.chat.completions.create({
+    const request = {
       model,
       messages: buildChatMessages(queryParams.prompt, systemPrompt),
       stream: true,
-    });
+    };
+    const requestOptions = {
+      ...(abortController?.signal && { signal: abortController.signal }),
+    };
+    const stream = await client.chat.completions.create(request, requestOptions);
 
     const onAbort = () => {
       try { stream?.controller?.abort?.(); } catch { /* ignore */ }

@@ -382,7 +382,6 @@ CREATE TABLE IF NOT EXISTS kanban_lanes (
   on_enter_max_total_tokens INTEGER,
   on_enter_reschedule_at_token_count INTEGER,
   completion_target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
-  completion_mode TEXT NOT NULL DEFAULT 'legacy',
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -408,15 +407,28 @@ CREATE TABLE IF NOT EXISTS kanban_lane_entry_events (
   id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL UNIQUE, project_id TEXT NOT NULL,
   workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, lane_id TEXT NOT NULL, cause TEXT NOT NULL,
   caused_by_run_id TEXT, status TEXT NOT NULL DEFAULT 'pending', claim_token TEXT, claimed_at INTEGER,
-  attempt_count INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL, completed_at INTEGER
+  claim_expires_at INTEGER, next_attempt_at INTEGER, attempt_count INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL, completed_at INTEGER, delivery_phase TEXT NOT NULL DEFAULT 'pending',
+  dispatch_key TEXT, dispatch_acknowledged_at INTEGER
 );
+-- Allocation and provider acknowledgement are intentionally separate.  A
+-- root_session_id only proves child ownership; it must never be treated as a
+-- provider dispatch acknowledgement.
+CREATE TABLE IF NOT EXISTS kanban_api_operations (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, operation_key TEXT NOT NULL,
+  endpoint TEXT NOT NULL, payload_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'processing',
+  owner_token TEXT, lease_expires_at INTEGER, attempt_count INTEGER NOT NULL DEFAULT 0,
+  response_status INTEGER, result_json TEXT, terminal_error TEXT, lane_entry_event_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  UNIQUE(project_id, endpoint, operation_key)
+);
+CREATE INDEX IF NOT EXISTS idx_kanban_api_operations_updated ON kanban_api_operations(updated_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_lane_entry_completion_cause ON kanban_lane_entry_events(caused_by_run_id) WHERE caused_by_run_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_lane_entry_recovery ON kanban_lane_entry_events(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_lane_entry_recovery ON kanban_lane_entry_events(status, next_attempt_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_lane_entry_health_status_created ON kanban_lane_entry_events(status, created_at);
 CREATE TABLE IF NOT EXISTS kanban_lane_runs (
   id TEXT PRIMARY KEY, lane_entry_event_id TEXT NOT NULL UNIQUE, prior_lane_run_id TEXT,
   project_id TEXT NOT NULL, workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, source_lane_id TEXT NOT NULL,
-  completion_target_lane_id TEXT, completion_mode TEXT NOT NULL, root_session_id TEXT UNIQUE,
+  completion_target_lane_id TEXT, root_session_id TEXT UNIQUE,
   status TEXT NOT NULL DEFAULT 'open', failure_reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
   succeeded_at INTEGER, failed_at INTEGER, cancelled_at INTEGER, superseded_at INTEGER, transition_applied_at INTEGER
 );

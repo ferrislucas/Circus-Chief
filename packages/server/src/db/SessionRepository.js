@@ -101,12 +101,11 @@ export class SessionRepository extends BaseRepository {
     const parentWorkflow = config.parentSessionId
       ? this.db.prepare('SELECT lane_run_id, own_work_state FROM sessions WHERE id = ?').get(config.parentSessionId)
       : null;
-    const runStatus = parentWorkflow?.lane_run_id
-      ? this.db.prepare('SELECT status FROM kanban_lane_runs WHERE id = ?').get(parentWorkflow.lane_run_id)?.status
-      : null;
-    const laneRunId = parentWorkflow?.own_work_state === 'open' && runStatus === 'open'
-      ? parentWorkflow.lane_run_id
-      : null;
+    const laneRunId = parentWorkflow?.own_work_state === 'open' && parentWorkflow.lane_run_id
+      && this.db.prepare(`SELECT 1 FROM kanban_lane_runs r JOIN kanban_cards c ON c.id=r.card_id
+        WHERE r.id=? AND r.status='open' AND c.active_lane_run_id=r.id AND c.lane_id=r.source_lane_id`)
+        .get(parentWorkflow.lane_run_id)
+      ? parentWorkflow.lane_run_id : null;
     this.db
       .prepare(
         `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, provider_id, effort_level, agent_type, lane_run_id, created_at, updated_at)

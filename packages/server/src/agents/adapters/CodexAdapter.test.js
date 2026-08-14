@@ -630,7 +630,7 @@ describe('CodexAdapter', () => {
       model: 'gpt-4o-mini',
       messages: [{ role: 'user', content: 'say hi' }],
       stream: true,
-    });
+    }, { signal: expect.any(AbortSignal) });
   });
 
   it('Direct-API path: ignores commitAttributionOverride without logging', async () => {
@@ -691,6 +691,25 @@ describe('CodexAdapter', () => {
 
     expect(caught).not.toBeNull();
     expect(caught.code).toBe('OPENAI_API_KEY_MISSING');
+  });
+
+  it('Direct-API path: aborts while provider request creation is blocked', async () => {
+    process.env.USE_CODEX_DIRECT_API = '1';
+    const controller = new AbortController();
+    const create = vi.fn((_request, requestOptions) => new Promise((_resolve, reject) => {
+      requestOptions.signal.addEventListener('abort', () => reject(requestOptions.signal.reason), { once: true });
+    }));
+    const adapter = new CodexAdapter({ openaiClientFactory: () => ({ chat: { completions: { create } } }) });
+    const execution = collect(adapter.execute({
+      prompt: 'blocked request',
+      options: { model: 'gpt-4o-mini', env: { OPENAI_API_KEY: 'sk-test' }, abortController: controller },
+    }));
+
+    await vi.waitFor(() => expect(create).toHaveBeenCalledOnce());
+    const lostClaim = new Error('Lane-entry claim ownership was lost');
+    controller.abort(lostClaim);
+
+    await expect(execution).rejects.toBe(lostClaim);
   });
 
   it('CLI path: command_execution and file_change events produce tool_result events', async () => {

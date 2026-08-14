@@ -14,7 +14,8 @@ import { buildInteractionCallbacks } from './promptCallbacks.js';
  */
 function buildClaudeCodeQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt,
-  model, sessionEnv, resumeSessionId = null, claudeMcpConfigHomeDirectory, conversationId = null,
+  model, sessionEnv, resumeSessionId = null, claudeMcpConfigHomeDirectory,
+  conversationId = null,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : model;

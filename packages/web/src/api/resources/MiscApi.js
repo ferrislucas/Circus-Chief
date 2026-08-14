@@ -6,6 +6,10 @@
  */
 export function MiscApi(ApiClient) {
   Object.assign(ApiClient.prototype, {
+    /** Get server and Kanban automation availability separately. */
+    async getServerInfo() {
+      return this._get('/server-info');
+    },
     // Git
 
     /**

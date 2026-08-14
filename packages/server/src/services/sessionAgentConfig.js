@@ -7,3 +7,13 @@ export function buildAgentConfig(agentType) {
   if (agentType === 'gemini') return { spawnGeminiProcess: createGeminiSpawner() };
   return {};
 }
+
+export function buildAgentEnv(sessionEnv, commitAttributionOverride) {
+  const env = { ...(sessionEnv || {}) };
+  if (commitAttributionOverride) {
+    env.CIRCUSCHIEF_COMMIT_ATTRIBUTION = commitAttributionOverride;
+  } else {
+    delete env.CIRCUSCHIEF_COMMIT_ATTRIBUTION;
+  }
+  return env;
+}
