@@ -109,6 +109,8 @@ describe('Workspace facade API', () => {
       expect(res.body.workspaces[0]).toMatchObject({
         id: root.id, name: 'Root', runningCount: 2, memberCount: 1,
         runningSessionIds: [root.id, expect.any(String)],
+        memberIds: [root.id, expect.any(String)],
+        latestCommandRuns: [],
       });
       expect(res.body.workspaces[0]).not.toHaveProperty('pendingPrompt');
       expect(res.body.workspaces[0]).not.toHaveProperty('sessions');

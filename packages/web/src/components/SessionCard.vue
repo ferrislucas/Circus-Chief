@@ -374,7 +374,11 @@ const workflowStatus = computed(() => {
 
 // Collect all running/starting session IDs in the workflow (full tree traversal)
 const runningSessionIds = computed(() => {
-  if (props.workflowAggregate) return props.workflowAggregate.runningCount > 0 ? [props.session.id] : [];
+  if (props.workflowAggregate) {
+    return props.workflowAggregate.runningSessionIds?.length
+      ? props.workflowAggregate.runningSessionIds
+      : (props.workflowAggregate.runningCount > 0 ? [props.session.id] : []);
+  }
   const runningStatuses = ['running', 'starting'];
   return getWorkflowSessions()
     .filter(s => runningStatuses.includes(s.status))

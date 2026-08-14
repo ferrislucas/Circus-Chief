@@ -256,6 +256,23 @@ export class CommandRunRepository extends BaseRepository {
     return this.mapAll(rows);
   }
 
+  /** Get the latest run per button for a bounded set of list-card sessions. */
+  getLatestRunsForSessions(sessionIds) {
+    if (!sessionIds.length) return [];
+    const placeholders = sessionIds.map(() => '?').join(', ');
+    const rows = this.db.prepare(
+      `SELECT * FROM (
+        SELECT cr.id, cr.session_id, cr.button_id, cr.status, cr.exit_code, cr.started_at, cr.completed_at,
+          EXISTS(SELECT 1 FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS has_output,
+          (SELECT COALESCE(MAX(sequence), 0) FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS output_high_water,
+          ROW_NUMBER() OVER (PARTITION BY cr.session_id, cr.button_id
+            ORDER BY COALESCE(cr.completed_at, cr.started_at) DESC, cr.id DESC) AS rn
+        FROM command_runs cr WHERE cr.session_id IN (${placeholders})
+      ) WHERE rn = 1 ORDER BY COALESCE(completed_at, started_at) DESC, id DESC`
+    ).all(...sessionIds);
+    return this.mapAll(rows);
+  }
+
   /**
    * Get the latest run for each button in a session (one per button)
    * @param {string} sessionId - Session ID
