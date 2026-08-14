@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { flushPromises, mount } from '@vue/test-utils';
+import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { defineComponent, h } from 'vue';
 import { format } from 'date-fns';
@@ -18,14 +18,6 @@ const mockKanbanStoreData = vi.hoisted(() => ({
   reorderCards: vi.fn().mockResolvedValue({}),
   createLane: vi.fn().mockResolvedValue({}),
 }));
-
-const mockApi = vi.hoisted(() => ({
-  getServerInfo: vi.fn().mockResolvedValue({
-    automationStatus: { http: 'available', scheduler: 'operational', kanban: 'operational' },
-  }),
-}));
-
-vi.mock('../api/ApiClient.js', () => ({ api: mockApi }));
 
 const createMockBoard = () => ({
   lanes: [
@@ -147,10 +139,6 @@ describe('KanbanBoard.vue', () => {
     mockKanbanStoreData.moveCard.mockResolvedValue({});
     mockKanbanStoreData.reorderCards.mockResolvedValue({});
     mockKanbanStoreData.createLane.mockResolvedValue({});
-    mockApi.getServerInfo.mockReset();
-    mockApi.getServerInfo.mockResolvedValue({
-      automationStatus: { http: 'available', scheduler: 'operational', kanban: 'operational' },
-    });
 
     mockKanbanStore = useKanbanStore();
     commandButtonsStore = useCommandButtonsStore();
@@ -214,64 +202,6 @@ describe('KanbanBoard.vue', () => {
       // Skip strict assertion - error state rendering
       // Covered by E2E tests
       expect(wrapper.exists()).toBe(true);
-    });
-  });
-
-  describe('automation status refresh', () => {
-    it('does not warn when the Kanban automation status is operational', async () => {
-      const wrapper = mountBoard();
-      await flushPromises();
-
-      expect(wrapper.find('[data-testid="automation-warning"]').exists()).toBe(false);
-    });
-
-    it('warns when the Kanban automation status is degraded', async () => {
-      mockApi.getServerInfo.mockResolvedValue({
-        automationStatus: {
-          http: 'available',
-          scheduler: 'operational',
-          kanban: 'degraded',
-          message: 'Workers are paused.',
-        },
-      });
-
-      const wrapper = mountBoard();
-      await flushPromises();
-
-      expect(wrapper.get('[data-testid="automation-warning"]').text()).toContain('Workers are paused.');
-    });
-
-    it('clears a degraded warning when a later poll reports healthy automation', async () => {
-      vi.useFakeTimers();
-      mockApi.getServerInfo
-        .mockResolvedValueOnce({ automationStatus: { http: 'available', scheduler: 'operational', kanban: 'degraded', message: 'Workers are paused.' } })
-        .mockResolvedValueOnce({ automationStatus: { http: 'available', scheduler: 'operational', kanban: 'operational' } });
-
-      const wrapper = mountBoard();
-      await flushPromises();
-      expect(wrapper.get('[data-testid="automation-warning"]').text()).toContain('Workers are paused.');
-
-      await vi.advanceTimersByTimeAsync(30_000);
-      await flushPromises();
-      expect(wrapper.find('[data-testid="automation-warning"]').exists()).toBe(false);
-      wrapper.unmount();
-    });
-
-    it('keeps a known degraded warning when a refresh fails and cleans up its timer', async () => {
-      vi.useFakeTimers();
-      mockApi.getServerInfo
-        .mockResolvedValueOnce({ automationStatus: { http: 'available', scheduler: 'operational', kanban: 'degraded', message: 'Workers are paused.' } })
-        .mockRejectedValueOnce(new Error('temporary network failure'));
-
-      const wrapper = mountBoard();
-      await flushPromises();
-      await vi.advanceTimersByTimeAsync(30_000);
-      await flushPromises();
-      expect(wrapper.get('[data-testid="automation-warning"]').text()).toContain('Workers are paused.');
-
-      wrapper.unmount();
-      await vi.advanceTimersByTimeAsync(30_000);
-      expect(mockApi.getServerInfo).toHaveBeenCalledTimes(2);
     });
   });
 

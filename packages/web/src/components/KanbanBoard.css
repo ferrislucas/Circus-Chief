@@ -599,13 +599,3 @@
   border-radius: 2px;
   margin: -0.125rem 0;
 }
-.automation-warning {
-  margin: 0 0 12px;
-  padding: 10px 14px;
-  border: 1px solid #d97706;
-  border-left: 4px solid #f59e0b;
-  border-radius: 6px;
-  background: #451a03;
-  color: #fde68a;
-  font-size: 0.875rem;
-}

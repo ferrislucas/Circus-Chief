@@ -1,14 +1,6 @@
 <!-- eslint-disable max-lines -->
 <template>
   <div class="kanban-board">
-    <div
-      v-if="automationWarning"
-      class="automation-warning"
-      role="alert"
-      data-testid="automation-warning"
-    >
-      <strong>Automation unavailable.</strong> {{ automationWarning }} Manual board access is still available.
-    </div>
     <!-- Board header bar: always rendered (outside the loading/error/empty chain) -->
     <div class="board-header-bar">
       <KanbanLayoutToggle
@@ -307,7 +299,6 @@ import KanbanBoardIcon from './KanbanBoardIcon.vue';
 import KanbanCardSessionDetails from './KanbanCardSessionDetails.vue';
 import KanbanLayoutToggle from './KanbanLayoutToggle.vue';
 import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
-import { api } from '../api/ApiClient.js';
 import './KanbanBoard.css';
 const props = defineProps({
   projectId: { type: String, required: true },
@@ -315,29 +306,6 @@ const props = defineProps({
 const kanbanStore = useKanbanStore();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
-const automationWarning = ref('Checking automation status…');
-const AUTOMATION_STATUS_REFRESH_MS = 30_000;
-let automationStatusInterval = null;
-let automationStatusRequestInFlight = false;
-
-async function fetchAutomationStatus() {
-  if (automationStatusRequestInFlight) return;
-  automationStatusRequestInFlight = true;
-  try {
-    const info = await api.getServerInfo();
-    const status = info.automationStatus;
-    automationWarning.value = status?.kanban === 'operational' ? ''
-      : (status?.message || 'Unable to verify whether lane automation and scheduling are available.');
-  } catch {
-    // Do not replace a known degraded status with a less useful transient
-    // network error. The next successful poll will still update the banner.
-    if (!automationWarning.value) {
-      automationWarning.value = 'Unable to verify whether lane automation and scheduling are available.';
-    }
-  } finally {
-    automationStatusRequestInFlight = false;
-  }
-}
 // ==================== Layout state ====================
 const LAYOUT_MODE_KEY = 'kanbanLayoutMode';
 const VALID_LAYOUT_MODES = ['auto', 'horizontal', 'vertical'];
@@ -373,8 +341,6 @@ let _mql = null;
 const onMqlChange = (e) => { isNarrow.value = e.matches; };
 
 onMounted(() => {
-  fetchAutomationStatus();
-  automationStatusInterval = setInterval(fetchAutomationStatus, AUTOMATION_STATUS_REFRESH_MS);
   if (typeof window !== 'undefined' && window.matchMedia) {
     _mql = window.matchMedia('(max-width: 640px)');
     isNarrow.value = _mql.matches;
@@ -383,10 +349,6 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  if (automationStatusInterval) {
-    clearInterval(automationStatusInterval);
-    automationStatusInterval = null;
-  }
   if (_mql) {
     _mql.removeEventListener('change', onMqlChange);
     _mql = null;
