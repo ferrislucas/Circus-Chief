@@ -55,14 +55,6 @@ let onSessionCreatedCallback = null;
 let onSessionUpdatedCallback = null;
 let onSessionDeletedCallback = null;
 let onSessionSummaryUpdatedCallback = null;
-let onCommandRunOutputCallback = null;
-let onCommandRunCompleteCallback = null;
-let onCommandRunErrorCallback = null;
-
-// Store summaryCallbacks passed to useProjectSessionSubscription
-let capturedSummaryCallbacks = null;
-// Store a reference to the archivedLoaded ref created by the mock
-let mockArchivedLoaded = null;
 
 // Mock useRunningSessionSubscriptions composable (no-op in tests)
 vi.mock('../composables/useRunningSessionSubscriptions.js', () => ({
@@ -134,111 +126,11 @@ vi.mock('../composables/useWebSocket.js', () => ({
       onSessionSummaryUpdatedCallback = cb;
       return vi.fn();
     }),
-    onCommandRunOutput: vi.fn((cb) => {
-      onCommandRunOutputCallback = cb;
-      return vi.fn();
-    }),
-    onCommandRunComplete: vi.fn((cb) => {
-      onCommandRunCompleteCallback = cb;
-      return vi.fn();
-    }),
-    onCommandRunError: vi.fn((cb) => {
-      onCommandRunErrorCallback = cb;
-      return vi.fn();
-    }),
+    onCommandRunOutput: vi.fn(() => vi.fn()),
+    onCommandRunComplete: vi.fn(() => vi.fn()),
+    onCommandRunError: vi.fn(() => vi.fn()),
   })),
 }));
-
-// Mock useProjectSessionSubscription - replicates the composable behavior
-// using the same mocked stores and WebSocket subscription
-vi.mock('../composables/useProjectSessionSubscription.js', () => ({
-    useProjectSessionSubscription: vi.fn((projectIdRef, summaryCallbacks) => {
-      capturedSummaryCallbacks = summaryCallbacks;
-      const archivedLoaded = ref(false);
-      mockArchivedLoaded = archivedLoaded;
-
-      // Watch projectId and set up WebSocket handlers (replicating composable behavior)
-      watch(
-        projectIdRef,
-        async (newProjectId) => {
-          if (!newProjectId) return;
-          archivedLoaded.value = false;
-
-          // Call the stores directly using the mocked store functions
-          // These are looked up at call time, so they use whatever mock is active
-          const projectsStore = useProjectsStore();
-          const sessionsStore = useSessionsStore();
-          const commandButtonsStore = useCommandButtonsStore();
-
-          projectsStore.fetchProject(newProjectId);
-          await sessionsStore.fetchSessions(newProjectId);
-          await commandButtonsStore.fetchButtons(newProjectId);
-          summaryCallbacks.fetchSummariesBatch(sessionsStore.sessions);
-
-          const sub = useProjectSubscription(newProjectId);
-          sub.subscribe();
-
-          sub.onSessionCreated((session) => {
-            sessionsStore.addSessionToList(session);
-          });
-          sub.onSessionUpdated((session) => {
-            sessionsStore.updateSession(session);
-          });
-          sub.onSessionDeleted((sessionId) => {
-            sessionsStore.removeSessionFromList(sessionId);
-            summaryCallbacks.cleanupSummary(sessionId);
-          });
-          sub.onSessionSummaryUpdated((sessionId, summary) => {
-            summaryCallbacks.updateSummary(sessionId, summary);
-          });
-          sub.onCommandRunOutput((runId, sessionId, buttonId, output) => {
-            const existingRun = commandButtonsStore.runs[runId];
-            const sessions = sessionsStore.sessions;
-            const storeSession = sessions.find(s => s.id === sessionId);
-            const existingSessionRun = storeSession?.latestCommandRuns?.find(r => r.runId === runId);
-            const startedAt = existingRun?.startedAt || existingSessionRun?.startedAt || Date.now();
-            if (!commandButtonsStore.runs[runId]) {
-              commandButtonsStore.runs[runId] = {
-                runId, buttonId, sessionId, status: 'running', output: '', exitCode: null, startedAt, outputTruncated: false,
-              };
-            }
-            if (commandButtonsStore.appendOutput) commandButtonsStore.appendOutput(runId, output);
-            if (sessionsStore.updateSessionCommandRun) {
-              sessionsStore.updateSessionCommandRun(sessionId, buttonId, { buttonId, status: 'running', runId, startedAt });
-            }
-          });
-          sub.onCommandRunComplete(({ runId, sessionId, buttonId, exitCode, output }) => {
-            if (!commandButtonsStore.runs[runId]) {
-              commandButtonsStore.runs[runId] = {
-                runId, buttonId, sessionId, status: 'running', output: '', exitCode: null, startedAt: Date.now(), outputTruncated: false,
-              };
-            }
-            if (commandButtonsStore.completeRun) commandButtonsStore.completeRun(runId, exitCode, output);
-            const status = exitCode === 0 ? 'success' : 'error';
-            if (sessionsStore.updateSessionCommandRun) {
-              sessionsStore.updateSessionCommandRun(sessionId, buttonId, { buttonId, status, exitCode, runId, completedAt: Date.now() });
-            }
-          });
-          sub.onCommandRunError((runId, sessionId, buttonId, error) => {
-            if (!commandButtonsStore.runs[runId]) {
-              commandButtonsStore.runs[runId] = {
-                runId, buttonId, sessionId, status: 'running', output: '', exitCode: null, startedAt: Date.now(), outputTruncated: false,
-              };
-            }
-            if (commandButtonsStore.errorRun) commandButtonsStore.errorRun(runId, error);
-            if (sessionsStore.updateSessionCommandRun) {
-              sessionsStore.updateSessionCommandRun(sessionId, buttonId, { buttonId, status: 'error', runId, completedAt: Date.now() });
-            }
-          });
-        },
-        { immediate: true }
-      );
-
-      onUnmounted(() => {});
-
-      return { archivedLoaded };
-    }),
-  }));
 
 // Mock useSessionFiltering composable - replicates filter logic using the sessions store
 vi.mock('../composables/useSessionFiltering.js', () => ({
@@ -555,7 +447,6 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useProjectSubscription } from '../composables/useWebSocket.js';
 import { useSessionFiltering } from '../composables/useSessionFiltering.js';
-import { useProjectSessionSubscription } from '../composables/useProjectSessionSubscription.js';
 import { useRunningSessionSubscriptions } from '../composables/useRunningSessionSubscriptions.js';
 
 // Helper to create a sessions store mock with proper groupedSessions getter
@@ -679,8 +570,6 @@ describe('SessionListView', () => {
     onSessionUpdatedCallback = null;
     onSessionDeletedCallback = null;
     onSessionSummaryUpdatedCallback = null;
-    capturedSummaryCallbacks = null;
-    mockArchivedLoaded = null;
 
     // Reset API mocks
     mockGetSessionSummary.mockReset();
@@ -995,8 +884,6 @@ describe('Status filtering', () => {
     onSessionUpdatedCallback = null;
     onSessionDeletedCallback = null;
     onSessionSummaryUpdatedCallback = null;
-    capturedSummaryCallbacks = null;
-    mockArchivedLoaded = null;
 
     mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);
@@ -1609,8 +1496,6 @@ describe.skip('legacy project-wide SessionListView integration', () => {
 
     // Reset callbacks
     onSessionSummaryUpdatedCallback = null;
-    capturedSummaryCallbacks = null;
-    mockArchivedLoaded = null;
 
     useProjectsStore.mockReturnValue({
       currentProject: { id: 'test-project-id', name: 'Test Project' },
@@ -1675,8 +1560,6 @@ describe('SessionListView Archived Tab', () => {
 
     // Reset callbacks
     onSessionSummaryUpdatedCallback = null;
-    capturedSummaryCallbacks = null;
-    mockArchivedLoaded = null;
 
     mockProjectsStore = {
       currentProject: { id: 'test-project-id', name: 'Test Project' },
@@ -2546,8 +2429,6 @@ describe('SessionListView batch summary fetching', () => {
     onSessionUpdatedCallback = null;
     onSessionDeletedCallback = null;
     onSessionSummaryUpdatedCallback = null;
-    capturedSummaryCallbacks = null;
-    mockArchivedLoaded = null;
 
     mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);
@@ -3172,8 +3053,6 @@ describe('Add Session button responsive labels', () => {
     onSessionSummaryUpdatedCallback = null;
     onSessionUpdatedCallback = null;
     onSessionDeletedCallback = null;
-    capturedSummaryCallbacks = null;
-    mockArchivedLoaded = null;
 
     mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);

@@ -74,6 +74,7 @@ export function getWorkspaceCards(db, projectId, { archived = false, starred = n
       a.waiting_count AS waitingCount, a.member_count AS memberCount,
       a.nearest_scheduled_at AS nearestScheduledAt,
       ss.short_summary AS summaryPreview,
+      ss.pr_state AS prState, ss.has_merge_conflicts AS hasMergeConflicts, ss.ci_status AS ciStatus,
       kc.id AS kanbanCardId, kl.id AS laneId, kl.name AS laneName
     FROM sessions s JOIN aggregates a ON a.root_id = s.id
     LEFT JOIN session_summaries ss ON ss.session_id = s.id
@@ -108,6 +109,12 @@ function toWorkspaceCard(row) {
     scheduledCount: row.scheduledCount, waitingCount: row.waitingCount,
     memberCount: row.memberCount, nearestScheduledAt: row.nearestScheduledAt || null,
     summaryPreview: row.summaryPreview || null,
+    // PR/CI indicators are scalar summary fields, so the card can render them
+    // without the list fetching a summary per workspace.
+    prState: row.prState || null,
+    hasMergeConflicts: row.hasMergeConflicts === null || row.hasMergeConflicts === undefined
+      ? null : Boolean(row.hasMergeConflicts),
+    ciStatus: row.ciStatus || null,
     kanban: row.kanbanCardId ? { cardId: row.kanbanCardId, laneId: row.laneId, laneName: row.laneName } : null,
   };
 }
@@ -125,6 +132,7 @@ export function getWorkspaceMembers(db, rootId) {
     SELECT s.id, s.project_id AS projectId, s.parent_session_id AS parentSessionId,
       s.name, s.status, s.starred, s.archived, s.scheduled_at AS scheduledAt,
       s.created_at AS createdAt, s.updated_at AS updatedAt, tree.depth,
+      ${ACTIVITY_FIELDS_SQL},
       ss.short_summary AS summaryPreview
     FROM tree JOIN sessions s ON s.id = tree.id
     LEFT JOIN session_summaries ss ON ss.session_id = s.id ORDER BY tree.path
@@ -134,6 +142,11 @@ export function getWorkspaceMembers(db, rootId) {
     name: row.name, status: row.status, starred: Boolean(row.starred),
     archived: Boolean(row.archived), scheduledAt: row.scheduledAt,
     createdAt: row.createdAt, updatedAt: row.updatedAt, depth: row.depth,
+    // Recency drives session-picker ordering and overlay auto-select, so the
+    // member projection has to carry it rather than leaving consumers to guess
+    // from updatedAt.
+    lastActivityAt: row.last_activity_at ?? null,
+    lastMessageAt: row.last_message_at ?? null,
     summaryPreview: row.summaryPreview || null,
   }));
 }

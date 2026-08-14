@@ -7,7 +7,7 @@ import projectSessionDefaultsRouter from './projects-session-defaults.js';
 import projectTemplatesRouter from './projects-templates.js';
 import { handleUploadError, uploadMiddleware } from '../middleware/upload.js';
 import { determineInitialStatus } from './projects-session-helpers.js';
-import { buildRunsBySession } from './projects-helpers.js';
+import { buildRunsBySession } from '../services/commandRunIndex.js';
 import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 import { access, constants } from 'fs/promises';
 import { dirname, isAbsolute, join } from 'path';

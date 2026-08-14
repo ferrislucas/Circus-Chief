@@ -102,3 +102,30 @@ describe('workspace list request lifecycle', () => {
     expect(store.loadingMore).toBe(false);
   });
 });
+
+describe('workspace list filter state', () => {
+  it('treats the default unarchived scope as unfiltered', () => {
+    const store = useWorkspaceListStore();
+    store._install('project-a', { archived: false, starred: null, status: null, scheduled: null }, {
+      workspaces: [],
+      pagination: { hasMore: false, nextCursor: null },
+    });
+
+    expect(store.hasActiveFilters).toBe(false);
+  });
+
+  it('reports user-chosen filters as active', () => {
+    const store = useWorkspaceListStore();
+    store._install('project-a', { archived: false, starred: true, status: null, scheduled: null }, {
+      workspaces: [],
+      pagination: { hasMore: false, nextCursor: null },
+    });
+    expect(store.hasActiveFilters).toBe(true);
+
+    store._install('project-a', { archived: true, starred: null, status: null, scheduled: null }, {
+      workspaces: [],
+      pagination: { hasMore: false, nextCursor: null },
+    });
+    expect(store.hasActiveFilters).toBe(true);
+  });
+});

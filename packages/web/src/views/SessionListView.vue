@@ -216,7 +216,7 @@
             :workflow-aggregate="workspace"
             :show-archive="true"
             :pr-url="workspace.prUrl"
-            :pr-summary="null"
+            :pr-summary="workspacePrSummary(workspace)"
             @retry-summary="retryFetchSummary"
             @archive="handleArchive"
             @star="handleStar"
@@ -308,8 +308,10 @@ import { useWorkspaceListStore } from '../stores/workspaceList.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useSummaries } from '../composables/useSummaries.js';
 import { useRunningSessionSubscriptions } from '../composables/useRunningSessionSubscriptions.js';
+import { useProjectRealtimeStoreSync } from '../composables/useProjectRealtimeStoreSync.js';
 import { useProjectSubscription, useWebSocket } from '../composables/useWebSocket.js';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
+import { workspacePrSummary } from '../utils/workspaceCard.js';
 import SessionCard from '../components/SessionCard.vue';
 import SessionFiltersPanel from '../components/SessionFiltersPanel.vue';
 import ArchivedTabContent from '../components/ArchivedTabContent.vue';
@@ -456,6 +458,13 @@ registerProjectHandler('onSessionSummaryUpdated', (sessionId, summary) => {
 for (const event of ['onCommandRunStarted', 'onCommandRunComplete', 'onCommandRunError',
   'onCommandRunDeleted', 'onKanbanBoardUpdated', 'onKanbanCardMoved',
   'onKanbanCardAdded', 'onKanbanCardRemoved']) registerProjectHandler(event);
+// Card reconciliation above only refreshes the list read model. Command-run and
+// Kanban stores still need the pushed payloads applied so the Kanban tab and the
+// inline command output panes stay live without a session-wide download.
+const cleanupStoreSync = useProjectRealtimeStoreSync(projectSubscription, {
+  activeTab,
+  eligibleCommandSessionIds,
+});
 const removeReconnectHandler = typeof useWebSocket === 'function'
   ? useWebSocket().onReconnect?.(revalidateWorkspaceCards) : null;
 revalidateWorkspaceCards();
@@ -665,11 +674,11 @@ onMounted(() => {
   // Board data is deferred to the Kanban tab; card DTOs include their lane.
 });
 
+// Cleanup on unmount
 onUnmounted(() => {
   for (const cleanup of cleanupProjectHandlers) cleanup?.();
+  cleanupStoreSync();
   removeReconnectHandler?.();
   projectSubscription.unsubscribe();
 });
-
-// Cleanup on unmount
 </script>

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { kanbanBoards, kanbanCards, kanbanLanes, projects, sessions } from '../database.js';
+import { kanbanBoards, kanbanCards, kanbanLanes, messages, projects, sessionSummaries, sessions } from '../database.js';
 import { attachRootSession, createLaneRunForEntry, supersedeRunForCard } from '../services/workflowSessionService.js';
 
 // Mock websocket
@@ -116,6 +116,43 @@ describe('Workspace facade API', () => {
       expect(res.body.workspaces[0]).not.toHaveProperty('sessions');
       expect(res.headers['server-timing']).toContain('workspace;dur=');
       expect(Number(res.headers['x-response-bytes'])).toBeGreaterThan(0);
+    });
+
+    it('carries the PR and CI indicators the card renders', async () => {
+      const root = sessions.create(project.id, 'Root', 'p');
+      sessions.update(root.id, { prUrl: 'https://github.com/owner/repo/pull/7' });
+      sessionSummaries.upsert(root.id, {
+        shortSummary: 'Card summary',
+        prState: 'merged',
+        prMerged: true,
+        hasMergeConflicts: true,
+        ciStatus: 'failure',
+      });
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=50`)
+        .expect(200);
+
+      expect(res.body.workspaces[0]).toMatchObject({
+        id: root.id,
+        prUrl: 'https://github.com/owner/repo/pull/7',
+        summaryPreview: 'Card summary',
+        prState: 'merged',
+        hasMergeConflicts: true,
+        ciStatus: 'failure',
+      });
+    });
+
+    it('leaves PR indicators null when no summary has been generated', async () => {
+      const root = sessions.create(project.id, 'Root', 'p');
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=50`)
+        .expect(200);
+
+      expect(res.body.workspaces[0]).toMatchObject({
+        id: root.id, prState: null, hasMergeConflicts: null, ciStatus: null,
+      });
     });
 
     it('caps the optimized card page at 50 items', async () => {
@@ -272,6 +309,22 @@ describe('Workspace facade API', () => {
       expect(res.body.workspace).toMatchObject({ id: root.id, parentSessionId: null });
       expect(res.body.members).toHaveLength(3);
       expect(res.body.members[0]).not.toHaveProperty('pendingPrompt');
+    });
+
+    it('includes member recency so pickers can order by conversation activity', async () => {
+      const root = sessions.create(project.id, 'Root', 'root');
+      const child = sessions.create(project.id, 'Child', 'child', { parentSessionId: root.id });
+      messages.create(child.id, 'user', 'hello');
+
+      const res = await request(app)
+        .get(`/api/workspaces/${root.id}`)
+        .expect(200);
+
+      const childMember = res.body.members.find((member) => member.id === child.id);
+      const rootMember = res.body.members.find((member) => member.id === root.id);
+      expect(childMember.lastMessageAt).toEqual(expect.any(Number));
+      expect(childMember.lastActivityAt).toEqual(expect.any(Number));
+      expect(childMember.lastMessageAt).toBeGreaterThanOrEqual(rootMember.lastMessageAt ?? 0);
     });
 
     it('normalises a child ID to its workspace root (forgiving)', async () => {

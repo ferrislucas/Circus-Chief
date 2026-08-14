@@ -15,9 +15,8 @@
  */
 
 import { Router } from 'express';
-import { sessions, projects, commandRuns } from '../database.js';
-import { commandRunner } from '../services/commandRunner.js';
-import { buildRunsBySession } from './projects-helpers.js';
+import { sessions, projects } from '../database.js';
+import { latestCommandRunsBySession } from '../services/commandRunIndex.js';
 import { determineInitialStatus } from './projects-session-helpers.js';
 import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 import {
@@ -203,12 +202,7 @@ function sendWorkspaceCards(res, projectId, query, startedAt) {
   if (!options) return res.status(400).json({ error: 'Invalid workspace card pagination or filters' });
   const pagePlusOne = sessions.getWorkspaceCards(projectId, { ...options, limit: options.limit + 1 });
   const cardIds = pagePlusOne.map(card => card.id);
-  const cardIdSet = new Set(cardIds);
-  const runsBySession = buildRunsBySession(
-    commandRuns.getLatestRunsForSessions(cardIds),
-    commandRunner.getRunningByProjectId(projectId, (sessionId) => sessions.getById(sessionId))
-      .filter(run => cardIdSet.has(run.sessionId))
-  );
+  const runsBySession = latestCommandRunsBySession(projectId, cardIds);
   const cards = pagePlusOne.map(card => ({
     ...card,
     latestCommandRuns: Object.values(runsBySession[card.id] || {}),

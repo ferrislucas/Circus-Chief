@@ -70,7 +70,12 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
   }),
   getters: {
     cards: state => state.orderedIds.map(id => state.cardsById[id]).filter(Boolean),
-    hasActiveFilters: state => Object.values(state.query).some(value => value !== undefined && value !== null && value !== ''),
+    // `archived: false` is the default scope of the list rather than a filter
+    // the user chose, so an empty unfiltered project still reads as
+    // "no workspaces yet" instead of "nothing matches the filter".
+    hasActiveFilters: state => state.query.archived === true
+      || ['starred', 'status', 'scheduled']
+        .some(key => state.query[key] !== undefined && state.query[key] !== null && state.query[key] !== ''),
   },
   actions: {
     _saveSnapshot() {
