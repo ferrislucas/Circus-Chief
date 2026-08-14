@@ -286,6 +286,47 @@ describe('workflowSessionService', () => {
     expect(sessionRows).toHaveLength(2);
   });
 
+  it.each([
+    ['card move', `BEFORE UPDATE OF lane_id ON kanban_cards
+      WHEN OLD.id='CARD_ID' AND NEW.lane_id='TARGET_ID'`],
+    ['successor entry event', `BEFORE INSERT ON kanban_lane_entry_events
+      WHEN NEW.caused_by_run_id='RUN_ID'`],
+    ['successor lane run', `BEFORE INSERT ON kanban_lane_runs
+      WHEN NEW.prior_lane_run_id='RUN_ID'`],
+    ['successor ownership pointer', `BEFORE UPDATE OF active_lane_run_id ON kanban_cards
+      WHEN OLD.id='CARD_ID' AND NEW.lane_id='TARGET_ID' AND NEW.active_lane_run_id<>'RUN_ID'`],
+    ['transition audit', `BEFORE INSERT ON kanban_lane_run_audit_events
+      WHEN NEW.lane_run_id='RUN_ID' AND NEW.event_type='transition_applied'`],
+  ])('rolls back the entire completion transition when the %s write fails', (_boundary, triggerWhen) => {
+    kanbanLanes.update(target.id, { onEnterPrompt: 'perform target work' });
+    const run = createLaneRunForEntry({
+      projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane(),
+    });
+    const db = databaseManager.get();
+    const triggerSql = triggerWhen
+      .replaceAll('CARD_ID', card.id)
+      .replaceAll('TARGET_ID', target.id)
+      .replaceAll('RUN_ID', run.id);
+    db.exec(`CREATE TEMP TRIGGER fail_lane_transition ${triggerSql}
+      BEGIN SELECT injected_transition_failure(); END`);
+
+    try {
+      expect(() => attemptLaneRunTransition(run.id)).toThrow('injected_transition_failure');
+    } finally {
+      db.exec('DROP TRIGGER fail_lane_transition');
+    }
+
+    expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'open', succeededAt: null }));
+    expect(db.prepare('SELECT transition_applied_at FROM kanban_lane_runs WHERE id=?').get(run.id).transition_applied_at).toBeNull();
+    expect(kanbanCards.getById(card.id)).toEqual(expect.objectContaining({
+      laneId: source.id, activeLaneRunId: run.id,
+    }));
+    expect(db.prepare('SELECT id FROM kanban_lane_entry_events WHERE caused_by_run_id=?').get(run.id)).toBeUndefined();
+    expect(db.prepare('SELECT id FROM kanban_lane_runs WHERE prior_lane_run_id=?').get(run.id)).toBeUndefined();
+    expect(db.prepare("SELECT id FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='transition_applied'").get(run.id))
+      .toBeUndefined();
+  });
+
   it('does not create an orphan entry event when completion moves into an unautomated lane', () => {
     const plainTarget = kanbanLanes.create(board.id, { name: 'Done' });
     const automatedSource = kanbanLanes.create(board.id, {

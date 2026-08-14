@@ -13,7 +13,7 @@ import { databaseManager } from '../db/DatabaseManager.js';
 import { activeSessions } from './streamEventHandler.js';
 import { getRun } from './workflowRunReader.js';
 import { recomputeSubtreeOutcomes } from './workflowSessionState.js';
-import { moveCardForTransition } from './workflowLaneTransition.js';
+import { broadcastCardTransition, moveCardForTransition } from './workflowLaneTransition.js';
 
 export { getRun } from './workflowRunReader.js';
 export { computeSubtreeOutcome, recomputeSubtreeOutcomes } from './workflowSessionState.js';
@@ -377,52 +377,61 @@ export function reconcileLaneRun(runId) {
  * kanbanService.triggerStructuredTransitionAutomation(), called from
  * sessionExecution.js right after finalizeOwnWorkCompletion().
  */
-export function attemptLaneRunTransition(runId) {
-  const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
-  if (!run || run.status !== 'open') return getRun(runId);
-  const card = db.prepare('SELECT * FROM kanban_cards WHERE id=?').get(run.card_id);
-  if (!card || card.active_lane_run_id !== runId || card.lane_id !== run.source_lane_id) return getRun(runId);
-  const time = now();
-  const winner = db.prepare(`UPDATE kanban_lane_runs SET status='succeeded', succeeded_at=?, transition_applied_at=?, updated_at=? WHERE id=? AND status='open'`)
-    .run(time, time, time, runId);
-  if (winner.changes === 0) return getRun(runId);
-
-  const targetLaneId = moveCardForTransition(run, card);
-  const targetLane = targetLaneId
-    ? db.prepare('SELECT * FROM kanban_lanes WHERE id=?').get(targetLaneId)
-    : null;
-  const laneRun = targetLane && isStructured({
+function createCompletionSuccessor(run, card, movedCard) {
+  if (!movedCard) return null;
+  const db = databaseManager.get();
+  const targetLane = db.prepare('SELECT * FROM kanban_lanes WHERE id=?').get(movedCard.laneId);
+  if (!targetLane || !isStructured({
     completionTargetLaneId: targetLane.completion_target_lane_id,
     onEnterTemplateId: targetLane.on_enter_template_id,
     onEnterPrompt: targetLane.on_enter_prompt,
-  })
-    ? createLaneRunForEntry({
-        projectId: run.project_id,
-        workspaceId: run.workspace_id,
-        cardId: card.id,
-        lane: {
-          id: targetLane.id,
-          completionTargetLaneId: targetLane.completion_target_lane_id,
-          onEnterTemplateId: targetLane.on_enter_template_id,
-          onEnterPrompt: targetLane.on_enter_prompt,
-        },
-        cause: 'completion',
-        priorLaneRunId: runId,
-      })
-    : null;
-  if (!laneRun) db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE id=?').run(now(), card.id);
-  audit(db, runId, 'transition_applied');
+  })) return null;
+  return createLaneRunForEntry({
+    projectId: run.project_id,
+    workspaceId: run.workspace_id,
+    cardId: card.id,
+    lane: {
+      id: targetLane.id,
+      completionTargetLaneId: targetLane.completion_target_lane_id,
+      onEnterTemplateId: targetLane.on_enter_template_id,
+      onEnterPrompt: targetLane.on_enter_prompt,
+    },
+    cause: 'completion',
+    priorLaneRunId: run.id,
+  });
+}
 
-  const result = getRun(runId);
-  if (laneRun) {
-    result.pendingTargetLaneTrigger = {
-      workspaceSessionId: run.workspace_id,
-      targetLaneId,
-      cardId: card.id,
-      sourceRunId: runId,
-      laneEntryEventId: laneRun.laneEntryEventId,
-    };
-  }
+export function attemptLaneRunTransition(runId) {
+  const transition = databaseManager.transaction(() => {
+    const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
+    if (!run || run.status !== 'open') return { result: getRun(runId) };
+    const card = db.prepare('SELECT * FROM kanban_cards WHERE id=?').get(run.card_id);
+    if (!card || card.active_lane_run_id !== runId || card.lane_id !== run.source_lane_id) return { result: getRun(runId) };
+    const time = now();
+    const winner = db.prepare(`UPDATE kanban_lane_runs SET status='succeeded', succeeded_at=?, transition_applied_at=?, updated_at=? WHERE id=? AND status='open'`)
+      .run(time, time, time, runId);
+    if (winner.changes === 0) return { result: getRun(runId) };
+
+    const movedCard = moveCardForTransition(run, card);
+    const targetLaneId = movedCard?.laneId || null;
+    const laneRun = createCompletionSuccessor(run, card, movedCard);
+    if (!laneRun) db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE id=?').run(now(), card.id);
+    audit(db, runId, 'transition_applied');
+
+    const result = getRun(runId);
+    if (laneRun) {
+      result.pendingTargetLaneTrigger = {
+        workspaceSessionId: run.workspace_id,
+        targetLaneId,
+        cardId: card.id,
+        sourceRunId: runId,
+        laneEntryEventId: laneRun.laneEntryEventId,
+      };
+    }
+    return { result, run, card, movedCard };
+  });
+  if (transition.movedCard) broadcastCardTransition(transition.run, transition.card, transition.movedCard);
+  const { result } = transition;
   return result;
 }
 

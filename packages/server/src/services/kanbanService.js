@@ -190,14 +190,14 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
  * structured lane-run's transition into the target lane's on-enter
  * automation.
  *
- * The DB transition itself (marking the run succeeded, moving the card,
- * assigning sort_order, broadcasting KANBAN_CARD_MOVED) already happened
- * synchronously and atomically inside workflowSessionService.js's
- * attemptLaneRunTransition — that module cannot import this one (kanbanService
- * -> kanbanTriggers -> sessionManager -> sessionExecution -> workflowSessionService
- * would cycle), so it hands back a `pendingTargetLaneTrigger` descriptor for
- * the necessarily-async remainder: creating the target lane's next run and
- * starting its on-enter session.
+ * The DB transition itself (marking the run succeeded, moving the card, and
+ * assigning sort_order) already happened synchronously and atomically inside
+ * workflowSessionService.js's attemptLaneRunTransition. Its move broadcast is
+ * emitted immediately after that transaction commits. This module cannot be
+ * imported there (kanbanService -> kanbanTriggers -> sessionManager ->
+ * sessionExecution -> workflowSessionService would cycle), so it hands back a
+ * `pendingTargetLaneTrigger` descriptor for the necessarily-async remainder:
+ * creating the target lane's next run and starting its on-enter session.
  *
  * @param {{ workspaceSessionId: string, targetLaneId: string, cardId: string, sourceRunId: string }} pending
  */
