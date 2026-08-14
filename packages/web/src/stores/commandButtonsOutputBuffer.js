@@ -20,6 +20,24 @@ export function truncateOutput(text) {
 }
 
 /**
+ * Resolve the client-side high-water cursor for a run entry.
+ *
+ * Client-side the cursor tracks how much output has actually been rendered, so
+ * the server's cursor only applies when its output snapshot does. Adopting it
+ * alongside an empty snapshot (lightweight queries exclude output) would make
+ * later catch-up reads skip the very chunks that still need to be displayed.
+ *
+ * @param {Object} run - The run data from API
+ * @param {Object|undefined} existing - Existing run entry if present
+ * @param {boolean} hasServerOutput - Whether the API response carried output
+ * @returns {number} The cursor to store
+ */
+function resolveOutputHighWater(run, existing, hasServerOutput) {
+  if (!hasServerOutput) return existing?.outputHighWater ?? 0;
+  return run.outputHighWater ?? existing?.outputHighWater ?? 0;
+}
+
+/**
  * Build a run entry, preserving existing output if API returned empty.
  * @param {Object} run - The run data from API
  * @param {string} runId - The resolved run ID
@@ -40,9 +58,28 @@ export function buildRunEntry(run, runId, existing) {
     startedAt: run.startedAt,
     completedAt: run.completedAt,
     hasOutput: run.hasOutput ?? existing?.hasOutput ?? Boolean(output),
-    outputHighWater: run.outputHighWater ?? existing?.outputHighWater ?? 0,
+    outputHighWater: resolveOutputHighWater(run, existing, Boolean(output)),
     outputTruncated: hasExistingOutput ? existing.outputTruncated : truncated,
   };
+}
+
+/**
+ * Append text to a run's rendered output immediately (no throttling buffer).
+ * @param {Object} store - The Pinia store instance
+ * @param {string} runId - The run ID
+ * @param {string} text - The text to append
+ */
+function patchRunOutput(store, runId, text) {
+  const { output, truncated } = truncateOutput(store.runs[runId].output + text);
+  store.$patch({
+    runs: {
+      [runId]: {
+        ...store.runs[runId],
+        output,
+        outputTruncated: store.runs[runId].outputTruncated || truncated,
+      },
+    },
+  });
 }
 
 /**
@@ -67,20 +104,8 @@ export function flushOutput(store, runId) {
     return;
   }
 
-  // Combine existing output with buffer
-  const combined = store.runs[runId].output + buffer;
-  const { output, truncated } = truncateOutput(combined);
-
-  // Update state in one batch
-  store.$patch({
-    runs: {
-      [runId]: {
-        ...store.runs[runId],
-        output,
-        outputTruncated: store.runs[runId].outputTruncated || truncated,
-      },
-    },
-  });
+  // Combine existing output with buffer in one batched state update
+  patchRunOutput(store, runId, buffer);
 
   // Clear the buffer
   delete store._outputBuffers[runId];
@@ -94,8 +119,14 @@ export function flushOutput(store, runId) {
  * @param {Object} store - The Pinia store instance
  * @param {string} runId - The run ID
  * @param {string} text - The text to append
+ * @param {Object} [options]
+ * @param {boolean} [options.allowAfterCompletion=false] - Set by callers that
+ *   dedupe by persisted sequence number (the command-run output subscription).
+ *   Their catch-up chunks may legitimately land after the completion event -
+ *   e.g. a resync issued because the socket was backpressured - and dropping
+ *   them would truncate the tail of the run permanently.
  */
-export function appendOutput(store, runId, text) {
+export function appendOutput(store, runId, text, { allowAfterCompletion = false } = {}) {
   if (!store.runs[runId]) {
     return;
   }
@@ -103,6 +134,9 @@ export function appendOutput(store, runId, text) {
   // Ignore output for completed runs to prevent duplication
   // (WS output events can arrive after the complete event due to race conditions)
   if (store.runs[runId].status !== 'running') {
+    // The throttled buffer path is finalized once a run completes, so
+    // sequenced catch-up text is applied straight to the rendered output.
+    if (allowAfterCompletion && text) patchRunOutput(store, runId, text);
     return;
   }
 
@@ -165,7 +199,7 @@ export function processRunFromApi(run, sessionId, existing) {
     startedAt: run.startedAt,
     completedAt: run.completedAt,
     hasOutput: run.hasOutput ?? existing?.hasOutput ?? Boolean(resolvedOutput),
-    outputHighWater: run.outputHighWater ?? existing?.outputHighWater ?? 0,
+    outputHighWater: resolveOutputHighWater(run, existing, Boolean(output)),
     outputTruncated: resolvedTruncated,
   };
 }

@@ -48,7 +48,13 @@ export function subscribeCommandRunOutput(sessionId, runId) {
       initializing: true,
       pending: new Map(),
       syncing: null,
+      resyncQueued: false,
       applyChunk(chunk) {
+        // The store cursor records what is already rendered. A snapshot fetch
+        // (expanding a collapsed pane) reads the same persisted stream from the
+        // start and can land mid-catch-up, so adopt its progress before
+        // deciding whether this chunk still needs to be appended.
+        this.adoptRenderedCursor();
         if (chunk.sequence <= this.highWater) return true;
         // A missed sequence means the socket was backpressured. Re-read the
         // persisted stream instead of attempting to repair it from live events.
@@ -56,9 +62,19 @@ export function subscribeCommandRunOutput(sessionId, runId) {
           void this.sync();
           return false;
         }
-        this.store.appendOutput(runId, chunk.content);
+        // Ordering and de-duplication are owned here (by sequence), so the run
+        // completing mid-catch-up must not discard the remaining output.
+        this.store.appendOutput(runId, chunk.content, { allowAfterCompletion: true });
         this.highWater = chunk.sequence;
+        // Publish the cursor so a snapshot fetch, or a subscription created
+        // later for the same run, resumes here instead of replaying output.
+        this.store.advanceOutputHighWater?.(runId, chunk.sequence);
         return true;
+      },
+      /** Raise the in-memory cursor to the output already rendered by the store. */
+      adoptRenderedCursor() {
+        const rendered = this.store.runs[runId]?.outputHighWater || 0;
+        if (rendered > this.highWater) this.highWater = rendered;
       },
       drainPending() {
         for (const chunk of [...this.pending.values()].sort((a, b) => a.sequence - b.sequence)) {
@@ -73,17 +89,24 @@ export function subscribeCommandRunOutput(sessionId, runId) {
           this.initializing = false;
           return Promise.resolve();
         }
-        if (!this.syncing) {
-          this.syncing = store.syncRunOutput(sessionId, runId, this.highWater, (chunk) => this.applyChunk(chunk))
-            .then(({ hasMore }) => {
-              this.initializing = false;
-              this.drainPending();
-              // Yield to the event loop between capped catch-up batches. This
-              // preserves single-flight sync while a producer is still ahead.
-              if (hasMore) setTimeout(() => void this.sync(), 0);
-            })
-            .finally(() => { this.syncing = null; });
+        if (this.syncing) {
+          // Chunks rejected while a read is already in flight may have been
+          // persisted after that read started, so a follow-up pass is required
+          // once it settles - otherwise their content is lost for good.
+          this.resyncQueued = true;
+          return this.syncing;
         }
+        this.resyncQueued = false;
+        this.adoptRenderedCursor();
+        this.syncing = store.syncRunOutput(sessionId, runId, this.highWater, (chunk) => this.applyChunk(chunk))
+          .then(({ hasMore }) => {
+            this.initializing = false;
+            this.drainPending();
+            // Yield to the event loop between capped catch-up batches. This
+            // preserves single-flight sync while a producer is still ahead.
+            if (hasMore || this.resyncQueued) setTimeout(() => void this.sync(), 0);
+          })
+          .finally(() => { this.syncing = null; });
         return this.syncing;
       },
     };
