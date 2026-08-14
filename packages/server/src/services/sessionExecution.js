@@ -1,12 +1,12 @@
 import { sessions, messages, attachments, conversations } from '../database.js';
+import { createCodexSpawner } from './codexSpawnHelper.js';
+import { createGeminiSpawner } from './geminiSpawnHelper.js';
 import { resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
-import { reconcileAgentTypeForRun, deriveAgentTypeUpdate } from './sessionAgentGuard.js';
+import { reconcileAgentTypeForRun } from './sessionAgentGuard.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
 import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
 import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
-import { buildAgentConfig, buildAgentEnv } from './sessionAgentConfig.js';
-export { buildAgentEnv } from './sessionAgentConfig.js';
 export { buildQueryParams } from './queryParamBuilder.js';
 import { buildQueryParams } from './queryParamBuilder.js';
 import {
@@ -21,12 +21,11 @@ import {
   cleanupSessionState,
   broadcastSessionStatus,
 } from './streamEventHandler.js';
-import { shouldRescheduleOnError, _checkProactiveReschedule } from './sessionErrors.js';
+import { shouldRescheduleOnError, isTierFailoverEligibleError, _checkProactiveReschedule } from './sessionErrors.js';
+import { isTierRef } from '@circuschief/shared';
+import { runSessionWithTierFailover, hasResolvableTierMembers, applyStaleTierFallback } from './sessionTierFailover.js';
 import { schedulerService } from './schedulerService.js';
-import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
-import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState, markHeldForLimit, activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
@@ -34,11 +33,65 @@ import { rejectedSessionExecution, startedSessionExecution } from './sessionStar
 // _executeSession, long after the module graph is loaded (same pattern as
 // session-helpers.js's database.js <-> SessionRepository cycle).
 import { drainLaneEntryTrigger } from './kanbanService.js';
+// continueSessionCore lives in sessionContinuation.js (extracted to keep this
+// file under the max-lines limit); re-exported here so sessionManager.js's
+// existing `from './sessionExecution.js'` import keeps working unchanged.
+export { continueSessionCore } from './sessionContinuation.js';
 
-async function resolveInitialSessionModelEnv(session, model) {
+/**
+ * Build the adapter-specific default config object for
+ * {@link createAgentForSession}. Callers may pass an explicit `config` to
+ * override these defaults.
+ * @param {string} agentType
+ * @returns {Object}
+ */
+function buildAgentConfig(agentType) {
+  if (agentType === 'codex') {
+    return { spawnCodexProcess: createCodexSpawner() };
+  }
+  if (agentType === 'gemini') {
+    return { spawnGeminiProcess: createGeminiSpawner() };
+  }
+  return {};
+}
+
+/**
+ * @param {Object} sessionEnv
+ * @param {string|null} commitAttributionOverride
+ * @param {{ providerId?: string|null, sessionId?: string|null }} [e2eMeta] - Only
+ *   applied when {@link isE2ESpawnCaptureEnabled} is true; threads the
+ *   resolved providerId/sessionId through to the spawned CLI's `env` purely
+ *   so the E2E spawn-capture seam (e2eSpawnCapture.js) can recover which
+ *   (provider, model, session) a captured/scripted spawn attempt belongs to.
+ *   Never read outside of E2E spawn-capture mode.
+ */
+export function buildAgentEnv(sessionEnv, commitAttributionOverride, e2eMeta = null) {
+  const env = { ...(sessionEnv || {}) };
+  if (commitAttributionOverride) {
+    env.CIRCUSCHIEF_COMMIT_ATTRIBUTION = commitAttributionOverride;
+  } else {
+    delete env.CIRCUSCHIEF_COMMIT_ATTRIBUTION;
+  }
+  if (e2eMeta && isE2ESpawnCaptureEnabled()) {
+    if (e2eMeta.providerId) env.CIRCUSCHIEF_E2E_PROVIDER_ID = e2eMeta.providerId;
+    if (e2eMeta.sessionId) env.CIRCUSCHIEF_E2E_SESSION_ID = e2eMeta.sessionId;
+  }
+  return env;
+}
+
+/**
+ * @param {Object} session
+ * @param {string|null} model - Explicit model override (e.g. a tier member's modelId), or null to use session.model.
+ * @param {string|null} [providerId] - Explicit provider for `model` (Fix 1 / Fix 4), e.g. a tier
+ *   member's own providerId. When omitted and `model` is also omitted (using session.model),
+ *   falls back to `session.providerId` so non-tier sessions with a known provider still
+ *   disambiguate duplicate model ids correctly.
+ */
+export async function resolveInitialSessionModelEnv(session, model, providerId = null) {
   const effectiveModel = model || session.model;
-  const provider = resolveProviderFromModel(effectiveModel);
-  const providerMetadata = resolveProviderMetadataFromModel(effectiveModel);
+  const providerHint = providerId ?? (model ? null : session.providerId ?? null);
+  const provider = resolveProviderFromModel(effectiveModel, providerHint);
+  const providerMetadata = resolveProviderMetadataFromModel(effectiveModel, providerHint);
   const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
 
   if (session.gitWorktree && commitAttributionOverride) {
@@ -48,10 +101,14 @@ async function resolveInitialSessionModelEnv(session, model) {
   const baseSessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
   return {
     effectiveModel,
-    sessionEnv: buildAgentEnv(baseSessionEnv, commitAttributionOverride),
+    sessionEnv: buildAgentEnv(baseSessionEnv, commitAttributionOverride, {
+      providerId: provider?.id ?? null,
+      sessionId: session.id,
+    }),
     commitAttributionOverride,
   };
 }
+
 /**
  * Create the agent for a session, using gateway + logging + VCR.
  *
@@ -75,7 +132,57 @@ export function createAgentForSession(agentType = 'claude-code', config = {}) {
   // Always wrap with logging
   return new LoggingAgentWrapper(agent);
 }
-/** Execute the agent stream loop and handle post-turn completion, errors, and cleanup.
+
+/**
+ * Post-turn workflow bookkeeping for a turn that completed without throwing.
+ *
+ * Each early return leaves the session's own-work obligation open; only the
+ * final branch infers own-work completion and drains the target lane's
+ * on-enter automation.
+ *
+ * @param {Object} opts
+ * @param {string} opts.sessionId
+ * @param {boolean} opts.interactive
+ * @param {Object|null} opts.workflowTurn - Snapshot from beginWorkflowTurn()
+ * @param {boolean} opts.wasRescheduled
+ * @param {boolean} opts.heldForLimit
+ */
+async function finishWorkflowTurn({ sessionId, interactive, workflowTurn, wasRescheduled, heldForLimit }) {
+  // FR-4/FR-5: a self-scheduled continuation is an open obligation, not success.
+  if (wasRescheduled) return markExecutionState(sessionId, 'scheduled');
+  // FR-9.8: a graceful provider limit/outage leaves the lane obligation open.
+  if (heldForLimit) return markHeldForLimit(sessionId);
+  // W6/FR-8: the server infers own-work completion from this successful,
+  // non-continuing turn; finish the async remainder (start the target lane's
+  // on-enter automation exactly once) if it just happened.
+  if (interactive && workflowTurn?.executionStateBeforeTurn !== 'paused') return;
+  const reconciled = finalizeOwnWorkCompletion(sessionId);
+  if (reconciled?.pendingTargetLaneTrigger) {
+    await drainLaneEntryTrigger(reconciled.pendingTargetLaneTrigger.laneEntryEventId);
+  }
+}
+
+/**
+ * Tier failover: when this attempt is part of a tier failover loop AND the
+ * error is failover-eligible, the normal error-handling side effects
+ * (status=error, visible error message, SESSION_ERROR broadcast, summary
+ * generation) must be skipped — they would be misleading since we're about to
+ * transparently retry on the next tier member. The caller rethrows instead so
+ * the failover loop in sessionTierFailover.js can catch it and advance.
+ *
+ * @param {string} sessionId
+ * @param {Error} error
+ * @param {Object|null} tierContext
+ * @returns {boolean} true when the error should be rethrown untouched
+ */
+function shouldRethrowForTierFailover(sessionId, error, tierContext) {
+  if (!tierContext) return false;
+  const currentSession = sessions.getById(sessionId);
+  return Boolean(currentSession && isTierFailoverEligibleError(currentSession, error, sessionId, tierContext));
+}
+
+/**
+ * Execute the agent stream loop and handle post-turn completion, errors, and cleanup.
  * This is the shared core of runSession, continueSession, and continueSessionWithExistingMessage.
  * @param {Object} options
  * @param {string} options.sessionId - Session ID
@@ -89,8 +196,8 @@ export function createAgentForSession(agentType = 'claude-code', config = {}) {
  * @param {Function} options.callbacks.handleAutoSendIfNeeded - Auto-send handler
  * @param {boolean} [options.broadcastConversationStateOnError] - Whether to broadcast conversation state on error
  * @param {string} [options.errorLabel] - Label for error logging
+ * @param {Object|null} [options.tierContext] - Tier failover context passed to shouldRescheduleOnError
  */
-// eslint-disable-next-line max-statements, complexity -- lifecycle boundaries must remain adjacent.
 export async function _executeSession({
   sessionId,
   agent,
@@ -102,8 +209,10 @@ export async function _executeSession({
   broadcastConversationStateOnError = false,
   cleanupConversationId = false, interactive = false,
   errorLabel = 'Session error',
+  tierContext = null,
 }) {
-  const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded } = callbacks; const workflowTurn = beginWorkflowTurn(sessionId);
+  const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded } = callbacks;
+  const workflowTurn = beginWorkflowTurn(sessionId);
   // Last ownership fence before the irreversible provider call.
   if (!interactive && !workflowTurn && !activeLaneRunOwnsSession(sessionId)) {
     cleanupSessionState(sessionId, cleanupConversationId);
@@ -117,21 +226,19 @@ export async function _executeSession({
       await handleStreamEvent(sessionId, event);
     }
     // Handle post-turn completion (work log association, status transition, summary, etc.)
-    const { wasRescheduled, heldForLimit } = await handleTurnCompletion(sessionId, workingDirectory, { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded });
-    // FR-4/FR-5: a self-scheduled continuation is an open obligation, not success.
-    if (wasRescheduled) { markExecutionState(sessionId, 'scheduled'); return; }
-    // FR-9.8: a graceful provider limit/outage leaves the lane obligation open.
-    if (heldForLimit) { markHeldForLimit(sessionId); return; }
-    // W6/FR-8: the server infers own-work completion from this successful,
-    // non-continuing turn; finish the async remainder (start the
-    // target lane's on-enter automation exactly once) if it just happened.
-    if (interactive && workflowTurn?.executionStateBeforeTurn !== 'paused') return;
-    const reconciled = finalizeOwnWorkCompletion(sessionId);
-    if (reconciled?.pendingTargetLaneTrigger) await drainLaneEntryTrigger(reconciled.pendingTargetLaneTrigger.laneEntryEventId);
+    const { wasRescheduled, heldForLimit } = await handleTurnCompletion(
+      sessionId,
+      workingDirectory,
+      { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded }
+    );
+    await finishWorkflowTurn({ sessionId, interactive, workflowTurn, wasRescheduled, heldForLimit });
   } catch (error) {
+    if (shouldRethrowForTierFailover(sessionId, error, tierContext)) throw error;
+
     const rescheduled = await handleSessionError(sessionId, error, {
       controller,
-      shouldRescheduleOnError,
+      shouldRescheduleOnError: (session, err, sid) =>
+        shouldRescheduleOnError(session, err, sid, tierContext),
       schedulerService,
       broadcastConversationState: broadcastConversationStateOnError,
       errorLabel,
@@ -157,225 +264,77 @@ export async function _executeSession({
 }
 
 /**
- * Build prompt with conversation context for a continuation.
- * When the model changes, we can't resume the previous session, so we include
- * conversation history as context so the new model can continue naturally.
- * When the adapter cannot resume, we include conversation history so the
- * model has context of previous turns.
- * @param {Object} opts
- * @param {boolean} opts.modelChanged
- * @param {Object} opts.agent - Agent instance
- * @param {string} opts.conversationId
- * @param {string} opts.prompt
- * @returns {Promise<string>}
+ * Prepare the shared per-start state for {@link runSessionCore}: register the
+ * abort controller, ensure the active conversation, flip the session to
+ * 'running', attach any pending file attachments, and build the final prompt.
+ *
+ * Extracted from runSessionCore so the entry point stays within the
+ * complexity/statement budget now that it also has to branch across the
+ * tier-failover and standard start paths.
+ *
+ * @returns {{ session: Object, activeConversation: Object, promptWithAttachments: string }}
  */
-async function buildPromptForContinue({ modelChanged, agent, conversationId, prompt }) {
-  if (modelChanged) {
-    return buildConversationContextForModelSwitch(conversationId) + prompt;
-  }
-  if (agent.needsConversationContext()) {
-    return buildConversationContextForContinuation(conversationId) + prompt;
-  }
-  return prompt;
-}
+function beginSessionStart(sessionId, prompt, { model, fileAttachments, controller }) {
+  activeSessions.set(sessionId, { controller });
 
-/**
- * Resolve model/provider and build session environment for a continue operation.
- * Also detects model changes and updates the session record.
- * @param {Object} session - Current session object
- * @param {string} sessionId - Session ID
- * @param {string|null} model - Requested model (null to keep current)
- * @returns {{ effectiveModel: string|null, sessionEnv: Object, modelChanged: boolean, session: Object }}
- */
-function buildContinueModelAndEnv(session, sessionId, model) {
-  // Resolve the effective model: fall back to session.model so that resuming
-  // without an explicit model still resolves the correct provider (e.g.
-  // third-party base URL and auth tokens).
-  const effectiveModel = model || session.model;
-
-  // Derive provider from the effective model ID (returns null for Anthropic/SDK defaults)
-  const provider = resolveProviderFromModel(effectiveModel);
-  const providerMetadata = resolveProviderMetadataFromModel(effectiveModel);
-  const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
-  const sessionEnv = buildAgentEnv(
-    buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel),
-    commitAttributionOverride
-  );
-
-  // Check if model changed from the session's last requested model
-  // When model changes, we can't resume the previous session - thinking blocks and
-  // session context may be incompatible between different models/providers
-  const modelChanged = Boolean(model && session.model && model !== session.model);
-
-  // Update session.model to track the user-requested model (short format)
-  // This must happen AFTER modelChanged detection so we compare old vs new.
-  // Defense in depth: re-derive agentType using the effective model so that a
-  // stale stored agentType is corrected even when no explicit model is passed.
-  let updatedSession = session;
-  // Only reconcile agentType here — providerId is managed by PATCH and SessionRepository.create.
-  const agentTypeUpdate = effectiveModel ? deriveAgentTypeUpdate(session, sessionId, effectiveModel, { providerId: session.providerId }) : {};
-  if (model || Object.keys(agentTypeUpdate).length > 0) {
-    sessions.update(sessionId, { ...(model && { model }), ...agentTypeUpdate });
-    updatedSession = sessions.getById(sessionId);
-  }
-
-  return {
-    effectiveModel,
-    sessionEnv,
-    commitAttributionOverride,
-    modelChanged,
-    session: updatedSession,
-  };
-}
-
-/**
- * Build query params and agent call meta for a continue session operation.
- * @param {Object} opts
- * @returns {{ queryParams: Object, agentCallMeta: Object }}
- */
-async function buildContinueParams({
-  sessionId, session, model, systemPrompt, effectiveModel, sessionEnv,
-  modelChanged, activeConversation, promptWithAttachments,
-  workingDirectory, controller, agentType, agent, commitAttributionOverride,
-}) {
-  // Only resume if we have a session ID AND model hasn't changed AND the
-  // agent supports resume.
-  const canResume = activeConversation.claudeSessionId && !modelChanged && agent.supportsResume();
-
-  // Build prompt with conversation context when model changes or adapter needs it
-  const promptWithContext = await buildPromptForContinue({
-    modelChanged, agent, conversationId: activeConversation.id, prompt: promptWithAttachments,
-  });
-
-  const queryParams = buildQueryParams({
-    prompt: promptWithContext,
-    workingDirectory,
-    controller,
-    session,
-    sessionId,
-    systemPrompt,
-    model: effectiveModel,
-    sessionEnv,
-    conversationId: activeConversation.id,
-    resumeSessionId: canResume ? activeConversation.claudeSessionId : null,
-    agentType,
-    commitAttributionOverride,
-  });
-  // Logging metadata for agent call tracking
-  const agentCallMeta = {
-    sessionId,
-    conversationId: activeConversation.id,
-    callType: 'continueSession',
-    agentType,
-    model,
-    effortLevel: session.effortLevel,
-    isResume: canResume,
-    promptLength: promptWithContext.length,
-  };
-
-  return { queryParams, agentCallMeta };
-}
-
-/**
- * Set up the active conversation, create the user message, broadcast it,
- * associate attachments, and build the prompt with attachment context.
- * @returns {{ activeConversation: Object, promptWithAttachments: string }}
- */
-async function setupConversationAndMessage(sessionId, content, fileAttachments) {
+  // Get the active conversation for this session (created in SessionRepository.create)
   const activeConversation = conversations.ensureActiveConversation(sessionId);
   activeConversationIds.set(sessionId, activeConversation.id);
 
-  const message = messages.create(sessionId, 'user', content, { toolUse: null, conversationId: activeConversation.id });
+  // Update status to running and track the user-requested model (short format) on the session
+  sessions.update(sessionId, { status: 'running', ...(model && { model }) });
+  broadcastSessionStatus(sessionId, 'running');
 
-  // Touch the session to update its updated_at timestamp so it sorts to the top
-  sessions.touch(sessionId);
-
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, {
-    message,
-    conversationId: activeConversation.id,
-  });
-
-  if (fileAttachments.length > 0) {
-    attachments.updateMessageIdForSession(sessionId, message.id);
+  // Note: Initial user message is already created in SessionRepository.create()
+  // Associate any pending attachments with the initial message
+  const initialMessage = messages.getBySessionId(sessionId)[0];
+  if (initialMessage && fileAttachments.length > 0) {
+    attachments.updateMessageIdForSession(sessionId, initialMessage.id);
   }
 
-  const promptWithAttachments = buildPromptWithAttachments(content, fileAttachments);
-  return { activeConversation, promptWithAttachments };
+  return {
+    session: sessions.getById(sessionId),
+    activeConversation,
+    promptWithAttachments: buildPromptWithAttachments(prompt, fileAttachments),
+  };
 }
 
 /**
- * Continue a session with a follow-up message (core implementation)
- * @param {string} sessionId
- * @param {string} content
- * @param {string} workingDirectory
- * @param {Object} config - Session options and callbacks
- * @param {Object} [config.options] - Session options (systemPrompt, fileAttachments, model)
- * @param {Object} config.callbacks - Callback functions from sessionManager
+ * Tier-bound start path: run the tier's members in order via the failover loop,
+ * or — when the ref no longer resolves to any member — degrade to a concrete
+ * fallback model on the standard path.
+ *
+ * @returns {Promise<Object|undefined>} A start-result when the start was
+ *   rejected before dispatch, otherwise undefined.
  */
-export async function continueSessionCore(sessionId, content, workingDirectory, config = {}) {
-  const { options = {}, callbacks } = config;
-  const { systemPrompt = null, fileAttachments = [], model = null, interactive = false } = options;
-  // Check if session is already running
-  if (activeSessions.has(sessionId)) {
-    throw new Error('Session is already processing');
+async function _runTierBoundSession(sessionId, promptWithAttachments, workingDirectory, ctx) {
+  const { session, tierRef, systemPrompt, activeConversation, controller, callbacks } = ctx;
+  if (hasResolvableTierMembers(tierRef)) {
+    return runSessionWithTierFailover(sessionId, promptWithAttachments, workingDirectory, {
+      systemPrompt,
+      activeConversation,
+      controller,
+      callbacks,
+      tierRef,
+    });
   }
 
-  // Get the session to retrieve the Claude session ID and settings
-  let session = sessions.getById(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
-  }
-  // A closed lane run only blocks system-owned work. Human follow-ups must
-  // remain available after a workflow completes or a card is manually moved.
-  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
-    return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
-  }
-
-  const controller = new AbortController();
-  activeSessions.set(sessionId, { controller });
-
-  // Ensure there's an active conversation and create the user message
-  const { activeConversation, promptWithAttachments } = await setupConversationAndMessage(
-    sessionId, content, fileAttachments
-  );
-
-  // Update status to running
-  sessions.update(sessionId, { status: 'running' });
-  broadcastSessionStatus(sessionId, 'running');
-
-  // Create agent via gateway (or mock agent in mock mode)
-  const agentType = session.agentType || 'claude-code';
-  const agent = createAgentForSession(agentType);
-
-  // Resolve model/provider and detect model changes
-  const modelEnv = buildContinueModelAndEnv(session, sessionId, model);
-  session = modelEnv.session;
-  if (session.gitWorktree && modelEnv.commitAttributionOverride) {
-    await ensureWorktreeCommitAttributionHook(session.gitWorktree);
-  }
-
-  // Build query params and agent call meta
-  const { queryParams, agentCallMeta } = await buildContinueParams({
-    sessionId, session, model, systemPrompt,
-    effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
-    commitAttributionOverride: modelEnv.commitAttributionOverride,
-    modelChanged: modelEnv.modelChanged, activeConversation, promptWithAttachments,
-    workingDirectory, controller, agentType, agent,
-  });
-  const execution = await _executeSession({
-    sessionId,
-    agent,
-    queryParams,
-    agentCallMeta,
+  // Fix 6: the tier ref no longer resolves to any member (deleted / emptied /
+  // every member's provider or model was removed) — this is a stale binding,
+  // not a live "all members failed" exhaustion (that case is handled inside
+  // runSessionWithTierFailover and correctly falls through to normal error
+  // handling instead). Degrade to a concrete fallback so a new or scheduled
+  // session doesn't fail outright on a binding the user can no longer fix
+  // from within this session.
+  const fallback = applyStaleTierFallback(sessionId, session, tierRef);
+  return _runStandardSession(sessionId, promptWithAttachments, workingDirectory, {
+    session: fallback.session,
+    model: fallback.model,
+    systemPrompt,
+    activeConversation,
     controller,
-    workingDirectory,
     callbacks,
-    broadcastConversationStateOnError: true,
-    cleanupConversationId: true,
-    interactive,
-    errorLabel: 'Continue session error',
   });
-  return execution || startedSessionExecution(sessionId);
 }
 
 /**
@@ -386,58 +345,74 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
  * @param {Object} config - Session options and callbacks
  * @param {Object} [config.options] - Session options (systemPrompt, fileAttachments, model)
  * @param {Object} config.callbacks - Callback functions from sessionManager
+ * @returns {Promise<Object>} Structured start result (see sessionStartResult.js)
  */
-// eslint-disable-next-line max-statements, complexity -- initial execution validation and lifecycle intentionally remain linear
 export async function runSessionCore(sessionId, prompt, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
   const { systemPrompt = null, fileAttachments = [], model = null, interactive = false,
     abortController = null } = options;
   // Get session for settings
-  let session = sessions.getById(sessionId);
-  if (!session) throw new Error('Session not found');
-  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
+  const existing = sessions.getById(sessionId);
+  if (!existing) throw new Error('Session not found');
+  if (!interactive && existing.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
   const controller = abortController || new AbortController();
   if (controller.signal.aborted) return rejectedSessionExecution(sessionId, 'dispatch_aborted');
-  activeSessions.set(sessionId, { controller });
 
-  // Get the active conversation for this session (created in SessionRepository.create)
-  const activeConversation = conversations.ensureActiveConversation(sessionId);
-  activeConversationIds.set(sessionId, activeConversation.id);
+  const { session, activeConversation, promptWithAttachments } =
+    beginSessionStart(sessionId, prompt, { model, fileAttachments, controller });
 
-  // Update status to running and track the user-requested model (short format) on the session
-  sessions.update(sessionId, { status: 'running', ...(model && { model }) });
-  session = sessions.getById(sessionId);
-  broadcastSessionStatus(sessionId, 'running');
+  const startCtx = { session, systemPrompt, activeConversation, controller, callbacks };
 
-  // Note: Initial user message is already created in SessionRepository.create()
-  // Associate any pending attachments with the initial message
-  const initialMessage = messages.getBySessionId(sessionId)[0];
-  if (initialMessage && fileAttachments.length > 0) {
-    attachments.updateMessageIdForSession(sessionId, initialMessage.id);
-  }
+  // ── Tier failover path ────────────────────────────────────────────────────
+  const effectiveModelField = model || session.model;
+  const execution = isTierRef(effectiveModelField)
+    ? await _runTierBoundSession(sessionId, promptWithAttachments, workingDirectory, {
+      ...startCtx, tierRef: effectiveModelField,
+    })
+    // ── Standard (non-tier) path ────────────────────────────────────────────
+    : await _runStandardSession(sessionId, promptWithAttachments, workingDirectory, {
+      ...startCtx, model,
+    });
 
-  // Build prompt with attachment context
-  const promptWithAttachments = buildPromptWithAttachments(prompt, fileAttachments);
+  // A start path only returns a result when the dispatch was rejected before
+  // reaching the provider (e.g. lane-run ownership lost); anything else means
+  // the provider handoff was accepted.
+  return execution || startedSessionExecution(sessionId);
+}
 
+/**
+ * Standard (non-tier) session start path: reconcile the agent kind, resolve the
+ * model/provider environment, and execute the agent stream.
+ * @param {string} sessionId
+ * @param {string} promptWithAttachments
+ * @param {string} workingDirectory
+ * @param {Object} ctx
+ */
+async function _runStandardSession(
+  sessionId,
+  promptWithAttachments,
+  workingDirectory,
+  { session, model, systemPrompt, activeConversation, controller, callbacks }
+) {
   // Defense in depth: re-derive and persist the correct agent kind before creating
   // the adapter — self-heals legacy corrupted rows and any entry point that
   // bypasses the PATCH guard.
-  session = reconcileAgentTypeForRun(session, sessionId, model);
+  const reconciledSession = reconcileAgentTypeForRun(session, sessionId, model);
 
   // Create agent via gateway (or mock agent in mock mode)
-  const agentType = session.agentType || 'claude-code';
+  const agentType = reconciledSession.agentType || 'claude-code';
   const agent = createAgentForSession(agentType);
 
   const { effectiveModel, sessionEnv, commitAttributionOverride } =
-    await resolveInitialSessionModelEnv(session, model);
+    await resolveInitialSessionModelEnv(reconciledSession, model);
 
   const queryParams = buildQueryParams({
     prompt: promptWithAttachments,
     workingDirectory,
     controller,
-    session,
+    session: reconciledSession,
     sessionId,
     systemPrompt,
     model: effectiveModel,
@@ -447,14 +422,17 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     commitAttributionOverride,
   });
 
+  // Log query params for debugging third-party provider issues
   console.log(`[SessionManager] runSession: model=${queryParams.options?.model || '[default]'} baseUrl=${queryParams.options?.env?.ANTHROPIC_BASE_URL || '[not set]'}`);
+
+  // Logging metadata for agent call tracking
   const agentCallMeta = {
     sessionId,
     conversationId: activeConversation.id,
     callType: 'runSession',
     agentType,
     model,
-    effortLevel: session.effortLevel,
+    effortLevel: reconciledSession.effortLevel,
     promptLength: promptWithAttachments.length,
   };
 
@@ -467,5 +445,5 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     workingDirectory,
     callbacks,
     errorLabel: 'Session error',
-  }).then((execution) => execution || startedSessionExecution(sessionId));
+  });
 }

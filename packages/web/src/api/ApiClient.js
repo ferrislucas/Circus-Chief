@@ -10,6 +10,7 @@ import {
   TemplatesApi,
   MiscApi,
   KanbanApi,
+  TiersApi,
 } from './resources/index.js';
 
 /**
@@ -172,6 +173,7 @@ ConversationsApi(ApiClient);
 TemplatesApi(ApiClient);
 MiscApi(ApiClient);
 KanbanApi(ApiClient);
+TiersApi(ApiClient);
 
 // Singleton instance
 export const api = new ApiClient();

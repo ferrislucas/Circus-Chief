@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { sessions, sessionTemplates, modelProviders, sessionSummaries } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { WS_MESSAGE_TYPES, isTierRef } from '@circuschief/shared';
 import * as summaryService from '../services/summaryService.js';
 import { setSessionNameFromPr } from '../services/prUrlService.js';
 import { checkSessionCiStatusNow } from '../services/prStatusService.js';
@@ -139,6 +139,18 @@ const FIELD_DEFINITIONS = [
   { field: 'rescheduleAtTokenCount', transform: (v) => v ? parseInt(v, 10) : null },
 ];
 
+function applyTierProviderRule(updateData) {
+  if (!Object.hasOwn(updateData, 'model') || !isTierRef(updateData.model)) {
+    return { updateData };
+  }
+
+  if (Object.hasOwn(updateData, 'providerId') && updateData.providerId !== null) {
+    return { updateData: {}, error: 'providerId must be null when model is a tier reference' };
+  }
+
+  return { updateData: { ...updateData, providerId: null } };
+}
+
 /**
  * Build update data object from request body using field definitions.
  * Returns { updateData, error } where error is a string if validation failed.
@@ -172,7 +184,12 @@ function buildUpdateData(body) {
     updateData.prUrlAutoLinkDisabled = updateData.prUrl === null;
   }
 
-  return { updateData };
+  // A tier binding has no single owning provider — the concrete provider is
+  // resolved per-run from the active tier member (Work Item 1). Reject an
+  // explicit concrete providerId submitted alongside a tier-bound `model`,
+  // and otherwise normalize the companion providerId to null so a stale
+  // concrete value can never shadow the tier's own resolution.
+  return applyTierProviderRule(updateData);
 }
 
 /**

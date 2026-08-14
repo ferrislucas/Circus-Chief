@@ -231,6 +231,12 @@ test.describe('Kanban structured lane runs', () => {
     await expect
       .poll(async () => findLaneOfSession(await getBoard(project.id), workspace.id), { timeout: 5000 })
       .toBe('In Progress');
+    await expect
+      .poll(
+        async () => findCardOfSession(await getBoard(project.id), workspace.id).activeLaneRun?.blockingReason,
+        { timeout: 5000 }
+      )
+      .toBe('Paused — provider limit or outage');
     let card = findCardOfSession(await getBoard(project.id), workspace.id);
     expect(card.activeLaneRun.status).toBe('open');
     expect(card.activeLaneRun.blockingReason).toBe('Paused — provider limit or outage');

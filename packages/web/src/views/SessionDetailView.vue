@@ -38,6 +38,7 @@
         @duplicate="handleDuplicate"
         @copy-session-id="handleCopySessionId"
         @archive="handleArchive"
+        @unarchive="handleUnarchive"
         @delete="handleDelete"
         @star="handleStar"
         @add-to-board="handleAddToBoard"
@@ -523,26 +524,24 @@ async function handleDelete() {
 }
 
 async function handleArchive() {
-  const isArchived = sessionsStore.currentSession?.archived;
+  showArchiveModal.value = true;
+}
 
-  if (isArchived) {
-    if (!confirm('Restore this session to active?')) {
-      return;
+async function handleUnarchive() {
+  if (!confirm('Restore this session to active?')) {
+    return;
+  }
+  try {
+    const projectId = sessionsStore.currentSession?.projectId;
+    await sessionsStore.unarchiveSession(currentSessionId.value);
+    uiStore.success('Session unarchived');
+    if (projectId) {
+      router.push(`/projects/${projectId}/sessions`);
+    } else {
+      router.push('/');
     }
-    try {
-      const projectId = sessionsStore.currentSession?.projectId;
-      await sessionsStore.unarchiveSession(currentSessionId.value);
-      uiStore.success('Session unarchived');
-      if (projectId) {
-        router.push(`/projects/${projectId}/sessions`);
-      } else {
-        router.push('/');
-      }
-    } catch (err) {
-      uiStore.error(err.message);
-    }
-  } else {
-    showArchiveModal.value = true;
+  } catch (err) {
+    uiStore.error(err.message);
   }
 }
 

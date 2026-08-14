@@ -67,7 +67,7 @@ vi.mock('../components/SessionHeaderPanel.vue', () => ({
     name: 'SessionHeaderPanel',
     template: '<div class="session-header"><div class="session-header-row"><div class="session-name-wrapper"><h3 class="session-name">{{ session?.name }}</h3></div></div><button class="mock-add-to-board" @click="$emit(\'add-to-board\', session)">Add</button></div>',
     props: ['sessionId', 'session', 'summary', 'isDeleting', 'buttonStatuses'],
-    emits: ['duplicate', 'copySessionId', 'archive', 'delete', 'star', 'add-to-board'],
+    emits: ['duplicate', 'copySessionId', 'archive', 'unarchive', 'delete', 'star', 'add-to-board'],
   }
 }));
 vi.mock('../components/SessionTabsPanel.vue', () => ({
@@ -5150,7 +5150,7 @@ describe('SessionDetailView', () => {
       const wrapper = await mountWithSession({ archived: true });
 
       const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
-      await headerPanel.vm.$emit('archive');
+      await headerPanel.vm.$emit('unarchive');
       await flushPromises();
 
       // Unarchive uses window.confirm, not the modal
@@ -5165,7 +5165,7 @@ describe('SessionDetailView', () => {
       const wrapper = await mountWithSession({ archived: true });
 
       const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
-      await headerPanel.vm.$emit('archive');
+      await headerPanel.vm.$emit('unarchive');
       await flushPromises();
 
       expect(window.confirm).toHaveBeenCalled();

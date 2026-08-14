@@ -9,7 +9,8 @@ import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief
 import { renderTemplatePrompt, getRootSession } from './templateTriggerService.js';
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
-import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
+import { resolveCommitAttributionOverrideForModel } from './sessionProvider.js';
+import { deriveAgentTypeForModelOrTier } from './sessionAgentGuard.js';
 import { attachRootSession } from './workflowSessionService.js';
 
 // Maximum depth for recursive lane-entry template triggers
@@ -71,8 +72,7 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
       gitBranch: gitOptions.gitBranch || null,
       sessionId: gitOptions.sessionId,
       worktreeBasePath: project.worktreePath || null,
-      commitAttributionOverride:
-        resolveProviderMetadataFromModel(gitOptions.model)?.commitAttributionOverride ?? null,
+      commitAttributionOverride: resolveCommitAttributionOverrideForModel(gitOptions.model),
     });
     throwIfAborted(gitOptions.abortController);
     return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
@@ -172,7 +172,7 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
     gitBranch: settings.gitBranch,
     status: 'starting',
     model: settings.model,
-    agentType: resolveAgentTypeFromModel(settings.model),
+    agentType: deriveAgentTypeForModelOrTier(settings.model),
     parentSessionId: session.id,
   });
   if (!newSession) throw new Error('attached lane-entry child session is missing');
@@ -286,7 +286,7 @@ async function buildChildSessionFromPrompt(lane, session, options = {}) {
   const newSession = childSessionId ? sessions.getById(childSessionId) : sessions.create(session.projectId, `Lane prompt (lane: ${lane.name})`, renderedPrompt, {
     ...settings,
     status: 'starting',
-    agentType: resolveAgentTypeFromModel(settings.model),
+    agentType: deriveAgentTypeForModelOrTier(settings.model),
     parentSessionId: session.id,
   });
   if (!newSession) throw new Error('attached lane-entry child session is missing');

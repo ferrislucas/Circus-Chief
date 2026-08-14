@@ -615,4 +615,76 @@ describe('AgentCallLogRepository', () => {
       expect(deletedCount).toBe(0);
     });
   });
+
+  // ── Fix 5: failover log rows must not skew stats ───────────────────────────
+  //
+  // A `tierFailover` log entry (success:false, zero tokens) is written whenever
+  // a tier member fails and the next member is tried.  The stats queries group
+  // BY call_type, so the failover entry is isolated in its own `tierFailover`
+  // bucket — it must NOT inflate the call_count or token sums of regular calls.
+
+  describe('tierFailover entries are segregated from regular call stats (Fix 5 — F26)', () => {
+    it('does not inflate runSession call_count when a tierFailover entry exists', () => {
+      // Write one real runSession call (success, with tokens)
+      const runId = databaseManager.generateId();
+      repo.create({ id: runId, sessionId, agentType: 'claude-code', callType: 'runSession', promptLength: 100 });
+      repo.complete(runId, { success: true, inputTokens: 200, outputTokens: 100 });
+
+      // Write one tierFailover event (success:false, zero tokens)
+      const failoverId = databaseManager.generateId();
+      repo.create({ id: failoverId, sessionId, agentType: 'claude-code', callType: 'tierFailover', promptLength: 0 });
+      repo.complete(failoverId, { success: false, errorMessage: 'Service overloaded' });
+
+      const stats = repo.getSessionStats(sessionId);
+
+      // runSession bucket should only count the one real call
+      const runStats = stats.find(s => s.call_type === 'runSession');
+      expect(runStats).toBeDefined();
+      expect(runStats.call_count).toBe(1);
+      expect(runStats.total_input_tokens).toBe(200);
+      expect(runStats.total_output_tokens).toBe(100);
+
+      // tierFailover has its own isolated bucket
+      const failoverStats = stats.find(s => s.call_type === 'tierFailover');
+      expect(failoverStats).toBeDefined();
+      expect(failoverStats.call_count).toBe(1);
+      // Zero-token failover entries must not add to the token sums
+      expect(Number(failoverStats.total_input_tokens) || 0).toBe(0);
+      expect(Number(failoverStats.total_output_tokens) || 0).toBe(0);
+    });
+
+    it('tierFailover entries appear in getAll (visible in Settings → Logs)', () => {
+      const failoverId = databaseManager.generateId();
+      repo.create({ id: failoverId, sessionId, agentType: 'claude-code', callType: 'tierFailover', promptLength: 0,
+        metadata: { tierRef: 'tier::abc', fromModel: 'model-a', toModel: 'model-b' } });
+      repo.complete(failoverId, { success: false, errorMessage: 'Service overloaded' });
+
+      const { rows } = repo.getAll({ sessionId });
+      const failoverRow = rows.find(r => r.callType === 'tierFailover');
+      expect(failoverRow).toBeDefined();
+      expect(failoverRow.sessionId).toBe(sessionId);
+    });
+
+    it('global stats token sums are not inflated by tierFailover entries', () => {
+      const now = Date.now();
+
+      const runId = databaseManager.generateId();
+      repo.create({ id: runId, sessionId, agentType: 'claude-code', callType: 'runSession', promptLength: 100 });
+      repo.complete(runId, { success: true, inputTokens: 500, outputTokens: 250 });
+
+      const failoverId = databaseManager.generateId();
+      repo.create({ id: failoverId, sessionId, agentType: 'claude-code', callType: 'tierFailover', promptLength: 0 });
+      repo.complete(failoverId, { success: false, errorMessage: 'Service overloaded' });
+
+      const stats = repo.getGlobalStats(now - 60000, now + 60000);
+
+      // runSession bucket
+      const runBucket = stats.find(s => s.call_type === 'runSession');
+      expect(runBucket?.total_tokens ?? 0).toBe(750); // 500 + 250 only
+
+      // tierFailover bucket has 0 tokens
+      const failoverBucket = stats.find(s => s.call_type === 'tierFailover');
+      expect(failoverBucket?.total_tokens ?? 0).toBe(0);
+    });
+  });
 });

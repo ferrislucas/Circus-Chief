@@ -17,6 +17,7 @@ import {
   moveCard as moveCardService,
 } from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
+import { validateModelId } from './model-validation.js';
 import { getRun } from '../services/workflowSessionService.js';
 import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
 import { isApiError } from '../errors/ApiError.js';
@@ -214,6 +215,11 @@ router.post('/lanes', (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
+  const modelResult = validateModelId(result.data.onEnterModel, { fieldName: 'onEnterModel' });
+  if (modelResult.error) {
+    return res.status(400).json({ error: modelResult.error });
+  }
+
   const board = kanbanBoards.getByProjectId(projectId);
   if (!board) {
     return res.status(404).json({ error: 'Board not found' });
@@ -252,6 +258,11 @@ router.patch('/lanes/:laneId', (req, res) => {
   const result = UpdateKanbanLaneRequest.safeParse(req.body);
   if (!result.success) {
     return res.status(400).json({ error: result.error.issues[0].message });
+  }
+
+  const modelResult = validateModelId(result.data.onEnterModel, { fieldName: 'onEnterModel' });
+  if (modelResult.error) {
+    return res.status(400).json({ error: modelResult.error });
   }
 
   const lane = kanbanLanes.getById(laneId);

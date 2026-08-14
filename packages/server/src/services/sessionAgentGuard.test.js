@@ -6,7 +6,8 @@ import {
   sessionHasNoAssistantMessages,
   deriveAgentTypeUpdate,
 } from './sessionAgentGuard.js';
-import { projects, sessions, messages, modelProviders } from '../database.js';
+import { projects, sessions, messages, modelProviders, modelTiers } from '../database.js';
+import { buildTierRef } from '@circuschief/shared';
 
 describe('sessionAgentGuard', () => {
   describe('agentLabel', () => {
@@ -130,6 +131,52 @@ describe('sessionAgentGuard', () => {
       const result = checkCrossKindSwitch(session, 'gpt-4o-guard');
       expect(result).not.toBeNull();
       expect(result.error).toBe('CROSS_KIND_MODEL_SWITCH');
+    });
+
+    describe('tier-aware (Work Item 2)', () => {
+      let claudeFirstTier;
+      let gptOnlyTier;
+      let emptyTier;
+
+      beforeEach(() => {
+        claudeFirstTier = modelTiers.create({
+          name: 'Guard Test Claude-first Tier',
+          members: [{ providerId: anthropicProvider.id, modelId: 'claude-sonnet-guard', position: 0 }],
+        });
+        gptOnlyTier = modelTiers.create({
+          name: 'Guard Test GPT-only Tier',
+          members: [{ providerId: openaiProvider.id, modelId: 'gpt-4o-guard', position: 0 }],
+        });
+        emptyTier = modelTiers.create({ name: 'Guard Test Empty Tier', members: [] });
+      });
+
+      afterEach(() => {
+        try { modelTiers.delete(claudeFirstTier.id); } catch { /* noop */ }
+        try { modelTiers.delete(gptOnlyTier.id); } catch { /* noop */ }
+        try { modelTiers.delete(emptyTier.id); } catch { /* noop */ }
+      });
+
+      it('allows a started Claude session to select a Claude-first tier', () => {
+        const session = { agentType: 'claude-code', model: 'claude-sonnet-guard' };
+        expect(checkCrossKindSwitch(session, buildTierRef(claudeFirstTier.id))).toBeNull();
+      });
+
+      it('rejects a started Claude session selecting a GPT-only tier (CROSS_KIND_MODEL_SWITCH)', () => {
+        const session = { agentType: 'claude-code', model: 'claude-sonnet-guard' };
+        const result = checkCrossKindSwitch(session, buildTierRef(gptOnlyTier.id));
+        expect(result).toEqual({
+          error: 'CROSS_KIND_MODEL_SWITCH',
+          message: expect.stringContaining('Claude Code'),
+        });
+        expect(result.message).toContain('Codex');
+      });
+
+      it('returns a clear, distinct error for a tier with no resolvable members', () => {
+        const session = { agentType: 'claude-code', model: 'claude-sonnet-guard' };
+        const result = checkCrossKindSwitch(session, buildTierRef(emptyTier.id));
+        expect(result.error).toBe('TIER_UNRESOLVABLE');
+        expect(result.error).not.toBe('CROSS_KIND_MODEL_SWITCH');
+      });
     });
   });
 });
@@ -279,5 +326,59 @@ describe('deriveAgentTypeUpdate', () => {
     const update = deriveAgentTypeUpdate(freshSession, session.id, CLAUDE_MODEL);
     // providerId should be auto-set since caller didn't supply one
     expect(update.providerId).toBe(anthropicProvider.id);
+  });
+
+  describe('tier-aware (Work Item 2)', () => {
+    let codexFirstTier;
+    let geminiFirstTier;
+    let emptyTier;
+
+    beforeEach(() => {
+      codexFirstTier = modelTiers.create({
+        name: 'Derive Test Codex-first Tier',
+        members: [{ providerId: openaiProvider.id, modelId: GPT_MODEL, position: 0 }],
+      });
+      geminiFirstTier = modelTiers.create({
+        name: 'Derive Test Gemini-first Tier',
+        members: [{ providerId: googleProvider.id, modelId: GEMINI_MODEL, position: 0 }],
+      });
+      emptyTier = modelTiers.create({ name: 'Derive Test Empty Tier', members: [] });
+    });
+
+    afterEach(() => {
+      try { modelTiers.delete(codexFirstTier.id); } catch { /* noop */ }
+      try { modelTiers.delete(geminiFirstTier.id); } catch { /* noop */ }
+      try { modelTiers.delete(emptyTier.id); } catch { /* noop */ }
+    });
+
+    it('derives codex for a draft (Claude) session bound to a Codex-first tier', () => {
+      const claudeSession = sessions.create(project.id, 'Codex Tier Derive Session', 'test', {
+        model: CLAUDE_MODEL,
+        providerId: anthropicProvider.id,
+        status: 'waiting',
+      });
+      const freshSession = sessions.getById(claudeSession.id);
+      const update = deriveAgentTypeUpdate(freshSession, claudeSession.id, buildTierRef(codexFirstTier.id));
+      expect(update.agentType).toBe('codex');
+    });
+
+    it('derives gemini for a draft session bound to a Gemini-first tier', () => {
+      const freshSession = sessions.getById(session.id);
+      const update = deriveAgentTypeUpdate(freshSession, session.id, buildTierRef(geminiFirstTier.id));
+      expect(update.agentType).toBe('gemini');
+    });
+
+    it('never auto-sets providerId for a tier binding, even when the caller omits providerId', () => {
+      const freshSession = sessions.getById(session.id);
+      const update = deriveAgentTypeUpdate(freshSession, session.id, buildTierRef(geminiFirstTier.id));
+      expect(update.providerId).toBeUndefined();
+    });
+
+    it('is a no-op (never defaults to claude-code) for a tier with no resolvable members', () => {
+      const freshSession = sessions.getById(session.id);
+      const update = deriveAgentTypeUpdate(freshSession, session.id, buildTierRef(emptyTier.id));
+      expect(update).toEqual({});
+      expect(update.agentType).not.toBe('claude-code');
+    });
   });
 });
