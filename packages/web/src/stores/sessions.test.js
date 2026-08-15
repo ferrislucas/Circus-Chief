@@ -7,7 +7,7 @@ vi.mock('../composables/useApi.js', () => ({
   api: {
     getProjectSessions: vi.fn(),
     getSession: vi.fn(),
-    getWorkspaceDetail: vi.fn(),
+    getWorkspaceMembers: vi.fn(),
     getSessionMessages: vi.fn(),
     createSession: vi.fn(),
     createWorkspaceSession: vi.fn(),
@@ -40,7 +40,7 @@ describe('Sessions Store', () => {
     setActivePinia(createPinia());
     // Reset all API mocks before each test
     vi.clearAllMocks();
-    api.getWorkspaceDetail.mockResolvedValue(null);
+    api.getWorkspaceMembers.mockResolvedValue(null);
   });
 
   it('does not abort concurrent detail requests for different sessions', async () => {
@@ -88,7 +88,7 @@ describe('Sessions Store', () => {
     const store = useSessionsStore();
     store.viewedSessionId = 'child-1';
     api.getSession.mockResolvedValue({ id: 'child-1', name: 'Child', projectId: 'proj-1' });
-    api.getWorkspaceDetail.mockResolvedValue({
+    api.getWorkspaceMembers.mockResolvedValue({
       members: [
         {
           id: 'root-1', name: 'Root', model: 'gpt-5', pendingModel: null,

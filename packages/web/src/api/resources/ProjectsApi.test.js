@@ -63,6 +63,22 @@ describe('ProjectsApi', () => {
     });
   });
 
+  describe('workspace detail methods', () => {
+    it('keeps the legacy workspace-detail route separate from compact members', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: 'workspace-1' }));
+
+      await client.getWorkspaceDetail('workspace-1');
+      expect(mockFetch).toHaveBeenLastCalledWith('/api/workspaces/workspace-1', expect.objectContaining({
+        method: 'GET',
+      }));
+
+      await client.getWorkspaceMembers('workspace-1');
+      expect(mockFetch).toHaveBeenLastCalledWith('/api/workspaces/workspace-1/members', expect.objectContaining({
+        method: 'GET',
+      }));
+    });
+  });
+
   describe('createProject', () => {
     it('sends POST to /projects with body', async () => {
       const projectData = { name: 'New', workingDirectory: '/tmp' };

@@ -324,12 +324,12 @@ describe('Workspace facade API', () => {
       const childIds = res.body.sessions.map((s) => s.id);
       expect(childIds).toContain(child.id);
       expect(childIds).toContain(grandchild.id);
-      expect(res.body.workspace).toMatchObject({ id: root.id, parentSessionId: null });
-      expect(res.body.members).toHaveLength(3);
-      expect(res.body.members[0]).not.toHaveProperty('pendingPrompt');
+      expect(res.body).toMatchObject({ id: root.id, parentSessionId: null });
+      expect(res.body).toHaveProperty('pendingAgentInput', false);
+      expect(res.body).not.toHaveProperty('members');
     });
 
-    it('includes model and token display fields for every workspace member', async () => {
+    it('preserves full rows and pending-input state in the legacy detail response', async () => {
       const root = sessions.create(project.id, 'Root', 'root', { model: 'root-model' });
       const child = sessions.create(project.id, 'Child', 'child', { parentSessionId: root.id });
       sessions.update(root.id, { pendingModel: 'root-pending-model' });
@@ -354,15 +354,17 @@ describe('Workspace facade API', () => {
       });
 
       const res = await request(app).get(`/api/workspaces/${root.id}`).expect(200);
-      const members = Object.fromEntries(res.body.members.map(member => [member.id, member]));
+      const sessionRows = Object.fromEntries([[res.body.id, res.body], ...res.body.sessions.map(session => [session.id, session])]);
 
-      expect(members[root.id]).toMatchObject({
+      expect(sessionRows[root.id]).toMatchObject({
         model: 'root-model', pendingModel: 'root-pending-model', inputTokens: 100,
         outputTokens: 20, thinkingTokens: 10, cacheReadInputTokens: 5, cacheCreationInputTokens: 2,
+        pendingAgentInput: false,
       });
-      expect(members[child.id]).toMatchObject({
+      expect(sessionRows[child.id]).toMatchObject({
         model: null, pendingModel: 'child-pending-model', inputTokens: 200,
         outputTokens: 40, thinkingTokens: 20, cacheReadInputTokens: 10, cacheCreationInputTokens: 4,
+        pendingAgentInput: false,
       });
     });
 

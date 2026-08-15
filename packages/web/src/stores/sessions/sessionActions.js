@@ -141,7 +141,7 @@ export const sessionActions = {
       // This replaces the old serial ancestor walk plus project-wide child fetch.
       const [fetchedSession, workspaceDetail] = await Promise.all([
         api.getSession(id, { signal: controller.signal }),
-        api.getWorkspaceDetail(id, { signal: controller.signal }).catch((error) => {
+        api.getWorkspaceMembers(id, { signal: controller.signal }).catch((error) => {
           if (error?.name === 'AbortError') throw error;
           return null;
         }),

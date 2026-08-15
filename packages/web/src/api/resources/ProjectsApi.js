@@ -44,8 +44,8 @@ export function ProjectsApi(ApiClient) {
       return this._get(`/workspaces/${workspaceId}`, { signal });
     },
 
-    async getWorkspaceMembers(workspaceId) {
-      return this._get(`/workspaces/${workspaceId}/members`);
+    async getWorkspaceMembers(workspaceId, { signal } = {}) {
+      return this._get(`/workspaces/${workspaceId}/members`, { signal });
     },
 
     /**

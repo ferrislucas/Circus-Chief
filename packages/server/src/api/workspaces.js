@@ -31,6 +31,8 @@ import {
 } from '@circuschief/shared/contracts/workspaces';
 import { hasPendingPrompt } from '../services/promptStore.js';
 
+const withPendingAgentInput = (session) => ({ ...session, pendingAgentInput: hasPendingPrompt(session.id) });
+
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
 const ERR_WORKSPACE_NOT_FOUND = 'Workspace not found';
 
@@ -280,7 +282,7 @@ projectWorkspacesRouter.post('/:projectId/workspaces', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/workspaces/:workspaceId — workspace detail shell with its session tree
+// GET /api/workspaces/:workspaceId — legacy workspace detail with its session tree
 // ---------------------------------------------------------------------------
 workspacesRouter.get('/:workspaceId', (req, res) => {
   const startedAt = performance.now();
@@ -288,15 +290,13 @@ workspacesRouter.get('/:workspaceId', (req, res) => {
   if (!resolved) return;
 
   const { workspace } = resolved;
-  const members = sessions.getWorkspaceMembers(workspace.id);
-  const root = members.find(member => member.id === workspace.id);
-  // Keep the root fields and `sessions` alias during the compatibility window;
-  // both now use the compact allowlisted projection rather than raw rows.
+  const descendantIds = sessions.getAllDescendantIds(workspace.id);
+  const descendants = descendantIds.length > 0 ? sessions.getByIds(descendantIds) : [];
+  // This endpoint is used by external API consumers, so retain its full session
+  // row contract. The compact member projection lives at /members.
   return sendWorkspaceJson(res, {
-    ...root,
-    sessions: members.filter(member => member.id !== workspace.id),
-    workspace: root,
-    members,
+    ...withPendingAgentInput(workspace),
+    sessions: descendants.map(withPendingAgentInput),
   }, startedAt);
 });
 
