@@ -768,6 +768,35 @@ describe('SessionCard', () => {
         command: 'npm run deploy',
       });
     });
+
+    it('uses refreshed list-card command runs over stale hydrated detail state', async () => {
+      mockCommandButtonsData.buttons = [
+        { id: 'btn-42', label: 'Deploy', command: 'npm run deploy', showOnList: true },
+      ];
+      mockSessionsStoreData.sessions = [{
+        ...baseSession,
+        projectId: 'proj-1',
+        latestCommandRuns: [
+          { buttonId: 'btn-42', runId: 'stale-run', status: 'error', exitCode: 1 },
+        ],
+      }];
+      const session = {
+        ...baseSession,
+        projectId: 'proj-1',
+        latestCommandRuns: [
+          { buttonId: 'btn-42', runId: 'fresh-run', status: 'success', exitCode: 0 },
+        ],
+      };
+
+      const wrapper = mountComponent({ session, workflowAggregate: session });
+      const indicator = wrapper.find('.button-status-indicator');
+
+      expect(indicator.classes()).toContain('button-status-success');
+      expect(indicator.attributes('aria-label')).toBe('success');
+      await indicator.trigger('click');
+      expect(wrapper.findComponent({ name: 'ButtonStatusModal' }).props('latestRun').runId)
+        .toBe('fresh-run');
+    });
   });
 
   describe('archive/unarchive buttons', () => {

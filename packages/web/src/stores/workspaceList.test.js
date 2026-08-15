@@ -1,104 +1,150 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
 import { api } from '../composables/useApi.js';
-import { useWorkspaceListStore } from './workspaceList.js';
+import { useWorkspaceListStore, WORKSPACE_PAGE_SIZE } from './workspaceList.js';
 
 vi.mock('../composables/useApi.js', () => ({ api: { getWorkspaceCards: vi.fn() } }));
 
 function deferred() {
   let resolve;
-  const promise = new Promise((next) => { resolve = next; });
+  const promise = new Promise(next => { resolve = next; });
   return { promise, resolve };
 }
 
+function response(workspaces, options = {}) {
+  const total = options.total ?? workspaces.length;
+  return {
+    workspaces,
+    facets: options.facets || { running: 0, idle: total },
+    pagination: {
+      total,
+      offset: options.offset || 0,
+      hasMore: options.hasMore ?? false,
+    },
+  };
+}
+
 describe('workspace list request lifecycle', () => {
-  it('aborts and ignores a superseded request', async () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+  });
+
+  it('aborts and ignores a stale response after a rapid filter change', async () => {
     const first = deferred();
     const second = deferred();
-    api.getWorkspaceCards.mockImplementationOnce((_projectId, options) => {
-      expect(options.signal).toBeInstanceOf(AbortSignal);
-      return first.promise;
-    }).mockImplementationOnce(() => second.promise);
+    let firstSignal;
+    api.getWorkspaceCards
+      .mockImplementationOnce((_projectId, options) => {
+        firstSignal = options.signal;
+        return first.promise;
+      })
+      .mockImplementationOnce(() => second.promise);
     const store = useWorkspaceListStore();
 
     const firstLoad = store.load('project-a', { status: 'running' });
     const secondLoad = store.load('project-a', { status: 'idle' });
-    first.resolve({ workspaces: [{ id: 'old' }], pagination: { hasMore: false, nextCursor: null } });
-    second.resolve({ workspaces: [{ id: 'new' }], pagination: { hasMore: false, nextCursor: null } });
+    expect(firstSignal.aborted).toBe(true);
+
+    second.resolve(response([{ id: 'new' }], { facets: { running: 2, idle: 1 } }));
+    first.resolve(response([{ id: 'stale' }]));
     await Promise.all([firstLoad, secondLoad]);
 
     expect(store.cards).toEqual([{ id: 'new' }]);
     expect(store.query).toEqual({ status: 'idle' });
+    expect(store.facets).toEqual({ running: 2, idle: 1 });
   });
 
-  it('reconciles card updates through filters, ordering, and the cached snapshot', async () => {
+  it('protects project B from a stale project A response', async () => {
+    const projectA = deferred();
+    api.getWorkspaceCards
+      .mockImplementationOnce(() => projectA.promise)
+      .mockResolvedValueOnce(response(
+        [{ id: 'b-card', projectId: 'project-b' }],
+        { facets: { running: 4, idle: 6 } },
+      ));
     const store = useWorkspaceListStore();
-    store._install('project-a', { starred: true }, {
-      workspaces: [
-        { id: 'older', projectId: 'project-a', starred: true, updatedAt: 10, createdAt: 1 },
-        { id: 'newer', projectId: 'project-a', starred: true, updatedAt: 20, createdAt: 2 },
-      ],
-      pagination: { hasMore: false, nextCursor: null },
-    });
 
-    store.reconcileCard({ id: 'older', projectId: 'project-a', starred: true, updatedAt: 30, createdAt: 1 });
-    expect(store.orderedIds).toEqual(['older', 'newer']);
-
-    store.reconcileCard({ id: 'older', projectId: 'project-a', starred: false, updatedAt: 31, createdAt: 1 });
-    expect(store.orderedIds).toEqual(['newer']);
-
-    api.getWorkspaceCards.mockResolvedValueOnce({
-      workspaces: [{ id: 'newer', projectId: 'project-a', starred: true, updatedAt: 20, createdAt: 2 }],
-      pagination: { hasMore: false, nextCursor: null },
-    });
-    await store.load('project-a', { starred: true });
-    expect(store.orderedIds).toEqual(['newer']);
-  });
-
-  it('keeps the cached page extent while revalidating', async () => {
-    const store = useWorkspaceListStore();
-    store._install('project-a', {}, {
-      workspaces: [{ id: 'one' }, { id: 'two' }, { id: 'three' }, { id: 'four' }],
-      pagination: { hasMore: true, nextCursor: 'old-next' },
-    });
-    api.getWorkspaceCards.mockResolvedValueOnce({
-      workspaces: [{ id: 'one' }, { id: 'two' }],
-      pagination: { hasMore: true, nextCursor: 'next' },
-    }).mockResolvedValueOnce({
-      workspaces: [{ id: 'three' }, { id: 'four' }],
-      pagination: { hasMore: false, nextCursor: null },
-    });
-
-    await store.load('project-a');
-    expect(store.cards).toHaveLength(4);
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(store.cards).toHaveLength(4);
-  });
-
-  it('does not append a page after its query context has been replaced', async () => {
-    const page = deferred();
-    const store = useWorkspaceListStore();
-    store._install('project-a', { status: 'running' }, {
-      workspaces: [{ id: 'running-workspace' }],
-      pagination: { hasMore: true, nextCursor: 'running-next' },
-    });
-    api.getWorkspaceCards.mockImplementationOnce(() => page.promise)
-      .mockResolvedValueOnce({
-        workspaces: [{ id: 'idle-workspace' }],
-        pagination: { hasMore: false, nextCursor: null },
-    });
-
-    const more = store.loadMore();
-    const replacement = store.load('project-b', { status: 'idle' });
-    await replacement;
-    page.resolve({
-      workspaces: [{ id: 'stale-running-workspace' }],
-      pagination: { hasMore: false, nextCursor: null },
-    });
-    await more;
+    const loadA = store.load('project-a');
+    await store.load('project-b');
+    projectA.resolve(response([{ id: 'a-card', projectId: 'project-a' }]));
+    await loadA;
 
     expect(store.projectId).toBe('project-b');
-    expect(store.query).toEqual({ status: 'idle' });
-    expect(store.cards).toEqual([{ id: 'idle-workspace' }]);
-    expect(store.loadingMore).toBe(false);
+    expect(store.cards.map(card => card.id)).toEqual(['b-card']);
+    expect(store.facets).toEqual({ running: 4, idle: 6 });
+  });
+
+  it('resets pagination when query context changes', async () => {
+    const runningPage = Array.from({ length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `running-${index}` }));
+    api.getWorkspaceCards
+      .mockResolvedValueOnce(response(runningPage, { total: 80, hasMore: true }))
+      .mockResolvedValueOnce(response([{ id: 'idle' }], { total: 1 }));
+    const store = useWorkspaceListStore();
+
+    await store.load('project-a', { status: 'running' });
+    expect(store.hasMore).toBe(true);
+    await store.load('project-a', { status: 'idle' });
+
+    expect(api.getWorkspaceCards.mock.calls[1][1].offset).toBe(0);
+    expect(store.cards.map(card => card.id)).toEqual(['idle']);
+    expect(store.nextOffset).toBe(1);
+  });
+
+  it('traverses unchanged offset pages without rendering duplicate cards', async () => {
+    const firstPage = Array.from({ length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index}` }));
+    api.getWorkspaceCards
+      .mockResolvedValueOnce(response(firstPage, { total: 52, hasMore: true }))
+      .mockResolvedValueOnce(response([
+        { id: 'card-49' },
+        { id: 'card-50' },
+        { id: 'card-51' },
+      ], { total: 52 }));
+    const store = useWorkspaceListStore();
+
+    await store.load('project-a');
+    await store.loadMore();
+
+    expect(api.getWorkspaceCards.mock.calls[1][1].offset).toBe(WORKSPACE_PAGE_SIZE);
+    expect(store.cards).toHaveLength(52);
+    expect(new Set(store.orderedIds).size).toBe(52);
+  });
+
+  it('refreshes the currently loaded extent instead of collapsing to page one', async () => {
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({ id: `card-${index}` }));
+    const secondPage = Array.from({ length: 25 }, (_, index) => ({ id: `card-${index + 50}` }));
+    api.getWorkspaceCards
+      .mockResolvedValueOnce(response(firstPage, { total: 75, hasMore: true }))
+      .mockResolvedValueOnce(response(secondPage, { total: 75 }))
+      .mockResolvedValueOnce(response(firstPage, { total: 75, hasMore: true }))
+      .mockResolvedValueOnce(response(secondPage, { total: 75 }));
+    const store = useWorkspaceListStore();
+
+    await store.load('project-a');
+    await store.loadMore();
+    await store.refresh();
+
+    expect(api.getWorkspaceCards.mock.calls.slice(2).map(([, options]) => ({
+      limit: options.limit,
+      offset: options.offset,
+    }))).toEqual([
+      { limit: 50, offset: 0 },
+      { limit: 25, offset: 50 },
+    ]);
+    expect(store.cards).toHaveLength(75);
+  });
+
+  it('deduplicates concurrent refresh calls for the same context', async () => {
+    const pending = deferred();
+    api.getWorkspaceCards.mockReturnValueOnce(pending.promise);
+    const store = useWorkspaceListStore();
+    store._resetContext('project-a', {});
+
+    const first = store.refresh();
+    const second = store.refresh();
+    pending.resolve(response([{ id: 'card' }]));
+    await Promise.all([first, second]);
+
+    expect(api.getWorkspaceCards).toHaveBeenCalledTimes(1);
   });
 });

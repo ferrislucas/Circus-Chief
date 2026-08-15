@@ -31,8 +31,6 @@ import {
 } from '@circuschief/shared/contracts/workspaces';
 import { hasPendingPrompt } from '../services/promptStore.js';
 
-const withPendingAgentInput = (session) => ({ ...session, pendingAgentInput: hasPendingPrompt(session.id) });
-
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
 const ERR_WORKSPACE_NOT_FOUND = 'Workspace not found';
 
@@ -145,81 +143,69 @@ function hasValidWorkspaceCardFilters(status, scheduled) {
     && ['true', 'false', undefined].includes(scheduled);
 }
 
-function hasValidCursorPosition(position) {
-  return Array.isArray(position) && position.length === 5
-    && [0, 1].includes(position[0]) && position.slice(1, 4).every(Number.isFinite)
-    && typeof position[4] === 'string' && Boolean(position[4]);
-}
-
-function decodeWorkspaceCursor(value, expectedContext) {
-  if (!value || typeof value !== 'string' || value.length > 512) return value ? null : null;
-  try {
-    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
-    if (parsed?.version !== 1 || JSON.stringify(parsed.context) !== JSON.stringify(expectedContext)
-      || !hasValidCursorPosition(parsed.position)) return null;
-    const [starred, activityOrder, updatedAt, createdAt, id] = parsed.position;
-    return { starred, activityOrder, updatedAt, createdAt, id };
-  } catch { return null; }
-}
-
-function encodeWorkspaceCursor(card, context) {
-  return Buffer.from(JSON.stringify({
-    version: 1,
-    context,
-    position: [
-      card.starred ? 1 : 0,
-      card.lastActivityAt ?? card.updatedAt ?? card.createdAt,
-      card.updatedAt,
-      card.createdAt,
-      card.id,
-    ],
-  })).toString('base64url');
-}
-
-function parseWorkspaceCardOptions(projectId, { archived, starred, limit, cursor, status, scheduled }) {
+function parseWorkspaceCardOptions({ archived, starred, limit, offset, status, scheduled }) {
   const parsedLimit = Number.parseInt(limit, 10);
-  const context = {
-    projectId,
+  const parsedOffset = offset === undefined ? 0 : Number.parseInt(offset, 10);
+  const valid = Number.isInteger(parsedLimit) && parsedLimit >= 1 && parsedLimit <= 50
+    && Number.isInteger(parsedOffset) && parsedOffset >= 0
+    && ['true', 'false', undefined].includes(archived)
+    && ['true', 'false', undefined].includes(starred)
+    && hasValidWorkspaceCardFilters(status, scheduled);
+  if (!valid) return null;
+  return {
     archived: archived === 'true',
     starred: parseBooleanFilter(starred),
     status: status || null,
     scheduled: parseBooleanFilter(scheduled),
-  };
-  const parsedCursor = decodeWorkspaceCursor(cursor, context);
-  const valid = Number.isInteger(parsedLimit) && parsedLimit >= 1 && parsedLimit <= 50
-    && (cursor === undefined || parsedCursor !== null)
-    && hasValidWorkspaceCardFilters(status, scheduled);
-  if (!valid) return null;
-  return {
-    ...context,
     limit: parsedLimit,
-    cursor: parsedCursor,
-    cursorContext: context,
+    offset: parsedOffset,
   };
 }
 
+const runRecency = run => run.completedAt ?? run.startedAt ?? 0;
+
+function workspaceCommandRuns(card, runsBySession) {
+  const latestByButton = {};
+  for (const sessionId of card.memberIds) {
+    for (const run of Object.values(runsBySession[sessionId] || {})) {
+      const current = latestByButton[run.buttonId];
+      if (!current || run.status === 'running' || runRecency(run) > runRecency(current)) {
+        latestByButton[run.buttonId] = run;
+      }
+    }
+  }
+  return Object.values(latestByButton);
+}
+
 function sendWorkspaceCards(res, projectId, query, startedAt) {
-  const options = parseWorkspaceCardOptions(projectId, query);
+  const options = parseWorkspaceCardOptions(query);
   if (!options) return res.status(400).json({ error: 'Invalid workspace card pagination or filters' });
-  const pagePlusOne = sessions.getWorkspaceCards(projectId, { ...options, limit: options.limit + 1 });
-  const cardIds = pagePlusOne.map(card => card.id);
-  const cardIdSet = new Set(cardIds);
+  const cards = sessions.getWorkspaceCards(projectId, options);
+  const memberIds = [...new Set(cards.flatMap(card => card.memberIds))];
+  const memberIdSet = new Set(memberIds);
   const runsBySession = buildRunsBySession(
-    commandRuns.getLatestRunsForSessions(cardIds),
+    commandRuns.getLatestRunsForSessions(memberIds),
     commandRunner.getRunningByProjectId(projectId, (sessionId) => sessions.getById(sessionId))
-      .filter(run => cardIdSet.has(run.sessionId))
+      .filter(run => memberIdSet.has(run.sessionId))
   );
-  const cards = pagePlusOne.map(card => ({
-    ...card,
-    latestCommandRuns: Object.values(runsBySession[card.id] || {}),
-  }));
+  const workspaces = cards.map((card) => {
+    const { memberIds: cardMemberIds, ...publicCard } = card;
+    return {
+      ...publicCard,
+      pendingAgentInput: cardMemberIds.some(hasPendingPrompt),
+      latestCommandRuns: workspaceCommandRuns(card, runsBySession),
+    };
+  });
+  const facets = sessions.getWorkspaceCardCounts(projectId, options);
+  const total = options.status ? facets[options.status] : facets.running + facets.idle;
   return sendWorkspaceJson(res, {
-    workspaces: cards.slice(0, options.limit),
+    workspaces,
+    facets,
     pagination: {
+      total,
       limit: options.limit,
-      hasMore: cards.length > options.limit,
-      nextCursor: cards.length > options.limit
-        ? encodeWorkspaceCursor(cards[options.limit - 1], options.cursorContext) : null,
+      offset: options.offset,
+      hasMore: options.offset + workspaces.length < total,
     },
   }, startedAt);
 }

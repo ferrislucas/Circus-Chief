@@ -333,6 +333,26 @@ describe('SessionFiltersPanel', () => {
   });
 
   describe('status filter counts', () => {
+    it('uses authoritative cold-entry facets instead of the partial session-store counts', () => {
+      vi.mocked(useSessionFiltering).mockReturnValueOnce({
+        toggleFilter: mockToggleFilter,
+        toggleStarFilterIcon: mockToggleStarFilterIcon,
+        starFilterTooltip: 'x',
+        toggleScheduledFilterIcon: mockToggleScheduledFilterIcon,
+        scheduledFilterTooltip: 'x',
+        statusFilterCounts: { running: 0, idle: 0 },
+      });
+
+      const wrapper = mountComponent({ statusCounts: { running: 8, idle: 13 } });
+      const buttons = wrapper.findAll('.filter-btn');
+      const running = buttons.find(button => button.find('.filter-label').text() === 'running');
+      const idle = buttons.find(button => button.find('.filter-label').text() === 'idle');
+
+      expect(running.find('.filter-count').text()).toBe('8');
+      expect(idle.find('.filter-count').text()).toBe('13');
+      expect(running.attributes('aria-label')).toBe('running (8)');
+    });
+
     it('renders the running and idle counts inside .filter-count spans', () => {
       vi.mocked(useSessionFiltering).mockReturnValueOnce({
         toggleFilter: mockToggleFilter,

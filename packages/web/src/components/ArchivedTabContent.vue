@@ -1,7 +1,7 @@
 <template>
   <div>
     <div
-      v-if="sessionsStore.archivedPagination.loading && sessionsStore.archivedSessions.length === 0"
+      v-if="loading && workspaces.length === 0"
       class="skeleton-list"
     >
       <div
@@ -13,14 +13,15 @@
     </div>
 
     <div
-      v-else-if="sessionsStore.error"
+      v-else-if="error && workspaces.length === 0"
       class="error-message"
+      role="alert"
     >
-      {{ sessionsStore.error }}
+      {{ error }}
     </div>
 
     <div
-      v-else-if="sessionsStore.archivedSessions.length === 0"
+      v-else-if="workspaces.length === 0"
       class="empty-state"
     >
       <p>No archived workspaces. Archive completed workspaces to keep your workspace list tidy.</p>
@@ -30,34 +31,41 @@
       v-else
       class="session-list"
     >
+      <div
+        v-if="error"
+        class="error-message"
+        role="alert"
+      >
+        {{ error }}
+      </div>
       <SessionCard
-        v-for="session in sessionsStore.archivedSessions"
-        :key="session.id"
-        :session="session"
+        v-for="workspace in workspaces"
+        :key="workspace.id"
+        :session="workspace"
         :show-summary="true"
-        :summary="summaries[session.id]"
-        :summary-loading="loadingSummaries[session.id]"
-        :summary-error="summaryErrors[session.id]"
+        :summary="workspace.summaryPreview ? { shortSummary: workspace.summaryPreview } : null"
+        :workflow-aggregate="workspace"
         :show-unarchive="true"
         :can-add-to-board="false"
-        :pr-url="session.prUrl"
-        :pr-summary="summaries[session.id]"
-        @retry-summary="$emit('retrySummary', $event)"
-        @unarchive="$emit('unarchive', $event)"
+        :pr-url="workspace.prUrl"
+        :pr-summary="workspacePrSummary(workspace)"
+        @retry-summary="handleRetrySummary"
+        @unarchive="handleUnarchive"
+        @star="handleStar"
       />
 
-      <!-- Load More Button -->
       <div
-        v-if="sessionsStore.archivedPagination.hasMore"
+        v-if="hasMore"
         class="load-more-container"
       >
         <button
+          type="button"
           class="btn btn-secondary"
-          :disabled="sessionsStore.archivedPagination.loading"
-          @click="$emit('loadMore')"
+          :disabled="loadingMore"
+          @click="handleLoadMore"
         >
-          <span v-if="sessionsStore.archivedPagination.loading">Loading...</span>
-          <span v-else>Load More ({{ archivedRemaining }} remaining)</span>
+          <span v-if="loadingMore">Loading...</span>
+          <span v-else>Load More ({{ remaining }} remaining)</span>
         </button>
       </div>
     </div>
@@ -66,35 +74,44 @@
 
 <script setup>
 import { computed } from 'vue';
-import { useSessionsStore } from '../stores/sessions.js';
+import { workspacePrSummary } from '../utils/workspaceCard.js';
 import SessionCard from './SessionCard.vue';
 
-defineProps({
-  /** Summaries keyed by session ID */
-  summaries: {
-    type: Object,
-    required: true,
+const props = defineProps({
+  workspaces: {
+    type: Array,
+    default: () => [],
   },
-  /** Loading states keyed by session ID */
-  loadingSummaries: {
-    type: Object,
-    required: true,
+  loading: {
+    type: Boolean,
+    default: false,
   },
-  /** Error states keyed by session ID */
-  summaryErrors: {
-    type: Object,
-    required: true,
+  loadingMore: {
+    type: Boolean,
+    default: false,
+  },
+  error: {
+    type: String,
+    default: null,
+  },
+  hasMore: {
+    type: Boolean,
+    default: false,
+  },
+  total: {
+    type: Number,
+    default: 0,
   },
 });
 
-defineEmits(['retrySummary', 'unarchive', 'loadMore']);
+const emit = defineEmits(['retry-summary', 'unarchive', 'star', 'load-more']);
 
-const sessionsStore = useSessionsStore();
+const remaining = computed(() => Math.max(0, props.total - props.workspaces.length));
 
-const archivedRemaining = computed(() => {
-  const { total, offset } = sessionsStore.archivedPagination;
-  return Math.max(0, total - offset);
-});
+const handleRetrySummary = sessionId => emit('retry-summary', sessionId);
+const handleUnarchive = sessionId => emit('unarchive', sessionId);
+const handleStar = session => emit('star', session);
+const handleLoadMore = () => emit('load-more');
 </script>
 
 <style scoped>

@@ -11,6 +11,7 @@ vi.mock('vue', () => ({
 class MockWebSocket {
   static OPEN = 1;
   static CLOSED = 3;
+  static instances = [];
 
   constructor(url) {
     this.url = url;
@@ -20,6 +21,7 @@ class MockWebSocket {
     this.onclose = null;
     this.onerror = null;
     this.sentMessages = [];
+    MockWebSocket.instances.push(this);
 
     // Simulate connection
     setTimeout(() => {
@@ -60,6 +62,7 @@ describe('useWebSocket composables', () => {
 
     // Reset WebSocket mock
     globalThis.WebSocket = MockWebSocket;
+    MockWebSocket.instances = [];
   });
 
   afterEach(() => {
@@ -98,6 +101,26 @@ describe('useWebSocket composables', () => {
       const cleanup = subscription.onSessionSummaryUpdated(callback);
 
       expect(typeof cleanup).toBe('function');
+    });
+
+    it('ignores project events whose projectId does not match the subscription', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useProjectSubscription('project-a');
+      const callback = vi.fn();
+      subscription.onSessionUpdated(callback);
+      const socket = MockWebSocket.instances[0];
+
+      socket.receiveMessage(WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId: 'project-b',
+        session: { id: 'foreign' },
+      });
+      socket.receiveMessage(WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId: 'project-a',
+        session: { id: 'local' },
+      });
+
+      expect(callback).toHaveBeenCalledOnce();
+      expect(callback).toHaveBeenCalledWith({ id: 'local' });
     });
   });
 

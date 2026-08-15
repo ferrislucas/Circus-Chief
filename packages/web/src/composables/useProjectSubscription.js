@@ -8,8 +8,10 @@ export const projectSubscriptionIds = new Set();
 /**
  * Subscribe to project updates (session list changes)
  * @param {string} projectId
+ * @param {Object} options
+ * @param {boolean} options.autoCleanup
  */
-export function useProjectSubscription(projectId) {
+export function useProjectSubscription(projectId, { autoCleanup = true } = {}) {
   const { send, on, off } = useWebSocket();
 
   const subscribe = () => {
@@ -57,6 +59,20 @@ export function useProjectSubscription(projectId) {
     return () => off(WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, handler);
   };
 
+  const createProjectMessageHandler = messageType => callback => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) callback(msg);
+    };
+    on(messageType, handler);
+    return () => off(messageType, handler);
+  };
+
+  // These messages are currently normally represented to project subscribers
+  // by SESSION_UPDATED. Keeping explicit handlers makes the list lifecycle-safe
+  // if the server begins forwarding the more specific events as well.
+  const onSessionMessage = createProjectMessageHandler(WS_MESSAGE_TYPES.SESSION_MESSAGE);
+  const onSessionStatus = createProjectMessageHandler(WS_MESSAGE_TYPES.SESSION_STATUS);
+
   // Command run handlers for real-time status icon updates on session lists
   const onCommandRunStarted = (callback) => {
     const handler = (msg) => {
@@ -102,6 +118,8 @@ export function useProjectSubscription(projectId) {
     on(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, handler);
     return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, handler);
   };
+
+  const onCommandRunKilled = createProjectMessageHandler(WS_MESSAGE_TYPES.COMMAND_RUN_KILLED);
 
   const onCommandRunDeleted = (callback) => {
     const handler = (msg) => {
@@ -155,9 +173,7 @@ export function useProjectSubscription(projectId) {
   };
 
   // Auto-cleanup on unmount
-  onUnmounted(() => {
-    unsubscribe();
-  });
+  if (autoCleanup) onUnmounted(unsubscribe);
 
   return {
     subscribe,
@@ -166,10 +182,13 @@ export function useProjectSubscription(projectId) {
     onSessionUpdated,
     onSessionDeleted,
     onSessionSummaryUpdated,
+    onSessionMessage,
+    onSessionStatus,
     onCommandRunStarted,
     onCommandRunOutput,
     onCommandRunComplete,
     onCommandRunError,
+    onCommandRunKilled,
     onCommandRunDeleted,
     onKanbanBoardUpdated,
     onKanbanCardMoved,

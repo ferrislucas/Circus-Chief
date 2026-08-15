@@ -1,7 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { kanbanBoards, kanbanCards, kanbanLanes, projects, sessions } from '../database.js';
+import {
+  commandButtons,
+  commandRuns,
+  kanbanBoards,
+  kanbanCards,
+  kanbanLanes,
+  projects,
+  messages,
+  sessions,
+} from '../database.js';
 import { attachRootSession, createLaneRunForEntry, supersedeRunForCard } from '../services/workflowSessionService.js';
 
 // Mock websocket
@@ -109,9 +118,9 @@ describe('Workspace facade API', () => {
       expect(res.body.workspaces[0]).toMatchObject({
         id: root.id, name: 'Root', runningCount: 2, memberCount: 1,
         runningSessionIds: [root.id, expect.any(String)],
-        memberIds: [root.id, expect.any(String)],
         latestCommandRuns: [],
       });
+      expect(res.body.workspaces[0]).not.toHaveProperty('memberIds');
       expect(res.body.workspaces[0]).not.toHaveProperty('pendingPrompt');
       expect(res.body.workspaces[0]).not.toHaveProperty('sessions');
       expect(res.headers['server-timing']).toContain('workspace;dur=');
@@ -124,7 +133,7 @@ describe('Workspace facade API', () => {
         .expect(400);
     });
 
-    it('uses an opaque cursor to continue without repeating a workspace', async () => {
+    it('uses ordinary offsets to traverse an unchanged dataset without repeats', async () => {
       const first = sessions.create(project.id, 'First', 'p');
       const second = sessions.create(project.id, 'Second', 'p');
       const third = sessions.create(project.id, 'Third', 'p');
@@ -132,39 +141,82 @@ describe('Workspace facade API', () => {
       const pageOne = await request(app)
         .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2`)
         .expect(200);
-      expect(pageOne.body.pagination.nextCursor).toEqual(expect.any(String));
+      expect(pageOne.body.pagination).toMatchObject({ offset: 0, total: 3, hasMore: true });
 
       const pageTwo = await request(app)
-        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&cursor=${encodeURIComponent(pageOne.body.pagination.nextCursor)}`)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&offset=2`)
         .expect(200);
       const ids = [...pageOne.body.workspaces, ...pageTwo.body.workspaces].map(({ id }) => id);
       expect(new Set(ids)).toEqual(new Set([first.id, second.id, third.id]));
       expect(ids).toHaveLength(3);
-      expect(pageTwo.body.pagination.nextCursor).toBeNull();
+      expect(pageTwo.body.pagination).toMatchObject({ offset: 2, hasMore: false });
     });
 
-    it('rejects malformed optimized-list cursors', async () => {
+    it('rejects malformed optimized-list offsets', async () => {
       await request(app)
-        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&cursor=not-a-cursor`)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&offset=-1`)
         .expect(400);
     });
 
-    it('rejects optimized-list cursors reused with a different query context', async () => {
-      sessions.create(project.id, 'One', 'p');
-      sessions.create(project.id, 'Two', 'p');
+    it('rejects malformed optimized-list boolean filters', async () => {
+      await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&starred=sometimes`)
+        .expect(400);
+    });
 
-      const firstPage = await request(app)
-        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=1&starred=false`)
+    it('returns honest cold-entry status facets independent of page size', async () => {
+      const running = sessions.create(project.id, 'Running', 'p', { status: 'running' });
+      const idleOne = sessions.create(project.id, 'Idle one', 'p', { status: 'waiting' });
+      const idleTwo = sessions.create(project.id, 'Idle two', 'p', { status: 'stopped' });
+      for (const session of [running, idleOne, idleTwo]) sessions.update(session.id, { starred: true });
+      sessions.create(project.id, 'Excluded unstarred', 'p', { status: 'running' });
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=1&starred=true`)
         .expect(200);
 
-      await request(app)
-        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=1&starred=true&cursor=${encodeURIComponent(firstPage.body.pagination.nextCursor)}`)
-        .expect(400);
+      expect(res.body.workspaces).toHaveLength(1);
+      expect(res.body.facets).toEqual({ running: 1, idle: 2 });
+      expect(res.body.pagination).toMatchObject({ total: 3, hasMore: true });
+    });
 
-      const otherProject = projects.create('Other Project', '/tmp/other');
-      await request(app)
-        .get(`/api/projects/${otherProject.id}/workspaces?view=cards&limit=1&starred=false&cursor=${encodeURIComponent(firstPage.body.pagination.nextCursor)}`)
-        .expect(400);
+    it('includes the latest child command indicator on a cold list entry', async () => {
+      const root = sessions.create(project.id, 'Root', 'p', { status: 'waiting' });
+      const child = sessions.create(project.id, 'Child', 'p', {
+        parentSessionId: root.id,
+        status: 'waiting',
+      });
+      const button = commandButtons.create({
+        projectId: project.id,
+        label: 'Test',
+        command: 'echo test',
+      });
+      commandRuns.create({ id: 'child-run', sessionId: child.id, buttonId: button.id });
+      commandRuns.complete('child-run', 0);
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=50`)
+        .expect(200);
+
+      expect(res.body.workspaces[0].latestCommandRuns).toEqual([
+        expect.objectContaining({ buttonId: button.id, status: 'success', runId: 'child-run' }),
+      ]);
+    });
+
+    it('uses child activity in the authoritative workspace card', async () => {
+      const root = sessions.create(project.id, 'Root', 'p', { status: 'waiting' });
+      const child = sessions.create(project.id, 'Child', 'p', {
+        parentSessionId: root.id,
+        status: 'waiting',
+      });
+      messages.create(child.id, 'assistant', 'Fresh child activity');
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=50`)
+        .expect(200);
+
+      expect(res.body.workspaces[0]).toMatchObject({ id: root.id });
+      expect(res.body.workspaces[0].lastActivityAt).not.toBeNull();
     });
 
     it('returns 404 for unknown project', async () => {

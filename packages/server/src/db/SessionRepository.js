@@ -15,7 +15,11 @@ import {
   DEFAULT_AGENT_TYPE,
   resolveAgentTypeFromModel,
 } from './session-helpers.js';
-import { getWorkspaceCards, getWorkspaceMembers } from './workspace-queries.js';
+import {
+  getWorkspaceCardCounts,
+  getWorkspaceCards,
+  getWorkspaceMembers,
+} from './workspace-queries.js';
 
 /**
  * Session repository class
@@ -169,8 +173,13 @@ export class SessionRepository extends BaseRepository {
    * set-based query.  Keeping this here also prevents a future session column from
    * accidentally becoming part of the list payload.
    */
-  getWorkspaceCards(projectId, { archived = false, starred = null, status = null, scheduled = null, limit = 50, cursor = null } = {}) {
-    return getWorkspaceCards(this.db, projectId, { archived, starred, status, scheduled, limit, cursor });
+  getWorkspaceCards(projectId, options = {}) {
+    return getWorkspaceCards(this.db, projectId, options);
+  }
+
+  /** Authoritative status facets for workspace-list filters. */
+  getWorkspaceCardCounts(projectId, options = {}) {
+    return getWorkspaceCardCounts(this.db, projectId, options);
   }
 
   /**

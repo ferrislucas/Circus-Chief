@@ -36,6 +36,10 @@ function findTab(wrapper, text) {
     .find(tab => tab.text() === text);
 }
 
+function lastWorkspaceList() {
+  return useWorkspaceListStore.mock.results.at(-1)?.value;
+}
+
 // Mock vue-router
 vi.mock('vue-router', () => ({
   useRoute: vi.fn(() => mockRoute),
@@ -81,8 +85,17 @@ vi.mock('../stores/sessionStreaming.js', () => ({
 vi.mock('../stores/workspaceList.js', () => ({
   useWorkspaceListStore: vi.fn(() => {
     const sessionsStore = useSessionsStore();
-    return {
+    const list = {
+      projectId: null,
+      query: { archived: false },
       get cards() {
+        if (this.query.archived) {
+          return (sessionsStore.archivedSessions || []).map(session => ({
+            ...session,
+            memberCount: 0,
+            runningCount: ['running', 'starting'].includes(session.status) ? 1 : 0,
+          }));
+        }
         const groups = sessionsStore.groupedSessions || [];
         return groups
           .map(({ parent, children = [] }) => ({
@@ -99,6 +112,7 @@ vi.mock('../stores/workspaceList.js', () => ({
           .filter(card => sessionsStore.starredFilter === 'starred' ? card.starred :
             sessionsStore.starredFilter === 'unstarred' ? !card.starred : true);
       },
+      get cardsById() { return Object.fromEntries(this.cards.map(card => [card.id, card])); },
       get orderedIds() { return this.cards.map(card => card.id); },
       get hasActiveFilters() {
         return Boolean(sessionsStore.statusFilter || sessionsStore.starredFilter || sessionsStore.scheduledFilter);
@@ -106,9 +120,22 @@ vi.mock('../stores/workspaceList.js', () => ({
       loading: false,
       loadingMore: false,
       hasMore: false,
-      load: vi.fn().mockResolvedValue(),
+      error: null,
+      facets: { running: 0, idle: 0 },
+      get total() { return this.cards.length; },
+      load: vi.fn(function(projectId, query) {
+        this.projectId = projectId;
+        this.query = query;
+        return Promise.resolve();
+      }),
+      refresh: vi.fn().mockResolvedValue(),
+      isRefreshInFlight: vi.fn(() => false),
       loadMore: vi.fn().mockResolvedValue(),
+      patchCard: vi.fn(),
+      removeCard: vi.fn(),
+      cancel: vi.fn(),
     };
+    return list;
   }),
 }));
 
@@ -131,7 +158,12 @@ vi.mock('../composables/useWebSocket.js', () => ({
       return vi.fn();
     }),
     onSessionSummaryUpdated: vi.fn((cb) => {
-      onSessionSummaryUpdatedCallback = cb;
+      onSessionSummaryUpdatedCallback = (sessionId, summary) => {
+        const store = useSessionsStore();
+        const session = store.sessions.find(candidate => candidate.id === sessionId);
+        if (session) session.summaryPreview = summary?.shortSummary || null;
+        cb(sessionId, summary);
+      };
       return vi.fn();
     }),
     onCommandRunOutput: vi.fn((cb) => {
@@ -402,8 +434,8 @@ vi.mock('../composables/useApi.js', () => ({
 vi.mock('../components/SessionCard.vue', () => ({
   default: defineComponent({
     name: 'SessionCard',
-    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'showArchive', 'showUnarchive', 'prUrl', 'prSummary', 'canAddToBoard'],
-    emits: ['retrySummary', 'archive', 'unarchive', 'visibility-change'],
+    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'showArchive', 'showUnarchive', 'prUrl', 'prSummary', 'canAddToBoard', 'workflowAggregate'],
+    emits: ['retrySummary', 'archive', 'unarchive', 'star', 'visibility-change'],
     template: '<div class="session-card" :data-session-id="session.id" :data-summary="JSON.stringify(summary)" :data-pr-url="prUrl" :data-pr-summary="JSON.stringify(prSummary)"><slot /></div>',
   }),
 }));
@@ -490,35 +522,31 @@ vi.mock('../components/SessionFiltersPanel.vue', () => ({
 vi.mock('../components/ArchivedTabContent.vue', () => ({
   default: defineComponent({
     name: 'ArchivedTabContent',
-    props: ['summaries', 'loadingSummaries', 'summaryErrors'],
-    emits: ['retrySummary', 'unarchive', 'loadMore'],
-    setup() {
-      const sessionsStore = useSessionsStore();
-      const archivedRemaining = computed(() => {
-        const { total, offset } = sessionsStore.archivedPagination;
-        return Math.max(0, total - offset);
-      });
-      return { sessionsStore, archivedRemaining };
+    props: ['workspaces', 'loading', 'loadingMore', 'error', 'hasMore', 'total'],
+    emits: ['retry-summary', 'unarchive', 'star', 'load-more'],
+    setup(props) {
+      const archivedRemaining = computed(() => Math.max(0, props.total - props.workspaces.length));
+      return { archivedRemaining };
     },
     template: `
       <div>
-        <div v-if="sessionsStore.archivedPagination.loading && sessionsStore.archivedSessions.length === 0" class="skeleton-list">
+        <div v-if="loading && workspaces.length === 0" class="skeleton-list">
           <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
         </div>
-        <div v-else-if="sessionsStore.error" class="error-message">{{ sessionsStore.error }}</div>
-        <div v-else-if="sessionsStore.archivedSessions.length === 0" class="empty-state">
+        <div v-else-if="error" class="error-message">{{ error }}</div>
+        <div v-else-if="workspaces.length === 0" class="empty-state">
           <p>No archived sessions. Archive completed sessions to keep your session list tidy.</p>
         </div>
         <div v-else class="session-list">
-          <div v-for="session in sessionsStore.archivedSessions" :key="session.id"
+          <div v-for="session in workspaces" :key="session.id"
             class="session-card" :data-session-id="session.id"
-            :data-summary="JSON.stringify(summaries?.[session.id])"
+            :data-summary="session.summaryPreview"
             :data-pr-url="session.prUrl"
-            :data-pr-summary="JSON.stringify(summaries?.[session.id])">
+            :data-pr-summary="session.prState">
           </div>
-          <div v-if="sessionsStore.archivedPagination.hasMore" class="load-more-container">
-            <button class="btn btn-secondary" :disabled="sessionsStore.archivedPagination.loading" @click="$emit('loadMore')">
-              <span v-if="sessionsStore.archivedPagination.loading">Loading...</span>
+          <div v-if="hasMore" class="load-more-container">
+            <button class="btn btn-secondary" :disabled="loadingMore" @click="$emit('load-more')">
+              <span v-if="loadingMore">Loading...</span>
               <span v-else>Load More ({{ archivedRemaining }} remaining)</span>
             </button>
           </div>
@@ -553,6 +581,7 @@ import SessionListView from './SessionListView.vue';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { useWorkspaceListStore } from '../stores/workspaceList.js';
 import { useProjectSubscription } from '../composables/useWebSocket.js';
 import { useSessionFiltering } from '../composables/useSessionFiltering.js';
 import { useProjectSessionSubscription } from '../composables/useProjectSessionSubscription.js';
@@ -744,7 +773,9 @@ describe('SessionListView', () => {
       mount(SessionListView);
       await flushPromises();
 
-      expect(useProjectSubscription).toHaveBeenCalledWith('test-project-id');
+      expect(useProjectSubscription).toHaveBeenCalledWith(
+        'test-project-id', { autoCleanup: false },
+      );
     });
 
     it('registers onSessionSummaryUpdated callback', async () => {
@@ -753,6 +784,25 @@ describe('SessionListView', () => {
 
       expect(onSessionSummaryUpdatedCallback).not.toBeNull();
       expect(typeof onSessionSummaryUpdatedCallback).toBe('function');
+    });
+
+    it('replaces the project subscription when the route reuses the view for project B', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+      const projectASubscription = useProjectSubscription.mock.results[0].value;
+
+      mockRoute.params.id = 'project-b';
+      await nextTick();
+      await flushPromises();
+
+      expect(projectASubscription.unsubscribe).toHaveBeenCalledOnce();
+      expect(useProjectSubscription).toHaveBeenLastCalledWith(
+        'project-b', { autoCleanup: false },
+      );
+      expect(lastWorkspaceList().load).toHaveBeenLastCalledWith(
+        'project-b', expect.objectContaining({ archived: false }),
+      );
+      wrapper.unmount();
     });
   });
 
@@ -796,15 +846,14 @@ describe('SessionListView', () => {
     });
   });
 
-  describe('Debounced summary fetching', () => {
-    it('debounces summary fetching when sessions change rapidly', async () => {
+  describe('debounced authoritative list refresh', () => {
+    it('coalesces rapid project events into one list refresh', async () => {
       vi.useFakeTimers();
 
       const wrapper = mount(SessionListView);
       await flushPromises();
-
-      // Clear any initial summary fetch calls
-      mockGetSessionSummary.mockClear();
+      const list = lastWorkspaceList();
+      list.refresh.mockClear();
 
       // Simulate rapid session updates (WebSocket onSessionUpdated firing multiple times)
       if (onSessionUpdatedCallback) {
@@ -813,53 +862,35 @@ describe('SessionListView', () => {
         onSessionUpdatedCallback({ id: 'session-1', name: 'Updated 3', status: 'running' });
       }
 
-      // Before debounce timer fires, no new summary calls should have been made
-      // (The watcher is debounced with 400ms delay)
-
-      // Advance past the debounce timer
-      vi.advanceTimersByTime(500);
+      await vi.advanceTimersByTimeAsync(500);
       await flushPromises();
 
-      // The summary fetch should have been called only once (debounced)
-      // rather than once per session update
+      expect(list.refresh).toHaveBeenCalledOnce();
       vi.useRealTimers();
       wrapper.unmount();
     });
 
-    it('does not refetch summaries that already exist', async () => {
+    it('refreshes the card response for a summary event without legacy batch fetching', async () => {
+      vi.useFakeTimers();
       const wrapper = mount(SessionListView);
       await flushPromises();
-
-      // Simulate a summary already being available via WebSocket
-      if (onSessionSummaryUpdatedCallback) {
-        onSessionSummaryUpdatedCallback('session-1', { shortSummary: 'Existing summary' });
-      }
-      await nextTick();
-
-      // Clear mock to track new calls
+      const list = lastWorkspaceList();
+      list.refresh.mockClear();
       mockGetSessionSummary.mockClear();
 
-      // Trigger the sessions watcher by simulating a session update
-      if (onSessionUpdatedCallback) {
-        onSessionUpdatedCallback({ id: 'session-1', name: 'Updated', status: 'running' });
-      }
+      onSessionSummaryUpdatedCallback('session-1', { shortSummary: 'Existing summary' });
+      await vi.advanceTimersByTimeAsync(500);
       await flushPromises();
 
-      // Wait for debounce
-      await new Promise(resolve => setTimeout(resolve, 500));
-      await flushPromises();
+      expect(list.refresh).toHaveBeenCalledOnce();
+      expect(mockGetSessionSummary).not.toHaveBeenCalled();
 
-      // Should NOT re-fetch summary for session-1 since it already has one
-      const session1Calls = mockGetSessionSummary.mock.calls.filter(
-        call => call[0] === 'session-1'
-      );
-      expect(session1Calls.length).toBe(0);
-
+      vi.useRealTimers();
       wrapper.unmount();
     });
   });
 
-  describe.skip('legacy project-wide summary updates', () => {
+  describe('authoritative summary refreshes', () => {
     it('updates summary when onSessionSummaryUpdated is called', async () => {
       const wrapper = mount(SessionListView);
       await flushAll(wrapper);
@@ -885,7 +916,7 @@ describe('SessionListView', () => {
       let sessionCard = wrapper.find('[data-session-id="session-1"]');
       expect(sessionCard.exists()).toBe(true);
       sessionCard = wrapper.find('[data-session-id="session-1"]'); // Re-query after state update
-      expect(sessionCard.attributes('data-summary')).toBe(JSON.stringify(newSummary));
+      expect(sessionCard.attributes('data-summary')).toBe(JSON.stringify({ shortSummary: newSummary.shortSummary }));
     });
 
     it('clears loading state when summary update is received', async () => {
@@ -932,8 +963,8 @@ describe('SessionListView', () => {
       card1 = wrapper.find('[data-session-id="session-1"]');
       card2 = wrapper.find('[data-session-id="session-2"]');
 
-      expect(card1.attributes('data-summary')).toBe(JSON.stringify(summary1));
-      expect(card2.attributes('data-summary')).toBe(JSON.stringify(summary2));
+      expect(card1.attributes('data-summary')).toBe(JSON.stringify({ shortSummary: summary1.shortSummary }));
+      expect(card2.attributes('data-summary')).toBe(JSON.stringify({ shortSummary: summary2.shortSummary }));
     });
 
     it('overwrites existing summary with new update', async () => {
@@ -952,11 +983,11 @@ describe('SessionListView', () => {
 
       let card = wrapper.find('[data-session-id="session-1"]');
       card = wrapper.find('[data-session-id="session-1"]'); // Re-query
-      expect(card.attributes('data-summary')).toBe(JSON.stringify(updatedSummary));
+      expect(card.attributes('data-summary')).toBe(JSON.stringify({ shortSummary: updatedSummary.shortSummary }));
     });
   });
 
-  describe.skip('legacy project-wide session lifecycle events', () => {
+  describe('authoritative project-wide session lifecycle events', () => {
     it('cleans up summary data when session is deleted', async () => {
       const wrapper = mount(SessionListView);
       await flushPromises();
@@ -970,8 +1001,10 @@ describe('SessionListView', () => {
       onSessionDeletedCallback('session-1');
       await nextTick();
 
-      // The summary should be cleaned up
-      expect(mockSessionsStore.removeSessionFromList).toHaveBeenCalledWith('session-1');
+      await new Promise(resolve => setTimeout(resolve, 200));
+      expect(mockSessionsStore.removeSessionFromList).not.toHaveBeenCalled();
+      const list = useWorkspaceListStore.mock.results.at(-1).value;
+      expect(list.refresh).toHaveBeenCalled();
     });
   });
 });
@@ -1596,7 +1629,7 @@ describe('Status filtering', () => {
   });
 });
 
-describe.skip('legacy project-wide SessionListView integration', () => {
+describe('SessionListView authoritative-list integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
@@ -1770,23 +1803,27 @@ describe('SessionListView Archived Tab', () => {
     expect(archivedTab.classes()).toContain('active');
   });
 
-  it('fetches archived sessions on first Archived tab click', async () => {
+  it('loads the archived workspace-card query on first Archive tab click', async () => {
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
-    // Initially, fetchArchivedSessions should not have been called
-    expect(mockSessionsStore.fetchArchivedSessions).not.toHaveBeenCalled();
+    const list = lastWorkspaceList();
+    expect(list.load).toHaveBeenLastCalledWith(
+      'test-project-id', expect.objectContaining({ archived: false }),
+    );
 
     // Click Archived tab
     const archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushPromises();
 
-    // Now it should have been called with reset: true
-    expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+    expect(list.load).toHaveBeenLastCalledWith(
+      'test-project-id', expect.objectContaining({ archived: true }),
+    );
+    expect(mockSessionsStore.fetchArchivedSessions).not.toHaveBeenCalled();
   });
 
-  it('does not fetch archived sessions again on subsequent tab clicks', async () => {
+  it('resets the authoritative query when switching away and back', async () => {
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
@@ -1795,7 +1832,10 @@ describe('SessionListView Archived Tab', () => {
     // First click
     await archivedTab.trigger('click');
     await flushPromises();
-    expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledTimes(1);
+    const list = lastWorkspaceList();
+    expect(list.load).toHaveBeenLastCalledWith(
+      'test-project-id', expect.objectContaining({ archived: true }),
+    );
 
     // Switch away and back
     const sessionsTab = wrapper.findAll('.tab')[0];
@@ -1805,8 +1845,10 @@ describe('SessionListView Archived Tab', () => {
     await archivedTab.trigger('click');
     await flushPromises();
 
-    // Should still only be called once (lazy loaded)
-    expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledTimes(1);
+    expect(list.load).toHaveBeenLastCalledWith(
+      'test-project-id', expect.objectContaining({ archived: true }),
+    );
+    expect(list.load).toHaveBeenCalledTimes(4);
   });
 
   it('shows empty state when no archived sessions', async () => {
@@ -1882,7 +1924,7 @@ describe('SessionListView Archived Tab', () => {
     expect(wrapper.find('.btn-primary').exists()).toBe(false);
   });
 
-  describe.skip('legacy eager command button loading', () => {
+  describe('cold-entry command button loading', () => {
     it('fetches command buttons when component mounts', async () => {
       mockCommandButtonsStore.fetchButtons.mockClear();
       mount(SessionListView);
@@ -1896,8 +1938,9 @@ describe('SessionListView Archived Tab', () => {
       mount(SessionListView);
       await flushPromises();
 
-      // Verify both sessions and buttons are fetched
-      expect(mockSessionsStore.fetchSessions).toHaveBeenCalledWith('test-project-id');
+      const list = useWorkspaceListStore.mock.results.at(-1).value;
+      expect(list.load).toHaveBeenCalledWith('test-project-id', expect.objectContaining({ archived: false }));
+      expect(mockSessionsStore.fetchSessions).not.toHaveBeenCalled();
       expect(mockCommandButtonsStore.fetchButtons).toHaveBeenCalledWith('test-project-id');
     });
   });
@@ -2111,8 +2154,9 @@ describe('SessionListView Archived Tab', () => {
 
       await wrapper.vm.$nextTick();
 
-      // Verify fetchArchivedSessions was called with reset: true
-      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+      expect(lastWorkspaceList().load).toHaveBeenLastCalledWith(
+        'test-project-id', expect.objectContaining({ archived: true }),
+      );
     });
 
     it('loads archived sessions on page refresh (when mounted directly on archived route)', async () => {
@@ -2130,9 +2174,9 @@ describe('SessionListView Archived Tab', () => {
 
       await wrapper.vm.$nextTick();
 
-      // With { immediate: true } on the route.name watch, fetchArchivedSessions
-      // should be called with reset: true even though route.name didn't change from component mount
-      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+      expect(lastWorkspaceList().load).toHaveBeenCalledWith(
+        'test-project-id', expect.objectContaining({ archived: true }),
+      );
 
       // Verify archived sessions are displayed
       expect(mockSessionsStore.archivedSessions).toHaveLength(2);
@@ -2149,8 +2193,9 @@ describe('SessionListView Archived Tab', () => {
       await archivedTab.trigger('click');
       await flushPromises();
 
-      // Verify fetchArchivedSessions was called with reset: true
-      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+      expect(lastWorkspaceList().load).toHaveBeenLastCalledWith(
+        'test-project-id', expect.objectContaining({ archived: true }),
+      );
     });
 
     it('re-fetches archived sessions when star filter changes while on archived tab', async () => {
@@ -2162,16 +2207,17 @@ describe('SessionListView Archived Tab', () => {
       await archivedTab.trigger('click');
       await flushPromises();
 
-      // Clear the mock to track subsequent calls
-      mockSessionsStore.fetchArchivedSessions.mockClear();
+      const list = lastWorkspaceList();
+      list.load.mockClear();
 
       // Change the star filter
       mockSessionsStore.starredFilter = 'starred';
       await wrapper.vm.$nextTick();
       await flushPromises();
 
-      // Should have re-fetched archived sessions with reset: true
-      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+      expect(list.load).toHaveBeenCalledWith(
+        'test-project-id', expect.objectContaining({ archived: true, starred: true }),
+      );
     });
 
     it('does not re-fetch archived sessions when star filter changes on sessions tab', async () => {
@@ -2184,8 +2230,11 @@ describe('SessionListView Archived Tab', () => {
       await wrapper.vm.$nextTick();
       await flushPromises();
 
-      // Should NOT have fetched archived sessions
+      // The active list query changes; the legacy archived collection is untouched.
       expect(mockSessionsStore.fetchArchivedSessions).not.toHaveBeenCalled();
+      expect(lastWorkspaceList().load).toHaveBeenLastCalledWith(
+        'test-project-id', expect.objectContaining({ archived: false, starred: true }),
+      );
     });
 
     it('does not re-fetch archived sessions when filter changes but archived tab not yet loaded', async () => {
@@ -2218,8 +2267,9 @@ describe('SessionListView Archived Tab', () => {
       await archivedTab.trigger('click');
       await flushPromises();
 
-      // Should have fetched with reset: true, which applies the current starredFilter
-      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+      expect(lastWorkspaceList().load).toHaveBeenLastCalledWith(
+        'test-project-id', expect.objectContaining({ archived: true, starred: true }),
+      );
     });
 
     it('handles multiple filter changes on archived tab', async () => {
@@ -2231,34 +2281,40 @@ describe('SessionListView Archived Tab', () => {
       await archivedTab.trigger('click');
       await flushPromises();
 
-      // Clear initial fetch
-      mockSessionsStore.fetchArchivedSessions.mockClear();
+      const list = lastWorkspaceList();
+      list.load.mockClear();
 
       // Change filter to starred
       mockSessionsStore.starredFilter = 'starred';
       await wrapper.vm.$nextTick();
       await flushPromises();
 
-      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledTimes(1);
-      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+      expect(list.load).toHaveBeenCalledTimes(1);
+      expect(list.load).toHaveBeenCalledWith(
+        'test-project-id', expect.objectContaining({ archived: true, starred: true }),
+      );
 
       // Change filter to unstarred
-      mockSessionsStore.fetchArchivedSessions.mockClear();
+      list.load.mockClear();
       mockSessionsStore.starredFilter = 'unstarred';
       await wrapper.vm.$nextTick();
       await flushPromises();
 
-      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledTimes(1);
-      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+      expect(list.load).toHaveBeenCalledTimes(1);
+      expect(list.load).toHaveBeenCalledWith(
+        'test-project-id', expect.objectContaining({ archived: true, starred: false }),
+      );
 
       // Clear filter
-      mockSessionsStore.fetchArchivedSessions.mockClear();
+      list.load.mockClear();
       mockSessionsStore.starredFilter = null;
       await wrapper.vm.$nextTick();
       await flushPromises();
 
-      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledTimes(1);
-      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+      expect(list.load).toHaveBeenCalledTimes(1);
+      expect(list.load).toHaveBeenCalledWith(
+        'test-project-id', expect.objectContaining({ archived: true, starred: null }),
+      );
     });
 
     it('does not re-fetch on initial watcher trigger when filter has not changed', async () => {
@@ -2273,8 +2329,8 @@ describe('SessionListView Archived Tab', () => {
       await archivedTab.trigger('click');
       await flushPromises();
 
-      // Clear the initial fetch call
-      mockSessionsStore.fetchArchivedSessions.mockClear();
+      const list = lastWorkspaceList();
+      list.load.mockClear();
 
       // Trigger the watcher with the same value (simulating initial watcher setup)
       // This shouldn't cause a re-fetch because newFilter === oldFilter
@@ -2284,7 +2340,7 @@ describe('SessionListView Archived Tab', () => {
 
       // Should not have called fetchArchivedSessions again
       // (the watcher has the guard: newFilter !== oldFilter)
-      expect(mockSessionsStore.fetchArchivedSessions).not.toHaveBeenCalled();
+      expect(list.load).not.toHaveBeenCalled();
     });
 
     it('shows star filter button on archived tab', async () => {
@@ -2354,8 +2410,7 @@ describe('SessionListView Archived Tab', () => {
       // Wait for summary fetches to complete
       await flushPromises();
 
-      // Should have used the batch endpoint with both archived session IDs
-      expect(mockGetSessionSummariesBatch).toHaveBeenCalledWith(['archived-1', 'archived-2']);
+      expect(mockGetSessionSummariesBatch).not.toHaveBeenCalled();
     });
 
     it('filter persists when switching between sessions and archived tabs', async () => {
@@ -2372,8 +2427,9 @@ describe('SessionListView Archived Tab', () => {
       await archivedTab.trigger('click');
       await flushPromises();
 
-      // Verify the filter was applied (fetchArchivedSessions uses this.starredFilter)
-      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+      expect(lastWorkspaceList().load).toHaveBeenLastCalledWith(
+        'test-project-id', expect.objectContaining({ archived: true, starred: true }),
+      );
 
       // Switch back to sessions tab
       const sessionsTab = wrapper.findAll('.tab')[0];
@@ -2582,7 +2638,7 @@ describe('SessionListView batch summary fetching', () => {
     useCommandButtonsStore.mockReturnValue(mockCommandButtonsStore);
   });
 
-  it.skip('calls getSessionSummariesBatch for project sessions on mount', async () => {
+  it('does not fetch legacy summary batches on cold entry', async () => {
     mockGetSessionSummariesBatch.mockResolvedValue({
       'session-1': { shortSummary: 'Summary 1' },
       'session-2': { shortSummary: 'Summary 2' },
@@ -2592,27 +2648,26 @@ describe('SessionListView batch summary fetching', () => {
     const wrapper = mount(SessionListView);
     await flushAll(wrapper);
 
-    expect(mockGetSessionSummariesBatch).toHaveBeenCalledWith(
-      expect.arrayContaining(['session-1', 'session-2', 'session-3'])
-    );
+    expect(mockGetSessionSummariesBatch).not.toHaveBeenCalled();
   });
 
-  it.skip('populates summary data from batch response into SessionCards', async () => {
+  it('populates summary data from the authoritative card response', async () => {
     mockGetSessionSummariesBatch.mockResolvedValue({
       'session-1': { shortSummary: 'Batch result for session 1' },
       'session-2': null,
       'session-3': { shortSummary: 'Batch result for session 3' },
     });
 
+    mockSessionsStore.sessions[0].summaryPreview = 'List response summary';
     const wrapper = mount(SessionListView);
     await flushAll(wrapper);
 
     const card1 = wrapper.find('[data-session-id="session-1"]');
     expect(card1.exists()).toBe(true);
-    expect(card1.attributes('data-summary')).toContain('Batch result for session 1');
+    expect(card1.attributes('data-summary')).toContain('List response summary');
   });
 
-  it.skip('handles batch error gracefully without crashing', async () => {
+  it('does not expose legacy batch failures on the list path', async () => {
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mockGetSessionSummariesBatch.mockRejectedValue(new Error('Server error'));
 
@@ -2621,16 +2676,13 @@ describe('SessionListView batch summary fetching', () => {
 
     // Should still render
     expect(wrapper.exists()).toBe(true);
-    expect(consoleWarnSpy).toHaveBeenCalledWith(
-      'Failed to fetch summaries batch:',
-      'Server error'
-    );
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
     consoleWarnSpy.mockRestore();
   });
 
-  it('uses batch endpoint for archived sessions when switching to archived tab', async () => {
+  it('uses archived card summaries without a legacy batch request', async () => {
     mockSessionsStore.archivedSessions = [
-      { id: 'archived-1', name: 'Archived 1', status: 'completed' },
+      { id: 'archived-1', name: 'Archived 1', status: 'completed', summaryPreview: 'Archived summary 1' },
       { id: 'archived-2', name: 'Archived 2', status: 'completed' },
     ];
 
@@ -2654,10 +2706,9 @@ describe('SessionListView batch summary fetching', () => {
     await archivedTab.trigger('click');
     await flushPromises();
 
-    // Should call batch endpoint with archived session IDs
-    expect(mockGetSessionSummariesBatch).toHaveBeenCalledWith(
-      expect.arrayContaining(['archived-1', 'archived-2'])
-    );
+    expect(mockGetSessionSummariesBatch).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-session-id="archived-1"]').attributes('data-summary'))
+      .toBe('Archived summary 1');
   });
 
   it('handles batch error for archived summaries gracefully', async () => {
@@ -2681,6 +2732,8 @@ describe('SessionListView batch summary fetching', () => {
     await flushPromises();
 
     expect(wrapper.exists()).toBe(true);
+    expect(mockGetSessionSummariesBatch).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
     consoleWarnSpy.mockRestore();
   });
 
@@ -2838,18 +2891,15 @@ describe('SessionListView batch summary fetching', () => {
 
     it('passes isOnKanbanBoard=true when the workflow root has a card', async () => {
       mockSessionsStore = createSessionsStoreMock([
-        { id: 'session-1', name: 'Session 1', status: 'completed' },
+        {
+          id: 'session-1', name: 'Session 1', status: 'completed',
+          kanban: { cardId: 'card-1', laneId: 'lane-1', laneName: 'Lane' },
+        },
       ]);
       useSessionsStore.mockReturnValue(mockSessionsStore);
 
       const wrapper = mount(SessionListView);
       await flushAll(wrapper);
-
-      useKanbanStore().board = {
-        lanes: [
-          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
-        ],
-      };
 
       const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
       await sessionCard.vm.$emit('archive', 'session-1');
@@ -2861,7 +2911,10 @@ describe('SessionListView batch summary fetching', () => {
 
     it('removes the workflow card after archive when removeFromBoard is checked', async () => {
       mockSessionsStore = createSessionsStoreMock([
-        { id: 'session-1', name: 'Session 1', status: 'completed' },
+        {
+          id: 'session-1', name: 'Session 1', status: 'completed',
+          kanban: { cardId: 'card-1', laneId: 'lane-1', laneName: 'Lane' },
+        },
       ]);
       useSessionsStore.mockReturnValue(mockSessionsStore);
 
@@ -2916,7 +2969,10 @@ describe('SessionListView batch summary fetching', () => {
 
     it('still archives successfully when card removal fails', async () => {
       mockSessionsStore = createSessionsStoreMock([
-        { id: 'session-1', name: 'Session 1', status: 'completed' },
+        {
+          id: 'session-1', name: 'Session 1', status: 'completed',
+          kanban: { cardId: 'card-1', laneId: 'lane-1', laneName: 'Lane' },
+        },
       ]);
       useSessionsStore.mockReturnValue(mockSessionsStore);
 
