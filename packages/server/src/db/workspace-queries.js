@@ -159,7 +159,12 @@ export function getWorkspaceMembers(db, rootId) {
       WHERE instr(tree.path, s.id) = 0
     )
     SELECT s.id, s.project_id AS projectId, s.parent_session_id AS parentSessionId,
-      s.name, s.status, s.starred, s.archived, s.scheduled_at AS scheduledAt,
+      s.name, s.status, s.model, s.pending_model AS pendingModel,
+      s.input_tokens AS inputTokens, s.output_tokens AS outputTokens,
+      s.thinking_tokens AS thinkingTokens,
+      s.cache_read_input_tokens AS cacheReadInputTokens,
+      s.cache_creation_input_tokens AS cacheCreationInputTokens,
+      s.starred, s.archived, s.scheduled_at AS scheduledAt,
       s.created_at AS createdAt, s.updated_at AS updatedAt, tree.depth,
       ${ACTIVITY_FIELDS_SQL},
       ss.short_summary AS summaryPreview
@@ -172,6 +177,13 @@ export function getWorkspaceMembers(db, rootId) {
     parentSessionId: row.parentSessionId,
     name: row.name,
     status: row.status,
+    model: row.model || null,
+    pendingModel: row.pendingModel || null,
+    inputTokens: row.inputTokens || 0,
+    outputTokens: row.outputTokens || 0,
+    thinkingTokens: row.thinkingTokens || 0,
+    cacheReadInputTokens: row.cacheReadInputTokens || 0,
+    cacheCreationInputTokens: row.cacheCreationInputTokens || 0,
     starred: Boolean(row.starred),
     archived: Boolean(row.archived),
     scheduledAt: row.scheduledAt,

@@ -64,6 +64,37 @@ describe('Sessions Store', () => {
     expect(store.error).toBeNull();
   });
 
+  it('keeps workspace-member model and token fields used by the session picker', async () => {
+    const store = useSessionsStore();
+    store.viewedSessionId = 'child-1';
+    api.getSession.mockResolvedValue({ id: 'child-1', name: 'Child', projectId: 'proj-1' });
+    api.getWorkspaceDetail.mockResolvedValue({
+      members: [
+        {
+          id: 'root-1', name: 'Root', model: 'gpt-5', pendingModel: null,
+          inputTokens: 100, outputTokens: 20, thinkingTokens: 10,
+          cacheReadInputTokens: 5, cacheCreationInputTokens: 2,
+        },
+        {
+          id: 'child-1', name: 'Child', model: null, pendingModel: 'claude-sonnet-4-5',
+          inputTokens: 200, outputTokens: 40, thinkingTokens: 20,
+          cacheReadInputTokens: 10, cacheCreationInputTokens: 4,
+        },
+      ],
+    });
+
+    await store.fetchSession('child-1');
+
+    expect(store.getSessionById('root-1')).toMatchObject({
+      model: 'gpt-5', inputTokens: 100, outputTokens: 20, thinkingTokens: 10,
+      cacheReadInputTokens: 5, cacheCreationInputTokens: 2,
+    });
+    expect(store.getSessionById('child-1')).toMatchObject({
+      pendingModel: 'claude-sonnet-4-5', inputTokens: 200, outputTokens: 40, thinkingTokens: 20,
+      cacheReadInputTokens: 10, cacheCreationInputTokens: 4,
+    });
+  });
+
   describe('createSession', () => {
     it('calls api.createSession (root creation) when no parentSessionId is given', async () => {
       const store = useSessionsStore();

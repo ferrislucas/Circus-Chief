@@ -329,6 +329,43 @@ describe('Workspace facade API', () => {
       expect(res.body.members[0]).not.toHaveProperty('pendingPrompt');
     });
 
+    it('includes model and token display fields for every workspace member', async () => {
+      const root = sessions.create(project.id, 'Root', 'root', { model: 'root-model' });
+      const child = sessions.create(project.id, 'Child', 'child', { parentSessionId: root.id });
+      sessions.update(root.id, { pendingModel: 'root-pending-model' });
+      sessions.update(child.id, { pendingModel: 'child-pending-model' });
+      sessions.updateUsage(root.id, {
+        inputTokens: 100,
+        outputTokens: 20,
+        thinkingTokens: 10,
+        cacheReadInputTokens: 5,
+        cacheCreationInputTokens: 2,
+        webSearchRequests: 0,
+        contextWindow: 200000,
+      });
+      sessions.updateUsage(child.id, {
+        inputTokens: 200,
+        outputTokens: 40,
+        thinkingTokens: 20,
+        cacheReadInputTokens: 10,
+        cacheCreationInputTokens: 4,
+        webSearchRequests: 0,
+        contextWindow: 200000,
+      });
+
+      const res = await request(app).get(`/api/workspaces/${root.id}`).expect(200);
+      const members = Object.fromEntries(res.body.members.map(member => [member.id, member]));
+
+      expect(members[root.id]).toMatchObject({
+        model: 'root-model', pendingModel: 'root-pending-model', inputTokens: 100,
+        outputTokens: 20, thinkingTokens: 10, cacheReadInputTokens: 5, cacheCreationInputTokens: 2,
+      });
+      expect(members[child.id]).toMatchObject({
+        model: null, pendingModel: 'child-pending-model', inputTokens: 200,
+        outputTokens: 40, thinkingTokens: 20, cacheReadInputTokens: 10, cacheCreationInputTokens: 4,
+      });
+    });
+
     it('normalises a child ID to its workspace root (forgiving)', async () => {
       const root = sessions.create(project.id, 'Root', 'root');
       const child = sessions.create(project.id, 'Child', 'child', { parentSessionId: root.id });
