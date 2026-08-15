@@ -126,6 +126,17 @@ function laneBelongsToBoard(lane, board) {
   return Boolean(lane && board && lane.boardId === board.id);
 }
 
+function targetLaneForBoard(targetLaneId, board) {
+  const targetLane = kanbanLanes.getById(targetLaneId);
+  return laneBelongsToBoard(targetLane, board) ? targetLane : null;
+}
+
+function callerSessionId(req) {
+  const claimedActorSessionId = req.get('X-Circus-Session-Id') || null;
+  const capability = req.get('X-Circus-Session-Capability');
+  return verifySessionCallerCapability(claimedActorSessionId, capability) ? claimedActorSessionId : null;
+}
+
 function completionTargetError(boardId, targetLaneId, sourceLaneId = null) {
   if (targetLaneId === undefined || targetLaneId === null) return null;
   if (targetLaneId === sourceLaneId) {
@@ -505,20 +516,13 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
   if (operation.conflict) return res.status(409).json({ error: 'Idempotency-Key was already used with a different payload' });
   if (replayOrPending(res, operation)) return;
 
-  const targetLane = kanbanLanes.getById(targetLaneId);
+  const targetLane = targetLaneForBoard(targetLaneId, board);
   if (!targetLane) {
-    return sendTerminalOperationResponse(res, operation, 404, { error: TARGET_LANE_NOT_FOUND_ERROR });
-  }
-  if (!laneBelongsToBoard(targetLane, board)) {
     return sendTerminalOperationResponse(res, operation, 404, { error: TARGET_LANE_NOT_FOUND_ERROR });
   }
 
   try {
-    const claimedActorSessionId = req.get('X-Circus-Session-Id') || null;
-    const actorSessionId = verifySessionCallerCapability(
-      claimedActorSessionId,
-      req.get('X-Circus-Session-Capability')
-    ) ? claimedActorSessionId : null;
+    const actorSessionId = callerSessionId(req);
     const response = await moveCardService(card.id, targetLaneId, {
       sortOrder,
       runOnEnterTemplate,
