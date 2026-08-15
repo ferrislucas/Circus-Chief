@@ -14,6 +14,14 @@ export function getKanbanDeliveryHealth(db = databaseManager.get(), time = Date.
   // Each query is constrained by status. This lets SQLite use the recovery
   // index and keeps routine health checks independent of terminal history.
   const count = (sql, ...params) => Number(db.prepare(sql).get(...params).count || 0);
+  // `failed` and `invalid` are terminal: nothing ever clears them, so counting
+  // them for all time means a single historical failure pins the board to
+  // "degraded" forever.  Window them on the terminal timestamp so health
+  // reflects current conditions, the way pending/stalled already do via age
+  // thresholds.  `completed_at` is stamped on both terminal transitions;
+  // `created_at` is the fallback for rows written before that stamping.
+  const terminalWindowMs = thresholds.terminalWindowMs ?? 24 * 60 * 60 * 1000;
+  const terminalSince = time - terminalWindowMs;
   const pending = db.prepare(`SELECT count(*) count, min(created_at) oldest FROM kanban_lane_entry_events
     WHERE status='pending' AND delivery_phase != 'dispatch_intent'`).get();
   const counts = {
@@ -24,8 +32,10 @@ export function getKanbanDeliveryHealth(db = databaseManager.get(), time = Date.
       WHERE status='claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at <= ?`, time),
     ambiguous: count(`SELECT count(*) count FROM kanban_lane_entry_events
       WHERE status IN ('pending','claimed') AND delivery_phase='dispatch_intent'`),
-    exhausted: count("SELECT count(*) count FROM kanban_lane_entry_events WHERE status='failed'"),
-    quarantined: count("SELECT count(*) count FROM kanban_lane_entry_events WHERE status='invalid'"),
+    exhausted: count(`SELECT count(*) count FROM kanban_lane_entry_events
+      WHERE status='failed' AND COALESCE(completed_at, created_at) >= ?`, terminalSince),
+    quarantined: count(`SELECT count(*) count FROM kanban_lane_entry_events
+      WHERE status='invalid' AND COALESCE(completed_at, created_at) >= ?`, terminalSince),
     completed: count("SELECT count(*) count FROM kanban_lane_entry_events WHERE status='completed'"),
   };
   const reasons = [];
@@ -41,7 +51,7 @@ export function getKanbanDeliveryHealth(db = databaseManager.get(), time = Date.
   let severity = reasons.length ? 'warning' : 'healthy';
   if (counts.pending >= pendingCritical || (oldestRelevantAgeMs !== null && oldestRelevantAgeMs >= oldestCriticalMs)) severity = 'critical';
   else if (counts.pending >= pendingWarning || (oldestRelevantAgeMs !== null && oldestRelevantAgeMs >= oldestWarningMs)) severity = 'warning';
-  return { status: severity === 'healthy' ? 'operational' : 'degraded', severity, reasons, counts, oldestRelevantAgeMs };
+  return { status: severity === 'healthy' ? 'operational' : 'degraded', severity, reasons, counts, oldestRelevantAgeMs, terminalWindowMs };
 }
 
 function issue(type, reason, row, severity = 'error') {

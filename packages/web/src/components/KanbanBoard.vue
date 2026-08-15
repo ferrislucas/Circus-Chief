@@ -7,6 +7,15 @@
         :layout="effectiveLayout"
         @select="layoutMode = $event"
       />
+      <span
+        v-if="automationDisabledMessage"
+        class="automation-badge"
+        role="status"
+        :title="automationDisabledMessage"
+        data-testid="automation-badge"
+      >
+        Automation disabled
+      </span>
     </div>
 
     <div
@@ -299,6 +308,7 @@ import KanbanBoardIcon from './KanbanBoardIcon.vue';
 import KanbanCardSessionDetails from './KanbanCardSessionDetails.vue';
 import KanbanLayoutToggle from './KanbanLayoutToggle.vue';
 import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
+import { api } from '../api/ApiClient.js';
 import './KanbanBoard.css';
 const props = defineProps({
   projectId: { type: String, required: true },
@@ -306,6 +316,25 @@ const props = defineProps({
 const kanbanStore = useKanbanStore();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
+
+// Surface only a failed startup preflight: that means lane-entry delivery is
+// genuinely disabled and cards will silently stop advancing.  Delivery-health
+// degradation is deliberately NOT surfaced here — it is a heuristic over event
+// counts and previously produced a permanent false-positive banner.  Preflight
+// is a boot-time boolean, so this is fetched once rather than polled, and any
+// fetch failure leaves the badge hidden instead of guessing.
+const automationDisabledMessage = ref('');
+
+async function fetchAutomationStatus() {
+  try {
+    const status = (await api.getServerInfo())?.automationStatus;
+    automationDisabledMessage.value = status?.reasonCode === 'KANBAN_PREFLIGHT_FAILED'
+      ? (status.message || 'Kanban automation is disabled. Run the Kanban recovery command, then restart the server.')
+      : '';
+  } catch {
+    automationDisabledMessage.value = '';
+  }
+}
 // ==================== Layout state ====================
 const LAYOUT_MODE_KEY = 'kanbanLayoutMode';
 const VALID_LAYOUT_MODES = ['auto', 'horizontal', 'vertical'];
@@ -341,6 +370,7 @@ let _mql = null;
 const onMqlChange = (e) => { isNarrow.value = e.matches; };
 
 onMounted(() => {
+  fetchAutomationStatus();
   if (typeof window !== 'undefined' && window.matchMedia) {
     _mql = window.matchMedia('(max-width: 640px)');
     isNarrow.value = _mql.matches;
