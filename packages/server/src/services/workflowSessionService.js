@@ -82,8 +82,8 @@ export function withActiveLaneRunOwnership(sessionId, mutation) {
  */
 function clearExecutableMemberState(db, runId, reason, time) {
   return db.prepare(`UPDATE sessions SET own_work_state='cancelled', own_work_closed_at=?, workflow_reason=?,
-    workflow_updated_at=?, execution_state='stopped',
-    status=CASE WHEN status IN ('scheduled','running') THEN 'stopped' ELSE status END,
+    workflow_updated_at=?, execution_state=CASE WHEN status='running' THEN 'aborting' ELSE execution_state END,
+    status=CASE WHEN status='scheduled' THEN 'stopped' ELSE status END,
     scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_conversation_id=NULL,
     auto_send_pending_prompt=0, reschedule_count=0
     WHERE lane_run_id=? AND own_work_state='open'`).run(time, reason, time, runId);

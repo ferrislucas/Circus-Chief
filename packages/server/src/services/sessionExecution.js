@@ -117,7 +117,12 @@ export async function _executeSession({
       await handleStreamEvent(sessionId, event);
     }
     // Handle post-turn completion (work log association, status transition, summary, etc.)
-    const { wasRescheduled, heldForLimit } = await handleTurnCompletion(sessionId, workingDirectory, { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded });
+    const { wasRescheduled, heldForLimit } = await handleTurnCompletion(
+      sessionId,
+      workingDirectory,
+      { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded },
+      { controller },
+    );
     // FR-4/FR-5: a self-scheduled continuation is an open obligation, not success.
     if (wasRescheduled) { markExecutionState(sessionId, 'scheduled'); return; }
     // FR-9.8: a graceful provider limit/outage leaves the lane obligation open.

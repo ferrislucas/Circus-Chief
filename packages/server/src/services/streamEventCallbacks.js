@@ -69,7 +69,10 @@ function associateAndCleanupWorkLogs(sessionId) {
  * @param {{ checkProactiveReschedule?: Function, handleAutoSendIfNeeded?: Function, handleTemplateTriggerIfNeeded?: Function }} callbacks
  * @returns {Promise<{wasRescheduled: boolean, heldForLimit: boolean}>}
  */
-async function handleActiveSessionCompletion(sessionId, workingDirectory, callbacks) {
+async function handleActiveSessionCompletion(sessionId, workingDirectory, callbacks, controller) {
+  if (!turnStillOwnsStatusWrite(sessionId, controller)) {
+    return { wasRescheduled: false, heldForLimit: false };
+  }
   sessions.update(sessionId, { status: 'waiting', error: null });
   broadcastSessionStatus(sessionId, 'waiting');
 
@@ -133,7 +136,7 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
  * @param {string} workingDirectory
  * @param {{ handleTemplateTriggerIfNeeded?: Function, checkProactiveReschedule?: Function, handleAutoSendIfNeeded?: Function }} callbacks
  */
-export async function handleTurnCompletion(sessionId, workingDirectory, callbacks = {}) {
+export async function handleTurnCompletion(sessionId, workingDirectory, callbacks = {}, { controller } = {}) {
   // Associate work logs with the last message now that the turn is complete
   associateAndCleanupWorkLogs(sessionId);
 
@@ -145,12 +148,23 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
 
   // Session ready for follow-up - set to waiting instead of completed
   const activeSession = activeSessions.get(sessionId);
-  if (activeSession && !activeSession.controller?.signal?.aborted) {
-    return handleActiveSessionCompletion(sessionId, workingDirectory, callbacks);
+  const turnController = controller || activeSession?.controller;
+  if (activeSession && activeSession.controller === turnController && !turnController?.signal?.aborted) {
+    return handleActiveSessionCompletion(sessionId, workingDirectory, callbacks, turnController);
   }
 
-  finalizeAbortedTurnStatus(sessionId);
+  finalizeAbortedTurnStatus(sessionId, turnController);
   return { wasRescheduled: false, heldForLimit: false };
+}
+
+/**
+ * A turn may take time to unwind after abort(). Do not let it overwrite a
+ * newer turn that has registered itself for the same session in the meantime.
+ */
+function turnStillOwnsStatusWrite(sessionId, controller) {
+  const activeSession = activeSessions.get(sessionId);
+  if (activeSession) return activeSession.controller === controller;
+  return Boolean(controller && sessions.getById(sessionId)?.status === 'running');
 }
 
 /**
@@ -169,8 +183,8 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
  *
  * @param {string} sessionId
  */
-function finalizeAbortedTurnStatus(sessionId) {
-  if (sessions.getById(sessionId)?.status !== 'running') return;
+function finalizeAbortedTurnStatus(sessionId, controller) {
+  if (!turnStillOwnsStatusWrite(sessionId, controller)) return;
   sessions.update(sessionId, { status: 'stopped', executionState: 'stopped' });
   broadcastSessionStatus(sessionId, 'stopped');
 }

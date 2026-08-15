@@ -419,16 +419,39 @@ describe('streamEventHandler', () => {
     });
 
     it('lands both status dimensions when an aborted turn has no recorded outcome', async () => {
-      activeSessions.set('sess-1', { controller: { signal: { aborted: true } } });
+      const controller = { signal: { aborted: true } };
+      activeSessions.set('sess-1', { controller });
       workLogs.associatePendingLogs.mockReturnValue(0);
       sessions.getById.mockReturnValue({ status: 'running' });
 
-      await handleTurnCompletion('sess-1', '/workspace');
+      await handleTurnCompletion('sess-1', '/workspace', {}, { controller });
 
       expect(sessions.update).toHaveBeenCalledWith('sess-1', {
         status: 'stopped',
         executionState: 'stopped',
       });
+    });
+
+    it('does not let an aborted older turn stop a newer registered turn', async () => {
+      const oldController = { signal: { aborted: true } };
+      const newController = { signal: { aborted: false } };
+      activeSessions.set('sess-1', { controller: newController });
+      sessions.getById.mockReturnValue({ status: 'running' });
+
+      await handleTurnCompletion('sess-1', '/workspace', {}, { controller: oldController });
+
+      expect(sessions.update).not.toHaveBeenCalled();
+    });
+
+    it('does not let a normally-completing older turn mark a newer turn waiting', async () => {
+      const oldController = { signal: { aborted: false } };
+      const newController = { signal: { aborted: false } };
+      activeSessions.set('sess-1', { controller: newController });
+      sessions.getById.mockReturnValue({ status: 'running' });
+
+      await handleTurnCompletion('sess-1', '/workspace', {}, { controller: oldController });
+
+      expect(sessions.update).not.toHaveBeenCalled();
     });
 
     it('clears stale error when transitioning to waiting status', async () => {
@@ -496,7 +519,7 @@ describe('streamEventHandler', () => {
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(sessions.update).not.toHaveBeenCalled();
+      expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
     });
 
     it('does not set waiting when session not in activeSessions', async () => {

@@ -487,10 +487,7 @@ describe('workflowSessionService', () => {
     });
   });
 
-  it('lands a terminal status on a running member when its run is superseded', () => {
-    // Regression: supersession aborts the member's agent, but the aborted turn
-    // exits the stream loop gracefully, so nothing downstream recorded an
-    // outcome and the member stayed 'running' forever.
+  it('marks a running member aborting when its run is superseded', () => {
     const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
     const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
     attachRootSession(run.id, worker.id);
@@ -500,8 +497,8 @@ describe('workflowSessionService', () => {
     supersedeRunForCard(card.id, 'manual_move');
 
     const after = sessions.getById(worker.id);
-    expect(after.status).toBe('stopped');
-    expect(after.executionState).toBe('stopped');
+    expect(after.status).toBe('running');
+    expect(after.executionState).toBe('aborting');
   });
 
   it('leaves an already-finished member waiting when its run is superseded', () => {
@@ -513,7 +510,9 @@ describe('workflowSessionService', () => {
     supersedeRunForCard(card.id, 'manual_move');
 
     // A finished session stays open to follow-up messages.
-    expect(sessions.getById(worker.id).status).toBe('waiting');
+    expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
+      status: 'waiting', executionState: 'idle',
+    }));
   });
 
   describe('computeSubtreeOutcome (W5: pure FR-6 roll-up rule)', () => {
