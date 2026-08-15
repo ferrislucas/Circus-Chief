@@ -1,7 +1,10 @@
 import { onUnmounted, watch } from 'vue';
 import { useProjectSubscription, useWebSocket } from './useWebSocket.js';
 
-export const WORKSPACE_LIST_REFRESH_DELAY_MS = 150;
+// Refreshing re-runs the workspace aggregate query. Keep a quiet window long
+// enough to coalesce the high-frequency status, message, and usage events
+// emitted while multiple sessions are active.
+export const WORKSPACE_LIST_REFRESH_DELAY_MS = 1_000;
 
 const REFRESH_EVENTS = [
   'onSessionCreated',

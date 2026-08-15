@@ -453,6 +453,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_lane_run ON sessions(lane_run_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_parent ON conversations(parent_conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON conversation_messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_messages_session_ts ON conversation_messages(session_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON conversation_messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
 CREATE INDEX IF NOT EXISTS idx_canvas_deleted ON canvas_items(deleted_at);
@@ -467,6 +468,8 @@ CREATE INDEX IF NOT EXISTS idx_attachments_message ON message_attachments(messag
 CREATE INDEX IF NOT EXISTS idx_attachments_session ON message_attachments(session_id);
 CREATE INDEX IF NOT EXISTS idx_command_buttons_project ON command_buttons(project_id);
 CREATE INDEX IF NOT EXISTS idx_command_runs_session ON command_runs(session_id);
+CREATE INDEX IF NOT EXISTS idx_command_runs_session_activity
+  ON command_runs(session_id, completed_at, started_at);
 CREATE INDEX IF NOT EXISTS idx_command_runs_button ON command_runs(button_id);
 CREATE INDEX IF NOT EXISTS idx_command_runs_status ON command_runs(status);
 CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);

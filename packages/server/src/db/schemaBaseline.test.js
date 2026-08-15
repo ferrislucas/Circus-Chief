@@ -208,12 +208,16 @@ describe('schema baseline', () => {
     withDb((db) => {
       expect(indexColumns(db, 'idx_sessions_starred')).toEqual(['archived', 'starred']);
       expect(indexColumns(db, 'idx_sessions_scheduled')).toEqual(['scheduled_at']);
+      expect(indexColumns(db, 'idx_messages_session_ts')).toEqual(['session_id', 'timestamp']);
+      expect(indexColumns(db, 'idx_command_runs_session_activity'))
+        .toEqual(['session_id', 'completed_at', 'started_at']);
       expect(db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_sessions_scheduled'").get().sql)
         .toContain('WHERE scheduled_at IS NOT NULL');
 
       for (const indexName of [
         'idx_sessions_project', 'idx_sessions_status', 'idx_sessions_archived',
         'idx_sessions_next_template', 'idx_sessions_parent', 'idx_messages_conversation',
+        'idx_messages_session_ts', 'idx_command_runs_session_activity',
         'idx_sessions_lane_run', 'idx_lane_entry_recovery', 'idx_lane_entry_health_status_created', 'idx_lane_runs_card_status',
         'idx_canvas_deleted', 'idx_todos_conversation', 'idx_project_defaults_projectId',
         'idx_conversations_parent', 'idx_agent_call_logs_agent_type',

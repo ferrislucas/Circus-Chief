@@ -64,6 +64,19 @@ export function normalizeStaleClaudeModelIds(db) {
 
 /** @type {Array<{name: string, up: (db: import('better-sqlite3').Database) => void}>} */
 export const miscMigrations = [
+  // --- Workspace list activity lookups ---
+  {
+    name: 'workspace-list-activity-indexes',
+    up(db) {
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_messages_session_ts
+          ON conversation_messages(session_id, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_command_runs_session_activity
+          ON command_runs(session_id, completed_at, started_at);
+      `);
+    },
+  },
+
   // --- Command buttons ---
   {
     name: 'command_buttons-add-show_on_list',
