@@ -171,7 +171,7 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
  */
 function finalizeAbortedTurnStatus(sessionId) {
   if (sessions.getById(sessionId)?.status !== 'running') return;
-  sessions.update(sessionId, { status: 'stopped' });
+  sessions.update(sessionId, { status: 'stopped', executionState: 'stopped' });
   broadcastSessionStatus(sessionId, 'stopped');
 }
 

@@ -358,7 +358,7 @@ describe('kanbanService', () => {
       attachRootSession(run.id, worker.id);
       databaseManager.get().prepare("UPDATE sessions SET status='running' WHERE id=?").run(worker.id);
 
-      await moveCard(card.id, lanes[1].id, { actorWorkspaceId: session.id });
+      await moveCard(card.id, lanes[1].id, { actorSessionId: worker.id });
 
       expect(sessions.getById(worker.id).status).toBe('running');
       expect(sessions.getById(worker.id).ownWorkState).toBe('open');

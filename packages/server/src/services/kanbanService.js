@@ -139,15 +139,12 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
  * @param {number} [options.sortOrder] - Optional sort order in target lane
  * @param {boolean} [options.runOnEnterTemplate=true] - Whether to run the on-enter template
  * @param {number} [options.depth=0] - Current recursion depth for template triggers
- * @param {string|null} [options.actorWorkspaceId] - Workspace the move was
- *   addressed to, when the caller used the workspace-addressed (agent-facing)
- *   route. Lets a lane worker moving its own card be recognised as choosing its
- *   exit lane rather than interrupting itself. Absent for UI moves, which
- *   address cards by id.
+ * @param {string|null} [options.actorSessionId] - Executing session identified
+ *   by the agent-facing request. Absent for UI and other external moves.
  * @returns {Promise<Object>} The moved card
  */
 export async function moveCard(cardId, targetLaneId, options = {}) {
-  const { sortOrder, runOnEnterTemplate = true, depth = 0, finalizeMutation, actorWorkspaceId = null } = options;
+  const { sortOrder, runOnEnterTemplate = true, depth = 0, finalizeMutation, actorSessionId = null } = options;
 
   const card = kanbanCards.getByIdWithLane(cardId);
   if (!card) {
@@ -166,8 +163,9 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
     // A worker moving its own card is completing its lane work, not being
     // interrupted by it — closing the run that way keeps it from aborting the
     // very turn making this request.
-    const cause = actorWorkspaceId ? 'agent_move' : 'manual_move';
-    if (!completeRunForSelfMove(cardId, actorWorkspaceId)) supersedeRunForCard(cardId, cause);
+    const selfMove = completeRunForSelfMove(cardId, actorSessionId);
+    const cause = selfMove ? 'agent_move' : 'manual_move';
+    if (!selfMove) supersedeRunForCard(cardId, cause);
     const updatedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
     const createdRun = session && runOnEnterTemplate && isStructured(lane)
       ? createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause })

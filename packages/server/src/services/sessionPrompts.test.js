@@ -656,6 +656,7 @@ describe('sessionPrompts', () => {
       // Move and delete use by-workspace routes
       expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/move`);
       expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}`);
+      expect(result).toContain(`X-Circus-Session-Id: ${sessionId}`);
       // No sessionId field in kanban examples
       expect(result).not.toContain(`"sessionId": "${sessionId}"`);
       // No <card_id> placeholder in kanban examples

@@ -411,7 +411,7 @@ describe('workflowSessionService', () => {
     it('leaves the worker running so its in-flight turn can finish', () => {
       const { worker, run } = runningWorker();
 
-      expect(completeRunForSelfMove(card.id, root.id)).toEqual(expect.objectContaining({ status: 'succeeded' }));
+      expect(completeRunForSelfMove(card.id, worker.id)).toEqual(expect.objectContaining({ status: 'succeeded' }));
 
       // The whole point: the request that triggered this must not kill the
       // turn that issued it. Own work stays open for normal completion.
@@ -424,7 +424,7 @@ describe('workflowSessionService', () => {
 
     it('lands waiting/idle when the turn completes, not stuck running', () => {
       const { worker } = runningWorker();
-      completeRunForSelfMove(card.id, root.id);
+      completeRunForSelfMove(card.id, worker.id);
 
       finalizeOwnWorkCompletion(worker.id);
 
@@ -435,7 +435,7 @@ describe('workflowSessionService', () => {
 
     it('does not let the completion target override the lane the worker chose', () => {
       const { worker, run } = runningWorker();
-      completeRunForSelfMove(card.id, root.id);
+      completeRunForSelfMove(card.id, worker.id);
       // Worker moves its card somewhere other than the completion target.
       kanbanCards.moveToLane(card.id, source.id);
 
@@ -457,7 +457,7 @@ describe('workflowSessionService', () => {
       expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
     });
 
-    it('is not a self-move when a different workspace addresses the card', () => {
+    it('is not a self-move when a different session issues the request', () => {
       runningWorker();
       const other = sessions.create(project.id, 'Other workspace', 'unrelated');
 
@@ -468,7 +468,7 @@ describe('workflowSessionService', () => {
       const { worker } = runningWorker();
       closeOwnWork(worker.id, 'closed_failed', 'boom');
 
-      expect(completeRunForSelfMove(card.id, root.id)).toBeNull();
+      expect(completeRunForSelfMove(card.id, worker.id)).toBeNull();
     });
 
     it('is a no-op for a card with no active run', () => {

@@ -28,6 +28,7 @@ import kanbanRouter from './kanban.js';
 import { broadcastToProject } from '../websocket.js';
 import { moveCard as moveCardService } from '../services/kanbanService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { createSessionCallerCapability } from '../services/sessionCallerCapability.js';
 
 describe('Kanban API', () => {
   let app;
@@ -669,6 +670,8 @@ describe('Kanban API', () => {
 
       const res = await request(app)
         .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
+        .set('X-Circus-Session-Id', session.id)
+        .set('X-Circus-Session-Capability', createSessionCallerCapability(session.id))
         .send({ targetLaneId: lanes[1].id });
 
       expect(res.status).toBe(200);
@@ -676,7 +679,43 @@ describe('Kanban API', () => {
       expect(moveCardService).toHaveBeenCalledWith(
         card.id,
         lanes[1].id,
-        expect.objectContaining({ runOnEnterTemplate: true })
+        expect.objectContaining({ runOnEnterTemplate: true, actorSessionId: session.id })
+      );
+    });
+
+    it('does not infer caller identity from the workspace URL', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      moveCardService.mockResolvedValueOnce({ ...card, laneId: lanes[1].id });
+
+      await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
+        .send({ targetLaneId: lanes[1].id });
+
+      expect(moveCardService).toHaveBeenCalledWith(
+        card.id,
+        lanes[1].id,
+        expect.objectContaining({ actorSessionId: null })
+      );
+    });
+
+    it('rejects a claimed caller identity without its matching capability', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      moveCardService.mockResolvedValueOnce({ ...card, laneId: lanes[1].id });
+
+      await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
+        .set('X-Circus-Session-Id', session.id)
+        .set('X-Circus-Session-Capability', 'forged')
+        .send({ targetLaneId: lanes[1].id });
+
+      expect(moveCardService).toHaveBeenCalledWith(
+        card.id,
+        lanes[1].id,
+        expect.objectContaining({ actorSessionId: null })
       );
     });
 

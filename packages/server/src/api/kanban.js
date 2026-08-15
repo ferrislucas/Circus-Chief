@@ -16,6 +16,7 @@ import {
   addSessionToBoard,
   moveCard as moveCardService,
 } from '../services/kanbanService.js';
+import { verifySessionCallerCapability } from '../services/sessionCallerCapability.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
 import { getRun } from '../services/workflowSessionService.js';
 import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
@@ -513,12 +514,18 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
   }
 
   try {
+    const claimedActorSessionId = req.get('X-Circus-Session-Id') || null;
+    const actorSessionId = verifySessionCallerCapability(
+      claimedActorSessionId,
+      req.get('X-Circus-Session-Capability')
+    ) ? claimedActorSessionId : null;
     const response = await moveCardService(card.id, targetLaneId, {
       sortOrder,
       runOnEnterTemplate,
-      // This route is how an agent addresses its own board card, so a move
-      // whose actor matches the card's active run is a self-directed exit.
-      actorWorkspaceId: workspaceId,
+      // Agent prompts attach the executing session id. The workspace in the
+      // URL identifies the card; it is not caller identity and must not be
+      // used to decide whether the active worker is moving its own card.
+      actorSessionId,
       finalizeMutation: ({ card: movedCard, eventId }) => completeOperation(operation, movedCard, eventId),
     });
     res.json(response);

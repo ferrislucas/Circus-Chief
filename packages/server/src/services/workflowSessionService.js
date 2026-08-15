@@ -489,21 +489,21 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
  * cannot override the lane the worker chose.
  *
  * @param {string} cardId
- * @param {string|null} actorWorkspaceId - Workspace the move was addressed to
+ * @param {string|null} actorSessionId - Session that issued the move request
  * @returns {Object|null} The closed run, or null when this is not a self-move
  */
-export function completeRunForSelfMove(cardId, actorWorkspaceId) {
-  if (!actorWorkspaceId) return null;
+export function completeRunForSelfMove(cardId, actorSessionId) {
+  if (!actorSessionId) return null;
   return databaseManager.transaction(() => {
     const db = databaseManager.get();
     const activeLaneRunId = db.prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?')
       .get(cardId)?.active_lane_run_id;
     if (!activeLaneRunId) return null;
     const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=? AND status=\'open\'').get(activeLaneRunId);
-    // Only the run's own workspace can self-move: a move addressed to any
-    // other workspace, or from the UI (which addresses cards by id and sends
-    // no actor), is a genuine outside interruption and must still supersede.
-    if (!run || run.workspace_id !== actorWorkspaceId || !run.root_session_id) return null;
+    // The URL's workspace identifies the card, not the caller. Only the exact
+    // root worker attached to the active run can complete it by moving it.
+    // UI and external moves carry no actor and remain supersessions.
+    if (!run || run.root_session_id !== actorSessionId) return null;
     // An already-closed obligation means this worker is no longer the one
     // responsible for the run, so its move carries no completion meaning.
     const root = db.prepare(SELECT_SESSION_BY_ID).get(run.root_session_id);

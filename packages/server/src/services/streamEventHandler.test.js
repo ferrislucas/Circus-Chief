@@ -418,6 +418,19 @@ describe('streamEventHandler', () => {
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
     });
 
+    it('lands both status dimensions when an aborted turn has no recorded outcome', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: true } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ status: 'running' });
+
+      await handleTurnCompletion('sess-1', '/workspace');
+
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', {
+        status: 'stopped',
+        executionState: 'stopped',
+      });
+    });
+
     it('clears stale error when transitioning to waiting status', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);

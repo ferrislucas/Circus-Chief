@@ -1,5 +1,6 @@
 import { sessions, projects, kanbanBoards, kanbanLanes } from '../database.js';
 import { getApiBaseUrl } from './apiBaseUrl.js';
+import { createSessionCallerCapability } from './sessionCallerCapability.js';
 
 /** Build workspace and session CRUD operations section */
 function buildSessionCrudOps(apiUrl, projectId, sessionId, workspaceId) {
@@ -125,6 +126,7 @@ export function buildKanbanApiInstructions(sessionId, projectId) {
   }
 
   const apiUrl = getApiBaseUrl();
+  const callerCapability = createSessionCallerCapability(sessionId);
   // Compute the workspace id for this session — the agent uses workspace
   // addressing for all kanban operations.
   const workspaceId = sessions.getRootSessionId(sessionId) || sessionId;
@@ -162,6 +164,8 @@ curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
 \`\`\`bash
 curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/move \\
   -H "Content-Type: application/json" \\
+  -H "X-Circus-Session-Id: ${sessionId}" \\
+  -H "X-Circus-Session-Capability: ${callerCapability}" \\
   -d '{"targetLaneId": "<lane_id>"}'
 \`\`\`
 
