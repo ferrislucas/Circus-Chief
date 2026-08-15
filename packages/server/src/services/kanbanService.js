@@ -163,11 +163,14 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
     // A worker moving its own card is completing its lane work, not being
     // interrupted by it — closing the run that way keeps it from aborting the
     // very turn making this request.
-    const selfMove = completeRunForSelfMove(cardId, actorSessionId);
+    const selfMove = completeRunForSelfMove(cardId, targetLaneId, actorSessionId, { runOnEnterTemplate });
     const cause = selfMove ? 'agent_move' : 'manual_move';
     if (!selfMove) supersedeRunForCard(cardId, cause);
     const updatedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
-    const createdRun = session && runOnEnterTemplate && isStructured(lane)
+    // A self-move's successor is created by finalizeOwnWorkCompletion after
+    // the initiating turn has actually ended. Starting it here would allow
+    // two lane workers to mutate the same workspace concurrently.
+    const createdRun = !selfMove && session && runOnEnterTemplate && isStructured(lane)
       ? createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause })
       : null;
     const result = finalizeMutation?.({ card: updatedCard, eventId: createdRun?.laneEntryEventId || null });

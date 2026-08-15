@@ -411,7 +411,7 @@ describe('workflowSessionService', () => {
     it('leaves the worker running so its in-flight turn can finish', () => {
       const { worker, run } = runningWorker();
 
-      expect(completeRunForSelfMove(card.id, worker.id)).toEqual(expect.objectContaining({ status: 'succeeded' }));
+      expect(completeRunForSelfMove(card.id, target.id, worker.id)).toEqual(expect.objectContaining({ status: 'succeeded' }));
 
       // The whole point: the request that triggered this must not kill the
       // turn that issued it. Own work stays open for normal completion.
@@ -424,7 +424,8 @@ describe('workflowSessionService', () => {
 
     it('lands waiting/idle when the turn completes, not stuck running', () => {
       const { worker } = runningWorker();
-      completeRunForSelfMove(card.id, worker.id);
+      completeRunForSelfMove(card.id, target.id, worker.id);
+      kanbanCards.moveToLane(card.id, target.id);
 
       finalizeOwnWorkCompletion(worker.id);
 
@@ -435,7 +436,7 @@ describe('workflowSessionService', () => {
 
     it('does not let the completion target override the lane the worker chose', () => {
       const { worker, run } = runningWorker();
-      completeRunForSelfMove(card.id, worker.id);
+      completeRunForSelfMove(card.id, target.id, worker.id);
       // Worker moves its card somewhere other than the completion target.
       kanbanCards.moveToLane(card.id, source.id);
 
@@ -446,11 +447,21 @@ describe('workflowSessionService', () => {
       expect(attemptLaneRunTransition(run.id).pendingTargetLaneTrigger).toBeUndefined();
     });
 
+    it('rejects a same-lane reorder without completing or superseding the run', () => {
+      const { worker, run } = runningWorker();
+
+      expect(() => completeRunForSelfMove(card.id, source.id, worker.id))
+        .toThrow('cannot reorder its card within the same lane');
+
+      expect(getRun(run.id).status).toBe('open');
+      expect(sessions.getById(worker.id).ownWorkState).toBe('open');
+    });
+
     it('still supersedes an outside move, which must interrupt the worker', () => {
       const { worker, run } = runningWorker();
 
       // No actor: a UI move addresses the card by id and is a real interruption.
-      expect(completeRunForSelfMove(card.id, null)).toBeNull();
+      expect(completeRunForSelfMove(card.id, target.id, null)).toBeNull();
       supersedeRunForCard(card.id, 'manual_move');
 
       expect(getRun(run.id).status).toBe('superseded');
@@ -461,18 +472,18 @@ describe('workflowSessionService', () => {
       runningWorker();
       const other = sessions.create(project.id, 'Other workspace', 'unrelated');
 
-      expect(completeRunForSelfMove(card.id, other.id)).toBeNull();
+      expect(completeRunForSelfMove(card.id, target.id, other.id)).toBeNull();
     });
 
     it('is not a self-move once the worker no longer owns an open obligation', () => {
       const { worker } = runningWorker();
       closeOwnWork(worker.id, 'closed_failed', 'boom');
 
-      expect(completeRunForSelfMove(card.id, worker.id)).toBeNull();
+      expect(completeRunForSelfMove(card.id, target.id, worker.id)).toBeNull();
     });
 
     it('is a no-op for a card with no active run', () => {
-      expect(completeRunForSelfMove(card.id, root.id)).toBeNull();
+      expect(completeRunForSelfMove(card.id, target.id, root.id)).toBeNull();
     });
   });
 

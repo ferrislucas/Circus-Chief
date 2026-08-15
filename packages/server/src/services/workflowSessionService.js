@@ -21,6 +21,7 @@ export { computeSubtreeOutcome, recomputeSubtreeOutcomes } from './workflowSessi
 const now = () => Date.now();
 const id = () => crypto.randomUUID();
 const SELECT_SESSION_BY_ID = 'SELECT * FROM sessions WHERE id=?';
+const SELECT_RUN_BY_ID = 'SELECT * FROM kanban_lane_runs WHERE id=?';
 const OPEN_RUN_STATUS = 'open';
 
 function audit(db, runId, type, { sessionId = null, details = null } = {}) {
@@ -198,7 +199,7 @@ export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, ca
 export function attachRootSession(runId, sessionId) {
   return databaseManager.transaction(() => {
     const db = databaseManager.get();
-    const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
+    const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
     const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!run || run.status !== 'open') throw new Error('Cannot attach a root to a terminal lane run');
     const belongsToWorkspace = session && db.prepare(`WITH RECURSIVE ancestors(id, parent_session_id) AS (
@@ -254,7 +255,8 @@ export function finalizeOwnWorkCompletion(sessionId) {
     db.prepare(`UPDATE sessions SET own_work_state='closed_successfully', own_work_closed_at=?,
       execution_state='idle', workflow_updated_at=? WHERE id=?`).run(time, time, sessionId);
     audit(db, s.lane_run_id, 'own_work_succeeded', { sessionId });
-    return reconcileLaneRun(s.lane_run_id);
+    const reconciled = reconcileLaneRun(s.lane_run_id);
+    return createSelfMoveSuccessor(s.lane_run_id, reconciled);
   });
 }
 
@@ -341,7 +343,7 @@ export function markHeldForLimit(sessionId) {
 // freshly recomputed root subtree_outcome, matching FR-7's literal
 // predicate table, rather than an ad hoc flat scan of all members.
 export function reconcileLaneRun(runId) {
-  const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
+  const db = databaseManager.get(); const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
   if (!run || run.status !== 'open') return getRun(runId);
   const rootOutcome = recomputeSubtreeOutcomes(runId);
   if (rootOutcome === 'failed' || rootOutcome === 'cancelled') {
@@ -412,7 +414,7 @@ function createCompletionSuccessor(run, card, movedCard) {
 
 export function attemptLaneRunTransition(runId) {
   const transition = databaseManager.transaction(() => {
-    const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
+    const db = databaseManager.get(); const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
     if (!run || run.status !== 'open') return { result: getRun(runId) };
     const card = db.prepare('SELECT * FROM kanban_cards WHERE id=?').get(run.card_id);
     if (!card || card.active_lane_run_id !== runId || card.lane_id !== run.source_lane_id) return { result: getRun(runId) };
@@ -448,7 +450,7 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
   const candidate = databaseManager.get().prepare('SELECT id FROM kanban_lane_runs WHERE id=? AND status=\'open\'').get(runId);
   if (!candidate) return null;
   const result = databaseManager.transaction(() => {
-    const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
+    const db = databaseManager.get(); const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
     if (!run || run.status !== 'open') return null;
     const time = now();
     db.prepare(`UPDATE kanban_lane_runs SET status='superseded', superseded_at=?, updated_at=?, failure_reason=? WHERE id=? AND status='open'`)
@@ -489,10 +491,13 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
  * cannot override the lane the worker chose.
  *
  * @param {string} cardId
+ * @param {string} targetLaneId
  * @param {string|null} actorSessionId - Session that issued the move request
+ * @param {Object} [options]
+ * @param {boolean} [options.runOnEnterTemplate=true]
  * @returns {Object|null} The closed run, or null when this is not a self-move
  */
-export function completeRunForSelfMove(cardId, actorSessionId) {
+export function completeRunForSelfMove(cardId, targetLaneId, actorSessionId, { runOnEnterTemplate = true } = {}) {
   if (!actorSessionId) return null;
   return databaseManager.transaction(() => {
     const db = databaseManager.get();
@@ -508,15 +513,67 @@ export function completeRunForSelfMove(cardId, actorSessionId) {
     // responsible for the run, so its move carries no completion meaning.
     const root = db.prepare(SELECT_SESSION_BY_ID).get(run.root_session_id);
     if (root?.own_work_state !== 'open') return null;
+    if (run.source_lane_id === targetLaneId) {
+      throw new Error('An active lane worker cannot reorder its card within the same lane');
+    }
 
     const time = now();
     db.prepare(`UPDATE kanban_lane_runs SET status='succeeded', succeeded_at=?, transition_applied_at=?,
       updated_at=? WHERE id=? AND status='open'`).run(time, time, time, activeLaneRunId);
     db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE id=?')
       .run(time, cardId);
-    audit(db, activeLaneRunId, 'run_closed_by_self_move', { sessionId: run.root_session_id });
+    audit(db, activeLaneRunId, 'run_closed_by_self_move', {
+      sessionId: run.root_session_id,
+      details: { runOnEnterTemplate },
+    });
     return getRun(activeLaneRunId);
   });
+}
+
+/** Create and expose downstream automation only after a self-moving worker's
+ * turn has finished successfully. The move itself closes the source run, so
+ * its audit event is the durable marker that distinguishes this path from an
+ * ordinary completed run. */
+function createSelfMoveSuccessor(runId, reconciled) {
+  const db = databaseManager.get();
+  const selfMove = db.prepare(`SELECT details_json FROM kanban_lane_run_audit_events
+    WHERE lane_run_id=? AND event_type='run_closed_by_self_move'`).get(runId);
+  if (!selfMove) return reconciled;
+  if (JSON.parse(selfMove.details_json || '{}').runOnEnterTemplate === false) return reconciled;
+
+  const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
+  const card = run && db.prepare('SELECT * FROM kanban_cards WHERE id=?').get(run.card_id);
+  const lane = card && db.prepare('SELECT * FROM kanban_lanes WHERE id=?').get(card.lane_id);
+  if (!run || !card || !lane || !isStructured({
+    completionTargetLaneId: lane.completion_target_lane_id,
+    onEnterTemplateId: lane.on_enter_template_id,
+    onEnterPrompt: lane.on_enter_prompt,
+  })) return reconciled;
+
+  const successor = createLaneRunForEntry({
+    projectId: run.project_id,
+    workspaceId: run.workspace_id,
+    cardId: card.id,
+    lane: {
+      id: lane.id,
+      completionTargetLaneId: lane.completion_target_lane_id,
+      onEnterTemplateId: lane.on_enter_template_id,
+      onEnterPrompt: lane.on_enter_prompt,
+    },
+    cause: 'agent_move',
+    priorLaneRunId: run.id,
+  });
+  if (!successor) return reconciled;
+  return {
+    ...reconciled,
+    pendingTargetLaneTrigger: {
+      workspaceSessionId: run.workspace_id,
+      targetLaneId: card.lane_id,
+      cardId: card.id,
+      sourceRunId: run.id,
+      laneEntryEventId: successor.laneEntryEventId,
+    },
+  };
 }
 
 export function supersedeRunForCard(cardId, reason = 'manual_move') {
