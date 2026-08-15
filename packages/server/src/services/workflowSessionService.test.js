@@ -3,7 +3,7 @@ import { databaseManager, kanbanBoards, kanbanCards, kanbanLanes, projects, sess
 import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
   getRun, attachRootSession, reconcileLaneRun,
-  supersedeRunForCard, completeRunForSelfMove, closeOwnWork, markExecutionState, markHeldForLimit,
+  supersedeRunForCard, completeRunForSelfMove, resolveCardActor, closeOwnWork, markExecutionState, markHeldForLimit,
   computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition,
 } from './workflowSessionService.js';
 import { auditKanbanInvariants, reconcileKanbanOwnership } from './kanbanRecoveryService.js';
@@ -472,7 +472,16 @@ describe('workflowSessionService', () => {
       runningWorker();
       const other = sessions.create(project.id, 'Other workspace', 'unrelated');
 
+      expect(resolveCardActor(databaseManager.get(), card.id, other.id)).toBeNull();
       expect(completeRunForSelfMove(card.id, target.id, other.id)).toBeNull();
+    });
+
+    it('resolves the attached root worker as the card actor', () => {
+      const { worker, run } = runningWorker();
+
+      expect(resolveCardActor(databaseManager.get(), card.id, worker.id)).toEqual({
+        kind: 'self_move', run: expect.objectContaining({ id: run.id, root_session_id: worker.id }),
+      });
     });
 
     it('is not a self-move once the worker no longer owns an open obligation', () => {

@@ -11,7 +11,7 @@ import {
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
-import { createLaneRunForEntry, supersedeRunForCard, completeRunForSelfMove, isStructured } from './workflowSessionService.js';
+import { createLaneRunForEntry, supersedeRunForCard, completeRunForSelfMove, isStructured, resolveCardActor } from './workflowSessionService.js';
 import { buildFullBoardResponse } from './kanbanBoardResponse.js';
 import {
   beginLaneEntryDelivery,
@@ -163,8 +163,13 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
     // A worker moving its own card is completing its lane work, not being
     // interrupted by it — closing the run that way keeps it from aborting the
     // very turn making this request.
-    const selfMove = completeRunForSelfMove(cardId, targetLaneId, actorSessionId, { runOnEnterTemplate });
-    const cause = selfMove ? 'agent_move' : 'manual_move';
+    const actor = resolveCardActor(databaseManager.get(), cardId, actorSessionId);
+    const selfMove = actor
+      ? completeRunForSelfMove(cardId, targetLaneId, actorSessionId, { runOnEnterTemplate })
+      : null;
+    // An authenticated agent may interrupt another worker's run. Preserve
+    // that fact for audits; only a UI/external move is a manual supersession.
+    const cause = actorSessionId ? 'agent_move' : 'manual_move';
     if (!selfMove) supersedeRunForCard(cardId, cause);
     const updatedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
     // A self-move's successor is created by finalizeOwnWorkCompletion after

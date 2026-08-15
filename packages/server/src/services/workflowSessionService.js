@@ -497,36 +497,43 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
  * @param {boolean} [options.runOnEnterTemplate=true]
  * @returns {Object|null} The closed run, or null when this is not a self-move
  */
+export function resolveCardActor(db, cardId, actorSessionId) {
+  if (!actorSessionId) return null;
+  const activeLaneRunId = db.prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?')
+    .get(cardId)?.active_lane_run_id;
+  if (!activeLaneRunId) return null;
+  const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=? AND status=\'open\'').get(activeLaneRunId);
+  // The URL's workspace identifies the card, not the caller. Only the exact
+  // root worker attached to the active run can make a self-move declaration.
+  if (!run || run.root_session_id !== actorSessionId) return null;
+  // An already-closed obligation means this worker is no longer the one
+  // responsible for the run, so its move carries no completion meaning.
+  const root = db.prepare(SELECT_SESSION_BY_ID).get(run.root_session_id);
+  if (root?.own_work_state !== 'open') return null;
+  return { kind: 'self_move', run };
+}
+
 export function completeRunForSelfMove(cardId, targetLaneId, actorSessionId, { runOnEnterTemplate = true } = {}) {
   if (!actorSessionId) return null;
   return databaseManager.transaction(() => {
     const db = databaseManager.get();
-    const activeLaneRunId = db.prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?')
-      .get(cardId)?.active_lane_run_id;
-    if (!activeLaneRunId) return null;
-    const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=? AND status=\'open\'').get(activeLaneRunId);
-    // The URL's workspace identifies the card, not the caller. Only the exact
-    // root worker attached to the active run can complete it by moving it.
-    // UI and external moves carry no actor and remain supersessions.
-    if (!run || run.root_session_id !== actorSessionId) return null;
-    // An already-closed obligation means this worker is no longer the one
-    // responsible for the run, so its move carries no completion meaning.
-    const root = db.prepare(SELECT_SESSION_BY_ID).get(run.root_session_id);
-    if (root?.own_work_state !== 'open') return null;
+    const actor = resolveCardActor(db, cardId, actorSessionId);
+    if (!actor) return null;
+    const { run } = actor;
     if (run.source_lane_id === targetLaneId) {
       throw new Error('An active lane worker cannot reorder its card within the same lane');
     }
 
     const time = now();
     db.prepare(`UPDATE kanban_lane_runs SET status='succeeded', succeeded_at=?, transition_applied_at=?,
-      updated_at=? WHERE id=? AND status='open'`).run(time, time, time, activeLaneRunId);
+      updated_at=? WHERE id=? AND status='open'`).run(time, time, time, run.id);
     db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE id=?')
       .run(time, cardId);
-    audit(db, activeLaneRunId, 'run_closed_by_self_move', {
+    audit(db, run.id, 'run_closed_by_self_move', {
       sessionId: run.root_session_id,
       details: { runOnEnterTemplate },
     });
-    return getRun(activeLaneRunId);
+    return getRun(run.id);
   });
 }
 

@@ -440,8 +440,27 @@ describe('kanbanService', () => {
       await moveCard(card.id, lanes[1].id);
 
       expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
-      expect(sessions.getById(worker.id).status).toBe('stopped');
-      expect(getRun(run.id).status).toBe('superseded');
+      expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
+        status: 'running', executionState: 'aborting',
+      }));
+      expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'superseded', failureReason: 'manual_move' }));
+    });
+
+    it('records an authenticated non-worker move as an agent supersession', async () => {
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: session.id, cardId: card.id,
+        lane: { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'review' },
+      });
+      const worker = sessions.create(projectId, 'Worker', 'lane work', { parentSessionId: session.id });
+      const otherAgent = sessions.create(projectId, 'Other agent', 'unrelated');
+      attachRootSession(run.id, worker.id);
+
+      await moveCard(card.id, lanes[1].id, { actorSessionId: otherAgent.id });
+
+      expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'superseded', failureReason: 'agent_move' }));
+      expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
     });
 
     it('skips on-enter template when runOnEnterTemplate is false', async () => {
