@@ -3,7 +3,6 @@ import { createPinia, setActivePinia } from 'pinia';
 import { api } from '../composables/useApi.js';
 import {
   useWorkspaceListStore,
-  WORKSPACE_MAX_EXTENT,
   WORKSPACE_PAGE_SIZE,
 } from './workspaceList.js';
 
@@ -196,17 +195,25 @@ describe('workspace list request lifecycle', () => {
     expect(api.getWorkspaceCards).toHaveBeenCalledTimes(1);
   });
 
-  it('stops offering load more at the bounded prefix limit', async () => {
-    const maximumPrefix = Array.from({ length: WORKSPACE_MAX_EXTENT }, (_, index) => ({ id: `card-${index}` }));
-    api.getWorkspaceCards.mockResolvedValue(response(maximumPrefix, { total: 600, hasMore: true }));
+  it('continues loading past 500 workspaces when more results are available', async () => {
+    const initialPrefix = Array.from({ length: 500 }, (_, index) => ({ id: `card-${index}` }));
+    const expandedPrefix = Array.from({ length: 525 }, (_, index) => ({ id: `card-${index}` }));
+    api.getWorkspaceCards
+      .mockResolvedValueOnce(response(initialPrefix, { total: 600, hasMore: true }))
+      .mockResolvedValueOnce(response(expandedPrefix, { total: 600, hasMore: true }));
     const store = useWorkspaceListStore();
     store._resetContext('project-a', {});
-    store.requestedExtent = WORKSPACE_MAX_EXTENT;
+    store.requestedExtent = 500;
 
     await store.refresh();
 
-    expect(store.hasMore).toBe(false);
+    expect(store.hasMore).toBe(true);
     await store.loadMore();
-    expect(api.getWorkspaceCards).toHaveBeenCalledTimes(1);
+    expect(api.getWorkspaceCards).toHaveBeenLastCalledWith('project-a', expect.objectContaining({
+      limit: 525,
+      offset: 0,
+    }));
+    expect(store.cards).toHaveLength(525);
+    expect(store.hasMore).toBe(true);
   });
 });

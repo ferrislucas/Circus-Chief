@@ -2,7 +2,6 @@ import { defineStore } from 'pinia';
 import { api } from '../composables/useApi.js';
 
 export const WORKSPACE_PAGE_SIZE = 25;
-export const WORKSPACE_MAX_EXTENT = 500;
 
 const requestLifecycles = new WeakMap();
 
@@ -34,7 +33,7 @@ function uniqueCards(cards) {
 
 const fetchExtent = (projectId, query, extent, signal) => api.getWorkspaceCards(projectId, {
   ...query,
-  limit: Math.min(extent, WORKSPACE_MAX_EXTENT),
+  limit: extent,
   offset: 0,
   signal,
 });
@@ -86,8 +85,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       if (this.total < this.requestedExtent) {
         this.requestedExtent = Math.max(WORKSPACE_PAGE_SIZE, this.total);
       }
-      this.hasMore = Boolean(result.pagination?.hasMore)
-        && this.requestedExtent < WORKSPACE_MAX_EXTENT;
+      this.hasMore = Boolean(result.pagination?.hasMore);
     },
 
     _resetContext(projectId, query) {
@@ -175,8 +173,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       const query = { ...this.query };
       const contextKey = lifecycle.contextKey;
       const version = lifecycle.version;
-      const extent = Math.min(this.requestedExtent + WORKSPACE_PAGE_SIZE, WORKSPACE_MAX_EXTENT);
-      if (extent === this.requestedExtent) return;
+      const extent = this.requestedExtent + WORKSPACE_PAGE_SIZE;
       const controller = new AbortController();
       const request = { controller, version, contextKey, extent };
       lifecycle.loadMoreController = controller;
