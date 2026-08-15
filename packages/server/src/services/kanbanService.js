@@ -177,8 +177,11 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
     const createdRun = !selfMoveResult && session && runOnEnterTemplate && isStructured(lane)
       ? createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause })
       : null;
-    const result = finalizeMutation?.({ card: updatedCard, eventId: createdRun?.laneEntryEventId || null });
-    return { movedCard: updatedCard, laneRun: createdRun, finalizedResult: result, selfMove: Boolean(selfMoveResult) };
+    const responseCard = selfMoveResult
+      ? { ...updatedCard, deferred: true, chosenExitLaneId: selfMoveResult.chosenExitLaneId }
+      : updatedCard;
+    const result = finalizeMutation?.({ card: responseCard, eventId: createdRun?.laneEntryEventId || null });
+    return { movedCard: responseCard, laneRun: createdRun, finalizedResult: result, selfMove: Boolean(selfMoveResult) };
   });
 
   if (session && !selfMove) {

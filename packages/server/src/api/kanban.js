@@ -91,7 +91,7 @@ router.use(validateIdempotencyKey);
 
 function replayOrPending(res, operation) {
   if (!operation?.existing) return false;
-  if (operation.existing.status === 'completed' && operation.existing.result_json) {
+  if (operation.existing.status !== 'processing' && operation.existing.result_json) {
     return res.status(operation.existing.response_status || 200).json(JSON.parse(operation.existing.result_json));
   }
   return res.status(202).set('Retry-After', '1').json({ operationId: operation.existing.id, status: operation.existing.status });
@@ -111,6 +111,18 @@ function completeOperation(operation, response, eventId = null, responseStatus =
 
 function sendTerminalOperationResponse(res, operation, responseStatus, response) {
   return res.status(responseStatus).json(completeOperation(operation, response, null, responseStatus));
+}
+
+function failOperation(operation, error, responseStatus = 500) {
+  const response = { error: error.message };
+  if (!operation?.keyed || !operation.operation) return response;
+  const body = { ...response, operationId: operation.operation.id, delivery: null };
+  const updated = databaseManager.get().prepare(`UPDATE kanban_api_operations
+    SET status='failed', response_status=?, result_json=?, terminal_error=?, owner_token=NULL, lease_expires_at=NULL, updated_at=?
+    WHERE id=? AND status='processing' AND owner_token=?`)
+    .run(responseStatus, JSON.stringify(body), error.message, Date.now(), operation.operation.id, operation.operation.token);
+  if (updated.changes !== 1) throw new Error('Kanban operation ownership was lost before failure persistence');
+  return body;
 }
 
 function boardForProject(projectId) {
@@ -412,7 +424,7 @@ router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req,
     if (error.message === 'Session already has a card on the board') {
       return sendTerminalOperationResponse(res, operation, 409, { error: error.message });
     }
-    res.status(500).json({ error: error.message });
+    res.status(500).json(failOperation(operation, error));
   }
 });
 
@@ -458,7 +470,7 @@ router.patch('/cards/:cardId/move', async (req, res) => {
     res.json(response);
   } catch (error) {
     console.error('Failed to move kanban card:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json(failOperation(operation, error));
   }
 });
 
@@ -534,8 +546,11 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
     });
     res.json(response);
   } catch (error) {
+    if (error.message === 'An active lane worker cannot reorder its card within the same lane') {
+      return sendTerminalOperationResponse(res, operation, 409, { error: error.message });
+    }
     console.error('Failed to move kanban card by workspace:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json(failOperation(operation, error));
   }
 });
 

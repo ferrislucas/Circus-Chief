@@ -168,6 +168,10 @@ curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${wo
   -H "X-Circus-Session-Capability: ${callerCapability}" \\
   -d '{"targetLaneId": "<lane_id>"}'
 \`\`\`
+When the current lane worker moves its own card, a successful response includes
+\`{ "deferred": true, "chosenExitLaneId": "<lane_id>" }\`. The move is accepted,
+but the card stays in its current lane until that worker's turn (and its child work)
+finishes; do not retry it as an immediate move.
 
 ### Remove a Card from the Board
 \`\`\`bash

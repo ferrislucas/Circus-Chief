@@ -683,6 +683,57 @@ describe('Kanban API', () => {
       );
     });
 
+    it('returns and replays a deferred self-move declaration', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const body = { targetLaneId: lanes[1].id };
+      const response = { ...card, deferred: true, chosenExitLaneId: lanes[1].id };
+      moveCardService.mockImplementationOnce(async (_cardId, _targetLaneId, options) => (
+        options.finalizeMutation({ card: response, eventId: null })
+      ));
+
+      const first = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
+        .set('Idempotency-Key', 'deferred-self-move')
+        .set('X-Circus-Session-Id', session.id)
+        .set('X-Circus-Session-Capability', createSessionCallerCapability(session.id))
+        .send(body);
+      const replay = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
+        .set('Idempotency-Key', 'deferred-self-move')
+        .set('X-Circus-Session-Id', session.id)
+        .set('X-Circus-Session-Capability', createSessionCallerCapability(session.id))
+        .send(body);
+
+      expect(first.status).toBe(200);
+      expect(first.body).toEqual(expect.objectContaining({ deferred: true, chosenExitLaneId: lanes[1].id }));
+      expect(replay.text).toBe(first.text);
+      expect(moveCardService).toHaveBeenCalledTimes(1);
+    });
+
+    it('persists and replays a same-lane self-move conflict', async () => {
+      setupBoard();
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+      const body = { targetLaneId: lanes[0].id };
+      moveCardService.mockRejectedValueOnce(new Error('An active lane worker cannot reorder its card within the same lane'));
+
+      const first = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
+        .set('Idempotency-Key', 'same-lane-self-move')
+        .send(body);
+      const replay = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
+        .set('Idempotency-Key', 'same-lane-self-move')
+        .send(body);
+
+      expect(first.status).toBe(409);
+      expect(replay.text).toBe(first.text);
+      expect(databaseManager.get().prepare(`SELECT status FROM kanban_api_operations
+        WHERE project_id=? AND operation_key=?`).get(projectId, 'same-lane-self-move').status).toBe('completed');
+    });
+
     it('does not infer caller identity from the workspace URL', async () => {
       setupBoard();
       const session = createSession();
@@ -964,6 +1015,24 @@ describe('Kanban API', () => {
 
       expect(res.status).toBe(500);
       expect(res.body.error).toBe('Service failure');
+    });
+
+    it('terminally records a keyed service failure instead of retaining its lease', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      moveCardService.mockRejectedValueOnce(new Error('Service failure'));
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
+        .set('Idempotency-Key', 'terminal-service-failure')
+        .send({ targetLaneId: lanes[1].id });
+      const operation = databaseManager.get().prepare(`SELECT status, lease_expires_at, terminal_error
+        FROM kanban_api_operations WHERE project_id=? AND operation_key=?`)
+        .get(projectId, 'terminal-service-failure');
+
+      expect(res.status).toBe(500);
+      expect(operation).toEqual({ status: 'failed', lease_expires_at: null, terminal_error: 'Service failure' });
     });
   });
 

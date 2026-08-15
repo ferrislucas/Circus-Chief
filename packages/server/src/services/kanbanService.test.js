@@ -358,8 +358,9 @@ describe('kanbanService', () => {
       attachRootSession(run.id, worker.id);
       databaseManager.get().prepare("UPDATE sessions SET status='running' WHERE id=?").run(worker.id);
 
-      await moveCard(card.id, lanes[1].id, { actorSessionId: worker.id });
+      const response = await moveCard(card.id, lanes[1].id, { actorSessionId: worker.id });
 
+      expect(response).toEqual(expect.objectContaining({ deferred: true, chosenExitLaneId: lanes[1].id }));
       expect(sessions.getById(worker.id).status).toBe('running');
       expect(sessions.getById(worker.id).ownWorkState).toBe('open');
       expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'open', chosenExitLaneId: lanes[1].id }));

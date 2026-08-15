@@ -657,6 +657,8 @@ describe('sessionPrompts', () => {
       expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/move`);
       expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}`);
       expect(result).toContain(`X-Circus-Session-Id: ${sessionId}`);
+      expect(result).toContain('"deferred": true');
+      expect(result).toContain('do not retry it as an immediate move');
       // No sessionId field in kanban examples
       expect(result).not.toContain(`"sessionId": "${sessionId}"`);
       // No <card_id> placeholder in kanban examples
