@@ -466,8 +466,17 @@ function handleArchive(sessionId) {
   showArchiveModal.value = true;
 }
 
-function handleStar({ id, starred }) {
-  workspaceList.patchCard?.(id, { starred, updatedAt: Date.now() });
+async function handleStar({ id, starred }) {
+  const snapshot = workspaceList.applyOptimisticStar(id, starred);
+  try {
+    await sessionsStore.toggleSessionStar(id);
+    const refreshWasInFlight = workspaceList.isRefreshInFlight();
+    await workspaceList.refresh();
+    if (refreshWasInFlight) await workspaceList.refresh();
+  } catch (error) {
+    workspaceList.restoreOptimisticStar(snapshot);
+    uiStore.error(error.message || 'Failed to update star');
+  }
 }
 
 const archiveWorkflowCard = computed(() => {

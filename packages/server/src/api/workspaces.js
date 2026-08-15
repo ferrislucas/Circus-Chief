@@ -146,7 +146,7 @@ function hasValidWorkspaceCardFilters(status, scheduled) {
 function parseWorkspaceCardOptions({ archived, starred, limit, offset, status, scheduled }) {
   const parsedLimit = Number.parseInt(limit, 10);
   const parsedOffset = offset === undefined ? 0 : Number.parseInt(offset, 10);
-  const valid = Number.isInteger(parsedLimit) && parsedLimit >= 1 && parsedLimit <= 50
+  const valid = Number.isInteger(parsedLimit) && parsedLimit >= 1 && parsedLimit <= 500
     && Number.isInteger(parsedOffset) && parsedOffset >= 0
     && ['true', 'false', undefined].includes(archived)
     && ['true', 'false', undefined].includes(starred)

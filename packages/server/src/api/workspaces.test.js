@@ -127,9 +127,12 @@ describe('Workspace facade API', () => {
       expect(Number(res.headers['x-response-bytes'])).toBeGreaterThan(0);
     });
 
-    it('caps the optimized card page at 50 items', async () => {
+    it('allows a bounded prefix up to 500 optimized cards', async () => {
       await request(app)
-        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=51`)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=500`)
+        .expect(200);
+      await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=501`)
         .expect(400);
     });
 

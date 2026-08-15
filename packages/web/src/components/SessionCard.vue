@@ -428,16 +428,10 @@ const buttonStatusesToDisplay = computed(() => {
 
 const getStatusIcon = (status) => getStatusIconSvg(status);
 
-const onStarClick = async () => {
-  const previous = Boolean(props.session.starred);
-  emit('star', { id: props.session.id, starred: !previous });
-  try {
-    const updated = await sessionsStore.toggleSessionStar(props.session.id);
-    emit('star', { id: props.session.id, starred: Boolean(updated?.starred) });
-  } catch {
-    emit('star', { id: props.session.id, starred: previous });
-  }
-};
+const onStarClick = () => emit('star', {
+  id: props.session.id,
+  starred: !props.session.starred,
+});
 </script>
 
 <style scoped>

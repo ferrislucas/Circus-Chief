@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { api } from '../composables/useApi.js';
 
 export const WORKSPACE_PAGE_SIZE = 50;
+export const WORKSPACE_MAX_EXTENT = 500;
 
 const requestLifecycles = new WeakMap();
 
@@ -31,35 +32,12 @@ function uniqueCards(cards) {
   });
 }
 
-async function fetchExtent(projectId, query, extent, signal) {
-  const cards = [];
-  let traversed = 0;
-  let response = { pagination: {}, facets: { running: 0, idle: 0 } };
-
-  do {
-    const limit = Math.min(WORKSPACE_PAGE_SIZE, extent - traversed);
-    response = await api.getWorkspaceCards(projectId, {
-      ...query,
-      limit,
-      offset: traversed,
-      signal,
-    });
-    const page = response.workspaces || [];
-    cards.push(...page);
-    traversed += page.length;
-    if (page.length === 0) break;
-  } while (traversed < extent && response.pagination?.hasMore);
-
-  return {
-    workspaces: uniqueCards(cards),
-    facets: response.facets || { running: 0, idle: 0 },
-    pagination: {
-      ...response.pagination,
-      offset: traversed,
-      hasMore: Boolean(response.pagination?.hasMore),
-    },
-  };
-}
+const fetchExtent = (projectId, query, extent, signal) => api.getWorkspaceCards(projectId, {
+  ...query,
+  limit: Math.min(extent, WORKSPACE_MAX_EXTENT),
+  offset: 0,
+  signal,
+});
 
 function isAbort(error) {
   return error?.name === 'AbortError';
@@ -69,7 +47,7 @@ function canCommitPage(store, lifecycle, request) {
   return !request.controller.signal.aborted
     && lifecycle.version === request.version
     && lifecycle.contextKey === request.contextKey
-    && store.nextOffset === request.offset;
+    && store.requestedExtent === request.extent;
 }
 
 export const useWorkspaceListStore = defineStore('workspaceList', {
@@ -81,6 +59,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
     facets: { running: 0, idle: 0 },
     total: 0,
     nextOffset: 0,
+    requestedExtent: WORKSPACE_PAGE_SIZE,
     loading: false,
     loadingMore: false,
     error: null,
@@ -103,8 +82,12 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.orderedIds = cards.map(card => card.id);
       this.facets = result.facets || { running: 0, idle: 0 };
       this.total = result.pagination?.total || 0;
-      this.nextOffset = result.pagination?.offset || cards.length;
-      this.hasMore = Boolean(result.pagination?.hasMore);
+      this.nextOffset = cards.length;
+      if (this.total < this.requestedExtent) {
+        this.requestedExtent = Math.max(WORKSPACE_PAGE_SIZE, this.total);
+      }
+      this.hasMore = Boolean(result.pagination?.hasMore)
+        && this.requestedExtent < WORKSPACE_MAX_EXTENT;
     },
 
     _resetContext(projectId, query) {
@@ -124,6 +107,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.facets = { running: 0, idle: 0 };
       this.total = 0;
       this.nextOffset = 0;
+      this.requestedExtent = WORKSPACE_PAGE_SIZE;
       this.hasMore = false;
       this.loadingMore = false;
       this.error = null;
@@ -150,7 +134,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       const contextKey = lifecycle.contextKey;
       const projectId = this.projectId;
       const query = { ...this.query };
-      const extent = Math.max(WORKSPACE_PAGE_SIZE, this.orderedIds.length);
+      const extent = this.requestedExtent;
       this.loading = this.orderedIds.length === 0;
       this.error = null;
 
@@ -191,21 +175,21 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       const query = { ...this.query };
       const contextKey = lifecycle.contextKey;
       const version = lifecycle.version;
-      const offset = this.nextOffset;
+      const extent = Math.min(this.requestedExtent + WORKSPACE_PAGE_SIZE, WORKSPACE_MAX_EXTENT);
+      if (extent === this.requestedExtent) return;
       const controller = new AbortController();
-      const request = { controller, version, contextKey, offset };
+      const request = { controller, version, contextKey, extent };
       lifecycle.loadMoreController = controller;
+      this.requestedExtent = extent;
       this.loadingMore = true;
       try {
-        const result = await api.getWorkspaceCards(projectId, {
-          ...query,
-          limit: WORKSPACE_PAGE_SIZE,
-          offset,
-          signal: controller.signal,
-        });
-        if (canCommitPage(this, lifecycle, request)) this._appendPage(result, offset);
+        const result = await fetchExtent(projectId, query, extent, controller.signal);
+        if (canCommitPage(this, lifecycle, request)) this._replace(result);
       } catch (error) {
         if (!isAbort(error)) {
+          if (canCommitPage(this, lifecycle, request)) {
+            this.requestedExtent = Math.max(WORKSPACE_PAGE_SIZE, extent - WORKSPACE_PAGE_SIZE);
+          }
           this.error = error.message || 'Failed to load more workspaces';
           throw error;
         }
@@ -217,22 +201,42 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       }
     },
 
-    _appendPage(result, offset) {
-      const appended = uniqueCards([
-        ...this.orderedIds.map(id => this.cardsById[id]),
-        ...(result.workspaces || []),
-      ]);
-      this.cardsById = Object.fromEntries(appended.map(card => [card.id, card]));
-      this.orderedIds = appended.map(card => card.id);
-      this.facets = result.facets || this.facets;
-      this.total = result.pagination?.total ?? this.total;
-      this.nextOffset = offset + (result.workspaces?.length || 0);
-      this.hasMore = Boolean(result.pagination?.hasMore);
-    },
-
     patchCard(cardId, patch) {
       if (!this.cardsById[cardId]) return;
       this.cardsById[cardId] = { ...this.cardsById[cardId], ...patch };
+    },
+
+    applyOptimisticStar(cardId, starred) {
+      const card = this.cardsById[cardId];
+      if (!card) return null;
+      const snapshot = {
+        card,
+        index: this.orderedIds.indexOf(cardId),
+        total: this.total,
+      };
+      const filter = this.query.starred;
+      if (typeof filter === 'boolean' && filter !== starred) {
+        this.removeCard(cardId);
+        return snapshot;
+      }
+      this.patchCard(cardId, { starred });
+      this.orderedIds = [...this.orderedIds].sort((leftId, rightId) => {
+        const left = Boolean(this.cardsById[leftId]?.starred);
+        const right = Boolean(this.cardsById[rightId]?.starred);
+        return Number(right) - Number(left);
+      });
+      return snapshot;
+    },
+
+    restoreOptimisticStar(snapshot) {
+      if (!snapshot?.card) return;
+      this.cardsById = { ...this.cardsById, [snapshot.card.id]: snapshot.card };
+      const ids = this.orderedIds.filter(id => id !== snapshot.card.id);
+      ids.splice(Math.max(0, snapshot.index), 0, snapshot.card.id);
+      this.orderedIds = ids;
+      this.total = snapshot.total;
+      this.nextOffset = ids.length;
+      this.hasMore = ids.length < this.total;
     },
 
     removeCard(cardId) {

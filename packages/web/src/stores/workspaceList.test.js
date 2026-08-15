@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { api } from '../composables/useApi.js';
-import { useWorkspaceListStore, WORKSPACE_PAGE_SIZE } from './workspaceList.js';
+import {
+  useWorkspaceListStore,
+  WORKSPACE_MAX_EXTENT,
+  WORKSPACE_PAGE_SIZE,
+} from './workspaceList.js';
 
 vi.mock('../composables/useApi.js', () => ({ api: { getWorkspaceCards: vi.fn() } }));
 
@@ -91,47 +95,84 @@ describe('workspace list request lifecycle', () => {
     expect(store.nextOffset).toBe(1);
   });
 
-  it('traverses unchanged offset pages without rendering duplicate cards', async () => {
+  it('reloads an atomic prefix when loading more', async () => {
     const firstPage = Array.from({ length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index}` }));
+    const expandedPrefix = Array.from({ length: 52 }, (_, index) => ({ id: `card-${index}` }));
     api.getWorkspaceCards
       .mockResolvedValueOnce(response(firstPage, { total: 52, hasMore: true }))
-      .mockResolvedValueOnce(response([
-        { id: 'card-49' },
-        { id: 'card-50' },
-        { id: 'card-51' },
-      ], { total: 52 }));
+      .mockResolvedValueOnce(response(expandedPrefix, { total: 52 }));
     const store = useWorkspaceListStore();
 
     await store.load('project-a');
     await store.loadMore();
 
-    expect(api.getWorkspaceCards.mock.calls[1][1].offset).toBe(WORKSPACE_PAGE_SIZE);
+    expect(api.getWorkspaceCards.mock.calls[1][1]).toMatchObject({ offset: 0, limit: 100 });
     expect(store.cards).toHaveLength(52);
     expect(new Set(store.orderedIds).size).toBe(52);
   });
 
   it('refreshes the currently loaded extent instead of collapsing to page one', async () => {
     const firstPage = Array.from({ length: 50 }, (_, index) => ({ id: `card-${index}` }));
-    const secondPage = Array.from({ length: 25 }, (_, index) => ({ id: `card-${index + 50}` }));
+    const expandedPrefix = Array.from({ length: 75 }, (_, index) => ({ id: `card-${index}` }));
     api.getWorkspaceCards
       .mockResolvedValueOnce(response(firstPage, { total: 75, hasMore: true }))
-      .mockResolvedValueOnce(response(secondPage, { total: 75 }))
-      .mockResolvedValueOnce(response(firstPage, { total: 75, hasMore: true }))
-      .mockResolvedValueOnce(response(secondPage, { total: 75 }));
+      .mockResolvedValueOnce(response(expandedPrefix, { total: 75 }))
+      .mockResolvedValueOnce(response(expandedPrefix, { total: 75 }));
     const store = useWorkspaceListStore();
 
     await store.load('project-a');
     await store.loadMore();
     await store.refresh();
 
-    expect(api.getWorkspaceCards.mock.calls.slice(2).map(([, options]) => ({
+    expect(api.getWorkspaceCards.mock.calls.slice(1).map(([, options]) => ({
       limit: options.limit,
       offset: options.offset,
     }))).toEqual([
-      { limit: 50, offset: 0 },
-      { limit: 25, offset: 50 },
+      { limit: 100, offset: 0 },
+      { limit: 75, offset: 0 },
     ]);
     expect(store.cards).toHaveLength(75);
+  });
+
+  it('cannot omit a card when the ordering changes before loading more', async () => {
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({ id: `card-${index}` }));
+    const reorderedPrefix = [
+      { id: 'moved-card' },
+      ...Array.from({ length: 75 }, (_, index) => ({ id: `card-${index}` })),
+    ];
+    api.getWorkspaceCards
+      .mockResolvedValueOnce(response(firstPage, { total: 76, hasMore: true }))
+      .mockResolvedValueOnce(response(reorderedPrefix, { total: 76 }));
+    const store = useWorkspaceListStore();
+
+    await store.load('project-a');
+    await store.loadMore();
+
+    expect(store.cards).toHaveLength(76);
+    expect(new Set(store.orderedIds).size).toBe(76);
+    expect(store.orderedIds).toContain('card-49');
+  });
+
+  it('optimistically reorders stars and removes cards that no longer match a filter', async () => {
+    const store = useWorkspaceListStore();
+    store._resetContext('project-a', {});
+    store._replace(response([
+      { id: 'unstarred', starred: false },
+      { id: 'starred', starred: true },
+    ], { total: 2 }));
+
+    const snapshot = store.applyOptimisticStar('unstarred', true);
+    expect(store.orderedIds).toEqual(['unstarred', 'starred']);
+    store.restoreOptimisticStar(snapshot);
+    expect(store.orderedIds).toEqual(['unstarred', 'starred']);
+    expect(store.cardsById.unstarred.starred).toBe(false);
+
+    store._resetContext('project-a', { starred: true });
+    store._replace(response([{ id: 'starred', starred: true }], { total: 1 }));
+    const filteredSnapshot = store.applyOptimisticStar('starred', false);
+    expect(store.cards).toEqual([]);
+    store.restoreOptimisticStar(filteredSnapshot);
+    expect(store.cards).toEqual([{ id: 'starred', starred: true }]);
   });
 
   it('deduplicates concurrent refresh calls for the same context', async () => {
@@ -145,6 +186,20 @@ describe('workspace list request lifecycle', () => {
     pending.resolve(response([{ id: 'card' }]));
     await Promise.all([first, second]);
 
+    expect(api.getWorkspaceCards).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops offering load more at the bounded prefix limit', async () => {
+    const maximumPrefix = Array.from({ length: WORKSPACE_MAX_EXTENT }, (_, index) => ({ id: `card-${index}` }));
+    api.getWorkspaceCards.mockResolvedValue(response(maximumPrefix, { total: 600, hasMore: true }));
+    const store = useWorkspaceListStore();
+    store._resetContext('project-a', {});
+    store.requestedExtent = WORKSPACE_MAX_EXTENT;
+
+    await store.refresh();
+
+    expect(store.hasMore).toBe(false);
+    await store.loadMore();
     expect(api.getWorkspaceCards).toHaveBeenCalledTimes(1);
   });
 });

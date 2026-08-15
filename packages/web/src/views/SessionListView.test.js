@@ -132,6 +132,8 @@ vi.mock('../stores/workspaceList.js', () => ({
       isRefreshInFlight: vi.fn(() => false),
       loadMore: vi.fn().mockResolvedValue(),
       patchCard: vi.fn(),
+      applyOptimisticStar: vi.fn(),
+      restoreOptimisticStar: vi.fn(),
       removeCard: vi.fn(),
       cancel: vi.fn(),
     };
