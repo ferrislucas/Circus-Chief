@@ -33,9 +33,15 @@ The command never invents ownership for ambiguous historical workers: reconcilia
 
 `GET /api/server-info` reports HTTP reachability separately from Kanban
 automation under `automationStatus`. When preflight is blocked, the server stays
-reachable but reports `automation: "degraded"` and a safe recovery message; the
-board displays the same warning. Run the recovery command and restart the
-server to restore automation.
+reachable but reports `automation: "degraded"` with `reasonCode:
+"KANBAN_PREFLIGHT_FAILED"` and a safe recovery message. Run the recovery command
+and restart the server to restore automation.
+
+The board surfaces an "Automation disabled" badge in its header for that
+`KANBAN_PREFLIGHT_FAILED` case only, checked once per board mount. Delivery
+health is deliberately not surfaced in the UI: it is a heuristic over event
+counts, so diagnose it from `GET /api/server-info` rather than expecting a
+board indicator.
 
 The same status now includes live `deliveryHealth`: pending, actively claimed,
 stalled, ambiguous, exhausted, quarantined, and completed event counts plus
@@ -45,6 +51,24 @@ persisted. Do not manually retry it: preserve the provider records and
 quarantine or reconcile it before creating replacement work. Exhausted,
 stalled, and quarantined entries degrade Kanban health even after a clean
 startup preflight.
+
+Because `failed` and `invalid` are terminal and nothing ages them out, the
+`exhausted` and `quarantined` counts are scoped to a rolling window (default 24
+hours, reported as `terminalWindowMs`) measured from each event's terminal
+timestamp (`completed_at`, falling back to `created_at`). Without that window a
+single historical failure would hold Kanban health at `degraded` permanently.
+The other counts are unwindowed.
+
+Terminal rows older than the window are still on disk but are reported by
+neither `deliveryHealth` nor `kanban-recovery`, whose audit covers only
+`pending` and `claimed` events. To investigate an older incident, pass a wider
+`terminalWindowMs` threshold or query `kanban_lane_entry_events` directly:
+
+```sql
+SELECT id, cause, status, attempt_count, last_error, completed_at
+FROM kanban_lane_entry_events WHERE status IN ('failed','invalid')
+ORDER BY COALESCE(completed_at, created_at) DESC;
+```
 
 Mutating card-add and card-move calls accept an optional `Idempotency-Key`.
 Replaying the same key and payload returns the original operation result;
