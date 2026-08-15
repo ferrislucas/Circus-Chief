@@ -4,7 +4,7 @@
  * it never guesses ownership for historical workers.
  */
 import { databaseManager } from '../database.js';
-import { supersedeLaneRun } from './workflowSessionService.js';
+import { reconcileLaneRun, supersedeLaneRun } from './workflowSessionService.js';
 
 /** A bounded, request-time view of durable delivery health.  This is kept
  * separate from startup preflight: a healthy boot must still degrade when a
@@ -171,6 +171,17 @@ export function isRecoverableRootlessHandoff(db, run) {
   return rootlessHandoffMatchesEvent(row, run);
 }
 
+function reconcileDeclaredExitRuns(db, openRuns, staleRunIds, changes) {
+  for (const run of openRuns) {
+    if (staleRunIds.includes(run.id) || !run.chosen_exit_lane_id || !run.root_session_id) continue;
+    const root = db.prepare('SELECT own_work_state FROM sessions WHERE id=? AND lane_run_id=?')
+      .get(run.root_session_id, run.id);
+    if (root?.own_work_state === 'open') continue;
+    const reconciled = reconcileLaneRun(run.id);
+    if (reconciled?.status !== 'open') changes.push({ type: 'reconciled_declared_exit_run', runId: run.id });
+  }
+}
+
 /**
  * Normalize only demonstrably stale state.  It is intentionally conservative:
  * ambiguous history is cancelled, never attached to a newly-created run.
@@ -198,6 +209,9 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
 
   if (!dryRun) {
     for (const runId of staleRunIds) supersedeLaneRun(runId, 'reconciliation_invalid_or_stale_run');
+    // A crash after an exit declaration but before turn-completion leaves a
+    // valid open run. Re-run its normal subtree gate after a terminal root.
+    reconcileDeclaredExitRuns(db, openRuns, staleRunIds, changes);
     const now = Date.now();
     const stalePointers = db.prepare(`UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=?
       WHERE active_lane_run_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM kanban_lane_runs r WHERE r.id=active_lane_run_id AND r.status='open')`).run(now).changes;

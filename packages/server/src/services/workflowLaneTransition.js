@@ -3,7 +3,7 @@ import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 export function moveCardForTransition(run, card) {
-  const targetLaneId = run.completion_target_lane_id || null;
+  const targetLaneId = run.chosen_exit_lane_id || run.completion_target_lane_id || null;
   if (!targetLaneId) return null;
   return kanbanCards.moveToLane(card.id, targetLaneId);
 }

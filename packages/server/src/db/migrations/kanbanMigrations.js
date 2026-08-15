@@ -175,6 +175,7 @@ export const kanbanMigrations = [
           id TEXT PRIMARY KEY, lane_entry_event_id TEXT NOT NULL UNIQUE, prior_lane_run_id TEXT,
           project_id TEXT NOT NULL, workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, source_lane_id TEXT NOT NULL,
           completion_target_lane_id TEXT, root_session_id TEXT UNIQUE,
+          chosen_exit_lane_id TEXT, chosen_exit_declared_at INTEGER, chosen_exit_declared_by TEXT,
           status TEXT NOT NULL DEFAULT 'open', failure_reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
           succeeded_at INTEGER, failed_at INTEGER, cancelled_at INTEGER, superseded_at INTEGER, transition_applied_at INTEGER
         );
@@ -191,6 +192,9 @@ export const kanbanMigrations = [
       `);
       addColumnIfMissing(db, 'kanban_lane_entry_events', 'claim_expires_at', 'INTEGER');
       addColumnIfMissing(db, 'kanban_lane_entry_events', 'next_attempt_at', 'INTEGER');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_lane_id', 'TEXT');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_declared_at', 'INTEGER');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_declared_by', 'TEXT');
       db.exec('CREATE INDEX IF NOT EXISTS idx_lane_entry_recovery_due ON kanban_lane_entry_events(status, next_attempt_at, created_at)');
     },
   },
@@ -326,6 +330,14 @@ export const kanbanMigrations = [
       addColumnIfMissing(db, 'kanban_api_operations', 'response_status', 'INTEGER');
       addColumnIfMissing(db, 'kanban_api_operations', 'terminal_error', 'TEXT');
       db.exec('CREATE INDEX IF NOT EXISTS idx_kanban_api_operations_lease ON kanban_api_operations(status, lease_expires_at)');
+    },
+  },
+  {
+    name: 'kanban-lane-run-declared-exit-lane',
+    up(db) {
+      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_lane_id', 'TEXT');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_declared_at', 'INTEGER');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_declared_by', 'TEXT');
     },
   },
 ];

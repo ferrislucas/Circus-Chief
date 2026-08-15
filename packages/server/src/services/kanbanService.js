@@ -159,30 +159,29 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
   const lane = kanbanLanes.getById(targetLaneId);
   // Supersession, movement, and the successor entry intent must commit
   // together. A delivery failure after this point is retryable outbox work.
-  const { movedCard, laneRun, finalizedResult } = databaseManager.transaction(() => {
-    // A worker moving its own card is completing its lane work, not being
-    // interrupted by it — closing the run that way keeps it from aborting the
-    // very turn making this request.
+  const { movedCard, laneRun, finalizedResult, selfMove } = databaseManager.transaction(() => {
+    // A worker's move is a durable exit-lane declaration. The card remains in
+    // its source lane until the worker's subtree has completed.
     const actor = resolveCardActor(databaseManager.get(), cardId, actorSessionId);
-    const selfMove = actor
+    const selfMoveResult = actor
       ? completeRunForSelfMove(cardId, targetLaneId, actorSessionId, { runOnEnterTemplate })
       : null;
     // An authenticated agent may interrupt another worker's run. Preserve
     // that fact for audits; only a UI/external move is a manual supersession.
     const cause = actorSessionId ? 'agent_move' : 'manual_move';
-    if (!selfMove) supersedeRunForCard(cardId, cause);
-    const updatedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
+    if (!selfMoveResult) supersedeRunForCard(cardId, cause);
+    const updatedCard = selfMoveResult ? kanbanCards.getByIdWithLane(cardId) : kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
     // A self-move's successor is created by finalizeOwnWorkCompletion after
     // the initiating turn has actually ended. Starting it here would allow
     // two lane workers to mutate the same workspace concurrently.
-    const createdRun = !selfMove && session && runOnEnterTemplate && isStructured(lane)
+    const createdRun = !selfMoveResult && session && runOnEnterTemplate && isStructured(lane)
       ? createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause })
       : null;
     const result = finalizeMutation?.({ card: updatedCard, eventId: createdRun?.laneEntryEventId || null });
-    return { movedCard: updatedCard, laneRun: createdRun, finalizedResult: result };
+    return { movedCard: updatedCard, laneRun: createdRun, finalizedResult: result, selfMove: Boolean(selfMoveResult) };
   });
 
-  if (session) {
+  if (session && !selfMove) {
     broadcastToProject(session.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
       projectId: session.projectId,
       cardId,

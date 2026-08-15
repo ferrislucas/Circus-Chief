@@ -362,8 +362,8 @@ describe('kanbanService', () => {
 
       expect(sessions.getById(worker.id).status).toBe('running');
       expect(sessions.getById(worker.id).ownWorkState).toBe('open');
-      expect(getRun(run.id).status).toBe('succeeded');
-      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[1].id);
+      expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'open', chosenExitLaneId: lanes[1].id }));
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
     });
 
     it('defers destination automation until the self-moving worker finishes', async () => {
@@ -379,7 +379,7 @@ describe('kanbanService', () => {
 
       await moveCard(card.id, lanes[1].id, { actorSessionId: worker.id });
 
-      expect(kanbanCards.getById(card.id).activeLaneRunId).toBeNull();
+      expect(kanbanCards.getById(card.id).activeLaneRunId).toBe(sourceRun.id);
       expect(runSession).not.toHaveBeenCalled();
       const completed = finalizeOwnWorkCompletion(worker.id);
       expect(completed.pendingTargetLaneTrigger).toEqual(expect.objectContaining({
@@ -390,7 +390,7 @@ describe('kanbanService', () => {
       expect(runSession).not.toHaveBeenCalled();
     });
 
-    it('keeps destination automation disabled for an opted-out self-move', async () => {
+    it('uses the standard completion handoff even when the declaration request opts out', async () => {
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
       const sourceRun = createLaneRunForEntry({
@@ -404,8 +404,11 @@ describe('kanbanService', () => {
       await moveCard(card.id, lanes[1].id, { actorSessionId: worker.id, runOnEnterTemplate: false });
       const completed = finalizeOwnWorkCompletion(worker.id);
 
-      expect(completed.pendingTargetLaneTrigger).toBeUndefined();
-      expect(kanbanCards.getById(card.id).activeLaneRunId).toBeNull();
+      expect(completed.pendingTargetLaneTrigger).toEqual(expect.objectContaining({
+        targetLaneId: lanes[1].id,
+        sourceRunId: sourceRun.id,
+      }));
+      expect(kanbanCards.getById(card.id).activeLaneRunId).not.toBeNull();
       expect(runSession).not.toHaveBeenCalled();
     });
 

@@ -411,7 +411,7 @@ describe('workflowSessionService', () => {
     it('leaves the worker running so its in-flight turn can finish', () => {
       const { worker, run } = runningWorker();
 
-      expect(completeRunForSelfMove(card.id, target.id, worker.id)).toEqual(expect.objectContaining({ status: 'succeeded' }));
+      expect(completeRunForSelfMove(card.id, target.id, worker.id)).toEqual(expect.objectContaining({ status: 'open' }));
 
       // The whole point: the request that triggered this must not kill the
       // turn that issued it. Own work stays open for normal completion.
@@ -419,7 +419,7 @@ describe('workflowSessionService', () => {
       expect(after.status).toBe('running');
       expect(after.ownWorkState).toBe('open');
       expect(after.executionState).toBe('running');
-      expect(getRun(run.id).status).toBe('succeeded');
+      expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'open', chosenExitLaneId: target.id }));
     });
 
     it('lands waiting/idle when the turn completes, not stuck running', () => {
@@ -437,14 +437,29 @@ describe('workflowSessionService', () => {
     it('does not let the completion target override the lane the worker chose', () => {
       const { worker, run } = runningWorker();
       completeRunForSelfMove(card.id, target.id, worker.id);
-      // Worker moves its card somewhere other than the completion target.
-      kanbanCards.moveToLane(card.id, source.id);
-
       finalizeOwnWorkCompletion(worker.id);
 
-      expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
-      expect(kanbanCards.getById(card.id).laneId).not.toBe(target.id);
+      expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
+      expect(getRun(run.id).status).toBe('succeeded');
       expect(attemptLaneRunTransition(run.id).pendingTargetLaneTrigger).toBeUndefined();
+    });
+
+    it('recovers a declared exit after a crash before turn completion', () => {
+      const { worker, run } = runningWorker();
+      completeRunForSelfMove(card.id, target.id, worker.id);
+
+      // Simulate a process crash after the turn's own-work state was written
+      // but before its in-process reconciliation callback could run.
+      databaseManager.get().prepare(`UPDATE sessions SET own_work_state='closed_successfully',
+        own_work_closed_at=?, execution_state='idle' WHERE id=?`).run(Date.now(), worker.id);
+
+      const recovery = reconcileKanbanOwnership({ dryRun: false });
+
+      expect(getRun(run.id).status).toBe('succeeded');
+      expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
+      expect(databaseManager.get().prepare('SELECT count(*) count FROM kanban_lane_entry_events WHERE caused_by_run_id=?')
+        .get(run.id).count).toBe(0);
+      expect(recovery.report.ok).toBe(true);
     });
 
     it('rejects a same-lane reorder without completing or superseding the run', () => {
