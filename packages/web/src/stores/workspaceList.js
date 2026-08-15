@@ -31,10 +31,10 @@ function uniqueCards(cards) {
   });
 }
 
-const fetchExtent = (projectId, query, extent, signal) => api.getWorkspaceCards(projectId, {
+const fetchPage = (projectId, query, offset, signal) => api.getWorkspaceCards(projectId, {
   ...query,
-  limit: extent,
-  offset: 0,
+  limit: WORKSPACE_PAGE_SIZE,
+  offset,
   signal,
 });
 
@@ -46,7 +46,7 @@ function canCommitPage(store, lifecycle, request) {
   return !request.controller.signal.aborted
     && lifecycle.version === request.version
     && lifecycle.contextKey === request.contextKey
-    && store.requestedExtent === request.extent;
+    && store.nextOffset === request.offset;
 }
 
 export const useWorkspaceListStore = defineStore('workspaceList', {
@@ -58,7 +58,6 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
     facets: { running: 0, idle: 0 },
     total: 0,
     nextOffset: 0,
-    requestedExtent: WORKSPACE_PAGE_SIZE,
     loading: false,
     loadingMore: false,
     error: null,
@@ -81,10 +80,24 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.orderedIds = cards.map(card => card.id);
       this.facets = result.facets || { running: 0, idle: 0 };
       this.total = result.pagination?.total || 0;
-      this.nextOffset = cards.length;
-      if (this.total < this.requestedExtent) {
-        this.requestedExtent = Math.max(WORKSPACE_PAGE_SIZE, this.total);
-      }
+      this.nextOffset = (result.pagination?.offset || 0) + (result.workspaces?.length || 0);
+      this.hasMore = Boolean(result.pagination?.hasMore);
+    },
+
+    _append(result) {
+      const cards = uniqueCards(result.workspaces || []);
+      const existingIds = new Set(this.orderedIds);
+      this.cardsById = {
+        ...this.cardsById,
+        ...Object.fromEntries(cards.map(card => [card.id, card])),
+      };
+      this.orderedIds = [
+        ...this.orderedIds,
+        ...cards.filter(card => !existingIds.has(card.id)).map(card => card.id),
+      ];
+      this.facets = result.facets || { running: 0, idle: 0 };
+      this.total = result.pagination?.total || 0;
+      this.nextOffset = (result.pagination?.offset || 0) + (result.workspaces?.length || 0);
       this.hasMore = Boolean(result.pagination?.hasMore);
     },
 
@@ -105,7 +118,6 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.facets = { running: 0, idle: 0 };
       this.total = 0;
       this.nextOffset = 0;
-      this.requestedExtent = WORKSPACE_PAGE_SIZE;
       this.hasMore = false;
       this.loadingMore = false;
       this.error = null;
@@ -132,11 +144,10 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       const contextKey = lifecycle.contextKey;
       const projectId = this.projectId;
       const query = { ...this.query };
-      const extent = this.requestedExtent;
       this.loading = this.orderedIds.length === 0;
       this.error = null;
 
-      const promise = fetchExtent(projectId, query, extent, controller.signal)
+      const promise = fetchPage(projectId, query, 0, controller.signal)
         .then((result) => {
           if (!controller.signal.aborted
             && lifecycle.version === version
@@ -173,20 +184,16 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       const query = { ...this.query };
       const contextKey = lifecycle.contextKey;
       const version = lifecycle.version;
-      const extent = this.requestedExtent + WORKSPACE_PAGE_SIZE;
+      const offset = this.nextOffset;
       const controller = new AbortController();
-      const request = { controller, version, contextKey, extent };
+      const request = { controller, version, contextKey, offset };
       lifecycle.loadMoreController = controller;
-      this.requestedExtent = extent;
       this.loadingMore = true;
       try {
-        const result = await fetchExtent(projectId, query, extent, controller.signal);
-        if (canCommitPage(this, lifecycle, request)) this._replace(result);
+        const result = await fetchPage(projectId, query, offset, controller.signal);
+        if (canCommitPage(this, lifecycle, request)) this._append(result);
       } catch (error) {
         if (!isAbort(error)) {
-          if (canCommitPage(this, lifecycle, request)) {
-            this.requestedExtent = Math.max(WORKSPACE_PAGE_SIZE, extent - WORKSPACE_PAGE_SIZE);
-          }
           this.error = error.message || 'Failed to load more workspaces';
           throw error;
         }
@@ -232,7 +239,6 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       ids.splice(Math.max(0, snapshot.index), 0, snapshot.card.id);
       this.orderedIds = ids;
       this.total = snapshot.total;
-      this.nextOffset = ids.length;
       this.hasMore = ids.length < this.total;
     },
 
@@ -243,7 +249,6 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.cardsById = next;
       this.orderedIds = this.orderedIds.filter(id => id !== cardId);
       this.total = Math.max(0, this.total - 1);
-      this.nextOffset = Math.max(0, this.nextOffset - 1);
       this.hasMore = this.orderedIds.length < this.total;
     },
 
