@@ -96,28 +96,33 @@ describe('workspace list request lifecycle', () => {
   });
 
   it('reloads an atomic prefix when loading more', async () => {
+    const secondPageTotal = WORKSPACE_PAGE_SIZE + 2;
     const firstPage = Array.from({ length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index}` }));
-    const expandedPrefix = Array.from({ length: 52 }, (_, index) => ({ id: `card-${index}` }));
+    const expandedPrefix = Array.from({ length: secondPageTotal }, (_, index) => ({ id: `card-${index}` }));
     api.getWorkspaceCards
-      .mockResolvedValueOnce(response(firstPage, { total: 52, hasMore: true }))
-      .mockResolvedValueOnce(response(expandedPrefix, { total: 52 }));
+      .mockResolvedValueOnce(response(firstPage, { total: secondPageTotal, hasMore: true }))
+      .mockResolvedValueOnce(response(expandedPrefix, { total: secondPageTotal }));
     const store = useWorkspaceListStore();
 
     await store.load('project-a');
     await store.loadMore();
 
-    expect(api.getWorkspaceCards.mock.calls[1][1]).toMatchObject({ offset: 0, limit: 100 });
-    expect(store.cards).toHaveLength(52);
-    expect(new Set(store.orderedIds).size).toBe(52);
+    expect(api.getWorkspaceCards.mock.calls[1][1]).toMatchObject({
+      offset: 0,
+      limit: WORKSPACE_PAGE_SIZE * 2,
+    });
+    expect(store.cards).toHaveLength(secondPageTotal);
+    expect(new Set(store.orderedIds).size).toBe(secondPageTotal);
   });
 
   it('refreshes the currently loaded extent instead of collapsing to page one', async () => {
-    const firstPage = Array.from({ length: 50 }, (_, index) => ({ id: `card-${index}` }));
-    const expandedPrefix = Array.from({ length: 75 }, (_, index) => ({ id: `card-${index}` }));
+    const expandedTotal = WORKSPACE_PAGE_SIZE * 2 - 5;
+    const firstPage = Array.from({ length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index}` }));
+    const expandedPrefix = Array.from({ length: expandedTotal }, (_, index) => ({ id: `card-${index}` }));
     api.getWorkspaceCards
-      .mockResolvedValueOnce(response(firstPage, { total: 75, hasMore: true }))
-      .mockResolvedValueOnce(response(expandedPrefix, { total: 75 }))
-      .mockResolvedValueOnce(response(expandedPrefix, { total: 75 }));
+      .mockResolvedValueOnce(response(firstPage, { total: expandedTotal, hasMore: true }))
+      .mockResolvedValueOnce(response(expandedPrefix, { total: expandedTotal }))
+      .mockResolvedValueOnce(response(expandedPrefix, { total: expandedTotal }));
     const store = useWorkspaceListStore();
 
     await store.load('project-a');
@@ -128,29 +133,31 @@ describe('workspace list request lifecycle', () => {
       limit: options.limit,
       offset: options.offset,
     }))).toEqual([
-      { limit: 100, offset: 0 },
-      { limit: 75, offset: 0 },
+      { limit: WORKSPACE_PAGE_SIZE * 2, offset: 0 },
+      { limit: expandedTotal, offset: 0 },
     ]);
-    expect(store.cards).toHaveLength(75);
+    expect(store.cards).toHaveLength(expandedTotal);
   });
 
   it('cannot omit a card when the ordering changes before loading more', async () => {
-    const firstPage = Array.from({ length: 50 }, (_, index) => ({ id: `card-${index}` }));
+    const prefixLength = WORKSPACE_PAGE_SIZE * 2 - 5;
+    const total = prefixLength + 1;
+    const firstPage = Array.from({ length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index}` }));
     const reorderedPrefix = [
       { id: 'moved-card' },
-      ...Array.from({ length: 75 }, (_, index) => ({ id: `card-${index}` })),
+      ...Array.from({ length: prefixLength }, (_, index) => ({ id: `card-${index}` })),
     ];
     api.getWorkspaceCards
-      .mockResolvedValueOnce(response(firstPage, { total: 76, hasMore: true }))
-      .mockResolvedValueOnce(response(reorderedPrefix, { total: 76 }));
+      .mockResolvedValueOnce(response(firstPage, { total, hasMore: true }))
+      .mockResolvedValueOnce(response(reorderedPrefix, { total }));
     const store = useWorkspaceListStore();
 
     await store.load('project-a');
     await store.loadMore();
 
-    expect(store.cards).toHaveLength(76);
-    expect(new Set(store.orderedIds).size).toBe(76);
-    expect(store.orderedIds).toContain('card-49');
+    expect(store.cards).toHaveLength(total);
+    expect(new Set(store.orderedIds).size).toBe(total);
+    expect(store.orderedIds).toContain(`card-${WORKSPACE_PAGE_SIZE - 1}`);
   });
 
   it('optimistically reorders stars and removes cards that no longer match a filter', async () => {

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { api } from '../composables/useApi.js';
 
-export const WORKSPACE_PAGE_SIZE = 50;
+export const WORKSPACE_PAGE_SIZE = 25;
 export const WORKSPACE_MAX_EXTENT = 500;
 
 const requestLifecycles = new WeakMap();

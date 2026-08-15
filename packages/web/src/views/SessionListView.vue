@@ -323,6 +323,7 @@ import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useSummaries } from '../composables/useSummaries.js';
 import { useRunningSessionSubscriptions } from '../composables/useRunningSessionSubscriptions.js';
 import { useWorkspaceListRealtime } from '../composables/useWorkspaceListRealtime.js';
+import { useKanbanRealtime } from '../composables/useKanbanRealtime.js';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import { workspacePrSummary } from '../utils/workspaceCard.js';
 import SessionCard from '../components/SessionCard.vue';
@@ -439,6 +440,11 @@ useWorkspaceListRealtime(listProjectId, (refreshProjectId) => {
   if (workspaceList.projectId !== refreshProjectId) return;
   return workspaceList.refresh();
 }, () => workspaceList.isRefreshInFlight());
+
+// The board is fetched on mount for every tab (SessionCard "Add to Board" and
+// lane indicators need it), so its realtime updates are project-scoped rather
+// than tab-scoped like the workspace list.
+useKanbanRealtime(projectId);
 
 watch(projectId, (id) => {
   if (!id) return;

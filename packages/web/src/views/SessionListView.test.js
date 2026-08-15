@@ -151,8 +151,14 @@ vi.mock('../composables/useWebSocket.js', () => ({
       onSessionCreatedCallback = cb;
       return vi.fn();
     }),
+    // The real subscription supports several independent handlers per event
+    // (the workspace list and the kanban board both listen), so the mock must
+    // fan out rather than let the last registration win.
     onSessionUpdated: vi.fn((cb) => {
-      onSessionUpdatedCallback = cb;
+      const previous = onSessionUpdatedCallback;
+      onSessionUpdatedCallback = previous
+        ? (...args) => { previous(...args); cb(...args); }
+        : cb;
       return vi.fn();
     }),
     onSessionDeleted: vi.fn((cb) => {
