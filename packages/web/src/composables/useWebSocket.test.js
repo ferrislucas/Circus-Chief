@@ -122,6 +122,26 @@ describe('useWebSocket composables', () => {
       expect(callback).toHaveBeenCalledOnce();
       expect(callback).toHaveBeenCalledWith({ id: 'local' });
     });
+
+    it('keeps a shared project subscription active until its last consumer unsubscribes', async () => {
+      const module = await import('./useWebSocket.js');
+      const first = module.useProjectSubscription('project-shared');
+      const second = module.useProjectSubscription('project-shared');
+      const socket = MockWebSocket.instances[0];
+      const sentProjectMessages = type => socket.sentMessages
+        .map(message => JSON.parse(message))
+        .filter(message => message.type === type && message.projectId === 'project-shared');
+
+      first.subscribe();
+      second.subscribe();
+      expect(sentProjectMessages(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT)).toHaveLength(1);
+
+      first.unsubscribe();
+      expect(sentProjectMessages(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT)).toHaveLength(0);
+
+      second.unsubscribe();
+      expect(sentProjectMessages(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT)).toHaveLength(1);
+    });
   });
 
   describe('useSessionSubscription', () => {

@@ -2,8 +2,11 @@ import { onUnmounted } from 'vue';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { useWebSocket } from './useWebSocket.js';
 
-// Track active project subscriptions for re-subscription on reconnect
+// Track active project subscriptions for re-subscription on reconnect.
+// The count prevents one consumer (for example the workspace list) from
+// tearing down a subscription still used by another (for example Kanban).
 export const projectSubscriptionIds = new Set();
+export const projectSubscriptionCounts = new Map();
 
 /**
  * Subscribe to project updates (session list changes)
@@ -13,13 +16,31 @@ export const projectSubscriptionIds = new Set();
  */
 export function useProjectSubscription(projectId, { autoCleanup = true } = {}) {
   const { send, on, off } = useWebSocket();
+  let thisInstanceSubscribed = false;
 
   const subscribe = () => {
+    if (thisInstanceSubscribed) return;
+    thisInstanceSubscribed = true;
+
+    const count = projectSubscriptionCounts.get(projectId) || 0;
+    projectSubscriptionCounts.set(projectId, count + 1);
+    if (count > 0) return;
+
     projectSubscriptionIds.add(projectId);
     send(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId });
   };
 
   const unsubscribe = () => {
+    if (!thisInstanceSubscribed) return;
+    thisInstanceSubscribed = false;
+
+    const count = projectSubscriptionCounts.get(projectId) || 0;
+    if (count > 1) {
+      projectSubscriptionCounts.set(projectId, count - 1);
+      return;
+    }
+
+    projectSubscriptionCounts.delete(projectId);
     projectSubscriptionIds.delete(projectId);
     send(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId });
   };
