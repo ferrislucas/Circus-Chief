@@ -476,12 +476,18 @@ async function handleStar({ id, starred }) {
   const snapshot = workspaceList.applyOptimisticStar(id, starred);
   try {
     await sessionsStore.toggleSessionStar(id);
+  } catch (error) {
+    workspaceList.restoreOptimisticStar(snapshot);
+    uiStore.error(error.message || 'Failed to update star');
+    return;
+  }
+
+  try {
     const refreshWasInFlight = workspaceList.isRefreshInFlight();
     await workspaceList.refresh();
     if (refreshWasInFlight) await workspaceList.refresh();
   } catch (error) {
-    workspaceList.restoreOptimisticStar(snapshot);
-    uiStore.error(error.message || 'Failed to update star');
+    uiStore.error(error.message || 'Failed to refresh workspaces');
   }
 }
 

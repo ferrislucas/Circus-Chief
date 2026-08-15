@@ -594,6 +594,7 @@ import { useProjectSubscription } from '../composables/useWebSocket.js';
 import { useSessionFiltering } from '../composables/useSessionFiltering.js';
 import { useProjectSessionSubscription } from '../composables/useProjectSessionSubscription.js';
 import { useRunningSessionSubscriptions } from '../composables/useRunningSessionSubscriptions.js';
+import { useUiStore } from '../stores/ui.js';
 
 // Helper to create a sessions store mock with proper groupedSessions getter
 function createSessionsStoreMock(sessions = [], overrides = {}) {
@@ -1549,6 +1550,28 @@ describe('Status filtering', () => {
       const sessionCards = wrapper.findAll('.session-card');
       expect(sessionCards).toHaveLength(1);
       expect(sessionCards[0].attributes('data-session-id')).toBe('session-2');
+    });
+  });
+
+  describe('starring workspaces', () => {
+    it('keeps a persisted star when the subsequent refresh fails', async () => {
+      mockSessionsStore.toggleSessionStar = vi.fn().mockResolvedValue();
+      const refreshError = new Error('Refresh unavailable');
+      const uiStore = useUiStore();
+      const errorSpy = vi.spyOn(uiStore, 'error');
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+      const workspaceList = lastWorkspaceList();
+      workspaceList.refresh.mockRejectedValue(refreshError);
+
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('star', { id: 'session-1', starred: true });
+      await flushPromises();
+
+      expect(mockSessionsStore.toggleSessionStar).toHaveBeenCalledWith('session-1');
+      expect(workspaceList.restoreOptimisticStar).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith('Refresh unavailable');
     });
   });
 
