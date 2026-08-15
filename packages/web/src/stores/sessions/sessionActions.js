@@ -1,5 +1,20 @@
 import { api } from '../../composables/useApi.js';
 
+// AbortControllers are intentionally kept outside Pinia state: they are
+// request-lifecycle objects, not application state. A WeakMap also lets each
+// store instance maintain independent per-session requests without relying on
+// Vue's handling of non-plain objects.
+const sessionFetchControllers = new WeakMap();
+
+function getSessionFetchControllers(store) {
+  let controllers = sessionFetchControllers.get(store);
+  if (!controllers) {
+    controllers = new Map();
+    sessionFetchControllers.set(store, controllers);
+  }
+  return controllers;
+}
+
 /**
  * Update a session in a list, or add it if not found.
  * @param {Array} listInput - The list to update
@@ -115,9 +130,10 @@ export const sessionActions = {
   },
 
   async fetchSession(id, showLoading = true) {
-    this._sessionFetchController?.abort();
+    const controllers = getSessionFetchControllers(this);
+    controllers.get(id)?.abort();
     const controller = new AbortController();
-    this._sessionFetchController = controller;
+    controllers.set(id, controller);
     if (showLoading) this.loading = true;
     this.error = null;
     try {
@@ -151,10 +167,10 @@ export const sessionActions = {
       }
       if (workspaceDetail?.members) upsertSessionListMembers(this.sessions, workspaceDetail.members);
     } catch (err) {
-      if (err?.name !== 'AbortError' && this._sessionFetchController === controller) this.error = err.message;
+      if (err?.name !== 'AbortError' && controllers.get(id) === controller) this.error = err.message;
     } finally {
-      if (this._sessionFetchController === controller) {
-        this._sessionFetchController = null;
+      if (controllers.get(id) === controller) {
+        controllers.delete(id);
         if (showLoading) this.loading = false;
       }
     }

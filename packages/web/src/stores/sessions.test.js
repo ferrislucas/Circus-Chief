@@ -43,7 +43,27 @@ describe('Sessions Store', () => {
     api.getWorkspaceDetail.mockResolvedValue(null);
   });
 
-  it('aborts superseded detail requests and commits only the final session', async () => {
+  it('does not abort concurrent detail requests for different sessions', async () => {
+    const store = useSessionsStore();
+    store.viewedSessionId = 'session-b';
+    let firstSignal;
+    api.getSession
+      .mockImplementationOnce((_id, options) => {
+        firstSignal = options.signal;
+        return Promise.resolve({ id: 'session-a', name: 'A' });
+      })
+      .mockResolvedValueOnce({ id: 'session-b', name: 'B' });
+
+    const first = store.fetchSession('session-a');
+    const second = store.fetchSession('session-b');
+    await Promise.all([first, second]);
+
+    expect(firstSignal.aborted).toBe(false);
+    expect(store.currentSession).toMatchObject({ id: 'session-b' });
+    expect(store.error).toBeNull();
+  });
+
+  it('aborts only a superseded detail request for the same session', async () => {
     const store = useSessionsStore();
     let firstSignal;
     api.getSession
@@ -53,14 +73,14 @@ describe('Sessions Store', () => {
           reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
         }));
       })
-      .mockResolvedValueOnce({ id: 'session-b', name: 'B' });
+      .mockResolvedValueOnce({ id: 'session-a', name: 'Updated A' });
 
     const first = store.fetchSession('session-a');
-    const second = store.fetchSession('session-b');
+    const second = store.fetchSession('session-a');
     await Promise.all([first, second]);
 
     expect(firstSignal.aborted).toBe(true);
-    expect(store.currentSession).toMatchObject({ id: 'session-b' });
+    expect(store.currentSession).toMatchObject({ id: 'session-a', name: 'Updated A' });
     expect(store.error).toBeNull();
   });
 
