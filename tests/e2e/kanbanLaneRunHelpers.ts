@@ -54,6 +54,17 @@ export const LIMIT_PROMPT = 'Claude E2E regression: provider usage limit.';
  */
 export const UNRECORDED_PROMPT = 'Claude E2E regression: UNRECORDED CASSETTE — deterministic permanent failure.';
 
+/** Wait until a VCR-gated tool call has parked a live turn. */
+export async function waitForPendingPrompt(sessionId: string, timeout = 30000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const session = await getSession(sessionId);
+    if (session?.pendingAgentInput) return session;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  throw new Error(`Session ${sessionId} never surfaced a pending prompt within ${timeout}ms`);
+}
+
 // ============================================================
 // Board / lane / card helpers
 // ============================================================
