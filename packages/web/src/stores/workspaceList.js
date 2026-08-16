@@ -22,15 +22,6 @@ function queryKey(projectId, query) {
   return `${projectId}:${JSON.stringify(query)}`;
 }
 
-function uniqueCards(cards) {
-  const seen = new Set();
-  return cards.filter((card) => {
-    if (!card?.id || seen.has(card.id)) return false;
-    seen.add(card.id);
-    return true;
-  });
-}
-
 const fetchPage = (projectId, query, offset, signal) => api.getWorkspaceCards(projectId, {
   ...query,
   limit: WORKSPACE_PAGE_SIZE,
@@ -75,7 +66,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
 
   actions: {
     _replace(result) {
-      const cards = uniqueCards(result.workspaces || []);
+      const cards = result.workspaces || [];
       this.cardsById = Object.fromEntries(cards.map(card => [card.id, card]));
       this.orderedIds = cards.map(card => card.id);
       this.facets = result.facets || { running: 0, idle: 0 };
@@ -85,7 +76,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
     },
 
     _append(result) {
-      const cards = uniqueCards(result.workspaces || []);
+      const cards = result.workspaces || [];
       const existingIds = new Set(this.orderedIds);
       this.cardsById = {
         ...this.cardsById,

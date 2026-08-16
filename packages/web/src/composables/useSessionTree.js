@@ -56,7 +56,6 @@ export function useSessionTree(currentSessionId, sessionChainReady) {
       try { await sessionsStore.fetchSession(sessionId, false); } catch { return; }
     }
 
-    const session = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
     const { root, earlyReturn } = findRootSession(sessionId);
     if (earlyReturn) { sessionChain.value = sortSessionChain(earlyReturn); return; }
     if (!root) return;
