@@ -2,10 +2,7 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { messages, conversations } from './index.js';
-// Do not use the package-root alias here: server's Vitest alias maps that
-// path to shared's barrel, which imports contracts and creates a repository
-// initialization cycle. The constants module is deliberately dependency-free.
-import { SESSION_EXECUTION_STATES } from '../../../shared/src/constants.js';
+import { SESSION_EXECUTION_STATES } from '@circuschief/shared/constants';
 import {
   ACTIVITY_FIELDS_SQL,
   SESSION_ORDER_BY,

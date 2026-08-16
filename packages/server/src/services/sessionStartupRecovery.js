@@ -7,6 +7,7 @@
 import { sessions } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { closeOwnWork } from './workflowSessionService.js';
 
 /** Default threshold: sessions stuck in 'starting' for longer than this are stale. */
 const DEFAULT_STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
@@ -74,6 +75,11 @@ export function recoverOrphanedRunningSessions() {
       status: 'stopped',
       executionState: 'stopped',
     });
+
+    // A stopped row is not a closed workflow obligation. Closing it also
+    // reconciles the lane run, releasing its card rather than pinning it to a
+    // worker which disappeared with the previous server process.
+    closeOwnWork(session.id, 'cancelled', 'orphaned_at_boot');
 
     broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
       projectId: session.projectId,

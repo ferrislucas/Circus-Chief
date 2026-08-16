@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { projects, sessions } from '../database.js';
+import { projects, sessions, kanbanBoards, kanbanCards, kanbanLanes } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
@@ -9,6 +9,7 @@ vi.mock('../websocket.js', () => ({
 
 import { broadcastToProject } from '../websocket.js';
 import { recoverStaleStartingSessions, recoverOrphanedRunningSessions } from './sessionStartupRecovery.js';
+import { attachRootSession, createLaneRunForEntry, getRun } from './workflowSessionService.js';
 
 function createProject() {
   return projects.create('Test Project', '/tmp/test');
@@ -89,6 +90,33 @@ describe('recoverStaleStartingSessions', () => {
       WS_MESSAGE_TYPES.SESSION_UPDATED,
       expect.objectContaining({ sessionId: session.id })
     );
+  });
+
+  it('closes the workflow obligation and releases the card for an orphaned lane worker', () => {
+    const project = createProject();
+    const board = kanbanBoards.create(project.id);
+    const [source, target] = kanbanLanes.getByBoardId(board.id);
+    const root = sessions.create(project.id, 'root', 'hello');
+    const card = kanbanCards.create(source.id, root.id);
+    const worker = sessions.create(project.id, 'worker', 'hello', {
+      parentSessionId: root.id,
+      status: 'running',
+    });
+    const run = createLaneRunForEntry({
+      projectId: project.id,
+      workspaceId: root.id,
+      cardId: card.id,
+      lane: { ...source, onEnterPrompt: 'work', completionTargetLaneId: target.id },
+    });
+    attachRootSession(run.id, worker.id);
+
+    recoverOrphanedRunningSessions();
+
+    expect(sessions.getById(worker.id)).toMatchObject({
+      status: 'stopped', executionState: 'stopped', ownWorkState: 'cancelled',
+    });
+    expect(getRun(run.id).status).not.toBe('open');
+    expect(kanbanCards.getById(card.id).activeLaneRunId).toBeNull();
   });
 });
 

@@ -27,6 +27,7 @@ vi.mock('../services/kanbanService.js', async (importOriginal) => {
 import kanbanRouter from './kanban.js';
 import { broadcastToProject } from '../websocket.js';
 import { moveCard as moveCardService } from '../services/kanbanService.js';
+import { ApiError } from '../errors/ApiError.js';
 import {
   SESSION_CALLER_ID_HEADER,
   WS_MESSAGE_TYPES,
@@ -716,7 +717,8 @@ describe('Kanban API', () => {
       const session = createSession();
       kanbanCards.create(lanes[0].id, session.id);
       const body = { targetLaneId: lanes[0].id };
-      moveCardService.mockRejectedValueOnce(new Error('An active lane worker cannot reorder its card within the same lane'));
+      moveCardService.mockRejectedValueOnce(new ApiError('An active lane worker cannot reorder its card within the same lane',
+        { status: 409, code: 'KANBAN_SELF_MOVE_SAME_LANE' }));
 
       const first = await request(app)
         .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
@@ -728,6 +730,7 @@ describe('Kanban API', () => {
         .send(body);
 
       expect(first.status).toBe(409);
+      expect(first.body.code).toBe('KANBAN_SELF_MOVE_SAME_LANE');
       expect(replay.text).toBe(first.text);
       expect(databaseManager.get().prepare(`SELECT status FROM kanban_api_operations
         WHERE project_id=? AND operation_key=?`).get(projectId, 'same-lane-self-move').status).toBe('completed');
@@ -742,7 +745,7 @@ describe('Kanban API', () => {
       moveCardService.mockImplementationOnce(async () => {
         databaseManager.get().prepare(`UPDATE kanban_api_operations SET owner_token='another-owner'
           WHERE project_id=? AND operation_key=?`).run(projectId, key);
-        throw new Error(message);
+        throw new ApiError(message, { status: 409, code: 'KANBAN_SELF_MOVE_SAME_LANE' });
       });
 
       const res = await request(app)
@@ -751,7 +754,7 @@ describe('Kanban API', () => {
         .send({ targetLaneId: lanes[0].id });
 
       expect(res.status).toBe(409);
-      expect(res.body).toEqual({ error: message });
+      expect(res.body).toEqual({ error: message, code: 'KANBAN_SELF_MOVE_SAME_LANE' });
     });
 
     it('does not infer caller identity from the workspace URL', async () => {
@@ -1009,14 +1012,15 @@ describe('Kanban API', () => {
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
       const message = 'An active lane worker cannot skip destination automation when choosing an exit lane';
-      moveCardService.mockRejectedValueOnce(new Error(message));
+      moveCardService.mockRejectedValueOnce(new ApiError(message,
+        { status: 409, code: 'KANBAN_SELF_MOVE_AUTOMATION_REQUIRED' }));
 
       const res = await request(app)
         .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
         .send({ targetLaneId: lanes[1].id, runOnEnterTemplate: false });
 
       expect(res.status).toBe(409);
-      expect(res.body).toEqual({ error: message });
+      expect(res.body).toEqual({ error: message, code: 'KANBAN_SELF_MOVE_AUTOMATION_REQUIRED' });
     });
 
     it('returns 409 when a self-move supplies a deferred sort order', async () => {
@@ -1024,14 +1028,15 @@ describe('Kanban API', () => {
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
       const message = 'An active lane worker cannot set a sort order when choosing an exit lane';
-      moveCardService.mockRejectedValueOnce(new Error(message));
+      moveCardService.mockRejectedValueOnce(new ApiError(message,
+        { status: 409, code: 'KANBAN_SELF_MOVE_SORT_ORDER' }));
 
       const res = await request(app)
         .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
         .send({ targetLaneId: lanes[1].id, sortOrder: 7 });
 
       expect(res.status).toBe(409);
-      expect(res.body).toEqual({ error: message });
+      expect(res.body).toEqual({ error: message, code: 'KANBAN_SELF_MOVE_SORT_ORDER' });
     });
 
     it('returns 404 for non-existent card', async () => {

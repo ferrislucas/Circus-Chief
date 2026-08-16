@@ -14,6 +14,7 @@ import { activeSessions } from './streamEventHandler.js';
 import { getRun } from './workflowRunReader.js';
 import { recomputeSubtreeOutcomes } from './workflowSessionState.js';
 import { broadcastCardTransition, moveCardForTransition } from './workflowLaneTransition.js';
+import { ApiError } from '../errors/ApiError.js';
 
 export { getRun } from './workflowRunReader.js';
 export { computeSubtreeOutcome, recomputeSubtreeOutcomes } from './workflowSessionState.js';
@@ -364,6 +365,8 @@ export function reconcileLaneRun(runId) {
         details: { targetLaneId: run.chosen_exit_lane_id, outcome: state },
       });
     }
+    db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE active_lane_run_id=?')
+      .run(time, runId);
     audit(db, runId, `run_${state}`, { sessionId: failed?.id || cancelled?.id }); return getRun(runId);
   }
   if (rootOutcome === 'succeeded') return attemptLaneRunTransition(runId);
@@ -533,25 +536,42 @@ export function declareExitLaneForSelfMove(cardId, targetLaneId, actorSessionId,
     // completion handoff always runs the destination automation, so silently
     // accepting an opt-out here would report behavior we cannot honor.
     if (!runOnEnterTemplate) {
-      throw new Error('An active lane worker cannot skip destination automation when choosing an exit lane');
+      throw new ApiError('An active lane worker cannot skip destination automation when choosing an exit lane',
+        { status: 409, code: 'KANBAN_SELF_MOVE_AUTOMATION_REQUIRED' });
     }
     const { run } = actor;
     if (run.source_lane_id === targetLaneId) {
-      throw new Error('An active lane worker cannot reorder its card within the same lane');
+      throw new ApiError('An active lane worker cannot reorder its card within the same lane',
+        { status: 409, code: 'KANBAN_SELF_MOVE_SAME_LANE' });
     }
     const sourceLane = db.prepare('SELECT board_id FROM kanban_lanes WHERE id=?').get(run.source_lane_id);
-    const targetLane = db.prepare('SELECT board_id FROM kanban_lanes WHERE id=?').get(targetLaneId);
+    const targetLane = db.prepare('SELECT * FROM kanban_lanes WHERE id=?').get(targetLaneId);
     if (!sourceLane || !targetLane || sourceLane.board_id !== targetLane.board_id) {
-      throw new Error('The selected exit lane must belong to the card board');
+      throw new ApiError('The selected exit lane must belong to the card board',
+        { status: 400, code: 'KANBAN_SELF_MOVE_CROSS_BOARD' });
     }
 
     const time = now();
+    if (run.chosen_exit_lane_id && run.chosen_exit_lane_id !== targetLaneId) {
+      audit(db, run.id, 'exit_lane_redeclared', {
+        sessionId: actorSessionId,
+        details: {
+          previousLaneId: run.chosen_exit_lane_id,
+          previousDeclaredBy: run.chosen_exit_declared_by,
+          targetLaneId,
+        },
+      });
+    }
     db.prepare(`UPDATE kanban_lane_runs SET chosen_exit_lane_id=?, chosen_exit_declared_at=?,
       chosen_exit_declared_by=?, updated_at=? WHERE id=? AND status='open'`)
       .run(targetLaneId, time, actorSessionId, time, run.id);
     audit(db, run.id, 'exit_lane_declared', {
       sessionId: actorSessionId,
-      details: { targetLaneId, runOnEnterTemplate },
+      details: { targetLaneId, runOnEnterTemplate, willRunAutomation: isStructured({
+        completionTargetLaneId: targetLane.completion_target_lane_id,
+        onEnterTemplateId: targetLane.on_enter_template_id,
+        onEnterPrompt: targetLane.on_enter_prompt,
+      }) },
     });
     return getRun(run.id);
   });

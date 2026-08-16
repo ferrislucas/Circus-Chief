@@ -4,6 +4,7 @@ import { resolve } from 'path';
 export default defineConfig({
   resolve: {
     alias: {
+      '@circuschief/shared/constants': resolve(__dirname, '../shared/src/constants.js'),
       '@circuschief/shared/contracts': resolve(__dirname, '../shared/src/contracts'),
       '@circuschief/shared': resolve(__dirname, '../shared/src'),
     },

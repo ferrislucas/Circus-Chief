@@ -31,16 +31,6 @@ const TARGET_LANE_NOT_FOUND_ERROR = 'Target lane not found';
 const WORKSPACE_CARD_NOT_FOUND_ERROR = 'No card found for this workspace';
 const OPERATION_LEASE_MS = 30_000;
 const GENERIC_OPERATION_FAILURE = 'The operation could not be completed. Please try again.';
-const SELF_MOVE_CONFLICTS = new Set([
-  'An active lane worker cannot reorder its card within the same lane',
-  'An active lane worker cannot skip destination automation when choosing an exit lane',
-  'An active lane worker cannot set a sort order when choosing an exit lane',
-]);
-
-function isSelfMoveConflict(error) {
-  return SELF_MOVE_CONFLICTS.has(error.message);
-}
-
 function canonicalPayload(payload) {
   if (Array.isArray(payload)) return payload.map(canonicalPayload);
   if (payload && typeof payload === 'object') {
@@ -83,12 +73,13 @@ function beginOperation(req, endpoint) {
     const now = Date.now();
     const canRetry = existing.status === 'retryable'
       || existing.status === 'failed' // Backward-compatible recovery for rows written before retryable failures.
+      || existing.status === 'abandoned'
       || (existing.status === 'processing' && existing.lease_expires_at <= now);
     if (!canRetry) return { keyed: true, existing };
     const token = crypto.randomUUID();
     const taken = db.prepare(`UPDATE kanban_api_operations
       SET status='processing', owner_token=?, lease_expires_at=?, attempt_count=attempt_count+1, updated_at=?
-      WHERE id=? AND (status IN ('retryable','failed') OR (status='processing' AND lease_expires_at<=?))`)
+      WHERE id=? AND (status IN ('retryable','failed','abandoned') OR (status='processing' AND lease_expires_at<=?))`)
       .run(token, now + OPERATION_LEASE_MS, now, existing.id, now);
     if (!taken.changes) return beginOperation(req, endpoint);
     existing = db.prepare('SELECT * FROM kanban_api_operations WHERE id=?').get(existing.id);
@@ -519,8 +510,8 @@ router.patch('/cards/:cardId/move', async (req, res) => {
     });
     res.json(response);
   } catch (error) {
-    if (isSelfMoveConflict(error)) {
-      return sendTerminalResponseFromCatch(res, operation, 409, { error: error.message });
+    if (isApiError(error)) {
+      return sendTerminalResponseFromCatch(res, operation, error.status, { error: error.message, code: error.code });
     }
     console.error('Failed to move kanban card:', error);
     return sendFailureFromCatch(res, operation, error);
@@ -598,8 +589,8 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
     });
     res.json(response);
   } catch (error) {
-    if (isSelfMoveConflict(error)) {
-      return sendTerminalResponseFromCatch(res, operation, 409, { error: error.message });
+    if (isApiError(error)) {
+      return sendTerminalResponseFromCatch(res, operation, error.status, { error: error.message, code: error.code });
     }
     console.error('Failed to move kanban card by workspace:', error);
     return sendFailureFromCatch(res, operation, error);

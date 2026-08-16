@@ -13,6 +13,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
 import { createLaneRunForEntry, supersedeRunForCard, declareExitLaneForSelfMove, isStructured, resolveCardActor } from './workflowSessionService.js';
 import { buildFullBoardResponse } from './kanbanBoardResponse.js';
+import { ApiError } from '../errors/ApiError.js';
 import {
   beginLaneEntryDelivery,
   isLaneEntryDeliveryStopping,
@@ -168,7 +169,8 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
     // position to persist. Reject an explicit position rather than claiming
     // to honor it and silently dropping the value.
     if (actor && actor.run.source_lane_id !== targetLaneId && sortOrder !== undefined) {
-      throw new Error('An active lane worker cannot set a sort order when choosing an exit lane');
+      throw new ApiError('An active lane worker cannot set a sort order when choosing an exit lane',
+        { status: 409, code: 'KANBAN_SELF_MOVE_SORT_ORDER' });
     }
     const selfMoveResult = actor
       ? declareExitLaneForSelfMove(cardId, targetLaneId, actorSessionId, { runOnEnterTemplate })
@@ -185,7 +187,8 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
       ? createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause })
       : null;
     const responseCard = selfMoveResult
-      ? { ...updatedCard, deferred: true, chosenExitLaneId: selfMoveResult.chosenExitLaneId }
+      ? { ...updatedCard, deferred: true, chosenExitLaneId: selfMoveResult.chosenExitLaneId,
+        willRunAutomation: isStructured(lane) }
       : updatedCard;
     const result = finalizeMutation?.({ card: responseCard, eventId: createdRun?.laneEntryEventId || null });
     return {
