@@ -251,6 +251,7 @@ function listProjectWorkspaces(req, res) {
 // GET /api/projects/:projectId/workspaces — list workspaces (root sessions)
 //
 // Response shapes:
+//   With `view=cards`           → { workspaces: [workspace cards], facets: { running, idle }, pagination: {...} }
 //   Without `limit` query param → bare array of root session rows.
 //   With `limit` query param    → { workspaces: [...], pagination: { total, limit, offset, hasMore } }
 // ---------------------------------------------------------------------------
