@@ -193,7 +193,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
         const result = await fetchPage(projectId, query, offset, controller.signal);
         if (canCommitPage(this, lifecycle, request)) this._append(result);
       } catch (error) {
-        if (!isAbort(error)) {
+        if (!isAbort(error) && canCommitPage(this, lifecycle, request)) {
           this.error = error.message || 'Failed to load more workspaces';
           throw error;
         }

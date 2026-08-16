@@ -10,8 +10,12 @@ vi.mock('../composables/useApi.js', () => ({ api: { getWorkspaceCards: vi.fn() }
 
 function deferred() {
   let resolve;
-  const promise = new Promise(next => { resolve = next; });
-  return { promise, resolve };
+  let reject;
+  const promise = new Promise((next, fail) => {
+    resolve = next;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
 }
 
 function response(workspaces, options = {}) {
@@ -112,6 +116,26 @@ describe('workspace list request lifecycle', () => {
     });
     expect(store.cards).toHaveLength(secondPageTotal);
     expect(new Set(store.orderedIds).size).toBe(secondPageTotal);
+  });
+
+  it('ignores a stale load-more failure after a context change', async () => {
+    const nextPage = deferred();
+    const firstPage = Array.from({ length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index}` }));
+    api.getWorkspaceCards
+      .mockResolvedValueOnce(response(firstPage, { total: WORKSPACE_PAGE_SIZE + 1, hasMore: true }))
+      .mockImplementationOnce(() => nextPage.promise)
+      .mockResolvedValueOnce(response([{ id: 'idle-card' }]));
+    const store = useWorkspaceListStore();
+
+    await store.load('project-a', { status: 'running' });
+    const loadMore = store.loadMore();
+    await store.load('project-a', { status: 'idle' });
+    nextPage.reject(new Error('Stale pagination failure'));
+    await expect(loadMore).resolves.toBeUndefined();
+
+    expect(store.query).toEqual({ status: 'idle' });
+    expect(store.cards).toEqual([{ id: 'idle-card' }]);
+    expect(store.error).toBeNull();
   });
 
   it('refreshes only the first page after loading more', async () => {
