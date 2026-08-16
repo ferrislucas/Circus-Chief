@@ -71,7 +71,9 @@ ORDER BY COALESCE(completed_at, created_at) DESC;
 ```
 
 Mutating card-add and card-move calls accept an optional `Idempotency-Key`.
-Replaying the same key and payload returns the original operation result;
+Replaying the same key and payload after a completed operation returns the
+original operation result. A failed mutation is retained as retryable, so a
+same-key retry re-attempts the request rather than replaying a transient 500;
 reusing a key with different input returns `409`. Keyed mutation responses
 include `operationId` and delivery identity, which can be queried at
 `GET /api/projects/:projectId/kanban/operations/:operationId`.
@@ -82,7 +84,7 @@ card/run instead of retrying the stale request. Invalid lane configurations
 (such as a completion target without on-entry automation) return a 400 with a
 stable `KANBAN_LANE_*` code and field name.
 
-Completed keyed API operations are retained for 30 days, then removed in
+Completed and unretried failed keyed API operations are retained for 30 days, then removed in
 bounded batches of 500 once per hour. Processing operations are never removed.
 Cleanup logs both the number deleted and the remaining eligible backlog; a
 non-zero backlog is expected to drain over subsequent hourly batches.

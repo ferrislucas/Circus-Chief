@@ -192,9 +192,6 @@ export const kanbanMigrations = [
       `);
       addColumnIfMissing(db, 'kanban_lane_entry_events', 'claim_expires_at', 'INTEGER');
       addColumnIfMissing(db, 'kanban_lane_entry_events', 'next_attempt_at', 'INTEGER');
-      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_lane_id', 'TEXT');
-      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_declared_at', 'INTEGER');
-      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_declared_by', 'TEXT');
       db.exec('CREATE INDEX IF NOT EXISTS idx_lane_entry_recovery_due ON kanban_lane_entry_events(status, next_attempt_at, created_at)');
     },
   },

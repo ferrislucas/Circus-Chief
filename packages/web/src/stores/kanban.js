@@ -407,6 +407,16 @@ export const useKanbanStore = defineStore('kanban', {
       }
     },
 
+    /** Update a card in place when an active worker declares its eventual exit. */
+    handleExitLaneDeclared(cardId, activeLaneRun) {
+      const location = this._findCardLocation(cardId);
+      if (!location) return;
+      location.lane.cards[location.cardIndex] = {
+        ...location.card,
+        activeLaneRun,
+      };
+    },
+
     /**
      * Handle card removed from WebSocket
      * @param {string} cardId - The card ID that was removed

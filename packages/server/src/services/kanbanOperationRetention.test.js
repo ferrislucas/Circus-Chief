@@ -43,15 +43,15 @@ describe('cleanupKanbanApiOperations', () => {
       .toBe('processing');
   });
 
-  it('retains failed operations only for the normal terminal retention period', () => {
+  it('retains retryable operations only for the normal retention period', () => {
     const db = new Database(':memory:');
     db.exec(`CREATE TABLE kanban_api_operations (id TEXT PRIMARY KEY, status TEXT, owner_token TEXT,
       lease_expires_at INTEGER, terminal_error TEXT, updated_at INTEGER);
-      INSERT INTO kanban_api_operations VALUES ('failed','failed',NULL,NULL,'service failure',1);`);
+      INSERT INTO kanban_api_operations VALUES ('retryable','retryable',NULL,NULL,'service failure',1);`);
 
     const result = cleanupKanbanApiOperations({ db, now: 1000, retentionMs: 100 });
 
     expect(result.deleted).toBe(1);
-    expect(db.prepare("SELECT id FROM kanban_api_operations WHERE id='failed'").get()).toBeUndefined();
+    expect(db.prepare("SELECT id FROM kanban_api_operations WHERE id='retryable'").get()).toBeUndefined();
   });
 });

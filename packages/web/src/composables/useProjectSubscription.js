@@ -154,6 +154,16 @@ export function useProjectSubscription(projectId) {
     return () => off(WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED, handler);
   };
 
+  const onKanbanExitLaneDeclared = (callback) => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) {
+        callback(msg.cardId, msg.activeLaneRun);
+      }
+    };
+    on(WS_MESSAGE_TYPES.KANBAN_EXIT_LANE_DECLARED, handler);
+    return () => off(WS_MESSAGE_TYPES.KANBAN_EXIT_LANE_DECLARED, handler);
+  };
+
   // Auto-cleanup on unmount
   onUnmounted(() => {
     unsubscribe();
@@ -175,5 +185,6 @@ export function useProjectSubscription(projectId) {
     onKanbanCardMoved,
     onKanbanCardAdded,
     onKanbanCardRemoved,
+    onKanbanExitLaneDeclared,
   };
 }

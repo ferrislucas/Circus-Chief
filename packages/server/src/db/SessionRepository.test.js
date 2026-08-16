@@ -173,6 +173,14 @@ describe('SessionRepository', () => {
       expect(session).toHaveProperty('subtreeOutcome');
     });
 
+    it('persists aborting as a declared execution state and rejects unknown states', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+
+      expect(repo.update(session.id, { executionState: 'aborting' }).executionState).toBe('aborting');
+      expect(() => repo.update(session.id, { executionState: 'interrupting' }))
+        .toThrow('Invalid session execution state: interrupting');
+    });
+
     // New options object signature tests
     describe('options object signature', () => {
       it('creates session with options object containing mode', () => {

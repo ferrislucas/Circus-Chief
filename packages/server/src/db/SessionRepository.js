@@ -1,6 +1,10 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { messages, conversations } from './index.js';
+// Do not use the package-root alias here: server's Vitest alias maps that
+// path to shared's barrel, which imports contracts and creates a repository
+// initialization cycle. The constants module is deliberately dependency-free.
+import { SESSION_EXECUTION_STATES } from '../../../shared/src/constants.js';
 import {
   ACTIVITY_FIELDS_SQL,
   SESSION_ORDER_BY,
@@ -234,6 +238,13 @@ export class SessionRepository extends BaseRepository {
   }
 
   update(id, data) {
+    // execution_state is intentionally not an API-writable field, but it is
+    // updated by the workflow service through this repository. Keep the
+    // persistence boundary strict so a typo cannot strand a lane worker in a
+    // state no client or recovery path understands.
+    if (data.executionState !== undefined && !SESSION_EXECUTION_STATES.includes(data.executionState)) {
+      throw new Error(`Invalid session execution state: ${data.executionState}`);
+    }
     const { updates, values } = buildUpdateClauses(data);
 
     if (updates.length === 0) return this.getById(id);

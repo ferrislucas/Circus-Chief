@@ -72,17 +72,19 @@ export function withActiveLaneRunOwnership(sessionId, mutation) {
 
 /** Clear state which could otherwise revive a superseded worker.
  *
- * Supersession is the authoritative end of a member's work, so it must land a
- * terminal status itself. It cannot delegate that write to the abort unwinding
- * in sessionExecution.js: the aborted turn exits the stream loop gracefully
- * (no throw), and handleTurnCompletion deliberately skips its status write for
- * an aborted controller — so nothing downstream would ever record an outcome
- * and the member would stay 'running' forever. 'waiting' members are already
- * idle and stay as they are, so a finished session remains open to follow-ups.
+ * This transaction authoritatively cancels the member's workflow obligation
+ * and clears any restartable work. Scheduled members are terminalized here.
+ * Running members instead remain `status='running'` with
+ * `execution_state='aborting'` until their controller unwinds: after
+ * supersedeLaneRun() aborts that controller, handleTurnCompletion() delegates
+ * to finalizeAbortedTurnStatus() in streamEventCallbacks.js to terminalize the
+ * turn as stopped. That finalizer is guarded so it cannot overwrite a newer
+ * turn or an outcome already recorded by this supersession. `waiting` members
+ * are already idle and remain available for follow-up messages.
  */
 function clearExecutableMemberState(db, runId, reason, time) {
   return db.prepare(`UPDATE sessions SET own_work_state='cancelled', own_work_closed_at=?, workflow_reason=?,
-    workflow_updated_at=?, execution_state=CASE WHEN status='running' THEN 'aborting' ELSE execution_state END,
+    workflow_updated_at=?, execution_state=CASE WHEN status='running' THEN 'aborting' ELSE 'stopped' END,
     status=CASE WHEN status='scheduled' THEN 'stopped' ELSE status END,
     scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_conversation_id=NULL,
     auto_send_pending_prompt=0, reschedule_count=0
@@ -352,6 +354,16 @@ export function reconcileLaneRun(runId) {
     const state = rootOutcome; const time = now();
     db.prepare(`UPDATE kanban_lane_runs SET status=?, failure_reason=?, ${state}_at=?, updated_at=? WHERE id=?`)
       .run(state, failed?.workflow_reason || cancelled?.workflow_reason || state, time, time, runId);
+    // A self-move is only a deferred exit declaration, not an immediate card
+    // move. Once the run fails or is cancelled it can never be applied; keep
+    // the declaration on the terminal run for diagnosis and record why it was
+    // discarded instead of leaving an ambiguous, unapplied request behind.
+    if (run.chosen_exit_lane_id) {
+      audit(db, runId, 'deferred_exit_discarded', {
+        sessionId: run.chosen_exit_declared_by,
+        details: { targetLaneId: run.chosen_exit_lane_id, outcome: state },
+      });
+    }
     audit(db, runId, `run_${state}`, { sessionId: failed?.id || cancelled?.id }); return getRun(runId);
   }
   if (rootOutcome === 'succeeded') return attemptLaneRunTransition(runId);
@@ -470,27 +482,6 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
   return result;
 }
 
-/**
- * Record the exit lane selected by a lane worker without ending its run.
- *
- * A lane prompt may instruct the worker to pick its exit lane (the Review PR
- * lane routes a rejected PR to "Needs attention" instead of letting the
- * completion target advance it to Done). That move arrives while the worker is
- * mid-turn, and the card's active run is the worker's *own* run — so treating
- * it as a supersession makes the agent abort itself, killing the turn between
- * its request and the response it is waiting on.
- *
- * The declaration remains durable on the open run. At turn end the normal
- * subtree reconciliation and transition machinery applies it, preserving the
- * one-worker fence and completion outbox semantics.
- *
- * @param {string} cardId
- * @param {string} targetLaneId
- * @param {string|null} actorSessionId - Session that issued the move request
- * @param {Object} [options]
- * @param {boolean} [options.runOnEnterTemplate=true]
- * @returns {Object|null} The closed run, or null when this is not a self-move
- */
 export function resolveCardActor(db, cardId, actorSessionId) {
   if (!actorSessionId) return null;
   const activeLaneRunId = db.prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?')
@@ -511,12 +502,39 @@ export function resolveCardActor(db, cardId, actorSessionId) {
   return { kind: 'self_move', run, actor };
 }
 
-export function completeRunForSelfMove(cardId, targetLaneId, actorSessionId, { runOnEnterTemplate = true } = {}) {
+/**
+ * Record the exit lane selected by a lane worker without ending its run.
+ *
+ * A lane prompt may instruct the worker to pick its exit lane (the Review PR
+ * lane routes a rejected PR to "Needs attention" instead of letting the
+ * completion target advance it to Done). That move arrives while the worker is
+ * mid-turn, and the card's active run is the worker's *own* run — so treating
+ * it as a supersession makes the agent abort itself, killing the turn between
+ * its request and the response it is waiting on.
+ *
+ * The declaration remains durable on the open run. At turn end the normal
+ * subtree reconciliation and transition machinery applies it, preserving the
+ * one-worker fence and completion outbox semantics.
+ *
+ * @param {string} cardId
+ * @param {string} targetLaneId
+ * @param {string|null} actorSessionId - Session that issued the move request
+ * @param {Object} [options]
+ * @param {boolean} [options.runOnEnterTemplate=true]
+ * @returns {Object|null} The updated open run, or null when this is not a self-move
+ */
+export function declareExitLaneForSelfMove(cardId, targetLaneId, actorSessionId, { runOnEnterTemplate = true } = {}) {
   if (!actorSessionId) return null;
   return databaseManager.transaction(() => {
     const db = databaseManager.get();
     const actor = resolveCardActor(db, cardId, actorSessionId);
     if (!actor) return null;
+    // A self-move is only a deferred exit-lane declaration. The eventual
+    // completion handoff always runs the destination automation, so silently
+    // accepting an opt-out here would report behavior we cannot honor.
+    if (!runOnEnterTemplate) {
+      throw new Error('An active lane worker cannot skip destination automation when choosing an exit lane');
+    }
     const { run } = actor;
     if (run.source_lane_id === targetLaneId) {
       throw new Error('An active lane worker cannot reorder its card within the same lane');

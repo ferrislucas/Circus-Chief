@@ -733,6 +733,27 @@ describe('Kanban API', () => {
         WHERE project_id=? AND operation_key=?`).get(projectId, 'same-lane-self-move').status).toBe('completed');
     });
 
+    it('returns the terminal conflict when its operation lease is lost in the catch path', async () => {
+      setupBoard();
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+      const key = 'lost-terminal-conflict-lease';
+      const message = 'An active lane worker cannot reorder its card within the same lane';
+      moveCardService.mockImplementationOnce(async () => {
+        databaseManager.get().prepare(`UPDATE kanban_api_operations SET owner_token='another-owner'
+          WHERE project_id=? AND operation_key=?`).run(projectId, key);
+        throw new Error(message);
+      });
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
+        .set('Idempotency-Key', key)
+        .send({ targetLaneId: lanes[0].id });
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual({ error: message });
+    });
+
     it('does not infer caller identity from the workspace URL', async () => {
       setupBoard();
       const session = createSession();
@@ -983,6 +1004,36 @@ describe('Kanban API', () => {
       );
     });
 
+    it('returns 409 when a self-move cannot skip destination automation', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const message = 'An active lane worker cannot skip destination automation when choosing an exit lane';
+      moveCardService.mockRejectedValueOnce(new Error(message));
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
+        .send({ targetLaneId: lanes[1].id, runOnEnterTemplate: false });
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual({ error: message });
+    });
+
+    it('returns 409 when a self-move supplies a deferred sort order', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const message = 'An active lane worker cannot set a sort order when choosing an exit lane';
+      moveCardService.mockRejectedValueOnce(new Error(message));
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
+        .send({ targetLaneId: lanes[1].id, sortOrder: 7 });
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual({ error: message });
+    });
+
     it('returns 404 for non-existent card', async () => {
       setupBoard();
 
@@ -1030,25 +1081,58 @@ describe('Kanban API', () => {
         .send({ targetLaneId: lanes[1].id });
 
       expect(res.status).toBe(500);
-      expect(res.body.error).toBe('Service failure');
+      expect(res.body.error).toMatch(/^The operation could not be completed\. Please try again\. Reference ID: [\w-]+$/);
     });
 
-    it('terminally records a keyed service failure instead of retaining its lease', async () => {
+    it('retries a keyed service failure instead of terminally caching its 500 response', async () => {
       setupBoard();
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
-      moveCardService.mockRejectedValueOnce(new Error('Service failure'));
+      const key = 'retryable-service-failure';
+      moveCardService.mockRejectedValueOnce(new Error('Service failure'))
+        .mockImplementationOnce(async (_cardId, _targetLaneId, options) => (
+          options.finalizeMutation({ card: { ...card, laneId: lanes[1].id }, eventId: null })
+        ));
+
+      const first = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
+        .set('Idempotency-Key', key)
+        .send({ targetLaneId: lanes[1].id });
+      const retry = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
+        .set('Idempotency-Key', key)
+        .send({ targetLaneId: lanes[1].id });
+      const operation = databaseManager.get().prepare(`SELECT status, lease_expires_at, terminal_error, attempt_count
+        FROM kanban_api_operations WHERE project_id=? AND operation_key=?`)
+        .get(projectId, key);
+
+      expect(first.status).toBe(500);
+      expect(first.body).toEqual(expect.objectContaining({ error: expect.stringMatching(/^The operation could not be completed\. Please try again\. Reference ID: [\w-]+$/) }));
+      expect(retry.status).toBe(200);
+      expect(retry.body.operationId).toBe(first.body.operationId);
+      expect(moveCardService).toHaveBeenCalledTimes(2);
+      expect(operation).toEqual(expect.objectContaining({ status: 'completed', lease_expires_at: null, attempt_count: 2 }));
+      expect(operation.terminal_error).toMatch(/^The operation could not be completed\. Please try again\. Reference ID: [\w-]+$/);
+    });
+
+    it('returns the service failure when its operation lease is lost in the catch path', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const key = 'lost-failure-lease';
+      moveCardService.mockImplementationOnce(async () => {
+        databaseManager.get().prepare(`UPDATE kanban_api_operations SET owner_token='another-owner'
+          WHERE project_id=? AND operation_key=?`).run(projectId, key);
+        throw new Error('Service failure');
+      });
 
       const res = await request(app)
         .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
-        .set('Idempotency-Key', 'terminal-service-failure')
+        .set('Idempotency-Key', key)
         .send({ targetLaneId: lanes[1].id });
-      const operation = databaseManager.get().prepare(`SELECT status, lease_expires_at, terminal_error
-        FROM kanban_api_operations WHERE project_id=? AND operation_key=?`)
-        .get(projectId, 'terminal-service-failure');
 
       expect(res.status).toBe(500);
-      expect(operation).toEqual({ status: 'failed', lease_expires_at: null, terminal_error: 'Service failure' });
+      expect(res.body.error).toMatch(/^The operation could not be completed\. Please try again\. Reference ID: [\w-]+$/);
     });
   });
 

@@ -159,7 +159,7 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks, strea
       onSessionCreated, onSessionUpdated, onSessionDeleted,
       onSessionSummaryUpdated,
       onCommandRunStarted, onCommandRunOutput, onCommandRunComplete, onCommandRunError, onCommandRunDeleted,
-      onKanbanBoardUpdated, onKanbanCardMoved, onKanbanCardAdded, onKanbanCardRemoved,
+      onKanbanBoardUpdated, onKanbanCardMoved, onKanbanCardAdded, onKanbanCardRemoved, onKanbanExitLaneDeclared,
     } = subscription;
 
     const handlers = [];
@@ -188,6 +188,11 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks, strea
     }));
     handlers.push(onKanbanCardAdded((card, laneId) => { stores.kanbanStore.handleCardAdded(card, laneId); }));
     handlers.push(onKanbanCardRemoved((cardId, laneId) => { stores.kanbanStore.handleCardRemoved(cardId, laneId); }));
+    if (onKanbanExitLaneDeclared) {
+      handlers.push(onKanbanExitLaneDeclared((cardId, activeLaneRun) => {
+        stores.kanbanStore.handleExitLaneDeclared(cardId, activeLaneRun);
+      }));
+    }
 
     return handlers;
   }

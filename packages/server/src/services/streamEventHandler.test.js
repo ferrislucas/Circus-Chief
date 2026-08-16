@@ -1117,17 +1117,17 @@ describe('streamEventHandler', () => {
       const result = await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
 
       expect(result).toBe(false);
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: error.message });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', expect.objectContaining({ status: 'error', error: expect.stringMatching(/^The agent could not complete this turn\. Please try again\. Reference ID: [\w-]+$/) }));
       expect(messages.create).toHaveBeenCalledWith(
         'sess-1',
         'assistant',
-        expect.stringContaining('Codex failed before completing this turn'),
+        expect.stringMatching(/^The agent could not complete this turn\. Please try again\. Reference ID: [\w-]+$/),
         { conversationId: 'conv-1' }
       );
       expect(broadcastToSession).toHaveBeenCalledWith(
         'sess-1',
         WS_MESSAGE_TYPES.SESSION_ERROR,
-        { sessionId: 'sess-1', error: error.message }
+        { sessionId: 'sess-1', error: expect.stringMatching(/^The agent could not complete this turn\. Please try again\. Reference ID: [\w-]+$/) }
       );
     });
 
@@ -1145,21 +1145,21 @@ describe('streamEventHandler', () => {
 
       await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
 
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: 'Unexpected error' });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', expect.objectContaining({ status: 'error', error: expect.stringMatching(/^The agent could not complete this turn\. Please try again\. Reference ID: [\w-]+$/) }));
       expect(messages.create).toHaveBeenCalledWith(
         'sess-1',
         'assistant',
-        expect.stringContaining('Unexpected error'),
+        expect.stringMatching(/^The agent could not complete this turn\. Please try again\. Reference ID: [\w-]+$/),
         { conversationId: 'conv-1' }
       );
       expect(broadcastToSession).toHaveBeenCalledWith(
         'sess-1',
         WS_MESSAGE_TYPES.SESSION_ERROR,
-        { sessionId: 'sess-1', error: 'Unexpected error' }
+        { sessionId: 'sess-1', error: expect.stringMatching(/^The agent could not complete this turn\. Please try again\. Reference ID: [\w-]+$/) }
       );
     });
 
-    it('creates and broadcasts Codex final error messages before SESSION_ERROR', async () => {
+    it('persists and broadcasts a generic final error with a correlation ID before SESSION_ERROR', async () => {
       const controller = { signal: { aborted: false } };
       const error = new Error('usage limit reached');
       sessions.getById.mockReturnValue({ agentType: 'codex', autoRescheduleEnabled: false });
@@ -1176,10 +1176,11 @@ describe('streamEventHandler', () => {
       expect(messages.create).toHaveBeenCalledWith(
         'sess-1',
         'assistant',
-        expect.stringContaining('Codex failed before completing this turn'),
+        expect.stringMatching(/^The agent could not complete this turn\. Please try again\. Reference ID: [\w-]+$/),
         { conversationId: 'conv-1' }
       );
-      expect(messages.create.mock.calls[0][2]).toContain('usage limit reached');
+      expect(messages.create.mock.calls[0][2]).not.toContain('usage limit reached');
+      expect(messages.create.mock.calls[0][2]).toMatch(/^The agent could not complete this turn\. Please try again\. Reference ID: [\w-]+$/);
 
       const sessionMessageCallIndex = broadcastToSession.mock.calls.findIndex(
         (call) => call[1] === WS_MESSAGE_TYPES.SESSION_MESSAGE
@@ -1207,7 +1208,7 @@ describe('streamEventHandler', () => {
       expect(messages.create).toHaveBeenCalledWith(
         'sess-1',
         'assistant',
-        expect.stringContaining('Codex failed before completing this turn'),
+        expect.stringMatching(/^The agent could not complete this turn\. Please try again\. Reference ID: [\w-]+$/),
         { conversationId: 'conv-created' }
       );
       expect(broadcastToSession).toHaveBeenCalledWith(
@@ -1250,7 +1251,7 @@ describe('streamEventHandler', () => {
       expect(broadcastToSession.mock.calls.some((call) => call[1] === WS_MESSAGE_TYPES.SESSION_ERROR)).toBe(false);
     });
 
-    it('does not duplicate the same generated assistant failure message', async () => {
+    it('replaces a legacy raw final failure with a safe client-facing message', async () => {
       const controller = { signal: { aborted: false } };
       const error = new Error('usage limit reached');
       const generatedContent = 'Codex failed before completing this turn:\n\nusage limit reached';
@@ -1266,15 +1267,17 @@ describe('streamEventHandler', () => {
 
       await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
 
-      expect(messages.create).not.toHaveBeenCalled();
+      expect(messages.create).toHaveBeenCalledWith(
+        'sess-1', 'assistant', expect.not.stringContaining('usage limit reached'), { conversationId: 'conv-1' }
+      );
       expect(broadcastToSession).toHaveBeenCalledWith(
         'sess-1',
         WS_MESSAGE_TYPES.SESSION_ERROR,
-        { sessionId: 'sess-1', error: 'usage limit reached' }
+        { sessionId: 'sess-1', error: expect.not.stringContaining('usage limit reached') }
       );
     });
 
-    it('does not duplicate an assistant failure after the latest user when it contains the raw error', async () => {
+    it('does not replay an assistant raw failure after the latest user', async () => {
       const controller = { signal: { aborted: false } };
       const error = new Error('context window exceeded');
       sessions.getById.mockReturnValue({ agentType: 'codex', autoRescheduleEnabled: false });
@@ -1289,10 +1292,12 @@ describe('streamEventHandler', () => {
 
       await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
 
-      expect(messages.create).not.toHaveBeenCalled();
+      expect(messages.create).toHaveBeenCalledWith(
+        'sess-1', 'assistant', expect.not.stringContaining('context window exceeded'), { conversationId: 'conv-1' }
+      );
     });
 
-    it('does not duplicate a Claude Code visible error containing the raw error', async () => {
+    it('does not replay a Claude Code raw failure', async () => {
       const controller = { signal: { aborted: false } };
       const error = new Error('process exited with code 1');
       sessions.getById.mockReturnValue({ agentType: 'claude-code', autoRescheduleEnabled: false });
@@ -1307,10 +1312,12 @@ describe('streamEventHandler', () => {
 
       await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
 
-      expect(messages.create).not.toHaveBeenCalled();
+      expect(messages.create).toHaveBeenCalledWith(
+        'sess-1', 'assistant', expect.not.stringContaining('process exited with code 1'), { conversationId: 'conv-1' }
+      );
     });
 
-    it('uses fallback wording for unknown adapter types', async () => {
+    it('uses generic wording regardless of adapter type', async () => {
       const controller = { signal: { aborted: false } };
       const error = new Error('adapter failed');
       sessions.getById.mockReturnValue({ agentType: 'other-agent', autoRescheduleEnabled: false });
@@ -1321,7 +1328,7 @@ describe('streamEventHandler', () => {
 
       await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
 
-      expect(messages.create.mock.calls[0][2]).toMatch(/^The agent failed before completing this turn/);
+      expect(messages.create.mock.calls[0][2]).toMatch(/^The agent could not complete this turn\. Please try again\. Reference ID: /);
     });
 
     it('broadcasts conversation state when broadcastConversationState option is true', async () => {
@@ -1401,7 +1408,9 @@ describe('streamEventHandler', () => {
         errorLabel: 'Continue session error',
       });
 
-      expect(consoleSpy).toHaveBeenCalledWith('Continue session error:', error);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/^\[Continue session error\] session=sess-1 correlationId=[\w-]+$/), error
+      );
       consoleSpy.mockRestore();
     });
 
@@ -1583,7 +1592,7 @@ describe('streamEventHandler', () => {
       });
 
       expect(result).toBe(false);
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: error.message });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', expect.objectContaining({ status: 'error', error: expect.stringContaining('Reference ID:') }));
     });
 
     // ── Mid-turn scheduled continuation on error path ────────────────────
@@ -1645,7 +1654,7 @@ describe('streamEventHandler', () => {
       });
 
       expect(result).toBe(false);
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: 'Unexpected failure' });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', expect.objectContaining({ status: 'error', error: expect.stringContaining('Reference ID:') }));
     });
 
     it('does not preserve schedule on error path when scheduledAt is 0', async () => {
@@ -1668,7 +1677,7 @@ describe('streamEventHandler', () => {
 
       // scheduledAt=0 is not a valid explicit schedule
       expect(result).toBe(false);
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: 'Some failure' });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', expect.objectContaining({ status: 'error', error: expect.stringContaining('Reference ID:') }));
     });
 
     it('does not preserve schedule on error path when pendingPrompt is empty', async () => {
@@ -1690,7 +1699,7 @@ describe('streamEventHandler', () => {
       });
 
       expect(result).toBe(false);
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: 'Some failure' });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', expect.objectContaining({ status: 'error', error: expect.stringContaining('Reference ID:') }));
     });
 
     it('catches and logs errors from handleTemplateTriggerIfNeeded without rethrowing', async () => {
@@ -1711,8 +1720,8 @@ describe('streamEventHandler', () => {
       });
 
       expect(result).toBe(false);
-      // sessions.update should have been called with the original error (before template trigger)
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: 'Original error' });
+      // The raw error remains log-only; persistence gets the safe reference.
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', expect.objectContaining({ status: 'error', error: expect.stringContaining('Reference ID:') }));
       // console.error should have been called with the template error
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('[handleSessionError] Template trigger failed for session sess-1:'),
@@ -1849,14 +1858,14 @@ describe('streamEventHandler', () => {
         error: 'usage limit reached',
       });
 
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: 'usage limit reached' });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', expect.objectContaining({ status: 'error', error: expect.stringMatching(/^The agent could not complete this turn\. Please try again\. Reference ID: [\w-]+$/) }));
       expect(messages.create).toHaveBeenCalledWith(
         'sess-1',
         'assistant',
-        expect.stringContaining('Codex failed before completing this turn'),
+        expect.stringMatching(/^The agent could not complete this turn\. Please try again\. Reference ID: [\w-]+$/),
         { conversationId: 'conv-1' }
       );
-      expect(messages.create.mock.calls[0][2]).toContain('usage limit reached');
+      expect(messages.create.mock.calls[0][2]).not.toContain('usage limit reached');
 
       const sessionMessageCallIndex = broadcastToSession.mock.calls.findIndex(
         (call) => call[1] === WS_MESSAGE_TYPES.SESSION_MESSAGE
@@ -1884,7 +1893,7 @@ describe('streamEventHandler', () => {
       expect(messages.create).toHaveBeenCalledWith(
         'sess-1',
         'assistant',
-        expect.stringContaining('adapter failed'),
+        expect.stringMatching(/^The agent could not complete this turn\. Please try again\. Reference ID: [\w-]+$/),
         { conversationId: 'conv-created' }
       );
       expect(activeConversationIds.get('sess-1')).toBe('conv-created');
@@ -1900,17 +1909,17 @@ describe('streamEventHandler', () => {
         error: { message: 'object shaped failure' },
       });
 
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: 'object shaped failure' });
-      expect(messages.create.mock.calls[0][2]).toContain('object shaped failure');
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', expect.objectContaining({ status: 'error', error: expect.stringMatching(/^The agent could not complete this turn\. Please try again\. Reference ID: [\w-]+$/) }));
+      expect(messages.create.mock.calls[0][2]).not.toContain('object shaped failure');
       expect(messages.create.mock.calls[0][2]).not.toContain('[object Object]');
       expect(broadcastToSession).toHaveBeenCalledWith(
         'sess-1',
         WS_MESSAGE_TYPES.SESSION_ERROR,
-        { sessionId: 'sess-1', error: 'object shaped failure' }
+        { sessionId: 'sess-1', error: expect.stringMatching(/^The agent could not complete this turn\. Please try again\. Reference ID: [\w-]+$/) }
       );
     });
 
-    it('does not duplicate final result error messages containing the raw error after the latest user', async () => {
+    it('does not replay raw errors, even when a previous assistant message contains one', async () => {
       sessions.getById.mockReturnValue({ agentType: 'codex', projectId: 'proj-1' });
       activeConversationIds.set('sess-1', 'conv-1');
       messages.getByConversationId.mockReturnValue([
@@ -1924,11 +1933,13 @@ describe('streamEventHandler', () => {
         error: 'usage limit reached',
       });
 
-      expect(messages.create).not.toHaveBeenCalled();
+      expect(messages.create).toHaveBeenCalledWith(
+        'sess-1', 'assistant', expect.not.stringContaining('usage limit reached'), { conversationId: 'conv-1' }
+      );
       expect(broadcastToSession).toHaveBeenCalledWith(
         'sess-1',
         WS_MESSAGE_TYPES.SESSION_ERROR,
-        { sessionId: 'sess-1', error: 'usage limit reached' }
+        { sessionId: 'sess-1', error: expect.not.stringContaining('usage limit reached') }
       );
     });
   });

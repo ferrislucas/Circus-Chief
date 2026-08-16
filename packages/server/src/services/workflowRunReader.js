@@ -27,11 +27,14 @@ export function getRun(runId, projectId = null) {
   if (!run) return null; const rows = db.prepare('SELECT * FROM sessions WHERE lane_run_id=?').all(runId);
   const { open, scheduled, retrying, paused, failedCount, cancelledCount, failedSessionId } = laneRunCounts(rows);
   const names = db.prepare(`SELECT (SELECT name FROM kanban_lanes WHERE id=?) AS source_name,
-    (SELECT name FROM kanban_lanes WHERE id=?) AS target_name`).get(run.source_lane_id, run.completion_target_lane_id);
+    (SELECT name FROM kanban_lanes WHERE id=?) AS target_name,
+    (SELECT name FROM kanban_lanes WHERE id=?) AS chosen_exit_name`)
+    .get(run.source_lane_id, run.completion_target_lane_id, run.chosen_exit_lane_id);
   const blocker = blockerDetails({ scheduled, retrying, paused, open });
   return { id: run.id, laneEntryEventId: run.lane_entry_event_id, status: run.status, sourceLaneId: run.source_lane_id, sourceLaneName: names?.source_name || null,
     targetLaneId: run.completion_target_lane_id, targetLaneName: names?.target_name || null,
-    chosenExitLaneId: run.chosen_exit_lane_id, chosenExitDeclaredAt: run.chosen_exit_declared_at,
+    chosenExitLaneId: run.chosen_exit_lane_id, chosenExitLaneName: names?.chosen_exit_name || null,
+    chosenExitDeclaredAt: run.chosen_exit_declared_at,
     chosenExitDeclaredBy: run.chosen_exit_declared_by,
     rootSessionId: run.root_session_id, rootOwnWorkState: rows.find((session) => session.id === run.root_session_id)?.own_work_state || null,
     failureReason: run.failure_reason, createdAt: run.created_at,

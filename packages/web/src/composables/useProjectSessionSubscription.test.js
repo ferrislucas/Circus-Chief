@@ -334,6 +334,7 @@ describe('useProjectSessionSubscription', () => {
 
       expect(summaryCallbacks.updateSummary).toHaveBeenCalledWith('session-1', 'Test summary content');
     });
+
   });
 
   describe('command run event handlers', () => {

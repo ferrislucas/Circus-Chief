@@ -365,6 +365,19 @@ describe('kanbanService', () => {
       expect(sessions.getById(worker.id).ownWorkState).toBe('open');
       expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'open', chosenExitLaneId: lanes[1].id }));
       expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_EXIT_LANE_DECLARED,
+        expect.objectContaining({
+          projectId,
+          cardId: card.id,
+          activeLaneRun: expect.objectContaining({
+            id: run.id,
+            chosenExitLaneId: lanes[1].id,
+            chosenExitLaneName: kanbanLanes.getById(lanes[1].id).name,
+          }),
+        })
+      );
     });
 
     it('defers destination automation until the self-moving worker finishes', async () => {
@@ -391,7 +404,7 @@ describe('kanbanService', () => {
       expect(runSession).not.toHaveBeenCalled();
     });
 
-    it('uses the standard completion handoff even when the declaration request opts out', async () => {
+    it('rejects a self-move that opts out of destination automation', async () => {
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
       const sourceRun = createLaneRunForEntry({
@@ -402,15 +415,37 @@ describe('kanbanService', () => {
       attachRootSession(sourceRun.id, worker.id);
       kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'validate' });
 
-      await moveCard(card.id, lanes[1].id, { actorSessionId: worker.id, runOnEnterTemplate: false });
-      const completed = finalizeOwnWorkCompletion(worker.id);
+      await expect(moveCard(card.id, lanes[1].id, {
+        actorSessionId: worker.id,
+        runOnEnterTemplate: false,
+      })).rejects.toThrow('cannot skip destination automation');
 
-      expect(completed.pendingTargetLaneTrigger).toEqual(expect.objectContaining({
-        targetLaneId: lanes[1].id,
-        sourceRunId: sourceRun.id,
+      expect(getRun(sourceRun.id)).toEqual(expect.objectContaining({
+        status: 'open',
+        chosenExitLaneId: null,
       }));
-      expect(kanbanCards.getById(card.id).activeLaneRunId).not.toBeNull();
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
       expect(runSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects an explicit sort order for a deferred self-move', async () => {
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: session.id, cardId: card.id,
+        lane: { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'review' },
+      });
+      const worker = sessions.create(projectId, 'Worker', 'lane work', { parentSessionId: session.id });
+      attachRootSession(run.id, worker.id);
+
+      await expect(moveCard(card.id, lanes[1].id, { actorSessionId: worker.id, sortOrder: 7 }))
+        .rejects.toThrow('cannot set a sort order when choosing an exit lane');
+
+      expect(getRun(run.id)).toEqual(expect.objectContaining({
+        status: 'open',
+        chosenExitLaneId: null,
+      }));
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
     });
 
     it('rejects a self-reorder while preserving the active run', async () => {

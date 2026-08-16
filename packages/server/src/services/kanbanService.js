@@ -11,7 +11,7 @@ import {
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
-import { createLaneRunForEntry, supersedeRunForCard, completeRunForSelfMove, isStructured, resolveCardActor } from './workflowSessionService.js';
+import { createLaneRunForEntry, supersedeRunForCard, declareExitLaneForSelfMove, isStructured, resolveCardActor } from './workflowSessionService.js';
 import { buildFullBoardResponse } from './kanbanBoardResponse.js';
 import {
   beginLaneEntryDelivery,
@@ -163,8 +163,14 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
     // A worker's move is a durable exit-lane declaration. The card remains in
     // its source lane until the worker's subtree has completed.
     const actor = resolveCardActor(databaseManager.get(), cardId, actorSessionId);
+    // A self-move does not move the card yet, so there is no target-lane
+    // position to persist. Reject an explicit position rather than claiming
+    // to honor it and silently dropping the value.
+    if (actor && actor.run.source_lane_id !== targetLaneId && sortOrder !== undefined) {
+      throw new Error('An active lane worker cannot set a sort order when choosing an exit lane');
+    }
     const selfMoveResult = actor
-      ? completeRunForSelfMove(cardId, targetLaneId, actorSessionId, { runOnEnterTemplate })
+      ? declareExitLaneForSelfMove(cardId, targetLaneId, actorSessionId, { runOnEnterTemplate })
       : null;
     // An attributed agent may interrupt another worker's run. Preserve that
     // fact for audits; only a UI/external move is a manual supersession.
@@ -181,7 +187,14 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
       ? { ...updatedCard, deferred: true, chosenExitLaneId: selfMoveResult.chosenExitLaneId }
       : updatedCard;
     const result = finalizeMutation?.({ card: responseCard, eventId: createdRun?.laneEntryEventId || null });
-    return { movedCard: responseCard, laneRun: createdRun, finalizedResult: result, selfMove: Boolean(selfMoveResult) };
+    return {
+      movedCard: responseCard,
+      // Both a new entry and a deferred self-move have a run to report, but
+      // only the former starts delivery immediately.
+      laneRun: selfMoveResult || createdRun,
+      finalizedResult: result,
+      selfMove: Boolean(selfMoveResult),
+    };
   });
 
   if (session && !selfMove) {
@@ -197,6 +210,17 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
       scheduleLaneEntryDelivery(laneRun.laneEntryEventId, { depth });
       await new Promise((resolve) => setImmediate(resolve));
     }
+  }
+
+  if (session && selfMove) {
+    // This is deliberately distinct from KANBAN_CARD_MOVED: the card has not
+    // moved yet. Clients only need to refresh its active-run status so they
+    // can show the pending exit lane while the worker finishes.
+    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.KANBAN_EXIT_LANE_DECLARED, {
+      projectId: session.projectId,
+      cardId,
+      activeLaneRun: laneRun,
+    });
   }
 
   return finalizedResult ?? movedCard;

@@ -3,7 +3,7 @@ import { databaseManager, kanbanBoards, kanbanCards, kanbanLanes, projects, sess
 import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
   getRun, attachRootSession, reconcileLaneRun,
-  supersedeRunForCard, completeRunForSelfMove, resolveCardActor, closeOwnWork, markExecutionState, markHeldForLimit,
+  supersedeRunForCard, declareExitLaneForSelfMove, resolveCardActor, closeOwnWork, markExecutionState, markHeldForLimit,
   computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition,
 } from './workflowSessionService.js';
 import { auditKanbanInvariants, reconcileKanbanOwnership } from './kanbanRecoveryService.js';
@@ -395,7 +395,9 @@ describe('workflowSessionService', () => {
     expect(sessions.getScheduledSessions()).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: worker.id }),
     ]));
-    expect(sessions.getById(worker.id).status).toBe('stopped');
+    expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
+      status: 'stopped', executionState: 'stopped',
+    }));
   });
 
   describe('self-move (a lane worker choosing its own exit lane)', () => {
@@ -411,7 +413,7 @@ describe('workflowSessionService', () => {
     it('leaves the worker running so its in-flight turn can finish', () => {
       const { worker, run } = runningWorker();
 
-      expect(completeRunForSelfMove(card.id, target.id, worker.id)).toEqual(expect.objectContaining({ status: 'open' }));
+      expect(declareExitLaneForSelfMove(card.id, target.id, worker.id)).toEqual(expect.objectContaining({ status: 'open' }));
 
       // The whole point: the request that triggered this must not kill the
       // turn that issued it. Own work stays open for normal completion.
@@ -424,7 +426,7 @@ describe('workflowSessionService', () => {
 
     it('lands waiting/idle when the turn completes, not stuck running', () => {
       const { worker } = runningWorker();
-      completeRunForSelfMove(card.id, target.id, worker.id);
+      declareExitLaneForSelfMove(card.id, target.id, worker.id);
       kanbanCards.moveToLane(card.id, target.id);
 
       finalizeOwnWorkCompletion(worker.id);
@@ -436,7 +438,7 @@ describe('workflowSessionService', () => {
 
     it('does not let the completion target override the lane the worker chose', () => {
       const { worker, run } = runningWorker();
-      completeRunForSelfMove(card.id, target.id, worker.id);
+      declareExitLaneForSelfMove(card.id, target.id, worker.id);
       finalizeOwnWorkCompletion(worker.id);
 
       expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
@@ -444,9 +446,27 @@ describe('workflowSessionService', () => {
       expect(attemptLaneRunTransition(run.id).pendingTargetLaneTrigger).toBeUndefined();
     });
 
+    it.each([
+      ['closed_failed', 'provider error', 'failed'],
+      ['cancelled', 'Stopped by user', 'cancelled'],
+    ])('discards and audits a deferred exit when the run is %s', (outcome, reason, runStatus) => {
+      const { worker, run } = runningWorker();
+      declareExitLaneForSelfMove(card.id, target.id, worker.id);
+
+      expect(closeOwnWork(worker.id, outcome, reason).status).toBe(runStatus);
+      expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+      expect(getRun(run.id).chosenExitLaneId).toBe(target.id);
+      expect(databaseManager.get().prepare(`SELECT session_id, details_json
+        FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='deferred_exit_discarded'`)
+        .get(run.id)).toEqual({
+        session_id: worker.id,
+        details_json: JSON.stringify({ targetLaneId: target.id, outcome: runStatus }),
+      });
+    });
+
     it('recovers a declared exit after a crash before turn completion', () => {
       const { worker, run } = runningWorker();
-      completeRunForSelfMove(card.id, target.id, worker.id);
+      declareExitLaneForSelfMove(card.id, target.id, worker.id);
 
       // Simulate a process crash after the turn's own-work state was written
       // but before its in-process reconciliation callback could run.
@@ -465,7 +485,7 @@ describe('workflowSessionService', () => {
     it('rejects a same-lane reorder without completing or superseding the run', () => {
       const { worker, run } = runningWorker();
 
-      expect(() => completeRunForSelfMove(card.id, source.id, worker.id))
+      expect(() => declareExitLaneForSelfMove(card.id, source.id, worker.id))
         .toThrow('cannot reorder its card within the same lane');
 
       expect(getRun(run.id).status).toBe('open');
@@ -476,7 +496,7 @@ describe('workflowSessionService', () => {
       const { worker, run } = runningWorker();
 
       // No actor: a UI move addresses the card by id and is a real interruption.
-      expect(completeRunForSelfMove(card.id, target.id, null)).toBeNull();
+      expect(declareExitLaneForSelfMove(card.id, target.id, null)).toBeNull();
       supersedeRunForCard(card.id, 'manual_move');
 
       expect(getRun(run.id).status).toBe('superseded');
@@ -488,7 +508,7 @@ describe('workflowSessionService', () => {
       const other = sessions.create(project.id, 'Other workspace', 'unrelated');
 
       expect(resolveCardActor(databaseManager.get(), card.id, other.id)).toBeNull();
-      expect(completeRunForSelfMove(card.id, target.id, other.id)).toBeNull();
+      expect(declareExitLaneForSelfMove(card.id, target.id, other.id)).toBeNull();
     });
 
     it('resolves the attached root worker as the card actor', () => {
@@ -506,7 +526,7 @@ describe('workflowSessionService', () => {
       const child = sessions.create(project.id, 'Child', 'child lane work', { parentSessionId: worker.id });
       databaseManager.get().prepare("UPDATE sessions SET status='running' WHERE id=?").run(child.id);
 
-      expect(completeRunForSelfMove(card.id, target.id, child.id)).toEqual(expect.objectContaining({
+      expect(declareExitLaneForSelfMove(card.id, target.id, child.id)).toEqual(expect.objectContaining({
         id: run.id,
         status: 'open',
         chosenExitLaneId: target.id,
@@ -521,11 +541,11 @@ describe('workflowSessionService', () => {
       const { worker } = runningWorker();
       closeOwnWork(worker.id, 'closed_failed', 'boom');
 
-      expect(completeRunForSelfMove(card.id, target.id, worker.id)).toBeNull();
+      expect(declareExitLaneForSelfMove(card.id, target.id, worker.id)).toBeNull();
     });
 
     it('is a no-op for a card with no active run', () => {
-      expect(completeRunForSelfMove(card.id, target.id, root.id)).toBeNull();
+      expect(declareExitLaneForSelfMove(card.id, target.id, root.id)).toBeNull();
     });
   });
 
@@ -543,17 +563,23 @@ describe('workflowSessionService', () => {
     expect(after.executionState).toBe('aborting');
   });
 
-  it('leaves an already-finished member waiting when its run is superseded', () => {
+  it.each([
+    { name: 'scheduled', status: 'scheduled', executionState: 'scheduled', expectedStatus: 'stopped' },
+    { name: 'retrying', status: 'scheduled', executionState: 'retrying', expectedStatus: 'stopped' },
+    { name: 'waiting', status: 'waiting', executionState: 'paused', expectedStatus: 'waiting' },
+  ])('normalizes a superseded $name member to stopped', ({ status, executionState, expectedStatus }) => {
     const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
     const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
     attachRootSession(run.id, worker.id);
-    databaseManager.get().prepare("UPDATE sessions SET status='waiting' WHERE id=?").run(worker.id);
+    databaseManager.get().prepare('UPDATE sessions SET status=?, execution_state=? WHERE id=?')
+      .run(status, executionState, worker.id);
 
     supersedeRunForCard(card.id, 'manual_move');
 
-    // A finished session stays open to follow-up messages.
     expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
-      status: 'waiting', executionState: 'idle',
+      status: expectedStatus,
+      executionState: 'stopped',
+      ownWorkState: 'cancelled',
     }));
   });
 

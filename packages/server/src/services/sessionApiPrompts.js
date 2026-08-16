@@ -169,7 +169,8 @@ curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${wo
 When the current lane worker moves its own card, a successful response includes
 \`{ "deferred": true, "chosenExitLaneId": "<lane_id>" }\`. The move is accepted,
 but the card stays in its current lane until that worker's turn (and its child work)
-finishes; do not retry it as an immediate move.
+finishes successfully; a failed or cancelled run discards the deferred exit. Do not
+retry it as an immediate move.
 
 ### Remove a Card from the Board
 \`\`\`bash

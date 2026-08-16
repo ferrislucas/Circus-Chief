@@ -182,8 +182,9 @@ export function isRecoverableRootlessHandoff(db, run) {
 }
 
 function reconcileDeclaredExitRuns(db, openRuns, staleRunIds, changes) {
+  const staleRunIdSet = new Set(staleRunIds);
   for (const run of openRuns) {
-    if (staleRunIds.includes(run.id) || !run.chosen_exit_lane_id || !run.root_session_id) continue;
+    if (staleRunIdSet.has(run.id) || !run.chosen_exit_lane_id || !run.root_session_id) continue;
     const root = db.prepare('SELECT own_work_state FROM sessions WHERE id=? AND lane_run_id=?')
       .get(run.root_session_id, run.id);
     if (root?.own_work_state === 'open') continue;

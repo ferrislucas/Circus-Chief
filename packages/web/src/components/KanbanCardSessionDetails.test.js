@@ -21,4 +21,18 @@ describe('KanbanCardSessionDetails', () => {
     });
     expect(withoutPrompt.find('[aria-label="Agent input required"]').exists()).toBe(false);
   });
+
+  it('shows a declared exit lane while an automation run remains open', () => {
+    const wrapper = mount(KanbanCardSessionDetails, {
+      props: {
+        session,
+        sessions: [session],
+        lane: { name: 'Review' },
+        activeLaneRun: { status: 'open', sourceLaneName: 'Review', chosenExitLaneName: 'Needs attention' },
+      },
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
+    });
+
+    expect(wrapper.get('.lane-run-exit-lane').text()).toBe('Exit lane: Needs attention');
+  });
 });

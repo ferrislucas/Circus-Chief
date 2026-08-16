@@ -30,6 +30,16 @@ const CARD_NOT_FOUND_ERROR = 'Card not found';
 const TARGET_LANE_NOT_FOUND_ERROR = 'Target lane not found';
 const WORKSPACE_CARD_NOT_FOUND_ERROR = 'No card found for this workspace';
 const OPERATION_LEASE_MS = 30_000;
+const GENERIC_OPERATION_FAILURE = 'The operation could not be completed. Please try again.';
+const SELF_MOVE_CONFLICTS = new Set([
+  'An active lane worker cannot reorder its card within the same lane',
+  'An active lane worker cannot skip destination automation when choosing an exit lane',
+  'An active lane worker cannot set a sort order when choosing an exit lane',
+]);
+
+function isSelfMoveConflict(error) {
+  return SELF_MOVE_CONFLICTS.has(error.message);
+}
 
 function canonicalPayload(payload) {
   if (Array.isArray(payload)) return payload.map(canonicalPayload);
@@ -65,13 +75,21 @@ function beginOperation(req, endpoint) {
     WHERE project_id=? AND endpoint=? AND operation_key=?`).get(req.params.projectId, endpoint, key);
   if (existing) {
     if (existing.payload_hash !== payloadHash) return { conflict: true };
-    // A completed operation is immutable and always replays its canonical
-    // status/body.  A live owner is never allowed to mutate on a duplicate.
-    if (existing.status !== 'processing' || existing.lease_expires_at > Date.now()) return { keyed: true, existing };
-    const token = crypto.randomUUID(); const now = Date.now();
+    // Completed operations are immutable and replay their canonical status/body.
+    // A failed mutation is different: the mutation and this operation's
+    // completion record are committed atomically, so a caught failure means
+    // there is no partial board transition to replay. Reclaim it for a safe
+    // same-key retry instead of permanently caching a transient 500.
+    const now = Date.now();
+    const canRetry = existing.status === 'retryable'
+      || existing.status === 'failed' // Backward-compatible recovery for rows written before retryable failures.
+      || (existing.status === 'processing' && existing.lease_expires_at <= now);
+    if (!canRetry) return { keyed: true, existing };
+    const token = crypto.randomUUID();
     const taken = db.prepare(`UPDATE kanban_api_operations
-      SET owner_token=?, lease_expires_at=?, attempt_count=attempt_count+1, updated_at=?
-      WHERE id=? AND status='processing' AND lease_expires_at<=?`).run(token, now + OPERATION_LEASE_MS, now, existing.id, now);
+      SET status='processing', owner_token=?, lease_expires_at=?, attempt_count=attempt_count+1, updated_at=?
+      WHERE id=? AND (status IN ('retryable','failed') OR (status='processing' AND lease_expires_at<=?))`)
+      .run(token, now + OPERATION_LEASE_MS, now, existing.id, now);
     if (!taken.changes) return beginOperation(req, endpoint);
     existing = db.prepare('SELECT * FROM kanban_api_operations WHERE id=?').get(existing.id);
     return { keyed: true, operation: { ...existing, token } };
@@ -115,16 +133,44 @@ function sendTerminalOperationResponse(res, operation, responseStatus, response)
   return res.status(responseStatus).json(completeOperation(operation, response, null, responseStatus));
 }
 
-function failOperation(operation, error, responseStatus = 500) {
-  const response = { error: error.message };
+function failOperation(operation, error) {
+  const correlationId = crypto.randomUUID();
+  const clientError = `${GENERIC_OPERATION_FAILURE} Reference ID: ${correlationId}`;
+  // Keep provider/service details in server logs only; operation rows are
+  // inspectable and must not become a durable raw-error replay channel.
+  console.error(`[Kanban operation failure] correlationId=${correlationId}`, error);
+  const response = { error: clientError };
   if (!operation?.keyed || !operation.operation) return response;
   const body = { ...response, operationId: operation.operation.id, delivery: null };
   const updated = databaseManager.get().prepare(`UPDATE kanban_api_operations
-    SET status='failed', response_status=?, result_json=?, terminal_error=?, owner_token=NULL, lease_expires_at=NULL, updated_at=?
+    SET status='retryable', response_status=NULL, result_json=NULL, terminal_error=?, owner_token=NULL, lease_expires_at=NULL, updated_at=?
     WHERE id=? AND status='processing' AND owner_token=?`)
-    .run(responseStatus, JSON.stringify(body), error.message, Date.now(), operation.operation.id, operation.operation.token);
+    .run(clientError, Date.now(), operation.operation.id, operation.operation.token);
   if (updated.changes !== 1) throw new Error('Kanban operation ownership was lost before failure persistence');
   return body;
+}
+
+// An operation can lose its lease after the mutation service rejects. Do not
+// let the best-effort persistence of that error replace the original HTTP
+// response with another exception from the route's catch block.
+function sendFailureFromCatch(res, operation, error) {
+  try {
+    return res.status(500).json(failOperation(operation, error));
+  } catch (persistenceError) {
+    console.error('Failed to persist kanban operation failure:', persistenceError);
+    const correlationId = crypto.randomUUID();
+    console.error(`[Kanban operation failure persistence] correlationId=${correlationId}`, error);
+    return res.status(500).json({ error: `${GENERIC_OPERATION_FAILURE} Reference ID: ${correlationId}` });
+  }
+}
+
+function sendTerminalResponseFromCatch(res, operation, responseStatus, response) {
+  try {
+    return sendTerminalOperationResponse(res, operation, responseStatus, response);
+  } catch (persistenceError) {
+    console.error('Failed to persist terminal kanban operation response:', persistenceError);
+    return res.status(responseStatus).json(response);
+  }
 }
 
 function boardForProject(projectId) {
@@ -425,9 +471,9 @@ router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req,
     res.status(201).json(response);
   } catch (error) {
     if (error.message === 'Session already has a card on the board') {
-      return sendTerminalOperationResponse(res, operation, 409, { error: error.message });
+      return sendTerminalResponseFromCatch(res, operation, 409, { error: error.message });
     }
-    res.status(500).json(failOperation(operation, error));
+    return sendFailureFromCatch(res, operation, error);
   }
 });
 
@@ -473,8 +519,11 @@ router.patch('/cards/:cardId/move', async (req, res) => {
     });
     res.json(response);
   } catch (error) {
+    if (isSelfMoveConflict(error)) {
+      return sendTerminalResponseFromCatch(res, operation, 409, { error: error.message });
+    }
     console.error('Failed to move kanban card:', error);
-    res.status(500).json(failOperation(operation, error));
+    return sendFailureFromCatch(res, operation, error);
   }
 });
 
@@ -549,11 +598,11 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
     });
     res.json(response);
   } catch (error) {
-    if (error.message === 'An active lane worker cannot reorder its card within the same lane') {
-      return sendTerminalOperationResponse(res, operation, 409, { error: error.message });
+    if (isSelfMoveConflict(error)) {
+      return sendTerminalResponseFromCatch(res, operation, 409, { error: error.message });
     }
     console.error('Failed to move kanban card by workspace:', error);
-    res.status(500).json(failOperation(operation, error));
+    return sendFailureFromCatch(res, operation, error);
   }
 });
 

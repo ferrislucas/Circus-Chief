@@ -2,7 +2,12 @@ import { sessions, conversations, messages } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
-import { createVisibleFinalErrorMessage } from './visibleFinalErrorMessage.js';
+import {
+  buildClientFacingError,
+  createErrorCorrelationId,
+  createVisibleFinalErrorMessage,
+  logDetailedSessionError,
+} from './visibleFinalErrorMessage.js';
 import { turnEndedDueToLimitOrOutage } from './sessionErrors.js';
 import {
   lastMessageIds,
@@ -69,10 +74,7 @@ function associateAndCleanupWorkLogs(sessionId) {
  * @param {{ checkProactiveReschedule?: Function, handleAutoSendIfNeeded?: Function, handleTemplateTriggerIfNeeded?: Function }} callbacks
  * @returns {Promise<{wasRescheduled: boolean, heldForLimit: boolean}>}
  */
-async function handleActiveSessionCompletion(sessionId, workingDirectory, callbacks, controller) {
-  if (!turnStillOwnsStatusWrite(sessionId, controller)) {
-    return { wasRescheduled: false, heldForLimit: false };
-  }
+async function handleActiveSessionCompletion(sessionId, workingDirectory, callbacks) {
   sessions.update(sessionId, { status: 'waiting', error: null });
   broadcastSessionStatus(sessionId, 'waiting');
 
@@ -150,7 +152,7 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
   const activeSession = activeSessions.get(sessionId);
   const turnController = controller || activeSession?.controller;
   if (activeSession && activeSession.controller === turnController && !turnController?.signal?.aborted) {
-    return handleActiveSessionCompletion(sessionId, workingDirectory, callbacks, turnController);
+    return handleActiveSessionCompletion(sessionId, workingDirectory, callbacks);
   }
 
   finalizeAbortedTurnStatus(sessionId, turnController);
@@ -305,8 +307,6 @@ async function safeTriggerTemplate(sessionId, handleTemplateTriggerIfNeeded) {
 export async function handleSessionError(sessionId, error, options = {}) {
   const { controller, shouldRescheduleOnError, schedulerService } = options;
   const errorLabel = options.errorLabel || 'Session error';
-  console.error(`${errorLabel}:`, error);
-  console.error('Error stack:', error.stack);
 
   if (controller.signal.aborted) {
     // A user-initiated stop is intentional. A mid-turn-scheduled session that the
@@ -314,6 +314,9 @@ export async function handleSessionError(sessionId, error, options = {}) {
     // by not preserving the schedule here.
     return false;
   }
+
+  const correlationId = createErrorCorrelationId();
+  logDetailedSessionError(sessionId, correlationId, error, errorLabel);
 
   // Explicit mid-turn schedule wins over automatic error reschedule, just as it
   // wins over proactive reschedule on the normal completion path.
@@ -332,9 +335,10 @@ export async function handleSessionError(sessionId, error, options = {}) {
   }
 
   // Normal error handling (no reschedule or reschedule limits reached)
-  sessions.update(sessionId, { status: 'error', error: error.message });
-  createVisibleFinalErrorMessage(sessionId, error, activeConversationIds);
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
+  const clientFacingError = buildClientFacingError(correlationId);
+  sessions.update(sessionId, { status: 'error', error: clientFacingError });
+  createVisibleFinalErrorMessage(sessionId, clientFacingError, activeConversationIds);
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: clientFacingError });
 
   // Optionally broadcast final conversation state (continueSession does this)
   if (options.broadcastConversationState) {
