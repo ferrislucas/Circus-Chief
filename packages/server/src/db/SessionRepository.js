@@ -357,7 +357,9 @@ export class SessionRepository extends BaseRepository {
    * @param {number} cutoff - Absolute timestamp; rows with updated_at < cutoff are stale.
    * @returns {Array<object>}
    */
-  getStaleStartingSessions(cutoff) { return this.getRecoverableSessions('starting', cutoff); }
+  getStaleStartingSessions(cutoff) {
+    return this.getRecoverableSessions('starting', cutoff);
+  }
 
   /**
    * Sessions left in 'running' by a previous process. Agent processes are
@@ -366,7 +368,9 @@ export class SessionRepository extends BaseRepository {
    * touched, so no staleness cutoff applies.
    * @returns {Array<object>}
    */
-  getOrphanedRunningSessions() { return this.getRecoverableSessions('running'); }
+  getOrphanedRunningSessions() {
+    return this.getRecoverableSessions('running');
+  }
 
   /**
    * Non-archived sessions in `status`. With a `cutoff`, only those untouched
@@ -376,9 +380,9 @@ export class SessionRepository extends BaseRepository {
    * @returns {Array<object>}
    */
   getRecoverableSessions(status, cutoff) {
-    const staleOnly = cutoff === undefined ? '' : ' AND updated_at < ?';
-    const sql = `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s WHERE status = ? AND archived = 0${staleOnly}`;
-    return this.mapAll(this.db.prepare(sql).all(...(cutoff === undefined ? [status] : [status, cutoff])));
+    const hasCutoff = cutoff != null;
+    const sql = `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s WHERE status = ? AND archived = 0${hasCutoff ? ' AND updated_at < ?' : ''}`;
+    return this.mapAll(this.db.prepare(sql).all(...(hasCutoff ? [status, cutoff] : [status])));
   }
 
   /** Get all scheduled sessions, optionally filtered by project */
@@ -395,8 +399,7 @@ export class SessionRepository extends BaseRepository {
 
     sql += ` ORDER BY s.scheduled_at ASC`;
 
-    const rows = this.db.prepare(sql).all(...params);
-    return rows.map(row => ({
+    return this.db.prepare(sql).all(...params).map(row => ({
       ...SessionRepository.#mapSession(row),
       projectName: row.project_name,
     }));

@@ -34,6 +34,27 @@ describe('SessionRepository', () => {
     });
   });
 
+  describe('getRecoverableSessions', () => {
+    it('returns every matching session when cutoff is null', () => {
+      const running = repo.create(projectId, 'Running session', 'Prompt');
+      repo.update(running.id, { status: 'running' });
+
+      expect(repo.getRecoverableSessions('running', null)).toEqual([
+        expect.objectContaining({ id: running.id, status: 'running' }),
+      ]);
+    });
+
+    it('filters matching sessions by cutoff when one is provided', () => {
+      const running = repo.create(projectId, 'Running session', 'Prompt');
+      repo.update(running.id, { status: 'running' });
+
+      expect(repo.getRecoverableSessions('running', Date.now() - 1)).toEqual([]);
+      expect(repo.getRecoverableSessions('running', Date.now() + 1)).toEqual([
+        expect.objectContaining({ id: running.id }),
+      ]);
+    });
+  });
+
   describe('create', () => {
     it('creates a session with required fields', () => {
       const session = repo.create(projectId, 'Test Session', 'Initial prompt');

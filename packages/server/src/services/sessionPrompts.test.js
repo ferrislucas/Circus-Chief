@@ -37,6 +37,7 @@ import {
   SESSION_CALLER_ID_HEADER,
   SESSION_CALLER_IDENTITY_HINT_HEADER,
 } from '@circuschief/shared';
+import { verifySessionCallerCapability } from './sessionCallerCapability.js';
 import { readFileSync } from 'node:fs';
 
 describe('sessionPrompts', () => {
@@ -663,6 +664,10 @@ describe('sessionPrompts', () => {
       expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}`);
       expect(result).toContain(`${SESSION_CALLER_ID_HEADER}: ${sessionId}`);
       expect(result).toContain(`${SESSION_CALLER_IDENTITY_HINT_HEADER}:`);
+      const capability = result.match(new RegExp(`${SESSION_CALLER_IDENTITY_HINT_HEADER}: ([A-Za-z0-9_-]+)`))?.[1];
+      expect(capability).toBeTruthy();
+      expect(verifySessionCallerCapability(sessionId, capability)).toBe(true);
+      expect(verifySessionCallerCapability('another-session', capability)).toBe(false);
       expect(result).toContain('"deferred": true');
       expect(result).toContain('do not retry it as an immediate move');
       // No sessionId field in kanban examples
