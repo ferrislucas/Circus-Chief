@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { CreateWorkspaceRequest, CreateWorkspaceSessionRequest } from './workspaces.js';
+import {
+  CreateWorkspaceRequest,
+  CreateWorkspaceSessionRequest,
+  WorkspaceCardListResponse,
+} from './workspaces.js';
+
+const WORKSPACE_ID = '550e8400-e29b-41d4-a716-446655440000';
+const PROJECT_ID = '550e8400-e29b-41d4-a716-446655440001';
 
 describe('CreateWorkspaceRequest', () => {
   it('validates a minimal request with only the required prompt', () => {
@@ -196,5 +203,53 @@ describe('CreateWorkspaceSessionRequest', () => {
       parentSessionId: '550e8400-e29b-41d4-a716-446655440002',
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe('WorkspaceCardListResponse', () => {
+  const response = {
+    workspaces: [{
+      id: WORKSPACE_ID,
+      projectId: PROJECT_ID,
+      name: 'Workspace',
+      status: 'running',
+      starred: false,
+      archived: false,
+      prUrl: null,
+      gitWorktree: null,
+      scheduledAt: null,
+      createdAt: 1,
+      updatedAt: 2,
+      lastActivityAt: 3,
+      runningCount: 1,
+      runningSessionIds: [WORKSPACE_ID],
+      scheduledCount: 0,
+      waitingCount: 0,
+      descendantCount: 0,
+      nearestScheduledAt: null,
+      summaryPreview: null,
+      prState: null,
+      hasMergeConflicts: null,
+      ciStatus: null,
+      kanban: null,
+      pendingAgentInput: false,
+      latestCommandRuns: [{
+        runId: 'run-1', buttonId: 'button-1', status: 'running', exitCode: null, startedAt: 4,
+      }],
+    }],
+    facets: { running: 1, idle: 0 },
+    pagination: { total: 1, limit: 50, offset: 0, hasMore: false },
+  };
+
+  it('validates the compact server-computed workspace-card read model', () => {
+    expect(WorkspaceCardListResponse.safeParse(response).success).toBe(true);
+  });
+
+  it('rejects a card missing a public response field', () => {
+    const { latestCommandRuns: _latestCommandRuns, ...cardWithoutRuns } = response.workspaces[0];
+    expect(WorkspaceCardListResponse.safeParse({
+      ...response,
+      workspaces: [cardWithoutRuns],
+    }).success).toBe(false);
   });
 });

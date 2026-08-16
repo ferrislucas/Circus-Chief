@@ -47,6 +47,7 @@ vi.mock('../services/hookService.js', () => ({
 import { projectWorkspacesRouter, workspacesRouter } from './workspaces.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { WorkspaceCardListResponse } from '@circuschief/shared/contracts/workspaces';
 
 function buildApp() {
   const app = express();
@@ -124,6 +125,7 @@ describe('Workspace facade API', () => {
       expect(res.body.workspaces[0]).not.toHaveProperty('memberIds');
       expect(res.body.workspaces[0]).not.toHaveProperty('pendingPrompt');
       expect(res.body.workspaces[0]).not.toHaveProperty('sessions');
+      expect(WorkspaceCardListResponse.safeParse(res.body).success).toBe(true);
       expect(res.headers['server-timing']).toContain('workspace;dur=');
       expect(Number(res.headers['x-response-bytes'])).toBeGreaterThan(0);
     });
