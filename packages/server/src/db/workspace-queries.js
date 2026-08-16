@@ -1,3 +1,12 @@
+// last_activity_at is a denormalized column on `sessions`, maintained by
+// triggers as messages/command-runs/summaries are written (see
+// migrations/miscMigrations.js:workspace-list-activity-column and the
+// trg_sessions_activity_on_* triggers in schema.sql). Aggregating MAX(s.last_activity_at)
+// here costs nothing beyond the tree scan the query already has to do for
+// running/scheduled/waiting counts. A prior version of this query computed
+// workspace activity with a correlated subquery (4-way UNION join per root),
+// which forced a full per-request scan of every session's messages/runs/
+// summaries before LIMIT could apply — O(project size) on every list request.
 const WORKSPACE_AGGREGATES_CTE = `
   WITH RECURSIVE tree(root_id, id, project_id, path) AS (
     SELECT id, id, project_id, '/' || id || '/'
@@ -15,29 +24,10 @@ const WORKSPACE_AGGREGATES_CTE = `
       SUM(CASE WHEN s.status = 'scheduled' THEN 1 ELSE 0 END) AS scheduled_count,
       MIN(CASE WHEN s.status = 'scheduled' THEN s.scheduled_at END) AS nearest_scheduled_at,
       SUM(CASE WHEN s.status = 'waiting' THEN 1 ELSE 0 END) AS waiting_count,
+      MAX(s.last_activity_at) AS last_activity_at,
       COUNT(*) - 1 AS descendant_count
     FROM tree JOIN sessions s ON s.id = tree.id GROUP BY tree.root_id
   )`;
-
-const WORKSPACE_LAST_ACTIVITY_SQL = `(
-  SELECT MAX(activity_at) FROM (
-    SELECT cm.timestamp AS activity_at
-    FROM conversation_messages cm JOIN tree activity_tree ON activity_tree.id = cm.session_id
-    WHERE activity_tree.root_id = s.id
-    UNION ALL
-    SELECT ss.generated_at
-    FROM session_summaries ss JOIN tree activity_tree ON activity_tree.id = ss.session_id
-    WHERE activity_tree.root_id = s.id
-    UNION ALL
-    SELECT ss.updated_at
-    FROM session_summaries ss JOIN tree activity_tree ON activity_tree.id = ss.session_id
-    WHERE activity_tree.root_id = s.id
-    UNION ALL
-    SELECT COALESCE(cr.completed_at, cr.started_at)
-    FROM command_runs cr JOIN tree activity_tree ON activity_tree.id = cr.session_id
-    WHERE activity_tree.root_id = s.id
-  ) WHERE activity_at IS NOT NULL
-)`;
 
 function workspaceFilters({ archived, starred, status, scheduled }, { includeStatus = true } = {}) {
   const filters = ['s.project_id = ?', 's.parent_session_id IS NULL', 's.archived = ?'];
@@ -77,7 +67,7 @@ export function getWorkspaceCards(db, projectId, options = {}) {
     SELECT s.id, s.project_id AS projectId, s.name, s.status, s.starred, s.archived,
       s.pr_url AS prUrl, s.git_worktree AS gitWorktree,
       s.scheduled_at AS scheduledAt, s.created_at AS createdAt,
-      s.updated_at AS updatedAt, ${WORKSPACE_LAST_ACTIVITY_SQL} AS last_activity_at,
+      s.updated_at AS updatedAt, a.last_activity_at AS last_activity_at,
       a.running_count AS runningCount, a.scheduled_count AS scheduledCount,
       a.running_session_ids AS runningSessionIds, a.member_ids AS memberIds,
       a.waiting_count AS waitingCount, a.descendant_count AS descendantCount,
@@ -93,7 +83,7 @@ export function getWorkspaceCards(db, projectId, options = {}) {
     LEFT JOIN kanban_lanes kl ON kl.id = kc.lane_id
     WHERE ${filters.join(' AND ')}
     ORDER BY s.starred DESC,
-      COALESCE(last_activity_at, s.updated_at, s.created_at) DESC,
+      COALESCE(a.last_activity_at, s.updated_at, s.created_at) DESC,
       s.updated_at DESC, s.created_at DESC, s.id DESC
     LIMIT ? OFFSET ?`;
   const rows = db.prepare(sql).all(projectId, projectId, ...params, limit, offset);

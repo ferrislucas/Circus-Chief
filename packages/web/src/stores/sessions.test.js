@@ -7,6 +7,7 @@ vi.mock('../composables/useApi.js', () => ({
   api: {
     getProjectSessions: vi.fn(),
     getSession: vi.fn(),
+    getWorkspaceDetail: vi.fn(),
     getSessionMessages: vi.fn(),
     createSession: vi.fn(),
     createWorkspaceSession: vi.fn(),
@@ -80,6 +81,47 @@ describe('Sessions Store', () => {
     expect(firstSignal.aborted).toBe(true);
     expect(store.currentSession).toMatchObject({ id: 'session-a', name: 'Updated A' });
     expect(store.error).toBeNull();
+  });
+
+  describe('fetchWorkspaceTree', () => {
+    it('merges the root and every descendant into the sessions list from one request', async () => {
+      const store = useSessionsStore();
+      api.getWorkspaceDetail.mockResolvedValueOnce({
+        id: 'root-1', name: 'Root', parentSessionId: null,
+        sessions: [
+          { id: 'child-1', name: 'Child', parentSessionId: 'root-1' },
+          { id: 'grandchild-1', name: 'Grandchild', parentSessionId: 'child-1' },
+        ],
+      });
+
+      await store.fetchWorkspaceTree('grandchild-1');
+
+      expect(api.getWorkspaceDetail).toHaveBeenCalledWith('grandchild-1');
+      expect(store.sessions.map(s => s.id).sort()).toEqual(['child-1', 'grandchild-1', 'root-1']);
+      expect(store.getRootSession('grandchild-1')).toMatchObject({ id: 'root-1' });
+      expect(store.getChildSessions('root-1')).toMatchObject([{ id: 'child-1' }]);
+    });
+
+    it('updates an already-present session rather than duplicating it', async () => {
+      const store = useSessionsStore();
+      store.sessions.push({ id: 'root-1', name: 'Stale name', parentSessionId: null });
+      api.getWorkspaceDetail.mockResolvedValueOnce({
+        id: 'root-1', name: 'Fresh name', parentSessionId: null, sessions: [],
+      });
+
+      await store.fetchWorkspaceTree('root-1');
+
+      expect(store.sessions).toHaveLength(1);
+      expect(store.sessions[0]).toMatchObject({ name: 'Fresh name' });
+    });
+
+    it('is a no-op when the API call fails (caller degrades gracefully)', async () => {
+      const store = useSessionsStore();
+      api.getWorkspaceDetail.mockRejectedValueOnce(new Error('network error'));
+
+      await expect(store.fetchWorkspaceTree('session-a')).rejects.toThrow('network error');
+      expect(store.sessions).toEqual([]);
+    });
   });
 
   describe('createSession', () => {

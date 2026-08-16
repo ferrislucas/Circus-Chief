@@ -90,8 +90,8 @@ function validateMigrations(migrationsArray) {
 }
 
 export const allMigrations = validateMigrations([
-  // --- Workspace list activity indexes ---
-  m.get('workspace-list-activity-indexes'),
+  // --- Workspace list activity column ---
+  m.get('workspace-list-activity-column'),
 
   // --- Sessions initial columns ---
   s.get('sessions-add-cost_usd'),

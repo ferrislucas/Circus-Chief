@@ -22,6 +22,73 @@ export const SESSIONS_INDEX_DDL = [
   'CREATE INDEX IF NOT EXISTS idx_sessions_lane_run ON sessions(lane_run_id)',
 ];
 
+// Other tables' triggers that reference `sessions` by name in their body
+// (see schema.sql's trg_sessions_activity_on_* triggers) are NOT owned by
+// the sessions table, so DROP TABLE sessions does not drop them automatically
+// — but SQLite's ALTER TABLE ... RENAME TO does a schema-wide consistency
+// pass that chokes on any trigger body referencing a table name that is
+// transiently missing (between the DROP and the RENAME), even for triggers
+// on an unrelated table. They must be dropped before the rename and
+// recreated after, exactly like the indexes above.
+const ACTIVITY_TRIGGER_NAMES = [
+  'trg_sessions_activity_on_message',
+  'trg_sessions_activity_on_message_update',
+  'trg_sessions_activity_on_command_run_insert',
+  'trg_sessions_activity_on_command_run_complete',
+  'trg_sessions_activity_on_summary_insert',
+  'trg_sessions_activity_on_summary_update',
+];
+
+const ACTIVITY_TRIGGER_DROP_DDL = ACTIVITY_TRIGGER_NAMES
+  .map((name) => `DROP TRIGGER IF EXISTS ${name}`);
+
+// Kept in lockstep with the CREATE TRIGGER statements in schema.sql.
+const ACTIVITY_TRIGGER_CREATE_DDL = [
+  `CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_message
+   AFTER INSERT ON conversation_messages
+   BEGIN
+     UPDATE sessions SET last_activity_at = NEW.timestamp
+     WHERE id = NEW.session_id
+       AND (last_activity_at IS NULL OR last_activity_at < NEW.timestamp);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_message_update
+   AFTER UPDATE OF timestamp ON conversation_messages
+   BEGIN
+     UPDATE sessions SET last_activity_at = NEW.timestamp
+     WHERE id = NEW.session_id
+       AND (last_activity_at IS NULL OR last_activity_at < NEW.timestamp);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_command_run_insert
+   AFTER INSERT ON command_runs
+   BEGIN
+     UPDATE sessions SET last_activity_at = COALESCE(NEW.completed_at, NEW.started_at)
+     WHERE id = NEW.session_id
+       AND (last_activity_at IS NULL OR last_activity_at < COALESCE(NEW.completed_at, NEW.started_at));
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_command_run_complete
+   AFTER UPDATE OF completed_at ON command_runs
+   WHEN NEW.completed_at IS NOT NULL
+   BEGIN
+     UPDATE sessions SET last_activity_at = NEW.completed_at
+     WHERE id = NEW.session_id
+       AND (last_activity_at IS NULL OR last_activity_at < NEW.completed_at);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_summary_insert
+   AFTER INSERT ON session_summaries
+   BEGIN
+     UPDATE sessions SET last_activity_at = max(NEW.generated_at, NEW.updated_at)
+     WHERE id = NEW.session_id
+       AND (last_activity_at IS NULL OR last_activity_at < max(NEW.generated_at, NEW.updated_at));
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_summary_update
+   AFTER UPDATE OF generated_at, updated_at ON session_summaries
+   BEGIN
+     UPDATE sessions SET last_activity_at = max(NEW.generated_at, NEW.updated_at)
+     WHERE id = NEW.session_id
+       AND (last_activity_at IS NULL OR last_activity_at < max(NEW.generated_at, NEW.updated_at));
+   END`,
+];
+
 /**
  * SQL column definitions for the sessions table with current defaults.
  */
@@ -76,6 +143,7 @@ export const SESSIONS_ALL_CURRENT_COLUMNS = `
     workflow_reason TEXT,
     execution_state TEXT NOT NULL DEFAULT 'idle',
     subtree_outcome TEXT NOT NULL DEFAULT 'open',
+    last_activity_at INTEGER,
     created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
     updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 `;
@@ -94,7 +162,7 @@ export const SESSIONS_ALL_CURRENT_COLUMN_NAMES = [
   'pending_model', 'auto_send_pending_prompt', 'agent_type',
   'lane_trigger_depth', 'pending_conversation_id', 'created_at', 'updated_at',
   'lane_run_id', 'own_work_state', 'own_work_closed_at', 'workflow_updated_at',
-  'workflow_reason', 'execution_state', 'subtree_outcome',
+  'workflow_reason', 'execution_state', 'subtree_outcome', 'last_activity_at',
 ];
 
 /**
@@ -117,9 +185,11 @@ export function recreateSessionsTable(db, columnsSql, allColumnNames) {
       CREATE TABLE sessions_new (${columnsSql});
       INSERT INTO sessions_new (${selectColumns})
       SELECT ${selectColumns} FROM sessions;
+      ${ACTIVITY_TRIGGER_DROP_DDL.join(';\n      ')};
       DROP TABLE sessions;
       ALTER TABLE sessions_new RENAME TO sessions;
       ${SESSIONS_INDEX_DDL.join(';\n      ')};
+      ${ACTIVITY_TRIGGER_CREATE_DDL.join(';\n      ')};
     `);
 
     const foreignKeyViolations = db.pragma('foreign_key_check');

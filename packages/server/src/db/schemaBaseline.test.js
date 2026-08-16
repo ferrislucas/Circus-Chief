@@ -74,7 +74,7 @@ describe('schema baseline', () => {
         'pending_model', 'auto_send_pending_prompt', 'agent_type',
         'lane_trigger_depth', 'lane_run_id', 'own_work_state',
         'own_work_closed_at', 'workflow_updated_at', 'workflow_reason',
-        'execution_state', 'subtree_outcome',
+        'execution_state', 'subtree_outcome', 'last_activity_at',
         'created_at', 'updated_at', 'pending_conversation_id',
       ]);
     });
@@ -208,16 +208,12 @@ describe('schema baseline', () => {
     withDb((db) => {
       expect(indexColumns(db, 'idx_sessions_starred')).toEqual(['archived', 'starred']);
       expect(indexColumns(db, 'idx_sessions_scheduled')).toEqual(['scheduled_at']);
-      expect(indexColumns(db, 'idx_messages_session_ts')).toEqual(['session_id', 'timestamp']);
-      expect(indexColumns(db, 'idx_command_runs_session_activity'))
-        .toEqual(['session_id', 'completed_at', 'started_at']);
       expect(db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_sessions_scheduled'").get().sql)
         .toContain('WHERE scheduled_at IS NOT NULL');
 
       for (const indexName of [
         'idx_sessions_project', 'idx_sessions_status', 'idx_sessions_archived',
         'idx_sessions_next_template', 'idx_sessions_parent', 'idx_messages_conversation',
-        'idx_messages_session_ts', 'idx_command_runs_session_activity',
         'idx_sessions_lane_run', 'idx_lane_entry_recovery', 'idx_lane_entry_health_status_created', 'idx_lane_runs_card_status',
         'idx_canvas_deleted', 'idx_todos_conversation', 'idx_project_defaults_projectId',
         'idx_conversations_parent', 'idx_agent_call_logs_agent_type',
@@ -226,6 +222,54 @@ describe('schema baseline', () => {
       ]) {
         expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get(indexName)).toBeTruthy();
       }
+    });
+  });
+
+  it('maintains sessions.last_activity_at via triggers as activity happens', () => {
+    withDb((db) => {
+      expect(columnNames(db, 'sessions')).toContain('last_activity_at');
+
+      const now = Date.now();
+      db.prepare(
+        `INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`
+      ).run('project-activity', 'Project', '/tmp', now, now);
+      db.prepare(
+        `INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+      ).run('session-activity', 'project-activity', 'Session', 'stopped', now, now);
+
+      expect(db.prepare('SELECT last_activity_at FROM sessions WHERE id = ?').get('session-activity').last_activity_at)
+        .toBeNull();
+
+      db.prepare(
+        `INSERT INTO conversation_messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)`
+      ).run('message-activity', 'session-activity', 'user', 'hi', now + 1000);
+
+      expect(db.prepare('SELECT last_activity_at FROM sessions WHERE id = ?').get('session-activity').last_activity_at)
+        .toBe(now + 1000);
+
+      db.prepare(
+        `INSERT INTO command_buttons (id, project_id, label, command, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+      ).run('button-activity', 'project-activity', 'Run', 'echo hi', now, now);
+      db.prepare(
+        `INSERT INTO command_runs (id, session_id, button_id, status, output, started_at) VALUES (?, ?, ?, 'running', '', ?)`
+      ).run('run-activity', 'session-activity', 'button-activity', now + 2000);
+
+      expect(db.prepare('SELECT last_activity_at FROM sessions WHERE id = ?').get('session-activity').last_activity_at)
+        .toBe(now + 2000);
+
+      // An earlier timestamp must never regress the stored high-water mark.
+      db.prepare(
+        `INSERT INTO conversation_messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)`
+      ).run('message-activity-earlier', 'session-activity', 'user', 'earlier', now);
+
+      expect(db.prepare('SELECT last_activity_at FROM sessions WHERE id = ?').get('session-activity').last_activity_at)
+        .toBe(now + 2000);
+
+      db.prepare(`UPDATE command_runs SET status = 'success', exit_code = 0, completed_at = ? WHERE id = ?`)
+        .run(now + 3000, 'run-activity');
+
+      expect(db.prepare('SELECT last_activity_at FROM sessions WHERE id = ?').get('session-activity').last_activity_at)
+        .toBe(now + 3000);
     });
   });
 

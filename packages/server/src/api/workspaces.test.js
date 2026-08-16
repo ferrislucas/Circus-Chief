@@ -43,9 +43,18 @@ vi.mock('../services/hookService.js', () => ({
   executeHookAsync: vi.fn(),
 }));
 
+// Spy on hasPendingPrompt (keeping every other export real) so tests can
+// simulate a session with a parked prompt without wiring up the full
+// promptStore/websocket/work-log machinery.
+vi.mock('../services/promptStore.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, hasPendingPrompt: vi.fn(actual.hasPendingPrompt) };
+});
+
 // Import after mocking
 import { projectWorkspacesRouter, workspacesRouter } from './workspaces.js';
 import { broadcastToProject } from '../websocket.js';
+import { hasPendingPrompt } from '../services/promptStore.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { WorkspaceCardListResponse } from '@circuschief/shared/contracts/workspaces';
 
@@ -106,6 +115,33 @@ describe('Workspace facade API', () => {
       expect(res.body.workspaces.length).toBe(2);
       expect(res.body.pagination.total).toBe(3);
       expect(res.body.pagination.hasMore).toBe(true);
+    });
+
+    it('includes pendingAgentInput on the bare-array legacy list response', async () => {
+      const withPrompt = sessions.create(project.id, 'Has prompt', 'p1');
+      const withoutPrompt = sessions.create(project.id, 'No prompt', 'p2');
+      hasPendingPrompt.mockImplementation((sessionId) => sessionId === withPrompt.id);
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces`)
+        .expect(200);
+
+      const byId = Object.fromEntries(res.body.map((session) => [session.id, session]));
+      expect(byId[withPrompt.id].pendingAgentInput).toBe(true);
+      expect(byId[withoutPrompt.id].pendingAgentInput).toBe(false);
+    });
+
+    it('includes pendingAgentInput on the paginated legacy list response', async () => {
+      const withPrompt = sessions.create(project.id, 'Has prompt', 'p1');
+      sessions.create(project.id, 'No prompt', 'p2');
+      hasPendingPrompt.mockImplementation((sessionId) => sessionId === withPrompt.id);
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?limit=10&offset=0`)
+        .expect(200);
+
+      const byId = Object.fromEntries(res.body.workspaces.map((session) => [session.id, session]));
+      expect(byId[withPrompt.id].pendingAgentInput).toBe(true);
     });
 
     it('returns a compact, root-only card projection for the optimized list', async () => {

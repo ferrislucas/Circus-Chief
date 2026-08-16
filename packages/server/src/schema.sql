@@ -134,6 +134,12 @@ CREATE TABLE IF NOT EXISTS sessions (
   --     every blocking descendant (open/succeeded/failed/cancelled).
   execution_state TEXT NOT NULL DEFAULT 'idle',
   subtree_outcome TEXT NOT NULL DEFAULT 'open',
+  -- Denormalized "last time anything happened in this session" (message sent,
+  -- command run started/completed, summary generated/updated). Maintained by
+  -- the trg_sessions_activity_on_* triggers below so the workspace-card list
+  -- query can sort/filter on it as a plain column instead of a per-request
+  -- correlated subquery. See migrations/miscMigrations.js:workspace-list-activity-column.
+  last_activity_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -298,6 +304,70 @@ CREATE TABLE IF NOT EXISTS command_runs (
   completed_at INTEGER
 );
 
+-- Keep sessions.last_activity_at current as activity happens, so the
+-- workspace-card list query can read it as a plain column. See the
+-- last_activity_at column comment on the sessions table above.
+--
+-- These are high-water-mark triggers: they only ever raise last_activity_at,
+-- never lower it. Production code never updates an existing message's
+-- timestamp (conversation_messages rows are append-only in practice; see
+-- MessageRepository), so this is not a real limitation there. The UPDATE
+-- variant exists only so a caller that does retroactively touch a
+-- timestamp (e.g. test fixtures simulating "this session got a newer
+-- message") still moves the session's activity forward correctly.
+CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_message
+AFTER INSERT ON conversation_messages
+BEGIN
+  UPDATE sessions SET last_activity_at = NEW.timestamp
+  WHERE id = NEW.session_id
+    AND (last_activity_at IS NULL OR last_activity_at < NEW.timestamp);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_message_update
+AFTER UPDATE OF timestamp ON conversation_messages
+BEGIN
+  UPDATE sessions SET last_activity_at = NEW.timestamp
+  WHERE id = NEW.session_id
+    AND (last_activity_at IS NULL OR last_activity_at < NEW.timestamp);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_command_run_insert
+AFTER INSERT ON command_runs
+BEGIN
+  -- COALESCE(completed_at, started_at): production always inserts with only
+  -- started_at set (completion is a later UPDATE, handled by the _complete
+  -- trigger below), but a row inserted with completed_at already populated
+  -- must still count as activity at completion time, not start time.
+  UPDATE sessions SET last_activity_at = COALESCE(NEW.completed_at, NEW.started_at)
+  WHERE id = NEW.session_id
+    AND (last_activity_at IS NULL OR last_activity_at < COALESCE(NEW.completed_at, NEW.started_at));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_command_run_complete
+AFTER UPDATE OF completed_at ON command_runs
+WHEN NEW.completed_at IS NOT NULL
+BEGIN
+  UPDATE sessions SET last_activity_at = NEW.completed_at
+  WHERE id = NEW.session_id
+    AND (last_activity_at IS NULL OR last_activity_at < NEW.completed_at);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_summary_insert
+AFTER INSERT ON session_summaries
+BEGIN
+  UPDATE sessions SET last_activity_at = max(NEW.generated_at, NEW.updated_at)
+  WHERE id = NEW.session_id
+    AND (last_activity_at IS NULL OR last_activity_at < max(NEW.generated_at, NEW.updated_at));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_summary_update
+AFTER UPDATE OF generated_at, updated_at ON session_summaries
+BEGIN
+  UPDATE sessions SET last_activity_at = max(NEW.generated_at, NEW.updated_at)
+  WHERE id = NEW.session_id
+    AND (last_activity_at IS NULL OR last_activity_at < max(NEW.generated_at, NEW.updated_at));
+END;
+
 -- Command output is deliberately kept out of command_runs.  Updating a large
 -- TEXT field for every flush copies the entire transcript in SQLite.
 CREATE TABLE IF NOT EXISTS command_run_output_chunks (
@@ -453,7 +523,6 @@ CREATE INDEX IF NOT EXISTS idx_sessions_lane_run ON sessions(lane_run_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_parent ON conversations(parent_conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON conversation_messages(session_id);
-CREATE INDEX IF NOT EXISTS idx_messages_session_ts ON conversation_messages(session_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON conversation_messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
 CREATE INDEX IF NOT EXISTS idx_canvas_deleted ON canvas_items(deleted_at);
@@ -468,8 +537,6 @@ CREATE INDEX IF NOT EXISTS idx_attachments_message ON message_attachments(messag
 CREATE INDEX IF NOT EXISTS idx_attachments_session ON message_attachments(session_id);
 CREATE INDEX IF NOT EXISTS idx_command_buttons_project ON command_buttons(project_id);
 CREATE INDEX IF NOT EXISTS idx_command_runs_session ON command_runs(session_id);
-CREATE INDEX IF NOT EXISTS idx_command_runs_session_activity
-  ON command_runs(session_id, completed_at, started_at);
 CREATE INDEX IF NOT EXISTS idx_command_runs_button ON command_runs(button_id);
 CREATE INDEX IF NOT EXISTS idx_command_runs_status ON command_runs(status);
 CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);

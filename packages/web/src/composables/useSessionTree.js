@@ -56,6 +56,13 @@ export function useSessionTree(currentSessionId, sessionChainReady) {
       try { await sessionsStore.fetchSession(sessionId, false); } catch { return; }
     }
 
+    // Hydrate the rest of the workspace (root + every descendant) in one
+    // request. Without this, the store only ever has `sessionId` itself, so
+    // findRootSession/collectTreeDepthFirst below can't see ancestors or
+    // siblings and the chain silently collapses to a single entry. Best
+    // effort: a failure here still leaves a usable (if collapsed) chain.
+    await sessionsStore.fetchWorkspaceTree(sessionId).catch(() => {});
+
     const { root, earlyReturn } = findRootSession(sessionId);
     if (earlyReturn) { sessionChain.value = sortSessionChain(earlyReturn); return; }
     if (!root) return;

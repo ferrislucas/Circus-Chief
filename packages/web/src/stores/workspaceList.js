@@ -3,6 +3,11 @@ import { api } from '../composables/useApi.js';
 
 export const WORKSPACE_PAGE_SIZE = 25;
 
+// Mirrors the server's hard cap in parseWorkspaceCardOptions (workspaces.js).
+// A refresh that re-fetches the full loaded extent (see refresh() below) must
+// stay within this or the request is rejected as invalid.
+export const WORKSPACE_SERVER_MAX_LIMIT = 500;
+
 const requestLifecycles = new WeakMap();
 
 function lifecycleFor(store) {
@@ -22,9 +27,9 @@ function queryKey(projectId, query) {
   return `${projectId}:${JSON.stringify(query)}`;
 }
 
-const fetchPage = (projectId, query, offset, signal) => api.getWorkspaceCards(projectId, {
+const fetchPage = (projectId, query, { offset, limit, signal }) => api.getWorkspaceCards(projectId, {
   ...query,
-  limit: WORKSPACE_PAGE_SIZE,
+  limit,
   offset,
   signal,
 });
@@ -135,10 +140,20 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       const contextKey = lifecycle.contextKey;
       const projectId = this.projectId;
       const query = { ...this.query };
+      // Re-fetch the extent already loaded (not just one page). A realtime
+      // invalidation calls refresh() on every relevant WebSocket event while
+      // the list is open; refetching only WORKSPACE_PAGE_SIZE rows would
+      // truncate a list the user has scrolled past page 1 on back down to
+      // page 1 every time an event fires. Capped at the server's max limit —
+      // see WORKSPACE_SERVER_MAX_LIMIT.
+      const limit = Math.min(
+        Math.max(WORKSPACE_PAGE_SIZE, this.orderedIds.length),
+        WORKSPACE_SERVER_MAX_LIMIT,
+      );
       this.loading = this.orderedIds.length === 0;
       this.error = null;
 
-      const promise = fetchPage(projectId, query, 0, controller.signal)
+      const promise = fetchPage(projectId, query, { offset: 0, limit, signal: controller.signal })
         .then((result) => {
           if (!controller.signal.aborted
             && lifecycle.version === version
@@ -181,7 +196,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       lifecycle.loadMoreController = controller;
       this.loadingMore = true;
       try {
-        const result = await fetchPage(projectId, query, offset, controller.signal);
+        const result = await fetchPage(projectId, query, { offset, limit: WORKSPACE_PAGE_SIZE, signal: controller.signal });
         if (canCommitPage(this, lifecycle, request)) this._append(result);
       } catch (error) {
         if (!isAbort(error) && canCommitPage(this, lifecycle, request)) {

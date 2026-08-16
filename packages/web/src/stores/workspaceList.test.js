@@ -138,14 +138,19 @@ describe('workspace list request lifecycle', () => {
     expect(store.error).toBeNull();
   });
 
-  it('refreshes only the first page after loading more', async () => {
+  it('refreshes the entire loaded extent after loading more, not just the first page', async () => {
+    // Regression test for a bug where refresh() (called by realtime
+    // invalidation on every relevant WebSocket event) always re-fetched only
+    // WORKSPACE_PAGE_SIZE rows at offset 0, silently truncating a list the
+    // user had scrolled past page 1 back down to page 1 on every event.
     const expandedTotal = WORKSPACE_PAGE_SIZE * 2 - 5;
     const firstPage = Array.from({ length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index}` }));
     const secondPage = Array.from({ length: expandedTotal - WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index + WORKSPACE_PAGE_SIZE}` }));
+    const fullExtent = [...firstPage, ...secondPage];
     api.getWorkspaceCards
       .mockResolvedValueOnce(response(firstPage, { total: expandedTotal, hasMore: true }))
       .mockResolvedValueOnce(response(secondPage, { total: expandedTotal, offset: WORKSPACE_PAGE_SIZE }))
-      .mockResolvedValueOnce(response(firstPage, { total: expandedTotal, hasMore: true }));
+      .mockResolvedValueOnce(response(fullExtent, { total: expandedTotal }));
     const store = useWorkspaceListStore();
 
     await store.load('project-a');
@@ -157,9 +162,28 @@ describe('workspace list request lifecycle', () => {
       offset: options.offset,
     }))).toEqual([
       { limit: WORKSPACE_PAGE_SIZE, offset: WORKSPACE_PAGE_SIZE },
-      { limit: WORKSPACE_PAGE_SIZE, offset: 0 },
+      { limit: expandedTotal, offset: 0 },
     ]);
-    expect(store.cards).toHaveLength(WORKSPACE_PAGE_SIZE);
+    expect(store.cards).toHaveLength(expandedTotal);
+  });
+
+  it('caps the refresh extent at the server\'s max limit once loaded rows exceed it', async () => {
+    const store = useWorkspaceListStore();
+    store._resetContext('project-a', {});
+    store.orderedIds = Array.from({ length: 600 }, (_, index) => `card-${index}`);
+    store.cardsById = Object.fromEntries(store.orderedIds.map(id => [id, { id }]));
+
+    api.getWorkspaceCards.mockResolvedValueOnce(response(
+      store.orderedIds.map(id => ({ id })),
+      { total: 600 },
+    ));
+
+    await store.refresh();
+
+    expect(api.getWorkspaceCards).toHaveBeenLastCalledWith('project-a', expect.objectContaining({
+      limit: 500,
+      offset: 0,
+    }));
   });
 
   it('deduplicates a card that moves into the next offset page', async () => {

@@ -127,6 +127,7 @@ vi.mock('../composables/useApi.js', () => ({
     getSessionChanges: vi.fn().mockResolvedValue({ staged: '', unstaged: '', untracked: '' }),
     getKanbanBoard: vi.fn().mockResolvedValue(null),
     getProjectSessions: vi.fn().mockResolvedValue([]),
+    getWorkspaceDetail: vi.fn().mockResolvedValue(null),
     getProjectTemplates: vi.fn().mockResolvedValue([]),
     getCommandButtons: vi.fn().mockResolvedValue([]),
   },
@@ -3771,6 +3772,64 @@ describe('SessionDetailView', () => {
       // child-1 has lastActivityAt=2000 (most recent), parent-1 has lastActivityAt=1000
       expect(wrapper.vm.sessionChain[0].session.id).toBe('child-1');
       expect(wrapper.vm.sessionChain[1].session.id).toBe('parent-1');
+    });
+
+    it('hydrates ancestors/siblings via getWorkspaceDetail when only the current session is in the store', async () => {
+      // Regression test: buildSessionChain used to rely on a project-wide
+      // session fetch to populate ancestors/children into the store before
+      // walking parentSessionId links. That fetch was removed for
+      // performance, but nothing replaced it, so a chain rooted anywhere but
+      // the store's only session collapsed to a single entry. It should now
+      // hydrate the workspace tree via GET /api/workspaces/:id (any member
+      // id resolves to the full root+descendants tree server-side).
+      const childSession = {
+        id: 'child-1',
+        name: 'Child Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+        lastActivityAt: 2000,
+      };
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'running',
+        projectId: 'proj-1',
+        parentSessionId: null,
+        lastActivityAt: 1000,
+      };
+
+      // Only the session being navigated to is in the store — nothing else.
+      sessionsStore.currentSession = childSession;
+      sessionsStore.sessions = [childSession];
+
+      // mockResolvedValueOnce, not mockResolvedValue: this file's beforeEach
+      // does not reset mock implementations between tests, so a persistent
+      // override here would leak this fixture's sessions into every later
+      // test's buildSessionChain() call.
+      api.getWorkspaceDetail.mockResolvedValueOnce({
+        ...parentSession,
+        sessions: [childSession],
+      });
+
+      await router.push('/sessions/child-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      expect(api.getWorkspaceDetail).toHaveBeenCalledWith('child-1');
+      expect(wrapper.vm.sessionChain.map((entry) => entry.session.id).sort()).toEqual(['child-1', 'parent-1']);
     });
 
     it('passes sessionChain and summariesMap to SessionChatOverlay', async () => {

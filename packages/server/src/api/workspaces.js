@@ -239,7 +239,7 @@ function listProjectWorkspaces(req, res) {
   const parsedOffset = offset ? parseInt(offset, 10) : 0;
   const workspaces = sessions.getRootsByProjectId(req.params.projectId, {
     archived: archivedFilter, starred: starredFilter, limit: parsedLimit, offset: parsedOffset,
-  });
+  }).map(withPendingAgentInput);
   if (parsedLimit === null) return res.json(workspaces);
 
   const total = sessions.getRootsCountByProjectId(req.params.projectId, {

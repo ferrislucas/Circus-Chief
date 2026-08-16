@@ -139,6 +139,28 @@ export const sessionActions = {
     }
   },
 
+  /**
+   * Hydrate a session's whole workspace (root + every descendant) into
+   * `this.sessions` in one request, via GET /api/workspaces/:workspaceId
+   * (which accepts any member session id, not just the root, and resolves
+   * it server-side). `getRootSession`/`getChildSessions`/`groupedSessions`
+   * all walk `this.sessions` by parentSessionId, so anything that needs the
+   * full chain (useSessionTree.buildSessionChain) must call this first —
+   * `fetchSession` only ever loads the single requested session.
+   *
+   * Best-effort: errors are swallowed like the other chain-building calls in
+   * this file (e.g. summary fetches). A failure here degrades the session
+   * chain to a single entry; it must not block the detail view from loading.
+   */
+  async fetchWorkspaceTree(sessionId) {
+    const detail = await api.getWorkspaceDetail(sessionId);
+    if (!detail) return;
+    const { sessions: descendants, ...root } = detail;
+    for (const row of [root, ...(descendants || [])]) {
+      updateSessionInList(this.sessions, row, true);
+    }
+  },
+
   async createSession(projectId, data) {
     this.loading = true;
     this.error = null;
