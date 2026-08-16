@@ -126,6 +126,8 @@ describe('Workspace facade API', () => {
       expect(res.body.workspaces[0]).not.toHaveProperty('pendingPrompt');
       expect(res.body.workspaces[0]).not.toHaveProperty('sessions');
       expect(WorkspaceCardListResponse.safeParse(res.body).success).toBe(true);
+      expect(res.headers['access-control-expose-headers'])
+        .toBe('Server-Timing, X-Response-Bytes');
       expect(res.headers['server-timing']).toContain('workspace;dur=');
       expect(Number(res.headers['x-response-bytes'])).toBeGreaterThan(0);
     });

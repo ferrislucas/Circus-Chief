@@ -48,6 +48,10 @@ function sendWorkspaceJson(res, payload, startedAt) {
   const serializationMs = performance.now() - serializeStartedAt;
   const totalMs = performance.now() - startedAt;
   res.set({
+    // The web app may be served from a different origin in development. Expose
+    // these otherwise non-safelisted metrics so callers can consume them, not
+    // merely inspect them in the browser's network panel.
+    'Access-Control-Expose-Headers': 'Server-Timing, X-Response-Bytes',
     'Server-Timing': `workspace;dur=${totalMs.toFixed(1)}, serialize;dur=${serializationMs.toFixed(1)}`,
     'X-Response-Bytes': String(Buffer.byteLength(body)),
   });
