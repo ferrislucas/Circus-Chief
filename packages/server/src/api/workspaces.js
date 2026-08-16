@@ -300,13 +300,6 @@ workspacesRouter.get('/:workspaceId', (req, res) => {
   }, startedAt);
 });
 
-// GET /api/workspaces/:workspaceId/members — cacheable lightweight tree only.
-workspacesRouter.get('/:workspaceId/members', (req, res) => {
-  const resolved = resolveWorkspace(res, req.params.workspaceId);
-  if (!resolved) return;
-  return res.json({ workspaceId: resolved.workspace.id, members: sessions.getWorkspaceMembers(resolved.workspace.id) });
-});
-
 // ---------------------------------------------------------------------------
 // POST /api/workspaces/:workspaceId/sessions — add a session to a workspace
 // ---------------------------------------------------------------------------

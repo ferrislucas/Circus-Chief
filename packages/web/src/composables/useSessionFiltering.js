@@ -9,7 +9,6 @@ import { useSessionsStore } from '../stores/sessions.js';
  * - Star filter three-state cycling (null → starred → unstarred → null)
  * - Scheduled filter three-state cycling (null → scheduled → not-scheduled → null)
  * - Tooltip text computation for star and scheduled filters
- * - Filtered grouped sessions computation with status, starred, and scheduled filters
  *
  * @returns {Object} Filter management utilities
  */
@@ -103,7 +102,7 @@ export function useSessionFiltering() {
    * the scheduled filter is active.
    */
   const statusFilterCounts = computed(() => {
-    // Apply star filter (same semantics as filteredGroupedSessions).
+    // Apply star filter.
     let groups = sessionsStore.groupedSessions;
     if (sessionsStore.starredFilter === 'starred') {
       groups = groups.filter((g) => g.parent.starred);
@@ -140,69 +139,6 @@ export function useSessionFiltering() {
     return { running, idle };
   });
 
-  /**
-   * Computed filtered grouped sessions, applying status, starred, and scheduled filters.
-   * The original order from groupedSessions is preserved through all filter operations.
-   */
-  const filteredGroupedSessions = computed(() => {
-    // Capture the original order at the start to avoid reactivity issues
-    const originalGroups = sessionsStore.groupedSessions;
-    const originalOrderMap = new Map(
-      originalGroups.map((g, index) => [g.parent.id, index])
-    );
-
-    let groups = originalGroups;
-
-    // Apply workflow-aware status filter if set
-    if (sessionsStore.statusFilter) {
-      groups = groups.filter(group => {
-        const workflowStatus = sessionsStore.getWorkflowAggregatedStatus(group.parent.id);
-        const effectiveStatus = workflowStatus.effectiveStatus;
-
-        if (sessionsStore.statusFilter === 'running' && effectiveStatus === 'running') {
-          return true;
-        }
-        if (sessionsStore.statusFilter === 'idle' && effectiveStatus === 'idle') {
-          return true;
-        }
-        return false;
-      });
-    }
-
-    // Apply starred filter if set (only considers root session's starred status)
-    if (sessionsStore.starredFilter === 'starred') {
-      groups = groups.filter(group => group.parent.starred);
-    } else if (sessionsStore.starredFilter === 'unstarred') {
-      groups = groups.filter(group => !group.parent.starred);
-    }
-
-    // Apply workflow-aware scheduled filter if set
-    if (sessionsStore.scheduledFilter) {
-      groups = groups.filter(group => {
-        const workflowStatus = sessionsStore.getWorkflowAggregatedStatus(group.parent.id);
-        const hasScheduled = workflowStatus.scheduledCount > 0;
-
-        if (sessionsStore.scheduledFilter === 'scheduled' && hasScheduled) {
-          return true;
-        }
-        if (sessionsStore.scheduledFilter === 'not-scheduled' && !hasScheduled) {
-          return true;
-        }
-        return false;
-      });
-    }
-
-    // Ensure the filtered groups maintain the same order as the original groupedSessions
-    // This guarantees that sessions appear in the same order regardless of which filters are applied.
-    // Array.filter() preserves order, but we explicitly sort here to make the intent clear
-    // and to handle any edge cases where the order might not be preserved.
-    return groups.slice().sort((a, b) => {
-      const aIndex = originalOrderMap.get(a.parent.id) ?? 999999;
-      const bIndex = originalOrderMap.get(b.parent.id) ?? 999999;
-      return aIndex - bIndex;
-    });
-  });
-
   return {
     toggleFilter,
     toggleStarredFilter,
@@ -210,7 +146,6 @@ export function useSessionFiltering() {
     starFilterTooltip,
     toggleScheduledFilterIcon,
     scheduledFilterTooltip,
-    filteredGroupedSessions,
     statusFilterCounts,
   };
 }

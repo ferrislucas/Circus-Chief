@@ -44,10 +44,6 @@ export function ProjectsApi(ApiClient) {
       return this._get(`/workspaces/${workspaceId}`, { signal });
     },
 
-    async getWorkspaceMembers(workspaceId, { signal } = {}) {
-      return this._get(`/workspaces/${workspaceId}/members`, { signal });
-    },
-
     /**
      * Create a new project
      * @param {Object} data - Project data

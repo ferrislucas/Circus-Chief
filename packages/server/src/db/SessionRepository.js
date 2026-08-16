@@ -18,7 +18,6 @@ import {
 import {
   getWorkspaceCardCounts,
   getWorkspaceCards,
-  getWorkspaceMembers,
 } from './workspace-queries.js';
 
 /**
@@ -180,14 +179,6 @@ export class SessionRepository extends BaseRepository {
   /** Authoritative status facets for workspace-list filters. */
   getWorkspaceCardCounts(projectId, options = {}) {
     return getWorkspaceCardCounts(this.db, projectId, options);
-  }
-
-  /**
-   * Small, explicit tree projection for a workspace shell. It intentionally
-   * excludes prompts, messages, logs, command output, and other pane data.
-   */
-  getWorkspaceMembers(rootId) {
-    return getWorkspaceMembers(this.db, rootId);
   }
 
   /** Get count of sessions for a project with optional archived/starred filters */

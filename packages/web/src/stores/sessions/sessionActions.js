@@ -65,10 +65,6 @@ function moveSessionBetweenLists(sourceList, targetList, sessionData) {
   return sourceList.filter((s) => s.id !== sessionData.id);
 }
 
-function upsertSessionListMembers(list, members) {
-  for (const member of members) updateSessionInList(list, member, true);
-}
-
 /**
  * Session CRUD and lifecycle actions for the sessions store.
  * These are spread directly into the Pinia store actions, so `this` refers to the store instance.
@@ -105,30 +101,6 @@ export const sessionActions = {
     }
   },
 
-  async fetchArchivedSessions(projectId, { reset = true } = {}) {
-    const PAGE_SIZE = 25;
-    if (reset) { this.archivedSessions = []; this.archivedPagination.offset = 0; }
-    this.archivedPagination.loading = true;
-    this.error = null;
-    try {
-      const response = await api.getProjectSessions(
-        projectId, true, this.starredFilter, { limit: PAGE_SIZE, offset: this.archivedPagination.offset }
-      );
-      this.archivedSessions = reset ? response.sessions : [...this.archivedSessions, ...response.sessions];
-      this.archivedPagination = {
-        total: response.pagination.total,
-        offset: this.archivedPagination.offset + response.sessions.length,
-        hasMore: response.pagination.hasMore, loading: false,
-      };
-    } catch (err) { this.error = err.message; this.archivedPagination.loading = false; }
-  },
-
-  async loadMoreArchivedSessions(projectId) {
-    if (this.archivedPagination.hasMore && !this.archivedPagination.loading) {
-      await this.fetchArchivedSessions(projectId, { reset: false });
-    }
-  },
-
   async fetchSession(id, showLoading = true) {
     const controllers = getSessionFetchControllers(this);
     controllers.get(id)?.abort();
@@ -137,15 +109,7 @@ export const sessionActions = {
     if (showLoading) this.loading = true;
     this.error = null;
     try {
-      // The detail session and lightweight workspace shell are independent.
-      // This replaces the old serial ancestor walk plus project-wide child fetch.
-      const [fetchedSession, workspaceDetail] = await Promise.all([
-        api.getSession(id, { signal: controller.signal }),
-        api.getWorkspaceMembers(id, { signal: controller.signal }).catch((error) => {
-          if (error?.name === 'AbortError') throw error;
-          return null;
-        }),
-      ]);
+      const fetchedSession = await api.getSession(id, { signal: controller.signal });
       // Guard: only set currentSession if the user is still viewing this session.
       // This prevents stale in-flight requests (e.g., from polling that was active
       // for a previous session) from overwriting currentSession after navigation.
@@ -165,7 +129,6 @@ export const sessionActions = {
       } else {
         this.sessions.push(fetchedSession);
       }
-      if (workspaceDetail?.members) upsertSessionListMembers(this.sessions, workspaceDetail.members);
     } catch (err) {
       if (err?.name !== 'AbortError' && controllers.get(id) === controller) this.error = err.message;
     } finally {
@@ -259,19 +222,7 @@ export const sessionActions = {
     try {
       await api.deleteSession(id);
       this.sessions = this.sessions.filter((s) => !deletedIds.has(s.id));
-      const prevArchivedCount = this.archivedSessions.length;
       this.archivedSessions = this.archivedSessions.filter((s) => !deletedIds.has(s.id));
-      const removedArchivedCount = prevArchivedCount - this.archivedSessions.length;
-      if (removedArchivedCount > 0) {
-        const nextTotal = Math.max(0, this.archivedPagination.total - removedArchivedCount);
-        const nextOffset = Math.max(0, this.archivedPagination.offset - removedArchivedCount);
-        this.archivedPagination = {
-          ...this.archivedPagination,
-          total: nextTotal,
-          offset: nextOffset,
-          hasMore: nextOffset < nextTotal,
-        };
-      }
       if (this.currentSession?.id && deletedIds.has(this.currentSession.id)) this.currentSession = null;
     } catch (err) { this.error = err.message; throw err; }
   },

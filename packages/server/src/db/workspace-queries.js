@@ -1,5 +1,3 @@
-import { ACTIVITY_FIELDS_SQL } from './session-helpers.js';
-
 const WORKSPACE_AGGREGATES_CTE = `
   WITH RECURSIVE tree(root_id, id, project_id) AS (
     SELECT id, id, project_id FROM sessions WHERE project_id = ? AND parent_session_id IS NULL
@@ -146,52 +144,4 @@ function toWorkspaceCard(row) {
       ? { cardId: row.kanbanCardId, laneId: row.laneId, laneName: row.laneName }
       : null,
   };
-}
-
-/** Return the compact ancestor/descendant tree used by a workspace shell. */
-export function getWorkspaceMembers(db, rootId) {
-  const rows = db.prepare(`
-    WITH RECURSIVE tree(id, parent_session_id, depth, path) AS (
-      SELECT id, parent_session_id, 0, id FROM sessions WHERE id = ?
-      UNION ALL
-      SELECT s.id, s.parent_session_id, tree.depth + 1, tree.path || '/' || s.id
-      FROM sessions s JOIN tree ON s.parent_session_id = tree.id
-      WHERE instr(tree.path, s.id) = 0
-    )
-    SELECT s.id, s.project_id AS projectId, s.parent_session_id AS parentSessionId,
-      s.name, s.status, s.model, s.pending_model AS pendingModel,
-      s.input_tokens AS inputTokens, s.output_tokens AS outputTokens,
-      s.thinking_tokens AS thinkingTokens,
-      s.cache_read_input_tokens AS cacheReadInputTokens,
-      s.cache_creation_input_tokens AS cacheCreationInputTokens,
-      s.starred, s.archived, s.scheduled_at AS scheduledAt,
-      s.created_at AS createdAt, s.updated_at AS updatedAt, tree.depth,
-      ${ACTIVITY_FIELDS_SQL},
-      ss.short_summary AS summaryPreview
-    FROM tree JOIN sessions s ON s.id = tree.id
-    LEFT JOIN session_summaries ss ON ss.session_id = s.id ORDER BY tree.path
-  `).all(rootId);
-  return rows.map(row => ({
-    id: row.id,
-    projectId: row.projectId,
-    parentSessionId: row.parentSessionId,
-    name: row.name,
-    status: row.status,
-    model: row.model || null,
-    pendingModel: row.pendingModel || null,
-    inputTokens: row.inputTokens || 0,
-    outputTokens: row.outputTokens || 0,
-    thinkingTokens: row.thinkingTokens || 0,
-    cacheReadInputTokens: row.cacheReadInputTokens || 0,
-    cacheCreationInputTokens: row.cacheCreationInputTokens || 0,
-    starred: Boolean(row.starred),
-    archived: Boolean(row.archived),
-    scheduledAt: row.scheduledAt,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    depth: row.depth,
-    lastActivityAt: row.last_activity_at ?? null,
-    lastMessageAt: row.last_message_at ?? null,
-    summaryPreview: row.summaryPreview || null,
-  }));
 }

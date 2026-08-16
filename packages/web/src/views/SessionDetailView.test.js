@@ -123,7 +123,6 @@ vi.mock('../composables/useApi.js', () => ({
     getSessionSummary: vi.fn().mockResolvedValue(null),
     updateSession: vi.fn(),
     getSession: vi.fn(),
-    getWorkspaceMembers: vi.fn().mockResolvedValue(null),
     getConversations: vi.fn(),
     getSessionChanges: vi.fn().mockResolvedValue({ staged: '', unstaged: '', untracked: '' }),
     getKanbanBoard: vi.fn().mockResolvedValue(null),
