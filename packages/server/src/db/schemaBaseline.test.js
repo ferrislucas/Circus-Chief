@@ -270,6 +270,13 @@ describe('schema baseline', () => {
 
       expect(db.prepare('SELECT last_activity_at FROM sessions WHERE id = ?').get('session-activity').last_activity_at)
         .toBe(now + 3000);
+
+      db.prepare(`INSERT INTO session_summaries
+        (id, session_id, short_summary, full_summary, generated_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)`)
+        .run('summary-activity', 'session-activity', 'summary', 'summary', now + 4000, now + 4000);
+      expect(db.prepare('SELECT last_activity_at FROM sessions WHERE id = ?').get('session-activity').last_activity_at)
+        .toBe(now + 4000);
     });
   });
 

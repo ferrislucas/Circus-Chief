@@ -3828,7 +3828,7 @@ describe('SessionDetailView', () => {
       await flushPromises();
       await nextTick();
 
-      expect(api.getWorkspaceDetail).toHaveBeenCalledWith('child-1');
+      expect(api.getWorkspaceDetail).toHaveBeenCalledWith('child-1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
       expect(wrapper.vm.sessionChain.map((entry) => entry.session.id).sort()).toEqual(['child-1', 'parent-1']);
     });
 

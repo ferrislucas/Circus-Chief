@@ -96,7 +96,9 @@ describe('Sessions Store', () => {
 
       await store.fetchWorkspaceTree('grandchild-1');
 
-      expect(api.getWorkspaceDetail).toHaveBeenCalledWith('grandchild-1');
+      expect(api.getWorkspaceDetail).toHaveBeenCalledWith('grandchild-1', expect.objectContaining({
+        signal: expect.any(AbortSignal),
+      }));
       expect(store.sessions.map(s => s.id).sort()).toEqual(['child-1', 'grandchild-1', 'root-1']);
       expect(store.getRootSession('grandchild-1')).toMatchObject({ id: 'root-1' });
       expect(store.getChildSessions('root-1')).toMatchObject([{ id: 'child-1' }]);

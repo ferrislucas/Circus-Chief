@@ -434,7 +434,22 @@ const listProjectId = computed(() => ['sessions', 'archived'].includes(activeTab
 useWorkspaceListRealtime(listProjectId, (refreshProjectId) => {
   if (workspaceList.projectId !== refreshProjectId) return;
   return workspaceList.refresh();
-}, () => workspaceList.isRefreshInFlight());
+}, () => workspaceList.isRefreshInFlight(), (event) => {
+  if (workspaceList.projectId !== listProjectId.value) return null;
+  if (event.delete) {
+    const card = workspaceList.cardForSession(event.sessionId);
+    if (!card) return null;
+    workspaceList.patchCard(card.id, {
+      latestCommandRuns: (card.latestCommandRuns || []).filter(
+        run => run.runId !== event.runId,
+      ),
+    });
+    return card.id;
+  }
+  if (event.kind === 'onSessionStatus') return workspaceList.applySessionStatus(event.sessionId, event.status);
+  if (event.kind === 'onSessionSummaryUpdated') return workspaceList.applySummaryEvent(event.sessionId, event.summary);
+  return workspaceList.applyCommandRunEvent(event);
+});
 
 // The board is fetched on mount for every tab (SessionCard "Add to Board" and
 // lane indicators need it), so its realtime updates are project-scoped rather
@@ -477,10 +492,11 @@ async function handleStar({ id, starred }) {
     return;
   }
 
+  // The store's mutation epoch detects when this refresh joins a request that
+  // predates the star and runs one bounded trailing read itself.
+  workspaceList.markMutation();
   try {
-    const refreshWasInFlight = workspaceList.isRefreshInFlight();
     await workspaceList.refresh();
-    if (refreshWasInFlight) await workspaceList.refresh();
   } catch (error) {
     uiStore.error(error.message || 'Failed to refresh workspaces');
   }
@@ -489,7 +505,12 @@ async function handleStar({ id, starred }) {
 const archiveWorkflowCard = computed(() => {
   const compactKanban = sessionToArchive.value?.kanban;
   if (compactKanban) return { id: compactKanban.cardId, laneId: compactKanban.laneId };
-  return null;
+  const sessionId = sessionToArchive.value?.id;
+  if (!sessionId) return null;
+  const rootId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
+  return kanbanStore.getCardBySessionId(rootId)
+    || kanbanStore.getCardBySessionId(sessionId)
+    || null;
 });
 
 const isArchiveSessionOnBoard = computed(() => Boolean(archiveWorkflowCard.value));
@@ -515,6 +536,7 @@ async function confirmArchive({ runCleanup, removeFromBoard } = {}) {
   } catch (error) {
     uiStore.error(error.message || 'Failed to archive session');
   } finally {
+    workspaceList.markMutation();
     workspaceList.refresh().catch(() => {});
     archiving.value = false;
     showArchiveModal.value = false;
@@ -531,6 +553,7 @@ async function handleUnarchive(sessionId) {
   try {
     await sessionsStore.unarchiveSession(sessionId);
     workspaceList.removeCard(sessionId);
+    workspaceList.markMutation();
     workspaceList.refresh().catch(() => {});
   } catch (error) {
     console.error('Failed to unarchive session:', error);
@@ -593,6 +616,7 @@ async function addSessionToLane(lane) {
       uiStore.success(`Session added to "${lane.name}"`);
     }
     closeLaneSelectorModal();
+    workspaceList.markMutation();
     workspaceList.refresh().catch(() => {});
   } catch (err) {
     console.error('Failed to update session board lane:', err);

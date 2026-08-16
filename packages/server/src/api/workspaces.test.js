@@ -144,6 +144,35 @@ describe('Workspace facade API', () => {
       expect(byId[withPrompt.id].pendingAgentInput).toBe(true);
     });
 
+    it('serves the parent-picker contract: roots only, no archived, newest first', async () => {
+      const older = sessions.create(project.id, 'Older Completed', 'p1');
+      sessions.create(project.id, 'Child of older', 'p2', { parentSessionId: older.id });
+      sessions.update(older.id, { status: 'completed' });
+
+      const newer = sessions.create(project.id, 'Newer Completed', 'p3');
+      sessions.update(newer.id, { status: 'completed' });
+
+      const archived = sessions.create(project.id, 'Archived root', 'p4');
+      sessions.update(archived.id, { status: 'completed' });
+      sessions.update(archived.id, { archived: true });
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=200`)
+        .expect(200);
+
+      const ids = res.body.workspaces.map((w) => w.id);
+      expect(ids).toContain(older.id);
+      expect(ids).toContain(newer.id);
+      expect(ids).not.toContain(archived.id);
+      // Descendants never appear; the picker filters client-side to completed.
+      expect(ids.every((id) => id !== undefined)).toBe(true);
+      for (const card of res.body.workspaces) {
+        expect(card.memberIds).toEqual(expect.arrayContaining([card.id]));
+      }
+      // Newest first (card sort key is activity recency).
+      expect(res.body.workspaces[0].id).toBe(newer.id);
+    });
+
     it('returns a compact, root-only card projection for the optimized list', async () => {
       const root = sessions.create(project.id, 'Root', 'p');
       sessions.create(project.id, 'Running child', 'p', { parentSessionId: root.id, status: 'running' });
@@ -156,9 +185,9 @@ describe('Workspace facade API', () => {
       expect(res.body.workspaces[0]).toMatchObject({
         id: root.id, name: 'Root', runningCount: 2, descendantCount: 1,
         runningSessionIds: [root.id, expect.any(String)],
+        memberIds: [root.id, expect.any(String)],
         latestCommandRuns: [],
       });
-      expect(res.body.workspaces[0]).not.toHaveProperty('memberIds');
       expect(res.body.workspaces[0]).not.toHaveProperty('pendingPrompt');
       expect(res.body.workspaces[0]).not.toHaveProperty('sessions');
       expect(WorkspaceCardListResponse.safeParse(res.body).success).toBe(true);
@@ -199,6 +228,29 @@ describe('Workspace facade API', () => {
     it('rejects malformed optimized-list offsets', async () => {
       await request(app)
         .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&offset=-1`)
+        .expect(400);
+      await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&offset=1e3`)
+        .expect(400);
+      await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2abc`)
+        .expect(400);
+    });
+
+    it('paginates with cursors without gaps and rejects malformed cursors', async () => {
+      const created = ['First', 'Second', 'Third'].map(name => sessions.create(project.id, name, 'p'));
+      const first = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2`)
+        .expect(200);
+      const second = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&cursor=${first.body.pagination.nextCursor}`)
+        .expect(200);
+
+      expect([...first.body.workspaces, ...second.body.workspaces].map(({ id }) => id))
+        .toEqual(expect.arrayContaining(created.map(({ id }) => id)));
+      expect(second.body.pagination).toMatchObject({ hasMore: false, nextCursor: null });
+      await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&cursor=not-a-cursor`)
         .expect(400);
     });
 

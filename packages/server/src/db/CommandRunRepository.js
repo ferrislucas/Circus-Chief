@@ -260,10 +260,22 @@ export class CommandRunRepository extends BaseRepository {
     return this.mapAll(rows);
   }
 
-  /** Get the latest run per button for a bounded set of list-card sessions. */
-  getLatestRunsForSessions(sessionIds) {
+  /**
+   * Get the latest run per button for a bounded set of list-card sessions.
+   * @param {string[]} sessionIds
+   * @param {Object} [options]
+   * @param {boolean} [options.includeOutputMetadata] - also compute has_output
+   *   and output_high_water via two correlated subqueries against
+   *   command_run_output_chunks per run row. Only consumers that resume output
+   *   polling need these; status-indicator consumers should omit them.
+   */
+  getLatestRunsForSessions(sessionIds, { includeOutputMetadata = false } = {}) {
     if (!sessionIds.length) return [];
     const uniqueSessionIds = [...new Set(sessionIds)];
+    const outputColumns = includeOutputMetadata
+      ? `EXISTS(SELECT 1 FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS has_output,
+            (SELECT COALESCE(MAX(sequence), 0) FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS output_high_water,`
+      : '';
     const rows = [];
 
     for (let start = 0; start < uniqueSessionIds.length; start += SESSION_ID_CHUNK_SIZE) {
@@ -272,8 +284,7 @@ export class CommandRunRepository extends BaseRepository {
       rows.push(...this.db.prepare(
         `SELECT * FROM (
           SELECT cr.id, cr.session_id, cr.button_id, cr.status, cr.exit_code, cr.started_at, cr.completed_at,
-            EXISTS(SELECT 1 FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS has_output,
-            (SELECT COALESCE(MAX(sequence), 0) FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS output_high_water,
+            ${outputColumns}
             ROW_NUMBER() OVER (PARTITION BY cr.session_id, cr.button_id
               ORDER BY COALESCE(cr.completed_at, cr.started_at) DESC, cr.id DESC) AS rn
           FROM command_runs cr WHERE cr.session_id IN (${placeholders})

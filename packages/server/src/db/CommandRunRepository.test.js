@@ -489,6 +489,27 @@ describe('CommandRunRepository', () => {
       expect(prepare.mock.calls.filter(([sql]) => sql.includes('FROM command_runs cr WHERE cr.session_id IN')))
         .toHaveLength(2);
     });
+
+    it('omits output-chunk subqueries by default and includes them on request', () => {
+      repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-1', 0);
+
+      const prepare = vi.spyOn(repository.db, 'prepare');
+      const light = repository.getLatestRunsForSessions([testSessionId]);
+      const lightSql = prepare.mock.calls.map(([sql]) => sql).join(' ');
+      expect(lightSql).not.toContain('command_run_output_chunks');
+      expect(light[0]).toMatchObject({ id: 'run-1', status: 'success', exitCode: 0 });
+      // hasOutput coerces falsy → false when the column is absent; consumers
+      // that resume output polling must opt in to the real value.
+      expect(light[0].hasOutput).toBe(false);
+
+      prepare.mockClear();
+      const full = repository.getLatestRunsForSessions([testSessionId], { includeOutputMetadata: true });
+      const fullSql = prepare.mock.calls.map(([sql]) => sql).join(' ');
+      expect(fullSql).toContain('command_run_output_chunks');
+      expect(full[0]).toMatchObject({ id: 'run-1', status: 'success', exitCode: 0 });
+      expect(full[0].outputHighWater).toBe(0);
+    });
   });
 
   describe('output exclusion in lightweight queries', () => {

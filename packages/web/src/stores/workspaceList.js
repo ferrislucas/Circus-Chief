@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia';
 import { api } from '../composables/useApi.js';
+import { commandRunPatch, summaryPatch, rootStatusPatch } from './workspaceListEvents.js';
+import { queryKey, isAbort } from './workspaceListQuery.js';
 
 export const WORKSPACE_PAGE_SIZE = 25;
 
@@ -16,13 +18,11 @@ function lifecycleFor(store) {
       refreshController: null,
       refreshPromise: null,
       loadMoreController: null,
+      mutationEpoch: 0,
+      trailingMutationRefresh: false,
     });
   }
   return requestLifecycles.get(store);
-}
-
-function queryKey(projectId, query) {
-  return `${projectId}:${JSON.stringify(query)}`;
 }
 
 const fetchPage = (projectId, query, { offset = 0, cursor = null, limit, signal }) => api.getWorkspaceCards(projectId, {
@@ -33,8 +33,29 @@ const fetchPage = (projectId, query, { offset = 0, cursor = null, limit, signal 
   signal,
 });
 
-function isAbort(error) {
-  return error?.name === 'AbortError';
+/**
+ * Rebuild the loaded prefix with cursor pages. Each request stays within the
+ * server cap, while a list deeper than 500 is never replaced with a capped
+ * response.
+ */
+async function fetchLoadedExtent(projectId, query, loadedExtent, controller) {
+  let cursor = null;
+  let remaining = loadedExtent;
+  let result;
+  const pages = [];
+  do {
+    const limit = Math.min(WORKSPACE_SERVER_MAX_LIMIT, remaining);
+    result = await fetchPage(projectId, query, { cursor, limit, signal: controller.signal });
+    pages.push(result);
+    remaining -= result.workspaces?.length || 0;
+    cursor = result.pagination?.nextCursor || null;
+  } while (remaining > 0 && cursor && !controller.signal.aborted);
+  const first = pages[0] || { workspaces: [], pagination: {} };
+  return {
+    ...first,
+    workspaces: pages.flatMap(page => page.workspaces || []),
+    pagination: { ...result?.pagination, offset: 0, nextCursor: cursor },
+  };
 }
 
 function canCommitPage(store, lifecycle, request) {
@@ -92,8 +113,10 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
         ...this.orderedIds,
         ...cards.filter(card => !existingIds.has(card.id)).map(card => card.id),
       ];
-      this.facets = result.facets || { running: 0, idle: 0 };
-      this.total = result.pagination?.total || 0;
+      if (result.workspaces?.length > 0) {
+        this.facets = result.facets || { running: 0, idle: 0 };
+        this.total = result.pagination?.total || 0;
+      }
       this.nextOffset = (result.pagination?.offset || 0) + (result.workspaces?.length || 0);
       this.nextCursor = result.pagination?.nextCursor || null;
       this.hasMore = Boolean(result.pagination?.hasMore);
@@ -129,6 +152,16 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       return this.refresh();
     },
 
+    /**
+     * Record that a mutation committed after a refresh may have started. Any
+     * in-flight refresh response predates the change and must be followed by
+     * one bounded trailing read. Mutation handlers call this right after the
+     * API call resolves; the store handles the rest.
+     */
+    markMutation() {
+      lifecycleFor(this).mutationEpoch += 1;
+    },
+
     async refresh() {
       if (!this.projectId) return;
       const lifecycle = lifecycleFor(this);
@@ -141,34 +174,14 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       lifecycle.refreshController = controller;
       const version = lifecycle.version;
       const contextKey = lifecycle.contextKey;
+      const mutationEpochAtStart = lifecycle.mutationEpoch;
       const projectId = this.projectId;
       const query = { ...this.query };
       const loadedExtent = Math.max(WORKSPACE_PAGE_SIZE, this.orderedIds.length);
       this.loading = this.orderedIds.length === 0;
       this.error = null;
 
-      const promise = (async () => {
-        // Rebuild the loaded prefix with cursor pages.  Each request remains
-        // within the server cap, while a list deeper than 500 is never replaced
-        // with a capped response.
-        let cursor = null;
-        let remaining = loadedExtent;
-        let result;
-        const pages = [];
-        do {
-          const limit = Math.min(WORKSPACE_SERVER_MAX_LIMIT, remaining);
-          result = await fetchPage(projectId, query, { cursor, limit, signal: controller.signal });
-          pages.push(result);
-          remaining -= result.workspaces?.length || 0;
-          cursor = result.pagination?.nextCursor || null;
-        } while (remaining > 0 && cursor && !controller.signal.aborted);
-        const first = pages[0] || { workspaces: [], pagination: {} };
-        return {
-          ...first,
-          workspaces: pages.flatMap(page => page.workspaces || []),
-          pagination: { ...result?.pagination, offset: 0, nextCursor: cursor },
-        };
-      })()
+      const promise = fetchLoadedExtent(projectId, query, loadedExtent, controller)
         .then((result) => {
           if (!controller.signal.aborted
             && lifecycle.version === version
@@ -188,6 +201,25 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
           if (lifecycle.refreshPromise === promise) lifecycle.refreshPromise = null;
           if (lifecycle.refreshController === controller) lifecycle.refreshController = null;
           if (lifecycle.version === version) this.loading = false;
+          // A mutation committed while this request was in flight: its response
+          // predates the change. One bounded trailing read closes the race
+          // without issuing a request per event.
+          if (!controller.signal.aborted
+            && lifecycle.version === version
+            && lifecycle.mutationEpoch !== mutationEpochAtStart) {
+            lifecycle.trailingMutationRefresh = true;
+          }
+          if (lifecycle.trailingMutationRefresh
+            && !lifecycle.refreshPromise
+            && !controller.signal.aborted
+            && lifecycle.version === version) {
+            lifecycle.trailingMutationRefresh = false;
+            // Defer so callers awaiting `refresh()` see completion first and
+            // any synchronous re-entrancy has settled.
+            Promise.resolve().then(() => {
+              if (lifecycle.version === version && !lifecycle.refreshPromise) this.refresh();
+            });
+          }
         });
       lifecycle.refreshPromise = promise;
       return promise;
@@ -230,6 +262,32 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
     patchCard(cardId, patch) {
       if (!this.cardsById[cardId]) return;
       this.cardsById[cardId] = { ...this.cardsById[cardId], ...patch };
+    },
+
+    /** Owning card for a member session id, or null when not loaded. */
+    cardForSession(sessionId) {
+      for (const card of Object.values(this.cardsById)) {
+        if (card.memberIds?.includes(sessionId)) return card;
+      }
+      return null;
+    },
+
+    applyCommandRunEvent(event) {
+      return this._applyPatch(commandRunPatch(this.cardsById, event));
+    },
+
+    applySummaryEvent(sessionId, summary) {
+      return this._applyPatch(summaryPatch(this.cardsById, sessionId, summary));
+    },
+
+    applySessionStatus(sessionId, status) {
+      return this._applyPatch(rootStatusPatch(this.cardsById, sessionId, status));
+    },
+
+    _applyPatch(next) {
+      if (!next?.cardId) return null;
+      this.patchCard(next.cardId, next.patch);
+      return next.cardId;
     },
 
     applyOptimisticStar(cardId, starred) {

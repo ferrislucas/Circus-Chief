@@ -30,6 +30,7 @@ import {
   CreateWorkspaceSessionRequest,
 } from '@circuschief/shared/contracts/workspaces';
 import { hasPendingPrompt } from '../services/promptStore.js';
+import { isValidWorkspaceCardCursor } from '../db/workspace-queries.js';
 
 const withPendingAgentInput = (session) => ({ ...session, pendingAgentInput: hasPendingPrompt(session.id) });
 
@@ -47,11 +48,8 @@ function sendWorkspaceJson(res, payload, startedAt) {
   const body = JSON.stringify(payload);
   const serializationMs = performance.now() - serializeStartedAt;
   const totalMs = performance.now() - startedAt;
+  res.append('Access-Control-Expose-Headers', 'Server-Timing, X-Response-Bytes');
   res.set({
-    // The web app may be served from a different origin in development. Expose
-    // these otherwise non-safelisted metrics so callers can consume them, not
-    // merely inspect them in the browser's network panel.
-    'Access-Control-Expose-Headers': 'Server-Timing, X-Response-Bytes',
     'Server-Timing': `workspace;dur=${totalMs.toFixed(1)}, serialize;dur=${serializationMs.toFixed(1)}`,
     'X-Response-Bytes': String(Buffer.byteLength(body)),
   });
@@ -149,23 +147,20 @@ function hasValidWorkspaceCardFilters(status, scheduled) {
     && ['true', 'false', undefined].includes(scheduled);
 }
 
-function hasValidWorkspaceCardCursor(cursor) {
-  return cursor === undefined || (typeof cursor === 'string' && cursor.length <= 512);
-}
-
 function hasValidWorkspaceCardPagination(limit, offset) {
   return Number.isInteger(limit) && limit >= 1 && limit <= 500
     && Number.isInteger(offset) && offset >= 0;
 }
 
 function parseWorkspaceCardOptions({ archived, starred, limit, offset, cursor, status, scheduled }) {
-  const parsedLimit = Number.parseInt(limit, 10);
-  const parsedOffset = offset === undefined ? 0 : Number.parseInt(offset, 10);
+  const isNonNegativeInt = value => typeof value === 'string' && /^\d+$/.test(value);
+  const parsedLimit = isNonNegativeInt(limit) ? Number(limit) : Number.NaN;
+  const parsedOffset = offset === undefined ? 0 : isNonNegativeInt(offset) ? Number(offset) : Number.NaN;
   const valid = hasValidWorkspaceCardPagination(parsedLimit, parsedOffset)
     && ['true', 'false', undefined].includes(archived)
     && ['true', 'false', undefined].includes(starred)
     && hasValidWorkspaceCardFilters(status, scheduled)
-    && hasValidWorkspaceCardCursor(cursor);
+    && isValidWorkspaceCardCursor(cursor);
   if (!valid) return null;
   return {
     archived: archived === 'true',
@@ -210,7 +205,9 @@ function sendWorkspaceCards(res, projectId, query, startedAt) {
   const memberIds = [...new Set(cards.flatMap(card => card.memberIds))];
   const memberIdSet = new Set(memberIds);
   const runsBySession = buildRunsBySession(
-    commandRuns.getLatestRunsForSessions(memberIds),
+    // The list resumes output polling from a card run, so it needs the
+    // output-chunk metadata the board broadcast deliberately omits.
+    commandRuns.getLatestRunsForSessions(memberIds, { includeOutputMetadata: true }),
     commandRunner.getRunningByProjectId(projectId, (sessionId) => sessions.getById(sessionId))
       .filter(run => memberIdSet.has(run.sessionId))
   );
@@ -218,6 +215,10 @@ function sendWorkspaceCards(res, projectId, query, startedAt) {
     const { memberIds: cardMemberIds, ...publicCard } = card;
     return {
       ...publicCard,
+      // memberIds lets the client resolve a member session's realtime events
+      // (command runs, summaries) to the owning card so they can be patched
+      // locally instead of triggering a full list refresh.
+      memberIds: cardMemberIds,
       pendingAgentInput: cardMemberIds.some(hasPendingPrompt),
       latestCommandRuns: workspaceCommandRuns(card, runsBySession),
     };

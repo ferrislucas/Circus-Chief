@@ -1,27 +1,56 @@
-import { describe, expect, it, vi } from 'vitest';
-import { getWorkspaceCards, getWorkspaceCardPage } from './workspace-queries.js';
+import { describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
+import { readFileSync } from 'node:fs';
+import { getWorkspaceCardPage } from './workspace-queries.js';
 
-describe('getWorkspaceCards', () => {
-  it('guards aggregate traversal against revisiting an ancestor', () => {
-    const all = vi.fn().mockReturnValue([]);
-    const db = { prepare: vi.fn().mockReturnValue({ all }) };
+function withDb(fn) {
+  const db = new Database(':memory:');
+  db.exec(readFileSync(new URL('../schema.sql', import.meta.url), 'utf-8'));
+  try {
+    db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+      .run('project', 'Project', '/tmp', 1, 1);
+    return fn(db);
+  } finally {
+    db.close();
+  }
+}
 
-    getWorkspaceCards(db, 'project-id');
+function addSession(db, id, options = {}) {
+  const { parentId = null, status = 'stopped', starred = 0, activity = null, createdAt = 1 } = options;
+  db.prepare(`INSERT INTO sessions
+    (id, project_id, name, parent_session_id, status, starred, last_activity_at, created_at, updated_at)
+    VALUES (?, 'project', ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, id, parentId, status, starred, activity, createdAt, createdAt);
+}
 
-    const [sql] = db.prepare.mock.calls[0];
-    expect(sql).toContain('tree(root_id, id, project_id, path)');
-    expect(sql).toContain("'/' || id || '/'");
-    expect(sql).toContain("instr(tree.path, '/' || s.id || '/') = 0");
-  });
+describe('getWorkspaceCardPage', () => {
+  it('terminates a malformed cycle and aggregates deep descendants behaviorally', () => withDb((db) => {
+    addSession(db, 'root');
+    addSession(db, 'child', { parentId: 'root' });
+    addSession(db, 'grandchild', { parentId: 'child', status: 'running' });
+    // Bypass the immutability trigger to emulate corrupt historical data.
+    db.exec('DROP TRIGGER IF EXISTS trg_sessions_parent_session_id_immutable');
+    db.prepare('UPDATE sessions SET parent_session_id = ? WHERE id = ?').run('grandchild', 'root');
+    // Restore a root so the traversal has a visible workspace entry point.
+    db.prepare('UPDATE sessions SET parent_session_id = NULL WHERE id = ?').run('root');
 
-  it('computes the page and status facets in one recursive aggregate statement', () => {
-    const all = vi.fn().mockReturnValue([]);
-    const db = { prepare: vi.fn().mockReturnValue({ all }) };
+    const page = getWorkspaceCardPage(db, 'project', { limit: 10 });
+    expect(page.cards).toHaveLength(1);
+    expect(page.cards[0]).toMatchObject({
+      id: 'root', status: 'stopped', runningCount: 1, descendantCount: 2,
+    });
+    expect(page.cards[0].memberIds).toEqual(expect.arrayContaining(['root', 'child', 'grandchild']));
+    expect(page.cards[0].runningSessionIds).toEqual(['grandchild']);
+  }));
 
-    getWorkspaceCardPage(db, 'project-id', { limit: 25 });
+  it('keeps authoritative facets for offset and cursor pages beyond the end', () => withDb((db) => {
+    addSession(db, 'running', { status: 'running', activity: 30, createdAt: 30 });
+    addSession(db, 'idle', { activity: 20, createdAt: 20 });
+    const first = getWorkspaceCardPage(db, 'project', { limit: 1 });
+    const offsetPastEnd = getWorkspaceCardPage(db, 'project', { limit: 1, offset: 5 });
+    const cursorPastEnd = getWorkspaceCardPage(db, 'project', { limit: 1, cursor: first.nextCursor });
 
-    expect(db.prepare).toHaveBeenCalledTimes(1);
-    expect(db.prepare.mock.calls[0][0]).toContain('WITH RECURSIVE tree');
-    expect(db.prepare.mock.calls[0][0]).toContain('facet_counts AS');
-  });
+    expect(offsetPastEnd).toMatchObject({ cards: [], facets: { running: 1, idle: 1 } });
+    expect(cursorPastEnd.facets).toEqual({ running: 1, idle: 1 });
+  }));
 });

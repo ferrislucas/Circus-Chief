@@ -229,6 +229,16 @@ describe('workspace list request lifecycle', () => {
     expect(store.orderedIds).toContain('next-card');
   });
 
+  it('preserves existing counts when an appended page becomes empty', async () => {
+    const store = useWorkspaceListStore();
+    store._resetContext('project-a', {});
+    store._replace(response([{ id: 'card' }], { total: 4, facets: { running: 1, idle: 3 }, hasMore: true }));
+    store._append(response([], { total: 0, facets: { running: 0, idle: 0 } }));
+
+    expect(store.facets).toEqual({ running: 1, idle: 3 });
+    expect(store.total).toBe(4);
+  });
+
   it('optimistically reorders stars and removes cards that no longer match a filter', async () => {
     const store = useWorkspaceListStore();
     store._resetContext('project-a', {});
@@ -286,5 +296,179 @@ describe('workspace list request lifecycle', () => {
     }));
     expect(store.cards).toHaveLength(WORKSPACE_PAGE_SIZE * 2);
     expect(store.hasMore).toBe(true);
+  });
+});
+
+describe('workspace list realtime patching', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+  });
+
+  async function loadedStore() {
+    api.getWorkspaceCards.mockResolvedValue(response([
+      { id: 'root-1', memberIds: ['root-1', 'child-1'], latestCommandRuns: [] },
+    ]));
+    const store = useWorkspaceListStore();
+    await store.load('project-a', {});
+    return store;
+  }
+
+  it('resolves a member session id to its owning card', async () => {
+    const store = await loadedStore();
+    expect(store.cardForSession('child-1')?.id).toBe('root-1');
+    expect(store.cardForSession('unknown')).toBeNull();
+  });
+
+  it('patches a command-run event into the owning card without a request', async () => {
+    const store = await loadedStore();
+    api.getWorkspaceCards.mockClear();
+    const patched = store.applyCommandRunEvent({
+      sessionId: 'child-1', buttonId: 'build', runId: 'run-1', status: 'running', startedAt: 5,
+    });
+    expect(patched).toBe('root-1');
+    const card = store.cardsById['root-1'];
+    expect(card.latestCommandRuns).toEqual([{
+      buttonId: 'build', status: 'running', exitCode: null, runId: 'run-1', startedAt: 5,
+    }]);
+    expect(api.getWorkspaceCards).not.toHaveBeenCalled();
+  });
+
+  it('replaces the previous run for the same button with server precedence', async () => {
+    const store = await loadedStore();
+    // finished run displaced by a newer finished run (recency)
+    store.applyCommandRunEvent({
+      sessionId: 'root-1', buttonId: 'build', runId: 'run-1', status: 'completed', exitCode: 1, startedAt: 1, completedAt: 2,
+    });
+    store.applyCommandRunEvent({
+      sessionId: 'root-1', buttonId: 'build', runId: 'run-2', status: 'completed', exitCode: 0, startedAt: 6, completedAt: 9,
+    });
+    let card = store.cardsById['root-1'];
+    expect(card.latestCommandRuns).toHaveLength(1);
+    expect(card.latestCommandRuns[0]).toMatchObject({ runId: 'run-2', status: 'completed', exitCode: 0 });
+
+    // a running run displaces any finished one regardless of recency
+    store.applyCommandRunEvent({
+      sessionId: 'root-1', buttonId: 'build', runId: 'run-3', status: 'running', startedAt: 10,
+    });
+    card = store.cardsById['root-1'];
+    expect(card.latestCommandRuns).toHaveLength(1);
+    expect(card.latestCommandRuns[0]).toMatchObject({ runId: 'run-3', status: 'running' });
+  });
+
+  it('advances a run through its own lifecycle via runId replacement', async () => {
+    const store = await loadedStore();
+    // The real wire sequence for one run: started → complete with the same runId.
+    store.applyCommandRunEvent({
+      sessionId: 'root-1', buttonId: 'build', runId: 'run-9', status: 'running', startedAt: 5,
+    });
+    store.applyCommandRunEvent({
+      sessionId: 'root-1', buttonId: 'build', runId: 'run-9', status: 'completed', exitCode: 0, startedAt: 5, completedAt: 9,
+    });
+    const card = store.cardsById['root-1'];
+    expect(card.latestCommandRuns).toHaveLength(1);
+    expect(card.latestCommandRuns[0]).toMatchObject({ runId: 'run-9', status: 'completed', exitCode: 0 });
+  });
+
+  it('keeps a running run over an unrelated finished event for the same button', async () => {
+    const store = await loadedStore();
+    store.applyCommandRunEvent({
+      sessionId: 'root-1', buttonId: 'build', runId: 'run-1', status: 'running', startedAt: 5,
+    });
+    // A completed event for a different, older run must not displace the live
+    // one — mirrors buildRunsBySession, where a live process beats a DB row.
+    store.applyCommandRunEvent({
+      sessionId: 'root-1', buttonId: 'build', runId: 'run-0', status: 'completed', exitCode: 0, startedAt: 1, completedAt: 2,
+    });
+    const card = store.cardsById['root-1'];
+    expect(card.latestCommandRuns).toHaveLength(1);
+    expect(card.latestCommandRuns[0]).toMatchObject({ runId: 'run-1', status: 'running' });
+  });
+
+  it('returns null for an unknown session so the caller can fall back to a refresh', async () => {
+    const store = await loadedStore();
+    expect(store.applyCommandRunEvent({ sessionId: 'unknown', buttonId: 'build', runId: 'r', status: 'running' }))
+      .toBeNull();
+    expect(store.applySummaryEvent('unknown', {})).toBeNull();
+    expect(store.applySessionStatus('unknown', 'stopped')).toBeNull();
+  });
+
+  it('patches summary fields from a summary event', async () => {
+    const store = await loadedStore();
+    const patched = store.applySummaryEvent('child-1', {
+      shortSummary: 'Did things', prState: 'open', ciStatus: 'passing', hasMergeConflicts: false,
+    });
+    expect(patched).toBe('root-1');
+    const card = store.cardsById['root-1'];
+    expect(card.summaryPreview).toBe('Did things');
+    expect(card.prState).toBe('open');
+    expect(card.ciStatus).toBe('passing');
+    expect(card.hasMergeConflicts).toBe(false);
+  });
+
+  it('patches root status only; descendant status falls back to refresh', async () => {
+    const store = await loadedStore();
+    expect(store.applySessionStatus('root-1', 'completed')).toBe('root-1');
+    expect(store.cardsById['root-1'].status).toBe('completed');
+    expect(store.applySessionStatus('child-1', 'running')).toBeNull();
+  });
+});
+
+describe('workspace list mutation epoch', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+  });
+
+  it('runs one trailing refresh when a mutation lands during an in-flight refresh', async () => {
+    const pending = deferred();
+    api.getWorkspaceCards
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce(response([{ id: 'fresh' }]));
+    const store = useWorkspaceListStore();
+    store._resetContext('project-a', {});
+
+    const first = store.refresh();
+    store.markMutation(); // star committed while the first request was in flight
+    pending.resolve(response([{ id: 'stale' }]));
+    await first;
+
+    // The trailing read is scheduled as a microtask after the first completes.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await Promise.resolve();
+
+    expect(api.getWorkspaceCards).toHaveBeenCalledTimes(2);
+    expect(store.cards).toEqual([{ id: 'fresh' }]);
+  });
+
+  it('does not schedule a trailing refresh when no mutation raced the request', async () => {
+    api.getWorkspaceCards.mockResolvedValue(response([{ id: 'card' }]));
+    const store = useWorkspaceListStore();
+    store._resetContext('project-a', {});
+
+    await store.refresh();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await Promise.resolve();
+
+    expect(api.getWorkspaceCards).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not schedule a trailing refresh after the context changed', async () => {
+    const pending = deferred();
+    api.getWorkspaceCards
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue(response([{ id: 'next' }]));
+    const store = useWorkspaceListStore();
+    store._resetContext('project-a', {});
+
+    const first = store.refresh();
+    store.markMutation();
+    store._resetContext('project-b', {}); // filter change supersedes the trailing read
+    pending.resolve(response([{ id: 'stale' }]));
+    await first;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await Promise.resolve();
+
+    expect(api.getWorkspaceCards).toHaveBeenCalledTimes(1);
   });
 });

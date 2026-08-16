@@ -137,8 +137,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- Denormalized "last time anything happened in this session" (message sent,
   -- command run started/completed, summary generated/updated). Maintained by
   -- the trg_sessions_activity_on_* triggers below so the workspace-card list
-  -- query can sort/filter on it as a plain column instead of a per-request
-  -- correlated subquery. See migrations/miscMigrations.js:workspace-list-activity-column.
+  -- query can read it as a plain column instead of a per-request correlated
+  -- subquery. It is deliberately not indexed: current readers aggregate or
+  -- COALESCE the value across every workspace tree.
   last_activity_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
@@ -355,17 +356,17 @@ END;
 CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_summary_insert
 AFTER INSERT ON session_summaries
 BEGIN
-  UPDATE sessions SET last_activity_at = max(NEW.generated_at, NEW.updated_at)
+  UPDATE sessions SET last_activity_at = max(COALESCE(NEW.generated_at, 0), COALESCE(NEW.updated_at, 0))
   WHERE id = NEW.session_id
-    AND (last_activity_at IS NULL OR last_activity_at < max(NEW.generated_at, NEW.updated_at));
+    AND (last_activity_at IS NULL OR last_activity_at < max(COALESCE(NEW.generated_at, 0), COALESCE(NEW.updated_at, 0)));
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_summary_update
 AFTER UPDATE OF generated_at, updated_at ON session_summaries
 BEGIN
-  UPDATE sessions SET last_activity_at = max(NEW.generated_at, NEW.updated_at)
+  UPDATE sessions SET last_activity_at = max(COALESCE(NEW.generated_at, 0), COALESCE(NEW.updated_at, 0))
   WHERE id = NEW.session_id
-    AND (last_activity_at IS NULL OR last_activity_at < max(NEW.generated_at, NEW.updated_at));
+    AND (last_activity_at IS NULL OR last_activity_at < max(COALESCE(NEW.generated_at, 0), COALESCE(NEW.updated_at, 0)));
 END;
 
 -- Command output is deliberately kept out of command_runs.  Updating a large

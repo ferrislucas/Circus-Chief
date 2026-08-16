@@ -17,6 +17,9 @@ function buildBoardRunsBySession(projectId, cards) {
   if (!sessionIds.length) return {};
   const sessionIdSet = new Set(sessionIds);
   return buildRunsBySession(
+    // Board indicators render only status/exitCode/buttonId. Output-resume
+    // metadata costs two correlated subqueries per run row on every board
+    // broadcast, so the board deliberately omits it.
     commandRuns.getLatestRunsForSessions(sessionIds),
     commandRunner.getRunningByProjectId(projectId, sessionId => sessions.getById(sessionId))
       .filter(run => sessionIdSet.has(run.sessionId))

@@ -223,6 +223,7 @@ describe('WorkspaceCardListResponse', () => {
       lastActivityAt: 3,
       runningCount: 1,
       runningSessionIds: [WORKSPACE_ID],
+      memberIds: [WORKSPACE_ID],
       scheduledCount: 0,
       waitingCount: 0,
       descendantCount: 0,

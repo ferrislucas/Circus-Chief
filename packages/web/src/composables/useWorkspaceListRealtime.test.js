@@ -14,8 +14,8 @@ function createSubscription(projectId) {
   const subscription = {
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
-    emit(name) {
-      handlers[name]?.callback();
+    emit(name, ...args) {
+      handlers[name]?.callback(...args);
     },
   };
   for (const name of [
@@ -26,7 +26,10 @@ function createSubscription(projectId) {
     'onKanbanCardAdded', 'onKanbanCardRemoved',
   ]) {
     subscription[name] = vi.fn((callback) => {
-      const registration = { active: true, callback: () => registration.active && callback() };
+      const registration = {
+        active: true,
+        callback: (...args) => registration.active && callback(...args),
+      };
       handlers[name] = registration;
       return vi.fn(() => { registration.active = false; });
     });
@@ -51,10 +54,10 @@ function deferred() {
   return { promise, resolve };
 }
 
-function mountRealtime(projectId, refresh, isRefreshInFlight) {
+function mountRealtime(projectId, refresh, isRefreshInFlight, patchEvent) {
   return mount(defineComponent({
     setup() {
-      useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight);
+      useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight, patchEvent);
     },
     template: '<div />',
   }));
@@ -71,18 +74,67 @@ describe('useWorkspaceListRealtime', () => {
     vi.useRealTimers();
   });
 
-  it('coalesces a burst of relevant events into one refresh', async () => {
+  it('coalesces a burst of membership events into one refresh', async () => {
     const refresh = vi.fn().mockResolvedValue(undefined);
     const wrapper = mountRealtime(ref('project-a'), refresh);
     const subscription = subscriptions.get('project-a');
 
     subscription.emit('onSessionUpdated');
-    subscription.emit('onSessionSummaryUpdated');
-    subscription.emit('onCommandRunComplete');
+    subscription.emit('onSessionDeleted');
     await vi.advanceTimersByTimeAsync(WORKSPACE_LIST_REFRESH_DELAY_MS);
 
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(refresh).toHaveBeenCalledWith('project-a');
+    wrapper.unmount();
+  });
+
+  it('patches command-run events locally without issuing a list request', async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const patchEvent = vi.fn(() => 'card-1');
+    const wrapper = mountRealtime(ref('project-a'), refresh, undefined, patchEvent);
+    const subscription = subscriptions.get('project-a');
+
+    subscription.emit('onCommandRunStarted', 'run-1', 'session-1', 'build');
+    subscription.emit('onCommandRunComplete', {
+      runId: 'run-1', sessionId: 'session-1', buttonId: 'build', exitCode: 0, status: 'completed',
+    });
+    subscription.emit('onCommandRunError', 'run-2', 'session-1', 'build', 'boom');
+    subscription.emit('onCommandRunKilled', { runId: 'run-3', sessionId: 'session-1', buttonId: 'build' });
+    subscription.emit('onCommandRunDeleted', 'run-4', 'session-1', 'build');
+    await vi.advanceTimersByTimeAsync(WORKSPACE_LIST_REFRESH_DELAY_MS * 4);
+
+    expect(patchEvent).toHaveBeenCalledTimes(5);
+    expect(refresh).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('patches summary events locally without issuing a list request', async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const patchEvent = vi.fn(() => 'card-1');
+    const wrapper = mountRealtime(ref('project-a'), refresh, undefined, patchEvent);
+    const subscription = subscriptions.get('project-a');
+
+    subscription.emit('onSessionSummaryUpdated');
+    await vi.advanceTimersByTimeAsync(WORKSPACE_LIST_REFRESH_DELAY_MS * 4);
+
+    expect(patchEvent).toHaveBeenCalledTimes(1);
+    expect(refresh).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('falls back to a debounced refresh when a patched session is unknown', async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const patchEvent = vi.fn(() => null);
+    const wrapper = mountRealtime(ref('project-a'), refresh, undefined, patchEvent);
+    const subscription = subscriptions.get('project-a');
+
+    subscription.emit('onCommandRunComplete', {
+      runId: 'run-1', sessionId: 'session-9', buttonId: 'build', exitCode: 0, status: 'completed',
+    });
+    await vi.advanceTimersByTimeAsync(WORKSPACE_LIST_REFRESH_DELAY_MS);
+
+    expect(patchEvent).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });
 

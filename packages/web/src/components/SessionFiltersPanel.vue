@@ -80,7 +80,7 @@
 </template>
 
 <script setup>
-import { computed, unref } from 'vue';
+import { computed } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useSessionFiltering } from '../composables/useSessionFiltering.js';
 
@@ -110,10 +110,10 @@ const {
   starFilterTooltip,
   toggleScheduledFilterIcon,
   scheduledFilterTooltip,
-  statusFilterCounts: legacyStatusFilterCounts,
 } = useSessionFiltering();
 
-const statusFilterCounts = computed(() => props.statusCounts || unref(legacyStatusFilterCounts));
+// Authoritative facets come from the workspace-card list response.
+const statusFilterCounts = computed(() => props.statusCounts || { running: 0, idle: 0 });
 </script>
 
 <style scoped>

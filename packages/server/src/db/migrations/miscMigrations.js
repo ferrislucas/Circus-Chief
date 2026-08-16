@@ -4,6 +4,7 @@
  * Each export is an array of { name, up(db) } migration objects.
  */
 import { addColumnIfMissing, getColumns, tableExists } from './migrationUtils.js';
+import { ACTIVITY_TRIGGER_CREATE_DDL } from './activityTriggers.js';
 
 /**
  * Prompt strings for the default global session templates.
@@ -74,7 +75,7 @@ export const miscMigrations = [
   //
   // Instead, maintain `sessions.last_activity_at` as a denormalized column,
   // written once per activity event (by trigger, not by application code, so
-  // no write path can forget it) and read as a plain indexed column by the
+  // no write path can forget it) and read as a plain column by the
   // aggregate query. The workspace list then only pays for MAX() over the
   // already-scanned tree rows, not an additional per-row fan-out.
   {
@@ -82,13 +83,11 @@ export const miscMigrations = [
     up(db) {
       addColumnIfMissing(db, 'sessions', 'last_activity_at', 'INTEGER');
 
-      // One-time backfill for existing rows. Runs once at migration time
-      // (not per request), so the per-session correlated lookups here are
-      // acceptable even though the same shape would be too slow as a
-      // request-time query.
+      // Give activity-free rows their creation time, so this expensive
+      // backfill retires every row after its first run.
       db.exec(`
         UPDATE sessions
-        SET last_activity_at = (
+        SET last_activity_at = COALESCE((
           SELECT MAX(activity_at) FROM (
             SELECT MAX(timestamp) AS activity_at FROM conversation_messages WHERE session_id = sessions.id
             UNION ALL
@@ -100,60 +99,11 @@ export const miscMigrations = [
             UNION ALL
             SELECT MAX(started_at) FROM command_runs WHERE session_id = sessions.id
           )
-        )
+        ), created_at)
         WHERE last_activity_at IS NULL
       `);
 
-      db.exec(`
-        CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_message
-        AFTER INSERT ON conversation_messages
-        BEGIN
-          UPDATE sessions SET last_activity_at = NEW.timestamp
-          WHERE id = NEW.session_id
-            AND (last_activity_at IS NULL OR last_activity_at < NEW.timestamp);
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_message_update
-        AFTER UPDATE OF timestamp ON conversation_messages
-        BEGIN
-          UPDATE sessions SET last_activity_at = NEW.timestamp
-          WHERE id = NEW.session_id
-            AND (last_activity_at IS NULL OR last_activity_at < NEW.timestamp);
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_command_run_insert
-        AFTER INSERT ON command_runs
-        BEGIN
-          UPDATE sessions SET last_activity_at = COALESCE(NEW.completed_at, NEW.started_at)
-          WHERE id = NEW.session_id
-            AND (last_activity_at IS NULL OR last_activity_at < COALESCE(NEW.completed_at, NEW.started_at));
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_command_run_complete
-        AFTER UPDATE OF completed_at ON command_runs
-        WHEN NEW.completed_at IS NOT NULL
-        BEGIN
-          UPDATE sessions SET last_activity_at = NEW.completed_at
-          WHERE id = NEW.session_id
-            AND (last_activity_at IS NULL OR last_activity_at < NEW.completed_at);
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_summary_insert
-        AFTER INSERT ON session_summaries
-        BEGIN
-          UPDATE sessions SET last_activity_at = max(NEW.generated_at, NEW.updated_at)
-          WHERE id = NEW.session_id
-            AND (last_activity_at IS NULL OR last_activity_at < max(NEW.generated_at, NEW.updated_at));
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_summary_update
-        AFTER UPDATE OF generated_at, updated_at ON session_summaries
-        BEGIN
-          UPDATE sessions SET last_activity_at = max(NEW.generated_at, NEW.updated_at)
-          WHERE id = NEW.session_id
-            AND (last_activity_at IS NULL OR last_activity_at < max(NEW.generated_at, NEW.updated_at));
-        END;
-      `);
+      db.exec(`${ACTIVITY_TRIGGER_CREATE_DDL.join(';\n')};`);
     },
   },
 

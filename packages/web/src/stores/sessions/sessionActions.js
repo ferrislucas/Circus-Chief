@@ -153,11 +153,21 @@ export const sessionActions = {
    * chain to a single entry; it must not block the detail view from loading.
    */
   async fetchWorkspaceTree(sessionId) {
-    const detail = await api.getWorkspaceDetail(sessionId);
-    if (!detail) return;
-    const { sessions: descendants, ...root } = detail;
-    for (const row of [root, ...(descendants || [])]) {
-      updateSessionInList(this.sessions, row, true);
+    const controllers = getSessionFetchControllers(this);
+    const controllerKey = `workspace:${sessionId}`;
+    controllers.get(controllerKey)?.abort();
+    const controller = new AbortController();
+    controllers.set(controllerKey, controller);
+    try {
+      const detail = await api.getWorkspaceDetail(sessionId, { signal: controller.signal });
+      if (controller.signal.aborted || (this.viewedSessionId && this.viewedSessionId !== sessionId)) return;
+      if (!detail) return;
+      const { sessions: descendants, ...root } = detail;
+      for (const row of [root, ...(descendants || [])]) {
+        updateSessionInList(this.sessions, row, true);
+      }
+    } finally {
+      if (controllers.get(controllerKey) === controller) controllers.delete(controllerKey);
     }
   },
 

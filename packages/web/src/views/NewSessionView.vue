@@ -324,8 +324,10 @@ const workingDirectory = computed(() => {
   return project?.workingDirectory || null;
 });
 
-// This picker needs only project-root sessions. Keep its hydration local so
-// opening the form does not repopulate the shared project-wide session store.
+// This picker lists completed root workspaces to continue from. It reads the
+// compact workspace-card endpoint (root-only, unarchived, paginated) rather
+// than the legacy full session list, and keeps its hydration local so opening
+// the form does not repopulate the shared project-wide session store.
 const parentWorkspaceSessions = ref([]);
 const availableSessions = computed(() => parentWorkspaceSessions.value
     .filter((s) => s.status === 'completed')
@@ -401,9 +403,10 @@ onMounted(async () => {
   restoreDraftFromStorage(textareaRef);
 
   try {
-    parentWorkspaceSessions.value = await api.getProjectSessions(projectId, null, null);
+    const result = await api.getWorkspaceCards(projectId, { limit: 200 });
+    parentWorkspaceSessions.value = result.workspaces || [];
   } catch {
-    // The parent picker is optional; leave it hidden when its small lookup fails.
+    // The parent picker is optional; leave it hidden when its lookup fails.
     parentWorkspaceSessions.value = [];
   }
 

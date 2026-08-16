@@ -197,9 +197,6 @@
         v-if="showSummary"
         :session-id="session.id"
         :summary="summary"
-        :summary-loading="summaryLoading"
-        :summary-error="summaryError"
-        @retry-summary="$emit('retrySummary', session.id)"
       />
 
       <!-- Streaming log output for running sessions (root or children) -->
@@ -259,7 +256,7 @@ const selectedButtonForModal = ref(null);
 const showMoveCardModal = ref(false);
 const cardElement = ref(null);
 const { isVisible } = useElementVisibility(cardElement);
-const emit = defineEmits(['archive', 'unarchive', 'star', 'addToBoard', 'retrySummary', 'visibility-change']);
+const emit = defineEmits(['archive', 'unarchive', 'star', 'addToBoard', 'visibility-change']);
 
 const props = defineProps({
   session: {
@@ -277,14 +274,6 @@ const props = defineProps({
   summary: {
     type: Object,
     default: null,
-  },
-  summaryLoading: {
-    type: Boolean,
-    default: false,
-  },
-  summaryError: {
-    type: Boolean,
-    default: false,
   },
   isChild: {
     type: Boolean,

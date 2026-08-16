@@ -142,8 +142,8 @@ const filteredSessions = computed(() => {
      !kanbanStore.isSessionOnBoard(s.id)
   );
 
-  // Filter to only root sessions (no parent)
-  sessions = sessions.filter((s) => !s.parentSessionId);
+  // The card read model returns root workspaces only, so no parent filter is
+  // needed here.
 
   // Apply search filter
   if (searchQuery.value.trim()) {
@@ -208,9 +208,10 @@ async function loadSessions() {
 
   loading.value = true;
   try {
-    // Fetch active sessions for this project
-    const sessions = await api.getProjectSessions(props.projectId, false, null);
-    availableSessions.value = Array.isArray(sessions) ? sessions : sessions?.sessions || [];
+    // Root workspaces only, unarchived, via the compact card read model — the
+    // legacy session list returns every descendant session in the project.
+    const result = await api.getWorkspaceCards(props.projectId, { limit: 200 });
+    availableSessions.value = result.workspaces || [];
   } catch (err) {
     console.error('Failed to load workspaces:', err);
     uiStore.error('Failed to load workspaces');

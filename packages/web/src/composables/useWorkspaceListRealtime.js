@@ -6,29 +6,50 @@ import { useProjectSubscription, useWebSocket } from './useWebSocket.js';
 // emitted while multiple sessions are active.
 export const WORKSPACE_LIST_REFRESH_DELAY_MS = 1_000;
 
-const REFRESH_EVENTS = [
-  'onSessionCreated',
-  'onSessionUpdated',
-  'onSessionDeleted',
-  'onSessionSummaryUpdated',
+// Events whose payload fully describes the change for a single card. They are
+// patched into the owning card locally and never trigger a list request.
+const PATCH_EVENTS = [
   'onSessionStatus',
   'onCommandRunStarted',
   'onCommandRunComplete',
   'onCommandRunError',
   'onCommandRunKilled',
   'onCommandRunDeleted',
+  'onSessionSummaryUpdated',
+];
+
+// Events that can change membership or ordering of the list (creation,
+// deletion, archive/star, activity promotion). The authoritative read model is
+// re-fetched, coalesced behind the debounce.
+const REFRESH_EVENTS = [
+  'onSessionCreated',
+  'onSessionUpdated',
+  'onSessionDeleted',
   'onKanbanBoardUpdated',
   'onKanbanCardMoved',
   'onKanbanCardAdded',
   'onKanbanCardRemoved',
 ];
 
+const KILLED_STATUS = { status: 'killed' };
+
 /**
  * Project-scoped invalidation for the short-term workspace list read model.
- * Events refresh the loaded list extent; they never patch the legacy session
- * collection or compete with the workspace-card response.
+ *
+ * Single-card events (command runs, summaries) are patched into the owning
+ * card via `patchEvent` and issue zero list requests. Events that can change
+ * membership or ordering trigger a debounced refresh. The composable never
+ * touches the legacy session collection or the workspace-card response shape.
+ *
+ * @param {import('vue').Ref<string|null>} projectId
+ * @param {(projectId: string) => Promise} refresh - debounced full refresh
+ * @param {() => boolean} [isRefreshInFlight] - retained for API compatibility;
+ *   the store's mutation epoch now owns staleness detection
+ * @param {(event: {kind: string, sessionId?: string, [key: string]: any}) => string|null} [patchEvent]
+ *   Applies a single-card event to its owning card; returns the patched card id
+ *   or null when the session is unknown (caller should fall back to a refresh).
  */
-export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight = () => false) {
+export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight = () => false, patchEvent) {
   let timer = null;
   let cleanupCurrentProject = () => {};
   let inFlightGeneration = null;
@@ -45,6 +66,15 @@ export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight =
     if (disposed || expectedGeneration !== generation || !projectId.value) return;
     clearRefreshTimer();
     timer = setTimeout(() => runRefresh(expectedGeneration), WORKSPACE_LIST_REFRESH_DELAY_MS);
+  }
+
+  function handlePatchEvent(kind, payload) {
+    if (disposed) return;
+    const applied = patchEvent?.({ kind, ...payload });
+    // Unknown session (not in the loaded list, or a descendant without a
+    // patchable root field): fall back to a debounced refresh so the card
+    // still converges without issuing a request per event.
+    if (applied === null || applied === undefined) scheduleRefresh();
   }
 
   async function runRefresh(expectedGeneration) {
@@ -68,7 +98,8 @@ export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight =
         inFlightGeneration = null;
         // If the event joined a request that started before the event, its
         // response may not contain the mutation. One bounded trailing read
-        // closes that race without issuing a request per event.
+        // closes that race without issuing a request per event. (The store's
+        // mutation epoch performs the equivalent check for direct mutations.)
         if (joinedExistingLoad) trailingRefresh = true;
         if (!disposed && expectedGeneration === generation && trailingRefresh) {
           trailingRefresh = false;
@@ -95,9 +126,41 @@ export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight =
     // Session updates are the server's umbrella event for workspace membership,
     // archive/star/scheduling changes; the other registrations cover activity
     // whose compact card fields can change without a generic update.
-    const cleanups = REFRESH_EVENTS
-      .filter(name => typeof subscription[name] === 'function')
-      .map(name => subscription[name](() => scheduleRefresh(projectGeneration)));
+    const cleanups = [];
+    for (const name of REFRESH_EVENTS) {
+      if (typeof subscription[name] === 'function') {
+        cleanups.push(subscription[name](() => scheduleRefresh(projectGeneration)));
+      }
+    }
+
+    if (patchEvent) {
+      const patchHandlers = {
+        onSessionStatus: cb => subscription.onSessionStatus(msg => cb({ sessionId: msg.sessionId, status: msg.status })),
+        onCommandRunStarted: cb => subscription.onCommandRunStarted((runId, sessionId, buttonId) => cb({
+          sessionId, buttonId, runId, status: 'running', startedAt: Date.now(),
+        })),
+        onCommandRunComplete: cb => subscription.onCommandRunComplete(run => cb({
+          sessionId: run.sessionId, buttonId: run.buttonId, runId: run.runId,
+          status: run.status, exitCode: run.exitCode, completedAt: Date.now(),
+        })),
+        onCommandRunError: cb => subscription.onCommandRunError((runId, sessionId, buttonId) => cb({
+          sessionId, buttonId, runId, status: 'error', completedAt: Date.now(),
+        })),
+        onCommandRunKilled: cb => subscription.onCommandRunKilled(msg => cb({
+          sessionId: msg.sessionId, buttonId: msg.buttonId, runId: msg.runId, ...KILLED_STATUS,
+        })),
+        onCommandRunDeleted: cb => subscription.onCommandRunDeleted((runId, sessionId, buttonId) => cb({
+          sessionId, buttonId, runId, delete: true,
+        })),
+        onSessionSummaryUpdated: cb => subscription.onSessionSummaryUpdated((sessionId, summary) => cb({ sessionId, summary })),
+      };
+      for (const [name, register] of Object.entries(patchHandlers)) {
+        if (typeof subscription[name] === 'function') {
+          cleanups.push(register(payload => handlePatchEvent(name, payload)));
+        }
+      }
+    }
+
     const removeReconnect = useWebSocket().onReconnect?.(
       () => scheduleRefresh(projectGeneration),
     );

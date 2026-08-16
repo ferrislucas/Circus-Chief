@@ -131,6 +131,11 @@ vi.mock('../stores/workspaceList.js', () => ({
       restoreOptimisticStar: vi.fn(),
       removeCard: vi.fn(),
       cancel: vi.fn(),
+      markMutation: vi.fn(),
+      cardForSession: vi.fn(() => null),
+      applyCommandRunEvent: vi.fn(() => null),
+      applySummaryEvent: vi.fn(() => null),
+      applySessionStatus: vi.fn(() => null),
     };
     return list;
   }),
