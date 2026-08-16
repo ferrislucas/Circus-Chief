@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Session persistence APIs share a mapper and transaction boundary. */
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { messages, conversations } from './index.js';

@@ -159,6 +159,7 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
   const lane = kanbanLanes.getById(targetLaneId);
   // Supersession, movement, and the successor entry intent must commit
   // together. A delivery failure after this point is retryable outbox work.
+  // eslint-disable-next-line complexity -- transactionally couples the durable self-move and supersession branches.
   const { movedCard, laneRun, finalizedResult, selfMove } = databaseManager.transaction(() => {
     // A worker's move is a durable exit-lane declaration. The card remains in
     // its source lane until the worker's subtree has completed.

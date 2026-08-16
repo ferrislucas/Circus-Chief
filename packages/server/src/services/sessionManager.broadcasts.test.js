@@ -68,6 +68,8 @@ import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { getChanges } from './diffService.js';
 import { updateTodos } from './todoStore.js';
 
+const clientFacingErrorPattern = /^The agent could not complete this turn\. Please try again\. Reference ID: [\w-]+$/;
+
 describe('sessionManager broadcasts', () => {
   let tempDir;
   let projectId;
@@ -139,7 +141,7 @@ describe('sessionManager broadcasts', () => {
       );
 
       expect(sessionErrorCalls.length).toBe(1);
-      expect(sessionErrorCalls[0][2].error).toBe('Test error message');
+      expect(sessionErrorCalls[0][2].error).toMatch(clientFacingErrorPattern);
     });
 
     it('broadcasts error to session with correct error message', async () => {
@@ -155,7 +157,7 @@ describe('sessionManager broadcasts', () => {
         (call) => call[1] === WS_MESSAGE_TYPES.SESSION_ERROR
       );
       expect(sessionErrorCalls.length).toBe(1);
-      expect(sessionErrorCalls[0][2].error).toBe('Database test error');
+      expect(sessionErrorCalls[0][2].error).toMatch(clientFacingErrorPattern);
     });
   });
 
@@ -1023,7 +1025,7 @@ describe('sessionManager broadcasts', () => {
       expect(checkAndTriggerNextTemplate).not.toHaveBeenCalled();
       expect(sessions.getById(sessionId)).toMatchObject({
         status: 'error',
-        error: 'Something went wrong',
+        error: expect.stringMatching(clientFacingErrorPattern),
       });
     });
   });
