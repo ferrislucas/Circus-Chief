@@ -1,28 +1,6 @@
 import { sessions, conversations, messages } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { randomUUID } from 'node:crypto';
-
-// Provider/adapter failures can contain prompts, paths, credentials, or other
-// operational details.  This string is deliberately the only failure detail
-// that crosses the durable session/message and websocket boundaries.
-export const GENERIC_FINAL_ERROR_MESSAGE = 'The agent could not complete this turn. Please try again.';
-
-export function createErrorCorrelationId() {
-  return randomUUID();
-}
-
-export function buildClientFacingError(correlationId) {
-  return `${GENERIC_FINAL_ERROR_MESSAGE} Reference ID: ${correlationId}`;
-}
-
-/** Log the diagnostic payload without making it durable or client-visible. */
-export function logDetailedSessionError(sessionId, correlationId, error, label = 'Session error') {
-  console.error(`[${label}] session=${sessionId} correlationId=${correlationId}`, error);
-  if (error?.stack) {
-    console.error(`[${label}] session=${sessionId} correlationId=${correlationId} stack:`, error.stack);
-  }
-}
 
 export function normalizeFinalErrorMessage(error) {
   if (error?.message) {
@@ -41,8 +19,14 @@ function normalizeMessageContent(content) {
   return (content || '').trim().replace(/\s+/g, ' ');
 }
 
-function buildVisibleErrorContent(clientFacingError) {
-  return clientFacingError;
+function buildVisibleErrorContent(agentType, errorMessage) {
+  if (agentType === 'codex') {
+    return `Codex failed before completing this turn:\n\n${errorMessage}`;
+  }
+  if (agentType === 'claude-code') {
+    return `Claude Code failed before completing this turn:\n\n${errorMessage}`;
+  }
+  return `The agent failed before completing this turn:\n\n${errorMessage}`;
 }
 
 /**
@@ -55,15 +39,20 @@ function buildVisibleErrorContent(clientFacingError) {
  *   what we would generate (e.g., "Codex failed before completing this turn:\n\nerror")
  * - This catches cases where we already created the formatted error message
  *
- * We intentionally do not compare raw provider text here. That data must never
- * be copied into a durable message merely because it appeared in an error.
+ * Strategy 2: Raw error in messages after latest user message
+ * - Finds the latest user message, then checks all subsequent assistant messages
+ * - Returns true if any assistant message contains the raw error text
+ * - This catches cases where the agent itself already reported the error
+ *   (e.g., "Run failed: usage limit reached" contains "usage limit reached")
  *
  * @param {Array} conversationMessages - All messages in the conversation
  * @param {string} generatedContent - The formatted error content we would create
+ * @param {string} rawErrorMessage - The raw error message text
  * @returns {boolean} True if a duplicate error message already exists
  */
-function hasExistingVisibleFailure(conversationMessages, generatedContent) {
+function hasExistingVisibleFailure(conversationMessages, generatedContent, rawErrorMessage) {
   const normalizedGenerated = normalizeMessageContent(generatedContent);
+  const normalizedError = normalizeMessageContent(rawErrorMessage);
   const latestMessage = conversationMessages[conversationMessages.length - 1];
 
   // Strategy 1: Check if the latest message is an exact match with our generated content
@@ -83,7 +72,7 @@ function hasExistingVisibleFailure(conversationMessages, generatedContent) {
     }
   }
 
-  // Check for the same client-facing failure after the latest user message.
+  // Strategy 2: Check if any assistant message after the latest user message contains the raw error
   return conversationMessages
     .slice(latestUserIndex + 1)
     .some((message) => {
@@ -91,7 +80,8 @@ function hasExistingVisibleFailure(conversationMessages, generatedContent) {
         return false;
       }
       const normalizedContent = normalizeMessageContent(message.content);
-      return normalizedContent === normalizedGenerated;
+      return normalizedContent === normalizedGenerated ||
+        (normalizedError && normalizedContent.includes(normalizedError));
     });
 }
 
@@ -108,16 +98,18 @@ function resolveErrorConversationId(sessionId, activeConversationIds) {
   return null;
 }
 
-export function createVisibleFinalErrorMessage(sessionId, clientFacingError, activeConversationIds) {
+export function createVisibleFinalErrorMessage(sessionId, error, activeConversationIds) {
   const conversationId = resolveErrorConversationId(sessionId, activeConversationIds);
   if (!conversationId) {
     return null;
   }
 
-  const content = buildVisibleErrorContent(clientFacingError);
+  const session = sessions.getById(sessionId);
+  const errorMessage = normalizeFinalErrorMessage(error);
+  const content = buildVisibleErrorContent(session?.agentType, errorMessage);
   const conversationMessages = messages.getByConversationId(conversationId) || [];
 
-  if (hasExistingVisibleFailure(conversationMessages, content)) {
+  if (hasExistingVisibleFailure(conversationMessages, content, errorMessage)) {
     return null;
   }
 

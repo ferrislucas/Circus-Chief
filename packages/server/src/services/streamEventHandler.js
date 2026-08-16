@@ -12,10 +12,8 @@ import {
   handleResultUsage,
 } from './streamUsageHandler.js';
 import {
-  buildClientFacingError,
-  createErrorCorrelationId,
   createVisibleFinalErrorMessage,
-  logDetailedSessionError,
+  normalizeFinalErrorMessage,
 } from './visibleFinalErrorMessage.js';
 export { createWorkLog } from './workLogService.js';
 import { createWorkLog } from './workLogService.js';
@@ -450,13 +448,11 @@ function handleResultEvent(sessionId, event) {
  * @param {Object} event
  */
 function handleResultError(sessionId, event) {
-  const correlationId = createErrorCorrelationId();
-  const clientFacingError = buildClientFacingError(correlationId);
-  logDetailedSessionError(sessionId, correlationId, event.error, 'Final result error');
+  const errorMessage = normalizeFinalErrorMessage(event.error);
   finalErrorSessionIds.add(sessionId);
-  sessions.update(sessionId, { status: 'error', error: clientFacingError });
-  createVisibleFinalErrorMessage(sessionId, clientFacingError, activeConversationIds);
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: clientFacingError });
+  sessions.update(sessionId, { status: 'error', error: errorMessage });
+  createVisibleFinalErrorMessage(sessionId, errorMessage, activeConversationIds);
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: errorMessage });
   // Broadcast error status to project subscribers for session list updates
   broadcastSessionStatus(sessionId, 'error');
   // Extract PR URL before generating summary (PR may have been created before error)
