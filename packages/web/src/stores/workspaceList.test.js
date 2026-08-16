@@ -26,6 +26,7 @@ function response(workspaces, options = {}) {
     pagination: {
       total,
       offset: options.offset || 0,
+      nextCursor: options.nextCursor || null,
       hasMore: options.hasMore ?? false,
     },
   };
@@ -167,23 +168,48 @@ describe('workspace list request lifecycle', () => {
     expect(store.cards).toHaveLength(expandedTotal);
   });
 
-  it('caps the refresh extent at the server\'s max limit once loaded rows exceed it', async () => {
+  it('refreshes every loaded card past the server cap without truncating the list', async () => {
     const store = useWorkspaceListStore();
     store._resetContext('project-a', {});
     store.orderedIds = Array.from({ length: 600 }, (_, index) => `card-${index}`);
     store.cardsById = Object.fromEntries(store.orderedIds.map(id => [id, { id }]));
 
-    api.getWorkspaceCards.mockResolvedValueOnce(response(
-      store.orderedIds.map(id => ({ id })),
-      { total: 600 },
-    ));
+    const cards = store.orderedIds.map(id => ({ id }));
+    api.getWorkspaceCards
+      .mockResolvedValueOnce(response(cards.slice(0, 500), {
+        total: 600, hasMore: true, nextCursor: 'cursor-500',
+      }))
+      .mockResolvedValueOnce(response(cards.slice(500), { total: 600 }));
 
     await store.refresh();
 
-    expect(api.getWorkspaceCards).toHaveBeenLastCalledWith('project-a', expect.objectContaining({
+    expect(api.getWorkspaceCards).toHaveBeenNthCalledWith(1, 'project-a', expect.objectContaining({
       limit: 500,
-      offset: 0,
+      cursor: null,
     }));
+    expect(api.getWorkspaceCards).toHaveBeenLastCalledWith('project-a', expect.objectContaining({
+      limit: 100, cursor: 'cursor-500',
+    }));
+    expect(store.orderedIds).toEqual(cards.map(card => card.id));
+    expect(store.hasMore).toBe(false);
+  });
+
+  it('has no duplicate or gap when a card is promoted between cursor pages', async () => {
+    const firstPage = Array.from({ length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index}` }));
+    const secondPage = Array.from(
+      { length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index + WORKSPACE_PAGE_SIZE}` }),
+    );
+    api.getWorkspaceCards
+      .mockResolvedValueOnce(response(firstPage, { total: 50, hasMore: true, nextCursor: 'cursor-1' }))
+      .mockResolvedValueOnce(response(secondPage, { total: 50, nextCursor: 'cursor-2' }));
+    const store = useWorkspaceListStore();
+
+    await store.load('project-a');
+    await store.loadMore();
+
+    expect(api.getWorkspaceCards).toHaveBeenLastCalledWith('project-a', expect.objectContaining({ cursor: 'cursor-1' }));
+    expect(new Set(store.orderedIds)).toEqual(new Set([...firstPage, ...secondPage].map(card => card.id)));
+    expect(store.orderedIds).toHaveLength(50);
   });
 
   it('deduplicates a card that moves into the next offset page', async () => {

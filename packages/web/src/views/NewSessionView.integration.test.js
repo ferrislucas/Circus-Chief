@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import NewSessionView from './NewSessionView.vue';
+import { api } from '../composables/useApi.js';
 
 /**
  * Integration tests for NewSessionView localStorage draft persistence
@@ -38,6 +39,7 @@ vi.mock('../stores/projectDefaults.js', () => ({
 vi.mock('../composables/useApi.js', () => ({
   api: {
     getGitStatus: vi.fn().mockResolvedValue({ isGitRepo: false }),
+    getProjectSessions: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -197,6 +199,18 @@ describe('NewSessionView - localStorage draft persistence', () => {
       const textarea = wrapper.find('textarea#prompt');
       expect(textarea.element.value.trim().length).toBeGreaterThan(0);
     });
+  });
+
+  it('hydrates completed parent workspaces without relying on the sessions store', async () => {
+    api.getProjectSessions.mockResolvedValueOnce([
+      { id: 'completed-root', name: 'Completed workspace', status: 'completed', createdAt: 1 },
+    ]);
+
+    const wrapper = mount(NewSessionView, { global: { stubs: { RouterLink: true } } });
+    await flushPromises();
+
+    expect(api.getProjectSessions).toHaveBeenCalledWith('project-123', null, null);
+    expect(wrapper.find('#parent-session').text()).toContain('Completed workspace');
   });
 
   describe('Draft saving on input', () => {

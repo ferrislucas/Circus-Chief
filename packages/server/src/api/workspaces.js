@@ -149,14 +149,23 @@ function hasValidWorkspaceCardFilters(status, scheduled) {
     && ['true', 'false', undefined].includes(scheduled);
 }
 
-function parseWorkspaceCardOptions({ archived, starred, limit, offset, status, scheduled }) {
+function hasValidWorkspaceCardCursor(cursor) {
+  return cursor === undefined || (typeof cursor === 'string' && cursor.length <= 512);
+}
+
+function hasValidWorkspaceCardPagination(limit, offset) {
+  return Number.isInteger(limit) && limit >= 1 && limit <= 500
+    && Number.isInteger(offset) && offset >= 0;
+}
+
+function parseWorkspaceCardOptions({ archived, starred, limit, offset, cursor, status, scheduled }) {
   const parsedLimit = Number.parseInt(limit, 10);
   const parsedOffset = offset === undefined ? 0 : Number.parseInt(offset, 10);
-  const valid = Number.isInteger(parsedLimit) && parsedLimit >= 1 && parsedLimit <= 500
-    && Number.isInteger(parsedOffset) && parsedOffset >= 0
+  const valid = hasValidWorkspaceCardPagination(parsedLimit, parsedOffset)
     && ['true', 'false', undefined].includes(archived)
     && ['true', 'false', undefined].includes(starred)
-    && hasValidWorkspaceCardFilters(status, scheduled);
+    && hasValidWorkspaceCardFilters(status, scheduled)
+    && hasValidWorkspaceCardCursor(cursor);
   if (!valid) return null;
   return {
     archived: archived === 'true',
@@ -165,6 +174,7 @@ function parseWorkspaceCardOptions({ archived, starred, limit, offset, status, s
     scheduled: parseBooleanFilter(scheduled),
     limit: parsedLimit,
     offset: parsedOffset,
+    cursor: cursor || null,
   };
 }
 
@@ -195,7 +205,8 @@ function workspaceCommandRuns(card, runsBySession) {
 function sendWorkspaceCards(res, projectId, query, startedAt) {
   const options = parseWorkspaceCardOptions(query);
   if (!options) return res.status(400).json({ error: 'Invalid workspace card pagination or filters' });
-  const cards = sessions.getWorkspaceCards(projectId, options);
+  const page = sessions.getWorkspaceCardPage(projectId, options);
+  const { cards, facets } = page;
   const memberIds = [...new Set(cards.flatMap(card => card.memberIds))];
   const memberIdSet = new Set(memberIds);
   const runsBySession = buildRunsBySession(
@@ -211,7 +222,6 @@ function sendWorkspaceCards(res, projectId, query, startedAt) {
       latestCommandRuns: workspaceCommandRuns(card, runsBySession),
     };
   });
-  const facets = sessions.getWorkspaceCardCounts(projectId, options);
   const total = options.status ? facets[options.status] : facets.running + facets.idle;
   return sendWorkspaceJson(res, {
     workspaces,
@@ -220,7 +230,8 @@ function sendWorkspaceCards(res, projectId, query, startedAt) {
       total,
       limit: options.limit,
       offset: options.offset,
-      hasMore: options.offset + workspaces.length < total,
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
     },
   }, startedAt);
 }

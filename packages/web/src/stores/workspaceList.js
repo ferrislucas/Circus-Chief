@@ -4,8 +4,6 @@ import { api } from '../composables/useApi.js';
 export const WORKSPACE_PAGE_SIZE = 25;
 
 // Mirrors the server's hard cap in parseWorkspaceCardOptions (workspaces.js).
-// A refresh that re-fetches the full loaded extent (see refresh() below) must
-// stay within this or the request is rejected as invalid.
 export const WORKSPACE_SERVER_MAX_LIMIT = 500;
 
 const requestLifecycles = new WeakMap();
@@ -27,10 +25,11 @@ function queryKey(projectId, query) {
   return `${projectId}:${JSON.stringify(query)}`;
 }
 
-const fetchPage = (projectId, query, { offset, limit, signal }) => api.getWorkspaceCards(projectId, {
+const fetchPage = (projectId, query, { offset = 0, cursor = null, limit, signal }) => api.getWorkspaceCards(projectId, {
   ...query,
   limit,
   offset,
+  cursor,
   signal,
 });
 
@@ -42,7 +41,7 @@ function canCommitPage(store, lifecycle, request) {
   return !request.controller.signal.aborted
     && lifecycle.version === request.version
     && lifecycle.contextKey === request.contextKey
-    && store.nextOffset === request.offset;
+    && store.nextCursor === request.cursor;
 }
 
 export const useWorkspaceListStore = defineStore('workspaceList', {
@@ -54,6 +53,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
     facets: { running: 0, idle: 0 },
     total: 0,
     nextOffset: 0,
+    nextCursor: null,
     loading: false,
     loadingMore: false,
     error: null,
@@ -77,6 +77,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.facets = result.facets || { running: 0, idle: 0 };
       this.total = result.pagination?.total || 0;
       this.nextOffset = (result.pagination?.offset || 0) + (result.workspaces?.length || 0);
+      this.nextCursor = result.pagination?.nextCursor || null;
       this.hasMore = Boolean(result.pagination?.hasMore);
     },
 
@@ -94,6 +95,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.facets = result.facets || { running: 0, idle: 0 };
       this.total = result.pagination?.total || 0;
       this.nextOffset = (result.pagination?.offset || 0) + (result.workspaces?.length || 0);
+      this.nextCursor = result.pagination?.nextCursor || null;
       this.hasMore = Boolean(result.pagination?.hasMore);
     },
 
@@ -114,6 +116,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.facets = { running: 0, idle: 0 };
       this.total = 0;
       this.nextOffset = 0;
+      this.nextCursor = null;
       this.hasMore = false;
       this.loadingMore = false;
       this.error = null;
@@ -140,20 +143,32 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       const contextKey = lifecycle.contextKey;
       const projectId = this.projectId;
       const query = { ...this.query };
-      // Re-fetch the extent already loaded (not just one page). A realtime
-      // invalidation calls refresh() on every relevant WebSocket event while
-      // the list is open; refetching only WORKSPACE_PAGE_SIZE rows would
-      // truncate a list the user has scrolled past page 1 on back down to
-      // page 1 every time an event fires. Capped at the server's max limit —
-      // see WORKSPACE_SERVER_MAX_LIMIT.
-      const limit = Math.min(
-        Math.max(WORKSPACE_PAGE_SIZE, this.orderedIds.length),
-        WORKSPACE_SERVER_MAX_LIMIT,
-      );
+      const loadedExtent = Math.max(WORKSPACE_PAGE_SIZE, this.orderedIds.length);
       this.loading = this.orderedIds.length === 0;
       this.error = null;
 
-      const promise = fetchPage(projectId, query, { offset: 0, limit, signal: controller.signal })
+      const promise = (async () => {
+        // Rebuild the loaded prefix with cursor pages.  Each request remains
+        // within the server cap, while a list deeper than 500 is never replaced
+        // with a capped response.
+        let cursor = null;
+        let remaining = loadedExtent;
+        let result;
+        const pages = [];
+        do {
+          const limit = Math.min(WORKSPACE_SERVER_MAX_LIMIT, remaining);
+          result = await fetchPage(projectId, query, { cursor, limit, signal: controller.signal });
+          pages.push(result);
+          remaining -= result.workspaces?.length || 0;
+          cursor = result.pagination?.nextCursor || null;
+        } while (remaining > 0 && cursor && !controller.signal.aborted);
+        const first = pages[0] || { workspaces: [], pagination: {} };
+        return {
+          ...first,
+          workspaces: pages.flatMap(page => page.workspaces || []),
+          pagination: { ...result?.pagination, offset: 0, nextCursor: cursor },
+        };
+      })()
         .then((result) => {
           if (!controller.signal.aborted
             && lifecycle.version === version
@@ -191,12 +206,13 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       const contextKey = lifecycle.contextKey;
       const version = lifecycle.version;
       const offset = this.nextOffset;
+      const cursor = this.nextCursor;
       const controller = new AbortController();
-      const request = { controller, version, contextKey, offset };
+      const request = { controller, version, contextKey, offset, cursor };
       lifecycle.loadMoreController = controller;
       this.loadingMore = true;
       try {
-        const result = await fetchPage(projectId, query, { offset, limit: WORKSPACE_PAGE_SIZE, signal: controller.signal });
+        const result = await fetchPage(projectId, query, { offset, cursor, limit: WORKSPACE_PAGE_SIZE, signal: controller.signal });
         if (canCommitPage(this, lifecycle, request)) this._append(result);
       } catch (error) {
         if (!isAbort(error) && canCommitPage(this, lifecycle, request)) {

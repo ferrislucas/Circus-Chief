@@ -18,6 +18,7 @@ import {
 import {
   getWorkspaceCardCounts,
   getWorkspaceCards,
+  getWorkspaceCardPage,
 } from './workspace-queries.js';
 
 /**
@@ -174,6 +175,10 @@ export class SessionRepository extends BaseRepository {
    */
   getWorkspaceCards(projectId, options = {}) {
     return getWorkspaceCards(this.db, projectId, options);
+  }
+
+  getWorkspaceCardPage(projectId, options = {}) {
+    return getWorkspaceCardPage(this.db, projectId, options);
   }
 
   /** Authoritative status facets for workspace-list filters. */

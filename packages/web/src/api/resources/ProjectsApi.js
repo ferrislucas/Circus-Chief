@@ -22,11 +22,12 @@ export function ProjectsApi(ApiClient) {
       return this._get(`/projects/${id}`);
     },
 
-    /** Fetch one offset page of the workspace-card read model used by the list view. */
+    /** Fetch one cursor (or legacy offset) page of the workspace-card read model. */
     async getWorkspaceCards(projectId, options = {}) {
       const {
         limit = 50,
         offset = 0,
+        cursor = null,
         archived = false,
         starred = null,
         status = null,
@@ -34,6 +35,7 @@ export function ProjectsApi(ApiClient) {
         signal,
       } = options;
       const params = { view: 'cards', limit, offset, archived };
+      if (cursor) params.cursor = cursor;
       if (starred !== null) params.starred = starred;
       if (status) params.status = status;
       if (scheduled !== null) params.scheduled = scheduled;

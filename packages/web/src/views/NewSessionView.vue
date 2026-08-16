@@ -324,8 +324,10 @@ const workingDirectory = computed(() => {
   return project?.workingDirectory || null;
 });
 
-// Get available sessions that can be parents (completed sessions only)
-const availableSessions = computed(() => sessionsStore.sessions
+// This picker needs only project-root sessions. Keep its hydration local so
+// opening the form does not repopulate the shared project-wide session store.
+const parentWorkspaceSessions = ref([]);
+const availableSessions = computed(() => parentWorkspaceSessions.value
     .filter((s) => s.status === 'completed')
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
 
@@ -397,6 +399,13 @@ onUnmounted(() => {
 onMounted(async () => {
   const projectId = route.params.id;
   restoreDraftFromStorage(textareaRef);
+
+  try {
+    parentWorkspaceSessions.value = await api.getProjectSessions(projectId, null, null);
+  } catch {
+    // The parent picker is optional; leave it hidden when its small lookup fails.
+    parentWorkspaceSessions.value = [];
+  }
 
   // Fetch project defaults FIRST to ensure model is set before ModelSelector renders
   try {

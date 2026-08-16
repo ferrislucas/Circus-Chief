@@ -53,7 +53,28 @@ function workspaceFilters({ archived, starred, status, scheduled }, { includeSta
  * single-card invalidation.
  */
 // eslint-disable-next-line max-lines-per-function
-export function getWorkspaceCards(db, projectId, options = {}) {
+function decodeCursor(cursor) {
+  if (!cursor) return null;
+  try {
+    const value = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    return Array.isArray(value) && value.length === 5
+      && typeof value[0] === 'number' && value.slice(1, 4).every(Number.isFinite)
+      && typeof value[4] === 'string' ? value : null;
+  } catch { return null; }
+}
+
+function encodeCursor(row) {
+  return Buffer.from(JSON.stringify([
+    Number(row.starred), row.sort_activity, row.updatedAt, row.createdAt, row.id,
+  ])).toString('base64url');
+}
+
+/**
+ * Fetch a card page and its authoritative facets from a single aggregate walk.
+ * Cursor pagination uses the complete descending sort tuple, so an activity
+ * promotion between pages cannot create an offset gap.
+ */
+export function getWorkspaceCardPage(db, projectId, options = {}) {
   const {
     archived = false,
     starred = null,
@@ -61,13 +82,27 @@ export function getWorkspaceCards(db, projectId, options = {}) {
     scheduled = null,
     limit = 50,
     offset = 0,
+    cursor = null,
   } = options;
-  const { filters, params } = workspaceFilters({ archived, starred, status, scheduled });
+  const { filters: baseFilters, params: baseParams } = workspaceFilters(
+    { archived, starred, status: null, scheduled }, { includeStatus: false },
+  );
+  const { filters: pageFilters } = workspaceFilters({ archived, starred, status, scheduled });
+  // pageFilters duplicate root/base conditions; use only its status predicates.
+  const statusFilters = pageFilters
+    .filter(filter => filter.includes('a.running_count'))
+    .map(filter => filter.replaceAll('a.running_count', 'runningCount'));
+  const cursorValues = decodeCursor(cursor);
+  const cursorClause = cursorValues
+    ? 'AND (starred, sort_activity, updatedAt, createdAt, id) < (?, ?, ?, ?, ?)'
+    : '';
   const sql = `${WORKSPACE_AGGREGATES_CTE}
-    SELECT s.id, s.project_id AS projectId, s.name, s.status, s.starred, s.archived,
+    , base AS (
+      SELECT s.id, s.project_id AS projectId, s.name, s.status, s.starred, s.archived,
       s.pr_url AS prUrl, s.git_worktree AS gitWorktree,
       s.scheduled_at AS scheduledAt, s.created_at AS createdAt,
       s.updated_at AS updatedAt, a.last_activity_at AS last_activity_at,
+      COALESCE(a.last_activity_at, s.updated_at, s.created_at) AS sort_activity,
       a.running_count AS runningCount, a.scheduled_count AS scheduledCount,
       a.running_session_ids AS runningSessionIds, a.member_ids AS memberIds,
       a.waiting_count AS waitingCount, a.descendant_count AS descendantCount,
@@ -81,13 +116,39 @@ export function getWorkspaceCards(db, projectId, options = {}) {
     LEFT JOIN kanban_card_sessions kcs ON kcs.session_id = s.id
     LEFT JOIN kanban_cards kc ON kc.id = kcs.card_id
     LEFT JOIN kanban_lanes kl ON kl.id = kc.lane_id
-    WHERE ${filters.join(' AND ')}
-    ORDER BY s.starred DESC,
-      COALESCE(a.last_activity_at, s.updated_at, s.created_at) DESC,
-      s.updated_at DESC, s.created_at DESC, s.id DESC
-    LIMIT ? OFFSET ?`;
-  const rows = db.prepare(sql).all(projectId, projectId, ...params, limit, offset);
-  return rows.map(toWorkspaceCard);
+    WHERE ${baseFilters.join(' AND ')}
+    ), facet_counts AS (
+      SELECT COALESCE(SUM(CASE WHEN runningCount > 0 THEN 1 ELSE 0 END), 0) AS running,
+        COALESCE(SUM(CASE WHEN runningCount = 0 THEN 1 ELSE 0 END), 0) AS idle
+      FROM base
+    ), filtered AS (
+      SELECT * FROM base WHERE 1=1 ${statusFilters.length ? `AND ${statusFilters.join(' AND ')}` : ''}
+    )
+    SELECT filtered.*, facet_counts.running AS facetRunning, facet_counts.idle AS facetIdle
+    FROM facet_counts LEFT JOIN filtered ON 1=1 ${cursorClause}
+    ORDER BY starred DESC, sort_activity DESC, updatedAt DESC, createdAt DESC, id DESC
+    LIMIT ? ${cursorValues ? '' : 'OFFSET ?'}`;
+  // base filters contain the project id placeholder from the aggregate CTE plus
+  // their own root filter. Status conditions use no placeholders.
+  const rows = db.prepare(sql).all(
+    projectId, projectId, ...baseParams, ...(cursorValues || []), limit + 1,
+    ...(cursorValues ? [] : [offset]),
+  );
+  const pageRows = rows.filter(row => row.id);
+  const hasMore = pageRows.length > limit;
+  const visibleRows = pageRows.slice(0, limit);
+  const cards = visibleRows.map(toWorkspaceCard);
+  const facets = { running: rows[0]?.facetRunning || 0, idle: rows[0]?.facetIdle || 0 };
+  return {
+    cards,
+    facets,
+    hasMore,
+    nextCursor: hasMore ? encodeCursor(visibleRows.at(-1)) : null,
+  };
+}
+
+export function getWorkspaceCards(db, projectId, options = {}) {
+  return getWorkspaceCardPage(db, projectId, options).cards;
 }
 
 /** Return authoritative status facets for the current non-status filters. */
