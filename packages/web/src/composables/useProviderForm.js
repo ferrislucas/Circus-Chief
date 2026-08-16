@@ -163,13 +163,18 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     // another row's data instead of moving the matched node with its model.
     // `localId` falls back when this UI is served from an insecure HTTP origin,
     // where `crypto.randomUUID()` is unavailable.
-    localModels.value.push({
-      _localKey: localId('model'),
-      modelId: '',
-      displayName: '',
-      tier: 'custom',
-      enabled: true,
-    });
+    error.value = null;
+    try {
+      localModels.value.push({
+        _localKey: localId('model'),
+        modelId: '',
+        displayName: '',
+        tier: 'custom',
+        enabled: true,
+      });
+    } catch {
+      error.value = 'Unable to add model. Please try again.';
+    }
   }
 
   function removeLocalModel(index) {

@@ -372,6 +372,31 @@ describe('useProviderForm', () => {
       }
     });
 
+    it('should surface an error when model key generation fails', () => {
+      const originalRandomUUID = crypto.randomUUID;
+      crypto.randomUUID = vi.fn(() => {
+        throw new Error('UUID generation failed');
+      });
+
+      try {
+        const { result } = createForm();
+        expect(() => result.addLocalModel()).not.toThrow();
+        expect(result.localModels.value).toEqual([]);
+        expect(result.error.value).toBe('Unable to add model. Please try again.');
+      } finally {
+        crypto.randomUUID = originalRandomUUID;
+      }
+    });
+
+    it('should surface an error when inserting the model fails', () => {
+      const { result } = createForm();
+      result.localModels.value = Object.freeze([]);
+
+      expect(() => result.addLocalModel()).not.toThrow();
+      expect(result.localModels.value).toEqual([]);
+      expect(result.error.value).toBe('Unable to add model. Please try again.');
+    });
+
     it('should add multiple models', () => {
       const { result } = createForm();
       result.addLocalModel();
