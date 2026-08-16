@@ -12,6 +12,7 @@ import {
   sessions,
 } from '../database.js';
 import { attachRootSession, createLaneRunForEntry, supersedeRunForCard } from '../services/workflowSessionService.js';
+import { commandRunner } from '../services/commandRunner.js';
 
 // Mock websocket
 vi.mock('../websocket.js', () => ({
@@ -204,6 +205,36 @@ describe('Workspace facade API', () => {
       expect(res.body.workspaces[0].latestCommandRuns).toEqual([
         expect.objectContaining({ buttonId: button.id, status: 'success', runId: 'child-run' }),
       ]);
+    });
+
+    it('keeps a running command indicator over a newer completed run for the same button', async () => {
+      const root = sessions.create(project.id, 'Root', 'p', { status: 'waiting' });
+      const child = sessions.create(project.id, 'Child', 'p', {
+        parentSessionId: root.id,
+        status: 'waiting',
+      });
+      const button = commandButtons.create({
+        projectId: project.id,
+        label: 'Test',
+        command: 'echo test',
+      });
+      commandRuns.create({ id: 'child-completed', sessionId: child.id, buttonId: button.id });
+      commandRuns.complete('child-completed', 0);
+      const runningRuns = vi.spyOn(commandRunner, 'getRunningByProjectId').mockReturnValue([{
+        sessionId: root.id,
+        buttonId: button.id,
+        runId: 'root-running',
+        startedAt: 0,
+      }]);
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=50`)
+        .expect(200);
+
+      expect(res.body.workspaces[0].latestCommandRuns).toEqual([
+        expect.objectContaining({ buttonId: button.id, status: 'running', runId: 'root-running' }),
+      ]);
+      runningRuns.mockRestore();
     });
 
     it('uses child activity in the authoritative workspace card', async () => {

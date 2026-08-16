@@ -166,12 +166,21 @@ function parseWorkspaceCardOptions({ archived, starred, limit, offset, status, s
 
 const runRecency = run => run.completedAt ?? run.startedAt ?? 0;
 
+function shouldReplaceWorkspaceCommandRun(current, candidate) {
+  const candidateIsRunning = candidate.status === 'running';
+  const currentIsRunning = current.status === 'running';
+  if (candidateIsRunning !== currentIsRunning) {
+    return candidateIsRunning;
+  }
+  return runRecency(candidate) > runRecency(current);
+}
+
 function workspaceCommandRuns(card, runsBySession) {
   const latestByButton = {};
   for (const sessionId of card.memberIds) {
     for (const run of Object.values(runsBySession[sessionId] || {})) {
       const current = latestByButton[run.buttonId];
-      if (!current || run.status === 'running' || runRecency(run) > runRecency(current)) {
+      if (!current || shouldReplaceWorkspaceCommandRun(current, run)) {
         latestByButton[run.buttonId] = run;
       }
     }
