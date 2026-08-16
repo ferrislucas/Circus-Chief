@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CommandRunRepository } from './CommandRunRepository.js';
 import { SessionRepository } from './SessionRepository.js';
 import { CommandButtonRepository } from './CommandButtonRepository.js';
@@ -457,6 +457,37 @@ describe('CommandRunRepository', () => {
     it('returns empty array for project with no runs', () => {
       const latestRuns = repository.getLatestRunsForProject('nonexistent-project');
       expect(latestRuns).toEqual([]);
+    });
+  });
+
+  describe('getLatestRunsForSessions', () => {
+    it('splits large session lists into SQLite-safe queries while preserving order', () => {
+      repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-1', 0);
+
+      const testSession = new SessionRepository().getById(testSessionId);
+      const laterSession = new SessionRepository().create(
+        testSession.projectId,
+        'Later Session',
+        'Later prompt'
+      );
+      repository.create({ id: 'run-2', sessionId: laterSession.id, buttonId: testButtonId });
+      repository.complete('run-2', 0);
+      repository.db.prepare('UPDATE command_runs SET completed_at = ? WHERE id = ?').run(1, 'run-1');
+      repository.db.prepare('UPDATE command_runs SET completed_at = ? WHERE id = ?').run(2, 'run-2');
+
+      const prepare = vi.spyOn(repository.db, 'prepare');
+      const sessionIds = [
+        testSessionId,
+        ...Array.from({ length: 499 }, (_, index) => `missing-session-${index}`),
+        laterSession.id,
+      ];
+
+      const latestRuns = repository.getLatestRunsForSessions(sessionIds);
+
+      expect(latestRuns.map(({ id }) => id)).toEqual(['run-2', 'run-1']);
+      expect(prepare.mock.calls.filter(([sql]) => sql.includes('FROM command_runs cr WHERE cr.session_id IN')))
+        .toHaveLength(2);
     });
   });
 
