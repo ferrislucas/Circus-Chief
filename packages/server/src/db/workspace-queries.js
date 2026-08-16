@@ -1,9 +1,12 @@
 const WORKSPACE_AGGREGATES_CTE = `
-  WITH RECURSIVE tree(root_id, id, project_id) AS (
-    SELECT id, id, project_id FROM sessions WHERE project_id = ? AND parent_session_id IS NULL
+  WITH RECURSIVE tree(root_id, id, project_id, path) AS (
+    SELECT id, id, project_id, '/' || id || '/'
+    FROM sessions WHERE project_id = ? AND parent_session_id IS NULL
     UNION ALL
-    SELECT tree.root_id, s.id, tree.project_id FROM sessions s
+    SELECT tree.root_id, s.id, tree.project_id, tree.path || s.id || '/'
+    FROM sessions s
     JOIN tree ON s.parent_session_id = tree.id AND s.project_id = tree.project_id
+    WHERE instr(tree.path, '/' || s.id || '/') = 0
   ), aggregates AS (
     SELECT tree.root_id,
       SUM(CASE WHEN s.status IN ('running', 'starting') THEN 1 ELSE 0 END) AS running_count,
