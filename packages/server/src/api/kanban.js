@@ -3,7 +3,11 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { kanbanBoards, kanbanLanes, kanbanCards, projects, sessions, databaseManager } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import {
+  SESSION_CALLER_ID_HEADER,
+  SESSION_CALLER_IDENTITY_HINT_HEADER,
+  WS_MESSAGE_TYPES,
+} from '@circuschief/shared';
 import {
   CreateKanbanLaneRequest,
   UpdateKanbanLaneRequest,
@@ -144,8 +148,8 @@ function targetLaneForBoard(targetLaneId, board) {
 }
 
 function callerSessionId(req) {
-  const claimedActorSessionId = req.get('X-Circus-Session-Id') || null;
-  const capability = req.get('X-Circus-Session-Capability');
+  const claimedActorSessionId = req.get(SESSION_CALLER_ID_HEADER) || null;
+  const capability = req.get(SESSION_CALLER_IDENTITY_HINT_HEADER);
   return verifySessionCallerCapability(claimedActorSessionId, capability) ? claimedActorSessionId : null;
 }
 

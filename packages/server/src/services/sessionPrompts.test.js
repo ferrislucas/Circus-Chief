@@ -31,7 +31,12 @@ import {
   buildSystemPromptConfig,
 } from './sessionPrompts.js';
 import { getApiBaseUrl } from './apiBaseUrl.js';
-import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
+import {
+  DEFAULT_SERVER_PORT,
+  DEFAULT_SYSTEM_PROMPT,
+  SESSION_CALLER_ID_HEADER,
+  SESSION_CALLER_IDENTITY_HINT_HEADER,
+} from '@circuschief/shared';
 import { readFileSync } from 'node:fs';
 
 describe('sessionPrompts', () => {
@@ -656,7 +661,8 @@ describe('sessionPrompts', () => {
       // Move and delete use by-workspace routes
       expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/move`);
       expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}`);
-      expect(result).toContain(`X-Circus-Session-Id: ${sessionId}`);
+      expect(result).toContain(`${SESSION_CALLER_ID_HEADER}: ${sessionId}`);
+      expect(result).toContain(`${SESSION_CALLER_IDENTITY_HINT_HEADER}:`);
       expect(result).toContain('"deferred": true');
       expect(result).toContain('do not retry it as an immediate move');
       // No sessionId field in kanban examples

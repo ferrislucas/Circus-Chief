@@ -1,5 +1,9 @@
 import { nanoid } from 'nanoid';
 import { agentCallLogs } from '../database.js';
+import {
+  redactSessionCallerIdentityHint,
+  redactSessionCallerIdentityHintValue,
+} from './sessionCallerIdentityRedaction.js';
 
 /**
  * Service for logging agent calls with in-memory tracking for active calls.
@@ -20,7 +24,7 @@ export class AgentCallLogger {
     const callId = nanoid();
 
     // Build metadata object - only include keys with defined values
-    const metadata = { ...(meta.metadata || {}) };
+    const metadata = redactSessionCallerIdentityHintValue({ ...(meta.metadata || {}) }, meta.sessionId);
     if (meta.effortLevel !== undefined && meta.effortLevel !== null) {
       metadata.effortLevel = meta.effortLevel;
     }
@@ -66,7 +70,7 @@ export class AgentCallLogger {
       outputTokens: usage?.outputTokens,
       cacheReadTokens: usage?.cacheReadInputTokens,
       cacheWriteTokens: usage?.cacheCreationInputTokens,
-      errorMessage: error?.message,
+      errorMessage: redactSessionCallerIdentityHint(error?.message, this.activeCalls.get(callId)?.sessionId),
     });
     this.activeCalls.delete(callId);
   }

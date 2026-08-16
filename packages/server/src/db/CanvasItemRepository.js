@@ -1,5 +1,9 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
+import {
+  redactSessionCallerIdentityHint,
+  redactSessionCallerIdentityHintValue,
+} from '../services/sessionCallerIdentityRedaction.js';
 
 /**
  * Canvas item repository class
@@ -43,7 +47,7 @@ export class CanvasItemRepository extends BaseRepository {
     // Serialize data field to JSON if it's an object
     let dataValue = data.data || null;
     if (dataValue !== null && typeof dataValue === 'object') {
-      dataValue = JSON.stringify(dataValue);
+      dataValue = JSON.stringify(redactSessionCallerIdentityHintValue(dataValue, sessionId));
     }
 
     this.db
@@ -55,7 +59,7 @@ export class CanvasItemRepository extends BaseRepository {
         id,
         sessionId,
         data.type,
-        data.content || null,
+        redactSessionCallerIdentityHint(data.content, sessionId) || null,
         dataValue,
         data.mimeType || null,
         data.filename || null,

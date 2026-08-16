@@ -1,5 +1,9 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
+import {
+  redactSessionCallerIdentityHint,
+  redactSessionCallerIdentityHintValue,
+} from '../services/sessionCallerIdentityRedaction.js';
 
 /**
  * Message repository class
@@ -39,7 +43,16 @@ export class MessageRepository extends BaseRepository {
         `INSERT INTO conversation_messages (id, session_id, conversation_id, role, content, tool_use, model, timestamp)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, sessionId, conversationId, role, content, toolUse ? JSON.stringify(toolUse) : null, model, now);
+      .run(
+        id,
+        sessionId,
+        conversationId,
+        role,
+        redactSessionCallerIdentityHint(content, sessionId),
+        toolUse ? JSON.stringify(redactSessionCallerIdentityHintValue(toolUse, sessionId)) : null,
+        model,
+        now
+      );
     return this.getById(id);
   }
 
@@ -101,12 +114,13 @@ export class MessageRepository extends BaseRepository {
       throw new Error('Message content cannot be empty');
     }
 
+    const message = this.getById(messageId);
     // Update the message content
     this.db
       .prepare(
         `UPDATE conversation_messages SET content = ? WHERE id = ?`
       )
-      .run(content, messageId);
+      .run(redactSessionCallerIdentityHint(content, message?.sessionId), messageId);
 
     // Return the updated message
     return this.getById(messageId);

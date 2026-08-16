@@ -1,6 +1,7 @@
 import { sessions, projects, kanbanBoards, kanbanLanes } from '../database.js';
 import { getApiBaseUrl } from './apiBaseUrl.js';
 import { createSessionCallerCapability } from './sessionCallerCapability.js';
+import { SESSION_CALLER_ID_HEADER, SESSION_CALLER_IDENTITY_HINT_HEADER } from '@circuschief/shared';
 
 /** Build workspace and session CRUD operations section */
 function buildSessionCrudOps(apiUrl, projectId, sessionId, workspaceId) {
@@ -164,8 +165,8 @@ curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
 \`\`\`bash
 curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/move \\
   -H "Content-Type: application/json" \\
-  -H "X-Circus-Session-Id: ${sessionId}" \\
-  -H "X-Circus-Session-Capability: ${callerCapability}" \\
+  -H "${SESSION_CALLER_ID_HEADER}: ${sessionId}" \\
+  -H "${SESSION_CALLER_IDENTITY_HINT_HEADER}: ${callerCapability}" \\
   -d '{"targetLaneId": "<lane_id>"}'
 \`\`\`
 When the current lane worker moves its own card, a successful response includes

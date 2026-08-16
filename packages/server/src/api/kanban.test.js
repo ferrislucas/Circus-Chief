@@ -27,7 +27,11 @@ vi.mock('../services/kanbanService.js', async (importOriginal) => {
 import kanbanRouter from './kanban.js';
 import { broadcastToProject } from '../websocket.js';
 import { moveCard as moveCardService } from '../services/kanbanService.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import {
+  SESSION_CALLER_ID_HEADER,
+  SESSION_CALLER_IDENTITY_HINT_HEADER,
+  WS_MESSAGE_TYPES,
+} from '@circuschief/shared';
 import { createSessionCallerCapability } from '../services/sessionCallerCapability.js';
 
 describe('Kanban API', () => {
@@ -670,8 +674,8 @@ describe('Kanban API', () => {
 
       const res = await request(app)
         .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
-        .set('X-Circus-Session-Id', session.id)
-        .set('X-Circus-Session-Capability', createSessionCallerCapability(session.id))
+        .set(SESSION_CALLER_ID_HEADER, session.id)
+        .set(SESSION_CALLER_IDENTITY_HINT_HEADER, createSessionCallerCapability(session.id))
         .send({ targetLaneId: lanes[1].id });
 
       expect(res.status).toBe(200);
@@ -696,14 +700,14 @@ describe('Kanban API', () => {
       const first = await request(app)
         .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
         .set('Idempotency-Key', 'deferred-self-move')
-        .set('X-Circus-Session-Id', session.id)
-        .set('X-Circus-Session-Capability', createSessionCallerCapability(session.id))
+        .set(SESSION_CALLER_ID_HEADER, session.id)
+        .set(SESSION_CALLER_IDENTITY_HINT_HEADER, createSessionCallerCapability(session.id))
         .send(body);
       const replay = await request(app)
         .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
         .set('Idempotency-Key', 'deferred-self-move')
-        .set('X-Circus-Session-Id', session.id)
-        .set('X-Circus-Session-Capability', createSessionCallerCapability(session.id))
+        .set(SESSION_CALLER_ID_HEADER, session.id)
+        .set(SESSION_CALLER_IDENTITY_HINT_HEADER, createSessionCallerCapability(session.id))
         .send(body);
 
       expect(first.status).toBe(200);
@@ -759,8 +763,8 @@ describe('Kanban API', () => {
 
       await request(app)
         .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
-        .set('X-Circus-Session-Id', session.id)
-        .set('X-Circus-Session-Capability', 'forged')
+        .set(SESSION_CALLER_ID_HEADER, session.id)
+        .set(SESSION_CALLER_IDENTITY_HINT_HEADER, 'forged')
         .send({ targetLaneId: lanes[1].id });
 
       expect(moveCardService).toHaveBeenCalledWith(

@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { CassetteStore } from './CassetteStore';
+import { REDACTED_SESSION_CALLER_IDENTITY_HINT } from '../../services/sessionCallerIdentityRedaction.js';
+import { SESSION_CALLER_IDENTITY_HINT_HEADER } from '@circuschief/shared';
 
 describe('CassetteStore', () => {
   const testCassetteDir = path.join('tests', 'cassettes', 'temp-test');
@@ -57,6 +59,18 @@ describe('CassetteStore', () => {
       expect(fs.existsSync(nestedDir)).toBe(true);
       const loaded = CassetteStore.load(nestedDir, key);
       expect(loaded).not.toBeNull();
+    });
+
+    it('redacts a caller identity hint before persisting a cassette', () => {
+      const hint = 'sensitive-hint';
+      CassetteStore.save(testCassetteDir, 'redacted-hint', {
+        prompt: `${SESSION_CALLER_IDENTITY_HINT_HEADER}: ${hint}`,
+        events: [],
+      });
+
+      const stored = fs.readFileSync(path.join(testCassetteDir, 'redacted-hint.json'), 'utf-8');
+      expect(stored).toContain(REDACTED_SESSION_CALLER_IDENTITY_HINT);
+      expect(stored).not.toContain(hint);
     });
   });
 
