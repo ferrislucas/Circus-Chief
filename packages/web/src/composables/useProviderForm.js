@@ -1,6 +1,7 @@
 import { ref, computed, watch } from 'vue';
 import { useProvidersStore } from '../stores/providers.js';
 import { useUiStore } from '../stores/ui.js';
+import { localId } from '../utils/id.js';
 import {
   COMMIT_ATTRIBUTION_VALIDATION_MESSAGE,
   parseCommitAttributionOverride,
@@ -160,8 +161,10 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     // which model sits at which index changes), so Vue patches each DOM node
     // -- including whichever one currently has focus -- in place with
     // another row's data instead of moving the matched node with its model.
+    // `localId` falls back when this UI is served from an insecure HTTP origin,
+    // where `crypto.randomUUID()` is unavailable.
     localModels.value.push({
-      _localKey: crypto.randomUUID(),
+      _localKey: localId('model'),
       modelId: '',
       displayName: '',
       tier: 'custom',
