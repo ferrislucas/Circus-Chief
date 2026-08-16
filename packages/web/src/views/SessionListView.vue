@@ -226,7 +226,6 @@
             :show-archive="true"
             :pr-url="workspace.prUrl"
             :pr-summary="workspacePrSummary(workspace)"
-            @retry-summary="retryFetchSummary"
             @archive="handleArchive"
             @star="handleStar"
             @add-to-board="handleAddToBoard"
@@ -254,7 +253,6 @@
       :error="workspaceList.error"
       :has-more="workspaceList.hasMore"
       :total="workspaceList.total"
-      @retry-summary="retryFetchSummary"
       @unarchive="handleUnarchive"
       @star="handleStar"
       @load-more="loadMoreWorkspaces"
@@ -320,7 +318,6 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useWorkspaceListStore } from '../stores/workspaceList.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
-import { useSummaries } from '../composables/useSummaries.js';
 import { useRunningSessionSubscriptions } from '../composables/useRunningSessionSubscriptions.js';
 import { useWorkspaceListRealtime } from '../composables/useWorkspaceListRealtime.js';
 import { useKanbanRealtime } from '../composables/useKanbanRealtime.js';
@@ -346,8 +343,6 @@ const kanbanStore = useKanbanStore();
 const workspaceList = useWorkspaceListStore();
 const commandButtonsStore = useCommandButtonsStore();
 const streamingStore = useSessionStreamingStore();
-
-const { retryFetchSummary } = useSummaries();
 
 streamingStore.restoreCollapsedLogState();
 

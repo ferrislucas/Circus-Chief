@@ -402,7 +402,7 @@ vi.mock('../components/ArchivedTabContent.vue', () => ({
   default: defineComponent({
     name: 'ArchivedTabContent',
     props: ['workspaces', 'loading', 'loadingMore', 'error', 'hasMore', 'total'],
-    emits: ['retry-summary', 'unarchive', 'star', 'load-more'],
+    emits: ['unarchive', 'star', 'load-more'],
     setup(props) {
       const archivedRemaining = computed(() => Math.max(0, props.total - props.workspaces.length));
       return { archivedRemaining };

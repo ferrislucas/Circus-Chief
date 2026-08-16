@@ -49,7 +49,6 @@
         :can-add-to-board="false"
         :pr-url="workspace.prUrl"
         :pr-summary="workspacePrSummary(workspace)"
-        @retry-summary="handleRetrySummary"
         @unarchive="handleUnarchive"
         @star="handleStar"
       />
@@ -104,11 +103,10 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['retry-summary', 'unarchive', 'star', 'load-more']);
+const emit = defineEmits(['unarchive', 'star', 'load-more']);
 
 const remaining = computed(() => Math.max(0, props.total - props.workspaces.length));
 
-const handleRetrySummary = sessionId => emit('retry-summary', sessionId);
 const handleUnarchive = sessionId => emit('unarchive', sessionId);
 const handleStar = session => emit('star', session);
 const handleLoadMore = () => emit('load-more');

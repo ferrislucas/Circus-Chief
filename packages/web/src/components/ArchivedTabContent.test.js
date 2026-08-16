@@ -28,9 +28,7 @@ describe('ArchivedTabContent', () => {
       hasMore: expect.any(Object),
       total: expect.any(Object),
     });
-    expect(ArchivedTabContent.emits).toEqual([
-      'retry-summary', 'unarchive', 'star', 'load-more',
-    ]);
+    expect(ArchivedTabContent.emits).toEqual(['unarchive', 'star', 'load-more']);
   });
 
   it('renders loading, error, and empty states from list-response state', async () => {
