@@ -21,14 +21,11 @@ export const WS_RECONNECT_MAX_DELAY = 30000;
 export const TOAST_DURATION = 5000;
 
 /**
- * Headers used by a session worker to identify itself when it requests a
- * Kanban card move. The accompanying HMAC is deliberately a low-privilege
- * identity hint: it only lets the route recognize the current worker's own
- * lane run. It is not general authorization and must never gain privileges
- * without a real authentication design.
+ * A non-secret attribution header used by a session worker when it requests a
+ * Kanban card move. The server validates membership in the card's active lane
+ * run before treating the request as a deferred exit-lane declaration.
  */
 export const SESSION_CALLER_ID_HEADER = 'X-Circus-Session-Id';
-export const SESSION_CALLER_IDENTITY_HINT_HEADER = 'X-Circus-Session-Capability';
 
 /** Default delay (in minutes) before auto-rescheduling a session. */
 export const DEFAULT_RESCHEDULE_DELAY_MINUTES = 60;

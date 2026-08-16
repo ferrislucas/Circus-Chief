@@ -29,10 +29,8 @@ import { broadcastToProject } from '../websocket.js';
 import { moveCard as moveCardService } from '../services/kanbanService.js';
 import {
   SESSION_CALLER_ID_HEADER,
-  SESSION_CALLER_IDENTITY_HINT_HEADER,
   WS_MESSAGE_TYPES,
 } from '@circuschief/shared';
-import { createSessionCallerCapability } from '../services/sessionCallerCapability.js';
 
 describe('Kanban API', () => {
   let app;
@@ -675,7 +673,6 @@ describe('Kanban API', () => {
       const res = await request(app)
         .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
         .set(SESSION_CALLER_ID_HEADER, session.id)
-        .set(SESSION_CALLER_IDENTITY_HINT_HEADER, createSessionCallerCapability(session.id))
         .send({ targetLaneId: lanes[1].id });
 
       expect(res.status).toBe(200);
@@ -701,13 +698,11 @@ describe('Kanban API', () => {
         .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
         .set('Idempotency-Key', 'deferred-self-move')
         .set(SESSION_CALLER_ID_HEADER, session.id)
-        .set(SESSION_CALLER_IDENTITY_HINT_HEADER, createSessionCallerCapability(session.id))
         .send(body);
       const replay = await request(app)
         .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
         .set('Idempotency-Key', 'deferred-self-move')
         .set(SESSION_CALLER_ID_HEADER, session.id)
-        .set(SESSION_CALLER_IDENTITY_HINT_HEADER, createSessionCallerCapability(session.id))
         .send(body);
 
       expect(first.status).toBe(200);
@@ -755,7 +750,7 @@ describe('Kanban API', () => {
       );
     });
 
-    it('rejects a claimed caller identity without its matching capability', async () => {
+    it('attributes an existing same-project caller without a capability secret', async () => {
       setupBoard();
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
@@ -764,13 +759,12 @@ describe('Kanban API', () => {
       await request(app)
         .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
         .set(SESSION_CALLER_ID_HEADER, session.id)
-        .set(SESSION_CALLER_IDENTITY_HINT_HEADER, 'forged')
         .send({ targetLaneId: lanes[1].id });
 
       expect(moveCardService).toHaveBeenCalledWith(
         card.id,
         lanes[1].id,
-        expect.objectContaining({ actorSessionId: null })
+        expect.objectContaining({ actorSessionId: session.id })
       );
     });
 
@@ -950,6 +944,24 @@ describe('Kanban API', () => {
         card.id,
         lanes[1].id,
         expect.objectContaining({ sortOrder: undefined, runOnEnterTemplate: true })
+      );
+    });
+
+    it('uses the same attributed actor path for a card-addressed move', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      moveCardService.mockResolvedValueOnce({ ...card, laneId: lanes[1].id });
+
+      await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
+        .set(SESSION_CALLER_ID_HEADER, session.id)
+        .send({ targetLaneId: lanes[1].id });
+
+      expect(moveCardService).toHaveBeenCalledWith(
+        card.id,
+        lanes[1].id,
+        expect.objectContaining({ actorSessionId: session.id })
       );
     });
 

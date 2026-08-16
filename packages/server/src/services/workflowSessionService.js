@@ -497,14 +497,18 @@ export function resolveCardActor(db, cardId, actorSessionId) {
     .get(cardId)?.active_lane_run_id;
   if (!activeLaneRunId) return null;
   const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=? AND status=\'open\'').get(activeLaneRunId);
-  // The URL's workspace identifies the card, not the caller. Only the exact
-  // root worker attached to the active run can make a self-move declaration.
-  if (!run || run.root_session_id !== actorSessionId) return null;
+  if (!run) return null;
+  // A lane run owns its root and every descendant added while that run is
+  // active. A child declaration is intentionally a declaration for the root's
+  // run: completion remains owned by the root, but the child must not abort
+  // itself merely for choosing the run's exit lane.
+  const actor = db.prepare(SELECT_SESSION_BY_ID).get(actorSessionId);
+  if (!actor || actor.lane_run_id !== run.id) return null;
   // An already-closed obligation means this worker is no longer the one
   // responsible for the run, so its move carries no completion meaning.
   const root = db.prepare(SELECT_SESSION_BY_ID).get(run.root_session_id);
   if (root?.own_work_state !== 'open') return null;
-  return { kind: 'self_move', run };
+  return { kind: 'self_move', run, actor };
 }
 
 export function completeRunForSelfMove(cardId, targetLaneId, actorSessionId, { runOnEnterTemplate = true } = {}) {
@@ -528,7 +532,7 @@ export function completeRunForSelfMove(cardId, targetLaneId, actorSessionId, { r
       chosen_exit_declared_by=?, updated_at=? WHERE id=? AND status='open'`)
       .run(targetLaneId, time, actorSessionId, time, run.id);
     audit(db, run.id, 'exit_lane_declared', {
-      sessionId: run.root_session_id,
+      sessionId: actorSessionId,
       details: { targetLaneId, runOnEnterTemplate },
     });
     return getRun(run.id);

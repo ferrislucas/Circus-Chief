@@ -1,9 +1,5 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
-import {
-  redactSessionCallerIdentityHint,
-  redactSessionCallerIdentityHintValue,
-} from '../services/sessionCallerIdentityRedaction.js';
 
 /**
  * Message repository class
@@ -48,8 +44,8 @@ export class MessageRepository extends BaseRepository {
         sessionId,
         conversationId,
         role,
-        redactSessionCallerIdentityHint(content, sessionId),
-        toolUse ? JSON.stringify(redactSessionCallerIdentityHintValue(toolUse, sessionId)) : null,
+        content,
+        toolUse ? JSON.stringify(toolUse) : null,
         model,
         now
       );
@@ -114,13 +110,12 @@ export class MessageRepository extends BaseRepository {
       throw new Error('Message content cannot be empty');
     }
 
-    const message = this.getById(messageId);
     // Update the message content
     this.db
       .prepare(
         `UPDATE conversation_messages SET content = ? WHERE id = ?`
       )
-      .run(redactSessionCallerIdentityHint(content, message?.sessionId), messageId);
+      .run(content, messageId);
 
     // Return the updated message
     return this.getById(messageId);

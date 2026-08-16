@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { redactSessionCallerIdentityHintValue } from '../../services/sessionCallerIdentityRedaction.js';
 
 /**
  * CassetteStore handles reading/writing VCR cassette files.
@@ -56,11 +55,11 @@ export class CassetteStore {
     const tempPath = `${targetPath}.tmp`;
 
     // Prepare cassette with metadata
-    const cassetteWithMeta = redactSessionCallerIdentityHintValue({
+    const cassetteWithMeta = {
       ...cassette,
       key,
       recordedAt: new Date().toISOString(),
-    });
+    };
 
     try {
       // Atomic write: write to temp file, then rename

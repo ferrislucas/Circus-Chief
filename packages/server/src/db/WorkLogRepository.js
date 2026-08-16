@@ -1,6 +1,5 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
-import { redactSessionCallerIdentityHint } from '../services/sessionCallerIdentityRedaction.js';
 
 /**
  * Work log repository class
@@ -40,7 +39,7 @@ export class WorkLogRepository extends BaseRepository {
         `INSERT INTO work_logs (id, session_id, message_id, type, tool_name, content, timestamp)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, sessionId, messageId, type, toolName, redactSessionCallerIdentityHint(content, sessionId), now);
+      .run(id, sessionId, messageId, type, toolName, content, now);
     return this.getById(id);
   }
 

@@ -139,8 +139,8 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
  * @param {number} [options.sortOrder] - Optional sort order in target lane
  * @param {boolean} [options.runOnEnterTemplate=true] - Whether to run the on-enter template
  * @param {number} [options.depth=0] - Current recursion depth for template triggers
- * @param {string|null} [options.actorSessionId] - Executing session identified
- *   by the agent-facing request. Absent for UI and other external moves.
+ * @param {string|null} [options.actorSessionId] - Session attributed to an
+ *   agent-facing request. The service validates its active-run membership.
  * @returns {Promise<Object>} The moved card
  */
 export async function moveCard(cardId, targetLaneId, options = {}) {
@@ -166,8 +166,8 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
     const selfMoveResult = actor
       ? completeRunForSelfMove(cardId, targetLaneId, actorSessionId, { runOnEnterTemplate })
       : null;
-    // An authenticated agent may interrupt another worker's run. Preserve
-    // that fact for audits; only a UI/external move is a manual supersession.
+    // An attributed agent may interrupt another worker's run. Preserve that
+    // fact for audits; only a UI/external move is a manual supersession.
     const cause = actorSessionId ? 'agent_move' : 'manual_move';
     if (!selfMoveResult) supersedeRunForCard(cardId, cause);
     const updatedCard = selfMoveResult ? kanbanCards.getByIdWithLane(cardId) : kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);

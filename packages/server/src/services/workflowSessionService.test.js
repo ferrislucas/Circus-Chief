@@ -495,8 +495,26 @@ describe('workflowSessionService', () => {
       const { worker, run } = runningWorker();
 
       expect(resolveCardActor(databaseManager.get(), card.id, worker.id)).toEqual({
-        kind: 'self_move', run: expect.objectContaining({ id: run.id, root_session_id: worker.id }),
+        kind: 'self_move',
+        run: expect.objectContaining({ id: run.id, root_session_id: worker.id }),
+        actor: expect.objectContaining({ id: worker.id }),
       });
+    });
+
+    it('treats an active child worker declaration as its root run declaration', () => {
+      const { worker, run } = runningWorker();
+      const child = sessions.create(project.id, 'Child', 'child lane work', { parentSessionId: worker.id });
+      databaseManager.get().prepare("UPDATE sessions SET status='running' WHERE id=?").run(child.id);
+
+      expect(completeRunForSelfMove(card.id, target.id, child.id)).toEqual(expect.objectContaining({
+        id: run.id,
+        status: 'open',
+        chosenExitLaneId: target.id,
+        chosenExitDeclaredBy: child.id,
+      }));
+      expect(sessions.getById(worker.id).status).toBe('running');
+      expect(sessions.getById(child.id).status).toBe('running');
+      expect(getRun(run.id).status).toBe('open');
     });
 
     it('is not a self-move once the worker no longer owns an open obligation', () => {

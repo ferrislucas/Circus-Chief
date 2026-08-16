@@ -5,7 +5,6 @@ import { kanbanBoards, kanbanLanes, kanbanCards, projects, sessions, databaseMan
 import { broadcastToProject } from '../websocket.js';
 import {
   SESSION_CALLER_ID_HEADER,
-  SESSION_CALLER_IDENTITY_HINT_HEADER,
   WS_MESSAGE_TYPES,
 } from '@circuschief/shared';
 import {
@@ -20,7 +19,6 @@ import {
   addSessionToBoard,
   moveCard as moveCardService,
 } from '../services/kanbanService.js';
-import { verifySessionCallerCapability } from '../services/sessionCallerCapability.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
 import { getRun } from '../services/workflowSessionService.js';
 import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
@@ -148,9 +146,10 @@ function targetLaneForBoard(targetLaneId, board) {
 }
 
 function callerSessionId(req) {
-  const claimedActorSessionId = req.get(SESSION_CALLER_ID_HEADER) || null;
-  const capability = req.get(SESSION_CALLER_IDENTITY_HINT_HEADER);
-  return verifySessionCallerCapability(claimedActorSessionId, capability) ? claimedActorSessionId : null;
+  const sessionId = req.get(SESSION_CALLER_ID_HEADER) || null;
+  // This is attribution, not authentication. moveCard performs the relevant
+  // server-side check: the session must belong to this card's active run.
+  return sessionId && sessions.getById(sessionId)?.projectId === req.params.projectId ? sessionId : null;
 }
 
 function completionTargetError(boardId, targetLaneId, sourceLaneId = null) {
@@ -469,6 +468,7 @@ router.patch('/cards/:cardId/move', async (req, res) => {
     const response = await moveCardService(cardId, targetLaneId, {
       sortOrder,
       runOnEnterTemplate,
+      actorSessionId: callerSessionId(req),
       finalizeMutation: ({ card: movedCard, eventId }) => completeOperation(operation, movedCard, eventId),
     });
     res.json(response);
@@ -542,9 +542,8 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
     const response = await moveCardService(card.id, targetLaneId, {
       sortOrder,
       runOnEnterTemplate,
-      // Agent prompts attach the executing session id. The workspace in the
-      // URL identifies the card; it is not caller identity and must not be
-      // used to decide whether the active worker is moving its own card.
+      // The workspace URL identifies the card; the attributed caller is
+      // separately checked for membership by moveCard.
       actorSessionId,
       finalizeMutation: ({ card: movedCard, eventId }) => completeOperation(operation, movedCard, eventId),
     });
