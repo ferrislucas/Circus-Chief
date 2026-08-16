@@ -48,8 +48,13 @@ describe('SessionRepository', () => {
       const running = repo.create(projectId, 'Running session', 'Prompt');
       repo.update(running.id, { status: 'running' });
 
-      expect(repo.getRecoverableSessions('running', Date.now() - 1)).toEqual([]);
-      expect(repo.getRecoverableSessions('running', Date.now() + 1)).toEqual([
+      // Pin updated_at so the cutoff comparison is deterministic.
+      const updatedAt = 1_000_000;
+      repo.db.prepare('UPDATE sessions SET updated_at=? WHERE id=?').run(updatedAt, running.id);
+
+      expect(repo.getRecoverableSessions('running', updatedAt)).toEqual([]);
+      expect(repo.getRecoverableSessions('running', updatedAt - 1)).toEqual([]);
+      expect(repo.getRecoverableSessions('running', updatedAt + 1)).toEqual([
         expect.objectContaining({ id: running.id }),
       ]);
     });
