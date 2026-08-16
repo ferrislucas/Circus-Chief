@@ -15,7 +15,7 @@ const WORKSPACE_AGGREGATES_CTE = `
       SUM(CASE WHEN s.status = 'scheduled' THEN 1 ELSE 0 END) AS scheduled_count,
       MIN(CASE WHEN s.status = 'scheduled' THEN s.scheduled_at END) AS nearest_scheduled_at,
       SUM(CASE WHEN s.status = 'waiting' THEN 1 ELSE 0 END) AS waiting_count,
-      COUNT(*) - 1 AS member_count
+      COUNT(*) - 1 AS descendant_count
     FROM tree JOIN sessions s ON s.id = tree.id GROUP BY tree.root_id
   )`;
 
@@ -80,7 +80,7 @@ export function getWorkspaceCards(db, projectId, options = {}) {
       s.updated_at AS updatedAt, ${WORKSPACE_LAST_ACTIVITY_SQL} AS last_activity_at,
       a.running_count AS runningCount, a.scheduled_count AS scheduledCount,
       a.running_session_ids AS runningSessionIds, a.member_ids AS memberIds,
-      a.waiting_count AS waitingCount, a.member_count AS memberCount,
+      a.waiting_count AS waitingCount, a.descendant_count AS descendantCount,
       a.nearest_scheduled_at AS nearestScheduledAt,
       ss.short_summary AS summaryPreview,
       ss.pr_state AS prState, ss.has_merge_conflicts AS hasMergeConflicts,
@@ -135,7 +135,7 @@ function toWorkspaceCard(row) {
     memberIds: row.memberIds ? row.memberIds.split(',') : [row.id],
     scheduledCount: row.scheduledCount,
     waitingCount: row.waitingCount,
-    memberCount: row.memberCount,
+    descendantCount: row.descendantCount,
     nearestScheduledAt: row.nearestScheduledAt || null,
     summaryPreview: row.summaryPreview || null,
     prState: row.prState || null,

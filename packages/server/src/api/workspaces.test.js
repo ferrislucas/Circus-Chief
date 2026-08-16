@@ -116,7 +116,7 @@ describe('Workspace facade API', () => {
 
       expect(res.body.workspaces).toHaveLength(1);
       expect(res.body.workspaces[0]).toMatchObject({
-        id: root.id, name: 'Root', runningCount: 2, memberCount: 1,
+        id: root.id, name: 'Root', runningCount: 2, descendantCount: 1,
         runningSessionIds: [root.id, expect.any(String)],
         latestCommandRuns: [],
       });

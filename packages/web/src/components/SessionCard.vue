@@ -356,7 +356,7 @@ const workflowStatus = computed(() => {
     return {
       runningCount: props.workflowAggregate.runningCount || 0,
       scheduledCount: props.workflowAggregate.scheduledCount || 0,
-      totalCount: (props.workflowAggregate.memberCount || 0) + 1,
+      totalCount: (props.workflowAggregate.descendantCount || 0) + 1,
       effectiveStatus: (props.workflowAggregate.runningCount || 0) > 0 ? 'running' : 'idle',
     };
   }

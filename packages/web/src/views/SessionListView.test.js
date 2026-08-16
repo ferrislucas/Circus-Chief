@@ -87,7 +87,7 @@ vi.mock('../stores/workspaceList.js', () => ({
         if (this.query.archived) {
           return (sessionsStore.archivedSessions || []).map(session => ({
             ...session,
-            memberCount: 0,
+            descendantCount: 0,
             runningCount: ['running', 'starting'].includes(session.status) ? 1 : 0,
           }));
         }
@@ -95,7 +95,7 @@ vi.mock('../stores/workspaceList.js', () => ({
         return groups
           .map(({ parent, children = [] }) => ({
             ...parent,
-            memberCount: children.length + 1,
+            descendantCount: children.length,
             runningCount: [parent, ...children].filter(session =>
               ['running', 'starting'].includes(session.status)).length,
           }))
