@@ -165,6 +165,16 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
     // A worker's move is a durable exit-lane declaration. The card remains in
     // its source lane until the worker's subtree has completed.
     const actor = resolveCardActor(databaseManager.get(), cardId, actorSessionId);
+    if (!actor && !actorSessionId) {
+      const activeRun = databaseManager.get().prepare(`SELECT r.root_session_id FROM kanban_lane_runs r
+        JOIN kanban_cards c ON c.active_lane_run_id=r.id
+        WHERE c.id=? AND r.status='open'`).get(cardId);
+      const root = activeRun?.root_session_id && sessions.getById(activeRun.root_session_id);
+      if (root?.status === 'running') {
+        throw new ApiError('Moving this card would abort its active worker. Retry with the session caller header.',
+          { status: 409, code: 'KANBAN_MOVE_WOULD_ABORT_WORKER' });
+      }
+    }
     // A self-move does not move the card yet, so there is no target-lane
     // position to persist. Reject an explicit position rather than claiming
     // to honor it and silently dropping the value.

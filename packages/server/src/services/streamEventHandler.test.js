@@ -510,7 +510,7 @@ describe('streamEventHandler', () => {
       expect(mockHandleTemplate).toHaveBeenCalledWith('sess-1');
     });
 
-    it('does not set waiting when session was aborted', async () => {
+    it('lands stopped, not waiting, when the session was aborted', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: true } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
 
@@ -519,7 +519,7 @@ describe('streamEventHandler', () => {
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(sessions.update).not.toHaveBeenCalled();
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'stopped', executionState: 'stopped' });
     });
 
     it('does not set waiting when session not in activeSessions', async () => {

@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ref, computed } from 'vue';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
-
 // Mock stores
 const mockProjectsStore = {
   fetchProject: vi.fn(),
@@ -49,6 +48,7 @@ const mockOnKanbanBoardUpdated = vi.fn(() => vi.fn());
 const mockOnKanbanCardMoved = vi.fn(() => vi.fn());
 const mockOnKanbanCardAdded = vi.fn(() => vi.fn());
 const mockOnKanbanCardRemoved = vi.fn(() => vi.fn());
+const mockOnKanbanExitLaneDeclared = vi.fn(() => vi.fn());
 const mockOnCommandRunError = vi.fn(() => vi.fn());
 const mockOnCommandRunDeleted = vi.fn(() => vi.fn());
 
@@ -88,6 +88,7 @@ vi.mock('./useWebSocket.js', () => ({
     onKanbanCardMoved: mockOnKanbanCardMoved,
     onKanbanCardAdded: mockOnKanbanCardAdded,
     onKanbanCardRemoved: mockOnKanbanCardRemoved,
+    onKanbanExitLaneDeclared: mockOnKanbanExitLaneDeclared,
   })),
   useWebSocket: vi.fn(() => ({
     onReconnect: mockOnReconnect,
@@ -149,6 +150,7 @@ describe('useProjectSessionSubscription', () => {
     mockOnKanbanCardMoved.mockReset().mockReturnValue(vi.fn());
     mockOnKanbanCardAdded.mockReset().mockReturnValue(vi.fn());
     mockOnKanbanCardRemoved.mockReset().mockReturnValue(vi.fn());
+    mockOnKanbanExitLaneDeclared.mockReset().mockReturnValue(vi.fn());
     mockReconnectCleanup.mockReset();
     mockOnReconnect.mockReset();
     mockOnReconnect.mockReturnValue(mockReconnectCleanup);

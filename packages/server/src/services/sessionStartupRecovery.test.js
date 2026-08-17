@@ -8,7 +8,7 @@ vi.mock('../websocket.js', () => ({
 }));
 
 import { broadcastToProject } from '../websocket.js';
-import { recoverStaleStartingSessions, recoverOrphanedRunningSessions } from './sessionStartupRecovery.js';
+import { recoverStaleStartingSessions, recoverOrphanedRunningSessions, recoverStaleAbortingSessions } from './sessionStartupRecovery.js';
 import { attachRootSession, createLaneRunForEntry, getRun } from './workflowSessionService.js';
 
 function createProject() {
@@ -92,7 +92,7 @@ describe('recoverStaleStartingSessions', () => {
     );
   });
 
-  it('closes the workflow obligation and releases the card for an orphaned lane worker', () => {
+  it('closes the workflow obligation while retaining the failed-run card details', () => {
     const project = createProject();
     const board = kanbanBoards.create(project.id);
     const [source, target] = kanbanLanes.getByBoardId(board.id);
@@ -116,7 +116,7 @@ describe('recoverStaleStartingSessions', () => {
       status: 'stopped', executionState: 'stopped', ownWorkState: 'cancelled',
     });
     expect(getRun(run.id).status).not.toBe('open');
-    expect(kanbanCards.getById(card.id).activeLaneRunId).toBeNull();
+    expect(kanbanCards.getById(card.id).activeLaneRunId).toBe(run.id);
   });
 });
 
@@ -167,5 +167,18 @@ describe('recoverOrphanedRunningSessions', () => {
       WS_MESSAGE_TYPES.SESSION_UPDATED,
       expect.objectContaining({ sessionId: session.id })
     );
+  });
+});
+
+describe('recoverStaleAbortingSessions', () => {
+  it('stops an aborting session whose worker did not unwind', () => {
+    process.env.STALE_ABORTING_THRESHOLD_MS = '1000';
+    const project = createProject();
+    const session = createSessionWithStatus(project.id, 'running');
+    databaseManager.get().prepare("UPDATE sessions SET execution_state='aborting' WHERE id=?").run(session.id);
+    backdateSession(session.id, 5000);
+
+    expect(recoverStaleAbortingSessions()).toEqual({ recovered: 1 });
+    expect(sessions.getById(session.id)).toMatchObject({ status: 'stopped', executionState: 'stopped' });
   });
 });

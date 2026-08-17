@@ -15,6 +15,7 @@ import { getRun } from './workflowRunReader.js';
 import { recomputeSubtreeOutcomes } from './workflowSessionState.js';
 import { broadcastCardTransition, moveCardForTransition } from './workflowLaneTransition.js';
 import { ApiError } from '../errors/ApiError.js';
+import { SESSION_EXECUTION_STATES } from '@circuschief/shared';
 
 export { getRun } from './workflowRunReader.js';
 export { computeSubtreeOutcome, recomputeSubtreeOutcomes } from './workflowSessionState.js';
@@ -90,6 +91,12 @@ function clearExecutableMemberState(db, runId, reason, time) {
     scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_conversation_id=NULL,
     auto_send_pending_prompt=0, reschedule_count=0
     WHERE lane_run_id=? AND own_work_state='open'`).run(time, reason, time, runId);
+}
+
+/** Release a card only when the supplied run still owns it. */
+function releaseCardFromRun(db, runId, time) {
+  db.prepare(`UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=?
+    WHERE active_lane_run_id=?`).run(time, runId);
 }
 
 /** Scheduler/start guard. Stale lane workers lose their pending work before
@@ -298,6 +305,9 @@ export function closeOwnWork(sessionId, outcome, reason = null) {
  * @param {string} executionState
  */
 export function markExecutionState(sessionId, executionState) {
+  if (!SESSION_EXECUTION_STATES.includes(executionState)) {
+    throw new Error(`Invalid session execution state: ${executionState}`);
+  }
   databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!isParticipating(s) || !activeRunOwnsSession(db, s)) return;
@@ -345,16 +355,17 @@ export function markHeldForLimit(sessionId) {
 // freshly recomputed root subtree_outcome, matching FR-7's literal
 // predicate table, rather than an ad hoc flat scan of all members.
 export function reconcileLaneRun(runId) {
-  const db = databaseManager.get(); const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
-  if (!run || run.status !== 'open') return getRun(runId);
-  const rootOutcome = recomputeSubtreeOutcomes(runId);
-  if (rootOutcome === 'failed' || rootOutcome === 'cancelled') {
-    const members = db.prepare('SELECT * FROM sessions WHERE lane_run_id=?').all(runId);
-    const failed = members.find((s) => s.own_work_state === 'closed_failed');
-    const cancelled = members.find((s) => s.own_work_state === 'cancelled');
-    const state = rootOutcome; const time = now();
-    db.prepare(`UPDATE kanban_lane_runs SET status=?, failure_reason=?, ${state}_at=?, updated_at=? WHERE id=?`)
-      .run(state, failed?.workflow_reason || cancelled?.workflow_reason || state, time, time, runId);
+  return databaseManager.transaction(() => {
+    const db = databaseManager.get(); const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
+    if (!run || run.status !== 'open') return getRun(runId);
+    const rootOutcome = recomputeSubtreeOutcomes(runId);
+    if (rootOutcome === 'failed' || rootOutcome === 'cancelled') {
+      const members = db.prepare('SELECT * FROM sessions WHERE lane_run_id=?').all(runId);
+      const failed = members.find((s) => s.own_work_state === 'closed_failed');
+      const cancelled = members.find((s) => s.own_work_state === 'cancelled');
+      const state = rootOutcome; const time = now();
+      db.prepare(`UPDATE kanban_lane_runs SET status=?, failure_reason=?, ${state}_at=?, updated_at=? WHERE id=?`)
+        .run(state, failed?.workflow_reason || cancelled?.workflow_reason || state, time, time, runId);
     // A self-move is only a deferred exit declaration, not an immediate card
     // move. Once the run fails or is cancelled it can never be applied; keep
     // the declaration on the terminal run for diagnosis and record why it was
@@ -365,12 +376,13 @@ export function reconcileLaneRun(runId) {
         details: { targetLaneId: run.chosen_exit_lane_id, outcome: state },
       });
     }
-    db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE active_lane_run_id=?')
-      .run(time, runId);
-    audit(db, runId, `run_${state}`, { sessionId: failed?.id || cancelled?.id }); return getRun(runId);
-  }
-  if (rootOutcome === 'succeeded') return attemptLaneRunTransition(runId);
-  return getRun(runId);
+      // Keep the terminal run attached to its card. The board response and
+      // card details use this pointer to expose a failure's owning session.
+      audit(db, runId, `run_${state}`, { sessionId: failed?.id || cancelled?.id }); return getRun(runId);
+    }
+    if (rootOutcome === 'succeeded') return attemptLaneRunTransition(runId);
+    return getRun(runId);
+  });
 }
 
 /**
@@ -440,7 +452,7 @@ export function attemptLaneRunTransition(runId) {
     const movedCard = moveCardForTransition(run, card);
     const targetLaneId = movedCard?.laneId || null;
     const laneRun = createCompletionSuccessor(run, card, movedCard);
-    if (!laneRun) db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE id=?').run(now(), card.id);
+    if (!laneRun) releaseCardFromRun(db, runId, now());
     audit(db, runId, 'transition_applied');
 
     const result = getRun(runId);
@@ -470,7 +482,7 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
     db.prepare(`UPDATE kanban_lane_runs SET status='superseded', superseded_at=?, updated_at=?, failure_reason=? WHERE id=? AND status='open'`)
       .run(time, time, reason, runId);
     clearExecutableMemberState(db, runId, reason, time);
-    db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=? WHERE active_lane_run_id=?').run(time, runId);
+    releaseCardFromRun(db, runId, time);
     audit(db, runId, 'run_superseded', { details: { reason } });
     for (const member of db.prepare('SELECT id FROM sessions WHERE lane_run_id=?').all(runId)) {
       audit(db, runId, 'member_cancelled_on_supersession', { sessionId: member.id, details: { reason } });
@@ -497,7 +509,7 @@ export function resolveCardActor(db, cardId, actorSessionId) {
   // run: completion remains owned by the root, but the child must not abort
   // itself merely for choosing the run's exit lane.
   const actor = db.prepare(SELECT_SESSION_BY_ID).get(actorSessionId);
-  if (!actor || actor.lane_run_id !== run.id) return null;
+  if (!actor || actor.lane_run_id !== run.id || actor.own_work_state !== 'open') return null;
   // An already-closed obligation means this worker is no longer the one
   // responsible for the run, so its move carries no completion meaning.
   const root = db.prepare(SELECT_SESSION_BY_ID).get(run.root_session_id);
@@ -553,14 +565,8 @@ export function declareExitLaneForSelfMove(cardId, targetLaneId, actorSessionId,
 
     const time = now();
     if (run.chosen_exit_lane_id && run.chosen_exit_lane_id !== targetLaneId) {
-      audit(db, run.id, 'exit_lane_redeclared', {
-        sessionId: actorSessionId,
-        details: {
-          previousLaneId: run.chosen_exit_lane_id,
-          previousDeclaredBy: run.chosen_exit_declared_by,
-          targetLaneId,
-        },
-      });
+      throw new ApiError('An exit lane has already been declared for this run',
+        { status: 409, code: 'KANBAN_EXIT_LANE_ALREADY_DECLARED' });
     }
     db.prepare(`UPDATE kanban_lane_runs SET chosen_exit_lane_id=?, chosen_exit_declared_at=?,
       chosen_exit_declared_by=?, updated_at=? WHERE id=? AND status='open'`)

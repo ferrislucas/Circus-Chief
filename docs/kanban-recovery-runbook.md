@@ -88,3 +88,18 @@ Completed and unretried failed keyed API operations are retained for 30 days, th
 bounded batches of 500 once per hour. Processing operations are never removed.
 Cleanup logs both the number deleted and the remaining eligible backlog; a
 non-zero backlog is expected to drain over subsequent hourly batches.
+# Kanban recovery and trust boundary
+
+## Move attribution
+
+Kanban's session caller header is **attribution, not authentication**. The
+local Circus Chief API currently has no authentication layer and may be exposed
+for remote-access workflows; session IDs and the caller header must therefore
+not be treated as secrets or as an authorization boundary.
+
+The server protects the destructive omission case: a headerless request that
+would interrupt a live lane worker is rejected with
+`409 KANBAN_MOVE_WOULD_ABORT_WORKER`. Automated workers must include their
+session caller header when declaring an exit lane. Deployments that expose the
+API to untrusted networks need a reverse proxy or equivalent access control;
+capability-based session authentication is a separate security feature.

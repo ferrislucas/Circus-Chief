@@ -2,7 +2,7 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { messages, conversations } from './index.js';
-import { SESSION_EXECUTION_STATES } from '@circuschief/shared/constants';
+import { SESSION_EXECUTION_STATES } from '@circuschief/shared';
 import {
   ACTIVITY_FIELDS_SQL,
   SESSION_ORDER_BY,
@@ -379,6 +379,12 @@ export class SessionRepository extends BaseRepository {
    */
   getOrphanedRunningSessions() {
     return this.getRecoverableSessions('running');
+  }
+
+  /** Sessions whose abort was requested but whose worker did not unwind. */
+  getStaleAbortingSessions(cutoff) {
+    return this.mapAll(this.db.prepare(`SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s
+      WHERE execution_state='aborting' AND updated_at < ? AND archived=0`).all(cutoff));
   }
 
   /**

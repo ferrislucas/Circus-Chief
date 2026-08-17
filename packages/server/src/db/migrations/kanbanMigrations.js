@@ -332,9 +332,11 @@ export const kanbanMigrations = [
   {
     name: 'kanban-lane-run-declared-exit-lane',
     up(db) {
-      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_lane_id', 'TEXT');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_lane_id',
+        'TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL');
       addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_declared_at', 'INTEGER');
-      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_declared_by', 'TEXT');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_declared_by',
+        'TEXT REFERENCES sessions(id) ON DELETE SET NULL');
     },
   },
 ];

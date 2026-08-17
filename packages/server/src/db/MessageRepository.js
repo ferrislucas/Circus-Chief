@@ -39,16 +39,7 @@ export class MessageRepository extends BaseRepository {
         `INSERT INTO conversation_messages (id, session_id, conversation_id, role, content, tool_use, model, timestamp)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(
-        id,
-        sessionId,
-        conversationId,
-        role,
-        content,
-        toolUse ? JSON.stringify(toolUse) : null,
-        model,
-        now
-      );
+      .run(id, sessionId, conversationId, role, content, toolUse ? JSON.stringify(toolUse) : null, model, now);
     return this.getById(id);
   }
 

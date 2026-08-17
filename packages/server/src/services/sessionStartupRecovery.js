@@ -71,7 +71,7 @@ export function recoverOrphanedRunningSessions() {
   const orphaned = sessions.getOrphanedRunningSessions();
 
   for (const session of orphaned) {
-    const updatedSession = sessions.update(session.id, {
+    sessions.update(session.id, {
       status: 'stopped',
       executionState: 'stopped',
     });
@@ -80,6 +80,7 @@ export function recoverOrphanedRunningSessions() {
     // reconciles the lane run, releasing its card rather than pinning it to a
     // worker which disappeared with the previous server process.
     closeOwnWork(session.id, 'cancelled', 'orphaned_at_boot');
+    const updatedSession = sessions.getById(session.id);
 
     broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
       projectId: session.projectId,
@@ -97,4 +98,17 @@ export function recoverOrphanedRunningSessions() {
   }
 
   return { recovered: orphaned.length };
+}
+
+/** Reap abort requests whose provider never honored the cancellation signal. */
+export function recoverStaleAbortingSessions() {
+  const thresholdMs = Number(process.env.STALE_ABORTING_THRESHOLD_MS) || DEFAULT_STALE_THRESHOLD_MS;
+  const stale = sessions.getStaleAbortingSessions(Date.now() - thresholdMs);
+  for (const session of stale) {
+    const updatedSession = sessions.update(session.id, { status: 'stopped', executionState: 'stopped' });
+    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId: session.projectId, sessionId: session.id, session: updatedSession,
+    });
+  }
+  return { recovered: stale.length };
 }

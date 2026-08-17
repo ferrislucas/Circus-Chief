@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { CassetteStore } from './CassetteStore';
-
 describe('CassetteStore', () => {
   const testCassetteDir = path.join('tests', 'cassettes', 'temp-test');
 

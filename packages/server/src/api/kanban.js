@@ -30,6 +30,7 @@ const CARD_NOT_FOUND_ERROR = 'Card not found';
 const TARGET_LANE_NOT_FOUND_ERROR = 'Target lane not found';
 const WORKSPACE_CARD_NOT_FOUND_ERROR = 'No card found for this workspace';
 const OPERATION_LEASE_MS = 30_000;
+const MAX_OPERATION_ATTEMPTS = 5;
 const GENERIC_OPERATION_FAILURE = 'The operation could not be completed. Please try again.';
 function canonicalPayload(payload) {
   if (Array.isArray(payload)) return payload.map(canonicalPayload);
@@ -56,12 +57,29 @@ function validateIdempotencyKey(req, res, next) {
 
 /** Reserve a durable API operation. Unkeyed calls retain legacy semantics,
  * while keyed calls get database-enforced replay protection. */
+function reclaimOperation(db, existing, now) {
+  if (existing.attempt_count >= MAX_OPERATION_ATTEMPTS) {
+    const terminalError = existing.terminal_error || GENERIC_OPERATION_FAILURE;
+    db.prepare(`UPDATE kanban_api_operations SET status='failed', owner_token=NULL,
+      lease_expires_at=NULL, terminal_error=?, updated_at=? WHERE id=?`).run(terminalError, now, existing.id);
+    return { existing: { ...existing, status: 'failed', terminal_error: terminalError } };
+  }
+  const token = crypto.randomUUID();
+  const taken = db.prepare(`UPDATE kanban_api_operations
+    SET status='processing', owner_token=?, lease_expires_at=?, attempt_count=attempt_count+1, updated_at=?
+    WHERE id=? AND (status IN ('retryable','failed','abandoned') OR (status='processing' AND lease_expires_at<=?))`)
+    .run(token, now + OPERATION_LEASE_MS, now, existing.id, now);
+  if (!taken.changes) return null;
+  const operation = db.prepare('SELECT * FROM kanban_api_operations WHERE id=?').get(existing.id);
+  return { operation: { ...operation, token } };
+}
+
 function beginOperation(req, endpoint) {
   const key = req.kanbanIdempotencyKey;
   if (!key) return { keyed: false };
   const payloadHash = crypto.createHash('sha256').update(JSON.stringify(canonicalPayload(req.body))).digest('hex');
   const db = databaseManager.get();
-  let existing = db.prepare(`SELECT * FROM kanban_api_operations
+  const existing = db.prepare(`SELECT * FROM kanban_api_operations
     WHERE project_id=? AND endpoint=? AND operation_key=?`).get(req.params.projectId, endpoint, key);
   if (existing) {
     if (existing.payload_hash !== payloadHash) return { conflict: true };
@@ -76,14 +94,8 @@ function beginOperation(req, endpoint) {
       || existing.status === 'abandoned'
       || (existing.status === 'processing' && existing.lease_expires_at <= now);
     if (!canRetry) return { keyed: true, existing };
-    const token = crypto.randomUUID();
-    const taken = db.prepare(`UPDATE kanban_api_operations
-      SET status='processing', owner_token=?, lease_expires_at=?, attempt_count=attempt_count+1, updated_at=?
-      WHERE id=? AND (status IN ('retryable','failed','abandoned') OR (status='processing' AND lease_expires_at<=?))`)
-      .run(token, now + OPERATION_LEASE_MS, now, existing.id, now);
-    if (!taken.changes) return beginOperation(req, endpoint);
-    existing = db.prepare('SELECT * FROM kanban_api_operations WHERE id=?').get(existing.id);
-    return { keyed: true, operation: { ...existing, token } };
+    const reclaimed = reclaimOperation(db, existing, now);
+    return reclaimed ? { keyed: true, ...reclaimed } : beginOperation(req, endpoint);
   }
   const now = Date.now(); const token = crypto.randomUUID();
   const operation = { id: crypto.randomUUID(), projectId: req.params.projectId, key, endpoint, payloadHash, token };
@@ -102,8 +114,11 @@ router.use(validateIdempotencyKey);
 
 function replayOrPending(res, operation) {
   if (!operation?.existing) return false;
-  if (operation.existing.status !== 'processing' && operation.existing.result_json) {
+  if (operation.existing.status === 'completed' && operation.existing.result_json) {
     return res.status(operation.existing.response_status || 200).json(JSON.parse(operation.existing.result_json));
+  }
+  if (operation.existing.status === 'failed') {
+    return res.status(500).json({ error: operation.existing.terminal_error || GENERIC_OPERATION_FAILURE });
   }
   return res.status(202).set('Retry-After', '1').json({ operationId: operation.existing.id, status: operation.existing.status });
 }
