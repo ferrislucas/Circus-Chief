@@ -13,6 +13,7 @@ import {
   ReorderKanbanLanesRequest,
   CreateKanbanCardRequest,
   MoveKanbanCardRequest,
+  DeclareExitLaneRequest,
   ReorderKanbanCardsRequest,
 } from '@circuschief/shared/contracts/kanban';
 import {
@@ -20,7 +21,7 @@ import {
   moveCard as moveCardService,
 } from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
-import { getRun } from '../services/workflowSessionService.js';
+import { getRun, declareExitLane, isStructured } from '../services/workflowSessionService.js';
 import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
 import { isApiError } from '../errors/ApiError.js';
 
@@ -199,8 +200,7 @@ function targetLaneForBoard(targetLaneId, board) {
 
 function callerSessionId(req) {
   const sessionId = req.get(SESSION_CALLER_ID_HEADER) || null;
-  // This is attribution, not authentication. moveCard performs the relevant
-  // server-side check: the session must belong to this card's active run.
+  // This is optional audit attribution, never authorization.
   return sessionId && sessions.getById(sessionId)?.projectId === req.params.projectId ? sessionId : null;
 }
 
@@ -507,12 +507,8 @@ router.patch('/cards/:cardId/move', async (req, res) => {
   if (operation.conflict) return res.status(409).json({ error: 'Idempotency-Key was already used with a different payload' });
   if (replayOrPending(res, operation)) return;
 
-  // Verify target lane exists
-  const targetLane = kanbanLanes.getById(targetLaneId);
+  const targetLane = targetLaneForBoard(targetLaneId, board);
   if (!targetLane) {
-    return sendTerminalOperationResponse(res, operation, 404, { error: TARGET_LANE_NOT_FOUND_ERROR });
-  }
-  if (!laneBelongsToBoard(targetLane, board)) {
     return sendTerminalOperationResponse(res, operation, 404, { error: TARGET_LANE_NOT_FOUND_ERROR });
   }
 
@@ -520,7 +516,6 @@ router.patch('/cards/:cardId/move', async (req, res) => {
     const response = await moveCardService(cardId, targetLaneId, {
       sortOrder,
       runOnEnterTemplate,
-      actorSessionId: callerSessionId(req),
       finalizeMutation: ({ card: movedCard, eventId }) => completeOperation(operation, movedCard, eventId),
     });
     res.json(response);
@@ -593,13 +588,9 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
   }
 
   try {
-    const actorSessionId = callerSessionId(req);
     const response = await moveCardService(card.id, targetLaneId, {
       sortOrder,
       runOnEnterTemplate,
-      // The workspace URL identifies the card; the attributed caller is
-      // separately checked for membership by moveCard.
-      actorSessionId,
       finalizeMutation: ({ card: movedCard, eventId }) => completeOperation(operation, movedCard, eventId),
     });
     res.json(response);
@@ -609,6 +600,45 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
     }
     console.error('Failed to move kanban card by workspace:', error);
     return sendFailureFromCatch(res, operation, error);
+  }
+});
+
+/** Declare an active lane run's destination without moving or interrupting it. */
+router.put('/cards/by-workspace/:workspaceId/exit-lane', (req, res) => {
+  const workspaceId = sessions.getRootSessionId(req.params.workspaceId) || req.params.workspaceId;
+  const workspace = sessions.getById(workspaceId);
+  if (!workspace || workspace.projectId !== req.params.projectId) {
+    return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
+  }
+  const card = kanbanCards.getBySessionId(workspaceId);
+  const board = boardForProject(req.params.projectId);
+  if (!card || !cardBelongsToBoard(card, board)) {
+    return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
+  }
+  const result = DeclareExitLaneRequest.safeParse(req.body);
+  if (!result.success) return res.status(400).json({ error: result.error.issues[0].message });
+
+  // Naturally idempotent: middleware validates a supplied key's format, then this route ignores it.
+  try {
+    const run = declareExitLane(card.id, result.data.laneId, { declaredBy: callerSessionId(req) });
+    const response = {
+      cardId: card.id,
+      laneRunId: run.id,
+      deferred: true,
+      chosenExitLaneId: run.chosenExitLaneId,
+      chosenExitLaneName: run.chosenExitLaneName,
+      willRunAutomation: isStructured(kanbanLanes.getById(result.data.laneId)),
+    };
+    broadcastToProject(workspace.projectId, WS_MESSAGE_TYPES.KANBAN_EXIT_LANE_DECLARED, {
+      projectId: workspace.projectId,
+      cardId: card.id,
+      activeLaneRun: run,
+    });
+    return res.json(response);
+  } catch (error) {
+    if (isApiError(error)) return res.status(error.status).json({ error: error.message, code: error.code });
+    console.error('Failed to declare kanban exit lane:', error);
+    return res.status(500).json({ error: GENERIC_OPERATION_FAILURE });
   }
 });
 

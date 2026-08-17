@@ -21,9 +21,8 @@ export const WS_RECONNECT_MAX_DELAY = 30000;
 export const TOAST_DURATION = 5000;
 
 /**
- * A non-secret attribution header used by a session worker when it requests a
- * Kanban card move. The server validates membership in the card's active lane
- * run before treating the request as a deferred exit-lane declaration.
+ * A non-secret, best-effort audit attribution header. It never authorizes a
+ * Kanban action; spoofing it changes only the recorded attribution.
  */
 export const SESSION_CALLER_ID_HEADER = 'X-Circus-Session-Id';
 

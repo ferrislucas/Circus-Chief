@@ -497,83 +497,30 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
   return result;
 }
 
-export function resolveCardActor(db, cardId, actorSessionId) {
-  if (!actorSessionId) return null;
-  const activeLaneRunId = db.prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?')
-    .get(cardId)?.active_lane_run_id;
-  if (!activeLaneRunId) return null;
-  const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=? AND status=\'open\'').get(activeLaneRunId);
-  if (!run) return null;
-  // A lane run owns its root and every descendant added while that run is
-  // active. A child declaration is intentionally a declaration for the root's
-  // run: completion remains owned by the root, but the child must not abort
-  // itself merely for choosing the run's exit lane.
-  const actor = db.prepare(SELECT_SESSION_BY_ID).get(actorSessionId);
-  if (!actor || actor.lane_run_id !== run.id || actor.own_work_state !== 'open') return null;
-  // An already-closed obligation means this worker is no longer the one
-  // responsible for the run, so its move carries no completion meaning.
-  const root = db.prepare(SELECT_SESSION_BY_ID).get(run.root_session_id);
-  if (root?.own_work_state !== 'open') return null;
-  return { kind: 'self_move', run, actor };
-}
-
-/**
- * Record the exit lane selected by a lane worker without ending its run.
- *
- * A lane prompt may instruct the worker to pick its exit lane (the Review PR
- * lane routes a rejected PR to "Needs attention" instead of letting the
- * completion target advance it to Done). That move arrives while the worker is
- * mid-turn, and the card's active run is the worker's *own* run — so treating
- * it as a supersession makes the agent abort itself, killing the turn between
- * its request and the response it is waiting on.
- *
- * The declaration remains durable on the open run. At turn end the normal
- * subtree reconciliation and transition machinery applies it, preserving the
- * one-worker fence and completion outbox semantics.
- *
- * @param {string} cardId
- * @param {string} targetLaneId
- * @param {string|null} actorSessionId - Session that issued the move request
- * @param {Object} [options]
- * @param {boolean} [options.runOnEnterTemplate=true]
- * @returns {Object|null} The updated open run, or null when this is not a self-move
- */
-export function declareExitLaneForSelfMove(cardId, targetLaneId, actorSessionId, { runOnEnterTemplate = true } = {}) {
-  if (!actorSessionId) return null;
+/** Record the exit lane for an active run without moving, superseding, or aborting it. */
+export function declareExitLane(cardId, targetLaneId, { declaredBy = null } = {}) {
   return databaseManager.transaction(() => {
     const db = databaseManager.get();
-    const actor = resolveCardActor(db, cardId, actorSessionId);
-    if (!actor) return null;
-    // A self-move is only a deferred exit-lane declaration. The eventual
-    // completion handoff always runs the destination automation, so silently
-    // accepting an opt-out here would report behavior we cannot honor.
-    if (!runOnEnterTemplate) {
-      throw new ApiError('An active lane worker cannot skip destination automation when choosing an exit lane',
-        { status: 409, code: 'KANBAN_SELF_MOVE_AUTOMATION_REQUIRED' });
-    }
-    const { run } = actor;
+    const activeLaneRunId = db.prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?').get(cardId)?.active_lane_run_id;
+    const run = activeLaneRunId ? db.prepare("SELECT * FROM kanban_lane_runs WHERE id=? AND status='open'").get(activeLaneRunId) : null;
+    if (!run) throw new ApiError('This card has no active lane run to declare an exit lane for', { status: 409, code: 'KANBAN_NO_ACTIVE_LANE_RUN' });
     if (run.source_lane_id === targetLaneId) {
-      throw new ApiError('An active lane worker cannot reorder its card within the same lane',
-        { status: 409, code: 'KANBAN_SELF_MOVE_SAME_LANE' });
+      throw new ApiError('The exit lane must differ from the lane the run started in', { status: 400, code: 'KANBAN_EXIT_LANE_SAME_AS_SOURCE' });
     }
     const sourceLane = db.prepare('SELECT board_id FROM kanban_lanes WHERE id=?').get(run.source_lane_id);
     const targetLane = db.prepare('SELECT * FROM kanban_lanes WHERE id=?').get(targetLaneId);
     if (!sourceLane || !targetLane || sourceLane.board_id !== targetLane.board_id) {
       throw new ApiError('The selected exit lane must belong to the card board',
-        { status: 400, code: 'KANBAN_SELF_MOVE_CROSS_BOARD' });
+        { status: 400, code: 'KANBAN_EXIT_LANE_CROSS_BOARD' });
     }
 
     const time = now();
-    if (run.chosen_exit_lane_id && run.chosen_exit_lane_id !== targetLaneId) {
-      throw new ApiError('An exit lane has already been declared for this run',
-        { status: 409, code: 'KANBAN_EXIT_LANE_ALREADY_DECLARED' });
-    }
     db.prepare(`UPDATE kanban_lane_runs SET chosen_exit_lane_id=?, chosen_exit_declared_at=?,
       chosen_exit_declared_by=?, updated_at=? WHERE id=? AND status='open'`)
-      .run(targetLaneId, time, actorSessionId, time, run.id);
+      .run(targetLaneId, time, declaredBy, time, run.id);
     audit(db, run.id, 'exit_lane_declared', {
-      sessionId: actorSessionId,
-      details: { targetLaneId, runOnEnterTemplate, willRunAutomation: isStructured({
+      sessionId: declaredBy,
+      details: { targetLaneId, willRunAutomation: isStructured({
         completionTargetLaneId: targetLane.completion_target_lane_id,
         onEnterTemplateId: targetLane.on_enter_template_id,
         onEnterPrompt: targetLane.on_enter_prompt,

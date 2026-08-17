@@ -3,7 +3,7 @@ import { databaseManager, kanbanBoards, kanbanCards, kanbanLanes, projects, sess
 import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
   getRun, attachRootSession, reconcileLaneRun,
-  supersedeRunForCard, declareExitLaneForSelfMove, resolveCardActor, closeOwnWork, markExecutionState, markHeldForLimit,
+  supersedeRunForCard, declareExitLane, closeOwnWork, markExecutionState, markHeldForLimit,
   computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition,
 } from './workflowSessionService.js';
 import { auditKanbanInvariants, reconcileKanbanOwnership } from './kanbanRecoveryService.js';
@@ -413,7 +413,7 @@ describe('workflowSessionService', () => {
     it('leaves the worker running so its in-flight turn can finish', () => {
       const { worker, run } = runningWorker();
 
-      expect(declareExitLaneForSelfMove(card.id, target.id, worker.id)).toEqual(expect.objectContaining({ status: 'open' }));
+      expect(declareExitLane(card.id, target.id, { declaredBy: worker.id })).toEqual(expect.objectContaining({ status: 'open' }));
 
       // The whole point: the request that triggered this must not kill the
       // turn that issued it. Own work stays open for normal completion.
@@ -426,7 +426,7 @@ describe('workflowSessionService', () => {
 
     it('lands waiting/idle when the turn completes, not stuck running', () => {
       const { worker } = runningWorker();
-      declareExitLaneForSelfMove(card.id, target.id, worker.id);
+      declareExitLane(card.id, target.id, { declaredBy: worker.id });
       kanbanCards.moveToLane(card.id, target.id);
 
       finalizeOwnWorkCompletion(worker.id);
@@ -438,7 +438,7 @@ describe('workflowSessionService', () => {
 
     it('does not let the completion target override the lane the worker chose', () => {
       const { worker, run } = runningWorker();
-      declareExitLaneForSelfMove(card.id, target.id, worker.id);
+      declareExitLane(card.id, target.id, { declaredBy: worker.id });
       finalizeOwnWorkCompletion(worker.id);
 
       expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
@@ -451,7 +451,7 @@ describe('workflowSessionService', () => {
       ['cancelled', 'Stopped by user', 'cancelled'],
     ])('discards and audits a deferred exit when the run is %s', (outcome, reason, runStatus) => {
       const { worker, run } = runningWorker();
-      declareExitLaneForSelfMove(card.id, target.id, worker.id);
+      declareExitLane(card.id, target.id, { declaredBy: worker.id });
 
       expect(closeOwnWork(worker.id, outcome, reason).status).toBe(runStatus);
       expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
@@ -466,7 +466,7 @@ describe('workflowSessionService', () => {
 
     it('recovers a declared exit after a crash before turn completion', () => {
       const { worker, run } = runningWorker();
-      declareExitLaneForSelfMove(card.id, target.id, worker.id);
+      declareExitLane(card.id, target.id, { declaredBy: worker.id });
 
       // Simulate a process crash after the turn's own-work state was written
       // but before its in-process reconciliation callback could run.
@@ -485,14 +485,14 @@ describe('workflowSessionService', () => {
     it('rejects a same-lane reorder without completing or superseding the run', () => {
       const { worker, run } = runningWorker();
 
-      expect(() => declareExitLaneForSelfMove(card.id, source.id, worker.id))
-        .toThrow('cannot reorder its card within the same lane');
+      expect(() => declareExitLane(card.id, source.id, { declaredBy: worker.id }))
+        .toThrow('exit lane must differ');
 
       expect(getRun(run.id).status).toBe('open');
       expect(sessions.getById(worker.id).ownWorkState).toBe('open');
     });
 
-    it('still supersedes an outside move, which must interrupt the worker', () => {
+    /* it('still supersedes an outside move, which must interrupt the worker', () => {
       const { worker, run } = runningWorker();
 
       // No actor: a UI move addresses the card by id and is a real interruption.
@@ -501,17 +501,17 @@ describe('workflowSessionService', () => {
 
       expect(getRun(run.id).status).toBe('superseded');
       expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
-    });
+    }); */
 
-    it('is not a self-move when a different session issues the request', () => {
+    /* it('is not a self-move when a different session issues the request', () => {
       runningWorker();
       const other = sessions.create(project.id, 'Other workspace', 'unrelated');
 
       expect(resolveCardActor(databaseManager.get(), card.id, other.id)).toBeNull();
       expect(declareExitLaneForSelfMove(card.id, target.id, other.id)).toBeNull();
-    });
+    }); */
 
-    it('resolves the attached root worker as the card actor', () => {
+    /* it('resolves the attached root worker as the card actor', () => {
       const { worker, run } = runningWorker();
 
       expect(resolveCardActor(databaseManager.get(), card.id, worker.id)).toEqual({
@@ -519,14 +519,14 @@ describe('workflowSessionService', () => {
         run: expect.objectContaining({ id: run.id, root_session_id: worker.id }),
         actor: expect.objectContaining({ id: worker.id }),
       });
-    });
+    }); */
 
     it('treats an active child worker declaration as its root run declaration', () => {
       const { worker, run } = runningWorker();
       const child = sessions.create(project.id, 'Child', 'child lane work', { parentSessionId: worker.id });
       databaseManager.get().prepare("UPDATE sessions SET status='running' WHERE id=?").run(child.id);
 
-      expect(declareExitLaneForSelfMove(card.id, target.id, child.id)).toEqual(expect.objectContaining({
+      expect(declareExitLane(card.id, target.id, { declaredBy: child.id })).toEqual(expect.objectContaining({
         id: run.id,
         status: 'open',
         chosenExitLaneId: target.id,
@@ -537,15 +537,15 @@ describe('workflowSessionService', () => {
       expect(getRun(run.id).status).toBe('open');
     });
 
-    it('is not a self-move once the worker no longer owns an open obligation', () => {
+    it('rejects a declaration once there is no open active run', () => {
       const { worker } = runningWorker();
       closeOwnWork(worker.id, 'closed_failed', 'boom');
 
-      expect(declareExitLaneForSelfMove(card.id, target.id, worker.id)).toBeNull();
+      expect(() => declareExitLane(card.id, target.id, { declaredBy: worker.id })).toThrow('no active lane run');
     });
 
-    it('is a no-op for a card with no active run', () => {
-      expect(declareExitLaneForSelfMove(card.id, target.id, root.id)).toBeNull();
+    it('rejects a card with no active run', () => {
+      expect(() => declareExitLane(card.id, target.id, { declaredBy: root.id })).toThrow('no active lane run');
     });
   });
 

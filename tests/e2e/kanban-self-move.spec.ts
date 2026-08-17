@@ -9,15 +9,13 @@ import {
 } from './kanbanLaneRunHelpers';
 
 const PARKED_PROMPT = 'E2E demo: ask the user which deployment target to use before proceeding.';
-const CALLER_HEADER = 'X-Circus-Session-Id';
-
-test.describe('Kanban lane-worker self-moves', () => {
+test.describe('Kanban exit-lane declaration', () => {
   test.describe.configure({ timeout: 120000 });
   let project: any;
 
   test.beforeEach(async () => {
     await cleanupCreatedResources();
-    project = await seedProject('Kanban self-move', process.cwd());
+    project = await seedProject('Kanban exit-lane declaration', process.cwd());
     await getBoard(project.id);
   });
 
@@ -38,9 +36,9 @@ test.describe('Kanban lane-worker self-moves', () => {
     const worker = await waitForChildSession(workspace.id, 15000);
     await waitForPendingPrompt(worker.id);
 
-    const response = await request.patch(
-      `/api/projects/${project.id}/kanban/cards/by-workspace/${workspace.id}/move`,
-      { headers: { [CALLER_HEADER]: worker.id }, data: { targetLaneId: exit.id } }
+    const response = await request.put(
+      `/api/projects/${project.id}/kanban/cards/by-workspace/${workspace.id}/exit-lane`,
+      { data: { laneId: exit.id } }
     );
     expect(response.status()).toBe(200);
     await expect(response.json()).resolves.toEqual(expect.objectContaining({ deferred: true, chosenExitLaneId: exit.id }));

@@ -660,11 +660,12 @@ describe('sessionPrompts', () => {
       // Move and delete use by-workspace routes
       expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/move`);
       expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}`);
-      expect(result).toContain(`${SESSION_CALLER_ID_HEADER}: ${sessionId}`);
+      expect(result).toContain(`/exit-lane`);
+      expect(result).not.toContain(`${SESSION_CALLER_ID_HEADER}: ${sessionId}`);
       expect(result).not.toContain(['X-Circus-Session', 'Capability'].join('-'));
-      expect(result).toContain('"deferred": true');
-      expect(result).toContain('finishes successfully; a failed or cancelled run discards the deferred exit');
-      expect(result).toContain('retry it as an immediate move');
+      expect(result).toContain('This does **not** move the card now');
+      expect(result).toContain('failed or cancelled run discards the declaration');
+      expect(result).toContain('move endpoint above only when you want the card to move immediately');
       // No sessionId field in kanban examples
       expect(result).not.toContain(`"sessionId": "${sessionId}"`);
       // No <card_id> placeholder in kanban examples
