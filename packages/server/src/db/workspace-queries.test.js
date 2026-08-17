@@ -53,4 +53,13 @@ describe('getWorkspaceCardPage', () => {
     expect(offsetPastEnd).toMatchObject({ cards: [], facets: { running: 1, idle: 1 } });
     expect(cursorPastEnd.facets).toEqual({ running: 1, idle: 1 });
   }));
+
+  it('prepares one statement for cards and facets together', () => withDb((db) => {
+    addSession(db, 'running', { status: 'running' });
+    let prepares = 0;
+    const countingDb = { prepare(...args) { prepares += 1; return db.prepare(...args); } };
+
+    expect(getWorkspaceCardPage(countingDb, 'project', { limit: 10 }).facets).toEqual({ running: 1, idle: 0 });
+    expect(prepares).toBe(1);
+  }));
 });

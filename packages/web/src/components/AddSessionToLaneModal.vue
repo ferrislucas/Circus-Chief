@@ -115,6 +115,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useUiStore } from '../stores/ui.js';
 import { api } from '../composables/useApi.js';
+import { WORKSPACE_PICKER_MAX_RESULTS } from '../stores/workspaceList.js';
 
 const props = defineProps({
   isOpen: { type: Boolean, default: false },
@@ -210,7 +211,7 @@ async function loadSessions() {
   try {
     // Root workspaces only, unarchived, via the compact card read model — the
     // legacy session list returns every descendant session in the project.
-    const result = await api.getWorkspaceCards(props.projectId, { limit: 200 });
+    const result = await api.getWorkspaceCardsForPicker(props.projectId, { max: WORKSPACE_PICKER_MAX_RESULTS });
     availableSessions.value = result.workspaces || [];
   } catch (err) {
     console.error('Failed to load workspaces:', err);

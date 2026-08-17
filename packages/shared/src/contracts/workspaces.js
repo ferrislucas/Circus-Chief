@@ -102,7 +102,7 @@ export const WorkspaceCardResponse = z.object({
   hasMergeConflicts: z.boolean().nullable(),
   ciStatus: z.string().nullable(),
   kanban: WorkspaceCardKanbanResponse.nullable(),
-  // Session ids of this workspace's tree (root first). Lets the client resolve
+  // Session ids of this workspace's tree, in unspecified order. Lets the client resolve
   // a member session's realtime events to the owning card for local patching.
   memberIds: z.array(z.string().uuid()),
   pendingAgentInput: z.boolean(),

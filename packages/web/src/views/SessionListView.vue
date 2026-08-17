@@ -446,7 +446,6 @@ useWorkspaceListRealtime(listProjectId, (refreshProjectId) => {
     });
     return card.id;
   }
-  if (event.kind === 'onSessionStatus') return workspaceList.applySessionStatus(event.sessionId, event.status);
   if (event.kind === 'onSessionSummaryUpdated') return workspaceList.applySummaryEvent(event.sessionId, event.summary);
   return workspaceList.applyCommandRunEvent(event);
 });

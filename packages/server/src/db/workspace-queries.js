@@ -10,7 +10,7 @@
 const WORKSPACE_AGGREGATES_CTE = `
   WITH RECURSIVE tree(root_id, id, project_id, path) AS (
     SELECT id, id, project_id, '/' || id || '/'
-    FROM sessions WHERE project_id = ? AND parent_session_id IS NULL
+    FROM sessions WHERE project_id = @project_tree AND parent_session_id IS NULL
     UNION ALL
     SELECT tree.root_id, s.id, tree.project_id, tree.path || s.id || '/'
     FROM sessions s
@@ -30,11 +30,11 @@ const WORKSPACE_AGGREGATES_CTE = `
   )`;
 
 function workspaceFilters({ archived, starred, scheduled }) {
-  const filters = ['s.project_id = ?', 's.parent_session_id IS NULL', 's.archived = ?'];
-  const params = [archived ? 1 : 0];
+  const filters = ['s.project_id = @project_root', 's.parent_session_id IS NULL', 's.archived = @archived'];
+  const params = { archived: archived ? 1 : 0 };
   if (starred !== null) {
-    filters.push('s.starred = ?');
-    params.push(starred ? 1 : 0);
+    filters.push('s.starred = @starred');
+    params.starred = starred ? 1 : 0;
   }
   if (scheduled === true) filters.push('a.scheduled_count > 0');
   if (scheduled === false) filters.push('a.scheduled_count = 0');
@@ -72,6 +72,22 @@ function encodeCursor(row) {
   ])).toString('base64url');
 }
 
+function cardPageParams(projectId, baseParams, options) {
+  const { limit, offset, cursorValues } = options;
+  const params = { project_tree: projectId, project_root: projectId, ...baseParams, limit: limit + 1, offset };
+  cursorValues?.forEach((value, index) => { params[`cur_${index}`] = value; });
+  return params;
+}
+
+function parseCardPageRows(resultRows, limit) {
+  const facetRow = resultRows.find(row => row.row_kind === 'facets');
+  const rows = resultRows.filter(row => row.row_kind === 'page');
+  return {
+    visibleRows: rows.slice(0, limit), hasMore: rows.length > limit,
+    facets: { running: facetRow?.facet_running || 0, idle: facetRow?.facet_idle || 0 },
+  };
+}
+
 /**
  * Fetch a card page and its authoritative facets.
  *
@@ -80,8 +96,6 @@ function encodeCursor(row) {
  * page. Cursor pagination uses the complete descending sort tuple so an
  * activity promotion between pages cannot create an offset gap. A maintained
  * workspace projection with single-card invalidation is the long-term path.
- * Cursor pagination uses the complete descending sort tuple, so an activity
- * promotion between pages cannot create an offset gap.
  */
 export function getWorkspaceCardPage(db, projectId, options = {}) {
   const {
@@ -97,7 +111,7 @@ export function getWorkspaceCardPage(db, projectId, options = {}) {
   const statusFilters = statusPredicates(status);
   const cursorValues = decodeWorkspaceCardCursor(cursor);
   const cursorClause = cursorValues
-    ? 'AND (starred, sort_activity, updatedAt, createdAt, id) < (?, ?, ?, ?, ?)'
+    ? 'AND (starred, sort_activity, updatedAt, createdAt, id) < (@cur_0, @cur_1, @cur_2, @cur_3, @cur_4)'
     : '';
   const sql = `${WORKSPACE_AGGREGATES_CTE}
     , base AS (
@@ -122,43 +136,33 @@ export function getWorkspaceCardPage(db, projectId, options = {}) {
     WHERE ${baseFilters.join(' AND ')}
     ), filtered AS (
       SELECT * FROM base WHERE 1=1 ${statusFilters.length ? `AND ${statusFilters.join(' AND ')}` : ''}
+    ), facets AS (
+      SELECT
+        COALESCE(SUM(CASE WHEN runningCount > 0 THEN 1 ELSE 0 END), 0) AS running,
+        COALESCE(SUM(CASE WHEN runningCount = 0 THEN 1 ELSE 0 END), 0) AS idle
+      FROM base
+    ), paged AS (
+      SELECT * FROM filtered WHERE 1=1 ${cursorClause}
+      ORDER BY starred DESC, sort_activity DESC, updatedAt DESC, createdAt DESC, id DESC
+      LIMIT @limit ${cursorValues ? '' : 'OFFSET @offset'}
     )
-    SELECT * FROM filtered WHERE 1=1 ${cursorClause}
-    ORDER BY starred DESC, sort_activity DESC, updatedAt DESC, createdAt DESC, id DESC
-    LIMIT ? ${cursorValues ? '' : 'OFFSET ?'}`;
-  // base filters contain the project id placeholder from the aggregate CTE plus
-  // their own root filter. Status conditions use no placeholders.
-  const rows = db.prepare(sql).all(
-    projectId, projectId, ...baseParams, ...(cursorValues || []), limit + 1,
-    ...(cursorValues ? [] : [offset]),
-  );
-  const hasMore = rows.length > limit;
-  const visibleRows = rows.slice(0, limit);
+    SELECT 'page' AS row_kind, paged.*, NULL AS facet_running, NULL AS facet_idle
+    FROM paged
+    UNION ALL
+    SELECT 'facets' AS row_kind,
+      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+      NULL, NULL, NULL, facets.running, facets.idle
+    FROM facets`;
+  const resultRows = db.prepare(sql).all(cardPageParams(projectId, baseParams, { limit, offset, cursorValues }));
+  const { visibleRows, hasMore, facets } = parseCardPageRows(resultRows, limit);
   const cards = visibleRows.map(toWorkspaceCard);
-  const facets = getWorkspaceCardCounts(db, projectId, { archived, starred, scheduled });
   return {
     cards,
     facets,
     hasMore,
     nextCursor: hasMore ? encodeCursor(visibleRows.at(-1)) : null,
   };
-}
-
-export function getWorkspaceCards(db, projectId, options = {}) {
-  return getWorkspaceCardPage(db, projectId, options).cards;
-}
-
-/** Return authoritative status facets for the current non-status filters. */
-export function getWorkspaceCardCounts(db, projectId, options = {}) {
-  const { archived = false, starred = null, scheduled = null } = options;
-  const { filters, params } = workspaceFilters({ archived, starred, scheduled });
-  const row = db.prepare(`${WORKSPACE_AGGREGATES_CTE}
-    SELECT
-      COALESCE(SUM(CASE WHEN a.running_count > 0 THEN 1 ELSE 0 END), 0) AS running,
-      COALESCE(SUM(CASE WHEN a.running_count = 0 THEN 1 ELSE 0 END), 0) AS idle
-    FROM sessions s JOIN aggregates a ON a.root_id = s.id
-    WHERE ${filters.join(' AND ')}`).get(projectId, projectId, ...params);
-  return { running: row.running, idle: row.idle };
 }
 
 function toWorkspaceCard(row) {

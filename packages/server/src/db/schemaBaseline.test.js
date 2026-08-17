@@ -7,6 +7,7 @@ import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 import { DatabaseManager } from './DatabaseManager.js';
 import { allMigrations } from './migrations/index.js';
 import { seedBaselineData } from './seedBaselineData.js';
+import { ACTIVITY_TRIGGER_CREATE_DDL, ACTIVITY_TRIGGER_NAMES } from './migrations/activityTriggers.js';
 
 function withDb(fn) {
   const manager = new DatabaseManager();
@@ -30,7 +31,30 @@ function indexColumns(db, indexName) {
   return db.prepare(`PRAGMA index_info(${indexName})`).all().map((row) => row.name);
 }
 
+function activityTriggerSql(db) {
+  const placeholders = ACTIVITY_TRIGGER_NAMES.map(() => '?').join(', ');
+  return db.prepare(`SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND name IN (${placeholders}) ORDER BY name`)
+    .all(...ACTIVITY_TRIGGER_NAMES);
+}
+
 describe('schema baseline', () => {
+  it('keeps fresh-schema activity triggers identical to the migration definitions', () => {
+    const schema = readFileSync(new URL('../schema.sql', import.meta.url), 'utf-8');
+    const fresh = new Database(':memory:');
+    const migrated = new Database(':memory:');
+    try {
+      fresh.exec(schema);
+      migrated.exec(schema);
+      migrated.exec(ACTIVITY_TRIGGER_NAMES.map(name => `DROP TRIGGER ${name}`).join(';'));
+      migrated.exec(`${ACTIVITY_TRIGGER_CREATE_DDL.join(';')};`);
+      expect(activityTriggerSql(fresh)).toHaveLength(ACTIVITY_TRIGGER_NAMES.length);
+      expect(activityTriggerSql(migrated)).toEqual(activityTriggerSql(fresh));
+    } finally {
+      fresh.close();
+      migrated.close();
+    }
+  });
+
   it('initializes a fresh in-memory database', () => {
     withDb((db) => {
       expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'sessions'").get()).toBeTruthy();

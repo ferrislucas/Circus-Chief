@@ -99,6 +99,29 @@ describe('workspace list request lifecycle', () => {
     expect(store.nextOffset).toBe(1);
   });
 
+  it('restores a warm query snapshot before refreshing its loaded extent', async () => {
+    const firstPage = Array.from({ length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index}` }));
+    const secondPage = [{ id: 'card-25' }];
+    const returningRefresh = deferred();
+    api.getWorkspaceCards
+      .mockResolvedValueOnce(response(firstPage, { total: 26, hasMore: true }))
+      .mockResolvedValueOnce(response(secondPage, { total: 26, offset: WORKSPACE_PAGE_SIZE }))
+      .mockResolvedValueOnce(response([{ id: 'archived' }], { total: 1 }))
+      .mockImplementationOnce(() => returningRefresh.promise);
+    const store = useWorkspaceListStore();
+
+    await store.load('project-a', { archived: false });
+    await store.loadMore();
+    await store.load('project-a', { archived: true });
+    const returningLoad = store.load('project-a', { archived: false });
+
+    expect(store.cards).toHaveLength(26);
+    expect(store.loading).toBe(false);
+    returningRefresh.resolve(response([...firstPage, ...secondPage], { total: 26 }));
+    await returningLoad;
+    expect(store.cards).toHaveLength(26);
+  });
+
   it('fetches only the next offset page when loading more', async () => {
     const secondPageTotal = WORKSPACE_PAGE_SIZE + 2;
     const firstPage = Array.from({ length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index}` }));
@@ -390,7 +413,6 @@ describe('workspace list realtime patching', () => {
     expect(store.applyCommandRunEvent({ sessionId: 'unknown', buttonId: 'build', runId: 'r', status: 'running' }))
       .toBeNull();
     expect(store.applySummaryEvent('unknown', {})).toBeNull();
-    expect(store.applySessionStatus('unknown', 'stopped')).toBeNull();
   });
 
   it('patches summary fields from a summary event', async () => {
@@ -406,12 +428,6 @@ describe('workspace list realtime patching', () => {
     expect(card.hasMergeConflicts).toBe(false);
   });
 
-  it('patches root status only; descendant status falls back to refresh', async () => {
-    const store = await loadedStore();
-    expect(store.applySessionStatus('root-1', 'completed')).toBe('root-1');
-    expect(store.cardsById['root-1'].status).toBe('completed');
-    expect(store.applySessionStatus('child-1', 'running')).toBeNull();
-  });
 });
 
 describe('workspace list mutation epoch', () => {

@@ -64,6 +64,18 @@ describe('ProjectsApi', () => {
   });
 
   describe('workspace detail methods', () => {
+    it('follows cursor pages for a picker up to its requested bound', async () => {
+      mockFetch
+        .mockReturnValueOnce(mockResponse({ workspaces: [{ id: 'one' }], pagination: { nextCursor: 'next' } }))
+        .mockReturnValueOnce(mockResponse({ workspaces: [{ id: 'two' }], pagination: { nextCursor: null } }));
+
+      const result = await client.getWorkspaceCardsForPicker('project-1', { max: 1_000 });
+
+      expect(result.workspaces.map(workspace => workspace.id)).toEqual(['one', 'two']);
+      expect(mockFetch).toHaveBeenNthCalledWith(1, expect.stringContaining('limit=500'), expect.any(Object));
+      expect(mockFetch).toHaveBeenNthCalledWith(2, expect.stringContaining('cursor=next'), expect.any(Object));
+    });
+
     it('uses the legacy workspace-detail route', async () => {
       mockFetch.mockReturnValue(mockResponse({ id: 'workspace-1' }));
 

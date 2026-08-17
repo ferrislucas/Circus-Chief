@@ -5,11 +5,11 @@ import { useProjectSubscription, useWebSocket } from './useWebSocket.js';
 // enough to coalesce high-frequency status and usage events
 // emitted while multiple sessions are active.
 export const WORKSPACE_LIST_REFRESH_DELAY_MS = 1_000;
+export const WORKSPACE_LIST_MAX_REFRESH_DELAY_MS = 5_000;
 
 // Events whose payload fully describes the change for a single card. They are
 // patched into the owning card locally and never trigger a list request.
 const PATCH_EVENTS = [
-  'onSessionStatus',
   'onCommandRunStarted',
   'onCommandRunComplete',
   'onCommandRunError',
@@ -43,8 +43,9 @@ const KILLED_STATUS = { status: 'killed' };
  *
  * @param {import('vue').Ref<string|null>} projectId
  * @param {(projectId: string) => Promise} refresh - debounced full refresh
- * @param {() => boolean} [isRefreshInFlight] - retained for API compatibility;
- *   the store's mutation epoch now owns staleness detection
+ * @param {() => boolean} [isRefreshInFlight] - detects that a refresh joined
+ *   an existing request which may predate the event, so a bounded trailing
+ *   read can be scheduled. This is the WS-event analogue of mutation epochs.
  * @param {(event: {kind: string, sessionId?: string, [key: string]: any}) => string|null} [patchEvent]
  *   Applies a single-card event to its owning card; returns the patched card id
  *   or null when the session is unknown (caller should fall back to a refresh).
@@ -56,6 +57,8 @@ export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight =
   let trailingRefresh = false;
   let generation = 0;
   let disposed = false;
+  let refreshDelay = WORKSPACE_LIST_REFRESH_DELAY_MS;
+  let queuedEventCount = 0;
 
   function clearRefreshTimer() {
     clearTimeout(timer);
@@ -64,8 +67,12 @@ export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight =
 
   function scheduleRefresh(expectedGeneration = generation) {
     if (disposed || expectedGeneration !== generation || !projectId.value) return;
+    queuedEventCount += 1;
+    if (timer && queuedEventCount > 3) {
+      refreshDelay = Math.min(refreshDelay * 2, WORKSPACE_LIST_MAX_REFRESH_DELAY_MS);
+    }
     clearRefreshTimer();
-    timer = setTimeout(() => runRefresh(expectedGeneration), WORKSPACE_LIST_REFRESH_DELAY_MS);
+    timer = setTimeout(() => runRefresh(expectedGeneration), refreshDelay);
   }
 
   function handlePatchEvent(kind, payload) {
@@ -79,6 +86,7 @@ export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight =
 
   async function runRefresh(expectedGeneration) {
     timer = null;
+    queuedEventCount = 0;
     if (disposed || expectedGeneration !== generation || !projectId.value) return;
     if (inFlightGeneration === expectedGeneration) {
       trailingRefresh = true;
@@ -105,6 +113,7 @@ export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight =
           trailingRefresh = false;
           scheduleRefresh(expectedGeneration);
         }
+        if (!trailingRefresh) refreshDelay = WORKSPACE_LIST_REFRESH_DELAY_MS;
       }
     }
   }
@@ -114,6 +123,8 @@ export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight =
     const projectGeneration = generation;
     clearRefreshTimer();
     trailingRefresh = false;
+    refreshDelay = WORKSPACE_LIST_REFRESH_DELAY_MS;
+    queuedEventCount = 0;
     inFlightGeneration = null;
     cleanupCurrentProject();
 
@@ -135,7 +146,6 @@ export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight =
 
     if (patchEvent) {
       const patchHandlers = {
-        onSessionStatus: cb => subscription.onSessionStatus(msg => cb({ sessionId: msg.sessionId, status: msg.status })),
         onCommandRunStarted: cb => subscription.onCommandRunStarted((runId, sessionId, buttonId) => cb({
           sessionId, buttonId, runId, status: 'running', startedAt: Date.now(),
         })),

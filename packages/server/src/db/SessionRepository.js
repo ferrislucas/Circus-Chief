@@ -17,7 +17,6 @@ import {
 } from './session-helpers.js';
 import {
   getWorkspaceCardCounts,
-  getWorkspaceCards,
   getWorkspaceCardPage,
 } from './workspace-queries.js';
 
@@ -173,10 +172,6 @@ export class SessionRepository extends BaseRepository {
    * set-based query.  Keeping this here also prevents a future session column from
    * accidentally becoming part of the list payload.
    */
-  getWorkspaceCards(projectId, options = {}) {
-    return getWorkspaceCards(this.db, projectId, options);
-  }
-
   getWorkspaceCardPage(projectId, options = {}) {
     return getWorkspaceCardPage(this.db, projectId, options);
   }

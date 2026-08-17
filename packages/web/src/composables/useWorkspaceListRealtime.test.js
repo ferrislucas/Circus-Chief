@@ -20,7 +20,7 @@ function createSubscription(projectId) {
   };
   for (const name of [
     'onSessionCreated', 'onSessionUpdated', 'onSessionDeleted',
-    'onSessionSummaryUpdated', 'onSessionMessage', 'onSessionStatus',
+    'onSessionSummaryUpdated', 'onSessionMessage',
     'onCommandRunStarted', 'onCommandRunComplete', 'onCommandRunError',
     'onCommandRunKilled', 'onCommandRunDeleted', 'onKanbanBoardUpdated', 'onKanbanCardMoved',
     'onKanbanCardAdded', 'onKanbanCardRemoved',

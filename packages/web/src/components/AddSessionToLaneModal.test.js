@@ -4,13 +4,13 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import AddSessionToLaneModal from './AddSessionToLaneModal.vue';
 
-// Workspaces returned by api.getWorkspaceCards — configurable per test via the
+// Workspaces returned by the picker API — configurable per test via the
 // `mockProjectSessions` closure variable.
 let mockProjectSessions = [];
 
 vi.mock('../composables/useApi.js', () => ({
   api: {
-    getWorkspaceCards: vi.fn(() => Promise.resolve({ workspaces: mockProjectSessions })),
+    getWorkspaceCardsForPicker: vi.fn(() => Promise.resolve({ workspaces: mockProjectSessions })),
   },
 }));
 

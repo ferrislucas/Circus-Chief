@@ -42,6 +42,22 @@ export function ProjectsApi(ApiClient) {
       return this._get(this._buildQueryPath(`/projects/${projectId}/workspaces`, params), { signal });
     },
 
+    /** Fetch the bounded, complete workspace set used by selection dialogs. */
+    async getWorkspaceCardsForPicker(projectId, { max = 1_000, signal } = {}) {
+      const workspaces = [];
+      let cursor = null;
+      let pagination = {};
+      do {
+        const result = await this.getWorkspaceCards(projectId, {
+          limit: Math.min(500, max - workspaces.length), cursor, signal,
+        });
+        workspaces.push(...(result.workspaces || []));
+        pagination = result.pagination || {};
+        cursor = pagination.nextCursor || null;
+      } while (cursor && workspaces.length < max);
+      return { workspaces, pagination: { ...pagination, truncated: Boolean(cursor) } };
+    },
+
     async getWorkspaceDetail(workspaceId, { signal } = {}) {
       return this._get(`/workspaces/${workspaceId}`, { signal });
     },

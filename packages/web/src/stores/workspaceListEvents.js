@@ -89,8 +89,3 @@ export function summaryPatch(cardsById, sessionId, summary) {
  * on the card, so descendant status transitions that affect runningCount are
  * left to the next full refresh.
  */
-export function rootStatusPatch(cardsById, sessionId, status) {
-  const card = cardForMember(cardsById, sessionId);
-  if (!card || card.id !== sessionId) return null;
-  return { cardId: card.id, patch: { status } };
-}

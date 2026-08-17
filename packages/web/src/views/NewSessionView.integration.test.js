@@ -40,7 +40,7 @@ vi.mock('../composables/useApi.js', () => ({
   api: {
     getGitStatus: vi.fn().mockResolvedValue({ isGitRepo: false }),
     getProjectSessions: vi.fn().mockResolvedValue([]),
-    getWorkspaceCards: vi.fn().mockResolvedValue({ workspaces: [] }),
+    getWorkspaceCardsForPicker: vi.fn().mockResolvedValue({ workspaces: [] }),
   },
 }));
 
@@ -203,7 +203,7 @@ describe('NewSessionView - localStorage draft persistence', () => {
   });
 
   it('hydrates completed parent workspaces without relying on the sessions store', async () => {
-    api.getWorkspaceCards.mockResolvedValueOnce({
+    api.getWorkspaceCardsForPicker.mockResolvedValueOnce({
       workspaces: [
         { id: 'completed-root', name: 'Completed workspace', status: 'completed', createdAt: 1 },
       ],
@@ -214,7 +214,7 @@ describe('NewSessionView - localStorage draft persistence', () => {
 
     // Root-only, unarchived cards from the compact read model — never the
     // full descendant session list.
-    expect(api.getWorkspaceCards).toHaveBeenCalledWith('project-123', { limit: 200 });
+    expect(api.getWorkspaceCardsForPicker).toHaveBeenCalledWith('project-123', { max: 1_000 });
     expect(wrapper.find('#parent-session').text()).toContain('Completed workspace');
   });
 

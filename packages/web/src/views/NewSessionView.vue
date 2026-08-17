@@ -256,6 +256,7 @@ import { useUiStore } from '../stores/ui.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { api } from '../composables/useApi.js';
+import { WORKSPACE_PICKER_MAX_RESULTS } from '../stores/workspaceList.js';
 import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import {
   useNewSessionForm,
@@ -403,7 +404,7 @@ onMounted(async () => {
   restoreDraftFromStorage(textareaRef);
 
   try {
-    const result = await api.getWorkspaceCards(projectId, { limit: 200 });
+    const result = await api.getWorkspaceCardsForPicker(projectId, { max: WORKSPACE_PICKER_MAX_RESULTS });
     parentWorkspaceSessions.value = result.workspaces || [];
   } catch {
     // The parent picker is optional; leave it hidden when its lookup fails.

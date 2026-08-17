@@ -1,15 +1,12 @@
 import { defineStore } from 'pinia';
 import { api } from '../composables/useApi.js';
-import { commandRunPatch, summaryPatch, rootStatusPatch } from './workspaceListEvents.js';
+import { commandRunPatch, summaryPatch } from './workspaceListEvents.js';
 import { queryKey, isAbort } from './workspaceListQuery.js';
 
-export const WORKSPACE_PAGE_SIZE = 25;
-
-// Mirrors the server's hard cap in parseWorkspaceCardOptions (workspaces.js).
-export const WORKSPACE_SERVER_MAX_LIMIT = 500;
+export const WORKSPACE_PAGE_SIZE = 25; export const WORKSPACE_SERVER_MAX_LIMIT = 500;
+export const WORKSPACE_PICKER_MAX_RESULTS = 1_000;
 
 const requestLifecycles = new WeakMap();
-
 function lifecycleFor(store) {
   if (!requestLifecycles.has(store)) {
     requestLifecycles.set(store, {
@@ -20,11 +17,11 @@ function lifecycleFor(store) {
       loadMoreController: null,
       mutationEpoch: 0,
       trailingMutationRefresh: false,
+      snapshots: new Map(),
     });
   }
   return requestLifecycles.get(store);
 }
-
 const fetchPage = (projectId, query, { offset = 0, cursor = null, limit, signal }) => api.getWorkspaceCards(projectId, {
   ...query,
   limit,
@@ -32,12 +29,6 @@ const fetchPage = (projectId, query, { offset = 0, cursor = null, limit, signal 
   cursor,
   signal,
 });
-
-/**
- * Rebuild the loaded prefix with cursor pages. Each request stays within the
- * server cap, while a list deeper than 500 is never replaced with a capped
- * response.
- */
 async function fetchLoadedExtent(projectId, query, loadedExtent, controller) {
   let cursor = null;
   let remaining = loadedExtent;
@@ -57,7 +48,6 @@ async function fetchLoadedExtent(projectId, query, loadedExtent, controller) {
     pagination: { ...result?.pagination, offset: 0, nextCursor: cursor },
   };
 }
-
 function canCommitPage(store, lifecycle, request) {
   return !request.controller.signal.aborted
     && lifecycle.version === request.version
@@ -124,6 +114,12 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
 
     _resetContext(projectId, query) {
       const lifecycle = lifecycleFor(this);
+      if (lifecycle.contextKey) {
+        lifecycle.snapshots.set(lifecycle.contextKey, {
+          cardsById: this.cardsById, orderedIds: this.orderedIds, facets: this.facets,
+          total: this.total, nextOffset: this.nextOffset, nextCursor: this.nextCursor, hasMore: this.hasMore,
+        });
+      }
       lifecycle.refreshController?.abort();
       lifecycle.loadMoreController?.abort();
       lifecycle.version += 1;
@@ -132,15 +128,13 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       lifecycle.refreshPromise = null;
       lifecycle.loadMoreController = null;
 
+      const snapshot = lifecycle.snapshots.get(lifecycle.contextKey);
       this.projectId = projectId;
       this.query = { ...query };
-      this.cardsById = {};
-      this.orderedIds = [];
-      this.facets = { running: 0, idle: 0 };
-      this.total = 0;
-      this.nextOffset = 0;
-      this.nextCursor = null;
-      this.hasMore = false;
+      Object.assign(this, snapshot || {
+        cardsById: {}, orderedIds: [], facets: { running: 0, idle: 0 }, total: 0,
+        nextOffset: 0, nextCursor: null, hasMore: false,
+      });
       this.loadingMore = false;
       this.error = null;
     },
@@ -152,12 +146,6 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       return this.refresh();
     },
 
-    /**
-     * Record that a mutation committed after a refresh may have started. Any
-     * in-flight refresh response predates the change and must be followed by
-     * one bounded trailing read. Mutation handlers call this right after the
-     * API call resolves; the store handles the rest.
-     */
     markMutation() {
       lifecycleFor(this).mutationEpoch += 1;
     },
@@ -201,9 +189,6 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
           if (lifecycle.refreshPromise === promise) lifecycle.refreshPromise = null;
           if (lifecycle.refreshController === controller) lifecycle.refreshController = null;
           if (lifecycle.version === version) this.loading = false;
-          // A mutation committed while this request was in flight: its response
-          // predates the change. One bounded trailing read closes the race
-          // without issuing a request per event.
           if (!controller.signal.aborted
             && lifecycle.version === version
             && lifecycle.mutationEpoch !== mutationEpochAtStart) {
@@ -264,7 +249,6 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.cardsById[cardId] = { ...this.cardsById[cardId], ...patch };
     },
 
-    /** Owning card for a member session id, or null when not loaded. */
     cardForSession(sessionId) {
       for (const card of Object.values(this.cardsById)) {
         if (card.memberIds?.includes(sessionId)) return card;
@@ -278,10 +262,6 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
 
     applySummaryEvent(sessionId, summary) {
       return this._applyPatch(summaryPatch(this.cardsById, sessionId, summary));
-    },
-
-    applySessionStatus(sessionId, status) {
-      return this._applyPatch(rootStatusPatch(this.cardsById, sessionId, status));
     },
 
     _applyPatch(next) {
