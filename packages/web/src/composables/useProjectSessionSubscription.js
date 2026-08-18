@@ -279,6 +279,7 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks, strea
         onKanbanCardMoved,
         onKanbanCardAdded,
         onKanbanCardRemoved,
+        onKanbanExitLaneDeclared,
       } = useProjectSubscription(newProjectId);
 
       currentUnsubscribe = unsubscribe;
@@ -291,6 +292,7 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks, strea
           onCommandRunStarted,
           onCommandRunOutput, onCommandRunComplete, onCommandRunError, onCommandRunDeleted,
           onKanbanBoardUpdated, onKanbanCardMoved, onKanbanCardAdded, onKanbanCardRemoved,
+          onKanbanExitLaneDeclared,
         },
         { sessionsStore, commandButtonsStore, kanbanStore },
         { updateSummary, cleanupSummary },

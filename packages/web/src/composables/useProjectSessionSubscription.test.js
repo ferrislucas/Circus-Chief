@@ -33,6 +33,7 @@ const mockKanbanStore = {
   handleCardAdded: vi.fn(),
   handleCardRemoved: vi.fn(),
   handleSessionUpdated: vi.fn(),
+  handleExitLaneDeclared: vi.fn(),
 };
 
 // Mock useProjectSubscription - all "on" handlers must return a cleanup function
@@ -135,6 +136,7 @@ describe('useProjectSessionSubscription', () => {
     mockKanbanStore.handleCardAdded.mockReset();
     mockKanbanStore.handleCardRemoved.mockReset();
     mockKanbanStore.handleSessionUpdated.mockReset();
+    mockKanbanStore.handleExitLaneDeclared.mockReset();
 
     mockSubscribe.mockReset();
     mockUnsubscribe.mockReset();
@@ -335,6 +337,28 @@ describe('useProjectSessionSubscription', () => {
       handler('session-1', 'Test summary content');
 
       expect(summaryCallbacks.updateSummary).toHaveBeenCalledWith('session-1', 'Test summary content');
+    });
+
+    it('registers kanban exit lane declared handler', async () => {
+      const cleanup = vi.fn();
+      mockOnKanbanExitLaneDeclared.mockReturnValue(cleanup);
+
+      mount(testComponent, {
+        global: {
+          plugins: [createPinia()],
+        },
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(mockOnKanbanExitLaneDeclared).toHaveBeenCalled();
+      const handler = mockOnKanbanExitLaneDeclared.mock.calls[0][0];
+
+      // Simulate a worker declaring its exit lane
+      const activeLaneRun = { id: 'run-1', status: 'open', chosenExitLaneName: 'Review' };
+      handler('card-1', activeLaneRun);
+
+      expect(mockKanbanStore.handleExitLaneDeclared).toHaveBeenCalledWith('card-1', activeLaneRun);
     });
 
   });
