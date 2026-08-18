@@ -42,7 +42,10 @@ function mergeCommandRun(runs, incoming) {
     hasButtonRun = true;
     // An incoming run that loses precedence (e.g. a completed event while a
     // live run is in flight) is dropped — the card keeps one run per button.
-    next.push(shouldReplace(run) ? incoming : run);
+    const candidate = incoming.runId === run.runId && incoming.startedAt == null
+      ? { ...incoming, startedAt: run.startedAt ?? null }
+      : incoming;
+    next.push(shouldReplace(run) ? candidate : run);
   }
   if (!hasButtonRun) next.push(incoming);
   return next;
@@ -55,7 +58,7 @@ function buildIncomingRun(event) {
     status: event.status,
     exitCode: event.exitCode ?? null,
     runId: event.runId,
-    startedAt: event.startedAt ?? Date.now(),
+    startedAt: event.startedAt ?? null,
   };
   return event.completedAt !== undefined ? { ...base, completedAt: event.completedAt } : base;
 }

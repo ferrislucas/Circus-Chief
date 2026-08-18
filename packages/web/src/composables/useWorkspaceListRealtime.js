@@ -7,17 +7,6 @@ import { useProjectSubscription, useWebSocket } from './useWebSocket.js';
 export const WORKSPACE_LIST_REFRESH_DELAY_MS = 1_000;
 export const WORKSPACE_LIST_MAX_REFRESH_DELAY_MS = 5_000;
 
-// Events whose payload fully describes the change for a single card. They are
-// patched into the owning card locally and never trigger a list request.
-const PATCH_EVENTS = [
-  'onCommandRunStarted',
-  'onCommandRunComplete',
-  'onCommandRunError',
-  'onCommandRunKilled',
-  'onCommandRunDeleted',
-  'onSessionSummaryUpdated',
-];
-
 // Events that can change membership or ordering of the list (creation,
 // deletion, archive/star, activity promotion). The authoritative read model is
 // re-fetched, coalesced behind the debounce.
@@ -43,17 +32,14 @@ const KILLED_STATUS = { status: 'killed' };
  *
  * @param {import('vue').Ref<string|null>} projectId
  * @param {(projectId: string) => Promise} refresh - debounced full refresh
- * @param {() => boolean} [isRefreshInFlight] - detects that a refresh joined
- *   an existing request which may predate the event, so a bounded trailing
- *   read can be scheduled. This is the WS-event analogue of mutation epochs.
  * @param {(event: {kind: string, sessionId?: string, [key: string]: any}) => string|null} [patchEvent]
  *   Applies a single-card event to its owning card; returns the patched card id
  *   or null when the session is unknown (caller should fall back to a refresh).
  */
-export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight = () => false, patchEvent) {
+export function useWorkspaceListRealtime(projectId, refresh, _isRefreshInFlight = () => false, patchEvent) {
   let timer = null;
   let cleanupCurrentProject = () => {};
-  let inFlightGeneration = null;
+  let refreshInFlight = false;
   let trailingRefresh = false;
   let generation = 0;
   let disposed = false;
@@ -88,13 +74,13 @@ export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight =
     timer = null;
     queuedEventCount = 0;
     if (disposed || expectedGeneration !== generation || !projectId.value) return;
-    if (inFlightGeneration === expectedGeneration) {
+    if (refreshInFlight) {
       trailingRefresh = true;
       return;
     }
 
-    const joinedExistingLoad = isRefreshInFlight();
-    inFlightGeneration = expectedGeneration;
+    const joinedExistingLoad = _isRefreshInFlight();
+    refreshInFlight = true;
     const refreshProjectId = projectId.value;
     try {
       await refresh(refreshProjectId);
@@ -102,18 +88,13 @@ export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight =
       // The workspace-list store owns the visible error state. Realtime
       // invalidation must not create an unhandled timer rejection.
     } finally {
-      if (inFlightGeneration === expectedGeneration) {
-        inFlightGeneration = null;
-        // If the event joined a request that started before the event, its
-        // response may not contain the mutation. One bounded trailing read
-        // closes that race without issuing a request per event. (The store's
-        // mutation epoch performs the equivalent check for direct mutations.)
-        if (joinedExistingLoad) trailingRefresh = true;
-        if (!disposed && expectedGeneration === generation && trailingRefresh) {
-          trailingRefresh = false;
-          scheduleRefresh(expectedGeneration);
-        }
-        if (!trailingRefresh) refreshDelay = WORKSPACE_LIST_REFRESH_DELAY_MS;
+      refreshInFlight = false;
+      if (joinedExistingLoad) trailingRefresh = true;
+      if (!disposed && expectedGeneration === generation && trailingRefresh) {
+        trailingRefresh = false;
+        scheduleRefresh(expectedGeneration);
+      } else if (!disposed && expectedGeneration === generation) {
+        refreshDelay = WORKSPACE_LIST_REFRESH_DELAY_MS;
       }
     }
   }
@@ -122,10 +103,10 @@ export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight =
     generation += 1;
     const projectGeneration = generation;
     clearRefreshTimer();
+    refreshInFlight = false;
     trailingRefresh = false;
     refreshDelay = WORKSPACE_LIST_REFRESH_DELAY_MS;
     queuedEventCount = 0;
-    inFlightGeneration = null;
     cleanupCurrentProject();
 
     if (!id) {
@@ -151,13 +132,14 @@ export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight =
         })),
         onCommandRunComplete: cb => subscription.onCommandRunComplete(run => cb({
           sessionId: run.sessionId, buttonId: run.buttonId, runId: run.runId,
-          status: run.status, exitCode: run.exitCode, completedAt: Date.now(),
+          status: run.status, exitCode: run.exitCode, startedAt: run.startedAt ?? null, completedAt: Date.now(),
         })),
         onCommandRunError: cb => subscription.onCommandRunError((runId, sessionId, buttonId) => cb({
           sessionId, buttonId, runId, status: 'error', completedAt: Date.now(),
         })),
         onCommandRunKilled: cb => subscription.onCommandRunKilled(msg => cb({
-          sessionId: msg.sessionId, buttonId: msg.buttonId, runId: msg.runId, ...KILLED_STATUS,
+          sessionId: msg.sessionId, buttonId: msg.buttonId, runId: msg.runId,
+          startedAt: msg.startedAt ?? null, completedAt: Date.now(), ...KILLED_STATUS,
         })),
         onCommandRunDeleted: cb => subscription.onCommandRunDeleted((runId, sessionId, buttonId) => cb({
           sessionId, buttonId, runId, delete: true,
@@ -189,6 +171,7 @@ export function useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight =
     disposed = true;
     generation += 1;
     clearRefreshTimer();
+    refreshInFlight = false;
     trailingRefresh = false;
     stopProjectWatch();
     cleanupCurrentProject();

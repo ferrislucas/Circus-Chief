@@ -23,14 +23,6 @@ export const SESSIONS_INDEX_DDL = [
   'CREATE INDEX IF NOT EXISTS idx_sessions_lane_run ON sessions(lane_run_id)',
 ];
 
-// Other tables' triggers that reference `sessions` by name in their body
-// (see schema.sql's trg_sessions_activity_on_* triggers) are NOT owned by
-// the sessions table, so DROP TABLE sessions does not drop them automatically
-// — but SQLite's ALTER TABLE ... RENAME TO does a schema-wide consistency
-// pass that chokes on any trigger body referencing a table name that is
-// transiently missing (between the DROP and the RENAME), even for triggers
-// on an unrelated table. They must be dropped before the rename and
-// recreated after, exactly like the indexes above.
 /**
  * SQL column definitions for the sessions table with current defaults.
  */
@@ -127,6 +119,9 @@ export function recreateSessionsTable(db, columnsSql, allColumnNames) {
       CREATE TABLE sessions_new (${columnsSql});
       INSERT INTO sessions_new (${selectColumns})
       SELECT ${selectColumns} FROM sessions;
+      -- Other tables' triggers reference sessions in their bodies. SQLite's
+      -- rename consistency pass rejects those transient references, so drop
+      -- and recreate the activity triggers around the table replacement.
       ${ACTIVITY_TRIGGER_DROP_DDL.join(';\n      ')};
       DROP TABLE sessions;
       ALTER TABLE sessions_new RENAME TO sessions;

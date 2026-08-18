@@ -152,11 +152,10 @@ function hasValidWorkspaceCardPagination(limit, offset) {
     && Number.isInteger(offset) && offset >= 0;
 }
 
-function parseWorkspaceCardOptions({ archived, starred, limit, offset, cursor, status, scheduled }) {
+function parseWorkspaceCardOptions({ archived, starred, limit, cursor, status, scheduled }) {
   const isNonNegativeInt = value => typeof value === 'string' && /^\d+$/.test(value);
-  const parsedLimit = isNonNegativeInt(limit) ? Number(limit) : Number.NaN;
-  const parsedOffset = offset === undefined ? 0 : isNonNegativeInt(offset) ? Number(offset) : Number.NaN;
-  const valid = hasValidWorkspaceCardPagination(parsedLimit, parsedOffset)
+  const parsedLimit = limit === undefined ? 50 : isNonNegativeInt(limit) ? Number(limit) : Number.NaN;
+  const valid = hasValidWorkspaceCardPagination(parsedLimit, 0)
     && ['true', 'false', undefined].includes(archived)
     && ['true', 'false', undefined].includes(starred)
     && hasValidWorkspaceCardFilters(status, scheduled)
@@ -168,7 +167,7 @@ function parseWorkspaceCardOptions({ archived, starred, limit, offset, cursor, s
     status: status || null,
     scheduled: parseBooleanFilter(scheduled),
     limit: parsedLimit,
-    offset: parsedOffset,
+    offset: 0,
     cursor: cursor || null,
   };
 }
@@ -208,7 +207,7 @@ function sendWorkspaceCards(res, projectId, query, startedAt) {
     // The list resumes output polling from a card run, so it needs the
     // output-chunk metadata the board broadcast deliberately omits.
     commandRuns.getLatestRunsForSessions(memberIds, { includeOutputMetadata: true }),
-    commandRunner.getRunningByProjectId(projectId, (sessionId) => sessions.getById(sessionId))
+    commandRunner.getRunningByProjectId(projectId, sessionIds => sessions.getByIds(sessionIds))
       .filter(run => memberIdSet.has(run.sessionId))
   );
   const workspaces = cards.map((card) => {
@@ -230,7 +229,6 @@ function sendWorkspaceCards(res, projectId, query, startedAt) {
     pagination: {
       total,
       limit: options.limit,
-      offset: options.offset,
       nextCursor: page.nextCursor,
       hasMore: page.hasMore,
     },
@@ -267,7 +265,8 @@ function listProjectWorkspaces(req, res) {
 // GET /api/projects/:projectId/workspaces — list workspaces (root sessions)
 //
 // Response shapes:
-//   With `view=cards`           → { workspaces: [workspace cards], facets: { running, idle }, pagination: {...} }
+//   With `view=cards`           → cursor-paginated cards (limit 1-500, default 50; cursor base64url ≤512 chars)
+//                                  with filters status={running,idle}, archived/starred/scheduled={true,false}
 //   Without `limit` query param → bare array of root session rows.
 //   With `limit` query param    → { workspaces: [...], pagination: { total, limit, offset, hasMore } }
 // ---------------------------------------------------------------------------

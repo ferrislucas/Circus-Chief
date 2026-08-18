@@ -119,8 +119,6 @@ export const WorkspaceCardListResponse = z.object({
   pagination: z.object({
     total: z.number().int().nonnegative(),
     limit: z.number().int().positive(),
-    offset: z.number().int().nonnegative(),
-    // Present for cursor-aware clients.  Offset remains for backwards compatibility.
     nextCursor: z.string().nullable().optional(),
     hasMore: z.boolean(),
   }),

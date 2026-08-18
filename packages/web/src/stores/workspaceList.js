@@ -3,7 +3,7 @@ import { api } from '../composables/useApi.js';
 import { commandRunPatch, summaryPatch } from './workspaceListEvents.js';
 import { queryKey, isAbort } from './workspaceListQuery.js';
 
-export const WORKSPACE_PAGE_SIZE = 25; export const WORKSPACE_SERVER_MAX_LIMIT = 500;
+export const WORKSPACE_PAGE_SIZE = 25;
 export const WORKSPACE_PICKER_MAX_RESULTS = 1_000;
 
 const requestLifecycles = new WeakMap();
@@ -15,39 +15,17 @@ function lifecycleFor(store) {
       refreshController: null,
       refreshPromise: null,
       loadMoreController: null,
-      mutationEpoch: 0,
-      trailingMutationRefresh: false,
       snapshots: new Map(),
     });
   }
   return requestLifecycles.get(store);
 }
-const fetchPage = (projectId, query, { offset = 0, cursor = null, limit, signal }) => api.getWorkspaceCards(projectId, {
+const fetchPage = (projectId, query, { cursor = null, limit, signal }) => api.getWorkspaceCards(projectId, {
   ...query,
   limit,
-  offset,
   cursor,
   signal,
 });
-async function fetchLoadedExtent(projectId, query, loadedExtent, controller) {
-  let cursor = null;
-  let remaining = loadedExtent;
-  let result;
-  const pages = [];
-  do {
-    const limit = Math.min(WORKSPACE_SERVER_MAX_LIMIT, remaining);
-    result = await fetchPage(projectId, query, { cursor, limit, signal: controller.signal });
-    pages.push(result);
-    remaining -= result.workspaces?.length || 0;
-    cursor = result.pagination?.nextCursor || null;
-  } while (remaining > 0 && cursor && !controller.signal.aborted);
-  const first = pages[0] || { workspaces: [], pagination: {} };
-  return {
-    ...first,
-    workspaces: pages.flatMap(page => page.workspaces || []),
-    pagination: { ...result?.pagination, offset: 0, nextCursor: cursor },
-  };
-}
 function canCommitPage(store, lifecycle, request) {
   return !request.controller.signal.aborted
     && lifecycle.version === request.version
@@ -63,7 +41,6 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
     orderedIds: [],
     facets: { running: 0, idle: 0 },
     total: 0,
-    nextOffset: 0,
     nextCursor: null,
     loading: false,
     loadingMore: false,
@@ -87,7 +64,6 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.orderedIds = cards.map(card => card.id);
       this.facets = result.facets || { running: 0, idle: 0 };
       this.total = result.pagination?.total || 0;
-      this.nextOffset = (result.pagination?.offset || 0) + (result.workspaces?.length || 0);
       this.nextCursor = result.pagination?.nextCursor || null;
       this.hasMore = Boolean(result.pagination?.hasMore);
     },
@@ -107,9 +83,27 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
         this.facets = result.facets || { running: 0, idle: 0 };
         this.total = result.pagination?.total || 0;
       }
-      this.nextOffset = (result.pagination?.offset || 0) + (result.workspaces?.length || 0);
       this.nextCursor = result.pagination?.nextCursor || null;
       this.hasMore = Boolean(result.pagination?.hasMore);
+    },
+
+    _reconcileFirstPage(result) {
+      const cards = result.workspaces || [];
+      const refreshedIds = new Set(cards.map(card => card.id));
+      this.cardsById = {
+        ...this.cardsById,
+        ...Object.fromEntries(cards.map(card => [card.id, card])),
+      };
+      // Preserve cards below the fold. Their position is allowed to drift until
+      // the user paginates again, but realtime refresh stays constant-cost.
+      this.orderedIds = [
+        ...cards.map(card => card.id),
+        ...this.orderedIds.filter(id => !refreshedIds.has(id)),
+      ];
+      this.facets = result.facets || { running: 0, idle: 0 };
+      this.total = result.pagination?.total || 0;
+      this.nextCursor = result.pagination?.nextCursor || null;
+      this.hasMore = Boolean(result.pagination?.hasMore) || this.orderedIds.length < this.total;
     },
 
     _resetContext(projectId, query) {
@@ -117,7 +111,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       if (lifecycle.contextKey) {
         lifecycle.snapshots.set(lifecycle.contextKey, {
           cardsById: this.cardsById, orderedIds: this.orderedIds, facets: this.facets,
-          total: this.total, nextOffset: this.nextOffset, nextCursor: this.nextCursor, hasMore: this.hasMore,
+          total: this.total, nextCursor: this.nextCursor, hasMore: this.hasMore,
         });
       }
       lifecycle.refreshController?.abort();
@@ -133,7 +127,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.query = { ...query };
       Object.assign(this, snapshot || {
         cardsById: {}, orderedIds: [], facets: { running: 0, idle: 0 }, total: 0,
-        nextOffset: 0, nextCursor: null, hasMore: false,
+        nextCursor: null, hasMore: false,
       });
       this.loadingMore = false;
       this.error = null;
@@ -144,10 +138,6 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       const lifecycle = lifecycleFor(this);
       if (lifecycle.contextKey !== nextKey) this._resetContext(projectId, query);
       return this.refresh();
-    },
-
-    markMutation() {
-      lifecycleFor(this).mutationEpoch += 1;
     },
 
     async refresh() {
@@ -162,19 +152,20 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       lifecycle.refreshController = controller;
       const version = lifecycle.version;
       const contextKey = lifecycle.contextKey;
-      const mutationEpochAtStart = lifecycle.mutationEpoch;
       const projectId = this.projectId;
       const query = { ...this.query };
-      const loadedExtent = Math.max(WORKSPACE_PAGE_SIZE, this.orderedIds.length);
       this.loading = this.orderedIds.length === 0;
       this.error = null;
 
-      const promise = fetchLoadedExtent(projectId, query, loadedExtent, controller)
+      // Reconcile the visible page only.  Realtime events must not make request
+      // cost grow with scroll depth; deeper pages update when the user reaches them.
+      const promise = fetchPage(projectId, query, { limit: WORKSPACE_PAGE_SIZE, signal: controller.signal })
         .then((result) => {
           if (!controller.signal.aborted
             && lifecycle.version === version
             && lifecycle.contextKey === contextKey) {
-            this._replace(result);
+            if (this.orderedIds.length) this._reconcileFirstPage(result);
+            else this._replace(result);
           }
         })
         .catch((error) => {
@@ -189,22 +180,6 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
           if (lifecycle.refreshPromise === promise) lifecycle.refreshPromise = null;
           if (lifecycle.refreshController === controller) lifecycle.refreshController = null;
           if (lifecycle.version === version) this.loading = false;
-          if (!controller.signal.aborted
-            && lifecycle.version === version
-            && lifecycle.mutationEpoch !== mutationEpochAtStart) {
-            lifecycle.trailingMutationRefresh = true;
-          }
-          if (lifecycle.trailingMutationRefresh
-            && !lifecycle.refreshPromise
-            && !controller.signal.aborted
-            && lifecycle.version === version) {
-            lifecycle.trailingMutationRefresh = false;
-            // Defer so callers awaiting `refresh()` see completion first and
-            // any synchronous re-entrancy has settled.
-            Promise.resolve().then(() => {
-              if (lifecycle.version === version && !lifecycle.refreshPromise) this.refresh();
-            });
-          }
         });
       lifecycle.refreshPromise = promise;
       return promise;
@@ -222,14 +197,13 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       const query = { ...this.query };
       const contextKey = lifecycle.contextKey;
       const version = lifecycle.version;
-      const offset = this.nextOffset;
       const cursor = this.nextCursor;
       const controller = new AbortController();
-      const request = { controller, version, contextKey, offset, cursor };
+      const request = { controller, version, contextKey, cursor };
       lifecycle.loadMoreController = controller;
       this.loadingMore = true;
       try {
-        const result = await fetchPage(projectId, query, { offset, cursor, limit: WORKSPACE_PAGE_SIZE, signal: controller.signal });
+        const result = await fetchPage(projectId, query, { cursor, limit: WORKSPACE_PAGE_SIZE, signal: controller.signal });
         if (canCommitPage(this, lifecycle, request)) this._append(result);
       } catch (error) {
         if (!isAbort(error) && canCommitPage(this, lifecycle, request)) {
@@ -320,6 +294,8 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       lifecycle.refreshController = null;
       lifecycle.refreshPromise = null;
       lifecycle.loadMoreController = null;
+      lifecycle.contextKey = null;
+      lifecycle.snapshots.clear();
       this.loading = false;
       this.loadingMore = false;
     },

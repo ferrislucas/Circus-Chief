@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- workspace projections live in workspace-queries; remaining lifecycle methods share this repository's mapping contract. */
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { messages, conversations } from './index.js';
@@ -15,10 +14,7 @@ import {
   DEFAULT_AGENT_TYPE,
   resolveAgentTypeFromModel,
 } from './session-helpers.js';
-import {
-  getWorkspaceCardCounts,
-  getWorkspaceCardPage,
-} from './workspace-queries.js';
+import { getWorkspaceCardPage } from './workspace-queries.js';
 
 /**
  * Session repository class
@@ -174,11 +170,6 @@ export class SessionRepository extends BaseRepository {
    */
   getWorkspaceCardPage(projectId, options = {}) {
     return getWorkspaceCardPage(this.db, projectId, options);
-  }
-
-  /** Authoritative status facets for workspace-list filters. */
-  getWorkspaceCardCounts(projectId, options = {}) {
-    return getWorkspaceCardCounts(this.db, projectId, options);
   }
 
   /** Get count of sessions for a project with optional archived/starred filters */

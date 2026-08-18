@@ -206,7 +206,7 @@ describe('Workspace facade API', () => {
         .expect(400);
     });
 
-    it('uses ordinary offsets to traverse an unchanged dataset without repeats', async () => {
+    it('uses cursors to traverse an unchanged dataset without repeats', async () => {
       const first = sessions.create(project.id, 'First', 'p');
       const second = sessions.create(project.id, 'Second', 'p');
       const third = sessions.create(project.id, 'Third', 'p');
@@ -214,24 +214,24 @@ describe('Workspace facade API', () => {
       const pageOne = await request(app)
         .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2`)
         .expect(200);
-      expect(pageOne.body.pagination).toMatchObject({ offset: 0, total: 3, hasMore: true });
+      expect(pageOne.body.pagination).toMatchObject({ total: 3, hasMore: true });
 
       const pageTwo = await request(app)
-        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&offset=2`)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&cursor=${pageOne.body.pagination.nextCursor}`)
         .expect(200);
       const ids = [...pageOne.body.workspaces, ...pageTwo.body.workspaces].map(({ id }) => id);
       expect(new Set(ids)).toEqual(new Set([first.id, second.id, third.id]));
       expect(ids).toHaveLength(3);
-      expect(pageTwo.body.pagination).toMatchObject({ offset: 2, hasMore: false });
+      expect(pageTwo.body.pagination).toMatchObject({ hasMore: false });
     });
 
-    it('rejects malformed optimized-list offsets', async () => {
+    it('ignores legacy offsets on optimized cursor pagination', async () => {
       await request(app)
         .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&offset=-1`)
-        .expect(400);
+        .expect(200);
       await request(app)
         .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&offset=1e3`)
-        .expect(400);
+        .expect(200);
       await request(app)
         .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2abc`)
         .expect(400);

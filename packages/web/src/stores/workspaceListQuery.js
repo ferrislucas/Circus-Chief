@@ -1,6 +1,7 @@
 /** Stable identity for a (projectId, query) list context. */
 export function queryKey(projectId, query) {
-  return `${projectId}:${JSON.stringify(query)}`;
+  const fields = ['archived', 'starred', 'status', 'scheduled'];
+  return `${projectId}:${fields.map(field => `${field}=${query?.[field] ?? ''}`).join('&')}`;
 }
 
 /** Abort errors are expected list teardown, not failures to surface. */

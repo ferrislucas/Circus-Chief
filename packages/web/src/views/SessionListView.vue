@@ -434,7 +434,7 @@ const listProjectId = computed(() => ['sessions', 'archived'].includes(activeTab
 useWorkspaceListRealtime(listProjectId, (refreshProjectId) => {
   if (workspaceList.projectId !== refreshProjectId) return;
   return workspaceList.refresh();
-}, () => workspaceList.isRefreshInFlight(), (event) => {
+}, () => false, (event) => {
   if (workspaceList.projectId !== listProjectId.value) return null;
   if (event.delete) {
     const card = workspaceList.cardForSession(event.sessionId);
@@ -450,9 +450,8 @@ useWorkspaceListRealtime(listProjectId, (refreshProjectId) => {
   return workspaceList.applyCommandRunEvent(event);
 });
 
-// The board is fetched on mount for every tab (SessionCard "Add to Board" and
-// lane indicators need it), so its realtime updates are project-scoped rather
-// than tab-scoped like the workspace list.
+// Board realtime is project-scoped: the Kanban tab retains its own subscription
+// while the workspace list is tab-scoped. The shared subscription refcounts them.
 useKanbanRealtime(projectId);
 
 watch(projectId, (id) => {
@@ -491,9 +490,6 @@ async function handleStar({ id, starred }) {
     return;
   }
 
-  // The store's mutation epoch detects when this refresh joins a request that
-  // predates the star and runs one bounded trailing read itself.
-  workspaceList.markMutation();
   try {
     await workspaceList.refresh();
   } catch (error) {
@@ -535,7 +531,6 @@ async function confirmArchive({ runCleanup, removeFromBoard } = {}) {
   } catch (error) {
     uiStore.error(error.message || 'Failed to archive session');
   } finally {
-    workspaceList.markMutation();
     workspaceList.refresh().catch(() => {});
     archiving.value = false;
     showArchiveModal.value = false;
@@ -552,7 +547,6 @@ async function handleUnarchive(sessionId) {
   try {
     await sessionsStore.unarchiveSession(sessionId);
     workspaceList.removeCard(sessionId);
-    workspaceList.markMutation();
     workspaceList.refresh().catch(() => {});
   } catch (error) {
     console.error('Failed to unarchive session:', error);
@@ -615,7 +609,6 @@ async function addSessionToLane(lane) {
       uiStore.success(`Session added to "${lane.name}"`);
     }
     closeLaneSelectorModal();
-    workspaceList.markMutation();
     workspaceList.refresh().catch(() => {});
   } catch (err) {
     console.error('Failed to update session board lane:', err);

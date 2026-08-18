@@ -19,8 +19,8 @@ const WORKSPACE_AGGREGATES_CTE = `
   ), aggregates AS (
     SELECT tree.root_id,
       SUM(CASE WHEN s.status IN ('running', 'starting') THEN 1 ELSE 0 END) AS running_count,
-      GROUP_CONCAT(CASE WHEN s.status IN ('running', 'starting') THEN s.id END) AS running_session_ids,
-      GROUP_CONCAT(s.id) AS member_ids,
+      GROUP_CONCAT(CASE WHEN s.status IN ('running', 'starting') THEN s.id END ORDER BY s.id = tree.root_id DESC, s.id) AS running_session_ids,
+      GROUP_CONCAT(s.id ORDER BY s.id = tree.root_id DESC, s.id) AS member_ids,
       SUM(CASE WHEN s.status = 'scheduled' THEN 1 ELSE 0 END) AS scheduled_count,
       MIN(CASE WHEN s.status = 'scheduled' THEN s.scheduled_at END) AS nearest_scheduled_at,
       SUM(CASE WHEN s.status = 'waiting' THEN 1 ELSE 0 END) AS waiting_count,
@@ -44,9 +44,9 @@ function workspaceFilters({ archived, starred, scheduled }) {
 /**
  * Return status predicates for a workspace aggregate column.
  */
-function statusPredicates(status, column = 'runningCount') {
-  if (status === 'running') return [`${column} > 0`];
-  if (status === 'idle') return [`${column} = 0`];
+function statusPredicates(status) {
+  if (status === 'running') return ['runningCount > 0'];
+  if (status === 'idle') return ['runningCount = 0'];
   return [];
 }
 

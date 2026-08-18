@@ -21,7 +21,7 @@ function buildBoardRunsBySession(projectId, cards) {
     // metadata costs two correlated subqueries per run row on every board
     // broadcast, so the board deliberately omits it.
     commandRuns.getLatestRunsForSessions(sessionIds),
-    commandRunner.getRunningByProjectId(projectId, sessionId => sessions.getById(sessionId))
+    commandRunner.getRunningByProjectId(projectId, ids => sessions.getByIds(ids))
       .filter(run => sessionIdSet.has(run.sessionId))
   );
 }
