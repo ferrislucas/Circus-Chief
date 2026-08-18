@@ -104,7 +104,11 @@ export function useWorkspaceListRealtime(projectId, refresh, options = {}) {
         scheduleRefresh(projectGeneration);
         return;
       }
-      Promise.resolve(refreshCard(session.id)).catch(() => scheduleRefresh(projectGeneration));
+      Promise.resolve(refreshCard(session.id))
+        .then(cardId => {
+          if (cardId === null || cardId === undefined) scheduleRefresh(projectGeneration);
+        })
+        .catch(() => scheduleRefresh(projectGeneration));
     }));
   }
 

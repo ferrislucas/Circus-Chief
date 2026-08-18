@@ -133,6 +133,21 @@ describe('useWorkspaceListRealtime', () => {
     wrapper.unmount();
   });
 
+  it('refreshes the list when a session update belongs to an unloaded card', async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const refreshCard = vi.fn().mockResolvedValue(null);
+    const wrapper = mountRealtime(ref('project-a'), refresh, undefined, undefined, refreshCard);
+
+    subscriptions.get('project-a').emit('onSessionUpdated', { id: 'session-9', status: 'running' });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(WORKSPACE_LIST_REFRESH_DELAY_MS);
+
+    expect(refreshCard).toHaveBeenCalledWith('session-9');
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenCalledWith('project-a');
+    wrapper.unmount();
+  });
+
   it('falls back to a debounced refresh when a patched session is unknown', async () => {
     const refresh = vi.fn().mockResolvedValue(undefined);
     const patchEvent = vi.fn(() => null);
