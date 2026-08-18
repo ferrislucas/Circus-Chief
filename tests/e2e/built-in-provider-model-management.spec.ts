@@ -82,6 +82,31 @@ test.describe('Built-in Provider Settings modal (Slice E1)', () => {
   // save/reopen cycles -- never interleave with each other.
   test.describe.configure({ mode: 'serial' });
 
+  test('adds model rows when crypto.randomUUID is unavailable', async ({ page }) => {
+    // localhost is normally a trustworthy context, so explicitly reproduce the
+    // browser API surface seen when Circus Chief is opened from an insecure LAN
+    // origin. Install this before navigation so application code never observes
+    // randomUUID during this test.
+    await page.addInitScript(() => {
+      Object.defineProperty(Crypto.prototype, 'randomUUID', {
+        configurable: true,
+        value: undefined,
+      });
+    });
+
+    const modal = await openBuiltInProviderSettings(page, BUILT_IN_PROVIDERS[0].name);
+    const modelRows = modal.locator('.model-row:not(.model-row-header)');
+    const initialRowCount = await modelRows.count();
+
+    await modal.locator('.add-model-btn').click();
+    await modal.locator('.add-model-btn').click();
+
+    await expect(modelRows).toHaveCount(initialRowCount + 2);
+    await expect(modelRows.nth(initialRowCount).locator('.col-model-id.model-input')).toBeEditable();
+    await expect(modelRows.nth(initialRowCount + 1).locator('.col-model-id.model-input')).toBeEditable();
+    await expect(modal.locator('.error-message')).toHaveCount(0);
+  });
+
   for (const providerMeta of BUILT_IN_PROVIDERS) {
     test(`${providerMeta.name}: add, reorder, enable/disable, and remove model rows persist across modal reopen`, async ({ page }) => {
       const runTag = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
