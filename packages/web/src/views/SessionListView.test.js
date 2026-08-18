@@ -124,6 +124,7 @@ vi.mock('../stores/workspaceList.js', () => ({
         return Promise.resolve();
       }),
       refresh: vi.fn().mockResolvedValue(),
+      refreshCard: vi.fn().mockResolvedValue(null),
       isRefreshInFlight: vi.fn(() => false),
       loadMore: vi.fn().mockResolvedValue(),
       patchCard: vi.fn(),
@@ -721,13 +722,14 @@ describe('SessionListView', () => {
   });
 
   describe('debounced authoritative list refresh', () => {
-    it('coalesces rapid project events into one list refresh', async () => {
+    it('coalesces rapid session-update fallbacks into one list refresh', async () => {
       vi.useFakeTimers();
 
       const wrapper = mount(SessionListView);
       await flushPromises();
       const list = lastWorkspaceList();
       list.refresh.mockClear();
+      list.refreshCard.mockClear();
 
       // Simulate rapid session updates (WebSocket onSessionUpdated firing multiple times)
       if (onSessionUpdatedCallback) {
@@ -739,6 +741,10 @@ describe('SessionListView', () => {
       await vi.advanceTimersByTimeAsync(1_000);
       await flushPromises();
 
+      expect(list.refreshCard).toHaveBeenCalledTimes(3);
+      expect(list.refreshCard).toHaveBeenNthCalledWith(1, 'session-1');
+      expect(list.refreshCard).toHaveBeenNthCalledWith(2, 'session-2');
+      expect(list.refreshCard).toHaveBeenNthCalledWith(3, 'session-1');
       expect(list.refresh).toHaveBeenCalledOnce();
       vi.useRealTimers();
       wrapper.unmount();
