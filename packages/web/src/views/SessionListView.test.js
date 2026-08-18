@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mount, flushPromises } from '@vue/test-utils';
-import { nextTick, defineComponent, reactive, ref, computed, watch, onUnmounted } from 'vue';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
+import { mount, flushPromises, config } from '@vue/test-utils';
+import { nextTick, defineComponent, reactive, ref, computed, watch, onUnmounted, h } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import { useKanbanStore } from '../stores/kanban.js';
 
@@ -35,6 +35,27 @@ function findTab(wrapper, text) {
     .findAll('.tab')
     .find(tab => tab.text() === text);
 }
+
+// SessionListView and its child components render <router-link> elements, but
+// the tests mount them without installing a router plugin. Left unresolved,
+// Vue (in dev mode, i.e. NODE_ENV=test as in CI) emits a
+// "[Vue warn]: Failed to resolve component: router-link" warning on every
+// render, which trips the console.warn spies below. Register a lightweight
+// stub for the whole file so router-link always resolves.
+const RouterLinkStub = defineComponent({
+  name: 'RouterLink',
+  props: ['to'],
+  setup(props, { slots }) {
+    return () => h('a', { href: props.to, class: 'router-link-stub' }, slots.default?.());
+  },
+});
+config.global.components['router-link'] = RouterLinkStub;
+config.global.components.RouterLink = RouterLinkStub;
+
+afterAll(() => {
+  delete config.global.components['router-link'];
+  delete config.global.components.RouterLink;
+});
 
 function lastWorkspaceList() {
   return useWorkspaceListStore.mock.results.at(-1)?.value;
