@@ -54,10 +54,10 @@ function deferred() {
   return { promise, resolve };
 }
 
-function mountRealtime(projectId, refresh, isRefreshInFlight, patchEvent) {
+function mountRealtime(projectId, refresh, isRefreshInFlight, patchEvent, refreshCard) {
   return mount(defineComponent({
     setup() {
-      useWorkspaceListRealtime(projectId, refresh, isRefreshInFlight, patchEvent);
+      useWorkspaceListRealtime(projectId, refresh, { isRefreshInFlight, patchEvent, refreshCard });
     },
     template: '<div />',
   }));
@@ -118,6 +118,17 @@ describe('useWorkspaceListRealtime', () => {
     await vi.advanceTimersByTimeAsync(WORKSPACE_LIST_REFRESH_DELAY_MS * 4);
 
     expect(patchEvent).toHaveBeenCalledTimes(1);
+    expect(refresh).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('reconciles session updates through a targeted card request', async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const refreshCard = vi.fn().mockResolvedValue('card-1');
+    const wrapper = mountRealtime(ref('project-a'), refresh, undefined, undefined, refreshCard);
+    subscriptions.get('project-a').emit('onSessionUpdated', { id: 'child-1', status: 'running' });
+    await Promise.resolve();
+    expect(refreshCard).toHaveBeenCalledWith('child-1');
     expect(refresh).not.toHaveBeenCalled();
     wrapper.unmount();
   });

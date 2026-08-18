@@ -6,7 +6,7 @@ import {
   WORKSPACE_PAGE_SIZE,
 } from './workspaceList.js';
 
-vi.mock('../composables/useApi.js', () => ({ api: { getWorkspaceCards: vi.fn() } }));
+vi.mock('../composables/useApi.js', () => ({ api: { getWorkspaceCards: vi.fn(), getWorkspaceCard: vi.fn() } }));
 
 function deferred() {
   let resolve;
@@ -436,17 +436,35 @@ describe('workspace list realtime patching', () => {
     expect(store.applySummaryEvent('unknown', {})).toBeNull();
   });
 
-  it('patches summary fields from a summary event', async () => {
+  it('does not replace root summary fields from a child summary event', async () => {
     const store = await loadedStore();
+    store.patchCard('root-1', { summaryPreview: 'Root summary', prState: 'merged' });
     const patched = store.applySummaryEvent('child-1', {
       shortSummary: 'Did things', prState: 'open', ciStatus: 'passing', hasMergeConflicts: false,
     });
     expect(patched).toBe('root-1');
     const card = store.cardsById['root-1'];
-    expect(card.summaryPreview).toBe('Did things');
-    expect(card.prState).toBe('open');
-    expect(card.ciStatus).toBe('passing');
-    expect(card.hasMergeConflicts).toBe(false);
+    expect(card.summaryPreview).toBe('Root summary');
+    expect(card.prState).toBe('merged');
+    expect(card.ciStatus).toBeUndefined();
+  });
+
+  it('patches root summary fields from a root summary event', async () => {
+    const store = await loadedStore();
+    store.applySummaryEvent('root-1', { shortSummary: 'Root result', prState: 'open' });
+    expect(store.cardsById['root-1']).toMatchObject({ summaryPreview: 'Root result', prState: 'open' });
+  });
+
+  it('authoritatively reconciles one card without refetching the loaded window', async () => {
+    const store = await loadedStore();
+    api.getWorkspaceCards.mockClear();
+    api.getWorkspaceCard.mockResolvedValue({
+      ...store.cardsById['root-1'], runningCount: 1, lastActivityAt: 20, updatedAt: 10, createdAt: 1,
+    });
+    await store.refreshCard('child-1');
+    expect(api.getWorkspaceCard).toHaveBeenCalledWith('root-1');
+    expect(api.getWorkspaceCards).not.toHaveBeenCalled();
+    expect(store.facets).toEqual({ running: 1, idle: 0 });
   });
 
 });

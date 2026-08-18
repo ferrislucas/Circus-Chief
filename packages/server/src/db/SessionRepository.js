@@ -172,6 +172,10 @@ export class SessionRepository extends BaseRepository {
     return getWorkspaceCardPage(this.db, projectId, options);
   }
 
+  getWorkspaceCard(projectId, rootId) {
+    return getWorkspaceCardPage(this.db, projectId, { rootId, limit: 1 }).cards[0] || null;
+  }
+
   /** Get count of sessions for a project with optional archived/starred filters */
   getCountByProjectId(projectId, { archived = null, starred = null } = {}) {
     let sql = `SELECT COUNT(*) as count FROM sessions WHERE project_id = ?`;

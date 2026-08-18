@@ -434,20 +434,17 @@ const listProjectId = computed(() => ['sessions', 'archived'].includes(activeTab
 useWorkspaceListRealtime(listProjectId, (refreshProjectId) => {
   if (workspaceList.projectId !== refreshProjectId) return;
   return workspaceList.refresh();
-}, () => false, (event) => {
-  if (workspaceList.projectId !== listProjectId.value) return null;
-  if (event.delete) {
-    const card = workspaceList.cardForSession(event.sessionId);
-    if (!card) return null;
-    workspaceList.patchCard(card.id, {
-      latestCommandRuns: (card.latestCommandRuns || []).filter(
-        run => run.runId !== event.runId,
-      ),
-    });
-    return card.id;
-  }
-  if (event.kind === 'onSessionSummaryUpdated') return workspaceList.applySummaryEvent(event.sessionId, event.summary);
-  return workspaceList.applyCommandRunEvent(event);
+}, {
+  isRefreshInFlight: () => workspaceList.isRefreshInFlight(),
+  patchEvent: (event) => {
+    if (workspaceList.projectId !== listProjectId.value) return null;
+    if (event.kind === 'onSessionSummaryUpdated') return workspaceList.applySummaryEvent(event.sessionId, event.summary);
+    return workspaceList.applyCommandRunEvent(event);
+  },
+  refreshCard: (sessionId) => {
+    if (workspaceList.projectId !== listProjectId.value) return null;
+    return workspaceList.refreshCard(sessionId);
+  },
 });
 
 // Board realtime is project-scoped: the Kanban tab retains its own subscription

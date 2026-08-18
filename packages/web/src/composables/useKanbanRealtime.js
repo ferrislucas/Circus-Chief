@@ -58,7 +58,9 @@ export function useKanbanRealtime(projectId) {
         });
       },
       onCommandRunDeleted: (runId, sessionId, buttonId) => {
-        kanbanStore.handleSessionCommandRunRemoved(sessionId, buttonId);
+        // Deleting the displayed run may reveal an older run for the button;
+        // only the authoritative board response can supply that replacement.
+        kanbanStore.fetchBoard(id).catch(() => {});
       },
     };
     const cleanups = Object.entries(registrations)

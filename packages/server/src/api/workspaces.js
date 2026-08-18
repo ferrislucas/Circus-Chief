@@ -235,6 +235,20 @@ function sendWorkspaceCards(res, projectId, query, startedAt) {
   }, startedAt);
 }
 
+function decorateWorkspaceCard(card, projectId) {
+  const memberIdSet = new Set(card.memberIds);
+  const runsBySession = buildRunsBySession(
+    commandRuns.getLatestRunsForSessions(card.memberIds, { includeOutputMetadata: true }),
+    commandRunner.getRunningByProjectId(projectId, ids => sessions.getByIds(ids))
+      .filter(run => memberIdSet.has(run.sessionId)),
+  );
+  return {
+    ...card,
+    pendingAgentInput: card.memberIds.some(hasPendingPrompt),
+    latestCommandRuns: workspaceCommandRuns(card, runsBySession),
+  };
+}
+
 function listProjectWorkspaces(req, res) {
   const startedAt = performance.now();
   const project = projects.getById(req.params.projectId);
@@ -323,6 +337,17 @@ workspacesRouter.get('/:workspaceId', (req, res) => {
     ...withPendingAgentInput(workspace),
     sessions: descendants.map(withPendingAgentInput),
   }, startedAt);
+});
+
+// Bounded reconciliation endpoint for project realtime events. Unlike the list
+// query, this only walks the requested workspace tree.
+workspacesRouter.get('/:workspaceId/card', (req, res) => {
+  const startedAt = performance.now();
+  const resolved = resolveWorkspace(res, req.params.workspaceId);
+  if (!resolved) return;
+  const card = sessions.getWorkspaceCard(resolved.project.id, resolved.workspace.id);
+  if (!card) return res.status(404).json({ error: ERR_WORKSPACE_NOT_FOUND });
+  return sendWorkspaceJson(res, decorateWorkspaceCard(card, resolved.project.id), startedAt);
 });
 
 // ---------------------------------------------------------------------------

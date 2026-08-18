@@ -2,11 +2,11 @@ import { defineStore } from 'pinia';
 import { api } from '../composables/useApi.js';
 import { commandRunPatch, summaryPatch } from './workspaceListEvents.js';
 import { queryKey, isAbort } from './workspaceListQuery.js';
+import { refreshWorkspaceCard } from './workspaceListCardRefresh.js';
 
 export const WORKSPACE_PAGE_SIZE = 25;
 export const WORKSPACE_PICKER_MAX_RESULTS = 1_000;
 const WORKSPACE_API_MAX_PAGE_SIZE = 500;
-
 const requestLifecycles = new WeakMap();
 function lifecycleFor(store) {
   if (!requestLifecycles.has(store)) {
@@ -67,7 +67,6 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
     error: null,
     hasMore: false,
   }),
-
   getters: {
     cards: state => state.orderedIds.map(id => state.cardsById[id]).filter(Boolean),
     hasActiveFilters: state => state.query.archived === true
@@ -241,6 +240,8 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
     applySummaryEvent(sessionId, summary) {
       return this._applyPatch(summaryPatch(this.cardsById, sessionId, summary));
     },
+
+    refreshCard: refreshWorkspaceCard,
 
     _applyPatch(next) {
       if (!next?.cardId) return null;

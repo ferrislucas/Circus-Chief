@@ -12,7 +12,6 @@ export const WORKSPACE_LIST_MAX_REFRESH_DELAY_MS = 5_000;
 // re-fetched, coalesced behind the debounce.
 const REFRESH_EVENTS = [
   'onSessionCreated',
-  'onSessionUpdated',
   'onSessionDeleted',
   'onKanbanBoardUpdated',
   'onKanbanCardMoved',
@@ -32,11 +31,10 @@ const KILLED_STATUS = { status: 'killed' };
  *
  * @param {import('vue').Ref<string|null>} projectId
  * @param {(projectId: string) => Promise} refresh - debounced full refresh
- * @param {(event: {kind: string, sessionId?: string, [key: string]: any}) => string|null} [patchEvent]
- *   Applies a single-card event to its owning card; returns the patched card id
- *   or null when the session is unknown (caller should fall back to a refresh).
+ * @param {Object} [options] - local patch, targeted refresh, and load-state callbacks
  */
-export function useWorkspaceListRealtime(projectId, refresh, _isRefreshInFlight = () => false, patchEvent) {
+export function useWorkspaceListRealtime(projectId, refresh, options = {}) {
+  const { isRefreshInFlight = () => false, patchEvent, refreshCard } = options;
   let timer = null;
   let cleanupCurrentProject = () => {};
   let refreshInFlight = false;
@@ -79,7 +77,7 @@ export function useWorkspaceListRealtime(projectId, refresh, _isRefreshInFlight 
       return;
     }
 
-    const joinedExistingLoad = _isRefreshInFlight();
+    const joinedExistingLoad = isRefreshInFlight();
     refreshInFlight = true;
     const refreshProjectId = projectId.value;
     try {
@@ -97,6 +95,17 @@ export function useWorkspaceListRealtime(projectId, refresh, _isRefreshInFlight 
         refreshDelay = WORKSPACE_LIST_REFRESH_DELAY_MS;
       }
     }
+  }
+
+  function registerSessionUpdates(subscription, cleanups, projectGeneration) {
+    if (typeof subscription.onSessionUpdated !== 'function') return;
+    cleanups.push(subscription.onSessionUpdated((session) => {
+      if (!session?.id || !refreshCard) {
+        scheduleRefresh(projectGeneration);
+        return;
+      }
+      Promise.resolve(refreshCard(session.id)).catch(() => scheduleRefresh(projectGeneration));
+    }));
   }
 
   function installProjectSubscription(id) {
@@ -125,6 +134,8 @@ export function useWorkspaceListRealtime(projectId, refresh, _isRefreshInFlight 
       }
     }
 
+    registerSessionUpdates(subscription, cleanups, projectGeneration);
+
     if (patchEvent) {
       const patchHandlers = {
         onCommandRunStarted: cb => subscription.onCommandRunStarted((runId, sessionId, buttonId) => cb({
@@ -141,9 +152,10 @@ export function useWorkspaceListRealtime(projectId, refresh, _isRefreshInFlight 
           sessionId: msg.sessionId, buttonId: msg.buttonId, runId: msg.runId,
           startedAt: msg.startedAt ?? null, completedAt: Date.now(), ...KILLED_STATUS,
         })),
-        onCommandRunDeleted: cb => subscription.onCommandRunDeleted((runId, sessionId, buttonId) => cb({
-          sessionId, buttonId, runId, delete: true,
-        })),
+        onCommandRunDeleted: cb => subscription.onCommandRunDeleted((runId, sessionId, buttonId) => {
+          if (refreshCard) Promise.resolve(refreshCard(sessionId)).catch(() => scheduleRefresh(projectGeneration));
+          else cb({ sessionId, buttonId, runId, delete: true });
+        }),
         onSessionSummaryUpdated: cb => subscription.onSessionSummaryUpdated((sessionId, summary) => cb({ sessionId, summary })),
       };
       for (const [name, register] of Object.entries(patchHandlers)) {

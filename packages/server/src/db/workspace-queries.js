@@ -14,6 +14,7 @@ const WORKSPACE_AGGREGATES_CTE = `
   WITH RECURSIVE tree(root_id, id, project_id, path) AS (
     SELECT id, id, project_id, '/' || id || '/'
     FROM sessions WHERE project_id = @project_tree AND parent_session_id IS NULL
+      AND (@target_root IS NULL OR id = @target_root)
     UNION ALL
     SELECT tree.root_id, s.id, tree.project_id, tree.path || s.id || '/'
     FROM sessions s
@@ -32,7 +33,7 @@ const WORKSPACE_AGGREGATES_CTE = `
     FROM tree JOIN sessions s ON s.id = tree.id GROUP BY tree.root_id
   )`;
 
-function workspaceFilters({ archived, starred, scheduled }) {
+function workspaceFilters({ archived, starred, scheduled, rootId = null }) {
   const filters = ['s.project_id = @project_root', 's.parent_session_id IS NULL', 's.archived = @archived'];
   const params = { archived: archived ? 1 : 0 };
   if (starred !== null) {
@@ -41,6 +42,10 @@ function workspaceFilters({ archived, starred, scheduled }) {
   }
   if (scheduled === true) filters.push('a.scheduled_count > 0');
   if (scheduled === false) filters.push('a.scheduled_count = 0');
+  if (rootId) {
+    filters.push('s.id = @root_id');
+    params.root_id = rootId;
+  }
   return { filters, params };
 }
 
@@ -76,8 +81,8 @@ function encodeCursor(row) {
 }
 
 function cardPageParams(projectId, baseParams, options) {
-  const { limit, offset, cursorValues } = options;
-  const params = { project_tree: projectId, project_root: projectId, ...baseParams, limit: limit + 1, offset };
+  const { limit, offset, cursorValues, rootId = null } = options;
+  const params = { project_tree: projectId, target_root: rootId, project_root: projectId, ...baseParams, limit: limit + 1, offset };
   cursorValues?.forEach((value, index) => { params[`cur_${index}`] = value; });
   return params;
 }
@@ -109,8 +114,9 @@ export function getWorkspaceCardPage(db, projectId, options = {}) {
     limit = 50,
     offset = 0,
     cursor = null,
+    rootId = null,
   } = options;
-  const { filters: baseFilters, params: baseParams } = workspaceFilters({ archived, starred, scheduled });
+  const { filters: baseFilters, params: baseParams } = workspaceFilters({ archived, starred, scheduled, rootId });
   const statusFilters = statusPredicates(status);
   const cursorValues = decodeWorkspaceCardCursor(cursor);
   const cursorClause = cursorValues
@@ -157,7 +163,9 @@ export function getWorkspaceCardPage(db, projectId, options = {}) {
       NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
       NULL, NULL, NULL, facets.running, facets.idle
     FROM facets`;
-  const resultRows = db.prepare(sql).all(cardPageParams(projectId, baseParams, { limit, offset, cursorValues }));
+  const resultRows = db.prepare(sql).all(cardPageParams(projectId, baseParams, {
+    limit, offset, cursorValues, rootId,
+  }));
   const { visibleRows, hasMore, facets } = parseCardPageRows(resultRows, limit);
   const cards = visibleRows.map(toWorkspaceCard);
   return {

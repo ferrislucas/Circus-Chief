@@ -76,7 +76,14 @@ export function commandRunPatch(cardsById, event) {
 /** Patch for a realtime summary update. */
 export function summaryPatch(cardsById, sessionId, summary) {
   const card = cardForMember(cardsById, sessionId);
+  // The compact card contract projects the root summary only. Descendant
+  // summaries must never overwrite it.
   if (!card) return null;
+  if (card.id !== sessionId) return { cardId: card.id, patch: {} };
+  return { cardId: card.id, patch: summaryFields(summary) };
+}
+
+function summaryFields(summary) {
   const patch = {};
   if (summary && typeof summary === 'object') {
     if ('shortSummary' in summary) patch.summaryPreview = summary.shortSummary || null;
@@ -84,7 +91,7 @@ export function summaryPatch(cardsById, sessionId, summary) {
     if ('ciStatus' in summary) patch.ciStatus = summary.ciStatus ?? null;
     if ('hasMergeConflicts' in summary) patch.hasMergeConflicts = summary.hasMergeConflicts ?? null;
   }
-  return { cardId: card.id, patch };
+  return patch;
 }
 
 /**

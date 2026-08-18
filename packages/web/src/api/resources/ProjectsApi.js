@@ -62,6 +62,10 @@ export function ProjectsApi(ApiClient) {
       return this._get(`/workspaces/${workspaceId}`, { signal });
     },
 
+    async getWorkspaceCard(workspaceId, { signal } = {}) {
+      return this._get(`/workspaces/${workspaceId}/card`, { signal });
+    },
+
     /**
      * Create a new project
      * @param {Object} data - Project data

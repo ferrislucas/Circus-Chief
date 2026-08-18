@@ -503,6 +503,21 @@ describe('Workspace facade API', () => {
       expect(res.body.id).toBe(root.id);
     });
 
+    it('returns one compact authoritative card when addressed by a child ID', async () => {
+      const root = sessions.create(project.id, 'Root', 'root');
+      const child = sessions.create(project.id, 'Child', 'child', { parentSessionId: root.id });
+      const res = await request(app).get(`/api/workspaces/${child.id}/card`).expect(200);
+
+      expect(res.body).toMatchObject({
+        id: root.id,
+        projectId: project.id,
+        memberIds: expect.arrayContaining([root.id, child.id]),
+        descendantCount: 1,
+        latestCommandRuns: [],
+      });
+      expect(res.body).not.toHaveProperty('sessions');
+    });
+
     it('returns 404 for unknown workspace ID', async () => {
       await request(app)
         .get('/api/workspaces/00000000-0000-0000-0000-000000000000')
