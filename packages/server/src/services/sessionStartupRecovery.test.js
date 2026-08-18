@@ -8,7 +8,7 @@ vi.mock('../websocket.js', () => ({
 }));
 
 import { broadcastToProject } from '../websocket.js';
-import { recoverStaleStartingSessions, recoverOrphanedRunningSessions, recoverStaleAbortingSessions } from './sessionStartupRecovery.js';
+import { recoverOrphanedStartingSessions, recoverOrphanedRunningSessions, recoverStaleAbortingSessions } from './sessionStartupRecovery.js';
 import { attachRootSession, createLaneRunForEntry, getRun } from './workflowSessionService.js';
 
 function createProject() {
@@ -26,11 +26,9 @@ function backdateSession(sessionId, msAgo) {
   );
 }
 
-describe('recoverStaleStartingSessions', () => {
+describe('recoverOrphanedStartingSessions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Use a short threshold so we can reliably trigger recovery in tests
-    process.env.STALE_STARTING_THRESHOLD_MS = '1000'; // 1 second
   });
 
   it('marks an old starting session as error', () => {
@@ -38,21 +36,21 @@ describe('recoverStaleStartingSessions', () => {
     const session = createSessionWithStatus(project.id, 'starting');
     backdateSession(session.id, 5000); // 5 s ago — older than 1 s threshold
 
-    const { recovered } = recoverStaleStartingSessions();
+    const { recovered } = recoverOrphanedStartingSessions();
     expect(recovered).toBe(1);
 
     const updated = sessions.getById(session.id);
     expect(updated.status).toBe('error');
-    expect(updated.error).toMatch(/stale/i);
+    expect(updated.error).toMatch(/orphaned/i);
   });
 
-  it('leaves a recent starting session alone', () => {
+  it('recovers a freshly-updated starting session because startup cannot survive a restart', () => {
     const project = createProject();
-    createSessionWithStatus(project.id, 'starting');
-    // updated_at is "now" by default — not older than the 1 s threshold
+    const session = createSessionWithStatus(project.id, 'starting');
 
-    const { recovered } = recoverStaleStartingSessions();
-    expect(recovered).toBe(0);
+    const { recovered } = recoverOrphanedStartingSessions();
+    expect(recovered).toBe(1);
+    expect(sessions.getById(session.id).status).toBe('error');
   });
 
   it('leaves running sessions alone even when old', () => {
@@ -60,7 +58,7 @@ describe('recoverStaleStartingSessions', () => {
     const session = createSessionWithStatus(project.id, 'running');
     backdateSession(session.id, 5000);
 
-    const { recovered } = recoverStaleStartingSessions();
+    const { recovered } = recoverOrphanedStartingSessions();
     expect(recovered).toBe(0);
 
     expect(sessions.getById(session.id).status).toBe('running');
@@ -74,7 +72,7 @@ describe('recoverStaleStartingSessions', () => {
       backdateSession(s.id, 5000);
     }
 
-    const { recovered } = recoverStaleStartingSessions();
+    const { recovered } = recoverOrphanedStartingSessions();
     expect(recovered).toBe(0);
   });
 
@@ -83,7 +81,7 @@ describe('recoverStaleStartingSessions', () => {
     const session = createSessionWithStatus(project.id, 'starting');
     backdateSession(session.id, 5000);
 
-    recoverStaleStartingSessions();
+    recoverOrphanedStartingSessions();
 
     expect(broadcastToProject).toHaveBeenCalledWith(
       project.id,
@@ -92,7 +90,7 @@ describe('recoverStaleStartingSessions', () => {
     );
   });
 
-  it('closes the workflow obligation while retaining the failed-run card details', () => {
+  it('closes a starting worker workflow obligation while retaining the failed-run card details', () => {
     const project = createProject();
     const board = kanbanBoards.create(project.id);
     const [source, target] = kanbanLanes.getByBoardId(board.id);
@@ -100,7 +98,7 @@ describe('recoverStaleStartingSessions', () => {
     const card = kanbanCards.create(source.id, root.id);
     const worker = sessions.create(project.id, 'worker', 'hello', {
       parentSessionId: root.id,
-      status: 'running',
+      status: 'starting',
     });
     const run = createLaneRunForEntry({
       projectId: project.id,
@@ -110,10 +108,11 @@ describe('recoverStaleStartingSessions', () => {
     });
     attachRootSession(run.id, worker.id);
 
-    recoverOrphanedRunningSessions();
+    backdateSession(worker.id, 5000);
+    recoverOrphanedStartingSessions();
 
     expect(sessions.getById(worker.id)).toMatchObject({
-      status: 'stopped', executionState: 'stopped', ownWorkState: 'cancelled',
+      status: 'error', executionState: 'stopped', ownWorkState: 'closed_failed',
     });
     expect(getRun(run.id).status).not.toBe('open');
     expect(kanbanCards.getById(card.id).activeLaneRunId).toBe(run.id);

@@ -14,7 +14,7 @@ import * as sessionManager from './services/sessionManager.js';
 import { clearScheduledTimers } from './services/summaryService.js';
 import { commandRunner } from './services/commandRunner.js';
 import { getDefaultDbPath } from './config.js';
-import { recoverStaleStartingSessions, recoverOrphanedRunningSessions, recoverStaleAbortingSessions } from './services/sessionStartupRecovery.js';
+import { recoverOrphanedStartingSessions, recoverOrphanedRunningSessions, recoverStaleAbortingSessions } from './services/sessionStartupRecovery.js';
 import { startLaneEntryRetryWorker, stopLaneEntryRetryWorker } from './services/kanbanService.js';
 import { formatKanbanInvariantReport } from './services/kanbanRecoveryService.js';
 import { runStartupPreflight } from './services/startupPreflight.js';
@@ -68,7 +68,7 @@ console.log(`Database initialized: ${dbPath}`);
 console.log(`VCR_MODE: ${process.env.VCR_MODE || '(unset)'}`);
 
 // Recover sessions stuck in 'starting' from a previous crashed or killed server run
-recoverStaleStartingSessions();
+recoverOrphanedStartingSessions();
 // Agent processes never outlive the server, so any surviving 'running' row is
 // an orphan — from a kill, or from a turn that unwound without recording an
 // outcome. Reap before workers start so the board never shows phantom work.

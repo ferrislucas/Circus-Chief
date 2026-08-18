@@ -361,13 +361,12 @@ export class SessionRepository extends BaseRepository {
   }
 
   /**
-   * Get sessions stuck in 'starting' whose updated_at is older than the given cutoff timestamp.
-   * Used by the boot-time stale-startup recovery sweep.
-   * @param {number} cutoff - Absolute timestamp; rows with updated_at < cutoff are stale.
+   * Sessions left in 'starting' by a previous process. Startup work happens in
+   * the server process, so none can still be live when boot recovery runs.
    * @returns {Array<object>}
    */
-  getStaleStartingSessions(cutoff) {
-    return this.getRecoverableSessions('starting', cutoff);
+  getOrphanedStartingSessions() {
+    return this.getRecoverableSessions('starting');
   }
 
   /**

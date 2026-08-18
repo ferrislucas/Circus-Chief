@@ -9,30 +9,32 @@ import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { closeOwnWork } from './workflowSessionService.js';
 
-/** Default threshold: sessions stuck in 'starting' for longer than this are stale. */
+/** Default threshold for recovery states which can become stale at runtime. */
 const DEFAULT_STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 
 /**
- * Find sessions that are still in 'starting' and have not been updated recently,
- * mark them as 'error', and broadcast the change to their projects.
+ * Find sessions left in 'starting' by the previous server process, mark them as
+ * 'error', close any workflow obligation, and broadcast the change.
  *
  * Call once during server boot, after initDatabase() and before any services start.
  *
  * @returns {{ recovered: number }} Count of sessions recovered.
  */
-export function recoverStaleStartingSessions() {
-  const thresholdMs =
-    Number(process.env.STALE_STARTING_THRESHOLD_MS) || DEFAULT_STALE_THRESHOLD_MS;
-  const cutoff = Date.now() - thresholdMs;
-
-  const stale = sessions.getStaleStartingSessions(cutoff);
+export function recoverOrphanedStartingSessions() {
+  const stale = sessions.getOrphanedStartingSessions();
 
   for (const session of stale) {
-    const errorMessage = 'Recovered stale starting session after server restart. Startup likely failed before the agent launched.';
-    const updatedSession = sessions.update(session.id, {
+    const errorMessage = 'Recovered orphaned starting session after server restart. Startup likely failed before the agent launched.';
+    sessions.update(session.id, {
       status: 'error',
       error: errorMessage,
     });
+
+    // Startup work cannot survive this process restart. A participating
+    // session must also close its durable obligation so the lane run can
+    // reconcile instead of leaving the card pinned to a vanished worker.
+    closeOwnWork(session.id, 'closed_failed', 'orphaned_startup_at_boot');
+    const updatedSession = sessions.getById(session.id);
 
     broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
       projectId: session.projectId,

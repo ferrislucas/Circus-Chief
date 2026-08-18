@@ -492,35 +492,6 @@ describe('workflowSessionService', () => {
       expect(sessions.getById(worker.id).ownWorkState).toBe('open');
     });
 
-    /* it('still supersedes an outside move, which must interrupt the worker', () => {
-      const { worker, run } = runningWorker();
-
-      // No actor: a UI move addresses the card by id and is a real interruption.
-      expect(declareExitLaneForSelfMove(card.id, target.id, null)).toBeNull();
-      supersedeRunForCard(card.id, 'manual_move');
-
-      expect(getRun(run.id).status).toBe('superseded');
-      expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
-    }); */
-
-    /* it('is not a self-move when a different session issues the request', () => {
-      runningWorker();
-      const other = sessions.create(project.id, 'Other workspace', 'unrelated');
-
-      expect(resolveCardActor(databaseManager.get(), card.id, other.id)).toBeNull();
-      expect(declareExitLaneForSelfMove(card.id, target.id, other.id)).toBeNull();
-    }); */
-
-    /* it('resolves the attached root worker as the card actor', () => {
-      const { worker, run } = runningWorker();
-
-      expect(resolveCardActor(databaseManager.get(), card.id, worker.id)).toEqual({
-        kind: 'self_move',
-        run: expect.objectContaining({ id: run.id, root_session_id: worker.id }),
-        actor: expect.objectContaining({ id: worker.id }),
-      });
-    }); */
-
     it('treats an active child worker declaration as its root run declaration', () => {
       const { worker, run } = runningWorker();
       const child = sessions.create(project.id, 'Child', 'child lane work', { parentSessionId: worker.id });
