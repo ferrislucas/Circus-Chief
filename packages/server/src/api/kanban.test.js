@@ -27,7 +27,11 @@ vi.mock('../services/kanbanService.js', async (importOriginal) => {
 import kanbanRouter from './kanban.js';
 import { broadcastToProject } from '../websocket.js';
 import { moveCard as moveCardService } from '../services/kanbanService.js';
-import { ApiError } from '../errors/ApiError.js';
+import {
+  attachRootSession,
+  createLaneRunForEntry,
+  getRun,
+} from '../services/workflowSessionService.js';
 import {
   SESSION_CALLER_ID_HEADER,
   WS_MESSAGE_TYPES,
@@ -685,113 +689,6 @@ describe('Kanban API', () => {
       );
     });
 
-    /* it('returns and replays a deferred self-move declaration', async () => {
-      setupBoard();
-      const session = createSession();
-      const card = kanbanCards.create(lanes[0].id, session.id);
-      const body = { targetLaneId: lanes[1].id };
-      const response = { ...card, deferred: true, chosenExitLaneId: lanes[1].id };
-      moveCardService.mockImplementationOnce(async (_cardId, _targetLaneId, options) => (
-        options.finalizeMutation({ card: response, eventId: null })
-      ));
-
-      const first = await request(app)
-        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
-        .set('Idempotency-Key', 'deferred-self-move')
-        .set(SESSION_CALLER_ID_HEADER, session.id)
-        .send(body);
-      const replay = await request(app)
-        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
-        .set('Idempotency-Key', 'deferred-self-move')
-        .set(SESSION_CALLER_ID_HEADER, session.id)
-        .send(body);
-
-      expect(first.status).toBe(200);
-      expect(first.body).toEqual(expect.objectContaining({ deferred: true, chosenExitLaneId: lanes[1].id }));
-      expect(replay.text).toBe(first.text);
-      expect(moveCardService).toHaveBeenCalledTimes(1);
-    }); */
-
-    /* it('persists and replays a same-lane self-move conflict', async () => {
-      setupBoard();
-      const session = createSession();
-      kanbanCards.create(lanes[0].id, session.id);
-      const body = { targetLaneId: lanes[0].id };
-      moveCardService.mockRejectedValueOnce(new ApiError('An active lane worker cannot reorder its card within the same lane',
-        { status: 409, code: 'KANBAN_SELF_MOVE_SAME_LANE' }));
-
-      const first = await request(app)
-        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
-        .set('Idempotency-Key', 'same-lane-self-move')
-        .send(body);
-      const replay = await request(app)
-        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
-        .set('Idempotency-Key', 'same-lane-self-move')
-        .send(body);
-
-      expect(first.status).toBe(409);
-      expect(first.body.code).toBe('KANBAN_SELF_MOVE_SAME_LANE');
-      expect(replay.text).toBe(first.text);
-      expect(databaseManager.get().prepare(`SELECT status FROM kanban_api_operations
-        WHERE project_id=? AND operation_key=?`).get(projectId, 'same-lane-self-move').status).toBe('completed');
-    }); */
-
-    /* it('returns the terminal conflict when its operation lease is lost in the catch path', async () => {
-      setupBoard();
-      const session = createSession();
-      kanbanCards.create(lanes[0].id, session.id);
-      const key = 'lost-terminal-conflict-lease';
-      const message = 'An active lane worker cannot reorder its card within the same lane';
-      moveCardService.mockImplementationOnce(async () => {
-        databaseManager.get().prepare(`UPDATE kanban_api_operations SET owner_token='another-owner'
-          WHERE project_id=? AND operation_key=?`).run(projectId, key);
-        throw new ApiError(message, { status: 409, code: 'KANBAN_SELF_MOVE_SAME_LANE' });
-      });
-
-      const res = await request(app)
-        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
-        .set('Idempotency-Key', key)
-        .send({ targetLaneId: lanes[0].id });
-
-      expect(res.status).toBe(409);
-      expect(res.body).toEqual({ error: message, code: 'KANBAN_SELF_MOVE_SAME_LANE' });
-    }); */
-
-    /* it('does not infer caller identity from the workspace URL', async () => {
-      setupBoard();
-      const session = createSession();
-      const card = kanbanCards.create(lanes[0].id, session.id);
-      moveCardService.mockResolvedValueOnce({ ...card, laneId: lanes[1].id });
-
-      await request(app)
-        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
-        .send({ targetLaneId: lanes[1].id });
-
-      expect(moveCardService).toHaveBeenCalledWith(
-        card.id,
-        lanes[1].id,
-        expect.objectContaining({ actorSessionId: null })
-      );
-    }); */
-
-    /* it('attributes an existing same-project caller without a capability secret', async () => {
-      setupBoard();
-      const session = createSession();
-      const card = kanbanCards.create(lanes[0].id, session.id);
-      moveCardService.mockResolvedValueOnce({ ...card, laneId: lanes[1].id });
-
-      await request(app)
-        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
-        .set(SESSION_CALLER_ID_HEADER, session.id)
-        .send({ targetLaneId: lanes[1].id });
-
-      expect(moveCardService).toHaveBeenCalledWith(
-        card.id,
-        lanes[1].id,
-        expect.objectContaining({ actorSessionId: session.id })
-      );
-    }); */
-
     it('normalizes child id to workspace root', async () => {
       setupBoard();
       const root = createSession('Root');
@@ -843,6 +740,140 @@ describe('Kanban API', () => {
         .send({});
 
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('PUT /api/projects/:projectId/kanban/cards/by-workspace/:workspaceId/exit-lane', () => {
+    function setupActiveRun() {
+      setupBoard();
+      const root = createSession('Root');
+      const card = kanbanCards.create(lanes[0].id, root.id);
+      const run = createLaneRunForEntry({
+        projectId,
+        workspaceId: root.id,
+        cardId: card.id,
+        lane: { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'Do the work' },
+      });
+      const worker = createChildSession(root.id, 'Lane worker');
+      attachRootSession(run.id, worker.id);
+      return { root, card, run, worker };
+    }
+
+    it('declares a deferred exit, attributes the caller, and broadcasts the active run', async () => {
+      const { root, card, run, worker } = setupActiveRun();
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Validate the work' });
+
+      const res = await request(app)
+        .put(`/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/exit-lane`)
+        .set(SESSION_CALLER_ID_HEADER, worker.id)
+        .send({ laneId: lanes[1].id });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        cardId: card.id,
+        laneRunId: run.id,
+        deferred: true,
+        chosenExitLaneId: lanes[1].id,
+        chosenExitLaneName: lanes[1].name,
+        willRunAutomation: true,
+      });
+      expect(getRun(run.id)).toEqual(expect.objectContaining({
+        chosenExitLaneId: lanes[1].id,
+        chosenExitDeclaredBy: worker.id,
+      }));
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_EXIT_LANE_DECLARED,
+        expect.objectContaining({
+          projectId,
+          cardId: card.id,
+          activeLaneRun: expect.objectContaining({ id: run.id, chosenExitLaneId: lanes[1].id }),
+        })
+      );
+    });
+
+    it('normalizes a child workspace id and permits repeat declarations', async () => {
+      const { card, worker } = setupActiveRun();
+      const path = `/api/projects/${projectId}/kanban/cards/by-workspace/${worker.id}/exit-lane`;
+
+      const first = await request(app).put(path).send({ laneId: lanes[1].id });
+      const second = await request(app).put(path).send({ laneId: lanes[1].id });
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      expect(second.body).toEqual(first.body);
+      expect(second.body.cardId).toBe(card.id);
+    });
+
+    it.each([
+      [{}, 400],
+      [{ laneId: 'not-a-uuid' }, 400],
+    ])('rejects an invalid request body %#', async (body, status) => {
+      const { root } = setupActiveRun();
+
+      const res = await request(app)
+        .put(`/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/exit-lane`)
+        .send(body);
+
+      expect(res.status).toBe(status);
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('rejects the source lane without changing or broadcasting the run', async () => {
+      const { root, run } = setupActiveRun();
+
+      const res = await request(app)
+        .put(`/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/exit-lane`)
+        .send({ laneId: lanes[0].id });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('KANBAN_EXIT_LANE_SAME_AS_SOURCE');
+      expect(getRun(run.id).chosenExitLaneId).toBeNull();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 when the card has no active lane run', async () => {
+      setupBoard();
+      const root = createSession('Root');
+      kanbanCards.create(lanes[0].id, root.id);
+
+      const res = await request(app)
+        .put(`/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/exit-lane`)
+        .send({ laneId: lanes[1].id });
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('KANBAN_NO_ACTIVE_LANE_RUN');
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('does not expose a workspace card through another project route', async () => {
+      const { root, run } = setupActiveRun();
+      const otherProject = projects.create('Other Project', '/tmp/other-exit-lane');
+
+      const res = await request(app)
+        .put(`/api/projects/${otherProject.id}/kanban/cards/by-workspace/${root.id}/exit-lane`)
+        .send({ laneId: lanes[1].id });
+
+      expect(res.status).toBe(404);
+      expect(getRun(run.id).chosenExitLaneId).toBeNull();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('rejects an exit lane owned by another board', async () => {
+      const { root, run } = setupActiveRun();
+      const otherProject = projects.create('Other Project', '/tmp/other-exit-board');
+      const otherBoard = kanbanBoards.create(otherProject.id);
+      const otherLane = kanbanLanes.getByBoardId(otherBoard.id)[0];
+
+      const res = await request(app)
+        .put(`/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/exit-lane`)
+        .send({ laneId: otherLane.id });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('KANBAN_EXIT_LANE_CROSS_BOARD');
+      expect(getRun(run.id).chosenExitLaneId).toBeNull();
+      expect(broadcastToProject).not.toHaveBeenCalled();
     });
   });
 
@@ -971,24 +1002,6 @@ describe('Kanban API', () => {
       );
     });
 
-    /* it('uses the same attributed actor path for a card-addressed move', async () => {
-      setupBoard();
-      const session = createSession();
-      const card = kanbanCards.create(lanes[0].id, session.id);
-      moveCardService.mockResolvedValueOnce({ ...card, laneId: lanes[1].id });
-
-      await request(app)
-        .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
-        .set(SESSION_CALLER_ID_HEADER, session.id)
-        .send({ targetLaneId: lanes[1].id });
-
-      expect(moveCardService).toHaveBeenCalledWith(
-        card.id,
-        lanes[1].id,
-        expect.objectContaining({ actorSessionId: session.id })
-      );
-    }); */
-
     it('passes runOnEnterTemplate: false to service when specified', async () => {
       setupBoard();
       const session = createSession();
@@ -1006,38 +1019,6 @@ describe('Kanban API', () => {
         expect.objectContaining({ runOnEnterTemplate: false })
       );
     });
-
-    /* it('returns 409 when a self-move cannot skip destination automation', async () => {
-      setupBoard();
-      const session = createSession();
-      const card = kanbanCards.create(lanes[0].id, session.id);
-      const message = 'An active lane worker cannot skip destination automation when choosing an exit lane';
-      moveCardService.mockRejectedValueOnce(new ApiError(message,
-        { status: 409, code: 'KANBAN_SELF_MOVE_AUTOMATION_REQUIRED' }));
-
-      const res = await request(app)
-        .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
-        .send({ targetLaneId: lanes[1].id, runOnEnterTemplate: false });
-
-      expect(res.status).toBe(409);
-      expect(res.body).toEqual({ error: message, code: 'KANBAN_SELF_MOVE_AUTOMATION_REQUIRED' });
-    }); */
-
-    /* it('returns 409 when a self-move supplies a deferred sort order', async () => {
-      setupBoard();
-      const session = createSession();
-      const card = kanbanCards.create(lanes[0].id, session.id);
-      const message = 'An active lane worker cannot set a sort order when choosing an exit lane';
-      moveCardService.mockRejectedValueOnce(new ApiError(message,
-        { status: 409, code: 'KANBAN_SELF_MOVE_SORT_ORDER' }));
-
-      const res = await request(app)
-        .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
-        .send({ targetLaneId: lanes[1].id, sortOrder: 7 });
-
-      expect(res.status).toBe(409);
-      expect(res.body).toEqual({ error: message, code: 'KANBAN_SELF_MOVE_SORT_ORDER' });
-    }); */
 
     it('returns 404 for non-existent card', async () => {
       setupBoard();

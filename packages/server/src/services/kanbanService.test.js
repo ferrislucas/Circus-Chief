@@ -51,7 +51,7 @@ import {
   drainLaneEntryTrigger,
   reclaimExpiredLaneEntryClaims,
 } from './kanbanService.js';
-import { createLaneRunForEntry, attachRootSession, finalizeOwnWorkCompletion, getRun } from './workflowSessionService.js';
+import { createLaneRunForEntry, attachRootSession, getRun } from './workflowSessionService.js';
 import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
 import { resolveProviderMetadataFromModel } from './sessionProvider.js';
 
@@ -344,127 +344,6 @@ describe('kanbanService', () => {
       await expect(moveCard('non-existent', lanes[0].id)).rejects.toThrow('Card not found');
     });
 
-    /* it('does not cancel a lane worker that moves its own card', async () => {
-      // A lane prompt may tell the worker to choose its exit lane. That move
-      // arrives mid-turn against the worker's own run, so treating it as a
-      // supersession made the agent abort itself and strand its own status.
-      const session = createSession();
-      const card = kanbanCards.create(lanes[0].id, session.id);
-      const run = createLaneRunForEntry({
-        projectId, workspaceId: session.id, cardId: card.id,
-        lane: { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'review', completionTargetLaneId: lanes[2].id },
-      });
-      const worker = sessions.create(projectId, 'Worker', 'lane work', { parentSessionId: session.id });
-      attachRootSession(run.id, worker.id);
-      databaseManager.get().prepare("UPDATE sessions SET status='running' WHERE id=?").run(worker.id);
-
-      const response = await moveCard(card.id, lanes[1].id, { actorSessionId: worker.id });
-
-      expect(response).toEqual(expect.objectContaining({ deferred: true, chosenExitLaneId: lanes[1].id }));
-      expect(sessions.getById(worker.id).status).toBe('running');
-      expect(sessions.getById(worker.id).ownWorkState).toBe('open');
-      expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'open', chosenExitLaneId: lanes[1].id }));
-      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
-      expect(broadcastToProject).toHaveBeenCalledWith(
-        projectId,
-        WS_MESSAGE_TYPES.KANBAN_EXIT_LANE_DECLARED,
-        expect.objectContaining({
-          projectId,
-          cardId: card.id,
-          activeLaneRun: expect.objectContaining({
-            id: run.id,
-            chosenExitLaneId: lanes[1].id,
-            chosenExitLaneName: kanbanLanes.getById(lanes[1].id).name,
-          }),
-        })
-      );
-    });
-
-    it('defers destination automation until the self-moving worker finishes', async () => {
-      const session = createSession();
-      const card = kanbanCards.create(lanes[0].id, session.id);
-      const sourceRun = createLaneRunForEntry({
-        projectId, workspaceId: session.id, cardId: card.id,
-        lane: { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'review' },
-      });
-      const worker = sessions.create(projectId, 'Worker', 'lane work', { parentSessionId: session.id });
-      attachRootSession(sourceRun.id, worker.id);
-      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'validate' });
-
-      await moveCard(card.id, lanes[1].id, { actorSessionId: worker.id });
-
-      expect(kanbanCards.getById(card.id).activeLaneRunId).toBe(sourceRun.id);
-      expect(runSession).not.toHaveBeenCalled();
-      const completed = finalizeOwnWorkCompletion(worker.id);
-      expect(completed.pendingTargetLaneTrigger).toEqual(expect.objectContaining({
-        targetLaneId: lanes[1].id,
-        sourceRunId: sourceRun.id,
-      }));
-      expect(kanbanCards.getById(card.id).activeLaneRunId).not.toBeNull();
-      expect(runSession).not.toHaveBeenCalled();
-    });
-
-    it('rejects a self-move that opts out of destination automation', async () => {
-      const session = createSession();
-      const card = kanbanCards.create(lanes[0].id, session.id);
-      const sourceRun = createLaneRunForEntry({
-        projectId, workspaceId: session.id, cardId: card.id,
-        lane: { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'review' },
-      });
-      const worker = sessions.create(projectId, 'Worker', 'lane work', { parentSessionId: session.id });
-      attachRootSession(sourceRun.id, worker.id);
-      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'validate' });
-
-      await expect(moveCard(card.id, lanes[1].id, {
-        actorSessionId: worker.id,
-        runOnEnterTemplate: false,
-      })).rejects.toThrow('cannot skip destination automation');
-
-      expect(getRun(sourceRun.id)).toEqual(expect.objectContaining({
-        status: 'open',
-        chosenExitLaneId: null,
-      }));
-      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
-      expect(runSession).not.toHaveBeenCalled();
-    });
-
-    it('rejects an explicit sort order for a deferred self-move', async () => {
-      const session = createSession();
-      const card = kanbanCards.create(lanes[0].id, session.id);
-      const run = createLaneRunForEntry({
-        projectId, workspaceId: session.id, cardId: card.id,
-        lane: { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'review' },
-      });
-      const worker = sessions.create(projectId, 'Worker', 'lane work', { parentSessionId: session.id });
-      attachRootSession(run.id, worker.id);
-
-      await expect(moveCard(card.id, lanes[1].id, { actorSessionId: worker.id, sortOrder: 7 }))
-        .rejects.toThrow('cannot set a sort order when choosing an exit lane');
-
-      expect(getRun(run.id)).toEqual(expect.objectContaining({
-        status: 'open',
-        chosenExitLaneId: null,
-      }));
-      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
-    });
-
-    it('rejects a self-reorder while preserving the active run', async () => {
-      const session = createSession();
-      const card = kanbanCards.create(lanes[0].id, session.id);
-      const run = createLaneRunForEntry({
-        projectId, workspaceId: session.id, cardId: card.id,
-        lane: { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'review' },
-      });
-      const worker = sessions.create(projectId, 'Worker', 'lane work', { parentSessionId: session.id });
-      attachRootSession(run.id, worker.id);
-
-      await expect(moveCard(card.id, lanes[0].id, { actorSessionId: worker.id, sortOrder: 7 }))
-        .rejects.toThrow('cannot reorder its card within the same lane');
-
-      expect(getRun(run.id).status).toBe('open');
-      expect(kanbanCards.getById(card.id).activeLaneRunId).toBe(run.id);
-    }); */
-
     it('still cancels a lane worker when the move comes from outside (no actor)', async () => {
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
@@ -484,23 +363,6 @@ describe('kanbanService', () => {
       }));
       expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'superseded', failureReason: 'manual_move' }));
     });
-
-    /* it('records an authenticated non-worker move as an agent supersession', async () => {
-      const session = createSession();
-      const card = kanbanCards.create(lanes[0].id, session.id);
-      const run = createLaneRunForEntry({
-        projectId, workspaceId: session.id, cardId: card.id,
-        lane: { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'review' },
-      });
-      const worker = sessions.create(projectId, 'Worker', 'lane work', { parentSessionId: session.id });
-      const otherAgent = sessions.create(projectId, 'Other agent', 'unrelated');
-      attachRootSession(run.id, worker.id);
-
-      await moveCard(card.id, lanes[1].id, { actorSessionId: otherAgent.id });
-
-      expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'superseded', failureReason: 'agent_move' }));
-      expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
-    }); */
 
     it('skips on-enter template when runOnEnterTemplate is false', async () => {
       const template = sessionTemplates.create({
