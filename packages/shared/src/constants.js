@@ -20,12 +20,6 @@ export const WS_RECONNECT_MAX_DELAY = 30000;
 
 export const TOAST_DURATION = 5000;
 
-/**
- * A non-secret, best-effort audit attribution header. It never authorizes a
- * Kanban action; spoofing it changes only the recorded attribution.
- */
-export const SESSION_CALLER_ID_HEADER = 'X-Circus-Session-Id';
-
 /** Default delay (in minutes) before auto-rescheduling a session. */
 export const DEFAULT_RESCHEDULE_DELAY_MINUTES = 60;
 

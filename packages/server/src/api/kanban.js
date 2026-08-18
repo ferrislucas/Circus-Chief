@@ -3,10 +3,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { kanbanBoards, kanbanLanes, kanbanCards, projects, sessions, databaseManager } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
-import {
-  SESSION_CALLER_ID_HEADER,
-  WS_MESSAGE_TYPES,
-} from '@circuschief/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   CreateKanbanLaneRequest,
   UpdateKanbanLaneRequest,
@@ -196,12 +193,6 @@ function laneBelongsToBoard(lane, board) {
 function targetLaneForBoard(targetLaneId, board) {
   const targetLane = kanbanLanes.getById(targetLaneId);
   return laneBelongsToBoard(targetLane, board) ? targetLane : null;
-}
-
-function callerSessionId(req) {
-  const sessionId = req.get(SESSION_CALLER_ID_HEADER) || null;
-  // This is optional audit attribution, never authorization.
-  return sessionId && sessions.getById(sessionId)?.projectId === req.params.projectId ? sessionId : null;
 }
 
 function completionTargetError(boardId, targetLaneId, sourceLaneId = null) {
@@ -620,7 +611,7 @@ router.put('/cards/by-workspace/:workspaceId/exit-lane', (req, res) => {
 
   // Naturally idempotent: middleware validates a supplied key's format, then this route ignores it.
   try {
-    const run = declareExitLane(card.id, result.data.laneId, { declaredBy: callerSessionId(req) });
+    const run = declareExitLane(card.id, result.data.laneId);
     const response = {
       cardId: card.id,
       laneRunId: run.id,

@@ -35,7 +35,6 @@ export function getRun(runId, projectId = null) {
     targetLaneId: run.completion_target_lane_id, targetLaneName: names?.target_name || null,
     chosenExitLaneId: run.chosen_exit_lane_id, chosenExitLaneName: names?.chosen_exit_name || null,
     chosenExitDeclaredAt: run.chosen_exit_declared_at,
-    chosenExitDeclaredBy: run.chosen_exit_declared_by,
     rootSessionId: run.root_session_id, rootOwnWorkState: rows.find((session) => session.id === run.root_session_id)?.own_work_state || null,
     failureReason: run.failure_reason, createdAt: run.created_at,
     succeededAt: run.succeeded_at, failedAt: run.failed_at, cancelledAt: run.cancelled_at, supersededAt: run.superseded_at,

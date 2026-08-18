@@ -34,7 +34,6 @@ import { getApiBaseUrl } from './apiBaseUrl.js';
 import {
   DEFAULT_SERVER_PORT,
   DEFAULT_SYSTEM_PROMPT,
-  SESSION_CALLER_ID_HEADER,
 } from '@circuschief/shared';
 import { readFileSync } from 'node:fs';
 
@@ -661,7 +660,6 @@ describe('sessionPrompts', () => {
       expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/move`);
       expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}`);
       expect(result).toContain(`/exit-lane`);
-      expect(result).not.toContain(`${SESSION_CALLER_ID_HEADER}: ${sessionId}`);
       expect(result).not.toContain(['X-Circus-Session', 'Capability'].join('-'));
       expect(result).toContain('This does **not** move the card now');
       expect(result).toContain('failed or cancelled run discards the declaration');

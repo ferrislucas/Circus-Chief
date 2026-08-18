@@ -33,7 +33,6 @@ import {
   getRun,
 } from '../services/workflowSessionService.js';
 import {
-  SESSION_CALLER_ID_HEADER,
   WS_MESSAGE_TYPES,
 } from '@circuschief/shared';
 
@@ -677,7 +676,6 @@ describe('Kanban API', () => {
 
       const res = await request(app)
         .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
-        .set(SESSION_CALLER_ID_HEADER, session.id)
         .send({ targetLaneId: lanes[1].id });
 
       expect(res.status).toBe(200);
@@ -759,13 +757,12 @@ describe('Kanban API', () => {
       return { root, card, run, worker };
     }
 
-    it('declares a deferred exit, attributes the caller, and broadcasts the active run', async () => {
-      const { root, card, run, worker } = setupActiveRun();
+    it('declares a deferred exit and broadcasts the active run', async () => {
+      const { root, card, run } = setupActiveRun();
       kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Validate the work' });
 
       const res = await request(app)
         .put(`/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/exit-lane`)
-        .set(SESSION_CALLER_ID_HEADER, worker.id)
         .send({ laneId: lanes[1].id });
 
       expect(res.status).toBe(200);
@@ -779,7 +776,6 @@ describe('Kanban API', () => {
       });
       expect(getRun(run.id)).toEqual(expect.objectContaining({
         chosenExitLaneId: lanes[1].id,
-        chosenExitDeclaredBy: worker.id,
       }));
       expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
       expect(broadcastToProject).toHaveBeenCalledWith(

@@ -45,13 +45,29 @@ describe('kanban-add-lane-run-workflow (F2: dead token-column churn)', () => {
 
       workflowMigration.up(db);
       expect(getColumns(db, 'kanban_lane_runs')).not.toEqual(expect.arrayContaining([
-        'chosen_exit_lane_id', 'chosen_exit_declared_at', 'chosen_exit_declared_by',
+        'chosen_exit_lane_id', 'chosen_exit_declared_at',
       ]));
 
       declaredExitMigration.up(db);
       expect(getColumns(db, 'kanban_lane_runs')).toEqual(expect.arrayContaining([
-        'chosen_exit_lane_id', 'chosen_exit_declared_at', 'chosen_exit_declared_by',
+        'chosen_exit_lane_id', 'chosen_exit_declared_at',
       ]));
+      expect(getColumns(db, 'kanban_lane_runs')).not.toContain('chosen_exit_declared_by');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('removes caller attribution from databases that ran the earlier branch migration', () => {
+    const db = freshDb();
+    try {
+      db.exec('ALTER TABLE kanban_lane_runs ADD COLUMN chosen_exit_declared_by TEXT');
+      const cleanup = allMigrations.find((item) => item.name === 'kanban-drop-exit-lane-caller-attribution');
+
+      expect(cleanup).toBeDefined();
+      cleanup.up(db);
+
+      expect(getColumns(db, 'kanban_lane_runs')).not.toContain('chosen_exit_declared_by');
     } finally {
       db.close();
     }

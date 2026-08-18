@@ -350,4 +350,5 @@ export const allMigrations = validateMigrations([
   k.get('kanban-delivery-health-status-index'),
   k.get('kanban-api-operation-leases-and-canonical-responses'),
   k.get('kanban-lane-run-declared-exit-lane'),
+  k.get('kanban-drop-exit-lane-caller-attribution'),
 ]);

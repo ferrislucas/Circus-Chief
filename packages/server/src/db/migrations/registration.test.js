@@ -22,6 +22,7 @@ describe('migration registration', () => {
       'kanban-delivery-health-status-index',
       'kanban-api-operation-leases-and-canonical-responses',
       'kanban-lane-run-declared-exit-lane',
+      'kanban-drop-exit-lane-caller-attribution',
     ];
 
     for (const name of durableDeliveryMigrations) {

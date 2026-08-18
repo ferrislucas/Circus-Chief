@@ -175,7 +175,7 @@ export const kanbanMigrations = [
           id TEXT PRIMARY KEY, lane_entry_event_id TEXT NOT NULL UNIQUE, prior_lane_run_id TEXT,
           project_id TEXT NOT NULL, workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, source_lane_id TEXT NOT NULL,
           completion_target_lane_id TEXT, root_session_id TEXT UNIQUE,
-          chosen_exit_lane_id TEXT, chosen_exit_declared_at INTEGER, chosen_exit_declared_by TEXT,
+          chosen_exit_lane_id TEXT, chosen_exit_declared_at INTEGER,
           status TEXT NOT NULL DEFAULT 'open', failure_reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
           succeeded_at INTEGER, failed_at INTEGER, cancelled_at INTEGER, superseded_at INTEGER, transition_applied_at INTEGER
         );
@@ -335,8 +335,14 @@ export const kanbanMigrations = [
       addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_lane_id',
         'TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL');
       addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_declared_at', 'INTEGER');
-      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_declared_by',
-        'TEXT REFERENCES sessions(id) ON DELETE SET NULL');
+    },
+  },
+  {
+    name: 'kanban-drop-exit-lane-caller-attribution',
+    up(db) {
+      if (getColumns(db, 'kanban_lane_runs').includes('chosen_exit_declared_by')) {
+        db.exec('ALTER TABLE kanban_lane_runs DROP COLUMN chosen_exit_declared_by');
+      }
     },
   },
 ];

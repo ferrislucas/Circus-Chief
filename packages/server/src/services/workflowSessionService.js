@@ -372,7 +372,6 @@ export function reconcileLaneRun(runId) {
     // discarded instead of leaving an ambiguous, unapplied request behind.
     if (run.chosen_exit_lane_id) {
       audit(db, runId, 'deferred_exit_discarded', {
-        sessionId: run.chosen_exit_declared_by,
         details: { targetLaneId: run.chosen_exit_lane_id, outcome: state },
       });
     }
@@ -498,7 +497,7 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
 }
 
 /** Record the exit lane for an active run without moving, superseding, or aborting it. */
-export function declareExitLane(cardId, targetLaneId, { declaredBy = null } = {}) {
+export function declareExitLane(cardId, targetLaneId) {
   return databaseManager.transaction(() => {
     const db = databaseManager.get();
     const activeLaneRunId = db.prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?').get(cardId)?.active_lane_run_id;
@@ -516,10 +515,9 @@ export function declareExitLane(cardId, targetLaneId, { declaredBy = null } = {}
 
     const time = now();
     db.prepare(`UPDATE kanban_lane_runs SET chosen_exit_lane_id=?, chosen_exit_declared_at=?,
-      chosen_exit_declared_by=?, updated_at=? WHERE id=? AND status='open'`)
-      .run(targetLaneId, time, declaredBy, time, run.id);
+      updated_at=? WHERE id=? AND status='open'`)
+      .run(targetLaneId, time, time, run.id);
     audit(db, run.id, 'exit_lane_declared', {
-      sessionId: declaredBy,
       details: { targetLaneId, willRunAutomation: isStructured({
         completionTargetLaneId: targetLane.completion_target_lane_id,
         onEnterTemplateId: targetLane.on_enter_template_id,

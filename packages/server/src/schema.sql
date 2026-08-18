@@ -431,7 +431,6 @@ CREATE TABLE IF NOT EXISTS kanban_lane_runs (
   completion_target_lane_id TEXT, root_session_id TEXT UNIQUE,
   chosen_exit_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
   chosen_exit_declared_at INTEGER,
-  chosen_exit_declared_by TEXT REFERENCES sessions(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'open', failure_reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
   succeeded_at INTEGER, failed_at INTEGER, cancelled_at INTEGER, superseded_at INTEGER, transition_applied_at INTEGER
 );
