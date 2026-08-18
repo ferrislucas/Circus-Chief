@@ -5,6 +5,7 @@ import { queryKey, isAbort } from './workspaceListQuery.js';
 
 export const WORKSPACE_PAGE_SIZE = 25;
 export const WORKSPACE_PICKER_MAX_RESULTS = 1_000;
+const WORKSPACE_API_MAX_PAGE_SIZE = 500;
 
 const requestLifecycles = new WeakMap();
 function lifecycleFor(store) {
@@ -26,11 +27,30 @@ const fetchPage = (projectId, query, { cursor = null, limit, signal }) => api.ge
   cursor,
   signal,
 });
-function canCommitPage(store, lifecycle, request) {
+async function fetchExtent(projectId, query, extent, signal) {
+  const workspaces = [];
+  let cursor = null;
+  let latest;
+  do {
+    const limit = Math.min(WORKSPACE_API_MAX_PAGE_SIZE, extent - workspaces.length);
+    latest = await fetchPage(projectId, query, { cursor, limit, signal });
+    workspaces.push(...(latest.workspaces || []));
+    cursor = latest.pagination?.nextCursor || null;
+  } while (workspaces.length < extent && latest.pagination?.hasMore && cursor);
+  return {
+    ...latest,
+    workspaces,
+    pagination: {
+      ...latest.pagination,
+      hasMore: Boolean(latest.pagination?.hasMore),
+      nextCursor: latest.pagination?.nextCursor || null,
+    },
+  };
+}
+function canCommitRequest(lifecycle, request) {
   return !request.controller.signal.aborted
     && lifecycle.version === request.version
-    && lifecycle.contextKey === request.contextKey
-    && store.nextCursor === request.cursor;
+    && lifecycle.contextKey === request.contextKey;
 }
 
 export const useWorkspaceListStore = defineStore('workspaceList', {
@@ -87,25 +107,6 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.hasMore = Boolean(result.pagination?.hasMore);
     },
 
-    _reconcileFirstPage(result) {
-      const cards = result.workspaces || [];
-      const refreshedIds = new Set(cards.map(card => card.id));
-      this.cardsById = {
-        ...this.cardsById,
-        ...Object.fromEntries(cards.map(card => [card.id, card])),
-      };
-      // Preserve cards below the fold. Their position is allowed to drift until
-      // the user paginates again, but realtime refresh stays constant-cost.
-      this.orderedIds = [
-        ...cards.map(card => card.id),
-        ...this.orderedIds.filter(id => !refreshedIds.has(id)),
-      ];
-      this.facets = result.facets || { running: 0, idle: 0 };
-      this.total = result.pagination?.total || 0;
-      this.nextCursor = result.pagination?.nextCursor || null;
-      this.hasMore = Boolean(result.pagination?.hasMore) || this.orderedIds.length < this.total;
-    },
-
     _resetContext(projectId, query) {
       const lifecycle = lifecycleFor(this);
       if (lifecycle.contextKey) {
@@ -157,15 +158,16 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.loading = this.orderedIds.length === 0;
       this.error = null;
 
-      // Reconcile the visible page only.  Realtime events must not make request
-      // cost grow with scroll depth; deeper pages update when the user reaches them.
-      const promise = fetchPage(projectId, query, { limit: WORKSPACE_PAGE_SIZE, signal: controller.signal })
+      // Restart pagination from the top and rebuild the loaded window. Sort keys
+      // and filter membership are mutable, so preserving old cards or continuing
+      // from an old cursor can leave duplicates, gaps, and stale filtered cards.
+      const loadedExtent = Math.max(WORKSPACE_PAGE_SIZE, this.orderedIds.length);
+      const promise = fetchExtent(projectId, query, loadedExtent, controller.signal)
         .then((result) => {
           if (!controller.signal.aborted
             && lifecycle.version === version
             && lifecycle.contextKey === contextKey) {
-            if (this.orderedIds.length) this._reconcileFirstPage(result);
-            else this._replace(result);
+            this._replace(result);
           }
         })
         .catch((error) => {
@@ -197,16 +199,18 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       const query = { ...this.query };
       const contextKey = lifecycle.contextKey;
       const version = lifecycle.version;
-      const cursor = this.nextCursor;
       const controller = new AbortController();
-      const request = { controller, version, contextKey, cursor };
+      const request = { controller, version, contextKey };
       lifecycle.loadMoreController = controller;
       this.loadingMore = true;
       try {
-        const result = await fetchPage(projectId, query, { cursor, limit: WORKSPACE_PAGE_SIZE, signal: controller.signal });
-        if (canCommitPage(this, lifecycle, request)) this._append(result);
+        // Rebuild from the head through one additional page. The previous
+        // nextCursor may describe an ordering that changed since it was issued.
+        const extent = this.orderedIds.length + WORKSPACE_PAGE_SIZE;
+        const result = await fetchExtent(projectId, query, extent, controller.signal);
+        if (canCommitRequest(lifecycle, request)) this._replace(result);
       } catch (error) {
-        if (!isAbort(error) && canCommitPage(this, lifecycle, request)) {
+        if (!isAbort(error) && canCommitRequest(lifecycle, request)) {
           this.error = error.message || 'Failed to load more workspaces';
           throw error;
         }

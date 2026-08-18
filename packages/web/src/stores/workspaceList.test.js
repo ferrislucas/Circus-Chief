@@ -105,7 +105,7 @@ describe('workspace list request lifecycle', () => {
     const returningRefresh = deferred();
     api.getWorkspaceCards
       .mockResolvedValueOnce(response(firstPage, { total: 26, hasMore: true }))
-      .mockResolvedValueOnce(response(secondPage, { total: 26, offset: WORKSPACE_PAGE_SIZE }))
+      .mockResolvedValueOnce(response([...firstPage, ...secondPage], { total: 26 }))
       .mockResolvedValueOnce(response([{ id: 'archived' }], { total: 1 }))
       .mockImplementationOnce(() => returningRefresh.promise);
     const store = useWorkspaceListStore();
@@ -122,21 +122,21 @@ describe('workspace list request lifecycle', () => {
     expect(store.cards).toHaveLength(26);
   });
 
-  it('fetches only the next cursor page when loading more', async () => {
+  it('rebuilds from the first page when loading more', async () => {
     const secondPageTotal = WORKSPACE_PAGE_SIZE + 2;
     const firstPage = Array.from({ length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index}` }));
     const secondPage = Array.from({ length: 2 }, (_, index) => ({ id: `card-${index + WORKSPACE_PAGE_SIZE}` }));
     api.getWorkspaceCards
       .mockResolvedValueOnce(response(firstPage, { total: secondPageTotal, hasMore: true, nextCursor: 'page-2' }))
-      .mockResolvedValueOnce(response(secondPage, { total: secondPageTotal, offset: WORKSPACE_PAGE_SIZE }));
+      .mockResolvedValueOnce(response([...firstPage, ...secondPage], { total: secondPageTotal }));
     const store = useWorkspaceListStore();
 
     await store.load('project-a');
     await store.loadMore();
 
     expect(api.getWorkspaceCards.mock.calls[1][1]).toMatchObject({
-      cursor: 'page-2',
-      limit: WORKSPACE_PAGE_SIZE,
+      cursor: null,
+      limit: WORKSPACE_PAGE_SIZE * 2,
     });
     expect(store.cards).toHaveLength(secondPageTotal);
     expect(new Set(store.orderedIds).size).toBe(secondPageTotal);
@@ -162,7 +162,7 @@ describe('workspace list request lifecycle', () => {
     expect(store.error).toBeNull();
   });
 
-  it.skip('refreshes the entire loaded extent after loading more, not just the first page', async () => {
+  it('refreshes the entire loaded extent after loading more, not just the first page', async () => {
     // Regression test for a bug where refresh() (called by realtime
     // invalidation on every relevant WebSocket event) always re-fetched only
     // WORKSPACE_PAGE_SIZE rows at offset 0, silently truncating a list the
@@ -172,8 +172,8 @@ describe('workspace list request lifecycle', () => {
     const secondPage = Array.from({ length: expandedTotal - WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index + WORKSPACE_PAGE_SIZE}` }));
     const fullExtent = [...firstPage, ...secondPage];
     api.getWorkspaceCards
-      .mockResolvedValueOnce(response(firstPage, { total: expandedTotal, hasMore: true }))
-      .mockResolvedValueOnce(response(secondPage, { total: expandedTotal, offset: WORKSPACE_PAGE_SIZE }))
+      .mockResolvedValueOnce(response(firstPage, { total: expandedTotal, hasMore: true, nextCursor: 'page-2' }))
+      .mockResolvedValueOnce(response(fullExtent, { total: expandedTotal }))
       .mockResolvedValueOnce(response(fullExtent, { total: expandedTotal }));
     const store = useWorkspaceListStore();
 
@@ -183,15 +183,34 @@ describe('workspace list request lifecycle', () => {
 
     expect(api.getWorkspaceCards.mock.calls.slice(1).map(([, options]) => ({
       limit: options.limit,
-      offset: options.offset,
+      cursor: options.cursor,
     }))).toEqual([
-      { limit: WORKSPACE_PAGE_SIZE, offset: WORKSPACE_PAGE_SIZE },
-      { limit: expandedTotal, offset: 0 },
+      { limit: WORKSPACE_PAGE_SIZE * 2, cursor: null },
+      { limit: expandedTotal, cursor: null },
     ]);
     expect(store.cards).toHaveLength(expandedTotal);
   });
 
-  it.skip('refreshes every loaded card past the server cap without truncating the list', async () => {
+  it('removes a loaded card that no longer matches the query during refresh', async () => {
+    const firstPage = Array.from({ length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index}` }));
+    const secondPage = [{ id: 'stale-running-card' }];
+    const refreshed = [...firstPage, { id: 'replacement-running-card' }];
+    api.getWorkspaceCards
+      .mockResolvedValueOnce(response(firstPage, { total: 26, hasMore: true, nextCursor: 'page-2' }))
+      .mockResolvedValueOnce(response([...firstPage, ...secondPage], { total: 26 }))
+      .mockResolvedValueOnce(response(refreshed, { total: 26 }));
+    const store = useWorkspaceListStore();
+
+    await store.load('project-a', { status: 'running' });
+    await store.loadMore();
+    await store.refresh();
+
+    expect(store.orderedIds).not.toContain('stale-running-card');
+    expect(store.orderedIds).toContain('replacement-running-card');
+    expect(store.cardsById['stale-running-card']).toBeUndefined();
+  });
+
+  it('refreshes every loaded card past the server cap without truncating the list', async () => {
     const store = useWorkspaceListStore();
     store._resetContext('project-a', {});
     store.orderedIds = Array.from({ length: 600 }, (_, index) => `card-${index}`);
@@ -217,31 +236,33 @@ describe('workspace list request lifecycle', () => {
     expect(store.hasMore).toBe(false);
   });
 
-  it('has no duplicate or gap when a card is promoted between cursor pages', async () => {
+  it('has no duplicate or gap when a card is promoted before loading more', async () => {
     const firstPage = Array.from({ length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index}` }));
     const secondPage = Array.from(
       { length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index + WORKSPACE_PAGE_SIZE}` }),
     );
     api.getWorkspaceCards
       .mockResolvedValueOnce(response(firstPage, { total: 50, hasMore: true, nextCursor: 'cursor-1' }))
-      .mockResolvedValueOnce(response(secondPage, { total: 50, nextCursor: 'cursor-2' }));
+      .mockResolvedValueOnce(response([...firstPage, ...secondPage], { total: 50 }));
     const store = useWorkspaceListStore();
 
     await store.load('project-a');
     await store.loadMore();
 
-    expect(api.getWorkspaceCards).toHaveBeenLastCalledWith('project-a', expect.objectContaining({ cursor: 'cursor-1' }));
+    expect(api.getWorkspaceCards).toHaveBeenLastCalledWith('project-a', expect.objectContaining({
+      cursor: null, limit: WORKSPACE_PAGE_SIZE * 2,
+    }));
     expect(new Set(store.orderedIds)).toEqual(new Set([...firstPage, ...secondPage].map(card => card.id)));
     expect(store.orderedIds).toHaveLength(50);
   });
 
-  it('deduplicates a card that moves into the next offset page', async () => {
+  it('replaces the loaded window when ordering changes before loading more', async () => {
     const total = WORKSPACE_PAGE_SIZE + 1;
     const firstPage = Array.from({ length: WORKSPACE_PAGE_SIZE }, (_, index) => ({ id: `card-${index}` }));
-    const secondPage = [{ id: `card-${WORKSPACE_PAGE_SIZE - 1}` }, { id: 'next-card' }];
+    const rebuilt = [...firstPage.slice(0, -1), { id: `card-${WORKSPACE_PAGE_SIZE - 1}` }, { id: 'next-card' }];
     api.getWorkspaceCards
       .mockResolvedValueOnce(response(firstPage, { total, hasMore: true }))
-      .mockResolvedValueOnce(response(secondPage, { total, offset: WORKSPACE_PAGE_SIZE }));
+      .mockResolvedValueOnce(response(rebuilt, { total }));
     const store = useWorkspaceListStore();
 
     await store.load('project-a');

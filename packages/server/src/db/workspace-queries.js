@@ -7,6 +7,9 @@
 // workspace activity with a correlated subquery (4-way UNION join per root),
 // which forced a full per-request scan of every session's messages/runs/
 // summaries before LIMIT could apply — O(project size) on every list request.
+// Session metadata updates are activity too, so take the greatest timestamp
+// per member before aggregating. COALESCE(last_activity_at, updated_at, ...)
+// would permanently mask updated_at after the activity column is backfilled.
 const WORKSPACE_AGGREGATES_CTE = `
   WITH RECURSIVE tree(root_id, id, project_id, path) AS (
     SELECT id, id, project_id, '/' || id || '/'
@@ -24,7 +27,7 @@ const WORKSPACE_AGGREGATES_CTE = `
       SUM(CASE WHEN s.status = 'scheduled' THEN 1 ELSE 0 END) AS scheduled_count,
       MIN(CASE WHEN s.status = 'scheduled' THEN s.scheduled_at END) AS nearest_scheduled_at,
       SUM(CASE WHEN s.status = 'waiting' THEN 1 ELSE 0 END) AS waiting_count,
-      MAX(s.last_activity_at) AS last_activity_at,
+      MAX(MAX(COALESCE(s.last_activity_at, 0), COALESCE(s.updated_at, 0), COALESCE(s.created_at, 0))) AS last_activity_at,
       COUNT(*) - 1 AS descendant_count
     FROM tree JOIN sessions s ON s.id = tree.id GROUP BY tree.root_id
   )`;
@@ -119,7 +122,7 @@ export function getWorkspaceCardPage(db, projectId, options = {}) {
       s.pr_url AS prUrl, s.git_worktree AS gitWorktree,
       s.scheduled_at AS scheduledAt, s.created_at AS createdAt,
       s.updated_at AS updatedAt, a.last_activity_at AS last_activity_at,
-      COALESCE(a.last_activity_at, s.updated_at, s.created_at) AS sort_activity,
+      a.last_activity_at AS sort_activity,
       a.running_count AS runningCount, a.scheduled_count AS scheduledCount,
       a.running_session_ids AS runningSessionIds, a.member_ids AS memberIds,
       a.waiting_count AS waitingCount, a.descendant_count AS descendantCount,

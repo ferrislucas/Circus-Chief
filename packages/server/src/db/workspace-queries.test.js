@@ -16,11 +16,14 @@ function withDb(fn) {
 }
 
 function addSession(db, id, options = {}) {
-  const { parentId = null, status = 'stopped', starred = 0, activity = null, createdAt = 1 } = options;
+  const {
+    parentId = null, status = 'stopped', starred = 0, activity = null,
+    createdAt = 1, updatedAt = createdAt,
+  } = options;
   db.prepare(`INSERT INTO sessions
     (id, project_id, name, parent_session_id, status, starred, last_activity_at, created_at, updated_at)
     VALUES (?, 'project', ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, id, parentId, status, starred, activity, createdAt, createdAt);
+    .run(id, id, parentId, status, starred, activity, createdAt, updatedAt);
 }
 
 describe('getWorkspaceCardPage', () => {
@@ -52,6 +55,16 @@ describe('getWorkspaceCardPage', () => {
 
     expect(offsetPastEnd).toMatchObject({ cards: [], facets: { running: 1, idle: 1 } });
     expect(cursorPastEnd.facets).toEqual({ running: 1, idle: 1 });
+  }));
+
+  it('orders by session updates newer than denormalized external activity', () => withDb((db) => {
+    addSession(db, 'recent-update', { activity: 10, createdAt: 1, updatedAt: 30 });
+    addSession(db, 'recent-message', { activity: 20, createdAt: 2, updatedAt: 2 });
+
+    const page = getWorkspaceCardPage(db, 'project', { limit: 10 });
+
+    expect(page.cards.map(card => card.id)).toEqual(['recent-update', 'recent-message']);
+    expect(page.cards[0].lastActivityAt).toBe(30);
   }));
 
   it('prepares one statement for cards and facets together', () => withDb((db) => {
