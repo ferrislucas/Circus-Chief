@@ -7,6 +7,7 @@ vi.mock('../composables/useApi.js', () => ({
   api: {
     getProjectSessions: vi.fn(),
     getSession: vi.fn(),
+    getWorkspaceDetail: vi.fn(),
     getSessionMessages: vi.fn(),
     createSession: vi.fn(),
     createWorkspaceSession: vi.fn(),
@@ -39,6 +40,90 @@ describe('Sessions Store', () => {
     setActivePinia(createPinia());
     // Reset all API mocks before each test
     vi.clearAllMocks();
+  });
+
+  it('does not abort concurrent detail requests for different sessions', async () => {
+    const store = useSessionsStore();
+    store.viewedSessionId = 'session-b';
+    let firstSignal;
+    api.getSession
+      .mockImplementationOnce((_id, options) => {
+        firstSignal = options.signal;
+        return Promise.resolve({ id: 'session-a', name: 'A' });
+      })
+      .mockResolvedValueOnce({ id: 'session-b', name: 'B' });
+
+    const first = store.fetchSession('session-a');
+    const second = store.fetchSession('session-b');
+    await Promise.all([first, second]);
+
+    expect(firstSignal.aborted).toBe(false);
+    expect(store.currentSession).toMatchObject({ id: 'session-b' });
+    expect(store.error).toBeNull();
+  });
+
+  it('aborts only a superseded detail request for the same session', async () => {
+    const store = useSessionsStore();
+    let firstSignal;
+    api.getSession
+      .mockImplementationOnce((_id, options) => {
+        firstSignal = options.signal;
+        return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => {
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        }));
+      })
+      .mockResolvedValueOnce({ id: 'session-a', name: 'Updated A' });
+
+    const first = store.fetchSession('session-a');
+    const second = store.fetchSession('session-a');
+    await Promise.all([first, second]);
+
+    expect(firstSignal.aborted).toBe(true);
+    expect(store.currentSession).toMatchObject({ id: 'session-a', name: 'Updated A' });
+    expect(store.error).toBeNull();
+  });
+
+  describe('fetchWorkspaceTree', () => {
+    it('merges the root and every descendant into the sessions list from one request', async () => {
+      const store = useSessionsStore();
+      api.getWorkspaceDetail.mockResolvedValueOnce({
+        id: 'root-1', name: 'Root', parentSessionId: null,
+        sessions: [
+          { id: 'child-1', name: 'Child', parentSessionId: 'root-1' },
+          { id: 'grandchild-1', name: 'Grandchild', parentSessionId: 'child-1' },
+        ],
+      });
+
+      await store.fetchWorkspaceTree('grandchild-1');
+
+      expect(api.getWorkspaceDetail).toHaveBeenCalledWith('grandchild-1', expect.objectContaining({
+        signal: expect.any(AbortSignal),
+      }));
+      expect(store.sessions.map(s => s.id).sort()).toEqual(['child-1', 'grandchild-1', 'root-1']);
+      expect(store.getRootSession('grandchild-1')).toMatchObject({ id: 'root-1' });
+      expect(store.getChildSessions('root-1')).toMatchObject([{ id: 'child-1' }]);
+    });
+
+    it('updates an already-present session rather than duplicating it', async () => {
+      const store = useSessionsStore();
+      store.sessions.push({ id: 'root-1', name: 'Stale name', parentSessionId: null });
+      api.getWorkspaceDetail.mockResolvedValueOnce({
+        id: 'root-1', name: 'Fresh name', parentSessionId: null, sessions: [],
+      });
+
+      await store.fetchWorkspaceTree('root-1');
+
+      expect(store.sessions).toHaveLength(1);
+      expect(store.sessions[0]).toMatchObject({ name: 'Fresh name' });
+    });
+
+    it('is a no-op when the API call fails (caller degrades gracefully)', async () => {
+      const store = useSessionsStore();
+      api.getWorkspaceDetail.mockRejectedValueOnce(new Error('network error'));
+
+      await expect(store.fetchWorkspaceTree('session-a')).rejects.toThrow('network error');
+      expect(store.sessions).toEqual([]);
+    });
   });
 
   describe('createSession', () => {
@@ -2814,145 +2899,6 @@ describe('Sessions Store', () => {
       });
     });
 
-    describe('fetchArchivedSessions', () => {
-      it('fetches archived sessions for a project with pagination', async () => {
-        const store = useSessionsStore();
-
-        const mockSessions = [
-          { id: 'session-1', archived: true },
-          { id: 'session-2', archived: true },
-        ];
-        api.getProjectSessions.mockResolvedValue({
-          sessions: mockSessions,
-          pagination: { total: 2, limit: 25, offset: 0, hasMore: false },
-        });
-
-        await store.fetchArchivedSessions('project-1');
-
-        expect(api.getProjectSessions).toHaveBeenCalledWith('project-1', true, null, { limit: 25, offset: 0 });
-        expect(store.archivedSessions).toEqual(mockSessions);
-        expect(store.archivedPagination).toEqual({
-          total: 2,
-          offset: 2,
-          hasMore: false,
-          loading: false,
-        });
-      });
-
-      it('handles fetch error', async () => {
-        const store = useSessionsStore();
-
-        api.getProjectSessions.mockRejectedValue(new Error('Fetch failed'));
-
-        await store.fetchArchivedSessions('project-1');
-
-        expect(store.error).toBe('Fetch failed');
-      });
-
-      it('refreshes archived sessions with starred filter applied', async () => {
-        const store = useSessionsStore();
-
-        // Initial load - no filter
-        const mockArchivedSessions = [
-          { id: 'session-1', archived: true, starred: false },
-          { id: 'session-2', archived: true, starred: true },
-          { id: 'session-3', archived: true, starred: false },
-        ];
-        api.getProjectSessions.mockResolvedValue({
-          sessions: mockArchivedSessions,
-          pagination: { total: 3, limit: 25, offset: 0, hasMore: false },
-        });
-
-        await store.fetchArchivedSessions('project-1');
-        expect(store.archivedSessions).toEqual(mockArchivedSessions);
-
-        // Now apply starred filter
-        store.setStarredFilter('starred');
-
-        // Refresh archived sessions - should still get results
-        // (not zero sessions like the bug would show)
-        const starredSessions = [
-          { id: 'session-2', archived: true, starred: true },
-        ];
-        api.getProjectSessions.mockResolvedValue({
-          sessions: starredSessions,
-          pagination: { total: 1, limit: 25, offset: 0, hasMore: false },
-        });
-
-        await store.fetchArchivedSessions('project-1');
-
-        // Should have called API with the correct starred filter and pagination
-        expect(api.getProjectSessions).toHaveBeenLastCalledWith('project-1', true, 'starred', { limit: 25, offset: 0 });
-        // Should have the starred sessions
-        expect(store.archivedSessions).toHaveLength(1);
-        expect(store.archivedSessions[0].starred).toBe(true);
-      });
-
-      it('refreshes archived sessions and clears zero-result condition', async () => {
-        const store = useSessionsStore();
-
-        // Start with archived sessions
-        const mockArchivedSessions = [
-          { id: 'session-1', archived: true, starred: true },
-        ];
-        api.getProjectSessions.mockResolvedValue({
-          sessions: mockArchivedSessions,
-          pagination: { total: 1, limit: 25, offset: 0, hasMore: false },
-        });
-
-        store.setStarredFilter('starred');
-        await store.fetchArchivedSessions('project-1');
-
-        expect(store.archivedSessions).toHaveLength(1);
-
-        // Now when user refreshes the archived tab, it should properly fetch again
-        // and not return zero sessions (bug: would show empty list)
-        api.getProjectSessions.mockResolvedValue({
-          sessions: mockArchivedSessions,
-          pagination: { total: 1, limit: 25, offset: 0, hasMore: false },
-        });
-
-        await store.fetchArchivedSessions('project-1');
-
-        expect(api.getProjectSessions).toHaveBeenLastCalledWith('project-1', true, 'starred', { limit: 25, offset: 0 });
-        expect(store.archivedSessions).toHaveLength(1);
-        expect(store.archivedSessions).toEqual(mockArchivedSessions);
-      });
-
-      it('loads more archived sessions with pagination', async () => {
-        const store = useSessionsStore();
-
-        // First page
-        const firstPageSessions = [
-          { id: 'session-1', archived: true },
-          { id: 'session-2', archived: true },
-        ];
-        api.getProjectSessions.mockResolvedValue({
-          sessions: firstPageSessions,
-          pagination: { total: 4, limit: 2, offset: 0, hasMore: true },
-        });
-
-        await store.fetchArchivedSessions('project-1');
-        expect(store.archivedSessions).toHaveLength(2);
-        expect(store.archivedPagination.hasMore).toBe(true);
-
-        // Second page
-        const secondPageSessions = [
-          { id: 'session-3', archived: true },
-          { id: 'session-4', archived: true },
-        ];
-        api.getProjectSessions.mockResolvedValue({
-          sessions: secondPageSessions,
-          pagination: { total: 4, limit: 2, offset: 2, hasMore: false },
-        });
-
-        await store.loadMoreArchivedSessions('project-1');
-
-        expect(store.archivedSessions).toHaveLength(4);
-        expect(store.archivedPagination.hasMore).toBe(false);
-      });
-    });
-
     describe('updateSession with archive changes', () => {
       it('moves session to archivedSessions when archived is set to true', () => {
         const store = useSessionsStore();
@@ -3210,61 +3156,6 @@ describe('Sessions Store', () => {
         expect(store.currentSession).toBeNull();
       });
 
-      it('decrements archivedPagination when loaded archived descendants are removed', async () => {
-        const store = useSessionsStore();
-        const root = { id: 'root-1' };
-        const archivedChild = { id: 'archived-child', parentSessionId: 'root-1', archived: true };
-        const archivedGrandchild = { id: 'archived-grandchild', parentSessionId: 'archived-child', archived: true };
-        const unrelatedArchived = { id: 'archived-other', archived: true };
-
-        store.sessions = [root];
-        store.archivedSessions = [archivedChild, archivedGrandchild, unrelatedArchived];
-        store.archivedPagination = { total: 10, offset: 3, hasMore: true, loading: false };
-
-        api.deleteSession.mockResolvedValue();
-
-        await store.deleteSession('root-1');
-
-        expect(store.archivedSessions.map(s => s.id)).toEqual(['archived-other']);
-        expect(store.archivedPagination.total).toBe(8);
-        expect(store.archivedPagination.offset).toBe(1);
-        expect(store.archivedPagination.hasMore).toBe(true);
-        expect(store.archivedPagination.loading).toBe(false);
-      });
-
-      it('clamps archivedPagination total and offset to zero when counts go negative', async () => {
-        const store = useSessionsStore();
-        const root = { id: 'root-1' };
-        const archivedChild = { id: 'archived-child', parentSessionId: 'root-1', archived: true };
-        const archivedGrandchild = { id: 'archived-grandchild', parentSessionId: 'archived-child', archived: true };
-
-        store.sessions = [root];
-        store.archivedSessions = [archivedChild, archivedGrandchild];
-        store.archivedPagination = { total: 1, offset: 2, hasMore: true, loading: false };
-
-        api.deleteSession.mockResolvedValue();
-
-        await store.deleteSession('root-1');
-
-        expect(store.archivedPagination.total).toBe(0);
-        expect(store.archivedPagination.offset).toBe(0);
-        expect(store.archivedPagination.hasMore).toBe(false);
-      });
-
-      it('leaves archivedPagination unchanged when no loaded archived rows are removed', async () => {
-        const store = useSessionsStore();
-        const target = { id: 'active-target' };
-
-        store.sessions = [target];
-        store.archivedSessions = [{ id: 'archived-other', archived: true }];
-        store.archivedPagination = { total: 7, offset: 2, hasMore: true, loading: false };
-
-        api.deleteSession.mockResolvedValue();
-
-        await store.deleteSession('active-target');
-
-        expect(store.archivedPagination).toEqual({ total: 7, offset: 2, hasMore: true, loading: false });
-      });
     });
   });
 

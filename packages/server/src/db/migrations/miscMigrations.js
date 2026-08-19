@@ -4,6 +4,7 @@
  * Each export is an array of { name, up(db) } migration objects.
  */
 import { addColumnIfMissing, getColumns, tableExists } from './migrationUtils.js';
+import { ACTIVITY_TRIGGER_CREATE_DDL } from './activityTriggers.js';
 
 /**
  * Prompt strings for the default global session templates.
@@ -64,6 +65,48 @@ export function normalizeStaleClaudeModelIds(db) {
 
 /** @type {Array<{name: string, up: (db: import('better-sqlite3').Database) => void}>} */
 export const miscMigrations = [
+  // --- Workspace list activity column ---
+  //
+  // The workspace-card list query needs "when did anything in this workspace
+  // last happen" as a sortable value. Computing that at read time (a
+  // correlated subquery joining messages/summaries/command_runs per row) costs
+  // O(total sessions in the project) on every list request regardless of page
+  // size, because the sort key has to be known before LIMIT can apply.
+  //
+  // Instead, maintain `sessions.last_activity_at` as a denormalized column,
+  // written once per activity event (by trigger, not by application code, so
+  // no write path can forget it) and read as a plain column by the
+  // aggregate query. The workspace list then only pays for MAX() over the
+  // already-scanned tree rows, not an additional per-row fan-out.
+  {
+    name: 'workspace-list-activity-column',
+    up(db) {
+      addColumnIfMissing(db, 'sessions', 'last_activity_at', 'INTEGER');
+
+      // Give activity-free rows their creation time, so this expensive
+      // backfill retires every row after its first run.
+      db.exec(`
+        UPDATE sessions
+        SET last_activity_at = COALESCE((
+          SELECT MAX(activity_at) FROM (
+            SELECT MAX(timestamp) AS activity_at FROM conversation_messages WHERE session_id = sessions.id
+            UNION ALL
+            SELECT MAX(generated_at) FROM session_summaries WHERE session_id = sessions.id
+            UNION ALL
+            SELECT MAX(updated_at) FROM session_summaries WHERE session_id = sessions.id
+            UNION ALL
+            SELECT MAX(completed_at) FROM command_runs WHERE session_id = sessions.id
+            UNION ALL
+            SELECT MAX(started_at) FROM command_runs WHERE session_id = sessions.id
+          )
+        ), created_at)
+        WHERE last_activity_at IS NULL
+      `);
+
+      db.exec(`${ACTIVITY_TRIGGER_CREATE_DDL.join(';\n')};`);
+    },
+  },
+
   // --- Command buttons ---
   {
     name: 'command_buttons-add-show_on_list',

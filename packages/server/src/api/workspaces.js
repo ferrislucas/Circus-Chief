@@ -15,7 +15,9 @@
  */
 
 import { Router } from 'express';
-import { sessions, projects } from '../database.js';
+import { sessions, projects, commandRuns } from '../database.js';
+import { commandRunner } from '../services/commandRunner.js';
+import { buildRunsBySession } from './projects-helpers.js';
 import { determineInitialStatus } from './projects-session-helpers.js';
 import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 import {
@@ -28,6 +30,7 @@ import {
   CreateWorkspaceSessionRequest,
 } from '@circuschief/shared/contracts/workspaces';
 import { hasPendingPrompt } from '../services/promptStore.js';
+import { isValidWorkspaceCardCursor } from '../db/workspace-queries.js';
 
 const withPendingAgentInput = (session) => ({ ...session, pendingAgentInput: hasPendingPrompt(session.id) });
 
@@ -36,6 +39,22 @@ const ERR_WORKSPACE_NOT_FOUND = 'Workspace not found';
 
 const projectWorkspacesRouter = Router();
 const workspacesRouter = Router();
+
+// These timings are intentionally response headers rather than a metrics sink:
+// they are production-safe, immediately visible in browser waterfalls, and keep
+// the list/detail contract measurable without recording user content.
+function sendWorkspaceJson(res, payload, startedAt) {
+  const serializeStartedAt = performance.now();
+  const body = JSON.stringify(payload);
+  const serializationMs = performance.now() - serializeStartedAt;
+  const totalMs = performance.now() - startedAt;
+  res.append('Access-Control-Expose-Headers', 'Server-Timing, X-Response-Bytes');
+  res.set({
+    'Server-Timing': `workspace;dur=${totalMs.toFixed(1)}, serialize;dur=${serializationMs.toFixed(1)}`,
+    'X-Response-Bytes': String(Buffer.byteLength(body)),
+  });
+  return res.type('application/json').send(body);
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -117,56 +136,155 @@ function handleCreateError(res, session, error, label) {
   return res.status(500).json({ error: error.message || 'Internal server error' });
 }
 
+function parseBooleanFilter(value) {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return null;
+}
+
+function hasValidWorkspaceCardFilters(status, scheduled) {
+  return ['running', 'idle', undefined].includes(status)
+    && ['true', 'false', undefined].includes(scheduled);
+}
+
+function hasValidWorkspaceCardPagination(limit, offset) {
+  return Number.isInteger(limit) && limit >= 1 && limit <= 500
+    && Number.isInteger(offset) && offset >= 0;
+}
+
+function parseWorkspaceCardOptions({ archived, starred, limit, cursor, status, scheduled }) {
+  const isNonNegativeInt = value => typeof value === 'string' && /^\d+$/.test(value);
+  const parsedLimit = limit === undefined ? 50 : isNonNegativeInt(limit) ? Number(limit) : Number.NaN;
+  const valid = hasValidWorkspaceCardPagination(parsedLimit, 0)
+    && ['true', 'false', undefined].includes(archived)
+    && ['true', 'false', undefined].includes(starred)
+    && hasValidWorkspaceCardFilters(status, scheduled)
+    && isValidWorkspaceCardCursor(cursor);
+  if (!valid) return null;
+  return {
+    archived: archived === 'true',
+    starred: parseBooleanFilter(starred),
+    status: status || null,
+    scheduled: parseBooleanFilter(scheduled),
+    limit: parsedLimit,
+    offset: 0,
+    cursor: cursor || null,
+  };
+}
+
+const runRecency = run => run.completedAt ?? run.startedAt ?? 0;
+
+function shouldReplaceWorkspaceCommandRun(current, candidate) {
+  const candidateIsRunning = candidate.status === 'running';
+  const currentIsRunning = current.status === 'running';
+  if (candidateIsRunning !== currentIsRunning) {
+    return candidateIsRunning;
+  }
+  return runRecency(candidate) > runRecency(current);
+}
+
+function workspaceCommandRuns(card, runsBySession) {
+  const latestByButton = {};
+  for (const sessionId of card.memberIds) {
+    for (const run of Object.values(runsBySession[sessionId] || {})) {
+      const current = latestByButton[run.buttonId];
+      if (!current || shouldReplaceWorkspaceCommandRun(current, run)) {
+        latestByButton[run.buttonId] = run;
+      }
+    }
+  }
+  return Object.values(latestByButton);
+}
+
+function sendWorkspaceCards(res, projectId, query, startedAt) {
+  const options = parseWorkspaceCardOptions(query);
+  if (!options) return res.status(400).json({ error: 'Invalid workspace card pagination or filters' });
+  const page = sessions.getWorkspaceCardPage(projectId, options);
+  const { cards, facets } = page;
+  const memberIds = [...new Set(cards.flatMap(card => card.memberIds))];
+  const memberIdSet = new Set(memberIds);
+  const runsBySession = buildRunsBySession(
+    // The list resumes output polling from a card run, so it needs the
+    // output-chunk metadata the board broadcast deliberately omits.
+    commandRuns.getLatestRunsForSessions(memberIds, { includeOutputMetadata: true }),
+    commandRunner.getRunningByProjectId(projectId, sessionIds => sessions.getByIds(sessionIds))
+      .filter(run => memberIdSet.has(run.sessionId))
+  );
+  const workspaces = cards.map((card) => {
+    const { memberIds: cardMemberIds, ...publicCard } = card;
+    return {
+      ...publicCard,
+      // memberIds lets the client resolve a member session's realtime events
+      // (command runs, summaries) to the owning card so they can be patched
+      // locally instead of triggering a full list refresh.
+      memberIds: cardMemberIds,
+      pendingAgentInput: cardMemberIds.some(hasPendingPrompt),
+      latestCommandRuns: workspaceCommandRuns(card, runsBySession),
+    };
+  });
+  const total = options.status ? facets[options.status] : facets.running + facets.idle;
+  return sendWorkspaceJson(res, {
+    workspaces,
+    facets,
+    pagination: {
+      total,
+      limit: options.limit,
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+    },
+  }, startedAt);
+}
+
+function decorateWorkspaceCard(card, projectId) {
+  const memberIdSet = new Set(card.memberIds);
+  const runsBySession = buildRunsBySession(
+    commandRuns.getLatestRunsForSessions(card.memberIds, { includeOutputMetadata: true }),
+    commandRunner.getRunningByProjectId(projectId, ids => sessions.getByIds(ids))
+      .filter(run => memberIdSet.has(run.sessionId)),
+  );
+  return {
+    ...card,
+    pendingAgentInput: card.memberIds.some(hasPendingPrompt),
+    latestCommandRuns: workspaceCommandRuns(card, runsBySession),
+  };
+}
+
+function listProjectWorkspaces(req, res) {
+  const startedAt = performance.now();
+  const project = projects.getById(req.params.projectId);
+  if (!project) return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
+
+  const { archived, starred, limit, offset, view } = req.query;
+  if (view === 'cards') return sendWorkspaceCards(res, req.params.projectId, req.query, startedAt);
+
+  const archivedFilter = archived === 'true' ? true : archived === 'false' ? false : null;
+  const starredFilter = starred === 'true' ? true : starred === 'false' ? false : null;
+  const parsedLimit = limit ? parseInt(limit, 10) : null;
+  const parsedOffset = offset ? parseInt(offset, 10) : 0;
+  const workspaces = sessions.getRootsByProjectId(req.params.projectId, {
+    archived: archivedFilter, starred: starredFilter, limit: parsedLimit, offset: parsedOffset,
+  }).map(withPendingAgentInput);
+  if (parsedLimit === null) return res.json(workspaces);
+
+  const total = sessions.getRootsCountByProjectId(req.params.projectId, {
+    archived: archivedFilter, starred: starredFilter,
+  });
+  return res.json({
+    workspaces,
+    pagination: { total, limit: parsedLimit, offset: parsedOffset, hasMore: parsedOffset + workspaces.length < total },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/projects/:projectId/workspaces — list workspaces (root sessions)
 //
 // Response shapes:
+//   With `view=cards`           → cursor-paginated cards (limit 1-500, default 50; cursor base64url ≤512 chars)
+//                                  with filters status={running,idle}, archived/starred/scheduled={true,false}
 //   Without `limit` query param → bare array of root session rows.
 //   With `limit` query param    → { workspaces: [...], pagination: { total, limit, offset, hasMore } }
 // ---------------------------------------------------------------------------
-projectWorkspacesRouter.get('/:projectId/workspaces', (req, res) => {
-  const project = projects.getById(req.params.projectId);
-  if (!project) {
-    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
-  }
-
-  const { archived, starred, limit, offset } = req.query;
-  let archivedFilter = null;
-  if (archived === 'true') archivedFilter = true;
-  else if (archived === 'false') archivedFilter = false;
-
-  let starredFilter = null;
-  if (starred === 'true') starredFilter = true;
-  else if (starred === 'false') starredFilter = false;
-
-  const parsedLimit = limit ? parseInt(limit, 10) : null;
-  const parsedOffset = offset ? parseInt(offset, 10) : 0;
-
-  const workspaces = sessions.getRootsByProjectId(req.params.projectId, {
-    archived: archivedFilter,
-    starred: starredFilter,
-    limit: parsedLimit,
-    offset: parsedOffset,
-  });
-
-  if (parsedLimit !== null) {
-    const total = sessions.getRootsCountByProjectId(req.params.projectId, {
-      archived: archivedFilter,
-      starred: starredFilter,
-    });
-    return res.json({
-      workspaces: workspaces.map(withPendingAgentInput),
-      pagination: {
-        total,
-        limit: parsedLimit,
-        offset: parsedOffset,
-        hasMore: parsedOffset + workspaces.length < total,
-      },
-    });
-  }
-
-  return res.json(workspaces.map(withPendingAgentInput));
-});
+projectWorkspacesRouter.get('/:projectId/workspaces', listProjectWorkspaces);
 
 // ---------------------------------------------------------------------------
 // POST /api/projects/:projectId/workspaces — create a new workspace
@@ -203,20 +321,33 @@ projectWorkspacesRouter.post('/:projectId/workspaces', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/workspaces/:workspaceId — workspace detail with its session tree
+// GET /api/workspaces/:workspaceId — legacy workspace detail with its session tree
 // ---------------------------------------------------------------------------
 workspacesRouter.get('/:workspaceId', (req, res) => {
+  const startedAt = performance.now();
   const resolved = resolveWorkspace(res, req.params.workspaceId);
   if (!resolved) return;
 
   const { workspace } = resolved;
   const descendantIds = sessions.getAllDescendantIds(workspace.id);
   const descendants = descendantIds.length > 0 ? sessions.getByIds(descendantIds) : [];
-
-  return res.json({
+  // This endpoint is used by external API consumers, so retain its full session
+  // row contract. The compact member projection lives at /members.
+  return sendWorkspaceJson(res, {
     ...withPendingAgentInput(workspace),
     sessions: descendants.map(withPendingAgentInput),
-  });
+  }, startedAt);
+});
+
+// Bounded reconciliation endpoint for project realtime events. Unlike the list
+// query, this only walks the requested workspace tree.
+workspacesRouter.get('/:workspaceId/card', (req, res) => {
+  const startedAt = performance.now();
+  const resolved = resolveWorkspace(res, req.params.workspaceId);
+  if (!resolved) return;
+  const card = sessions.getWorkspaceCard(resolved.project.id, resolved.workspace.id);
+  if (!card) return res.status(404).json({ error: ERR_WORKSPACE_NOT_FOUND });
+  return sendWorkspaceJson(res, decorateWorkspaceCard(card, resolved.project.id), startedAt);
 });
 
 // ---------------------------------------------------------------------------

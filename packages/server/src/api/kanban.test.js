@@ -7,6 +7,8 @@ import {
   kanbanBoards,
   kanbanLanes,
   kanbanCards,
+  commandButtons,
+  commandRuns,
   databaseManager,
 } from '../database.js';
 
@@ -185,6 +187,45 @@ describe('Kanban API', () => {
       expect(res.body.projectId).toBe(projectId);
       expect(res.body.lanes).toHaveLength(4);
       expect(res.body.lanes[0].cards).toHaveLength(1);
+    });
+
+    it('attaches latestCommandRuns to card sessions', async () => {
+      setupBoard();
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+
+      const button = commandButtons.create({
+        projectId,
+        label: 'Lint',
+        command: 'yarn lint',
+        showOnList: true,
+      });
+      const runId = `run-${Date.now()}`;
+      commandRuns.create({ id: runId, sessionId: session.id, buttonId: button.id });
+      commandRuns.complete(runId, 0, 'done');
+
+      const res = await request(app).get(`/api/projects/${projectId}/kanban`);
+
+      expect(res.status).toBe(200);
+      const boardSession = res.body.lanes[0].cards[0].sessions[0];
+      expect(boardSession.latestCommandRuns).toHaveLength(1);
+      expect(boardSession.latestCommandRuns[0]).toMatchObject({
+        buttonId: button.id,
+        status: 'success',
+        exitCode: 0,
+        runId,
+      });
+    });
+
+    it('returns an empty latestCommandRuns array for sessions without runs', async () => {
+      setupBoard();
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+
+      const res = await request(app).get(`/api/projects/${projectId}/kanban`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.lanes[0].cards[0].sessions[0].latestCommandRuns).toEqual([]);
     });
 
     it('auto-creates board on first access', async () => {
