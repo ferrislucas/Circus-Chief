@@ -84,32 +84,23 @@ describe('sessionProvider', () => {
       expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
     });
 
-    it('sets model tier env vars from provider.models array', () => {
+    it('pins every Claude alias to the selected model for a custom provider', () => {
       const provider = {
         name: 'P',
-        models: [
-          { modelId: 'my-fable', tier: 'fable' },
-          { modelId: 'my-opus', tier: 'opus' },
-          { modelId: 'my-sonnet', tier: 'sonnet' },
-          { modelId: 'my-haiku', tier: 'haiku' },
-        ],
+        models: [{ modelId: 'first-model' }, { modelId: 'selected-model' }],
       };
-      const env = buildProviderEnv(provider);
-      expect(env.ANTHROPIC_DEFAULT_FABLE_MODEL).toBe('my-fable');
-      expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('my-opus');
-      expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('my-sonnet');
-      expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('my-haiku');
+      const env = buildProviderEnv(provider, 'selected-model');
+      expect(env.ANTHROPIC_DEFAULT_FABLE_MODEL).toBe('selected-model');
+      expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('selected-model');
+      expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('selected-model');
+      expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('selected-model');
     });
 
-    it('only sets env vars for tiers present in models array', () => {
-      const provider = {
-        name: 'P',
-        models: [{ modelId: 'only-sonnet', tier: 'sonnet' }],
-      };
-      const env = buildProviderEnv(provider);
-      expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('only-sonnet');
+    it('does not set aliases without a selected model', () => {
+      const env = buildProviderEnv({ name: 'P' });
       expect(env.ANTHROPIC_DEFAULT_FABLE_MODEL).toBeUndefined();
       expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined();
+      expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBeUndefined();
       expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBeUndefined();
     });
 
@@ -141,15 +132,14 @@ describe('sessionProvider', () => {
         name: 'Full Provider',
         baseUrl: 'https://proxy.example.com',
         authToken: 'sk-token',
-        models: [{ modelId: 'test-sonnet', tier: 'sonnet' }],
         apiTimeoutMs: 30000,
         additionalEnvVars: { EXTRA: 'val' },
       };
-      const env = buildProviderEnv(provider);
+      const env = buildProviderEnv(provider, 'selected-model');
       expect(env.ANTHROPIC_BASE_URL).toBe('https://proxy.example.com');
       expect(env.ANTHROPIC_API_KEY).toBe('sk-token');
       expect(env.ANTHROPIC_AUTH_TOKEN).toBe('sk-token');
-      expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('test-sonnet');
+      expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('selected-model');
       expect(env.API_TIMEOUT_MS).toBe('30000');
       expect(env.EXTRA).toBe('val');
     });
@@ -318,27 +308,23 @@ describe('sessionProvider', () => {
   // ── buildProviderEnv: kind-aware branching ────────────────────────────
 
   describe('buildProviderEnv (kind-aware)', () => {
-    it("anthropic-kind provider emits ANTHROPIC_* keys + tier defaults + API_TIMEOUT_MS + additionalEnvVars", () => {
+    it("anthropic-kind provider pins aliases to its selected model and preserves overrides", () => {
       const provider = {
         name: 'Anth',
         kind: 'anthropic',
         baseUrl: 'https://anth.example.com',
         authToken: 'sk-a',
         apiTimeoutMs: 30000,
-        models: [
-          { modelId: 'my-opus', tier: 'opus' },
-          { modelId: 'my-sonnet', tier: 'sonnet' },
-          { modelId: 'my-haiku', tier: 'haiku' },
-        ],
-        additionalEnvVars: { EXTRA: 'yes' },
+        additionalEnvVars: { EXTRA: 'yes', ANTHROPIC_DEFAULT_OPUS_MODEL: 'manual-override' },
       };
-      const env = buildProviderEnv(provider);
+      const env = buildProviderEnv(provider, 'selected-model');
       expect(env.ANTHROPIC_BASE_URL).toBe('https://anth.example.com');
       expect(env.ANTHROPIC_API_KEY).toBe('sk-a');
       expect(env.ANTHROPIC_AUTH_TOKEN).toBe('sk-a');
-      expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('my-opus');
-      expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('my-sonnet');
-      expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('my-haiku');
+      expect(env.ANTHROPIC_DEFAULT_FABLE_MODEL).toBe('selected-model');
+      expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('manual-override');
+      expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('selected-model');
+      expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('selected-model');
       expect(env.API_TIMEOUT_MS).toBe('30000');
       expect(env.EXTRA).toBe('yes');
       // No OPENAI_* leaks

@@ -51,7 +51,7 @@ describe('seedBaselineData', () => {
   it('creates expected built-in Anthropic provider models', () => {
     withDb((db) => {
       const rows = db.prepare(
-        'SELECT id, provider_id, model_id, display_name, description, tier FROM provider_models WHERE provider_id = ? ORDER BY id'
+        'SELECT id, provider_id, model_id, display_name, description FROM provider_models WHERE provider_id = ? ORDER BY id'
       ).all(BUILT_IN_ANTHROPIC_PROVIDER.id);
 
       expect(rows).toEqual(BUILT_IN_ANTHROPIC_MODELS
@@ -61,7 +61,6 @@ describe('seedBaselineData', () => {
           model_id: model.modelId,
           display_name: model.displayName,
           description: model.description,
-          tier: model.tier,
         }))
         .sort((a, b) => a.id.localeCompare(b.id)));
     });
@@ -70,7 +69,7 @@ describe('seedBaselineData', () => {
   it('creates one OpenAI provider model per OPENAI_MODELS entry', () => {
     withDb((db) => {
       const rows = db.prepare(
-        'SELECT id, provider_id, model_id, display_name, description, tier FROM provider_models WHERE provider_id = ? ORDER BY id'
+        'SELECT id, provider_id, model_id, display_name, description FROM provider_models WHERE provider_id = ? ORDER BY id'
       ).all(BUILT_IN_OPENAI_PROVIDER.id);
 
       expect(rows).toHaveLength(OPENAI_MODELS.length);
@@ -81,7 +80,6 @@ describe('seedBaselineData', () => {
           model_id: model.modelId,
           display_name: model.displayName,
           description: model.description,
-          tier: model.tier,
         }))
         .sort((a, b) => a.id.localeCompare(b.id)));
     });

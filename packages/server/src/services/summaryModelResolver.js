@@ -1,4 +1,5 @@
 import { modelProviders, sessions } from '../database.js';
+import { LEGACY_BUILTIN_SHORTHAND_MAP } from '@circuschief/shared';
 import { ACTIVITY_FIELDS_SQL } from '../db/session-helpers.js';
 
 export const DEFAULT_ANTHROPIC_SUMMARY_MODEL = 'claude-haiku-4-5-20251001';
@@ -11,11 +12,11 @@ export const CHEAPEST_SUMMARY_MODEL_BY_BUILT_IN_PROVIDER = Object.freeze({
   [BUILT_IN_OPENAI_PROVIDER_ID]: DEFAULT_OPENAI_SUMMARY_MODEL,
 });
 
-const ANTHROPIC_TIER_NAMES = new Set(['sonnet', 'opus', 'haiku']);
+const LEGACY_SHORTHAND_SET = new Set(Object.keys(LEGACY_BUILTIN_SHORTHAND_MAP));
 
 export function isKnownBuiltInAnthropicModel(modelId) {
   if (!modelId || typeof modelId !== 'string') return false;
-  if (ANTHROPIC_TIER_NAMES.has(modelId.toLowerCase())) return true;
+  if (LEGACY_SHORTHAND_SET.has(modelId.toLowerCase())) return true;
   if (modelId === DEFAULT_ANTHROPIC_SUMMARY_MODEL) return true;
 
   const anthropicProvider = modelProviders.getById(BUILT_IN_ANTHROPIC_PROVIDER_ID);

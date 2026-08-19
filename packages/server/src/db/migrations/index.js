@@ -307,6 +307,9 @@ export const allMigrations = validateMigrations([
   pr.get('provider-models-sync-catalog-lifecycle'),
   pr.get('provider-models-disable-older-lifecycle-once'),
 
+  // --- Remove tier column from provider_models ---
+  pr.get('provider-models-remove-tier'),
+
   // --- Pending conversation ID for existing-message retry on reschedule ---
   s.get('sessions-add-pending_conversation_id'),
 

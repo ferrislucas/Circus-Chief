@@ -1,4 +1,4 @@
-import { addColumnIfMissing, tableExists, getTableSql } from './migrationUtils.js';
+import { addColumnIfMissing, tableExists, getTableSql, getColumns } from './migrationUtils.js';
 import {
   backfillBuiltInOpenAIAttribution,
   dedupeActiveProviderModelIdentities,
@@ -88,6 +88,7 @@ export const providerMigrations = [
     name: 'providers-update-built-in-opus-4-7',
     up(db) {
       const providerId = 'anthropic-default';
+      const hasTier = getColumns(db, 'provider_models').some((column) => column.name === 'tier');
 
       db.prepare(
         `UPDATE provider_models
@@ -95,10 +96,17 @@ export const providerMigrations = [
          WHERE provider_id = ? AND id = ?`
       ).run('Previous generation', providerId, 'anthropic-opus');
 
-      db.prepare(
-        `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run('anthropic-opus-4-7', providerId, 'claude-opus-4-7', 'Opus 4.7', 'Most capable (default)', 'opus', Date.now());
+      if (hasTier) {
+        db.prepare(
+          `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).run('anthropic-opus-4-7', providerId, 'claude-opus-4-7', 'Opus 4.7', 'Most capable (default)', 'opus', Date.now());
+      } else {
+        db.prepare(
+          `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        ).run('anthropic-opus-4-7', providerId, 'claude-opus-4-7', 'Opus 4.7', 'Most capable (default)', Date.now());
+      }
     },
   },
   {
@@ -187,6 +195,7 @@ export const providerMigrations = [
     name: 'providers-update-built-in-opus-4-8',
     up(db) {
       const providerId = 'anthropic-default';
+      const hasTier = getColumns(db, 'provider_models').some((column) => column.name === 'tier');
 
       db.prepare(
         `UPDATE provider_models
@@ -194,10 +203,17 @@ export const providerMigrations = [
          WHERE provider_id = ? AND id = ?`
       ).run('Previous generation', providerId, 'anthropic-opus-4-7');
 
-      db.prepare(
-        `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run('anthropic-opus-4-8', providerId, 'claude-opus-4-8', 'Opus 4.8', 'Most capable (default)', 'opus', Date.now());
+      if (hasTier) {
+        db.prepare(
+          `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).run('anthropic-opus-4-8', providerId, 'claude-opus-4-8', 'Opus 4.8', 'Most capable (default)', 'opus', Date.now());
+      } else {
+        db.prepare(
+          `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        ).run('anthropic-opus-4-8', providerId, 'claude-opus-4-8', 'Opus 4.8', 'Most capable (default)', Date.now());
+      }
     },
   },
   {
@@ -290,5 +306,50 @@ export const providerMigrations = [
     // user's later re-enable decision is never overwritten.
     name: 'provider-models-disable-older-lifecycle-once',
     up(db) { disableOlderLifecycleModelsOnce(db); },
+  },
+  {
+    // Remove the `tier` column from provider_models. Models become a simple
+    // ordered list of exact model IDs. The tier field mixed presentation
+    // labels, default selection, and runtime alias routing — replacing it
+    // with list order and explicit session model selection.
+    name: 'provider-models-remove-tier',
+    up(db) {
+      const columns = getColumns(db, 'provider_models');
+      if (!columns.some((col) => col.name === 'tier')) return;
+
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS provider_models_no_tier (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+            model_id TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            description TEXT,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER,
+            lifecycle TEXT NOT NULL DEFAULT 'current',
+            catalog_managed INTEGER NOT NULL DEFAULT 0,
+            removed_at INTEGER,
+            created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+          );
+
+          INSERT INTO provider_models_no_tier
+            (id, provider_id, model_id, display_name, description, enabled, sort_order, lifecycle, catalog_managed, removed_at, created_at)
+          SELECT id, provider_id, model_id, display_name, description, enabled, sort_order, lifecycle, catalog_managed, removed_at, created_at
+          FROM provider_models;
+
+          DROP TABLE provider_models;
+
+          ALTER TABLE provider_models_no_tier RENAME TO provider_models;
+
+          CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_models_active_identity
+            ON provider_models(provider_id, model_id) WHERE removed_at IS NULL;
+        `);
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
+    },
   },
 ];

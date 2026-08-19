@@ -107,13 +107,6 @@
             <code class="detail-value">{{ provider.baseUrl }}</code>
           </div>
           <div
-            v-if="provider.defaultSonnetModel"
-            class="provider-detail"
-          >
-            <span class="detail-label">Default Sonnet Model:</span>
-            <code class="detail-value">{{ provider.defaultSonnetModel }}</code>
-          </div>
-          <div
             v-if="!provider.baseUrl && provider.isBuiltIn"
             class="provider-detail"
           >

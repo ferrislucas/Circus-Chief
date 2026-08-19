@@ -119,7 +119,6 @@ export const ProviderResponse = z.object({
       modelId: z.string(),
       displayName: z.string(),
       description: z.string().nullable(),
-      tier: z.enum(['fable', 'opus', 'sonnet', 'haiku', 'custom']),
       enabled: z.boolean(),
       sortOrder: z.number().nullable(),
       lifecycle: z.enum(['current', 'older']),
@@ -136,7 +135,6 @@ export const CreateProviderModelRequest = z.object({
   modelId: z.string().min(1),
   displayName: z.string().min(1).max(100),
   description: z.string().nullable().optional(),
-  tier: z.enum(['fable', 'opus', 'sonnet', 'haiku', 'custom']).nullable().optional(),
   enabled: z.boolean().optional(),
   sortOrder: z.number().int().nullable().optional(),
 });
@@ -147,7 +145,6 @@ export const ProviderModelResponse = z.object({
   modelId: z.string(),
   displayName: z.string(),
   description: z.string().nullable(),
-  tier: z.string().nullable(),
   enabled: z.boolean(),
   sortOrder: z.number().nullable(),
   lifecycle: z.enum(['current', 'older']),
@@ -166,7 +163,7 @@ export const TestConnectionRequest = z.object({
   kind: ProviderKind,
   baseUrl: z.string().url().nullable().optional(),
   authToken: z.string().nullable().optional(),
-  defaultSonnetModel: z.string().nullable().optional(),
+  testModel: z.string().nullable().optional(),
   apiTimeoutMs: z.number().int().positive().nullable().optional(),
 });
 

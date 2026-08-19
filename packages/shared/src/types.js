@@ -143,42 +143,58 @@ const CATALOG_REVIEWED_DATE = '2026-07-25';
 
 export const CLAUDE_MODELS = [
   {
-    id: 'claude-fable-5', name: 'Fable 5', description: 'Next-generation intelligence', tier: 'fable',
+    id: 'claude-fable-5', name: 'Fable 5', description: 'Next-generation intelligence',
     seedId: 'anthropic-fable', lifecycle: 'current', defaultEnabled: true,
     evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
   },
   {
-    id: 'claude-opus-5', name: 'Opus 5', description: 'Most capable (default)', tier: 'opus',
+    id: 'claude-opus-5', name: 'Opus 5', description: 'Most capable (default)',
     seedId: 'anthropic-opus-5', lifecycle: 'current', defaultEnabled: true,
     evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
   },
   {
-    id: 'claude-opus-4-8', name: 'Opus 4.8', description: 'Previous generation', tier: 'opus',
+    id: 'claude-opus-4-8', name: 'Opus 4.8', description: 'Previous generation',
     seedId: 'anthropic-opus-4-8', lifecycle: 'older', defaultEnabled: false,
     evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
   },
   {
-    id: 'claude-opus-4-7', name: 'Opus 4.7', description: 'Previous generation', tier: 'opus',
+    id: 'claude-opus-4-7', name: 'Opus 4.7', description: 'Previous generation',
     seedId: 'anthropic-opus-4-7', lifecycle: 'older', defaultEnabled: false,
     evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
   },
   {
-    id: 'claude-opus-4-6', name: 'Opus 4.6', description: 'Previous generation', tier: 'opus',
+    id: 'claude-opus-4-6', name: 'Opus 4.6', description: 'Previous generation',
     seedId: 'anthropic-opus', lifecycle: 'older', defaultEnabled: false,
     evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
   },
   {
-    id: 'claude-sonnet-5', name: 'Sonnet 5', description: 'Balanced', tier: 'sonnet',
+    id: 'claude-sonnet-5', name: 'Sonnet 5', description: 'Balanced',
     seedId: 'anthropic-sonnet', lifecycle: 'current', defaultEnabled: true,
     evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
   },
   {
-    id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', description: 'Fast & lightweight', tier: 'haiku',
+    id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', description: 'Fast & lightweight',
     seedId: 'anthropic-haiku', lifecycle: 'current', defaultEnabled: true,
     evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
   },
 ];
 export const DEFAULT_MODEL = 'claude-opus-5';
+
+/**
+ * Legacy bare shorthand → current built-in Anthropic model ID map.
+ *
+ * Old installations may have stored bare tier names ('fable', 'opus',
+ * 'sonnet', 'haiku') as session model values. This map translates those
+ * legacy values to exact model IDs for backward compatibility. It is
+ * NOT used for any runtime routing, default selection, or alias env
+ * pinning — those are all driven by exact model IDs and list order.
+ */
+export const LEGACY_BUILTIN_SHORTHAND_MAP = Object.freeze({
+  fable: 'claude-fable-5',
+  opus: 'claude-opus-5',
+  sonnet: 'claude-sonnet-5',
+  haiku: 'claude-haiku-4-5-20251001',
+});
 
 export const OPENAI_MODELS = [
   {

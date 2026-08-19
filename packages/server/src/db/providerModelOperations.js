@@ -13,7 +13,6 @@ const MODEL_UPDATE_COLUMN_BUILDERS = Object.freeze({
   modelId: (value) => ['model_id = ?', value],
   displayName: (value) => ['display_name = ?', value],
   description: (value) => ['description = ?', value],
-  tier: (value) => ['tier = ?', value],
   enabled: (value) => ['enabled = ?', value ? 1 : 0],
   sortOrder: (value) => ['sort_order = ?', value],
 });
@@ -39,7 +38,6 @@ export function mapProviderModel(row) {
     modelId: row.model_id,
     displayName: row.display_name,
     description: row.description,
-    tier: row.tier,
     enabled: row.enabled === 1,
     sortOrder: row.sort_order ?? null,
     lifecycle: row.lifecycle || 'current',
@@ -106,7 +104,7 @@ export function getHistoricalModel(db, providerId, modelId) {
  * canonical row.
  */
 export function addModel(db, providerId, data) {
-  const { modelId, displayName, description = null, tier = 'custom', enabled = true } = data;
+  const { modelId, displayName, description = null, enabled = true } = data;
 
   const active = db
     .prepare('SELECT id FROM provider_models WHERE provider_id = ? AND model_id = ? AND removed_at IS NULL')
@@ -126,9 +124,9 @@ export function addModel(db, providerId, data) {
     const sortOrder = data.sortOrder ?? nextSortOrder(db, providerId);
     db.prepare(
       `UPDATE provider_models
-       SET display_name = ?, description = ?, tier = ?, enabled = ?, sort_order = ?, removed_at = NULL
+       SET display_name = ?, description = ?, enabled = ?, sort_order = ?, removed_at = NULL
        WHERE id = ?`
-    ).run(displayName, description, tier, enabled ? 1 : 0, sortOrder, removed.id);
+    ).run(displayName, description, enabled ? 1 : 0, sortOrder, removed.id);
     return getModelById(db, removed.id);
   }
 
@@ -137,9 +135,9 @@ export function addModel(db, providerId, data) {
   const sortOrder = data.sortOrder ?? nextSortOrder(db, providerId);
 
   db.prepare(
-    `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, enabled, sort_order, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, providerId, modelId, displayName, description, tier, enabled ? 1 : 0, sortOrder, now);
+    `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, enabled, sort_order, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, providerId, modelId, displayName, description, enabled ? 1 : 0, sortOrder, now);
 
   return getModelById(db, id);
 }

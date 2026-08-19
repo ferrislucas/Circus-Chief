@@ -78,8 +78,8 @@ describe('provider-models-backfill-sort-order migration', () => {
       ).run('fixture-provider', 'Fixture Provider', now, now);
 
       const insert = db.prepare(
-        `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-         VALUES (?, ?, ?, ?, ?, 'custom', ?)`
+        `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
       );
       insert.run('zzz-first-inserted', 'fixture-provider', 'model-a', 'Model A', null, now);
       insert.run('mmm-second-inserted', 'fixture-provider', 'model-b', 'Model B', null, now);

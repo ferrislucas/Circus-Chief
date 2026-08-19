@@ -148,13 +148,13 @@ router.post('/:id/test', async (req, res) => {
       return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
     }
 
-    // Pick the sonnet-tiered model (if any) as the test model, falling back to any first model
-    const sonnetModel = provider.models?.find((m) => m.tier === 'sonnet');
+    // Use the first enabled model in repository/UI order as the test model
+    const firstEnabledModel = provider.models?.find((m) => m.enabled !== false);
     const testConfig = {
       kind: provider.kind || 'anthropic',
       baseUrl: provider.baseUrl,
       authToken: provider.authToken,
-      defaultSonnetModel: sonnetModel?.modelId,
+      testModel: firstEnabledModel?.modelId,
       apiTimeoutMs: provider.apiTimeoutMs,
     };
 

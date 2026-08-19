@@ -239,7 +239,7 @@ function validateAndFetchContinueContext(sessionId, conversationId) {
 function buildModelAndProvider(session, sessionId, model) {
   const effectiveModel = model || session.model;
   const provider = resolveProviderFromModel(effectiveModel);
-  const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
+  const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel, effectiveModel);
   const modelChanged = Boolean(model && session.model && model !== session.model);
 
   let updatedSession = session;
