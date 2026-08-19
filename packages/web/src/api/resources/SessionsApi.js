@@ -160,8 +160,8 @@ export function SessionsApi(ApiClient) {
      * @param {string} id - Session ID
      * @returns {Promise<Object>}
      */
-    async getSession(id) {
-      return this._get(`/sessions/${id}`);
+    async getSession(id, { signal } = {}) {
+      return this._get(`/sessions/${id}`, { signal });
     },
 
     /**

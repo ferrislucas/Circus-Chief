@@ -145,6 +145,7 @@
       v-if="activeTab === 'sessions'"
       :show-status-filters="true"
       :show-scheduled-filter="true"
+      :status-counts="workspaceList.facets"
     />
 
     <!-- Status/Starred Filters for Archived Tab -->
@@ -163,7 +164,7 @@
     <!-- Sessions Tab -->
     <div v-if="activeTab === 'sessions'">
       <div
-        v-if="sessionsStore.loading"
+        v-if="workspaceList.loading && workspaceList.cards.length === 0"
         class="skeleton-list"
       >
         <div
@@ -175,14 +176,15 @@
       </div>
 
       <div
-        v-else-if="sessionsStore.error"
+        v-else-if="workspaceList.error && workspaceList.cards.length === 0"
         class="error-message"
+        role="alert"
       >
-        {{ sessionsStore.error }}
+        {{ workspaceList.error }}
       </div>
 
       <div
-        v-else-if="sessionsStore.sessions.length === 0"
+        v-else-if="workspaceList.cards.length === 0 && !workspaceList.hasActiveFilters"
         class="empty-state"
       >
         <p>No workspaces yet. Start a new workspace to interact with the agent.</p>
@@ -195,7 +197,7 @@
       </div>
 
       <div
-        v-else-if="filteredGroupedSessions.length === 0"
+        v-else-if="workspaceList.cards.length === 0"
         class="empty-state"
       >
         <p>No workspaces match the current filter.</p>
@@ -205,37 +207,55 @@
         v-else
         class="session-list"
       >
+        <div
+          v-if="workspaceList.error"
+          class="error-message"
+          role="alert"
+        >
+          {{ workspaceList.error }}
+        </div>
         <template
-          v-for="group in filteredGroupedSessions"
-          :key="group.parent.id"
+          v-for="workspace in workspaceList.cards"
+          :key="workspace.id"
         >
           <SessionCard
-            :session="group.parent"
+            :session="workspace"
             :show-summary="true"
-            :summary="summaries[group.parent.id]"
-            :summary-loading="loadingSummaries[group.parent.id]"
-            :summary-error="summaryErrors[group.parent.id]"
+            :summary="workspace.summaryPreview ? { shortSummary: workspace.summaryPreview } : null"
+            :workflow-aggregate="workspace"
             :show-archive="true"
-            :pr-url="group.parent.prUrl"
-            :pr-summary="summaries[group.parent.id]"
-            @retry-summary="retryFetchSummary"
+            :pr-url="workspace.prUrl"
+            :pr-summary="workspacePrSummary(workspace)"
             @archive="handleArchive"
+            @star="handleStar"
             @add-to-board="handleAddToBoard"
             @visibility-change="handleCardVisibility"
           />
         </template>
+        <button
+          v-if="workspaceList.hasMore"
+          type="button"
+          class="btn btn-secondary"
+          :disabled="workspaceList.loadingMore"
+          @click="loadMoreWorkspaces"
+        >
+          {{ workspaceList.loadingMore ? 'Loading…' : 'Load more' }}
+        </button>
       </div>
     </div>
 
     <!-- Archived Tab -->
     <ArchivedTabContent
       v-if="activeTab === 'archived'"
-      :summaries="summaries"
-      :loading-summaries="loadingSummaries"
-      :summary-errors="summaryErrors"
-      @retry-summary="retryFetchSummary"
+      :workspaces="workspaceList.cards"
+      :loading="workspaceList.loading"
+      :loading-more="workspaceList.loadingMore"
+      :error="workspaceList.error"
+      :has-more="workspaceList.hasMore"
+      :total="workspaceList.total"
       @unarchive="handleUnarchive"
-      @load-more="loadMoreArchived"
+      @star="handleStar"
+      @load-more="loadMoreWorkspaces"
     />
 
     <!-- Commands Tab -->
@@ -296,11 +316,13 @@ import { useRoute, useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useKanbanStore } from '../stores/kanban.js';
-import { useSummaries } from '../composables/useSummaries.js';
-import { useSessionFiltering } from '../composables/useSessionFiltering.js';
-import { useProjectSessionSubscription } from '../composables/useProjectSessionSubscription.js';
+import { useWorkspaceListStore } from '../stores/workspaceList.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useRunningSessionSubscriptions } from '../composables/useRunningSessionSubscriptions.js';
+import { useWorkspaceListRealtime } from '../composables/useWorkspaceListRealtime.js';
+import { useKanbanRealtime } from '../composables/useKanbanRealtime.js';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
+import { workspacePrSummary } from '../utils/workspaceCard.js';
 import SessionCard from '../components/SessionCard.vue';
 import SessionFiltersPanel from '../components/SessionFiltersPanel.vue';
 import ArchivedTabContent from '../components/ArchivedTabContent.vue';
@@ -318,6 +340,8 @@ const router = useRouter();
 const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
 const kanbanStore = useKanbanStore();
+const workspaceList = useWorkspaceListStore();
+const commandButtonsStore = useCommandButtonsStore();
 const streamingStore = useSessionStreamingStore();
 
 streamingStore.restoreCollapsedLogState();
@@ -352,31 +376,19 @@ function handleTabChange(tab) {
 // Get projectId as computed to handle route changes
 const projectId = computed(() => route.params.id);
 
-// Use composable for summary management
-const {
-  summaries,
-  loadingSummaries,
-  summaryErrors,
-  fetchSummariesBatch,
-  retryFetchSummary,
-  updateSummary,
-  cleanupSummary,
-} = useSummaries();
-
-// Use composable for filtering (provides filteredGroupedSessions + filter toggles)
-const { filteredGroupedSessions } = useSessionFiltering();
-
 // A workflow is eligible only while the card is rendered, expanded, and in the
 // observer's prefetch margin. Keep this policy here so subscriptions stay pure.
 const cardVisibilityByRootId = ref({});
 const isRunningSession = session => ['running', 'starting'].includes(session.status);
-const workflowCardFromGroup = ({ parent }) => {
-  const rootSessionId = parent.id;
-  const members = sessionsStore.getWorkflowSessions(rootSessionId);
+const workflowCardFromCard = card => {
+  const rootSessionId = card.id;
   return {
     rootSessionId,
-    runningSessionIds: members.filter(isRunningSession).map(session => session.id),
-    memberIds: members.map(session => session.id),
+    // The card contract carries the running descendants, so list subscriptions
+    // follow the session producing output instead of an idle workspace root.
+    runningSessionIds: card.runningSessionIds?.length
+      ? card.runningSessionIds
+      : (isRunningSession(card) || card.runningCount > 0 ? [rootSessionId] : []),
     eligible: activeTab.value === 'sessions'
       && cardVisibilityByRootId.value[rootSessionId] !== false
       && !streamingStore.isSessionLogCollapsed(rootSessionId),
@@ -385,10 +397,8 @@ const workflowCardFromGroup = ({ parent }) => {
 const eligibleIdsFor = key => [...new Set(eligibleWorkflowCards.value
   .filter(card => card.eligible)
   .flatMap(card => card[key]))];
-const eligibleWorkflowCards = computed(() => filteredGroupedSessions.value
-  .map(({ parent }) => workflowCardFromGroup({ parent })));
+const eligibleWorkflowCards = computed(() => workspaceList.cards.map(workflowCardFromCard));
 const eligibleSessionIds = computed(() => eligibleIdsFor('runningSessionIds'));
-const eligibleCommandSessionIds = computed(() => eligibleIdsFor('memberIds'));
 
 useRunningSessionSubscriptions(eligibleSessionIds);
 
@@ -396,71 +406,65 @@ function handleCardVisibility(rootSessionId, visible) {
   cardVisibilityByRootId.value[rootSessionId] = visible;
 }
 
-watch(filteredGroupedSessions, groups => {
-  const rendered = new Set(groups.map(group => group.parent.id));
+watch(() => workspaceList.orderedIds, ids => {
+  const rendered = new Set(ids);
   for (const id of Object.keys(cardVisibilityByRootId.value)) {
     if (!rendered.has(id)) delete cardVisibilityByRootId.value[id];
   }
 }, { immediate: true });
 
-// Use composable for WebSocket subscription management
-const { archivedLoaded } = useProjectSessionSubscription(projectId, {
-  fetchSummariesBatch,
-  updateSummary,
-  cleanupSummary,
-}, { activeTab, eligibleCommandSessionIds });
+function workspaceQuery() {
+  const archived = activeTab.value === 'archived';
+  return {
+    archived,
+    starred: sessionsStore.starredFilter === 'starred' ? true : sessionsStore.starredFilter === 'unstarred' ? false : null,
+    status: archived ? null : sessionsStore.statusFilter,
+    scheduled: archived
+      ? null
+      : sessionsStore.scheduledFilter === 'scheduled'
+        ? true
+        : sessionsStore.scheduledFilter === 'not-scheduled' ? false : null,
+  };
+}
 
-// Watch for sessions changes and fetch summaries (debounced to avoid burst of API calls
-// when multiple WebSocket updates arrive in quick succession)
-let fetchSummariesTimer = null;
-watch(
-  () => sessionsStore.sessions,
-  () => {
-    clearTimeout(fetchSummariesTimer);
-    fetchSummariesTimer = setTimeout(() => {
-      fetchSummariesBatch(sessionsStore.sessions);
-    }, 400);
-  }
-);
+const listProjectId = computed(() => ['sessions', 'archived'].includes(activeTab.value)
+  ? projectId.value
+  : null);
 
-// Watch for route changes to load archived sessions when needed
-watch(
-  () => route.name,
-  async (newRouteName) => {
-    if (newRouteName === 'ArchivedSessions') {
-      await loadArchivedSessions();
+useWorkspaceListRealtime(listProjectId, (refreshProjectId) => {
+  if (workspaceList.projectId !== refreshProjectId) return;
+  return workspaceList.refresh();
+}, {
+  isRefreshInFlight: () => workspaceList.isRefreshInFlight(),
+  patchEvent: (event) => {
+    if (workspaceList.projectId !== listProjectId.value) return null;
+    if (event.kind === 'onSessionSummaryUpdated') return workspaceList.applySummaryEvent(event.sessionId, event.summary);
+    return workspaceList.applyCommandRunEvent(event);
+  },
+  refreshCard: (sessionId) => {
+    if (workspaceList.projectId !== listProjectId.value) return null;
+    return workspaceList.refreshCard(sessionId);
+  },
+});
+
+// Board realtime is project-scoped: the Kanban tab retains its own subscription
+// while the workspace list is tab-scoped. The shared subscription refcounts them.
+useKanbanRealtime(projectId);
+
+watch(projectId, (id) => {
+  if (!id) return;
+  Promise.resolve(projectsStore.fetchProject(id)).catch(() => {});
+  Promise.resolve(commandButtonsStore.fetchButtons(id)).catch(() => {});
+}, { immediate: true });
+
+watch([projectId, activeTab, () => sessionsStore.statusFilter,
+  () => sessionsStore.starredFilter, () => sessionsStore.scheduledFilter],
+  ([id, tab]) => {
+    if (id && ['sessions', 'archived'].includes(tab)) {
+      workspaceList.load(id, workspaceQuery()).catch(() => {});
     }
   },
-  { immediate: true }
-);
-
-// Watch for filter changes when archived tab is active
-watch(
-  () => sessionsStore.starredFilter,
-  async (newFilter, oldFilter) => {
-    if (
-      activeTab.value === 'archived' &&
-      archivedLoaded.value &&
-      newFilter !== oldFilter
-    ) {
-      await sessionsStore.fetchArchivedSessions(projectId.value, { reset: true });
-      fetchSummariesBatch(sessionsStore.archivedSessions);
-    }
-  }
-);
-
-async function loadArchivedSessions() {
-  if (!archivedLoaded.value) {
-    await sessionsStore.fetchArchivedSessions(projectId.value, { reset: true });
-    archivedLoaded.value = true;
-    fetchSummariesBatch(sessionsStore.archivedSessions);
-  }
-}
-
-async function loadMoreArchived() {
-  await sessionsStore.loadMoreArchivedSessions(projectId.value);
-  fetchSummariesBatch(sessionsStore.archivedSessions);
-}
+  { immediate: true });
 
 // Archive modal state
 const showArchiveModal = ref(false);
@@ -468,23 +472,37 @@ const sessionToArchive = ref(null);
 const archiving = ref(false);
 
 function handleArchive(sessionId) {
-  const session = sessionsStore.sessions.find(s => s.id === sessionId);
+  const session = workspaceList.cardsById?.[sessionId];
   sessionToArchive.value = session || { id: sessionId };
   showArchiveModal.value = true;
 }
 
-// The Kanban card (if any) for the session-to-archive's workflow. A card is keyed
-// to the workflow root, so resolve the root first and fall back to the session id
-// in case the ancestor chain isn't fully loaded in the store.
+async function handleStar({ id, starred }) {
+  const snapshot = workspaceList.applyOptimisticStar(id, starred);
+  try {
+    await sessionsStore.toggleSessionStar(id);
+  } catch (error) {
+    workspaceList.restoreOptimisticStar(snapshot);
+    uiStore.error(error.message || 'Failed to update star');
+    return;
+  }
+
+  try {
+    await workspaceList.refresh();
+  } catch (error) {
+    uiStore.error(error.message || 'Failed to refresh workspaces');
+  }
+}
+
 const archiveWorkflowCard = computed(() => {
+  const compactKanban = sessionToArchive.value?.kanban;
+  if (compactKanban) return { id: compactKanban.cardId, laneId: compactKanban.laneId };
   const sessionId = sessionToArchive.value?.id;
   if (!sessionId) return null;
   const rootId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
-  return (
-    kanbanStore.getCardBySessionId(rootId) ||
-    kanbanStore.getCardBySessionId(sessionId) ||
-    null
-  );
+  return kanbanStore.getCardBySessionId(rootId)
+    || kanbanStore.getCardBySessionId(sessionId)
+    || null;
 });
 
 const isArchiveSessionOnBoard = computed(() => Boolean(archiveWorkflowCard.value));
@@ -497,6 +515,7 @@ async function confirmArchive({ runCleanup, removeFromBoard } = {}) {
   const workflowCard = archiveWorkflowCard.value;
   try {
     await sessionsStore.archiveSession(sessionToArchive.value.id, { cleanup: runCleanup });
+    workspaceList.removeCard?.(sessionToArchive.value.id);
     uiStore.success('Session archived');
 
     if (removeFromBoard && workflowCard && archiveProjectId) {
@@ -509,6 +528,7 @@ async function confirmArchive({ runCleanup, removeFromBoard } = {}) {
   } catch (error) {
     uiStore.error(error.message || 'Failed to archive session');
   } finally {
+    workspaceList.refresh().catch(() => {});
     archiving.value = false;
     showArchiveModal.value = false;
     sessionToArchive.value = null;
@@ -523,9 +543,15 @@ function cancelArchive() {
 async function handleUnarchive(sessionId) {
   try {
     await sessionsStore.unarchiveSession(sessionId);
+    workspaceList.removeCard(sessionId);
+    workspaceList.refresh().catch(() => {});
   } catch (error) {
     console.error('Failed to unarchive session:', error);
   }
+}
+
+function loadMoreWorkspaces() {
+  workspaceList.loadMore().catch(() => {});
 }
 
 // Add to Board modal state
@@ -541,7 +567,17 @@ const currentLaneIdForSessionToAdd = computed(() => {
   return getLaneIdForSession(sessionToAdd.value.id);
 });
 
-function handleAddToBoard(session) {
+async function handleAddToBoard(session) {
+  // This is a secondary interaction: load the complete board only when the
+  // lane picker is actually opened, never on the list critical path.
+  if (!kanbanStore.board) {
+    try {
+      await kanbanStore.fetchBoard(route.params.id);
+    } catch (error) {
+      uiStore.error(error.message || 'Failed to load Kanban lanes');
+      return;
+    }
+  }
   sessionToAdd.value = session;
   showLaneSelectorModal.value = true;
 }
@@ -555,17 +591,22 @@ async function addSessionToLane(lane) {
   if (!sessionToAdd.value || !lane) return;
 
   try {
-    const existingCard = kanbanStore.getCardBySessionId(sessionToAdd.value.id);
+    const listCard = workspaceList.cardsById?.[sessionToAdd.value.id];
+    const existingCard = listCard
+      ? (listCard.kanban
+          ? { id: listCard.kanban.cardId, laneId: listCard.kanban.laneId }
+          : null)
+      : kanbanStore.getCardBySessionId(sessionToAdd.value.id);
     if (existingCard) {
       if (currentLaneIdForSessionToAdd.value === lane.id) return;
       await kanbanStore.moveCard(route.params.id, existingCard.id, lane.id);
       uiStore.success(`Session moved to "${lane.name}"`);
     } else {
-      const workspaceId = sessionsStore.getRootSession(sessionToAdd.value.id)?.id || sessionToAdd.value.id;
-      await kanbanStore.addSessionToBoard(route.params.id, workspaceId, lane.id);
+      await kanbanStore.addSessionToBoard(route.params.id, sessionToAdd.value.id, lane.id);
       uiStore.success(`Session added to "${lane.name}"`);
     }
     closeLaneSelectorModal();
+    workspaceList.refresh().catch(() => {});
   } catch (err) {
     console.error('Failed to update session board lane:', err);
     uiStore.error(err.message || 'Failed to update session board lane');
@@ -573,6 +614,8 @@ async function addSessionToLane(lane) {
 }
 
 function getLaneIdForSession(sessionId) {
+  const listCard = workspaceList.cardsById?.[sessionId];
+  if (listCard) return listCard.kanban?.laneId || null;
   const card = kanbanStore.getCardBySessionId(sessionId);
   if (!card) return null;
   if (card.laneId) return card.laneId;
@@ -594,17 +637,10 @@ onMounted(() => {
   sessionsStore.restoreStarredFilter();
   sessionsStore.restoreScheduledFilter();
 
-  // Fetch kanban board for SessionCard "Add to Board" button and lane indicators
-  const mountProjectId = route.params.id;
-  if (mountProjectId) {
-    kanbanStore.fetchBoard(mountProjectId).catch(err => {
-      console.warn('Failed to fetch kanban board:', err);
-    });
-  }
+  // Board data is deferred to the Kanban tab; card DTOs include their lane.
 });
 
-// Cleanup on unmount
 onUnmounted(() => {
-  clearTimeout(fetchSummariesTimer);
+  workspaceList.cancel();
 });
 </script>

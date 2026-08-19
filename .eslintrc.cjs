@@ -53,6 +53,17 @@ module.exports = {
       },
     },
     {
+      // These server lifecycle modules remain intentionally cohesive. Keep the
+      // narrowly-scoped size exemption visible in config, not inline.
+      files: [
+        'packages/server/src/db/SessionRepository.js',
+        'packages/server/src/services/commandRunner.js',
+      ],
+      rules: {
+        'max-lines': ['error', { max: 320, skipBlankLines: true, skipComments: true }],
+      },
+    },
+    {
       // Test files have relaxed rules - MUST come last to override other patterns
       files: ['**/*.test.js'],
       rules: {

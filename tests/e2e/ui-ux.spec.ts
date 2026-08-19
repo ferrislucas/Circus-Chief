@@ -459,8 +459,8 @@ test.describe('Loading States & Spinners', () => {
     // Navigate first and wait for initial load
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
-    // Set up route handler to delay archived sessions API AFTER initial navigation
-    await page.route('**/sessions**', async (route) => {
+    // Set up route handler to delay archived workspaces API AFTER initial navigation
+    await page.route('**/workspaces**', async (route) => {
       const url = route.request().url();
       if (url.includes('archived=true')) {
         await new Promise(r => setTimeout(r, 3000));

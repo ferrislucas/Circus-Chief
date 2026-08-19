@@ -14,6 +14,7 @@ import {
   DEFAULT_AGENT_TYPE,
   resolveAgentTypeFromModel,
 } from './session-helpers.js';
+import { getWorkspaceCardPage } from './workspace-queries.js';
 
 /**
  * Session repository class
@@ -159,6 +160,20 @@ export class SessionRepository extends BaseRepository {
     const params = [projectId];
     sql = applySessionFilters(sql, params, { archived, starred });
     return this.db.prepare(sql).get(...params).count;
+  }
+
+  /**
+   * Purpose-built list projection for workspace cards.  Unlike getRootsByProjectId,
+   * this deliberately selects a small allowlist and computes workflow state in one
+   * set-based query.  Keeping this here also prevents a future session column from
+   * accidentally becoming part of the list payload.
+   */
+  getWorkspaceCardPage(projectId, options = {}) {
+    return getWorkspaceCardPage(this.db, projectId, options);
+  }
+
+  getWorkspaceCard(projectId, rootId) {
+    return getWorkspaceCardPage(this.db, projectId, { rootId, limit: 1 }).cards[0] || null;
   }
 
   /** Get count of sessions for a project with optional archived/starred filters */

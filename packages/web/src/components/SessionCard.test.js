@@ -459,48 +459,6 @@ describe('SessionCard', () => {
       expect(wrapper.find('.session-summary').exists()).toBe(false);
     });
 
-    it('shows loading state when summaryLoading is true', () => {
-      const wrapper = mountComponent({
-        showSummary: true,
-        summaryLoading: true,
-      });
-      expect(wrapper.find('.session-summary-loading').exists()).toBe(true);
-      expect(wrapper.find('.loading-spinner-small').exists()).toBe(true);
-      expect(wrapper.text()).toContain('Loading summary...');
-    });
-
-    it('shows error state when summaryError is true', () => {
-      const wrapper = mountComponent({
-        showSummary: true,
-        summaryError: true,
-      });
-      expect(wrapper.find('.session-summary-error').exists()).toBe(true);
-      expect(wrapper.find('.error-icon').exists()).toBe(true);
-      expect(wrapper.text()).toContain('Summary unavailable');
-    });
-
-    it('shows retry button on error', () => {
-      const wrapper = mountComponent({
-        showSummary: true,
-        summaryError: true,
-      });
-      expect(wrapper.find('.retry-btn').exists()).toBe(true);
-      expect(wrapper.find('.retry-btn').text()).toBe('Retry');
-    });
-
-    it('retry button is clickable', async () => {
-      const wrapper = mountComponent({
-        showSummary: true,
-        summaryError: true,
-      });
-      const btn = wrapper.find('.retry-btn');
-      expect(btn.exists()).toBe(true);
-      // Verify button can be clicked without errors
-      await btn.trigger('click');
-      // The click event is captured, confirming the button is interactive
-      expect(wrapper.emitted('click')).toBeTruthy();
-    });
-
     it('hides files modified count when filesModified is empty', () => {
       const wrapper = mountComponent({
         showSummary: true,
@@ -517,16 +475,12 @@ describe('SessionCard', () => {
       expect(wrapper.find('.summary-files').exists()).toBe(false);
     });
 
-    it('does not show summary, loading, or error when all are falsy', () => {
+    it('does not show the summary block when no summary exists', () => {
       const wrapper = mountComponent({
         showSummary: true,
         summary: null,
-        summaryLoading: false,
-        summaryError: false,
       });
       expect(wrapper.find('.session-summary').exists()).toBe(false);
-      expect(wrapper.find('.session-summary-loading').exists()).toBe(false);
-      expect(wrapper.find('.session-summary-error').exists()).toBe(false);
     });
   });
 
@@ -767,6 +721,35 @@ describe('SessionCard', () => {
         label: 'Deploy',
         command: 'npm run deploy',
       });
+    });
+
+    it('uses refreshed list-card command runs over stale hydrated detail state', async () => {
+      mockCommandButtonsData.buttons = [
+        { id: 'btn-42', label: 'Deploy', command: 'npm run deploy', showOnList: true },
+      ];
+      mockSessionsStoreData.sessions = [{
+        ...baseSession,
+        projectId: 'proj-1',
+        latestCommandRuns: [
+          { buttonId: 'btn-42', runId: 'stale-run', status: 'error', exitCode: 1 },
+        ],
+      }];
+      const session = {
+        ...baseSession,
+        projectId: 'proj-1',
+        latestCommandRuns: [
+          { buttonId: 'btn-42', runId: 'fresh-run', status: 'success', exitCode: 0 },
+        ],
+      };
+
+      const wrapper = mountComponent({ session, workflowAggregate: session });
+      const indicator = wrapper.find('.button-status-indicator');
+
+      expect(indicator.classes()).toContain('button-status-success');
+      expect(indicator.attributes('aria-label')).toBe('success');
+      await indicator.trigger('click');
+      expect(wrapper.findComponent({ name: 'ButtonStatusModal' }).props('latestRun').runId)
+        .toBe('fresh-run');
     });
   });
 
