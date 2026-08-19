@@ -522,8 +522,18 @@ export async function handleStreamEvent(sessionId, event) {
  * Called in the finally block of session execution
  * @param {string} sessionId
  * @param {boolean} includeConversationId - Whether to also clean up activeConversationIds
+ * @param {AbortController|null} expectedController - When provided, only clean up
+ *   if this execution still owns the session's active state
+ * @returns {boolean} Whether state was cleaned up
  */
-export function cleanupSessionState(sessionId, includeConversationId = false) {
+export function cleanupSessionState(sessionId, includeConversationId = false, expectedController = null) {
+  // A stopped execution can still be unwinding after a replacement execution
+  // has registered itself. Its finally block must not erase the replacement's
+  // controller or any of the replacement turn's session-scoped state.
+  if (expectedController && activeSessions.get(sessionId)?.controller !== expectedController) {
+    return false;
+  }
+
   // A parked SDK callback owns a live promise. Settling it before clearing
   // execution state prevents it from surviving a completed/failed turn.
   cancelPrompt(sessionId);
@@ -537,6 +547,7 @@ export function cleanupSessionState(sessionId, includeConversationId = false) {
   if (includeConversationId) {
     activeConversationIds.delete(sessionId);
   }
+  return true;
 }
 
 // Re-export callback functions from streamEventCallbacks.js

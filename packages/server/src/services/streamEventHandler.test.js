@@ -383,6 +383,45 @@ describe('streamEventHandler', () => {
       expect(textAccumulators.has('sess-2')).toBe(true);
       expect(activeSessions.has('sess-2')).toBe(true);
     });
+
+    it('does not let an old execution clean up replacement execution state', () => {
+      const oldController = new AbortController();
+      const replacementController = new AbortController();
+      textAccumulators.set('sess-1', 'replacement text');
+      thinkingAccumulators.set('sess-1', 'replacement thinking');
+      currentModels.set('sess-1', 'replacement-model');
+      loggedToolUseIds.set('sess-1', new Set(['replacement-tool']));
+      finalErrorSessionIds.add('sess-1');
+      finalResultEvents.set('sess-1', { subtype: 'success' });
+      activeConversationIds.set('sess-1', 'replacement-conversation');
+      activeSessions.set('sess-1', { controller: replacementController });
+
+      const cleaned = cleanupSessionState('sess-1', true, oldController);
+
+      expect(cleaned).toBe(false);
+      expect(activeSessions.get('sess-1')?.controller).toBe(replacementController);
+      expect(textAccumulators.get('sess-1')).toBe('replacement text');
+      expect(thinkingAccumulators.get('sess-1')).toBe('replacement thinking');
+      expect(currentModels.get('sess-1')).toBe('replacement-model');
+      expect(loggedToolUseIds.get('sess-1')).toEqual(new Set(['replacement-tool']));
+      expect(finalErrorSessionIds.has('sess-1')).toBe(true);
+      expect(finalResultEvents.get('sess-1')).toEqual({ subtype: 'success' });
+      expect(activeConversationIds.get('sess-1')).toBe('replacement-conversation');
+    });
+
+    it('cleans up state when the expected controller still owns the session', () => {
+      const controller = new AbortController();
+      textAccumulators.set('sess-1', 'some text');
+      activeConversationIds.set('sess-1', 'conv-1');
+      activeSessions.set('sess-1', { controller });
+
+      const cleaned = cleanupSessionState('sess-1', true, controller);
+
+      expect(cleaned).toBe(true);
+      expect(textAccumulators.has('sess-1')).toBe(false);
+      expect(activeSessions.has('sess-1')).toBe(false);
+      expect(activeConversationIds.has('sess-1')).toBe(false);
+    });
   });
 
   // ── handleTurnCompletion ──────────────────────────────────────────────

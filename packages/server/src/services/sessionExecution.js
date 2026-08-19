@@ -106,7 +106,7 @@ export async function _executeSession({
   const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded } = callbacks; const workflowTurn = beginWorkflowTurn(sessionId);
   // Last ownership fence before the irreversible provider call.
   if (!interactive && !workflowTurn && !activeLaneRunOwnsSession(sessionId)) {
-    cleanupSessionState(sessionId, cleanupConversationId);
+    cleanupSessionState(sessionId, cleanupConversationId, controller);
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
   try {
@@ -157,7 +157,7 @@ export async function _executeSession({
     closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message);
     throw error;
   } finally {
-    cleanupSessionState(sessionId, cleanupConversationId);
+    cleanupSessionState(sessionId, cleanupConversationId, controller);
   }
 }
 
