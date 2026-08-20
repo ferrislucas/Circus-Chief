@@ -685,7 +685,7 @@ describe('ModelSelector', () => {
       expect(labels[1]).toContain('Custom Anthropic');
     });
 
-    it('resolves defaultModel to built-in Anthropic sonnet even when Codex providers exist', async () => {
+    it('resolves defaultModel to the first enabled built-in Anthropic model even when Codex providers exist', async () => {
       const localProvidersStore = useProvidersStore();
       localProvidersStore.providers = [
         {
@@ -715,7 +715,7 @@ describe('ModelSelector', () => {
       await flushAll(wrapper);
 
       const select = wrapper.find('select');
-      expect(select.element.value).toBe(optionValue('anthropic-default', 'claude-sonnet-5'));
+      expect(select.element.value).toBe(optionValue('anthropic-default', 'claude-haiku-4-5-20251001'));
     });
 
     it('keeps Anthropic as the default when both official providers exist', async () => {
@@ -1217,9 +1217,9 @@ describe('ModelSelector', () => {
       const wrapper = mountComponent({ modelValue: ORPHAN });
       await flushAll(wrapper);
       const select = wrapper.find('select');
-      // Default (sonnet) is shown purely so the dropdown isn't empty; the badge
+      // The first enabled model is shown purely so the dropdown isn't empty; the badge
       // flags that the stored value is actually an orphan.
-      expect(select.element.value).toBe(optionValue('anthropic-default', 'claude-sonnet-5'));
+      expect(select.element.value).toBe(optionValue('anthropic-default', 'claude-haiku-4-5-20251001'));
     });
 
     it('lets the user pick a replacement, which clears the badge once the parent accepts it', async () => {

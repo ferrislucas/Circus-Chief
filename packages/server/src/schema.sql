@@ -57,7 +57,6 @@ CREATE TABLE IF NOT EXISTS provider_models (
   model_id TEXT NOT NULL,
   display_name TEXT NOT NULL,
   description TEXT,
-  tier TEXT CHECK(tier IN ('fable', 'opus', 'sonnet', 'haiku', 'custom')),
   enabled INTEGER NOT NULL DEFAULT 1,
   sort_order INTEGER,
   lifecycle TEXT NOT NULL DEFAULT 'current',

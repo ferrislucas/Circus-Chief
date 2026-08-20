@@ -43,7 +43,7 @@ export function isBuiltInCodexResolution(resolution) {
 
 function callAnthropicSummaryModel({ prompt, recentMessages, sessionStatus, resolution, options }) {
   const providerEnv = resolution.provider && !resolution.provider.isBuiltIn
-    ? { ...process.env, ...buildProviderEnv(resolution.provider) }
+    ? { ...process.env, ...buildProviderEnv(resolution.provider, resolution.model) }
     : null;
 
   return callClaude(prompt, recentMessages, sessionStatus, {

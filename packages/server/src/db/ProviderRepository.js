@@ -2,6 +2,7 @@ import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { normalizeCommitAttributionOverride } from '@circuschief/shared/contracts/providers';
+import { LEGACY_BUILTIN_SHORTHAND_MAP } from '@circuschief/shared';
 import * as modelOps from './providerModelOperations.js';
 
 /**
@@ -13,11 +14,11 @@ import * as modelOps from './providerModelOperations.js';
 export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai', 'google']);
 
 /**
- * Model tier aliases handled directly by the Claude SDK. These are matched
- * case-insensitively and are always considered valid model ids in addition to
- * whatever lives in the `provider_models` table.
+ * Legacy bare shorthand values that old installations may have stored.
+ * These are recognized for backward compatibility only — they are NOT
+ * advertised as valid model IDs at API boundaries.
  */
-export const MODEL_TIER_ALIASES = Object.freeze(['fable', 'opus', 'sonnet', 'haiku']);
+const LEGACY_SHORTHAND_VALUES = Object.freeze(Object.keys(LEGACY_BUILTIN_SHORTHAND_MAP));
 
 /**
  * Mapping from provider kind to the agent adapter that should drive sessions
@@ -320,8 +321,8 @@ export class ProviderRepository extends BaseRepository {
   getProviderByModelId(modelId) {
     if (!modelId) return null;
 
-    // Tier names (sonnet, opus, haiku) are handled by the SDK — no custom provider needed
-    if (MODEL_TIER_ALIASES.includes(modelId.toLowerCase())) {
+    // Legacy shorthand values are handled by the built-in Anthropic provider
+    if (LEGACY_SHORTHAND_VALUES.includes(modelId.toLowerCase())) {
       return null;
     }
 
@@ -367,7 +368,7 @@ export class ProviderRepository extends BaseRepository {
   getProviderMetadataByModelId(modelId) {
     if (!modelId) return null;
 
-    if (MODEL_TIER_ALIASES.includes(modelId.toLowerCase())) {
+    if (LEGACY_SHORTHAND_VALUES.includes(modelId.toLowerCase())) {
       return this.getById('anthropic-default');
     }
 
@@ -385,9 +386,9 @@ export class ProviderRepository extends BaseRepository {
 
   /**
    * Enumerate every valid model id: the distinct `model_id` values from the
-   * `provider_models` table (built-in + user-registered) unioned with the
-   * SDK-handled tier aliases. Returned sorted and de-duplicated. This is the
-   * single source of truth for "is this model id valid?" checks.
+   * `provider_models` table (built-in + user-registered). Returned sorted
+   * and de-duplicated. This is the single source of truth for "is this
+   * model id valid?" checks at API boundaries.
    *
    * @returns {string[]} Sorted distinct list of valid model ids
    */
@@ -396,9 +397,6 @@ export class ProviderRepository extends BaseRepository {
       .prepare('SELECT DISTINCT model_id FROM provider_models')
       .all();
     const ids = new Set(rows.map((row) => row.model_id));
-    for (const alias of MODEL_TIER_ALIASES) {
-      ids.add(alias);
-    }
     return Array.from(ids).sort();
   }
 

@@ -79,7 +79,6 @@ describe('Providers API', () => {
       const opus5 = anthropic.models.find((model) => model.modelId === 'claude-opus-5');
       expect(opus5).toMatchObject({
         displayName: 'Opus 5',
-        tier: 'opus',
         lifecycle: 'current',
         enabled: true,
       });
@@ -87,7 +86,6 @@ describe('Providers API', () => {
       const opus48 = anthropic.models.find((model) => model.modelId === 'claude-opus-4-8');
       expect(opus48).toMatchObject({
         displayName: 'Opus 4.8',
-        tier: 'opus',
         lifecycle: 'older',
         enabled: false,
       });
@@ -200,7 +198,7 @@ describe('Providers API', () => {
 
       expect(response.body.modelId).toBe('updated-sonnet-v2');
       expect(response.body.displayName).toBe('Test Sonnet');
-      expect(response.body.tier).toBe('sonnet');
+      expect(response.body.tier).toBeUndefined();
     });
 
     it('200: updates multiple fields at once', async () => {
@@ -209,13 +207,12 @@ describe('Providers API', () => {
         .send({
           modelId: 'new-model-id',
           displayName: 'New Display Name',
-          tier: 'opus',
         })
         .expect(200);
 
       expect(response.body.modelId).toBe('new-model-id');
       expect(response.body.displayName).toBe('New Display Name');
-      expect(response.body.tier).toBe('opus');
+      expect(response.body.tier).toBeUndefined();
     });
 
     it('200: returns model unchanged when updating with empty object', async () => {
@@ -226,7 +223,7 @@ describe('Providers API', () => {
 
       expect(response.body.modelId).toBe('test-sonnet-v1');
       expect(response.body.displayName).toBe('Test Sonnet');
-      expect(response.body.tier).toBe('sonnet');
+      expect(response.body.tier).toBeUndefined();
     });
 
     it('404: provider not found', async () => {
@@ -281,14 +278,13 @@ describe('Providers API', () => {
       expect(response.body.error).toBeDefined();
     });
 
-    it('400: invalid request body (Zod validation - invalid tier)', async () => {
+    it('200: ignores a legacy tier field', async () => {
       const response = await request(app)
         .patch(`/api/providers/${testProviderId}/models/${testModelId}`)
         .send({ tier: 'invalid-tier' })
-        .expect(400);
+        .expect(200);
 
-      expect(response.body.error).toBeDefined();
-      expect(response.body.error).toMatch(/tier|Invalid option/);
+      expect(response.body.tier).toBeUndefined();
     });
 
     it('400: invalid request body (Zod validation - empty modelId)', async () => {
@@ -334,7 +330,7 @@ describe('Providers API', () => {
 
       expect(response.body.modelId).toBe('new-sonnet-model');
       expect(response.body.displayName).toBe('New Sonnet');
-      expect(response.body.tier).toBe('sonnet');
+      expect(response.body.tier).toBeUndefined();
       expect(response.body.id).toBeDefined();
 
       // Verify model exists in database
@@ -359,9 +355,8 @@ describe('Providers API', () => {
       const response = await request(app)
         .post(`/api/providers/${testProviderId}/models`)
         .send({
-          modelId: 'ab', // Too short
+          modelId: '', // Empty model ID
           displayName: 'Test',
-          tier: 'invalid-tier',
         })
         .expect(400);
 
@@ -436,7 +431,7 @@ describe('Providers API', () => {
           kind: 'anthropic',
           baseUrl: 'https://api.anthropic.com',
           authToken: 'sk-ant-test',
-          defaultSonnetModel: 'claude-sonnet-4',
+          testModel: 'claude-sonnet-4',
         })
         .expect(200);
 
@@ -446,7 +441,7 @@ describe('Providers API', () => {
       expect(calledWith.kind).toBe('anthropic');
       expect(calledWith.baseUrl).toBe('https://api.anthropic.com');
       expect(calledWith.authToken).toBe('sk-ant-test');
-      expect(calledWith.defaultSonnetModel).toBe('claude-sonnet-4');
+      expect(calledWith.testModel).toBe('claude-sonnet-4');
     });
 
     it('200: forwards openai kind to providerTestService', async () => {
@@ -456,7 +451,7 @@ describe('Providers API', () => {
           kind: 'openai',
           baseUrl: 'https://api.openai.com/v1',
           authToken: 'sk-openai-test',
-          defaultSonnetModel: 'gpt-5-codex',
+          testModel: 'gpt-5-codex',
         })
         .expect(200);
 
@@ -466,7 +461,7 @@ describe('Providers API', () => {
       expect(calledWith.kind).toBe('openai');
       expect(calledWith.baseUrl).toBe('https://api.openai.com/v1');
       expect(calledWith.authToken).toBe('sk-openai-test');
-      expect(calledWith.defaultSonnetModel).toBe('gpt-5-codex');
+      expect(calledWith.testModel).toBe('gpt-5-codex');
     });
 
     it('400: rejects request when kind is missing', async () => {
@@ -550,7 +545,7 @@ describe('Providers API', () => {
       expect(calledWith.kind).toBe('anthropic');
       expect(calledWith.baseUrl).toBe('https://api.anthropic.com');
       expect(calledWith.authToken).toBe('sk-ant-stored');
-      expect(calledWith.defaultSonnetModel).toBe('claude-sonnet-4-stored');
+      expect(calledWith.testModel).toBe('claude-sonnet-4-stored');
     });
 
     it('200: forwards stored provider kind (openai) to providerTestService', async () => {
@@ -575,7 +570,7 @@ describe('Providers API', () => {
       expect(calledWith.kind).toBe('openai');
       expect(calledWith.baseUrl).toBe('https://api.openai.com/v1');
       expect(calledWith.authToken).toBe('sk-openai-stored');
-      expect(calledWith.defaultSonnetModel).toBe('gpt-5-codex-stored');
+      expect(calledWith.testModel).toBe('gpt-5-codex-stored');
     });
 
     it('200: defaults kind to anthropic when stored provider has no kind', async () => {

@@ -137,7 +137,7 @@ function validateProviders(actualDb, errors) {
 function validateProviderModels(actualDb, errors) {
   for (const model of [...BUILT_IN_ANTHROPIC_MODELS, ...BUILT_IN_OPENAI_MODELS]) {
     const row = actualDb.prepare(
-      'SELECT provider_id, model_id, display_name, description, tier FROM provider_models WHERE id = ?'
+      'SELECT provider_id, model_id, display_name, description FROM provider_models WHERE id = ?'
     ).get(model.id);
     if (!row) {
       errors.push(`Missing provider model seed row: ${model.id}`);
@@ -148,7 +148,6 @@ function validateProviderModels(actualDb, errors) {
       model_id: model.modelId,
       display_name: model.displayName,
       description: model.description,
-      tier: model.tier,
     };
     if (JSON.stringify(row) !== JSON.stringify(expected)) {
       errors.push(`Provider model seed mismatch: ${model.id}`);

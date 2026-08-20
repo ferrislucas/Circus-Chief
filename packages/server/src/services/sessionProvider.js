@@ -26,7 +26,7 @@ export function resolveProviderMetadataFromModel(modelId) {
  * Uses the owning provider's kind:
  *   - anthropic → claude-code
  *   - openai    → codex
- * Falls back to 'claude-code' for null / unknown / tier-name inputs.
+ * Falls back to 'claude-code' for null, unknown, or legacy shorthand inputs.
  * @param {string|null} modelId
  * @returns {string} 'claude-code' | 'codex'
  */
@@ -52,9 +52,10 @@ export function resolveAgentTypeFromModel(modelId) {
  * Providers without a `kind` field default to Anthropic behavior for
  * backward compatibility.
  * @param {Object|null} provider - Provider object
+ * @param {string|null} [selectedModelId] - The session's selected model ID
  * @returns {Object} Environment variables to add to session env
  */
-export function buildProviderEnv(provider) {
+export function buildProviderEnv(provider, selectedModelId = null) {
   if (!provider) {
     console.log('[SessionManager] buildProviderEnv: No provider, using SDK defaults');
     return {}; // Use SDK defaults
@@ -65,7 +66,7 @@ export function buildProviderEnv(provider) {
     ? buildOpenAIProviderEnv(provider)
     : kind === 'google'
       ? buildGoogleProviderEnv(provider)
-      : buildAnthropicProviderEnv(provider);
+      : buildAnthropicProviderEnv(provider, selectedModelId);
 
   if (provider.apiTimeoutMs) {
     env.API_TIMEOUT_MS = String(provider.apiTimeoutMs);
@@ -94,30 +95,25 @@ function buildOpenAIProviderEnv(provider) {
   return env;
 }
 
-function buildAnthropicProviderEnv(provider) {
+function buildAnthropicProviderEnv(provider, selectedModelId = null) {
   const env = {};
   if (provider.baseUrl) env.ANTHROPIC_BASE_URL = provider.baseUrl;
   if (provider.authToken) {
     env.ANTHROPIC_API_KEY = provider.authToken;
     env.ANTHROPIC_AUTH_TOKEN = provider.authToken;
   }
-  addAnthropicModelEnv(env, provider.models);
-  return env;
-}
-
-function addAnthropicModelEnv(env, models) {
-  if (!Array.isArray(models)) return;
-  const target = env;
-  const tiers = {
-    fable: 'ANTHROPIC_DEFAULT_FABLE_MODEL',
-    opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
-    sonnet: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
-    haiku: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
-  };
-  for (const [tier, envKey] of Object.entries(tiers)) {
-    const model = models.find((entry) => entry.tier === tier);
-    if (model) target[envKey] = model.modelId;
+  // For custom (non-built-in) Anthropic-compatible providers, pin every
+  // Claude Code family alias to the session's exact selected model so
+  // Claude Code or a subprocess cannot silently switch away.
+  // For the built-in Anthropic provider, let the Claude runtime use its
+  // native model handling — no alias overrides needed.
+  if (selectedModelId && !provider.isBuiltIn) {
+    env.ANTHROPIC_DEFAULT_FABLE_MODEL = selectedModelId;
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL = selectedModelId;
+    env.ANTHROPIC_DEFAULT_SONNET_MODEL = selectedModelId;
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL = selectedModelId;
   }
+  return env;
 }
 
 function logProviderEnv(provider, kind, env) {
@@ -165,11 +161,12 @@ function logProviderEnv(provider, kind, env) {
  * @param {Object|null} provider - Provider object or null for agent defaults
  * @param {boolean} thinkingEnabled - Whether thinking mode is enabled
  * @param {string|null} effortLevel - Optional effort level
+ * @param {string|null} selectedModelId - The session's resolved model ID (for custom Anthropic alias pinning)
  * @returns {Object}
  */
-export function buildSessionEnv(provider, thinkingEnabled = false, effortLevel = null) {
+export function buildSessionEnv(provider, thinkingEnabled = false, effortLevel = null, selectedModelId = null) {
   const baseEnv = createRobustEnv(process.env);
-  const providerEnv = buildProviderEnv(provider);
+  const providerEnv = buildProviderEnv(provider, selectedModelId);
 
   // Combine all env vars
   const sessionEnv = {

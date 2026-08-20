@@ -2,7 +2,7 @@
   <div class="models-section">
     <div class="models-header">
       <span class="models-title">Models</span>
-      <span class="models-hint">Assign tiers to map provider models to Opus / Sonnet / Haiku roles</span>
+      <span class="models-hint">Order controls default selection. First enabled model is the default.</span>
     </div>
 
     <div
@@ -12,7 +12,6 @@
       <div class="model-row model-row-header">
         <span class="col-model-id">Model ID</span>
         <span class="col-display-name">Display Name</span>
-        <span class="col-tier">Tier</span>
         <span class="col-actions">Controls</span>
       </div>
       <div
@@ -31,29 +30,9 @@
         <input
           v-model="model.displayName"
           type="text"
-          placeholder="My Sonnet"
+          placeholder="My Model"
           class="col-display-name model-input"
         >
-        <select
-          v-model="model.tier"
-          class="col-tier model-input tier-select"
-        >
-          <option value="opus">
-            Opus
-          </option>
-          <option value="fable">
-            Fable
-          </option>
-          <option value="sonnet">
-            Sonnet
-          </option>
-          <option value="haiku">
-            Haiku
-          </option>
-          <option value="custom">
-            Custom
-          </option>
-        </select>
         <div class="col-actions model-controls">
           <button
             type="button"
@@ -154,7 +133,7 @@ defineEmits(['add', 'remove', 'move-up', 'move-down']);
 
 .model-row {
   display: grid;
-  grid-template-columns: 1fr 10rem 6.5rem 10rem;
+  grid-template-columns: 1fr 10rem 10rem;
   gap: 0.5rem;
   align-items: center;
   margin-bottom: 0.375rem;
@@ -183,11 +162,6 @@ defineEmits(['add', 'remove', 'move-up', 'move-down']);
 .model-input:focus {
   outline: none;
   border-color: var(--color-primary);
-}
-
-.tier-select {
-  appearance: auto;
-  cursor: pointer;
 }
 
 .remove-model-btn {

@@ -7,9 +7,9 @@ describe('validateModelId', () => {
     expect(validateModelId('gpt-5.6-sol')).toEqual({ value: 'gpt-5.6-sol' });
   });
 
-  it('accepts tier aliases case-insensitively', () => {
-    expect(validateModelId('opus')).toEqual({ value: 'opus' });
-    expect(validateModelId('OpUs')).toEqual({ value: 'OpUs' });
+  it('rejects tier aliases', () => {
+    expect(validateModelId('opus').error).toContain('Invalid model id');
+    expect(validateModelId('OpUs').error).toContain('Invalid model id');
   });
 
   it('accepts null, undefined, and empty string by default', () => {
@@ -28,7 +28,7 @@ describe('validateModelId', () => {
     expect(result.error).toContain('Invalid model id "not-a-real-model"');
     expect(result.error).toContain('Valid model ids are:');
     expect(result.error).toContain('gpt-5.6-sol');
-    expect(result.error).toContain('opus');
+    expect(result.error).not.toContain(', opus');
   });
 
   it('lists disabled built-in gpt-5.5 as a valid historical model id', () => {
@@ -44,10 +44,10 @@ describe('validateModelId', () => {
     const now = Date.now();
     modelProviders.db
       .prepare(
-        `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
       )
-      .run('openai-legacy-validation-test', 'openai-default', 'gpt-legacy-validation-test', 'GPT Legacy', 'Retired', 'custom', now);
+      .run('openai-legacy-validation-test', 'openai-default', 'gpt-legacy-validation-test', 'GPT Legacy', 'Retired', now);
 
     try {
       expect(validateModelId('gpt-legacy-validation-test')).toEqual({ value: 'gpt-legacy-validation-test' });
@@ -66,7 +66,6 @@ describe('validateModelId', () => {
     modelProviders.addModel(provider.id, {
       modelId: 'custom-model-validation-test',
       displayName: 'Custom Model',
-      tier: 'custom',
     });
 
     try {

@@ -22,7 +22,7 @@ export const BUILT_IN_GOOGLE_PROVIDER = {
 
 export const BUILT_IN_ANTHROPIC_MODELS = CLAUDE_MODELS.map((model) => ({
   id: model.seedId, providerId: BUILT_IN_ANTHROPIC_PROVIDER.id,
-  modelId: model.id, displayName: model.name, description: model.description, tier: model.tier,
+  modelId: model.id, displayName: model.name, description: model.description,
 }));
 
 export const BUILT_IN_OPENAI_MODELS = OPENAI_MODELS.map((model) => ({
@@ -31,7 +31,6 @@ export const BUILT_IN_OPENAI_MODELS = OPENAI_MODELS.map((model) => ({
   modelId: model.id,
   displayName: model.name,
   description: model.description,
-  tier: 'custom',
 }));
 
 export const BUILT_IN_GOOGLE_MODELS = GEMINI_MODELS.map((model) => ({
@@ -40,7 +39,6 @@ export const BUILT_IN_GOOGLE_MODELS = GEMINI_MODELS.map((model) => ({
   modelId: model.id,
   displayName: model.name,
   description: model.description,
-  tier: 'custom',
 }));
 
 function seedBuiltInProviders(db) {
@@ -69,9 +67,9 @@ function seedBuiltInProviders(db) {
 
   const insertModel = db.prepare(
     `INSERT OR IGNORE INTO provider_models (
-       id, provider_id, model_id, display_name, description, tier, created_at
+       id, provider_id, model_id, display_name, description, created_at
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?)`
   );
 
   // Note: Google provider and models are NOT seeded here because seedBaselineData
@@ -82,7 +80,7 @@ function seedBuiltInProviders(db) {
   // migration handles seeding Google for both fresh and existing databases after
   // the 'providers-widen-kind-check-google' migration has widened the CHECK constraint.
   for (const model of [...BUILT_IN_ANTHROPIC_MODELS, ...BUILT_IN_OPENAI_MODELS]) {
-    insertModel.run(model.id, model.providerId, model.modelId, model.displayName, model.description, model.tier, now);
+    insertModel.run(model.id, model.providerId, model.modelId, model.displayName, model.description, now);
   }
 }
 

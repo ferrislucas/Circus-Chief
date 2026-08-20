@@ -65,7 +65,6 @@ describe('CLAUDE_MODELS', () => {
     expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-5')).toMatchObject({
       name: 'Opus 5',
       description: 'Most capable (default)',
-      tier: 'opus',
       seedId: 'anthropic-opus-5',
       lifecycle: 'current',
       defaultEnabled: true,
@@ -75,7 +74,6 @@ describe('CLAUDE_MODELS', () => {
   it('retains claude-opus-4-8 as an older, disabled-by-default choice (not removed or renamed)', () => {
     expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-8')).toMatchObject({
       name: 'Opus 4.8',
-      tier: 'opus',
       seedId: 'anthropic-opus-4-8',
       lifecycle: 'older',
       defaultEnabled: false,
