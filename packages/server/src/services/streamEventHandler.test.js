@@ -422,6 +422,31 @@ describe('streamEventHandler', () => {
       expect(activeSessions.has('sess-1')).toBe(false);
       expect(activeConversationIds.has('sess-1')).toBe(false);
     });
+
+    it('still cleans up when the owner already deregistered (stopSession path)', () => {
+      const controller = new AbortController();
+      textAccumulators.set('sess-1', 'partial text');
+      thinkingAccumulators.set('sess-1', 'partial thinking');
+      currentModels.set('sess-1', 'some-model');
+      loggedToolUseIds.set('sess-1', new Set(['tool-1']));
+      finalErrorSessionIds.add('sess-1');
+      finalResultEvents.set('sess-1', { subtype: 'error' });
+      activeConversationIds.set('sess-1', 'conv-1');
+      // stopSession() removed the activeSessions entry before the turn unwound;
+      // an absent entry must not be mistaken for a live replacement execution.
+      activeSessions.delete('sess-1');
+
+      const cleaned = cleanupSessionState('sess-1', true, controller);
+
+      expect(cleaned).toBe(true);
+      expect(textAccumulators.has('sess-1')).toBe(false);
+      expect(thinkingAccumulators.has('sess-1')).toBe(false);
+      expect(currentModels.has('sess-1')).toBe(false);
+      expect(loggedToolUseIds.has('sess-1')).toBe(false);
+      expect(finalErrorSessionIds.has('sess-1')).toBe(false);
+      expect(finalResultEvents.has('sess-1')).toBe(false);
+      expect(activeConversationIds.has('sess-1')).toBe(false);
+    });
   });
 
   // ── handleTurnCompletion ──────────────────────────────────────────────

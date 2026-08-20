@@ -527,10 +527,16 @@ export async function handleStreamEvent(sessionId, event) {
  * @returns {boolean} Whether state was cleaned up
  */
 export function cleanupSessionState(sessionId, includeConversationId = false, expectedController = null) {
-  // A stopped execution can still be unwinding after a replacement execution
+  // A stopped execution can still be unwinding after a *replacement* execution
   // has registered itself. Its finally block must not erase the replacement's
   // controller or any of the replacement turn's session-scoped state.
-  if (expectedController && activeSessions.get(sessionId)?.controller !== expectedController) {
+  //
+  // An absent entry is not a replacement: it means this turn's owner already
+  // deregistered (e.g. stopSession() deletes the activeSessions entry before
+  // the turn unwinds), and this turn still owns the cleanup. Only bail out
+  // when a *different, live* controller is registered.
+  const current = activeSessions.get(sessionId);
+  if (expectedController && current && current.controller !== expectedController) {
     return false;
   }
 
