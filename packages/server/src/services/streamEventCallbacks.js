@@ -180,7 +180,7 @@ function turnStillOwnsStatusWrite(sessionId, controller) {
  *
  * @param {string} sessionId
  */
-function finalizeAbortedTurnStatus(sessionId, controller) {
+export function finalizeAbortedTurnStatus(sessionId, controller) {
   if (!turnStillOwnsStatusWrite(sessionId, controller)) return;
   sessions.update(sessionId, { status: 'stopped', executionState: 'stopped' });
   broadcastSessionStatus(sessionId, 'stopped');
@@ -309,6 +309,7 @@ export async function handleSessionError(sessionId, error, options = {}) {
     // A user-initiated stop is intentional. A mid-turn-scheduled session that the
     // user stops will have its schedule cleared by the stop handler; we honour that
     // by not preserving the schedule here.
+    finalizeAbortedTurnStatus(sessionId, controller);
     return false;
   }
 

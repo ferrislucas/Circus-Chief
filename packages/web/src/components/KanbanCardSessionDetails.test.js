@@ -35,4 +35,15 @@ describe('KanbanCardSessionDetails', () => {
 
     expect(wrapper.get('.lane-run-exit-lane').text()).toBe('Exit lane: Needs attention');
   });
+
+  it('labels a terminal-run declaration as discarded', () => {
+    const wrapper = mount(KanbanCardSessionDetails, {
+      props: {
+        session, sessions: [session], lane: { name: 'Review' },
+        activeLaneRun: { status: 'cancelled', sourceLaneName: 'Review', chosenExitLaneName: 'Needs attention' },
+      },
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
+    });
+    expect(wrapper.get('.lane-run-exit-lane').text()).toBe('Discarded exit: Needs attention');
+  });
 });

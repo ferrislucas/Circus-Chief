@@ -355,9 +355,9 @@ export function markHeldForLimit(sessionId) {
 // freshly recomputed root subtree_outcome, matching FR-7's literal
 // predicate table, rather than an ad hoc flat scan of all members.
 export function reconcileLaneRun(runId) {
-  return databaseManager.transaction(() => {
+  const reconciliation = databaseManager.transaction(() => {
     const db = databaseManager.get(); const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
-    if (!run || run.status !== 'open') return getRun(runId);
+    if (!run || run.status !== 'open') return { result: getRun(runId), shouldTransition: false };
     const rootOutcome = recomputeSubtreeOutcomes(runId);
     if (rootOutcome === 'failed' || rootOutcome === 'cancelled') {
       const members = db.prepare('SELECT * FROM sessions WHERE lane_run_id=?').all(runId);
@@ -377,11 +377,14 @@ export function reconcileLaneRun(runId) {
     }
       // Keep the terminal run attached to its card. The board response and
       // card details use this pointer to expose a failure's owning session.
-      audit(db, runId, `run_${state}`, { sessionId: failed?.id || cancelled?.id }); return getRun(runId);
+      audit(db, runId, `run_${state}`, { sessionId: failed?.id || cancelled?.id });
+      return { result: getRun(runId), shouldTransition: false };
     }
-    if (rootOutcome === 'succeeded') return attemptLaneRunTransition(runId);
-    return getRun(runId);
+    return { result: getRun(runId), shouldTransition: rootOutcome === 'succeeded' };
   });
+  // attemptLaneRunTransition broadcasts after its transaction commits. Keep it
+  // outside this transaction so that is a real commit, not a savepoint release.
+  return reconciliation.shouldTransition ? attemptLaneRunTransition(runId) : reconciliation.result;
 }
 
 /**

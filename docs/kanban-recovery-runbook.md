@@ -78,6 +78,17 @@ reusing a key with different input returns `409`. Keyed mutation responses
 include `operationId` and delivery identity, which can be queried at
 `GET /api/projects/:projectId/kanban/operations/:operationId`.
 
+At most five client-initiated attempts are accepted for one key; lease-expiry
+recovery does not consume that budget. After the limit, the key returns a stable 500
+until it is removed. Use the `Reference ID: <uuid>` in that response to find
+the matching `[Kanban operation failure] correlationId=<uuid>` server log.
+Once the failure is confirmed, it is safe to clear the poisoned key because a
+failed operation commits no partial board mutation:
+
+```sql
+DELETE FROM kanban_api_operations WHERE project_id=? AND operation_key=?;
+```
+
 Calls that attempt to run or schedule a superseded lane worker receive `409`
 with `code: "LANE_RUN_OWNERSHIP_LOST"`. Re-open the board and act on the current
 card/run instead of retrying the stale request. Invalid lane configurations

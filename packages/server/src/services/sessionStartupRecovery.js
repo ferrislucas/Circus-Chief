@@ -9,9 +9,6 @@ import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { closeOwnWork } from './workflowSessionService.js';
 
-/** Default threshold for recovery states which can become stale at runtime. */
-const DEFAULT_STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
-
 /**
  * Find sessions left in 'starting' by the previous server process, mark them as
  * 'error', close any workflow obligation, and broadcast the change.
@@ -100,17 +97,4 @@ export function recoverOrphanedRunningSessions() {
   }
 
   return { recovered: orphaned.length };
-}
-
-/** Reap abort requests whose provider never honored the cancellation signal. */
-export function recoverStaleAbortingSessions() {
-  const thresholdMs = Number(process.env.STALE_ABORTING_THRESHOLD_MS) || DEFAULT_STALE_THRESHOLD_MS;
-  const stale = sessions.getStaleAbortingSessions(Date.now() - thresholdMs);
-  for (const session of stale) {
-    const updatedSession = sessions.update(session.id, { status: 'stopped', executionState: 'stopped' });
-    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-      projectId: session.projectId, sessionId: session.id, session: updatedSession,
-    });
-  }
-  return { recovered: stale.length };
 }

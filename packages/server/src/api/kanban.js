@@ -56,15 +56,21 @@ function validateIdempotencyKey(req, res, next) {
 /** Reserve a durable API operation. Unkeyed calls retain legacy semantics,
  * while keyed calls get database-enforced replay protection. */
 function reclaimOperation(db, existing, now) {
-  if (existing.attempt_count >= MAX_OPERATION_ATTEMPTS) {
+  // Lease-expiry recovery is not a client retry. Only exhausted retryable
+  // rows become terminal, and this transition must remain ownership-fenced.
+  if (existing.attempt_count >= MAX_OPERATION_ATTEMPTS && ['retryable', 'failed', 'abandoned'].includes(existing.status)) {
     const terminalError = existing.terminal_error || GENERIC_OPERATION_FAILURE;
-    db.prepare(`UPDATE kanban_api_operations SET status='failed', owner_token=NULL,
-      lease_expires_at=NULL, terminal_error=?, updated_at=? WHERE id=?`).run(terminalError, now, existing.id);
+    const failed = db.prepare(`UPDATE kanban_api_operations SET status='failed', owner_token=NULL,
+      lease_expires_at=NULL, terminal_error=?, updated_at=?
+      WHERE id=? AND attempt_count>=? AND status IN ('retryable','failed','abandoned')`)
+      .run(terminalError, now, existing.id, MAX_OPERATION_ATTEMPTS);
+    if (!failed.changes) return null;
     return { existing: { ...existing, status: 'failed', terminal_error: terminalError } };
   }
   const token = crypto.randomUUID();
   const taken = db.prepare(`UPDATE kanban_api_operations
-    SET status='processing', owner_token=?, lease_expires_at=?, attempt_count=attempt_count+1, updated_at=?
+    SET status='processing', owner_token=?, lease_expires_at=?,
+      attempt_count=attempt_count + CASE WHEN status IN ('retryable','failed','abandoned') THEN 1 ELSE 0 END, updated_at=?
     WHERE id=? AND (status IN ('retryable','failed','abandoned') OR (status='processing' AND lease_expires_at<=?))`)
     .run(token, now + OPERATION_LEASE_MS, now, existing.id, now);
   if (!taken.changes) return null;

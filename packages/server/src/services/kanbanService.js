@@ -352,6 +352,13 @@ function resolveDeliveryState(event) {
   return { state: 'ambiguous_dispatch', reason: 'child ownership exists without provider dispatch acknowledgement' };
 }
 
+function inheritedLaneTriggerDepth(db, event, requestedDepth = 0) {
+  if (!event?.caused_by_run_id) return requestedDepth;
+  const sourceDepth = db.prepare(`SELECT s.lane_trigger_depth FROM kanban_lane_runs r
+    JOIN sessions s ON s.id=r.root_session_id WHERE r.id=?`).get(event.caused_by_run_id)?.lane_trigger_depth || 0;
+  return Math.max(requestedDepth, sourceDepth);
+}
+
 /** Drain one committed completion handoff. Safe to call repeatedly. */
 // eslint-disable-next-line complexity -- deliberately linear durable state machine
 // eslint-disable-next-line max-statements, complexity -- durable transition boundaries are intentionally linear
@@ -362,6 +369,9 @@ async function drainLaneEntryTriggerImpl(eventId, options = {}) {
   const claim = createLaneEntryClaimGuard(eventId, token, abortController);
   const db = databaseManager.get();
   const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+  // Retry delivery has no caller-supplied depth, so completion events inherit
+  // it from their source worker and advance one shared limit.
+  const triggerDepth = inheritedLaneTriggerDepth(db, event, options.depth || 0);
   const valid = event && db.prepare('SELECT 1 FROM kanban_cards WHERE id=?').get(event.card_id);
   // A completion handoff is valid only if its source run actually performed
   // this exact guarded transition. This prevents an old outbox event from
@@ -384,7 +394,7 @@ async function drainLaneEntryTriggerImpl(eventId, options = {}) {
     let rootSessionId = resolved.rootSessionId;
     if (resolved.state === 'needs_delivery') {
       const delivery = await triggerLaneEntryAutomation(event.workspace_id, event.lane_id, {
-        runOnEnterTemplate: true, depth: options.depth || 0, laneRunId: resolved.run.id,
+        runOnEnterTemplate: true, depth: triggerDepth, laneRunId: resolved.run.id,
         childSessionId: resolved.rootSessionId,
         abortController,
         beforeDispatch: () => { claim.assertCurrent(); return markDispatchIntent(event.id, token); },

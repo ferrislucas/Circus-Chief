@@ -14,7 +14,7 @@ import * as sessionManager from './services/sessionManager.js';
 import { clearScheduledTimers } from './services/summaryService.js';
 import { commandRunner } from './services/commandRunner.js';
 import { getDefaultDbPath } from './config.js';
-import { recoverOrphanedStartingSessions, recoverOrphanedRunningSessions, recoverStaleAbortingSessions } from './services/sessionStartupRecovery.js';
+import { recoverOrphanedStartingSessions, recoverOrphanedRunningSessions } from './services/sessionStartupRecovery.js';
 import { startLaneEntryRetryWorker, stopLaneEntryRetryWorker } from './services/kanbanService.js';
 import { formatKanbanInvariantReport } from './services/kanbanRecoveryService.js';
 import { runStartupPreflight } from './services/startupPreflight.js';
@@ -73,7 +73,6 @@ recoverOrphanedStartingSessions();
 // an orphan — from a kill, or from a turn that unwound without recording an
 // outcome. Reap before workers start so the board never shows phantom work.
 recoverOrphanedRunningSessions();
-recoverStaleAbortingSessions();
 // Do not start workers or drain the entry outbox until durable ownership has
 // been normalized and independently audited. A bad lane configuration is a
 // hard stop: selecting a fallback executor would reintroduce the retired mode.

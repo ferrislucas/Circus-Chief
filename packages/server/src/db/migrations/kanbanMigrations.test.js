@@ -24,19 +24,9 @@ describe('kanban-add-lane-run-workflow (F2: dead token-column churn)', () => {
   it('leaves declared-exit columns to the trailing dedicated migration', () => {
     const db = freshDb();
     try {
-      // Model the historical lane-runs table that pre-dates declared exits.
-      // The workflow migration is already established, so this later concern
-      // must remain owned by its dedicated trailing migration.
-      db.exec(`
-        DROP TABLE kanban_lane_runs;
-        CREATE TABLE kanban_lane_runs (
-          id TEXT PRIMARY KEY, lane_entry_event_id TEXT NOT NULL UNIQUE, prior_lane_run_id TEXT,
-          project_id TEXT NOT NULL, workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, source_lane_id TEXT NOT NULL,
-          completion_target_lane_id TEXT, root_session_id TEXT UNIQUE,
-          status TEXT NOT NULL DEFAULT 'open', failure_reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-          succeeded_at INTEGER, failed_at INTEGER, cancelled_at INTEGER, superseded_at INTEGER, transition_applied_at INTEGER
-        );
-      `);
+      // Make CREATE TABLE IF NOT EXISTS execute, rather than testing its
+      // no-op path against the fresh-schema table.
+      db.exec('DROP TABLE kanban_lane_runs');
 
       const workflowMigration = allMigrations.find((item) => item.name === 'kanban-add-lane-run-workflow');
       const declaredExitMigration = allMigrations.find((item) => item.name === 'kanban-lane-run-declared-exit-lane');
@@ -52,6 +42,10 @@ describe('kanban-add-lane-run-workflow (F2: dead token-column churn)', () => {
       expect(getColumns(db, 'kanban_lane_runs')).toEqual(expect.arrayContaining([
         'chosen_exit_lane_id', 'chosen_exit_declared_at',
       ]));
+      expect(db.prepare('PRAGMA foreign_key_list(kanban_lane_runs)').all())
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({ from: 'chosen_exit_lane_id', table: 'kanban_lanes', on_delete: 'SET NULL' }),
+        ]));
       expect(getColumns(db, 'kanban_lane_runs')).not.toContain('chosen_exit_declared_by');
     } finally {
       db.close();

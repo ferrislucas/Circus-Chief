@@ -55,8 +55,8 @@
       <span v-if="activeLaneRun.openCount">{{ activeLaneRun.openCount }} blocking {{ activeLaneRun.openCount === 1 ? 'session' : 'sessions' }} remain</span>
       <span
         v-if="activeLaneRun.chosenExitLaneName"
-        class="lane-run-exit-lane"
-      >Exit lane: {{ activeLaneRun.chosenExitLaneName }}</span>
+        :class="['lane-run-exit-lane', { 'lane-run-exit-lane-discarded': activeLaneRun.status !== 'open' }]"
+      >{{ activeLaneRun.status === 'open' ? 'Exit lane:' : 'Discarded exit:' }} {{ activeLaneRun.chosenExitLaneName }}</span>
       <time v-if="activeLaneRun.nextScheduledAt">Next: {{ formatLaneRunTime(activeLaneRun.nextScheduledAt) }}</time>
       <router-link
         v-if="activeLaneRun.status === 'failed' && activeLaneRun.failedSessionId"

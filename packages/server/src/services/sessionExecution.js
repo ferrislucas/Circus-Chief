@@ -113,7 +113,6 @@ export async function _executeSession({
     // Run the query with the agent (SDK via gateway, or mock)
     for await (const event of agent.execute(queryParams, agentCallMeta)) {
       if (controller.signal.aborted) break;
-
       await handleStreamEvent(sessionId, event);
     }
     // Handle post-turn completion (work log association, status transition, summary, etc.)
@@ -127,9 +126,7 @@ export async function _executeSession({
     if (wasRescheduled) { markExecutionState(sessionId, 'scheduled'); return; }
     // FR-9.8: a graceful provider limit/outage leaves the lane obligation open.
     if (heldForLimit) { markHeldForLimit(sessionId); return; }
-    // W6/FR-8: the server infers own-work completion from this successful,
-    // non-continuing turn; finish the async remainder (start the
-    // target lane's on-enter automation exactly once) if it just happened.
+    // W6/FR-8: finish target-lane automation after a successful, non-continuing turn.
     if (interactive && workflowTurn?.executionStateBeforeTurn !== 'paused') return;
     const reconciled = finalizeOwnWorkCompletion(sessionId);
     if (reconciled?.pendingTargetLaneTrigger) await drainLaneEntryTrigger(reconciled.pendingTargetLaneTrigger.laneEntryEventId);
@@ -160,7 +157,6 @@ export async function _executeSession({
     cleanupSessionState(sessionId, cleanupConversationId, controller);
   }
 }
-
 /**
  * Build prompt with conversation context for a continuation.
  * When the model changes, we can't resume the previous session, so we include
