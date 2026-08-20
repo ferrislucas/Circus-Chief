@@ -191,7 +191,7 @@ router.get('/:id/sessions', (req, res) => {
   // Build merged index of latest command runs per session
   const runsBySession = buildRunsBySession(
     commandRuns.getLatestRunsForProject(req.params.id),
-    commandRunner.getRunningByProjectId(req.params.id, (sessionId) => sessions.getById(sessionId))
+    commandRunner.getRunningByProjectId(req.params.id, sessionIds => sessions.getByIds(sessionIds))
   );
 
   // Attach latestCommandRuns to each session as array

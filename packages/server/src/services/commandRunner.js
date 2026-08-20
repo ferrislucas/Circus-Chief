@@ -270,12 +270,19 @@ export class CommandRunner {
     return this.processes.has(runId);
   }
 
-  /** Get all running commands for a project (merges in-memory with completed DB runs). */
-  getRunningByProjectId(projectId, getSessionById) {
+  /** Get all running commands for a project with one batched session lookup. */
+  getRunningByProjectId(projectId, getSessionsByIds) {
+    const sessionIds = [...new Set([...this.processes.values()].map(entry => entry.sessionId))];
+    const batchResult = getSessionsByIds(sessionIds);
+    // Compatibility for callers outside this repository that still provide the
+    // former single-id lookup. First-party paths always take the batched branch.
+    const sessionRows = Array.isArray(batchResult)
+      ? batchResult
+      : sessionIds.map(sessionId => getSessionsByIds(sessionId)).filter(Boolean);
+    const sessionsById = new Map(sessionRows.map(session => [session.id, session]));
     const results = [];
     for (const [runId, entry] of this.processes.entries()) {
-      // Look up session to check projectId
-      const session = getSessionById(entry.sessionId);
+      const session = sessionsById.get(entry.sessionId);
       if (session?.projectId === projectId) {
         results.push({
           id: runId,
