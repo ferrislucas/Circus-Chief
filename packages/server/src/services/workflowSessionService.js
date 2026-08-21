@@ -83,6 +83,21 @@ export function withActiveLaneRunOwnership(sessionId, mutation) {
  * turn as stopped. That finalizer is guarded so it cannot overwrite a newer
  * turn or an outcome already recorded by this supersession. `waiting` members
  * are already idle and remain available for follow-up messages.
+ *
+ * If the worker's stream loop never unwinds — a wedged provider stream, or an
+ * SDK that ignores the abort signal — this row is left at status='running',
+ * execution_state='aborting' with no in-process backstop. There is
+ * deliberately no periodic sweeper for this: the wedged turn's
+ * AbortController stays registered in the in-memory `activeSessions` map for
+ * as long as the process runs, and that registration is the only thing that
+ * lets finalizeAbortedTurnStatus() tell "this turn still owns the status
+ * write" apart from "safe to reap" — so a sweeper could only correctly act
+ * once the entry is already gone, which isn't the failure mode being
+ * described here. The only recovery for a truly wedged turn is a server
+ * restart: recoverOrphanedRunningSessions() (sessionStartupRecovery.js)
+ * treats every `running` row as orphaned at boot, regardless of
+ * execution_state, and terminalizes it. Operators should expect an
+ * `aborting` row to persist until the next restart.
  */
 function clearExecutableMemberState(db, runId, reason, time) {
   return db.prepare(`UPDATE sessions SET own_work_state='cancelled', own_work_closed_at=?, workflow_reason=?,

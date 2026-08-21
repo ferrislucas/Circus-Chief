@@ -395,12 +395,6 @@ export class SessionRepository extends BaseRepository {
     return this.getRecoverableSessions('running');
   }
 
-  /** Sessions whose abort was requested but whose worker did not unwind. */
-  getStaleAbortingSessions(cutoff) {
-    return this.mapAll(this.db.prepare(`SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s
-      WHERE execution_state='aborting' AND updated_at < ? AND archived=0`).all(cutoff));
-  }
-
   /**
    * Non-archived sessions in `status`. With a `cutoff`, only those untouched
    * since it; without one, every match regardless of recency.
