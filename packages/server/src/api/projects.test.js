@@ -1011,14 +1011,17 @@ describe('Projects API', () => {
 
     it('returns runningWorkspaces and split counts for a multi-workspace project', async () => {
       const rootA = sessions.create(projectId, 'alpha', 'prompt', { status: 'running' });
-      sessions.create(projectId, 'alpha-child', 'prompt', { status: 'waiting', parentSessionId: rootA.id });
+      // Blocked on AskUserQuestion: status stays 'running', pendingAgentInput is
+      // the "waiting" signal (persisted by promptStore.js; set directly here).
+      const alphaChild = sessions.create(projectId, 'alpha-child', 'prompt', { status: 'running', parentSessionId: rootA.id });
+      sessions.update(alphaChild.id, { pendingAgentInput: true });
       const rootB = sessions.create(projectId, 'beta', 'prompt', { status: 'running' });
 
       const res = await request(app).get('/api/projects');
       const project = res.body.find((p) => p.id === projectId);
 
-      expect(project.runningSessionCount).toBe(2); // rootA + rootB
-      expect(project.waitingSessionCount).toBe(1); // alpha-child
+      expect(project.runningSessionCount).toBe(3); // rootA + alpha-child + rootB (alpha-child is still status='running')
+      expect(project.waitingSessionCount).toBe(1); // alpha-child (pendingAgentInput)
       expect(project.runningWorkspaces.map((w) => w.id)).toEqual(
         expect.arrayContaining([rootA.id, rootB.id]),
       );

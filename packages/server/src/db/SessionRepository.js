@@ -51,6 +51,10 @@ export class SessionRepository extends BaseRepository {
       pendingModel: row.pending_model || null,
       effortLevel: row.effort_level || null,
       autoSendPendingPrompt: Boolean(row.auto_send_pending_prompt),
+      // Persisted mirror of promptStore.js's in-memory pending-prompt queue —
+      // true while the agent is blocked on AskUserQuestion/permission. Kept in
+      // sync by promptStore.js only; unrelated to `status`.
+      pendingAgentInput: Boolean(row.pending_agent_input),
       slashCommands: row.slash_commands || null,
       // Agent runtime driving this session (fallback to 'claude-code' for legacy rows).
       agentType: row.agent_type || DEFAULT_AGENT_TYPE,

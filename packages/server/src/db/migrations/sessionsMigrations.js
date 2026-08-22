@@ -331,4 +331,10 @@ export const sessionsMigrations = [
     up(db) { migrateSessionsImmutableParentage(db); },
   },
 
+  // --- Pending agent input (blocked on AskUserQuestion/permission, mirrors promptStore.js) ---
+  {
+    name: 'sessions-add-pending_agent_input',
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'pending_agent_input', 'INTEGER NOT NULL DEFAULT 0'); },
+  },
+
 ];

@@ -26,14 +26,15 @@ function addSession(db, id, options = {}) {
     projectId = 'project',
     parentId = null,
     status = 'stopped',
+    pendingAgentInput = false,
     activity = null,
     createdAt = 1,
     updatedAt = createdAt,
   } = options;
   db.prepare(`INSERT INTO sessions
-    (id, project_id, name, parent_session_id, status, last_activity_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, projectId, id, parentId, status, activity, createdAt, updatedAt);
+    (id, project_id, name, parent_session_id, status, pending_agent_input, last_activity_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, projectId, id, parentId, status, pendingAgentInput ? 1 : 0, activity, createdAt, updatedAt);
 }
 
 describe('getProjectActivityAggregates', () => {
@@ -48,33 +49,38 @@ describe('getProjectActivityAggregates', () => {
     addSession(db, 'completed', { status: 'completed' });
     addSession(db, 'error', { status: 'error' });
     addSession(db, 'scheduled', { status: 'scheduled' });
+    // A session resting in status='waiting' (turn ended, idle, ready for
+    // follow-up) is NOT active on its own — only pending_agent_input drives
+    // the "waiting" bucket now.
+    addSession(db, 'waiting-idle', { status: 'waiting' });
 
     // The Map only carries projects with ≥1 active workspace; the zero-count
     // default for inactive projects is applied by ProjectRepository (Phase 2).
     expect(getProjectActivityAggregates(db).has('project')).toBe(false);
   }));
 
-  it('counts running, starting and waiting as active; excludes each terminal status', () => withDb((db) => {
+  it('counts running, starting and pending-agent-input as active; status=waiting alone is not active', () => withDb((db) => {
     addProject(db, 'project');
     addSession(db, 'running', { status: 'running' });
     addSession(db, 'starting', { status: 'starting' });
-    addSession(db, 'waiting', { status: 'waiting' });
+    // Blocked mid-turn on AskUserQuestion: status stays 'running' the whole
+    // time it's parked (promptStore.js never touches status).
+    addSession(db, 'blocked-on-question', { status: 'running', pendingAgentInput: true });
 
     const project = getProjectActivityAggregates(db).get('project');
-    // Three separate root workspaces, each with exactly one active member.
     expect(project.runningWorkspaces).toHaveLength(3);
     const ids = new Set(project.runningWorkspaces.map((w) => w.id));
-    expect(ids).toEqual(new Set(['running', 'starting', 'waiting']));
+    expect(ids).toEqual(new Set(['running', 'starting', 'blocked-on-question']));
     for (const workspace of project.runningWorkspaces) {
       expect(workspace.activeCount).toBe(1);
     }
-    // runningSessionCount counts running + starting only.
-    expect(project.runningSessionCount).toBe(2);
+    // runningSessionCount counts running + starting only (both 'running' rows).
+    expect(project.runningSessionCount).toBe(3);
     expect(project.waitingSessionCount).toBe(1);
   }));
 
-  it('excludes stopped, completed, error and scheduled sessions one at a time', () => withDb(() => {
-    for (const status of ['stopped', 'completed', 'error', 'scheduled']) {
+  it('excludes stopped, completed, error, scheduled and waiting-without-a-pending-prompt one at a time', () => withDb(() => {
+    for (const status of ['stopped', 'completed', 'error', 'scheduled', 'waiting']) {
       const fresh = new Database(':memory:');
       fresh.exec(readFileSync(new URL('../schema.sql', import.meta.url), 'utf-8'));
       addProject(fresh, 'project');
@@ -102,16 +108,20 @@ describe('getProjectActivityAggregates', () => {
   it('counts all active members across a multi-level tree, not just direct children', () => withDb((db) => {
     addProject(db, 'project');
     addSession(db, 'root', { status: 'running' });
-    addSession(db, 'child', { parentId: 'root', status: 'waiting' });
+    // A settled/stopped session can still carry pending_agent_input=1 as a
+    // pure data case; kept disjoint from running/starting here so this test
+    // isolates independent counting (the realistic running+waiting overlap
+    // case is covered separately below).
+    addSession(db, 'child', { parentId: 'root', status: 'stopped', pendingAgentInput: true });
     addSession(db, 'grandchild', { parentId: 'child', status: 'running' });
-    addSession(db, 'great-grandchild', { parentId: 'grandchild', status: 'waiting' });
+    addSession(db, 'great-grandchild', { parentId: 'grandchild', status: 'stopped', pendingAgentInput: true });
 
     const project = getProjectActivityAggregates(db).get('project');
     expect(project.runningWorkspaces).toEqual([
       { id: 'root', name: 'root', activeCount: 4 },
     ]);
-    expect(project.runningSessionCount).toBe(2); // root + grandchild
-    expect(project.waitingSessionCount).toBe(2); // child + great-grandchild
+    expect(project.runningSessionCount).toBe(2); // root + grandchild (running/starting)
+    expect(project.waitingSessionCount).toBe(2); // child + great-grandchild (pending_agent_input)
   }));
 
   it('excludes an archived root from the list and both counts', () => withDb((db) => {
@@ -138,13 +148,13 @@ describe('getProjectActivityAggregates', () => {
   it('lists multiple active workspaces per project', () => withDb((db) => {
     addProject(db, 'project');
     addSession(db, 'alpha', { status: 'running', activity: 30 });
-    addSession(db, 'beta', { status: 'waiting', activity: 20 });
+    addSession(db, 'beta', { status: 'running', pendingAgentInput: true, activity: 20 });
 
     const project = getProjectActivityAggregates(db).get('project');
     expect(project.runningWorkspaces).toHaveLength(2);
     const byId = Object.fromEntries(project.runningWorkspaces.map((w) => [w.id, w.activeCount]));
     expect(byId).toEqual({ alpha: 1, beta: 1 });
-    expect(project.runningSessionCount).toBe(1);
+    expect(project.runningSessionCount).toBe(2);
     expect(project.waitingSessionCount).toBe(1);
   }));
 
@@ -152,12 +162,12 @@ describe('getProjectActivityAggregates', () => {
     addProject(db, 'one');
     addProject(db, 'two');
     addSession(db, 'one-root', { projectId: 'one', status: 'running' });
-    addSession(db, 'two-root', { projectId: 'two', status: 'waiting' });
+    addSession(db, 'two-root', { projectId: 'two', status: 'running', pendingAgentInput: true });
 
     const result = getProjectActivityAggregates(db);
     expect(result.get('one').runningSessionCount).toBe(1);
     expect(result.get('one').waitingSessionCount).toBe(0);
-    expect(result.get('two').runningSessionCount).toBe(0);
+    expect(result.get('two').runningSessionCount).toBe(1);
     expect(result.get('two').waitingSessionCount).toBe(1);
     expect(result.get('one').runningWorkspaces.map((w) => w.id)).toEqual(['one-root']);
     expect(result.get('two').runningWorkspaces.map((w) => w.id)).toEqual(['two-root']);
@@ -179,15 +189,31 @@ describe('getProjectActivityAggregates', () => {
   it('splits running and waiting counts within a single workspace', () => withDb((db) => {
     addProject(db, 'project');
     addSession(db, 'root', { status: 'running' });
-    addSession(db, 'child-waiting', { parentId: 'root', status: 'waiting' });
+    addSession(db, 'child-waiting', { parentId: 'root', status: 'running', pendingAgentInput: true });
     addSession(db, 'child-starting', { parentId: 'root', status: 'starting' });
 
     const project = getProjectActivityAggregates(db).get('project');
     expect(project.runningWorkspaces).toEqual([
       { id: 'root', name: 'root', activeCount: 3 },
     ]);
-    expect(project.runningSessionCount).toBe(2); // root + child-starting
+    // child-waiting is realistically still status='running' while blocked, so
+    // it contributes to both counts (root + child-waiting + child-starting).
+    expect(project.runningSessionCount).toBe(3);
     expect(project.waitingSessionCount).toBe(1); // child-waiting
+  }));
+
+  it('does not double-count a session that is both running and pending_agent_input', () => withDb((db) => {
+    addProject(db, 'project');
+    // Realistic case: the agent is mid-turn (status='running') and blocked on
+    // AskUserQuestion (pending_agent_input=1) at the same time.
+    addSession(db, 'root', { status: 'running', pendingAgentInput: true });
+
+    const project = getProjectActivityAggregates(db).get('project');
+    expect(project.runningWorkspaces).toEqual([
+      { id: 'root', name: 'root', activeCount: 1 },
+    ]);
+    expect(project.runningSessionCount).toBe(1);
+    expect(project.waitingSessionCount).toBe(1);
   }));
 
   it('returns an empty root name unchanged (presentation is the UI layer concern)', () => withDb((db) => {

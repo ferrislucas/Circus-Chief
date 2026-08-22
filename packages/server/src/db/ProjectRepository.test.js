@@ -284,7 +284,10 @@ describe('ProjectRepository', () => {
       const sessionRepo = new SessionRepository();
       const root = sessionRepo.create(project.id, 'root', 'prompt', { status: 'running' });
       sessionRepo.create(project.id, 'child-running', 'prompt', { status: 'running', parentSessionId: root.id });
-      sessionRepo.create(project.id, 'child-waiting', 'prompt', { status: 'waiting', parentSessionId: root.id });
+      // Blocked on AskUserQuestion: status stays 'running', pendingAgentInput is
+      // the "waiting" signal (persisted by promptStore.js, simulated directly here).
+      const childWaiting = sessionRepo.create(project.id, 'child-waiting', 'prompt', { status: 'running', parentSessionId: root.id });
+      sessionRepo.update(childWaiting.id, { pendingAgentInput: true });
       sessionRepo.create(project.id, 'grandchild', 'prompt', { status: 'starting', parentSessionId: root.id });
 
       const projects = repo.getAll();
@@ -293,8 +296,8 @@ describe('ProjectRepository', () => {
       expect(enriched.runningWorkspaces).toEqual([
         { id: root.id, name: 'root', activeCount: 4 },
       ]);
-      expect(enriched.runningSessionCount).toBe(3); // root + child-running + grandchild (running/starting)
-      expect(enriched.waitingSessionCount).toBe(1); // child-waiting
+      expect(enriched.runningSessionCount).toBe(4); // root + child-running + child-waiting + grandchild (running/starting)
+      expect(enriched.waitingSessionCount).toBe(1); // child-waiting (pendingAgentInput)
     });
 
     it('enriches each project independently', () => {

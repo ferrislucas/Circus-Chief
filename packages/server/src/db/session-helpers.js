@@ -213,6 +213,7 @@ export const BOOLEAN_FIELD_MAP = {
   rescheduleOnTokenLimit: 'reschedule_on_token_limit',
   rescheduleOnServiceError: 'reschedule_on_service_error',
   autoSendPendingPrompt: 'auto_send_pending_prompt',
+  pendingAgentInput: 'pending_agent_input',
 };
 
 /**

@@ -114,6 +114,15 @@ CREATE TABLE IF NOT EXISTS sessions (
   slash_commands TEXT,
   pending_model TEXT,
   auto_send_pending_prompt INTEGER DEFAULT 0,
+  -- True while the agent is blocked mid-turn on an AskUserQuestion or
+  -- permission tool call awaiting the user's answer. Mirrors the in-memory
+  -- promptStore.js queue (source of truth) so it can be aggregated in SQL
+  -- (see project-activity-queries.js). Written only by promptStore.js's
+  -- broadcastPendingInput(); do not set this from any other call site.
+  -- Distinct from status = 'waiting', which means "turn ended normally, idle,
+  -- ready for follow-up" — the two are unrelated and can be true/false in any
+  -- combination (a session blocked on a question is still status='running').
+  pending_agent_input INTEGER NOT NULL DEFAULT 0,
   agent_type TEXT DEFAULT 'claude-code',
   -- Orphaned column: the per-session "move to target lane on turn end"
   -- mechanism was removed. Kept in the schema so existing databases (which ran
