@@ -526,6 +526,40 @@ describe('workflowSessionService', () => {
       expect(recovery.report.ok).toBe(true);
     });
 
+    it('recovers an undeclared stuck run whose root reached the terminal state', () => {
+      const { worker, run } = runningWorker();
+      // No declareExitLane: completion_target_lane_id (target) is the only exit.
+
+      databaseManager.get().prepare(`UPDATE sessions SET own_work_state='closed_successfully',
+        own_work_closed_at=?, execution_state='idle' WHERE id=?`).run(Date.now(), worker.id);
+
+      const recovery = reconcileKanbanOwnership({ dryRun: false });
+
+      expect(getRun(run.id).status).toBe('succeeded');
+      expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
+      expect(recovery.report.ok).toBe(true);
+    });
+
+    it('creates a successor run and a drainable entry event when the declared exit lane is structured', () => {
+      const { worker, run } = runningWorker();
+      // Make the target lane structured so a successor run must be created.
+      kanbanLanes.update(target.id, { onEnterPrompt: 'validate the work' });
+      declareExitLane(card.id, target.id);
+
+      databaseManager.get().prepare(`UPDATE sessions SET own_work_state='closed_successfully',
+        own_work_closed_at=?, execution_state='idle' WHERE id=?`).run(Date.now(), worker.id);
+
+      const recovery = reconcileKanbanOwnership({ dryRun: false });
+
+      expect(getRun(run.id).status).toBe('succeeded');
+      expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
+      // A successor run exists and its entry event is pending for the retry worker.
+      expect(databaseManager.get().prepare(`SELECT status FROM kanban_lane_entry_events
+        WHERE caused_by_run_id=?`).get(run.id).status).toBe('pending');
+      // The fresh successor must not be reported as an invariant violation.
+      expect(recovery.report.ok).toBe(true);
+    });
+
     it('rejects a same-lane reorder without completing or superseding the run', () => {
       const { worker, run } = runningWorker();
 

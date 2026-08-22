@@ -72,10 +72,11 @@ recoverOrphanedStartingSessions();
 // Agent processes never outlive the server, so any surviving 'running' row is
 // an orphan — from a kill, or from a turn that unwound without recording an
 // outcome. Recovery closes still-open roots as failed/cancelled (never
-// 'succeeded') before preflight runs, so reconcileDeclaredExitRuns() inside
-// preflight sees terminal roots and can apply a declared exit instead of
-// skipping an open root. Recovery therefore cannot move a card or create a
-// successor run ahead of the audit — see sessionStartupRecovery.js.
+// 'succeeded') before preflight runs, so reconcileStuckOpenRuns() inside
+// preflight sees terminal roots and can apply a declared exit — or complete
+// any otherwise-stuck run — instead of skipping an open root. Recovery
+// therefore cannot move a card or create a successor run ahead of the audit —
+// see sessionStartupRecovery.js.
 recoverOrphanedRunningSessions();
 // The broadcasts queued by the two recovery calls above are no-ops here:
 // initWebSocket(server) has not run yet, so no clients exist to receive them.

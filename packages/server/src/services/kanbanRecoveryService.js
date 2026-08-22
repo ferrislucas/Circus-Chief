@@ -181,15 +181,38 @@ export function isRecoverableRootlessHandoff(db, run) {
   return rootlessHandoffMatchesEvent(row, run);
 }
 
-function reconcileDeclaredExitRuns(db, openRuns, staleRunIds, changes) {
+/** Reconcile open runs whose root subtree has reached a terminal state but
+ * whose in-process reconciliation callback never ran (a crash between the
+ * durable own-work write and the transition). The trigger is the root
+ * reaching a terminal state — NOT the presence of an exit declaration. A
+ * declared exit is one of the things reconcileLaneRun will apply; an
+ * undeclared run in the same stuck state must be recovered too (it would
+ * otherwise stay open forever, pinning its card). Card-ownership consistency
+ * is already guaranteed by the caller: these runs were filtered out of
+ * staleRunIds. */
+function reconcileStuckOpenRuns(db, openRuns, staleRunIds, changes) {
   const staleRunIdSet = new Set(staleRunIds);
   for (const run of openRuns) {
-    if (staleRunIdSet.has(run.id) || !run.chosen_exit_lane_id || !run.root_session_id) continue;
+    if (staleRunIdSet.has(run.id) || !run.root_session_id) continue;
+    // root === undefined means the root's lane_run_id no longer points at this
+    // run (it was reassigned), or the row is gone. That is a *different*
+    // failure from "root finished": such runs already landed in staleRunIds and
+    // were superseded above, so re-reconciling here would recompute subtree
+    // outcomes over an unrelated member set.
     const root = db.prepare('SELECT own_work_state FROM sessions WHERE id=? AND lane_run_id=?')
       .get(run.root_session_id, run.id);
-    if (root?.own_work_state === 'open') continue;
+    if (!root || root.own_work_state === 'open') continue;
+    // reconcileLaneRun may return a pendingTargetLaneTrigger when the target
+    // lane is structured. Intentionally not drained here: this runs inside
+    // startup preflight, before the workersEnabled decision, and dispatching an
+    // on-entry session before the invariant audit has passed would violate the
+    // boot ordering (index.js). The successor run + 'pending' entry event are
+    // durable outbox state; startLaneEntryRetryWorker() drains them on its
+    // first tick when workersEnabled is true. If it is false, the event simply
+    // stays pending until the next healthy boot — same as every other
+    // lane-entry event when the retry worker is not running.
     const reconciled = reconcileLaneRun(run.id);
-    if (reconciled?.status !== 'open') changes.push({ type: 'reconciled_declared_exit_run', runId: run.id });
+    if (reconciled?.status !== 'open') changes.push({ type: 'reconciled_stuck_open_run', runId: run.id });
   }
 }
 
@@ -220,9 +243,10 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
 
   if (!dryRun) {
     for (const runId of staleRunIds) supersedeLaneRun(runId, 'reconciliation_invalid_or_stale_run');
-    // A crash after an exit declaration but before turn-completion leaves a
-    // valid open run. Re-run its normal subtree gate after a terminal root.
-    reconcileDeclaredExitRuns(db, openRuns, staleRunIds, changes);
+    // A crash between the durable own-work write and the in-process
+    // reconciliation callback leaves a valid open run whose root is terminal.
+    // Re-run its normal subtree gate after a terminal root.
+    reconcileStuckOpenRuns(db, openRuns, staleRunIds, changes);
     const now = Date.now();
     const stalePointers = db.prepare(`UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=?
       WHERE active_lane_run_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM kanban_lane_runs r WHERE r.id=active_lane_run_id AND r.status='open')`).run(now).changes;

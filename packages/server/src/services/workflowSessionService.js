@@ -404,7 +404,7 @@ export function reconcileLaneRun(runId, { allowTransition = true } = {}) {
   // release and the broadcast can still precede the durable commit (see
   // broadcastCardTransition). Hoisting the call out of this transaction is only
   // a real-commit guarantee for the top-level recovery entry point
-  // (kanbanRecoveryService.reconcileDeclaredExitRuns), which has no outer tx.
+  // (kanbanRecoveryService.reconcileStuckOpenRuns), which has no outer tx.
   // allowTransition=false reconciles a run (marks it terminal, releases state)
   // without ever moving its card or creating a successor run — used by boot
   // recovery, which must not mutate the board ahead of the preflight audit.
