@@ -397,8 +397,13 @@ export function reconcileLaneRun(runId) {
     }
     return { result: getRun(runId), shouldTransition: rootOutcome === 'succeeded' };
   });
-  // attemptLaneRunTransition broadcasts after its transaction commits. Keep it
-  // outside this transaction so that is a real commit, not a savepoint release.
+  // attemptLaneRunTransition broadcasts after its own transaction returns. When
+  // this function is reached from finalizeOwnWorkCompletion/closeOwnWork, it is
+  // inside their outer transaction, so that "commit" is only a savepoint
+  // release and the broadcast can still precede the durable commit (see
+  // broadcastCardTransition). Hoisting the call out of this transaction is only
+  // a real-commit guarantee for the top-level recovery entry point
+  // (kanbanRecoveryService.reconcileDeclaredExitRuns), which has no outer tx.
   return reconciliation.shouldTransition ? attemptLaneRunTransition(runId) : reconciliation.result;
 }
 
