@@ -22,6 +22,12 @@ export const UpdateProjectRequest = z.object({
   worktreePath: z.string().nullable().optional(),
 });
 
+export const RunningWorkspaceSummary = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  activeCount: z.number().int().nonnegative(),
+});
+
 export const ProjectResponse = z.object({
   id: z.string().uuid(),
   name: z.string(),
@@ -32,6 +38,9 @@ export const ProjectResponse = z.object({
   prPollInterval: z.number().int(),
   repoUrl: z.string().url().nullable().optional(),
   worktreePath: z.string().nullable(),
+  runningWorkspaces: z.array(RunningWorkspaceSummary),
+  runningSessionCount: z.number().int().nonnegative(),
+  waitingSessionCount: z.number().int().nonnegative(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
