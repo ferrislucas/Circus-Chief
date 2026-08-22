@@ -11,6 +11,12 @@
       </router-link>
     </div>
 
+    <ProjectFiltersPanel
+      v-if="!projectsStore.loading && !projectsStore.error && projectsStore.projects.length > 0"
+      :status-facets="statusFacets"
+      class="project-filters"
+    />
+
     <div
       v-if="projectsStore.loading"
       class="skeleton-list"
@@ -89,11 +95,22 @@
     </div>
 
     <div
+      v-else-if="visibleProjects.length === 0"
+      class="empty-state"
+    >
+      <div class="no-match card">
+        <p class="no-match-text">
+          No projects match this filter.
+        </p>
+      </div>
+    </div>
+
+    <div
       v-else
       class="project-list"
     >
       <div
-        v-for="project in projectsStore.projects"
+        v-for="project in visibleProjects"
         :key="project.id"
         class="project-card card"
         @click="goToSessions(project.id)"
@@ -115,6 +132,25 @@
             </template>
             <span v-if="project.lastActivityAt">{{ formatRelativeTime(project.lastActivityAt) }}</span>
           </p>
+          <div
+            v-if="project.runningWorkspaces.length > 0"
+            class="workspace-links"
+          >
+            <router-link
+              v-for="workspace in project.runningWorkspaces"
+              :key="workspace.id"
+              :to="`/sessions/${workspace.id}`"
+              class="workspace-link"
+              @click.stop
+            >
+              <span
+                class="workspace-status-dot"
+                aria-hidden="true"
+              />
+              <span class="workspace-name">{{ workspaceDisplayName(workspace) }}</span>
+              <span class="workspace-count">{{ activeCountLabel(workspace) }}</span>
+            </router-link>
+          </div>
         </div>
         <div class="project-actions">
           <router-link
@@ -135,20 +171,39 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
+import { useProjectFiltersStore } from '../stores/projectFilters.js';
+import { useProjectListRealtime } from '../composables/useProjectListRealtime.js';
+import ProjectFiltersPanel from '../components/ProjectFiltersPanel.vue';
 import { formatRelativeTime } from '../composables/useSummaryHelpers.js';
 
 const router = useRouter();
 const projectsStore = useProjectsStore();
+const projectFilters = useProjectFiltersStore();
+
+// The list and facets are client-side derivatives of the full project array.
+const visibleProjects = computed(() => projectsStore.filteredProjects);
+const statusFacets = computed(() => projectsStore.statusFacets);
+const projectIds = computed(() => projectsStore.projects.map((p) => p.id));
 
 function goToSessions(projectId) {
   router.push(`/projects/${projectId}/sessions`);
 }
 
+function workspaceDisplayName(workspace) {
+  return workspace.name || 'Untitled workspace';
+}
+
+function activeCountLabel(workspace) {
+  return `${workspace.activeCount} ${workspace.activeCount === 1 ? 'session' : 'sessions'}`;
+}
+
 onMounted(() => {
+  projectFilters.restoreStatusFilter();
   projectsStore.fetchProjects();
+  useProjectListRealtime(projectIds);
 });
 </script>
 
@@ -293,6 +348,56 @@ onMounted(() => {
 
 .meta-separator {
   margin: 0 0.375rem;
+}
+
+.workspace-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.625rem;
+}
+
+.workspace-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-soft);
+  text-decoration: none;
+  padding: 0.125rem 0.625rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.workspace-link:hover {
+  border-color: var(--color-primary);
+  color: var(--color-text);
+}
+
+.workspace-status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background-color: #34d399; /* emerald-400 — active workspace */
+  flex-shrink: 0;
+}
+
+.workspace-name {
+  color: var(--color-text);
+}
+
+.workspace-count {
+  color: var(--color-text-soft);
+}
+
+.no-match {
+  padding: 2rem;
+}
+
+.no-match-text {
+  margin: 0;
+  color: var(--color-text-soft);
 }
 
 .project-actions {

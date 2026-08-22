@@ -15,6 +15,7 @@ import {
   resolveAgentTypeFromModel,
 } from './session-helpers.js';
 import { getWorkspaceCardPage } from './workspace-queries.js';
+import { getProjectActivityAggregates } from './project-activity-queries.js';
 
 /**
  * Session repository class
@@ -170,6 +171,11 @@ export class SessionRepository extends BaseRepository {
    */
   getWorkspaceCardPage(projectId, options = {}) {
     return getWorkspaceCardPage(this.db, projectId, options);
+  }
+
+  /** Aggregate per-project active-workspace data across all projects (for the project list). */
+  getProjectActivityAggregates() {
+    return getProjectActivityAggregates(this.db);
   }
 
   getWorkspaceCard(projectId, rootId) {
