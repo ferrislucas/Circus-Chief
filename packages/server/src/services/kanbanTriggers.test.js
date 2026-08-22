@@ -38,7 +38,6 @@ import { runSession } from './sessionManager.js';
 import { resolveAgentTypeFromModel } from './sessionProvider.js';
 import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 import {
-  MAX_LANE_TRIGGER_DEPTH,
   getSessionAndProjectForTrigger,
   determineWorkingDirectory,
   startChildSession,
@@ -51,12 +50,6 @@ import {
 describe('kanbanTriggers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  describe('MAX_LANE_TRIGGER_DEPTH', () => {
-    it('is 5', () => {
-      expect(MAX_LANE_TRIGGER_DEPTH).toBe(5);
-    });
   });
 
   describe('getSessionAndProjectForTrigger', () => {
@@ -377,17 +370,10 @@ describe('kanbanTriggers', () => {
       runSession.mockResolvedValue(undefined);
     });
 
-    it('returns early when depth exceeds MAX_LANE_TRIGGER_DEPTH', async () => {
-      await triggerOnEnterTemplate('s1', lane, { depth: 5 });
-
-      expect(sessionTemplates.getById).not.toHaveBeenCalled();
-      expect(sessions.create).not.toHaveBeenCalled();
-    });
-
-    it('returns early when depth equals MAX_LANE_TRIGGER_DEPTH', async () => {
-      await triggerOnEnterTemplate('s1', lane, { depth: MAX_LANE_TRIGGER_DEPTH });
-
-      expect(sessionTemplates.getById).not.toHaveBeenCalled();
+    it('delivers template entries beyond the former depth cap', async () => {
+      await triggerOnEnterTemplate('s1', lane, { depth: 50 });
+      expect(sessions.create).toHaveBeenCalled();
+      expect(sessions.update).toHaveBeenCalledWith('new-1', expect.objectContaining({ laneTriggerDepth: 51 }));
     });
 
     it('returns early when template is not found', async () => {
@@ -534,10 +520,10 @@ describe('kanbanTriggers', () => {
       runSession.mockResolvedValue(undefined);
     });
 
-    it('returns early when depth exceeds MAX_LANE_TRIGGER_DEPTH', async () => {
-      await triggerOnEnterPrompt('s1', lane, { depth: 5 });
-
-      expect(sessions.create).not.toHaveBeenCalled();
+    it('delivers prompt entries beyond the former depth cap', async () => {
+      await triggerOnEnterPrompt('s1', lane, { depth: 50 });
+      expect(sessions.create).toHaveBeenCalled();
+      expect(sessions.update).toHaveBeenCalledWith('new-prompt-1', expect.objectContaining({ laneTriggerDepth: 51 }));
     });
 
     it('returns early when session is not found', async () => {

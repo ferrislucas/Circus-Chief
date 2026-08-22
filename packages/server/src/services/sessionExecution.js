@@ -333,7 +333,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   }
 
   const controller = new AbortController();
-  activeSessions.set(sessionId, { controller });
+  activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
 
   // Ensure there's an active conversation and create the user message
   const { activeConversation, promptWithAttachments } = await setupConversationAndMessage(
@@ -401,7 +401,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
   }
   const controller = abortController || new AbortController();
   if (controller.signal.aborted) return rejectedSessionExecution(sessionId, 'dispatch_aborted');
-  activeSessions.set(sessionId, { controller });
+  activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
 
   // Get the active conversation for this session (created in SessionRepository.create)
   const activeConversation = conversations.ensureActiveConversation(sessionId);

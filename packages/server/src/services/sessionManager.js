@@ -325,7 +325,8 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   }
 
   const controller = new AbortController();
-  activeSessions.set(sessionId, { controller });
+  const startedAt = Date.now();
+  activeSessions.set(sessionId, { controller, turnStartedAt: startedAt, lastEventAt: startedAt });
 
   // Make sure this conversation is active
   if (!conversation.isActive) {

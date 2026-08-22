@@ -59,6 +59,16 @@ timestamp (`completed_at`, falling back to `created_at`). Without that window a
 single historical failure would hold Kanban health at `degraded` permanently.
 The other counts are unwindowed.
 
+## Stream watchdog
+
+The in-process stream watchdog handles provider streams that ignore an abort.
+An already-aborted stream is reaped after `STREAM_WATCHDOG_ABORT_GRACE_MS`
+(default: 5 minutes). It is recorded as `stopped`, rather than `error`, because
+the wedge does not prove that the underlying work failed. A second, opt-in
+silence tier is controlled by `STREAM_WATCHDOG_SILENCE_MS` (default: `0`,
+disabled); enable it only when your provider/tool-call timing is well known.
+The worker checks every `STREAM_WATCHDOG_INTERVAL_MS` (default: 15 seconds).
+
 Terminal rows older than the window are still on disk but are reported by
 neither `deliveryHealth` nor `kanban-recovery`, whose audit covers only
 `pending` and `claimed` events. To investigate an older incident, pass a wider

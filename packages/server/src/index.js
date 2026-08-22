@@ -20,6 +20,7 @@ import { formatKanbanInvariantReport } from './services/kanbanRecoveryService.js
 import { runStartupPreflight } from './services/startupPreflight.js';
 import { setAutomationPreflightStatus } from './services/automationStatusService.js';
 import { startKanbanOperationRetention, stopKanbanOperationRetention } from './services/kanbanOperationRetention.js';
+import { startStreamWatchdog, stopStreamWatchdog } from './services/streamWatchdog.js';
 
 /**
  * Validate Node.js environment at startup.
@@ -86,6 +87,7 @@ recoverOrphanedRunningSessions();
 const preflight = runStartupPreflight();
 setAutomationPreflightStatus(preflight);
 startKanbanOperationRetention();
+startStreamWatchdog();
 if (!preflight.workersEnabled) {
   console.error(formatKanbanInvariantReport(preflight.report));
   console.error('Kanban preflight failed; HTTP serving and unrelated scheduling remain available, but Kanban entry delivery is disabled');
@@ -137,6 +139,7 @@ async function shutdown(signal) {
   schedulerService.stop();
   await stopLaneEntryRetryWorker();
   stopKanbanOperationRetention();
+  stopStreamWatchdog();
   prStatusService.stop();
   systemMonitor.stop();
 

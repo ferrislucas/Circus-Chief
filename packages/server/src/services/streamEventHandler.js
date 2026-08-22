@@ -31,7 +31,7 @@ export const thinkingAccumulators = new Map();
 /** @type {Map<string, string>} Accumulate text content per session */
 export const textAccumulators = new Map();
 
-/** @type {Map<string, { controller: AbortController }>} */
+/** @type {Map<string, { controller: AbortController, turnStartedAt?: number, lastEventAt?: number }>} */
 export const activeSessions = new Map();
 
 /** @type {Map<string, string>} Map sessionId -> conversationId for current turn */
@@ -510,6 +510,11 @@ export async function handleStreamEvent(sessionId, event) {
   if (!activeSessions.has(sessionId)) {
     return;
   }
+
+  // Every provider event is a liveness heartbeat. The watchdog intentionally
+  // does not infer liveness from a row merely being marked running.
+  const activeSession = activeSessions.get(sessionId);
+  if (activeSession) activeSession.lastEventAt = Date.now();
 
   const handler = eventHandlers[event.type];
   if (handler) {

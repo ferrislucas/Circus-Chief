@@ -217,11 +217,15 @@ export async function triggerStructuredTransitionAutomation(pending) {
   return drainLaneEntryTrigger(laneRun.lane_entry_event_id, { depth: workspaceSession.laneTriggerDepth || 0 });
 }
 
-const ENTRY_EVENT_LEASE_MS = 5 * 60 * 1000;
+const envPositiveInt = (name, fallback) => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+};
+const ENTRY_EVENT_LEASE_MS = envPositiveInt('KANBAN_ENTRY_LEASE_MS', 5 * 60 * 1000);
 const ENTRY_EVENT_RENEWAL_MS = Math.floor(ENTRY_EVENT_LEASE_MS / 3);
-const MAX_ENTRY_EVENT_ATTEMPTS = 8;
-const RETRY_BASE_MS = 1_000;
-const RETRY_MAX_MS = 5 * 60 * 1000;
+const MAX_ENTRY_EVENT_ATTEMPTS = envPositiveInt('KANBAN_ENTRY_MAX_ATTEMPTS', 8);
+const RETRY_BASE_MS = envPositiveInt('KANBAN_ENTRY_RETRY_BASE_MS', 1_000);
+const RETRY_MAX_MS = envPositiveInt('KANBAN_ENTRY_RETRY_MAX_MS', 5 * 60 * 1000);
 const RETRY_JITTER = 0.2;
 
 /**

@@ -12,9 +12,6 @@ import { runSession } from './sessionManager.js';
 import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
 import { attachRootSession } from './workflowSessionService.js';
 
-// Maximum depth for recursive lane-entry template triggers
-export const MAX_LANE_TRIGGER_DEPTH = 5;
-
 function throwIfAborted(controller) {
   if (controller?.signal.aborted) throw controller.signal.reason || new Error('Lane-entry delivery was aborted');
 }
@@ -191,11 +188,6 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
 export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
   const { depth = 0, laneRunId = null, childSessionId = null, beforeDispatch, abortController } = options;
 
-  if (depth >= MAX_LANE_TRIGGER_DEPTH) {
-    console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
-    return undelivered('lane trigger depth limit reached');
-  }
-
   const template = sessionTemplates.getById(lane.onEnterTemplateId);
   if (!template) {
     console.warn(`Kanban: On-enter template ${lane.onEnterTemplateId} not found for lane ${lane.id}`);
@@ -312,11 +304,6 @@ async function buildChildSessionFromPrompt(lane, session, options = {}) {
 
 export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
   const { depth = 0, laneRunId = null, childSessionId = null, beforeDispatch, abortController } = options;
-
-  if (depth >= MAX_LANE_TRIGGER_DEPTH) {
-    console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
-    return undelivered('lane trigger depth limit reached');
-  }
 
   const context = getSessionAndProjectForTrigger(sessionId);
   if (!context) return undelivered('workspace session or project not found');
