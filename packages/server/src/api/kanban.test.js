@@ -23,12 +23,16 @@ vi.mock('../services/kanbanService.js', async (importOriginal) => {
   return {
     ...actual,
     moveCard: vi.fn(),
+    // Default to the real implementation so existing POST /cards tests stay
+    // behavioral; individual tests can mockRejectedValueOnce over it.
+    addSessionToBoard: vi.fn(actual.addSessionToBoard),
   };
 });
 
 import kanbanRouter from './kanban.js';
 import { broadcastToProject } from '../websocket.js';
-import { moveCard as moveCardService } from '../services/kanbanService.js';
+import { moveCard as moveCardService, addSessionToBoard as addSessionToBoardService } from '../services/kanbanService.js';
+import { ApiError } from '../errors/ApiError.js';
 import {
   attachRootSession,
   createLaneRunForEntry,
@@ -704,6 +708,38 @@ describe('Kanban API', () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('workspaceId is required');
+    });
+
+    it('returns an ApiError from card creation terminally instead of as a retryable 500', async () => {
+      setupBoard();
+      const session = createSession();
+      const key = 'api-error-card-add';
+      addSessionToBoardService.mockRejectedValueOnce(new ApiError('Session no longer owns an active lane run', {
+        status: 409, code: 'LANE_RUN_OWNERSHIP_LOST',
+      }));
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send({ workspaceId: session.id, laneId: lanes[0].id });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('Session no longer owns an active lane run');
+      expect(res.body.code).toBe('LANE_RUN_OWNERSHIP_LOST');
+
+      // Terminal, not retryable: a same-key replay returns the same response
+      // without re-running the deterministically-failing mutation.
+      const replay = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send({ workspaceId: session.id, laneId: lanes[0].id });
+      expect(replay.status).toBe(409);
+      expect(replay.body.code).toBe('LANE_RUN_OWNERSHIP_LOST');
+      expect(addSessionToBoardService).toHaveBeenCalledTimes(1);
+
+      const operation = databaseManager.get().prepare(`SELECT status FROM kanban_api_operations
+        WHERE project_id=? AND operation_key=?`).get(projectId, key);
+      expect(operation.status).toBe('completed');
     });
   });
 

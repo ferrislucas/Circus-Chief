@@ -457,13 +457,10 @@ router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req,
     return sendTerminalOperationResponse(res, operation, 409, { error: 'Session already has a card on the board' });
   }
 
-  // Verify lane exists
+  // Verify lane exists and belongs to this project's board
   const lane = kanbanLanes.getById(laneId);
-  if (!lane) {
-    return sendTerminalOperationResponse(res, operation, 404, { error: LANE_NOT_FOUND_ERROR });
-  }
   const board = boardForProject(req.params.projectId);
-  if (!laneBelongsToBoard(lane, board)) {
+  if (!lane || !laneBelongsToBoard(lane, board)) {
     return sendTerminalOperationResponse(res, operation, 404, { error: LANE_NOT_FOUND_ERROR });
   }
 
@@ -476,6 +473,10 @@ router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req,
     if (error.message === 'Session already has a card on the board') {
       return sendTerminalResponseFromCatch(res, operation, 409, { error: error.message });
     }
+    if (isApiError(error)) {
+      return sendTerminalResponseFromCatch(res, operation, error.status, { error: error.message, code: error.code });
+    }
+    console.error('Failed to add kanban card:', error);
     return sendFailureFromCatch(res, operation, error);
   }
 });
