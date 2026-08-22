@@ -498,6 +498,14 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
     const time = now();
     db.prepare(`UPDATE kanban_lane_runs SET status='superseded', superseded_at=?, updated_at=?, failure_reason=? WHERE id=? AND status='open'`)
       .run(time, time, reason, runId);
+    // A supersession is a terminal path too: an outstanding declaration can
+    // never be applied, so record why it was discarded rather than leaving it
+    // silently unapplied on the run.
+    if (run.chosen_exit_lane_id) {
+      audit(db, runId, 'deferred_exit_discarded', {
+        details: { targetLaneId: run.chosen_exit_lane_id, outcome: 'superseded' },
+      });
+    }
     clearExecutableMemberState(db, runId, reason, time);
     releaseCardFromRun(db, runId, time);
     audit(db, runId, 'run_superseded', { details: { reason } });

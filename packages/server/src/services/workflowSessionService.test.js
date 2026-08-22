@@ -464,6 +464,21 @@ describe('workflowSessionService', () => {
       });
     });
 
+    it('discards and audits a deferred exit when the run is superseded by a manual move', () => {
+      const { run } = runningWorker();
+      declareExitLane(card.id, target.id);
+
+      supersedeRunForCard(card.id, 'manual_move');
+
+      expect(getRun(run.id).status).toBe('superseded');
+      expect(getRun(run.id).chosenExitLaneId).toBe(target.id);
+      expect(databaseManager.get().prepare(`SELECT details_json
+        FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='deferred_exit_discarded'`)
+        .get(run.id)).toEqual({
+        details_json: JSON.stringify({ targetLaneId: target.id, outcome: 'superseded' }),
+      });
+    });
+
     it('recovers a declared exit after a crash before turn completion', () => {
       const { worker, run } = runningWorker();
       declareExitLane(card.id, target.id);
