@@ -87,6 +87,7 @@ import {
   finalResultEvents,
   getResultEvent,
 } from './streamEventHandler.js';
+import { pendingWakeups } from './scheduleWakeupBridge.js';
 
 describe('streamEventHandler', () => {
   beforeEach(() => {
@@ -1039,6 +1040,151 @@ describe('streamEventHandler', () => {
       expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
       // Auto-send must NOT fire — schedule wins
       expect(mockAutoSend).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── ScheduleWakeup bridge (end-to-end wiring) ─────────────────────────
+
+  describe('ScheduleWakeup bridge', () => {
+    /** Assistant event carrying a ScheduleWakeup tool_use block. */
+    function wakeupEvent(input) {
+      return {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'text', text: "I'll wait for the scheduled wakeup." },
+            { type: 'tool_use', id: 'tool-wakeup', name: 'ScheduleWakeup', input },
+          ],
+        },
+      };
+    }
+
+    /** Stateful session mock so the completion predicate observes the bridge's write. */
+    function statefulSession(overrides = {}) {
+      const session = {
+        id: 'sess-1',
+        projectId: 'proj-1',
+        scheduledAt: null,
+        pendingPrompt: null,
+        laneRunId: null,
+        ...overrides,
+      };
+      sessions.getById.mockReturnValue(session);
+      sessions.update.mockImplementation((sessionId, updates) => {
+        if (sessionId === 'sess-1') Object.assign(session, updates);
+        return session;
+      });
+      return session;
+    }
+
+    beforeEach(() => {
+      pendingWakeups.clear();
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+    });
+
+    it('turns a ScheduleWakeup call into a scheduled continuation', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      const session = statefulSession();
+
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 1200,
+        reason: 'waiting for the full E2E suite',
+        prompt: 'Continue: check /tmp/e2e-full-run.log',
+      }));
+
+      // Nothing is persisted until the turn actually ends.
+      expect(session.scheduledAt).toBeNull();
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(session).toMatchObject({
+        status: 'scheduled',
+        pendingPrompt: 'Continue: check /tmp/e2e-full-run.log',
+        pendingConversationId: null,
+      });
+      expect(session.scheduledAt).toBeGreaterThan(Date.now());
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_STATUS,
+        { sessionId: 'sess-1', status: 'scheduled' }
+      );
+    });
+
+    it('suppresses auto-send and the template trigger, like a REST schedule', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      statefulSession({ autoSendPendingPrompt: true });
+
+      await handleStreamEvent('sess-1', wakeupEvent({ delaySeconds: 600, reason: 'r', prompt: 'Continue' }));
+
+      const mockAutoSend = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+      });
+
+      expect(mockCheckReschedule).not.toHaveBeenCalled();
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
+    it('leaves an ordinary turn untouched', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      const session = statefulSession();
+
+      await handleStreamEvent('sess-1', {
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }] },
+      });
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(session.status).toBe('waiting');
+      expect(session.scheduledAt).toBeNull();
+    });
+
+    it('preserves the schedule across the error path', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      const session = statefulSession();
+
+      await handleStreamEvent('sess-1', wakeupEvent({ delaySeconds: 270, reason: 'r', prompt: 'Continue: retry' }));
+
+      const mockScheduler = { rescheduleSession: vi.fn().mockResolvedValue(true) };
+      const result = await handleSessionError('sess-1', new Error('stream blew up'), {
+        controller: { signal: { aborted: false } },
+        shouldRescheduleOnError: vi.fn().mockReturnValue(true),
+        schedulerService: mockScheduler,
+      });
+
+      // The agent's own schedule wins over the automatic error reschedule.
+      expect(result).toBe(true);
+      expect(mockScheduler.rescheduleSession).not.toHaveBeenCalled();
+      expect(session).toMatchObject({ status: 'scheduled', pendingPrompt: 'Continue: retry' });
+    });
+
+    it('discards a captured wakeup when the turn is cleaned up without completing', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      statefulSession();
+
+      await handleStreamEvent('sess-1', wakeupEvent({ delaySeconds: 600, reason: 'r', prompt: 'Continue' }));
+      expect(pendingWakeups.has('sess-1')).toBe(true);
+
+      cleanupSessionState('sess-1');
+
+      expect(pendingWakeups.has('sess-1')).toBe(false);
     });
   });
 

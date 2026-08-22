@@ -14,10 +14,13 @@ import {
   broadcastChangesUpdate,
   getResultEvent,
 } from './streamEventHandler.js';
+import { applyPendingWakeup } from './scheduleWakeupBridge.js';
 
 /**
  * Re-apply scheduled status after a turn ends if the session was scheduled
- * mid-turn (e.g., by the agent calling POST /api/sessions/:id/schedule).
+ * mid-turn — either by the agent calling POST /api/sessions/:id/schedule, or
+ * by it calling the SDK's built-in ScheduleWakeup tool (translated into the
+ * same scheduledAt/pendingPrompt fields by scheduleWakeupBridge).
  *
  * Invariant this predicate relies on: the scheduler clears scheduledAt and
  * pendingPrompt when it starts a scheduled run (`schedulerService.startScheduledSession`
@@ -37,6 +40,12 @@ import {
  * @returns {Promise<boolean>}
  */
 async function handleScheduledContinuationIfNeeded(sessionId) {
+  // Materialize a ScheduleWakeup call made during this turn into the same
+  // scheduledAt/pendingPrompt fields the REST endpoint writes, so the predicate
+  // below treats both origins identically. No-op when none was captured, and a
+  // no-op when an explicit REST schedule already exists (that one wins).
+  applyPendingWakeup(sessionId);
+
   const session = sessions.getById(sessionId);
   if (!session) return false;
   const hasPendingPrompt = typeof session.pendingPrompt === 'string' && session.pendingPrompt.trim() !== '';

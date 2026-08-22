@@ -61,6 +61,16 @@ The prompt provides the agent with its own session ID, project ID, and current w
 
 **Auto-retry defaults:** API-created sessions automatically retry on token-limit exhaustion and provider outages. `autoRescheduleEnabled` defaults to `true` (pass `false` to opt out), `rescheduleOnTokenLimit` and `rescheduleOnServiceError` both default to `true`, and `maxRescheduleCount` defaults to `24` (≈ one day of hourly retries). Pass an explicit `maxRescheduleCount` to adjust the cap.
 
+**SDK `ScheduleWakeup` bridge:** `ScheduleWakeup` is a Claude Agent SDK built-in, not a Circus Chief endpoint. When an agent calls it, the SDK registers a cron *inside the Claude Code CLI subprocess* — which exits at the end of the turn, taking the cron with it. Since Circus Chief runs one-shot `query()` per turn, nothing would ever wake the session, even though the tool reports success and the agent says something like "I'll wait for the scheduled wakeup."
+
+`packages/server/src/services/scheduleWakeupBridge.js` translates the call into the same `scheduledAt` / `pendingPrompt` fields that `POST /api/sessions/:id/schedule` writes, so `SchedulerService`'s poller resumes the session normally. Details:
+
+- The call is **captured** from the assistant message's `tool_use` block and only **applied at turn completion** — a superseding call later in the turn wins, and an aborted or hard-errored turn leaves no schedule behind. It reads the tool *input* rather than `ScheduleWakeupOutput.scheduledFor` because tool results arrive as `user` messages, which the Claude Code stream path does not handle.
+- `delaySeconds` is clamped to the SDK-documented `[60, 3600]` range, and the resulting timestamp is forced strictly into the future (a long turn can outlive its own requested delay).
+- The `<<autonomous-loop-dynamic>>` / `<<autonomous-loop>>` prompt sentinels have no meaning outside the SDK's loop state, so they fall back to `Continue`.
+- **An explicit `POST /:id/schedule` made during the same turn wins.** That call carries a caller-chosen timestamp and model; the wakeup is a best-effort translation.
+- For lane-run sessions the write is fenced by `withActiveLaneRunOwnership`, exactly as the REST endpoint does.
+
 **Structured lane-run workers:** A plain successful turn end means the worker's own work is complete. If the worker needs another turn — including one awaiting human input — it must schedule itself before the turn ends; the schedule keeps the lane run open. Descendants created with `parentSessionId` also remain blocking until they complete.
 
 ### Project Operations (always included)
@@ -111,4 +121,5 @@ Included for every project. Also includes a dynamically populated list of availa
 |------|---------|
 | `packages/server/src/services/sessionPrompts.js` | Main prompt assembly and canvas/session/kanban endpoint documentation |
 | `packages/server/src/services/commandButtonPrompts.js` | Command endpoint documentation |
+| `packages/server/src/services/scheduleWakeupBridge.js` | Translates the SDK's built-in `ScheduleWakeup` tool into a Circus Chief schedule |
 | `packages/shared/src/constants.js` | `DEFAULT_SYSTEM_PROMPT` fallback |

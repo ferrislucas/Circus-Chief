@@ -19,6 +19,7 @@ export { createWorkLog } from './workLogService.js';
 import { createWorkLog } from './workLogService.js';
 import { cancelPrompt } from './promptStore.js';
 import { buildSafeDenialSummary } from './promptDurableSummary.js';
+import { captureScheduleWakeup, clearPendingWakeup } from './scheduleWakeupBridge.js';
 
 // ── Shared module-level state ──────────────────────────────────────────────
 
@@ -221,6 +222,11 @@ function handleAssistantEvent(sessionId, event) {
   // NOTE: This must be OUTSIDE the if (textContent) block because Claude can call
   // TodoWrite without any accompanying text content (tool-only messages)
   handleTodoWriteIfPresent(sessionId, toolUseBlocks);
+
+  // Check for the SDK's built-in ScheduleWakeup tool. Only records the intent —
+  // it is applied at turn completion. See scheduleWakeupBridge.js for why this
+  // reads the tool input rather than its result.
+  captureScheduleWakeup(sessionId, toolUseBlocks);
 
   // Note: Thinking content is logged via stream_event -> content_block_stop
   // to avoid duplicates (since includePartialMessages is always enabled)
@@ -533,6 +539,9 @@ export function cleanupSessionState(sessionId, includeConversationId = false) {
   loggedToolUseIds.delete(sessionId);
   finalErrorSessionIds.delete(sessionId);
   finalResultEvents.delete(sessionId);
+  // Any wakeup not consumed by the completion/error paths (aborted turn, hard
+  // result.error) is intentionally discarded rather than carried into the next turn.
+  clearPendingWakeup(sessionId);
   activeSessions.delete(sessionId);
   if (includeConversationId) {
     activeConversationIds.delete(sessionId);
