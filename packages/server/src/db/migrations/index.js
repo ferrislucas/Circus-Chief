@@ -352,4 +352,9 @@ export const allMigrations = validateMigrations([
   k.get('kanban-durable-delivery-and-api-operations'),
   k.get('kanban-delivery-health-status-index'),
   k.get('kanban-api-operation-leases-and-canonical-responses'),
+
+  // --- Sessions blocked on agent input ---
+  // Keep this last: it is additive and must run for databases created before
+  // pending_agent_input was added to schema.sql.
+  s.get('sessions-add-pending_agent_input'),
 ]);

@@ -28,4 +28,10 @@ describe('migration registration', () => {
       expect(names.indexOf(name)).toBeGreaterThan(workflowIndex);
     }
   });
+
+  it('registers the pending agent input migration for upgraded databases', () => {
+    const names = allMigrations.map(({ name }) => name);
+
+    expect(names).toContain('sessions-add-pending_agent_input');
+  });
 });

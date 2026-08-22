@@ -77,13 +77,14 @@ test.describe('Project list running-workspace links', () => {
   test('renders links with correct counts and omits inactive workspaces', async ({ page }) => {
     const project = await seedProject('rw-links', '/tmp');
 
-    // alpha: root + two children => active 3 (running, running, waiting)
+    // alpha: root + two children => active 3 (all running). A session with
+    // status='waiting' is idle; pending_agent_input is the blocked state.
     const alpha = await seedSession(project.id, { prompt: 'alpha root', name: 'alpha', startImmediately: false });
     const alphaChild1 = await seedChildSession(project.id, alpha.id, { prompt: 'alpha c1', name: 'alpha-c1' });
     const alphaChild2 = await seedChildSession(project.id, alpha.id, { prompt: 'alpha c2', name: 'alpha-c2' });
     await updateSessionStatus(alpha.id, 'running');
     await updateSessionStatus(alphaChild1.id, 'running');
-    await updateSessionStatus(alphaChild2.id, 'waiting');
+    await updateSessionStatus(alphaChild2.id, 'running');
 
     // beta: single running root => active 1
     const beta = await seedSession(project.id, { prompt: 'beta root', name: 'beta', startImmediately: false });
@@ -151,9 +152,10 @@ test.describe('Project list running-workspace links', () => {
     const project = await seedProject('rw-live-dec', '/tmp');
     const root = await seedSession(project.id, { prompt: 'root', name: 'live-root', startImmediately: false });
     const child1 = await seedChildSession(project.id, root.id, { prompt: 'c1', name: 'live-c1' });
-    await seedChildSession(project.id, root.id, { prompt: 'c2', name: 'live-c2' });
+    const child2 = await seedChildSession(project.id, root.id, { prompt: 'c2', name: 'live-c2' });
     await updateSessionStatus(root.id, 'running');
     await updateSessionStatus(child1.id, 'running');
+    await updateSessionStatus(child2.id, 'running');
 
     await page.goto('/');
     const link = projectCard(page, project.name).locator('.workspace-link').filter({ hasText: 'live-root' });
@@ -211,13 +213,14 @@ test.describe('Project list running-workspace links', () => {
     await page.goto('/');
 
     // Badge counts are *global* project counts (RQ §9.6), so assert the
-    // delta this test's own seeding introduces — one more running, one more
-    // waiting, one more idle — rather than an absolute value. See
+    // delta this test's own seeding introduces — one more running and two
+    // more idle. A status='waiting' session is idle unless it has
+    // pending_agent_input. See
     // getStatusFacets() for why.
     await expect(filterPill(page, 'running')).toContainText('running');
     await expect(filterPill(page, 'running').locator('.filter-count')).toHaveText(String(before.running + 1));
-    await expect(filterPill(page, 'waiting').locator('.filter-count')).toHaveText(String(before.waiting + 1));
-    await expect(filterPill(page, 'idle').locator('.filter-count')).toHaveText(String(before.idle + 1));
+    await expect(filterPill(page, 'waiting').locator('.filter-count')).toHaveText(String(before.waiting));
+    await expect(filterPill(page, 'idle').locator('.filter-count')).toHaveText(String(before.idle + 2));
 
     await filterPill(page, 'running').click();
     await expect(projectCard(page, runningProject.name)).toBeVisible();
@@ -225,11 +228,12 @@ test.describe('Project list running-workspace links', () => {
     await expect(projectCard(page, idleProject.name)).toHaveCount(0);
 
     await filterPill(page, 'waiting').click();
-    await expect(projectCard(page, waitingProject.name)).toBeVisible();
+    await expect(projectCard(page, waitingProject.name)).toHaveCount(0);
     await expect(projectCard(page, runningProject.name)).toHaveCount(0);
 
     await filterPill(page, 'idle').click();
     await expect(projectCard(page, idleProject.name)).toBeVisible();
+    await expect(projectCard(page, waitingProject.name)).toBeVisible();
     await expect(projectCard(page, runningProject.name)).toHaveCount(0);
 
     // Clicking the active pill clears the filter.
@@ -239,7 +243,7 @@ test.describe('Project list running-workspace links', () => {
     await expect(projectCard(page, idleProject.name)).toBeVisible();
   });
 
-  test('counts a project with running and waiting sessions under both filters, and neither idle', async ({ page }) => {
+  test('does not treat an idle waiting-status session as blocked on agent input', async ({ page }) => {
     const before = await getStatusFacets();
 
     const project = await seedProject('rw-overlap', '/tmp');
@@ -250,18 +254,18 @@ test.describe('Project list running-workspace links', () => {
 
     await page.goto('/');
 
-    // Its badge contributions land in both running and waiting; idle is
-    // unaffected (this project is neither). See getStatusFacets() — badge
+    // Only the running session makes this project active; status='waiting'
+    // alone does not represent a pending agent prompt. See getStatusFacets() — badge
     // counts are global, so assert the delta, not an absolute value.
     await expect(filterPill(page, 'running').locator('.filter-count')).toHaveText(String(before.running + 1));
-    await expect(filterPill(page, 'waiting').locator('.filter-count')).toHaveText(String(before.waiting + 1));
+    await expect(filterPill(page, 'waiting').locator('.filter-count')).toHaveText(String(before.waiting));
     await expect(filterPill(page, 'idle').locator('.filter-count')).toHaveText(String(before.idle));
 
     await filterPill(page, 'running').click();
     await expect(projectCard(page, project.name)).toBeVisible();
 
     await filterPill(page, 'waiting').click();
-    await expect(projectCard(page, project.name)).toBeVisible();
+    await expect(projectCard(page, project.name)).toHaveCount(0);
 
     // Neither idle.
     await filterPill(page, 'idle').click();
