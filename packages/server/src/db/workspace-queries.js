@@ -34,7 +34,11 @@ const WORKSPACE_AGGREGATES_CTE = `
   )`;
 
 function workspaceFilters({ archived, starred, scheduled, rootId = null }) {
-  const filters = ['s.project_id = @project_root', 's.parent_session_id IS NULL', 's.archived = @archived'];
+  const filters = [
+    's.project_id = @project_root',
+    's.parent_session_id IS NULL',
+    's.archived = @archived',
+  ];
   const params = { archived: archived ? 1 : 0 };
   if (starred !== null) {
     filters.push('s.starred = @starred');
@@ -54,6 +58,7 @@ function workspaceFilters({ archived, starred, scheduled, rootId = null }) {
  */
 function statusPredicates(status) {
   if (status === 'running') return ['runningCount > 0'];
+  if (status === 'waiting') return ['waitingCount > 0'];
   if (status === 'idle') return ['runningCount = 0'];
   return [];
 }
@@ -63,36 +68,59 @@ export function decodeWorkspaceCardCursor(cursor) {
   if (!cursor) return null;
   try {
     const value = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-    return Array.isArray(value) && value.length === 5
-      && value.slice(0, 4).every(Number.isFinite)
-      && typeof value[4] === 'string' ? value : null;
-  } catch { return null; }
+    return Array.isArray(value) &&
+      value.length === 5 &&
+      value.slice(0, 4).every(Number.isFinite) &&
+      typeof value[4] === 'string'
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export function isValidWorkspaceCardCursor(cursor) {
-  return cursor === undefined
-    || (typeof cursor === 'string' && cursor.length <= 512 && (!cursor || decodeWorkspaceCardCursor(cursor)));
+  return (
+    cursor === undefined ||
+    (typeof cursor === 'string' &&
+      cursor.length <= 512 &&
+      (!cursor || decodeWorkspaceCardCursor(cursor)))
+  );
 }
 
 function encodeCursor(row) {
-  return Buffer.from(JSON.stringify([
-    Number(row.starred), row.sort_activity, row.updatedAt, row.createdAt, row.id,
-  ])).toString('base64url');
+  return Buffer.from(
+    JSON.stringify([Number(row.starred), row.sort_activity, row.updatedAt, row.createdAt, row.id])
+  ).toString('base64url');
 }
 
 function cardPageParams(projectId, baseParams, options) {
   const { limit, offset, cursorValues, rootId = null } = options;
-  const params = { project_tree: projectId, target_root: rootId, project_root: projectId, ...baseParams, limit: limit + 1, offset };
-  cursorValues?.forEach((value, index) => { params[`cur_${index}`] = value; });
+  const params = {
+    project_tree: projectId,
+    target_root: rootId,
+    project_root: projectId,
+    ...baseParams,
+    limit: limit + 1,
+    offset,
+  };
+  cursorValues?.forEach((value, index) => {
+    params[`cur_${index}`] = value;
+  });
   return params;
 }
 
 function parseCardPageRows(resultRows, limit) {
-  const facetRow = resultRows.find(row => row.row_kind === 'facets');
-  const rows = resultRows.filter(row => row.row_kind === 'page');
+  const facetRow = resultRows.find((row) => row.row_kind === 'facets');
+  const rows = resultRows.filter((row) => row.row_kind === 'page');
   return {
-    visibleRows: rows.slice(0, limit), hasMore: rows.length > limit,
-    facets: { running: facetRow?.facet_running || 0, idle: facetRow?.facet_idle || 0 },
+    visibleRows: rows.slice(0, limit),
+    hasMore: rows.length > limit,
+    facets: {
+      running: facetRow?.facet_running || 0,
+      idle: facetRow?.facet_idle || 0,
+      waiting: facetRow?.facet_waiting || 0,
+    },
   };
 }
 
@@ -116,7 +144,12 @@ export function getWorkspaceCardPage(db, projectId, options = {}) {
     cursor = null,
     rootId = null,
   } = options;
-  const { filters: baseFilters, params: baseParams } = workspaceFilters({ archived, starred, scheduled, rootId });
+  const { filters: baseFilters, params: baseParams } = workspaceFilters({
+    archived,
+    starred,
+    scheduled,
+    rootId,
+  });
   const statusFilters = statusPredicates(status);
   const cursorValues = decodeWorkspaceCardCursor(cursor);
   const cursorClause = cursorValues
@@ -148,24 +181,30 @@ export function getWorkspaceCardPage(db, projectId, options = {}) {
     ), facets AS (
       SELECT
         COALESCE(SUM(CASE WHEN runningCount > 0 THEN 1 ELSE 0 END), 0) AS running,
-        COALESCE(SUM(CASE WHEN runningCount = 0 THEN 1 ELSE 0 END), 0) AS idle
+        COALESCE(SUM(CASE WHEN runningCount = 0 THEN 1 ELSE 0 END), 0) AS idle,
+        COALESCE(SUM(CASE WHEN waitingCount > 0 THEN 1 ELSE 0 END), 0) AS waiting
       FROM base
     ), paged AS (
       SELECT * FROM filtered WHERE 1=1 ${cursorClause}
       ORDER BY starred DESC, sort_activity DESC, updatedAt DESC, createdAt DESC, id DESC
       LIMIT @limit ${cursorValues ? '' : 'OFFSET @offset'}
     )
-    SELECT 'page' AS row_kind, paged.*, NULL AS facet_running, NULL AS facet_idle
+    SELECT 'page' AS row_kind, paged.*, NULL AS facet_running, NULL AS facet_idle, NULL AS facet_waiting
     FROM paged
     UNION ALL
     SELECT 'facets' AS row_kind,
       NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
       NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-      NULL, NULL, NULL, facets.running, facets.idle
+      NULL, NULL, NULL, facets.running, facets.idle, facets.waiting
     FROM facets`;
-  const resultRows = db.prepare(sql).all(cardPageParams(projectId, baseParams, {
-    limit, offset, cursorValues, rootId,
-  }));
+  const resultRows = db.prepare(sql).all(
+    cardPageParams(projectId, baseParams, {
+      limit,
+      offset,
+      cursorValues,
+      rootId,
+    })
+  );
   const { visibleRows, hasMore, facets } = parseCardPageRows(resultRows, limit);
   const cards = visibleRows.map(toWorkspaceCard);
   return {
@@ -199,9 +238,10 @@ function toWorkspaceCard(row) {
     nearestScheduledAt: row.nearestScheduledAt || null,
     summaryPreview: row.summaryPreview || null,
     prState: row.prState || null,
-    hasMergeConflicts: row.hasMergeConflicts === null || row.hasMergeConflicts === undefined
-      ? null
-      : Boolean(row.hasMergeConflicts),
+    hasMergeConflicts:
+      row.hasMergeConflicts === null || row.hasMergeConflicts === undefined
+        ? null
+        : Boolean(row.hasMergeConflicts),
     ciStatus: row.ciStatus || null,
     kanban: row.kanbanCardId
       ? { cardId: row.kanbanCardId, laneId: row.laneId, laneName: row.laneName }

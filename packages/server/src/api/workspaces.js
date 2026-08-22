@@ -32,7 +32,10 @@ import {
 import { hasPendingPrompt } from '../services/promptStore.js';
 import { isValidWorkspaceCardCursor } from '../db/workspace-queries.js';
 
-const withPendingAgentInput = (session) => ({ ...session, pendingAgentInput: hasPendingPrompt(session.id) });
+const withPendingAgentInput = (session) => ({
+  ...session,
+  pendingAgentInput: hasPendingPrompt(session.id),
+});
 
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
 const ERR_WORKSPACE_NOT_FOUND = 'Workspace not found';
@@ -143,23 +146,28 @@ function parseBooleanFilter(value) {
 }
 
 function hasValidWorkspaceCardFilters(status, scheduled) {
-  return ['running', 'idle', undefined].includes(status)
-    && ['true', 'false', undefined].includes(scheduled);
+  return (
+    ['running', 'waiting', 'idle', undefined].includes(status) &&
+    ['true', 'false', undefined].includes(scheduled)
+  );
 }
 
 function hasValidWorkspaceCardPagination(limit, offset) {
-  return Number.isInteger(limit) && limit >= 1 && limit <= 500
-    && Number.isInteger(offset) && offset >= 0;
+  return (
+    Number.isInteger(limit) && limit >= 1 && limit <= 500 && Number.isInteger(offset) && offset >= 0
+  );
 }
 
 function parseWorkspaceCardOptions({ archived, starred, limit, cursor, status, scheduled }) {
-  const isNonNegativeInt = value => typeof value === 'string' && /^\d+$/.test(value);
-  const parsedLimit = limit === undefined ? 50 : isNonNegativeInt(limit) ? Number(limit) : Number.NaN;
-  const valid = hasValidWorkspaceCardPagination(parsedLimit, 0)
-    && ['true', 'false', undefined].includes(archived)
-    && ['true', 'false', undefined].includes(starred)
-    && hasValidWorkspaceCardFilters(status, scheduled)
-    && isValidWorkspaceCardCursor(cursor);
+  const isNonNegativeInt = (value) => typeof value === 'string' && /^\d+$/.test(value);
+  const parsedLimit =
+    limit === undefined ? 50 : isNonNegativeInt(limit) ? Number(limit) : Number.NaN;
+  const valid =
+    hasValidWorkspaceCardPagination(parsedLimit, 0) &&
+    ['true', 'false', undefined].includes(archived) &&
+    ['true', 'false', undefined].includes(starred) &&
+    hasValidWorkspaceCardFilters(status, scheduled) &&
+    isValidWorkspaceCardCursor(cursor);
   if (!valid) return null;
   return {
     archived: archived === 'true',
@@ -172,7 +180,7 @@ function parseWorkspaceCardOptions({ archived, starred, limit, cursor, status, s
   };
 }
 
-const runRecency = run => run.completedAt ?? run.startedAt ?? 0;
+const runRecency = (run) => run.completedAt ?? run.startedAt ?? 0;
 
 function shouldReplaceWorkspaceCommandRun(current, candidate) {
   const candidateIsRunning = candidate.status === 'running';
@@ -198,17 +206,19 @@ function workspaceCommandRuns(card, runsBySession) {
 
 function sendWorkspaceCards(res, projectId, query, startedAt) {
   const options = parseWorkspaceCardOptions(query);
-  if (!options) return res.status(400).json({ error: 'Invalid workspace card pagination or filters' });
+  if (!options)
+    return res.status(400).json({ error: 'Invalid workspace card pagination or filters' });
   const page = sessions.getWorkspaceCardPage(projectId, options);
   const { cards, facets } = page;
-  const memberIds = [...new Set(cards.flatMap(card => card.memberIds))];
+  const memberIds = [...new Set(cards.flatMap((card) => card.memberIds))];
   const memberIdSet = new Set(memberIds);
   const runsBySession = buildRunsBySession(
     // The list resumes output polling from a card run, so it needs the
     // output-chunk metadata the board broadcast deliberately omits.
     commandRuns.getLatestRunsForSessions(memberIds, { includeOutputMetadata: true }),
-    commandRunner.getRunningByProjectId(projectId, sessionIds => sessions.getByIds(sessionIds))
-      .filter(run => memberIdSet.has(run.sessionId))
+    commandRunner
+      .getRunningByProjectId(projectId, (sessionIds) => sessions.getByIds(sessionIds))
+      .filter((run) => memberIdSet.has(run.sessionId))
   );
   const workspaces = cards.map((card) => {
     const { memberIds: cardMemberIds, ...publicCard } = card;
@@ -223,24 +233,29 @@ function sendWorkspaceCards(res, projectId, query, startedAt) {
     };
   });
   const total = options.status ? facets[options.status] : facets.running + facets.idle;
-  return sendWorkspaceJson(res, {
-    workspaces,
-    facets,
-    pagination: {
-      total,
-      limit: options.limit,
-      nextCursor: page.nextCursor,
-      hasMore: page.hasMore,
+  return sendWorkspaceJson(
+    res,
+    {
+      workspaces,
+      facets,
+      pagination: {
+        total,
+        limit: options.limit,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+      },
     },
-  }, startedAt);
+    startedAt
+  );
 }
 
 function decorateWorkspaceCard(card, projectId) {
   const memberIdSet = new Set(card.memberIds);
   const runsBySession = buildRunsBySession(
     commandRuns.getLatestRunsForSessions(card.memberIds, { includeOutputMetadata: true }),
-    commandRunner.getRunningByProjectId(projectId, ids => sessions.getByIds(ids))
-      .filter(run => memberIdSet.has(run.sessionId)),
+    commandRunner
+      .getRunningByProjectId(projectId, (ids) => sessions.getByIds(ids))
+      .filter((run) => memberIdSet.has(run.sessionId))
   );
   return {
     ...card,
@@ -261,17 +276,28 @@ function listProjectWorkspaces(req, res) {
   const starredFilter = starred === 'true' ? true : starred === 'false' ? false : null;
   const parsedLimit = limit ? parseInt(limit, 10) : null;
   const parsedOffset = offset ? parseInt(offset, 10) : 0;
-  const workspaces = sessions.getRootsByProjectId(req.params.projectId, {
-    archived: archivedFilter, starred: starredFilter, limit: parsedLimit, offset: parsedOffset,
-  }).map(withPendingAgentInput);
+  const workspaces = sessions
+    .getRootsByProjectId(req.params.projectId, {
+      archived: archivedFilter,
+      starred: starredFilter,
+      limit: parsedLimit,
+      offset: parsedOffset,
+    })
+    .map(withPendingAgentInput);
   if (parsedLimit === null) return res.json(workspaces);
 
   const total = sessions.getRootsCountByProjectId(req.params.projectId, {
-    archived: archivedFilter, starred: starredFilter,
+    archived: archivedFilter,
+    starred: starredFilter,
   });
   return res.json({
     workspaces,
-    pagination: { total, limit: parsedLimit, offset: parsedOffset, hasMore: parsedOffset + workspaces.length < total },
+    pagination: {
+      total,
+      limit: parsedLimit,
+      offset: parsedOffset,
+      hasMore: parsedOffset + workspaces.length < total,
+    },
   });
 }
 
@@ -294,7 +320,9 @@ projectWorkspacesRouter.post('/:projectId/workspaces', async (req, res) => {
   try {
     const validation = CreateWorkspaceRequest.safeParse(req.body);
     if (!validation.success) {
-      return res.status(400).json({ error: validation.error.issues[0]?.message || 'Invalid request body' });
+      return res
+        .status(400)
+        .json({ error: validation.error.issues[0]?.message || 'Invalid request body' });
     }
 
     const project = projects.getById(req.params.projectId);
@@ -305,7 +333,12 @@ projectWorkspacesRouter.post('/:projectId/workspaces', async (req, res) => {
     // Force parentSessionId to null — this is always a root (workspace)
     const body = { ...req.body, parentSessionId: null };
 
-    const prepared = await validateAndPrepareSessionConfig(body, req.files, req.params.projectId, project);
+    const prepared = await validateAndPrepareSessionConfig(
+      body,
+      req.files,
+      req.params.projectId,
+      project
+    );
     if (prepared.error) {
       return res.status(prepared.status).json({ error: prepared.error });
     }
@@ -314,7 +347,12 @@ projectWorkspacesRouter.post('/:projectId/workspaces', async (req, res) => {
     config.agentType = resolveAgentTypeFromModel(config.model);
     const initialStatus = determineInitialStatus(config);
     session = createSessionRow(req.params.projectId, config, nextTemplateId, initialStatus);
-    return await startSessionOrFail(req, res, { session, config, project, projectId: req.params.projectId });
+    return await startSessionOrFail(req, res, {
+      session,
+      config,
+      project,
+      projectId: req.params.projectId,
+    });
   } catch (error) {
     return handleCreateError(res, session, error, 'Workspace creation error:');
   }
@@ -333,10 +371,14 @@ workspacesRouter.get('/:workspaceId', (req, res) => {
   const descendants = descendantIds.length > 0 ? sessions.getByIds(descendantIds) : [];
   // This endpoint is used by external API consumers, so retain its full session
   // row contract. The compact member projection lives at /members.
-  return sendWorkspaceJson(res, {
-    ...withPendingAgentInput(workspace),
-    sessions: descendants.map(withPendingAgentInput),
-  }, startedAt);
+  return sendWorkspaceJson(
+    res,
+    {
+      ...withPendingAgentInput(workspace),
+      sessions: descendants.map(withPendingAgentInput),
+    },
+    startedAt
+  );
 });
 
 // Bounded reconciliation endpoint for project realtime events. Unlike the list
@@ -358,7 +400,9 @@ workspacesRouter.post('/:workspaceId/sessions', async (req, res) => {
   try {
     const validation = CreateWorkspaceSessionRequest.safeParse(req.body);
     if (!validation.success) {
-      return res.status(400).json({ error: validation.error.issues[0]?.message || 'Invalid request body' });
+      return res
+        .status(400)
+        .json({ error: validation.error.issues[0]?.message || 'Invalid request body' });
     }
 
     const resolved = resolveWorkspace(res, req.params.workspaceId);
@@ -373,7 +417,12 @@ workspacesRouter.post('/:workspaceId/sessions', async (req, res) => {
 
     const body = { ...req.body, parentSessionId: parentValidation.parentSessionId };
 
-    const prepared = await validateAndPrepareSessionConfig(body, req.files, workspace.projectId, project);
+    const prepared = await validateAndPrepareSessionConfig(
+      body,
+      req.files,
+      workspace.projectId,
+      project
+    );
     if (prepared.error) {
       return res.status(prepared.status).json({ error: prepared.error });
     }
@@ -382,7 +431,12 @@ workspacesRouter.post('/:workspaceId/sessions', async (req, res) => {
     config.agentType = resolveAgentTypeFromModel(config.model);
     const initialStatus = determineInitialStatus(config);
     session = createSessionRow(workspace.projectId, config, nextTemplateId, initialStatus);
-    return await startSessionOrFail(req, res, { session, config, project, projectId: workspace.projectId });
+    return await startSessionOrFail(req, res, {
+      session,
+      config,
+      project,
+      projectId: workspace.projectId,
+    });
   } catch (error) {
     return handleCreateError(res, session, error, 'Workspace session creation error:');
   }

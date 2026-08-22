@@ -53,8 +53,8 @@ describe('getWorkspaceCardPage', () => {
     const offsetPastEnd = getWorkspaceCardPage(db, 'project', { limit: 1, offset: 5 });
     const cursorPastEnd = getWorkspaceCardPage(db, 'project', { limit: 1, cursor: first.nextCursor });
 
-    expect(offsetPastEnd).toMatchObject({ cards: [], facets: { running: 1, idle: 1 } });
-    expect(cursorPastEnd.facets).toEqual({ running: 1, idle: 1 });
+    expect(offsetPastEnd).toMatchObject({ cards: [], facets: { running: 1, idle: 1, waiting: 0 } });
+    expect(cursorPastEnd.facets).toEqual({ running: 1, idle: 1, waiting: 0 });
   }));
 
   it('orders by session updates newer than denormalized external activity', () => withDb((db) => {
@@ -72,7 +72,7 @@ describe('getWorkspaceCardPage', () => {
     let prepares = 0;
     const countingDb = { prepare(...args) { prepares += 1; return db.prepare(...args); } };
 
-    expect(getWorkspaceCardPage(countingDb, 'project', { limit: 10 }).facets).toEqual({ running: 1, idle: 0 });
+    expect(getWorkspaceCardPage(countingDb, 'project', { limit: 10 }).facets).toEqual({ running: 1, idle: 0, waiting: 0 });
     expect(prepares).toBe(1);
   }));
 });

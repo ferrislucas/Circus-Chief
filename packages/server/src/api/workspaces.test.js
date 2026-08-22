@@ -272,7 +272,7 @@ describe('Workspace facade API', () => {
         .expect(200);
 
       expect(res.body.workspaces).toHaveLength(1);
-      expect(res.body.facets).toEqual({ running: 1, idle: 2 });
+      expect(res.body.facets).toEqual({ running: 1, idle: 2, waiting: 1 });
       expect(res.body.pagination).toMatchObject({ total: 3, hasMore: true });
     });
 

@@ -2,10 +2,7 @@
   <div class="container">
     <div class="page-header">
       <h1>Projects</h1>
-      <router-link
-        to="/projects/new"
-        class="btn btn-primary"
-      >
+      <router-link to="/projects/new" class="btn btn-primary">
         <span class="add-repo-label-full">Add Project</span>
         <span class="add-repo-label-short">+ Add</span>
       </router-link>
@@ -17,171 +14,118 @@
       class="project-filters"
     />
 
-    <div
-      v-if="projectsStore.loading"
-      class="skeleton-list"
-    >
-      <div
-        v-for="i in 3"
-        :key="i"
-        class="skeleton card"
-        style="height: 80px"
-      />
+    <div v-if="projectsStore.loading" class="skeleton-list">
+      <div v-for="i in 3" :key="i" class="skeleton card" style="height: 80px" />
     </div>
 
-    <div
-      v-else-if="projectsStore.error"
-      class="error-message"
-    >
+    <div v-else-if="projectsStore.error" class="error-message">
       {{ projectsStore.error }}
     </div>
 
-    <div
-      v-else-if="projectsStore.projects.length === 0"
-      class="empty-state"
-    >
+    <div v-else-if="projectsStore.projects.length === 0" class="empty-state">
       <div class="welcome-hero card">
-        <h2 class="welcome-heading">
-          Welcome to Circus Chief
-        </h2>
+        <h2 class="welcome-heading">Welcome to Circus Chief</h2>
         <p class="welcome-subtitle">
-          Your command center for coding agent sessions.
-          Point it at a codebase and start building.
+          Your command center for coding agent sessions. Point it at a codebase and start building.
         </p>
       </div>
 
       <div class="steps-grid">
         <div class="step-card card">
-          <div class="step-number">
-            1
-          </div>
-          <h3 class="step-title">
-            Pick a project folder
-          </h3>
-          <p class="step-desc">
-            Point to any codebase on your machine
-          </p>
+          <div class="step-number">1</div>
+          <h3 class="step-title">Pick a project folder</h3>
+          <p class="step-desc">Point to any codebase on your machine</p>
         </div>
         <div class="step-card card">
-          <div class="step-number">
-            2
-          </div>
-          <h3 class="step-title">
-            Create coding sessions
-          </h3>
-          <p class="step-desc">
-            Start tasks with your AI coding agent
-          </p>
+          <div class="step-number">2</div>
+          <h3 class="step-title">Create coding sessions</h3>
+          <p class="step-desc">Start tasks with your AI coding agent</p>
         </div>
         <div class="step-card card">
-          <div class="step-number">
-            3
-          </div>
-          <h3 class="step-title">
-            Track changes &amp; artifacts
-          </h3>
-          <p class="step-desc">
-            View diffs, canvas, and conversation history
-          </p>
+          <div class="step-number">3</div>
+          <h3 class="step-title">Track changes &amp; artifacts</h3>
+          <p class="step-desc">View diffs, canvas, and conversation history</p>
         </div>
       </div>
 
-      <router-link
-        to="/projects/new"
-        class="btn btn-primary cta-button"
-      >
+      <router-link to="/projects/new" class="btn btn-primary cta-button">
         Add Your First Project
       </router-link>
     </div>
 
-    <div
-      v-else-if="visibleProjects.length === 0"
-      class="empty-state"
-    >
+    <div v-else-if="visibleProjects.length === 0" class="empty-state">
       <div class="no-match card">
-        <p class="no-match-text">
-          No projects match this filter.
-        </p>
+        <p class="no-match-text">No projects match this filter.</p>
       </div>
     </div>
 
-    <div
-      v-else
-      class="project-list"
-    >
-      <div
-        v-for="project in visibleProjects"
-        :key="project.id"
-        class="project-card card"
-        @click="goToSessions(project.id)"
-      >
-        <div class="project-info">
-          <h3 class="project-name">
-            {{ project.name }}
-          </h3>
-          <p class="project-path">
-            {{ project.workingDirectory }}
-          </p>
-          <p
-            v-if="project.sessionCount > 0 || project.lastActivityAt"
-            class="project-meta"
-          >
-            <span v-if="project.sessionCount > 0">{{ project.sessionCount }} session{{ project.sessionCount !== 1 ? 's' : '' }}</span>
-            <template v-if="project.sessionCount > 0 && project.lastActivityAt">
-              <span class="meta-separator">·</span>
-            </template>
-            <span v-if="project.lastActivityAt">{{ formatRelativeTime(project.lastActivityAt) }}</span>
-          </p>
-          <div
-            v-if="project.runningWorkspaces.length > 0"
-            class="workspace-links"
-          >
-            <router-link
-              v-for="workspace in project.runningWorkspaces"
-              :key="workspace.id"
-              :to="`/sessions/${workspace.id}`"
-              class="workspace-link"
-              @click.stop
-            >
-              <span
-                class="workspace-status-dot"
-                aria-hidden="true"
-              />
-              <span class="workspace-name">{{ workspaceDisplayName(workspace) }}</span>
-              <span class="workspace-count">{{ activeCountLabel(workspace) }}</span>
+    <div v-else class="project-list">
+      <section v-for="project in visibleProjects" :key="project.id" class="project-group">
+        <div class="project-card card" @click="goToSessions(project.id)">
+          <div class="project-info">
+            <h3 class="project-name">
+              {{ project.name }}
+            </h3>
+            <p class="project-path">
+              {{ project.workingDirectory }}
+            </p>
+            <p v-if="project.sessionCount > 0 || project.lastActivityAt" class="project-meta">
+              <span v-if="project.sessionCount > 0"
+                >{{ project.sessionCount }} session{{ project.sessionCount !== 1 ? 's' : '' }}</span
+              >
+              <template v-if="project.sessionCount > 0 && project.lastActivityAt">
+                <span class="meta-separator">·</span>
+              </template>
+              <span v-if="project.lastActivityAt">{{
+                formatRelativeTime(project.lastActivityAt)
+              }}</span>
+            </p>
+          </div>
+          <div class="project-actions">
+            <router-link :to="`/projects/${project.id}/edit`" class="btn edit-btn" @click.stop>
+              <span class="edit-label-full">Edit</span>
+              <span class="edit-label-short" aria-hidden="true">&#9881;</span>
             </router-link>
           </div>
         </div>
-        <div class="project-actions">
-          <router-link
-            :to="`/projects/${project.id}/edit`"
-            class="btn edit-btn"
-            @click.stop
-          >
-            <span class="edit-label-full">Edit</span>
-            <span
-              class="edit-label-short"
-              aria-hidden="true"
-            >&#9881;</span>
-          </router-link>
+        <div v-if="projectCards[project.id]?.length" class="embedded-session-list">
+          <SessionCard
+            v-for="workspace in projectCards[project.id]"
+            :key="workspace.id"
+            :session="workspace"
+            :show-summary="true"
+            :summary="workspace.summaryPreview ? { shortSummary: workspace.summaryPreview } : null"
+            :workflow-aggregate="workspace"
+            :pr-url="workspace.prUrl"
+            :pr-summary="workspacePrSummary(workspace)"
+            :can-add-to-board="false"
+            @star="handleStar"
+          />
         </div>
-      </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
+import { useSessionsStore } from '../stores/sessions.js';
 import { useProjectFiltersStore } from '../stores/projectFilters.js';
 import { useProjectListRealtime } from '../composables/useProjectListRealtime.js';
 import ProjectFiltersPanel from '../components/ProjectFiltersPanel.vue';
+import SessionCard from '../components/SessionCard.vue';
 import { formatRelativeTime } from '../composables/useSummaryHelpers.js';
+import { api } from '../api/index.js';
+import { workspacePrSummary } from '../utils/workspaceCard.js';
 
 const router = useRouter();
 const projectsStore = useProjectsStore();
+const sessionsStore = useSessionsStore();
 const projectFilters = useProjectFiltersStore();
+const projectCards = ref({});
+let projectCardsRequest = 0;
 
 // The list and facets are client-side derivatives of the full project array.
 const visibleProjects = computed(() => projectsStore.filteredProjects);
@@ -192,13 +136,66 @@ function goToSessions(projectId) {
   router.push(`/projects/${projectId}/sessions`);
 }
 
-function workspaceDisplayName(workspace) {
-  return workspace.name || 'Untitled workspace';
+const hasStatusFilter = computed(() => Boolean(projectFilters.statusFilter));
+
+function cardStatusFilter() {
+  // An idle project has neither running nor waiting sessions, so all of its
+  // cards match. The general card-list idle filter intentionally includes
+  // waiting workspaces, which differs from the project-list definition.
+  return ['running', 'waiting'].includes(projectFilters.statusFilter)
+    ? projectFilters.statusFilter
+    : null;
 }
 
-function activeCountLabel(workspace) {
-  return `${workspace.activeCount} ${workspace.activeCount === 1 ? 'session' : 'sessions'}`;
+async function loadProjectCards() {
+  const request = ++projectCardsRequest;
+  const cards = await Promise.all(
+    visibleProjects.value.map(async (project) => {
+      const options = { status: cardStatusFilter(), limit: hasStatusFilter.value ? 500 : 3 };
+      let response = await api.getWorkspaceCards(project.id, options);
+      const workspaces = [...(response.workspaces || [])];
+
+      // A selected filter promises every match, rather than a page-sized
+      // preview. Cursor paging preserves the activity ordering from the API.
+      while (
+        hasStatusFilter.value &&
+        response.pagination?.hasMore &&
+        response.pagination.nextCursor
+      ) {
+        response = await api.getWorkspaceCards(project.id, {
+          ...options,
+          cursor: response.pagination.nextCursor,
+        });
+        workspaces.push(...(response.workspaces || []));
+      }
+      return [project.id, workspaces];
+    })
+  );
+  if (request === projectCardsRequest) {
+    projectCards.value = Object.fromEntries(cards);
+  }
 }
+
+async function handleStar({ id, starred }) {
+  const card = Object.values(projectCards.value)
+    .flat()
+    .find((item) => item.id === id);
+  if (!card) return;
+  card.starred = starred;
+  try {
+    await sessionsStore.toggleSessionStar(id);
+  } catch {
+    card.starred = !starred;
+  }
+}
+
+watch(
+  [visibleProjects, hasStatusFilter],
+  () => {
+    loadProjectCards().catch(() => {});
+  },
+  { immediate: true }
+);
 
 onMounted(() => {
   projectFilters.restoreStatusFilter();
@@ -308,6 +305,12 @@ onMounted(() => {
   gap: 1rem;
 }
 
+.project-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .project-card {
   display: flex;
   justify-content: space-between;
@@ -350,45 +353,11 @@ onMounted(() => {
   margin: 0 0.375rem;
 }
 
-.workspace-links {
+.embedded-session-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.625rem;
-}
-
-.workspace-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  font-size: 0.8125rem;
-  color: var(--color-text-soft);
-  text-decoration: none;
-  padding: 0.125rem 0.625rem;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  transition: border-color 0.15s ease, color 0.15s ease;
-}
-
-.workspace-link:hover {
-  border-color: var(--color-primary);
-  color: var(--color-text);
-}
-
-.workspace-status-dot {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background-color: #34d399; /* emerald-400 — active workspace */
-  flex-shrink: 0;
-}
-
-.workspace-name {
-  color: var(--color-text);
-}
-
-.workspace-count {
-  color: var(--color-text-soft);
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-left: 1rem;
 }
 
 .no-match {

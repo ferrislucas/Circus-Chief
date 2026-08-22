@@ -7,6 +7,8 @@ import ProjectListView from './ProjectListView.vue';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProjectFiltersStore } from '../stores/projectFilters.js';
 
+const { getWorkspaceCards } = vi.hoisted(() => ({ getWorkspaceCards: vi.fn() }));
+
 // Mock the composable to avoid opening a WebSocket in jsdom.
 vi.mock('../composables/useProjectListRealtime.js', () => ({
   useProjectListRealtime: vi.fn(),
@@ -18,6 +20,18 @@ vi.mock('../composables/useSummaryHelpers.js', () => ({
     if (!ts) return '';
     return '2h ago';
   }),
+}));
+
+vi.mock('../api/index.js', () => ({
+  api: { getWorkspaceCards },
+}));
+
+vi.mock('../components/SessionCard.vue', () => ({
+  default: {
+    name: 'SessionCard',
+    props: ['session'],
+    template: '<div class="session-card">{{ session.name }}</div>',
+  },
 }));
 
 // Helper to flush all async updates
@@ -65,11 +79,12 @@ describe('ProjectListView', () => {
         { path: '/projects/:id/sessions', component: { template: '<div></div>' } },
         { path: '/projects/:id/edit', component: { template: '<div></div>' } },
         { path: '/sessions/:id/:tab?', component: { template: '<div></div>' } },
-      ]
+      ],
     });
 
     projectsStore = useProjectsStore();
     vi.spyOn(projectsStore, 'fetchProjects').mockResolvedValue(undefined);
+    getWorkspaceCards.mockResolvedValue({ workspaces: [] });
   });
 
   describe('Page Header', () => {
@@ -79,7 +94,7 @@ describe('ProjectListView', () => {
       projectsStore.error = null;
 
       const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
+        global: { plugins: [pinia, router] },
       });
 
       await flushAll(wrapper);
@@ -93,7 +108,7 @@ describe('ProjectListView', () => {
       projectsStore.error = null;
 
       const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
+        global: { plugins: [pinia, router] },
       });
 
       await flushAll(wrapper);
@@ -112,7 +127,7 @@ describe('ProjectListView', () => {
       projectsStore.error = null;
 
       const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
+        global: { plugins: [pinia, router] },
       });
 
       await flushAll(wrapper);
@@ -126,7 +141,7 @@ describe('ProjectListView', () => {
       projectsStore.error = null;
 
       const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
+        global: { plugins: [pinia, router] },
       });
 
       await flushAll(wrapper);
@@ -144,7 +159,7 @@ describe('ProjectListView', () => {
       projectsStore.error = null;
 
       const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
+        global: { plugins: [pinia, router] },
       });
 
       await flushAll(wrapper);
@@ -164,7 +179,7 @@ describe('ProjectListView', () => {
       projectsStore.error = null;
 
       const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
+        global: { plugins: [pinia, router] },
       });
 
       await flushAll(wrapper);
@@ -174,15 +189,17 @@ describe('ProjectListView', () => {
     });
 
     it('shows session count and relative time for active projects', async () => {
-      projectsStore.projects = [fullProject({
-        sessionCount: 5,
-        lastActivityAt: Date.now() - 7200000, // 2 hours ago
-      })];
+      projectsStore.projects = [
+        fullProject({
+          sessionCount: 5,
+          lastActivityAt: Date.now() - 7200000, // 2 hours ago
+        }),
+      ];
       projectsStore.loading = false;
       projectsStore.error = null;
 
       const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
+        global: { plugins: [pinia, router] },
       });
 
       await flushAll(wrapper);
@@ -198,7 +215,7 @@ describe('ProjectListView', () => {
       projectsStore.error = null;
 
       const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
+        global: { plugins: [pinia, router] },
       });
 
       await flushAll(wrapper);
@@ -209,178 +226,39 @@ describe('ProjectListView', () => {
     });
   });
 
-  describe('Running-workspace links', () => {
-    it('renders one link per runningWorkspaces entry with name and count', async () => {
-      projectsStore.projects = [fullProject({
-        runningWorkspaces: [
-          { id: 'ws-1', name: 'feature-x', activeCount: 3 },
-          { id: 'ws-2', name: 'bugfix-y', activeCount: 1 },
+  describe('Embedded session cards', () => {
+    it('shows the three most recent cards for each project without a filter', async () => {
+      getWorkspaceCards.mockResolvedValueOnce({
+        workspaces: [
+          { id: 'ws-1', name: 'latest' },
+          { id: 'ws-2', name: 'previous' },
         ],
-      })];
-      projectsStore.loading = false;
-      projectsStore.error = null;
-
-      const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
       });
-
-      await flushAll(wrapper);
-
-      const links = wrapper.findAll('.workspace-link');
-      expect(links).toHaveLength(2);
-      expect(links[0].find('.workspace-name').text()).toBe('feature-x');
-      expect(links[0].find('.workspace-count').text()).toBe('3 sessions');
-      expect(links[1].find('.workspace-name').text()).toBe('bugfix-y');
-      expect(links[1].find('.workspace-count').text()).toBe('1 session');
-    });
-
-    it('pluralizes the count label', async () => {
-      projectsStore.projects = [fullProject({
-        runningWorkspaces: [
-          { id: 'ws-1', name: 'single', activeCount: 1 },
-          { id: 'ws-2', name: 'multiple', activeCount: 3 },
-        ],
-      })];
-      projectsStore.loading = false;
-      projectsStore.error = null;
-
-      const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
-      });
-
-      await flushAll(wrapper);
-
-      const counts = wrapper.findAll('.workspace-count').map((el) => el.text());
-      expect(counts).toEqual(['1 session', '3 sessions']);
-    });
-
-    it('renders "Untitled workspace" for an empty root name', async () => {
-      projectsStore.projects = [fullProject({
-        runningWorkspaces: [{ id: 'ws-1', name: '', activeCount: 2 }],
-      })];
-      projectsStore.loading = false;
-      projectsStore.error = null;
-
-      const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
-      });
-
-      await flushAll(wrapper);
-
-      const link = wrapper.find('.workspace-link');
-      expect(link.find('.workspace-name').text()).toBe('Untitled workspace');
-      expect(link.find('.workspace-count').text()).toBe('2 sessions');
-    });
-
-    it('renders no workspace-links block when runningWorkspaces is empty', async () => {
       projectsStore.projects = [fullProject({ sessionCount: 2 })];
       projectsStore.loading = false;
-      projectsStore.error = null;
-
-      const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
-      });
-
+      const wrapper = mount(ProjectListView, { global: { plugins: [pinia, router] } });
       await flushAll(wrapper);
 
-      expect(wrapper.find('.workspace-links').exists()).toBe(false);
-      expect(wrapper.find('.workspace-link').exists()).toBe(false);
+      expect(getWorkspaceCards).toHaveBeenCalledWith('proj-1', { status: null, limit: 3 });
+      expect(wrapper.findAll('.embedded-session-list .session-card')).toHaveLength(2);
+      expect(wrapper.text()).toContain('latest');
     });
 
-    it('renders every workspace with no truncation cap', async () => {
-      const workspaces = Array.from({ length: 12 }, (_, i) => ({
-        id: `ws-${i}`,
-        name: `workspace-${i}`,
-        activeCount: 1,
-      }));
-      projectsStore.projects = [fullProject({ runningWorkspaces: workspaces })];
-      projectsStore.loading = false;
-      projectsStore.error = null;
-
-      const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
+    it('loads every matching card when a status filter is selected', async () => {
+      useProjectFiltersStore().setStatusFilter('waiting');
+      getWorkspaceCards.mockResolvedValueOnce({
+        workspaces: [
+          { id: 'ws-1', name: 'needs input' },
+          { id: 'ws-2', name: 'also waiting' },
+        ],
       });
-
-      await flushAll(wrapper);
-
-      expect(wrapper.findAll('.workspace-link')).toHaveLength(12);
-      expect(wrapper.text()).not.toContain('more');
-    });
-
-    it('renders each link as a router-link to /sessions/:workspaceId', async () => {
-      projectsStore.projects = [fullProject({
-        runningWorkspaces: [{ id: 'ws-1', name: 'feature-x', activeCount: 2 }],
-      })];
+      projectsStore.projects = [fullProject({ waitingSessionCount: 2 })];
       projectsStore.loading = false;
-      projectsStore.error = null;
-
-      const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
-      });
-
+      const wrapper = mount(ProjectListView, { global: { plugins: [pinia, router] } });
       await flushAll(wrapper);
 
-      const link = wrapper.find('.workspace-link');
-      expect(link.attributes('href')).toBe('/sessions/ws-1');
-    });
-
-    it('clicking a workspace link navigates to the workspace without triggering card navigation', async () => {
-      projectsStore.projects = [fullProject({
-        sessionCount: 3,
-        runningWorkspaces: [{ id: 'ws-1', name: 'feature-x', activeCount: 2 }],
-      })];
-      projectsStore.loading = false;
-      projectsStore.error = null;
-
-      const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
-      });
-
-      await flushAll(wrapper);
-
-      const push = vi.spyOn(router, 'push');
-      await wrapper.find('.workspace-link').trigger('click');
-      await flushAll(wrapper);
-
-      expect(push).toHaveBeenCalledTimes(1);
-      expect(push.mock.calls[0][0]).toBe('/sessions/ws-1');
-    });
-
-    it('renders links below the existing project-meta line', async () => {
-      projectsStore.projects = [fullProject({
-        sessionCount: 3,
-        runningWorkspaces: [{ id: 'ws-1', name: 'feature-x', activeCount: 1 }],
-      })];
-      projectsStore.loading = false;
-      projectsStore.error = null;
-
-      const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
-      });
-
-      await flushAll(wrapper);
-
-      const meta = wrapper.find('.project-meta');
-      const links = wrapper.find('.workspace-links');
-      expect(meta.exists()).toBe(true);
-      expect(links.exists()).toBe(true);
-      expect(meta.element.nextElementSibling).toBe(links.element);
-    });
-
-    it('renders a status dot with the emerald active-workspace class', async () => {
-      projectsStore.projects = [fullProject({
-        runningWorkspaces: [{ id: 'ws-1', name: 'feature-x', activeCount: 3 }],
-      })];
-      projectsStore.loading = false;
-      projectsStore.error = null;
-
-      const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
-      });
-
-      await flushAll(wrapper);
-
-      expect(wrapper.find('.workspace-link .workspace-status-dot').exists()).toBe(true);
+      expect(getWorkspaceCards).toHaveBeenCalledWith('proj-1', { status: 'waiting', limit: 500 });
+      expect(wrapper.findAll('.embedded-session-list .session-card')).toHaveLength(2);
     });
   });
 
@@ -391,7 +269,7 @@ describe('ProjectListView', () => {
       projectsStore.error = null;
 
       const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
+        global: { plugins: [pinia, router] },
       });
 
       await flushAll(wrapper);
@@ -410,7 +288,7 @@ describe('ProjectListView', () => {
       useProjectFiltersStore().setStatusFilter('running');
 
       const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
+        global: { plugins: [pinia, router] },
       });
 
       await flushAll(wrapper);
@@ -427,7 +305,7 @@ describe('ProjectListView', () => {
       useProjectFiltersStore().setStatusFilter('running');
 
       const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
+        global: { plugins: [pinia, router] },
       });
 
       await flushAll(wrapper);
@@ -443,7 +321,7 @@ describe('ProjectListView', () => {
       projectsStore.error = null;
 
       const wrapper = mount(ProjectListView, {
-        global: { plugins: [pinia, router] }
+        global: { plugins: [pinia, router] },
       });
 
       await flushAll(wrapper);
