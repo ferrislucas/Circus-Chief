@@ -5,18 +5,29 @@ vi.mock('../database.js', () => ({
     getById: vi.fn(),
     update: vi.fn(),
   },
+  workLogs: {
+    create: vi.fn((sessionId, type, content, options) => ({
+      id: 'log-1', sessionId, type, content, ...options,
+    })),
+  },
+}));
+
+vi.mock('../websocket.js', () => ({
+  broadcastToSession: vi.fn(),
 }));
 
 vi.mock('./workflowSessionService.js', () => ({
   withActiveLaneRunOwnership: vi.fn((_sessionId, mutation) => mutation()),
 }));
 
-import { sessions } from '../database.js';
+import { sessions, workLogs } from '../database.js';
+import { broadcastToSession } from '../websocket.js';
 import { withActiveLaneRunOwnership } from './workflowSessionService.js';
 import {
   captureScheduleWakeup,
   applyPendingWakeup,
   clearPendingWakeup,
+  recordExplicitSchedule,
   clampDelaySeconds,
   resolveWakeupPrompt,
   pendingWakeups,
@@ -46,6 +57,7 @@ function unscheduledSession(overrides = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   pendingWakeups.clear();
+  clearPendingWakeup(SESSION_ID);
   sessions.update.mockImplementation((id, data) => ({ id, ...data }));
   withActiveLaneRunOwnership.mockImplementation((_sessionId, mutation) => mutation());
 });
@@ -57,11 +69,18 @@ describe('clampDelaySeconds', () => {
     expect(clampDelaySeconds(270)).toBe(270);
   });
 
+  it('coerces a numeric string (models sometimes emit these) instead of dropping the wakeup', () => {
+    expect(clampDelaySeconds('600')).toBe(600);
+    expect(clampDelaySeconds('10')).toBe(WAKEUP_MIN_DELAY_SECONDS);
+  });
+
   it('returns null for unusable input', () => {
     expect(clampDelaySeconds(undefined)).toBeNull();
-    expect(clampDelaySeconds('600')).toBeNull();
     expect(clampDelaySeconds(NaN)).toBeNull();
     expect(clampDelaySeconds(Infinity)).toBeNull();
+    expect(clampDelaySeconds('')).toBeNull();
+    expect(clampDelaySeconds('   ')).toBeNull();
+    expect(clampDelaySeconds('not-a-number')).toBeNull();
   });
 });
 
@@ -70,12 +89,12 @@ describe('resolveWakeupPrompt', () => {
     expect(resolveWakeupPrompt('  Continue: check the E2E log  ')).toBe('Continue: check the E2E log');
   });
 
-  it('falls back for prompts the SDK would resolve from loop state', () => {
-    expect(resolveWakeupPrompt('<<autonomous-loop-dynamic>>')).toBe('Continue');
-    expect(resolveWakeupPrompt('<<autonomous-loop>>')).toBe('Continue');
+  it('refuses prompts the SDK would resolve from loop state instead of guessing', () => {
+    expect(resolveWakeupPrompt('<<autonomous-loop-dynamic>>')).toBeNull();
+    expect(resolveWakeupPrompt('<<autonomous-loop>>')).toBeNull();
   });
 
-  it('falls back for missing or empty prompts', () => {
+  it('falls back to Continue only for missing or empty prompts', () => {
     expect(resolveWakeupPrompt(undefined)).toBe('Continue');
     expect(resolveWakeupPrompt('')).toBe('Continue');
     expect(resolveWakeupPrompt('   ')).toBe('Continue');
@@ -131,9 +150,29 @@ describe('captureScheduleWakeup', () => {
     expect(pendingWakeups.get(SESSION_ID).delaySeconds).toBe(WAKEUP_MIN_DELAY_SECONDS);
   });
 
-  it('drops a wakeup with an unusable delay rather than guessing', () => {
+  it('drops a wakeup with an unusable delay rather than guessing, and logs why', () => {
     captureScheduleWakeup(SESSION_ID, [wakeupBlock({ reason: 'no delay', prompt: 'p' })]);
+
     expect(pendingWakeups.has(SESSION_ID)).toBe(false);
+    expect(workLogs.create).toHaveBeenCalledWith(
+      SESSION_ID,
+      'tool_output',
+      expect.stringContaining('non-numeric delaySeconds'),
+      expect.objectContaining({ toolName: 'ScheduleWakeup' })
+    );
+    expect(broadcastToSession).toHaveBeenCalled();
+  });
+
+  it('refuses an unresolvable loop-state sentinel prompt rather than substituting Continue, and logs why', () => {
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 600, prompt: '<<autonomous-loop-dynamic>>' })]);
+
+    expect(pendingWakeups.has(SESSION_ID)).toBe(false);
+    expect(workLogs.create).toHaveBeenCalledWith(
+      SESSION_ID,
+      'tool_output',
+      expect.stringContaining('autonomous-loop sentinel'),
+      expect.objectContaining({ toolName: 'ScheduleWakeup' })
+    );
   });
 
   it('keeps sessions isolated from each other', () => {
@@ -142,11 +181,47 @@ describe('captureScheduleWakeup', () => {
 
     expect(pendingWakeups.get('session-a')).toMatchObject({ prompt: 'a' });
     expect(pendingWakeups.get('session-b')).toMatchObject({ prompt: 'b' });
+
+    clearPendingWakeup('session-a');
+    clearPendingWakeup('session-b');
+  });
+
+  describe('tool_use id dedup', () => {
+    it('ignores a redelivery of the same tool_use id rather than treating it as a new call', () => {
+      const block = wakeupBlock({ delaySeconds: 300, prompt: 'first' }, 'tool-dup');
+      captureScheduleWakeup(SESSION_ID, [block]);
+      const capturedAt = pendingWakeups.get(SESSION_ID).capturedAt;
+
+      // The stream redelivers the identical partial-message content.
+      captureScheduleWakeup(SESSION_ID, [block]);
+
+      expect(pendingWakeups.get(SESSION_ID).capturedAt).toBe(capturedAt);
+      expect(pendingWakeups.get(SESSION_ID)).toMatchObject({ prompt: 'first' });
+    });
+
+    it('does not let a stale redelivery of an earlier call override a genuinely later one', () => {
+      const early = wakeupBlock({ delaySeconds: 60, prompt: 'early' }, 'tool-a');
+      const late = wakeupBlock({ delaySeconds: 900, prompt: 'late' }, 'tool-b');
+
+      captureScheduleWakeup(SESSION_ID, [early]);
+      captureScheduleWakeup(SESSION_ID, [late]);
+      // A redelivery of the original (now-stale) partial batch arrives after.
+      captureScheduleWakeup(SESSION_ID, [early, late]);
+
+      expect(pendingWakeups.get(SESSION_ID)).toMatchObject({ prompt: 'late' });
+    });
+
+    it('still applies last-call-wins across two genuinely new ids', () => {
+      captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'a' }, 't1')]);
+      captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'b' }, 't2')]);
+
+      expect(pendingWakeups.get(SESSION_ID)).toMatchObject({ prompt: 'b' });
+    });
   });
 });
 
 describe('applyPendingWakeup', () => {
-  it('writes scheduledAt and pendingPrompt when a wakeup is pending', () => {
+  it('writes status, scheduledAt, and pendingPrompt when a wakeup is pending', () => {
     sessions.getById.mockReturnValue(unscheduledSession());
     const before = Date.now();
     captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 600, reason: 'r', prompt: 'Continue: check log' })]);
@@ -154,10 +229,12 @@ describe('applyPendingWakeup', () => {
     expect(applyPendingWakeup(SESSION_ID)).toBe(true);
 
     expect(sessions.update).toHaveBeenCalledWith(SESSION_ID, expect.objectContaining({
+      status: 'scheduled',
       pendingPrompt: 'Continue: check log',
       pendingConversationId: null,
     }));
     const { scheduledAt } = sessions.update.mock.calls[0][1];
+    // Delay is measured from apply time (now), not from when the tool was called.
     expect(scheduledAt).toBeGreaterThanOrEqual(before + 600 * 1000);
     expect(scheduledAt).toBeLessThanOrEqual(Date.now() + 600 * 1000);
   });
@@ -177,15 +254,69 @@ describe('applyPendingWakeup', () => {
     expect(sessions.update).toHaveBeenCalledTimes(1);
   });
 
-  it('yields to an explicit REST schedule made during the same turn', () => {
-    sessions.getById.mockReturnValue(unscheduledSession({
-      scheduledAt: Date.now() + 3_600_000,
-      pendingPrompt: 'Explicitly scheduled prompt',
-    }));
-    captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'wakeup prompt' })]);
+  it('measures the delay from apply time, so a long turn does not collapse the requested delay', () => {
+    sessions.getById.mockReturnValue(unscheduledSession());
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'p' })]);
+    // Simulate a turn that ran well past the requested delay: capturedAt is
+    // old, but the fire time must still be ~60s from *now*, not ~60s from
+    // capturedAt (which would already be in the past).
+    pendingWakeups.get(SESSION_ID).capturedAt = Date.now() - 10 * 60 * 1000;
 
-    expect(applyPendingWakeup(SESSION_ID)).toBe(false);
-    expect(sessions.update).not.toHaveBeenCalled();
+    const before = Date.now();
+    expect(applyPendingWakeup(SESSION_ID)).toBe(true);
+    const { scheduledAt } = sessions.update.mock.calls[0][1];
+
+    expect(scheduledAt).toBeGreaterThanOrEqual(before + 60 * 1000);
+    expect(scheduledAt).toBeLessThanOrEqual(Date.now() + 60 * 1000);
+  });
+
+  describe('precedence against an explicit REST schedule', () => {
+    it('yields when the explicit schedule was recorded after the wakeup was captured', () => {
+      sessions.getById.mockReturnValue(unscheduledSession({
+        scheduledAt: Date.now() + 3_600_000,
+        pendingPrompt: 'Explicitly scheduled prompt',
+      }));
+      captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'wakeup prompt' })]);
+      recordExplicitSchedule(SESSION_ID); // happens later in the same turn
+
+      expect(applyPendingWakeup(SESSION_ID)).toBe(false);
+      expect(sessions.update).not.toHaveBeenCalled();
+      expect(workLogs.create).toHaveBeenCalledWith(
+        SESSION_ID,
+        'tool_output',
+        expect.stringContaining('superseded'),
+        expect.objectContaining({ toolName: 'ScheduleWakeup' })
+      );
+    });
+
+    it('wins when the wakeup was captured after the explicit schedule (last call in the turn wins)', () => {
+      recordExplicitSchedule(SESSION_ID); // an earlier POST /:id/schedule call this turn
+      sessions.getById.mockReturnValue(unscheduledSession({
+        scheduledAt: Date.now() + 3_600_000,
+        pendingPrompt: 'Earlier explicit prompt',
+      }));
+      captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'later wakeup prompt' })]);
+
+      expect(applyPendingWakeup(SESSION_ID)).toBe(true);
+      expect(sessions.update).toHaveBeenCalledWith(SESSION_ID, expect.objectContaining({
+        pendingPrompt: 'later wakeup prompt',
+      }));
+    });
+
+    it('does not let a schedule row with no recorded explicit-write this turn block a wakeup (stale row)', () => {
+      // scheduledAt/pendingPrompt present on the row, but recordExplicitSchedule
+      // was never called this turn — nothing to actually race against.
+      sessions.getById.mockReturnValue(unscheduledSession({
+        scheduledAt: Date.now() + 3_600_000,
+        pendingPrompt: 'Stale leftover prompt',
+      }));
+      captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'wakeup prompt' })]);
+
+      expect(applyPendingWakeup(SESSION_ID)).toBe(true);
+      expect(sessions.update).toHaveBeenCalledWith(SESSION_ID, expect.objectContaining({
+        pendingPrompt: 'wakeup prompt',
+      }));
+    });
   });
 
   it('does not treat a stray scheduledAt without a prompt as an existing schedule', () => {
@@ -196,16 +327,6 @@ describe('applyPendingWakeup', () => {
     expect(sessions.update).toHaveBeenCalledWith(SESSION_ID, expect.objectContaining({
       pendingPrompt: 'wakeup prompt',
     }));
-  });
-
-  it('forces the timestamp into the future when the turn outlived the delay', () => {
-    sessions.getById.mockReturnValue(unscheduledSession());
-    captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'p' })]);
-    // Simulate a turn that ran well past the requested delay.
-    pendingWakeups.get(SESSION_ID).capturedAt = Date.now() - 10 * 60 * 1000;
-
-    expect(applyPendingWakeup(SESSION_ID)).toBe(true);
-    expect(sessions.update.mock.calls[0][1].scheduledAt).toBeGreaterThan(Date.now());
   });
 
   it('returns false when the session no longer exists', () => {
@@ -225,12 +346,18 @@ describe('applyPendingWakeup', () => {
     expect(withActiveLaneRunOwnership).toHaveBeenCalledWith(SESSION_ID, expect.any(Function));
   });
 
-  it('drops the wakeup when the lane run was superseded mid-turn', () => {
+  it('drops the wakeup when the lane run was superseded mid-turn, and logs why', () => {
     sessions.getById.mockReturnValue(unscheduledSession({ laneRunId: 'run-1' }));
     withActiveLaneRunOwnership.mockReturnValue(null);
     captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'p' })]);
 
     expect(applyPendingWakeup(SESSION_ID)).toBe(false);
+    expect(workLogs.create).toHaveBeenCalledWith(
+      SESSION_ID,
+      'tool_output',
+      expect.stringContaining('lane run was superseded'),
+      expect.objectContaining({ toolName: 'ScheduleWakeup' })
+    );
   });
 
   it('does not fence non-workflow sessions', () => {
@@ -252,5 +379,29 @@ describe('clearPendingWakeup', () => {
 
     expect(applyPendingWakeup(SESSION_ID)).toBe(false);
     expect(sessions.update).not.toHaveBeenCalled();
+  });
+
+  it('also clears the explicit-schedule recency marker', () => {
+    recordExplicitSchedule(SESSION_ID);
+    clearPendingWakeup(SESSION_ID);
+
+    // With the marker cleared, a fresh wakeup this "turn" should not find a
+    // competing explicit schedule to yield to.
+    sessions.getById.mockReturnValue(unscheduledSession({
+      scheduledAt: Date.now() + 3_600_000,
+      pendingPrompt: 'Leftover from before the clear',
+    }));
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'wakeup prompt' })]);
+
+    expect(applyPendingWakeup(SESSION_ID)).toBe(true);
+  });
+
+  it('resets tool_use dedup so an id reused in a later turn is treated as new', () => {
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'turn one' }, 'tool-1')]);
+    clearPendingWakeup(SESSION_ID);
+
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'turn two' }, 'tool-1')]);
+
+    expect(pendingWakeups.get(SESSION_ID)).toMatchObject({ prompt: 'turn two' });
   });
 });

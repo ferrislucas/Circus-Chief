@@ -11,6 +11,7 @@ import {
   activeSessions,
   handleTurnCompletion,
 } from '../services/streamEventHandler.js';
+import { captureScheduleWakeup, clearPendingWakeup } from '../services/scheduleWakeupBridge.js';
 
 // Mock websocket
 vi.mock('../websocket.js', () => ({
@@ -296,6 +297,95 @@ describe('Sessions API - POST /:id/schedule', () => {
     );
     expect(mockAutoSend).not.toHaveBeenCalled();
     expect(mockTemplateTrigger).not.toHaveBeenCalled();
+  });
+
+  // ── ScheduleWakeup precedence, end-to-end against the real DB ────────────────
+  //
+  // These exercise POST /:id/schedule and the ScheduleWakeup bridge together,
+  // against the real (unmocked) sessions repository — unlike
+  // scheduleWakeupBridge.test.js and streamEventHandler.test.js, which mock
+  // `sessions.update` and so never round-trip through the actual
+  // camelCase<->snake_case column mapping. Precedence between the two
+  // mechanisms is last-call-wins within the turn (see scheduleWakeupBridge.js).
+
+  describe('precedence against ScheduleWakeup', () => {
+    afterEach(() => {
+      clearPendingWakeup(session.id);
+    });
+
+    it('an explicit schedule made after a ScheduleWakeup call in the same turn wins', async () => {
+      sessions.update(session.id, { status: 'running' });
+      activeSessions.set(session.id, { controller: { signal: { aborted: false } } });
+
+      captureScheduleWakeup(session.id, [
+        { type: 'tool_use', id: 'wk-1', name: 'ScheduleWakeup', input: { delaySeconds: 300, prompt: 'earlier wakeup prompt' } },
+      ]);
+
+      await request(app)
+        .post(`/api/sessions/${session.id}/schedule`)
+        .send({ prompt: 'later explicit prompt', scheduledAt: Date.now() + 3600000 })
+        .expect(200);
+
+      await handleTurnCompletion(session.id, '/tmp/test', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const stored = sessions.getById(session.id);
+      expect(stored.status).toBe('scheduled');
+      expect(stored.pendingPrompt).toBe('later explicit prompt');
+    });
+
+    it('a ScheduleWakeup call made after an explicit schedule in the same turn wins', async () => {
+      sessions.update(session.id, { status: 'running' });
+      activeSessions.set(session.id, { controller: { signal: { aborted: false } } });
+
+      await request(app)
+        .post(`/api/sessions/${session.id}/schedule`)
+        .send({ prompt: 'earlier explicit prompt', scheduledAt: Date.now() + 3600000 })
+        .expect(200);
+
+      captureScheduleWakeup(session.id, [
+        { type: 'tool_use', id: 'wk-2', name: 'ScheduleWakeup', input: { delaySeconds: 300, prompt: 'later wakeup prompt' } },
+      ]);
+
+      await handleTurnCompletion(session.id, '/tmp/test', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const stored = sessions.getById(session.id);
+      expect(stored.status).toBe('scheduled');
+      expect(stored.pendingPrompt).toBe('later wakeup prompt');
+      // scheduledAt is measured from turn-completion time, not from capture time.
+      expect(stored.scheduledAt).toBeGreaterThan(Date.now() + 250 * 1000);
+      expect(stored.scheduledAt).toBeLessThanOrEqual(Date.now() + 300 * 1000);
+    });
+
+    it('a ScheduleWakeup call with no competing explicit schedule persists through the real repository', async () => {
+      sessions.update(session.id, { status: 'running' });
+      activeSessions.set(session.id, { controller: { signal: { aborted: false } } });
+
+      captureScheduleWakeup(session.id, [
+        { type: 'tool_use', id: 'wk-3', name: 'ScheduleWakeup', input: { delaySeconds: 90, reason: 'polling CI', prompt: 'Continue: check CI' } },
+      ]);
+
+      await handleTurnCompletion(session.id, '/tmp/test', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const stored = sessions.getById(session.id);
+      expect(stored.status).toBe('scheduled');
+      expect(stored.pendingPrompt).toBe('Continue: check CI');
+      expect(stored.pendingConversationId).toBeNull();
+      expect(Number.isFinite(stored.scheduledAt)).toBe(true);
+      expect(stored.scheduledAt).toBeGreaterThan(Date.now());
+      expect(sessions.getScheduledSessionsDue(stored.scheduledAt + 1000).map((s) => s.id)).toContain(session.id);
+    });
   });
 
   // ── Validation failures ─────────────────────────────────────────────────────

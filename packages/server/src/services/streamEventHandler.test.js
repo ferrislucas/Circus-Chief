@@ -87,7 +87,7 @@ import {
   finalResultEvents,
   getResultEvent,
 } from './streamEventHandler.js';
-import { pendingWakeups } from './scheduleWakeupBridge.js';
+import { pendingWakeups, clearPendingWakeup } from './scheduleWakeupBridge.js';
 
 describe('streamEventHandler', () => {
   beforeEach(() => {
@@ -1078,7 +1078,11 @@ describe('streamEventHandler', () => {
     }
 
     beforeEach(() => {
-      pendingWakeups.clear();
+      // Reset all turn-scoped wakeup state for 'sess-1' (pending wakeup, the
+      // tool_use dedup set, and the explicit-schedule recency marker) — not
+      // just pendingWakeups — since several tests below reuse the same
+      // tool_use id ('tool-wakeup') across `it` blocks.
+      clearPendingWakeup('sess-1');
       conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
       workLogs.associatePendingLogs.mockReturnValue(0);
       diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
