@@ -244,6 +244,45 @@ describe('ProjectListView', () => {
       expect(wrapper.text()).toContain('latest');
     });
 
+    it('keeps session cards inside the project card and toggles them', async () => {
+      getWorkspaceCards.mockResolvedValueOnce({
+        workspaces: [{ id: 'ws-1', name: 'latest' }],
+      });
+      projectsStore.projects = [fullProject({ sessionCount: 1 })];
+      projectsStore.loading = false;
+      const wrapper = mount(ProjectListView, { global: { plugins: [pinia, router] } });
+      await flushAll(wrapper);
+
+      const projectCard = wrapper.find('.project-card');
+      const toggle = projectCard.find('.sessions-toggle');
+      expect(toggle.exists()).toBe(true);
+      expect(projectCard.find('.embedded-session-list').exists()).toBe(true);
+      expect(toggle.attributes('aria-expanded')).toBe('true');
+
+      await toggle.trigger('click');
+
+      expect(projectCard.find('.embedded-session-list').exists()).toBe(false);
+      expect(toggle.text()).toContain('Show sessions');
+      expect(toggle.attributes('aria-expanded')).toBe('false');
+    });
+
+    it('restores each project session toggle state from local storage', async () => {
+      localStorage.setItem(
+        'circus-chief.project-list.session-visibility',
+        JSON.stringify({ 'proj-1': false })
+      );
+      getWorkspaceCards.mockResolvedValueOnce({
+        workspaces: [{ id: 'ws-1', name: 'latest' }],
+      });
+      projectsStore.projects = [fullProject({ sessionCount: 1 })];
+      projectsStore.loading = false;
+      const wrapper = mount(ProjectListView, { global: { plugins: [pinia, router] } });
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.embedded-session-list').exists()).toBe(false);
+      expect(wrapper.find('.sessions-toggle').attributes('aria-expanded')).toBe('false');
+    });
+
     it('loads every matching card when a status filter is selected', async () => {
       useProjectFiltersStore().setStatusFilter('waiting');
       getWorkspaceCards.mockResolvedValueOnce({

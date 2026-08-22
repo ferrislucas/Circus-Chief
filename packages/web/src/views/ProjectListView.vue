@@ -61,46 +61,63 @@
 
     <div v-else class="project-list">
       <section v-for="project in visibleProjects" :key="project.id" class="project-group">
-        <div class="project-card card" @click="goToSessions(project.id)">
-          <div class="project-info">
-            <h3 class="project-name">
-              {{ project.name }}
-            </h3>
-            <p class="project-path">
-              {{ project.workingDirectory }}
-            </p>
-            <p v-if="project.sessionCount > 0 || project.lastActivityAt" class="project-meta">
-              <span v-if="project.sessionCount > 0"
-                >{{ project.sessionCount }} session{{ project.sessionCount !== 1 ? 's' : '' }}</span
+        <div class="project-card card">
+          <div class="project-card-header" @click="goToSessions(project.id)">
+            <div class="project-info">
+              <h3 class="project-name">
+                {{ project.name }}
+              </h3>
+              <p class="project-path">
+                {{ project.workingDirectory }}
+              </p>
+              <p v-if="project.sessionCount > 0 || project.lastActivityAt" class="project-meta">
+                <span v-if="project.sessionCount > 0"
+                  >{{ project.sessionCount }} session{{ project.sessionCount !== 1 ? 's' : '' }}</span
+                >
+                <template v-if="project.sessionCount > 0 && project.lastActivityAt">
+                  <span class="meta-separator">·</span>
+                </template>
+                <span v-if="project.lastActivityAt">{{
+                  formatRelativeTime(project.lastActivityAt)
+                }}</span>
+              </p>
+            </div>
+            <div class="project-actions">
+              <button
+                v-if="projectCards[project.id]?.length"
+                type="button"
+                class="sessions-toggle"
+                :aria-controls="`project-sessions-${project.id}`"
+                :aria-expanded="areSessionsVisible(project.id)"
+                @click.stop="toggleSessions(project.id)"
               >
-              <template v-if="project.sessionCount > 0 && project.lastActivityAt">
-                <span class="meta-separator">·</span>
-              </template>
-              <span v-if="project.lastActivityAt">{{
-                formatRelativeTime(project.lastActivityAt)
-              }}</span>
-            </p>
+                <span>{{ areSessionsVisible(project.id) ? 'Hide sessions' : 'Show sessions' }}</span>
+                <span class="sessions-toggle-icon" :class="{ expanded: areSessionsVisible(project.id) }" aria-hidden="true">⌄</span>
+              </button>
+              <router-link :to="`/projects/${project.id}/edit`" class="btn edit-btn" @click.stop>
+                <span class="edit-label-full">Edit</span>
+                <span class="edit-label-short" aria-hidden="true">&#9881;</span>
+              </router-link>
+            </div>
           </div>
-          <div class="project-actions">
-            <router-link :to="`/projects/${project.id}/edit`" class="btn edit-btn" @click.stop>
-              <span class="edit-label-full">Edit</span>
-              <span class="edit-label-short" aria-hidden="true">&#9881;</span>
-            </router-link>
+          <div
+            v-if="projectCards[project.id]?.length && areSessionsVisible(project.id)"
+            :id="`project-sessions-${project.id}`"
+            class="embedded-session-list"
+          >
+            <SessionCard
+              v-for="workspace in projectCards[project.id]"
+              :key="workspace.id"
+              :session="workspace"
+              :show-summary="true"
+              :summary="workspace.summaryPreview ? { shortSummary: workspace.summaryPreview } : null"
+              :workflow-aggregate="workspace"
+              :pr-url="workspace.prUrl"
+              :pr-summary="workspacePrSummary(workspace)"
+              :can-add-to-board="false"
+              @star="handleStar"
+            />
           </div>
-        </div>
-        <div v-if="projectCards[project.id]?.length" class="embedded-session-list">
-          <SessionCard
-            v-for="workspace in projectCards[project.id]"
-            :key="workspace.id"
-            :session="workspace"
-            :show-summary="true"
-            :summary="workspace.summaryPreview ? { shortSummary: workspace.summaryPreview } : null"
-            :workflow-aggregate="workspace"
-            :pr-url="workspace.prUrl"
-            :pr-summary="workspacePrSummary(workspace)"
-            :can-add-to-board="false"
-            @star="handleStar"
-          />
         </div>
       </section>
     </div>
@@ -125,7 +142,9 @@ const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
 const projectFilters = useProjectFiltersStore();
 const projectCards = ref({});
+const sessionVisibility = ref({});
 let projectCardsRequest = 0;
+const sessionVisibilityStorageKey = 'circus-chief.project-list.session-visibility';
 
 // The list and facets are client-side derivatives of the full project array.
 const visibleProjects = computed(() => projectsStore.filteredProjects);
@@ -134,6 +153,33 @@ const projectIds = computed(() => projectsStore.projects.map((p) => p.id));
 
 function goToSessions(projectId) {
   router.push(`/projects/${projectId}/sessions`);
+}
+
+function areSessionsVisible(projectId) {
+  return sessionVisibility.value[projectId] !== false;
+}
+
+function toggleSessions(projectId) {
+  sessionVisibility.value = {
+    ...sessionVisibility.value,
+    [projectId]: !areSessionsVisible(projectId),
+  };
+  try {
+    localStorage.setItem(sessionVisibilityStorageKey, JSON.stringify(sessionVisibility.value));
+  } catch {
+    // Session previews remain usable when browser storage is unavailable.
+  }
+}
+
+function restoreSessionVisibility() {
+  try {
+    const savedVisibility = JSON.parse(localStorage.getItem(sessionVisibilityStorageKey) || '{}');
+    if (savedVisibility && typeof savedVisibility === 'object' && !Array.isArray(savedVisibility)) {
+      sessionVisibility.value = savedVisibility;
+    }
+  } catch {
+    // Ignore malformed or unavailable browser storage.
+  }
 }
 
 const hasStatusFilter = computed(() => Boolean(projectFilters.statusFilter));
@@ -199,6 +245,7 @@ watch(
 
 onMounted(() => {
   projectFilters.restoreStatusFilter();
+  restoreSessionVisibility();
   projectsStore.fetchProjects();
   useProjectListRealtime(projectIds);
 });
@@ -306,20 +353,24 @@ onMounted(() => {
 }
 
 .project-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  min-width: 0;
 }
 
 .project-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.project-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding: 1rem;
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
-.project-card:hover {
+.project-card-header:hover {
   background-color: var(--color-background-soft);
 }
 
@@ -357,7 +408,9 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  margin-left: 1rem;
+  padding: 0.875rem 1rem 1rem;
+  border-top: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-background-soft) 58%, transparent);
 }
 
 .no-match {
@@ -371,9 +424,46 @@ onMounted(() => {
 
 .project-actions {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
   flex-shrink: 0;
   margin-left: 1rem;
+}
+
+.sessions-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.45rem;
+  border: 0;
+  border-radius: calc(var(--border-radius) * 0.75);
+  color: var(--color-text-soft);
+  background: transparent;
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.sessions-toggle:hover {
+  color: var(--color-text);
+  background-color: var(--color-background-soft);
+}
+
+.sessions-toggle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.sessions-toggle-icon {
+  display: inline-block;
+  font-size: 1rem;
+  line-height: 1;
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+
+.sessions-toggle-icon.expanded {
+  transform: rotate(0deg);
 }
 
 .edit-label-short {
@@ -439,7 +529,10 @@ onMounted(() => {
   }
 
   /* Project cards mobile */
-  .project-card {
+  .project-card-header {
+    padding: 0.75rem;
+  }
+  .embedded-session-list {
     padding: 0.75rem;
   }
   .edit-label-full {
@@ -447,6 +540,12 @@ onMounted(() => {
   }
   .edit-label-short {
     display: inline;
+  }
+  .sessions-toggle span:first-child {
+    display: none;
+  }
+  .sessions-toggle {
+    padding: 0.35rem;
   }
 }
 </style>
