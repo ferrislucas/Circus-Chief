@@ -286,6 +286,35 @@ describe('workflowSessionService', () => {
     expect(sessionRows).toHaveLength(2);
   });
 
+  it('reconciles a succeeded-ready run without transitioning when allowTransition is false', () => {
+    // Boot recovery (sessionStartupRecovery.js) calls closeOwnWork with
+    // allowTransition:false so it can close obligations without moving cards or
+    // creating successor runs ahead of the preflight audit. The
+    // cancelled/failed outcomes recovery actually produces can never reach
+    // attemptLaneRunTransition on their own, so force a 'succeeded' subtree
+    // directly and assert the flag is what blocks the transition.
+    kanbanLanes.update(target.id, { onEnterPrompt: 'perform target work' });
+    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    attachRootSession(run.id, worker.id);
+    databaseManager.get().prepare(`UPDATE sessions SET own_work_state='closed_successfully',
+      own_work_closed_at=?, execution_state='idle' WHERE id=?`).run(Date.now(), worker.id);
+
+    // allowTransition:false reconciles the subtree but must not transition.
+    expect(reconcileLaneRun(run.id, { allowTransition: false })).toEqual(expect.objectContaining({ status: 'open' }));
+    expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+    expect(databaseManager.get().prepare(
+      'SELECT count(*) count FROM kanban_lane_entry_events WHERE caused_by_run_id=?'
+    ).get(run.id).count).toBe(0);
+
+    // Default allowTransition:true then applies the guarded transition.
+    expect(reconcileLaneRun(run.id).status).toBe('succeeded');
+    expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
+    expect(databaseManager.get().prepare(
+      'SELECT count(*) count FROM kanban_lane_entry_events WHERE caused_by_run_id=?'
+    ).get(run.id).count).toBe(1);
+  });
+
   it.each([
     ['card move', `BEFORE UPDATE OF lane_id ON kanban_cards
       WHEN OLD.id='CARD_ID' AND NEW.lane_id='TARGET_ID'`],

@@ -30,7 +30,11 @@ export function recoverOrphanedStartingSessions() {
     // Startup work cannot survive this process restart. A participating
     // session must also close its durable obligation so the lane run can
     // reconcile instead of leaving the card pinned to a vanished worker.
-    closeOwnWork(session.id, 'closed_failed', 'orphaned_startup_at_boot');
+    // allowTransition:false guarantees boot recovery can never reach
+    // attemptLaneRunTransition — even if the close outcome were ever to look
+    // 'succeeded' — so it cannot move a card or create a successor run before
+    // preflight has audited the board.
+    closeOwnWork(session.id, 'closed_failed', 'orphaned_startup_at_boot', { allowTransition: false });
     const updatedSession = sessions.getById(session.id);
 
     broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
@@ -78,7 +82,11 @@ export function recoverOrphanedRunningSessions() {
     // A stopped row is not a closed workflow obligation. Closing it also
     // reconciles the lane run, releasing its card rather than pinning it to a
     // worker which disappeared with the previous server process.
-    closeOwnWork(session.id, 'cancelled', 'orphaned_at_boot');
+    // allowTransition:false guarantees boot recovery can never reach
+    // attemptLaneRunTransition — even if the close outcome were ever to look
+    // 'succeeded' — so it cannot move a card or create a successor run before
+    // preflight has audited the board.
+    closeOwnWork(session.id, 'cancelled', 'orphaned_at_boot', { allowTransition: false });
     const updatedSession = sessions.getById(session.id);
 
     broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {

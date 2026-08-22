@@ -67,12 +67,18 @@ setCommandRunOutputAuthorizer((runId, requestedSessionId) => {
 console.log(`Database initialized: ${dbPath}`);
 console.log(`VCR_MODE: ${process.env.VCR_MODE || '(unset)'}`);
 
-// Recover sessions stuck in 'starting' from a previous crashed or killed server run
+// Boot order is load-bearing and must stay: recovery → preflight → workers.
 recoverOrphanedStartingSessions();
 // Agent processes never outlive the server, so any surviving 'running' row is
 // an orphan — from a kill, or from a turn that unwound without recording an
-// outcome. Reap before workers start so the board never shows phantom work.
+// outcome. Recovery closes still-open roots as failed/cancelled (never
+// 'succeeded') before preflight runs, so reconcileDeclaredExitRuns() inside
+// preflight sees terminal roots and can apply a declared exit instead of
+// skipping an open root. Recovery therefore cannot move a card or create a
+// successor run ahead of the audit — see sessionStartupRecovery.js.
 recoverOrphanedRunningSessions();
+// The broadcasts queued by the two recovery calls above are no-ops here:
+// initWebSocket(server) has not run yet, so no clients exist to receive them.
 // Do not start workers or drain the entry outbox until durable ownership has
 // been normalized and independently audited. A bad lane configuration is a
 // hard stop: selecting a fallback executor would reintroduce the retired mode.

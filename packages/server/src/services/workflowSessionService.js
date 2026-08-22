@@ -295,9 +295,10 @@ export function finalizeOwnWorkCompletion(sessionId) {
  * @param {string} sessionId
  * @param {'closed_failed'|'cancelled'} outcome
  * @param {string|null} [reason]
+ * @param {{ allowTransition?: boolean }} [options]
  * @returns {Object|null} The reconciled run, or null if this was a no-op
  */
-export function closeOwnWork(sessionId, outcome, reason = null) {
+export function closeOwnWork(sessionId, outcome, reason = null, { allowTransition = true } = {}) {
   if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return null;
   return databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
@@ -307,7 +308,7 @@ export function closeOwnWork(sessionId, outcome, reason = null) {
       execution_state='stopped', subtree_outcome=?, workflow_updated_at=? WHERE id=?`)
       .run(outcome, reason, time, outcome === 'closed_failed' ? 'failed' : 'cancelled', time, sessionId);
     audit(db, s.lane_run_id, outcome === 'closed_failed' ? 'own_work_failed' : 'own_work_cancelled', { sessionId, details: { reason } });
-    return reconcileLaneRun(s.lane_run_id);
+    return reconcileLaneRun(s.lane_run_id, { allowTransition });
   });
 }
 
@@ -369,7 +370,7 @@ export function markHeldForLimit(sessionId) {
 // W5 (FR-6/FR-7): the run-level predicate is now defined in terms of the
 // freshly recomputed root subtree_outcome, matching FR-7's literal
 // predicate table, rather than an ad hoc flat scan of all members.
-export function reconcileLaneRun(runId) {
+export function reconcileLaneRun(runId, { allowTransition = true } = {}) {
   const reconciliation = databaseManager.transaction(() => {
     const db = databaseManager.get(); const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
     if (!run || run.status !== 'open') return { result: getRun(runId), shouldTransition: false };
@@ -404,7 +405,12 @@ export function reconcileLaneRun(runId) {
   // broadcastCardTransition). Hoisting the call out of this transaction is only
   // a real-commit guarantee for the top-level recovery entry point
   // (kanbanRecoveryService.reconcileDeclaredExitRuns), which has no outer tx.
-  return reconciliation.shouldTransition ? attemptLaneRunTransition(runId) : reconciliation.result;
+  // allowTransition=false reconciles a run (marks it terminal, releases state)
+  // without ever moving its card or creating a successor run — used by boot
+  // recovery, which must not mutate the board ahead of the preflight audit.
+  return reconciliation.shouldTransition && allowTransition
+    ? attemptLaneRunTransition(runId)
+    : reconciliation.result;
 }
 
 /**

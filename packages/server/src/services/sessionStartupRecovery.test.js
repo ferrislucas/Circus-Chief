@@ -167,4 +167,33 @@ describe('recoverOrphanedRunningSessions', () => {
       expect.objectContaining({ sessionId: session.id })
     );
   });
+
+  it('terminalizes a running orphan without moving its card or creating a successor run', () => {
+    const project = createProject();
+    const board = kanbanBoards.create(project.id);
+    const [source, target] = kanbanLanes.getByBoardId(board.id);
+    const root = sessions.create(project.id, 'root', 'hello');
+    const card = kanbanCards.create(source.id, root.id);
+    const worker = sessions.create(project.id, 'worker', 'hello', {
+      parentSessionId: root.id,
+      status: 'running',
+    });
+    const run = createLaneRunForEntry({
+      projectId: project.id,
+      workspaceId: root.id,
+      cardId: card.id,
+      lane: { ...source, onEnterPrompt: 'work', completionTargetLaneId: target.id },
+    });
+    attachRootSession(run.id, worker.id);
+
+    // Preflight never runs in this test — the point is to prove recovery alone
+    // cannot produce a card transition ahead of the audit.
+    recoverOrphanedRunningSessions();
+
+    expect(getRun(run.id).status).toBe('cancelled'); // never 'succeeded'
+    expect(kanbanCards.getById(card.id).laneId).toBe(source.id); // card not moved
+    expect(databaseManager.get().prepare(
+      'SELECT count(*) count FROM kanban_lane_entry_events WHERE caused_by_run_id=?'
+    ).get(run.id).count).toBe(0); // no successor run
+  });
 });
