@@ -21,6 +21,52 @@ function freshDb() {
 }
 
 describe('kanban-add-lane-run-workflow (F2: dead token-column churn)', () => {
+  it('leaves declared-exit columns to the trailing dedicated migration', () => {
+    const db = freshDb();
+    try {
+      // Make CREATE TABLE IF NOT EXISTS execute, rather than testing its
+      // no-op path against the fresh-schema table.
+      db.exec('DROP TABLE kanban_lane_runs');
+
+      const workflowMigration = allMigrations.find((item) => item.name === 'kanban-add-lane-run-workflow');
+      const declaredExitMigration = allMigrations.find((item) => item.name === 'kanban-lane-run-declared-exit-lane');
+      expect(workflowMigration).toBeDefined();
+      expect(declaredExitMigration).toBeDefined();
+
+      workflowMigration.up(db);
+      expect(getColumns(db, 'kanban_lane_runs')).not.toEqual(expect.arrayContaining([
+        'chosen_exit_lane_id', 'chosen_exit_declared_at',
+      ]));
+
+      declaredExitMigration.up(db);
+      expect(getColumns(db, 'kanban_lane_runs')).toEqual(expect.arrayContaining([
+        'chosen_exit_lane_id', 'chosen_exit_declared_at',
+      ]));
+      expect(db.prepare('PRAGMA foreign_key_list(kanban_lane_runs)').all())
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({ from: 'chosen_exit_lane_id', table: 'kanban_lanes', on_delete: 'SET NULL' }),
+        ]));
+      expect(getColumns(db, 'kanban_lane_runs')).not.toContain('chosen_exit_declared_by');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('removes caller attribution from databases that ran the earlier branch migration', () => {
+    const db = freshDb();
+    try {
+      db.exec('ALTER TABLE kanban_lane_runs ADD COLUMN chosen_exit_declared_by TEXT');
+      const cleanup = allMigrations.find((item) => item.name === 'kanban-drop-exit-lane-caller-attribution');
+
+      expect(cleanup).toBeDefined();
+      cleanup.up(db);
+
+      expect(getColumns(db, 'kanban_lane_runs')).not.toContain('chosen_exit_declared_by');
+    } finally {
+      db.close();
+    }
+  });
+
   it('never creates the retired workflow-completion-token columns on a fresh database', () => {
     // Run only up through kanban-add-lane-run-workflow itself -- i.e. before
     // kanban-drop-agent-workflow-completion-tokens has a chance to clean up

@@ -38,6 +38,9 @@ export function useKanbanRealtime(projectId) {
       },
       onKanbanCardAdded: (card, laneId) => kanbanStore.handleCardAdded(card, laneId),
       onKanbanCardRemoved: (cardId, laneId) => kanbanStore.handleCardRemoved(cardId, laneId),
+      onKanbanExitLaneDeclared: (cardId, activeLaneRun) => {
+        kanbanStore.handleExitLaneDeclared(cardId, activeLaneRun);
+      },
       onCommandRunStarted: (runId, sessionId, buttonId) => {
         kanbanStore.handleSessionCommandRun(sessionId, {
           buttonId, runId, status: 'running', exitCode: null, startedAt: Date.now(),

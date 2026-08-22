@@ -328,4 +328,20 @@ export const kanbanMigrations = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_kanban_api_operations_lease ON kanban_api_operations(status, lease_expires_at)');
     },
   },
+  {
+    name: 'kanban-lane-run-declared-exit-lane',
+    up(db) {
+      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_lane_id',
+        'TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'chosen_exit_declared_at', 'INTEGER');
+    },
+  },
+  {
+    name: 'kanban-drop-exit-lane-caller-attribution',
+    up(db) {
+      if (getColumns(db, 'kanban_lane_runs').includes('chosen_exit_declared_by')) {
+        db.exec('ALTER TABLE kanban_lane_runs DROP COLUMN chosen_exit_declared_by');
+      }
+    },
+  },
 ];

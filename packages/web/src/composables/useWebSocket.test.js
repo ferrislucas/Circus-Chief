@@ -84,6 +84,7 @@ describe('useWebSocket composables', () => {
       expect(typeof subscription.onSessionCreated).toBe('function');
       expect(typeof subscription.onSessionUpdated).toBe('function');
       expect(typeof subscription.onSessionDeleted).toBe('function');
+      expect(typeof subscription.onKanbanExitLaneDeclared).toBe('function');
     });
 
     it('returns onSessionSummaryUpdated handler for real-time summary updates', async () => {

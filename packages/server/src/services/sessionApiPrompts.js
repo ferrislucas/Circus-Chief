@@ -164,6 +164,18 @@ curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${wo
   -H "Content-Type: application/json" \\
   -d '{"targetLaneId": "<lane_id>"}'
 \`\`\`
+### Choose Where This Card Goes When the Lane Worker Finishes
+If this workspace's card is in an automated lane and you are its worker, you can
+choose the lane it lands in on completion instead of the lane's default target:
+\`\`\`bash
+curl -X PUT ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/exit-lane \\
+  -H "Content-Type: application/json" \\
+  -d '{"laneId": "<lane_id>"}'
+\`\`\`
+This does **not** move the card now and does **not** interrupt your turn. The card
+stays where it is until your work (and any child work) completes successfully; a
+failed or cancelled run discards the declaration. Call it again to change your mind.
+Use the move endpoint above only when you want the card to move immediately.
 
 ### Remove a Card from the Board
 \`\`\`bash

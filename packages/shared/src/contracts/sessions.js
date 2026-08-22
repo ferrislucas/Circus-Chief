@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  SESSION_EXECUTION_STATES,
+  SESSION_OWN_WORK_STATES,
+  SESSION_SUBTREE_OUTCOMES,
+} from '../constants.js';
 import { ScheduledAtIsoString } from './scheduling.js';
 
 export const CreateSessionRequest = z.object({
@@ -80,6 +85,13 @@ export const SessionResponse = z.object({
   rescheduleAtTokenCount: z.number().nullable(),
   // Kanban fields
   laneTriggerDepth: z.number(),
+  laneRunId: z.string().uuid().nullable(),
+  ownWorkState: z.enum(SESSION_OWN_WORK_STATES),
+  ownWorkClosedAt: z.number().nullable(),
+  workflowUpdatedAt: z.number().nullable(),
+  workflowReason: z.string().nullable(),
+  executionState: z.enum(SESSION_EXECUTION_STATES),
+  subtreeOutcome: z.enum(SESSION_SUBTREE_OUTCOMES),
   pendingAgentInput: z.boolean().default(false),
   createdAt: z.number(),
   updatedAt: z.number(),
