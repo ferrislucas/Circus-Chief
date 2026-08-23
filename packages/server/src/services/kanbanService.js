@@ -49,7 +49,7 @@ function resolveWorkspaceId(sessionId) {
 }
 
 export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
-  const { runOnEnterTemplate = true, depth = 0, laneRunId = null, childSessionId = null,
+  const { runOnEnterTemplate = true, laneRunId = null, childSessionId = null,
     beforeDispatch, abortController } = options;
 
   if (!runOnEnterTemplate) return { delivered: true, rootSessionId: null };
@@ -58,11 +58,11 @@ export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}
   let result = { delivered: true, rootSessionId: null };
   if (lane?.onEnterTemplateId) {
     result = await triggerOnEnterTemplate(sessionId, lane, {
-      depth, laneRunId, childSessionId, beforeDispatch, abortController,
+      laneRunId, childSessionId, beforeDispatch, abortController,
     });
   } else if (lane?.onEnterPrompt) {
     result = await triggerOnEnterPrompt(sessionId, lane, {
-      depth, laneRunId, childSessionId, beforeDispatch, abortController,
+      laneRunId, childSessionId, beforeDispatch, abortController,
     });
   }
   if (!result?.delivered) throw new Error(`Lane-entry delivery failed: ${result?.reason || 'unknown error'}`);
@@ -77,12 +77,11 @@ export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}
  * @param {Object} [options] - Options
  * @param {number} [options.sortOrder] - Optional sort order
  * @param {boolean} [options.runOnEnterTemplate=true] - Whether to run lane on-enter automation
- * @param {number} [options.depth=0] - Current recursion depth for template triggers
  * @returns {Object} The created card
  * @throws {Error} If session already has a card on the board
  */
 export async function addSessionToBoard(sessionId, laneId, options = {}) {
-  const { sortOrder, runOnEnterTemplate = true, depth = 0, finalizeMutation } = options;
+  const { sortOrder, runOnEnterTemplate = true, finalizeMutation } = options;
 
   // Normalize to workspace root — all cards are keyed to the root session.
   const workspaceId = resolveWorkspaceId(sessionId);
@@ -115,11 +114,10 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
 
     // Lane entry automation fires on the workspace root (consistent with
     // "all sessions in a workspace move together").
-    const rootDepth = rootSession.laneTriggerDepth || 0;
     // Every automated entry is committed before it is delivered.  This is the
     // durable success boundary for add/move/completion alike.
     if (laneRun) {
-      scheduleLaneEntryDelivery(laneRun.laneEntryEventId, { depth: depth || rootDepth });
+      scheduleLaneEntryDelivery(laneRun.laneEntryEventId);
       // Let the accepted handoff reach its first asynchronous boundary so
       // callers retain the established immediate session-created UX, without
       // making their result dependent on delivery success.
@@ -138,11 +136,10 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
  * @param {Object} [options] - Options
  * @param {number} [options.sortOrder] - Optional sort order in target lane
  * @param {boolean} [options.runOnEnterTemplate=true] - Whether to run the on-enter template
- * @param {number} [options.depth=0] - Current recursion depth for template triggers
  * @returns {Promise<Object>} The moved card
  */
 export async function moveCard(cardId, targetLaneId, options = {}) {
-  const { sortOrder, runOnEnterTemplate = true, depth = 0, finalizeMutation } = options;
+  const { sortOrder, runOnEnterTemplate = true, finalizeMutation } = options;
 
   const card = kanbanCards.getByIdWithLane(cardId);
   if (!card) {
@@ -177,7 +174,7 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
     });
 
     if (laneRun) {
-      scheduleLaneEntryDelivery(laneRun.laneEntryEventId, { depth });
+      scheduleLaneEntryDelivery(laneRun.laneEntryEventId);
       await new Promise((resolve) => setImmediate(resolve));
     }
   }
@@ -214,14 +211,18 @@ export async function triggerStructuredTransitionAutomation(pending) {
   // A descriptor without its run is an invariant violation, not a request to
   // reconstruct ownership after the card move has already been exposed.
   if (!laneRun) throw new Error(`Target lane run is missing for entry event ${pending.laneEntryEventId || 'unknown'}`);
-  return drainLaneEntryTrigger(laneRun.lane_entry_event_id, { depth: workspaceSession.laneTriggerDepth || 0 });
+  return drainLaneEntryTrigger(laneRun.lane_entry_event_id);
 }
 
-const ENTRY_EVENT_LEASE_MS = 5 * 60 * 1000;
+const envPositiveInt = (name, fallback) => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+};
+const ENTRY_EVENT_LEASE_MS = envPositiveInt('KANBAN_ENTRY_LEASE_MS', 5 * 60 * 1000);
 const ENTRY_EVENT_RENEWAL_MS = Math.floor(ENTRY_EVENT_LEASE_MS / 3);
-const MAX_ENTRY_EVENT_ATTEMPTS = 8;
-const RETRY_BASE_MS = 1_000;
-const RETRY_MAX_MS = 5 * 60 * 1000;
+const MAX_ENTRY_EVENT_ATTEMPTS = envPositiveInt('KANBAN_ENTRY_MAX_ATTEMPTS', 8);
+const RETRY_BASE_MS = envPositiveInt('KANBAN_ENTRY_RETRY_BASE_MS', 1_000);
+const RETRY_MAX_MS = envPositiveInt('KANBAN_ENTRY_RETRY_MAX_MS', 5 * 60 * 1000);
 const RETRY_JITTER = 0.2;
 
 /**
@@ -230,9 +231,9 @@ const RETRY_JITTER = 0.2;
  * retryable outbox state rather than turn a successful add or move into a
  * failed API request.
  */
-function scheduleLaneEntryDelivery(eventId, options) {
+function scheduleLaneEntryDelivery(eventId) {
   if (isLaneEntryDeliveryStopping()) return;
-  void drainLaneEntryTrigger(eventId, options).catch((error) => {
+  void drainLaneEntryTrigger(eventId).catch((error) => {
     console.error(`Kanban lane-entry delivery ${eventId} failed; queued for retry:`, error);
   });
 }
@@ -355,7 +356,7 @@ function resolveDeliveryState(event) {
 /** Drain one committed completion handoff. Safe to call repeatedly. */
 // eslint-disable-next-line complexity -- deliberately linear durable state machine
 // eslint-disable-next-line max-statements, complexity -- durable transition boundaries are intentionally linear
-async function drainLaneEntryTriggerImpl(eventId, options = {}) {
+async function drainLaneEntryTriggerImpl(eventId) {
   const token = claimLaneEntryTrigger(eventId);
   if (!token) return false;
   const abortController = new AbortController();
@@ -384,7 +385,7 @@ async function drainLaneEntryTriggerImpl(eventId, options = {}) {
     let rootSessionId = resolved.rootSessionId;
     if (resolved.state === 'needs_delivery') {
       const delivery = await triggerLaneEntryAutomation(event.workspace_id, event.lane_id, {
-        runOnEnterTemplate: true, depth: options.depth || 0, laneRunId: resolved.run.id,
+        runOnEnterTemplate: true, laneRunId: resolved.run.id,
         childSessionId: resolved.rootSessionId,
         abortController,
         beforeDispatch: () => { claim.assertCurrent(); return markDispatchIntent(event.id, token); },
@@ -415,9 +416,9 @@ async function drainLaneEntryTriggerImpl(eventId, options = {}) {
  * This public boundary is intentionally used by HTTP, completion, and retry
  * callers alike so graceful shutdown cannot miss a source of side effects.
  */
-export function drainLaneEntryTrigger(eventId, options = {}) {
+export function drainLaneEntryTrigger(eventId) {
   if (isLaneEntryDeliveryStopping()) return Promise.resolve(false);
-  return trackLaneEntryDelivery(drainLaneEntryTriggerImpl(eventId, options));
+  return trackLaneEntryDelivery(drainLaneEntryTriggerImpl(eventId));
 }
 
 /** Reclaim only leases that have actually expired (shared by startup and polling). */

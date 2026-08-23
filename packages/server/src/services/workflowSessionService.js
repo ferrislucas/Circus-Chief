@@ -14,6 +14,8 @@ import { activeSessions } from './streamEventHandler.js';
 import { getRun } from './workflowRunReader.js';
 import { recomputeSubtreeOutcomes } from './workflowSessionState.js';
 import { broadcastCardTransition, moveCardForTransition } from './workflowLaneTransition.js';
+import { ApiError } from '../errors/ApiError.js';
+import { SESSION_EXECUTION_STATES } from '@circuschief/shared';
 
 export { getRun } from './workflowRunReader.js';
 export { computeSubtreeOutcome, recomputeSubtreeOutcomes } from './workflowSessionState.js';
@@ -21,6 +23,7 @@ export { computeSubtreeOutcome, recomputeSubtreeOutcomes } from './workflowSessi
 const now = () => Date.now();
 const id = () => crypto.randomUUID();
 const SELECT_SESSION_BY_ID = 'SELECT * FROM sessions WHERE id=?';
+const SELECT_RUN_BY_ID = 'SELECT * FROM kanban_lane_runs WHERE id=?';
 const OPEN_RUN_STATUS = 'open';
 
 function audit(db, runId, type, { sessionId = null, details = null } = {}) {
@@ -69,14 +72,36 @@ export function withActiveLaneRunOwnership(sessionId, mutation) {
   });
 }
 
-/** Clear state which could otherwise revive a superseded worker. */
+/** Clear state which could otherwise revive a superseded worker.
+ *
+ * This transaction authoritatively cancels the member's workflow obligation
+ * and clears any restartable work. Scheduled members are terminalized here.
+ * Running members instead remain `status='running'` with
+ * `execution_state='aborting'` until their controller unwinds: after
+ * supersedeLaneRun() aborts that controller, handleTurnCompletion() delegates
+ * to finalizeAbortedTurnStatus() in streamEventCallbacks.js to terminalize the
+ * turn as stopped. That finalizer is guarded so it cannot overwrite a newer
+ * turn or an outcome already recorded by this supersession. `waiting` members
+ * are already idle and remain available for follow-up messages.
+ *
+ * If a provider stream ignores its abort signal, streamWatchdog.js reaps it
+ * after a generous abort grace period. The watchdog deletes the active-turn
+ * registry entry before writing `stopped`, so a late-unwinding turn cannot
+ * resurrect the row. Boot recovery remains the process-crash backstop.
+ */
 function clearExecutableMemberState(db, runId, reason, time) {
   return db.prepare(`UPDATE sessions SET own_work_state='cancelled', own_work_closed_at=?, workflow_reason=?,
-    workflow_updated_at=?, execution_state=CASE WHEN execution_state='running' THEN execution_state ELSE 'stopped' END,
+    workflow_updated_at=?, execution_state=CASE WHEN status='running' THEN 'aborting' ELSE 'stopped' END,
     status=CASE WHEN status='scheduled' THEN 'stopped' ELSE status END,
     scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_conversation_id=NULL,
     auto_send_pending_prompt=0, reschedule_count=0
     WHERE lane_run_id=? AND own_work_state='open'`).run(time, reason, time, runId);
+}
+
+/** Release a card only when the supplied run still owns it. */
+function releaseCardFromRun(db, runId, time) {
+  db.prepare(`UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=?
+    WHERE active_lane_run_id=?`).run(time, runId);
 }
 
 /** Scheduler/start guard. Stale lane workers lose their pending work before
@@ -189,7 +214,7 @@ export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, ca
 export function attachRootSession(runId, sessionId) {
   return databaseManager.transaction(() => {
     const db = databaseManager.get();
-    const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
+    const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
     const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!run || run.status !== 'open') throw new Error('Cannot attach a root to a terminal lane run');
     const belongsToWorkspace = session && db.prepare(`WITH RECURSIVE ancestors(id, parent_session_id) AS (
@@ -236,7 +261,7 @@ export function beginWorkflowTurn(sessionId) {
  */
 export function finalizeOwnWorkCompletion(sessionId) {
   if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return null;
-  return databaseManager.transaction(() => {
+  const result = databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!isParticipating(s) || s.own_work_state !== 'open') return null;
     // A future schedule is an explicit continuation obligation, never success.
@@ -245,8 +270,10 @@ export function finalizeOwnWorkCompletion(sessionId) {
     db.prepare(`UPDATE sessions SET own_work_state='closed_successfully', own_work_closed_at=?,
       execution_state='idle', workflow_updated_at=? WHERE id=?`).run(time, time, sessionId);
     audit(db, s.lane_run_id, 'own_work_succeeded', { sessionId });
-    return reconcileLaneRun(s.lane_run_id);
+    return reconcileLaneRun(s.lane_run_id, { deferBroadcast: true });
   });
+  broadcastCardTransition(result?.postCommitCardTransition);
+  return result;
 }
 
 /**
@@ -260,9 +287,10 @@ export function finalizeOwnWorkCompletion(sessionId) {
  * @param {string} sessionId
  * @param {'closed_failed'|'cancelled'} outcome
  * @param {string|null} [reason]
+ * @param {{ allowTransition?: boolean }} [options]
  * @returns {Object|null} The reconciled run, or null if this was a no-op
  */
-export function closeOwnWork(sessionId, outcome, reason = null) {
+export function closeOwnWork(sessionId, outcome, reason = null, { allowTransition = true } = {}) {
   if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return null;
   return databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
@@ -272,7 +300,7 @@ export function closeOwnWork(sessionId, outcome, reason = null) {
       execution_state='stopped', subtree_outcome=?, workflow_updated_at=? WHERE id=?`)
       .run(outcome, reason, time, outcome === 'closed_failed' ? 'failed' : 'cancelled', time, sessionId);
     audit(db, s.lane_run_id, outcome === 'closed_failed' ? 'own_work_failed' : 'own_work_cancelled', { sessionId, details: { reason } });
-    return reconcileLaneRun(s.lane_run_id);
+    return reconcileLaneRun(s.lane_run_id, { allowTransition });
   });
 }
 
@@ -285,6 +313,9 @@ export function closeOwnWork(sessionId, outcome, reason = null) {
  * @param {string} executionState
  */
 export function markExecutionState(sessionId, executionState) {
+  if (!SESSION_EXECUTION_STATES.includes(executionState)) {
+    throw new Error(`Invalid session execution state: ${executionState}`);
+  }
   databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!isParticipating(s) || !activeRunOwnsSession(db, s)) return;
@@ -331,21 +362,40 @@ export function markHeldForLimit(sessionId) {
 // W5 (FR-6/FR-7): the run-level predicate is now defined in terms of the
 // freshly recomputed root subtree_outcome, matching FR-7's literal
 // predicate table, rather than an ad hoc flat scan of all members.
-export function reconcileLaneRun(runId) {
-  const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
-  if (!run || run.status !== 'open') return getRun(runId);
-  const rootOutcome = recomputeSubtreeOutcomes(runId);
-  if (rootOutcome === 'failed' || rootOutcome === 'cancelled') {
-    const members = db.prepare('SELECT * FROM sessions WHERE lane_run_id=?').all(runId);
-    const failed = members.find((s) => s.own_work_state === 'closed_failed');
-    const cancelled = members.find((s) => s.own_work_state === 'cancelled');
-    const state = rootOutcome; const time = now();
-    db.prepare(`UPDATE kanban_lane_runs SET status=?, failure_reason=?, ${state}_at=?, updated_at=? WHERE id=?`)
-      .run(state, failed?.workflow_reason || cancelled?.workflow_reason || state, time, time, runId);
-    audit(db, runId, `run_${state}`, { sessionId: failed?.id || cancelled?.id }); return getRun(runId);
-  }
-  if (rootOutcome === 'succeeded') return attemptLaneRunTransition(runId);
-  return getRun(runId);
+export function reconcileLaneRun(runId, { allowTransition = true, deferBroadcast = false } = {}) {
+  const reconciliation = databaseManager.transaction(() => {
+    const db = databaseManager.get(); const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
+    if (!run || run.status !== 'open') return { result: getRun(runId), shouldTransition: false };
+    const rootOutcome = recomputeSubtreeOutcomes(runId);
+    if (rootOutcome === 'failed' || rootOutcome === 'cancelled') {
+      const members = db.prepare('SELECT * FROM sessions WHERE lane_run_id=?').all(runId);
+      const failed = members.find((s) => s.own_work_state === 'closed_failed');
+      const cancelled = members.find((s) => s.own_work_state === 'cancelled');
+      const state = rootOutcome; const time = now();
+      db.prepare(`UPDATE kanban_lane_runs SET status=?, failure_reason=?, ${state}_at=?, updated_at=? WHERE id=?`)
+        .run(state, failed?.workflow_reason || cancelled?.workflow_reason || state, time, time, runId);
+    // A self-move is only a deferred exit declaration, not an immediate card
+    // move. Once the run fails or is cancelled it can never be applied; keep
+    // the declaration on the terminal run for diagnosis and record why it was
+    // discarded instead of leaving an ambiguous, unapplied request behind.
+    if (run.chosen_exit_lane_id) {
+      audit(db, runId, 'deferred_exit_discarded', {
+        details: { targetLaneId: run.chosen_exit_lane_id, outcome: state },
+      });
+    }
+      // Keep the terminal run attached to its card. The board response and
+      // card details use this pointer to expose a failure's owning session.
+      audit(db, runId, `run_${state}`, { sessionId: failed?.id || cancelled?.id });
+      return { result: getRun(runId), shouldTransition: false };
+    }
+    return { result: getRun(runId), shouldTransition: rootOutcome === 'succeeded' };
+  });
+  // allowTransition=false reconciles a run (marks it terminal, releases state)
+  // without ever moving its card or creating a successor run — used by boot
+  // recovery, which must not mutate the board ahead of the preflight audit.
+  return reconciliation.shouldTransition && allowTransition
+    ? attemptLaneRunTransition(runId, { deferBroadcast })
+    : reconciliation.result;
 }
 
 /**
@@ -401,9 +451,9 @@ function createCompletionSuccessor(run, card, movedCard) {
   });
 }
 
-export function attemptLaneRunTransition(runId) {
+export function attemptLaneRunTransition(runId, { deferBroadcast = false } = {}) {
   const transition = databaseManager.transaction(() => {
-    const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
+    const db = databaseManager.get(); const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
     if (!run || run.status !== 'open') return { result: getRun(runId) };
     const card = db.prepare('SELECT * FROM kanban_cards WHERE id=?').get(run.card_id);
     if (!card || card.active_lane_run_id !== runId || card.lane_id !== run.source_lane_id) return { result: getRun(runId) };
@@ -415,7 +465,7 @@ export function attemptLaneRunTransition(runId) {
     const movedCard = moveCardForTransition(run, card);
     const targetLaneId = movedCard?.laneId || null;
     const laneRun = createCompletionSuccessor(run, card, movedCard);
-    if (!laneRun) db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE id=?').run(now(), card.id);
+    if (!laneRun) releaseCardFromRun(db, runId, now());
     audit(db, runId, 'transition_applied');
 
     const result = getRun(runId);
@@ -428,9 +478,17 @@ export function attemptLaneRunTransition(runId) {
         laneEntryEventId: laneRun.laneEntryEventId,
       };
     }
-    return { result, run, card, movedCard };
+    const postCommitCardTransition = movedCard && {
+      projectId: run.project_id,
+      cardId: card.id,
+      fromLaneId: card.lane_id,
+      toLaneId: movedCard.laneId,
+      card: movedCard,
+    };
+    if (postCommitCardTransition) result.postCommitCardTransition = postCommitCardTransition;
+    return { result, postCommitCardTransition };
   });
-  if (transition.movedCard) broadcastCardTransition(transition.run, transition.card, transition.movedCard);
+  if (!deferBroadcast) broadcastCardTransition(transition.postCommitCardTransition);
   const { result } = transition;
   return result;
 }
@@ -439,13 +497,21 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
   const candidate = databaseManager.get().prepare('SELECT id FROM kanban_lane_runs WHERE id=? AND status=\'open\'').get(runId);
   if (!candidate) return null;
   const result = databaseManager.transaction(() => {
-    const db = databaseManager.get(); const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
+    const db = databaseManager.get(); const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
     if (!run || run.status !== 'open') return null;
     const time = now();
     db.prepare(`UPDATE kanban_lane_runs SET status='superseded', superseded_at=?, updated_at=?, failure_reason=? WHERE id=? AND status='open'`)
       .run(time, time, reason, runId);
+    // A supersession is a terminal path too: an outstanding declaration can
+    // never be applied, so record why it was discarded rather than leaving it
+    // silently unapplied on the run.
+    if (run.chosen_exit_lane_id) {
+      audit(db, runId, 'deferred_exit_discarded', {
+        details: { targetLaneId: run.chosen_exit_lane_id, outcome: 'superseded' },
+      });
+    }
     clearExecutableMemberState(db, runId, reason, time);
-    db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=? WHERE active_lane_run_id=?').run(time, runId);
+    releaseCardFromRun(db, runId, time);
     audit(db, runId, 'run_superseded', { details: { reason } });
     for (const member of db.prepare('SELECT id FROM sessions WHERE lane_run_id=?').all(runId)) {
       audit(db, runId, 'member_cancelled_on_supersession', { sessionId: member.id, details: { reason } });
@@ -458,6 +524,41 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
     }
   }
   return result;
+}
+
+/**
+ * Record the shared, last-writer-wins exit lane for an active run without
+ * moving, superseding, or aborting it.
+ */
+export function declareExitLane(cardId, targetLaneId) {
+  return databaseManager.transaction(() => {
+    const db = databaseManager.get();
+    const activeLaneRunId = db.prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?').get(cardId)?.active_lane_run_id;
+    const run = activeLaneRunId ? db.prepare("SELECT * FROM kanban_lane_runs WHERE id=? AND status='open'").get(activeLaneRunId) : null;
+    if (!run) throw new ApiError('This card has no active lane run to declare an exit lane for', { status: 409, code: 'KANBAN_NO_ACTIVE_LANE_RUN' });
+    if (run.source_lane_id === targetLaneId) {
+      throw new ApiError('The exit lane must differ from the lane the run started in', { status: 400, code: 'KANBAN_EXIT_LANE_SAME_AS_SOURCE' });
+    }
+    const sourceLane = db.prepare('SELECT board_id FROM kanban_lanes WHERE id=?').get(run.source_lane_id);
+    const targetLane = db.prepare('SELECT * FROM kanban_lanes WHERE id=?').get(targetLaneId);
+    if (!sourceLane || !targetLane || sourceLane.board_id !== targetLane.board_id) {
+      throw new ApiError('The selected exit lane must belong to the card board',
+        { status: 400, code: 'KANBAN_EXIT_LANE_CROSS_BOARD' });
+    }
+
+    const time = now();
+    db.prepare(`UPDATE kanban_lane_runs SET chosen_exit_lane_id=?, chosen_exit_declared_at=?,
+      updated_at=? WHERE id=? AND status='open'`)
+      .run(targetLaneId, time, time, run.id);
+    audit(db, run.id, 'exit_lane_declared', {
+      details: { targetLaneId, willRunAutomation: isStructured({
+        completionTargetLaneId: targetLane.completion_target_lane_id,
+        onEnterTemplateId: targetLane.on_enter_template_id,
+        onEnterPrompt: targetLane.on_enter_prompt,
+      }) },
+    });
+    return getRun(run.id);
+  });
 }
 
 export function supersedeRunForCard(cardId, reason = 'manual_move') {

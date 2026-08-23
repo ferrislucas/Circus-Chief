@@ -3,6 +3,7 @@
  * column defaults or constraints (SQLite requires table recreation for these).
  */
 import { getColumns } from './migrationUtils.js';
+import { ACTIVITY_TRIGGER_CREATE_DDL, ACTIVITY_TRIGGER_DROP_DDL } from './activityTriggers.js';
 
 const TABLE_SESSIONS = 'sessions';
 
@@ -67,7 +68,6 @@ export const SESSIONS_ALL_CURRENT_COLUMNS = `
     pending_model TEXT,
     auto_send_pending_prompt INTEGER DEFAULT 0,
     agent_type TEXT DEFAULT 'claude-code',
-    lane_trigger_depth INTEGER NOT NULL DEFAULT 0,
     pending_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
     lane_run_id TEXT,
     own_work_state TEXT NOT NULL DEFAULT 'open',
@@ -76,6 +76,7 @@ export const SESSIONS_ALL_CURRENT_COLUMNS = `
     workflow_reason TEXT,
     execution_state TEXT NOT NULL DEFAULT 'idle',
     subtree_outcome TEXT NOT NULL DEFAULT 'open',
+    last_activity_at INTEGER,
     created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
     updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 `;
@@ -92,9 +93,9 @@ export const SESSIONS_ALL_CURRENT_COLUMN_NAMES = [
   'max_reschedule_count', 'max_total_tokens', 'reschedule_count',
   'reschedule_at_token_count', 'pending_prompt', 'slash_commands',
   'pending_model', 'auto_send_pending_prompt', 'agent_type',
-  'lane_trigger_depth', 'pending_conversation_id', 'created_at', 'updated_at',
+  'pending_conversation_id', 'created_at', 'updated_at',
   'lane_run_id', 'own_work_state', 'own_work_closed_at', 'workflow_updated_at',
-  'workflow_reason', 'execution_state', 'subtree_outcome',
+  'workflow_reason', 'execution_state', 'subtree_outcome', 'last_activity_at',
 ];
 
 /**
@@ -117,9 +118,14 @@ export function recreateSessionsTable(db, columnsSql, allColumnNames) {
       CREATE TABLE sessions_new (${columnsSql});
       INSERT INTO sessions_new (${selectColumns})
       SELECT ${selectColumns} FROM sessions;
+      -- Other tables' triggers reference sessions in their bodies. SQLite's
+      -- rename consistency pass rejects those transient references, so drop
+      -- and recreate the activity triggers around the table replacement.
+      ${ACTIVITY_TRIGGER_DROP_DDL.join(';\n      ')};
       DROP TABLE sessions;
       ALTER TABLE sessions_new RENAME TO sessions;
       ${SESSIONS_INDEX_DDL.join(';\n      ')};
+      ${ACTIVITY_TRIGGER_CREATE_DDL.join(';\n      ')};
     `);
 
     const foreignKeyViolations = db.pragma('foreign_key_check');

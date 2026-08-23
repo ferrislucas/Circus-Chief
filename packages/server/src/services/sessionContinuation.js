@@ -198,7 +198,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   }
 
   const controller = new AbortController();
-  activeSessions.set(sessionId, { controller });
+  activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
 
   // Ensure there's an active conversation and create the user message
   const { activeConversation, promptWithAttachments } = await setupConversationAndMessage(

@@ -260,7 +260,9 @@ export async function runSessionWithTierFailover(
     // every attempt (success or failure). Re-register it before each retry so
     // concurrency guards (e.g. continueSessionCore's "already processing" check)
     // and abort-signal plumbing stay consistent across the failover loop.
-    activeSessions.set(sessionId, { controller });
+    // Each attempt is a fresh turn for watchdog purposes, so re-stamp the
+    // liveness timestamps rather than carrying the previous member's clock.
+    activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
 
     try {
       const execution = await attemptRunWithModel(sessionId, promptWithAttachments, workingDirectory, {

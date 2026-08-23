@@ -107,6 +107,11 @@ export const MoveKanbanCardRequest = z.object({
   runOnEnterTemplate: z.boolean().default(true),
 });
 
+/** Choose where an active lane run goes on completion; this is not a move. */
+export const DeclareExitLaneRequest = z.object({
+  laneId: z.string().uuid(),
+});
+
 export const ReorderKanbanCardsRequest = z.array(z.string().uuid());
 
 // Card session info

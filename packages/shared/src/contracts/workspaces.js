@@ -8,6 +8,7 @@
 
 import { z } from 'zod';
 import { CreateSessionRequest } from './sessions.js';
+import { CommandRunResponse } from './commandButtons.js';
 
 // Derive WorkspaceSessionFields from CreateSessionRequest to avoid duplicating
 // the full field list (prompt, name, mode, thinkingEnabled, effortLevel,
@@ -52,6 +53,75 @@ export const CreateWorkspaceSessionRequest = WorkspaceSessionFields.extend({
 }).refine((body) => !('afterSessionId' in body), {
   message: 'afterSessionId is no longer supported; use parentSessionId',
   path: ['afterSessionId'],
+});
+
+/** A Kanban placement attached to a workspace list card. */
+export const WorkspaceCardKanbanResponse = z.object({
+  cardId: z.string().uuid(),
+  laneId: z.string().uuid(),
+  laneName: z.string(),
+});
+
+/**
+ * The lightweight command-run indicator included in a workspace list card.
+ * This deliberately excludes command output while retaining enough metadata
+ * for the list to render the run state and resume output polling if needed.
+ */
+export const WorkspaceCardCommandRunResponse = CommandRunResponse.extend({
+  startedAt: z.number(),
+  completedAt: z.number().nullable().optional(),
+  hasOutput: z.boolean().optional(),
+  outputHighWater: z.number().int().nonnegative().optional(),
+});
+
+/**
+ * Server-computed card returned by GET /api/projects/:projectId/workspaces?view=cards.
+ * It is intentionally a compact read model rather than a SessionResponse.
+ */
+export const WorkspaceCardResponse = z.object({
+  id: z.string().uuid(),
+  projectId: z.string().uuid(),
+  name: z.string(),
+  status: z.enum(['starting', 'running', 'waiting', 'stopped', 'completed', 'error', 'scheduled']),
+  starred: z.boolean(),
+  archived: z.boolean(),
+  prUrl: z.string().nullable(),
+  gitWorktree: z.string().nullable(),
+  scheduledAt: z.number().nullable(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  lastActivityAt: z.number().nullable(),
+  runningCount: z.number().int().nonnegative(),
+  runningSessionIds: z.array(z.string().uuid()),
+  scheduledCount: z.number().int().nonnegative(),
+  waitingCount: z.number().int().nonnegative(),
+  descendantCount: z.number().int().nonnegative(),
+  nearestScheduledAt: z.number().nullable(),
+  summaryPreview: z.string().nullable(),
+  prState: z.string().nullable(),
+  hasMergeConflicts: z.boolean().nullable(),
+  ciStatus: z.string().nullable(),
+  kanban: WorkspaceCardKanbanResponse.nullable(),
+  // Session ids of this workspace's tree, in unspecified order. Lets the client resolve
+  // a member session's realtime events to the owning card for local patching.
+  memberIds: z.array(z.string().uuid()),
+  pendingAgentInput: z.boolean(),
+  latestCommandRuns: z.array(WorkspaceCardCommandRunResponse),
+});
+
+/** Paginated workspace-card list response, including authoritative status facets. */
+export const WorkspaceCardListResponse = z.object({
+  workspaces: z.array(WorkspaceCardResponse),
+  facets: z.object({
+    running: z.number().int().nonnegative(),
+    idle: z.number().int().nonnegative(),
+  }),
+  pagination: z.object({
+    total: z.number().int().nonnegative(),
+    limit: z.number().int().positive(),
+    nextCursor: z.string().nullable().optional(),
+    hasMore: z.boolean(),
+  }),
 });
 
 /**

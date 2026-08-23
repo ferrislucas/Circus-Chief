@@ -121,7 +121,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- No code reads or writes it; completion_target_lane_id is the single source
   -- of truth for kanban auto-advancement.
   target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
-  lane_trigger_depth INTEGER NOT NULL DEFAULT 0,
   lane_run_id TEXT,
   own_work_state TEXT NOT NULL DEFAULT 'open',
   own_work_closed_at INTEGER,
@@ -134,6 +133,13 @@ CREATE TABLE IF NOT EXISTS sessions (
   --     every blocking descendant (open/succeeded/failed/cancelled).
   execution_state TEXT NOT NULL DEFAULT 'idle',
   subtree_outcome TEXT NOT NULL DEFAULT 'open',
+  -- Denormalized "last time anything happened in this session" (message sent,
+  -- command run started/completed, summary generated/updated). Maintained by
+  -- the trg_sessions_activity_on_* triggers below so the workspace-card list
+  -- query can read it as a plain column instead of a per-request correlated
+  -- subquery. It is deliberately not indexed: current readers aggregate or
+  -- COALESCE the value across every workspace tree.
+  last_activity_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -298,6 +304,70 @@ CREATE TABLE IF NOT EXISTS command_runs (
   completed_at INTEGER
 );
 
+-- Keep sessions.last_activity_at current as activity happens, so the
+-- workspace-card list query can read it as a plain column. See the
+-- last_activity_at column comment on the sessions table above.
+--
+-- These are high-water-mark triggers: they only ever raise last_activity_at,
+-- never lower it. Production code never updates an existing message's
+-- timestamp (conversation_messages rows are append-only in practice; see
+-- MessageRepository), so this is not a real limitation there. The UPDATE
+-- variant exists only so a caller that does retroactively touch a
+-- timestamp (e.g. test fixtures simulating "this session got a newer
+-- message") still moves the session's activity forward correctly.
+CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_message
+AFTER INSERT ON conversation_messages
+BEGIN
+  UPDATE sessions SET last_activity_at = NEW.timestamp
+  WHERE id = NEW.session_id
+    AND (last_activity_at IS NULL OR last_activity_at < NEW.timestamp);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_message_update
+AFTER UPDATE OF timestamp ON conversation_messages
+BEGIN
+  UPDATE sessions SET last_activity_at = NEW.timestamp
+  WHERE id = NEW.session_id
+    AND (last_activity_at IS NULL OR last_activity_at < NEW.timestamp);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_command_run_insert
+AFTER INSERT ON command_runs
+BEGIN
+  -- COALESCE(completed_at, started_at): production always inserts with only
+  -- started_at set (completion is a later UPDATE, handled by the _complete
+  -- trigger below), but a row inserted with completed_at already populated
+  -- must still count as activity at completion time, not start time.
+  UPDATE sessions SET last_activity_at = COALESCE(NEW.completed_at, NEW.started_at)
+  WHERE id = NEW.session_id
+    AND (last_activity_at IS NULL OR last_activity_at < COALESCE(NEW.completed_at, NEW.started_at));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_command_run_complete
+AFTER UPDATE OF completed_at ON command_runs
+WHEN NEW.completed_at IS NOT NULL
+BEGIN
+  UPDATE sessions SET last_activity_at = NEW.completed_at
+  WHERE id = NEW.session_id
+    AND (last_activity_at IS NULL OR last_activity_at < NEW.completed_at);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_summary_insert
+AFTER INSERT ON session_summaries
+BEGIN
+  UPDATE sessions SET last_activity_at = max(COALESCE(NEW.generated_at, 0), COALESCE(NEW.updated_at, 0))
+  WHERE id = NEW.session_id
+    AND (last_activity_at IS NULL OR last_activity_at < max(COALESCE(NEW.generated_at, 0), COALESCE(NEW.updated_at, 0)));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_summary_update
+AFTER UPDATE OF generated_at, updated_at ON session_summaries
+BEGIN
+  UPDATE sessions SET last_activity_at = max(COALESCE(NEW.generated_at, 0), COALESCE(NEW.updated_at, 0))
+  WHERE id = NEW.session_id
+    AND (last_activity_at IS NULL OR last_activity_at < max(COALESCE(NEW.generated_at, 0), COALESCE(NEW.updated_at, 0)));
+END;
+
 -- Command output is deliberately kept out of command_runs.  Updating a large
 -- TEXT field for every flush copies the entire transcript in SQLite.
 CREATE TABLE IF NOT EXISTS command_run_output_chunks (
@@ -429,6 +499,8 @@ CREATE TABLE IF NOT EXISTS kanban_lane_runs (
   id TEXT PRIMARY KEY, lane_entry_event_id TEXT NOT NULL UNIQUE, prior_lane_run_id TEXT,
   project_id TEXT NOT NULL, workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, source_lane_id TEXT NOT NULL,
   completion_target_lane_id TEXT, root_session_id TEXT UNIQUE,
+  chosen_exit_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
+  chosen_exit_declared_at INTEGER,
   status TEXT NOT NULL DEFAULT 'open', failure_reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
   succeeded_at INTEGER, failed_at INTEGER, cancelled_at INTEGER, superseded_at INTEGER, transition_applied_at INTEGER
 );

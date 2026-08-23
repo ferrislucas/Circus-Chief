@@ -58,6 +58,9 @@ export const WS_MESSAGE_TYPES = {
   KANBAN_CARD_MOVED: 'kanban:card_moved',
   KANBAN_CARD_ADDED: 'kanban:card_added',
   KANBAN_CARD_REMOVED: 'kanban:card_removed',
+  // A lane worker selected a destination, but its card stays put until the
+  // worker's run completes and the handoff can be performed safely.
+  KANBAN_EXIT_LANE_DECLARED: 'kanban:exit_lane_declared',
 
   // Tier failover events
   TIER_FAILOVER: 'tier:failover',

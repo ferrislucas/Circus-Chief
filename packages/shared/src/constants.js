@@ -38,7 +38,9 @@ export const DEFAULT_MAX_RESCHEDULE_COUNT = 24;
 
 /** What a session's process is doing right now, independent of its workflow obligation. */
 export const SESSION_EXECUTION_STATES = [
-  'queued', 'starting', 'running', 'scheduled', 'retrying', 'paused', 'idle', 'stopped',
+  // A running worker whose lane run was superseded has been asked to stop,
+  // but its provider process has not necessarily unwound yet.
+  'queued', 'starting', 'running', 'aborting', 'scheduled', 'retrying', 'paused', 'idle', 'stopped',
 ];
 
 /** Whether *this* session's own work (excluding descendants) is still an open obligation. */

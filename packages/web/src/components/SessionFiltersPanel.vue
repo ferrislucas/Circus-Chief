@@ -80,10 +80,11 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useSessionFiltering } from '../composables/useSessionFiltering.js';
 
-defineProps({
+const props = defineProps({
   /** Whether to show status filter buttons (running/idle) */
   showStatusFilters: {
     type: Boolean,
@@ -93,6 +94,11 @@ defineProps({
   showScheduledFilter: {
     type: Boolean,
     default: true,
+  },
+  /** Authoritative facets from the workspace-card list response. */
+  statusCounts: {
+    type: Object,
+    default: null,
   },
 });
 
@@ -104,8 +110,10 @@ const {
   starFilterTooltip,
   toggleScheduledFilterIcon,
   scheduledFilterTooltip,
-  statusFilterCounts,
 } = useSessionFiltering();
+
+// Authoritative facets come from the workspace-card list response.
+const statusFilterCounts = computed(() => props.statusCounts || { running: 0, idle: 0 });
 </script>
 
 <style scoped>

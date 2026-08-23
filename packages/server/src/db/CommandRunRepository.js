@@ -1,5 +1,9 @@
 import { BaseRepository } from './BaseRepository.js';
 
+// Keep well below SQLite's historical 999-variable default while allowing
+// list endpoints to fan out across an arbitrary number of sessions.
+const SESSION_ID_CHUNK_SIZE = 500;
+
 /**
  * Command run repository class for persisting command execution history
  */
@@ -253,6 +257,46 @@ export class CommandRunRepository extends BaseRepository {
          ORDER BY COALESCE(completed_at, started_at) DESC, id DESC`
       )
       .all(projectId);
+    return this.mapAll(rows);
+  }
+
+  /**
+   * Get the latest run per button for a bounded set of list-card sessions.
+   * @param {string[]} sessionIds
+   * @param {Object} [options]
+   * @param {boolean} [options.includeOutputMetadata] - also compute has_output
+   *   and output_high_water via two correlated subqueries against
+   *   command_run_output_chunks per run row. Only consumers that resume output
+   *   polling need these; status-indicator consumers should omit them.
+   */
+  getLatestRunsForSessions(sessionIds, { includeOutputMetadata = false } = {}) {
+    if (!sessionIds.length) return [];
+    const uniqueSessionIds = [...new Set(sessionIds)];
+    const outputColumns = includeOutputMetadata
+      ? `EXISTS(SELECT 1 FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS has_output,
+            (SELECT COALESCE(MAX(sequence), 0) FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS output_high_water,`
+      : '';
+    const rows = [];
+
+    for (let start = 0; start < uniqueSessionIds.length; start += SESSION_ID_CHUNK_SIZE) {
+      const sessionIdChunk = uniqueSessionIds.slice(start, start + SESSION_ID_CHUNK_SIZE);
+      const placeholders = sessionIdChunk.map(() => '?').join(', ');
+      rows.push(...this.db.prepare(
+        `SELECT * FROM (
+          SELECT cr.id, cr.session_id, cr.button_id, cr.status, cr.exit_code, cr.started_at, cr.completed_at,
+            ${outputColumns}
+            ROW_NUMBER() OVER (PARTITION BY cr.session_id, cr.button_id
+              ORDER BY COALESCE(cr.completed_at, cr.started_at) DESC, cr.id DESC) AS rn
+          FROM command_runs cr WHERE cr.session_id IN (${placeholders})
+        ) WHERE rn = 1`
+      ).all(...sessionIdChunk));
+    }
+
+    rows.sort((a, b) => {
+      const aTime = a.completed_at ?? a.started_at;
+      const bTime = b.completed_at ?? b.started_at;
+      return bTime - aTime || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+    });
     return this.mapAll(rows);
   }
 

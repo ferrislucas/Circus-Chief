@@ -92,6 +92,9 @@ function validateMigrations(migrationsArray) {
 }
 
 export const allMigrations = validateMigrations([
+  // --- Workspace list activity column ---
+  m.get('workspace-list-activity-column'),
+
   // --- Sessions initial columns ---
   s.get('sessions-add-cost_usd'),
   s.get('sessions-add-claude_session_id'),
@@ -355,4 +358,9 @@ export const allMigrations = validateMigrations([
   k.get('kanban-durable-delivery-and-api-operations'),
   k.get('kanban-delivery-health-status-index'),
   k.get('kanban-api-operation-leases-and-canonical-responses'),
+  k.get('kanban-lane-run-declared-exit-lane'),
+  k.get('kanban-drop-exit-lane-caller-attribution'),
+
+  // --- Remove the dead lane-trigger recursion counter (cap it fed was removed) ---
+  k.get('sessions-drop-lane_trigger_depth'),
 ]);

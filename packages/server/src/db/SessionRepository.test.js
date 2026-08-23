@@ -37,6 +37,32 @@ describe('SessionRepository', () => {
     });
   });
 
+  describe('getRecoverableSessions', () => {
+    it('returns every matching session when cutoff is null', () => {
+      const running = repo.create(projectId, 'Running session', 'Prompt');
+      repo.update(running.id, { status: 'running' });
+
+      expect(repo.getRecoverableSessions('running', null)).toEqual([
+        expect.objectContaining({ id: running.id, status: 'running' }),
+      ]);
+    });
+
+    it('filters matching sessions by cutoff when one is provided', () => {
+      const running = repo.create(projectId, 'Running session', 'Prompt');
+      repo.update(running.id, { status: 'running' });
+
+      // Pin updated_at so the cutoff comparison is deterministic.
+      const updatedAt = 1_000_000;
+      repo.db.prepare('UPDATE sessions SET updated_at=? WHERE id=?').run(updatedAt, running.id);
+
+      expect(repo.getRecoverableSessions('running', updatedAt)).toEqual([]);
+      expect(repo.getRecoverableSessions('running', updatedAt - 1)).toEqual([]);
+      expect(repo.getRecoverableSessions('running', updatedAt + 1)).toEqual([
+        expect.objectContaining({ id: running.id }),
+      ]);
+    });
+  });
+
   describe('create', () => {
     it('creates a session with required fields', () => {
       const session = repo.create(projectId, 'Test Session', 'Initial prompt');
@@ -153,6 +179,14 @@ describe('SessionRepository', () => {
       expect(session.ownWorkState).toBe('open');
       expect(session).toHaveProperty('executionState');
       expect(session).toHaveProperty('subtreeOutcome');
+    });
+
+    it('persists aborting as a declared execution state and rejects unknown states', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+
+      expect(repo.update(session.id, { executionState: 'aborting' }).executionState).toBe('aborting');
+      expect(() => repo.update(session.id, { executionState: 'interrupting' }))
+        .toThrow('Invalid session execution state: interrupting');
     });
 
     // New options object signature tests

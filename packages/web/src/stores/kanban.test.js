@@ -40,4 +40,59 @@ describe('kanban session updates', () => {
     expect(updated.status).toBe('waiting');
     expect(updated.pendingAgentInput).toBe(true);
   });
+
+  it('updates a card in place when an active run exit lane is declared', () => {
+    const store = useKanbanStore();
+    store.board = { lanes: [{ cards: [{ id: 'card', activeLaneRun: { id: 'run', status: 'open' } }] }] };
+    const activeLaneRun = { id: 'run', status: 'open', chosenExitLaneId: 'needs-attention', chosenExitLaneName: 'Needs attention' };
+
+    store.handleExitLaneDeclared('card', activeLaneRun);
+
+    expect(store.board.lanes[0].cards[0].activeLaneRun).toEqual(activeLaneRun);
+  });
+});
+
+describe('kanban command-run updates', () => {
+  beforeEach(() => setActivePinia(createPinia()));
+
+  const sessionOnBoard = () => {
+    const store = useKanbanStore();
+    store.board = {
+      lanes: [
+        { cards: [{ id: 'card', sessions: [{ id: 'root', name: 'Root', latestCommandRuns: [] }] }] },
+        { cards: [] },
+      ],
+    };
+    return store;
+  };
+
+  it('upserts a run per button and replaces the previous one for that button', () => {
+    const store = sessionOnBoard();
+
+    store.handleSessionCommandRun('root', { buttonId: 'lint', runId: 'run-1', status: 'running', exitCode: null });
+    store.handleSessionCommandRun('root', { buttonId: 'lint', runId: 'run-2', status: 'success', exitCode: 0 });
+
+    const runs = store.board.lanes[0].cards[0].sessions[0].latestCommandRuns;
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ buttonId: 'lint', runId: 'run-2', status: 'success' });
+  });
+
+  it('keeps runs for other buttons when one is removed', () => {
+    const store = sessionOnBoard();
+
+    store.handleSessionCommandRun('root', { buttonId: 'lint', runId: 'run-1', status: 'success', exitCode: 0 });
+    store.handleSessionCommandRun('root', { buttonId: 'tests', runId: 'run-2', status: 'success', exitCode: 0 });
+    store.handleSessionCommandRunRemoved('root', 'lint');
+
+    const runs = store.board.lanes[0].cards[0].sessions[0].latestCommandRuns;
+    expect(runs.map(run => run.buttonId)).toEqual(['tests']);
+  });
+
+  it('is a no-op for a session that is not on the board', () => {
+    const store = sessionOnBoard();
+
+    store.handleSessionCommandRun('elsewhere', { buttonId: 'lint', runId: 'run-1', status: 'success' });
+
+    expect(store.board.lanes[0].cards[0].sessions[0].latestCommandRuns).toEqual([]);
+  });
 });

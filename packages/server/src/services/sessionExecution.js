@@ -215,21 +215,21 @@ export async function _executeSession({
   const workflowTurn = beginWorkflowTurn(sessionId);
   // Last ownership fence before the irreversible provider call.
   if (!interactive && !workflowTurn && !activeLaneRunOwnsSession(sessionId)) {
-    cleanupSessionState(sessionId, cleanupConversationId);
+    cleanupSessionState(sessionId, cleanupConversationId, controller);
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
   try {
     // Run the query with the agent (SDK via gateway, or mock)
     for await (const event of agent.execute(queryParams, agentCallMeta)) {
       if (controller.signal.aborted) break;
-
       await handleStreamEvent(sessionId, event);
     }
     // Handle post-turn completion (work log association, status transition, summary, etc.)
     const { wasRescheduled, heldForLimit } = await handleTurnCompletion(
       sessionId,
       workingDirectory,
-      { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded }
+      { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded },
+      { controller },
     );
     await finishWorkflowTurn({ sessionId, interactive, workflowTurn, wasRescheduled, heldForLimit });
   } catch (error) {
@@ -259,10 +259,9 @@ export async function _executeSession({
     closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message);
     throw error;
   } finally {
-    cleanupSessionState(sessionId, cleanupConversationId);
+    cleanupSessionState(sessionId, cleanupConversationId, controller);
   }
 }
-
 /**
  * Prepare the shared per-start state for {@link runSessionCore}: register the
  * abort controller, ensure the active conversation, flip the session to
@@ -275,7 +274,7 @@ export async function _executeSession({
  * @returns {{ session: Object, activeConversation: Object, promptWithAttachments: string }}
  */
 function beginSessionStart(sessionId, prompt, { model, fileAttachments, controller }) {
-  activeSessions.set(sessionId, { controller });
+  activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
 
   // Get the active conversation for this session (created in SessionRepository.create)
   const activeConversation = conversations.ensureActiveConversation(sessionId);

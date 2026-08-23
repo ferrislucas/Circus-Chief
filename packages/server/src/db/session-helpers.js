@@ -104,29 +104,20 @@ export function applySessionFilters(sql, params, { archived = null, starred = nu
   return clause;
 }
 
-/** Reusable SQL fragment for computed activity fields on sessions */
+/**
+ * Reusable SQL fragment for computed activity fields on sessions.
+ *
+ * `last_activity_at` is deliberately NOT computed here: it is a denormalized
+ * column on `sessions` (see migrations/miscMigrations.js:workspace-list-activity-column
+ * and the trg_sessions_activity_on_* triggers in schema.sql), which run this
+ * exact same 4-way union (messages / summary generated_at / summary updated_at
+ * / command-run completed_at-or-started_at) once per write instead of once per
+ * read. `s.*` in every caller below already includes it. Computing it again
+ * here would silently shadow the column with a second same-named result
+ * column and reintroduce the per-request correlated-subquery cost the column
+ * exists to avoid.
+ */
 export const ACTIVITY_FIELDS_SQL = `
-  (
-    SELECT MAX(activity_at)
-    FROM (
-      SELECT cm.timestamp AS activity_at
-      FROM conversation_messages cm
-      WHERE cm.session_id = s.id
-      UNION ALL
-      SELECT ss.generated_at AS activity_at
-      FROM session_summaries ss
-      WHERE ss.session_id = s.id
-      UNION ALL
-      SELECT ss.updated_at AS activity_at
-      FROM session_summaries ss
-      WHERE ss.session_id = s.id
-      UNION ALL
-      SELECT COALESCE(cr.completed_at, cr.started_at) AS activity_at
-      FROM command_runs cr
-      WHERE cr.session_id = s.id
-    )
-    WHERE activity_at IS NOT NULL
-  ) AS last_activity_at,
   (
     SELECT MAX(cm.timestamp)
     FROM conversation_messages cm
@@ -272,7 +263,6 @@ export const DIRECT_FIELD_MAP = {
   pendingModel: 'pending_model',
   pendingConversationId: 'pending_conversation_id',
   effortLevel: 'effort_level',
-  laneTriggerDepth: 'lane_trigger_depth',
   laneRunId: 'lane_run_id',
   ownWorkState: 'own_work_state',
   ownWorkClosedAt: 'own_work_closed_at',

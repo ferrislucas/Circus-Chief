@@ -87,6 +87,7 @@ import {
   finalResultEvents,
   getResultEvent,
 } from './streamEventHandler.js';
+import { getPrompt, parkPrompt } from './promptStore.js';
 
 describe('streamEventHandler', () => {
   beforeEach(() => {
@@ -343,17 +344,37 @@ describe('streamEventHandler', () => {
       thinkingAccumulators.set('sess-1', 'thinking...');
       currentModels.set('sess-1', 'claude-3');
       loggedToolUseIds.set('sess-1', new Set(['tu-1']));
+      lastMessageIds.set('sess-1', 'msg-1');
+      finalResultEvents.set('sess-1', { subtype: 'success' });
+      activeConversationIds.set('sess-1', 'conv-1');
       activeSessions.set('sess-1', { controller: new AbortController() });
       finalErrorSessionIds.add('sess-1');
 
-      cleanupSessionState('sess-1');
+      cleanupSessionState('sess-1', true);
 
       expect(textAccumulators.has('sess-1')).toBe(false);
       expect(thinkingAccumulators.has('sess-1')).toBe(false);
       expect(currentModels.has('sess-1')).toBe(false);
       expect(loggedToolUseIds.has('sess-1')).toBe(false);
+      expect(lastMessageIds.has('sess-1')).toBe(false);
       expect(finalErrorSessionIds.has('sess-1')).toBe(false);
+      expect(finalResultEvents.has('sess-1')).toBe(false);
+      expect(activeConversationIds.has('sess-1')).toBe(false);
       expect(activeSessions.has('sess-1')).toBe(false);
+    });
+
+    it('settles a parked prompt before clearing its turn state', async () => {
+      const controller = new AbortController();
+      activeSessions.set('sess-1', { controller });
+      const parked = parkPrompt({
+        sessionId: 'sess-1', conversationId: 'conv-1', kind: 'permission',
+        payload: { toolName: 'Read', input: {}, displayName: 'Read' }, signal: controller.signal,
+      });
+
+      cleanupSessionState('sess-1', true, controller);
+
+      await expect(parked).resolves.toEqual({ behavior: 'deny', message: 'Session was cancelled.' });
+      expect(getPrompt('sess-1')).toBeNull();
     });
 
     it('does not clean up activeConversationIds by default', () => {
@@ -382,6 +403,70 @@ describe('streamEventHandler', () => {
 
       expect(textAccumulators.has('sess-2')).toBe(true);
       expect(activeSessions.has('sess-2')).toBe(true);
+    });
+
+    it('does not let an old execution clean up replacement execution state', () => {
+      const oldController = new AbortController();
+      const replacementController = new AbortController();
+      textAccumulators.set('sess-1', 'replacement text');
+      thinkingAccumulators.set('sess-1', 'replacement thinking');
+      currentModels.set('sess-1', 'replacement-model');
+      loggedToolUseIds.set('sess-1', new Set(['replacement-tool']));
+      finalErrorSessionIds.add('sess-1');
+      finalResultEvents.set('sess-1', { subtype: 'success' });
+      activeConversationIds.set('sess-1', 'replacement-conversation');
+      activeSessions.set('sess-1', { controller: replacementController });
+
+      const cleaned = cleanupSessionState('sess-1', true, oldController);
+
+      expect(cleaned).toBe(false);
+      expect(activeSessions.get('sess-1')?.controller).toBe(replacementController);
+      expect(textAccumulators.get('sess-1')).toBe('replacement text');
+      expect(thinkingAccumulators.get('sess-1')).toBe('replacement thinking');
+      expect(currentModels.get('sess-1')).toBe('replacement-model');
+      expect(loggedToolUseIds.get('sess-1')).toEqual(new Set(['replacement-tool']));
+      expect(finalErrorSessionIds.has('sess-1')).toBe(true);
+      expect(finalResultEvents.get('sess-1')).toEqual({ subtype: 'success' });
+      expect(activeConversationIds.get('sess-1')).toBe('replacement-conversation');
+    });
+
+    it('cleans up state when the expected controller still owns the session', () => {
+      const controller = new AbortController();
+      textAccumulators.set('sess-1', 'some text');
+      activeConversationIds.set('sess-1', 'conv-1');
+      activeSessions.set('sess-1', { controller });
+
+      const cleaned = cleanupSessionState('sess-1', true, controller);
+
+      expect(cleaned).toBe(true);
+      expect(textAccumulators.has('sess-1')).toBe(false);
+      expect(activeSessions.has('sess-1')).toBe(false);
+      expect(activeConversationIds.has('sess-1')).toBe(false);
+    });
+
+    it('still cleans up when the owner already deregistered (stopSession path)', () => {
+      const controller = new AbortController();
+      textAccumulators.set('sess-1', 'partial text');
+      thinkingAccumulators.set('sess-1', 'partial thinking');
+      currentModels.set('sess-1', 'some-model');
+      loggedToolUseIds.set('sess-1', new Set(['tool-1']));
+      finalErrorSessionIds.add('sess-1');
+      finalResultEvents.set('sess-1', { subtype: 'error' });
+      activeConversationIds.set('sess-1', 'conv-1');
+      // stopSession() removed the activeSessions entry before the turn unwound;
+      // an absent entry must not be mistaken for a live replacement execution.
+      activeSessions.delete('sess-1');
+
+      const cleaned = cleanupSessionState('sess-1', true, controller);
+
+      expect(cleaned).toBe(true);
+      expect(textAccumulators.has('sess-1')).toBe(false);
+      expect(thinkingAccumulators.has('sess-1')).toBe(false);
+      expect(currentModels.has('sess-1')).toBe(false);
+      expect(loggedToolUseIds.has('sess-1')).toBe(false);
+      expect(finalErrorSessionIds.has('sess-1')).toBe(false);
+      expect(finalResultEvents.has('sess-1')).toBe(false);
+      expect(activeConversationIds.has('sess-1')).toBe(false);
     });
   });
 
@@ -416,6 +501,42 @@ describe('streamEventHandler', () => {
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+    });
+
+    it('lands both status dimensions when an aborted turn has no recorded outcome', async () => {
+      const controller = { signal: { aborted: true } };
+      activeSessions.set('sess-1', { controller });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ status: 'running' });
+
+      await handleTurnCompletion('sess-1', '/workspace', {}, { controller });
+
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', {
+        status: 'stopped',
+        executionState: 'stopped',
+      });
+    });
+
+    it('does not let an aborted older turn stop a newer registered turn', async () => {
+      const oldController = { signal: { aborted: true } };
+      const newController = { signal: { aborted: false } };
+      activeSessions.set('sess-1', { controller: newController });
+      sessions.getById.mockReturnValue({ status: 'running' });
+
+      await handleTurnCompletion('sess-1', '/workspace', {}, { controller: oldController });
+
+      expect(sessions.update).not.toHaveBeenCalled();
+    });
+
+    it('does not let a normally-completing older turn mark a newer turn waiting', async () => {
+      const oldController = { signal: { aborted: false } };
+      const newController = { signal: { aborted: false } };
+      activeSessions.set('sess-1', { controller: newController });
+      sessions.getById.mockReturnValue({ status: 'running' });
+
+      await handleTurnCompletion('sess-1', '/workspace', {}, { controller: oldController });
+
+      expect(sessions.update).not.toHaveBeenCalled();
     });
 
     it('clears stale error when transitioning to waiting status', async () => {
@@ -474,7 +595,7 @@ describe('streamEventHandler', () => {
       expect(mockHandleTemplate).toHaveBeenCalledWith('sess-1');
     });
 
-    it('does not set waiting when session was aborted', async () => {
+    it('lands stopped, not waiting, when the session was aborted', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: true } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
 
@@ -483,7 +604,7 @@ describe('streamEventHandler', () => {
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(sessions.update).not.toHaveBeenCalled();
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'stopped', executionState: 'stopped' });
     });
 
     it('does not set waiting when session not in activeSessions', async () => {
