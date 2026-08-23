@@ -4,6 +4,7 @@
       id="mode-select"
       :value="selectedMode"
       :disabled="disabled || togglingMode"
+      :title="currentModeDescription"
       class="mode-select"
       @change="handleModeChange($event.target.value)"
     >
@@ -45,9 +46,9 @@ const uiStore = useUiStore();
 const togglingMode = ref(false);
 
 const modes = [
-  { value: 'plan', label: 'Plan', description: 'Agent plans before implementing' },
-  { value: 'standard', label: 'Standard', description: 'Balanced approach' },
-  { value: 'yolo', label: 'YOLO', description: 'Auto-approve mode' },
+  { value: 'plan', label: 'Plan', description: 'Plans first; tool approvals are requested as needed' },
+  { value: 'standard', label: 'Standard', description: 'Requests approval for each gated tool' },
+  { value: 'yolo', label: 'YOLO', description: 'Automatically approves tool use' },
 ];
 
 // Use store state when sessionId provided, otherwise use modelValue prop
@@ -60,6 +61,7 @@ const currentMode = computed(() => {
 
 // Local state for optimistic UI updates - provides immediate visual feedback
 const selectedMode = ref(currentMode.value);
+const currentModeDescription = computed(() => modes.find((mode) => mode.value === selectedMode.value)?.description || '');
 
 // Watch for external changes to keep local selection in sync
 // Create a ref from the modelValue prop for reliable reactivity tracking

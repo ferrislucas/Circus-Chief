@@ -265,6 +265,7 @@
 .lane-run-dot { width: .46rem; height: .46rem; border-radius: 50%; background: #eab308; box-shadow: 0 0 0 3px rgba(234,179,8,.14); }
 .lane-run-failed .lane-run-dot, .lane-run-cancelled .lane-run-dot { background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.14); }
 .lane-run-details { display: grid; gap: .28rem; margin: .55rem 0 .1rem .84rem; padding-left: .65rem; border-left: 1px solid var(--color-border); line-height: 1.35; }
+.lane-run-exit-lane-discarded { color: var(--color-text-soft); text-decoration: line-through; }
 .lane-run-blocker-link { color: var(--color-primary); width: fit-content; text-decoration: underline; text-underline-offset: 2px; }
 
 .lane-settings-btn:hover {
@@ -598,4 +599,18 @@
   background: var(--color-primary);
   border-radius: 2px;
   margin: -0.125rem 0;
+}
+
+/* Sits at the left of the flex-end header bar, opposite the layout toggle. */
+.automation-badge {
+  order: -1;
+  margin-right: auto;
+  padding: 2px 8px;
+  border: 1px solid #d97706;
+  border-radius: 999px;
+  background: #451a03;
+  color: #fde68a;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: help;
 }

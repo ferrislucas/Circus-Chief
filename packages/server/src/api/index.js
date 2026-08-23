@@ -15,6 +15,7 @@ import { projectWorkspacesRouter, workspacesRouter } from './workspaces.js';
 import { getDbPath } from '../database.js';
 import { schedulerService } from '../services/schedulerService.js';
 import { isE2ESpawnCaptureEnabled } from '../services/e2eSpawnCapture.js';
+import { getAutomationStatus } from '../services/automationStatusService.js';
 
 const router = Router();
 
@@ -31,6 +32,7 @@ router.get('/server-info', (_req, res) => {
     vcrMode: vcr && vcr.length > 0 ? vcr : null,
     schedulerRunning: schedulerService.isRunning(),
     e2eSpawnCaptureEnabled: isE2ESpawnCaptureEnabled(),
+    automationStatus: getAutomationStatus(),
   });
 });
 

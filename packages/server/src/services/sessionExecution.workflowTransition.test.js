@@ -29,7 +29,7 @@ import { SessionRepository } from '../db/SessionRepository.js';
 import { KanbanBoardRepository } from '../db/KanbanBoardRepository.js';
 import { KanbanLaneRepository } from '../db/KanbanLaneRepository.js';
 import { KanbanCardRepository } from '../db/KanbanCardRepository.js';
-import { createLaneRunForEntry, attachRootSession, getRun, markHeldForLimit } from './workflowSessionService.js';
+import { createLaneRunForEntry, attachRootSession, getRun, markHeldForLimit, supersedeRunForCard } from './workflowSessionService.js';
 
 describe('W6: _executeSession triggers target-lane automation after a real success', () => {
   let projectRepo;
@@ -59,6 +59,7 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
     project = projectRepo.create('W6 Project', tempDir);
     const board = boardRepo.create(project.id);
     [source, target] = laneRepo.getByBoardId(board.id);
+    target = laneRepo.update(target.id, { onEnterPrompt: 'perform target work' });
     workspace = sessionRepo.create(project.id, 'Workspace', 'work');
     card = cardRepo.create(source.id, workspace.id);
     root = sessionRepo.create(project.id, 'Lane prompt', 'do work', { parentSessionId: workspace.id });
@@ -66,7 +67,7 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
       projectId: project.id,
       workspaceId: workspace.id,
       cardId: card.id,
-      lane: { ...laneRepo.getById(source.id), completionMode: 'structured', completionTargetLaneId: target.id },
+      lane: { ...laneRepo.getById(source.id), completionTargetLaneId: target.id },
     });
     attachRootSession(run.id, root.id);
   });
@@ -174,5 +175,49 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
     expect(getRun(run.id).status).toBe('succeeded');
     expect(cardRepo.getById(card.id).laneId).toBe(target.id);
     expect(drainLaneEntryTriggerMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs an interactive turn after its lane run has succeeded, but rejects a system turn', async () => {
+    const stubAgent = {
+      execute: vi.fn(async function* () {
+        yield { type: 'assistant', text: 'done' };
+        yield { type: 'result', success: true };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    await runSession(root.id, 'do work', tempDir);
+    expect(getRun(run.id).status).toBe('succeeded');
+
+    await continueSession(root.id, 'A human follow-up', tempDir, { interactive: true });
+    expect(stubAgent.execute).toHaveBeenCalledTimes(2);
+
+    await runSession(root.id, 'A stale system turn', tempDir);
+    expect(stubAgent.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not call the provider when ownership is lost after admission but before execution', async () => {
+    const stubAgent = {
+      execute: vi.fn(async function* () {
+        yield { type: 'result', success: true };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    // runSession has already passed its initial ownership check by the time
+    // it creates the provider adapter. Superseding here reproduces the final
+    // race immediately before _executeSession's provider boundary.
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockImplementation(() => {
+      supersedeRunForCard(card.id, 'test_race');
+      return stubAgent;
+    });
+
+    const result = await runSession(root.id, 'do work', tempDir);
+
+    expect(result).toEqual({ started: false, sessionId: root.id, reason: 'lane_run_ownership_lost' });
+    expect(stubAgent.execute).not.toHaveBeenCalled();
+    expect(getRun(run.id).status).toBe('superseded');
   });
 });

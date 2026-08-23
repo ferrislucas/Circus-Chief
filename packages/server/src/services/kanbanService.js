@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- one durable state machine is easier to audit together */
 import crypto from 'crypto';
 import {
   kanbanBoards,
@@ -12,6 +13,12 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
 import { createLaneRunForEntry, supersedeRunForCard, isStructured } from './workflowSessionService.js';
 import { buildFullBoardResponse } from './kanbanBoardResponse.js';
+import {
+  beginLaneEntryDelivery,
+  isLaneEntryDeliveryStopping,
+  stopLaneEntryDelivery,
+  trackLaneEntryDelivery,
+} from './laneEntryDeliveryCoordinator.js';
 
 /**
  * Get the full board with all lanes and cards for a project.
@@ -42,40 +49,24 @@ function resolveWorkspaceId(sessionId) {
 }
 
 export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
-  const { runOnEnterTemplate = true, depth = 0, laneRunId = null } = options;
+  const { runOnEnterTemplate = true, laneRunId = null, childSessionId = null,
+    beforeDispatch, abortController } = options;
 
-  if (!runOnEnterTemplate) {
-    return;
-  }
+  if (!runOnEnterTemplate) return { delivered: true, rootSessionId: null };
 
   const lane = kanbanLanes.getByIdWithTemplate(laneId);
+  let result = { delivered: true, rootSessionId: null };
   if (lane?.onEnterTemplateId) {
-    await triggerOnEnterTemplate(sessionId, lane, { depth, laneRunId });
+    result = await triggerOnEnterTemplate(sessionId, lane, {
+      laneRunId, childSessionId, beforeDispatch, abortController,
+    });
   } else if (lane?.onEnterPrompt) {
-    await triggerOnEnterPrompt(sessionId, lane, { depth, laneRunId });
+    result = await triggerOnEnterPrompt(sessionId, lane, {
+      laneRunId, childSessionId, beforeDispatch, abortController,
+    });
   }
-}
-
-/**
- * F1 (PR #1066 remediation): a lane run's root is only ever attached from
- * inside triggerOnEnterTemplate/triggerOnEnterPrompt (kanbanTriggers.js) —
- * i.e. only when the lane actually spawns an on-entry worker. A lane whose
- * completionMode auto-derived to 'structured' purely from having a
- * completionTargetLaneId (KanbanLaneRepository#update) but with NO on-enter
- * automation would otherwise still get a lane run opened for it here, whose
- * root_session_id can never be attached — an orphaned run that (a) never
- * succeeds and (b) permanently blocks the legacy handleCompletionMove
- * fallback via the card's activeLaneRunId guard. "Just move this card when
- * its own session finishes here, no spawned worker" is a legitimate,
- * pre-existing configuration (see kanban-completion-move.spec.ts), so a
- * structured lane run is only opened when there is an on-entry automation to
- * actually own it; otherwise completion continues through the always-present
- * legacy per-session path.
- * @param {Object|null} lane
- * @returns {boolean}
- */
-function hasOnEnterAutomation(lane) {
-  return Boolean(lane?.onEnterTemplateId || lane?.onEnterPrompt);
+  if (!result?.delivered) throw new Error(`Lane-entry delivery failed: ${result?.reason || 'unknown error'}`);
+  return result;
 }
 
 /**
@@ -86,31 +77,35 @@ function hasOnEnterAutomation(lane) {
  * @param {Object} [options] - Options
  * @param {number} [options.sortOrder] - Optional sort order
  * @param {boolean} [options.runOnEnterTemplate=true] - Whether to run lane on-enter automation
- * @param {number} [options.depth=0] - Current recursion depth for template triggers
  * @returns {Object} The created card
  * @throws {Error} If session already has a card on the board
  */
 export async function addSessionToBoard(sessionId, laneId, options = {}) {
-  const { sortOrder, runOnEnterTemplate = true, depth = 0 } = options;
+  const { sortOrder, runOnEnterTemplate = true, finalizeMutation } = options;
 
   // Normalize to workspace root — all cards are keyed to the root session.
   const workspaceId = resolveWorkspaceId(sessionId);
 
-  // Check if session already has a card
-  const existingCard = kanbanCards.getBySessionId(workspaceId);
-  if (existingCard) {
-    throw new Error('Session already has a card on the board');
-  }
-
-  const card = kanbanCards.create(laneId, workspaceId, { sortOrder });
-
-  // Get root session to find project ID for broadcast and lane entry automation.
+  // The board transition and its durable intent are one unit of work.  In
+  // particular, never expose a card that entered an automated lane without
+  // its lane-entry event/run after a crash or constraint failure.
   const rootSession = sessions.getById(workspaceId);
-  if (rootSession) {
-    const lane = kanbanLanes.getById(laneId);
-    const laneRun = isStructured(lane) && hasOnEnterAutomation(lane)
-      ? createLaneRunForEntry({ projectId: rootSession.projectId, workspaceId, cardId: card.id, lane })
+  const lane = kanbanLanes.getById(laneId);
+  const { card, laneRun, finalizedResult } = databaseManager.transaction(() => {
+    if (kanbanCards.getBySessionId(workspaceId)) {
+      throw new Error('Session already has a card on the board');
+    }
+    const createdCard = kanbanCards.create(laneId, workspaceId, { sortOrder });
+    const createdRun = rootSession && runOnEnterTemplate && isStructured(lane)
+      ? createLaneRunForEntry({ projectId: rootSession.projectId, workspaceId, cardId: createdCard.id, lane })
       : null;
+    const result = finalizeMutation?.({ card: createdCard, eventId: createdRun?.laneEntryEventId || null });
+    return { card: createdCard, laneRun: createdRun, finalizedResult: result };
+  });
+
+  // Delivery remains detached from the committed mutation. It only wakes the
+  // durable worker and therefore cannot invalidate a successful transition.
+  if (rootSession) {
     broadcastToProject(rootSession.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_ADDED, {
       projectId: rootSession.projectId,
       card,
@@ -119,15 +114,18 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
 
     // Lane entry automation fires on the workspace root (consistent with
     // "all sessions in a workspace move together").
-    const rootDepth = rootSession.laneTriggerDepth || 0;
-    await triggerLaneEntryAutomation(workspaceId, laneId, {
-      runOnEnterTemplate,
-      depth: depth || rootDepth,
-      laneRunId: laneRun?.id,
-    });
+    // Every automated entry is committed before it is delivered.  This is the
+    // durable success boundary for add/move/completion alike.
+    if (laneRun) {
+      scheduleLaneEntryDelivery(laneRun.laneEntryEventId);
+      // Let the accepted handoff reach its first asynchronous boundary so
+      // callers retain the established immediate session-created UX, without
+      // making their result dependent on delivery success.
+      await new Promise((resolve) => setImmediate(resolve));
+    }
   }
 
-  return card;
+  return finalizedResult ?? card;
 }
 
 /**
@@ -138,11 +136,10 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
  * @param {Object} [options] - Options
  * @param {number} [options.sortOrder] - Optional sort order in target lane
  * @param {boolean} [options.runOnEnterTemplate=true] - Whether to run the on-enter template
- * @param {number} [options.depth=0] - Current recursion depth for template triggers
  * @returns {Promise<Object>} The moved card
  */
 export async function moveCard(cardId, targetLaneId, options = {}) {
-  const { sortOrder, runOnEnterTemplate = true, depth = 0 } = options;
+  const { sortOrder, runOnEnterTemplate = true, finalizeMutation } = options;
 
   const card = kanbanCards.getByIdWithLane(cardId);
   if (!card) {
@@ -151,22 +148,23 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
 
   const fromLaneId = card.laneId;
 
-  // A human/API move revokes an open run before changing lanes. Completion
-  // transitions use their own guarded SQL path and never call this service.
-  supersedeRunForCard(cardId, 'manual_move');
-
-  // Move the card
-  const movedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
-
   // Get session for project ID and broadcast
   const sessionId = card.sessions?.[0]?.id;
   const session = sessionId ? sessions.getById(sessionId) : null;
-
-  if (session) {
-    const lane = kanbanLanes.getById(targetLaneId);
-    const laneRun = isStructured(lane) && hasOnEnterAutomation(lane)
+  const lane = kanbanLanes.getById(targetLaneId);
+  // Supersession, movement, and the successor entry intent must commit
+  // together. A delivery failure after this point is retryable outbox work.
+  const { movedCard, laneRun, finalizedResult } = databaseManager.transaction(() => {
+    supersedeRunForCard(cardId, 'manual_move');
+    const updatedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
+    const createdRun = session && runOnEnterTemplate && isStructured(lane)
       ? createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause: 'manual_move' })
       : null;
+    const result = finalizeMutation?.({ card: updatedCard, eventId: createdRun?.laneEntryEventId || null });
+    return { movedCard: updatedCard, laneRun: createdRun, finalizedResult: result };
+  });
+
+  if (session) {
     broadcastToProject(session.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
       projectId: session.projectId,
       cardId,
@@ -175,10 +173,13 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
       card: movedCard,
     });
 
-    await triggerLaneEntryAutomation(sessionId, targetLaneId, { runOnEnterTemplate, depth, laneRunId: laneRun?.id });
+    if (laneRun) {
+      scheduleLaneEntryDelivery(laneRun.laneEntryEventId);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
   }
 
-  return movedCard;
+  return finalizedResult ?? movedCard;
 }
 
 /**
@@ -186,184 +187,289 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
  * structured lane-run's transition into the target lane's on-enter
  * automation.
  *
- * The DB transition itself (marking the run succeeded, moving the card,
- * assigning sort_order, broadcasting KANBAN_CARD_MOVED) already happened
- * synchronously and atomically inside workflowSessionService.js's
- * attemptLaneRunTransition — that module cannot import this one (kanbanService
- * -> kanbanTriggers -> sessionManager -> sessionExecution -> workflowSessionService
- * would cycle), so it hands back a `pendingTargetLaneTrigger` descriptor for
- * the necessarily-async remainder: creating (for a structured/shadow target
- * lane) the next lane run and starting its on-enter session.
+ * The DB transition itself (marking the run succeeded, moving the card, and
+ * assigning sort_order) already happened synchronously and atomically inside
+ * workflowSessionService.js's attemptLaneRunTransition. Its move broadcast is
+ * emitted immediately after that transaction commits. This module cannot be
+ * imported there (kanbanService -> kanbanTriggers -> sessionManager ->
+ * sessionExecution -> workflowSessionService would cycle), so it hands back a
+ * `pendingTargetLaneTrigger` descriptor for the necessarily-async remainder:
+ * creating the target lane's next run and starting its on-enter session.
  *
  * @param {{ workspaceSessionId: string, targetLaneId: string, cardId: string, sourceRunId: string }} pending
  */
 export async function triggerStructuredTransitionAutomation(pending) {
-  const { workspaceSessionId, targetLaneId, cardId, sourceRunId } = pending;
+  const { workspaceSessionId } = pending;
   const workspaceSession = sessions.getById(workspaceSessionId);
   if (!workspaceSession) return;
 
-  const lane = kanbanLanes.getById(targetLaneId);
-  const laneRun = isStructured(lane) && hasOnEnterAutomation(lane)
-    ? createLaneRunForEntry({
-        projectId: workspaceSession.projectId,
-        workspaceId: workspaceSessionId,
-        cardId,
-        lane,
-        cause: 'completion',
-        priorLaneRunId: sourceRunId,
-        entryEventId: pending.laneEntryEventId,
-      })
+  const laneRun = pending.laneEntryEventId
+    ? databaseManager.get().prepare('SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(pending.laneEntryEventId)
     : null;
 
-  await triggerLaneEntryAutomation(workspaceSessionId, targetLaneId, {
-    runOnEnterTemplate: true,
-    depth: workspaceSession.laneTriggerDepth || 0,
-    laneRunId: laneRun?.id,
+  // Completion commits an automated lane's entry event and run together.
+  // A descriptor without its run is an invariant violation, not a request to
+  // reconstruct ownership after the card move has already been exposed.
+  if (!laneRun) throw new Error(`Target lane run is missing for entry event ${pending.laneEntryEventId || 'unknown'}`);
+  return drainLaneEntryTrigger(laneRun.lane_entry_event_id);
+}
+
+const envPositiveInt = (name, fallback) => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+};
+const ENTRY_EVENT_LEASE_MS = envPositiveInt('KANBAN_ENTRY_LEASE_MS', 5 * 60 * 1000);
+const ENTRY_EVENT_RENEWAL_MS = Math.floor(ENTRY_EVENT_LEASE_MS / 3);
+const MAX_ENTRY_EVENT_ATTEMPTS = envPositiveInt('KANBAN_ENTRY_MAX_ATTEMPTS', 8);
+const RETRY_BASE_MS = envPositiveInt('KANBAN_ENTRY_RETRY_BASE_MS', 1_000);
+const RETRY_MAX_MS = envPositiveInt('KANBAN_ENTRY_RETRY_MAX_MS', 5 * 60 * 1000);
+const RETRY_JITTER = 0.2;
+
+/**
+ * Delivery is deliberately detached from the board mutation. The entry event
+ * and its run are already committed, so a provider/setup failure must become
+ * retryable outbox state rather than turn a successful add or move into a
+ * failed API request.
+ */
+function scheduleLaneEntryDelivery(eventId) {
+  if (isLaneEntryDeliveryStopping()) return;
+  void drainLaneEntryTrigger(eventId).catch((error) => {
+    console.error(`Kanban lane-entry delivery ${eventId} failed; queued for retry:`, error);
   });
+}
+
+export function laneEntryRetryDelay(attempt, random = Math.random) {
+  const capped = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * (2 ** Math.max(0, attempt - 1)));
+  return Math.round(capped * (1 - RETRY_JITTER + random() * RETRY_JITTER * 2));
 }
 
 function claimLaneEntryTrigger(eventId) {
   const token = crypto.randomUUID();
   const time = Date.now();
   const claimed = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
-    SET claim_token=?, claimed_at=?, attempt_count=attempt_count+1, updated_at=?
-    WHERE id=? AND status='pending' AND claim_token IS NULL`).run(token, time, time, eventId);
+    SET status='claimed', claim_token=?, claimed_at=?, claim_expires_at=?, attempt_count=attempt_count+1, updated_at=?
+    WHERE id=? AND status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=?)
+      AND attempt_count < ?`).run(token, time, time + ENTRY_EVENT_LEASE_MS, time, eventId, time, MAX_ENTRY_EVENT_ATTEMPTS);
   return claimed.changes ? token : null;
 }
 
+/**
+ * Keeps an outbox claim alive while the child-session setup/provider dispatch
+ * is in flight. Every transition remains token-fenced; a failed renewal
+ * closes the guard so a stale worker cannot acknowledge or publish success.
+ */
+function createLaneEntryClaimGuard(eventId, token, abortController) {
+  const db = databaseManager.get();
+  let current = true;
+  const renew = () => {
+    if (!current) return;
+    const now = Date.now();
+    const changed = db.prepare(`UPDATE kanban_lane_entry_events
+      SET claim_expires_at=?, updated_at=?
+      WHERE id=? AND status='claimed' AND claim_token=? AND claim_expires_at>?`)
+      .run(now + ENTRY_EVENT_LEASE_MS, now, eventId, token, now).changes;
+    if (changed !== 1) {
+      current = false;
+      abortController?.abort(new Error('Lane-entry claim ownership was lost'));
+    }
+  };
+  const timer = setInterval(renew, ENTRY_EVENT_RENEWAL_MS);
+  timer.unref?.();
+  return {
+    assertCurrent() {
+      if (!current) throw new Error('Lane-entry claim ownership was lost');
+      const owner = db.prepare(`SELECT 1 FROM kanban_lane_entry_events
+        WHERE id=? AND status='claimed' AND claim_token=? AND claim_expires_at>?`).get(eventId, token, Date.now());
+      if (!owner) {
+        current = false;
+        abortController?.abort(new Error('Lane-entry claim ownership was lost'));
+        throw new Error('Lane-entry claim ownership was lost');
+      }
+    },
+    stop() { clearInterval(timer); },
+  };
+}
+
+function completeVerifiedLaneEntry(eventId, rootSessionId, token) {
+  if (!eventId || !rootSessionId || !token) return false;
+  const db = databaseManager.get();
+  const owner = db.prepare(`SELECT 1 FROM kanban_lane_runs
+    WHERE lane_entry_event_id=? AND status='open' AND root_session_id=?`).get(eventId, rootSessionId);
+  if (!owner) throw new Error('Lane-entry delivery did not attach the expected run root');
+  const time = Date.now();
+  const completed = db.prepare(`UPDATE kanban_lane_entry_events SET status='completed', delivery_phase='completed', completed_at=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL
+    WHERE id=? AND status='claimed' AND claim_token=? AND dispatch_acknowledged_at IS NOT NULL`).run(time, time, eventId, token);
+  if (completed.changes !== 1) throw new Error('Lane-entry event could not be completed after root verification');
+  return true;
+}
+
+function markDispatchIntent(eventId, token) {
+  const db = databaseManager.get(); const time = Date.now();
+  const key = crypto.randomUUID();
+  const result = db.prepare(`UPDATE kanban_lane_entry_events
+    SET delivery_phase='dispatch_intent', dispatch_key=COALESCE(dispatch_key, ?), updated_at=?
+    WHERE id=? AND status='claimed' AND claim_token=?`).run(key, time, eventId, token);
+  if (result.changes !== 1) throw new Error('Lane-entry claim was lost before provider dispatch');
+  return db.prepare('SELECT dispatch_key FROM kanban_lane_entry_events WHERE id=?').get(eventId).dispatch_key;
+}
+
+function acknowledgeDispatch(eventId, token) {
+  const time = Date.now();
+  const result = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+    SET delivery_phase='dispatch_acknowledged', dispatch_acknowledged_at=?, updated_at=?
+    WHERE id=? AND status='claimed' AND claim_token=? AND delivery_phase='dispatch_intent'`).run(time, time, eventId, token);
+  if (result.changes !== 1) throw new Error('Lane-entry claim was lost before dispatch acknowledgement');
+}
+
+function resolveDeliveryState(event) {
+  const db = databaseManager.get();
+  let run = db.prepare('SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(event.id);
+  // Compatibility for durable events written by versions which committed the
+  // event before creating its target run. New entry sources create both in one
+  // transaction; this branch never creates a replacement once a run exists.
+  if (!run) {
+    const lane = kanbanLanes.getById(event.lane_id);
+    if (!lane || !isStructured(lane)) return { state: 'ownership_conflict', reason: 'target lane run is missing' };
+    const created = createLaneRunForEntry({ projectId: event.project_id, workspaceId: event.workspace_id,
+      cardId: event.card_id, lane, cause: event.cause, priorLaneRunId: event.caused_by_run_id, entryEventId: event.id });
+    run = created && db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(created.id);
+  }
+  if (!run) return { state: 'ownership_conflict', reason: 'target lane run is missing' };
+  if (!run.root_session_id) return { state: 'needs_delivery', run };
+  const owner = db.prepare(`WITH RECURSIVE ancestors(id, parent_session_id) AS (
+    SELECT id, parent_session_id FROM sessions WHERE id=? UNION ALL
+    SELECT s.id, s.parent_session_id FROM sessions s JOIN ancestors a ON a.parent_session_id=s.id
+  ) SELECT 1 FROM sessions s WHERE s.id=? AND s.project_id=? AND EXISTS (SELECT 1 FROM ancestors WHERE id=?)`)
+    .get(run.root_session_id, run.root_session_id, run.project_id, run.workspace_id);
+  if (!owner) return { state: 'ownership_conflict', reason: 'attached root does not belong to target run workspace' };
+  if (event.dispatch_acknowledged_at) return { state: 'already_delivered', run, rootSessionId: run.root_session_id };
+  // Child allocation is setup state, not evidence of a provider call. Reuse
+  // the same child after any failure before durable dispatch intent.
+  if (event.delivery_phase !== 'dispatch_intent' || !event.dispatch_key) {
+    return { state: 'needs_delivery', run, rootSessionId: run.root_session_id };
+  }
+  // We deliberately refuse to infer acknowledgement from ownership.  This
+  // leaves pre-ack crashes visible and safe instead of risking a duplicate.
+  return { state: 'ambiguous_dispatch', reason: 'child ownership exists without provider dispatch acknowledgement' };
+}
+
 /** Drain one committed completion handoff. Safe to call repeatedly. */
-export async function drainLaneEntryTrigger(eventId) {
+// eslint-disable-next-line complexity -- deliberately linear durable state machine
+// eslint-disable-next-line max-statements, complexity -- durable transition boundaries are intentionally linear
+async function drainLaneEntryTriggerImpl(eventId) {
   const token = claimLaneEntryTrigger(eventId);
   if (!token) return false;
+  const abortController = new AbortController();
+  const claim = createLaneEntryClaimGuard(eventId, token, abortController);
   const db = databaseManager.get();
   const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
-  try {
-    await triggerStructuredTransitionAutomation({
-      workspaceSessionId: event.workspace_id, targetLaneId: event.lane_id,
-      cardId: event.card_id, sourceRunId: event.caused_by_run_id, laneEntryEventId: event.id,
-    });
+  const valid = event && db.prepare('SELECT 1 FROM kanban_cards WHERE id=?').get(event.card_id);
+  // A completion handoff is valid only if its source run actually performed
+  // this exact guarded transition. This prevents an old outbox event from
+  // spawning work after a manual move or a superseded source worker.
+  const sourceValid = !event?.caused_by_run_id || db.prepare(`SELECT 1 FROM kanban_lane_runs
+    WHERE id=? AND status='succeeded' AND transition_applied_at IS NOT NULL`).get(event.caused_by_run_id);
+  if (!valid || !sourceValid) {
+    const reason = !valid ? 'target card no longer exists' : 'source run no longer owns a completed transition';
     const time = Date.now();
-    db.prepare(`UPDATE kanban_lane_entry_events
-      SET status='completed', completed_at=?, updated_at=? WHERE id=? AND claim_token=?`)
-      .run(time, time, eventId, token);
-    return true;
+    db.prepare(`UPDATE kanban_lane_entry_events SET status='invalid', last_error=?,
+      completed_at=?, updated_at=?, claim_token=NULL, claim_expires_at=NULL WHERE id=? AND claim_token=?`).run(reason, time, time, eventId, token);
+    claim.stop();
+    return false;
+  }
+  try {
+    claim.assertCurrent();
+    const resolved = resolveDeliveryState(event);
+    if (resolved.state === 'ownership_conflict') throw new Error(resolved.reason);
+    if (resolved.state === 'ambiguous_dispatch') throw new Error(resolved.reason);
+    let rootSessionId = resolved.rootSessionId;
+    if (resolved.state === 'needs_delivery') {
+      const delivery = await triggerLaneEntryAutomation(event.workspace_id, event.lane_id, {
+        runOnEnterTemplate: true, laneRunId: resolved.run.id,
+        childSessionId: resolved.rootSessionId,
+        abortController,
+        beforeDispatch: () => { claim.assertCurrent(); return markDispatchIntent(event.id, token); },
+      });
+      rootSessionId = delivery?.rootSessionId;
+      claim.assertCurrent();
+      acknowledgeDispatch(event.id, token);
+    }
+    claim.assertCurrent();
+    return completeVerifiedLaneEntry(event.id, rootSessionId, token);
   } catch (error) {
+    const time = Date.now();
+    const exhausted = event.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS;
+    const nextAttemptAt = exhausted ? null : time + laneEntryRetryDelay(event.attempt_count);
     db.prepare(`UPDATE kanban_lane_entry_events
-      SET claim_token=NULL, claimed_at=NULL, last_error=?, updated_at=? WHERE id=? AND claim_token=?`)
-      .run(error.message, Date.now(), eventId, token);
+      SET status=CASE WHEN ? THEN 'failed' ELSE 'pending' END,
+        claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=?, last_error=?, updated_at=?, completed_at=CASE WHEN ? THEN ? ELSE completed_at END
+      WHERE id=? AND claim_token=?`)
+      .run(exhausted ? 1 : 0, nextAttemptAt, String(error.message || 'delivery failed').slice(0, 240), time, exhausted ? 1 : 0, time, eventId, token);
     throw error;
+  } finally {
+    claim.stop();
   }
 }
 
-/** Recover completion handoffs persisted before an unexpected process exit. */
+/**
+ * Drain one event while registering it with the shared delivery lifecycle.
+ * This public boundary is intentionally used by HTTP, completion, and retry
+ * callers alike so graceful shutdown cannot miss a source of side effects.
+ */
+export function drainLaneEntryTrigger(eventId) {
+  if (isLaneEntryDeliveryStopping()) return Promise.resolve(false);
+  return trackLaneEntryDelivery(drainLaneEntryTriggerImpl(eventId));
+}
+
+/** Reclaim only leases that have actually expired (shared by startup and polling). */
+export function reclaimExpiredLaneEntryClaims(time = Date.now()) {
+  return databaseManager.get().prepare(`UPDATE kanban_lane_entry_events SET status='pending', claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, updated_at=?
+    WHERE status='claimed' AND claim_expires_at <= ?`).run(time, time).changes;
+}
+
 export async function drainPendingLaneEntryTriggers() {
+  const time = Date.now();
+  reclaimExpiredLaneEntryClaims(time);
+  // Terminally expose exhausted deliveries instead of endlessly spinning a
+  // startup loop. Pending event age/attempt_count/last_error remain directly
+  // queryable through the durable outbox table for operations visibility.
+  databaseManager.get().prepare(`UPDATE kanban_lane_entry_events SET status='failed', last_error=COALESCE(last_error, 'delivery attempts exhausted'),
+    completed_at=?, updated_at=? WHERE status='pending' AND attempt_count >= ?`).run(Date.now(), Date.now(), MAX_ENTRY_EVENT_ATTEMPTS);
   const events = databaseManager.get().prepare(`SELECT id FROM kanban_lane_entry_events
-    WHERE status='pending' AND cause='completion' ORDER BY created_at`).all();
+    WHERE status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at LIMIT 50`).all(Date.now());
   for (const { id } of events) {
     try { await drainLaneEntryTrigger(id); } catch (error) { console.error('Kanban lane-entry recovery failed:', error); }
   }
 }
 
-async function moveExistingSessionCard(session, card, targetLaneId) {
-  if (card.laneId === targetLaneId) {
-    return card;
-  }
+let retryTimer = null;
+let retryInFlight = null;
+let retryStopping = false;
+const RETRY_POLL_MS = 1_000;
 
-  return moveCard(card.id, targetLaneId, {
-    runOnEnterTemplate: true,
-    depth: session.laneTriggerDepth || 0,
-  });
+/** Start the bounded durable outbox poller after startup recovery is complete. */
+export function startLaneEntryRetryWorker() {
+  if (retryTimer) return;
+  retryStopping = false;
+  beginLaneEntryDelivery();
+  const tick = async () => {
+    if (retryStopping || retryInFlight) return;
+    retryInFlight = drainPendingLaneEntryTriggers().catch((error) => {
+      console.error('Kanban lane-entry retry worker failed:', error);
+    }).finally(() => { retryInFlight = null; });
+    await retryInFlight;
+  };
+  retryTimer = setInterval(tick, RETRY_POLL_MS);
+  retryTimer.unref?.();
+  void tick();
 }
 
-/**
- * Check whether a workspace root has any incomplete lane-triggered descendants.
- *
- * A lane-triggered descendant is a session with laneTriggerDepth > 0 (set by
- * triggerOnEnterPrompt / triggerOnEnterTemplate when spawning on-enter children).
- * "Incomplete" means the session is still in a pending/active state: starting,
- * running, or scheduled.
- *
- * @param {string} rootId - Workspace root session ID
- * @returns {boolean} True if any incomplete lane-triggered descendant exists
- */
-function hasIncompleteLaneTriggeredDescendant(rootId) {
-  const INCOMPLETE_STATUSES = new Set(['starting', 'running', 'scheduled']);
-  const descendantIds = sessions.getAllDescendantIds(rootId);
-  for (const id of descendantIds) {
-    const s = sessions.getById(id);
-    if (s && s.laneTriggerDepth > 0 && INCOMPLETE_STATUSES.has(s.status)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Move an existing card based on the current lane's completion target.
- *
- * When the completing session has no card (e.g. it was spawned by a lane's
- * on-enter prompt), the full ancestor chain is walked to find the session
- * that owns the card so that the parent's card is still advanced.
- *
- * Guard: if the workspace root is completing in a lane with on-enter automation
- * (onEnterPrompt or onEnterTemplateId) and there is still an incomplete
- * lane-triggered descendant, the completion move is deferred. The move will
- * fire later when the lane-created child (representing the lane's actual work)
- * completes. A non-root (child) completing always proceeds — the child IS the
- * lane work, so its completion should advance the card.
- *
- * @param {string} sessionId - The session that just completed its turn
- */
-export async function handleCompletionMove(sessionId) {
-  // Resolve to workspace root — the card is keyed to the root.
-  const workspaceId = resolveWorkspaceId(sessionId);
-  const rootSession = sessions.getById(workspaceId);
-  if (!rootSession) {
-    return;
-  }
-
-  const card = kanbanCards.getBySessionId(workspaceId);
-
-  if (!card) {
-    return;
-  }
-
-  // Structured/shadow runs own completion. The legacy completion hook must
-  // never race a persisted run into moving a card.
-  if (card.activeLaneRunId) return;
-
-  const currentLane = kanbanLanes.getById(card.laneId);
-  // A shadow run clears activeLaneRunId after evaluation, so it needs an
-  // explicit guard against the legacy hook reopening the card. Structured
-  // runs retain the active-run guard until their server-driven transition.
-  const targetLaneId = legacyCompletionTarget(currentLane);
-  if (!targetLaneId) return;
-  if (targetLaneId === currentLane.id) {
-    return;
-  }
-
-  const targetLane = kanbanLanes.getById(targetLaneId);
-  if (!targetLane || targetLane.boardId !== currentLane.boardId) {
-    return;
-  }
-
-  // Guard: if the workspace root is completing in an automation lane and a
-  // lane-triggered descendant is still incomplete, defer the move. The card
-  // will advance once the lane's actual work (the child session) completes.
-  const isRootCompleting = sessionId === workspaceId;
-  if (
-    isRootCompleting &&
-    (currentLane.onEnterPrompt || currentLane.onEnterTemplateId) &&
-    hasIncompleteLaneTriggeredDescendant(workspaceId)
-  ) {
-    return;
-  }
-
-  await moveExistingSessionCard(rootSession, card, targetLaneId);
-}
-
-function legacyCompletionTarget(lane) {
-  return lane?.completionMode === 'shadow' ? null : lane?.completionTargetLaneId;
+/** Stop accepting retry work and wait only a bounded time for an active claim. */
+export async function stopLaneEntryRetryWorker(timeoutMs = 5_000) {
+  retryStopping = true;
+  if (retryTimer) clearInterval(retryTimer);
+  retryTimer = null;
+  await stopLaneEntryDelivery(timeoutMs, () => retryInFlight);
 }
 
 /**

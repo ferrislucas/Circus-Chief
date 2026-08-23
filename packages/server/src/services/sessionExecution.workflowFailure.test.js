@@ -57,7 +57,7 @@ describe('W4: failure/cancellation propagation through _executeSession', () => {
       projectId: project.id,
       workspaceId: workspace.id,
       cardId: card.id,
-      lane: { ...laneRepo.getById(source.id), completionMode: 'structured', completionTargetLaneId: target.id },
+      lane: { ...laneRepo.getById(source.id), completionTargetLaneId: target.id },
     });
     attachRootSession(run.id, root.id);
   });

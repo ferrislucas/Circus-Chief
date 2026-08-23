@@ -1,27 +1,21 @@
+<!-- eslint-disable max-lines -->
 <template>
   <div class="kanban-board">
     <!-- Board header bar: always rendered (outside the loading/error/empty chain) -->
     <div class="board-header-bar">
-      <div class="layout-toggle">
-        <!-- Columns (horizontal) toggle -->
-        <button
-          class="layout-toggle-btn"
-          :class="{ active: effectiveLayout === 'horizontal' }"
-          title="Column layout"
-          @click="layoutMode = 'horizontal'"
-        >
-          <KanbanBoardIcon name="columns" />
-        </button>
-        <!-- List (vertical/accordion) toggle -->
-        <button
-          class="layout-toggle-btn"
-          :class="{ active: effectiveLayout === 'vertical' }"
-          title="List layout"
-          @click="layoutMode = 'vertical'"
-        >
-          <KanbanBoardIcon name="list" />
-        </button>
-      </div>
+      <KanbanLayoutToggle
+        :layout="effectiveLayout"
+        @select="layoutMode = $event"
+      />
+      <span
+        v-if="automationDisabledMessage"
+        class="automation-badge"
+        role="status"
+        :title="automationDisabledMessage"
+        data-testid="automation-badge"
+      >
+        Automation disabled
+      </span>
     </div>
 
     <div
@@ -129,82 +123,15 @@
                 :to="`/sessions/${card.sessions[0].id}`"
                 class="card-link"
               >
-                <div class="card-header">
-                  <SessionRunningSpinner
-                    :active="isCardEffectivelyRunning(card.sessions[0])"
-                  />
-                  <span
-                    v-if="!isCardEffectivelyRunning(card.sessions[0])"
-                    class="card-status"
-                    :class="`status-${card.sessions[0].status}`"
-                  >
-                    {{ getStatusIndicator(card.sessions[0].status) }}
-                  </span>
-                  <h4 class="card-title">
-                    {{ card.sessions[0].name }}
-                  </h4>
-                </div>
-                <div class="card-meta">
-                  <span
-                    v-if="card.sessions[0].mode"
-                    class="card-mode"
-                  >
-                    {{ card.sessions[0].mode }}
-                  </span>
-                  <PrIndicators
-                    v-if="card.sessions[0].prUrl"
-                    :pr-url="card.sessions[0].prUrl"
-                  />
-                </div>
-                <div
-                  v-if="cardsScheduledInfo[card.id]?.showBadge"
-                  class="card-scheduled-info"
-                >
-                  <span class="status-badge status-scheduled">
-                    <KanbanBoardIcon
-                      name="schedule"
-                      class="schedule-icon-inline"
-                    />
-                    scheduled
-                  </span>
-                  <span
-                    v-if="cardsScheduledInfo[card.id].timeDisplay"
-                    class="scheduled-time"
-                    :title="cardsScheduledInfo[card.id].absoluteTime"
-                  >
-                    {{ cardsScheduledInfo[card.id].timeDisplay }}
-                  </span>
-                </div>
-                <details
-                  v-if="card.activeLaneRun"
-                  class="lane-run-status"
-                  :class="`lane-run-${card.activeLaneRun.status}`"
-                  @click.stop
-                >
-                  <summary>
-                    <span class="lane-run-dot" />{{ laneRunLabel(card.activeLaneRun) }}
-                  </summary>
-                  <div class="lane-run-details">
-                    <strong>{{ card.activeLaneRun.sourceLaneName || lane.name }} automation</strong>
-                    <span v-if="card.activeLaneRun.blockingReason">{{ card.activeLaneRun.blockingReason }}</span>
-                    <span v-if="card.activeLaneRun.openCount">{{ card.activeLaneRun.openCount }} blocking {{ card.activeLaneRun.openCount === 1 ? 'session' : 'sessions' }} remain</span>
-                    <time v-if="card.activeLaneRun.nextScheduledAt">Next: {{ formatLaneRunTime(card.activeLaneRun.nextScheduledAt) }}</time>
-                    <router-link
-                      v-if="card.activeLaneRun.status === 'failed' && card.activeLaneRun.failedSessionId"
-                      :to="`/sessions/${card.activeLaneRun.failedSessionId}`"
-                      class="lane-run-blocker-link"
-                    >
-                      Open failed session
-                    </router-link>
-                    <router-link
-                      v-else-if="card.activeLaneRun.blockingSessionId"
-                      :to="`/sessions/${card.activeLaneRun.blockingSessionId}`"
-                      :class="['lane-run-blocker-link', { 'lane-run-resume-link': isPausedLaneRun(card.activeLaneRun) }]"
-                    >
-                      {{ isPausedLaneRun(card.activeLaneRun) ? 'Resume' : 'View blocker' }}
-                    </router-link>
-                  </div>
-                </details>
+                <KanbanCardSessionDetails
+                  :session="card.sessions[0]"
+                  :sessions="card.sessions"
+                  :lane="lane"
+                  :is-running="isCardEffectivelyRunning(card.sessions[0])"
+                  :status-indicator="getStatusIndicator(card.sessions[0].status)"
+                  :scheduled-info="cardsScheduledInfo[card.id]"
+                  :active-lane-run="card.activeLaneRun"
+                />
               </router-link>
               <CommandButtonStatusBar
                 v-if="card.sessions?.[0]"
@@ -365,22 +292,23 @@
   </div>
 </template>
 <script setup>
+/* eslint-disable max-lines */
 import { ref, reactive, computed, onMounted, onUnmounted, watch, toRef } from 'vue';
 import { format } from 'date-fns';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useCardDragDrop } from '../composables/useCardDragDrop.js';
-import { laneRunLabel, formatLaneRunTime, isPausedLaneRun } from '../composables/useLaneRunStatus.js';
 import { useScheduledCardInfo } from '../composables/useScheduledCardInfo.js';
 import AddSessionToLaneModal from './AddSessionToLaneModal.vue';
 import CommandButtonStatusBar from './CommandButtonStatusBar.vue';
 import LaneSettingsModal from './LaneSettingsModal.vue';
 import MoveCardModal from './MoveCardModal.vue';
-import PrIndicators from './PrIndicators.vue';
-import SessionRunningSpinner from './SessionRunningSpinner.vue';
 import KanbanBoardIcon from './KanbanBoardIcon.vue';
+import KanbanCardSessionDetails from './KanbanCardSessionDetails.vue';
+import KanbanLayoutToggle from './KanbanLayoutToggle.vue';
 import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
+import { api } from '../api/ApiClient.js';
 import './KanbanBoard.css';
 const props = defineProps({
   projectId: { type: String, required: true },
@@ -388,6 +316,25 @@ const props = defineProps({
 const kanbanStore = useKanbanStore();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
+
+// Surface only a failed startup preflight: that means lane-entry delivery is
+// genuinely disabled and cards will silently stop advancing.  Delivery-health
+// degradation is deliberately NOT surfaced here — it is a heuristic over event
+// counts and previously produced a permanent false-positive banner.  Preflight
+// is a boot-time boolean, so this is fetched once rather than polled, and any
+// fetch failure leaves the badge hidden instead of guessing.
+const automationDisabledMessage = ref('');
+
+async function fetchAutomationStatus() {
+  try {
+    const status = (await api.getServerInfo())?.automationStatus;
+    automationDisabledMessage.value = status?.reasonCode === 'KANBAN_PREFLIGHT_FAILED'
+      ? (status.message || 'Kanban automation is disabled. Run the Kanban recovery command, then restart the server.')
+      : '';
+  } catch {
+    automationDisabledMessage.value = '';
+  }
+}
 // ==================== Layout state ====================
 const LAYOUT_MODE_KEY = 'kanbanLayoutMode';
 const VALID_LAYOUT_MODES = ['auto', 'horizontal', 'vertical'];
@@ -423,6 +370,7 @@ let _mql = null;
 const onMqlChange = (e) => { isNarrow.value = e.matches; };
 
 onMounted(() => {
+  fetchAutomationStatus();
   if (typeof window !== 'undefined' && window.matchMedia) {
     _mql = window.matchMedia('(max-width: 640px)');
     isNarrow.value = _mql.matches;

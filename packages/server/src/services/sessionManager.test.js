@@ -8,6 +8,16 @@ import {
   continueSession,
   shouldRescheduleOnError,
 } from './sessionManager.js';
+import {
+  activeSessions,
+  textAccumulators,
+  thinkingAccumulators,
+  currentModels,
+  loggedToolUseIds,
+  finalErrorSessionIds,
+  finalResultEvents,
+  activeConversationIds,
+} from './streamEventHandler.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { AttachmentRepository } from '../db/AttachmentRepository.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
@@ -19,6 +29,7 @@ import { KanbanLaneRepository } from '../db/KanbanLaneRepository.js';
 import { KanbanCardRepository } from '../db/KanbanCardRepository.js';
 import { createLaneRunForEntry, attachRootSession, getRun } from './workflowSessionService.js';
 import { agentGateway } from '../agents/AgentGateway.js';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { mkdtempSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -834,6 +845,106 @@ describe('sessionManager', () => {
       }
     });
   });
+
+  // ── Issue 1 regression ──────────────────────────────────────────────────
+  // cleanupSessionState's fence used to treat an *absent* activeSessions
+  // entry as evidence of a live replacement execution, so a turn stopped via
+  // stopSession() (which deletes the activeSessions entry immediately, before
+  // the turn unwinds) never got its per-session stream state cleaned up.
+  describe('stopSession mid-turn (cleanupSessionState leak regression)', () => {
+    it('clears per-session stream state after a mid-turn stop, and a later turn still reaches waiting', async () => {
+      const { stopSession } = await import('./sessionManager.js');
+      const sessionRepo = new SessionRepository();
+      const projectRepo = new ProjectRepository();
+      const conversationRepo = new ConversationRepository();
+      const tempDir = mkdtempSync(join(tmpdir(), 'issue1-regression-'));
+
+      try {
+        const project = projectRepo.create('Test Project', tempDir);
+        const session = sessionRepo.create(project.id, 'Test Session', 'Test prompt', 'standard');
+        sessionRepo.update(session.id, { claudeSessionId: 'mock-claude-session-id' });
+        conversationRepo.create(session.id, 'Test Conversation');
+
+        // A gate the mocked turn pauses on right after emitting the 'system'
+        // init event (which registers activeSessions + currentModels), so the
+        // test can deterministically stop the session mid-turn — mirroring a
+        // user clicking Stop while the agent is still streaming.
+        let releaseGate;
+        const gate = new Promise((resolve) => { releaseGate = resolve; });
+        let signalGateReached;
+        const gateReached = new Promise((resolve) => { signalGateReached = resolve; });
+
+        vi.mocked(query).mockImplementationOnce(async function* () {
+          yield {
+            type: 'system', subtype: 'init', session_id: 'mock-claude-session-id',
+            model: 'claude-haiku-4-5-20251001', slash_commands: [],
+          };
+          signalGateReached();
+          await gate;
+          // Only reached if stopSession() failed to abort the loop — the
+          // real _executeSession loop breaks on the aborted signal before
+          // processing these, so they should never reach handleStreamEvent.
+          yield { type: 'assistant', message: { content: [{ type: 'text', text: 'first turn text' }] } };
+          yield { type: 'result', subtype: 'success' };
+        });
+
+        const firstTurn = continueSession(session.id, 'First message', tempDir);
+
+        // Deterministically wait until the turn has registered itself and
+        // processed the init event, rather than guessing at tick counts.
+        await gateReached;
+        expect(activeSessions.has(session.id)).toBe(true);
+        expect(currentModels.get(session.id)).toBe('claude-haiku-4-5-20251001');
+        expect(activeConversationIds.has(session.id)).toBe(true);
+
+        // Simulate the user clicking Stop mid-turn: this aborts the
+        // controller and deletes the activeSessions entry immediately,
+        // before the turn's finally block has run.
+        await stopSession(session.id);
+        expect(activeSessions.has(session.id)).toBe(false);
+
+        // Let the aborted turn's stream loop unwind and hit its finally block.
+        releaseGate();
+        await firstTurn;
+
+        const stoppedSession = sessionRepo.getById(session.id);
+        expect(stoppedSession.status).toBe('stopped');
+
+        // Regression check: cleanupSessionState must not treat the absent
+        // activeSessions entry as a live replacement — every per-session Map
+        // must be cleared, not just the ones incidentally re-touched by a
+        // later turn.
+        expect(textAccumulators.has(session.id)).toBe(false);
+        expect(thinkingAccumulators.has(session.id)).toBe(false);
+        expect(currentModels.has(session.id)).toBe(false);
+        expect(loggedToolUseIds.has(session.id)).toBe(false);
+        expect(finalErrorSessionIds.has(session.id)).toBe(false);
+        expect(finalResultEvents.has(session.id)).toBe(false);
+        expect(activeConversationIds.has(session.id)).toBe(false);
+
+        // A subsequent turn on the same session must still be able to run to
+        // completion and land in 'waiting' rather than getting stuck.
+        vi.mocked(query).mockImplementationOnce(async function* () {
+          yield {
+            type: 'system', subtype: 'init', session_id: 'mock-claude-session-id-2',
+            model: 'claude-haiku-4-5-20251001', slash_commands: [],
+          };
+          yield { type: 'assistant', message: { content: [{ type: 'text', text: 'second turn text' }] } };
+          yield { type: 'result', subtype: 'success' };
+        });
+
+        await continueSession(session.id, 'Second message', tempDir);
+
+        const finalSession = sessionRepo.getById(session.id);
+        expect(finalSession.status).toBe('waiting');
+        expect(finalSession.error).toBeNull();
+      } finally {
+        if (existsSync(tempDir)) {
+          rmSync(tempDir, { recursive: true, force: true });
+        }
+      }
+    });
+  });
 });
 
 describe('shouldRescheduleOnError', () => {
@@ -1246,7 +1357,7 @@ describe('summary service integration', () => {
         projectId,
         workspaceId: workspace.id,
         cardId: card.id,
-        lane: { ...laneRepo.getById(source.id), completionMode: 'structured', completionTargetLaneId: target.id },
+        lane: { ...laneRepo.getById(source.id), completionTargetLaneId: target.id },
       });
       attachRootSession(run.id, root.id);
 

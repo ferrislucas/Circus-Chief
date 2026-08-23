@@ -2,7 +2,6 @@ import { sessions, conversations, messages } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
-import * as kanbanService from './kanbanService.js';
 import { createVisibleFinalErrorMessage } from './visibleFinalErrorMessage.js';
 import { turnEndedDueToLimitOrOutage } from './sessionErrors.js';
 import {
@@ -106,22 +105,10 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
     await broadcastChangesUpdate(sessionId, currentSession.projectId, workingDirectory);
   }
 
-  // Advance the card to its current lane's completion target now that the
-  // session has finished a turn successfully. This is the only correct
-  // trigger: work was actually done while parked in this lane.
-  // Exception: a turn that ended gracefully (success result) because the provider
-  // hit a usage/token limit or was unavailable did NOT actually complete any work,
-  // so the card must stay put. Skip only the completion move — all other side
-  // effects on this path (waiting status, summaries, auto-send, template trigger)
-  // still run as usual. Only reached for turns that were NOT proactively
-  // rescheduled, so getResultEvent() is only consumed here, not on the
-  // held+rescheduled early-return path above.
+  // A card transition is now owned exclusively by workflowSessionService.
+  // Keep provider limits visible to the caller so a participating obligation
+  // remains open instead of being treated as a completed turn.
   const shouldHoldKanbanCompletion = turnEndedDueToLimitOrOutage(sessionId, getResultEvent(sessionId));
-  if (shouldHoldKanbanCompletion) {
-    console.log(`[kanban] Session ${sessionId}: usage-limit/outage — completion move skipped`);
-  } else {
-    await kanbanService.handleCompletionMove(sessionId);
-  }
 
   // Auto-send queued prompt if enabled (runs BEFORE template trigger)
   const { handleAutoSendIfNeeded, handleTemplateTriggerIfNeeded } = callbacks;
@@ -146,7 +133,7 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
  * @param {string} workingDirectory
  * @param {{ handleTemplateTriggerIfNeeded?: Function, checkProactiveReschedule?: Function, handleAutoSendIfNeeded?: Function }} callbacks
  */
-export async function handleTurnCompletion(sessionId, workingDirectory, callbacks = {}) {
+export async function handleTurnCompletion(sessionId, workingDirectory, callbacks = {}, { controller } = {}) {
   // Associate work logs with the last message now that the turn is complete
   associateAndCleanupWorkLogs(sessionId);
 
@@ -158,11 +145,45 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
 
   // Session ready for follow-up - set to waiting instead of completed
   const activeSession = activeSessions.get(sessionId);
-  if (activeSession && !activeSession.controller?.signal?.aborted) {
+  const turnController = controller || activeSession?.controller;
+  if (activeSession && activeSession.controller === turnController && !turnController?.signal?.aborted) {
     return handleActiveSessionCompletion(sessionId, workingDirectory, callbacks);
   }
 
+  finalizeAbortedTurnStatus(sessionId, turnController);
   return { wasRescheduled: false, heldForLimit: false };
+}
+
+/**
+ * A turn may take time to unwind after abort(). Do not let it overwrite a
+ * newer turn that has registered itself for the same session in the meantime.
+ */
+function turnStillOwnsStatusWrite(sessionId, controller) {
+  const activeSession = activeSessions.get(sessionId);
+  if (activeSession) return activeSession.controller === controller;
+  return Boolean(controller && sessions.getById(sessionId)?.status === 'running');
+}
+
+/**
+ * Land a terminal status for a turn that ended without one.
+ *
+ * An aborted turn is not ready for follow-up, so it must not land 'waiting' —
+ * but it still has to land somewhere. An abort makes the stream loop exit
+ * gracefully rather than throw, so the error path never runs either, and a
+ * turn returning from handleTurnCompletion without a status write stayed
+ * 'running' forever.
+ *
+ * Guarded on 'running' so this only closes out a turn nobody else accounted
+ * for: callers that already recorded an outcome (stopSession, lane-run
+ * supersession) and sessions restarted since the abort keep the status they
+ * were given.
+ *
+ * @param {string} sessionId
+ */
+export function finalizeAbortedTurnStatus(sessionId, controller) {
+  if (!turnStillOwnsStatusWrite(sessionId, controller)) return;
+  sessions.update(sessionId, { status: 'stopped', executionState: 'stopped' });
+  broadcastSessionStatus(sessionId, 'stopped');
 }
 
 /**
@@ -288,6 +309,7 @@ export async function handleSessionError(sessionId, error, options = {}) {
     // A user-initiated stop is intentional. A mid-turn-scheduled session that the
     // user stops will have its schedule cleared by the stop handler; we honour that
     // by not preserving the schedule here.
+    finalizeAbortedTurnStatus(sessionId, controller);
     return false;
   }
 

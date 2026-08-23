@@ -5,6 +5,7 @@ import {
   ReorderKanbanLanesRequest,
   CreateKanbanCardRequest,
   MoveKanbanCardRequest,
+  DeclareExitLaneRequest,
   ReorderKanbanCardsRequest,
   KanbanLaneResponse,
   KanbanCardResponse,
@@ -18,6 +19,14 @@ const UUID2 = '550e8400-e29b-41d4-a716-446655440001';
 const UUID3 = '550e8400-e29b-41d4-a716-446655440002';
 
 describe('Kanban Contracts', () => {
+  describe('DeclareExitLaneRequest', () => {
+    it('accepts a lane UUID and rejects missing or invalid lanes', () => {
+      expect(DeclareExitLaneRequest.safeParse({ laneId: UUID }).success).toBe(true);
+      expect(DeclareExitLaneRequest.safeParse({}).success).toBe(false);
+      expect(DeclareExitLaneRequest.safeParse({ laneId: 'not-a-uuid' }).success).toBe(false);
+    });
+  });
+
   // ── CreateKanbanLaneRequest ──────────────────────────────────────
 
   describe('CreateKanbanLaneRequest', () => {
@@ -107,6 +116,23 @@ describe('Kanban Contracts', () => {
         onEnterPrompt: '   ',
       });
       expect(result.success).toBe(true);
+    });
+
+    it('accepts a valid completionTargetLaneId without stripping it', () => {
+      const result = CreateKanbanLaneRequest.safeParse({
+        name: 'Automated',
+        onEnterPrompt: 'Do the work',
+        completionTargetLaneId: UUID3,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data.completionTargetLaneId).toBe(UUID3);
+    });
+
+    it('rejects an invalid completionTargetLaneId', () => {
+      expect(CreateKanbanLaneRequest.safeParse({
+        name: 'Automated', completionTargetLaneId: 'not-a-uuid',
+      }).success).toBe(false);
     });
   });
 

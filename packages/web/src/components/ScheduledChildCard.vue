@@ -29,18 +29,28 @@
         </div>
         <div class="timing-actions">
           <button
+            class="btn-link timing-action-btn btn-start-now"
+            data-testid="scheduled-start-now-btn"
+            :disabled="mutationInFlight"
+            @click="handleStartNow"
+          >
+            {{ startingNow ? 'Starting...' : 'Start Now' }}
+          </button>
+          <button
             class="btn-link timing-action-btn"
-            :disabled="loading"
+            data-testid="scheduled-edit-btn"
+            :disabled="mutationInFlight"
             @click="showEditModal = true"
           >
             Edit
           </button>
           <button
             class="btn-link timing-action-btn btn-cancel"
-            :disabled="loading"
-            @click="handleCancel"
+            data-testid="scheduled-cancel-btn"
+            :disabled="mutationInFlight"
+            @click="cancelScheduledSession(session.id)"
           >
-            Cancel
+            {{ cancelling ? 'Cancelling...' : 'Cancel' }}
           </button>
         </div>
       </div>
@@ -93,10 +103,12 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { computed, ref } from 'vue';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
+import { useScheduleCancel } from '../composables/useScheduleCancel.js';
+import { useScheduleStartNow } from '../composables/useScheduleStartNow.js';
 import OrchestrationPanel from './OrchestrationPanel.vue';
 import SchedulingEditModal from './SchedulingEditModal.vue';
 import AutoRescheduleModal from './AutoRescheduleModal.vue';
@@ -108,7 +120,9 @@ const props = defineProps({
 
 const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
-const loading = ref(false);
+const sessionIdSource = () => props.session.id;
+const { startingNow, startScheduledNow } = useScheduleStartNow(sessionsStore, sessionIdSource);
+const { cancelling, cancelScheduledSession } = useScheduleCancel(sessionsStore, sessionIdSource);
 const showEditModal = ref(false);
 const showAutoRescheduleModal = ref(false);
 
@@ -119,6 +133,14 @@ function handleSessionClick() {
 }
 
 const hasScheduledTime = computed(() => props.session.status === 'scheduled' && Boolean(props.session.scheduledAt));
+
+// Any schedule mutation in flight for this session disables every timing
+// action together. See `scheduleMutationInFlight` in perSessionGetters.js.
+const mutationInFlight = computed(() => Boolean(sessionsStore.scheduleMutationInFlight?.(props.session.id)));
+
+async function handleStartNow() {
+  await startScheduledNow(props.session);
+}
 
 const scheduledTimeDisplay = computed(() => {
   if (!hasScheduledTime.value) return '';
@@ -131,25 +153,6 @@ const absoluteTimeDisplay = computed(() => {
   const time = new Date(props.session.scheduledAt);
   return format(time, 'MMM d, h:mm a');
 });
-
-async function handleCancel() {
-  if (!confirm('Cancel this scheduled workspace?')) {
-    return;
-  }
-
-  loading.value = true;
-  try {
-    await sessionsStore.updateSessionFields(props.session.id, {
-      status: 'stopped',
-    });
-    uiStore.success('Workspace cancelled');
-  } catch (error) {
-    console.error('Failed to cancel workspace:', error);
-    uiStore.error(`Failed to cancel workspace: ${error.message}`);
-  } finally {
-    loading.value = false;
-  }
-}
 
 async function handleTemplateChange(templateId) {
   try {

@@ -13,6 +13,7 @@ import { access, constants } from 'fs/promises';
 import { dirname, isAbsolute, join } from 'path';
 import { getRepositoryUrl } from '../services/gitService.js';
 import { validateAndPrepareSessionConfig, createSessionRow, startSessionOrFail } from './projects-session-create.js';
+import { hasPendingPrompt } from '../services/promptStore.js';
 
 // Error message constants
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
@@ -190,12 +191,13 @@ router.get('/:id/sessions', (req, res) => {
   // Build merged index of latest command runs per session
   const runsBySession = buildRunsBySession(
     commandRuns.getLatestRunsForProject(req.params.id),
-    commandRunner.getRunningByProjectId(req.params.id, (sessionId) => sessions.getById(sessionId))
+    commandRunner.getRunningByProjectId(req.params.id, sessionIds => sessions.getByIds(sessionIds))
   );
 
   // Attach latestCommandRuns to each session as array
   const sessionsWithRuns = projectSessions.map(session => ({
     ...session,
+    pendingAgentInput: hasPendingPrompt(session.id),
     latestCommandRuns: Object.values(runsBySession[session.id] || {}),
   }));
 

@@ -1,16 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-vi.mock('../database.js', () => ({
-  modelProviders: {
-    getProviderByModelId: vi.fn(),
-    getAgentTypeForProvider: vi.fn(),
-  },
-}));
-
-vi.mock('./nodeSpawnHelper.js', () => ({
-  createRobustEnv: vi.fn((env) => ({ ...env, PATH: `/mock-node-bin:${env.PATH || ''}` })),
-}));
-
 import { modelProviders } from '../database.js';
 import {
   resolveProviderFromModel,
@@ -24,6 +13,8 @@ describe('sessionProvider', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(modelProviders, 'getProviderByModelId');
+    vi.spyOn(modelProviders, 'getAgentTypeForProvider');
     delete process.env.MAX_THINKING_TOKENS;
     delete process.env.VCR_MODE;
   });
@@ -169,8 +160,7 @@ describe('sessionProvider', () => {
   describe('buildSessionEnv', () => {
     it('returns env from createRobustEnv when no provider', () => {
       const env = buildSessionEnv(null, false);
-      // Should have PATH from the mock createRobustEnv
-      expect(env.PATH).toContain('/mock-node-bin');
+      expect(env.PATH).toBeTruthy();
       // Should delete ANTHROPIC_ vars when no provider
       expect(env.ANTHROPIC_API_KEY).toBeUndefined();
       expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
@@ -535,7 +525,7 @@ describe('sessionProvider', () => {
         const env = buildSessionEnv(provider, false, null);
         expect(env.HOME).toBeDefined();
         expect(env.PATH).toBeDefined();
-        expect(env.PATH).toContain('/mock-node-bin');
+        expect(env.PATH).toBeTruthy();
         expect(env.GITHUB_TOKEN).toBe('github-token-for-mcp');
         expect(env.FIRECRAWL_API_KEY).toBe('firecrawl-token-for-mcp');
       } finally {

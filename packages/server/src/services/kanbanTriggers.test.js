@@ -38,7 +38,6 @@ import { runSession } from './sessionManager.js';
 import { resolveAgentTypeFromModel } from './sessionProvider.js';
 import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 import {
-  MAX_LANE_TRIGGER_DEPTH,
   getSessionAndProjectForTrigger,
   determineWorkingDirectory,
   startChildSession,
@@ -51,12 +50,6 @@ import {
 describe('kanbanTriggers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  describe('MAX_LANE_TRIGGER_DEPTH', () => {
-    it('is 5', () => {
-      expect(MAX_LANE_TRIGGER_DEPTH).toBe(5);
-    });
   });
 
   describe('getSessionAndProjectForTrigger', () => {
@@ -377,19 +370,6 @@ describe('kanbanTriggers', () => {
       runSession.mockResolvedValue(undefined);
     });
 
-    it('returns early when depth exceeds MAX_LANE_TRIGGER_DEPTH', async () => {
-      await triggerOnEnterTemplate('s1', lane, { depth: 5 });
-
-      expect(sessionTemplates.getById).not.toHaveBeenCalled();
-      expect(sessions.create).not.toHaveBeenCalled();
-    });
-
-    it('returns early when depth equals MAX_LANE_TRIGGER_DEPTH', async () => {
-      await triggerOnEnterTemplate('s1', lane, { depth: MAX_LANE_TRIGGER_DEPTH });
-
-      expect(sessionTemplates.getById).not.toHaveBeenCalled();
-    });
-
     it('returns early when template is not found', async () => {
       sessionTemplates.getById.mockReturnValue(null);
 
@@ -435,7 +415,6 @@ describe('kanbanTriggers', () => {
 
       // Updates session with remaining fields not supported by create()
       expect(sessions.update).toHaveBeenCalledWith('new-1', expect.objectContaining({
-        laneTriggerDepth: 1,
         nextTemplateId: null,
       }));
 
@@ -449,14 +428,6 @@ describe('kanbanTriggers', () => {
         systemPrompt: 'You are helpful.',
         model: session.model,
       });
-    });
-
-    it('increments depth from options', async () => {
-      await triggerOnEnterTemplate('s1', lane, { depth: 2 });
-
-      expect(sessions.update).toHaveBeenCalledWith('new-1', expect.objectContaining({
-        laneTriggerDepth: 3,
-      }));
     });
 
     it('sets nextTemplateId from template', async () => {
@@ -481,11 +452,13 @@ describe('kanbanTriggers', () => {
       expect(sessions.update).toHaveBeenCalledWith('new-1', { gitWorktree: '/tmp/existing-worktree' });
     });
 
-    it('does not throw when renderTemplatePrompt fails', async () => {
+    it('reports a failed delivery when template rendering fails', async () => {
       renderTemplatePrompt.mockRejectedValue(new Error('render failed'));
 
-      // Should not throw -- error is caught internally
-      await expect(triggerOnEnterTemplate('s1', lane)).resolves.toBeUndefined();
+      await expect(triggerOnEnterTemplate('s1', lane)).resolves.toEqual({
+        delivered: false,
+        reason: 'render failed',
+      });
     });
 
     it('fetches root summary for workspace context in template rendering', async () => {
@@ -532,12 +505,6 @@ describe('kanbanTriggers', () => {
       runSession.mockResolvedValue(undefined);
     });
 
-    it('returns early when depth exceeds MAX_LANE_TRIGGER_DEPTH', async () => {
-      await triggerOnEnterPrompt('s1', lane, { depth: 5 });
-
-      expect(sessions.create).not.toHaveBeenCalled();
-    });
-
     it('returns early when session is not found', async () => {
       sessions.getById.mockReturnValue(null);
 
@@ -574,9 +541,7 @@ describe('kanbanTriggers', () => {
       );
 
       // Updates with remaining fields not supported by create()
-      expect(sessions.update).toHaveBeenCalledWith('new-prompt-1', expect.objectContaining({
-        laneTriggerDepth: 1,
-      }));
+      expect(sessions.update).toHaveBeenCalledWith('new-prompt-1', {});
 
       // Broadcasts SESSION_CREATED
       expect(broadcastToProject).toHaveBeenCalledWith('p1', WS_MESSAGE_TYPES.SESSION_CREATED, expect.objectContaining({
@@ -588,14 +553,6 @@ describe('kanbanTriggers', () => {
         systemPrompt: 'Be helpful.',
         model: session.model,
       });
-    });
-
-    it('increments depth from options', async () => {
-      await triggerOnEnterPrompt('s1', lane, { depth: 3 });
-
-      expect(sessions.update).toHaveBeenCalledWith('new-prompt-1', expect.objectContaining({
-        laneTriggerDepth: 4,
-      }));
     });
 
     it('applies auto-reschedule settings when enabled', async () => {
@@ -619,7 +576,6 @@ describe('kanbanTriggers', () => {
         expect.objectContaining({ parentSessionId: 's1' })
       );
       expect(sessions.update).toHaveBeenCalledWith('new-prompt-1', expect.objectContaining({
-        laneTriggerDepth: 1,
         autoRescheduleEnabled: true,
         rescheduleDelayMinutes: 30,
         rescheduleOnTokenLimit: false,
@@ -659,17 +615,20 @@ describe('kanbanTriggers', () => {
       await triggerOnEnterPrompt('s1', lane);
 
       const updateCall = sessions.update.mock.calls.find(
-        (call) => call[0] === 'new-prompt-1' && Object.hasOwn(call[1], 'laneTriggerDepth')
+        (call) => call[0] === 'new-prompt-1'
       );
       expect(updateCall).toBeDefined();
       expect(updateCall[1]).not.toHaveProperty('autoRescheduleEnabled');
       expect(updateCall[1]).not.toHaveProperty('rescheduleDelayMinutes');
     });
 
-    it('does not throw when renderTemplatePrompt fails', async () => {
+    it('reports a failed delivery when prompt rendering fails', async () => {
       renderTemplatePrompt.mockRejectedValue(new Error('render error'));
 
-      await expect(triggerOnEnterPrompt('s1', lane)).resolves.toBeUndefined();
+      await expect(triggerOnEnterPrompt('s1', lane)).resolves.toEqual({
+        delivered: false,
+        reason: 'render error',
+      });
     });
 
     it('sets gitWorktree on new session when parent has worktree', async () => {

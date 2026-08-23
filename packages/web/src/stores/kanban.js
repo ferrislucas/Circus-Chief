@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from '../composables/useApi.js';
+import { kanbanWebSocketActions } from './kanbanWebSocketActions.js';
 
 export const useKanbanStore = defineStore('kanban', {
   state: () => ({
@@ -349,94 +350,6 @@ export const useKanbanStore = defineStore('kanban', {
       }
     },
 
-    // ============== WebSocket handlers ==============
-
-    /**
-     * Handle board update from WebSocket
-     * @param {Object} board - The updated board object
-     */
-    handleBoardUpdated(board) {
-      this.board = board;
-    },
-
-    /**
-     * Handle card added from WebSocket
-     * @param {Object} card - The card that was added
-     * @param {string} laneId - The lane ID where the card was added
-     */
-    handleCardAdded(card, laneId) {
-      const lane = this.board?.lanes?.find((l) => l.id === laneId);
-      if (lane) {
-        lane.cards = lane.cards || [];
-        // Avoid duplicates
-        if (!lane.cards.some((c) => c.id === card.id)) {
-          lane.cards.push(card);
-        }
-      }
-    },
-
-    /**
-     * Handle card moved from WebSocket
-     * @param {string} cardId - The card ID that was moved
-     * @param {string} fromLaneId - The source lane ID
-     * @param {string} toLaneId - The target lane ID
-     * @param {Object} card - The updated card object
-     */
-    handleCardMoved(cardId, fromLaneId, toLaneId, card) {
-      // Remove from source lane
-      const sourceLane = this.board?.lanes?.find((l) => l.id === fromLaneId);
-      if (sourceLane) {
-        sourceLane.cards = sourceLane.cards?.filter((c) => c.id !== cardId) || [];
-      }
-
-      // Add to target lane
-      const targetLane = this.board?.lanes?.find((l) => l.id === toLaneId);
-      if (targetLane) {
-        targetLane.cards = targetLane.cards || [];
-        // Avoid duplicates
-        if (!targetLane.cards.some((c) => c.id === cardId)) {
-          targetLane.cards.push(card);
-        }
-      }
-    },
-
-    /**
-     * Handle card removed from WebSocket
-     * @param {string} cardId - The card ID that was removed
-     * @param {string} laneId - The lane ID where the card was removed from
-     */
-    handleCardRemoved(cardId, laneId) {
-      const lane = this.board?.lanes?.find((l) => l.id === laneId);
-      if (lane) {
-        lane.cards = lane.cards?.filter((c) => c.id !== cardId) || [];
-      }
-    },
-
-    /**
-     * Handle session update from WebSocket (update card's session data)
-     */
-    handleSessionUpdated(session) {
-      if (!this.board) return;
-
-      for (const lane of this.board.lanes) {
-        for (const card of lane.cards || []) {
-          const sessionIndex = card.sessions?.findIndex((s) => s.id === session.id);
-          if (sessionIndex !== -1 && sessionIndex !== undefined) {
-            // Update session data in the card
-            card.sessions[sessionIndex] = {
-              ...card.sessions[sessionIndex],
-              name: session.name,
-              status: session.status,
-              mode: session.mode,
-              costUsd: session.costUsd,
-              starred: session.starred,
-              prUrl: session.prUrl,
-              updatedAt: session.updatedAt,
-            };
-            return; // Found and updated, exit early
-          }
-        }
-      }
-    },
+    ...kanbanWebSocketActions,
   },
 });

@@ -21,6 +21,52 @@ function freshDb() {
 }
 
 describe('kanban-add-lane-run-workflow (F2: dead token-column churn)', () => {
+  it('leaves declared-exit columns to the trailing dedicated migration', () => {
+    const db = freshDb();
+    try {
+      // Make CREATE TABLE IF NOT EXISTS execute, rather than testing its
+      // no-op path against the fresh-schema table.
+      db.exec('DROP TABLE kanban_lane_runs');
+
+      const workflowMigration = allMigrations.find((item) => item.name === 'kanban-add-lane-run-workflow');
+      const declaredExitMigration = allMigrations.find((item) => item.name === 'kanban-lane-run-declared-exit-lane');
+      expect(workflowMigration).toBeDefined();
+      expect(declaredExitMigration).toBeDefined();
+
+      workflowMigration.up(db);
+      expect(getColumns(db, 'kanban_lane_runs')).not.toEqual(expect.arrayContaining([
+        'chosen_exit_lane_id', 'chosen_exit_declared_at',
+      ]));
+
+      declaredExitMigration.up(db);
+      expect(getColumns(db, 'kanban_lane_runs')).toEqual(expect.arrayContaining([
+        'chosen_exit_lane_id', 'chosen_exit_declared_at',
+      ]));
+      expect(db.prepare('PRAGMA foreign_key_list(kanban_lane_runs)').all())
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({ from: 'chosen_exit_lane_id', table: 'kanban_lanes', on_delete: 'SET NULL' }),
+        ]));
+      expect(getColumns(db, 'kanban_lane_runs')).not.toContain('chosen_exit_declared_by');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('removes caller attribution from databases that ran the earlier branch migration', () => {
+    const db = freshDb();
+    try {
+      db.exec('ALTER TABLE kanban_lane_runs ADD COLUMN chosen_exit_declared_by TEXT');
+      const cleanup = allMigrations.find((item) => item.name === 'kanban-drop-exit-lane-caller-attribution');
+
+      expect(cleanup).toBeDefined();
+      cleanup.up(db);
+
+      expect(getColumns(db, 'kanban_lane_runs')).not.toContain('chosen_exit_declared_by');
+    } finally {
+      db.close();
+    }
+  });
+
   it('never creates the retired workflow-completion-token columns on a fresh database', () => {
     // Run only up through kanban-add-lane-run-workflow itself -- i.e. before
     // kanban-drop-agent-workflow-completion-tokens has a chance to clean up
@@ -84,14 +130,52 @@ describe('kanban-add-lane-run-workflow (F2: dead token-column churn)', () => {
   });
 });
 
-describe('kanban-backfill-structured-completion-mode', () => {
-  it('upgrades only targeted lanes left at the legacy default', () => {
+describe('kanban-drop-completion-mode-hard-cutover', () => {
+  it('recreates legacy lane tables without completion_mode and preserves lane rows', () => {
     const db = freshDb();
     try {
-      db.exec("INSERT INTO projects (id,name,working_directory,created_at,updated_at) VALUES ('project','Project','/tmp',1,1); INSERT INTO kanban_boards (id,project_id,created_at,updated_at) VALUES ('board','project',1,1); INSERT INTO kanban_lanes (id,board_id,name,sort_order,completion_mode,created_at,updated_at) VALUES ('target','board','Target',0,'legacy',1,1); INSERT INTO kanban_lanes (id,board_id,name,sort_order,completion_target_lane_id,completion_mode,created_at,updated_at) VALUES ('targeted','board','Targeted',1,'target','legacy',1,1),('plain','board','Plain',2,NULL,'legacy',1,1),('shadow','board','Shadow',3,'target','shadow',1,1)");
-      allMigrations.find(({ name }) => name === 'kanban-backfill-structured-completion-mode').up(db);
-      const modes = Object.fromEntries(db.prepare('SELECT id, completion_mode FROM kanban_lanes').all().map(row => [row.id, row.completion_mode]));
-      expect(modes).toEqual({ target: 'legacy', targeted: 'structured', plain: 'legacy', shadow: 'shadow' });
-    } finally { db.close(); }
+      db.exec('ALTER TABLE kanban_lanes ADD COLUMN completion_mode TEXT');
+      db.prepare("INSERT INTO projects (id,name,working_directory,created_at,updated_at) VALUES ('p','P','/tmp',1,1)").run();
+      db.prepare("INSERT INTO kanban_boards (id,project_id,created_at,updated_at) VALUES ('b','p',1,1)").run();
+      db.prepare("INSERT INTO kanban_lanes (id,board_id,name,sort_order,created_at,updated_at,completion_mode) VALUES ('l','b','Lane',0,1,1,'legacy')").run();
+      const migration = allMigrations.find((item) => item.name === 'kanban-drop-completion-mode-hard-cutover');
+      migration.up(db);
+      expect(getColumns(db, 'kanban_lanes')).not.toContain('completion_mode');
+      expect(db.prepare('SELECT id, name FROM kanban_lanes WHERE id=?').get('l')).toEqual({ id: 'l', name: 'Lane' });
+      expect(() => migration.up(db)).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('preserves target-only completion targets and records them for operator remediation', () => {
+    const db = freshDb();
+    try {
+      db.exec('ALTER TABLE kanban_lanes ADD COLUMN completion_mode TEXT');
+      db.prepare("INSERT INTO projects (id,name,working_directory,created_at,updated_at) VALUES ('p','P','/tmp',1,1)").run();
+      db.prepare("INSERT INTO kanban_boards (id,project_id,created_at,updated_at) VALUES ('b','p',1,1)").run();
+      db.prepare("INSERT INTO kanban_lanes (id,board_id,name,sort_order,created_at,updated_at,completion_mode) VALUES ('target','b','Target',0,1,1,'legacy')").run();
+      db.prepare("INSERT INTO kanban_lanes (id,board_id,name,sort_order,completion_target_lane_id,created_at,updated_at,completion_mode) VALUES ('plain','b','Plain',1,'target',1,1,'legacy')").run();
+      db.prepare("INSERT INTO kanban_lanes (id,board_id,name,sort_order,on_enter_prompt,completion_target_lane_id,created_at,updated_at,completion_mode) VALUES ('automated','b','Automated',2,'work','target',1,1,'legacy')").run();
+      const migration = allMigrations.find((item) => item.name === 'kanban-drop-completion-mode-hard-cutover');
+
+      migration.up(db);
+
+      expect(db.prepare('SELECT completion_target_lane_id AS target FROM kanban_lanes WHERE id=?').get('plain').target).toBe('target');
+      expect(db.prepare('SELECT completion_target_lane_id AS target FROM kanban_lanes WHERE id=?').get('automated').target).toBe('target');
+      expect(db.prepare('SELECT lane_id AS laneId, note FROM kanban_migration_notes WHERE lane_id=?').get('plain')).toEqual({
+        laneId: 'plain',
+        note: 'Legacy completion target requires on-entry automation before lane runs can be enabled',
+      });
+      expect(() => migration.up(db)).not.toThrow();
+    } finally {
+      db.close();
+    }
   });
 });
+
+// Note: there is no 'kanban-backfill-structured-completion-mode' migration in
+// the current chain (hard-cutover removed the completion_mode concept
+// entirely — see 'kanban-drop-completion-mode-hard-cutover' below). This
+// suite used to test that now-removed migration and has been deleted rather
+// than reinvented, per the hard-cutover contract.

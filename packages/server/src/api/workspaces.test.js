@@ -1,8 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { kanbanBoards, kanbanCards, kanbanLanes, projects, sessions } from '../database.js';
+import {
+  commandButtons,
+  commandRuns,
+  kanbanBoards,
+  kanbanCards,
+  kanbanLanes,
+  projects,
+  messages,
+  sessions,
+} from '../database.js';
 import { attachRootSession, createLaneRunForEntry, supersedeRunForCard } from '../services/workflowSessionService.js';
+import { commandRunner } from '../services/commandRunner.js';
 
 // Mock websocket
 vi.mock('../websocket.js', () => ({
@@ -33,10 +43,20 @@ vi.mock('../services/hookService.js', () => ({
   executeHookAsync: vi.fn(),
 }));
 
+// Spy on hasPendingPrompt (keeping every other export real) so tests can
+// simulate a session with a parked prompt without wiring up the full
+// promptStore/websocket/work-log machinery.
+vi.mock('../services/promptStore.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, hasPendingPrompt: vi.fn(actual.hasPendingPrompt) };
+});
+
 // Import after mocking
 import { projectWorkspacesRouter, workspacesRouter } from './workspaces.js';
 import { broadcastToProject } from '../websocket.js';
+import { hasPendingPrompt } from '../services/promptStore.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { WorkspaceCardListResponse } from '@circuschief/shared/contracts/workspaces';
 
 function buildApp() {
   const app = express();
@@ -95,6 +115,234 @@ describe('Workspace facade API', () => {
       expect(res.body.workspaces.length).toBe(2);
       expect(res.body.pagination.total).toBe(3);
       expect(res.body.pagination.hasMore).toBe(true);
+    });
+
+    it('includes pendingAgentInput on the bare-array legacy list response', async () => {
+      const withPrompt = sessions.create(project.id, 'Has prompt', 'p1');
+      const withoutPrompt = sessions.create(project.id, 'No prompt', 'p2');
+      hasPendingPrompt.mockImplementation((sessionId) => sessionId === withPrompt.id);
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces`)
+        .expect(200);
+
+      const byId = Object.fromEntries(res.body.map((session) => [session.id, session]));
+      expect(byId[withPrompt.id].pendingAgentInput).toBe(true);
+      expect(byId[withoutPrompt.id].pendingAgentInput).toBe(false);
+    });
+
+    it('includes pendingAgentInput on the paginated legacy list response', async () => {
+      const withPrompt = sessions.create(project.id, 'Has prompt', 'p1');
+      sessions.create(project.id, 'No prompt', 'p2');
+      hasPendingPrompt.mockImplementation((sessionId) => sessionId === withPrompt.id);
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?limit=10&offset=0`)
+        .expect(200);
+
+      const byId = Object.fromEntries(res.body.workspaces.map((session) => [session.id, session]));
+      expect(byId[withPrompt.id].pendingAgentInput).toBe(true);
+    });
+
+    it('serves the parent-picker contract: roots only, no archived, newest first', async () => {
+      const older = sessions.create(project.id, 'Older Completed', 'p1');
+      sessions.create(project.id, 'Child of older', 'p2', { parentSessionId: older.id });
+      sessions.update(older.id, { status: 'completed' });
+
+      const newer = sessions.create(project.id, 'Newer Completed', 'p3');
+      sessions.update(newer.id, { status: 'completed' });
+
+      const archived = sessions.create(project.id, 'Archived root', 'p4');
+      sessions.update(archived.id, { status: 'completed' });
+      sessions.update(archived.id, { archived: true });
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=200`)
+        .expect(200);
+
+      const ids = res.body.workspaces.map((w) => w.id);
+      expect(ids).toContain(older.id);
+      expect(ids).toContain(newer.id);
+      expect(ids).not.toContain(archived.id);
+      // Descendants never appear; the picker filters client-side to completed.
+      expect(ids.every((id) => id !== undefined)).toBe(true);
+      for (const card of res.body.workspaces) {
+        expect(card.memberIds).toEqual(expect.arrayContaining([card.id]));
+      }
+      // Newest first (card sort key is activity recency).
+      expect(res.body.workspaces[0].id).toBe(newer.id);
+    });
+
+    it('returns a compact, root-only card projection for the optimized list', async () => {
+      const root = sessions.create(project.id, 'Root', 'p');
+      sessions.create(project.id, 'Running child', 'p', { parentSessionId: root.id, status: 'running' });
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=50&status=running`)
+        .expect(200);
+
+      expect(res.body.workspaces).toHaveLength(1);
+      expect(res.body.workspaces[0]).toMatchObject({
+        id: root.id, name: 'Root', runningCount: 2, descendantCount: 1,
+        runningSessionIds: [root.id, expect.any(String)],
+        memberIds: [root.id, expect.any(String)],
+        latestCommandRuns: [],
+      });
+      expect(res.body.workspaces[0]).not.toHaveProperty('pendingPrompt');
+      expect(res.body.workspaces[0]).not.toHaveProperty('sessions');
+      expect(WorkspaceCardListResponse.safeParse(res.body).success).toBe(true);
+      expect(res.headers['access-control-expose-headers'])
+        .toBe('Server-Timing, X-Response-Bytes');
+      expect(res.headers['server-timing']).toContain('workspace;dur=');
+      expect(Number(res.headers['x-response-bytes'])).toBeGreaterThan(0);
+    });
+
+    it('allows a bounded prefix up to 500 optimized cards', async () => {
+      await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=500`)
+        .expect(200);
+      await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=501`)
+        .expect(400);
+    });
+
+    it('uses cursors to traverse an unchanged dataset without repeats', async () => {
+      const first = sessions.create(project.id, 'First', 'p');
+      const second = sessions.create(project.id, 'Second', 'p');
+      const third = sessions.create(project.id, 'Third', 'p');
+
+      const pageOne = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2`)
+        .expect(200);
+      expect(pageOne.body.pagination).toMatchObject({ total: 3, hasMore: true });
+
+      const pageTwo = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&cursor=${pageOne.body.pagination.nextCursor}`)
+        .expect(200);
+      const ids = [...pageOne.body.workspaces, ...pageTwo.body.workspaces].map(({ id }) => id);
+      expect(new Set(ids)).toEqual(new Set([first.id, second.id, third.id]));
+      expect(ids).toHaveLength(3);
+      expect(pageTwo.body.pagination).toMatchObject({ hasMore: false });
+    });
+
+    it('ignores legacy offsets on optimized cursor pagination', async () => {
+      await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&offset=-1`)
+        .expect(200);
+      await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&offset=1e3`)
+        .expect(200);
+      await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2abc`)
+        .expect(400);
+    });
+
+    it('paginates with cursors without gaps and rejects malformed cursors', async () => {
+      const created = ['First', 'Second', 'Third'].map(name => sessions.create(project.id, name, 'p'));
+      const first = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2`)
+        .expect(200);
+      const second = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&cursor=${first.body.pagination.nextCursor}`)
+        .expect(200);
+
+      expect([...first.body.workspaces, ...second.body.workspaces].map(({ id }) => id))
+        .toEqual(expect.arrayContaining(created.map(({ id }) => id)));
+      expect(second.body.pagination).toMatchObject({ hasMore: false, nextCursor: null });
+      await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&cursor=not-a-cursor`)
+        .expect(400);
+    });
+
+    it('rejects malformed optimized-list boolean filters', async () => {
+      await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=2&starred=sometimes`)
+        .expect(400);
+    });
+
+    it('returns honest cold-entry status facets independent of page size', async () => {
+      const running = sessions.create(project.id, 'Running', 'p', { status: 'running' });
+      const idleOne = sessions.create(project.id, 'Idle one', 'p', { status: 'waiting' });
+      const idleTwo = sessions.create(project.id, 'Idle two', 'p', { status: 'stopped' });
+      for (const session of [running, idleOne, idleTwo]) sessions.update(session.id, { starred: true });
+      sessions.create(project.id, 'Excluded unstarred', 'p', { status: 'running' });
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=1&starred=true`)
+        .expect(200);
+
+      expect(res.body.workspaces).toHaveLength(1);
+      expect(res.body.facets).toEqual({ running: 1, idle: 2 });
+      expect(res.body.pagination).toMatchObject({ total: 3, hasMore: true });
+    });
+
+    it('includes the latest child command indicator on a cold list entry', async () => {
+      const root = sessions.create(project.id, 'Root', 'p', { status: 'waiting' });
+      const child = sessions.create(project.id, 'Child', 'p', {
+        parentSessionId: root.id,
+        status: 'waiting',
+      });
+      const button = commandButtons.create({
+        projectId: project.id,
+        label: 'Test',
+        command: 'echo test',
+      });
+      commandRuns.create({ id: 'child-run', sessionId: child.id, buttonId: button.id });
+      commandRuns.complete('child-run', 0);
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=50`)
+        .expect(200);
+
+      expect(res.body.workspaces[0].latestCommandRuns).toEqual([
+        expect.objectContaining({ buttonId: button.id, status: 'success', runId: 'child-run' }),
+      ]);
+    });
+
+    it('keeps a running command indicator over a newer completed run for the same button', async () => {
+      const root = sessions.create(project.id, 'Root', 'p', { status: 'waiting' });
+      const child = sessions.create(project.id, 'Child', 'p', {
+        parentSessionId: root.id,
+        status: 'waiting',
+      });
+      const button = commandButtons.create({
+        projectId: project.id,
+        label: 'Test',
+        command: 'echo test',
+      });
+      commandRuns.create({ id: 'child-completed', sessionId: child.id, buttonId: button.id });
+      commandRuns.complete('child-completed', 0);
+      const runningRuns = vi.spyOn(commandRunner, 'getRunningByProjectId').mockReturnValue([{
+        sessionId: root.id,
+        buttonId: button.id,
+        runId: 'root-running',
+        startedAt: 0,
+      }]);
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=50`)
+        .expect(200);
+
+      expect(res.body.workspaces[0].latestCommandRuns).toEqual([
+        expect.objectContaining({ buttonId: button.id, status: 'running', runId: 'root-running' }),
+      ]);
+      runningRuns.mockRestore();
+    });
+
+    it('uses child activity in the authoritative workspace card', async () => {
+      const root = sessions.create(project.id, 'Root', 'p', { status: 'waiting' });
+      const child = sessions.create(project.id, 'Child', 'p', {
+        parentSessionId: root.id,
+        status: 'waiting',
+      });
+      messages.create(child.id, 'assistant', 'Fresh child activity');
+
+      const res = await request(app)
+        .get(`/api/projects/${project.id}/workspaces?view=cards&limit=50`)
+        .expect(200);
+
+      expect(res.body.workspaces[0]).toMatchObject({ id: root.id });
+      expect(res.body.workspaces[0].lastActivityAt).not.toBeNull();
     });
 
     it('returns 404 for unknown project', async () => {
@@ -199,6 +447,48 @@ describe('Workspace facade API', () => {
       const childIds = res.body.sessions.map((s) => s.id);
       expect(childIds).toContain(child.id);
       expect(childIds).toContain(grandchild.id);
+      expect(res.body).toMatchObject({ id: root.id, parentSessionId: null });
+      expect(res.body).toHaveProperty('pendingAgentInput', false);
+      expect(res.body).not.toHaveProperty('members');
+    });
+
+    it('preserves full rows and pending-input state in the legacy detail response', async () => {
+      const root = sessions.create(project.id, 'Root', 'root', { model: 'root-model' });
+      const child = sessions.create(project.id, 'Child', 'child', { parentSessionId: root.id });
+      sessions.update(root.id, { pendingModel: 'root-pending-model' });
+      sessions.update(child.id, { pendingModel: 'child-pending-model' });
+      sessions.updateUsage(root.id, {
+        inputTokens: 100,
+        outputTokens: 20,
+        thinkingTokens: 10,
+        cacheReadInputTokens: 5,
+        cacheCreationInputTokens: 2,
+        webSearchRequests: 0,
+        contextWindow: 200000,
+      });
+      sessions.updateUsage(child.id, {
+        inputTokens: 200,
+        outputTokens: 40,
+        thinkingTokens: 20,
+        cacheReadInputTokens: 10,
+        cacheCreationInputTokens: 4,
+        webSearchRequests: 0,
+        contextWindow: 200000,
+      });
+
+      const res = await request(app).get(`/api/workspaces/${root.id}`).expect(200);
+      const sessionRows = Object.fromEntries([[res.body.id, res.body], ...res.body.sessions.map(session => [session.id, session])]);
+
+      expect(sessionRows[root.id]).toMatchObject({
+        model: 'root-model', pendingModel: 'root-pending-model', inputTokens: 100,
+        outputTokens: 20, thinkingTokens: 10, cacheReadInputTokens: 5, cacheCreationInputTokens: 2,
+        pendingAgentInput: false,
+      });
+      expect(sessionRows[child.id]).toMatchObject({
+        model: null, pendingModel: 'child-pending-model', inputTokens: 200,
+        outputTokens: 40, thinkingTokens: 20, cacheReadInputTokens: 10, cacheCreationInputTokens: 4,
+        pendingAgentInput: false,
+      });
     });
 
     it('normalises a child ID to its workspace root (forgiving)', async () => {
@@ -211,6 +501,21 @@ describe('Workspace facade API', () => {
         .expect(200);
 
       expect(res.body.id).toBe(root.id);
+    });
+
+    it('returns one compact authoritative card when addressed by a child ID', async () => {
+      const root = sessions.create(project.id, 'Root', 'root');
+      const child = sessions.create(project.id, 'Child', 'child', { parentSessionId: root.id });
+      const res = await request(app).get(`/api/workspaces/${child.id}/card`).expect(200);
+
+      expect(res.body).toMatchObject({
+        id: root.id,
+        projectId: project.id,
+        memberIds: expect.arrayContaining([root.id, child.id]),
+        descendantCount: 1,
+        latestCommandRuns: [],
+      });
+      expect(res.body).not.toHaveProperty('sessions');
     });
 
     it('returns 404 for unknown workspace ID', async () => {
@@ -256,7 +561,7 @@ describe('Workspace facade API', () => {
       const card = kanbanCards.create(source.id, root.id);
       const run = createLaneRunForEntry({
         projectId: project.id, workspaceId: root.id, cardId: card.id,
-        lane: { ...source, completionMode: 'structured' },
+        lane: { ...source, onEnterPrompt: 'Do the lane work' },
       });
       attachRootSession(run.id, worker.id);
       supersedeRunForCard(card.id, 'manual_move');

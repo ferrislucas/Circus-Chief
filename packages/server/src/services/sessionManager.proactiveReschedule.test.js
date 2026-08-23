@@ -304,8 +304,8 @@ describe('sessionManager - Proactive Rescheduling', () => {
 
       const result = await continueSession(session.id, 'Continue', tempDir);
 
-      // Function should return undefined (early return after reschedule)
-      expect(result).toBeUndefined();
+      // The provider handoff was accepted even though the turn rescheduled.
+      expect(result).toEqual({ started: true, sessionId: session.id });
       expect(mockSchedulerService.rescheduleSession).toHaveBeenCalled();
     });
   });
@@ -384,9 +384,9 @@ describe('sessionManager - Proactive Rescheduling', () => {
         outputTokens: 35000,
       });
 
-      // The session exists, so this should proceed normally
+      // The session exists, so this should proceed normally.
       const result = await continueSession(session.id, 'Continue', tempDir);
-      expect(result).toBeUndefined();
+      expect(result).toEqual({ started: true, sessionId: session.id });
     });
   });
 

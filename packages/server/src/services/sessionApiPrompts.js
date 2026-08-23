@@ -112,6 +112,21 @@ ${buildSessionCrudOps(apiUrl, projectId, sessionId, workspaceId)}
 ${buildProjectOps(apiUrl, sessionId)}`;
 }
 
+function buildLaneContext(projectId) {
+  const board = kanbanBoards.getByProjectId(projectId);
+  if (!board) {
+    return '';
+  }
+
+  const lanes = kanbanLanes.getByBoardId(board.id);
+  if (!lanes?.length) {
+    return '';
+  }
+
+  const laneList = lanes.map((lane) => `  - "${lane.name}" (ID: ${lane.id})`).join('\n');
+  return `\n### Available Lanes\n${laneList}\n`;
+}
+
 /**
  * Build Kanban API instructions for system prompt.
  * @param {string} sessionId - Current session ID
@@ -125,20 +140,8 @@ export function buildKanbanApiInstructions(sessionId, projectId) {
   }
 
   const apiUrl = getApiBaseUrl();
-  // Compute the workspace id for this session — the agent uses workspace
-  // addressing for all kanban operations.
   const workspaceId = sessions.getRootSessionId(sessionId) || sessionId;
-  const board = kanbanBoards.getByProjectId(projectId);
-
-  // Get lane names for context
-  let laneContext = '';
-  if (board) {
-    const lanes = kanbanLanes.getByBoardId(board.id);
-    if (lanes && lanes.length > 0) {
-      const laneList = lanes.map((l) => `  - "${l.name}" (ID: ${l.id})`).join('\n');
-      laneContext = `\n### Available Lanes\n${laneList}\n`;
-    }
-  }
+  const laneContext = buildLaneContext(projectId);
 
   return `## Kanban Board API
 
@@ -188,6 +191,20 @@ curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${wo
   -H "Content-Type: application/json" \\
   -d '{"targetLaneId": "<lane_id>"}'
 \`\`\`
+### Choose the Pending Exit for an Automated Card
+When this workspace's card has an active automated lane run, any session in this
+project can choose the lane it lands in on successful completion instead of the
+lane's default target:
+\`\`\`bash
+curl -X PUT ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/exit-lane \\
+  -H "Content-Type: application/json" \\
+  -d '{"laneId": "<lane_id>"}'
+\`\`\`
+This does **not** move the card now or interrupt the active run. The card stays
+where it is until the run's work (and any child work) completes successfully; a
+failed or cancelled run discards the declaration. Declarations are shared
+workflow control: the last valid declaration replaces any earlier pending exit.
+Use the move endpoint above only when you want the card to move immediately.
 
 ### Remove a Card from the Board
 \`\`\`bash

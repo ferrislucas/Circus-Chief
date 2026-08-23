@@ -7,6 +7,7 @@ import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 import { DatabaseManager } from './DatabaseManager.js';
 import { allMigrations } from './migrations/index.js';
 import { seedBaselineData } from './seedBaselineData.js';
+import { ACTIVITY_TRIGGER_CREATE_DDL, ACTIVITY_TRIGGER_NAMES } from './migrations/activityTriggers.js';
 
 function withDb(fn) {
   const manager = new DatabaseManager();
@@ -30,7 +31,30 @@ function indexColumns(db, indexName) {
   return db.prepare(`PRAGMA index_info(${indexName})`).all().map((row) => row.name);
 }
 
+function activityTriggerSql(db) {
+  const placeholders = ACTIVITY_TRIGGER_NAMES.map(() => '?').join(', ');
+  return db.prepare(`SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND name IN (${placeholders}) ORDER BY name`)
+    .all(...ACTIVITY_TRIGGER_NAMES);
+}
+
 describe('schema baseline', () => {
+  it('keeps fresh-schema activity triggers identical to the migration definitions', () => {
+    const schema = readFileSync(new URL('../schema.sql', import.meta.url), 'utf-8');
+    const fresh = new Database(':memory:');
+    const migrated = new Database(':memory:');
+    try {
+      fresh.exec(schema);
+      migrated.exec(schema);
+      migrated.exec(ACTIVITY_TRIGGER_NAMES.map(name => `DROP TRIGGER ${name}`).join(';'));
+      migrated.exec(`${ACTIVITY_TRIGGER_CREATE_DDL.join(';')};`);
+      expect(activityTriggerSql(fresh)).toHaveLength(ACTIVITY_TRIGGER_NAMES.length);
+      expect(activityTriggerSql(migrated)).toEqual(activityTriggerSql(fresh));
+    } finally {
+      fresh.close();
+      migrated.close();
+    }
+  });
+
   it('initializes a fresh in-memory database', () => {
     withDb((db) => {
       expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'sessions'").get()).toBeTruthy();
@@ -72,9 +96,9 @@ describe('schema baseline', () => {
         'max_reschedule_count', 'max_total_tokens', 'reschedule_count',
         'reschedule_at_token_count', 'pending_prompt', 'slash_commands',
         'pending_model', 'auto_send_pending_prompt', 'agent_type',
-        'lane_trigger_depth', 'lane_run_id', 'own_work_state',
+        'lane_run_id', 'own_work_state',
         'own_work_closed_at', 'workflow_updated_at', 'workflow_reason',
-        'execution_state', 'subtree_outcome',
+        'execution_state', 'subtree_outcome', 'last_activity_at',
         'created_at', 'updated_at', 'pending_conversation_id',
       ]);
     });
@@ -132,7 +156,8 @@ describe('schema baseline', () => {
       expect(columnNames(db, 'conversations')).toEqual(expect.arrayContaining(['model', 'parent_conversation_id', 'branch_from_message_id']));
       expect(columnNames(db, 'session_summaries')).toEqual(expect.arrayContaining(['last_summarized_message_id', 'workflow_fingerprint']));
       expect(columnNames(db, 'message_attachments')).toEqual(expect.arrayContaining(['file_path']));
-      expect(columnNames(db, 'kanban_lanes')).toEqual(expect.arrayContaining(['on_enter_reschedule_delay_minutes', 'completion_target_lane_id', 'completion_mode']));
+      expect(columnNames(db, 'kanban_lanes')).toEqual(expect.arrayContaining(['on_enter_reschedule_delay_minutes', 'completion_target_lane_id']));
+      expect(columnNames(db, 'kanban_lanes')).not.toContain('completion_mode');
       expect(columnNames(db, 'kanban_cards')).toEqual(expect.arrayContaining(['active_lane_run_id', 'lane_entry_event_id']));
     });
   });
@@ -152,7 +177,7 @@ describe('schema baseline', () => {
       expect(byName.get('on_enter_max_total_tokens')).toBeTruthy();
       expect(byName.get('on_enter_reschedule_at_token_count')).toBeTruthy();
       expect(byName.get('completion_target_lane_id')).toBeTruthy();
-      expect(byName.get('completion_mode').dflt_value).toBe("'legacy'");
+      expect(byName.has('completion_mode')).toBe(false);
     });
   });
 
@@ -213,7 +238,7 @@ describe('schema baseline', () => {
       for (const indexName of [
         'idx_sessions_project', 'idx_sessions_status', 'idx_sessions_archived',
         'idx_sessions_next_template', 'idx_sessions_parent', 'idx_messages_conversation',
-        'idx_sessions_lane_run', 'idx_lane_entry_recovery', 'idx_lane_runs_card_status',
+        'idx_sessions_lane_run', 'idx_lane_entry_recovery', 'idx_lane_entry_health_status_created', 'idx_lane_runs_card_status',
         'idx_canvas_deleted', 'idx_todos_conversation', 'idx_project_defaults_projectId',
         'idx_conversations_parent', 'idx_agent_call_logs_agent_type',
         'idx_agent_call_logs_call_type', 'idx_agent_call_logs_status',
@@ -221,6 +246,61 @@ describe('schema baseline', () => {
       ]) {
         expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get(indexName)).toBeTruthy();
       }
+    });
+  });
+
+  it('maintains sessions.last_activity_at via triggers as activity happens', () => {
+    withDb((db) => {
+      expect(columnNames(db, 'sessions')).toContain('last_activity_at');
+
+      const now = Date.now();
+      db.prepare(
+        `INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`
+      ).run('project-activity', 'Project', '/tmp', now, now);
+      db.prepare(
+        `INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+      ).run('session-activity', 'project-activity', 'Session', 'stopped', now, now);
+
+      expect(db.prepare('SELECT last_activity_at FROM sessions WHERE id = ?').get('session-activity').last_activity_at)
+        .toBeNull();
+
+      db.prepare(
+        `INSERT INTO conversation_messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)`
+      ).run('message-activity', 'session-activity', 'user', 'hi', now + 1000);
+
+      expect(db.prepare('SELECT last_activity_at FROM sessions WHERE id = ?').get('session-activity').last_activity_at)
+        .toBe(now + 1000);
+
+      db.prepare(
+        `INSERT INTO command_buttons (id, project_id, label, command, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+      ).run('button-activity', 'project-activity', 'Run', 'echo hi', now, now);
+      db.prepare(
+        `INSERT INTO command_runs (id, session_id, button_id, status, output, started_at) VALUES (?, ?, ?, 'running', '', ?)`
+      ).run('run-activity', 'session-activity', 'button-activity', now + 2000);
+
+      expect(db.prepare('SELECT last_activity_at FROM sessions WHERE id = ?').get('session-activity').last_activity_at)
+        .toBe(now + 2000);
+
+      // An earlier timestamp must never regress the stored high-water mark.
+      db.prepare(
+        `INSERT INTO conversation_messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)`
+      ).run('message-activity-earlier', 'session-activity', 'user', 'earlier', now);
+
+      expect(db.prepare('SELECT last_activity_at FROM sessions WHERE id = ?').get('session-activity').last_activity_at)
+        .toBe(now + 2000);
+
+      db.prepare(`UPDATE command_runs SET status = 'success', exit_code = 0, completed_at = ? WHERE id = ?`)
+        .run(now + 3000, 'run-activity');
+
+      expect(db.prepare('SELECT last_activity_at FROM sessions WHERE id = ?').get('session-activity').last_activity_at)
+        .toBe(now + 3000);
+
+      db.prepare(`INSERT INTO session_summaries
+        (id, session_id, short_summary, full_summary, generated_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)`)
+        .run('summary-activity', 'session-activity', 'summary', 'summary', now + 4000, now + 4000);
+      expect(db.prepare('SELECT last_activity_at FROM sessions WHERE id = ?').get('session-activity').last_activity_at)
+        .toBe(now + 4000);
     });
   });
 

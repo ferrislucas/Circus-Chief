@@ -7,6 +7,9 @@ import {
   kanbanBoards,
   kanbanLanes,
   kanbanCards,
+  commandButtons,
+  commandRuns,
+  databaseManager,
 } from '../database.js';
 
 // Mock websocket before importing the router
@@ -20,13 +23,24 @@ vi.mock('../services/kanbanService.js', async (importOriginal) => {
   return {
     ...actual,
     moveCard: vi.fn(),
+    // Default to the real implementation so existing POST /cards tests stay
+    // behavioral; individual tests can mockRejectedValueOnce over it.
+    addSessionToBoard: vi.fn(actual.addSessionToBoard),
   };
 });
 
 import kanbanRouter from './kanban.js';
 import { broadcastToProject } from '../websocket.js';
-import { moveCard as moveCardService } from '../services/kanbanService.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { moveCard as moveCardService, addSessionToBoard as addSessionToBoardService } from '../services/kanbanService.js';
+import { ApiError } from '../errors/ApiError.js';
+import {
+  attachRootSession,
+  createLaneRunForEntry,
+  getRun,
+} from '../services/workflowSessionService.js';
+import {
+  WS_MESSAGE_TYPES,
+} from '@circuschief/shared';
 
 describe('Kanban API', () => {
   let app;
@@ -63,6 +77,105 @@ describe('Kanban API', () => {
     });
   }
 
+  describe('Idempotency-Key validation', () => {
+    it.each([
+      ['', 'an empty key'],
+      ['   ', 'a whitespace-only key'],
+      ['contains space', 'a key containing whitespace'],
+      ['x'.repeat(256), 'an overlong key'],
+    ])('rejects %s before a card mutation (%s)', async (key) => {
+      const { lanes: boardLanes } = setupBoard();
+      const session = createSession();
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send({ workspaceId: session.id, laneId: boardLanes[0].id });
+
+      expect(res.status).toBe(400);
+      expect(kanbanCards.getBySessionId(session.id)).toBeNull();
+    });
+
+    it('replays the original 201 response byte-for-byte for a completed card add', async () => {
+      const { lanes: boardLanes } = setupBoard();
+      const session = createSession();
+      const key = 'card-add-replay';
+      const body = { workspaceId: session.id, laneId: boardLanes[0].id };
+
+      const first = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send(body);
+      const replay = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send(body);
+
+      expect(first.status).toBe(201);
+      expect(replay.status).toBe(201);
+      expect(replay.text).toBe(first.text);
+      expect(kanbanCards.getBySessionId(session.id)).toMatchObject({ id: first.body.id });
+    });
+
+    it('rejects reuse of a key with a different payload without another mutation', async () => {
+      const { lanes: boardLanes } = setupBoard();
+      const firstSession = createSession('First');
+      const secondSession = createSession('Second');
+      const key = 'card-add-conflict';
+
+      await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send({ workspaceId: firstSession.id, laneId: boardLanes[0].id });
+      const conflict = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send({ workspaceId: secondSession.id, laneId: boardLanes[0].id });
+
+      expect(conflict.status).toBe(409);
+      expect(kanbanCards.getBySessionId(secondSession.id)).toBeNull();
+    });
+
+    it('accepts a 255-character key and preserves legacy behavior without a key', async () => {
+      const { lanes: boardLanes } = setupBoard();
+      const keyedSession = createSession('Keyed Session');
+      const legacySession = createSession('Legacy Session');
+
+      const keyed = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', 'k'.repeat(255))
+        .send({ workspaceId: keyedSession.id, laneId: boardLanes[0].id });
+      const legacy = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .send({ workspaceId: legacySession.id, laneId: boardLanes[0].id });
+
+      expect(keyed.status).toBe(201);
+      expect(keyed.body.operationId).toEqual(expect.any(String));
+      expect(legacy.status).toBe(201);
+      expect(legacy.body.operationId).toBeUndefined();
+    });
+
+    it('persists and canonically replays a terminal business error', async () => {
+      const { lanes: boardLanes } = setupBoard();
+      const session = createSession();
+      kanbanCards.create(boardLanes[0].id, session.id);
+      const body = { workspaceId: session.id, laneId: boardLanes[0].id };
+
+      const first = await request(app).post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', 'existing-card').send(body);
+      databaseManager.get().prepare(`UPDATE kanban_api_operations SET lease_expires_at=0
+        WHERE project_id=? AND operation_key=?`).run(projectId, 'existing-card');
+      const replay = await request(app).post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', 'existing-card').send(body);
+
+      expect(first.status).toBe(409);
+      expect(replay.status).toBe(409);
+      expect(replay.text).toBe(first.text);
+      expect(databaseManager.get().prepare(`SELECT status FROM kanban_api_operations
+        WHERE project_id=? AND operation_key=?`).get(projectId, 'existing-card').status).toBe('completed');
+    });
+  });
+
   // ============== Board Endpoints ==============
 
   describe('GET /api/projects/:projectId/kanban', () => {
@@ -80,6 +193,45 @@ describe('Kanban API', () => {
       expect(res.body.lanes[0].cards).toHaveLength(1);
     });
 
+    it('attaches latestCommandRuns to card sessions', async () => {
+      setupBoard();
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+
+      const button = commandButtons.create({
+        projectId,
+        label: 'Lint',
+        command: 'yarn lint',
+        showOnList: true,
+      });
+      const runId = `run-${Date.now()}`;
+      commandRuns.create({ id: runId, sessionId: session.id, buttonId: button.id });
+      commandRuns.complete(runId, 0, 'done');
+
+      const res = await request(app).get(`/api/projects/${projectId}/kanban`);
+
+      expect(res.status).toBe(200);
+      const boardSession = res.body.lanes[0].cards[0].sessions[0];
+      expect(boardSession.latestCommandRuns).toHaveLength(1);
+      expect(boardSession.latestCommandRuns[0]).toMatchObject({
+        buttonId: button.id,
+        status: 'success',
+        exitCode: 0,
+        runId,
+      });
+    });
+
+    it('returns an empty latestCommandRuns array for sessions without runs', async () => {
+      setupBoard();
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+
+      const res = await request(app).get(`/api/projects/${projectId}/kanban`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.lanes[0].cards[0].sessions[0].latestCommandRuns).toEqual([]);
+    });
+
     it('auto-creates board on first access', async () => {
       const res = await request(app).get(`/api/projects/${projectId}/kanban`);
 
@@ -93,6 +245,32 @@ describe('Kanban API', () => {
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Project not found');
+    });
+  });
+
+  describe('GET /api/projects/:projectId/kanban/lane-runs/:runId', () => {
+    it('does not reveal a lane run through another project route', async () => {
+      const { lanes: projectLanes } = setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(projectLanes[0].id, session.id);
+      const runId = 'project-scoped-run';
+      databaseManager.get().prepare(`INSERT INTO kanban_lane_entry_events
+        (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,'pending',?,?)`)
+        .run('project-scoped-event', 'project-scoped-key', projectId, session.id, card.id, projectLanes[0].id, 'card_added', 1, 1);
+      databaseManager.get().prepare(`INSERT INTO kanban_lane_runs
+        (id,lane_entry_event_id,project_id,workspace_id,card_id,source_lane_id,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?, 'open', ?, ?)`)
+        .run(runId, 'project-scoped-event', projectId, session.id, card.id, projectLanes[0].id, 1, 1);
+      const otherProject = projects.create('Other project', '/tmp/other');
+
+      const own = await request(app).get(`/api/projects/${projectId}/kanban/lane-runs/${runId}`);
+      const foreign = await request(app).get(`/api/projects/${otherProject.id}/kanban/lane-runs/${runId}`);
+      const missing = await request(app).get(`/api/projects/${otherProject.id}/kanban/lane-runs/not-a-run`);
+
+      expect(own.status).toBe(200);
+      expect(foreign.status).toBe(404);
+      expect(foreign.body).toEqual(missing.body);
     });
   });
 
@@ -182,6 +360,42 @@ describe('Kanban API', () => {
 
       expect(res.status).toBe(404);
     });
+
+    it('persists a valid completion target on creation', async () => {
+      setupBoard();
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/lanes`)
+        .send({ name: 'Automated', onEnterPrompt: 'Do the work', completionTargetLaneId: lanes[0].id });
+
+      expect(res.status).toBe(201);
+      expect(res.body.completionTargetLaneId).toBe(lanes[0].id);
+    });
+
+    it('rejects a completion target from another board on creation', async () => {
+      setupBoard();
+      const otherProject = projects.create('Other Project', '/tmp/other', null);
+      const otherBoard = kanbanBoards.getOrCreateForProject(otherProject.id);
+      const otherLane = kanbanLanes.getByBoardId(otherBoard.id)[0];
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/lanes`)
+        .send({ name: 'Automated', onEnterPrompt: 'Do the work', completionTargetLaneId: otherLane.id });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Completion target lane must be on the same board');
+    });
+
+    it('rejects a nonexistent completion target on creation', async () => {
+      setupBoard();
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/lanes`)
+        .send({ name: 'Automated', onEnterPrompt: 'Do the work', completionTargetLaneId: '550e8400-e29b-41d4-a716-446655440099' });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Completion target lane not found');
+    });
   });
 
   describe('PATCH /api/projects/:projectId/kanban/lanes/:laneId', () => {
@@ -198,7 +412,9 @@ describe('Kanban API', () => {
 
     it('accepts completionTargetLaneId null', async () => {
       setupBoard();
-      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
+      // A completion target requires on-entry automation (KanbanLaneRepository
+      // hard-cutover contract).
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', completionTargetLaneId: lanes[1].id });
 
       const res = await request(app)
         .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
@@ -210,6 +426,7 @@ describe('Kanban API', () => {
 
     it('accepts completionTargetLaneId for another lane on the same board', async () => {
       setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work' });
 
       const res = await request(app)
         .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
@@ -492,6 +709,38 @@ describe('Kanban API', () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('workspaceId is required');
     });
+
+    it('returns an ApiError from card creation terminally instead of as a retryable 500', async () => {
+      setupBoard();
+      const session = createSession();
+      const key = 'api-error-card-add';
+      addSessionToBoardService.mockRejectedValueOnce(new ApiError('Session no longer owns an active lane run', {
+        status: 409, code: 'LANE_RUN_OWNERSHIP_LOST',
+      }));
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send({ workspaceId: session.id, laneId: lanes[0].id });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('Session no longer owns an active lane run');
+      expect(res.body.code).toBe('LANE_RUN_OWNERSHIP_LOST');
+
+      // Terminal, not retryable: a same-key replay returns the same response
+      // without re-running the deterministically-failing mutation.
+      const replay = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send({ workspaceId: session.id, laneId: lanes[0].id });
+      expect(replay.status).toBe(409);
+      expect(replay.body.code).toBe('LANE_RUN_OWNERSHIP_LOST');
+      expect(addSessionToBoardService).toHaveBeenCalledTimes(1);
+
+      const operation = databaseManager.get().prepare(`SELECT status FROM kanban_api_operations
+        WHERE project_id=? AND operation_key=?`).get(projectId, key);
+      expect(operation.status).toBe('completed');
+    });
   });
 
   describe('PATCH /api/projects/:projectId/kanban/cards/by-workspace/:workspaceId/move', () => {
@@ -569,7 +818,152 @@ describe('Kanban API', () => {
     });
   });
 
+  describe('PUT /api/projects/:projectId/kanban/cards/by-workspace/:workspaceId/exit-lane', () => {
+    function setupActiveRun() {
+      setupBoard();
+      const root = createSession('Root');
+      const card = kanbanCards.create(lanes[0].id, root.id);
+      const run = createLaneRunForEntry({
+        projectId,
+        workspaceId: root.id,
+        cardId: card.id,
+        lane: { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'Do the work' },
+      });
+      const worker = createChildSession(root.id, 'Lane worker');
+      attachRootSession(run.id, worker.id);
+      return { root, card, run, worker };
+    }
+
+    it('declares a deferred exit and broadcasts the active run', async () => {
+      const { root, card, run } = setupActiveRun();
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Validate the work' });
+
+      const res = await request(app)
+        .put(`/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/exit-lane`)
+        .send({ laneId: lanes[1].id });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        cardId: card.id,
+        laneRunId: run.id,
+        deferred: true,
+        chosenExitLaneId: lanes[1].id,
+        chosenExitLaneName: lanes[1].name,
+        willRunAutomation: true,
+      });
+      expect(getRun(run.id)).toEqual(expect.objectContaining({
+        chosenExitLaneId: lanes[1].id,
+      }));
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_EXIT_LANE_DECLARED,
+        expect.objectContaining({
+          projectId,
+          cardId: card.id,
+          activeLaneRun: expect.objectContaining({ id: run.id, chosenExitLaneId: lanes[1].id }),
+        })
+      );
+    });
+
+    it('normalizes a child workspace id and lets the last valid declaration replace the pending exit', async () => {
+      const { card, worker } = setupActiveRun();
+      const path = `/api/projects/${projectId}/kanban/cards/by-workspace/${worker.id}/exit-lane`;
+
+      const first = await request(app).put(path).send({ laneId: lanes[1].id });
+      const second = await request(app).put(path).send({ laneId: lanes[2].id });
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      expect(second.body.cardId).toBe(card.id);
+      expect(first.body.chosenExitLaneId).toBe(lanes[1].id);
+      expect(second.body.chosenExitLaneId).toBe(lanes[2].id);
+      expect(getRun(second.body.laneRunId).chosenExitLaneId).toBe(lanes[2].id);
+    });
+
+    it.each([
+      [{}, 400],
+      [{ laneId: 'not-a-uuid' }, 400],
+    ])('rejects an invalid request body %#', async (body, status) => {
+      const { root } = setupActiveRun();
+
+      const res = await request(app)
+        .put(`/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/exit-lane`)
+        .send(body);
+
+      expect(res.status).toBe(status);
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('rejects the source lane without changing or broadcasting the run', async () => {
+      const { root, run } = setupActiveRun();
+
+      const res = await request(app)
+        .put(`/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/exit-lane`)
+        .send({ laneId: lanes[0].id });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('KANBAN_EXIT_LANE_SAME_AS_SOURCE');
+      expect(getRun(run.id).chosenExitLaneId).toBeNull();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 when the card has no active lane run', async () => {
+      setupBoard();
+      const root = createSession('Root');
+      kanbanCards.create(lanes[0].id, root.id);
+
+      const res = await request(app)
+        .put(`/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/exit-lane`)
+        .send({ laneId: lanes[1].id });
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('KANBAN_NO_ACTIVE_LANE_RUN');
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('does not expose a workspace card through another project route', async () => {
+      const { root, run } = setupActiveRun();
+      const otherProject = projects.create('Other Project', '/tmp/other-exit-lane');
+
+      const res = await request(app)
+        .put(`/api/projects/${otherProject.id}/kanban/cards/by-workspace/${root.id}/exit-lane`)
+        .send({ laneId: lanes[1].id });
+
+      expect(res.status).toBe(404);
+      expect(getRun(run.id).chosenExitLaneId).toBeNull();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('rejects an exit lane owned by another board', async () => {
+      const { root, run } = setupActiveRun();
+      const otherProject = projects.create('Other Project', '/tmp/other-exit-board');
+      const otherBoard = kanbanBoards.create(otherProject.id);
+      const otherLane = kanbanLanes.getByBoardId(otherBoard.id)[0];
+
+      const res = await request(app)
+        .put(`/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/exit-lane`)
+        .send({ laneId: otherLane.id });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('KANBAN_EXIT_LANE_CROSS_BOARD');
+      expect(getRun(run.id).chosenExitLaneId).toBeNull();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+  });
+
   describe('DELETE /api/projects/:projectId/kanban/cards/by-workspace/:workspaceId', () => {
+    it('does not delete a workspace card through another project route', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const otherProject = projects.create('Other Project', '/tmp/other-delete');
+
+      const res = await request(app).delete(`/api/projects/${otherProject.id}/kanban/cards/by-workspace/${session.id}`);
+
+      expect(res.status).toBe(404);
+      expect(kanbanCards.getById(card.id)).not.toBeNull();
+    });
     it('removes the workspace card from the board', async () => {
       setupBoard();
       const session = createSession();
@@ -631,6 +1025,38 @@ describe('Kanban API', () => {
   });
 
   describe('PATCH /api/projects/:projectId/kanban/cards/:cardId/move', () => {
+    it('does not expose or move a card through another project route', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const otherProject = projects.create('Other Project', '/tmp/other');
+      const otherBoard = kanbanBoards.create(otherProject.id);
+      const otherLane = kanbanLanes.getByBoardId(otherBoard.id)[0];
+
+      const res = await request(app)
+        .patch(`/api/projects/${otherProject.id}/kanban/cards/${card.id}/move`)
+        .send({ targetLaneId: otherLane.id });
+
+      expect(res.status).toBe(404);
+      expect(moveCardService).not.toHaveBeenCalled();
+    });
+
+    it('rejects a target lane owned by another project', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const otherProject = projects.create('Other Project', '/tmp/other');
+      const otherBoard = kanbanBoards.create(otherProject.id);
+      const otherLane = kanbanLanes.getByBoardId(otherBoard.id)[0];
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
+        .send({ targetLaneId: otherLane.id });
+
+      expect(res.status).toBe(404);
+      expect(moveCardService).not.toHaveBeenCalled();
+    });
+
     it('delegates to moveCardService with correct arguments', async () => {
       setupBoard();
       const session = createSession();
@@ -716,11 +1142,73 @@ describe('Kanban API', () => {
         .send({ targetLaneId: lanes[1].id });
 
       expect(res.status).toBe(500);
-      expect(res.body.error).toBe('Service failure');
+      expect(res.body.error).toMatch(/^The operation could not be completed\. Please try again\. Reference ID: [\w-]+$/);
+    });
+
+    it('retries a keyed service failure instead of terminally caching its 500 response', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const key = 'retryable-service-failure';
+      moveCardService.mockRejectedValueOnce(new Error('Service failure'))
+        .mockImplementationOnce(async (_cardId, _targetLaneId, options) => (
+          options.finalizeMutation({ card: { ...card, laneId: lanes[1].id }, eventId: null })
+        ));
+
+      const first = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
+        .set('Idempotency-Key', key)
+        .send({ targetLaneId: lanes[1].id });
+      const retry = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
+        .set('Idempotency-Key', key)
+        .send({ targetLaneId: lanes[1].id });
+      const operation = databaseManager.get().prepare(`SELECT status, lease_expires_at, terminal_error, attempt_count
+        FROM kanban_api_operations WHERE project_id=? AND operation_key=?`)
+        .get(projectId, key);
+
+      expect(first.status).toBe(500);
+      expect(first.body).toEqual(expect.objectContaining({ error: expect.stringMatching(/^The operation could not be completed\. Please try again\. Reference ID: [\w-]+$/) }));
+      expect(retry.status).toBe(200);
+      expect(retry.body.operationId).toBe(first.body.operationId);
+      expect(moveCardService).toHaveBeenCalledTimes(2);
+      expect(operation).toEqual(expect.objectContaining({ status: 'completed', lease_expires_at: null, attempt_count: 2 }));
+      expect(operation.terminal_error).toMatch(/^The operation could not be completed\. Please try again\. Reference ID: [\w-]+$/);
+    });
+
+    it('returns the service failure when its operation lease is lost in the catch path', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const key = 'lost-failure-lease';
+      moveCardService.mockImplementationOnce(async () => {
+        databaseManager.get().prepare(`UPDATE kanban_api_operations SET owner_token='another-owner'
+          WHERE project_id=? AND operation_key=?`).run(projectId, key);
+        throw new Error('Service failure');
+      });
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
+        .set('Idempotency-Key', key)
+        .send({ targetLaneId: lanes[1].id });
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toMatch(/^The operation could not be completed\. Please try again\. Reference ID: [\w-]+$/);
     });
   });
 
   describe('DELETE /api/projects/:projectId/kanban/cards/:cardId', () => {
+    it('does not delete a card through another project route', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const otherProject = projects.create('Other Project', '/tmp/other-card-delete');
+
+      const res = await request(app).delete(`/api/projects/${otherProject.id}/kanban/cards/${card.id}`);
+
+      expect(res.status).toBe(404);
+      expect(kanbanCards.getById(card.id)).not.toBeNull();
+    });
     it('removes a card from the board', async () => {
       setupBoard();
       const session = createSession();
@@ -766,6 +1254,18 @@ describe('Kanban API', () => {
   });
 
   describe('PUT /api/projects/:projectId/kanban/lanes/:laneId/cards/reorder', () => {
+    it('does not reorder a lane through another project route', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const otherProject = projects.create('Other Project', '/tmp/other-reorder');
+
+      const res = await request(app)
+        .put(`/api/projects/${otherProject.id}/kanban/lanes/${lanes[0].id}/cards/reorder`)
+        .send([card.id]);
+
+      expect(res.status).toBe(404);
+    });
     it('reorders cards within a lane', async () => {
       setupBoard();
       const s1 = createSession('S1');

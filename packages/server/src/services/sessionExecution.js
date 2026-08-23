@@ -1,12 +1,12 @@
 import { sessions, messages, attachments, conversations } from '../database.js';
-import { createCodexSpawner } from './codexSpawnHelper.js';
-import { createGeminiSpawner } from './geminiSpawnHelper.js';
 import { resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
 import { reconcileAgentTypeForRun, deriveAgentTypeUpdate } from './sessionAgentGuard.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
 import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
 import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
+import { buildAgentConfig, buildAgentEnv } from './sessionAgentConfig.js';
+export { buildAgentEnv } from './sessionAgentConfig.js';
 export { buildQueryParams } from './queryParamBuilder.js';
 import { buildQueryParams } from './queryParamBuilder.js';
 import {
@@ -27,39 +27,13 @@ import { buildConversationContextForModelSwitch, buildConversationContextForCont
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState, markHeldForLimit } from './workflowSessionService.js';
+import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState, markHeldForLimit, activeLaneRunOwnsSession } from './workflowSessionService.js';
+import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
 // sessionExecution), safe because this is only called at runtime inside
 // _executeSession, long after the module graph is loaded (same pattern as
 // session-helpers.js's database.js <-> SessionRepository cycle).
 import { drainLaneEntryTrigger } from './kanbanService.js';
-
-/**
- * Build the adapter-specific default config object for
- * {@link createAgentForSession}. Callers may pass an explicit `config` to
- * override these defaults.
- * @param {string} agentType
- * @returns {Object}
- */
-function buildAgentConfig(agentType) {
-  if (agentType === 'codex') {
-    return { spawnCodexProcess: createCodexSpawner() };
-  }
-  if (agentType === 'gemini') {
-    return { spawnGeminiProcess: createGeminiSpawner() };
-  }
-  return {};
-}
-
-export function buildAgentEnv(sessionEnv, commitAttributionOverride) {
-  const env = { ...(sessionEnv || {}) };
-  if (commitAttributionOverride) {
-    env.CIRCUSCHIEF_COMMIT_ATTRIBUTION = commitAttributionOverride;
-  } else {
-    delete env.CIRCUSCHIEF_COMMIT_ATTRIBUTION;
-  }
-  return env;
-}
 
 async function resolveInitialSessionModelEnv(session, model) {
   const effectiveModel = model || session.model;
@@ -78,7 +52,6 @@ async function resolveInitialSessionModelEnv(session, model) {
     commitAttributionOverride,
   };
 }
-
 /**
  * Create the agent for a session, using gateway + logging + VCR.
  *
@@ -102,9 +75,7 @@ export function createAgentForSession(agentType = 'claude-code', config = {}) {
   // Always wrap with logging
   return new LoggingAgentWrapper(agent);
 }
-
-/**
- * Execute the agent stream loop and handle post-turn completion, errors, and cleanup.
+/** Execute the agent stream loop and handle post-turn completion, errors, and cleanup.
  * This is the shared core of runSession, continueSession, and continueSessionWithExistingMessage.
  * @param {Object} options
  * @param {string} options.sessionId - Session ID
@@ -119,6 +90,7 @@ export function createAgentForSession(agentType = 'claude-code', config = {}) {
  * @param {boolean} [options.broadcastConversationStateOnError] - Whether to broadcast conversation state on error
  * @param {string} [options.errorLabel] - Label for error logging
  */
+// eslint-disable-next-line max-statements, complexity -- lifecycle boundaries must remain adjacent.
 export async function _executeSession({
   sessionId,
   agent,
@@ -132,26 +104,29 @@ export async function _executeSession({
   errorLabel = 'Session error',
 }) {
   const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded } = callbacks; const workflowTurn = beginWorkflowTurn(sessionId);
+  // Last ownership fence before the irreversible provider call.
+  if (!interactive && !workflowTurn && !activeLaneRunOwnsSession(sessionId)) {
+    cleanupSessionState(sessionId, cleanupConversationId, controller);
+    return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
+  }
   try {
     // Run the query with the agent (SDK via gateway, or mock)
     for await (const event of agent.execute(queryParams, agentCallMeta)) {
       if (controller.signal.aborted) break;
-
       await handleStreamEvent(sessionId, event);
     }
     // Handle post-turn completion (work log association, status transition, summary, etc.)
     const { wasRescheduled, heldForLimit } = await handleTurnCompletion(
       sessionId,
       workingDirectory,
-      { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded }
+      { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded },
+      { controller },
     );
     // FR-4/FR-5: a self-scheduled continuation is an open obligation, not success.
     if (wasRescheduled) { markExecutionState(sessionId, 'scheduled'); return; }
     // FR-9.8: a graceful provider limit/outage leaves the lane obligation open.
     if (heldForLimit) { markHeldForLimit(sessionId); return; }
-    // W6/FR-8: the server infers own-work completion from this successful,
-    // non-continuing turn; finish the async remainder (start the
-    // target lane's on-enter automation exactly once) if it just happened.
+    // W6/FR-8: finish target-lane automation after a successful, non-continuing turn.
     if (interactive && workflowTurn?.executionStateBeforeTurn !== 'paused') return;
     const reconciled = finalizeOwnWorkCompletion(sessionId);
     if (reconciled?.pendingTargetLaneTrigger) await drainLaneEntryTrigger(reconciled.pendingTargetLaneTrigger.laneEntryEventId);
@@ -179,10 +154,9 @@ export async function _executeSession({
     closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message);
     throw error;
   } finally {
-    cleanupSessionState(sessionId, cleanupConversationId);
+    cleanupSessionState(sessionId, cleanupConversationId, controller);
   }
 }
-
 /**
  * Build prompt with conversation context for a continuation.
  * When the model changes, we can't resume the previous session, so we include
@@ -283,11 +257,11 @@ async function buildContinueParams({
     systemPrompt,
     model: effectiveModel,
     sessionEnv,
+    conversationId: activeConversation.id,
     resumeSessionId: canResume ? activeConversation.claudeSessionId : null,
     agentType,
     commitAttributionOverride,
   });
-
   // Logging metadata for agent call tracking
   const agentCallMeta = {
     sessionId,
@@ -352,9 +326,14 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   if (!session) {
     throw new Error('Session not found');
   }
+  // A closed lane run only blocks system-owned work. Human follow-ups must
+  // remain available after a workflow completes or a card is manually moved.
+  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
+    return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
+  }
 
   const controller = new AbortController();
-  activeSessions.set(sessionId, { controller });
+  activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
 
   // Ensure there's an active conversation and create the user message
   const { activeConversation, promptWithAttachments } = await setupConversationAndMessage(
@@ -384,8 +363,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     modelChanged: modelEnv.modelChanged, activeConversation, promptWithAttachments,
     workingDirectory, controller, agentType, agent,
   });
-
-  await _executeSession({
+  const execution = await _executeSession({
     sessionId,
     agent,
     queryParams,
@@ -398,6 +376,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     interactive,
     errorLabel: 'Continue session error',
   });
+  return execution || startedSessionExecution(sessionId);
 }
 
 /**
@@ -409,14 +388,20 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
  * @param {Object} [config.options] - Session options (systemPrompt, fileAttachments, model)
  * @param {Object} config.callbacks - Callback functions from sessionManager
  */
+// eslint-disable-next-line max-statements, complexity -- initial execution validation and lifecycle intentionally remain linear
 export async function runSessionCore(sessionId, prompt, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
-  const { systemPrompt = null, fileAttachments = [], model = null } = options;
-  const controller = new AbortController();
-  activeSessions.set(sessionId, { controller });
-
+  const { systemPrompt = null, fileAttachments = [], model = null, interactive = false,
+    abortController = null } = options;
   // Get session for settings
   let session = sessions.getById(sessionId);
+  if (!session) throw new Error('Session not found');
+  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
+    return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
+  }
+  const controller = abortController || new AbortController();
+  if (controller.signal.aborted) return rejectedSessionExecution(sessionId, 'dispatch_aborted');
+  activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
 
   // Get the active conversation for this session (created in SessionRepository.create)
   const activeConversation = conversations.ensureActiveConversation(sessionId);
@@ -458,14 +443,12 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     systemPrompt,
     model: effectiveModel,
     sessionEnv,
+    conversationId: activeConversation.id,
     agentType,
     commitAttributionOverride,
   });
 
-  // Log query params for debugging third-party provider issues
   console.log(`[SessionManager] runSession: model=${queryParams.options?.model || '[default]'} baseUrl=${queryParams.options?.env?.ANTHROPIC_BASE_URL || '[not set]'}`);
-
-  // Logging metadata for agent call tracking
   const agentCallMeta = {
     sessionId,
     conversationId: activeConversation.id,
@@ -476,7 +459,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     promptLength: promptWithAttachments.length,
   };
 
-  await _executeSession({
+  return _executeSession({
     sessionId,
     agent,
     queryParams,
@@ -485,5 +468,5 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     workingDirectory,
     callbacks,
     errorLabel: 'Session error',
-  });
+  }).then((execution) => execution || startedSessionExecution(sessionId));
 }

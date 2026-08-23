@@ -61,6 +61,13 @@ describe('ModeSelector', () => {
       expect(options[1].element.value).toBe('standard');
       expect(options[2].element.value).toBe('yolo');
     });
+
+    it('describes the active mode’s permission behavior', async () => {
+      const wrapper = mountComponent({ modelValue: 'standard' });
+      expect(wrapper.get('select').attributes('title')).toBe('Requests approval for each gated tool');
+      await wrapper.get('select').setValue('yolo');
+      expect(wrapper.get('select').attributes('title')).toBe('Automatically approves tool use');
+    });
   });
 
   describe('selected state', () => {

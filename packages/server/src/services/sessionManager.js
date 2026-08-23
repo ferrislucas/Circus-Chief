@@ -5,7 +5,8 @@ import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
-import { closeOwnWork } from './workflowSessionService.js';
+import { activeLaneRunOwnsSession, closeOwnWork } from './workflowSessionService.js';
+import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 import {
   shouldRescheduleOnError,
   _checkProactiveReschedule,
@@ -27,6 +28,7 @@ import {
   cleanupSessionState,
   broadcastSessionStatus,
 } from './streamEventHandler.js';
+import { cancelPrompt } from './promptStore.js';
 // Import execution helpers from sessionExecution.js
 import {
   createAgentForSession,
@@ -166,7 +168,7 @@ export async function handleAutoSendIfNeeded(sessionId) {
  */
 export async function runSession(sessionId, prompt, workingDirectory, options = {}) {
   // Delegate to sessionExecution.js, passing callbacks to avoid circular imports
-  await runSessionCore(sessionId, prompt, workingDirectory, {
+  return runSessionCore(sessionId, prompt, workingDirectory, {
     options,
     callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
   });
@@ -181,7 +183,7 @@ export async function runSession(sessionId, prompt, workingDirectory, options = 
  */
 export async function continueSession(sessionId, content, workingDirectory, options = {}) {
   // Delegate to sessionExecution.js, passing callbacks to avoid circular imports
-  await continueSessionCore(sessionId, content, workingDirectory, {
+  return continueSessionCore(sessionId, content, workingDirectory, {
     options,
     callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
   });
@@ -294,6 +296,7 @@ function buildExistingMessageQueryParams({
     systemPrompt,
     model: effectiveModel,
     sessionEnv,
+    conversationId,
     resumeSessionId: canResume ? conversation.claudeSessionId : null,
   });
 
@@ -312,13 +315,18 @@ function buildExistingMessageQueryParams({
 }
 
 export async function continueSessionWithExistingMessage(sessionId, conversationId, workingDirectory, options = {}) {
-  const { systemPrompt = null, model = null } = options;
+  const { systemPrompt = null, model = null, interactive = false } = options;
   const context = validateAndFetchContinueContext(sessionId, conversationId);
   let session = context.session;
   const { conversation, lastUserMessage } = context;
 
+  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
+    return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
+  }
+
   const controller = new AbortController();
-  activeSessions.set(sessionId, { controller });
+  const startedAt = Date.now();
+  activeSessions.set(sessionId, { controller, turnStartedAt: startedAt, lastEventAt: startedAt });
 
   // Make sure this conversation is active
   if (!conversation.isActive) {
@@ -346,7 +354,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     lastUserMessage, workingDirectory, controller, agentType, agent,
   });
 
-  await _executeSession({
+  const execution = await _executeSession({
     sessionId,
     agent,
     queryParams,
@@ -356,6 +364,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
     errorLabel: 'Continue session with existing message error',
   });
+  return execution || startedSessionExecution(sessionId);
 }
 
 /**
@@ -363,6 +372,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
  * @param {string} sessionId
  */
 export async function stopSession(sessionId) {
+  cancelPrompt(sessionId);
   const sessionData = activeSessions.get(sessionId);
 
   if (sessionData) {
@@ -403,6 +413,7 @@ export function restartSession(sessionId) {
 export function cleanupActiveSession(sessionId) {
   const sessionData = activeSessions.get(sessionId);
   if (sessionData) {
+    cancelPrompt(sessionId);
     sessionData.controller.abort();
     activeSessions.delete(sessionId);
     return true;

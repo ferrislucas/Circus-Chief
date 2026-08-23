@@ -28,6 +28,7 @@ const mockTemplatesStore = {
 const mockUiStore = {
   success: vi.fn(),
   error: vi.fn(),
+  info: vi.fn(),
 };
 
 const mockProjectsStore = {
@@ -147,6 +148,7 @@ describe('LaneSettingsModal.vue', () => {
 
     mockUiStore.success = vi.fn();
     mockUiStore.error = vi.fn();
+    mockUiStore.info = vi.fn();
 
     mockProjectsStore.getProjectById = vi.fn(() => ({ workingDirectory: '/test/project' }));
 
@@ -373,6 +375,35 @@ describe('LaneSettingsModal.vue', () => {
       const saveBtn = wrapper.find('.btn-primary');
       expect(saveBtn.attributes('disabled')).toBeDefined();
     });
+
+    it('disables Save when a completion target is selected but automation is "none"', async () => {
+      const wrapper = mountModal({ lane: baseLane });
+      await wrapper.find('#completion-target-lane-select').setValue('lane-3');
+      const saveBtn = wrapper.find('.btn-primary');
+      expect(saveBtn.attributes('disabled')).toBeDefined();
+    });
+
+    it('shows an inline explanation for a target-only combination', async () => {
+      const wrapper = mountModal({ lane: baseLane });
+      expect(wrapper.find('[data-testid="target-automation-warning"]').exists()).toBe(false);
+
+      await wrapper.find('#completion-target-lane-select').setValue('lane-3');
+      expect(wrapper.find('[data-testid="target-automation-warning"]').exists()).toBe(true);
+    });
+
+    it('re-enables Save once automation is added for an existing target-only lane', async () => {
+      mockTemplatesStore.projectTemplates = [{ id: 'template-42', name: 'Test Template' }];
+      const wrapper = mountModal({
+        lane: { ...baseLane, completionTargetLaneId: 'lane-3' },
+      });
+      expect(wrapper.find('.btn-primary').attributes('disabled')).toBeDefined();
+
+      await wrapper.find('input[type="radio"][value="template"]').setValue(true);
+      await wrapper.find('#template-select').setValue('template-42');
+
+      expect(wrapper.find('.btn-primary').attributes('disabled')).toBeUndefined();
+      expect(wrapper.find('[data-testid="target-automation-warning"]').exists()).toBe(false);
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -399,8 +430,9 @@ describe('LaneSettingsModal.vue', () => {
       expect(data.completionTargetLaneId).toBeNull();
     });
 
-    it('saves the selected completion target', async () => {
-      const wrapper = mountModal({ lane: baseLane });
+    it('saves the selected completion target when automation is configured', async () => {
+      mockTemplatesStore.projectTemplates = [{ id: 'template-42', name: 'Test Template' }];
+      const wrapper = mountModal({ lane: laneWithTemplate });
       await wrapper.find('#completion-target-lane-select').setValue('lane-3');
       await wrapper.find('.btn-primary').trigger('click');
       await flushPromises();
@@ -450,6 +482,24 @@ describe('LaneSettingsModal.vue', () => {
       const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
       expect(data.onEnterTemplateId).toBe('template-42');
       expect(data.completionTargetLaneId).toBe('lane-3');
+    });
+
+    it('clears an existing completion target when the user switches automation to "none"', async () => {
+      const wrapper = mountModal({ lane: laneWithTemplate });
+      await wrapper.find('#completion-target-lane-select').setValue('lane-3');
+
+      await wrapper.find('input[type="radio"][value="none"]').setValue(true);
+      await wrapper.vm.$nextTick();
+
+      expect(mockUiStore.info).toHaveBeenCalledWith(
+        'Completion target cleared because on-entry automation was removed.'
+      );
+
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.completionTargetLaneId).toBeNull();
     });
 
     it('shows success toast on success', async () => {
@@ -606,6 +656,37 @@ describe('LaneSettingsModal.vue', () => {
       await flushPromises();
 
       expect(mockUiStore.error).toHaveBeenCalledWith('Network error');
+    });
+
+    it('surfaces the server validation error inline and keeps the modal open', async () => {
+      mockKanbanStore.updateLane = vi.fn().mockRejectedValue(
+        new Error('A completion target requires an on-entry prompt or template')
+      );
+      const wrapper = mountModal({ lane: baseLane });
+
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="save-error-banner"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="save-error-banner"]').text()).toBe(
+        'A completion target requires an on-entry prompt or template'
+      );
+      expect(wrapper.find('.modal-backdrop').exists()).toBe(true);
+    });
+
+    it('clears the inline error banner on the next successful save', async () => {
+      mockKanbanStore.updateLane = vi.fn().mockRejectedValueOnce(new Error('boom'));
+      const wrapper = mountModal({ lane: baseLane });
+
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+      expect(wrapper.find('[data-testid="save-error-banner"]').exists()).toBe(true);
+
+      mockKanbanStore.updateLane.mockResolvedValueOnce({});
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="save-error-banner"]').exists()).toBe(false);
     });
 
     it('does not emit "updated" on failure', async () => {

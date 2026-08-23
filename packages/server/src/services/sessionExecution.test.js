@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -29,6 +29,13 @@ import { SessionRepository } from '../db/SessionRepository.js';
 import { MessageRepository } from '../db/MessageRepository.js';
 import { ConversationRepository } from '../db/ConversationRepository.js';
 import { sessions, attachments, projects, modelProviders } from '../database.js';
+
+describe('session execution module boundary', () => {
+  it('does not suppress max-lines now that query parameter construction lives in its own module', () => {
+    const source = readFileSync(new URL('./sessionExecution.js', import.meta.url), 'utf8');
+    expect(source).not.toContain('eslint-disable max-lines');
+  });
+});
 
 // ── buildQueryParams ────────────────────────────────────────────────────────
 

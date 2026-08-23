@@ -61,16 +61,11 @@ vi.mock('./usageTracker.js', () => ({
   estimateTokens: vi.fn(),
 }));
 
-vi.mock('./kanbanService.js', () => ({
-  handleCompletionMove: vi.fn().mockResolvedValue(undefined),
-}));
-
 import { sessions, messages, workLogs, conversations } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import * as summaryService from './summaryService.js';
 import * as diffService from './diffService.js';
 import * as gitService from './gitService.js';
-import * as kanbanService from './kanbanService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   createWorkLog,
@@ -92,6 +87,7 @@ import {
   finalResultEvents,
   getResultEvent,
 } from './streamEventHandler.js';
+import { getPrompt, parkPrompt } from './promptStore.js';
 
 describe('streamEventHandler', () => {
   beforeEach(() => {
@@ -348,17 +344,37 @@ describe('streamEventHandler', () => {
       thinkingAccumulators.set('sess-1', 'thinking...');
       currentModels.set('sess-1', 'claude-3');
       loggedToolUseIds.set('sess-1', new Set(['tu-1']));
+      lastMessageIds.set('sess-1', 'msg-1');
+      finalResultEvents.set('sess-1', { subtype: 'success' });
+      activeConversationIds.set('sess-1', 'conv-1');
       activeSessions.set('sess-1', { controller: new AbortController() });
       finalErrorSessionIds.add('sess-1');
 
-      cleanupSessionState('sess-1');
+      cleanupSessionState('sess-1', true);
 
       expect(textAccumulators.has('sess-1')).toBe(false);
       expect(thinkingAccumulators.has('sess-1')).toBe(false);
       expect(currentModels.has('sess-1')).toBe(false);
       expect(loggedToolUseIds.has('sess-1')).toBe(false);
+      expect(lastMessageIds.has('sess-1')).toBe(false);
       expect(finalErrorSessionIds.has('sess-1')).toBe(false);
+      expect(finalResultEvents.has('sess-1')).toBe(false);
+      expect(activeConversationIds.has('sess-1')).toBe(false);
       expect(activeSessions.has('sess-1')).toBe(false);
+    });
+
+    it('settles a parked prompt before clearing its turn state', async () => {
+      const controller = new AbortController();
+      activeSessions.set('sess-1', { controller });
+      const parked = parkPrompt({
+        sessionId: 'sess-1', conversationId: 'conv-1', kind: 'permission',
+        payload: { toolName: 'Read', input: {}, displayName: 'Read' }, signal: controller.signal,
+      });
+
+      cleanupSessionState('sess-1', true, controller);
+
+      await expect(parked).resolves.toEqual({ behavior: 'deny', message: 'Session was cancelled.' });
+      expect(getPrompt('sess-1')).toBeNull();
     });
 
     it('does not clean up activeConversationIds by default', () => {
@@ -387,6 +403,70 @@ describe('streamEventHandler', () => {
 
       expect(textAccumulators.has('sess-2')).toBe(true);
       expect(activeSessions.has('sess-2')).toBe(true);
+    });
+
+    it('does not let an old execution clean up replacement execution state', () => {
+      const oldController = new AbortController();
+      const replacementController = new AbortController();
+      textAccumulators.set('sess-1', 'replacement text');
+      thinkingAccumulators.set('sess-1', 'replacement thinking');
+      currentModels.set('sess-1', 'replacement-model');
+      loggedToolUseIds.set('sess-1', new Set(['replacement-tool']));
+      finalErrorSessionIds.add('sess-1');
+      finalResultEvents.set('sess-1', { subtype: 'success' });
+      activeConversationIds.set('sess-1', 'replacement-conversation');
+      activeSessions.set('sess-1', { controller: replacementController });
+
+      const cleaned = cleanupSessionState('sess-1', true, oldController);
+
+      expect(cleaned).toBe(false);
+      expect(activeSessions.get('sess-1')?.controller).toBe(replacementController);
+      expect(textAccumulators.get('sess-1')).toBe('replacement text');
+      expect(thinkingAccumulators.get('sess-1')).toBe('replacement thinking');
+      expect(currentModels.get('sess-1')).toBe('replacement-model');
+      expect(loggedToolUseIds.get('sess-1')).toEqual(new Set(['replacement-tool']));
+      expect(finalErrorSessionIds.has('sess-1')).toBe(true);
+      expect(finalResultEvents.get('sess-1')).toEqual({ subtype: 'success' });
+      expect(activeConversationIds.get('sess-1')).toBe('replacement-conversation');
+    });
+
+    it('cleans up state when the expected controller still owns the session', () => {
+      const controller = new AbortController();
+      textAccumulators.set('sess-1', 'some text');
+      activeConversationIds.set('sess-1', 'conv-1');
+      activeSessions.set('sess-1', { controller });
+
+      const cleaned = cleanupSessionState('sess-1', true, controller);
+
+      expect(cleaned).toBe(true);
+      expect(textAccumulators.has('sess-1')).toBe(false);
+      expect(activeSessions.has('sess-1')).toBe(false);
+      expect(activeConversationIds.has('sess-1')).toBe(false);
+    });
+
+    it('still cleans up when the owner already deregistered (stopSession path)', () => {
+      const controller = new AbortController();
+      textAccumulators.set('sess-1', 'partial text');
+      thinkingAccumulators.set('sess-1', 'partial thinking');
+      currentModels.set('sess-1', 'some-model');
+      loggedToolUseIds.set('sess-1', new Set(['tool-1']));
+      finalErrorSessionIds.add('sess-1');
+      finalResultEvents.set('sess-1', { subtype: 'error' });
+      activeConversationIds.set('sess-1', 'conv-1');
+      // stopSession() removed the activeSessions entry before the turn unwound;
+      // an absent entry must not be mistaken for a live replacement execution.
+      activeSessions.delete('sess-1');
+
+      const cleaned = cleanupSessionState('sess-1', true, controller);
+
+      expect(cleaned).toBe(true);
+      expect(textAccumulators.has('sess-1')).toBe(false);
+      expect(thinkingAccumulators.has('sess-1')).toBe(false);
+      expect(currentModels.has('sess-1')).toBe(false);
+      expect(loggedToolUseIds.has('sess-1')).toBe(false);
+      expect(finalErrorSessionIds.has('sess-1')).toBe(false);
+      expect(finalResultEvents.has('sess-1')).toBe(false);
+      expect(activeConversationIds.has('sess-1')).toBe(false);
     });
   });
 
@@ -421,6 +501,42 @@ describe('streamEventHandler', () => {
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+    });
+
+    it('lands both status dimensions when an aborted turn has no recorded outcome', async () => {
+      const controller = { signal: { aborted: true } };
+      activeSessions.set('sess-1', { controller });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ status: 'running' });
+
+      await handleTurnCompletion('sess-1', '/workspace', {}, { controller });
+
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', {
+        status: 'stopped',
+        executionState: 'stopped',
+      });
+    });
+
+    it('does not let an aborted older turn stop a newer registered turn', async () => {
+      const oldController = { signal: { aborted: true } };
+      const newController = { signal: { aborted: false } };
+      activeSessions.set('sess-1', { controller: newController });
+      sessions.getById.mockReturnValue({ status: 'running' });
+
+      await handleTurnCompletion('sess-1', '/workspace', {}, { controller: oldController });
+
+      expect(sessions.update).not.toHaveBeenCalled();
+    });
+
+    it('does not let a normally-completing older turn mark a newer turn waiting', async () => {
+      const oldController = { signal: { aborted: false } };
+      const newController = { signal: { aborted: false } };
+      activeSessions.set('sess-1', { controller: newController });
+      sessions.getById.mockReturnValue({ status: 'running' });
+
+      await handleTurnCompletion('sess-1', '/workspace', {}, { controller: oldController });
+
+      expect(sessions.update).not.toHaveBeenCalled();
     });
 
     it('clears stale error when transitioning to waiting status', async () => {
@@ -479,7 +595,7 @@ describe('streamEventHandler', () => {
       expect(mockHandleTemplate).toHaveBeenCalledWith('sess-1');
     });
 
-    it('does not set waiting when session was aborted', async () => {
+    it('lands stopped, not waiting, when the session was aborted', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: true } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
 
@@ -488,7 +604,7 @@ describe('streamEventHandler', () => {
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(sessions.update).not.toHaveBeenCalled();
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'stopped', executionState: 'stopped' });
     });
 
     it('does not set waiting when session not in activeSessions', async () => {
@@ -518,45 +634,7 @@ describe('streamEventHandler', () => {
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
     });
 
-    it('calls kanban completion hooks with sessionId', async () => {
-      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
-      workLogs.associatePendingLogs.mockReturnValue(0);
-      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
-      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
-
-      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
-      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
-
-      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
-
-      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
-    });
-
-    it('does not call kanban completion hooks when session was aborted', async () => {
-      activeSessions.set('sess-1', { controller: { signal: { aborted: true } } });
-      workLogs.associatePendingLogs.mockReturnValue(0);
-
-      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
-      const mockHandleTemplate = vi.fn();
-
-      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
-
-      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
-    });
-
-    it('does not call kanban completion hooks when rescheduled', async () => {
-      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
-      workLogs.associatePendingLogs.mockReturnValue(0);
-
-      const mockCheckReschedule = vi.fn().mockResolvedValue(true);
-      const mockHandleTemplate = vi.fn();
-
-      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
-
-      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
-    });
-
-    it('calls kanban completion hooks on natural completion (no usage-limit/outage signal)', async () => {
+    it('completes the turn normally on natural completion (no usage-limit/outage signal)', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
       sessions.getById.mockReturnValue({ projectId: 'proj-1' });
@@ -571,7 +649,6 @@ describe('streamEventHandler', () => {
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
     });
 
@@ -590,12 +667,13 @@ describe('streamEventHandler', () => {
       const mockCheckReschedule = vi.fn().mockResolvedValue(false);
       const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
 
-      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+      const result = await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
+      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
     });
 
-    it('does not call kanban completion hooks when the result event carries usage-limit text, but still sets waiting', async () => {
+    it('holds completion when the result event carries usage-limit text, but still sets waiting', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
       sessions.getById.mockReturnValue({ projectId: 'proj-1' });
@@ -607,14 +685,13 @@ describe('streamEventHandler', () => {
 
       const result = await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
       expect(result).toEqual({ wasRescheduled: false, heldForLimit: true });
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
       expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
       expect(mockHandleTemplate).toHaveBeenCalledWith('sess-1');
     });
 
-    it('does not call kanban completion hooks when the result event carries service-error text, but still sets waiting', async () => {
+    it('holds completion when the result event carries service-error text, but still sets waiting', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
       sessions.getById.mockReturnValue({ projectId: 'proj-1' });
@@ -626,7 +703,6 @@ describe('streamEventHandler', () => {
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
     });
 
@@ -657,7 +733,6 @@ describe('streamEventHandler', () => {
       expect(mockCheckReschedule).toHaveBeenCalledWith('sess-1');
       expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
       // The card must not advance...
-      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
       // ...and the next-template trigger must not fire (the session was rescheduled)...
       expect(mockHandleTemplate).not.toHaveBeenCalled();
       // ...nor any other normal-completion side effect, deferred to the continued turn.
@@ -685,7 +760,6 @@ describe('streamEventHandler', () => {
       });
 
       expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
-      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
       // Unchanged legacy behavior: reschedule short-circuits before other side effects.
       expect(summaryService.extractPrUrlIfNeeded).not.toHaveBeenCalled();
       expect(summaryService.onSessionActivity).not.toHaveBeenCalled();
@@ -706,7 +780,6 @@ describe('streamEventHandler', () => {
       const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
-      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
       // The held event must have been consumed (deleted) on read.
       expect(finalResultEvents.has('sess-1')).toBe(false);
 
@@ -722,7 +795,6 @@ describe('streamEventHandler', () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
-      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
     });
 
     it('skips template trigger when auto-send fires', async () => {
@@ -862,7 +934,6 @@ describe('streamEventHandler', () => {
       expect(summaryService.onSessionActivity).not.toHaveBeenCalled();
       expect(summaryService.extractPrUrlIfNeeded).not.toHaveBeenCalled();
       expect(diffService.getChanges).not.toHaveBeenCalled();
-      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
       expect(mockCheckReschedule).not.toHaveBeenCalled();
       expect(mockAutoSend).not.toHaveBeenCalled();
       expect(mockHandleTemplate).not.toHaveBeenCalled();
@@ -898,7 +969,6 @@ describe('streamEventHandler', () => {
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
       expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
       expect(diffService.getChanges).toHaveBeenCalledWith('/workspace');
-      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
 
       // Auto-send and template trigger must NOT fire for this turn
       expect(mockAutoSend).not.toHaveBeenCalled();
@@ -951,7 +1021,6 @@ describe('streamEventHandler', () => {
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
       expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
       expect(diffService.getChanges).toHaveBeenCalledWith('/workspace');
-      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
       expect(mockAutoSend).not.toHaveBeenCalled();
       expect(mockHandleTemplate).not.toHaveBeenCalled();
     });
@@ -1833,6 +1902,23 @@ describe('streamEventHandler', () => {
 
       expect(messages.create).not.toHaveBeenCalled();
       expect(sessions.touch).not.toHaveBeenCalled();
+    });
+
+    it('renders system permission_denied events as safe, reconstructable work logs', async () => {
+      await handleStreamEvent('sess-1', {
+        type: 'system', subtype: 'permission_denied', tool_name: 'Bash',
+        message: 'Denied `curl -H "Authorization: Bearer sk-live-token" https://example.test`',
+        decision_reason: 'The command embeds a secret', decision_reason_type: 'rule', agent_id: 'worker-7',
+      });
+
+      const [, , content, metadata] = workLogs.create.mock.calls.at(-1);
+      expect(content).toContain('Permission denied for Bash');
+      expect(content).toContain('Reason type: rule');
+      expect(content).toContain('Agent: worker-7');
+      expect(content).not.toContain('sk-live-token');
+      expect(content).not.toContain('curl');
+      expect(content).not.toContain('embeds a secret');
+      expect(metadata).toEqual({ messageId: null, toolName: 'Bash' });
     });
 
     it('creates and broadcasts visible assistant messages for final result errors', async () => {

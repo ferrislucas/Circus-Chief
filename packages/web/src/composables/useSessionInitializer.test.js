@@ -8,12 +8,14 @@ import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useTemplatesStore } from '../stores/templates.js';
+import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 
 // Mock useApi
 vi.mock('./useApi.js', () => ({
   api: {
     getSessionSummary: vi.fn().mockResolvedValue(null),
     getSessionChanges: vi.fn().mockResolvedValue({ staged: '', unstaged: '', untracked: '' }),
+    getSessionPrompt: vi.fn().mockResolvedValue(null),
   },
 }));
 
@@ -50,6 +52,8 @@ vi.mock('./useWebSocket.js', () => ({
         onWorkLog: mockHandlerFactory(),
         onWorkLogsAssociated: mockHandlerFactory(),
         onThinkingPartial: mockHandlerFactory(),
+        onPrompt: mockHandlerFactory(),
+        onPromptResolved: mockHandlerFactory(),
         onCommandOutput: mockHandlerFactory(),
         onCommandComplete: mockHandlerFactory(),
         onCommandError: mockHandlerFactory(),
@@ -59,7 +63,7 @@ vi.mock('./useWebSocket.js', () => ({
     }),
   }));
 
-import { useSessionSubscription, ensureSubscribed } from './useWebSocket.js';
+import { useSessionSubscription, ensureSubscribed, useWebSocket } from './useWebSocket.js';
 
 describe('useSessionInitializer', () => {
   let pinia;
@@ -193,13 +197,13 @@ describe('useSessionInitializer', () => {
       expect(startPolling).not.toHaveBeenCalled();
     });
 
-    it('registers all 22 WebSocket handlers', async () => {
+    it('registers all 24 WebSocket handlers', async () => {
       const { initializeSession } = createInitializer();
       sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
 
       await initializeSession('session-1');
 
-      // Verify all 22 handler registration functions were called
+      // Verify all 24 handler registration functions were called
       expect(mockSubscription.onStatus).toHaveBeenCalledTimes(1);
       expect(mockSubscription.onMessage).toHaveBeenCalledTimes(1);
       expect(mockSubscription.onPartial).toHaveBeenCalledTimes(1);
@@ -218,6 +222,8 @@ describe('useSessionInitializer', () => {
       expect(mockSubscription.onWorkLog).toHaveBeenCalledTimes(1);
       expect(mockSubscription.onWorkLogsAssociated).toHaveBeenCalledTimes(1);
       expect(mockSubscription.onThinkingPartial).toHaveBeenCalledTimes(1);
+      expect(mockSubscription.onPrompt).toHaveBeenCalledTimes(1);
+      expect(mockSubscription.onPromptResolved).toHaveBeenCalledTimes(1);
       expect(mockSubscription.onCommandOutput).toHaveBeenCalledTimes(1);
       expect(mockSubscription.onCommandComplete).toHaveBeenCalledTimes(1);
       expect(mockSubscription.onCommandError).toHaveBeenCalledTimes(1);
@@ -325,6 +331,18 @@ describe('useSessionInitializer', () => {
       expect(todosStore.items).toEqual([]);
     });
 
+    it('clears the active agent prompt', async () => {
+      const promptsStore = useSessionPromptsStore();
+      const { initializeSession, cleanup } = createInitializer();
+      sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
+      promptsStore.show({ id: 'prompt-1', sessionId: 'session-1' });
+
+      await initializeSession('session-1');
+      cleanup();
+
+      expect(promptsStore.promptFor('session-1')).toBeNull();
+    });
+
     it('clears summary', async () => {
       const { initializeSession, cleanup } = createInitializer();
       sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
@@ -384,6 +402,37 @@ describe('useSessionInitializer', () => {
       expect(matches).toHaveLength(1);
       expect(matches[0].content).toBe('two');
     });
+  });
+
+  describe('WebSocket agent prompt dispatch', () => {
+    it('shows and resolves prompts from session events', async () => {
+      const promptsStore = useSessionPromptsStore();
+      const { initializeSession } = createInitializer();
+      sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
+
+      await initializeSession('session-1');
+
+      const prompt = { id: 'prompt-1', sessionId: 'session-1', question: 'Continue?' };
+      mockSubscription.onPrompt.mock.calls[0][0](prompt);
+      expect(promptsStore.promptFor('session-1')).toEqual(prompt);
+
+      mockSubscription.onPromptResolved.mock.calls[0][0]('prompt-1', 'session-1');
+      expect(promptsStore.promptFor('session-1')).toBeNull();
+    });
+  });
+
+  it('rehydrates prompts after reconnect', async () => {
+    let reconnect;
+    useWebSocket.mockReturnValue({ isConnected: { value: true }, onReconnect: vi.fn((callback) => { reconnect = callback; return () => {}; }) });
+    const promptsStore = useSessionPromptsStore();
+    vi.spyOn(promptsStore, 'hydrate').mockResolvedValue();
+    const { initializeSession } = createInitializer();
+    sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
+
+    await initializeSession('session-1');
+    await reconnect();
+
+    expect(promptsStore.hydrate).toHaveBeenCalledWith('session-1');
   });
 
   describe('re-initialization', () => {

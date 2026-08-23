@@ -34,6 +34,32 @@ describe('SessionRepository', () => {
     });
   });
 
+  describe('getRecoverableSessions', () => {
+    it('returns every matching session when cutoff is null', () => {
+      const running = repo.create(projectId, 'Running session', 'Prompt');
+      repo.update(running.id, { status: 'running' });
+
+      expect(repo.getRecoverableSessions('running', null)).toEqual([
+        expect.objectContaining({ id: running.id, status: 'running' }),
+      ]);
+    });
+
+    it('filters matching sessions by cutoff when one is provided', () => {
+      const running = repo.create(projectId, 'Running session', 'Prompt');
+      repo.update(running.id, { status: 'running' });
+
+      // Pin updated_at so the cutoff comparison is deterministic.
+      const updatedAt = 1_000_000;
+      repo.db.prepare('UPDATE sessions SET updated_at=? WHERE id=?').run(updatedAt, running.id);
+
+      expect(repo.getRecoverableSessions('running', updatedAt)).toEqual([]);
+      expect(repo.getRecoverableSessions('running', updatedAt - 1)).toEqual([]);
+      expect(repo.getRecoverableSessions('running', updatedAt + 1)).toEqual([
+        expect.objectContaining({ id: running.id }),
+      ]);
+    });
+  });
+
   describe('create', () => {
     it('creates a session with required fields', () => {
       const session = repo.create(projectId, 'Test Session', 'Initial prompt');
@@ -150,6 +176,14 @@ describe('SessionRepository', () => {
       expect(session.ownWorkState).toBe('open');
       expect(session).toHaveProperty('executionState');
       expect(session).toHaveProperty('subtreeOutcome');
+    });
+
+    it('persists aborting as a declared execution state and rejects unknown states', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+
+      expect(repo.update(session.id, { executionState: 'aborting' }).executionState).toBe('aborting');
+      expect(() => repo.update(session.id, { executionState: 'interrupting' }))
+        .toThrow('Invalid session execution state: interrupting');
     });
 
     // New options object signature tests
@@ -1560,6 +1594,100 @@ describe('SessionRepository', () => {
       // 5. Confirm the session is now returned
       const afterRepair = repo.getScheduledSessionsDue(Date.now());
       expect(afterRepair.find(s => s.id === session.id)).toBeDefined();
+    });
+  });
+
+  describe('claimScheduled', () => {
+    function createScheduledSession(overrides = {}) {
+      const session = repo.create(projectId, 'Scheduled Session', 'Original prompt', 'standard', false, null, null, 'scheduled');
+      return repo.update(session.id, {
+        scheduledAt: Date.now() - 1000,
+        pendingPrompt: 'Original prompt',
+        ...overrides,
+      });
+    }
+
+    it('claims a due scheduled session, transitioning status to starting', () => {
+      const session = createScheduledSession();
+
+      const claimed = repo.claimScheduled(session.id);
+
+      expect(claimed).not.toBeNull();
+      expect(claimed.id).toBe(session.id);
+      // The snapshot reflects the pre-claim state the caller needs downstream...
+      expect(claimed.pendingPrompt).toBe('Original prompt');
+      expect(claimed.scheduledAt).toBe(session.scheduledAt);
+      // ...while the persisted row has already moved to 'starting'.
+      const persisted = repo.getById(session.id);
+      expect(persisted.status).toBe('starting');
+    });
+
+    it('does not clear scheduledAt/pendingPrompt/pendingConversationId as part of the claim itself', () => {
+      const session = createScheduledSession();
+      const conversation = conversationRepo.create(session.id, 'Retry conversation');
+      repo.update(session.id, { pendingConversationId: conversation.id });
+
+      repo.claimScheduled(session.id);
+
+      const persisted = repo.getById(session.id);
+      expect(persisted.scheduledAt).toBe(session.scheduledAt);
+      expect(persisted.pendingPrompt).toBe('Original prompt');
+      expect(persisted.pendingConversationId).toBe(conversation.id);
+    });
+
+    it('a second claim attempt on an already-claimed session returns null (lost race)', () => {
+      const session = createScheduledSession();
+
+      const first = repo.claimScheduled(session.id);
+      const second = repo.claimScheduled(session.id);
+
+      expect(first).not.toBeNull();
+      expect(second).toBeNull();
+      // The row still reflects exactly one claim's effect.
+      expect(repo.getById(session.id).status).toBe('starting');
+    });
+
+    it('returns null for a session that is not in scheduled status', () => {
+      const session = repo.create(projectId, 'Waiting Session', 'Prompt');
+      repo.update(session.id, { status: 'waiting' });
+
+      expect(repo.claimScheduled(session.id)).toBeNull();
+    });
+
+    it('returns null for a scheduled session missing scheduledAt or pendingPrompt', () => {
+      const noScheduledAt = repo.create(projectId, 'No time', 'Prompt', 'standard', false, null, null, 'scheduled');
+      repo.update(noScheduledAt.id, { pendingPrompt: 'Prompt' });
+      expect(repo.claimScheduled(noScheduledAt.id)).toBeNull();
+
+      const noPrompt = repo.create(projectId, 'No prompt', 'Prompt', 'standard', false, null, null, 'scheduled');
+      repo.update(noPrompt.id, { scheduledAt: Date.now() - 1000 });
+      expect(repo.claimScheduled(noPrompt.id)).toBeNull();
+    });
+
+    it('returns null for an unknown session id', () => {
+      expect(repo.claimScheduled('does-not-exist')).toBeNull();
+    });
+
+    it('applies a prompt override on the returned snapshot without persisting it to the row', () => {
+      const session = createScheduledSession();
+
+      const claimed = repo.claimScheduled(session.id, { promptOverride: 'edited prompt' });
+
+      expect(claimed.pendingPrompt).toBe('edited prompt');
+      // The DB row still carries the original persisted prompt — only the
+      // caller's in-memory snapshot reflects the override, since the row's
+      // pending_prompt column is cleared later by the caller once the
+      // launch reaches its durable boundary, not by the claim itself.
+      const persisted = repo.getById(session.id);
+      expect(persisted.pendingPrompt).toBe('Original prompt');
+    });
+
+    it('ignores a blank/whitespace-only prompt override and keeps the persisted prompt', () => {
+      const session = createScheduledSession();
+
+      const claimed = repo.claimScheduled(session.id, { promptOverride: '   ' });
+
+      expect(claimed.pendingPrompt).toBe('Original prompt');
     });
   });
 
