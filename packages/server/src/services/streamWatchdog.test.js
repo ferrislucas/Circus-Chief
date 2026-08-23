@@ -6,11 +6,12 @@ vi.mock('../database.js', () => ({
 vi.mock('./streamEventHandler.js', () => ({
   activeSessions: new Map(),
   broadcastSessionStatus: vi.fn(),
+  cleanupSessionState: vi.fn(),
 }));
 vi.mock('./workflowSessionService.js', () => ({ closeOwnWork: vi.fn() }));
 
 import { sessions } from '../database.js';
-import { activeSessions, broadcastSessionStatus } from './streamEventHandler.js';
+import { activeSessions, broadcastSessionStatus, cleanupSessionState } from './streamEventHandler.js';
 import { closeOwnWork } from './workflowSessionService.js';
 import { reapWedgedTurn, runStreamWatchdog, STREAM_WATCHDOG_ABORT_GRACE_MS } from './streamWatchdog.js';
 
@@ -18,6 +19,12 @@ describe('streamWatchdog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     activeSessions.clear();
+    cleanupSessionState.mockImplementation((sessionId, _includeConversationId, controller) => {
+      const current = activeSessions.get(sessionId);
+      if (current && current.controller !== controller) return false;
+      activeSessions.delete(sessionId);
+      return true;
+    });
   });
 
   it('reaps an aborted stream after its grace period and closes its lane obligation', () => {
@@ -29,6 +36,7 @@ describe('streamWatchdog', () => {
 
     expect(runStreamWatchdog(1_000 + STREAM_WATCHDOG_ABORT_GRACE_MS)).toBe(1);
     expect(activeSessions.has('worker-1')).toBe(false);
+    expect(cleanupSessionState).toHaveBeenCalledWith('worker-1', true, controller);
     expect(sessions.update).toHaveBeenCalledWith('worker-1', { status: 'stopped', executionState: 'stopped' });
     expect(broadcastSessionStatus).toHaveBeenCalledWith('worker-1', 'stopped');
     expect(closeOwnWork).toHaveBeenCalledWith('worker-1', 'cancelled', 'provider stream wedged (watchdog)');
@@ -60,5 +68,17 @@ describe('streamWatchdog', () => {
 
     expect(reapWedgedTurn('worker-1', stale)).toBe(false);
     expect(sessions.update).not.toHaveBeenCalled();
+  });
+
+  it('does not update status or clean a replacement turn when abort starts one', () => {
+    const replacement = { controller: new AbortController() };
+    const stale = { controller: new AbortController() };
+    stale.controller.signal.addEventListener('abort', () => activeSessions.set('worker-1', replacement));
+    activeSessions.set('worker-1', stale);
+
+    expect(reapWedgedTurn('worker-1', stale)).toBe(false);
+    expect(activeSessions.get('worker-1')).toBe(replacement);
+    expect(sessions.update).not.toHaveBeenCalled();
+    expect(broadcastSessionStatus).not.toHaveBeenCalled();
   });
 });

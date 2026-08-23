@@ -14,15 +14,11 @@ export function moveCardForTransition(run, card) {
   return kanbanCards.moveToLane(card.id, targetLaneId);
 }
 
-/** Broadcast a card move. On the primary lane-run path this is reached from
- * inside finalizeOwnWorkCompletion/closeOwnWork's outer transaction, so the
- * broadcast fires on savepoint release and can precede the durable commit.
- * See the note at reconcileLaneRun in workflowSessionService.js.
- */
-export function broadcastCardTransition(run, card, movedCard) {
-  if (run.project_id) {
-    broadcastToProject(run.project_id, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
-      projectId: run.project_id, cardId: card.id, fromLaneId: card.lane_id, toLaneId: movedCard.laneId, card: movedCard,
+/** Broadcast a card move captured while its database transaction was open. */
+export function broadcastCardTransition(event) {
+  if (event?.projectId) {
+    broadcastToProject(event.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
+      projectId: event.projectId, cardId: event.cardId, fromLaneId: event.fromLaneId, toLaneId: event.toLaneId, card: event.card,
     });
   }
 }

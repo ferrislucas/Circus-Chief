@@ -87,6 +87,7 @@ import {
   finalResultEvents,
   getResultEvent,
 } from './streamEventHandler.js';
+import { getPrompt, parkPrompt } from './promptStore.js';
 
 describe('streamEventHandler', () => {
   beforeEach(() => {
@@ -343,17 +344,37 @@ describe('streamEventHandler', () => {
       thinkingAccumulators.set('sess-1', 'thinking...');
       currentModels.set('sess-1', 'claude-3');
       loggedToolUseIds.set('sess-1', new Set(['tu-1']));
+      lastMessageIds.set('sess-1', 'msg-1');
+      finalResultEvents.set('sess-1', { subtype: 'success' });
+      activeConversationIds.set('sess-1', 'conv-1');
       activeSessions.set('sess-1', { controller: new AbortController() });
       finalErrorSessionIds.add('sess-1');
 
-      cleanupSessionState('sess-1');
+      cleanupSessionState('sess-1', true);
 
       expect(textAccumulators.has('sess-1')).toBe(false);
       expect(thinkingAccumulators.has('sess-1')).toBe(false);
       expect(currentModels.has('sess-1')).toBe(false);
       expect(loggedToolUseIds.has('sess-1')).toBe(false);
+      expect(lastMessageIds.has('sess-1')).toBe(false);
       expect(finalErrorSessionIds.has('sess-1')).toBe(false);
+      expect(finalResultEvents.has('sess-1')).toBe(false);
+      expect(activeConversationIds.has('sess-1')).toBe(false);
       expect(activeSessions.has('sess-1')).toBe(false);
+    });
+
+    it('settles a parked prompt before clearing its turn state', async () => {
+      const controller = new AbortController();
+      activeSessions.set('sess-1', { controller });
+      const parked = parkPrompt({
+        sessionId: 'sess-1', conversationId: 'conv-1', kind: 'permission',
+        payload: { toolName: 'Read', input: {}, displayName: 'Read' }, signal: controller.signal,
+      });
+
+      cleanupSessionState('sess-1', true, controller);
+
+      await expect(parked).resolves.toEqual({ behavior: 'deny', message: 'Session was cancelled.' });
+      expect(getPrompt('sess-1')).toBeNull();
     });
 
     it('does not clean up activeConversationIds by default', () => {

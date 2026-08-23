@@ -548,6 +548,7 @@ export function cleanupSessionState(sessionId, includeConversationId = false, ex
   // A parked SDK callback owns a live promise. Settling it before clearing
   // execution state prevents it from surviving a completed/failed turn.
   cancelPrompt(sessionId);
+  lastMessageIds.delete(sessionId);
   textAccumulators.delete(sessionId);
   thinkingAccumulators.delete(sessionId);
   currentModels.delete(sessionId);

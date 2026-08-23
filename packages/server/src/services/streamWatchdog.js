@@ -1,5 +1,5 @@
 import { sessions } from '../database.js';
-import { activeSessions, broadcastSessionStatus } from './streamEventHandler.js';
+import { activeSessions, broadcastSessionStatus, cleanupSessionState } from './streamEventHandler.js';
 import { closeOwnWork } from './workflowSessionService.js';
 
 const positiveEnv = (name, fallback) => {
@@ -18,7 +18,10 @@ let timer = null;
 export function reapWedgedTurn(sessionId, entry, reason = 'provider stream wedged (watchdog)') {
   if (activeSessions.get(sessionId) !== entry) return false;
   entry.controller?.abort();
-  activeSessions.delete(sessionId);
+  // This settles parked SDK prompts and clears all turn-local maps. The
+  // controller fence prevents an abort listener's replacement turn from being
+  // erased.
+  if (!cleanupSessionState(sessionId, true, entry.controller)) return false;
   const session = sessions.getById(sessionId);
   if (!session) return false;
   sessions.update(sessionId, { status: 'stopped', executionState: 'stopped' });

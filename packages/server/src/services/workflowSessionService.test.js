@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('../websocket.js', () => ({ broadcastToProject: vi.fn() }));
 import { databaseManager, kanbanBoards, kanbanCards, kanbanLanes, projects, sessions } from '../database.js';
+import { broadcastToProject } from '../websocket.js';
 import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
   getRun, attachRootSession, reconcileLaneRun,
@@ -12,6 +14,7 @@ describe('workflowSessionService', () => {
   let project; let board; let source; let target; let root; let card;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     project = projects.create('Workflow project', '/tmp/workflow');
     board = kanbanBoards.create(project.id);
     [source, target] = kanbanLanes.getByBoardId(board.id);
@@ -33,6 +36,21 @@ describe('workflowSessionService', () => {
     expect(finalizeOwnWorkCompletion(worker.id, token).status).toBe('succeeded');
     expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
     expect(getRun(run.id).openCount).toBe(0);
+  });
+
+  it('broadcasts a completion card move only after the outer finalization transaction commits', () => {
+    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    attachRootSession(run.id, worker.id);
+    broadcastToProject.mockImplementation(() => {
+      expect(databaseManager.get().inTransaction).toBe(false);
+    });
+
+    finalizeOwnWorkCompletion(worker.id);
+
+    expect(broadcastToProject).toHaveBeenCalledWith(project.id, expect.any(String), expect.objectContaining({
+      cardId: card.id, fromLaneId: source.id, toLaneId: target.id,
+    }));
   });
 
   it('reports invalid target-only lanes without blocking valid-project reconciliation', () => {
@@ -354,6 +372,7 @@ describe('workflowSessionService', () => {
     expect(db.prepare('SELECT id FROM kanban_lane_runs WHERE prior_lane_run_id=?').get(run.id)).toBeUndefined();
     expect(db.prepare("SELECT id FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='transition_applied'").get(run.id))
       .toBeUndefined();
+    expect(broadcastToProject).not.toHaveBeenCalled();
   });
 
   it('does not create an orphan entry event when completion moves into an unautomated lane', () => {

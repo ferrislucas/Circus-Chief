@@ -261,7 +261,7 @@ export function beginWorkflowTurn(sessionId) {
  */
 export function finalizeOwnWorkCompletion(sessionId) {
   if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return null;
-  return databaseManager.transaction(() => {
+  const result = databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!isParticipating(s) || s.own_work_state !== 'open') return null;
     // A future schedule is an explicit continuation obligation, never success.
@@ -270,8 +270,10 @@ export function finalizeOwnWorkCompletion(sessionId) {
     db.prepare(`UPDATE sessions SET own_work_state='closed_successfully', own_work_closed_at=?,
       execution_state='idle', workflow_updated_at=? WHERE id=?`).run(time, time, sessionId);
     audit(db, s.lane_run_id, 'own_work_succeeded', { sessionId });
-    return reconcileLaneRun(s.lane_run_id);
+    return reconcileLaneRun(s.lane_run_id, { deferBroadcast: true });
   });
+  broadcastCardTransition(result?.postCommitCardTransition);
+  return result;
 }
 
 /**
@@ -360,7 +362,7 @@ export function markHeldForLimit(sessionId) {
 // W5 (FR-6/FR-7): the run-level predicate is now defined in terms of the
 // freshly recomputed root subtree_outcome, matching FR-7's literal
 // predicate table, rather than an ad hoc flat scan of all members.
-export function reconcileLaneRun(runId, { allowTransition = true } = {}) {
+export function reconcileLaneRun(runId, { allowTransition = true, deferBroadcast = false } = {}) {
   const reconciliation = databaseManager.transaction(() => {
     const db = databaseManager.get(); const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
     if (!run || run.status !== 'open') return { result: getRun(runId), shouldTransition: false };
@@ -388,18 +390,11 @@ export function reconcileLaneRun(runId, { allowTransition = true } = {}) {
     }
     return { result: getRun(runId), shouldTransition: rootOutcome === 'succeeded' };
   });
-  // attemptLaneRunTransition broadcasts after its own transaction returns. When
-  // this function is reached from finalizeOwnWorkCompletion/closeOwnWork, it is
-  // inside their outer transaction, so that "commit" is only a savepoint
-  // release and the broadcast can still precede the durable commit (see
-  // broadcastCardTransition). Hoisting the call out of this transaction is only
-  // a real-commit guarantee for the top-level recovery entry point
-  // (kanbanRecoveryService.reconcileStuckOpenRuns), which has no outer tx.
   // allowTransition=false reconciles a run (marks it terminal, releases state)
   // without ever moving its card or creating a successor run — used by boot
   // recovery, which must not mutate the board ahead of the preflight audit.
   return reconciliation.shouldTransition && allowTransition
-    ? attemptLaneRunTransition(runId)
+    ? attemptLaneRunTransition(runId, { deferBroadcast })
     : reconciliation.result;
 }
 
@@ -456,7 +451,7 @@ function createCompletionSuccessor(run, card, movedCard) {
   });
 }
 
-export function attemptLaneRunTransition(runId) {
+export function attemptLaneRunTransition(runId, { deferBroadcast = false } = {}) {
   const transition = databaseManager.transaction(() => {
     const db = databaseManager.get(); const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
     if (!run || run.status !== 'open') return { result: getRun(runId) };
@@ -483,9 +478,17 @@ export function attemptLaneRunTransition(runId) {
         laneEntryEventId: laneRun.laneEntryEventId,
       };
     }
-    return { result, run, card, movedCard };
+    const postCommitCardTransition = movedCard && {
+      projectId: run.project_id,
+      cardId: card.id,
+      fromLaneId: card.lane_id,
+      toLaneId: movedCard.laneId,
+      card: movedCard,
+    };
+    if (postCommitCardTransition) result.postCommitCardTransition = postCommitCardTransition;
+    return { result, postCommitCardTransition };
   });
-  if (transition.movedCard) broadcastCardTransition(transition.run, transition.card, transition.movedCard);
+  if (!deferBroadcast) broadcastCardTransition(transition.postCommitCardTransition);
   const { result } = transition;
   return result;
 }
