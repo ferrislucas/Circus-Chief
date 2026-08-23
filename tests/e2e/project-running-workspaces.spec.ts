@@ -47,12 +47,34 @@ function filterPill(page: Page, status: string) {
  * The `running` / `waiting` / `idle` badges are *global* project counts
  * (playwright.config.ts: fullyParallel + workers: 4 — this spec file's own
  * tests are forced serial below, but 3 other workers are running unrelated
- * spec files against the same shared DB at the same time, and plenty of
- * those legitimately hold sessions in `running`/`waiting` status for the
- * duration of their own assertions). Tests that check exact badge counts
- * must assert the *delta* this test's own seeding introduces, not an
- * absolute value, or they intermittently fail on unrelated cross-file noise.
+ * spec files against the same shared DB at the same time, and they create,
+ * delete and re-status projects throughout). That makes *any* absolute badge
+ * count unassertable — even a delta against a snapshot taken moments earlier,
+ * because another worker can seed or finish a project in between.
+ *
+ * So badge counts are asserted through an invariant that holds within a
+ * single render regardless of what the other workers are doing: with a status
+ * filter applied, the pill's badge count equals the number of project cards
+ * the list renders (projects store: `statusFacets` and `filteredProjects`
+ * partition the same array with the same predicate). The per-status semantics
+ * — e.g. that a `waiting`-status session with no pending agent input is not a
+ * "waiting" project — are asserted by which filters our own seeded project
+ * appears under, which is unaffected by other workers' projects.
  */
+async function expectPillCountMatchesFilteredList(page: Page, status: string) {
+  await expect
+    .poll(
+      async () => {
+        const badge = await filterPill(page, status).locator('.filter-count').textContent();
+        const cards = await page.locator('.project-card').count();
+        return Number(badge) === cards;
+      },
+      { timeout: LIVE_TIMEOUT }
+    )
+    .toBe(true);
+}
+
+/** Global project facets, derived from the API the same way the store does. */
 async function getStatusFacets(): Promise<{ running: number; waiting: number; idle: number }> {
   const projects = await getProjects();
   let running = 0;
@@ -209,8 +231,6 @@ test.describe('Project list embedded session cards', () => {
   });
 
   test('renders filter pills with correct badge counts and filters the list', async ({ page }) => {
-    const before = await getStatusFacets();
-
     const runningProject = await seedProject('rw-filter-running', '/tmp');
     const waitingProject = await seedProject('rw-filter-waiting', '/tmp');
     const idleProject = await seedProject('rw-filter-idle', '/tmp');
@@ -225,29 +245,29 @@ test.describe('Project list embedded session cards', () => {
 
     await page.goto('/');
 
-    // Badge counts are *global* project counts (RQ §9.6), so assert the
-    // delta this test's own seeding introduces — one more running and two
-    // more idle. A status='waiting' session is idle unless it has
-    // pending_agent_input. See
-    // getStatusFacets() for why.
+    // Badge counts are *global* project counts (RQ §9.6), so each pill's count
+    // is asserted against the list it filters to rather than an absolute
+    // number — see expectPillCountMatchesFilteredList(). A status='waiting'
+    // session is idle unless it has pending_agent_input, which is why
+    // waitingProject shows up under `idle` below and never under `waiting`.
     await expect(filterPill(page, 'running')).toContainText('running');
-    await expect(filterPill(page, 'running').locator('.filter-count')).toHaveText(String(before.running + 1));
-    await expect(filterPill(page, 'waiting').locator('.filter-count')).toHaveText(String(before.waiting));
-    await expect(filterPill(page, 'idle').locator('.filter-count')).toHaveText(String(before.idle + 2));
 
     await filterPill(page, 'running').click();
     await expect(projectCard(page, runningProject.name)).toBeVisible();
     await expect(projectCard(page, waitingProject.name)).toHaveCount(0);
     await expect(projectCard(page, idleProject.name)).toHaveCount(0);
+    await expectPillCountMatchesFilteredList(page, 'running');
 
     await filterPill(page, 'waiting').click();
     await expect(projectCard(page, waitingProject.name)).toHaveCount(0);
     await expect(projectCard(page, runningProject.name)).toHaveCount(0);
+    await expectPillCountMatchesFilteredList(page, 'waiting');
 
     await filterPill(page, 'idle').click();
     await expect(projectCard(page, idleProject.name)).toBeVisible();
     await expect(projectCard(page, waitingProject.name)).toBeVisible();
     await expect(projectCard(page, runningProject.name)).toHaveCount(0);
+    await expectPillCountMatchesFilteredList(page, 'idle');
 
     // Clicking the active pill clears the filter.
     await filterPill(page, 'idle').click();
@@ -257,8 +277,6 @@ test.describe('Project list embedded session cards', () => {
   });
 
   test('does not treat an idle waiting-status session as blocked on agent input', async ({ page }) => {
-    const before = await getStatusFacets();
-
     const project = await seedProject('rw-overlap', '/tmp');
     const running = await seedSession(project.id, { prompt: 'running', name: 'running', startImmediately: false });
     const waiting = await seedSession(project.id, { prompt: 'waiting', name: 'waiting', startImmediately: false });
@@ -268,21 +286,22 @@ test.describe('Project list embedded session cards', () => {
     await page.goto('/');
 
     // Only the running session makes this project active; status='waiting'
-    // alone does not represent a pending agent prompt. See getStatusFacets() — badge
-    // counts are global, so assert the delta, not an absolute value.
-    await expect(filterPill(page, 'running').locator('.filter-count')).toHaveText(String(before.running + 1));
-    await expect(filterPill(page, 'waiting').locator('.filter-count')).toHaveText(String(before.waiting));
-    await expect(filterPill(page, 'idle').locator('.filter-count')).toHaveText(String(before.idle));
-
+    // alone does not represent a pending agent prompt. Badge counts are global
+    // and other workers move them constantly, so each pill's count is checked
+    // against the list it produces, while the semantics are asserted by which
+    // filters this project appears under.
     await filterPill(page, 'running').click();
     await expect(projectCard(page, project.name)).toBeVisible();
+    await expectPillCountMatchesFilteredList(page, 'running');
 
     await filterPill(page, 'waiting').click();
     await expect(projectCard(page, project.name)).toHaveCount(0);
+    await expectPillCountMatchesFilteredList(page, 'waiting');
 
     // Neither idle.
     await filterPill(page, 'idle').click();
     await expect(projectCard(page, project.name)).toHaveCount(0);
+    await expectPillCountMatchesFilteredList(page, 'idle');
   });
 
   test('enters and leaves the filtered list live without a reload', async ({ page }) => {
@@ -344,8 +363,12 @@ test.describe('Project list embedded session cards', () => {
     await expect(projectCard(page, runningProject.name)).toBeVisible();
     await expect(projectCard(page, idleProject.name)).toHaveCount(0);
 
-    // Navigate to a session list and back; the filter must survive.
-    await projectCard(page, runningProject.name).click();
+    // Navigate to a session list and back; the filter must survive. Click the
+    // header specifically: the card body below it is the embedded session
+    // preview list, whose cards link to individual sessions, so a click on the
+    // card's geometric center would land there (or on inert padding between
+    // previews) rather than on the session-list target.
+    await projectCard(page, runningProject.name).locator('.project-card-header').click();
     await expect(page).toHaveURL(new RegExp(`/projects/${runningProject.id}/sessions`));
     await page.goto('/');
 
