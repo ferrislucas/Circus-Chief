@@ -87,7 +87,7 @@ import {
   finalResultEvents,
   getResultEvent,
 } from './streamEventHandler.js';
-import { pendingWakeups, clearPendingWakeup } from './scheduleWakeupBridge.js';
+import { pendingWakeups, clearPendingWakeup, recordExplicitSchedule } from './scheduleWakeupBridge.js';
 
 describe('streamEventHandler', () => {
   beforeEach(() => {
@@ -1139,6 +1139,38 @@ describe('streamEventHandler', () => {
       expect(mockCheckReschedule).not.toHaveBeenCalled();
       expect(mockAutoSend).not.toHaveBeenCalled();
       expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
+    it('associates a wakeup supersession diagnostic with the current turn', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      statefulSession({
+        scheduledAt: Date.now() + 3_600_000,
+        pendingPrompt: 'Explicitly scheduled prompt',
+      });
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 600,
+        reason: 'r',
+        prompt: 'Earlier wakeup prompt',
+      }));
+      recordExplicitSchedule('sess-1');
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(workLogs.create).toHaveBeenCalledWith(
+        'sess-1',
+        'tool_output',
+        expect.stringContaining('superseded'),
+        expect.objectContaining({ toolName: 'ScheduleWakeup' })
+      );
+      const supersessionLogIndex = workLogs.create.mock.calls.findIndex(([, , content]) => content.includes('superseded'));
+      const supersessionLogOrder = workLogs.create.mock.invocationCallOrder[supersessionLogIndex];
+      expect(workLogs.associatePendingLogs).toHaveBeenLastCalledWith('sess-1', 'msg-assistant');
+      expect(workLogs.associatePendingLogs.mock.invocationCallOrder.at(-1)).toBeGreaterThan(supersessionLogOrder);
+      expect(lastMessageIds.has('sess-1')).toBe(false);
     });
 
     it('leaves an ordinary turn untouched', async () => {

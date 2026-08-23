@@ -163,6 +163,13 @@ describe('captureScheduleWakeup', () => {
     expect(broadcastToSession).toHaveBeenCalled();
   });
 
+  it('cancels an earlier wakeup when a later call has an unusable delay', () => {
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'earlier' }, 't1')]);
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 'not-a-number', prompt: 'later' }, 't2')]);
+
+    expect(pendingWakeups.has(SESSION_ID)).toBe(false);
+  });
+
   it('refuses an unresolvable loop-state sentinel prompt rather than substituting Continue, and logs why', () => {
     captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 600, prompt: '<<autonomous-loop-dynamic>>' })]);
 
@@ -173,6 +180,13 @@ describe('captureScheduleWakeup', () => {
       expect.stringContaining('autonomous-loop sentinel'),
       expect.objectContaining({ toolName: 'ScheduleWakeup' })
     );
+  });
+
+  it('cancels an earlier wakeup when a later call uses an unresolvable sentinel', () => {
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'earlier' }, 't1')]);
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 600, prompt: '<<autonomous-loop>>' }, 't2')]);
+
+    expect(pendingWakeups.has(SESSION_ID)).toBe(false);
   });
 
   it('keeps sessions isolated from each other', () => {

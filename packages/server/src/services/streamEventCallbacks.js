@@ -86,6 +86,11 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   // The waiting write above would otherwise overwrite the scheduled state.
   const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId);
 
+  // Applying a wakeup can create a diagnostic work log when it loses to a
+  // later explicit schedule or its lane run was superseded. Associate only
+  // after that work so the diagnostic belongs to this turn's final message.
+  associateAndCleanupWorkLogs(sessionId);
+
   // Check if session should be proactively rescheduled based on token threshold.
   // Explicit mid-turn continuations win over automatic token-management reschedules.
   // A proactively-rescheduled turn — held or not — never advances the card and
@@ -143,12 +148,10 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
  * @param {{ handleTemplateTriggerIfNeeded?: Function, checkProactiveReschedule?: Function, handleAutoSendIfNeeded?: Function }} callbacks
  */
 export async function handleTurnCompletion(sessionId, workingDirectory, callbacks = {}) {
-  // Associate work logs with the last message now that the turn is complete
-  associateAndCleanupWorkLogs(sessionId);
-
   // Sessions with final errors should not transition to waiting
   if (finalErrorSessionIds.has(sessionId)) {
     finalErrorSessionIds.delete(sessionId);
+    associateAndCleanupWorkLogs(sessionId);
     return { wasRescheduled: false, heldForLimit: false };
   }
 
@@ -158,6 +161,7 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
     return handleActiveSessionCompletion(sessionId, workingDirectory, callbacks);
   }
 
+  associateAndCleanupWorkLogs(sessionId);
   return { wasRescheduled: false, heldForLimit: false };
 }
 

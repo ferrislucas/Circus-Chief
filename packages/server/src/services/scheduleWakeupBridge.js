@@ -175,6 +175,12 @@ export function captureScheduleWakeup(sessionId, toolUseBlocks) {
   // Last call wins among the genuinely new candidates in this batch.
   const wakeup = freshCandidates[freshCandidates.length - 1];
 
+  // A fresh call replaces any earlier request even when this new request is
+  // invalid. Leaving the old entry armed would make the SDK report that the
+  // latest call was dropped while silently scheduling a prompt the agent had
+  // already superseded.
+  pendingWakeups.delete(sessionId);
+
   const delaySeconds = clampDelaySeconds(wakeup.input?.delaySeconds);
   if (delaySeconds === null) {
     const message = `ScheduleWakeup requested a wakeup with a non-numeric delaySeconds (${JSON.stringify(wakeup.input?.delaySeconds)}); the wakeup was not scheduled.`;
