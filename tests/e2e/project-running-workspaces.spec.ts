@@ -9,7 +9,7 @@ import {
 } from './helpers';
 
 /**
- * Running-workspace links + status filter on the project list.
+ * Embedded session cards + status filter on the project list.
  *
  * These run against a real Express server, real SQLite DB, and real WebSocket
  * (started by pw.sh on an isolated port). Seeding and status changes go through
@@ -17,12 +17,26 @@ import {
  *
  * Live-update assertions account for the composable's debounce (~1s) by
  * polling with generous timeouts — never a fixed wait shorter than the debounce.
+ *
+ * Note: the project list used to render a dedicated "workspace link" block
+ * that only appeared for active (running/waiting) workspaces and showed a
+ * "N sessions" count. That was replaced by embedding real SessionCard
+ * previews (`.embedded-session-list .session-card`) of the project's most
+ * recently active workspaces, regardless of status — see ProjectListView.vue
+ * and its unit tests for the current contract. The tests below assert
+ * against that embedded-card markup instead.
  */
 
 const LIVE_TIMEOUT = 10_000;
 
 function projectCard(page: Page, projectName: string) {
   return page.locator('.project-card').filter({ hasText: projectName });
+}
+
+function embeddedSessionCard(page: Page, projectName: string, sessionName: string) {
+  return projectCard(page, projectName)
+    .locator('.embedded-session-list .session-card')
+    .filter({ hasText: sessionName });
 }
 
 function filterPill(page: Page, status: string) {
@@ -54,7 +68,7 @@ async function getStatusFacets(): Promise<{ running: number; waiting: number; id
   return { running, waiting, idle };
 }
 
-test.describe('Project list running-workspace links', () => {
+test.describe('Project list embedded session cards', () => {
   // Force serial execution within this file: several tests below assert on
   // named projects that must not be touched by another test in *this* file
   // running concurrently (each beforeEach/afterEach calls cleanupAll()).
@@ -74,11 +88,10 @@ test.describe('Project list running-workspace links', () => {
     await cleanupAll();
   });
 
-  test('renders links with correct counts and omits inactive workspaces', async ({ page }) => {
+  test('shows embedded session cards with a running badge for active workspaces, and without one for inactive workspaces', async ({ page }) => {
     const project = await seedProject('rw-links', '/tmp');
 
-    // alpha: root + two children => active 3 (all running). A session with
-    // status='waiting' is idle; pending_agent_input is the blocked state.
+    // alpha: root + two children, all running.
     const alpha = await seedSession(project.id, { prompt: 'alpha root', name: 'alpha', startImmediately: false });
     const alphaChild1 = await seedChildSession(project.id, alpha.id, { prompt: 'alpha c1', name: 'alpha-c1' });
     const alphaChild2 = await seedChildSession(project.id, alpha.id, { prompt: 'alpha c2', name: 'alpha-c2' });
@@ -86,32 +99,35 @@ test.describe('Project list running-workspace links', () => {
     await updateSessionStatus(alphaChild1.id, 'running');
     await updateSessionStatus(alphaChild2.id, 'running');
 
-    // beta: single running root => active 1
+    // beta: single running root.
     const beta = await seedSession(project.id, { prompt: 'beta root', name: 'beta', startImmediately: false });
     await updateSessionStatus(beta.id, 'running');
 
-    // gamma: stopped => no link
+    // gamma: stopped. The unfiltered project list still embeds it (it shows
+    // the project's most recently active workspaces regardless of status,
+    // capped at 3 — all three fit here) but it must not carry a running badge.
     const gamma = await seedSession(project.id, { prompt: 'gamma root', name: 'gamma', startImmediately: false });
     await updateSessionStatus(gamma.id, 'stopped');
 
     await page.goto('/');
-    const card = projectCard(page, project.name);
 
-    const alphaLink = card.locator('.workspace-link').filter({ hasText: 'alpha' });
-    await expect(alphaLink).toBeVisible({ timeout: LIVE_TIMEOUT });
-    await expect(alphaLink).toHaveAttribute('href', `/sessions/${alpha.id}`);
-    await expect(alphaLink.locator('.workspace-count')).toHaveText('3 sessions');
+    const alphaCard = embeddedSessionCard(page, project.name, 'alpha');
+    await expect(alphaCard).toBeVisible({ timeout: LIVE_TIMEOUT });
+    await expect(alphaCard).toHaveAttribute('href', `/sessions/${alpha.id}`);
+    await expect(alphaCard.locator('.status-badge.status-running')).toBeVisible();
 
-    const betaLink = card.locator('.workspace-link').filter({ hasText: 'beta' });
-    await expect(betaLink).toBeVisible();
-    await expect(betaLink).toHaveAttribute('href', `/sessions/${beta.id}`);
-    await expect(betaLink.locator('.workspace-count')).toHaveText('1 session');
+    const betaCard = embeddedSessionCard(page, project.name, 'beta');
+    await expect(betaCard).toBeVisible();
+    await expect(betaCard).toHaveAttribute('href', `/sessions/${beta.id}`);
+    await expect(betaCard.locator('.status-badge.status-running')).toBeVisible();
 
-    // gamma is stopped, so it must not render a link.
-    await expect(card.locator('.workspace-link').filter({ hasText: 'gamma' })).toHaveCount(0);
+    const gammaCard = embeddedSessionCard(page, project.name, 'gamma');
+    await expect(gammaCard).toBeVisible();
+    await expect(gammaCard).toHaveAttribute('href', `/sessions/${gamma.id}`);
+    await expect(gammaCard.locator('.status-badge.status-running')).toHaveCount(0);
   });
 
-  test('renders no links for a project with only inactive sessions', async ({ page }) => {
+  test('embeds session cards for a project with only inactive sessions, none carrying a running badge', async ({ page }) => {
     const project = await seedProject('rw-inactive', '/tmp');
     const stopped = await seedSession(project.id, { prompt: 'stopped', name: 'stopped', startImmediately: false });
     await updateSessionStatus(stopped.id, 'stopped');
@@ -128,18 +144,22 @@ test.describe('Project list running-workspace links', () => {
     const card = projectCard(page, project.name);
     await expect(card).toBeVisible();
 
-    // The existing "N sessions · …" line is intact; no workspace link block.
+    // The existing "N sessions · …" line is intact.
     await expect(card.locator('.project-meta')).toContainText('2 sessions');
-    await expect(card.locator('.workspace-link')).toHaveCount(0);
+
+    // Both inactive workspaces still get an embedded preview card, just
+    // without a running badge.
+    await expect(card.locator('.embedded-session-list .session-card')).toHaveCount(2);
+    await expect(card.locator('.embedded-session-list .status-badge.status-running')).toHaveCount(0);
   });
 
-  test('clicking a link navigates to the root session, never the session list', async ({ page }) => {
+  test('clicking an embedded session card navigates to the root session, never the session list', async ({ page }) => {
     const project = await seedProject('rw-click', '/tmp');
     const workspace = await seedSession(project.id, { prompt: 'click root', name: 'click-me', startImmediately: false });
     await updateSessionStatus(workspace.id, 'running');
 
     await page.goto('/');
-    const link = projectCard(page, project.name).locator('.workspace-link').filter({ hasText: 'click-me' });
+    const link = embeddedSessionCard(page, project.name, 'click-me');
     await expect(link).toBeVisible();
 
     await link.click();
@@ -148,7 +168,7 @@ test.describe('Project list running-workspace links', () => {
     expect(page.url()).not.toContain(`/projects/${project.id}/sessions`);
   });
 
-  test('decrements a count live without a reload', async ({ page }) => {
+  test('updates the running badge live without a reload when the workspace leaves active state', async ({ page }) => {
     const project = await seedProject('rw-live-dec', '/tmp');
     const root = await seedSession(project.id, { prompt: 'root', name: 'live-root', startImmediately: false });
     const child1 = await seedChildSession(project.id, root.id, { prompt: 'c1', name: 'live-c1' });
@@ -158,41 +178,34 @@ test.describe('Project list running-workspace links', () => {
     await updateSessionStatus(child2.id, 'running');
 
     await page.goto('/');
-    const link = projectCard(page, project.name).locator('.workspace-link').filter({ hasText: 'live-root' });
-    await expect(link.locator('.workspace-count')).toHaveText('3 sessions');
+    const link = embeddedSessionCard(page, project.name, 'live-root');
+    await expect(link.locator('.status-badge.status-running')).toBeVisible();
 
-    // One active child leaves active state; the count drops without reloading.
+    // Every member session leaves active state; the running badge drops
+    // without reloading. The card itself remains embedded (it's still one
+    // of the project's most recently active workspaces).
+    await updateSessionStatus(root.id, 'stopped');
     await updateSessionStatus(child1.id, 'stopped');
-    await expect(link.locator('.workspace-count')).toHaveText('2 sessions', { timeout: LIVE_TIMEOUT });
-  });
-
-  test('removes a link live when the last active session leaves active state', async ({ page }) => {
-    const project = await seedProject('rw-live-remove', '/tmp');
-    const workspace = await seedSession(project.id, { prompt: 'remove root', name: 'remove-me', startImmediately: false });
-    await updateSessionStatus(workspace.id, 'running');
-
-    await page.goto('/');
-    const link = projectCard(page, project.name).locator('.workspace-link').filter({ hasText: 'remove-me' });
+    await updateSessionStatus(child2.id, 'stopped');
+    await expect(link.locator('.status-badge.status-running')).toHaveCount(0, { timeout: LIVE_TIMEOUT });
     await expect(link).toBeVisible();
-
-    await updateSessionStatus(workspace.id, 'stopped');
-    await expect(link).toHaveCount(0, { timeout: LIVE_TIMEOUT });
   });
 
-  test('adds a link live when a new workspace becomes active', async ({ page }) => {
+  test('adds an embedded session card live when a new workspace is created', async ({ page }) => {
     const project = await seedProject('rw-live-add', '/tmp');
 
     await page.goto('/');
     const card = projectCard(page, project.name);
     await expect(card).toBeVisible();
-    await expect(card.locator('.workspace-link')).toHaveCount(0);
+    await expect(card.locator('.embedded-session-list')).toHaveCount(0);
 
     const workspace = await seedSession(project.id, { prompt: 'new root', name: 'new-workspace', startImmediately: false });
     await updateSessionStatus(workspace.id, 'running');
 
-    const link = card.locator('.workspace-link').filter({ hasText: 'new-workspace' });
+    const link = embeddedSessionCard(page, project.name, 'new-workspace');
     await expect(link).toBeVisible({ timeout: LIVE_TIMEOUT });
     await expect(link).toHaveAttribute('href', `/sessions/${workspace.id}`);
+    await expect(link.locator('.status-badge.status-running')).toBeVisible();
   });
 
   test('renders filter pills with correct badge counts and filters the list', async ({ page }) => {
