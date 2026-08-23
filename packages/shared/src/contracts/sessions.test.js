@@ -342,7 +342,13 @@ describe('SessionResponse', () => {
     maxTotalTokens: 200000,
     rescheduleCount: 0,
     rescheduleAtTokenCount: 150000,
-    laneTriggerDepth: 0,
+    laneRunId: null,
+    ownWorkState: 'open',
+    ownWorkClosedAt: null,
+    workflowUpdatedAt: null,
+    workflowReason: null,
+    executionState: 'idle',
+    subtreeOutcome: 'open',
     createdAt: Date.now(),
     updatedAt: Date.now(),
     lastActivityAt: Date.now(),
@@ -364,6 +370,11 @@ describe('SessionResponse', () => {
   it('rejects invalid status', () => {
     const result = SessionResponse.safeParse({ ...validSession, status: 'paused' });
     expect(result.success).toBe(false);
+  });
+
+  it('accepts aborting as a declared execution state and rejects unknown states', () => {
+    expect(SessionResponse.safeParse({ ...validSession, executionState: 'aborting' }).success).toBe(true);
+    expect(SessionResponse.safeParse({ ...validSession, executionState: 'interrupting' }).success).toBe(false);
   });
 
   it('validates session with nextTemplateId', () => {
@@ -439,19 +450,6 @@ describe('SessionResponse', () => {
     expect(result.success).toBe(false);
   });
 
-  it('validates session with laneTriggerDepth', () => {
-    const result = SessionResponse.safeParse({
-      ...validSession,
-      laneTriggerDepth: 3,
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('rejects session missing laneTriggerDepth field', () => {
-    const { laneTriggerDepth: _laneTriggerDepth, ...withoutLaneTriggerDepth } = validSession;
-    const result = SessionResponse.safeParse(withoutLaneTriggerDepth);
-    expect(result.success).toBe(false);
-  });
 });
 
 describe('SessionListResponse', () => {
@@ -488,7 +486,13 @@ describe('SessionListResponse', () => {
         maxTotalTokens: 200000,
         rescheduleCount: 0,
         rescheduleAtTokenCount: 150000,
-        laneTriggerDepth: 0,
+        laneRunId: null,
+        ownWorkState: 'open',
+        ownWorkClosedAt: null,
+        workflowUpdatedAt: null,
+        workflowReason: null,
+        executionState: 'idle',
+        subtreeOutcome: 'open',
         createdAt: Date.now(),
         updatedAt: Date.now(),
         lastActivityAt: Date.now(),

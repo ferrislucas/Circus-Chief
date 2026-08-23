@@ -147,7 +147,7 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
  * @param {string} workingDirectory
  * @param {{ handleTemplateTriggerIfNeeded?: Function, checkProactiveReschedule?: Function, handleAutoSendIfNeeded?: Function }} callbacks
  */
-export async function handleTurnCompletion(sessionId, workingDirectory, callbacks = {}) {
+export async function handleTurnCompletion(sessionId, workingDirectory, callbacks = {}, { controller } = {}) {
   // Sessions with final errors should not transition to waiting
   if (finalErrorSessionIds.has(sessionId)) {
     finalErrorSessionIds.delete(sessionId);
@@ -157,12 +157,46 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
 
   // Session ready for follow-up - set to waiting instead of completed
   const activeSession = activeSessions.get(sessionId);
-  if (activeSession && !activeSession.controller?.signal?.aborted) {
+  const turnController = controller || activeSession?.controller;
+  if (activeSession && activeSession.controller === turnController && !turnController?.signal?.aborted) {
     return handleActiveSessionCompletion(sessionId, workingDirectory, callbacks);
   }
 
   associateAndCleanupWorkLogs(sessionId);
+  finalizeAbortedTurnStatus(sessionId, turnController);
   return { wasRescheduled: false, heldForLimit: false };
+}
+
+/**
+ * A turn may take time to unwind after abort(). Do not let it overwrite a
+ * newer turn that has registered itself for the same session in the meantime.
+ */
+function turnStillOwnsStatusWrite(sessionId, controller) {
+  const activeSession = activeSessions.get(sessionId);
+  if (activeSession) return activeSession.controller === controller;
+  return Boolean(controller && sessions.getById(sessionId)?.status === 'running');
+}
+
+/**
+ * Land a terminal status for a turn that ended without one.
+ *
+ * An aborted turn is not ready for follow-up, so it must not land 'waiting' —
+ * but it still has to land somewhere. An abort makes the stream loop exit
+ * gracefully rather than throw, so the error path never runs either, and a
+ * turn returning from handleTurnCompletion without a status write stayed
+ * 'running' forever.
+ *
+ * Guarded on 'running' so this only closes out a turn nobody else accounted
+ * for: callers that already recorded an outcome (stopSession, lane-run
+ * supersession) and sessions restarted since the abort keep the status they
+ * were given.
+ *
+ * @param {string} sessionId
+ */
+export function finalizeAbortedTurnStatus(sessionId, controller) {
+  if (!turnStillOwnsStatusWrite(sessionId, controller)) return;
+  sessions.update(sessionId, { status: 'stopped', executionState: 'stopped' });
+  broadcastSessionStatus(sessionId, 'stopped');
 }
 
 /**
@@ -288,6 +322,7 @@ export async function handleSessionError(sessionId, error, options = {}) {
     // A user-initiated stop is intentional. A mid-turn-scheduled session that the
     // user stops will have its schedule cleared by the stop handler; we honour that
     // by not preserving the schedule here.
+    finalizeAbortedTurnStatus(sessionId, controller);
     return false;
   }
 

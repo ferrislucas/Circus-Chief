@@ -32,7 +32,7 @@ export const thinkingAccumulators = new Map();
 /** @type {Map<string, string>} Accumulate text content per session */
 export const textAccumulators = new Map();
 
-/** @type {Map<string, { controller: AbortController }>} */
+/** @type {Map<string, { controller: AbortController, turnStartedAt?: number, lastEventAt?: number }>} */
 export const activeSessions = new Map();
 
 /** @type {Map<string, string>} Map sessionId -> conversationId for current turn */
@@ -517,6 +517,11 @@ export async function handleStreamEvent(sessionId, event) {
     return;
   }
 
+  // Every provider event is a liveness heartbeat. The watchdog intentionally
+  // does not infer liveness from a row merely being marked running.
+  const activeSession = activeSessions.get(sessionId);
+  if (activeSession) activeSession.lastEventAt = Date.now();
+
   const handler = eventHandlers[event.type];
   if (handler) {
     handler(sessionId, event);
@@ -528,11 +533,28 @@ export async function handleStreamEvent(sessionId, event) {
  * Called in the finally block of session execution
  * @param {string} sessionId
  * @param {boolean} includeConversationId - Whether to also clean up activeConversationIds
+ * @param {AbortController|null} expectedController - When provided, only clean up
+ *   if this execution still owns the session's active state
+ * @returns {boolean} Whether state was cleaned up
  */
-export function cleanupSessionState(sessionId, includeConversationId = false) {
+export function cleanupSessionState(sessionId, includeConversationId = false, expectedController = null) {
+  // A stopped execution can still be unwinding after a *replacement* execution
+  // has registered itself. Its finally block must not erase the replacement's
+  // controller or any of the replacement turn's session-scoped state.
+  //
+  // An absent entry is not a replacement: it means this turn's owner already
+  // deregistered (e.g. stopSession() deletes the activeSessions entry before
+  // the turn unwinds), and this turn still owns the cleanup. Only bail out
+  // when a *different, live* controller is registered.
+  const current = activeSessions.get(sessionId);
+  if (expectedController && current && current.controller !== expectedController) {
+    return false;
+  }
+
   // A parked SDK callback owns a live promise. Settling it before clearing
   // execution state prevents it from surviving a completed/failed turn.
   cancelPrompt(sessionId);
+  lastMessageIds.delete(sessionId);
   textAccumulators.delete(sessionId);
   thinkingAccumulators.delete(sessionId);
   currentModels.delete(sessionId);
@@ -546,6 +568,7 @@ export function cleanupSessionState(sessionId, includeConversationId = false) {
   if (includeConversationId) {
     activeConversationIds.delete(sessionId);
   }
+  return true;
 }
 
 // Re-export callback functions from streamEventCallbacks.js

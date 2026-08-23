@@ -28,10 +28,10 @@ export function cleanupKanbanApiOperations({
       AND lease_expires_at < ? AND updated_at < ?`).run(now, now, abandonedCutoff).changes;
   const deleted = db.prepare(`DELETE FROM kanban_api_operations WHERE id IN (
     SELECT id FROM kanban_api_operations
-    WHERE status IN ('completed','abandoned') AND updated_at < ? ORDER BY updated_at LIMIT ?
+    WHERE status IN ('completed','failed','retryable','abandoned') AND updated_at < ? ORDER BY updated_at LIMIT ?
   )`).run(cutoff, safeBatch).changes;
   const remainingEligible = Number(db.prepare(`SELECT count(*) count FROM kanban_api_operations
-    WHERE status IN ('completed','abandoned') AND updated_at < ?`).get(cutoff).count || 0);
+    WHERE status IN ('completed','failed','retryable','abandoned') AND updated_at < ?`).get(cutoff).count || 0);
   return { terminalized, deleted, remainingEligible, cutoff, abandonedCutoff, batchSize: safeBatch };
 }
 
