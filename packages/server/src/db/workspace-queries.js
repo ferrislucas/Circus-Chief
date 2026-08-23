@@ -124,38 +124,8 @@ function parseCardPageRows(resultRows, limit) {
   };
 }
 
-/**
- * Fetch a card page and its authoritative facets.
- *
- * Offset pagination is stable only for an unchanged dataset. Aggregate filters
- * walk every workspace tree, so database work is not bounded by the visible
- * page. Cursor pagination uses the complete descending sort tuple so an
- * activity promotion between pages cannot create an offset gap. A maintained
- * workspace projection with single-card invalidation is the long-term path.
- */
-export function getWorkspaceCardPage(db, projectId, options = {}) {
-  const {
-    archived = false,
-    starred = null,
-    status = null,
-    scheduled = null,
-    limit = 50,
-    offset = 0,
-    cursor = null,
-    rootId = null,
-  } = options;
-  const { filters: baseFilters, params: baseParams } = workspaceFilters({
-    archived,
-    starred,
-    scheduled,
-    rootId,
-  });
-  const statusFilters = statusPredicates(status);
-  const cursorValues = decodeWorkspaceCardCursor(cursor);
-  const cursorClause = cursorValues
-    ? 'AND (starred, sort_activity, updatedAt, createdAt, id) < (@cur_0, @cur_1, @cur_2, @cur_3, @cur_4)'
-    : '';
-  const sql = `${WORKSPACE_AGGREGATES_CTE}
+function buildWorkspaceCardPageSql(baseFilters, statusFilters, cursorClause, hasCursor) {
+  return `${WORKSPACE_AGGREGATES_CTE}
     , base AS (
       SELECT s.id, s.project_id AS projectId, s.name, s.status, s.starred, s.archived,
       s.pr_url AS prUrl, s.git_worktree AS gitWorktree,
@@ -187,7 +157,7 @@ export function getWorkspaceCardPage(db, projectId, options = {}) {
     ), paged AS (
       SELECT * FROM filtered WHERE 1=1 ${cursorClause}
       ORDER BY starred DESC, sort_activity DESC, updatedAt DESC, createdAt DESC, id DESC
-      LIMIT @limit ${cursorValues ? '' : 'OFFSET @offset'}
+      LIMIT @limit ${hasCursor ? '' : 'OFFSET @offset'}
     )
     SELECT 'page' AS row_kind, paged.*, NULL AS facet_running, NULL AS facet_idle, NULL AS facet_waiting
     FROM paged
@@ -197,6 +167,40 @@ export function getWorkspaceCardPage(db, projectId, options = {}) {
       NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
       NULL, NULL, NULL, facets.running, facets.idle, facets.waiting
     FROM facets`;
+}
+
+/**
+ * Fetch a card page and its authoritative facets.
+ *
+ * Offset pagination is stable only for an unchanged dataset. Aggregate filters
+ * walk every workspace tree, so database work is not bounded by the visible
+ * page. Cursor pagination uses the complete descending sort tuple so an
+ * activity promotion between pages cannot create an offset gap. A maintained
+ * workspace projection with single-card invalidation is the long-term path.
+ */
+export function getWorkspaceCardPage(db, projectId, options = {}) {
+  const {
+    archived = false,
+    starred = null,
+    status = null,
+    scheduled = null,
+    limit = 50,
+    offset = 0,
+    cursor = null,
+    rootId = null,
+  } = options;
+  const { filters: baseFilters, params: baseParams } = workspaceFilters({
+    archived,
+    starred,
+    scheduled,
+    rootId,
+  });
+  const statusFilters = statusPredicates(status);
+  const cursorValues = decodeWorkspaceCardCursor(cursor);
+  const cursorClause = cursorValues
+    ? 'AND (starred, sort_activity, updatedAt, createdAt, id) < (@cur_0, @cur_1, @cur_2, @cur_3, @cur_4)'
+    : '';
+  const sql = buildWorkspaceCardPageSql(baseFilters, statusFilters, cursorClause, Boolean(cursorValues));
   const resultRows = db.prepare(sql).all(
     cardPageParams(projectId, baseParams, {
       limit,
