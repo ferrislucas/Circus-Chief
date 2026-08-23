@@ -30,11 +30,12 @@ import { runSession } from './sessionManager.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
 import { modelProviders, modelTiers, agentCallLogs } from '../database.js';
-import { isUnhealthy } from './tierResolutionService.js';
+import { isUnhealthy, markUnhealthy } from './tierResolutionService.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { BaseAgent } from '../agents/BaseAgent.js';
 import { CodexAdapter } from '../agents/adapters/CodexAdapter.js';
 import { broadcastToSession } from '../websocket.js';
+import { resolveTierRefForContinueWithStaleFallback } from './sessionTierFailover.js';
 
 describe('runSessionCore tier failover (integration)', () => {
   let sessionRepo;
@@ -801,5 +802,133 @@ describe('stale tier ref at session start (Fix 6)', () => {
     expect(updated.model).toBe('model-a');
     expect(updated.providerId).toBe(providerA.id);
     expect(updated.status).not.toBe('error');
+  });
+});
+
+describe('resolveTierRefForContinueWithStaleFallback (continuation-path degradation, PRD E3/D6)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let tempDir;
+  let providerA;
+  let project;
+
+  beforeEach(() => {
+    broadcastToSession.mockClear();
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'stale-continue-test-'));
+
+    providerA = modelProviders.create({ name: 'Stale Continue Provider A', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'model-a', displayName: 'Model A' });
+    project = projectRepo.create('Stale Continue Project', tempDir);
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  const tierBoundSession = ({ resolvedModel = null, resolvedProviderId = null }) => {
+    const tier = modelTiers.create({
+      name: 'Continue Stale Tier',
+      members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+    });
+    const session = sessionRepo.create(project.id, 'Stale Continue Session', 'prompt', 'standard');
+    sessionRepo.update(session.id, {
+      model: buildTierRef(tier.id),
+      resolvedModel,
+      resolvedProviderId,
+    });
+    return { tier, session, freshSession: sessionRepo.getById(session.id) };
+  };
+
+  it('degrades a truly-stale binding with NO snapshot to the server default, clearing the binding', () => {
+    const { tier, session, freshSession } = tierBoundSession({});
+    modelTiers.delete(tier.id);
+
+    const result = resolveTierRefForContinueWithStaleFallback(session.id, freshSession, null);
+
+    // Degraded: the tier binding is cleared, resolution is a plain passthrough
+    // on the (null) concrete model = server default.
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBeNull();
+    expect(updated.resolvedModel).toBeNull();
+    expect(result.effectiveModel).toBeNull();
+    expect(result.persist).toEqual({});
+
+    // The same visible notice + sessionId the start path emits.
+    const failoverCalls = broadcastToSession.mock.calls.filter((c) => c[1] === 'tier:failover');
+    expect(failoverCalls.length).toBeGreaterThan(0);
+    expect(failoverCalls[0][2].sessionId).toBe(session.id);
+  });
+
+  it('degrades a truly-stale binding WITH a snapshot to the snapshotted concrete model', () => {
+    const { tier, session, freshSession } = tierBoundSession({
+      resolvedModel: 'model-a',
+      resolvedProviderId: providerA.id,
+    });
+    modelTiers.delete(tier.id);
+
+    const result = resolveTierRefForContinueWithStaleFallback(session.id, freshSession, null);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe('model-a');
+    expect(updated.providerId).toBe(providerA.id);
+    expect(result.effectiveModel).toBe('model-a');
+    expect(result.providerIdHint).toBe(providerA.id);
+  });
+
+  it('degrades when the explicit request echoes session.model (the web client payload)', () => {
+    const { tier, session, freshSession } = tierBoundSession({});
+    const tierRef = freshSession.model;
+    modelTiers.delete(tier.id);
+
+    const result = resolveTierRefForContinueWithStaleFallback(session.id, freshSession, tierRef);
+
+    expect(result.effectiveModel).toBeNull();
+    expect(sessionRepo.getById(session.id).model).toBeNull();
+  });
+
+  it('rethrows when all members are merely in cooldown (transient, not stale)', () => {
+    const { session, freshSession } = tierBoundSession({});
+    const tierRefBefore = freshSession.model;
+    markUnhealthy(providerA.id, 'model-a');
+
+    expect(() =>
+      resolveTierRefForContinueWithStaleFallback(session.id, freshSession, null)
+    ).toThrow(/no healthy members/);
+
+    // The binding was NOT permanently cleared over a cooldown.
+    expect(sessionRepo.getById(session.id).model).toBe(tierRefBefore);
+  });
+
+  it('rethrows for a DIFFERENT unresolvable tier requested by the user', () => {
+    const { session, freshSession } = tierBoundSession({});
+    const otherTier = modelTiers.create({ name: 'Other Empty Tier', members: [] });
+
+    expect(() =>
+      resolveTierRefForContinueWithStaleFallback(session.id, freshSession, buildTierRef(otherTier.id))
+    ).toThrow(/no healthy members/);
+
+    // Own binding untouched.
+    expect(sessionRepo.getById(session.id).model).toBe(freshSession.model);
+  });
+
+  it('returns the snapshot resolution unchanged for a healthy binding', () => {
+    const { session, freshSession } = tierBoundSession({
+      resolvedModel: 'model-a',
+      resolvedProviderId: providerA.id,
+    });
+
+    const result = resolveTierRefForContinueWithStaleFallback(session.id, freshSession, null);
+
+    expect(result).toEqual({
+      effectiveModel: 'model-a',
+      providerIdHint: providerA.id,
+      persist: {},
+    });
+    expect(broadcastToSession).not.toHaveBeenCalled();
   });
 });

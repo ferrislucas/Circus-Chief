@@ -1,11 +1,12 @@
 import { sessions, modelTiers } from '../database.js';
 import { reconcileAgentTypeForRun, sessionHasNoAssistantMessages } from './sessionAgentGuard.js';
-import { parseTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { isTierRef, parseTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   getTierMembersResolved,
   markUnhealthy,
   findNextHealthyTierMember,
   isUnhealthy,
+  resolveTierRefForContinue,
 } from './tierResolutionService.js';
 import { matchesStartFailoverEligibleError } from './sessionErrors.js';
 import { broadcastToSession } from '../websocket.js';
@@ -384,4 +385,51 @@ export function applyStaleTierFallback(sessionId, session, staleTierRef) {
   }
 
   return { model: fallbackModel, session: updatedSession };
+}
+
+/**
+ * `resolveTierRefForContinue` + stale-binding degradation for the continuation
+ * paths (PRD E3 / D6). The start path (`_runTierBoundSession`) already
+ * degrades a truly-stale tier binding via `applyStaleTierFallback`; this
+ * wrapper gives `buildContinueModelAndEnv` / `buildModelAndProvider` the same
+ * behavior so a follow-up message never throws or strands the session.
+ *
+ * Semantics:
+ * - A TRULY stale binding — the session's own tier ref with no resolvable
+ *   members left (deleted / emptied, per `hasResolvableTierMembers`, which is
+ *   deliberately cooldown-blind) — degrades exactly like the start path,
+ *   INCLUDING when a snapshot would have made resolution succeed anyway: a
+ *   session must not keep a binding to a tier that no longer exists.
+ *   `applyStaleTierFallback` clears the binding (preferring the snapshot) and
+ *   broadcasts the `tier:failover` notice.
+ * - A TRANSIENT failure (every member merely in cooldown) still throws from
+ *   `resolveTierRefForContinue` — a 5-minute cooldown must not permanently
+ *   clear the binding. Same distinction the start path draws between stale
+ *   bindings and live exhaustion.
+ * - A request for a DIFFERENT unresolvable tier still throws — that is a
+ *   genuine bad selection, not the session's own binding.
+ *
+ * @param {string} sessionId
+ * @param {Object} session - Current session row.
+ * @param {string|null} requestedModel - Explicit model override, or null.
+ * @returns {{ effectiveModel: string|null, providerIdHint: string|null, persist: Object }}
+ * @throws {Error} from `resolveTierRefForContinue` for the non-stale-binding
+ *   cases described above.
+ */
+export function resolveTierRefForContinueWithStaleFallback(sessionId, session, requestedModel) {
+  const ownBindingRequested =
+    isTierRef(session.model) && (!requestedModel || requestedModel === session.model);
+  if (ownBindingRequested && !hasResolvableTierMembers(session.model)) {
+    // Stale binding — degrade exactly like the start path. `applyStaleTierFallback`
+    // persists the concrete fallback (snapshot or null/server-default) and clears
+    // the tier binding, so nothing further needs persisting here; the persisted
+    // providerId doubles as the disambiguation hint for duplicate model ids.
+    const fallback = applyStaleTierFallback(sessionId, session, session.model);
+    return {
+      effectiveModel: fallback.model,
+      providerIdHint: fallback.session?.providerId ?? null,
+      persist: {},
+    };
+  }
+  return resolveTierRefForContinue(session, requestedModel);
 }

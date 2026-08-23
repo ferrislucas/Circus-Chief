@@ -193,6 +193,101 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
     clearUnhealthy(providerA.id, 'model-x');
   });
 
+  // PRD E3 / D6 — the tier is deleted (or emptied) while the session is bound
+  // to it. The follow-up must degrade to the last active concrete model (or
+  // the server default when no snapshot exists), never throw, and never send
+  // the raw `tier::<id>` sentinel to the adapter.
+  describe('stale tier binding on continue (PRD E3 / D6)', () => {
+    it('continues on the snapshot model when the bound tier was deleted', async () => {
+      const tier = modelTiers.create({
+        name: 'Doomed',
+        members: [{ providerId: providerA.id, modelId: 'claude-opus-4-6', position: 0 }],
+      });
+      const tierRef = buildTierRef(tier.id);
+      const session = createTestSession(project, {
+        model: tierRef,
+        resolvedModel: 'claude-opus-4-6',
+        resolvedProviderId: providerA.id,
+        status: 'waiting',
+      });
+      conversations.ensureActiveConversation(session.id);
+
+      modelTiers.delete(tier.id);
+
+      await continueSessionCore(
+        session.id,
+        'Follow-up after deletion',
+        '/tmp/tier-continue-test',
+        { options: {}, callbacks: mockCallbacks }
+      );
+
+      const qp = capturedQueryParams[0];
+      expect(qp.options?.model).toBe('claude-opus-4-6');
+      expect(qp.options?.model).not.toContain('tier::');
+
+      // The stale binding was degraded to the concrete snapshot (matching the
+      // start path), so future turns are unambiguous.
+      const updated = sessions.getById(session.id);
+      expect(updated.model).toBe('claude-opus-4-6');
+      expect(updated.providerId).toBe(providerA.id);
+    });
+
+    it('degrades to the server default when the tier was deleted before any snapshot existed', async () => {
+      const tier = modelTiers.create({
+        name: 'Never Ran',
+        members: [{ providerId: providerA.id, modelId: 'claude-sonnet-5', position: 0 }],
+      });
+      const tierRef = buildTierRef(tier.id);
+      const session = createTestSession(project, {
+        model: tierRef,
+        resolvedModel: null,
+        resolvedProviderId: null,
+        status: 'waiting',
+      });
+      conversations.ensureActiveConversation(session.id);
+
+      modelTiers.delete(tier.id);
+
+      await continueSessionCore(
+        session.id,
+        'Follow-up after deletion',
+        '/tmp/tier-continue-test',
+        { options: {}, callbacks: mockCallbacks }
+      );
+
+      // Server default = null model (the adapter/SDK resolves its own default);
+      // the sentinel must never be forwarded.
+      const qp = capturedQueryParams[0];
+      expect(qp.options?.model ?? null).toBeNull();
+      expect(sessions.getById(session.id).model ?? null).toBeNull();
+    });
+
+    it('still throws (transient) when all members are merely in cooldown and the tier still exists', async () => {
+      const tier = modelTiers.create({
+        name: 'Cooldown Only',
+        members: [{ providerId: providerA.id, modelId: 'model-x', position: 0 }],
+      });
+      const tierRef = buildTierRef(tier.id);
+      const session = createTestSession(project, {
+        model: tierRef,
+        resolvedModel: null,
+        resolvedProviderId: null,
+        status: 'waiting',
+      });
+      conversations.ensureActiveConversation(session.id);
+      const { markUnhealthy } = await import('./tierResolutionService.js');
+      markUnhealthy(providerA.id, 'model-x', 60_000);
+
+      await expect(
+        continueSessionCore(session.id, 'hi', '/tmp/test', { options: {}, callbacks: mockCallbacks })
+      ).rejects.toThrow(/no healthy members available/i);
+
+      // The binding survived — a cooldown must not clear it.
+      expect(sessions.getById(session.id).model).toBe(tierRef);
+      clearUnhealthy(providerA.id, 'model-x');
+    });
+  });
+
   it('does NOT overwrite session.model with the concrete model after continue', async () => {
     const tier = modelTiers.create({
       name: 'Persist',

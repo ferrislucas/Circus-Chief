@@ -174,6 +174,58 @@ export function findNextHealthyTierMember(tierRef, failedMember) {
 }
 
 /**
+ * Snapshot-reuse result for a tier-bound session (PRD E3/D6): the concrete
+ * member pair captured for THIS same binding. Used both when no explicit model
+ * is requested and when the explicit request re-selects the already-bound tier
+ * (the web client echoes session.model; the scheduled auto-send consumes
+ * pendingModel) — so a binding whose tier went stale after creation still
+ * continues on its last active concrete member, and `modelChanged` stays
+ * false, preserving resume/context state.
+ *
+ * @param {Object} session - Current session row (resolvedModel, resolvedProviderId).
+ * @returns {{ effectiveModel: string, providerIdHint: string, persist: Object }|null}
+ */
+function snapshotResolution(session) {
+  if (!session.resolvedModel) return null;
+  return {
+    effectiveModel: session.resolvedModel,
+    providerIdHint: session.resolvedProviderId || null,
+    persist: {},
+  };
+}
+
+/**
+ * Resolve an explicit tier-ref request (`resolveTierRefForContinue` branch).
+ * Switching tiers must never reuse a snapshot captured for a different,
+ * previously-bound tier — the NEW tier is resolved live. Re-selecting the
+ * ALREADY-bound tier reuses that binding's own snapshot (see
+ * `snapshotResolution`).
+ *
+ * @param {Object} session - Current session row.
+ * @param {string} requestedModel - The explicit `tier::<id>` request.
+ * @returns {{ effectiveModel: string, providerIdHint: string, persist: Object }}
+ * @throws {Error} when the requested tier has no healthy members.
+ */
+function resolveRequestedTierRef(session, requestedModel) {
+  if (requestedModel === session.model) {
+    const snapshot = snapshotResolution(session);
+    if (snapshot) return snapshot;
+  }
+
+  const resolved = resolveActiveModel(requestedModel, {});
+  if (!resolved) {
+    throw new Error(
+      `Tier "${requestedModel}" has no healthy members available — cannot continue session`
+    );
+  }
+  return {
+    effectiveModel: resolved.model,
+    providerIdHint: resolved.providerId,
+    persist: { model: requestedModel, resolvedModel: resolved.model, resolvedProviderId: resolved.providerId },
+  };
+}
+
+/**
  * Resolve the concrete (model, providerId) to use for a continuation-style
  * call (`continueSessionCore`, `continueSessionWithExistingMessage`), given
  * the session's stored binding and an optional explicit request from the
@@ -209,32 +261,16 @@ export function resolveTierRefForContinue(session, requestedModel) {
     };
   }
 
-  // Explicit tier-ref override — resolve THIS tier live (switching tiers must
-  // never reuse a snapshot captured for a different, previously-bound tier).
+  // Explicit tier-ref override — see resolveRequestedTierRef for semantics.
   if (requestedModel && isTierRef(requestedModel)) {
-    const resolved = resolveActiveModel(requestedModel, {});
-    if (!resolved) {
-      throw new Error(
-        `Tier "${requestedModel}" has no healthy members available — cannot continue session`
-      );
-    }
-    return {
-      effectiveModel: resolved.model,
-      providerIdHint: resolved.providerId,
-      persist: { model: requestedModel, resolvedModel: resolved.model, resolvedProviderId: resolved.providerId },
-    };
+    return resolveRequestedTierRef(session, requestedModel);
   }
 
   // No explicit override — use whatever is already bound to the session.
   if (isTierRef(session.model)) {
-    if (session.resolvedModel) {
-      // Reuse the snapshot — it was captured for THIS same tier binding.
-      return {
-        effectiveModel: session.resolvedModel,
-        providerIdHint: session.resolvedProviderId || null,
-        persist: {},
-      };
-    }
+    // Reuse the snapshot — it was captured for THIS same tier binding.
+    const snapshot = snapshotResolution(session);
+    if (snapshot) return snapshot;
 
     // Snapshot missing (e.g. a legacy row) — re-resolve live and backfill it.
     const live = resolveActiveModel(session.model, {});

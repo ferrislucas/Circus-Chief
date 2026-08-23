@@ -32,14 +32,26 @@ export function agentLabel(agentType) {
  *
  * @param {string|null|undefined} modelOrRef - A concrete model id or a tier ref.
  * @param {string|null} [providerIdHint] - Explicit provider hint for a concrete model.
+ * @param {Object|null} [session] - Session row (model, resolvedModel, resolvedProviderId).
+ *   Used only for the stale-binding snapshot fallback described above.
  * @returns {{ modelId: string|null, providerIdHint: string|null, unresolved?: boolean }}
  */
-export function resolveModelForAgentKind(modelOrRef, providerIdHint = null) {
+export function resolveModelForAgentKind(modelOrRef, providerIdHint = null, session = null) {
   if (!isTierRef(modelOrRef)) {
     return { modelId: modelOrRef, providerIdHint };
   }
   const resolved = resolveActiveModel(modelOrRef, {});
   if (!resolved) {
+    // Stale-tier fallback (PRD E3 / D6): a tier ref that no longer resolves to
+    // any live member (tier deleted / emptied) degrades to the last-known-good
+    // concrete member snapshotted on the session — the same contract
+    // `resolveTierRefForContinue`'s snapshot branch and `applyStaleTierFallback`
+    // apply on the execution paths. Only consulted when the unresolvable ref IS
+    // the session's own binding: a snapshot captured for one tier must never
+    // answer for a different one.
+    if (session && modelOrRef === session.model && session.resolvedModel) {
+      return { modelId: session.resolvedModel, providerIdHint: session.resolvedProviderId || null };
+    }
     return { modelId: null, providerIdHint: null, unresolved: true };
   }
   return { modelId: resolved.model, providerIdHint: resolved.providerId };
@@ -82,6 +94,14 @@ export function deriveAgentTypeForModelOrTier(modelOrRef) {
  * healthy member returns a clear, distinct error rather than silently
  * defaulting to 'claude-code'.
  *
+ * Stale-binding tolerance (PRD E3 / D6): when the unresolvable tier ref is the
+ * session's OWN binding (`requestedModel` is absent, or equals `session.model`),
+ * this guard allows the request rather than blocking it — continuing an
+ * existing binding is not a kind switch, and the execution path owns the
+ * degradation (snapshot reuse, or `applyStaleTierFallback` for a truly stale
+ * binding). Only a NEWLY-selected unresolvable tier is rejected with
+ * TIER_UNRESOLVABLE.
+ *
  * @param {Object} session - The session row (must include agentType + model).
  * @param {string|null} requestedModel - Model ID from req.body.model, or null.
  * @returns {{ error: string, message: string }|null} 400-body on block, or null to allow.
@@ -89,8 +109,11 @@ export function deriveAgentTypeForModelOrTier(modelOrRef) {
 export function checkCrossKindSwitch(session, requestedModel) {
   const sessionAgentType = session.agentType || 'claude-code';
   const effectiveModel = requestedModel || session.model;
-  const resolved = resolveModelForAgentKind(effectiveModel);
+  const resolved = resolveModelForAgentKind(effectiveModel, null, session);
   if (resolved.unresolved) {
+    // The session's own binding went stale (tier deleted/emptied) — allow it
+    // through; the continuation/execution path degrades per PRD E3/D6.
+    if (effectiveModel === session.model) return null;
     return {
       error: 'TIER_UNRESOLVABLE',
       message: `Tier reference "${effectiveModel}" has no healthy or enabled members — cannot determine the agent kind`,

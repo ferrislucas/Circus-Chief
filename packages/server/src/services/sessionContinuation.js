@@ -9,7 +9,7 @@ import { buildQueryParams } from './queryParamBuilder.js';
 import { activeSessions, activeConversationIds, broadcastSessionStatus } from './streamEventHandler.js';
 import { buildPromptWithAttachments } from './sessionPrompts.js';
 import { createAgentForSession, buildAgentEnv, _executeSession } from './sessionExecution.js';
-import { resolveTierRefForContinue } from './tierResolutionService.js';
+import { resolveTierRefForContinueWithStaleFallback } from './sessionTierFailover.js';
 import { startedSessionExecution } from './sessionStartResult.js';
 
 /**
@@ -53,7 +53,12 @@ async function buildPromptForContinue({ modelChanged, agent, conversationId, pro
  * @returns {{ effectiveModel: string|null, sessionEnv: Object, modelChanged: boolean, session: Object }}
  */
 function buildContinueModelAndEnv(session, sessionId, model) {
-  const { effectiveModel, providerIdHint, persist } = resolveTierRefForContinue(session, model);
+  // Stale-binding tolerance (PRD E3/D6): a truly-stale tier binding degrades
+  // (snapshot or server default, tier:failover notice) instead of throwing —
+  // matching the start path's `_runTierBoundSession` behavior.
+  const { effectiveModel, providerIdHint, persist } = resolveTierRefForContinueWithStaleFallback(
+    sessionId, session, model
+  );
 
   // Derive provider from the effective model ID + hint (Fix 1 — disambiguates
   // duplicate model ids registered under two different providers).

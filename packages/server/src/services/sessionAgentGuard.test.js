@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   checkCrossKindSwitch,
+  resolveModelForAgentKind,
   agentLabel,
   AGENT_TYPE_LABELS,
   sessionHasNoAssistantMessages,
@@ -176,6 +177,93 @@ describe('sessionAgentGuard', () => {
         const result = checkCrossKindSwitch(session, buildTierRef(emptyTier.id));
         expect(result.error).toBe('TIER_UNRESOLVABLE');
         expect(result.error).not.toBe('CROSS_KIND_MODEL_SWITCH');
+      });
+    });
+
+    describe('stale own-binding tolerance (PRD E3 / D6)', () => {
+      // The repro from the PR review: a tier-bound session's tier is deleted
+      // (or emptied) after the session already ran a turn on a concrete
+      // member. A plain follow-up (model absent, or echoing session.model)
+      // must NOT be rejected — the snapshot / degradation path owns it.
+      let tier;
+      let tierRef;
+      const snapshotSession = () => ({
+        agentType: 'claude-code',
+        model: tierRef,
+        resolvedModel: 'claude-sonnet-guard',
+        resolvedProviderId: null,
+      });
+
+      beforeEach(() => {
+        tier = modelTiers.create({
+          name: 'Guard Test Stale Tier',
+          members: [{ providerId: anthropicProvider.id, modelId: 'claude-sonnet-guard', position: 0 }],
+        });
+        tierRef = buildTierRef(tier.id);
+      });
+
+      afterEach(() => {
+        try { modelTiers.delete(tier.id); } catch { /* noop */ }
+      });
+
+      it('allows a follow-up (no model) when the deleted tier has a snapshot', () => {
+        modelTiers.delete(tier.id);
+        expect(checkCrossKindSwitch(snapshotSession(), null)).toBeNull();
+      });
+
+      it('allows a follow-up echoing session.model (the web client payload) when the tier is deleted', () => {
+        modelTiers.delete(tier.id);
+        expect(checkCrossKindSwitch(snapshotSession(), tierRef)).toBeNull();
+      });
+
+      it('allows a follow-up when the tier was emptied but the row still exists', () => {
+        // Empty the tier via update (row kept, members removed) — delete the
+        // member provider instead, which makes every member unresolvable while
+        // the tier row itself survives.
+        modelProviders.delete(anthropicProvider.id);
+        expect(checkCrossKindSwitch(snapshotSession(), null)).toBeNull();
+      });
+
+      it('allows a follow-up with no snapshot at all (degradation happens downstream)', () => {
+        modelTiers.delete(tier.id);
+        const session = { agentType: 'claude-code', model: tierRef };
+        expect(checkCrossKindSwitch(session, null)).toBeNull();
+        expect(checkCrossKindSwitch(session, tierRef)).toBeNull();
+      });
+
+      it('still rejects a DIFFERENT unresolvable tier selected by the user', () => {
+        modelTiers.delete(tier.id);
+        const session = snapshotSession();
+        const otherTier = modelTiers.create({ name: 'Guard Test Other Tier', members: [] });
+        const otherResult = checkCrossKindSwitch(session, buildTierRef(otherTier.id));
+        expect(otherResult.error).toBe('TIER_UNRESOLVABLE');
+        modelTiers.delete(otherTier.id);
+      });
+
+      it('resolveModelForAgentKind falls back to the snapshot for the own binding', () => {
+        modelTiers.delete(tier.id);
+        const result = resolveModelForAgentKind(tierRef, null, snapshotSession());
+        expect(result).toEqual({ modelId: 'claude-sonnet-guard', providerIdHint: null });
+        expect(result.unresolved).toBeUndefined();
+      });
+
+      it('resolveModelForAgentKind never applies the snapshot to a different tier ref', () => {
+        modelTiers.delete(tier.id);
+        const otherTier = modelTiers.create({
+          name: 'Guard Test Other Live Tier',
+          members: [{ providerId: openaiProvider.id, modelId: 'gpt-4o-guard', position: 0 }],
+        });
+        const result = resolveModelForAgentKind(buildTierRef(otherTier.id), null, snapshotSession());
+        expect(result.modelId).toBe('gpt-4o-guard');
+        modelTiers.delete(otherTier.id);
+      });
+
+      it('resolveModelForAgentKind stays unresolved for a different stale tier even with a snapshot present', () => {
+        modelTiers.delete(tier.id);
+        const otherTier = modelTiers.create({ name: 'Guard Test Other Stale Tier', members: [] });
+        const result = resolveModelForAgentKind(buildTierRef(otherTier.id), null, snapshotSession());
+        expect(result.unresolved).toBe(true);
+        modelTiers.delete(otherTier.id);
       });
     });
   });

@@ -410,5 +410,63 @@ describe('tierResolutionService', () => {
 
       expect(() => resolveTierRefForContinue(session, null)).toThrow(/no healthy members/);
     });
+
+    describe('same-tier re-selection reuses the snapshot (PRD E3 / D6)', () => {
+      // The web client echoes session.model on a plain follow-up, and the
+      // scheduled auto-send consumes pendingModel — both arrive as an explicit
+      // tier-ref override that IS the current binding. That must behave like
+      // the no-override path: snapshot reuse, no live resolution, persist: {}
+      // (so modelChanged stays false and resume/context state is preserved).
+      it('reuses the snapshot when the explicit tier request equals session.model, even after the tier was deleted', () => {
+        const tier = modelTiers.create({
+          name: 'Tier',
+          members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+        });
+        const tierRef = buildTierRef(tier.id);
+        const session = { model: tierRef, resolvedModel: 'model-a', resolvedProviderId: providerA.id };
+
+        modelTiers.delete(tier.id);
+
+        expect(resolveTierRefForContinue(session, tierRef)).toEqual({
+          effectiveModel: 'model-a',
+          providerIdHint: providerA.id,
+          persist: {},
+        });
+      });
+
+      it('resolves the same tier live when there is no snapshot, refreshing the binding', () => {
+        const tier = modelTiers.create({
+          name: 'Tier',
+          members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+        });
+        const tierRef = buildTierRef(tier.id);
+        const session = { model: tierRef, resolvedModel: null, resolvedProviderId: null };
+
+        const result = resolveTierRefForContinue(session, tierRef);
+        expect(result.effectiveModel).toBe('model-a');
+        expect(result.persist).toEqual({
+          model: tierRef,
+          resolvedModel: 'model-a',
+          resolvedProviderId: providerA.id,
+        });
+      });
+
+      it('still throws for an explicit DIFFERENT unresolvable tier (genuine bad selection)', () => {
+        const tierA = modelTiers.create({
+          name: 'Tier A',
+          members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+        });
+        const tierB = modelTiers.create({ name: 'Tier B', members: [] });
+        const session = {
+          model: buildTierRef(tierA.id),
+          resolvedModel: 'model-a',
+          resolvedProviderId: providerA.id,
+        };
+
+        expect(() => resolveTierRefForContinue(session, buildTierRef(tierB.id))).toThrow(
+          /no healthy members/
+        );
+      });
+    });
   });
 });

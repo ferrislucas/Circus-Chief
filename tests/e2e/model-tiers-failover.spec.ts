@@ -392,6 +392,64 @@ test.describe('Model Tiers failover (scripted CLI, Phase 2)', () => {
       expect.arrayContaining(['single-model-a', 'claude-haiku-4-5-20251001'])
     );
   });
+
+  // PR #1048 review Issue 1: once the bound tier is deleted, a plain follow-up
+  // must still work — continuing on the last active concrete member (the
+  // resolved_model snapshot) — for BOTH payload shapes that occur in practice:
+  // no `model` field (API callers) and `model` echoing session.model (the web
+  // client, whose picker is initialized from the tier-bound session.model).
+  test('deleting a bound tier does not brick follow-up messages (PRD E3/D6)', async () => {
+    const provider = await createProvider({ name: `${TEST_PREFIX}Stale Tier Provider`, kind: 'anthropic' });
+    await addProviderModel(provider.id, { modelId: 'stale-model-a', displayName: 'Stale Model A' });
+
+    const tier = await createTierViaApi({
+      name: `${TEST_PREFIX}Doomed Tier`,
+      members: [{ providerId: provider.id, modelId: 'stale-model-a', position: 0 }],
+    });
+    createdTierIds.push(tier.id);
+
+    writeScript({ queues: { [`${provider.id}::stale-model-a`]: ['success', 'success'] } });
+
+    const project = await seedProject('Tier Stale Deletion Project', process.cwd());
+    const session = await seedSession(project.id, {
+      prompt: 'Tier deleted mid-session e2e',
+      model: `tier::${tier.id}`,
+      startImmediately: true,
+    });
+    await waitForStatus(session.id, 'waiting', 15000);
+    const started = await waitForResolvedModel(session.id);
+    expect(started.resolvedModel).toBe('stale-model-a');
+    const tierRef = `tier::${tier.id}`;
+    await waitForCaptureRecords(1);
+
+    // Delete the tier while the session is still bound to it.
+    await deleteTierViaApi(tier.id);
+
+    // Web-client payload shape: `model` echoes the (now stale) tier ref.
+    const withModel = await sendFollowUp(session.id, tierRef);
+    expect(withModel.ok).toBe(true);
+    await waitForStatus(session.id, 'waiting', 15000);
+
+    // API payload shape: no `model` field at all.
+    const withoutModel = await sendFollowUp(session.id, null);
+    expect(withoutModel.ok).toBe(true);
+
+    // Both follow-up turns actually RAN on the snapshotted concrete member —
+    // no tier sentinel ever reached a spawned process.
+    const records = await waitForCaptureRecords(3);
+    expect(records.map((r: any) => r.modelId)).toEqual([
+      'stale-model-a',
+      'stale-model-a',
+      'stale-model-a',
+    ]);
+    expect(JSON.stringify(records)).not.toContain('tier::');
+
+    // The binding degraded to the concrete snapshot model (matching the start
+    // path's applyStaleTierFallback contract), and a notice was logged.
+    const finalSession = await getSession(session.id);
+    expect(finalSession.model).toBe('stale-model-a');
+    expect(finalSession.resolvedModel).toBeNull();
+  });
 });
 
 // ── File-local helpers ──────────────────────────────────────────────────────
@@ -465,4 +523,19 @@ async function createTierViaApi(data: {
 
 async function deleteTierViaApi(id: string) {
   await fetch(`${API_URL}/api/tiers/${id}`, { method: 'DELETE' }).catch(() => {});
+}
+
+/**
+ * POST a follow-up message, optionally echoing a `model` value — the two
+ * payload shapes the endpoint sees in practice. Returns the raw Response so
+ * tests can assert on the status instead of throwing on non-2xx.
+ */
+async function sendFollowUp(sessionId: string, model: string | null) {
+  const body: Record<string, unknown> = { content: 'Follow-up after tier deletion' };
+  if (model) body.model = model;
+  return fetch(`${API_URL}/api/sessions/${sessionId}/message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 }

@@ -4,7 +4,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
-import { resolveTierRefForContinue } from './tierResolutionService.js';
+import { resolveTierRefForContinueWithStaleFallback } from './sessionTierFailover.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
 import { activeLaneRunOwnsSession, closeOwnWork } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
@@ -245,7 +245,12 @@ function validateAndFetchContinueContext(sessionId, conversationId) {
  * @returns {{ effectiveModel: string|null, sessionEnv: Object, modelChanged: boolean, session: Object }}
  */
 function buildModelAndProvider(session, sessionId, model) {
-  const { effectiveModel, providerIdHint, persist } = resolveTierRefForContinue(session, model);
+  // Stale-binding tolerance (PRD E3/D6): a truly-stale tier binding degrades
+  // (snapshot or server default, tier:failover notice) instead of throwing —
+  // matching the start path's `_runTierBoundSession` behavior.
+  const { effectiveModel, providerIdHint, persist } = resolveTierRefForContinueWithStaleFallback(
+    sessionId, session, model
+  );
 
   const provider = resolveProviderFromModel(effectiveModel, providerIdHint);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
