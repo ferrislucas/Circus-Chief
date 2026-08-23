@@ -207,7 +207,6 @@ describe('kanbanService', () => {
       const childSession = allSessions.find((s) => s.id !== session.id);
       expect(childSession).toBeDefined();
       expect(childSession.parentSessionId).toBe(session.id);
-      expect(childSession.laneTriggerDepth).toBe(1);
       expect(runSession).toHaveBeenCalled();
     });
 

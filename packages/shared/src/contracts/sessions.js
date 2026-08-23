@@ -84,7 +84,6 @@ export const SessionResponse = z.object({
   rescheduleCount: z.number(),
   rescheduleAtTokenCount: z.number().nullable(),
   // Kanban fields
-  laneTriggerDepth: z.number(),
   laneRunId: z.string().uuid().nullable(),
   ownWorkState: z.enum(SESSION_OWN_WORK_STATES),
   ownWorkClosedAt: z.number().nullable(),

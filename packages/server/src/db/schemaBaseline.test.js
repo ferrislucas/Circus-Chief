@@ -96,7 +96,7 @@ describe('schema baseline', () => {
         'max_reschedule_count', 'max_total_tokens', 'reschedule_count',
         'reschedule_at_token_count', 'pending_prompt', 'slash_commands',
         'pending_model', 'auto_send_pending_prompt', 'agent_type',
-        'lane_trigger_depth', 'lane_run_id', 'own_work_state',
+        'lane_run_id', 'own_work_state',
         'own_work_closed_at', 'workflow_updated_at', 'workflow_reason',
         'execution_state', 'subtree_outcome', 'last_activity_at',
         'created_at', 'updated_at', 'pending_conversation_id',

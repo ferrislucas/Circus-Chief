@@ -354,4 +354,7 @@ export const allMigrations = validateMigrations([
   k.get('kanban-api-operation-leases-and-canonical-responses'),
   k.get('kanban-lane-run-declared-exit-lane'),
   k.get('kanban-drop-exit-lane-caller-attribution'),
+
+  // --- Remove the dead lane-trigger recursion counter (cap it fed was removed) ---
+  k.get('sessions-drop-lane_trigger_depth'),
 ]);

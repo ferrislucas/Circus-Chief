@@ -370,12 +370,6 @@ describe('kanbanTriggers', () => {
       runSession.mockResolvedValue(undefined);
     });
 
-    it('delivers template entries beyond the former depth cap', async () => {
-      await triggerOnEnterTemplate('s1', lane, { depth: 50 });
-      expect(sessions.create).toHaveBeenCalled();
-      expect(sessions.update).toHaveBeenCalledWith('new-1', expect.objectContaining({ laneTriggerDepth: 51 }));
-    });
-
     it('returns early when template is not found', async () => {
       sessionTemplates.getById.mockReturnValue(null);
 
@@ -421,7 +415,6 @@ describe('kanbanTriggers', () => {
 
       // Updates session with remaining fields not supported by create()
       expect(sessions.update).toHaveBeenCalledWith('new-1', expect.objectContaining({
-        laneTriggerDepth: 1,
         nextTemplateId: null,
       }));
 
@@ -435,14 +428,6 @@ describe('kanbanTriggers', () => {
         systemPrompt: 'You are helpful.',
         model: session.model,
       });
-    });
-
-    it('increments depth from options', async () => {
-      await triggerOnEnterTemplate('s1', lane, { depth: 2 });
-
-      expect(sessions.update).toHaveBeenCalledWith('new-1', expect.objectContaining({
-        laneTriggerDepth: 3,
-      }));
     });
 
     it('sets nextTemplateId from template', async () => {
@@ -520,12 +505,6 @@ describe('kanbanTriggers', () => {
       runSession.mockResolvedValue(undefined);
     });
 
-    it('delivers prompt entries beyond the former depth cap', async () => {
-      await triggerOnEnterPrompt('s1', lane, { depth: 50 });
-      expect(sessions.create).toHaveBeenCalled();
-      expect(sessions.update).toHaveBeenCalledWith('new-prompt-1', expect.objectContaining({ laneTriggerDepth: 51 }));
-    });
-
     it('returns early when session is not found', async () => {
       sessions.getById.mockReturnValue(null);
 
@@ -562,9 +541,7 @@ describe('kanbanTriggers', () => {
       );
 
       // Updates with remaining fields not supported by create()
-      expect(sessions.update).toHaveBeenCalledWith('new-prompt-1', expect.objectContaining({
-        laneTriggerDepth: 1,
-      }));
+      expect(sessions.update).toHaveBeenCalledWith('new-prompt-1', {});
 
       // Broadcasts SESSION_CREATED
       expect(broadcastToProject).toHaveBeenCalledWith('p1', WS_MESSAGE_TYPES.SESSION_CREATED, expect.objectContaining({
@@ -576,14 +553,6 @@ describe('kanbanTriggers', () => {
         systemPrompt: 'Be helpful.',
         model: session.model,
       });
-    });
-
-    it('increments depth from options', async () => {
-      await triggerOnEnterPrompt('s1', lane, { depth: 3 });
-
-      expect(sessions.update).toHaveBeenCalledWith('new-prompt-1', expect.objectContaining({
-        laneTriggerDepth: 4,
-      }));
     });
 
     it('applies auto-reschedule settings when enabled', async () => {
@@ -607,7 +576,6 @@ describe('kanbanTriggers', () => {
         expect.objectContaining({ parentSessionId: 's1' })
       );
       expect(sessions.update).toHaveBeenCalledWith('new-prompt-1', expect.objectContaining({
-        laneTriggerDepth: 1,
         autoRescheduleEnabled: true,
         rescheduleDelayMinutes: 30,
         rescheduleOnTokenLimit: false,
@@ -647,7 +615,7 @@ describe('kanbanTriggers', () => {
       await triggerOnEnterPrompt('s1', lane);
 
       const updateCall = sessions.update.mock.calls.find(
-        (call) => call[0] === 'new-prompt-1' && Object.hasOwn(call[1], 'laneTriggerDepth')
+        (call) => call[0] === 'new-prompt-1'
       );
       expect(updateCall).toBeDefined();
       expect(updateCall[1]).not.toHaveProperty('autoRescheduleEnabled');

@@ -54,6 +54,14 @@ export const LIMIT_PROMPT = 'Claude E2E regression: provider usage limit.';
  */
 export const UNRECORDED_PROMPT = 'Claude E2E regression: UNRECORDED CASSETTE — deterministic permanent failure.';
 
+/**
+ * A prompt with a committed cassette that gates on a `question`-kind
+ * interactive prompt instead of completing — the worker parks awaiting a
+ * user answer. Used to deterministically hold a turn open (e.g. mid-chain in
+ * a multi-session lane run) until the test explicitly answers it via the UI.
+ */
+export const PARKED_PROMPT = 'E2E demo: ask the user which deployment target to use before proceeding.';
+
 /** Wait until a VCR-gated tool call has parked a live turn. */
 export async function waitForPendingPrompt(sessionId: string, timeout = 30000) {
   const deadline = Date.now() + timeout;

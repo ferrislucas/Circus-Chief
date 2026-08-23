@@ -342,7 +342,6 @@ describe('SessionResponse', () => {
     maxTotalTokens: 200000,
     rescheduleCount: 0,
     rescheduleAtTokenCount: 150000,
-    laneTriggerDepth: 0,
     laneRunId: null,
     ownWorkState: 'open',
     ownWorkClosedAt: null,
@@ -451,19 +450,6 @@ describe('SessionResponse', () => {
     expect(result.success).toBe(false);
   });
 
-  it('validates session with laneTriggerDepth', () => {
-    const result = SessionResponse.safeParse({
-      ...validSession,
-      laneTriggerDepth: 3,
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('rejects session missing laneTriggerDepth field', () => {
-    const { laneTriggerDepth: _laneTriggerDepth, ...withoutLaneTriggerDepth } = validSession;
-    const result = SessionResponse.safeParse(withoutLaneTriggerDepth);
-    expect(result.success).toBe(false);
-  });
 });
 
 describe('SessionListResponse', () => {
@@ -500,7 +486,6 @@ describe('SessionListResponse', () => {
         maxTotalTokens: 200000,
         rescheduleCount: 0,
         rescheduleAtTokenCount: 150000,
-        laneTriggerDepth: 0,
         laneRunId: null,
         ownWorkState: 'open',
         ownWorkClosedAt: null,

@@ -121,7 +121,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- No code reads or writes it; completion_target_lane_id is the single source
   -- of truth for kanban auto-advancement.
   target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
-  lane_trigger_depth INTEGER NOT NULL DEFAULT 0,
   lane_run_id TEXT,
   own_work_state TEXT NOT NULL DEFAULT 'open',
   own_work_closed_at INTEGER,

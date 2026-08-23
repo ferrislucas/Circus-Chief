@@ -191,7 +191,6 @@ export const DIRECT_FIELD_MAP = {
   pendingModel: 'pending_model',
   pendingConversationId: 'pending_conversation_id',
   effortLevel: 'effort_level',
-  laneTriggerDepth: 'lane_trigger_depth',
   laneRunId: 'lane_run_id',
   ownWorkState: 'own_work_state',
   ownWorkClosedAt: 'own_work_closed_at',

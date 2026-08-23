@@ -6,10 +6,9 @@ import {
 import {
   addSessionToLaneViaUI, configureAutomatedLane, expectCardSettlesInLane,
   findCardOfSession, findLaneOfSession, getBoard, getLaneByName, laneByTitle,
-  waitForPendingPrompt,
+  PARKED_PROMPT, waitForPendingPrompt,
 } from './kanbanLaneRunHelpers';
 
-const PARKED_PROMPT = 'E2E demo: ask the user which deployment target to use before proceeding.';
 test.describe('Kanban exit-lane declaration', () => {
   test.describe.configure({ timeout: 120000 });
   let project: any;

@@ -58,7 +58,6 @@ export class SessionRepository extends BaseRepository {
       ...mapTokenUsage(row),
       ...mapScheduling(row),
       // Kanban fields
-      laneTriggerDepth: row.lane_trigger_depth || 0,
       ...mapWorkflow(row),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
