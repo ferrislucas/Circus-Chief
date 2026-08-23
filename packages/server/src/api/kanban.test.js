@@ -866,17 +866,19 @@ describe('Kanban API', () => {
       );
     });
 
-    it('normalizes a child workspace id and permits repeat declarations', async () => {
+    it('normalizes a child workspace id and lets the last valid declaration replace the pending exit', async () => {
       const { card, worker } = setupActiveRun();
       const path = `/api/projects/${projectId}/kanban/cards/by-workspace/${worker.id}/exit-lane`;
 
       const first = await request(app).put(path).send({ laneId: lanes[1].id });
-      const second = await request(app).put(path).send({ laneId: lanes[1].id });
+      const second = await request(app).put(path).send({ laneId: lanes[2].id });
 
       expect(first.status).toBe(200);
       expect(second.status).toBe(200);
-      expect(second.body).toEqual(first.body);
       expect(second.body.cardId).toBe(card.id);
+      expect(first.body.chosenExitLaneId).toBe(lanes[1].id);
+      expect(second.body.chosenExitLaneId).toBe(lanes[2].id);
+      expect(getRun(second.body.laneRunId).chosenExitLaneId).toBe(lanes[2].id);
     });
 
     it.each([

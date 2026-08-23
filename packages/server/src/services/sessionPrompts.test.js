@@ -663,6 +663,9 @@ describe('sessionPrompts', () => {
       expect(result).not.toContain(['X-Circus-Session', 'Capability'].join('-'));
       expect(result).toContain('This does **not** move the card now');
       expect(result).toContain('failed or cancelled run discards the declaration');
+      expect(result).toContain('any session in this\nproject can choose');
+      expect(result).toContain('last valid declaration replaces any earlier pending exit');
+      expect(result).not.toContain('you are its worker');
       expect(result).toContain('move endpoint above only when you want the card to move immediately');
       // No sessionId field in kanban examples
       expect(result).not.toContain(`"sessionId": "${sessionId}"`);

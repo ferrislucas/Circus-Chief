@@ -523,7 +523,10 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
   return result;
 }
 
-/** Record the exit lane for an active run without moving, superseding, or aborting it. */
+/**
+ * Record the shared, last-writer-wins exit lane for an active run without
+ * moving, superseding, or aborting it.
+ */
 export function declareExitLane(cardId, targetLaneId) {
   return databaseManager.transaction(() => {
     const db = databaseManager.get();

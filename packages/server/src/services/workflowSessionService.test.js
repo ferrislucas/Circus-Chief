@@ -429,7 +429,7 @@ describe('workflowSessionService', () => {
     }));
   });
 
-  describe('self-move (a lane worker choosing its own exit lane)', () => {
+  describe('deferred exits for an active lane run', () => {
     function runningWorker() {
       const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
       const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
@@ -465,7 +465,7 @@ describe('workflowSessionService', () => {
       expect(after.executionState).toBe('idle');
     });
 
-    it('does not let the completion target override the lane the worker chose', () => {
+    it('does not let the completion target override the declared lane', () => {
       const { worker, run } = runningWorker();
       declareExitLane(card.id, target.id);
       finalizeOwnWorkCompletion(worker.id);

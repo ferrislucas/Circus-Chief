@@ -63,7 +63,7 @@ export const kanbanWebSocketActions = {
     }
   },
 
-  /** Update a card in place when an active worker declares its eventual exit. */
+  /** Update a card in place when the active run's shared exit is declared. */
   handleExitLaneDeclared(cardId, activeLaneRun) {
     const location = this._findCardLocation(cardId);
     if (!location) return;

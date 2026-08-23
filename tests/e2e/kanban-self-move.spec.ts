@@ -21,7 +21,7 @@ test.describe('Kanban exit-lane declaration', () => {
 
   test.afterEach(async () => { await cleanupCreatedResources(); });
 
-  test('a worker declaring its own exit is not aborted and takes that exit on completion', async ({ page, request }) => {
+  test('declaring an active run exit does not abort it and takes that exit on completion', async ({ page, request }) => {
     const board = await getBoard(project.id);
     const source = getLaneByName(board, 'In Progress');
     const done = getLaneByName(board, 'Done');

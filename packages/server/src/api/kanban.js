@@ -601,7 +601,7 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
   }
 });
 
-/** Declare an active lane run's destination without moving or interrupting it. */
+/** Set the shared, last-writer-wins destination for an active run without moving or interrupting it. */
 router.put('/cards/by-workspace/:workspaceId/exit-lane', (req, res) => {
   const workspaceId = sessions.getRootSessionId(req.params.workspaceId) || req.params.workspaceId;
   const workspace = sessions.getById(workspaceId);

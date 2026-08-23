@@ -120,7 +120,8 @@ not be treated as secrets or as an authorization boundary.
 
 Moves are unconditional and always supersede a running worker. Exit-lane
 declarations use the separate non-destructive `PUT .../exit-lane` endpoint and
-require no caller identity; the card stays put until the run completes. The
-caller header is audit attribution only. Deployments that expose the API to
+are shared project workflow control: they require no caller identity and the
+last valid declaration becomes the run's pending exit. The card stays put until
+the run completes. The caller header is audit attribution only. Deployments that expose the API to
 untrusted networks need a reverse proxy or equivalent access control;
 capability-based session authentication is a separate security feature.

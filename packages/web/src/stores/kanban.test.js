@@ -41,7 +41,7 @@ describe('kanban session updates', () => {
     expect(updated.pendingAgentInput).toBe(true);
   });
 
-  it('updates a card in place when a worker declares its exit lane', () => {
+  it('updates a card in place when an active run exit lane is declared', () => {
     const store = useKanbanStore();
     store.board = { lanes: [{ cards: [{ id: 'card', activeLaneRun: { id: 'run', status: 'open' } }] }] };
     const activeLaneRun = { id: 'run', status: 'open', chosenExitLaneId: 'needs-attention', chosenExitLaneName: 'Needs attention' };
