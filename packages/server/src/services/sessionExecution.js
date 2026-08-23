@@ -106,25 +106,27 @@ export async function _executeSession({
   const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded } = callbacks; const workflowTurn = beginWorkflowTurn(sessionId);
   // Last ownership fence before the irreversible provider call.
   if (!interactive && !workflowTurn && !activeLaneRunOwnsSession(sessionId)) {
-    cleanupSessionState(sessionId, cleanupConversationId);
+    cleanupSessionState(sessionId, cleanupConversationId, controller);
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
   try {
     // Run the query with the agent (SDK via gateway, or mock)
     for await (const event of agent.execute(queryParams, agentCallMeta)) {
       if (controller.signal.aborted) break;
-
       await handleStreamEvent(sessionId, event);
     }
     // Handle post-turn completion (work log association, status transition, summary, etc.)
-    const { wasRescheduled, heldForLimit } = await handleTurnCompletion(sessionId, workingDirectory, { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded });
+    const { wasRescheduled, heldForLimit } = await handleTurnCompletion(
+      sessionId,
+      workingDirectory,
+      { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded },
+      { controller },
+    );
     // FR-4/FR-5: a self-scheduled continuation is an open obligation, not success.
     if (wasRescheduled) { markExecutionState(sessionId, 'scheduled'); return; }
     // FR-9.8: a graceful provider limit/outage leaves the lane obligation open.
     if (heldForLimit) { markHeldForLimit(sessionId); return; }
-    // W6/FR-8: the server infers own-work completion from this successful,
-    // non-continuing turn; finish the async remainder (start the
-    // target lane's on-enter automation exactly once) if it just happened.
+    // W6/FR-8: finish target-lane automation after a successful, non-continuing turn.
     if (interactive && workflowTurn?.executionStateBeforeTurn !== 'paused') return;
     const reconciled = finalizeOwnWorkCompletion(sessionId);
     if (reconciled?.pendingTargetLaneTrigger) await drainLaneEntryTrigger(reconciled.pendingTargetLaneTrigger.laneEntryEventId);
@@ -152,10 +154,9 @@ export async function _executeSession({
     closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message);
     throw error;
   } finally {
-    cleanupSessionState(sessionId, cleanupConversationId);
+    cleanupSessionState(sessionId, cleanupConversationId, controller);
   }
 }
-
 /**
  * Build prompt with conversation context for a continuation.
  * When the model changes, we can't resume the previous session, so we include
@@ -332,7 +333,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   }
 
   const controller = new AbortController();
-  activeSessions.set(sessionId, { controller });
+  activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
 
   // Ensure there's an active conversation and create the user message
   const { activeConversation, promptWithAttachments } = await setupConversationAndMessage(
@@ -400,7 +401,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
   }
   const controller = abortController || new AbortController();
   if (controller.signal.aborted) return rejectedSessionExecution(sessionId, 'dispatch_aborted');
-  activeSessions.set(sessionId, { controller });
+  activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
 
   // Get the active conversation for this session (created in SessionRepository.create)
   const activeConversation = conversations.ensureActiveConversation(sessionId);
