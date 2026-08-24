@@ -83,17 +83,6 @@
               </p>
             </div>
             <div class="project-actions">
-              <button
-                v-if="projectCards[project.id]?.length"
-                type="button"
-                class="sessions-toggle"
-                :aria-controls="`project-sessions-${project.id}`"
-                :aria-expanded="areSessionsVisible(project.id)"
-                @click.stop="toggleSessions(project.id)"
-              >
-                <span>{{ areSessionsVisible(project.id) ? 'Hide sessions' : 'Show sessions' }}</span>
-                <span class="sessions-toggle-icon" :class="{ expanded: areSessionsVisible(project.id) }" aria-hidden="true">⌄</span>
-              </button>
               <router-link :to="`/projects/${project.id}/edit`" class="btn edit-btn" @click.stop>
                 <span class="edit-label-full">Edit</span>
                 <span class="edit-label-short" aria-hidden="true">&#9881;</span>
@@ -101,22 +90,28 @@
             </div>
           </div>
           <div
-            v-if="projectCards[project.id]?.length && areSessionsVisible(project.id)"
-            :id="`project-sessions-${project.id}`"
-            class="embedded-session-list"
+            v-if="project.runningWorkspaces && project.runningWorkspaces.length"
+            class="workspace-links"
           >
-            <SessionCard
-              v-for="workspace in projectCards[project.id]"
-              :key="workspace.id"
-              :session="workspace"
-              :show-summary="true"
-              :summary="workspace.summaryPreview ? { shortSummary: workspace.summaryPreview } : null"
-              :workflow-aggregate="workspace"
-              :pr-url="workspace.prUrl"
-              :pr-summary="workspacePrSummary(workspace)"
-              :can-add-to-board="false"
-              @star="handleStar"
-            />
+            <router-link
+              v-for="ws in project.runningWorkspaces"
+              :key="ws.id"
+              :to="`/sessions/${ws.id}`"
+              class="workspace-link"
+              :aria-label="`${ws.name || 'Untitled workspace'}, ${ws.activeCount} ${ws.activeCount === 1 ? 'session' : 'sessions'} active`"
+              @click.stop
+            >
+              <span
+                class="workspace-dot"
+                aria-hidden="true"
+              />
+              <span class="workspace-name">{{ ws.name || 'Untitled workspace' }}</span>
+              <span
+                class="workspace-sep"
+                aria-hidden="true"
+              > · </span>
+              <span class="workspace-count">{{ ws.activeCount }} {{ ws.activeCount === 1 ? 'session' : 'sessions' }}</span>
+            </router-link>
           </div>
         </div>
       </section>
@@ -125,26 +120,17 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
-import { useSessionsStore } from '../stores/sessions.js';
 import { useProjectFiltersStore } from '../stores/projectFilters.js';
 import { useProjectListRealtime } from '../composables/useProjectListRealtime.js';
 import ProjectFiltersPanel from '../components/ProjectFiltersPanel.vue';
-import SessionCard from '../components/SessionCard.vue';
 import { formatRelativeTime } from '../composables/useSummaryHelpers.js';
-import { api } from '../api/index.js';
-import { workspacePrSummary } from '../utils/workspaceCard.js';
 
 const router = useRouter();
 const projectsStore = useProjectsStore();
-const sessionsStore = useSessionsStore();
 const projectFilters = useProjectFiltersStore();
-const projectCards = ref({});
-const sessionVisibility = ref({});
-let projectCardsRequest = 0;
-const sessionVisibilityStorageKey = 'circus-chief.project-list.session-visibility';
 
 // The list and facets are client-side derivatives of the full project array.
 const visibleProjects = computed(() => projectsStore.filteredProjects);
@@ -155,97 +141,8 @@ function goToSessions(projectId) {
   router.push(`/projects/${projectId}/sessions`);
 }
 
-function areSessionsVisible(projectId) {
-  return sessionVisibility.value[projectId] !== false;
-}
-
-function toggleSessions(projectId) {
-  sessionVisibility.value = {
-    ...sessionVisibility.value,
-    [projectId]: !areSessionsVisible(projectId),
-  };
-  try {
-    localStorage.setItem(sessionVisibilityStorageKey, JSON.stringify(sessionVisibility.value));
-  } catch {
-    // Session previews remain usable when browser storage is unavailable.
-  }
-}
-
-function restoreSessionVisibility() {
-  try {
-    const savedVisibility = JSON.parse(localStorage.getItem(sessionVisibilityStorageKey) || '{}');
-    if (savedVisibility && typeof savedVisibility === 'object' && !Array.isArray(savedVisibility)) {
-      sessionVisibility.value = savedVisibility;
-    }
-  } catch {
-    // Ignore malformed or unavailable browser storage.
-  }
-}
-
-const hasStatusFilter = computed(() => Boolean(projectFilters.statusFilter));
-
-function cardStatusFilter() {
-  // An idle project has neither running nor waiting sessions, so all of its
-  // cards match. The general card-list idle filter intentionally includes
-  // waiting workspaces, which differs from the project-list definition.
-  return ['running', 'waiting'].includes(projectFilters.statusFilter)
-    ? projectFilters.statusFilter
-    : null;
-}
-
-async function loadProjectCards() {
-  const request = ++projectCardsRequest;
-  const cards = await Promise.all(
-    visibleProjects.value.map(async (project) => {
-      const options = { status: cardStatusFilter(), limit: hasStatusFilter.value ? 500 : 3 };
-      let response = await api.getWorkspaceCards(project.id, options);
-      const workspaces = [...(response.workspaces || [])];
-
-      // A selected filter promises every match, rather than a page-sized
-      // preview. Cursor paging preserves the activity ordering from the API.
-      while (
-        hasStatusFilter.value &&
-        response.pagination?.hasMore &&
-        response.pagination.nextCursor
-      ) {
-        response = await api.getWorkspaceCards(project.id, {
-          ...options,
-          cursor: response.pagination.nextCursor,
-        });
-        workspaces.push(...(response.workspaces || []));
-      }
-      return [project.id, workspaces];
-    })
-  );
-  if (request === projectCardsRequest) {
-    projectCards.value = Object.fromEntries(cards);
-  }
-}
-
-async function handleStar({ id, starred }) {
-  const card = Object.values(projectCards.value)
-    .flat()
-    .find((item) => item.id === id);
-  if (!card) return;
-  card.starred = starred;
-  try {
-    await sessionsStore.toggleSessionStar(id);
-  } catch {
-    card.starred = !starred;
-  }
-}
-
-watch(
-  [visibleProjects, hasStatusFilter],
-  () => {
-    loadProjectCards().catch(() => {});
-  },
-  { immediate: true }
-);
-
 onMounted(() => {
   projectFilters.restoreStatusFilter();
-  restoreSessionVisibility();
   projectsStore.fetchProjects();
   useProjectListRealtime(projectIds);
 });
@@ -404,13 +301,58 @@ onMounted(() => {
   margin: 0 0.375rem;
 }
 
-.embedded-session-list {
+/* Active workspace links */
+.workspace-links {
   display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.875rem 1rem 1rem;
+  flex-wrap: wrap;
+  gap: 0.375rem 0.75rem;
+  padding: 0.5rem 1rem 0.75rem;
   border-top: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-background-soft) 58%, transparent);
+}
+
+.workspace-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8125rem;
+  color: var(--color-text);
+  text-decoration: none;
+  padding: 0.2rem 0.45rem;
+  border-radius: calc(var(--border-radius) * 0.6);
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.workspace-link:hover {
+  background-color: var(--color-background-soft);
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.workspace-link:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Emerald "active" dot — single indicator per plan Phase 6 decision */
+.workspace-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background-color: #34d399; /* emerald-400 */
+  flex-shrink: 0;
+}
+
+.workspace-name {
+  font-weight: 500;
+}
+
+.workspace-sep {
+  color: var(--color-text-soft);
+}
+
+.workspace-count {
+  color: var(--color-text-soft);
 }
 
 .no-match {
@@ -428,42 +370,6 @@ onMounted(() => {
   gap: 0.5rem;
   flex-shrink: 0;
   margin-left: 1rem;
-}
-
-.sessions-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.35rem 0.45rem;
-  border: 0;
-  border-radius: calc(var(--border-radius) * 0.75);
-  color: var(--color-text-soft);
-  background: transparent;
-  font: inherit;
-  font-size: 0.8125rem;
-  cursor: pointer;
-}
-
-.sessions-toggle:hover {
-  color: var(--color-text);
-  background-color: var(--color-background-soft);
-}
-
-.sessions-toggle:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
-
-.sessions-toggle-icon {
-  display: inline-block;
-  font-size: 1rem;
-  line-height: 1;
-  transform: rotate(-90deg);
-  transition: transform 0.15s ease;
-}
-
-.sessions-toggle-icon.expanded {
-  transform: rotate(0deg);
 }
 
 .edit-label-short {
@@ -532,20 +438,14 @@ onMounted(() => {
   .project-card-header {
     padding: 0.75rem;
   }
-  .embedded-session-list {
-    padding: 0.75rem;
+  .workspace-links {
+    padding: 0.5rem 0.75rem 0.625rem;
   }
   .edit-label-full {
     display: none;
   }
   .edit-label-short {
     display: inline;
-  }
-  .sessions-toggle span:first-child {
-    display: none;
-  }
-  .sessions-toggle {
-    padding: 0.35rem;
   }
 }
 </style>
