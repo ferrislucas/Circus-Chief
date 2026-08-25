@@ -26,14 +26,17 @@ import { continueSession, runSession } from './sessionManager.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
+import { MessageRepository } from '../db/MessageRepository.js';
 import { KanbanBoardRepository } from '../db/KanbanBoardRepository.js';
 import { KanbanLaneRepository } from '../db/KanbanLaneRepository.js';
 import { KanbanCardRepository } from '../db/KanbanCardRepository.js';
 import { createLaneRunForEntry, attachRootSession, getRun, markHeldForLimit, supersedeRunForCard } from './workflowSessionService.js';
+import { moveCard } from './kanbanService.js';
 
 describe('W6: _executeSession triggers target-lane automation after a real success', () => {
   let projectRepo;
   let sessionRepo;
+  let messageRepo;
   let boardRepo;
   let laneRepo;
   let cardRepo;
@@ -41,6 +44,7 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
   let project;
   let source;
   let target;
+  let board;
   let workspace;
   let card;
   let root;
@@ -51,13 +55,14 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
     drainLaneEntryTriggerMock.mockClear();
     projectRepo = new ProjectRepository();
     sessionRepo = new SessionRepository();
+    messageRepo = new MessageRepository();
     boardRepo = new KanbanBoardRepository();
     laneRepo = new KanbanLaneRepository();
     cardRepo = new KanbanCardRepository();
     tempDir = mkdtempSync(join(tmpdir(), 'w6-transition-test-'));
 
     project = projectRepo.create('W6 Project', tempDir);
-    const board = boardRepo.create(project.id);
+    board = boardRepo.create(project.id);
     [source, target] = laneRepo.getByBoardId(board.id);
     target = laneRepo.update(target.id, { onEnterPrompt: 'perform target work' });
     workspace = sessionRepo.create(project.id, 'Workspace', 'work');
@@ -219,5 +224,50 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
     expect(result).toEqual({ started: false, sessionId: root.id, reason: 'lane_run_ownership_lost' });
     expect(stubAgent.execute).not.toHaveBeenCalled();
     expect(getRun(run.id).status).toBe('superseded');
+  });
+
+  // Regression for incident b0fadc44: a lane-entry session that moves its own
+  // workspace card mid-turn (as several lane prompts instruct) used to have
+  // its own turn aborted ~10ms later as a side effect of the supersession
+  // that move triggers, truncating its output. Supersession must revoke
+  // workflow authority without touching the in-flight provider call.
+  it('AC1/AC2: survives moving its own card mid-turn — output after the move is not lost', async () => {
+    const nonStructuredLane = laneRepo.getByBoardId(board.id).find((lane) => lane.id !== source.id && lane.id !== target.id);
+    const stubAgent = {
+      execute: vi.fn(async function* () {
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'before move' }] } };
+        // The agent moves its own workspace's card, exactly as the Review PR
+        // and Testing/Validation lane prompts instruct on-enter workers to do.
+        await moveCard(card.id, nonStructuredLane.id);
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'after move' }] } };
+        yield { type: 'result', success: true };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    await runSession(root.id, 'do work', tempDir);
+
+    // The call was never aborted, so it only ran once and produced both
+    // pieces of output — including everything emitted after the move.
+    expect(stubAgent.execute).toHaveBeenCalledTimes(1);
+    const texts = messageRepo.getBySessionId(root.id).map((m) => m.content);
+    expect(texts).toEqual(expect.arrayContaining(['before move', 'after move']));
+
+    // The session that issued the move lands as a normal successful
+    // completion, not aborted/stopped/error.
+    const finishedRoot = sessionRepo.getById(root.id);
+    expect(finishedRoot.status).toBe('waiting');
+    expect(finishedRoot.error).toBeFalsy();
+
+    // The move itself succeeded and is the terminal state of the run the
+    // mover belonged to: superseded, not failed or errored.
+    expect(cardRepo.getById(card.id).laneId).toBe(nonStructuredLane.id);
+    expect(getRun(run.id).status).toBe('superseded');
+
+    // Because the target lane has no on-enter automation, no successor run
+    // or lane-entry delivery was created or driven for this move.
+    expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
   });
 });

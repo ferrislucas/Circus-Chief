@@ -343,7 +343,7 @@ describe('kanbanService', () => {
       await expect(moveCard('non-existent', lanes[0].id)).rejects.toThrow('Card not found');
     });
 
-    it('still cancels a lane worker when the move comes from outside (no actor)', async () => {
+    it('cancels a lane worker\'s workflow standing without aborting its in-flight turn', async () => {
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
       const run = createLaneRunForEntry({
@@ -356,11 +356,14 @@ describe('kanbanService', () => {
 
       await moveCard(card.id, lanes[1].id);
 
+      // The worker's own-work obligation is cancelled, but its turn is left
+      // running — supersession stops granting workflow authority, it does not
+      // terminate execution.
       expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
       expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
-        status: 'running', executionState: 'aborting',
+        status: 'running', executionState: 'stopped',
       }));
-      expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'superseded', failureReason: 'manual_move' }));
+      expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'superseded', failureReason: 'card_moved' }));
     });
 
     it('skips on-enter template when runOnEnterTemplate is false', async () => {

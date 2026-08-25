@@ -10,7 +10,6 @@ import { databaseManager } from '../db/DatabaseManager.js';
 // db/ layer only — safe to import: db/index.js never depends on any
 // services/ module, so this cannot create an import cycle (contrast with
 // kanbanService.js/kanbanTriggers.js — see attemptLaneRunTransition below).
-import { activeSessions } from './streamEventHandler.js';
 import { getRun } from './workflowRunReader.js';
 import { recomputeSubtreeOutcomes } from './workflowSessionState.js';
 import { broadcastCardTransition, moveCardForTransition } from './workflowLaneTransition.js';
@@ -76,22 +75,16 @@ export function withActiveLaneRunOwnership(sessionId, mutation) {
  *
  * This transaction authoritatively cancels the member's workflow obligation
  * and clears any restartable work. Scheduled members are terminalized here.
- * Running members instead remain `status='running'` with
- * `execution_state='aborting'` until their controller unwinds: after
- * supersedeLaneRun() aborts that controller, handleTurnCompletion() delegates
- * to finalizeAbortedTurnStatus() in streamEventCallbacks.js to terminalize the
- * turn as stopped. That finalizer is guarded so it cannot overwrite a newer
- * turn or an outcome already recorded by this supersession. `waiting` members
- * are already idle and remain available for follow-up messages.
- *
- * If a provider stream ignores its abort signal, streamWatchdog.js reaps it
- * after a generous abort grace period. The watchdog deletes the active-turn
- * registry entry before writing `stopped`, so a late-unwinding turn cannot
- * resurrect the row. Boot recovery remains the process-crash backstop.
+ * Supersession no longer aborts an in-flight turn: a running member keeps
+ * executing to completion, but four independent fences (activeLaneRunOwnsSession,
+ * withActiveLaneRunOwnership, releaseCardFromRun, claimWorkflowSessionStart)
+ * prevent it from advancing the board once its own_work_state is 'cancelled'
+ * here. `waiting` members are already idle and remain available for
+ * follow-up messages.
  */
 function clearExecutableMemberState(db, runId, reason, time) {
   return db.prepare(`UPDATE sessions SET own_work_state='cancelled', own_work_closed_at=?, workflow_reason=?,
-    workflow_updated_at=?, execution_state=CASE WHEN status='running' THEN 'aborting' ELSE 'stopped' END,
+    workflow_updated_at=?, execution_state='stopped',
     status=CASE WHEN status='scheduled' THEN 'stopped' ELSE status END,
     scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_conversation_id=NULL,
     auto_send_pending_prompt=0, reschedule_count=0
@@ -518,11 +511,6 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
     }
     return getRun(runId);
   });
-  if (result) {
-    for (const { id: sessionId } of databaseManager.get().prepare('SELECT id FROM sessions WHERE lane_run_id=?').all(result.id)) {
-      activeSessions.get(sessionId)?.controller?.abort();
-    }
-  }
   return result;
 }
 

@@ -616,18 +616,22 @@ describe('workflowSessionService', () => {
     });
   });
 
-  it('marks a running member aborting when its run is superseded', () => {
+  it('cancels a running member\'s workflow standing without aborting its turn when its run is superseded', () => {
     const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
     const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
     attachRootSession(run.id, worker.id);
     beginWorkflowTurn(worker.id);
     databaseManager.get().prepare("UPDATE sessions SET status='running' WHERE id=?").run(worker.id);
 
-    supersedeRunForCard(card.id, 'manual_move');
+    supersedeRunForCard(card.id, 'card_moved');
 
+    // The turn is left running (status unchanged); only the workflow
+    // obligation is cancelled. execution_state is normalized to 'stopped'
+    // rather than left in a transient 'aborting' state nothing ever clears.
     const after = sessions.getById(worker.id);
     expect(after.status).toBe('running');
-    expect(after.executionState).toBe('aborting');
+    expect(after.executionState).toBe('stopped');
+    expect(after.ownWorkState).toBe('cancelled');
   });
 
   it.each([
