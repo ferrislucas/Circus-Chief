@@ -1,4 +1,4 @@
-import { sessions } from '../database.js';
+import { sessions, messages, conversations } from '../database.js';
 import { withActiveLaneRunOwnership } from './workflowSessionService.js';
 import { createWorkLog } from './workLogService.js';
 
@@ -50,24 +50,27 @@ export const WAKEUP_MIN_DELAY_SECONDS = 60;
 export const WAKEUP_MAX_DELAY_SECONDS = 3600;
 
 /**
- * Sentinels the SDK resolves at fire time from its own loop state. Circus
- * Chief has no such state to resolve them against. Persisting one verbatim
- * would hand the resumed agent a literal `<<...>>` string as its prompt;
- * substituting a generic "Continue" is just as wrong in the other direction —
- * it silently discards the fact that the agent asked for a specific
- * (unavailable) instruction and fabricates a different one in its place. So
- * these are refused outright rather than resolved. See `resolveWakeupPrompt`.
+ * The dynamic sentinel is the documented ScheduleWakeup representation for
+ * an autonomous `/loop`. It cannot be sent back to `query()` verbatim: it is
+ * meaningful only to the SDK cron runtime. We can, however, durably preserve
+ * the equivalent context already owned by Circus Chief: the active
+ * conversation, its Claude resume ID, and its original `/loop` input. The
+ * scheduler then uses its existing `pendingConversationId` path to resume
+ * that exact user message, which re-enters the same Claude conversation
+ * without inventing a new prompt.
+ *
+ * `<<autonomous-loop>>` is the CronCreate-mode sentinel, not a valid
+ * ScheduleWakeup input. It remains deliberately unsupported rather than
+ * being treated as the dynamic variant. See `resolveWakeupPrompt`.
  */
-const UNRESOLVABLE_PROMPT_SENTINELS = new Set([
-  '<<autonomous-loop-dynamic>>',
-  '<<autonomous-loop>>',
-]);
+export const AUTONOMOUS_LOOP_DYNAMIC_SENTINEL = '<<autonomous-loop-dynamic>>';
+const UNSUPPORTED_PROMPT_SENTINELS = new Set(['<<autonomous-loop>>']);
 
 /** Fallback prompt matching what SchedulerService uses for its own retries. Only used when no prompt was supplied at all — never as a substitute for an unresolvable one. */
 const FALLBACK_PROMPT = 'Continue';
 
 /**
- * @typedef {{ delaySeconds: number, prompt: string, reason: string, capturedAt: number, capturedSeq: number }} PendingWakeup
+ * @typedef {{ delaySeconds: number, prompt: string, reason: string, capturedAt: number, capturedSeq: number, pendingConversationId: string|null, isAutonomousLoop: boolean }} PendingWakeup
  */
 
 /**
@@ -142,15 +145,86 @@ export function clampDelaySeconds(delaySeconds) {
  * Resolve the prompt to persist as `pendingPrompt`.
  * @param {*} prompt
  * @returns {string|null} The prompt to persist, a fallback for a missing
- *   prompt, or `null` when the wakeup must be refused outright (an
- *   SDK loop-state sentinel we cannot dereference).
+ *   prompt, or `null` when the wakeup uses an unsupported SDK sentinel.
  */
 export function resolveWakeupPrompt(prompt) {
-  if (typeof prompt === 'string' && UNRESOLVABLE_PROMPT_SENTINELS.has(prompt.trim())) {
+  if (typeof prompt === 'string' && UNSUPPORTED_PROMPT_SENTINELS.has(prompt.trim())) {
     return null;
   }
   if (typeof prompt !== 'string' || prompt.trim() === '') return FALLBACK_PROMPT;
   return prompt.trim();
+}
+
+/**
+ * Resolve the durable context needed to resume an autonomous `/loop`.
+ *
+ * Reusing the existing user message is intentional: SchedulerService already
+ * has an atomic, lane-fenced path for this retry/continuation mode, and the
+ * persisted Claude session ID lets the Claude adapter resume the conversation
+ * that holds the SDK's loop skill context. A sentinel observed without this
+ * context is not safe to schedule; there is no meaningful generic prompt to
+ * substitute.
+ *
+ * @param {string} sessionId
+ * @returns {{ prompt: string, pendingConversationId: string }|null}
+ */
+function resolveAutonomousLoopContext(sessionId) {
+  const conversation = conversations.getActiveBySessionId(sessionId);
+  if (!conversation?.id || !conversation.claudeSessionId) return null;
+
+  const lastUserMessage = [...messages.getByConversationId(conversation.id)]
+    .reverse()
+    .find((message) => message?.role === 'user' && typeof message.content === 'string' && message.content.trim() !== '');
+  // The SDK contract defines this sentinel only for an autonomous `/loop`.
+  // Replaying a different user message would turn an untrusted sentinel into
+  // a scheduled execution of unrelated work, so require the durable loop
+  // invocation instead of guessing from arbitrary conversation context.
+  if (!lastUserMessage || !/^\/loop(?:\s|$)/.test(lastUserMessage.content.trim())) return null;
+
+  // pendingPrompt remains required by the scheduler's claim invariant, but
+  // is deliberately not sent to the model: pendingConversationId selects the
+  // existing-message continuation branch above it.
+  return { prompt: FALLBACK_PROMPT, pendingConversationId: conversation.id };
+}
+
+function logDroppedWakeup(sessionId, message) {
+  console.warn(`[ScheduleWakeup] Session ${sessionId}: ${message}`);
+  createWorkLog(sessionId, 'tool_output', message, 'ScheduleWakeup');
+}
+
+function resolveCapturedWakeupPrompt(sessionId, input) {
+  const requestedPrompt = typeof input?.prompt === 'string' ? input.prompt.trim() : input?.prompt;
+  const isAutonomousLoop = requestedPrompt === AUTONOMOUS_LOOP_DYNAMIC_SENTINEL;
+  const autonomousLoopContext = isAutonomousLoop ? resolveAutonomousLoopContext(sessionId) : null;
+  if (isAutonomousLoop && !autonomousLoopContext) {
+    logDroppedWakeup(sessionId, 'ScheduleWakeup requested the SDK autonomous-loop sentinel, but this turn has no resumable active Claude /loop conversation. The wakeup was not scheduled because Circus Chief cannot safely reconstruct the loop context.');
+    return null;
+  }
+
+  const prompt = isAutonomousLoop ? autonomousLoopContext.prompt : resolveWakeupPrompt(input?.prompt);
+  if (prompt === null) {
+    logDroppedWakeup(sessionId, `ScheduleWakeup was called with the unsupported SDK loop sentinel prompt ("${input?.prompt}"). Only "${AUTONOMOUS_LOOP_DYNAMIC_SENTINEL}" is valid for ScheduleWakeup; the wakeup was not scheduled.`);
+    return null;
+  }
+  return { prompt, pendingConversationId: autonomousLoopContext?.pendingConversationId || null, isAutonomousLoop };
+}
+
+function buildPendingWakeup(sessionId, wakeup) {
+  const delaySeconds = clampDelaySeconds(wakeup.input?.delaySeconds);
+  if (delaySeconds === null) {
+    logDroppedWakeup(sessionId, `ScheduleWakeup requested a wakeup with a non-numeric delaySeconds (${JSON.stringify(wakeup.input?.delaySeconds)}); the wakeup was not scheduled.`);
+    return null;
+  }
+
+  const promptData = resolveCapturedWakeupPrompt(sessionId, wakeup.input);
+  if (!promptData) return null;
+  return {
+    delaySeconds,
+    ...promptData,
+    reason: typeof wakeup.input?.reason === 'string' ? wakeup.input.reason : '',
+    capturedAt: Date.now(),
+    capturedSeq: turnSequenceCounter++,
+  };
 }
 
 /**
@@ -195,29 +269,7 @@ export function captureScheduleWakeup(sessionId, controller, toolUseBlocks) {
   // already superseded.
   state.pendingWakeup = null;
 
-  const delaySeconds = clampDelaySeconds(wakeup.input?.delaySeconds);
-  if (delaySeconds === null) {
-    const message = `ScheduleWakeup requested a wakeup with a non-numeric delaySeconds (${JSON.stringify(wakeup.input?.delaySeconds)}); the wakeup was not scheduled.`;
-    console.warn(`[ScheduleWakeup] Session ${sessionId}: ${message}`);
-    createWorkLog(sessionId, 'tool_output', message, 'ScheduleWakeup');
-    return;
-  }
-
-  const prompt = resolveWakeupPrompt(wakeup.input?.prompt);
-  if (prompt === null) {
-    const message = `ScheduleWakeup was called with the SDK's autonomous-loop sentinel prompt ("${wakeup.input?.prompt}"), which only resolves inside the SDK's own loop state. Circus Chief has no such state, so this wakeup was not scheduled. Call POST /api/sessions/:id/schedule with an explicit prompt instead.`;
-    console.warn(`[ScheduleWakeup] Session ${sessionId}: ${message}`);
-    createWorkLog(sessionId, 'tool_output', message, 'ScheduleWakeup');
-    return;
-  }
-
-  state.pendingWakeup = {
-    delaySeconds,
-    prompt,
-    reason: typeof wakeup.input?.reason === 'string' ? wakeup.input.reason : '',
-    capturedAt: Date.now(),
-    capturedSeq: turnSequenceCounter++,
-  };
+  state.pendingWakeup = buildPendingWakeup(sessionId, wakeup);
 }
 
 /**
@@ -308,7 +360,7 @@ export function applyPendingWakeup(sessionId, controller) {
     status: 'scheduled',
     scheduledAt,
     pendingPrompt: wakeup.prompt,
-    pendingConversationId: null,
+    pendingConversationId: wakeup.pendingConversationId,
   });
   const updated = session.laneRunId ? withActiveLaneRunOwnership(sessionId, update) : update();
 

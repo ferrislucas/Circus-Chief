@@ -1,5 +1,5 @@
 import { sessions, conversations, messages } from '../database.js';
-import { broadcastToSession } from '../websocket.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import { createVisibleFinalErrorMessage } from './visibleFinalErrorMessage.js';
@@ -54,8 +54,20 @@ async function handleScheduledContinuationIfNeeded(sessionId, controller, { appl
   // Require a strictly positive finite timestamp so a zero/negative persisted value
   // can never accidentally flip the session to 'scheduled'.
   if (Number.isFinite(session.scheduledAt) && session.scheduledAt > 0 && hasPendingPrompt) {
-    sessions.update(sessionId, { status: 'scheduled' });
-    broadcastSessionStatus(sessionId, 'scheduled');
+    const updated = sessions.update(sessionId, { status: 'scheduled' }) || sessions.getById(sessionId);
+    // Use the same full session payload as POST /:id/schedule. The bridge's
+    // initial write changes scheduledAt, pendingPrompt, and potentially
+    // pendingConversationId; a status-only event leaves detail subscribers
+    // with stale scheduling state.
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, { sessionId, session: updated });
+    if (updated?.projectId) {
+      broadcastToProject(updated.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId: updated.projectId,
+        sessionId,
+        session: updated,
+      });
+    }
     return true;
   }
   return false;

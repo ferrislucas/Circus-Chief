@@ -5,6 +5,12 @@ vi.mock('../database.js', () => ({
     getById: vi.fn(),
     update: vi.fn(),
   },
+  messages: {
+    getByConversationId: vi.fn(),
+  },
+  conversations: {
+    getActiveBySessionId: vi.fn(),
+  },
   workLogs: {
     create: vi.fn((sessionId, type, content, options) => ({
       id: 'log-1', sessionId, type, content, ...options,
@@ -20,7 +26,7 @@ vi.mock('./workflowSessionService.js', () => ({
   withActiveLaneRunOwnership: vi.fn((_sessionId, mutation) => mutation()),
 }));
 
-import { sessions, workLogs } from '../database.js';
+import { sessions, messages, conversations, workLogs } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { withActiveLaneRunOwnership } from './workflowSessionService.js';
 import {
@@ -30,6 +36,7 @@ import {
   recordExplicitSchedule as recordExplicitScheduleForTurn,
   clampDelaySeconds,
   resolveWakeupPrompt,
+  AUTONOMOUS_LOOP_DYNAMIC_SENTINEL,
   wakeupTurnStates,
   WAKEUP_MIN_DELAY_SECONDS,
   WAKEUP_MAX_DELAY_SECONDS,
@@ -83,6 +90,8 @@ beforeEach(() => {
   pendingWakeups.clear();
   clearPendingWakeup(SESSION_ID);
   sessions.update.mockImplementation((id, data) => ({ id, ...data }));
+  conversations.getActiveBySessionId.mockReturnValue(null);
+  messages.getByConversationId.mockReturnValue([]);
   withActiveLaneRunOwnership.mockImplementation((_sessionId, mutation) => mutation());
 });
 
@@ -113,8 +122,8 @@ describe('resolveWakeupPrompt', () => {
     expect(resolveWakeupPrompt('  Continue: check the E2E log  ')).toBe('Continue: check the E2E log');
   });
 
-  it('refuses prompts the SDK would resolve from loop state instead of guessing', () => {
-    expect(resolveWakeupPrompt('<<autonomous-loop-dynamic>>')).toBeNull();
+  it('leaves the supported dynamic sentinel for context-aware handling and rejects the CronCreate-only sentinel', () => {
+    expect(resolveWakeupPrompt(AUTONOMOUS_LOOP_DYNAMIC_SENTINEL)).toBe(AUTONOMOUS_LOOP_DYNAMIC_SENTINEL);
     expect(resolveWakeupPrompt('<<autonomous-loop>>')).toBeNull();
   });
 
@@ -174,6 +183,61 @@ describe('captureScheduleWakeup', () => {
     expect(pendingWakeups.get(SESSION_ID).delaySeconds).toBe(WAKEUP_MIN_DELAY_SECONDS);
   });
 
+  it('captures the dynamic autonomous-loop sentinel as a durable existing-message continuation', () => {
+    conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-loop', claudeSessionId: 'claude-loop' });
+    messages.getByConversationId.mockReturnValue([
+      { id: 'user-loop', role: 'user', content: '/loop' },
+      { id: 'assistant-loop', role: 'assistant', content: 'Polling now.' },
+    ]);
+
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({
+      delaySeconds: 600,
+      reason: 'wait for the external job',
+      prompt: AUTONOMOUS_LOOP_DYNAMIC_SENTINEL,
+    })]);
+
+    expect(pendingWakeups.get(SESSION_ID)).toMatchObject({
+      prompt: 'Continue',
+      pendingConversationId: 'conv-loop',
+      isAutonomousLoop: true,
+    });
+  });
+
+  it('refuses the dynamic sentinel when no resumable conversation can preserve loop context', () => {
+    conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-loop', claudeSessionId: null });
+
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({
+      delaySeconds: 600,
+      prompt: AUTONOMOUS_LOOP_DYNAMIC_SENTINEL,
+    })]);
+
+    expect(pendingWakeups.has(SESSION_ID)).toBe(false);
+    expect(workLogs.create).toHaveBeenCalledWith(
+      SESSION_ID,
+      'tool_output',
+      expect.stringContaining('cannot safely reconstruct'),
+      expect.objectContaining({ toolName: 'ScheduleWakeup' })
+    );
+  });
+
+  it('refuses the dynamic sentinel outside a persisted /loop invocation instead of scheduling unrelated work', () => {
+    conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-other', claudeSessionId: 'claude-other' });
+    messages.getByConversationId.mockReturnValue([{ id: 'user-other', role: 'user', content: 'Fix the failing test' }]);
+
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({
+      delaySeconds: 600,
+      prompt: AUTONOMOUS_LOOP_DYNAMIC_SENTINEL,
+    })]);
+
+    expect(pendingWakeups.has(SESSION_ID)).toBe(false);
+    expect(workLogs.create).toHaveBeenCalledWith(
+      SESSION_ID,
+      'tool_output',
+      expect.stringContaining('cannot safely reconstruct'),
+      expect.objectContaining({ toolName: 'ScheduleWakeup' })
+    );
+  });
+
   it('drops a wakeup with an unusable delay rather than guessing, and logs why', () => {
     captureScheduleWakeup(SESSION_ID, [wakeupBlock({ reason: 'no delay', prompt: 'p' })]);
 
@@ -194,19 +258,19 @@ describe('captureScheduleWakeup', () => {
     expect(pendingWakeups.has(SESSION_ID)).toBe(false);
   });
 
-  it('refuses an unresolvable loop-state sentinel prompt rather than substituting Continue, and logs why', () => {
-    captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 600, prompt: '<<autonomous-loop-dynamic>>' })]);
+  it('refuses the CronCreate-only loop sentinel rather than substituting Continue, and logs why', () => {
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 600, prompt: '<<autonomous-loop>>' })]);
 
     expect(pendingWakeups.has(SESSION_ID)).toBe(false);
     expect(workLogs.create).toHaveBeenCalledWith(
       SESSION_ID,
       'tool_output',
-      expect.stringContaining('autonomous-loop sentinel'),
+      expect.stringContaining('unsupported SDK loop sentinel'),
       expect.objectContaining({ toolName: 'ScheduleWakeup' })
     );
   });
 
-  it('cancels an earlier wakeup when a later call uses an unresolvable sentinel', () => {
+  it('cancels an earlier wakeup when a later call uses an unsupported sentinel', () => {
     captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'earlier' }, 't1')]);
     captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 600, prompt: '<<autonomous-loop>>' }, 't2')]);
 
@@ -277,6 +341,22 @@ describe('applyPendingWakeup', () => {
     // Delay is measured from apply time (now), not from when the tool was called.
     expect(scheduledAt).toBeGreaterThanOrEqual(before + 600 * 1000);
     expect(scheduledAt).toBeLessThanOrEqual(Date.now() + 600 * 1000);
+  });
+
+  it('persists the autonomous-loop conversation selector so the scheduler resumes its exact user message', () => {
+    sessions.getById.mockReturnValue(unscheduledSession());
+    conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-loop', claudeSessionId: 'claude-loop' });
+    messages.getByConversationId.mockReturnValue([{ id: 'user-loop', role: 'user', content: '/loop' }]);
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({
+      delaySeconds: 600,
+      prompt: AUTONOMOUS_LOOP_DYNAMIC_SENTINEL,
+    })]);
+
+    expect(applyPendingWakeup(SESSION_ID)).toBe(true);
+    expect(sessions.update).toHaveBeenCalledWith(SESSION_ID, expect.objectContaining({
+      pendingPrompt: 'Continue',
+      pendingConversationId: 'conv-loop',
+    }));
   });
 
   it('is a no-op when nothing was captured', () => {

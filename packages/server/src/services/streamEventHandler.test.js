@@ -1240,6 +1240,62 @@ describe('streamEventHandler', () => {
         WS_MESSAGE_TYPES.SESSION_STATUS,
         { sessionId: 'sess-1', status: 'scheduled' }
       );
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_UPDATED,
+        expect.objectContaining({
+          sessionId: 'sess-1',
+          session: expect.objectContaining({
+            status: 'scheduled',
+            pendingPrompt: 'Continue: check /tmp/e2e-full-run.log',
+            pendingConversationId: null,
+          }),
+        })
+      );
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        'proj-1',
+        WS_MESSAGE_TYPES.SESSION_UPDATED,
+        expect.objectContaining({
+          sessionId: 'sess-1',
+          session: expect.objectContaining({ scheduledAt: session.scheduledAt }),
+        })
+      );
+    });
+
+    it('turns the SDK dynamic autonomous-loop sentinel into a resumable existing-message continuation', async () => {
+      const controller = new AbortController();
+      activeSessions.set('sess-1', { controller });
+      const session = statefulSession();
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-loop', claudeSessionId: 'claude-loop' });
+      messages.getByConversationId.mockReturnValue([
+        { id: 'msg-loop-user', role: 'user', content: '/loop' },
+        { id: 'msg-loop-assistant', role: 'assistant', content: 'Waiting for work.' },
+      ]);
+
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 600,
+        reason: 'wait for external work',
+        prompt: '<<autonomous-loop-dynamic>>',
+      }), { controller });
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      }, { controller });
+
+      expect(session).toMatchObject({
+        status: 'scheduled',
+        pendingPrompt: 'Continue',
+        pendingConversationId: 'conv-loop',
+      });
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_UPDATED,
+        expect.objectContaining({
+          session: expect.objectContaining({ pendingConversationId: 'conv-loop' }),
+        })
+      );
     });
 
     it('suppresses auto-send and the template trigger, like a REST schedule', async () => {
@@ -1314,12 +1370,18 @@ describe('streamEventHandler', () => {
       expect(session.scheduledAt).toBeNull();
     });
 
-    it('discards a captured wakeup across the error path', async () => {
+    it('discards a dynamic autonomous-loop wakeup across the error path', async () => {
       const controller = { signal: { aborted: false } };
       activeSessions.set('sess-1', { controller });
       const session = statefulSession();
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-loop', claudeSessionId: 'claude-loop' });
+      messages.getByConversationId.mockReturnValue([{ id: 'msg-loop-user', role: 'user', content: '/loop' }]);
 
-      await handleStreamEvent('sess-1', wakeupEvent({ delaySeconds: 270, reason: 'r', prompt: 'Continue: retry' }));
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 270,
+        reason: 'r',
+        prompt: '<<autonomous-loop-dynamic>>',
+      }));
 
       const mockScheduler = { rescheduleSession: vi.fn().mockResolvedValue(true) };
       const result = await handleSessionError('sess-1', new Error('stream blew up'), {
@@ -1332,16 +1394,22 @@ describe('streamEventHandler', () => {
       // error falls through to the ordinary automatic-reschedule policy.
       expect(result).toBe(true);
       expect(mockScheduler.rescheduleSession).toHaveBeenCalled();
-      expect(session.pendingPrompt).not.toBe('Continue: retry');
+      expect(session.pendingConversationId).not.toBe('conv-loop');
       expect(wakeupTurnStates.has(controller)).toBe(false);
     });
 
-    it('discards a captured wakeup when the turn is cleaned up without completing', async () => {
+    it('discards a dynamic autonomous-loop wakeup when the turn is cleaned up without completing', async () => {
       const controller = { signal: { aborted: false } };
       activeSessions.set('sess-1', { controller });
       statefulSession();
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-loop', claudeSessionId: 'claude-loop' });
+      messages.getByConversationId.mockReturnValue([{ id: 'msg-loop-user', role: 'user', content: '/loop' }]);
 
-      await handleStreamEvent('sess-1', wakeupEvent({ delaySeconds: 600, reason: 'r', prompt: 'Continue' }));
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 600,
+        reason: 'r',
+        prompt: '<<autonomous-loop-dynamic>>',
+      }));
       expect(wakeupTurnStates.get(activeSessions.get('sess-1').controller)?.pendingWakeup).toBeTruthy();
 
       cleanupSessionState('sess-1');

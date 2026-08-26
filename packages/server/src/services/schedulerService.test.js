@@ -519,14 +519,14 @@ describe('SchedulerService', () => {
       expect(attachments.updateMessageIdForSession).not.toHaveBeenCalled();
     });
 
-    it('uses continueSessionWithExistingMessage when pendingConversationId is set', async () => {
+    it('uses continueSessionWithExistingMessage for a persisted autonomous-loop continuation', async () => {
       scheduler.initialize(mockSessionManager);
       mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' });
       const session = {
         id: 'session-1',
         name: 'Test Session',
         projectId: 'project-1',
-        pendingPrompt: 'Initial prompt',
+        pendingPrompt: 'Continue',
         pendingConversationId: 'conv-99',
         pendingModel: 'claude-sonnet-4-5',
       };
