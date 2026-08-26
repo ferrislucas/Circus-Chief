@@ -2,8 +2,9 @@
 //
 // This is a sibling of workspace-queries.js's WORKSPACE_AGGREGATES_CTE: that CTE
 // is parameterized by a single project and is on the Kanban/workspace-list hot
-// path, so it is deliberately left untouched. This query groups roots by
-// project_id across *all* projects in one pass.
+// path, so its query *shape* (the recursive tree walk, the join strategy) is
+// deliberately left untouched here. This query groups roots by project_id
+// across *all* projects in one pass instead.
 //
 // "Waiting" is s.pending_agent_input = 1 (persisted by promptStore.js), NOT
 // s.status = 'waiting'. The status value 'waiting' means "turn ended
@@ -16,6 +17,9 @@
 // that. Because a session can be both running AND pending_agent_input at the
 // same time, running_count and waiting_count are NOT disjoint — active_count
 // is computed with an OR, not a sum, to avoid double-counting that session.
+// WORKSPACE_AGGREGATES_CTE's waiting_count uses this same pending_agent_input
+// definition (not status='waiting') so the project-list "waiting" pill and its
+// embedded per-project workspace-card list agree on which sessions match.
 //
 // Performance constraint (see the header comment on workspace-queries.js): do
 // not reintroduce correlated subqueries over messages/command_runs/

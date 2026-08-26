@@ -405,6 +405,22 @@ export class SessionRepository extends BaseRepository {
   }
 
   /**
+   * Clear `pending_agent_input` on every session that still has it set.
+   * promptStore.js's parked-prompt queue lives only in process memory and
+   * always starts empty on boot, so any row where this flag is still 1 is
+   * describing an interactive prompt that died with the previous process —
+   * it can never be answered. Left uncleared, the project list's "waiting"
+   * aggregate (project-activity-queries.js) and the workspace-card "waiting"
+   * status filter would keep surfacing that session/project indefinitely,
+   * while every other pendingAgentInput read (which derives live from
+   * hasPendingPrompt()) would correctly show false — a permanent mismatch.
+   * @returns {number} Count of rows cleared.
+   */
+  clearStalePendingAgentInput() {
+    return this.db.prepare('UPDATE sessions SET pending_agent_input = 0 WHERE pending_agent_input = 1').run().changes;
+  }
+
+  /**
    * Non-archived sessions in `status`. With a `cutoff`, only those untouched
    * since it; without one, every match regardless of recency.
    * @param {string} status

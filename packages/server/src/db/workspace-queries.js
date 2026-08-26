@@ -27,7 +27,13 @@ const WORKSPACE_AGGREGATES_CTE = `
       GROUP_CONCAT(s.id ORDER BY s.id = tree.root_id DESC, s.id) AS member_ids,
       SUM(CASE WHEN s.status = 'scheduled' THEN 1 ELSE 0 END) AS scheduled_count,
       MIN(CASE WHEN s.status = 'scheduled' THEN s.scheduled_at END) AS nearest_scheduled_at,
-      SUM(CASE WHEN s.status = 'waiting' THEN 1 ELSE 0 END) AS waiting_count,
+      -- "Waiting" means blocked on AskUserQuestion/permission (pending_agent_input),
+      -- NOT status='waiting' (which just means "turn ended, idle" and is set on
+      -- nearly every completed session). See project-activity-queries.js for the
+      -- fuller rationale; this CTE must use the same definition or the project-list
+      -- "waiting" pill and its embedded workspace-card list disagree about which
+      -- workspaces actually need a response.
+      SUM(CASE WHEN s.pending_agent_input = 1 THEN 1 ELSE 0 END) AS waiting_count,
       MAX(MAX(COALESCE(s.last_activity_at, 0), COALESCE(s.updated_at, 0), COALESCE(s.created_at, 0))) AS last_activity_at,
       COUNT(*) - 1 AS descendant_count
     FROM tree JOIN sessions s ON s.id = tree.id GROUP BY tree.root_id
