@@ -51,7 +51,7 @@ import {
   drainLaneEntryTrigger,
   reclaimExpiredLaneEntryClaims,
 } from './kanbanService.js';
-import { createLaneRunForEntry, attachRootSession, getRun } from './workflowSessionService.js';
+import { beginWorkflowTurn, createLaneRunForEntry, attachRootSession, finalizeOwnWorkCompletion, getRun } from './workflowSessionService.js';
 import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
 import { resolveProviderMetadataFromModel } from './sessionProvider.js';
 
@@ -361,7 +361,9 @@ describe('kanbanService', () => {
       // terminate execution.
       expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
       expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
-        status: 'running', executionState: 'stopped',
+        // This fixture has not started a provider turn, so its pre-existing
+        // idle lifecycle is preserved rather than falsely claiming stopped.
+        status: 'running', executionState: 'idle',
       }));
       expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'superseded', failureReason: 'card_moved' }));
     });
@@ -731,6 +733,33 @@ describe('kanbanService', () => {
   });
 
   describe('durable completion outbox', () => {
+    it('acknowledges lane entry after its delivered worker defers and completes a card move', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Process this card' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[0].id, workspace.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+      runSession.mockImplementationOnce(async (workerId) => {
+        const { turnToken } = beginWorkflowTurn(workerId);
+        const response = await moveCard(card.id, lanes[1].id, {
+          deferredSessionId: workerId,
+          deferredTurnToken: turnToken,
+        });
+        expect(response).toMatchObject({ deferred: true, scheduled: true });
+        expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
+        finalizeOwnWorkCompletion(workerId, { turnToken });
+        return { started: true };
+      });
+
+      expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(true);
+
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[1].id);
+      expect(getRun(run.id).status).toBe('succeeded');
+      expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+        .get(run.laneEntryEventId).status).toBe('completed');
+    });
+
     it('reclaims a claim at its exact expiry, not five minutes later', () => {
       const expiry = Date.now();
       databaseManager.get().prepare(`INSERT INTO kanban_lane_entry_events

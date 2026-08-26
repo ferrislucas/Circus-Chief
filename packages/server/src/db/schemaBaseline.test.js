@@ -99,7 +99,7 @@ describe('schema baseline', () => {
         'lane_run_id', 'own_work_state',
         'own_work_closed_at', 'workflow_updated_at', 'workflow_reason',
         'execution_state', 'subtree_outcome', 'last_activity_at',
-        'created_at', 'updated_at', 'pending_conversation_id',
+        'created_at', 'updated_at', 'pending_conversation_id', 'execution_turn_token',
       ]);
     });
   });

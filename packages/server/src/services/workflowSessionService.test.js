@@ -6,7 +6,7 @@ import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
   getRun, attachRootSession, reconcileLaneRun,
   supersedeRunForCard, declareExitLane, closeOwnWork, markExecutionState, markHeldForLimit,
-  computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition,
+  computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition, deferCardMoveForTurn,
 } from './workflowSessionService.js';
 import { auditKanbanInvariants, reconcileKanbanOwnership } from './kanbanRecoveryService.js';
 
@@ -472,6 +472,45 @@ describe('workflowSessionService', () => {
       expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'open', chosenExitLaneId: target.id }));
     });
 
+    it('uses the latest valid move request from one provider turn', () => {
+      const { worker, run } = runningWorker();
+      const { turnToken } = beginWorkflowTurn(worker.id);
+      const alternate = kanbanLanes.create(board.id, { name: 'Alternate', sortOrder: 9 });
+
+      deferCardMoveForTurn(card.id, target.id, { sessionId: worker.id, turnToken });
+      deferCardMoveForTurn(card.id, alternate.id, { sessionId: worker.id, turnToken });
+
+      expect(getRun(run.id).chosenExitLaneId).toBe(alternate.id);
+      finalizeOwnWorkCompletion(worker.id, { turnToken });
+      expect(kanbanCards.getById(card.id).laneId).toBe(alternate.id);
+    });
+
+    it('rejects an old completion after a newer turn replaces its token', () => {
+      const { worker, run } = runningWorker();
+      const first = beginWorkflowTurn(worker.id);
+      deferCardMoveForTurn(card.id, target.id, { sessionId: worker.id, turnToken: first.turnToken });
+      const second = beginWorkflowTurn(worker.id);
+
+      expect(finalizeOwnWorkCompletion(worker.id, { turnToken: first.turnToken })).toBeNull();
+      expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+      expect(getRun(run.id).status).toBe('open');
+      // The raw durable token is what fences the late first completion.
+      expect(databaseManager.get().prepare('SELECT execution_turn_token FROM sessions WHERE id=?').get(worker.id).execution_turn_token)
+        .toBe(second.turnToken);
+    });
+
+    it('discards a worker move when an external actor moves the card first', () => {
+      const { worker, run } = runningWorker();
+      const { turnToken } = beginWorkflowTurn(worker.id);
+      deferCardMoveForTurn(card.id, target.id, { sessionId: worker.id, turnToken });
+
+      supersedeRunForCard(card.id, 'external_move');
+      kanbanCards.moveToLane(card.id, source.id === target.id ? source.id : target.id);
+      expect(finalizeOwnWorkCompletion(worker.id, { turnToken })).toBeNull();
+      expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
+      expect(getRun(run.id).status).toBe('superseded');
+    });
+
     it('lands waiting/idle when the turn completes, not stuck running', () => {
       const { worker } = runningWorker();
       declareExitLane(card.id, target.id);
@@ -625,12 +664,11 @@ describe('workflowSessionService', () => {
 
     supersedeRunForCard(card.id, 'card_moved');
 
-    // The turn is left running (status unchanged); only the workflow
-    // obligation is cancelled. execution_state is normalized to 'stopped'
-    // rather than left in a transient 'aborting' state nothing ever clears.
+    // The provider is still in flight, so lifecycle remains honestly running;
+    // only the workflow obligation is cancelled.
     const after = sessions.getById(worker.id);
     expect(after.status).toBe('running');
-    expect(after.executionState).toBe('stopped');
+    expect(after.executionState).toBe('running');
     expect(after.ownWorkState).toBe('cancelled');
   });
 

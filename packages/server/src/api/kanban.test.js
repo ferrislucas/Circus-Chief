@@ -780,6 +780,39 @@ describe('Kanban API', () => {
       expect(moveCardService).toHaveBeenCalledWith(card.id, lanes[1].id, expect.anything());
     });
 
+    it('forwards a worker turn identity so the service can schedule rather than immediately move', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      moveCardService.mockResolvedValueOnce({ ...card, deferred: true, scheduled: true, targetLaneId: lanes[1].id });
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
+        .set('X-Circus-Session-Id', session.id)
+        .set('X-Circus-Workflow-Turn-Token', 'turn-token')
+        .send({ targetLaneId: lanes[1].id });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ deferred: true, scheduled: true, targetLaneId: lanes[1].id });
+      expect(moveCardService).toHaveBeenCalledWith(card.id, lanes[1].id, expect.objectContaining({
+        deferredSessionId: session.id, deferredTurnToken: 'turn-token',
+      }));
+    });
+
+    it('rejects a partial worker turn identity', async () => {
+      setupBoard();
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
+        .set('X-Circus-Session-Id', session.id)
+        .send({ targetLaneId: lanes[1].id });
+
+      expect(res.status).toBe(400);
+      expect(moveCardService).not.toHaveBeenCalled();
+    });
+
     it('returns 404 when workspace has no card', async () => {
       setupBoard();
       const session = createSession();

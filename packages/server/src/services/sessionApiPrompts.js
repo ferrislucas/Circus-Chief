@@ -162,8 +162,15 @@ curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
 \`\`\`
 
 ### Move a Card to a Different Lane
+When this command is issued by the currently running lane worker, include the
+two turn headers below. The response then confirms that the move is scheduled;
+the card stays in its current lane until this provider turn finishes. Do not
+omit the headers for a worker self-move, and do omit them for an immediate
+external/manual move.
 \`\`\`bash
 curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/move \\
+  -H "X-Circus-Session-Id: ${sessionId}" \\
+  -H "X-Circus-Workflow-Turn-Token: $CIRCUSCHIEF_WORKFLOW_TURN_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{"targetLaneId": "<lane_id>"}'
 \`\`\`

@@ -226,19 +226,18 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
     expect(getRun(run.id).status).toBe('superseded');
   });
 
-  // Regression for incident b0fadc44: a lane-entry session that moves its own
-  // workspace card mid-turn (as several lane prompts instruct) used to have
-  // its own turn aborted ~10ms later as a side effect of the supersession
-  // that move triggers, truncating its output. Supersession must revoke
-  // workflow authority without touching the in-flight provider call.
-  it('AC1/AC2: survives moving its own card mid-turn — output after the move is not lost', async () => {
+  it('AC1/AC2: defers its own move until after output following the request is preserved', async () => {
     const nonStructuredLane = laneRepo.getByBoardId(board.id).find((lane) => lane.id !== source.id && lane.id !== target.id);
     const stubAgent = {
-      execute: vi.fn(async function* () {
+      execute: vi.fn(async function* (queryParams, agentCallMeta) {
         yield { type: 'assistant', message: { content: [{ type: 'text', text: 'before move' }] } };
-        // The agent moves its own workspace's card, exactly as the Review PR
-        // and Testing/Validation lane prompts instruct on-enter workers to do.
-        await moveCard(card.id, nonStructuredLane.id);
+        const scheduled = await moveCard(card.id, nonStructuredLane.id, {
+          deferredSessionId: agentCallMeta.sessionId,
+          deferredTurnToken: queryParams.options.env.CIRCUSCHIEF_WORKFLOW_TURN_TOKEN,
+        });
+        expect(scheduled).toMatchObject({ deferred: true, scheduled: true, targetLaneId: nonStructuredLane.id });
+        // The card has not moved while this provider is still live.
+        expect(cardRepo.getById(card.id).laneId).toBe(source.id);
         yield { type: 'assistant', message: { content: [{ type: 'text', text: 'after move' }] } };
         yield { type: 'result', success: true };
       }),
@@ -255,19 +254,66 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
     const texts = messageRepo.getBySessionId(root.id).map((m) => m.content);
     expect(texts).toEqual(expect.arrayContaining(['before move', 'after move']));
 
-    // The session that issued the move lands as a normal successful
-    // completion, not aborted/stopped/error.
+    // The session that issued the move lands as a normal successful completion.
     const finishedRoot = sessionRepo.getById(root.id);
     expect(finishedRoot.status).toBe('waiting');
     expect(finishedRoot.error).toBeFalsy();
 
-    // The move itself succeeded and is the terminal state of the run the
-    // mover belonged to: superseded, not failed or errored.
+    // The transition happens only at successful turn completion.
     expect(cardRepo.getById(card.id).laneId).toBe(nonStructuredLane.id);
-    expect(getRun(run.id).status).toBe('superseded');
+    expect(getRun(run.id).status).toBe('succeeded');
 
     // Because the target lane has no on-enter automation, no successor run
     // or lane-entry delivery was created or driven for this move.
+    expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
+  });
+
+  it('starts structured destination delivery only after the originating provider returns', async () => {
+    let providerReturned = false;
+    const stubAgent = {
+      execute: vi.fn(async function* (queryParams, agentCallMeta) {
+        const scheduled = await moveCard(card.id, target.id, {
+          deferredSessionId: agentCallMeta.sessionId,
+          deferredTurnToken: queryParams.options.env.CIRCUSCHIEF_WORKFLOW_TURN_TOKEN,
+        });
+        expect(scheduled.deferred).toBe(true);
+        expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+        expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
+        yield { type: 'assistant', text: 'move queued, finishing now' };
+        providerReturned = true;
+        yield { type: 'result', success: true };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    await runSession(root.id, 'do work', tempDir);
+
+    expect(providerReturned).toBe(true);
+    expect(cardRepo.getById(card.id).laneId).toBe(target.id);
+    expect(getRun(run.id).status).toBe('succeeded');
+    expect(drainLaneEntryTriggerMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('discards a deferred move if the provider fails before completing its turn', async () => {
+    const stubAgent = {
+      execute: vi.fn(async function* (queryParams, agentCallMeta) {
+        await moveCard(card.id, target.id, {
+          deferredSessionId: agentCallMeta.sessionId,
+          deferredTurnToken: queryParams.options.env.CIRCUSCHIEF_WORKFLOW_TURN_TOKEN,
+        });
+        throw new Error('provider failed after requesting move');
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    await expect(runSession(root.id, 'do work', tempDir)).rejects.toThrow('provider failed after requesting move');
+
+    expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+    expect(getRun(run.id).status).toBe('failed');
     expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
   });
 });
