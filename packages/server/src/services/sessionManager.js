@@ -29,6 +29,7 @@ import {
   broadcastSessionStatus,
 } from './streamEventHandler.js';
 import { cancelPrompt } from './promptStore.js';
+import { clearPendingWakeup } from './scheduleWakeupBridge.js';
 // Import execution helpers from sessionExecution.js
 import {
   createAgentForSession,
@@ -378,6 +379,7 @@ export async function stopSession(sessionId) {
   if (sessionData) {
     // Session is actively processing - abort it
     sessionData.controller.abort();
+    clearPendingWakeup(sessionId, sessionData.controller);
     activeSessions.delete(sessionId);
   }
   // If not in activeSessions, session may have crashed or be waiting
@@ -415,6 +417,7 @@ export function cleanupActiveSession(sessionId) {
   if (sessionData) {
     cancelPrompt(sessionId);
     sessionData.controller.abort();
+    clearPendingWakeup(sessionId, sessionData.controller);
     activeSessions.delete(sessionId);
     return true;
   }

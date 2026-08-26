@@ -191,8 +191,9 @@ router.post('/:id/schedule', requireSession, (req, res) => {
   // that's the only case where it can race a ScheduleWakeup call from the same
   // turn (see scheduleWakeupBridge.js). A write to an idle session has no
   // wakeup to take precedence over.
-  if (activeSessions.has(req.params.id)) {
-    recordExplicitSchedule(req.params.id);
+  const activeSession = activeSessions.get(req.params.id);
+  if (activeSession?.controller) {
+    recordExplicitSchedule(req.params.id, activeSession.controller);
   }
   broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, result.updateData);
   res.json(updated);

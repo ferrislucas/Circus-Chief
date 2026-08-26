@@ -11,7 +11,7 @@ import {
   activeSessions,
   handleTurnCompletion,
 } from '../services/streamEventHandler.js';
-import { captureScheduleWakeup, clearPendingWakeup } from '../services/scheduleWakeupBridge.js';
+import { captureScheduleWakeup, wakeupTurnStates } from '../services/scheduleWakeupBridge.js';
 
 // Mock websocket
 vi.mock('../websocket.js', () => ({
@@ -310,14 +310,15 @@ describe('Sessions API - POST /:id/schedule', () => {
 
   describe('precedence against ScheduleWakeup', () => {
     afterEach(() => {
-      clearPendingWakeup(session.id);
+      wakeupTurnStates.clear();
     });
 
     it('an explicit schedule made after a ScheduleWakeup call in the same turn wins', async () => {
       sessions.update(session.id, { status: 'running' });
-      activeSessions.set(session.id, { controller: { signal: { aborted: false } } });
+      const controller = { signal: { aborted: false } };
+      activeSessions.set(session.id, { controller });
 
-      captureScheduleWakeup(session.id, [
+      captureScheduleWakeup(session.id, controller, [
         { type: 'tool_use', id: 'wk-1', name: 'ScheduleWakeup', input: { delaySeconds: 300, prompt: 'earlier wakeup prompt' } },
       ]);
 
@@ -339,14 +340,15 @@ describe('Sessions API - POST /:id/schedule', () => {
 
     it('a ScheduleWakeup call made after an explicit schedule in the same turn wins', async () => {
       sessions.update(session.id, { status: 'running' });
-      activeSessions.set(session.id, { controller: { signal: { aborted: false } } });
+      const controller = { signal: { aborted: false } };
+      activeSessions.set(session.id, { controller });
 
       await request(app)
         .post(`/api/sessions/${session.id}/schedule`)
         .send({ prompt: 'earlier explicit prompt', scheduledAt: Date.now() + 3600000 })
         .expect(200);
 
-      captureScheduleWakeup(session.id, [
+      captureScheduleWakeup(session.id, controller, [
         { type: 'tool_use', id: 'wk-2', name: 'ScheduleWakeup', input: { delaySeconds: 300, prompt: 'later wakeup prompt' } },
       ]);
 
@@ -366,9 +368,10 @@ describe('Sessions API - POST /:id/schedule', () => {
 
     it('a ScheduleWakeup call with no competing explicit schedule persists through the real repository', async () => {
       sessions.update(session.id, { status: 'running' });
-      activeSessions.set(session.id, { controller: { signal: { aborted: false } } });
+      const controller = { signal: { aborted: false } };
+      activeSessions.set(session.id, { controller });
 
-      captureScheduleWakeup(session.id, [
+      captureScheduleWakeup(session.id, controller, [
         { type: 'tool_use', id: 'wk-3', name: 'ScheduleWakeup', input: { delaySeconds: 90, reason: 'polling CI', prompt: 'Continue: check CI' } },
       ]);
 

@@ -200,7 +200,7 @@ function handleSystemEvent(sessionId, event) {
  * @param {string} sessionId
  * @param {Object} event
  */
-function handleAssistantEvent(sessionId, event) {
+function handleAssistantEvent(sessionId, event, controller) {
   // Extract text content from assistant message
   const textContent = event.message?.content
     ?.filter((c) => c.type === 'text')
@@ -226,7 +226,7 @@ function handleAssistantEvent(sessionId, event) {
   // Check for the SDK's built-in ScheduleWakeup tool. Only records the intent —
   // it is applied at turn completion. See scheduleWakeupBridge.js for why this
   // reads the tool input rather than its result.
-  captureScheduleWakeup(sessionId, toolUseBlocks);
+  captureScheduleWakeup(sessionId, controller, toolUseBlocks);
 
   // Note: Thinking content is logged via stream_event -> content_block_stop
   // to avoid duplicates (since includePartialMessages is always enabled)
@@ -510,8 +510,9 @@ const eventHandlers = {
  * Handle a stream event from Claude SDK
  * @param {string} sessionId
  * @param {Object} event
+ * @param {{ controller?: AbortController }} options
  */
-export async function handleStreamEvent(sessionId, event) {
+export async function handleStreamEvent(sessionId, event, { controller } = {}) {
   // Check if session has been cleaned up (aborted/deleted) - don't process events for deleted sessions
   if (!activeSessions.has(sessionId)) {
     return;
@@ -520,11 +521,14 @@ export async function handleStreamEvent(sessionId, event) {
   // Every provider event is a liveness heartbeat. The watchdog intentionally
   // does not infer liveness from a row merely being marked running.
   const activeSession = activeSessions.get(sessionId);
+  // A provider stream can still deliver an event while its aborted turn is
+  // unwinding. Never let that event be attributed to a replacement turn.
+  if (controller && activeSession?.controller !== controller) return;
   if (activeSession) activeSession.lastEventAt = Date.now();
 
   const handler = eventHandlers[event.type];
   if (handler) {
-    handler(sessionId, event);
+    handler(sessionId, event, controller || activeSession?.controller);
   }
 }
 
@@ -563,7 +567,7 @@ export function cleanupSessionState(sessionId, includeConversationId = false, ex
   finalResultEvents.delete(sessionId);
   // Any wakeup not consumed by the completion/error paths (aborted turn, hard
   // result.error) is intentionally discarded rather than carried into the next turn.
-  clearPendingWakeup(sessionId);
+  clearPendingWakeup(sessionId, expectedController || current?.controller);
   activeSessions.delete(sessionId);
   if (includeConversationId) {
     activeConversationIds.delete(sessionId);

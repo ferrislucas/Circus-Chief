@@ -24,18 +24,41 @@ import { sessions, workLogs } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { withActiveLaneRunOwnership } from './workflowSessionService.js';
 import {
-  captureScheduleWakeup,
-  applyPendingWakeup,
-  clearPendingWakeup,
-  recordExplicitSchedule,
+  captureScheduleWakeup as captureWakeupForTurn,
+  applyPendingWakeup as applyWakeupForTurn,
+  clearPendingWakeup as clearWakeupForTurn,
+  recordExplicitSchedule as recordExplicitScheduleForTurn,
   clampDelaySeconds,
   resolveWakeupPrompt,
-  pendingWakeups,
+  wakeupTurnStates,
   WAKEUP_MIN_DELAY_SECONDS,
   WAKEUP_MAX_DELAY_SECONDS,
 } from './scheduleWakeupBridge.js';
 
 const SESSION_ID = 'session-1';
+let turnController;
+
+function captureScheduleWakeup(sessionId, toolUseBlocks) {
+  return captureWakeupForTurn(sessionId, turnController, toolUseBlocks);
+}
+
+function applyPendingWakeup(sessionId) {
+  return applyWakeupForTurn(sessionId, turnController);
+}
+
+function clearPendingWakeup(sessionId) {
+  return clearWakeupForTurn(sessionId, turnController);
+}
+
+function recordExplicitSchedule(sessionId) {
+  return recordExplicitScheduleForTurn(sessionId, turnController);
+}
+
+const pendingWakeups = {
+  clear: () => wakeupTurnStates.clear(),
+  get: () => wakeupTurnStates.get(turnController)?.pendingWakeup,
+  has: () => Boolean(wakeupTurnStates.get(turnController)?.pendingWakeup),
+};
 
 /** Build a ScheduleWakeup tool_use block. */
 function wakeupBlock(input, id = 'tool-1') {
@@ -56,6 +79,7 @@ function unscheduledSession(overrides = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  turnController = new AbortController();
   pendingWakeups.clear();
   clearPendingWakeup(SESSION_ID);
   sessions.update.mockImplementation((id, data) => ({ id, ...data }));
@@ -190,14 +214,16 @@ describe('captureScheduleWakeup', () => {
   });
 
   it('keeps sessions isolated from each other', () => {
-    captureScheduleWakeup('session-a', [wakeupBlock({ delaySeconds: 100, prompt: 'a' })]);
-    captureScheduleWakeup('session-b', [wakeupBlock({ delaySeconds: 200, prompt: 'b' })]);
+    const controllerA = new AbortController();
+    const controllerB = new AbortController();
+    captureWakeupForTurn('session-a', controllerA, [wakeupBlock({ delaySeconds: 100, prompt: 'a' })]);
+    captureWakeupForTurn('session-b', controllerB, [wakeupBlock({ delaySeconds: 200, prompt: 'b' })]);
 
-    expect(pendingWakeups.get('session-a')).toMatchObject({ prompt: 'a' });
-    expect(pendingWakeups.get('session-b')).toMatchObject({ prompt: 'b' });
+    expect(wakeupTurnStates.get(controllerA)?.pendingWakeup).toMatchObject({ prompt: 'a' });
+    expect(wakeupTurnStates.get(controllerB)?.pendingWakeup).toMatchObject({ prompt: 'b' });
 
-    clearPendingWakeup('session-a');
-    clearPendingWakeup('session-b');
+    clearWakeupForTurn('session-a', controllerA);
+    clearWakeupForTurn('session-b', controllerB);
   });
 
   describe('tool_use id dedup', () => {

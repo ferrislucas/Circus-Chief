@@ -14,7 +14,7 @@ import {
   broadcastChangesUpdate,
   getResultEvent,
 } from './streamEventHandler.js';
-import { applyPendingWakeup } from './scheduleWakeupBridge.js';
+import { applyPendingWakeup, clearPendingWakeup } from './scheduleWakeupBridge.js';
 
 /**
  * Re-apply scheduled status after a turn ends if the session was scheduled
@@ -37,14 +37,16 @@ import { applyPendingWakeup } from './scheduleWakeupBridge.js';
  * automatic side effects (auto-send, error reschedule, template triggers) for this turn.
  *
  * @param {string} sessionId
+ * @param {AbortController} controller
+ * @param {{ applyWakeup?: boolean }} options
  * @returns {Promise<boolean>}
  */
-async function handleScheduledContinuationIfNeeded(sessionId) {
+async function handleScheduledContinuationIfNeeded(sessionId, controller, { applyWakeup = true } = {}) {
   // Materialize a ScheduleWakeup call made during this turn into the same
   // scheduledAt/pendingPrompt fields the REST endpoint writes, so the predicate
   // below treats both origins identically. No-op when none was captured, and a
   // no-op when an explicit REST schedule already exists (that one wins).
-  applyPendingWakeup(sessionId);
+  if (applyWakeup) applyPendingWakeup(sessionId, controller);
 
   const session = sessions.getById(sessionId);
   if (!session) return false;
@@ -78,13 +80,13 @@ function associateAndCleanupWorkLogs(sessionId) {
  * @param {{ checkProactiveReschedule?: Function, handleAutoSendIfNeeded?: Function, handleTemplateTriggerIfNeeded?: Function }} callbacks
  * @returns {Promise<{wasRescheduled: boolean, heldForLimit: boolean}>}
  */
-async function handleActiveSessionCompletion(sessionId, workingDirectory, callbacks) {
+async function handleActiveSessionCompletion(sessionId, workingDirectory, callbacks, controller) {
   sessions.update(sessionId, { status: 'waiting', error: null });
   broadcastSessionStatus(sessionId, 'waiting');
 
   // Re-apply scheduled status if the agent called POST /:id/schedule mid-turn.
   // The waiting write above would otherwise overwrite the scheduled state.
-  const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId);
+  const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId, controller);
 
   // Applying a wakeup can create a diagnostic work log when it loses to a
   // later explicit schedule or its lane run was superseded. Associate only
@@ -151,6 +153,7 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
   // Sessions with final errors should not transition to waiting
   if (finalErrorSessionIds.has(sessionId)) {
     finalErrorSessionIds.delete(sessionId);
+    clearPendingWakeup(sessionId, controller || activeSessions.get(sessionId)?.controller);
     associateAndCleanupWorkLogs(sessionId);
     return { wasRescheduled: false, heldForLimit: false };
   }
@@ -159,9 +162,10 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
   const activeSession = activeSessions.get(sessionId);
   const turnController = controller || activeSession?.controller;
   if (activeSession && activeSession.controller === turnController && !turnController?.signal?.aborted) {
-    return handleActiveSessionCompletion(sessionId, workingDirectory, callbacks);
+    return handleActiveSessionCompletion(sessionId, workingDirectory, callbacks, turnController);
   }
 
+  clearPendingWakeup(sessionId, turnController);
   associateAndCleanupWorkLogs(sessionId);
   finalizeAbortedTurnStatus(sessionId, turnController);
   return { wasRescheduled: false, heldForLimit: false };
@@ -318,6 +322,11 @@ export async function handleSessionError(sessionId, error, options = {}) {
   console.error(`${errorLabel}:`, error);
   console.error('Error stack:', error.stack);
 
+  // ScheduleWakeup is success-only. An explicit REST schedule remains on the
+  // row and is still honoured below, but this turn's captured SDK wakeup must
+  // not survive an error or be inherited by a replacement turn.
+  clearPendingWakeup(sessionId, controller);
+
   if (controller.signal.aborted) {
     // A user-initiated stop is intentional. A mid-turn-scheduled session that the
     // user stops will have its schedule cleared by the stop handler; we honour that
@@ -329,7 +338,7 @@ export async function handleSessionError(sessionId, error, options = {}) {
   // Explicit mid-turn schedule wins over automatic error reschedule, just as it
   // wins over proactive reschedule on the normal completion path.
   // Log the underlying error for diagnostics even when we preserve the schedule.
-  const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId);
+  const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId, controller, { applyWakeup: false });
   if (wasScheduledMidTurn) {
     // Error is noted in the log but the session remains 'scheduled' — no visible
     // error message, no error-reschedule, no template trigger.

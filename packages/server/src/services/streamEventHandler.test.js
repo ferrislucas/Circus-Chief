@@ -87,7 +87,7 @@ import {
   finalResultEvents,
   getResultEvent,
 } from './streamEventHandler.js';
-import { pendingWakeups, clearPendingWakeup, recordExplicitSchedule } from './scheduleWakeupBridge.js';
+import { wakeupTurnStates, recordExplicitSchedule } from './scheduleWakeupBridge.js';
 import { getPrompt, parkPrompt } from './promptStore.js';
 
 describe('streamEventHandler', () => {
@@ -104,6 +104,7 @@ describe('streamEventHandler', () => {
     loggedToolUseIds.clear();
     finalErrorSessionIds.clear();
     finalResultEvents.clear();
+    wakeupTurnStates.clear();
     messages.getByConversationId.mockReturnValue([]);
     messages.getBySessionId.mockReturnValue([]);
     messages.create.mockImplementation((sessionId, role, content, options = {}) => ({
@@ -1203,7 +1204,7 @@ describe('streamEventHandler', () => {
       // tool_use dedup set, and the explicit-schedule recency marker) — not
       // just pendingWakeups — since several tests below reuse the same
       // tool_use id ('tool-wakeup') across `it` blocks.
-      clearPendingWakeup('sess-1');
+      wakeupTurnStates.clear();
       conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
       workLogs.associatePendingLogs.mockReturnValue(0);
       diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
@@ -1273,7 +1274,7 @@ describe('streamEventHandler', () => {
         reason: 'r',
         prompt: 'Earlier wakeup prompt',
       }));
-      recordExplicitSchedule('sess-1');
+      recordExplicitSchedule('sess-1', activeSessions.get('sess-1').controller);
 
       await handleTurnCompletion('sess-1', '/workspace', {
         checkProactiveReschedule: vi.fn().mockResolvedValue(false),
@@ -1313,35 +1314,81 @@ describe('streamEventHandler', () => {
       expect(session.scheduledAt).toBeNull();
     });
 
-    it('preserves the schedule across the error path', async () => {
-      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+    it('discards a captured wakeup across the error path', async () => {
+      const controller = { signal: { aborted: false } };
+      activeSessions.set('sess-1', { controller });
       const session = statefulSession();
 
       await handleStreamEvent('sess-1', wakeupEvent({ delaySeconds: 270, reason: 'r', prompt: 'Continue: retry' }));
 
       const mockScheduler = { rescheduleSession: vi.fn().mockResolvedValue(true) };
       const result = await handleSessionError('sess-1', new Error('stream blew up'), {
-        controller: { signal: { aborted: false } },
+        controller,
         shouldRescheduleOnError: vi.fn().mockReturnValue(true),
         schedulerService: mockScheduler,
       });
 
-      // The agent's own schedule wins over the automatic error reschedule.
+      // ScheduleWakeup only takes effect after a successful completion, so an
+      // error falls through to the ordinary automatic-reschedule policy.
       expect(result).toBe(true);
-      expect(mockScheduler.rescheduleSession).not.toHaveBeenCalled();
-      expect(session).toMatchObject({ status: 'scheduled', pendingPrompt: 'Continue: retry' });
+      expect(mockScheduler.rescheduleSession).toHaveBeenCalled();
+      expect(session.pendingPrompt).not.toBe('Continue: retry');
+      expect(wakeupTurnStates.has(controller)).toBe(false);
     });
 
     it('discards a captured wakeup when the turn is cleaned up without completing', async () => {
-      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      const controller = { signal: { aborted: false } };
+      activeSessions.set('sess-1', { controller });
       statefulSession();
 
       await handleStreamEvent('sess-1', wakeupEvent({ delaySeconds: 600, reason: 'r', prompt: 'Continue' }));
-      expect(pendingWakeups.has('sess-1')).toBe(true);
+      expect(wakeupTurnStates.get(activeSessions.get('sess-1').controller)?.pendingWakeup).toBeTruthy();
 
       cleanupSessionState('sess-1');
 
-      expect(pendingWakeups.has('sess-1')).toBe(false);
+      expect(wakeupTurnStates.get(controller)?.pendingWakeup).toBeFalsy();
+    });
+
+    it('keeps a replacement turn isolated while an aborted turn finally unwinds', async () => {
+      const controllerA = new AbortController();
+      const controllerB = new AbortController();
+      const session = statefulSession();
+      const callbacks = {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      };
+
+      activeSessions.set('sess-1', { controller: controllerA });
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 600, reason: 'turn A', prompt: 'STALE TURN A PROMPT',
+      }), { controller: controllerA });
+
+      // stopSession() aborts and deregisters A before its async finally runs.
+      controllerA.abort();
+      activeSessions.delete('sess-1');
+      activeSessions.set('sess-1', { controller: controllerB });
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 900, reason: 'turn B', prompt: 'TURN B PROMPT',
+      }), { controller: controllerB });
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 600, reason: 'stale turn A event', prompt: 'STALE TURN A EVENT PROMPT',
+      }), { controller: controllerA });
+
+      expect(wakeupTurnStates.get(controllerB)?.pendingWakeup).toMatchObject({ prompt: 'TURN B PROMPT' });
+
+      // A's delayed completion/finally cannot read, apply, or clear B's state.
+      await handleTurnCompletion('sess-1', '/workspace', callbacks, { controller: controllerA });
+      expect(wakeupTurnStates.has(controllerA)).toBe(false);
+      expect(wakeupTurnStates.get(controllerB)?.pendingWakeup).toMatchObject({ prompt: 'TURN B PROMPT' });
+      expect(session.pendingPrompt).not.toBe('STALE TURN A PROMPT');
+
+      expect(cleanupSessionState('sess-1', true, controllerA)).toBe(false);
+      expect(wakeupTurnStates.get(controllerB)?.pendingWakeup).toMatchObject({ prompt: 'TURN B PROMPT' });
+
+      await handleTurnCompletion('sess-1', '/workspace', callbacks, { controller: controllerB });
+      expect(session).toMatchObject({ status: 'scheduled', pendingPrompt: 'TURN B PROMPT' });
+      expect(session.pendingPrompt).not.toBe('STALE TURN A PROMPT');
     });
   });
 

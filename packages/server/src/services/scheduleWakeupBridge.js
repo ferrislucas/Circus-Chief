@@ -70,19 +70,18 @@ const FALLBACK_PROMPT = 'Continue';
  * @typedef {{ delaySeconds: number, prompt: string, reason: string, capturedAt: number, capturedSeq: number }} PendingWakeup
  */
 
-/** @type {Map<string, PendingWakeup>} sessionId -> most recent wakeup request this turn */
-export const pendingWakeups = new Map();
+/**
+ * @typedef {{ sessionId: string, pendingWakeup: PendingWakeup|null, seenToolUseIds: Set<string>, explicitScheduleSequence: number|undefined }} WakeupTurnState
+ */
 
 /**
- * @type {Map<string, Set<string>>} sessionId -> tool_use ids already
- * considered for this turn. The Claude Code stream redelivers the full
- * content of a partial assistant message on each chunk, so the same
- * ScheduleWakeup tool_use block (same `id`) can arrive multiple times. Without
- * this, a redelivery would be treated as a fresh call, spuriously refreshing
- * `capturedAt` (delaying the fire time) and, worse, letting a stale redelivery
- * of an *earlier* call win over a genuinely later one if the two interleave.
+ * Every bridge datum is owned by the exact controller executing the turn, not
+ * by session ID. A stopped turn can unwind after a replacement starts for the
+ * same session; controller identity keeps their state completely isolated.
+ * Entries are deleted on apply/cleanup, so this is not an unbounded history.
+ * @type {Map<AbortController, WakeupTurnState>}
  */
-const seenWakeupToolUseIds = new Map();
+export const wakeupTurnStates = new Map();
 
 /**
  * Monotonic counter used to order an explicit `POST /:id/schedule` call
@@ -94,16 +93,29 @@ const seenWakeupToolUseIds = new Map();
 let turnSequenceCounter = 0;
 
 /**
- * sessionId -> sequence number of the most recent explicit `POST
- * /:id/schedule` call observed while a turn was in flight (see
+ * The sequence number of the most recent explicit `POST /:id/schedule` call
+ * observed in each turn state (see
  * `recordExplicitSchedule`, called from the REST handler). Consulted — not
  * consumed — by `applyPendingWakeup` so that whichever mechanism was used
  * more recently within the turn wins, matching the last-call-wins semantics
  * `captureScheduleWakeup` already applies to repeated ScheduleWakeup calls.
  * Cleared at turn cleanup.
- * @type {Map<string, number>}
  */
-const explicitScheduleSequence = new Map();
+
+function getTurnState(sessionId, controller, create = false) {
+  if (!controller) return null;
+  const state = wakeupTurnStates.get(controller);
+  if (state) return state.sessionId === sessionId ? state : null;
+  if (!create) return null;
+  const newState = {
+    sessionId,
+    pendingWakeup: null,
+    seenToolUseIds: new Set(),
+    explicitScheduleSequence: undefined,
+  };
+  wakeupTurnStates.set(controller, newState);
+  return newState;
+}
 
 /**
  * Clamp to the SDK's documented bounds. Mirrors the runtime so the time we
@@ -153,14 +165,17 @@ export function resolveWakeupPrompt(prompt) {
  *   - a turn that aborts or hard-errors should not leave a schedule behind.
  *
  * @param {string} sessionId
+ * @param {AbortController} controller
  * @param {Array} toolUseBlocks
  */
-export function captureScheduleWakeup(sessionId, toolUseBlocks) {
+export function captureScheduleWakeup(sessionId, controller, toolUseBlocks) {
   if (!Array.isArray(toolUseBlocks) || toolUseBlocks.length === 0) return;
 
-  const seen = seenWakeupToolUseIds.get(sessionId) ?? new Set();
   const candidates = toolUseBlocks.filter((t) => t?.name === 'ScheduleWakeup');
   if (candidates.length === 0) return;
+  const state = getTurnState(sessionId, controller, true);
+  if (!state) return;
+  const seen = state.seenToolUseIds;
 
   // Ids already considered (in an earlier, possibly-partial delivery of this
   // same content) don't count as new calls. Everything we see here — winner
@@ -168,7 +183,6 @@ export function captureScheduleWakeup(sessionId, toolUseBlocks) {
   // full no-op.
   const freshCandidates = candidates.filter((t) => !t.id || !seen.has(t.id));
   for (const t of candidates) if (t.id) seen.add(t.id);
-  seenWakeupToolUseIds.set(sessionId, seen);
 
   if (freshCandidates.length === 0) return;
 
@@ -179,7 +193,7 @@ export function captureScheduleWakeup(sessionId, toolUseBlocks) {
   // invalid. Leaving the old entry armed would make the SDK report that the
   // latest call was dropped while silently scheduling a prompt the agent had
   // already superseded.
-  pendingWakeups.delete(sessionId);
+  state.pendingWakeup = null;
 
   const delaySeconds = clampDelaySeconds(wakeup.input?.delaySeconds);
   if (delaySeconds === null) {
@@ -197,13 +211,13 @@ export function captureScheduleWakeup(sessionId, toolUseBlocks) {
     return;
   }
 
-  pendingWakeups.set(sessionId, {
+  state.pendingWakeup = {
     delaySeconds,
     prompt,
     reason: typeof wakeup.input?.reason === 'string' ? wakeup.input.reason : '',
     capturedAt: Date.now(),
     capturedSeq: turnSequenceCounter++,
-  });
+  };
 }
 
 /**
@@ -212,9 +226,11 @@ export function captureScheduleWakeup(sessionId, toolUseBlocks) {
  * when the session was active (see `sessions-lifecycle.js`) — a schedule
  * written to an idle session has no wakeup to race against.
  * @param {string} sessionId
+ * @param {AbortController} controller
  */
-export function recordExplicitSchedule(sessionId) {
-  explicitScheduleSequence.set(sessionId, turnSequenceCounter++);
+export function recordExplicitSchedule(sessionId, controller) {
+  const state = getTurnState(sessionId, controller, true);
+  if (state) state.explicitScheduleSequence = turnSequenceCounter++;
 }
 
 /**
@@ -222,11 +238,11 @@ export function recordExplicitSchedule(sessionId) {
  * the captured wakeup itself, its tool_use dedup set, and the explicit-
  * schedule recency marker. Safe to call unconditionally at turn cleanup.
  * @param {string} sessionId
+ * @param {AbortController} controller
  */
-export function clearPendingWakeup(sessionId) {
-  pendingWakeups.delete(sessionId);
-  seenWakeupToolUseIds.delete(sessionId);
-  explicitScheduleSequence.delete(sessionId);
+export function clearPendingWakeup(sessionId, controller) {
+  const state = getTurnState(sessionId, controller);
+  if (state) wakeupTurnStates.delete(controller);
 }
 
 /**
@@ -260,17 +276,19 @@ function hasExistingSchedule(session) {
  * from an unrelated flow can't block a legitimate wakeup.
  *
  * @param {string} sessionId
+ * @param {AbortController} controller
  * @returns {boolean} true if a schedule was written
  */
-export function applyPendingWakeup(sessionId) {
-  const wakeup = pendingWakeups.get(sessionId);
+export function applyPendingWakeup(sessionId, controller) {
+  const state = getTurnState(sessionId, controller);
+  const wakeup = state?.pendingWakeup;
   if (!wakeup) return false;
-  pendingWakeups.delete(sessionId);
+  state.pendingWakeup = null;
 
   const session = sessions.getById(sessionId);
   if (!session) return false;
 
-  const explicitSeq = explicitScheduleSequence.get(sessionId);
+  const explicitSeq = state.explicitScheduleSequence;
   if (hasExistingSchedule(session) && explicitSeq !== undefined && explicitSeq > wakeup.capturedSeq) {
     const message = 'ScheduleWakeup was superseded by an explicit POST /:id/schedule call made later in the same turn; the explicit schedule was kept.';
     console.log(`[ScheduleWakeup] Session ${sessionId}: ${message}`);
