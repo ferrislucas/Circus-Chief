@@ -993,6 +993,64 @@ describe('Projects API', () => {
     });
   });
 
+  describe('GET /api/projects enrichment (running-workspace links)', () => {
+    // Back-compat guard: the response stays a bare JSON array and only gains
+    // additive per-project fields. This protects tests/e2e/helpers.ts:getProjects()
+    // and the agent-facing Session Management API, both of which treat it as an array.
+    it('keeps the bare-array shape and adds the three enrichment fields', async () => {
+      const res = await request(app).get('/api/projects');
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      const project = res.body.find((p) => p.id === projectId);
+      expect(project).toBeDefined();
+      expect(Array.isArray(project.runningWorkspaces)).toBe(true);
+      expect(project.runningSessionCount).toBe(0);
+      expect(project.waitingSessionCount).toBe(0);
+    });
+
+    it('returns runningWorkspaces and split counts for a multi-workspace project', async () => {
+      const rootA = sessions.create(projectId, 'alpha', 'prompt', { status: 'running' });
+      // Blocked on AskUserQuestion: status stays 'running', pendingAgentInput is
+      // the "waiting" signal (persisted by promptStore.js; set directly here).
+      const alphaChild = sessions.create(projectId, 'alpha-child', 'prompt', { status: 'running', parentSessionId: rootA.id });
+      sessions.update(alphaChild.id, { pendingAgentInput: true });
+      const rootB = sessions.create(projectId, 'beta', 'prompt', { status: 'running' });
+
+      const res = await request(app).get('/api/projects');
+      const project = res.body.find((p) => p.id === projectId);
+
+      expect(project.runningSessionCount).toBe(3); // rootA + alpha-child + rootB (alpha-child is still status='running')
+      expect(project.waitingSessionCount).toBe(1); // alpha-child (pendingAgentInput)
+      expect(project.runningWorkspaces.map((w) => w.id)).toEqual(
+        expect.arrayContaining([rootA.id, rootB.id]),
+      );
+      expect(project.runningWorkspaces.find((w) => w.id === rootA.id))
+        .toMatchObject({ name: 'alpha', activeCount: 2 });
+      expect(project.runningWorkspaces.find((w) => w.id === rootB.id))
+        .toMatchObject({ name: 'beta', activeCount: 1 });
+    });
+
+    it('returns []/0/0 for a project with no sessions through the HTTP path', async () => {
+      const res = await request(app).get('/api/projects');
+      const project = res.body.find((p) => p.id === projectId);
+
+      expect(project.runningWorkspaces).toEqual([]);
+      expect(project.runningSessionCount).toBe(0);
+      expect(project.waitingSessionCount).toBe(0);
+    });
+
+    it('does not substitute an empty root name server-side', async () => {
+      sessions.create(projectId, '', 'prompt', { status: 'running' });
+
+      const res = await request(app).get('/api/projects');
+      const project = res.body.find((p) => p.id === projectId);
+
+      expect(project.runningWorkspaces).toHaveLength(1);
+      expect(project.runningWorkspaces[0].name).toBe('');
+    });
+  });
+
   describe('GET /api/projects/:id', () => {
     it('returns project by ID', async () => {
       const res = await request(app).get(`/api/projects/${projectId}`);

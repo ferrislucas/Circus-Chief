@@ -56,9 +56,29 @@
           <p class="session-meta">
             <span
               v-if="session.pendingAgentInput"
-              class="status-badge status-waiting"
+              class="status-badge status-waiting agent-input-indicator"
               aria-label="Agent input required"
-            >needs input</span>
+              title="The agent is waiting for your input"
+            >
+              <svg
+                class="agent-input-icon"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 8.5 8.5 0 0 1-5.5-2.1L3 19l1.2-3.5A8.5 8.5 0 1 1 21 11.5Z" />
+                <path d="M9.1 9a3 3 0 1 1 5.6 1.5c-.9 1.2-2.2 1.4-2.2 3" />
+                <path d="M12 17h.01" />
+              </svg>
+              needs input
+            </span>
             <!-- Running status badge -->
             <span
               v-if="workflowStatus.runningCount > 0"
@@ -507,6 +527,16 @@ const onStarClick = () => emit('star', {
   display: inline-block;
   vertical-align: middle;
   margin-right: 0.25rem;
+}
+
+.agent-input-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.agent-input-icon {
+  flex: 0 0 auto;
 }
 
 .scheduled-time {

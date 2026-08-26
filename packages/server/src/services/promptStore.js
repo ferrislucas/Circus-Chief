@@ -27,10 +27,15 @@ export const MAX_PROMPTS_PER_SESSION = 8;
 const EXPIRED_MESSAGE = 'This approval request expired. Please continue without it.';
 const CAPACITY_MESSAGE = 'Too many approval requests are pending. Please continue without this action.';
 
+// Persists the flag this module owns so it can be read outside this process's
+// memory (e.g. aggregated in SQL across every session for the project list —
+// see project-activity-queries.js). This is the *only* call site that should
+// ever write sessions.pendingAgentInput; it is not a general-purpose session
+// field and must not be set from anywhere else.
 function broadcastPendingInput(record, pendingAgentInput) {
-  const session = sessions.getById(record.sessionId);
+  const session = sessions.update(record.sessionId, { pendingAgentInput });
   if (!session) return;
-  const payload = { sessionId: record.sessionId, session: { ...session, pendingAgentInput } };
+  const payload = { sessionId: record.sessionId, session };
   broadcastToSession(record.sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, payload);
   broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, { ...payload, projectId: session.projectId });
 }
