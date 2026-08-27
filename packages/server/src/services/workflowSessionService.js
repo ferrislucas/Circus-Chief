@@ -10,7 +10,6 @@ import { databaseManager } from '../db/DatabaseManager.js';
 // db/ layer only — safe to import: db/index.js never depends on any
 // services/ module, so this cannot create an import cycle (contrast with
 // kanbanService.js/kanbanTriggers.js — see attemptLaneRunTransition below).
-import { activeSessions } from './streamEventHandler.js';
 import { getRun } from './workflowRunReader.js';
 import { recomputeSubtreeOutcomes } from './workflowSessionState.js';
 import { broadcastCardTransition, moveCardForTransition } from './workflowLaneTransition.js';
@@ -76,22 +75,16 @@ export function withActiveLaneRunOwnership(sessionId, mutation) {
  *
  * This transaction authoritatively cancels the member's workflow obligation
  * and clears any restartable work. Scheduled members are terminalized here.
- * Running members instead remain `status='running'` with
- * `execution_state='aborting'` until their controller unwinds: after
- * supersedeLaneRun() aborts that controller, handleTurnCompletion() delegates
- * to finalizeAbortedTurnStatus() in streamEventCallbacks.js to terminalize the
- * turn as stopped. That finalizer is guarded so it cannot overwrite a newer
- * turn or an outcome already recorded by this supersession. `waiting` members
- * are already idle and remain available for follow-up messages.
- *
- * If a provider stream ignores its abort signal, streamWatchdog.js reaps it
- * after a generous abort grace period. The watchdog deletes the active-turn
- * registry entry before writing `stopped`, so a late-unwinding turn cannot
- * resurrect the row. Boot recovery remains the process-crash backstop.
+ * Supersession no longer aborts an in-flight turn: a running member keeps
+ * executing to completion, but four independent fences (activeLaneRunOwnsSession,
+ * withActiveLaneRunOwnership, releaseCardFromRun, claimWorkflowSessionStart)
+ * prevent it from advancing the board once its own_work_state is 'cancelled'
+ * here. `waiting` members are already idle and remain available for
+ * follow-up messages.
  */
 function clearExecutableMemberState(db, runId, reason, time) {
   return db.prepare(`UPDATE sessions SET own_work_state='cancelled', own_work_closed_at=?, workflow_reason=?,
-    workflow_updated_at=?, execution_state=CASE WHEN status='running' THEN 'aborting' ELSE 'stopped' END,
+    workflow_updated_at=?, execution_state=CASE WHEN status='running' THEN execution_state ELSE 'stopped' END,
     status=CASE WHEN status='scheduled' THEN 'stopped' ELSE status END,
     scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_conversation_id=NULL,
     auto_send_pending_prompt=0, reschedule_count=0
@@ -246,11 +239,22 @@ export function beginWorkflowTurn(sessionId) {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!isParticipating(s) || s.own_work_state !== 'open' || !activeRunOwnsSession(db, s)) return null;
     const executionStateBeforeTurn = s.execution_state;
+    const turnToken = id();
     const time = now();
-    db.prepare('UPDATE sessions SET execution_state=\'running\', workflow_updated_at=? WHERE id=?').run(time, sessionId);
+    db.prepare('UPDATE sessions SET execution_state=\'running\', execution_turn_token=?, workflow_updated_at=? WHERE id=?')
+      .run(turnToken, time, sessionId);
     audit(db, s.lane_run_id, 'turn_started', { sessionId });
-    return { executionStateBeforeTurn };
+    return { executionStateBeforeTurn, turnToken };
   });
+}
+
+/** Mark the provider turn idle only if this is still the turn that started it.
+ * A superseded worker deliberately remains running until its provider exits;
+ * this fence keeps an old completion from changing a newer turn's lifecycle. */
+export function finishWorkflowTurn(sessionId, turnToken) {
+  if (!turnToken) return false;
+  return databaseManager.get().prepare(`UPDATE sessions SET execution_state='idle', workflow_updated_at=?
+    WHERE id=? AND execution_turn_token=? AND execution_state='running'`).run(now(), sessionId, turnToken).changes === 1;
 }
 
 /**
@@ -259,11 +263,11 @@ export function beginWorkflowTurn(sessionId) {
  * turn end is deliberately the contract for "own work done". Interactive
  * workers needing a future turn must therefore schedule that turn first.
  */
-export function finalizeOwnWorkCompletion(sessionId) {
+export function finalizeOwnWorkCompletion(sessionId, { turnToken = null } = {}) {
   if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return null;
   const result = databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
-    if (!isParticipating(s) || s.own_work_state !== 'open') return null;
+    if (!isParticipating(s) || s.own_work_state !== 'open' || (turnToken && s.execution_turn_token !== turnToken)) return null;
     // A future schedule is an explicit continuation obligation, never success.
     if (s.scheduled_at || s.pending_prompt) return null;
     const time = now();
@@ -290,11 +294,11 @@ export function finalizeOwnWorkCompletion(sessionId) {
  * @param {{ allowTransition?: boolean }} [options]
  * @returns {Object|null} The reconciled run, or null if this was a no-op
  */
-export function closeOwnWork(sessionId, outcome, reason = null, { allowTransition = true } = {}) {
+export function closeOwnWork(sessionId, outcome, reason = null, { allowTransition = true, turnToken = null } = {}) {
   if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return null;
   return databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
-    if (!isParticipating(s) || s.own_work_state !== 'open') return null;
+    if (!isParticipating(s) || s.own_work_state !== 'open' || (turnToken && s.execution_turn_token !== turnToken)) return null;
     const time = now();
     db.prepare(`UPDATE sessions SET own_work_state=?, workflow_reason=?, own_work_closed_at=?,
       execution_state='stopped', subtree_outcome=?, workflow_updated_at=? WHERE id=?`)
@@ -429,6 +433,9 @@ export function reconcileLaneRun(runId, { allowTransition = true, deferBroadcast
  */
 function createCompletionSuccessor(run, card, movedCard) {
   if (!movedCard) return null;
+  // A deferred move retains the caller's explicit opt-out. Ordinary
+  // completion/exit-lane transitions continue to start structured entry work.
+  if (run.deferred_move_session_id && run.deferred_move_run_on_enter === 0) return null;
   const db = databaseManager.get();
   const targetLane = db.prepare('SELECT * FROM kanban_lanes WHERE id=?').get(movedCard.laneId);
   if (!targetLane || !isStructured({
@@ -451,22 +458,49 @@ function createCompletionSuccessor(run, card, movedCard) {
   });
 }
 
+/* eslint-disable max-statements, complexity -- terminal ownership and transition commit together. */
 export function attemptLaneRunTransition(runId, { deferBroadcast = false } = {}) {
   const transition = databaseManager.transaction(() => {
     const db = databaseManager.get(); const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
     if (!run || run.status !== 'open') return { result: getRun(runId) };
     const card = db.prepare('SELECT * FROM kanban_cards WHERE id=?').get(run.card_id);
     if (!card || card.active_lane_run_id !== runId || card.lane_id !== run.source_lane_id) return { result: getRun(runId) };
+    // A turn-scoped deferred move is valid only if the very worker/turn that
+    // requested it finished successfully and this run still owns the card.
+    // A manually declared exit has no source attribution and intentionally
+    // retains its established shared-workflow semantics.
+    if (run.deferred_move_session_id) {
+      const source = db.prepare(SELECT_SESSION_BY_ID).get(run.deferred_move_session_id);
+      const deferredMoveIsValid = source?.lane_run_id === runId
+        && source.own_work_state === 'closed_successfully'
+        && source.execution_turn_token === run.deferred_move_turn_token;
+      if (!deferredMoveIsValid) {
+        db.prepare(`UPDATE kanban_lane_runs SET chosen_exit_lane_id=NULL, chosen_exit_declared_at=NULL,
+          deferred_move_session_id=NULL, deferred_move_turn_token=NULL, deferred_move_sort_order=NULL,
+          deferred_move_run_on_enter=NULL, updated_at=? WHERE id=? AND status='open'`).run(now(), runId);
+        audit(db, runId, 'deferred_card_move_discarded', {
+          sessionId: run.deferred_move_session_id,
+          details: { targetLaneId: run.chosen_exit_lane_id, reason: 'originating_turn_is_not_successful' },
+        });
+        run.chosen_exit_lane_id = null;
+        run.deferred_move_session_id = null;
+        run.deferred_move_sort_order = null;
+        run.deferred_move_run_on_enter = null;
+      }
+    }
     const time = now();
     const winner = db.prepare(`UPDATE kanban_lane_runs SET status='succeeded', succeeded_at=?, transition_applied_at=?, updated_at=? WHERE id=? AND status='open'`)
       .run(time, time, time, runId);
     if (winner.changes === 0) return { result: getRun(runId) };
 
-    const movedCard = moveCardForTransition(run, card);
+    const movedCard = moveCardForTransition(run, card, run.deferred_move_sort_order);
     const targetLaneId = movedCard?.laneId || null;
     const laneRun = createCompletionSuccessor(run, card, movedCard);
     if (!laneRun) releaseCardFromRun(db, runId, now());
     audit(db, runId, 'transition_applied');
+    if (movedCard) audit(db, runId, 'card_moved', {
+      details: { fromLaneId: card.lane_id, toLaneId: movedCard.laneId, deferred: Boolean(run.deferred_move_session_id) },
+    });
 
     const result = getRun(runId);
     if (laneRun) {
@@ -492,6 +526,7 @@ export function attemptLaneRunTransition(runId, { deferBroadcast = false } = {})
   const { result } = transition;
   return result;
 }
+/* eslint-enable max-statements, complexity */
 
 export function supersedeLaneRun(runId, reason = 'manual_move') {
   const candidate = databaseManager.get().prepare('SELECT id FROM kanban_lane_runs WHERE id=? AND status=\'open\'').get(runId);
@@ -518,11 +553,6 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
     }
     return getRun(runId);
   });
-  if (result) {
-    for (const { id: sessionId } of databaseManager.get().prepare('SELECT id FROM sessions WHERE lane_run_id=?').all(result.id)) {
-      activeSessions.get(sessionId)?.controller?.abort();
-    }
-  }
   return result;
 }
 
@@ -548,7 +578,8 @@ export function declareExitLane(cardId, targetLaneId) {
 
     const time = now();
     db.prepare(`UPDATE kanban_lane_runs SET chosen_exit_lane_id=?, chosen_exit_declared_at=?,
-      updated_at=? WHERE id=? AND status='open'`)
+      deferred_move_session_id=NULL, deferred_move_turn_token=NULL, deferred_move_sort_order=NULL,
+      deferred_move_run_on_enter=NULL, updated_at=? WHERE id=? AND status='open'`)
       .run(targetLaneId, time, time, run.id);
     audit(db, run.id, 'exit_lane_declared', {
       details: { targetLaneId, willRunAutomation: isStructured({
@@ -560,6 +591,75 @@ export function declareExitLane(cardId, targetLaneId) {
     return getRun(run.id);
   });
 }
+
+/** Discard only a move owned by this exact provider turn. A later shared exit
+ * declaration or newer turn is never touched. */
+export function discardDeferredCardMoveForTurn(sessionId, turnToken, reason) {
+  if (!sessionId || !turnToken) return false;
+  return databaseManager.transaction(() => {
+    const db = databaseManager.get();
+    const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
+    if (!session?.lane_run_id || session.execution_turn_token !== turnToken) return false;
+    const run = db.prepare(SELECT_RUN_BY_ID).get(session.lane_run_id);
+    if (!run || run.status !== 'open' || run.deferred_move_session_id !== sessionId
+      || run.deferred_move_turn_token !== turnToken) return false;
+    db.prepare(`UPDATE kanban_lane_runs SET chosen_exit_lane_id=NULL, chosen_exit_declared_at=NULL,
+      deferred_move_session_id=NULL, deferred_move_turn_token=NULL, deferred_move_sort_order=NULL,
+      deferred_move_run_on_enter=NULL, updated_at=? WHERE id=? AND status='open'`)
+      .run(now(), run.id);
+    audit(db, run.id, 'deferred_card_move_discarded', {
+      sessionId,
+      details: { targetLaneId: run.chosen_exit_lane_id, reason },
+    });
+    return true;
+  });
+}
+
+/**
+ * Schedule a lane worker's own card move for the end of its current provider
+ * turn. This is deliberately distinct from an external move: the latter
+ * remains immediate and supersedes the open run. Last valid request from the
+ * active turn wins.
+ */
+/* eslint-disable complexity -- the ownership fence is intentionally explicit at this external boundary. */
+export function deferCardMoveForTurn(cardId, targetLaneId, {
+  sessionId, turnToken, sortOrder = undefined, runOnEnterTemplate = true,
+} = {}) {
+  if (!sessionId || !turnToken) {
+    throw new ApiError('A deferred card move requires the active session turn', { status: 409, code: 'KANBAN_DEFERRED_MOVE_NOT_ACTIVE' });
+  }
+  return databaseManager.transaction(() => {
+    const db = databaseManager.get();
+    const card = db.prepare('SELECT * FROM kanban_cards WHERE id=?').get(cardId);
+    const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
+    const run = session?.lane_run_id ? db.prepare(SELECT_RUN_BY_ID).get(session.lane_run_id) : null;
+    const ownsCard = card && run && run.status === 'open' && card.active_lane_run_id === run.id
+      && card.lane_id === run.source_lane_id && session.own_work_state === 'open'
+      && session.execution_state === 'running' && session.execution_turn_token === turnToken;
+    if (!ownsCard) {
+      throw new ApiError('This session no longer owns an active card transition', { status: 409, code: 'KANBAN_DEFERRED_MOVE_OWNERSHIP_LOST' });
+    }
+    const sourceLane = db.prepare('SELECT board_id FROM kanban_lanes WHERE id=?').get(card.lane_id);
+    const targetLane = db.prepare('SELECT * FROM kanban_lanes WHERE id=?').get(targetLaneId);
+    if (!sourceLane || !targetLane || sourceLane.board_id !== targetLane.board_id) {
+      throw new ApiError('The target lane must belong to the card board', { status: 400, code: 'KANBAN_DEFERRED_MOVE_CROSS_BOARD' });
+    }
+    if (targetLaneId === card.lane_id) {
+      throw new ApiError('The target lane must differ from the current lane', { status: 400, code: 'KANBAN_DEFERRED_MOVE_SAME_LANE' });
+    }
+    const time = now();
+    db.prepare(`UPDATE kanban_lane_runs SET chosen_exit_lane_id=?, chosen_exit_declared_at=?,
+      deferred_move_session_id=?, deferred_move_turn_token=?, deferred_move_sort_order=?,
+      deferred_move_run_on_enter=?, updated_at=? WHERE id=? AND status='open'`)
+      .run(targetLaneId, time, sessionId, turnToken, sortOrder ?? null, runOnEnterTemplate ? 1 : 0, time, run.id);
+    audit(db, run.id, 'card_move_deferred', {
+      sessionId,
+      details: { targetLaneId, sortOrder: sortOrder ?? null, runOnEnterTemplate },
+    });
+    return { card, run: getRun(run.id), targetLane };
+  });
+}
+/* eslint-enable complexity */
 
 export function supersedeRunForCard(cardId, reason = 'manual_move') {
   // Legacy cards never participate in lane runs. Keep their move hot path

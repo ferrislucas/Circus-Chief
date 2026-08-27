@@ -54,7 +54,7 @@ import {
   drainLaneEntryTrigger,
   reclaimExpiredLaneEntryClaims,
 } from './kanbanService.js';
-import { createLaneRunForEntry, attachRootSession, getRun } from './workflowSessionService.js';
+import { beginWorkflowTurn, createLaneRunForEntry, attachRootSession, finalizeOwnWorkCompletion, getRun } from './workflowSessionService.js';
 import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
 import { resolveProviderMetadataFromModel } from './sessionProvider.js';
 
@@ -346,7 +346,7 @@ describe('kanbanService', () => {
       await expect(moveCard('non-existent', lanes[0].id)).rejects.toThrow('Card not found');
     });
 
-    it('still cancels a lane worker when the move comes from outside (no actor)', async () => {
+    it('cancels a lane worker\'s workflow standing without aborting its in-flight turn', async () => {
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
       const run = createLaneRunForEntry({
@@ -359,11 +359,16 @@ describe('kanbanService', () => {
 
       await moveCard(card.id, lanes[1].id);
 
+      // The worker's own-work obligation is cancelled, but its turn is left
+      // running — supersession stops granting workflow authority, it does not
+      // terminate execution.
       expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
       expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
-        status: 'running', executionState: 'aborting',
+        // This fixture has not started a provider turn, so its pre-existing
+        // idle lifecycle is preserved rather than falsely claiming stopped.
+        status: 'running', executionState: 'idle',
       }));
-      expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'superseded', failureReason: 'manual_move' }));
+      expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'superseded', failureReason: 'card_moved' }));
     });
 
     it('skips on-enter template when runOnEnterTemplate is false', async () => {
@@ -731,6 +736,33 @@ describe('kanbanService', () => {
   });
 
   describe('durable completion outbox', () => {
+    it('acknowledges lane entry after its delivered worker defers and completes a card move', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Process this card' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[0].id, workspace.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+      runSession.mockImplementationOnce(async (workerId) => {
+        const { turnToken } = beginWorkflowTurn(workerId);
+        const response = await moveCard(card.id, lanes[1].id, {
+          deferredSessionId: workerId,
+          deferredTurnToken: turnToken,
+        });
+        expect(response).toMatchObject({ deferred: true, scheduled: true });
+        expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
+        finalizeOwnWorkCompletion(workerId, { turnToken });
+        return { started: true };
+      });
+
+      expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(true);
+
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[1].id);
+      expect(getRun(run.id).status).toBe('succeeded');
+      expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+        .get(run.laneEntryEventId).status).toBe('completed');
+    });
+
     it('reclaims a claim at its exact expiry, not five minutes later', () => {
       const expiry = Date.now();
       databaseManager.get().prepare(`INSERT INTO kanban_lane_entry_events

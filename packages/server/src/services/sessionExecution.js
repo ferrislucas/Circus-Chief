@@ -26,7 +26,7 @@ import { isTierRef } from '@circuschief/shared';
 import { runSessionWithTierFailover, hasResolvableTierMembers, applyStaleTierFallback } from './sessionTierFailover.js';
 import { schedulerService } from './schedulerService.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
-import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState, markHeldForLimit, activeLaneRunOwnsSession } from './workflowSessionService.js';
+import { beginWorkflowTurn, discardDeferredCardMoveForTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
 // sessionExecution), safe because this is only called at runtime inside
@@ -140,6 +140,10 @@ export function createAgentForSession(agentType = 'claude-code', config = {}) {
  * final branch infers own-work completion and drains the target lane's
  * on-enter automation.
  *
+ * Distinct from workflowSessionService.finishWorkflowTurn (which clears the
+ * running execution state for a specific turn token); this helper owns the
+ * full success-path branching on top of it.
+ *
  * @param {Object} opts
  * @param {string} opts.sessionId
  * @param {boolean} opts.interactive
@@ -147,16 +151,31 @@ export function createAgentForSession(agentType = 'claude-code', config = {}) {
  * @param {boolean} opts.wasRescheduled
  * @param {boolean} opts.heldForLimit
  */
-async function finishWorkflowTurn({ sessionId, interactive, workflowTurn, wasRescheduled, heldForLimit }) {
+async function completeSuccessfulTurn({ sessionId, interactive, workflowTurn, wasRescheduled, heldForLimit }) {
+  const turnToken = workflowTurn?.turnToken;
   // FR-4/FR-5: a self-scheduled continuation is an open obligation, not success.
-  if (wasRescheduled) return markExecutionState(sessionId, 'scheduled');
+  if (wasRescheduled) {
+    discardDeferredCardMoveForTurn(sessionId, turnToken, 'turn_rescheduled');
+    return markExecutionState(sessionId, 'scheduled');
+  }
   // FR-9.8: a graceful provider limit/outage leaves the lane obligation open.
-  if (heldForLimit) return markHeldForLimit(sessionId);
+  if (heldForLimit) {
+    discardDeferredCardMoveForTurn(sessionId, turnToken, 'provider_held');
+    return markHeldForLimit(sessionId);
+  }
   // W6/FR-8: the server infers own-work completion from this successful,
   // non-continuing turn; finish the async remainder (start the target lane's
   // on-enter automation exactly once) if it just happened.
-  if (interactive && workflowTurn?.executionStateBeforeTurn !== 'paused') return;
-  const reconciled = finalizeOwnWorkCompletion(sessionId);
+  if (interactive && workflowTurn?.executionStateBeforeTurn !== 'paused') {
+    discardDeferredCardMoveForTurn(sessionId, turnToken, 'interactive_turn_does_not_complete_work');
+    finishWorkflowTurn(sessionId, turnToken);
+    return;
+  }
+  const reconciled = finalizeOwnWorkCompletion(sessionId, { turnToken });
+  // The successor run can be committed by finalization, but it is never
+  // dispatched until this provider has genuinely returned and this turn has
+  // relinquished its running lifecycle state.
+  finishWorkflowTurn(sessionId, turnToken);
   if (reconciled?.pendingTargetLaneTrigger) {
     await drainLaneEntryTrigger(reconciled.pendingTargetLaneTrigger.laneEntryEventId);
   }
@@ -218,11 +237,31 @@ export async function _executeSession({
     cleanupSessionState(sessionId, cleanupConversationId, controller);
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
+  // The provider is about to start. The token is generated durably by
+  // beginWorkflowTurn and lets the agent's card-move API identify this exact
+  // execution, not merely this reusable session row.
+  const providerQueryParams = workflowTurn?.turnToken && queryParams?.options?.env
+    ? {
+      ...queryParams,
+      options: {
+        ...queryParams.options,
+        env: {
+          ...queryParams.options.env,
+          CIRCUSCHIEF_WORKFLOW_TURN_TOKEN: workflowTurn.turnToken,
+        },
+      },
+    }
+    : queryParams;
   try {
     // Run the query with the agent (SDK via gateway, or mock)
-    for await (const event of agent.execute(queryParams, agentCallMeta)) {
+    for await (const event of agent.execute(providerQueryParams, agentCallMeta)) {
       if (controller.signal.aborted) break;
       await handleStreamEvent(sessionId, event);
+    }
+    if (controller.signal.aborted) {
+      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_cancelled');
+      closeOwnWork(sessionId, 'cancelled', 'Provider turn cancelled', { turnToken: workflowTurn?.turnToken });
+      return;
     }
     // Handle post-turn completion (work log association, status transition, summary, etc.)
     const { wasRescheduled, heldForLimit } = await handleTurnCompletion(
@@ -231,7 +270,7 @@ export async function _executeSession({
       { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded },
       { controller },
     );
-    await finishWorkflowTurn({ sessionId, interactive, workflowTurn, wasRescheduled, heldForLimit });
+    await completeSuccessfulTurn({ sessionId, interactive, workflowTurn, wasRescheduled, heldForLimit });
   } catch (error) {
     if (shouldRethrowForTierFailover(sessionId, error, tierContext)) throw error;
 
@@ -248,6 +287,7 @@ export async function _executeSession({
       // FR-9.1/FR-9.5: a transient error with an automatic retry/reschedule
       // keeps the session (and its lane run) open — only the execution_state
       // dimension moves, own_work_state is untouched.
+      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_retrying');
       markExecutionState(sessionId, 'retrying');
       return; // Don't throw - session was rescheduled
     }
@@ -256,7 +296,9 @@ export async function _executeSession({
     // as 'closed_failed'). Both are terminal — neither may be interpreted as
     // success, and reconcileLaneRun() below fails/cancels the lane run so a
     // structured card never advances past this session.
-    closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message);
+    discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, controller.signal.aborted ? 'turn_cancelled' : 'turn_failed');
+    closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message,
+      { turnToken: workflowTurn?.turnToken });
     throw error;
   } finally {
     cleanupSessionState(sessionId, cleanupConversationId, controller);

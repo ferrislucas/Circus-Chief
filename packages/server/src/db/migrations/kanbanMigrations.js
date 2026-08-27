@@ -346,6 +346,20 @@ export const kanbanMigrations = [
     },
   },
   {
+    // A deferred card move belongs to one provider turn, not merely a reusable
+    // workflow session. These fields fence late completions after restart or
+    // supersession while retaining the existing shared exit-lane declaration.
+    name: 'kanban-deferred-card-move-turn-fence',
+    up(db) {
+      addColumnIfMissing(db, 'sessions', 'execution_turn_token', 'TEXT');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'deferred_move_session_id', 'TEXT');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'deferred_move_turn_token', 'TEXT');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'deferred_move_sort_order', 'REAL');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'deferred_move_run_on_enter', 'INTEGER');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_lane_runs_deferred_move_session ON kanban_lane_runs(deferred_move_session_id, deferred_move_turn_token)');
+    },
+  },
+  {
     // Drop the dormant lane_trigger_depth recursion counter from sessions.
     // MAX_LANE_TRIGGER_DEPTH (the cap it fed) was removed; nothing reads or
     // writes the column. Uses ALTER TABLE DROP COLUMN (SQLite ≥ 3.35).

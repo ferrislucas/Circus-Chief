@@ -26,14 +26,17 @@ import { continueSession, runSession } from './sessionManager.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
+import { MessageRepository } from '../db/MessageRepository.js';
 import { KanbanBoardRepository } from '../db/KanbanBoardRepository.js';
 import { KanbanLaneRepository } from '../db/KanbanLaneRepository.js';
 import { KanbanCardRepository } from '../db/KanbanCardRepository.js';
 import { createLaneRunForEntry, attachRootSession, getRun, markHeldForLimit, supersedeRunForCard } from './workflowSessionService.js';
+import { moveCard } from './kanbanService.js';
 
 describe('W6: _executeSession triggers target-lane automation after a real success', () => {
   let projectRepo;
   let sessionRepo;
+  let messageRepo;
   let boardRepo;
   let laneRepo;
   let cardRepo;
@@ -41,6 +44,7 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
   let project;
   let source;
   let target;
+  let board;
   let workspace;
   let card;
   let root;
@@ -51,13 +55,14 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
     drainLaneEntryTriggerMock.mockClear();
     projectRepo = new ProjectRepository();
     sessionRepo = new SessionRepository();
+    messageRepo = new MessageRepository();
     boardRepo = new KanbanBoardRepository();
     laneRepo = new KanbanLaneRepository();
     cardRepo = new KanbanCardRepository();
     tempDir = mkdtempSync(join(tmpdir(), 'w6-transition-test-'));
 
     project = projectRepo.create('W6 Project', tempDir);
-    const board = boardRepo.create(project.id);
+    board = boardRepo.create(project.id);
     [source, target] = laneRepo.getByBoardId(board.id);
     target = laneRepo.update(target.id, { onEnterPrompt: 'perform target work' });
     workspace = sessionRepo.create(project.id, 'Workspace', 'work');
@@ -219,5 +224,98 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
     expect(result).toEqual({ started: false, sessionId: root.id, reason: 'lane_run_ownership_lost' });
     expect(stubAgent.execute).not.toHaveBeenCalled();
     expect(getRun(run.id).status).toBe('superseded');
+  });
+
+  it('AC1/AC2: defers its own move until after output following the request is preserved', async () => {
+    const nonStructuredLane = laneRepo.getByBoardId(board.id).find((lane) => lane.id !== source.id && lane.id !== target.id);
+    const stubAgent = {
+      execute: vi.fn(async function* (queryParams, agentCallMeta) {
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'before move' }] } };
+        const scheduled = await moveCard(card.id, nonStructuredLane.id, {
+          deferredSessionId: agentCallMeta.sessionId,
+          deferredTurnToken: queryParams.options.env.CIRCUSCHIEF_WORKFLOW_TURN_TOKEN,
+        });
+        expect(scheduled).toMatchObject({ deferred: true, scheduled: true, targetLaneId: nonStructuredLane.id });
+        // The card has not moved while this provider is still live.
+        expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'after move' }] } };
+        yield { type: 'result', success: true };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    await runSession(root.id, 'do work', tempDir);
+
+    // The call was never aborted, so it only ran once and produced both
+    // pieces of output — including everything emitted after the move.
+    expect(stubAgent.execute).toHaveBeenCalledTimes(1);
+    const texts = messageRepo.getBySessionId(root.id).map((m) => m.content);
+    expect(texts).toEqual(expect.arrayContaining(['before move', 'after move']));
+
+    // The session that issued the move lands as a normal successful completion.
+    const finishedRoot = sessionRepo.getById(root.id);
+    expect(finishedRoot.status).toBe('waiting');
+    expect(finishedRoot.error).toBeFalsy();
+
+    // The transition happens only at successful turn completion.
+    expect(cardRepo.getById(card.id).laneId).toBe(nonStructuredLane.id);
+    expect(getRun(run.id).status).toBe('succeeded');
+
+    // Because the target lane has no on-enter automation, no successor run
+    // or lane-entry delivery was created or driven for this move.
+    expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
+  });
+
+  it('starts structured destination delivery only after the originating provider returns', async () => {
+    let providerReturned = false;
+    const stubAgent = {
+      execute: vi.fn(async function* (queryParams, agentCallMeta) {
+        const scheduled = await moveCard(card.id, target.id, {
+          deferredSessionId: agentCallMeta.sessionId,
+          deferredTurnToken: queryParams.options.env.CIRCUSCHIEF_WORKFLOW_TURN_TOKEN,
+        });
+        expect(scheduled.deferred).toBe(true);
+        expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+        expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
+        yield { type: 'assistant', text: 'move queued, finishing now' };
+        providerReturned = true;
+        yield { type: 'result', success: true };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    await runSession(root.id, 'do work', tempDir);
+
+    expect(providerReturned).toBe(true);
+    expect(cardRepo.getById(card.id).laneId).toBe(target.id);
+    expect(getRun(run.id).status).toBe('succeeded');
+    expect(drainLaneEntryTriggerMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('discards a deferred move if the provider fails before completing its turn', async () => {
+    const stubAgent = {
+      // Deliberately throws before ever yielding, to simulate a provider failure mid-turn.
+      // eslint-disable-next-line require-yield
+      execute: vi.fn(async function* (queryParams, agentCallMeta) {
+        await moveCard(card.id, target.id, {
+          deferredSessionId: agentCallMeta.sessionId,
+          deferredTurnToken: queryParams.options.env.CIRCUSCHIEF_WORKFLOW_TURN_TOKEN,
+        });
+        throw new Error('provider failed after requesting move');
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    await expect(runSession(root.id, 'do work', tempDir)).rejects.toThrow('provider failed after requesting move');
+
+    expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+    expect(getRun(run.id).status).toBe('failed');
+    expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
   });
 });
