@@ -87,7 +87,7 @@ import {
   finalResultEvents,
   getResultEvent,
 } from './streamEventHandler.js';
-import { wakeupTurnStates, recordExplicitSchedule } from './scheduleWakeupBridge.js';
+import { wakeupTurnStates, recordExplicitSchedule, captureScheduleWakeup } from './scheduleWakeupBridge.js';
 import { getPrompt, parkPrompt } from './promptStore.js';
 
 describe('streamEventHandler', () => {
@@ -1457,6 +1457,63 @@ describe('streamEventHandler', () => {
       await handleTurnCompletion('sess-1', '/workspace', callbacks, { controller: controllerB });
       expect(session).toMatchObject({ status: 'scheduled', pendingPrompt: 'TURN B PROMPT' });
       expect(session.pendingPrompt).not.toBe('STALE TURN A PROMPT');
+    });
+
+    it('makes the double-clear of an aborted turn idempotent (guard clear is a no-op after completion-path clear)', async () => {
+      const controllerA = new AbortController();
+      const controllerB = new AbortController();
+      statefulSession();
+      const callbacks = {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      };
+
+      activeSessions.set('sess-1', { controller: controllerA });
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 600, reason: 'turn A', prompt: 'STALE TURN A PROMPT',
+      }), { controller: controllerA });
+
+      controllerA.abort();
+      activeSessions.delete('sess-1');
+      activeSessions.set('sess-1', { controller: controllerB });
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 900, reason: 'turn B', prompt: 'TURN B PROMPT',
+      }), { controller: controllerB });
+
+      // The non-owner completion path already cleared A's wakeup state.
+      await handleTurnCompletion('sess-1', '/workspace', callbacks, { controller: controllerA });
+      expect(wakeupTurnStates.has(controllerA)).toBe(false);
+
+      // The unwinding finally then hits the early-return guard, which clears A
+      // again. It must stay a no-op for A and must not touch B's entry.
+      expect(cleanupSessionState('sess-1', true, controllerA)).toBe(false);
+      expect(wakeupTurnStates.has(controllerA)).toBe(false);
+      expect(wakeupTurnStates.get(controllerB)?.pendingWakeup).toMatchObject({ prompt: 'TURN B PROMPT' });
+    });
+
+    it('clears an aborted turn wakeup state when its finally runs before the completion path (guard-order independence)', async () => {
+      const controllerA = new AbortController();
+      const controllerB = new AbortController();
+      statefulSession();
+
+      activeSessions.set('sess-1', { controller: controllerA });
+      captureScheduleWakeup('sess-1', controllerA, [
+        { type: 'tool_use', id: 'wk-guard-a', name: 'ScheduleWakeup', input: { delaySeconds: 600, prompt: 'TURN A PROMPT' } },
+      ]);
+
+      // A replacement registers; A's finally runs first with NO prior
+      // completion-path clear — the exact leak this hardening removes.
+      controllerA.abort();
+      activeSessions.delete('sess-1');
+      activeSessions.set('sess-1', { controller: controllerB });
+      captureScheduleWakeup('sess-1', controllerB, [
+        { type: 'tool_use', id: 'wk-guard-b', name: 'ScheduleWakeup', input: { delaySeconds: 900, prompt: 'TURN B PROMPT' } },
+      ]);
+
+      expect(cleanupSessionState('sess-1', true, controllerA)).toBe(false);
+      expect(wakeupTurnStates.has(controllerA)).toBe(false);
+      expect(wakeupTurnStates.get(controllerB)?.pendingWakeup).toMatchObject({ prompt: 'TURN B PROMPT' });
     });
   });
 

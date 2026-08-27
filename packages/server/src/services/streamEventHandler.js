@@ -552,6 +552,14 @@ export function cleanupSessionState(sessionId, includeConversationId = false, ex
   // when a *different, live* controller is registered.
   const current = activeSessions.get(sessionId);
   if (expectedController && current && current.controller !== expectedController) {
+    // This unwinding turn no longer owns the session, so it must not erase the
+    // replacement's session-scoped state — but it still owns its own wakeup
+    // state entry, keyed by expectedController. Clear that specifically so an
+    // aborted turn cannot leak an AbortController-keyed entry (a future refactor
+    // that reorders this early return relative to handleTurnCompletion's
+    // non-owner clear would otherwise resurrect stale wakeup state). The
+    // replacement's entry is keyed by a different controller and is untouched.
+    clearPendingWakeup(sessionId, expectedController);
     return false;
   }
 
