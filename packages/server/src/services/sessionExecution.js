@@ -27,7 +27,7 @@ import { buildConversationContextForModelSwitch, buildConversationContextForCont
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { beginWorkflowTurn, finalizeOwnWorkCompletion, closeOwnWork, markExecutionState, markHeldForLimit, activeLaneRunOwnsSession } from './workflowSessionService.js';
+import { beginWorkflowTurn, discardDeferredCardMoveForTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
 // sessionExecution), safe because this is only called at runtime inside
@@ -90,7 +90,7 @@ export function createAgentForSession(agentType = 'claude-code', config = {}) {
  * @param {boolean} [options.broadcastConversationStateOnError] - Whether to broadcast conversation state on error
  * @param {string} [options.errorLabel] - Label for error logging
  */
-// eslint-disable-next-line max-statements, complexity -- lifecycle boundaries must remain adjacent.
+// eslint-disable-next-line max-statements, max-lines-per-function, complexity, sonarjs/cognitive-complexity -- lifecycle boundaries must remain adjacent.
 export async function _executeSession({
   sessionId,
   agent,
@@ -109,11 +109,31 @@ export async function _executeSession({
     cleanupSessionState(sessionId, cleanupConversationId, controller);
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
+  // The provider is about to start. The token is generated durably by
+  // beginWorkflowTurn and lets the agent's card-move API identify this exact
+  // execution, not merely this reusable session row.
+  const providerQueryParams = workflowTurn?.turnToken && queryParams?.options?.env
+    ? {
+      ...queryParams,
+      options: {
+        ...queryParams.options,
+        env: {
+          ...queryParams.options.env,
+          CIRCUSCHIEF_WORKFLOW_TURN_TOKEN: workflowTurn.turnToken,
+        },
+      },
+    }
+    : queryParams;
   try {
     // Run the query with the agent (SDK via gateway, or mock)
-    for await (const event of agent.execute(queryParams, agentCallMeta)) {
+    for await (const event of agent.execute(providerQueryParams, agentCallMeta)) {
       if (controller.signal.aborted) break;
       await handleStreamEvent(sessionId, event);
+    }
+    if (controller.signal.aborted) {
+      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_cancelled');
+      closeOwnWork(sessionId, 'cancelled', 'Provider turn cancelled', { turnToken: workflowTurn?.turnToken });
+      return;
     }
     // Handle post-turn completion (work log association, status transition, summary, etc.)
     const { wasRescheduled, heldForLimit } = await handleTurnCompletion(
@@ -123,12 +143,28 @@ export async function _executeSession({
       { controller },
     );
     // FR-4/FR-5: a self-scheduled continuation is an open obligation, not success.
-    if (wasRescheduled) { markExecutionState(sessionId, 'scheduled'); return; }
+    if (wasRescheduled) {
+      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_rescheduled');
+      markExecutionState(sessionId, 'scheduled');
+      return;
+    }
     // FR-9.8: a graceful provider limit/outage leaves the lane obligation open.
-    if (heldForLimit) { markHeldForLimit(sessionId); return; }
+    if (heldForLimit) {
+      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'provider_held');
+      markHeldForLimit(sessionId);
+      return;
+    }
     // W6/FR-8: finish target-lane automation after a successful, non-continuing turn.
-    if (interactive && workflowTurn?.executionStateBeforeTurn !== 'paused') return;
-    const reconciled = finalizeOwnWorkCompletion(sessionId);
+    if (interactive && workflowTurn?.executionStateBeforeTurn !== 'paused') {
+      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'interactive_turn_does_not_complete_work');
+      finishWorkflowTurn(sessionId, workflowTurn?.turnToken);
+      return;
+    }
+    const reconciled = finalizeOwnWorkCompletion(sessionId, { turnToken: workflowTurn?.turnToken });
+    // The successor run can be committed by finalization, but it is never
+    // dispatched until this provider has genuinely returned and this turn has
+    // relinquished its running lifecycle state.
+    finishWorkflowTurn(sessionId, workflowTurn?.turnToken);
     if (reconciled?.pendingTargetLaneTrigger) await drainLaneEntryTrigger(reconciled.pendingTargetLaneTrigger.laneEntryEventId);
   } catch (error) {
     const rescheduled = await handleSessionError(sessionId, error, {
@@ -143,6 +179,7 @@ export async function _executeSession({
       // FR-9.1/FR-9.5: a transient error with an automatic retry/reschedule
       // keeps the session (and its lane run) open — only the execution_state
       // dimension moves, own_work_state is untouched.
+      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_retrying');
       markExecutionState(sessionId, 'retrying');
       return; // Don't throw - session was rescheduled
     }
@@ -151,7 +188,9 @@ export async function _executeSession({
     // as 'closed_failed'). Both are terminal — neither may be interpreted as
     // success, and reconcileLaneRun() below fails/cancels the lane run so a
     // structured card never advances past this session.
-    closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message);
+    discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, controller.signal.aborted ? 'turn_cancelled' : 'turn_failed');
+    closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message,
+      { turnToken: workflowTurn?.turnToken });
     throw error;
   } finally {
     cleanupSessionState(sessionId, cleanupConversationId, controller);

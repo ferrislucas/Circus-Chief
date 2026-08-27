@@ -11,7 +11,7 @@ import {
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
-import { createLaneRunForEntry, supersedeRunForCard, isStructured } from './workflowSessionService.js';
+import { createLaneRunForEntry, deferCardMoveForTurn, supersedeRunForCard, isStructured } from './workflowSessionService.js';
 import { buildFullBoardResponse } from './kanbanBoardResponse.js';
 import {
   beginLaneEntryDelivery,
@@ -139,7 +139,8 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
  * @returns {Promise<Object>} The moved card
  */
 export async function moveCard(cardId, targetLaneId, options = {}) {
-  const { sortOrder, runOnEnterTemplate = true, finalizeMutation } = options;
+  const { sortOrder, runOnEnterTemplate = true, finalizeMutation,
+    deferredSessionId = null, deferredTurnToken = null } = options;
 
   const card = kanbanCards.getByIdWithLane(cardId);
   if (!card) {
@@ -152,10 +153,31 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
   const sessionId = card.sessions?.[0]?.id;
   const session = sessionId ? sessions.getById(sessionId) : null;
   const lane = kanbanLanes.getById(targetLaneId);
+  if (deferredSessionId || deferredTurnToken) {
+    const deferred = deferCardMoveForTurn(cardId, targetLaneId, {
+      sessionId: deferredSessionId,
+      turnToken: deferredTurnToken,
+      sortOrder,
+      runOnEnterTemplate,
+    });
+    // Do not run the normal mutation finalizer: the card and entry outbox have
+    // not changed yet. The response intentionally describes a scheduled
+    // transition rather than claiming an immediate move.
+    return {
+      ...card,
+      deferred: true,
+      scheduled: true,
+      cardId,
+      laneRunId: deferred.run.id,
+      fromLaneId,
+      targetLaneId,
+      willRunAutomation: runOnEnterTemplate && isStructured(lane),
+    };
+  }
   // Supersession, movement, and the successor entry intent must commit
   // together. A delivery failure after this point is retryable outbox work.
   const { movedCard, laneRun, finalizedResult } = databaseManager.transaction(() => {
-    supersedeRunForCard(cardId, 'manual_move');
+    supersedeRunForCard(cardId, 'card_moved');
     const updatedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
     const createdRun = session && runOnEnterTemplate && isStructured(lane)
       ? createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause: 'manual_move' })
@@ -293,8 +315,11 @@ function createLaneEntryClaimGuard(eventId, token, abortController) {
 function completeVerifiedLaneEntry(eventId, rootSessionId, token) {
   if (!eventId || !rootSessionId || !token) return false;
   const db = databaseManager.get();
+  // Verify root attachment, not run liveness: a run legitimately superseded
+  // by the very child we're delivering (e.g. it moved its own card) is a
+  // successful delivery, not a failure. Status is intentionally not checked.
   const owner = db.prepare(`SELECT 1 FROM kanban_lane_runs
-    WHERE lane_entry_event_id=? AND status='open' AND root_session_id=?`).get(eventId, rootSessionId);
+    WHERE lane_entry_event_id=? AND root_session_id=?`).get(eventId, rootSessionId);
   if (!owner) throw new Error('Lane-entry delivery did not attach the expected run root');
   const time = Date.now();
   const completed = db.prepare(`UPDATE kanban_lane_entry_events SET status='completed', delivery_phase='completed', completed_at=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL

@@ -201,6 +201,16 @@ function targetLaneForBoard(targetLaneId, board) {
   return laneBelongsToBoard(targetLane, board) ? targetLane : null;
 }
 
+function deferredMoveContext(req) {
+  const sessionId = req.get('X-Circus-Session-Id');
+  const turnToken = req.get('X-Circus-Workflow-Turn-Token');
+  if (!sessionId && !turnToken) return null;
+  if (!sessionId || !turnToken) {
+    return { error: 'Deferred card moves require both X-Circus-Session-Id and X-Circus-Workflow-Turn-Token' };
+  }
+  return { sessionId, turnToken };
+}
+
 function completionTargetError(boardId, targetLaneId, sourceLaneId = null) {
   if (targetLaneId === undefined || targetLaneId === null) return null;
   if (targetLaneId === sourceLaneId) {
@@ -501,6 +511,8 @@ router.patch('/cards/:cardId/move', async (req, res) => {
   if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: CARD_NOT_FOUND_ERROR });
 
   const { targetLaneId, sortOrder, runOnEnterTemplate } = result.data;
+  const deferred = deferredMoveContext(req);
+  if (deferred?.error) return res.status(400).json({ error: deferred.error });
   const operation = beginOperation(req, `card_move:${cardId}`);
   if (operation.conflict) return res.status(409).json({ error: 'Idempotency-Key was already used with a different payload' });
   if (replayOrPending(res, operation)) return;
@@ -514,9 +526,10 @@ router.patch('/cards/:cardId/move', async (req, res) => {
     const response = await moveCardService(cardId, targetLaneId, {
       sortOrder,
       runOnEnterTemplate,
+      ...(deferred && { deferredSessionId: deferred.sessionId, deferredTurnToken: deferred.turnToken }),
       finalizeMutation: ({ card: movedCard, eventId }) => completeOperation(operation, movedCard, eventId),
     });
-    res.json(response);
+    res.json(response.deferred ? completeOperation(operation, response) : response);
   } catch (error) {
     if (isApiError(error)) {
       return sendTerminalResponseFromCatch(res, operation, error.status, { error: error.message, code: error.code });
@@ -551,7 +564,7 @@ router.delete('/cards/:cardId', (req, res) => {
  * Move the workspace's card to a different lane.
  * No card ID needed — the agent addresses by workspace ID.
  */
-// eslint-disable-next-line max-statements -- ownership and idempotency fences stay adjacent to the mutation
+// eslint-disable-next-line max-statements, complexity -- ownership and idempotency fences stay adjacent to the mutation
 router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
   const { workspaceId: rawWorkspaceId } = req.params;
 
@@ -576,6 +589,8 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
   }
 
   const { targetLaneId, sortOrder, runOnEnterTemplate } = result.data;
+  const deferred = deferredMoveContext(req);
+  if (deferred?.error) return res.status(400).json({ error: deferred.error });
   const operation = beginOperation(req, `workspace_move:${workspaceId}`);
   if (operation.conflict) return res.status(409).json({ error: 'Idempotency-Key was already used with a different payload' });
   if (replayOrPending(res, operation)) return;
@@ -589,9 +604,10 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
     const response = await moveCardService(card.id, targetLaneId, {
       sortOrder,
       runOnEnterTemplate,
+      ...(deferred && { deferredSessionId: deferred.sessionId, deferredTurnToken: deferred.turnToken }),
       finalizeMutation: ({ card: movedCard, eventId }) => completeOperation(operation, movedCard, eventId),
     });
-    res.json(response);
+    res.json(response.deferred ? completeOperation(operation, response) : response);
   } catch (error) {
     if (isApiError(error)) {
       return sendTerminalResponseFromCatch(res, operation, error.status, { error: error.message, code: error.code });
