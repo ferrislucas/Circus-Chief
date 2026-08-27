@@ -50,7 +50,7 @@ describe('promptStore work-log emission', () => {
 
   it('settles the live callback and promotes queued work when work-log persistence fails', async () => {
     const session = { id: 'work-log-failure', projectId: 'proj-1' };
-    sessions.getById = vi.fn(() => session);
+    sessions.update = vi.fn((id, data) => ({ ...session, ...data }));
     createWorkLog.mockImplementationOnce(() => { throw new Error('database unavailable'); });
     const first = park('work-log-failure', 'permission');
     const second = park('work-log-failure', 'permission');
@@ -536,7 +536,7 @@ describe('promptStore work-log emission', () => {
 describe('promptStore concurrent prompt queue', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sessions.getById = vi.fn(() => null);
+    sessions.update = vi.fn(() => null);
   });
 
   it('parks a second concurrent prompt for the same session instead of auto-denying the first', async () => {
@@ -583,7 +583,7 @@ describe('promptStore concurrent prompt queue', () => {
 
   it('keeps pendingAgentInput true across the handoff and clears it only once the queue drains', async () => {
     const session = { id: 'concurrent-pending', projectId: 'proj-1' };
-    sessions.getById = vi.fn(() => session);
+    sessions.update = vi.fn((id, data) => ({ ...session, ...data }));
 
     const first = park('concurrent-pending', 'permission');
     const second = park('concurrent-pending', 'permission');

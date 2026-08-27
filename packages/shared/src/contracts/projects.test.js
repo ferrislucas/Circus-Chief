@@ -3,6 +3,7 @@ import {
   CreateProjectRequest,
   UpdateProjectRequest,
   ProjectResponse,
+  RunningWorkspaceSummary,
   ProjectSessionDefaultsRequest,
   ProjectSessionDefaultsResponse,
 } from './projects.js';
@@ -96,6 +97,9 @@ describe('Projects Contracts', () => {
       onSessionDeleted: null,
       prPollInterval: 60000,
       worktreePath: null,
+      runningWorkspaces: [],
+      runningSessionCount: 0,
+      waitingSessionCount: 0,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -135,6 +139,66 @@ describe('Projects Contracts', () => {
       const { worktreePath: _worktreePath, ...withoutWorktreePath } = validProject;
       const result = ProjectResponse.safeParse(withoutWorktreePath);
       expect(result.success).toBe(false);
+    });
+
+    it('validates a project with populated runningWorkspaces', () => {
+      const result = ProjectResponse.safeParse({
+        ...validProject,
+        runningWorkspaces: [
+          { id: '550e8400-e29b-41d4-a716-446655440001', name: 'feature-x', activeCount: 3 },
+        ],
+        runningSessionCount: 3,
+        waitingSessionCount: 1,
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.runningWorkspaces[0].activeCount).toBe(3);
+    });
+
+    it('rejects an activeCount that is not a number', () => {
+      const result = ProjectResponse.safeParse({
+        ...validProject,
+        runningWorkspaces: [
+          { id: '550e8400-e29b-41d4-a716-446655440001', name: 'feature-x', activeCount: '3' },
+        ],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects a project missing runningWorkspaces', () => {
+      const { runningWorkspaces: _runningWorkspaces, ...withoutRunningWorkspaces } = validProject;
+      const result = ProjectResponse.safeParse(withoutRunningWorkspaces);
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects a negative runningSessionCount', () => {
+      const result = ProjectResponse.safeParse({ ...validProject, runningSessionCount: -1 });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects a negative waitingSessionCount', () => {
+      const result = ProjectResponse.safeParse({ ...validProject, waitingSessionCount: -1 });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('RunningWorkspaceSummary', () => {
+    const validSummary = {
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      name: 'feature-x',
+      activeCount: 2,
+    };
+
+    it('validates a complete summary', () => {
+      expect(RunningWorkspaceSummary.safeParse(validSummary).success).toBe(true);
+    });
+
+    it('rejects a null name', () => {
+      expect(RunningWorkspaceSummary.safeParse({ ...validSummary, name: null }).success).toBe(false);
+    });
+
+    it('rejects a missing activeCount', () => {
+      const { activeCount: _activeCount, ...withoutActiveCount } = validSummary;
+      expect(RunningWorkspaceSummary.safeParse(withoutActiveCount).success).toBe(false);
     });
   });
 

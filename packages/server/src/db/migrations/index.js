@@ -358,4 +358,9 @@ export const allMigrations = validateMigrations([
 
   // --- Remove the dead lane-trigger recursion counter (cap it fed was removed) ---
   k.get('sessions-drop-lane_trigger_depth'),
+
+  // --- Sessions blocked on agent input ---
+  // Keep this last: it is additive and must run for databases created before
+  // pending_agent_input was added to schema.sql.
+  s.get('sessions-add-pending_agent_input'),
 ]);

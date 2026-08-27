@@ -264,7 +264,9 @@ describe('Workspace facade API', () => {
       const running = sessions.create(project.id, 'Running', 'p', { status: 'running' });
       const idleOne = sessions.create(project.id, 'Idle one', 'p', { status: 'waiting' });
       const idleTwo = sessions.create(project.id, 'Idle two', 'p', { status: 'stopped' });
-      for (const session of [running, idleOne, idleTwo]) sessions.update(session.id, { starred: true });
+      const blocked = sessions.create(project.id, 'Blocked', 'p', { status: 'running' });
+      sessions.update(blocked.id, { pendingAgentInput: true });
+      for (const session of [running, idleOne, idleTwo, blocked]) sessions.update(session.id, { starred: true });
       sessions.create(project.id, 'Excluded unstarred', 'p', { status: 'running' });
 
       const res = await request(app)
@@ -272,8 +274,10 @@ describe('Workspace facade API', () => {
         .expect(200);
 
       expect(res.body.workspaces).toHaveLength(1);
-      expect(res.body.facets).toEqual({ running: 1, idle: 2 });
-      expect(res.body.pagination).toMatchObject({ total: 3, hasMore: true });
+      // "waiting" counts only sessions blocked on agent input (pending_agent_input),
+      // not status='waiting' — 'Idle one' is idle here despite its status value.
+      expect(res.body.facets).toEqual({ running: 2, idle: 2, waiting: 1 });
+      expect(res.body.pagination).toMatchObject({ total: 4, hasMore: true });
     });
 
     it('includes the latest child command indicator on a cold list entry', async () => {
