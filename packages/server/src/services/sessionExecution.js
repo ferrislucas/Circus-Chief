@@ -201,6 +201,79 @@ function shouldRethrowForTierFailover(sessionId, error, tierContext) {
 }
 
 /**
+ * Inject the durable workflow turn token into the agent's environment so the
+ * agent's card-move API can attribute a deferred move to this exact execution
+ * (not merely the reusable session row). Non-workflow turns pass through
+ * unchanged.
+ * @param {Object} queryParams - Query parameters for agent.execute()
+ * @param {Object|null} workflowTurn - Snapshot from beginWorkflowTurn()
+ * @returns {Object} queryParams with the token env var set when applicable
+ */
+function withWorkflowTurnToken(queryParams, workflowTurn) {
+  const turnToken = workflowTurn?.turnToken;
+  if (!turnToken || !queryParams?.options?.env) return queryParams;
+  return {
+    ...queryParams,
+    options: {
+      ...queryParams.options,
+      env: {
+        ...queryParams.options.env,
+        CIRCUSCHIEF_WORKFLOW_TURN_TOKEN: turnToken,
+      },
+    },
+  };
+}
+
+/**
+ * Error-path bookkeeping for a turn that threw. Returns true when the caller
+ * must rethrow the error untouched (tier failover) or the session was merely
+ * rescheduled; returns false after recording a terminal failure so the caller
+ * can stop silently.
+ *
+ * @param {Object} opts
+ * @param {string} opts.sessionId
+ * @param {Object|null} opts.workflowTurn - Snapshot from beginWorkflowTurn()
+ * @param {Object|null} opts.tierContext
+ * @param {Object} opts.callbacks
+ * @param {AbortController} opts.controller
+ * @param {boolean} opts.broadcastConversationStateOnError
+ * @param {string} opts.errorLabel
+ * @param {Error} opts.error
+ * @returns {Promise<'rethrow'|'rescheduled'|'failed'>}
+ */
+async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbacks, controller, broadcastConversationStateOnError, errorLabel, error }) {
+  const { handleTemplateTriggerIfNeeded } = callbacks;
+  if (shouldRethrowForTierFailover(sessionId, error, tierContext)) return 'rethrow';
+
+  const rescheduled = await handleSessionError(sessionId, error, {
+    controller,
+    shouldRescheduleOnError: (session, err, sid) =>
+      shouldRescheduleOnError(session, err, sid, tierContext),
+    schedulerService,
+    broadcastConversationState: broadcastConversationStateOnError,
+    errorLabel,
+    handleTemplateTriggerIfNeeded,
+  });
+  if (rescheduled) {
+    // FR-9.1/FR-9.5: a transient error with an automatic retry/reschedule
+    // keeps the session (and its lane run) open — only the execution_state
+    // dimension moves, own_work_state is untouched.
+    discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_retrying');
+    markExecutionState(sessionId, 'retrying');
+    return 'rescheduled'; // Don't throw - session was rescheduled
+  }
+  // FR-9.2/FR-9.4: distinguish a user-initiated stop (must land as
+  // 'cancelled', never a failure) from a genuine permanent error (must land
+  // as 'closed_failed'). Both are terminal — neither may be interpreted as
+  // success, and reconcileLaneRun() below fails/cancels the lane run so a
+  // structured card never advances past this session.
+  discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, controller.signal.aborted ? 'turn_cancelled' : 'turn_failed');
+  closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message,
+    { turnToken: workflowTurn?.turnToken });
+  return 'failed';
+}
+
+/**
  * Execute the agent stream loop and handle post-turn completion, errors, and cleanup.
  * This is the shared core of runSession, continueSession, and continueSessionWithExistingMessage.
  * @param {Object} options
@@ -240,18 +313,7 @@ export async function _executeSession({
   // The provider is about to start. The token is generated durably by
   // beginWorkflowTurn and lets the agent's card-move API identify this exact
   // execution, not merely this reusable session row.
-  const providerQueryParams = workflowTurn?.turnToken && queryParams?.options?.env
-    ? {
-      ...queryParams,
-      options: {
-        ...queryParams.options,
-        env: {
-          ...queryParams.options.env,
-          CIRCUSCHIEF_WORKFLOW_TURN_TOKEN: workflowTurn.turnToken,
-        },
-      },
-    }
-    : queryParams;
+  const providerQueryParams = withWorkflowTurnToken(queryParams, workflowTurn);
   try {
     // Run the query with the agent (SDK via gateway, or mock)
     for await (const event of agent.execute(providerQueryParams, agentCallMeta)) {
@@ -272,34 +334,11 @@ export async function _executeSession({
     );
     await completeSuccessfulTurn({ sessionId, interactive, workflowTurn, wasRescheduled, heldForLimit });
   } catch (error) {
-    if (shouldRethrowForTierFailover(sessionId, error, tierContext)) throw error;
-
-    const rescheduled = await handleSessionError(sessionId, error, {
-      controller,
-      shouldRescheduleOnError: (session, err, sid) =>
-        shouldRescheduleOnError(session, err, sid, tierContext),
-      schedulerService,
-      broadcastConversationState: broadcastConversationStateOnError,
-      errorLabel,
-      handleTemplateTriggerIfNeeded,
+    const outcome = await handleTurnFailure({
+      sessionId, workflowTurn, tierContext, callbacks, controller,
+      broadcastConversationStateOnError, errorLabel, error,
     });
-    if (rescheduled) {
-      // FR-9.1/FR-9.5: a transient error with an automatic retry/reschedule
-      // keeps the session (and its lane run) open — only the execution_state
-      // dimension moves, own_work_state is untouched.
-      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_retrying');
-      markExecutionState(sessionId, 'retrying');
-      return; // Don't throw - session was rescheduled
-    }
-    // FR-9.2/FR-9.4: distinguish a user-initiated stop (must land as
-    // 'cancelled', never a failure) from a genuine permanent error (must land
-    // as 'closed_failed'). Both are terminal — neither may be interpreted as
-    // success, and reconcileLaneRun() below fails/cancels the lane run so a
-    // structured card never advances past this session.
-    discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, controller.signal.aborted ? 'turn_cancelled' : 'turn_failed');
-    closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message,
-      { turnToken: workflowTurn?.turnToken });
-    throw error;
+    if (outcome === 'rethrow' || outcome === 'failed') throw error;
   } finally {
     cleanupSessionState(sessionId, cleanupConversationId, controller);
   }
