@@ -1010,6 +1010,32 @@ describe('Kanban API', () => {
       expect(kanbanCards.getById(card.id)).toBeNull();
     });
 
+    it('supersedes an active lane run before removing the card', async () => {
+      setupBoard();
+      const root = createSession('Root');
+      const card = kanbanCards.create(lanes[0].id, root.id);
+      const run = createLaneRunForEntry({
+        projectId,
+        workspaceId: root.id,
+        cardId: card.id,
+        lane: { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'Do the work' },
+      });
+      const worker = createChildSession(root.id, 'Lane worker');
+      attachRootSession(run.id, worker.id);
+
+      const res = await request(app).delete(
+        `/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}`
+      );
+
+      expect(res.status).toBe(204);
+      expect(kanbanCards.getById(card.id)).toBeNull();
+      // The open run is retired rather than orphaned pointing at a deleted card.
+      expect(getRun(run.id).status).toBe('superseded');
+      // The worker's obligation is cancelled so it can't later revive against a
+      // card that no longer exists.
+      expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
+    });
+
     it('broadcasts KANBAN_CARD_REMOVED', async () => {
       setupBoard();
       const session = createSession();

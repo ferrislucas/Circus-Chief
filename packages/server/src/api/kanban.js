@@ -18,7 +18,7 @@ import {
   moveCard as moveCardService,
 } from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
-import { getRun, declareExitLane, isStructured } from '../services/workflowSessionService.js';
+import { getRun, declareExitLane, isStructured, supersedeRunForCard } from '../services/workflowSessionService.js';
 import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
 import { isApiError } from '../errors/ApiError.js';
 
@@ -435,6 +435,12 @@ router.put('/lanes/reorder', (req, res) => {
  */
 function deleteCardById(card, projectId) {
   const laneId = card.laneId;
+  // A removed card must retire any open lane run still owning it. Otherwise the
+  // run is orphaned — its worker keeps a stale lane_run_id pointing at a deleted
+  // card — and later schedule mutations on that worker fail the
+  // activeLaneRunOwnsSession guard with 409 "Session no longer owns an active
+  // lane run". Mirrors kanbanService.removeSessionFromBoard.
+  supersedeRunForCard(card.id, 'card_removed');
   kanbanCards.delete(card.id);
   broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED, {
     projectId,
