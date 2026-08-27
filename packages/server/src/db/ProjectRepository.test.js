@@ -334,8 +334,15 @@ describe('ProjectRepository', () => {
       const sessionRepo = new SessionRepository();
       const older = sessionRepo.create(project.id, 'older', 'prompt', { status: 'running' });
       const newer = sessionRepo.create(project.id, 'newer', 'prompt', { status: 'running' });
-      setSessionActivity(older.id, 5);
-      setSessionActivity(newer.id, 10);
+      // Activity timestamps must exceed each session's created_at/updated_at
+      // (Date.now() at creation), or the activity query's MAX(last_activity_at,
+      // updated_at, created_at) masks them. They must also differ, otherwise the
+      // fallback `root_id DESC` tie-break orders by random UUIDs and the
+      // assertion becomes a coin flip whenever the two creates land in the same
+      // millisecond (the flaky CI failure this test previously caused).
+      const base = Date.now() + 60_000;
+      setSessionActivity(older.id, base);
+      setSessionActivity(newer.id, base + 60_000);
 
       const projects = repo.getAll();
 
