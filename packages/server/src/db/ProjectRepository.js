@@ -1,5 +1,6 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
+import { sessions } from './index.js';
 
 /**
  * Project repository class
@@ -22,6 +23,9 @@ export class ProjectRepository extends BaseRepository {
       worktreePath: row.worktree_path,
       sessionCount: row.session_count ?? 0,
       lastActivityAt: row.last_activity_at ?? null,
+      runningSessionCount: row.running_session_count ?? 0,
+      waitingSessionCount: row.waiting_session_count ?? 0,
+      runningWorkspaces: row.running_workspaces ?? [],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -68,7 +72,19 @@ export class ProjectRepository extends BaseRepository {
       GROUP BY p.id
       ORDER BY p.updated_at DESC
     `).all();
-    return this.mapAll(rows);
+    const projects = this.mapAll(rows);
+    // Join per-project active-workspace aggregates (one query per concern, so
+    // the session-count GROUP BY never multiplies by per-workspace rows).
+    const aggregates = sessions.getProjectActivityAggregates();
+    for (const project of projects) {
+      const aggregate = aggregates.get(project.id);
+      if (aggregate) {
+        project.runningSessionCount = aggregate.runningSessionCount;
+        project.waitingSessionCount = aggregate.waitingSessionCount;
+        project.runningWorkspaces = aggregate.runningWorkspaces;
+      }
+    }
+    return projects;
   }
 
   /**

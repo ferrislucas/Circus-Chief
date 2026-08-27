@@ -208,6 +208,17 @@ describe('SessionCard', () => {
       expect(badge.classes()).toContain('status-running');
     });
 
+    it('shows a question icon when an agent is waiting for input', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, pendingAgentInput: true },
+      });
+
+      const indicator = wrapper.get('[aria-label="Agent input required"]');
+      expect(indicator.text()).toContain('needs input');
+      expect(indicator.attributes('title')).toBe('The agent is waiting for your input');
+      expect(indicator.find('.agent-input-icon').exists()).toBe(true);
+    });
+
 
     it('links to workspace detail page', () => {
       const wrapper = mountComponent();

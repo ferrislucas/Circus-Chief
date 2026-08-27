@@ -59,14 +59,6 @@ export function flushOutput(store, runId) {
     return;
   }
 
-  // Don't flush output for completed runs - output is already finalized
-  // This prevents duplication if a flush timer fires after completeRun
-  if (store.runs[runId].status !== 'running') {
-    delete store._outputBuffers[runId];
-    delete store._flushTimers[runId];
-    return;
-  }
-
   // Combine existing output with buffer
   const combined = store.runs[runId].output + buffer;
   const { output, truncated } = truncateOutput(combined);
@@ -100,11 +92,10 @@ export function appendOutput(store, runId, text) {
     return;
   }
 
-  // Ignore output for completed runs to prevent duplication
-  // (WS output events can arrive after the complete event due to race conditions)
-  if (store.runs[runId].status !== 'running') {
-    return;
-  }
+  // Completion and persisted-output events travel on separate WebSocket
+  // paths, so a final output chunk can arrive after COMMAND_RUN_COMPLETE.
+  // Keep accepting it: duplicate delivery is handled below and subscribers
+  // already reject repeated chunk sequences.
 
   // Deduplicate identical output messages arriving from dual-channel WS broadcasts
   // (server broadcasts to both session and project channels, client may receive both)

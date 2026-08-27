@@ -2,7 +2,7 @@ import { kanbanCards } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
-export function moveCardForTransition(run, card) {
+export function moveCardForTransition(run, card, sortOrder = undefined) {
   // The FK covers new databases, but older rows can contain a dangling
   // declaration from before that constraint existed. Do not let one block a
   // terminal transition: use the configured completion target instead.
@@ -11,7 +11,7 @@ export function moveCardForTransition(run, card) {
   const targetLaneId = (chosenLaneExists ? run.chosen_exit_lane_id : null)
     || run.completion_target_lane_id || null;
   if (!targetLaneId) return null;
-  return kanbanCards.moveToLane(card.id, targetLaneId);
+  return kanbanCards.moveToLane(card.id, targetLaneId, sortOrder);
 }
 
 /** Broadcast a card move captured while its database transaction was open. */

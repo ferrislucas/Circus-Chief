@@ -8,7 +8,11 @@ vi.mock('../websocket.js', () => ({
 }));
 
 import { broadcastToProject } from '../websocket.js';
-import { recoverOrphanedStartingSessions, recoverOrphanedRunningSessions } from './sessionStartupRecovery.js';
+import {
+  recoverOrphanedStartingSessions,
+  recoverOrphanedRunningSessions,
+  clearStalePendingAgentInput,
+} from './sessionStartupRecovery.js';
 import { attachRootSession, createLaneRunForEntry, getRun } from './workflowSessionService.js';
 
 function createProject() {
@@ -195,5 +199,55 @@ describe('recoverOrphanedRunningSessions', () => {
     expect(databaseManager.get().prepare(
       'SELECT count(*) count FROM kanban_lane_entry_events WHERE caused_by_run_id=?'
     ).get(run.id).count).toBe(0); // no successor run
+  });
+});
+
+describe('clearStalePendingAgentInput', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('clears pendingAgentInput left set by a previous process', () => {
+    const project = createProject();
+    // Simulates a session that was genuinely blocked on AskUserQuestion at
+    // the moment of a crash/restart — promptStore.js's in-memory queue that
+    // would have resolved it no longer exists in the new process.
+    const session = createSessionWithStatus(project.id, 'running');
+    sessions.update(session.id, { pendingAgentInput: true });
+
+    const { cleared } = clearStalePendingAgentInput();
+
+    expect(cleared).toBe(1);
+    expect(sessions.getById(session.id).pendingAgentInput).toBe(false);
+  });
+
+  it('leaves status and every other field untouched', () => {
+    const project = createProject();
+    const session = createSessionWithStatus(project.id, 'running');
+    sessions.update(session.id, { pendingAgentInput: true });
+
+    clearStalePendingAgentInput();
+
+    expect(sessions.getById(session.id).status).toBe('running');
+  });
+
+  it('is a no-op when nothing is pending', () => {
+    const project = createProject();
+    createSessionWithStatus(project.id, 'waiting');
+
+    expect(clearStalePendingAgentInput().cleared).toBe(0);
+  });
+
+  it('clears every affected session across multiple projects', () => {
+    const projectA = createProject();
+    const projectB = createProject();
+    const sessionA = createSessionWithStatus(projectA.id, 'running');
+    const sessionB = createSessionWithStatus(projectB.id, 'running');
+    sessions.update(sessionA.id, { pendingAgentInput: true });
+    sessions.update(sessionB.id, { pendingAgentInput: true });
+
+    expect(clearStalePendingAgentInput().cleared).toBe(2);
+    expect(sessions.getById(sessionA.id).pendingAgentInput).toBe(false);
+    expect(sessions.getById(sessionB.id).pendingAgentInput).toBe(false);
   });
 });
