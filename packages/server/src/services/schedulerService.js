@@ -339,7 +339,7 @@ class SchedulerService {
     // successfully, so it's now safe to clear the scheduling fields. Any
     // failure past this point is a normal in-flight turn failure, handled
     // by the existing turn error-handling path rather than by this method.
-    sessions.update(claimed.id, { scheduledAt: null, pendingPrompt: null, pendingConversationId: null });
+    sessions.update(claimed.id, { scheduledAt: null, pendingPrompt: null, pendingConversationId: null, pendingModel: null });
 
     if (claimed.pendingConversationId) {
       const startResult = await this.sessionManager.continueSessionWithExistingMessage(

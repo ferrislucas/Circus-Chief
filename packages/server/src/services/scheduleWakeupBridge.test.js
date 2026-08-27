@@ -359,6 +359,40 @@ describe('applyPendingWakeup', () => {
     }));
   });
 
+  it('severs a stale pendingModel instead of inheriting it from a superseded schedule', () => {
+    // Repro: an explicit POST /:id/schedule wrote pendingModel=M in a prior
+    // turn; the wakeup supersedes the schedule but must NOT adopt M. A wakeup
+    // has no model component (SDK input is only delaySeconds/prompt/reason).
+    sessions.getById.mockReturnValue(unscheduledSession({ pendingModel: 'deepseek-v4-pro-0813' }));
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 600, prompt: 'wakeup prompt' })]);
+
+    expect(applyPendingWakeup(SESSION_ID)).toBe(true);
+    expect(sessions.update).toHaveBeenCalledWith(SESSION_ID, expect.objectContaining({
+      pendingPrompt: 'wakeup prompt',
+      pendingModel: null,
+    }));
+  });
+
+  it('keeps the autonomous-loop sentinel resume free of a stale pendingModel that would force a fresh conversation', () => {
+    // A stale pendingModel != session.model sets modelChanged=true at launch,
+    // which disables canResume — the exact failure mode that drops the loop's
+    // Claude conversation context. The sentinel path must leave nothing behind
+    // that can force that.
+    sessions.getById.mockReturnValue(unscheduledSession({ pendingModel: 'X' }));
+    conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-loop', claudeSessionId: 'claude-loop' });
+    messages.getByConversationId.mockReturnValue([{ id: 'user-loop', role: 'user', content: '/loop' }]);
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({
+      delaySeconds: 600,
+      prompt: AUTONOMOUS_LOOP_DYNAMIC_SENTINEL,
+    })]);
+
+    expect(applyPendingWakeup(SESSION_ID)).toBe(true);
+    expect(sessions.update).toHaveBeenCalledWith(SESSION_ID, expect.objectContaining({
+      pendingConversationId: 'conv-loop',
+      pendingModel: null,
+    }));
+  });
+
   it('is a no-op when nothing was captured', () => {
     expect(applyPendingWakeup(SESSION_ID)).toBe(false);
     expect(sessions.getById).not.toHaveBeenCalled();
@@ -388,6 +422,18 @@ describe('applyPendingWakeup', () => {
 
     expect(scheduledAt).toBeGreaterThanOrEqual(before + 60 * 1000);
     expect(scheduledAt).toBeLessThanOrEqual(Date.now() + 60 * 1000);
+  });
+
+  it('does not touch rescheduleCount (characterization)', () => {
+    // Pinning today's behavior: applyPendingWakeup never writes rescheduleCount.
+    // Retry-governance for wakeups is the open issue-1 decision, deliberately
+    // out of scope — if a future change adds reschedule-counting, this test is
+    // the visible place to update it rather than letting it drift silently.
+    sessions.getById.mockReturnValue(unscheduledSession());
+    captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'p' })]);
+
+    expect(applyPendingWakeup(SESSION_ID)).toBe(true);
+    expect(sessions.update.mock.calls[0][1]).not.toHaveProperty('rescheduleCount');
   });
 
   describe('precedence against an explicit REST schedule', () => {
@@ -436,6 +482,27 @@ describe('applyPendingWakeup', () => {
       expect(sessions.update).toHaveBeenCalledWith(SESSION_ID, expect.objectContaining({
         pendingPrompt: 'wakeup prompt',
       }));
+    });
+
+    it('lets a pre-turn user schedule lose to a wakeup captured this turn (characterization)', () => {
+      // Pinning current precedence for the issue-3 scenario: a REST schedule
+      // written *before* this turn started has no in-turn explicit-write marker,
+      // so it is treated as a stale row and the wakeup wins. The review flagged
+      // this precedence as needing a design decision; that decision is out of
+      // scope here — this test only makes the current behavior explicit so a
+      // future semantics change is a deliberate, visible edit.
+      sessions.getById.mockReturnValue(unscheduledSession({
+        scheduledAt: Date.now() + 3_600_000,
+        pendingPrompt: 'Pre-turn explicit schedule prompt',
+      }));
+      captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'wakeup prompt' })]);
+
+      expect(applyPendingWakeup(SESSION_ID)).toBe(true);
+      const { scheduledAt, pendingPrompt } = sessions.update.mock.calls[0][1];
+      expect(pendingPrompt).toBe('wakeup prompt');
+      // The wakeup's ~60s fire time replaces the pre-turn schedule's 1h fire time.
+      expect(scheduledAt).toBeGreaterThanOrEqual(Date.now() + 59_000);
+      expect(scheduledAt).toBeLessThanOrEqual(Date.now() + 60_000);
     });
   });
 

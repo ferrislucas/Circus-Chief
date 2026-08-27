@@ -389,6 +389,59 @@ describe('Sessions API - POST /:id/schedule', () => {
       expect(stored.scheduledAt).toBeGreaterThan(Date.now());
       expect(sessions.getScheduledSessionsDue(stored.scheduledAt + 1000).map((s) => s.id)).toContain(session.id);
     });
+
+    it('severs a stale pendingModel through the real repository when a wakeup supersedes it', async () => {
+      // Real-DB proof that pendingModel:null survives the camelCase<->snake_case
+      // column mapping: a stale one-shot model from a prior explicit schedule
+      // must not leak into the wakeup's row write.
+      sessions.update(session.id, { status: 'running', pendingModel: 'deepseek-v4-pro-0813' });
+      const controller = { signal: { aborted: false } };
+      activeSessions.set(session.id, { controller });
+
+      captureScheduleWakeup(session.id, controller, [
+        { type: 'tool_use', id: 'wk-model', name: 'ScheduleWakeup', input: { delaySeconds: 90, prompt: 'Continue: check CI' } },
+      ]);
+
+      await handleTurnCompletion(session.id, '/tmp/test', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const stored = sessions.getById(session.id);
+      expect(stored.status).toBe('scheduled');
+      expect(stored.pendingPrompt).toBe('Continue: check CI');
+      expect(stored.pendingModel).toBeNull();
+    });
+
+    it('preserves the autonomous-loop sentinel resume end-to-end without a stale pendingModel', async () => {
+      // Round-trip proof that the sentinel path keeps pendingConversationId (so
+      // the scheduler resumes the loop's exact user message) *and* clears
+      // pendingModel (so launch does not force modelChanged=true and drop the
+      // Claude conversation context).
+      sessions.update(session.id, { status: 'running', pendingModel: 'X' });
+      const controller = { signal: { aborted: false } };
+      activeSessions.set(session.id, { controller });
+
+      const loopConversation = conversations.create(session.id, 'Loop conversation', true);
+      conversations.update(loopConversation.id, { claudeSessionId: 'claude-loop' });
+      messages.create(session.id, 'user', '/loop', { conversationId: loopConversation.id });
+
+      captureScheduleWakeup(session.id, controller, [
+        { type: 'tool_use', id: 'wk-loop', name: 'ScheduleWakeup', input: { delaySeconds: 600, prompt: '<<autonomous-loop-dynamic>>' } },
+      ]);
+
+      await handleTurnCompletion(session.id, '/tmp/test', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const stored = sessions.getById(session.id);
+      expect(stored.status).toBe('scheduled');
+      expect(stored.pendingConversationId).toBe(loopConversation.id);
+      expect(stored.pendingModel).toBeNull();
+    });
   });
 
   // ── Validation failures ─────────────────────────────────────────────────────

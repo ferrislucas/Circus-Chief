@@ -361,6 +361,12 @@ export function applyPendingWakeup(sessionId, controller) {
     scheduledAt,
     pendingPrompt: wakeup.prompt,
     pendingConversationId: wakeup.pendingConversationId,
+    // ScheduleWakeup's SDK input is only delaySeconds/prompt/reason — a wakeup
+    // has no model component, so it must not inherit a stale one-shot
+    // pendingModel from a superseded explicit schedule (see schedulerService's
+    // symmetric durable clear). Leaving it would re-model the session at launch
+    // and force modelChanged=true, breaking the autonomous-loop sentinel resume.
+    pendingModel: null,
   });
   const updated = session.laneRunId ? withActiveLaneRunOwnership(sessionId, update) : update();
 

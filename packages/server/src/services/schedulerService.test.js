@@ -409,6 +409,7 @@ describe('SchedulerService', () => {
         scheduledAt: null,
         pendingPrompt: null,
         pendingConversationId: null,
+        pendingModel: null,
       });
       expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
         sessionId: 'session-1',
@@ -570,6 +571,7 @@ describe('SchedulerService', () => {
         scheduledAt: null,
         pendingPrompt: null,
         pendingConversationId: null,
+        pendingModel: null,
       });
     });
 
