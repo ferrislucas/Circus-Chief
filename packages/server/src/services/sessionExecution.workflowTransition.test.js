@@ -298,6 +298,8 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
 
   it('discards a deferred move if the provider fails before completing its turn', async () => {
     const stubAgent = {
+      // Deliberately throws before ever yielding, to simulate a provider failure mid-turn.
+      // eslint-disable-next-line require-yield
       execute: vi.fn(async function* (queryParams, agentCallMeta) {
         await moveCard(card.id, target.id, {
           deferredSessionId: agentCallMeta.sessionId,

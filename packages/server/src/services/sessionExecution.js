@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- provider and workflow completion must share one lifecycle boundary */
 import { sessions, messages, attachments, conversations } from '../database.js';
 import { resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
 import { reconcileAgentTypeForRun, deriveAgentTypeUpdate } from './sessionAgentGuard.js';
