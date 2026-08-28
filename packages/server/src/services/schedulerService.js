@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- legacy scheduler service; split in a dedicated refactor. */
 import { sessions, messages, conversations, projects, attachments } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
@@ -284,6 +285,18 @@ class SchedulerService {
     return { claimed: true, ...result };
   }
 
+  _refuseLaunchPastBudget(sessionId) {
+    const row = sessions.getById(sessionId);
+    if (!row || !this.hasReachedLaunchBudget(row)) return null;
+    sessions.update(sessionId, {
+      status: 'stopped', scheduledAt: null, pendingPrompt: null,
+      pendingConversationId: null, pendingModel: null,
+      error: `Scheduled launch refused: max total tokens reached (${row.maxTotalTokens.toLocaleString()}).`,
+    });
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'stopped' });
+    return { claimed: false, started: false, reason: 'launch_budget_exhausted', sessionId };
+  }
+
   /**
    * Start a scheduled session — the single entry point used by both the
    * 30s poller (`checkScheduledSessions`) and the manual
@@ -310,6 +323,10 @@ class SchedulerService {
     if (!claimWorkflowSessionStart(session.id)) {
       return { claimed: false, started: false, reason: 'lane_run_ownership_lost', sessionId: session.id };
     }
+
+    // Re-read the row so a poller snapshot cannot undercount current usage.
+    const budgetRefusal = this._refuseLaunchPastBudget(session.id);
+    if (budgetRefusal) return budgetRefusal;
 
     const claimed = sessions.claimScheduled(session.id, { promptOverride });
     if (!claimed) {
@@ -443,6 +460,34 @@ class SchedulerService {
 
     console.log(`[SchedulerService] Continue retry for session ${sessionId}`);
     return { pendingPrompt: 'Continue', pendingConversationId: null };
+  }
+
+  /**
+   * Governance check for a scheduled launch. Applies the durable budget caps
+   * (maxTotalTokens) to every scheduled start, regardless of which mechanism
+   * wrote the schedule (explicit REST, error-retry, or the ScheduleWakeup bridge).
+   *
+   * Unlike rescheduleSession's use of hasReachedLimits, this intentionally does
+   * NOT gate on maxRescheduleCount: an explicit REST schedule is a durable user
+   * instruction that must still fire even when past the retry cap. Only the
+   * hard token budget is enforced here, because token spend is cumulative and
+   * cannot be undone, whereas a missed retry is recoverable.
+   *
+   * @param {object} session
+   * @returns {boolean} true when the launch must be refused.
+   */
+  hasReachedLaunchBudget(session) {
+    if (session.maxTotalTokens !== null) {
+      const totalTokens = session.inputTokens + session.outputTokens;
+      if (totalTokens >= session.maxTotalTokens) {
+        console.warn(
+          `[SchedulerService] Max total tokens reached at scheduled launch: `
+          + `${totalTokens.toLocaleString()}/${session.maxTotalTokens.toLocaleString()} for session ${session.id}`
+        );
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

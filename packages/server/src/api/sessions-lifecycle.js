@@ -219,6 +219,12 @@ router.post('/:id/schedule', requireSession, (req, res) => {
 // launches an agent. A caller that loses the race is not an error — the
 // session is already being started by the winner, so this responds 200
 // with the current session state (idempotent "already started" outcome).
+function launchBudgetFailure(session) {
+  return schedulerService.hasReachedLaunchBudget(session)
+    ? { error: 'Scheduled launch refused: session has reached its max total token budget', code: 'LAUNCH_BUDGET_EXHAUSTED' }
+    : null;
+}
+
 router.post('/:id/run-scheduled-now', requireSession, async (req, res) => {
   const session = sessions.getById(req.params.id);
 
@@ -236,6 +242,9 @@ router.post('/:id/run-scheduled-now', requireSession, async (req, res) => {
   } else if (session.status !== 'starting') {
     return res.status(409).json({ error: 'Session has no pending scheduled turn' });
   }
+
+  const budgetFailure = launchBudgetFailure(session);
+  if (budgetFailure) return res.status(409).json(budgetFailure);
 
   let promptOverride;
   if (req.body && req.body.prompt !== undefined) {

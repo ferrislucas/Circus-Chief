@@ -309,6 +309,70 @@ describe('SchedulerService', () => {
       );
     });
 
+    describe('launch budget gate', () => {
+      it('refuses to claim a session that has exhausted its token budget', async () => {
+        scheduler.initialize(mockSessionManager);
+        const session = {
+          id: 'session-1',
+          name: 'Test Session',
+          projectId: 'project-1',
+          maxTotalTokens: 1000,
+          inputTokens: 600,
+          outputTokens: 500,
+        };
+        sessions.getById.mockReturnValue(session);
+
+        const result = await scheduler.startScheduledSession(session);
+
+        expect(result).toEqual({
+          claimed: false,
+          started: false,
+          reason: 'launch_budget_exhausted',
+          sessionId: 'session-1',
+        });
+        expect(sessions.claimScheduled).not.toHaveBeenCalled();
+        expect(sessions.update).toHaveBeenCalledWith('session-1', {
+          status: 'stopped',
+          scheduledAt: null,
+          pendingPrompt: null,
+          pendingConversationId: null,
+          pendingModel: null,
+          error: 'Scheduled launch refused: max total tokens reached (1,000).',
+        });
+        expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
+          sessionId: 'session-1',
+          status: 'stopped',
+        });
+      });
+
+      it('still launches an under-budget session', async () => {
+        scheduler.initialize(mockSessionManager);
+        const session = {
+          id: 'session-1',
+          name: 'Test Session',
+          projectId: 'project-1',
+          maxTotalTokens: 1000,
+          inputTokens: 600,
+          outputTokens: 300,
+          pendingPrompt: 'Hello',
+          pendingModel: null,
+        };
+        sessions.getById.mockReturnValue(session);
+        sessions.claimScheduled.mockReturnValue(session);
+        projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+        messages.getBySessionId.mockReturnValue([]);
+        conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
+        messages.create.mockReturnValue({ id: 'msg-1', sessionId: 'session-1', role: 'user', content: 'Hello', conversationId: 'conv-1' });
+        attachments.getBySessionId.mockReturnValue([]);
+
+        const result = await scheduler.startScheduledSession(session);
+
+        expect(result).toEqual({ claimed: true });
+        expect(sessions.claimScheduled).toHaveBeenCalled();
+        expect(mockSessionManager.runSession).toHaveBeenCalled();
+      });
+    });
+
     it('claims the session before doing any other work', async () => {
       scheduler.initialize(mockSessionManager);
       const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Hello' };
@@ -941,6 +1005,23 @@ describe('SchedulerService', () => {
       const result = scheduler.hasReachedLimits(session);
 
       expect(result).toBe(true);
+    });
+  });
+
+  describe('hasReachedLaunchBudget', () => {
+    it('returns false when no maxTotalTokens is set', () => {
+      const session = { id: 'session-1', maxTotalTokens: null, inputTokens: 100, outputTokens: 100 };
+      expect(scheduler.hasReachedLaunchBudget(session)).toBe(false);
+    });
+
+    it('returns true when total tokens reach the cap', () => {
+      const session = { id: 'session-1', maxTotalTokens: 1000, inputTokens: 600, outputTokens: 400 };
+      expect(scheduler.hasReachedLaunchBudget(session)).toBe(true);
+    });
+
+    it('returns false when total tokens are below the cap', () => {
+      const session = { id: 'session-1', maxTotalTokens: 1000, inputTokens: 600, outputTokens: 300 };
+      expect(scheduler.hasReachedLaunchBudget(session)).toBe(false);
     });
   });
 

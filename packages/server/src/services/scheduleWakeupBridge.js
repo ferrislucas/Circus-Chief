@@ -36,6 +36,9 @@ import { createWorkLog } from './workLogService.js';
  * If a future change starts surfacing tool results on this path, prefer
  * `scheduledFor` over recomputation and delete `clampDelaySeconds`.
  *
+ * TODO(issue-tracker): re-verify WAKEUP_MIN/MAX_DELAY_SECONDS against the SDK's
+ * documented clamp on SDK upgrades; a range change there silently diverges here.
+ *
  * When a wakeup is silently dropped, we say so
  * ---------------------------------------------
  * This bridge exists because the tool used to lie about success. Every path
@@ -82,9 +85,24 @@ const FALLBACK_PROMPT = 'Continue';
  * by session ID. A stopped turn can unwind after a replacement starts for the
  * same session; controller identity keeps their state completely isolated.
  * Entries are deleted on apply/cleanup, so this is not an unbounded history.
+ *
+ * TEST-ONLY SURFACE: this Map is exported solely so tests can inspect and reset
+ * turn state. Production code must not read, write, or iterate it directly — all
+ * access goes through capture/apply/clear/record functions in this module. If a
+ * non-test need for direct access appears, add a named accessor instead.
  * @type {Map<AbortController, WakeupTurnState>}
  */
 export const wakeupTurnStates = new Map();
+
+/**
+ * Clear all turn-scoped wakeup state. Test-only.
+ * @returns {number} entries removed
+ */
+export function __resetWakeupTurnStatesForTest() {
+  const n = wakeupTurnStates.size;
+  wakeupTurnStates.clear();
+  return n;
+}
 
 /**
  * Monotonic counter used to order an explicit `POST /:id/schedule` call
@@ -172,14 +190,13 @@ function resolveAutonomousLoopContext(sessionId) {
   const conversation = conversations.getActiveBySessionId(sessionId);
   if (!conversation?.id || !conversation.claudeSessionId) return null;
 
-  const lastUserMessage = [...messages.getByConversationId(conversation.id)]
-    .reverse()
-    .find((message) => message?.role === 'user' && typeof message.content === 'string' && message.content.trim() !== '');
+  const lastUserMessage = messages.getLastByConversationIdAndRole(conversation.id, 'user');
+  if (!lastUserMessage || typeof lastUserMessage.content !== 'string' || lastUserMessage.content.trim() === '') return null;
   // The SDK contract defines this sentinel only for an autonomous `/loop`.
   // Replaying a different user message would turn an untrusted sentinel into
   // a scheduled execution of unrelated work, so require the durable loop
   // invocation instead of guessing from arbitrary conversation context.
-  if (!lastUserMessage || !/^\/loop(?:\s|$)/.test(lastUserMessage.content.trim())) return null;
+  if (!/^\/loop(?:\s|$)/.test(lastUserMessage.content.trim())) return null;
 
   // pendingPrompt remains required by the scheduler's claim invariant, but
   // is deliberately not sent to the model: pendingConversationId selects the
@@ -214,6 +231,21 @@ function buildPendingWakeup(sessionId, wakeup) {
   if (delaySeconds === null) {
     logDroppedWakeup(sessionId, `ScheduleWakeup requested a wakeup with a non-numeric delaySeconds (${JSON.stringify(wakeup.input?.delaySeconds)}); the wakeup was not scheduled.`);
     return null;
+  }
+
+  const requestedPrompt = typeof wakeup.input?.prompt === 'string' ? wakeup.input.prompt.trim() : wakeup.input?.prompt;
+  if (requestedPrompt === AUTONOMOUS_LOOP_DYNAMIC_SENTINEL) {
+    // Sentinel context resolution is deferred to apply time: it reads the
+    // conversation (a full-table-ish query), and capture can happen many times
+    // per turn while apply happens once. See resolveAutonomousLoopContext.
+    return {
+      delaySeconds,
+      isAutonomousLoop: true,
+      deferredSentinel: true,
+      reason: typeof wakeup.input?.reason === 'string' ? wakeup.input.reason : '',
+      capturedAt: Date.now(),
+      capturedSeq: turnSequenceCounter++,
+    };
   }
 
   const promptData = resolveCapturedWakeupPrompt(sessionId, wakeup.input);
@@ -298,6 +330,19 @@ export function clearPendingWakeup(sessionId, controller) {
 }
 
 /**
+ * Whether this turn captured a wakeup that applyPendingWakeup would apply.
+ * Lets the completion path avoid a pointless waiting→scheduled flicker without
+ * duplicating precedence logic. Does not consume the wakeup.
+ * @param {string} sessionId
+ * @param {AbortController} controller
+ * @returns {boolean}
+ */
+export function hasPendingWakeup(sessionId, controller) {
+  const state = getTurnState(sessionId, controller);
+  return Boolean(state?.pendingWakeup);
+}
+
+/**
  * Whether a session already carries a schedule (of either origin).
  * @param {object} session
  * @returns {boolean}
@@ -305,6 +350,32 @@ export function clearPendingWakeup(sessionId, controller) {
 function hasExistingSchedule(session) {
   const hasPendingPrompt = typeof session.pendingPrompt === 'string' && session.pendingPrompt.trim() !== '';
   return Number.isFinite(session.scheduledAt) && session.scheduledAt > 0 && hasPendingPrompt;
+}
+
+function resolveDeferredWakeup(sessionId, wakeup) {
+  if (!wakeup.deferredSentinel) return true;
+  const loopContext = resolveAutonomousLoopContext(sessionId);
+  if (!loopContext) {
+    logDroppedWakeup(sessionId, 'ScheduleWakeup requested the SDK autonomous-loop sentinel, but this turn has no resumable active Claude /loop conversation. The wakeup was not scheduled because Circus Chief cannot safely reconstruct the loop context.');
+    return false;
+  }
+  wakeup.prompt = loopContext.prompt;
+  wakeup.pendingConversationId = loopContext.pendingConversationId;
+  return true;
+}
+
+function wakeupCanReplaceExistingSchedule(sessionId, state, wakeup, session) {
+  if (!hasExistingSchedule(session)) return true;
+  if (state.explicitScheduleSequence !== undefined && state.explicitScheduleSequence > wakeup.capturedSeq) {
+    const message = 'ScheduleWakeup was superseded by an explicit POST /:id/schedule call made later in the same turn; the explicit schedule was kept.';
+    console.warn(`[ScheduleWakeup] Session ${sessionId}: ${message}`);
+    createWorkLog(sessionId, 'tool_output', message, 'ScheduleWakeup');
+    return false;
+  }
+  const message = `ScheduleWakeup superseded a schedule that was set before this turn (was due ${new Date(session.scheduledAt).toISOString()}, prompt: "${session.pendingPrompt}"). The wakeup's own schedule now applies.`;
+  console.warn(`[ScheduleWakeup] Session ${sessionId}: ${message}`);
+  createWorkLog(sessionId, 'tool_output', message, 'ScheduleWakeup');
+  return true;
 }
 
 /**
@@ -340,19 +411,15 @@ export function applyPendingWakeup(sessionId, controller) {
   const session = sessions.getById(sessionId);
   if (!session) return false;
 
-  const explicitSeq = state.explicitScheduleSequence;
-  if (hasExistingSchedule(session) && explicitSeq !== undefined && explicitSeq > wakeup.capturedSeq) {
-    const message = 'ScheduleWakeup was superseded by an explicit POST /:id/schedule call made later in the same turn; the explicit schedule was kept.';
-    console.log(`[ScheduleWakeup] Session ${sessionId}: ${message}`);
-    createWorkLog(sessionId, 'tool_output', message, 'ScheduleWakeup');
-    return false;
-  }
+  if (!resolveDeferredWakeup(sessionId, wakeup)) return false;
+  if (!wakeupCanReplaceExistingSchedule(sessionId, state, wakeup, session)) return false;
 
-  // Delay is measured from now (turn end / apply time), not from when the
-  // tool was called. Anchoring to capturedAt would let a long-running turn
-  // (agent asks for a 60s poll, then works for 10 more minutes) collapse the
-  // requested delay to nothing, defeating the throttle the agent asked for.
-  const scheduledAt = Date.now() + wakeup.delaySeconds * 1000;
+  // Honour the SDK's promise (capturedAt + delay, which is what the agent was
+  // told scheduledFor would be) without ever collapsing the throttle to zero:
+  // if the turn already overran the requested delay, fire no sooner than now.
+  // A long turn therefore drifts at most by (turnEnd - capturedAt), and only in
+  // the direction of "later than promised", never "immediately".
+  const scheduledAt = Math.max(wakeup.capturedAt + wakeup.delaySeconds * 1000, Date.now());
 
   // Mirror the REST endpoint's lane-run fencing so a wakeup can't revive a
   // worker whose lane run was superseded mid-turn.
@@ -372,7 +439,7 @@ export function applyPendingWakeup(sessionId, controller) {
 
   if (!updated) {
     const message = `ScheduleWakeup requested a wakeup in ${wakeup.delaySeconds}s, but this session's lane run was superseded before the wakeup could be scheduled; the wakeup was dropped.`;
-    console.log(`[ScheduleWakeup] Session ${sessionId}: ${message}`);
+    console.warn(`[ScheduleWakeup] Session ${sessionId}: ${message}`);
     createWorkLog(sessionId, 'tool_output', message, 'ScheduleWakeup');
     return false;
   }

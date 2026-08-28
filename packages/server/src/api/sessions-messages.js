@@ -100,6 +100,18 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
     return res.status(validationError.status).json(validationError.body);
   }
 
+  // Defense in depth for the stop-then-chat race: a schedule left on the row by
+  // a cancelled session must not be resurrected by this chat turn's completion
+  // (handleScheduledContinuationIfNeeded is deliberately status-agnostic).
+  if (req.session_.scheduledAt && req.session_.pendingPrompt) {
+    sessions.update(req.session_.id, {
+      scheduledAt: null,
+      pendingPrompt: null,
+      pendingConversationId: null,
+      pendingModel: null,
+    });
+  }
+
   try {
     // Store file attachments if any - saves to disk in workingDirectory/.attachments
     const messageAttachments = attachments.createBatch(req.session_.id, null, files, req.workingDirectory);

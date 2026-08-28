@@ -10,6 +10,7 @@ vi.mock('../database.js', () => ({
   messages: {
     getBySessionId: vi.fn(),
     getByConversationId: vi.fn(),
+    getLastByConversationIdAndRole: vi.fn(),
     create: vi.fn(),
   },
   workLogs: {
@@ -61,6 +62,10 @@ vi.mock('./usageTracker.js', () => ({
   estimateTokens: vi.fn(),
 }));
 
+vi.mock('./workflowSessionService.js', () => ({
+  withActiveLaneRunOwnership: vi.fn((_sessionId, mutation) => mutation()),
+}));
+
 import { sessions, messages, workLogs, conversations } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import * as summaryService from './summaryService.js';
@@ -87,7 +92,8 @@ import {
   finalResultEvents,
   getResultEvent,
 } from './streamEventHandler.js';
-import { wakeupTurnStates, recordExplicitSchedule, captureScheduleWakeup } from './scheduleWakeupBridge.js';
+import { wakeupTurnStates, recordExplicitSchedule, captureScheduleWakeup, __resetWakeupTurnStatesForTest } from './scheduleWakeupBridge.js';
+import { withActiveLaneRunOwnership } from './workflowSessionService.js';
 import { getPrompt, parkPrompt } from './promptStore.js';
 
 describe('streamEventHandler', () => {
@@ -104,8 +110,9 @@ describe('streamEventHandler', () => {
     loggedToolUseIds.clear();
     finalErrorSessionIds.clear();
     finalResultEvents.clear();
-    wakeupTurnStates.clear();
+    __resetWakeupTurnStatesForTest();
     messages.getByConversationId.mockReturnValue([]);
+    messages.getLastByConversationIdAndRole.mockReturnValue(null);
     messages.getBySessionId.mockReturnValue([]);
     messages.create.mockImplementation((sessionId, role, content, options = {}) => ({
       id: `msg-${role}`,
@@ -114,6 +121,7 @@ describe('streamEventHandler', () => {
       role,
       content,
     }));
+    withActiveLaneRunOwnership.mockImplementation((_sessionId, mutation) => mutation());
   });
 
   // ── createWorkLog ─────────────────────────────────────────────────────
@@ -950,7 +958,15 @@ describe('streamEventHandler', () => {
 
       const futureScheduledAt = Date.now() + 3600000;
       sessions.getById.mockReturnValue({
+        id: 'sess-1',
         projectId: 'proj-1',
+        scheduledAt: futureScheduledAt,
+        pendingPrompt: 'Continue the analysis',
+      });
+      sessions.update.mockReturnValue({
+        id: 'sess-1',
+        projectId: 'proj-1',
+        status: 'scheduled',
         scheduledAt: futureScheduledAt,
         pendingPrompt: 'Continue the analysis',
       });
@@ -1033,7 +1049,15 @@ describe('streamEventHandler', () => {
 
       const pastScheduledAt = Date.now() - 1000;
       sessions.getById.mockReturnValue({
+        id: 'sess-1',
         projectId: 'proj-1',
+        scheduledAt: pastScheduledAt,
+        pendingPrompt: 'Continue',
+      });
+      sessions.update.mockReturnValue({
+        id: 'sess-1',
+        projectId: 'proj-1',
+        status: 'scheduled',
         scheduledAt: pastScheduledAt,
         pendingPrompt: 'Continue',
       });
@@ -1204,7 +1228,7 @@ describe('streamEventHandler', () => {
       // tool_use dedup set, and the explicit-schedule recency marker) — not
       // just pendingWakeups — since several tests below reuse the same
       // tool_use id ('tool-wakeup') across `it` blocks.
-      wakeupTurnStates.clear();
+      __resetWakeupTurnStatesForTest();
       conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
       workLogs.associatePendingLogs.mockReturnValue(0);
       diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
@@ -1235,6 +1259,12 @@ describe('streamEventHandler', () => {
         pendingConversationId: null,
       });
       expect(session.scheduledAt).toBeGreaterThan(Date.now());
+      // No intermediate 'waiting' status is broadcast on the wakeup path.
+      expect(broadcastToSession).not.toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_STATUS,
+        { sessionId: 'sess-1', status: 'waiting' }
+      );
       expect(broadcastToSession).toHaveBeenCalledWith(
         'sess-1',
         WS_MESSAGE_TYPES.SESSION_STATUS,
@@ -1267,10 +1297,7 @@ describe('streamEventHandler', () => {
       activeSessions.set('sess-1', { controller });
       const session = statefulSession();
       conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-loop', claudeSessionId: 'claude-loop' });
-      messages.getByConversationId.mockReturnValue([
-        { id: 'msg-loop-user', role: 'user', content: '/loop' },
-        { id: 'msg-loop-assistant', role: 'assistant', content: 'Waiting for work.' },
-      ]);
+      messages.getLastByConversationIdAndRole.mockReturnValue({ id: 'msg-loop-user', role: 'user', content: '/loop' });
 
       await handleStreamEvent('sess-1', wakeupEvent({
         delaySeconds: 600,
@@ -1368,6 +1395,90 @@ describe('streamEventHandler', () => {
 
       expect(session.status).toBe('waiting');
       expect(session.scheduledAt).toBeNull();
+    });
+
+    it('skips the intermediate waiting write when a captured wakeup is applied', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      const session = statefulSession();
+
+      await handleStreamEvent('sess-1', wakeupEvent({ delaySeconds: 600, prompt: 'Continue' }));
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(session.status).toBe('scheduled');
+      expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+      const scheduledWrites = sessions.update.mock.calls.filter(
+        (call) => call[0] === 'sess-1' && call[1]?.status === 'scheduled'
+      );
+      expect(scheduledWrites).toHaveLength(1);
+    });
+
+    it('refuses to restore \'scheduled\' when a superseded lane run carries a leftover schedule', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      const session = statefulSession({
+        laneRunId: 'run-1',
+        scheduledAt: Date.now() + 3_600_000,
+        pendingPrompt: 'Leftover schedule',
+      });
+      withActiveLaneRunOwnership.mockReturnValue(null);
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(session.status).not.toBe('scheduled');
+      expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(broadcastToSession).not.toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_STATUS,
+        { sessionId: 'sess-1', status: 'scheduled' }
+      );
+    });
+
+    it('restores \'scheduled\' through the lane fence when the lane run is still active', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      const session = statefulSession({
+        laneRunId: 'run-1',
+        scheduledAt: Date.now() + 3_600_000,
+        pendingPrompt: 'Leftover schedule',
+      });
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(withActiveLaneRunOwnership).toHaveBeenCalledWith('sess-1', expect.any(Function));
+      expect(session.status).toBe('scheduled');
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_STATUS,
+        { sessionId: 'sess-1', status: 'scheduled' }
+      );
+    });
+
+    it('does not apply lane fencing to a non-workflow session', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      const session = statefulSession({
+        scheduledAt: Date.now() + 3_600_000,
+        pendingPrompt: 'Leftover schedule',
+      });
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(session.status).toBe('scheduled');
+      expect(withActiveLaneRunOwnership).not.toHaveBeenCalled();
     });
 
     it('discards a dynamic autonomous-loop wakeup across the error path', async () => {

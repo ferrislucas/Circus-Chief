@@ -385,7 +385,19 @@ export async function stopSession(sessionId) {
   // If not in activeSessions, session may have crashed or be waiting
   // Either way, we can still update the status to stopped
 
-  sessions.update(sessionId, { status: 'stopped' });
+  // A user-initiated stop must also cancel any pending scheduled continuation.
+  // Otherwise handleScheduledContinuationIfNeeded's status-agnostic predicate
+  // (deliberately unguarded, see its doc comment) will resurrect the schedule on
+  // the next completed chat turn — flipping the session back to 'scheduled',
+  // suppressing auto-send/template triggers for that turn, and firing a prompt
+  // the user believed they had cancelled.
+  sessions.update(sessionId, {
+    status: 'stopped',
+    scheduledAt: null,
+    pendingPrompt: null,
+    pendingConversationId: null,
+    pendingModel: null,
+  });
   broadcastSessionStatus(sessionId, 'stopped');
 
   // FR-9.4: a user-stopped blocking session must not be interpreted as

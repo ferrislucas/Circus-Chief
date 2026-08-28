@@ -11,7 +11,7 @@ import {
   activeSessions,
   handleTurnCompletion,
 } from '../services/streamEventHandler.js';
-import { captureScheduleWakeup, wakeupTurnStates } from '../services/scheduleWakeupBridge.js';
+import { captureScheduleWakeup, __resetWakeupTurnStatesForTest } from '../services/scheduleWakeupBridge.js';
 
 // Mock websocket
 vi.mock('../websocket.js', () => ({
@@ -41,7 +41,8 @@ vi.mock('../services/prStatusService.js', () => ({
 }));
 
 // Mock summaryBroadcast (needed by sessions-patch.js)
-vi.mock('../services/summaryBroadcast.js', () => ({
+vi.mock('../services/summaryBroadcast.js', async (importOriginal) => ({
+  ...await importOriginal(),
   broadcastSummaryUpdate: vi.fn(),
 }));
 
@@ -310,7 +311,7 @@ describe('Sessions API - POST /:id/schedule', () => {
 
   describe('precedence against ScheduleWakeup', () => {
     afterEach(() => {
-      wakeupTurnStates.clear();
+      __resetWakeupTurnStatesForTest();
     });
 
     it('an explicit schedule made after a ScheduleWakeup call in the same turn wins', async () => {

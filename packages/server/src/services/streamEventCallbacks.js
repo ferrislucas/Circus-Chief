@@ -1,5 +1,5 @@
 import { sessions, conversations, messages } from '../database.js';
-import { broadcastToSession, broadcastToProject } from '../websocket.js';
+import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import { createVisibleFinalErrorMessage } from './visibleFinalErrorMessage.js';
@@ -14,7 +14,21 @@ import {
   broadcastChangesUpdate,
   getResultEvent,
 } from './streamEventHandler.js';
-import { applyPendingWakeup, clearPendingWakeup } from './scheduleWakeupBridge.js';
+import { applyPendingWakeup, clearPendingWakeup, hasPendingWakeup } from './scheduleWakeupBridge.js';
+import { withActiveLaneRunOwnership } from './workflowSessionService.js';
+import { broadcastSessionUpdate } from './summaryBroadcast.js';
+
+/**
+ * Broadcast the session- and project-scoped updates for a status transition to
+ * 'scheduled'. Consolidates the three hand-rolled calls previously inlined here
+ * onto `broadcastSessionUpdate` (summaryBroadcast.js), which itself emits the
+ * session-scoped SESSION_STATUS event when the payload carries a status.
+ * @param {string} sessionId
+ * @param {object} updated
+ */
+function broadcastScheduledStatus(sessionId, updated) {
+  broadcastSessionUpdate(sessionId, updated?.projectId, updated);
+}
 
 /**
  * Re-apply scheduled status after a turn ends if the session was scheduled
@@ -54,20 +68,22 @@ async function handleScheduledContinuationIfNeeded(sessionId, controller, { appl
   // Require a strictly positive finite timestamp so a zero/negative persisted value
   // can never accidentally flip the session to 'scheduled'.
   if (Number.isFinite(session.scheduledAt) && session.scheduledAt > 0 && hasPendingPrompt) {
-    const updated = sessions.update(sessionId, { status: 'scheduled' }) || sessions.getById(sessionId);
-    // Use the same full session payload as POST /:id/schedule. The bridge's
-    // initial write changes scheduledAt, pendingPrompt, and potentially
-    // pendingConversationId; a status-only event leaves detail subscribers
-    // with stale scheduling state.
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, { sessionId, session: updated });
-    if (updated?.projectId) {
-      broadcastToProject(updated.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-        projectId: updated.projectId,
-        sessionId,
-        session: updated,
-      });
+    const transition = () => (session.status === 'scheduled'
+      ? sessions.getById(sessionId) // already scheduled by applyPendingWakeup — no-op write
+      : sessions.update(sessionId, { status: 'scheduled' }));
+    // Mirror the REST endpoint's and the bridge's lane-run fencing so a
+    // superseded worker cannot be flipped back to 'scheduled' by a leftover
+    // schedule row on either the completion or the error path.
+    const updated = session.laneRunId
+      ? withActiveLaneRunOwnership(sessionId, transition)
+      : transition();
+    if (!updated) {
+      console.warn(
+        `[handleScheduledContinuationIfNeeded] Session ${sessionId}: refusing to restore 'scheduled' status; lane run was superseded.`
+      );
+      return false;
     }
+    broadcastScheduledStatus(sessionId, updated);
     return true;
   }
   return false;
@@ -93,8 +109,18 @@ function associateAndCleanupWorkLogs(sessionId) {
  * @returns {Promise<{wasRescheduled: boolean, heldForLimit: boolean}>}
  */
 async function handleActiveSessionCompletion(sessionId, workingDirectory, callbacks, controller) {
-  sessions.update(sessionId, { status: 'waiting', error: null });
-  broadcastSessionStatus(sessionId, 'waiting');
+  // Skip the intermediate 'waiting' write when a captured wakeup is about to
+  // flip the session straight to 'scheduled': clients would otherwise see
+  // running → waiting → scheduled with two SESSION_UPDATED broadcasts in between.
+  if (!hasPendingWakeup(sessionId, controller)) {
+    sessions.update(sessionId, { status: 'waiting', error: null });
+    broadcastSessionStatus(sessionId, 'waiting');
+  } else {
+    // The wakeup's own write never touches `error`; preserve the error-clearing
+    // the waiting write normally performs so a stale error isn't visible in the
+    // 'scheduled' broadcast below.
+    sessions.update(sessionId, { error: null });
+  }
 
   // Re-apply scheduled status if the agent called POST /:id/schedule mid-turn.
   // The waiting write above would otherwise overwrite the scheduled state.
