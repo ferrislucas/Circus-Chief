@@ -205,6 +205,49 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
 }
 
 /**
+ * Retire a card's active lane run and remove the card as one durable change.
+ *
+ * All paths that can remove cards — explicit card removal, session deletion,
+ * lane deletion, and board deletion — must use this function before an FK
+ * cascade can make the card unavailable to the lane-run state machine.
+ *
+ * @param {Object} card - The card to remove
+ * @param {string|null} projectId - Project that owns the card, if still available
+ */
+export function removeCard(card, projectId) {
+  const laneId = card.laneId;
+  databaseManager.transaction(() => {
+    supersedeRunForCard(card.id, 'card_removed');
+    kanbanCards.delete(card.id);
+  });
+
+  if (projectId) {
+    broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED, {
+      projectId,
+      cardId: card.id,
+      laneId,
+    });
+  }
+}
+
+/** Remove all cards before deleting their lane, preventing FK cascades from
+ * orphaning any open lane runs. */
+export function removeLane(lane, projectId) {
+  for (const card of kanbanCards.getByLaneId(lane.id)) {
+    removeCard(card, projectId);
+  }
+  kanbanLanes.delete(lane.id);
+}
+
+/** Remove all board cards before deleting the board and its lanes. */
+export function removeBoard(board, projectId) {
+  for (const card of kanbanCards.getByBoardId(board.id)) {
+    removeCard(card, projectId);
+  }
+  kanbanBoards.delete(board.id);
+}
+
+/**
  * W6 (FRD: Kanban Lane-Run Structured Completion, FR-8): finish a
  * structured lane-run's transition into the target lane's on-enter
  * automation.
@@ -510,18 +553,10 @@ export function removeSessionFromBoard(sessionId) {
     return; // Workspace wasn't on the board
   }
 
-  const laneId = card.laneId;
   const rootSession = sessions.getById(workspaceId);
   const projectId = rootSession?.projectId;
 
-  supersedeRunForCard(card.id, 'card_removed');
-  kanbanCards.delete(card.id);
-
-  if (projectId) {
-    broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED, {
-      projectId,
-      cardId: card.id,
-      laneId,
-    });
-  }
+  // Session deletion can outlive its project lookup; removeCard still keeps
+  // the run/card transition atomic even when there is nobody to notify.
+  removeCard(card, projectId);
 }

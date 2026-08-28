@@ -16,9 +16,12 @@ import {
 import {
   addSessionToBoard,
   moveCard as moveCardService,
+  removeBoard as removeBoardService,
+  removeCard as removeCardService,
+  removeLane as removeLaneService,
 } from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
-import { getRun, declareExitLane, isStructured, supersedeRunForCard } from '../services/workflowSessionService.js';
+import { getRun, declareExitLane, isStructured } from '../services/workflowSessionService.js';
 import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
 import { isApiError } from '../errors/ApiError.js';
 
@@ -276,7 +279,7 @@ router.delete('/', (req, res) => {
     return res.status(404).json({ error: 'Board not found' });
   }
 
-  kanbanBoards.delete(board.id);
+  removeBoardService(board, projectId);
 
   broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, {
     projectId,
@@ -385,7 +388,7 @@ router.delete('/lanes/:laneId', (req, res) => {
   const projectBoard = boardForProject(req.params.projectId);
   if (!laneBelongsToBoard(lane, projectBoard)) return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
 
-  kanbanLanes.delete(laneId);
+  removeLaneService(lane, projectId);
 
   // Broadcast updated board
   const board = kanbanBoards.getByProjectId(projectId);
@@ -428,26 +431,6 @@ router.put('/lanes/reorder', (req, res) => {
 });
 
 // ============== Card Endpoints ==============
-
-/**
- * Helper: delete a card and broadcast KANBAN_CARD_REMOVED.
- * Used by both the :cardId and by-workspace delete routes.
- */
-function deleteCardById(card, projectId) {
-  const laneId = card.laneId;
-  // A removed card must retire any open lane run still owning it. Otherwise the
-  // run is orphaned — its worker keeps a stale lane_run_id pointing at a deleted
-  // card — and later schedule mutations on that worker fail the
-  // activeLaneRunOwnsSession guard with 409 "Session no longer owns an active
-  // lane run". Mirrors kanbanService.removeSessionFromBoard.
-  supersedeRunForCard(card.id, 'card_removed');
-  kanbanCards.delete(card.id);
-  broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED, {
-    projectId,
-    cardId: card.id,
-    laneId,
-  });
-}
 
 /**
  * POST /api/projects/:projectId/kanban/cards
@@ -559,7 +542,7 @@ router.delete('/cards/:cardId', (req, res) => {
   const board = boardForProject(projectId);
   if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: CARD_NOT_FOUND_ERROR });
 
-  deleteCardById(card, projectId);
+  removeCardService(card, projectId);
   res.status(204).send();
 });
 
@@ -685,7 +668,7 @@ router.delete('/cards/by-workspace/:workspaceId', (req, res) => {
   const board = boardForProject(projectId);
   if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
 
-  deleteCardById(card, projectId);
+  removeCardService(card, projectId);
   res.status(204).send();
 });
 

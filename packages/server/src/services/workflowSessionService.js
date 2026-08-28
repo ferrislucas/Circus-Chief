@@ -553,6 +553,11 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
     }
     return getRun(runId);
   });
+  // Deliberately no dedicated lane-run websocket event yet. User-originated
+  // card transitions emit their authoritative visible update after commit
+  // (KANBAN_CARD_MOVED or KANBAN_CARD_REMOVED); lane/board removal also emits
+  // KANBAN_BOARD_UPDATED. A client holding only a fetched historical run must
+  // refetch to observe supersession until the protocol gains a run event.
   return result;
 }
 
