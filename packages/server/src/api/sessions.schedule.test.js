@@ -272,7 +272,10 @@ describe('Sessions API - POST /:id/schedule', () => {
       handleTemplateTriggerIfNeeded: mockTemplateTrigger,
     });
 
-    expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
+    // A mid-turn explicit schedule is a continuation obligation, so completion
+    // reports it as a reschedule (sessionExecution must not finalize the turn
+    // as successful lane work — see commit 6a52e631).
+    expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
     expect(sessions.getById(session.id)).toEqual(expect.objectContaining({
       status: 'scheduled',
       scheduledAt,
