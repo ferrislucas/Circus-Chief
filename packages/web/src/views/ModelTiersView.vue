@@ -287,7 +287,11 @@ const deleting = ref(false);
 const addableProviders = computed(() =>
   providersStore.providers
     .filter((p) => p.enabled !== false && p.models && p.models.length > 0)
-    .map((p) => ({ ...p }))
+    .map((p) => ({
+      ...p,
+      models: p.models.filter((model) => model.enabled !== false && model.unavailable !== true),
+    }))
+    .filter((p) => p.models.length > 0)
 );
 
 function providerName(providerId) {

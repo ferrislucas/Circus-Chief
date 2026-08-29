@@ -119,8 +119,8 @@ describe('Model Tiers API', () => {
         .send({
           name: 'High',
           members: [
-            { providerId: 'anthropic-default', modelId: 'claude-opus-4-8', position: 0 },
-            { providerId: 'openai-default', modelId: 'gpt-5.5', position: 1 },
+            { providerId: 'anthropic-default', modelId: 'claude-opus-5', position: 0 },
+            { providerId: 'openai-default', modelId: 'gpt-5.6-sol', position: 1 },
           ],
         })
         .expect(201);
@@ -205,31 +205,30 @@ describe('Model Tiers API', () => {
         expect(list.body.find((t) => t.name === 'Mixed Payload Tier')).toBeUndefined();
       });
 
-      it('accepts a disabled-but-present model (claude-opus-4-8) for the existing cross-provider creation test', async () => {
+      it('rejects a disabled model instead of creating an unusable member', async () => {
         const response = await request(app)
           .post('/api/tiers')
           .send({
-            name: 'Disabled Model OK Tier',
+            name: 'Disabled Model Tier',
             members: [
               { providerId: 'anthropic-default', modelId: 'claude-opus-4-8', position: 0 },
-              { providerId: 'openai-default', modelId: 'gpt-5.5', position: 1 },
             ],
           })
-          .expect(201);
-        expect(response.body.members).toHaveLength(2);
+          .expect(400);
+        expect(response.body.error).toMatch(/claude-opus-4-8.*disabled/i);
       });
 
-      it('accepts a model owned by a disabled provider', async () => {
+      it('rejects a model owned by a disabled provider', async () => {
         modelProviders.update(providerA.id, { enabled: false });
 
         const response = await request(app)
           .post('/api/tiers')
           .send({
-            name: 'Disabled Provider OK Tier',
+            name: 'Disabled Provider Tier',
             members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
           })
-          .expect(201);
-        expect(response.body.members).toHaveLength(1);
+          .expect(400);
+        expect(response.body.error).toMatch(/provider.*disabled/i);
       });
 
       it('accepts a valid cross-provider tier, preserving configured ordering', async () => {

@@ -75,7 +75,7 @@ router.post('/', (req, res) => {
 
   try {
     const tier = modelTiers.create(result.data);
-    res.status(201).json(tier);
+    res.status(201).json(withResolvableMembers(tier));
   } catch (error) {
     if (error.message?.includes('UNIQUE constraint failed')) {
       return res.status(409).json({ error: 'A tier with that name already exists' });
@@ -108,7 +108,7 @@ router.patch('/:id', (req, res) => {
 
   try {
     const updated = modelTiers.update(req.params.id, result.data);
-    res.json(updated);
+    res.json(withResolvableMembers(updated));
   } catch (error) {
     if (error.message?.includes('UNIQUE constraint failed')) {
       return res.status(409).json({ error: 'A tier with that name already exists' });

@@ -286,17 +286,15 @@ describe('validateTierMembers', () => {
     expect(result.error).toContain('mixed-invalid-model');
   });
 
-  it('accepts a disabled-but-present model (write-time validity ignores model-level enabled)', () => {
-    // claude-opus-4-8 is seeded on the built-in anthropic-default provider
-    // with enabled: false / lifecycle: 'older' — it must still be a valid
-    // tier member (existence + ownership only, not the enabled flag).
+  it('rejects a disabled model with an actionable error', () => {
     const result = validateTierMembers([
       { providerId: 'anthropic-default', modelId: 'claude-opus-4-8', position: 0 },
     ]);
-    expect(result.error).toBeUndefined();
+    expect(result.error).toContain('claude-opus-4-8');
+    expect(result.error).toContain('disabled');
   });
 
-  it('accepts a model owned by a disabled provider (write-time validity ignores provider-level enabled)', () => {
+  it('rejects a model owned by a disabled provider with an actionable error', () => {
     const provider = modelProviders.create({ name: 'Tier Members Disabled Provider', kind: 'anthropic' });
     modelProviders.addModel(provider.id, { modelId: 'disabled-provider-model', displayName: 'Model' });
     modelProviders.update(provider.id, { enabled: false });
@@ -304,6 +302,7 @@ describe('validateTierMembers', () => {
     const result = validateTierMembers([
       { providerId: provider.id, modelId: 'disabled-provider-model', position: 0 },
     ]);
-    expect(result.error).toBeUndefined();
+    expect(result.error).toContain(provider.id);
+    expect(result.error).toContain('disabled');
   });
 });
