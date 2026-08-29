@@ -27,7 +27,7 @@ import { useProjectFiltersStore } from '../stores/projectFilters.js';
 const statuses = ['running', 'waiting', 'idle'];
 
 const props = defineProps({
-  /** Project counts per status, computed over the full project list. */
+  /** Running-session total and project counts for the remaining statuses. */
   statusFacets: {
     type: Object,
     default: () => ({ running: 0, waiting: 0, idle: 0 }),

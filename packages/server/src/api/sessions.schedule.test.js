@@ -11,6 +11,7 @@ import {
   activeSessions,
   handleTurnCompletion,
 } from '../services/streamEventHandler.js';
+import { captureScheduleWakeup, __resetWakeupTurnStatesForTest } from '../services/scheduleWakeupBridge.js';
 
 // Mock websocket
 vi.mock('../websocket.js', () => ({
@@ -40,7 +41,8 @@ vi.mock('../services/prStatusService.js', () => ({
 }));
 
 // Mock summaryBroadcast (needed by sessions-patch.js)
-vi.mock('../services/summaryBroadcast.js', () => ({
+vi.mock('../services/summaryBroadcast.js', async (importOriginal) => ({
+  ...await importOriginal(),
   broadcastSummaryUpdate: vi.fn(),
 }));
 
@@ -270,7 +272,10 @@ describe('Sessions API - POST /:id/schedule', () => {
       handleTemplateTriggerIfNeeded: mockTemplateTrigger,
     });
 
-    expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
+    // A mid-turn explicit schedule is a continuation obligation, so completion
+    // reports it as a reschedule (sessionExecution must not finalize the turn
+    // as successful lane work — see commit 6a52e631).
+    expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
     expect(sessions.getById(session.id)).toEqual(expect.objectContaining({
       status: 'scheduled',
       scheduledAt,
@@ -296,6 +301,151 @@ describe('Sessions API - POST /:id/schedule', () => {
     );
     expect(mockAutoSend).not.toHaveBeenCalled();
     expect(mockTemplateTrigger).not.toHaveBeenCalled();
+  });
+
+  // ── ScheduleWakeup precedence, end-to-end against the real DB ────────────────
+  //
+  // These exercise POST /:id/schedule and the ScheduleWakeup bridge together,
+  // against the real (unmocked) sessions repository — unlike
+  // scheduleWakeupBridge.test.js and streamEventHandler.test.js, which mock
+  // `sessions.update` and so never round-trip through the actual
+  // camelCase<->snake_case column mapping. Precedence between the two
+  // mechanisms is last-call-wins within the turn (see scheduleWakeupBridge.js).
+
+  describe('precedence against ScheduleWakeup', () => {
+    afterEach(() => {
+      __resetWakeupTurnStatesForTest();
+    });
+
+    it('an explicit schedule made after a ScheduleWakeup call in the same turn wins', async () => {
+      sessions.update(session.id, { status: 'running' });
+      const controller = { signal: { aborted: false } };
+      activeSessions.set(session.id, { controller });
+
+      captureScheduleWakeup(session.id, controller, [
+        { type: 'tool_use', id: 'wk-1', name: 'ScheduleWakeup', input: { delaySeconds: 300, prompt: 'earlier wakeup prompt' } },
+      ]);
+
+      await request(app)
+        .post(`/api/sessions/${session.id}/schedule`)
+        .send({ prompt: 'later explicit prompt', scheduledAt: Date.now() + 3600000 })
+        .expect(200);
+
+      await handleTurnCompletion(session.id, '/tmp/test', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const stored = sessions.getById(session.id);
+      expect(stored.status).toBe('scheduled');
+      expect(stored.pendingPrompt).toBe('later explicit prompt');
+    });
+
+    it('a ScheduleWakeup call made after an explicit schedule in the same turn wins', async () => {
+      sessions.update(session.id, { status: 'running' });
+      const controller = { signal: { aborted: false } };
+      activeSessions.set(session.id, { controller });
+
+      await request(app)
+        .post(`/api/sessions/${session.id}/schedule`)
+        .send({ prompt: 'earlier explicit prompt', scheduledAt: Date.now() + 3600000 })
+        .expect(200);
+
+      captureScheduleWakeup(session.id, controller, [
+        { type: 'tool_use', id: 'wk-2', name: 'ScheduleWakeup', input: { delaySeconds: 300, prompt: 'later wakeup prompt' } },
+      ]);
+
+      await handleTurnCompletion(session.id, '/tmp/test', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const stored = sessions.getById(session.id);
+      expect(stored.status).toBe('scheduled');
+      expect(stored.pendingPrompt).toBe('later wakeup prompt');
+      // scheduledAt is measured from turn-completion time, not from capture time.
+      expect(stored.scheduledAt).toBeGreaterThan(Date.now() + 250 * 1000);
+      expect(stored.scheduledAt).toBeLessThanOrEqual(Date.now() + 300 * 1000);
+    });
+
+    it('a ScheduleWakeup call with no competing explicit schedule persists through the real repository', async () => {
+      sessions.update(session.id, { status: 'running' });
+      const controller = { signal: { aborted: false } };
+      activeSessions.set(session.id, { controller });
+
+      captureScheduleWakeup(session.id, controller, [
+        { type: 'tool_use', id: 'wk-3', name: 'ScheduleWakeup', input: { delaySeconds: 90, reason: 'polling CI', prompt: 'Continue: check CI' } },
+      ]);
+
+      await handleTurnCompletion(session.id, '/tmp/test', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const stored = sessions.getById(session.id);
+      expect(stored.status).toBe('scheduled');
+      expect(stored.pendingPrompt).toBe('Continue: check CI');
+      expect(stored.pendingConversationId).toBeNull();
+      expect(Number.isFinite(stored.scheduledAt)).toBe(true);
+      expect(stored.scheduledAt).toBeGreaterThan(Date.now());
+      expect(sessions.getScheduledSessionsDue(stored.scheduledAt + 1000).map((s) => s.id)).toContain(session.id);
+    });
+
+    it('severs a stale pendingModel through the real repository when a wakeup supersedes it', async () => {
+      // Real-DB proof that pendingModel:null survives the camelCase<->snake_case
+      // column mapping: a stale one-shot model from a prior explicit schedule
+      // must not leak into the wakeup's row write.
+      sessions.update(session.id, { status: 'running', pendingModel: 'deepseek-v4-pro-0813' });
+      const controller = { signal: { aborted: false } };
+      activeSessions.set(session.id, { controller });
+
+      captureScheduleWakeup(session.id, controller, [
+        { type: 'tool_use', id: 'wk-model', name: 'ScheduleWakeup', input: { delaySeconds: 90, prompt: 'Continue: check CI' } },
+      ]);
+
+      await handleTurnCompletion(session.id, '/tmp/test', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const stored = sessions.getById(session.id);
+      expect(stored.status).toBe('scheduled');
+      expect(stored.pendingPrompt).toBe('Continue: check CI');
+      expect(stored.pendingModel).toBeNull();
+    });
+
+    it('preserves the autonomous-loop sentinel resume end-to-end without a stale pendingModel', async () => {
+      // Round-trip proof that the sentinel path keeps pendingConversationId (so
+      // the scheduler resumes the loop's exact user message) *and* clears
+      // pendingModel (so launch does not force modelChanged=true and drop the
+      // Claude conversation context).
+      sessions.update(session.id, { status: 'running', pendingModel: 'X' });
+      const controller = { signal: { aborted: false } };
+      activeSessions.set(session.id, { controller });
+
+      const loopConversation = conversations.create(session.id, 'Loop conversation', true);
+      conversations.update(loopConversation.id, { claudeSessionId: 'claude-loop' });
+      messages.create(session.id, 'user', '/loop', { conversationId: loopConversation.id });
+
+      captureScheduleWakeup(session.id, controller, [
+        { type: 'tool_use', id: 'wk-loop', name: 'ScheduleWakeup', input: { delaySeconds: 600, prompt: '<<autonomous-loop-dynamic>>' } },
+      ]);
+
+      await handleTurnCompletion(session.id, '/tmp/test', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const stored = sessions.getById(session.id);
+      expect(stored.status).toBe('scheduled');
+      expect(stored.pendingConversationId).toBe(loopConversation.id);
+      expect(stored.pendingModel).toBeNull();
+    });
   });
 
   // ── Validation failures ─────────────────────────────────────────────────────

@@ -1339,6 +1339,43 @@ describe('summary service integration', () => {
     });
   });
 
+  describe('stopSession clears a pending scheduled continuation', () => {
+    it('nulls the scheduling fields when a user-initiated stop cancels a pending schedule', async () => {
+      const { stopSession } = await import('./sessionManager.js');
+      const conversation = conversationRepo.create(session.id, 'Scheduled resume');
+
+      sessionRepo.update(session.id, {
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3_600_000,
+        pendingPrompt: 'Continue: scheduled work',
+        pendingConversationId: conversation.id,
+        pendingModel: 'claude-sonnet-4-5',
+      });
+
+      await stopSession(session.id);
+
+      const updated = sessionRepo.getById(session.id);
+      expect(updated.status).toBe('stopped');
+      expect(updated.scheduledAt).toBeNull();
+      expect(updated.pendingPrompt).toBeNull();
+      expect(updated.pendingConversationId).toBeNull();
+      expect(updated.pendingModel).toBeNull();
+    });
+
+    it('leaves scheduling fields null when there is no pending schedule', async () => {
+      const { stopSession } = await import('./sessionManager.js');
+
+      await stopSession(session.id);
+
+      const updated = sessionRepo.getById(session.id);
+      expect(updated.status).toBe('stopped');
+      expect(updated.scheduledAt).toBeNull();
+      expect(updated.pendingPrompt).toBeNull();
+      expect(updated.pendingConversationId).toBeNull();
+      expect(updated.pendingModel).toBeNull();
+    });
+  });
+
   describe('stopSession workflow cancellation (W4, FR-9.4)', () => {
     it('closes the own-work obligation as cancelled for a lane-run participant, without moving its card', async () => {
       const { stopSession } = await import('./sessionManager.js');

@@ -325,7 +325,7 @@ export async function _executeSession({
     // Run the query with the agent (SDK via gateway, or mock)
     for await (const event of agent.execute(providerQueryParams, agentCallMeta)) {
       if (controller.signal.aborted) break;
-      await handleStreamEvent(sessionId, event);
+      await handleStreamEvent(sessionId, event, { controller });
     }
     if (controller.signal.aborted) {
       discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_cancelled');

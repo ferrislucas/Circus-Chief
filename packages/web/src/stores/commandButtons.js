@@ -62,8 +62,10 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
 
         // Add new buttons
         this.buttons.push(...newButtons);
+        return true;
       } catch (err) {
         this.error = err.message;
+        return false;
       } finally {
         this.loading = false;
       }

@@ -82,7 +82,10 @@
                 }}</span>
               </p>
               <div class="project-session-summary" aria-label="Project activity summary">
-                <span class="session-status-count status-running">
+                <span
+                  class="session-status-count project-running-count"
+                  :class="{ 'has-running-sessions': project.runningSessionCount > 0 }"
+                >
                   <span class="status-dot" aria-hidden="true" />
                   {{ project.runningSessionCount }} running
                 </span>
@@ -135,11 +138,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useProjectFiltersStore } from '../stores/projectFilters.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useProjectListRealtime } from '../composables/useProjectListRealtime.js';
 import ProjectFiltersPanel from '../components/ProjectFiltersPanel.vue';
 import SessionCard from '../components/SessionCard.vue';
@@ -151,9 +155,17 @@ const router = useRouter();
 const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
 const projectFilters = useProjectFiltersStore();
+const commandButtonsStore = useCommandButtonsStore();
 const projectCards = ref({});
 const sessionVisibility = ref({});
+const hydratedCommandButtonProjects = new Set();
+const hydratingCommandButtonProjects = new Set();
+const commandButtonRetryTimers = new Map();
+const commandButtonRetryAttempts = new Map();
+const maxCommandButtonHydrationRetries = 3;
+const commandButtonHydrationRetryDelayMs = 500;
 let projectCardsRequest = 0;
+let isUnmounted = false;
 const sessionVisibilityStorageKey = 'circus-chief.project-list.session-visibility';
 
 // The list and facets are client-side derivatives of the full project array.
@@ -253,11 +265,85 @@ watch(
   { immediate: true }
 );
 
+// SessionCard turns the latest command-run records from the workspace-card
+// response into status badges using these project-scoped definitions. The
+// project list is a separate entry point from SessionListView, so it must
+// hydrate them here as well. A project is considered hydrated only after a
+// successful response. Failed requests retry a bounded number of times even
+// when the project list remains unchanged.
+function scheduleCommandButtonHydrationRetry(projectId) {
+  const retryAttempt = commandButtonRetryAttempts.get(projectId) || 0;
+  if (
+    isUnmounted ||
+    hydratedCommandButtonProjects.has(projectId) ||
+    commandButtonRetryTimers.has(projectId) ||
+    retryAttempt >= maxCommandButtonHydrationRetries
+  ) {
+    return;
+  }
+
+  commandButtonRetryAttempts.set(projectId, retryAttempt + 1);
+  const delay = commandButtonHydrationRetryDelayMs * (2 ** retryAttempt);
+  const timer = setTimeout(() => {
+    commandButtonRetryTimers.delete(projectId);
+    if (!isUnmounted && projectIds.value.includes(projectId)) {
+      void hydrateCommandButtons(projectId);
+    }
+  }, delay);
+  commandButtonRetryTimers.set(projectId, timer);
+}
+
+async function hydrateCommandButtons(projectId) {
+  if (
+    hydratedCommandButtonProjects.has(projectId) ||
+    hydratingCommandButtonProjects.has(projectId)
+  ) {
+    return;
+  }
+
+  const retryTimer = commandButtonRetryTimers.get(projectId);
+  if (retryTimer !== undefined) {
+    clearTimeout(retryTimer);
+    commandButtonRetryTimers.delete(projectId);
+  }
+
+  hydratingCommandButtonProjects.add(projectId);
+  let succeeded = false;
+  try {
+    succeeded = await commandButtonsStore.fetchButtons(projectId);
+    if (succeeded) {
+      hydratedCommandButtonProjects.add(projectId);
+      commandButtonRetryAttempts.delete(projectId);
+    }
+  } catch {
+    // Treat rejecting store implementations as a failed hydration too.
+  } finally {
+    hydratingCommandButtonProjects.delete(projectId);
+    if (!succeeded) {
+      scheduleCommandButtonHydrationRetry(projectId);
+    }
+  }
+}
+
+watch(projectIds, (ids) => {
+  for (const projectId of ids) {
+    void hydrateCommandButtons(projectId);
+  }
+}, { immediate: true });
+
 onMounted(() => {
   projectFilters.restoreStatusFilter();
   restoreSessionVisibility();
   projectsStore.fetchProjects();
   useProjectListRealtime(projectIds);
+});
+
+onBeforeUnmount(() => {
+  isUnmounted = true;
+  for (const timer of commandButtonRetryTimers.values()) {
+    clearTimeout(timer);
+  }
+  commandButtonRetryTimers.clear();
 });
 </script>
 
@@ -369,6 +455,8 @@ onMounted(() => {
 .project-card {
   padding: 0;
   overflow: hidden;
+  border: 2px solid var(--color-border);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-background) 55%, transparent);
 }
 
 .project-card-header {
@@ -499,7 +587,11 @@ onMounted(() => {
   background: currentColor;
 }
 
-.status-running {
+.project-running-count {
+  color: var(--color-text-soft);
+}
+
+.project-running-count.has-running-sessions {
   color: var(--color-success);
 }
 
