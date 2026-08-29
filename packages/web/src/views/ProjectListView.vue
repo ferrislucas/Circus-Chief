@@ -82,7 +82,10 @@
                 }}</span>
               </p>
               <div class="project-session-summary" aria-label="Project activity summary">
-                <span class="session-status-count status-running">
+                <span
+                  class="session-status-count project-running-count"
+                  :class="{ 'has-running-sessions': project.runningSessionCount > 0 }"
+                >
                   <span class="status-dot" aria-hidden="true" />
                   {{ project.runningSessionCount }} running
                 </span>
@@ -140,6 +143,7 @@ import { useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useProjectFiltersStore } from '../stores/projectFilters.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useProjectListRealtime } from '../composables/useProjectListRealtime.js';
 import ProjectFiltersPanel from '../components/ProjectFiltersPanel.vue';
 import SessionCard from '../components/SessionCard.vue';
@@ -151,6 +155,7 @@ const router = useRouter();
 const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
 const projectFilters = useProjectFiltersStore();
+const commandButtonsStore = useCommandButtonsStore();
 const projectCards = ref({});
 const sessionVisibility = ref({});
 let projectCardsRequest = 0;
@@ -252,6 +257,16 @@ watch(
   },
   { immediate: true }
 );
+
+// SessionCard turns the latest command-run records from the workspace-card
+// response into status badges using these project-scoped definitions. The
+// project list is a separate entry point from SessionListView, so it must
+// hydrate them here as well.
+watch(projectIds, (ids) => {
+  for (const projectId of ids) {
+    Promise.resolve(commandButtonsStore.fetchButtons(projectId)).catch(() => {});
+  }
+}, { immediate: true });
 
 onMounted(() => {
   projectFilters.restoreStatusFilter();
@@ -369,6 +384,8 @@ onMounted(() => {
 .project-card {
   padding: 0;
   overflow: hidden;
+  border: 2px solid var(--color-border);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-background) 55%, transparent);
 }
 
 .project-card-header {
@@ -499,7 +516,11 @@ onMounted(() => {
   background: currentColor;
 }
 
-.status-running {
+.project-running-count {
+  color: var(--color-text-soft);
+}
+
+.project-running-count.has-running-sessions {
   color: var(--color-success);
 }
 
