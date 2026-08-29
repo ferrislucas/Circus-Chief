@@ -6,7 +6,16 @@ export function workspaceBaseMatches(card, query) {
 
 export function workspaceVisibleMatches(card, query) {
   return workspaceBaseMatches(card, query)
-    && (!query.status || (query.status === 'running') === (card.runningCount > 0));
+    && (!query.status
+      || (query.status === 'running' && card.runningCount > 0)
+      || (query.status === 'waiting' && card.waitingCount > 0)
+      || (query.status === 'idle' && card.runningCount === 0 && card.waitingCount === 0));
+}
+
+function workspaceFacet(card) {
+  if (card.runningCount > 0) return 'running';
+  if (card.waitingCount > 0) return 'waiting';
+  return 'idle';
 }
 
 export function compareWorkspaceCards(cardsById, leftId, rightId) {
@@ -21,7 +30,7 @@ export function compareWorkspaceCards(cardsById, leftId, rightId) {
 
 export function adjustWorkspaceFacets(facets, existing, card, query) {
   const next = { ...facets };
-  if (workspaceBaseMatches(existing, query)) next[existing.runningCount > 0 ? 'running' : 'idle'] -= 1;
-  if (workspaceBaseMatches(card, query)) next[card.runningCount > 0 ? 'running' : 'idle'] += 1;
+  if (workspaceBaseMatches(existing, query)) next[workspaceFacet(existing)] -= 1;
+  if (workspaceBaseMatches(card, query)) next[workspaceFacet(card)] += 1;
   return next;
 }

@@ -55,7 +55,7 @@
           <!-- Session status badges -->
           <p class="session-meta">
             <span
-              v-if="session.pendingAgentInput"
+              v-if="workflowStatus.waitingCount > 0"
               class="status-badge status-waiting agent-input-indicator"
               aria-label="Agent input required"
               title="The agent is waiting for your input"
@@ -364,23 +364,30 @@ const workflowStatus = computed(() => {
   if (props.workflowAggregate) {
     return {
       runningCount: props.workflowAggregate.runningCount || 0,
+      waitingCount: props.workflowAggregate.waitingCount || 0,
       scheduledCount: props.workflowAggregate.scheduledCount || 0,
       totalCount: (props.workflowAggregate.descendantCount || 0) + 1,
-      effectiveStatus: (props.workflowAggregate.runningCount || 0) > 0 ? 'running' : 'idle',
+      effectiveStatus: (props.workflowAggregate.runningCount || 0) > 0
+        ? 'running'
+        : (props.workflowAggregate.waitingCount || 0) > 0 ? 'waiting' : 'idle',
     };
   }
   const allSessions = getWorkflowSessions();
   const runningStatuses = ['running', 'starting'];
 
   let runningCount = 0;
+  let waitingCount = 0;
   let scheduledCount = 0;
   for (const s of allSessions) {
-    if (runningStatuses.includes(s.status)) runningCount++;
+    if (s.pendingAgentInput) waitingCount++;
+    else if (runningStatuses.includes(s.status)) runningCount++;
+    else if (s.status === 'waiting') waitingCount++;
     if (s.status === 'scheduled') scheduledCount++;
   }
 
   return {
     runningCount,
+    waitingCount,
     scheduledCount,
     totalCount: allSessions.length,
     effectiveStatus: props.session.status,
@@ -396,7 +403,7 @@ const runningSessionIds = computed(() => {
   }
   const runningStatuses = ['running', 'starting'];
   return getWorkflowSessions()
-    .filter(s => runningStatuses.includes(s.status))
+    .filter(s => runningStatuses.includes(s.status) && !s.pendingAgentInput)
     .map(s => s.id);
 });
 

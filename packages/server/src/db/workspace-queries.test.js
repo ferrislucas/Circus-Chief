@@ -89,6 +89,12 @@ describe('getWorkspaceCardPage', () => {
     const page = getWorkspaceCardPage(db, 'project', { status: 'waiting', limit: 10 });
 
     expect(page.cards.map((c) => c.id)).toEqual(['blocked']);
-    expect(page.facets).toEqual({ running: 1, idle: 1, waiting: 1 });
+    expect(page.cards[0]).toMatchObject({ runningCount: 0, waitingCount: 1 });
+    expect(page.cards[0].runningSessionIds).toEqual([]);
+    expect(page.facets).toEqual({ running: 0, idle: 1, waiting: 1 });
+
+    expect(getWorkspaceCardPage(db, 'project', { status: 'running', limit: 10 }).cards).toEqual([]);
+    expect(getWorkspaceCardPage(db, 'project', { status: 'idle', limit: 10 }).cards.map((c) => c.id))
+      .toEqual(['idle-waiting-status']);
   }));
 });

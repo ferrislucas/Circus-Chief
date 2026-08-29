@@ -107,6 +107,7 @@ export const useSessionsStore = defineStore('sessions', {
           }
         }
         const runningStatuses = ['running', 'starting'];
+        if (allSessions.some((s) => s.pendingAgentInput)) return 'waiting';
         return allSessions.some((s) => runningStatuses.includes(s.status)) ? 'running' : 'idle';
       };
     },
@@ -147,13 +148,14 @@ export const useSessionsStore = defineStore('sessions', {
         const runningStatuses = ['running', 'starting'];
         let runningCount = 0, scheduledCount = 0, waitingCount = 0, completedCount = 0;
         for (const session of allSessions) {
-          if (runningStatuses.includes(session.status)) runningCount++;
+          if (session.pendingAgentInput) waitingCount++;
+          else if (runningStatuses.includes(session.status)) runningCount++;
           else if (session.status === 'scheduled') scheduledCount++;
           else if (session.status === 'waiting') waitingCount++;
           else if (session.status === 'completed' || session.status === 'stopped') completedCount++;
         }
         return {
-          effectiveStatus: runningCount > 0 ? 'running' : 'idle',
+          effectiveStatus: runningCount > 0 ? 'running' : waitingCount > 0 ? 'waiting' : 'idle',
           runningCount,
           scheduledCount,
           waitingCount,

@@ -217,6 +217,7 @@ describe('SessionCard', () => {
       expect(indicator.text()).toContain('needs input');
       expect(indicator.attributes('title')).toBe('The agent is waiting for your input');
       expect(indicator.find('.agent-input-icon').exists()).toBe(true);
+      expect(wrapper.find('.status-running').exists()).toBe(false);
     });
 
 

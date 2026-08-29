@@ -74,8 +74,8 @@ describe('getProjectActivityAggregates', () => {
     for (const workspace of project.runningWorkspaces) {
       expect(workspace.activeCount).toBe(1);
     }
-    // runningSessionCount counts running + starting only (both 'running' rows).
-    expect(project.runningSessionCount).toBe(3);
+    // A blocked process is presented exclusively as waiting, not running.
+    expect(project.runningSessionCount).toBe(2);
     expect(project.waitingSessionCount).toBe(1);
   }));
 
@@ -154,7 +154,7 @@ describe('getProjectActivityAggregates', () => {
     expect(project.runningWorkspaces).toHaveLength(2);
     const byId = Object.fromEntries(project.runningWorkspaces.map((w) => [w.id, w.activeCount]));
     expect(byId).toEqual({ alpha: 1, beta: 1 });
-    expect(project.runningSessionCount).toBe(2);
+    expect(project.runningSessionCount).toBe(1);
     expect(project.waitingSessionCount).toBe(1);
   }));
 
@@ -167,7 +167,7 @@ describe('getProjectActivityAggregates', () => {
     const result = getProjectActivityAggregates(db);
     expect(result.get('one').runningSessionCount).toBe(1);
     expect(result.get('one').waitingSessionCount).toBe(0);
-    expect(result.get('two').runningSessionCount).toBe(1);
+    expect(result.get('two').runningSessionCount).toBe(0);
     expect(result.get('two').waitingSessionCount).toBe(1);
     expect(result.get('one').runningWorkspaces.map((w) => w.id)).toEqual(['one-root']);
     expect(result.get('two').runningWorkspaces.map((w) => w.id)).toEqual(['two-root']);
@@ -196,9 +196,9 @@ describe('getProjectActivityAggregates', () => {
     expect(project.runningWorkspaces).toEqual([
       { id: 'root', name: 'root', activeCount: 3 },
     ]);
-    // child-waiting is realistically still status='running' while blocked, so
-    // it contributes to both counts (root + child-waiting + child-starting).
-    expect(project.runningSessionCount).toBe(3);
+    // child-waiting remains status='running' internally, but contributes only
+    // to the user-facing waiting count.
+    expect(project.runningSessionCount).toBe(2);
     expect(project.waitingSessionCount).toBe(1); // child-waiting
   }));
 
@@ -212,7 +212,7 @@ describe('getProjectActivityAggregates', () => {
     expect(project.runningWorkspaces).toEqual([
       { id: 'root', name: 'root', activeCount: 1 },
     ]);
-    expect(project.runningSessionCount).toBe(1);
+    expect(project.runningSessionCount).toBe(0);
     expect(project.waitingSessionCount).toBe(1);
   }));
 

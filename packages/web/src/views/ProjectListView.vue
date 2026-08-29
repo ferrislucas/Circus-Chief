@@ -208,8 +208,7 @@ const hasStatusFilter = computed(() => Boolean(projectFilters.statusFilter));
 
 function cardStatusFilter() {
   // An idle project has neither running nor waiting sessions, so all of its
-  // cards match. The general card-list idle filter intentionally includes
-  // waiting workspaces, which differs from the project-list definition.
+  // cards match.
   return ['running', 'waiting'].includes(projectFilters.statusFilter)
     ? projectFilters.statusFilter
     : null;

@@ -92,10 +92,10 @@ describe('SessionFiltersPanel', () => {
       const buttons = wrapper.findAll('.filter-btn');
       const statusButtons = buttons.filter(btn => {
         const label = btn.find('.filter-label');
-        return label.exists() && (label.text() === 'running' || label.text() === 'idle');
+        return label.exists() && ['running', 'waiting', 'idle'].includes(label.text());
       });
 
-      expect(statusButtons).toHaveLength(2);
+      expect(statusButtons).toHaveLength(3);
     });
 
     it('does not show status filter buttons when showStatusFilters is false', () => {
@@ -106,7 +106,7 @@ describe('SessionFiltersPanel', () => {
       const buttons = wrapper.findAll('.filter-btn');
       const statusButtons = buttons.filter(btn => {
         const label = btn.find('.filter-label');
-        return label.exists() && (label.text() === 'running' || label.text() === 'idle');
+        return label.exists() && ['running', 'waiting', 'idle'].includes(label.text());
       });
 
       expect(statusButtons).toHaveLength(0);
@@ -134,6 +134,19 @@ describe('SessionFiltersPanel', () => {
       await runningButton.trigger('click');
 
       expect(mockToggleFilter).toHaveBeenCalledWith('running');
+    });
+
+    it('shows the authoritative waiting count and filters by waiting', async () => {
+      const wrapper = mountComponent({
+        statusCounts: { running: 1, waiting: 2, idle: 3 },
+      });
+      const waitingButton = wrapper.findAll('.filter-btn').find(btn =>
+        btn.find('.filter-label').text() === 'waiting'
+      );
+
+      expect(waitingButton.find('.filter-count').text()).toBe('2');
+      await waitingButton.trigger('click');
+      expect(mockToggleFilter).toHaveBeenCalledWith('waiting');
     });
   });
 
