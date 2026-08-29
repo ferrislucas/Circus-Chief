@@ -8,7 +8,7 @@ import { useProjectsStore } from '../stores/projects.js';
 import { useProjectFiltersStore } from '../stores/projectFilters.js';
 
 const { getWorkspaceCards } = vi.hoisted(() => ({ getWorkspaceCards: vi.fn() }));
-const { fetchButtons } = vi.hoisted(() => ({ fetchButtons: vi.fn().mockResolvedValue(undefined) }));
+const { fetchButtons } = vi.hoisted(() => ({ fetchButtons: vi.fn().mockResolvedValue(true) }));
 
 // Mock the composable to avoid opening a WebSocket in jsdom.
 vi.mock('../composables/useProjectListRealtime.js', () => ({
@@ -91,7 +91,8 @@ describe('ProjectListView', () => {
     projectsStore = useProjectsStore();
     vi.spyOn(projectsStore, 'fetchProjects').mockResolvedValue(undefined);
     getWorkspaceCards.mockResolvedValue({ workspaces: [] });
-    fetchButtons.mockClear();
+    fetchButtons.mockReset();
+    fetchButtons.mockResolvedValue(true);
   });
 
   describe('Page Header', () => {
@@ -303,6 +304,39 @@ describe('ProjectListView', () => {
 
       expect(fetchButtons).toHaveBeenCalledTimes(1);
       expect(fetchButtons).toHaveBeenCalledWith('commands-project');
+    });
+
+    it('retries command-definition hydration after a transient failure', async () => {
+      fetchButtons
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+      projectsStore.projects = [fullProject({ id: 'commands-project' })];
+      projectsStore.loading = false;
+      projectsStore.error = null;
+
+      const wrapper = mount(ProjectListView, {
+        global: { plugins: [pinia, router] },
+      });
+      await flushAll(wrapper);
+
+      expect(fetchButtons).toHaveBeenCalledTimes(1);
+
+      projectsStore.projects = [fullProject({
+        id: 'commands-project',
+        runningSessionCount: 1,
+      })];
+      await flushAll(wrapper);
+
+      expect(fetchButtons).toHaveBeenCalledTimes(2);
+      expect(fetchButtons).toHaveBeenLastCalledWith('commands-project');
+
+      projectsStore.projects = [fullProject({
+        id: 'commands-project',
+        runningSessionCount: 2,
+      })];
+      await flushAll(wrapper);
+
+      expect(fetchButtons).toHaveBeenCalledTimes(2);
     });
   });
 

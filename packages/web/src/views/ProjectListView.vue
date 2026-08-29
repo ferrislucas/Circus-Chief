@@ -159,6 +159,7 @@ const commandButtonsStore = useCommandButtonsStore();
 const projectCards = ref({});
 const sessionVisibility = ref({});
 const hydratedCommandButtonProjects = new Set();
+const hydratingCommandButtonProjects = new Set();
 let projectCardsRequest = 0;
 const sessionVisibilityStorageKey = 'circus-chief.project-list.session-visibility';
 
@@ -262,12 +263,33 @@ watch(
 // SessionCard turns the latest command-run records from the workspace-card
 // response into status badges using these project-scoped definitions. The
 // project list is a separate entry point from SessionListView, so it must
-// hydrate them here as well.
+// hydrate them here as well. A project is considered hydrated only after a
+// successful response so a transient failure is retried on the next project
+// refresh.
+async function hydrateCommandButtons(projectId) {
+  if (
+    hydratedCommandButtonProjects.has(projectId) ||
+    hydratingCommandButtonProjects.has(projectId)
+  ) {
+    return;
+  }
+
+  hydratingCommandButtonProjects.add(projectId);
+  try {
+    const succeeded = await commandButtonsStore.fetchButtons(projectId);
+    if (succeeded) {
+      hydratedCommandButtonProjects.add(projectId);
+    }
+  } catch {
+    // Treat rejecting store implementations as a failed hydration too.
+  } finally {
+    hydratingCommandButtonProjects.delete(projectId);
+  }
+}
+
 watch(projectIds, (ids) => {
   for (const projectId of ids) {
-    if (hydratedCommandButtonProjects.has(projectId)) continue;
-    hydratedCommandButtonProjects.add(projectId);
-    Promise.resolve(commandButtonsStore.fetchButtons(projectId)).catch(() => {});
+    void hydrateCommandButtons(projectId);
   }
 }, { immediate: true });
 

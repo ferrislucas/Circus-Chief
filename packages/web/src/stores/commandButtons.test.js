@@ -112,8 +112,9 @@ describe('CommandButtons Store', () => {
         { id: 'btn-1', projectId: 'proj-1', label: 'Test' }
       ]);
 
-      await store.fetchButtons('proj-1');
+      const succeeded = await store.fetchButtons('proj-1');
       expect(store.error).toBeNull();
+      expect(succeeded).toBe(true);
     });
 
     it('sets error state on API failure', async () => {
@@ -121,9 +122,10 @@ describe('CommandButtons Store', () => {
       const errorMessage = 'Failed to fetch buttons';
       api.getCommandButtons.mockRejectedValue(new Error(errorMessage));
 
-      await store.fetchButtons('proj-1');
+      const succeeded = await store.fetchButtons('proj-1');
       expect(store.error).toBe(errorMessage);
       expect(store.loading).toBe(false);
+      expect(succeeded).toBe(false);
     });
 
     it('handles empty button list from API', async () => {
