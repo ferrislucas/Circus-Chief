@@ -81,6 +81,20 @@
                   formatRelativeTime(project.lastActivityAt)
                 }}</span>
               </p>
+              <div class="project-session-summary" aria-label="Session status summary">
+                <span class="session-status-count status-running">
+                  <span class="status-dot" aria-hidden="true" />
+                  {{ project.runningSessionCount }} running
+                </span>
+                <span class="session-status-count status-waiting">
+                  <span class="status-dot" aria-hidden="true" />
+                  {{ project.waitingSessionCount }} waiting
+                </span>
+                <span class="session-status-count status-idle">
+                  <span class="status-dot" aria-hidden="true" />
+                  {{ idleSessionCount(project) }} idle
+                </span>
+              </div>
             </div>
             <div class="project-actions">
               <button
@@ -95,8 +109,7 @@
                 <span class="sessions-toggle-icon" :class="{ expanded: areSessionsVisible(project.id) }" aria-hidden="true">⌄</span>
               </button>
               <router-link :to="`/projects/${project.id}/edit`" class="btn edit-btn" @click.stop>
-                <span class="edit-label-full">Edit</span>
-                <span class="edit-label-short" aria-hidden="true">&#9881;</span>
+                Edit
               </router-link>
             </div>
           </div>
@@ -156,7 +169,11 @@ function goToSessions(projectId) {
 }
 
 function areSessionsVisible(projectId) {
-  return sessionVisibility.value[projectId] !== false;
+  return sessionVisibility.value[projectId] === true;
+}
+
+function idleSessionCount(project) {
+  return Math.max(0, project.sessionCount - project.runningSessionCount);
 }
 
 function toggleSessions(projectId) {
@@ -466,8 +483,35 @@ onMounted(() => {
   transform: rotate(0deg);
 }
 
-.edit-label-short {
-  display: none;
+.project-session-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 0.75rem;
+  margin-top: 0.625rem;
+}
+
+.session-status-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--color-text-soft);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.status-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-running {
+  color: var(--color-success);
+}
+
+.status-waiting {
+  color: var(--color-warning);
 }
 
 /* Mobile breakpoints */
@@ -534,12 +578,6 @@ onMounted(() => {
   }
   .embedded-session-list {
     padding: 0.75rem;
-  }
-  .edit-label-full {
-    display: none;
-  }
-  .edit-label-short {
-    display: inline;
   }
   .sessions-toggle span:first-child {
     display: none;

@@ -222,7 +222,29 @@ describe('ProjectListView', () => {
 
       const editBtn = wrapper.find('.edit-btn');
       expect(editBtn.exists()).toBe(true);
-      expect(editBtn.find('.edit-label-full').text()).toBe('Edit');
+      expect(editBtn.text()).toBe('Edit');
+      expect(editBtn.text()).not.toContain('⚙');
+    });
+
+    it('always shows running, waiting, and idle session counts', async () => {
+      projectsStore.projects = [fullProject({
+        sessionCount: 7,
+        runningSessionCount: 2,
+        waitingSessionCount: 1,
+      })];
+      projectsStore.loading = false;
+      projectsStore.error = null;
+
+      const wrapper = mount(ProjectListView, {
+        global: { plugins: [pinia, router] },
+      });
+      await flushAll(wrapper);
+
+      const summary = wrapper.find('.project-session-summary');
+      expect(summary.exists()).toBe(true);
+      expect(summary.text()).toContain('2 running');
+      expect(summary.text()).toContain('1 waiting');
+      expect(summary.text()).toContain('5 idle');
     });
   });
 
@@ -240,6 +262,7 @@ describe('ProjectListView', () => {
       await flushAll(wrapper);
 
       expect(getWorkspaceCards).toHaveBeenCalledWith('proj-1', { status: null, limit: 3 });
+      await wrapper.find('.sessions-toggle').trigger('click');
       expect(wrapper.findAll('.embedded-session-list .session-card')).toHaveLength(2);
       expect(wrapper.text()).toContain('latest');
     });
@@ -256,20 +279,20 @@ describe('ProjectListView', () => {
       const projectCard = wrapper.find('.project-card');
       const toggle = projectCard.find('.sessions-toggle');
       expect(toggle.exists()).toBe(true);
-      expect(projectCard.find('.embedded-session-list').exists()).toBe(true);
-      expect(toggle.attributes('aria-expanded')).toBe('true');
+      expect(projectCard.find('.embedded-session-list').exists()).toBe(false);
+      expect(toggle.attributes('aria-expanded')).toBe('false');
 
       await toggle.trigger('click');
 
-      expect(projectCard.find('.embedded-session-list').exists()).toBe(false);
-      expect(toggle.text()).toContain('Show sessions');
-      expect(toggle.attributes('aria-expanded')).toBe('false');
+      expect(projectCard.find('.embedded-session-list').exists()).toBe(true);
+      expect(toggle.text()).toContain('Hide sessions');
+      expect(toggle.attributes('aria-expanded')).toBe('true');
     });
 
     it('restores each project session toggle state from local storage', async () => {
       localStorage.setItem(
         'circus-chief.project-list.session-visibility',
-        JSON.stringify({ 'proj-1': false })
+        JSON.stringify({ 'proj-1': true })
       );
       getWorkspaceCards.mockResolvedValueOnce({
         workspaces: [{ id: 'ws-1', name: 'latest' }],
@@ -279,8 +302,8 @@ describe('ProjectListView', () => {
       const wrapper = mount(ProjectListView, { global: { plugins: [pinia, router] } });
       await flushAll(wrapper);
 
-      expect(wrapper.find('.embedded-session-list').exists()).toBe(false);
-      expect(wrapper.find('.sessions-toggle').attributes('aria-expanded')).toBe('false');
+      expect(wrapper.find('.embedded-session-list').exists()).toBe(true);
+      expect(wrapper.find('.sessions-toggle').attributes('aria-expanded')).toBe('true');
     });
 
     it('loads every matching card when a status filter is selected', async () => {
@@ -297,6 +320,7 @@ describe('ProjectListView', () => {
       await flushAll(wrapper);
 
       expect(getWorkspaceCards).toHaveBeenCalledWith('proj-1', { status: 'waiting', limit: 500 });
+      await wrapper.find('.sessions-toggle').trigger('click');
       expect(wrapper.findAll('.embedded-session-list .session-card')).toHaveLength(2);
     });
   });
