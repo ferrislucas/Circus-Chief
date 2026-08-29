@@ -170,7 +170,13 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
     await handleTemplateTriggerIfNeeded(sessionId);
   }
 
-  return { wasRescheduled: wasProactivelyRescheduled, heldForLimit: shouldHoldKanbanCompletion };
+  // Both a deliberate mid-turn schedule and a proactive token reschedule leave
+  // a continuation obligation open. Propagate either outcome to the execution
+  // layer so it cannot finalize participating lane work as successful.
+  return {
+    wasRescheduled: wasScheduledMidTurn || wasProactivelyRescheduled,
+    heldForLimit: shouldHoldKanbanCompletion,
+  };
 }
 
 /**

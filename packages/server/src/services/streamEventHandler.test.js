@@ -982,7 +982,7 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
+      expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled', error: null });
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
       expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
@@ -1025,7 +1025,7 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
+      expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
       expect(mockCheckReschedule).not.toHaveBeenCalled();
       expect(session).toMatchObject({
         status: 'scheduled',
@@ -1073,7 +1073,7 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
+      expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
       expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled', error: null });
       expect(broadcastToSession).toHaveBeenCalledWith(
@@ -1183,7 +1183,7 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
+      expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
       // Auto-send must NOT fire — schedule wins
       expect(mockAutoSend).not.toHaveBeenCalled();
     });
@@ -1247,12 +1247,13 @@ describe('streamEventHandler', () => {
       // Nothing is persisted until the turn actually ends.
       expect(session.scheduledAt).toBeNull();
 
-      await handleTurnCompletion('sess-1', '/workspace', {
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
         checkProactiveReschedule: vi.fn().mockResolvedValue(false),
         handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
         handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
       });
 
+      expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
       expect(session).toMatchObject({
         status: 'scheduled',
         pendingPrompt: 'Continue: check /tmp/e2e-full-run.log',
