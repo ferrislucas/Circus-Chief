@@ -9,6 +9,7 @@ import { useProjectFiltersStore } from './projectFilters.js';
 function normalizeProject(project) {
   return {
     ...project,
+    workspaceCount: project.workspaceCount ?? 0,
     runningWorkspaces: project.runningWorkspaces ?? [],
     runningSessionCount: project.runningSessionCount ?? 0,
     waitingSessionCount: project.waitingSessionCount ?? 0,

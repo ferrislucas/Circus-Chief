@@ -188,6 +188,7 @@ describe('ProjectRepository', () => {
 
       expect(projects).toHaveLength(1);
       expect(projects[0].sessionCount).toBe(0);
+      expect(projects[0].workspaceCount).toBe(0);
       expect(projects[0].lastActivityAt).toBeNull();
     });
 
@@ -208,6 +209,20 @@ describe('ProjectRepository', () => {
 
       expect(projects).toHaveLength(1);
       expect(projects[0].sessionCount).toBe(3);
+    });
+
+    it('counts only non-archived root sessions as workspaces', () => {
+      const project = repo.create('Test Project', '/tmp/test');
+      const sessionRepo = new SessionRepository();
+      const root = sessionRepo.create(project.id, 'Workspace', 'root prompt');
+      sessionRepo.create(project.id, 'Child', 'child prompt', { parentSessionId: root.id });
+      const archivedRoot = sessionRepo.create(project.id, 'Archived workspace', 'root prompt');
+      sessionRepo.update(archivedRoot.id, { archived: true });
+
+      const [result] = repo.getAll();
+
+      expect(result.sessionCount).toBe(2);
+      expect(result.workspaceCount).toBe(1);
     });
 
     it('returns lastActivityAt as most recent session updated_at', () => {

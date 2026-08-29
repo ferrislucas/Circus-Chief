@@ -22,6 +22,7 @@ export class ProjectRepository extends BaseRepository {
       repoUrl: row.repo_url,
       worktreePath: row.worktree_path,
       sessionCount: row.session_count ?? 0,
+      workspaceCount: row.workspace_count ?? 0,
       lastActivityAt: row.last_activity_at ?? null,
       runningSessionCount: row.running_session_count ?? 0,
       waitingSessionCount: row.waiting_session_count ?? 0,
@@ -66,6 +67,7 @@ export class ProjectRepository extends BaseRepository {
     const rows = this.db.prepare(`
       SELECT p.*,
         COUNT(CASE WHEN s.archived = 0 THEN s.id END) as session_count,
+        COUNT(CASE WHEN s.archived = 0 AND s.parent_session_id IS NULL THEN s.id END) as workspace_count,
         MAX(s.updated_at) as last_activity_at
       FROM projects p
       LEFT JOIN sessions s ON s.project_id = p.id

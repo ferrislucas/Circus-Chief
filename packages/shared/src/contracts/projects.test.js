@@ -97,6 +97,7 @@ describe('Projects Contracts', () => {
       onSessionDeleted: null,
       prPollInterval: 60000,
       worktreePath: null,
+      workspaceCount: 0,
       runningWorkspaces: [],
       runningSessionCount: 0,
       waitingSessionCount: 0,
