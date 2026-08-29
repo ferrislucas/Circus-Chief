@@ -558,6 +558,8 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
   // (KANBAN_CARD_MOVED or KANBAN_CARD_REMOVED); lane/board removal also emits
   // KANBAN_BOARD_UPDATED. A client holding only a fetched historical run must
   // refetch to observe supersession until the protocol gains a run event.
+  // NOTE: startup reconciliation (kanbanRecoveryService) also supersedes runs
+  // with no paired event at all — clients only converge on it via refetch.
   return result;
 }
 
@@ -667,8 +669,11 @@ export function deferCardMoveForTurn(cardId, targetLaneId, {
 /* eslint-enable complexity */
 
 export function supersedeRunForCard(cardId, reason = 'manual_move') {
-  // Legacy cards never participate in lane runs. Keep their move hot path
-  // read-only instead of opening a transaction merely to discover that fact.
+  // Legacy cards never participate in lane runs. The cheap pre-check keeps
+  // moveCard's hot path read-only (no transaction opened merely to discover
+  // there is nothing to supersede); when called inside a caller's own
+  // transaction (removeCard/removeLane/removeBoard) it is just a redundant
+  // guard and costs one indexed lookup.
   const activeLaneRun = databaseManager.get()
     .prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?')
     .get(cardId)?.active_lane_run_id;

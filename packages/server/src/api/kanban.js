@@ -279,7 +279,7 @@ router.delete('/', (req, res) => {
     return res.status(404).json({ error: 'Board not found' });
   }
 
-  removeBoardService(board, projectId);
+  removeBoardService(board);
 
   broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, {
     projectId,
@@ -388,7 +388,7 @@ router.delete('/lanes/:laneId', (req, res) => {
   const projectBoard = boardForProject(req.params.projectId);
   if (!laneBelongsToBoard(lane, projectBoard)) return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
 
-  removeLaneService(lane, projectId);
+  removeLaneService(lane);
 
   // Broadcast updated board
   const board = kanbanBoards.getByProjectId(projectId);
@@ -542,7 +542,7 @@ router.delete('/cards/:cardId', (req, res) => {
   const board = boardForProject(projectId);
   if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: CARD_NOT_FOUND_ERROR });
 
-  removeCardService(card, projectId);
+  removeCardService(card);
   res.status(204).send();
 });
 
@@ -668,7 +668,7 @@ router.delete('/cards/by-workspace/:workspaceId', (req, res) => {
   const board = boardForProject(projectId);
   if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
 
-  removeCardService(card, projectId);
+  removeCardService(card);
   res.status(204).send();
 });
 

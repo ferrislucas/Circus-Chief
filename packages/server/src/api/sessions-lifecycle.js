@@ -14,6 +14,7 @@ import { broadcastSessionUpdate } from './sessions-patch.js';
 import { activeSessions } from '../services/streamEventHandler.js';
 import { schedulerService } from '../services/schedulerService.js';
 import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
+import { removeSessionFromBoard } from '../services/kanbanService.js';
 import { runNowFailureResponse } from '../services/sessionRunNowFailure.js';
 import {
   checkCrossKindSwitch,
@@ -302,6 +303,13 @@ router.post('/:id/restart', requireSession, (req, res) => {
 
 // DELETE /api/sessions/:id - Delete session
 router.delete('/:id', requireSessionAndProject, async (req, res) => {
+  // If this is a workspace root, retire its board card and its open lane run
+  // BEFORE the session cascade deletes the kanban_card_sessions join row.
+  // Child sessions share the root's card; deleting one must keep the card.
+  if (!req.session_.parentSessionId) {
+    removeSessionFromBoard(req.params.id);
+  }
+
   // Collect all descendant session IDs before any deletions
   // (database ON DELETE SET NULL would orphan them otherwise)
   const descendantIds = sessions.getAllDescendantIds(req.params.id);
