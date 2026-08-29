@@ -81,7 +81,7 @@
                   formatRelativeTime(project.lastActivityAt)
                 }}</span>
               </p>
-              <div class="project-session-summary" aria-label="Session status summary">
+              <div class="project-session-summary" aria-label="Project activity summary">
                 <span class="session-status-count status-running">
                   <span class="status-dot" aria-hidden="true" />
                   {{ project.runningSessionCount }} running
@@ -90,9 +90,9 @@
                   <span class="status-dot" aria-hidden="true" />
                   {{ project.waitingSessionCount }} waiting
                 </span>
-                <span class="session-status-count status-idle">
+                <span class="session-status-count status-workspaces">
                   <span class="status-dot" aria-hidden="true" />
-                  {{ idleSessionCount(project) }} idle
+                  {{ project.workspaceCount }} workspace{{ project.workspaceCount === 1 ? '' : 's' }}
                 </span>
               </div>
             </div>
@@ -108,9 +108,6 @@
                 <span>{{ areSessionsVisible(project.id) ? 'Hide sessions' : 'Show sessions' }}</span>
                 <span class="sessions-toggle-icon" :class="{ expanded: areSessionsVisible(project.id) }" aria-hidden="true">⌄</span>
               </button>
-              <router-link :to="`/projects/${project.id}/edit`" class="btn edit-btn" @click.stop>
-                Edit
-              </router-link>
             </div>
           </div>
           <div
@@ -170,10 +167,6 @@ function goToSessions(projectId) {
 
 function areSessionsVisible(projectId) {
   return sessionVisibility.value[projectId] === true;
-}
-
-function idleSessionCount(project) {
-  return Math.max(0, project.sessionCount - project.runningSessionCount);
 }
 
 function toggleSessions(projectId) {

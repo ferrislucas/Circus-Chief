@@ -53,6 +53,7 @@ function fullProject(overrides = {}) {
     name: 'my-cool-app',
     workingDirectory: '/Users/me/code/my-cool-app',
     sessionCount: 0,
+    workspaceCount: 0,
     lastActivityAt: null,
     runningWorkspaces: [],
     runningSessionCount: 0,
@@ -209,7 +210,7 @@ describe('ProjectListView', () => {
       expect(meta.text()).toContain('5 sessions');
     });
 
-    it('shows edit button with desktop label', async () => {
+    it('does not offer project editing from the list', async () => {
       projectsStore.projects = [fullProject()];
       projectsStore.loading = false;
       projectsStore.error = null;
@@ -220,15 +221,14 @@ describe('ProjectListView', () => {
 
       await flushAll(wrapper);
 
-      const editBtn = wrapper.find('.edit-btn');
-      expect(editBtn.exists()).toBe(true);
-      expect(editBtn.text()).toBe('Edit');
-      expect(editBtn.text()).not.toContain('⚙');
+      expect(wrapper.find('.edit-btn').exists()).toBe(false);
+      expect(wrapper.find(`a[href="/projects/proj-1/edit"]`).exists()).toBe(false);
     });
 
-    it('always shows running, waiting, and idle session counts', async () => {
+    it('always shows running and waiting session counts plus workspace count', async () => {
       projectsStore.projects = [fullProject({
         sessionCount: 7,
+        workspaceCount: 3,
         runningSessionCount: 2,
         waitingSessionCount: 1,
       })];
@@ -244,7 +244,7 @@ describe('ProjectListView', () => {
       expect(summary.exists()).toBe(true);
       expect(summary.text()).toContain('2 running');
       expect(summary.text()).toContain('1 waiting');
-      expect(summary.text()).toContain('5 idle');
+      expect(summary.text()).toContain('3 workspaces');
     });
   });
 
