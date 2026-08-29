@@ -9,6 +9,7 @@ import {
 } from './sessionAgentGuard.js';
 import { projects, sessions, messages, modelProviders, modelTiers } from '../database.js';
 import { buildTierRef } from '@circuschief/shared';
+import { markUnhealthy, clearUnhealthy } from './tierResolutionService.js';
 
 describe('sessionAgentGuard', () => {
   describe('agentLabel', () => {
@@ -160,6 +161,15 @@ describe('sessionAgentGuard', () => {
       it('allows a started Claude session to select a Claude-first tier', () => {
         const session = { agentType: 'claude-code', model: 'claude-sonnet-guard' };
         expect(checkCrossKindSwitch(session, buildTierRef(claudeFirstTier.id))).toBeNull();
+      });
+
+      it('allows a tier selection when every configured member is cooling down', () => {
+        markUnhealthy(anthropicProvider.id, 'claude-sonnet-guard');
+        const session = { agentType: 'claude-code', model: 'claude-sonnet-guard' };
+
+        expect(checkCrossKindSwitch(session, buildTierRef(claudeFirstTier.id))).toBeNull();
+
+        clearUnhealthy(anthropicProvider.id, 'claude-sonnet-guard');
       });
 
       it('rejects a started Claude session selecting a GPT-only tier (CROSS_KIND_MODEL_SWITCH)', () => {

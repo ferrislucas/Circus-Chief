@@ -447,14 +447,27 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
 
   // ── Tier failover path ────────────────────────────────────────────────────
   const effectiveModelField = model || session.model;
-  const execution = isTierRef(effectiveModelField)
-    ? await _runTierBoundSession(sessionId, promptWithAttachments, workingDirectory, {
-      ...startCtx, tierRef: effectiveModelField,
-    })
+  let execution;
+  try {
+    execution = isTierRef(effectiveModelField)
+      ? await _runTierBoundSession(sessionId, promptWithAttachments, workingDirectory, {
+        ...startCtx, tierRef: effectiveModelField,
+      })
     // ── Standard (non-tier) path ────────────────────────────────────────────
-    : await _runStandardSession(sessionId, promptWithAttachments, workingDirectory, {
-      ...startCtx, model,
-    });
+      : await _runStandardSession(sessionId, promptWithAttachments, workingDirectory, {
+        ...startCtx, model,
+      });
+  } catch (error) {
+    // Resolution and tier selection can fail before _executeSession establishes
+    // its own error/finally boundary. Do not leave the session registered as
+    // active or a participating lane run waiting forever for open work.
+    sessions.update(sessionId, { status: 'error', error: error.message });
+    broadcastSessionStatus(sessionId, 'error');
+    closeOwnWork(sessionId, 'closed_failed', error.message);
+    throw error;
+  } finally {
+    cleanupSessionState(sessionId, false, controller);
+  }
 
   // A start path only returns a result when the dispatch was rejected before
   // reaching the provider (e.g. lane-run ownership lost); anything else means

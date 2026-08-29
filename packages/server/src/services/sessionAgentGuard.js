@@ -1,7 +1,7 @@
 import { messages, sessions } from '../database.js';
 import { resolveAgentTypeFromModel, resolveProviderFromModel } from './sessionProvider.js';
 import { isTierRef } from '@circuschief/shared';
-import { resolveActiveModel } from './tierResolutionService.js';
+import { resolveAnyMember } from './tierResolutionService.js';
 
 // Human-readable labels used in the cross-kind switch error message.
 export const AGENT_TYPE_LABELS = Object.freeze({
@@ -27,7 +27,7 @@ export function agentLabel(agentType) {
  * silently falls through to the 'claude-code' default, which is wrong
  * whenever the tier's actual active member is a Codex/Gemini model. This
  * helper is the single place that resolves a tier ref (via the same
- * active-tier resolver used by start/continue execution) before any
+ * cooldown-blind structural resolver) before any
  * agent-kind decision is made.
  *
  * @param {string|null|undefined} modelOrRef - A concrete model id or a tier ref.
@@ -40,7 +40,14 @@ export function resolveModelForAgentKind(modelOrRef, providerIdHint = null, sess
   if (!isTierRef(modelOrRef)) {
     return { modelId: modelOrRef, providerIdHint };
   }
-  const resolved = resolveActiveModel(modelOrRef, {});
+  // The session's own snapshot is authoritative for its established binding,
+  // regardless of process-wide cooldown or later tier reordering.
+  if (session && modelOrRef === session.model && session.resolvedModel) {
+    return { modelId: session.resolvedModel, providerIdHint: session.resolvedProviderId || null };
+  }
+
+  // Agent kind is a structural property, not an attempt-scheduling decision.
+  const resolved = resolveAnyMember(modelOrRef, {});
   if (!resolved) {
     // Stale-tier fallback (PRD E3 / D6): a tier ref that no longer resolves to
     // any live member (tier deleted / emptied) degrades to the last-known-good
@@ -49,9 +56,6 @@ export function resolveModelForAgentKind(modelOrRef, providerIdHint = null, sess
     // apply on the execution paths. Only consulted when the unresolvable ref IS
     // the session's own binding: a snapshot captured for one tier must never
     // answer for a different one.
-    if (session && modelOrRef === session.model && session.resolvedModel) {
-      return { modelId: session.resolvedModel, providerIdHint: session.resolvedProviderId || null };
-    }
     return { modelId: null, providerIdHint: null, unresolved: true };
   }
   return { modelId: resolved.model, providerIdHint: resolved.providerId };
@@ -116,7 +120,7 @@ export function checkCrossKindSwitch(session, requestedModel) {
     if (effectiveModel === session.model) return null;
     return {
       error: 'TIER_UNRESOLVABLE',
-      message: `Tier reference "${effectiveModel}" has no healthy or enabled members — cannot determine the agent kind`,
+      message: `Tier reference "${effectiveModel}" has no enabled configured members — cannot determine the agent kind`,
     };
   }
   const requestedAgentType = resolveAgentTypeFromModel(resolved.modelId, resolved.providerIdHint);

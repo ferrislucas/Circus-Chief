@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   resolveActiveModel,
+  resolveAnyMember,
   findNextHealthyTierMember,
   resolveTierRefForContinue,
   getTierMembersResolved,
@@ -97,6 +98,24 @@ describe('tierResolutionService', () => {
       // FK cascade removes the member row entirely, so only model-b remains
       const result = resolveActiveModel(buildTierRef(tier.id));
       expect(result).toEqual({ model: 'model-b', providerId: providerB.id });
+    });
+  });
+
+  describe('resolveAnyMember', () => {
+    it('ignores cooldown while still rejecting an empty tier', () => {
+      const tier = modelTiers.create({
+        name: 'Structurally resolvable',
+        members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+      });
+      markUnhealthy(providerA.id, 'model-a');
+
+      expect(resolveAnyMember(buildTierRef(tier.id))).toEqual({
+        model: 'model-a',
+        providerId: providerA.id,
+      });
+
+      const emptyTier = modelTiers.create({ name: 'Structurally empty' });
+      expect(resolveAnyMember(buildTierRef(emptyTier.id))).toBeNull();
     });
   });
 
@@ -388,7 +407,7 @@ describe('tierResolutionService', () => {
       });
     });
 
-    it('throws a clear error when the requested tier has no healthy members', () => {
+    it('ignores cooldown when switching to a configured tier', () => {
       const tier = modelTiers.create({
         name: 'Tier',
         members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
@@ -397,10 +416,14 @@ describe('tierResolutionService', () => {
       const tierRef = buildTierRef(tier.id);
       const session = { model: 'claude-sonnet-5', resolvedModel: null, resolvedProviderId: null };
 
-      expect(() => resolveTierRefForContinue(session, tierRef)).toThrow(/no healthy members/);
+      expect(resolveTierRefForContinue(session, tierRef)).toEqual({
+        effectiveModel: 'model-a',
+        providerIdHint: providerA.id,
+        persist: { model: tierRef, resolvedModel: 'model-a', resolvedProviderId: providerA.id },
+      });
     });
 
-    it('throws a clear error when continuing a tier-bound session with no snapshot and no healthy members', () => {
+    it('ignores cooldown when continuing a tier-bound session without a snapshot', () => {
       const tier = modelTiers.create({
         name: 'Tier',
         members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
@@ -408,7 +431,11 @@ describe('tierResolutionService', () => {
       markUnhealthy(providerA.id, 'model-a');
       const session = { model: buildTierRef(tier.id), resolvedModel: null, resolvedProviderId: null };
 
-      expect(() => resolveTierRefForContinue(session, null)).toThrow(/no healthy members/);
+      expect(resolveTierRefForContinue(session, null)).toEqual({
+        effectiveModel: 'model-a',
+        providerIdHint: providerA.id,
+        persist: { resolvedModel: 'model-a', resolvedProviderId: providerA.id },
+      });
     });
 
     describe('same-tier re-selection reuses the snapshot (PRD E3 / D6)', () => {
@@ -464,7 +491,7 @@ describe('tierResolutionService', () => {
         };
 
         expect(() => resolveTierRefForContinue(session, buildTierRef(tierB.id))).toThrow(
-          /no healthy members/
+          /no enabled configured members/
         );
       });
     });

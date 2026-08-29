@@ -104,12 +104,15 @@ async function callSummaryModelWithTierFailover(tierRef, { prompt, recentMessage
         throw error;
       }
       lastError = error;
-      markUnhealthy(member.providerId, member.modelId);
+      const nextMember = findNextEligibleSummaryMember(members, i);
+      // Preserve the terminal eligible member. Cooldown should steer the next
+      // attempt, not make the entire configured tier appear unavailable.
+      if (nextMember) markUnhealthy(member.providerId, member.modelId);
       logSummaryFailoverEvent({
         options,
         failedMember: member,
         tierRef,
-        nextMember: findNextEligibleSummaryMember(members, i),
+        nextMember,
         error,
       });
     }

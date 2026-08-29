@@ -120,6 +120,32 @@ describe('workflowSessionService', () => {
     expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
   });
 
+  it('does not inherit an open run after its card has moved off the source lane', () => {
+    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    attachRootSession(run.id, worker.id);
+    databaseManager.get().prepare('UPDATE kanban_cards SET lane_id=? WHERE id=?').run(target.id, card.id);
+
+    const child = sessions.create(project.id, 'Child', 'child work', { parentSessionId: worker.id });
+
+    expect(getRun(run.id).status).toBe('open');
+    expect(sessions.getById(child.id).laneRunId).toBeNull();
+    expect(sessions.getById(child.id).parentSessionId).toBe(worker.id);
+  });
+
+  it('does not inherit an open run that is no longer the card active run', () => {
+    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    attachRootSession(run.id, worker.id);
+    databaseManager.get().prepare('UPDATE kanban_cards SET active_lane_run_id=NULL WHERE id=?').run(card.id);
+
+    const child = sessions.create(project.id, 'Child', 'child work', { parentSessionId: worker.id });
+
+    expect(getRun(run.id).status).toBe('open');
+    expect(sessions.getById(child.id).laneRunId).toBeNull();
+    expect(sessions.getById(child.id).parentSessionId).toBe(worker.id);
+  });
+
   it('clears the active run after success without a completion target', () => {
     const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
     const run = createLaneRunForEntry({

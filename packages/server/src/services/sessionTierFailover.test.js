@@ -891,16 +891,14 @@ describe('resolveTierRefForContinueWithStaleFallback (continuation-path degradat
     expect(sessionRepo.getById(session.id).model).toBeNull();
   });
 
-  it('rethrows when all members are merely in cooldown (transient, not stale)', () => {
+  it('continues structurally when all members are merely in cooldown', () => {
     const { session, freshSession } = tierBoundSession({});
     const tierRefBefore = freshSession.model;
     markUnhealthy(providerA.id, 'model-a');
 
-    expect(() =>
-      resolveTierRefForContinueWithStaleFallback(session.id, freshSession, null)
-    ).toThrow(/no healthy members/);
+    const result = resolveTierRefForContinueWithStaleFallback(session.id, freshSession, null);
 
-    // The binding was NOT permanently cleared over a cooldown.
+    expect(result.effectiveModel).toBe('model-a');
     expect(sessionRepo.getById(session.id).model).toBe(tierRefBefore);
   });
 
@@ -910,7 +908,7 @@ describe('resolveTierRefForContinueWithStaleFallback (continuation-path degradat
 
     expect(() =>
       resolveTierRefForContinueWithStaleFallback(session.id, freshSession, buildTierRef(otherTier.id))
-    ).toThrow(/no healthy members/);
+    ).toThrow(/no enabled configured members/);
 
     // Own binding untouched.
     expect(sessionRepo.getById(session.id).model).toBe(freshSession.model);

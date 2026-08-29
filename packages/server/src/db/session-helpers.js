@@ -181,7 +181,8 @@ export function mapWorkflow(row) {
  * Resolve the lane run a new child session inherits from its parent.
  *
  * A child always preserves its requested parent, but only inherits workflow
- * membership while both the parent's own work and its lane run remain open.
+ * membership while the parent's own work remains open and its lane run is
+ * still the card's authoritative active run on its source lane.
  *
  * @param {import('better-sqlite3').Database} db
  * @param {string|null} parentSessionId
@@ -190,9 +191,13 @@ export function mapWorkflow(row) {
 export function resolveInheritedLaneRunId(db, parentSessionId) {
   if (!parentSessionId) return null;
   const parent = db.prepare('SELECT lane_run_id, own_work_state FROM sessions WHERE id = ?').get(parentSessionId);
-  if (!parent?.lane_run_id) return null;
-  const runStatus = db.prepare('SELECT status FROM kanban_lane_runs WHERE id = ?').get(parent.lane_run_id)?.status;
-  return parent.own_work_state === 'open' && runStatus === 'open' ? parent.lane_run_id : null;
+  if (!parent?.lane_run_id || parent.own_work_state !== 'open') return null;
+  const authoritativeRun = db.prepare(`SELECT 1 FROM kanban_lane_runs r
+    JOIN kanban_cards c ON c.id = r.card_id
+    WHERE r.id = ? AND r.status = 'open'
+      AND c.active_lane_run_id = r.id AND c.lane_id = r.source_lane_id`)
+    .get(parent.lane_run_id);
+  return authoritativeRun ? parent.lane_run_id : null;
 }
 
 /** Default values for session-create config fields */

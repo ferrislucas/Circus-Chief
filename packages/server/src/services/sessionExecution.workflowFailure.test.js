@@ -11,6 +11,10 @@ import { KanbanBoardRepository } from '../db/KanbanBoardRepository.js';
 import { KanbanLaneRepository } from '../db/KanbanLaneRepository.js';
 import { KanbanCardRepository } from '../db/KanbanCardRepository.js';
 import { createLaneRunForEntry, attachRootSession, getRun } from './workflowSessionService.js';
+import { modelProviders, modelTiers } from '../database.js';
+import { buildTierRef } from '@circuschief/shared';
+import { markUnhealthy } from './tierResolutionService.js';
+import { activeSessions } from './streamEventHandler.js';
 
 /**
  * W4 (FRD: Kanban Lane-Run Structured Completion, FR-9, AC-7/AC-8): proves
@@ -107,6 +111,29 @@ describe('W4: failure/cancellation propagation through _executeSession', () => {
     expect(updated.ownWorkState).toBe('open');
     expect(updated.executionState).toBe('retrying');
     expect(getRun(run.id).status).toBe('open');
+    expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+  });
+
+  it('an all-cooled tier start cleans active state and fails the lane run', async () => {
+    const provider = modelProviders.create({ name: 'Cooling provider', kind: 'anthropic' });
+    modelProviders.addModel(provider.id, { modelId: 'cooling-model', displayName: 'Cooling model' });
+    const tier = modelTiers.create({
+      name: 'Cooling tier',
+      members: [{ providerId: provider.id, modelId: 'cooling-model', position: 0 }],
+    });
+    sessionRepo.update(root.id, { model: buildTierRef(tier.id) });
+    markUnhealthy(provider.id, 'cooling-model', 60_000);
+
+    await expect(runSession(root.id, 'do work', tempDir)).rejects.toThrow(
+      'All tier members exhausted for tier "Cooling tier"'
+    );
+
+    const updated = sessionRepo.getById(root.id);
+    expect(activeSessions.has(root.id)).toBe(false);
+    expect(updated.status).toBe('error');
+    expect(updated.ownWorkState).toBe('closed_failed');
+    expect(updated.executionState).toBe('stopped');
+    expect(getRun(run.id).status).toBe('failed');
     expect(cardRepo.getById(card.id).laneId).toBe(source.id);
   });
 });

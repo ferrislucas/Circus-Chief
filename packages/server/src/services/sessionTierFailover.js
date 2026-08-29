@@ -404,10 +404,9 @@ export function applyStaleTierFallback(sessionId, session, staleTierRef) {
  *   session must not keep a binding to a tier that no longer exists.
  *   `applyStaleTierFallback` clears the binding (preferring the snapshot) and
  *   broadcasts the `tier:failover` notice.
- * - A TRANSIENT failure (every member merely in cooldown) still throws from
- *   `resolveTierRefForContinue` — a 5-minute cooldown must not permanently
- *   clear the binding. Same distinction the start path draws between stale
- *   bindings and live exhaustion.
+ * - A TRANSIENT state (every member merely in cooldown) continues on the
+ *   snapshot, or on the first configured member for a legacy row. Cooldown
+ *   must neither clear nor block an existing binding.
  * - A request for a DIFFERENT unresolvable tier still throws — that is a
  *   genuine bad selection, not the session's own binding.
  *

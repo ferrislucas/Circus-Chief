@@ -138,6 +138,28 @@ export function resolveActiveModel(modelOrRef, context = {}) {
 }
 
 /**
+ * Resolve the first configured member of a tier without consulting cooldown.
+ *
+ * Cooldown is a scheduling hint for choosing a new-session attempt; it must
+ * not make an existing binding unusable or prevent structural agent-kind
+ * checks. Missing, empty, and otherwise invalid tiers still return `null`.
+ *
+ * @param {string|null|undefined} modelOrRef
+ * @param {{ providerId?: string|null }} [context]
+ * @returns {{ model: string, providerId: string|null } | null}
+ */
+export function resolveAnyMember(modelOrRef, context = {}) {
+  if (!isTierRef(modelOrRef)) {
+    return { model: modelOrRef, providerId: context.providerId ?? null };
+  }
+
+  const tierId = parseTierRef(modelOrRef);
+  if (!tierId) return null;
+  const [member] = getTierMembersResolved(tierId);
+  return member ? { model: member.modelId, providerId: member.providerId } : null;
+}
+
+/**
  * Find the single next tier member that would actually be attempted after
  * `failedMember`, for both (a) the failover-vs-terminal decision and (b) the
  * failover notice/log payload — one ordered scan shared by both so they can
@@ -204,7 +226,7 @@ function snapshotResolution(session) {
  * @param {Object} session - Current session row.
  * @param {string} requestedModel - The explicit `tier::<id>` request.
  * @returns {{ effectiveModel: string, providerIdHint: string, persist: Object }}
- * @throws {Error} when the requested tier has no healthy members.
+ * @throws {Error} when the requested tier has no enabled configured members.
  */
 function resolveRequestedTierRef(session, requestedModel) {
   if (requestedModel === session.model) {
@@ -212,10 +234,10 @@ function resolveRequestedTierRef(session, requestedModel) {
     if (snapshot) return snapshot;
   }
 
-  const resolved = resolveActiveModel(requestedModel, {});
+  const resolved = resolveAnyMember(requestedModel, {});
   if (!resolved) {
     throw new Error(
-      `Tier "${requestedModel}" has no healthy members available — cannot continue session`
+      `Tier "${requestedModel}" has no enabled configured members — cannot continue session`
     );
   }
   return {
@@ -272,11 +294,13 @@ export function resolveTierRefForContinue(session, requestedModel) {
     const snapshot = snapshotResolution(session);
     if (snapshot) return snapshot;
 
-    // Snapshot missing (e.g. a legacy row) — re-resolve live and backfill it.
-    const live = resolveActiveModel(session.model, {});
+    // Snapshot missing (e.g. a legacy row) — resolve structurally and backfill
+    // it. Continuation is not a new-session scheduling decision, so cooldown
+    // must not block the already-bound session.
+    const live = resolveAnyMember(session.model, {});
     if (!live) {
       throw new Error(
-        `Tier "${session.model}" has no healthy members available to continue the session`
+        `Tier "${session.model}" has no enabled configured members available to continue the session`
       );
     }
     return {

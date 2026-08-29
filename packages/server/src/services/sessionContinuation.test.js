@@ -170,7 +170,7 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
     expect(qp.options?.model).not.toContain('tier::');
   });
 
-  it('throws a clear error when resolvedModel is absent and all tier members are in cooldown', async () => {
+  it('continues structurally when resolvedModel is absent and all tier members are in cooldown', async () => {
     const tier = modelTiers.create({
       name: 'Cooled',
       members: [{ providerId: providerA.id, modelId: 'model-x', position: 0 }],
@@ -185,9 +185,11 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
     });
     conversations.ensureActiveConversation(session.id);
 
-    await expect(
-      continueSessionCore(session.id, 'hi', '/tmp/test', { options: {}, callbacks: mockCallbacks })
-    ).rejects.toThrow(/no healthy members available/i);
+    await continueSessionCore(session.id, 'hi', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    });
+
+    expect(capturedQueryParams[0].options?.model).toBe('model-x');
 
     // Clean up cooldown for subsequent tests
     clearUnhealthy(providerA.id, 'model-x');
@@ -262,7 +264,7 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
       expect(sessions.getById(session.id).model ?? null).toBeNull();
     });
 
-    it('still throws (transient) when all members are merely in cooldown and the tier still exists', async () => {
+    it('continues without clearing the binding when all members are merely in cooldown', async () => {
       const tier = modelTiers.create({
         name: 'Cooldown Only',
         members: [{ providerId: providerA.id, modelId: 'model-x', position: 0 }],
@@ -278,11 +280,11 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
       const { markUnhealthy } = await import('./tierResolutionService.js');
       markUnhealthy(providerA.id, 'model-x', 60_000);
 
-      await expect(
-        continueSessionCore(session.id, 'hi', '/tmp/test', { options: {}, callbacks: mockCallbacks })
-      ).rejects.toThrow(/no healthy members available/i);
+      await continueSessionCore(session.id, 'hi', '/tmp/test', {
+        options: {}, callbacks: mockCallbacks,
+      });
 
-      // The binding survived — a cooldown must not clear it.
+      expect(capturedQueryParams[0].options?.model).toBe('model-x');
       expect(sessions.getById(session.id).model).toBe(tierRef);
       clearUnhealthy(providerA.id, 'model-x');
     });
