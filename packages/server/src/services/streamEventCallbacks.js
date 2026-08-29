@@ -140,7 +140,12 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
   // Sessions with final errors should not transition to waiting
   if (finalErrorSessionIds.has(sessionId)) {
     finalErrorSessionIds.delete(sessionId);
-    return { wasRescheduled: false, heldForLimit: false };
+    const session = sessions.getById(sessionId);
+    return {
+      wasRescheduled: false,
+      heldForLimit: false,
+      terminalError: new Error(session?.error || 'Provider turn ended with an error'),
+    };
   }
 
   // Session ready for follow-up - set to waiting instead of completed
@@ -297,7 +302,7 @@ async function safeTriggerTemplate(sessionId, handleTemplateTriggerIfNeeded) {
  * Encapsulates the duplicated error handling block from runSession/continueSession/continueSessionWithExistingMessage
  * @param {string} sessionId
  * @param {Error} error
- * @param {{ controller: AbortController, shouldRescheduleOnError: Function, schedulerService: Object, errorLabel?: string, broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function }} options
+ * @param {{ controller: AbortController, shouldRescheduleOnError: Function, schedulerService: Object, errorLabel?: string, broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function, errorAlreadyRecorded?: boolean }} options
  */
 export async function handleSessionError(sessionId, error, options = {}) {
   const { controller, shouldRescheduleOnError, schedulerService } = options;
@@ -327,6 +332,14 @@ export async function handleSessionError(sessionId, error, options = {}) {
   const rescheduled = await tryRescheduleOnError(sessionId, error, shouldRescheduleOnError, schedulerService);
   if (rescheduled) {
     return true;
+  }
+
+  // A terminal result event is recorded and broadcast while the stream is
+  // still being consumed. Its completion path calls this function only to
+  // apply the shared retry policy; do not create a second visible error or
+  // repeat terminal side effects when no retry applies.
+  if (options.errorAlreadyRecorded) {
+    return false;
   }
 
   // Normal error handling (no reschedule or reschedule limits reached)

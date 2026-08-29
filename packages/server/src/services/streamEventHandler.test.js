@@ -898,7 +898,11 @@ describe('streamEventHandler', () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       activeConversationIds.set('sess-1', 'conv-1');
       lastMessageIds.set('sess-1', 'msg-last');
-      sessions.getById.mockReturnValue({ agentType: 'codex', projectId: 'proj-1' });
+      sessions.getById.mockReturnValue({
+        agentType: 'codex',
+        projectId: 'proj-1',
+        error: 'usage limit reached',
+      });
       messages.getByConversationId.mockReturnValue([
         { id: 'msg-user', sessionId: 'sess-1', conversationId: 'conv-1', role: 'user', content: 'continue' },
       ]);
@@ -912,7 +916,11 @@ describe('streamEventHandler', () => {
 
       vi.clearAllMocks();
       workLogs.associatePendingLogs.mockReturnValue(1);
-      sessions.getById.mockReturnValue({ agentType: 'codex', projectId: 'proj-1' });
+      sessions.getById.mockReturnValue({
+        agentType: 'codex',
+        projectId: 'proj-1',
+        error: 'usage limit reached',
+      });
 
       const mockCheckReschedule = vi.fn().mockResolvedValue(false);
       const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
@@ -924,7 +932,9 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
+      expect(result).toMatchObject({ wasRescheduled: false, heldForLimit: false });
+      expect(result.terminalError).toBeInstanceOf(Error);
+      expect(result.terminalError.message).toBe('usage limit reached');
       expect(workLogs.associatePendingLogs).toHaveBeenCalledWith('sess-1', 'msg-last');
       expect(lastMessageIds.has('sess-1')).toBe(false);
       expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
