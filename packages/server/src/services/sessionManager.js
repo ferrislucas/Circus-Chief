@@ -190,6 +190,11 @@ export async function continueSession(sessionId, content, workingDirectory, opti
   });
 }
 
+/** Whether a provider turn still owns this session's execution lifecycle. */
+export function isSessionActive(sessionId) {
+  return activeSessions.has(sessionId);
+}
+
 /**
  * Continue a session when the user message is already stored (e.g., from branching)
  * This triggers Claude's response without creating a new user message

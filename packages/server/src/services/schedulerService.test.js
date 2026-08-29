@@ -42,6 +42,7 @@ describe('SchedulerService', () => {
   beforeEach(() => {
     scheduler = new SchedulerService();
     mockSessionManager = {
+      isSessionActive: vi.fn().mockReturnValue(false),
       runSession: vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' }),
       continueSession: vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' }),
       continueSessionWithExistingMessage: vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' }),
@@ -290,6 +291,22 @@ describe('SchedulerService', () => {
   });
 
   describe('startScheduledSession', () => {
+    it('does not claim a due schedule while its previous turn is still active', async () => {
+      scheduler.initialize(mockSessionManager);
+      mockSessionManager.isSessionActive.mockReturnValue(true);
+      const session = { id: 'session-1', projectId: 'project-1' };
+
+      const result = await scheduler.startScheduledSession(session);
+
+      expect(result).toEqual({
+        claimed: false,
+        started: false,
+        reason: 'session_still_active',
+        sessionId: 'session-1',
+      });
+      expect(sessions.claimScheduled).not.toHaveBeenCalled();
+    });
+
     // Helper: make sessions.claimScheduled behave like the real repository
     // method for a single-caller (non-racing) test — succeeds once, returns
     // the pre-claim snapshot (optionally with the prompt override applied).

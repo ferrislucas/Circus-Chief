@@ -419,10 +419,12 @@ export function applyPendingWakeup(sessionId, controller) {
 
   // Honour the SDK's promise (capturedAt + delay, which is what the agent was
   // told scheduledFor would be) without ever collapsing the throttle to zero:
-  // if the turn already overran the requested delay, fire no sooner than now.
+  // if the turn already overran the requested delay, leave a small teardown
+  // fence. Completion still has to return through sessionExecution's `finally`
+  // block and deregister this turn's controller before another run may start.
   // A long turn therefore drifts at most by (turnEnd - capturedAt), and only in
   // the direction of "later than promised", never "immediately".
-  const scheduledAt = Math.max(wakeup.capturedAt + wakeup.delaySeconds * 1000, Date.now());
+  const scheduledAt = Math.max(wakeup.capturedAt + wakeup.delaySeconds * 1000, Date.now() + 1);
 
   // Mirror the REST endpoint's lane-run fencing so a wakeup can't revive a
   // worker whose lane run was superseded mid-turn.
@@ -431,6 +433,7 @@ export function applyPendingWakeup(sessionId, controller) {
     scheduledAt,
     pendingPrompt: wakeup.prompt,
     pendingConversationId: wakeup.pendingConversationId,
+    error: null,
     // ScheduleWakeup's SDK input is only delaySeconds/prompt/reason — a wakeup
     // has no model component, so it must not inherit a stale one-shot
     // pendingModel from a superseded explicit schedule (see schedulerService's

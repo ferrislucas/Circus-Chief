@@ -100,18 +100,6 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
     return res.status(validationError.status).json(validationError.body);
   }
 
-  // Defense in depth for the stop-then-chat race: a schedule left on the row by
-  // a cancelled session must not be resurrected by this chat turn's completion
-  // (handleScheduledContinuationIfNeeded is deliberately status-agnostic).
-  if (req.session_.scheduledAt && req.session_.pendingPrompt) {
-    sessions.update(req.session_.id, {
-      scheduledAt: null,
-      pendingPrompt: null,
-      pendingConversationId: null,
-      pendingModel: null,
-    });
-  }
-
   try {
     // Store file attachments if any - saves to disk in workingDirectory/.attachments
     const messageAttachments = attachments.createBatch(req.session_.id, null, files, req.workingDirectory);
@@ -124,6 +112,19 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
     const resolved = await slashCommandService.resolvePromptSkillOrCommand(
       req.workingDirectory, renderedContent, req.project.systemPrompt || null
     );
+
+    // Cancel an obsolete continuation only after all fallible request
+    // preparation succeeds. A render, attachment, or slash-command failure
+    // must leave the existing schedule intact because no replacement turn was
+    // dispatched.
+    if (req.session_.scheduledAt && req.session_.pendingPrompt) {
+      sessions.update(req.session_.id, {
+        scheduledAt: null,
+        pendingPrompt: null,
+        pendingConversationId: null,
+        pendingModel: null,
+      });
+    }
 
     if (resolved) {
       continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, { systemPrompt: resolved.systemPrompt, fileAttachments: messageAttachments, model, interactive: true }).catch((error) => {

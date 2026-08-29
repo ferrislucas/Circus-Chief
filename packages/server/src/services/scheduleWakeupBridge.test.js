@@ -427,20 +427,21 @@ describe('applyPendingWakeup', () => {
     expect(sessions.update).toHaveBeenCalledTimes(1);
   });
 
-  it('fires no sooner than now when the turn already overran the requested delay', () => {
+  it('leaves time for controller teardown when the turn overran the requested delay', () => {
     sessions.getById.mockReturnValue(unscheduledSession());
     captureScheduleWakeup(SESSION_ID, [wakeupBlock({ delaySeconds: 60, prompt: 'p' })]);
     // Simulate a turn that ran well past the requested delay: capturedAt is
     // old, so the SDK-promised capturedAt + delay is already in the past and
-    // the fire time must collapse to *now*, never earlier.
+    // the fire time must remain briefly in the future so the completing turn
+    // can relinquish activeSessions before a scheduler poll claims it.
     pendingWakeups.get(SESSION_ID).capturedAt = Date.now() - 10 * 60 * 1000;
 
     const before = Date.now();
     expect(applyPendingWakeup(SESSION_ID)).toBe(true);
     const { scheduledAt } = sessions.update.mock.calls[0][1];
 
-    expect(scheduledAt).toBeGreaterThanOrEqual(before);
-    expect(scheduledAt).toBeLessThanOrEqual(before + 60 * 1000);
+    expect(scheduledAt).toBeGreaterThan(before);
+    expect(scheduledAt).toBeLessThanOrEqual(before + 1000);
   });
 
   it('fires at capturedAt + delay when the turn finished before the requested delay elapsed', () => {

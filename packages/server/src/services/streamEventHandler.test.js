@@ -983,7 +983,7 @@ describe('streamEventHandler', () => {
       });
 
       expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled', error: null });
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
       expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
       expect(diffService.getChanges).toHaveBeenCalledWith('/workspace');
@@ -1034,8 +1034,8 @@ describe('streamEventHandler', () => {
         pendingConversationId: 'conv-explicit',
         pendingModel: 'gpt-5.4',
       });
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled', error: null });
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
       expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
       expect(diffService.getChanges).toHaveBeenCalledWith('/workspace');
@@ -1074,8 +1074,8 @@ describe('streamEventHandler', () => {
       });
 
       expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled', error: null });
       expect(broadcastToSession).toHaveBeenCalledWith(
         'sess-1',
         WS_MESSAGE_TYPES.SESSION_STATUS,
@@ -1415,6 +1415,33 @@ describe('streamEventHandler', () => {
         (call) => call[0] === 'sess-1' && call[1]?.status === 'scheduled'
       );
       expect(scheduledWrites).toHaveLength(1);
+    });
+
+    it('lands waiting when a captured deferred wakeup cannot be resolved', async () => {
+      const controller = new AbortController();
+      activeSessions.set('sess-1', { controller });
+      const session = statefulSession({ status: 'running' });
+      conversations.getActiveBySessionId.mockReturnValue(null);
+
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 600,
+        reason: 'resume autonomous loop',
+        prompt: '<<autonomous-loop-dynamic>>',
+      }), { controller });
+
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      }, { controller });
+
+      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
+      expect(session).toMatchObject({ status: 'waiting', scheduledAt: null, pendingPrompt: null });
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_STATUS,
+        { sessionId: 'sess-1', status: 'waiting' }
+      );
     });
 
     it('refuses to restore \'scheduled\' when a superseded lane run carries a leftover schedule', async () => {

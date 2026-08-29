@@ -14,7 +14,7 @@ import {
   broadcastChangesUpdate,
   getResultEvent,
 } from './streamEventHandler.js';
-import { applyPendingWakeup, clearPendingWakeup, hasPendingWakeup } from './scheduleWakeupBridge.js';
+import { applyPendingWakeup, clearPendingWakeup } from './scheduleWakeupBridge.js';
 import { withActiveLaneRunOwnership } from './workflowSessionService.js';
 import { broadcastSessionUpdate } from './summaryBroadcast.js';
 
@@ -70,7 +70,7 @@ async function handleScheduledContinuationIfNeeded(sessionId, controller, { appl
   if (Number.isFinite(session.scheduledAt) && session.scheduledAt > 0 && hasPendingPrompt) {
     const transition = () => (session.status === 'scheduled'
       ? sessions.getById(sessionId) // already scheduled by applyPendingWakeup — no-op write
-      : sessions.update(sessionId, { status: 'scheduled' }));
+      : sessions.update(sessionId, { status: 'scheduled', error: null }));
     // Mirror the REST endpoint's and the bridge's lane-run fencing so a
     // superseded worker cannot be flipped back to 'scheduled' by a leftover
     // schedule row on either the completion or the error path.
@@ -109,22 +109,15 @@ function associateAndCleanupWorkLogs(sessionId) {
  * @returns {Promise<{wasRescheduled: boolean, heldForLimit: boolean}>}
  */
 async function handleActiveSessionCompletion(sessionId, workingDirectory, callbacks, controller) {
-  // Skip the intermediate 'waiting' write when a captured wakeup is about to
-  // flip the session straight to 'scheduled': clients would otherwise see
-  // running → waiting → scheduled with two SESSION_UPDATED broadcasts in between.
-  if (!hasPendingWakeup(sessionId, controller)) {
+  // Apply first, then decide whether to suppress the waiting transition. A
+  // merely captured wakeup is not sufficient: deferred-loop resolution and
+  // lane ownership can still reject it at this boundary.
+  const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId, controller);
+
+  if (!wasScheduledMidTurn) {
     sessions.update(sessionId, { status: 'waiting', error: null });
     broadcastSessionStatus(sessionId, 'waiting');
-  } else {
-    // The wakeup's own write never touches `error`; preserve the error-clearing
-    // the waiting write normally performs so a stale error isn't visible in the
-    // 'scheduled' broadcast below.
-    sessions.update(sessionId, { error: null });
   }
-
-  // Re-apply scheduled status if the agent called POST /:id/schedule mid-turn.
-  // The waiting write above would otherwise overwrite the scheduled state.
-  const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId, controller);
 
   // Applying a wakeup can create a diagnostic work log when it loses to a
   // later explicit schedule or its lane run was superseded. Associate only

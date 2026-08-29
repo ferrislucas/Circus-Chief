@@ -343,6 +343,14 @@ class SchedulerService {
       throw new Error('SchedulerService not initialized with sessionManager');
     }
 
+    // A ScheduleWakeup may become due while its originating turn is still
+    // completing summaries, broadcasts, or workflow bookkeeping. Do not claim
+    // (and therefore clear) that durable schedule until the old controller has
+    // actually been deregistered. A later poll will pick it up normally.
+    if (this.sessionManager.isSessionActive?.(session.id)) {
+      return { claimed: false, started: false, reason: 'session_still_active', sessionId: session.id };
+    }
+
     if (!claimWorkflowSessionStart(session.id)) {
       return { claimed: false, started: false, reason: 'lane_run_ownership_lost', sessionId: session.id };
     }
