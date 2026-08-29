@@ -138,7 +138,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
@@ -160,7 +160,12 @@ const projectCards = ref({});
 const sessionVisibility = ref({});
 const hydratedCommandButtonProjects = new Set();
 const hydratingCommandButtonProjects = new Set();
+const commandButtonRetryTimers = new Map();
+const commandButtonRetryAttempts = new Map();
+const maxCommandButtonHydrationRetries = 3;
+const commandButtonHydrationRetryDelayMs = 500;
 let projectCardsRequest = 0;
+let isUnmounted = false;
 const sessionVisibilityStorageKey = 'circus-chief.project-list.session-visibility';
 
 // The list and facets are client-side derivatives of the full project array.
@@ -264,8 +269,30 @@ watch(
 // response into status badges using these project-scoped definitions. The
 // project list is a separate entry point from SessionListView, so it must
 // hydrate them here as well. A project is considered hydrated only after a
-// successful response so a transient failure is retried on the next project
-// refresh.
+// successful response. Failed requests retry a bounded number of times even
+// when the project list remains unchanged.
+function scheduleCommandButtonHydrationRetry(projectId) {
+  const retryAttempt = commandButtonRetryAttempts.get(projectId) || 0;
+  if (
+    isUnmounted ||
+    hydratedCommandButtonProjects.has(projectId) ||
+    commandButtonRetryTimers.has(projectId) ||
+    retryAttempt >= maxCommandButtonHydrationRetries
+  ) {
+    return;
+  }
+
+  commandButtonRetryAttempts.set(projectId, retryAttempt + 1);
+  const delay = commandButtonHydrationRetryDelayMs * (2 ** retryAttempt);
+  const timer = setTimeout(() => {
+    commandButtonRetryTimers.delete(projectId);
+    if (!isUnmounted && projectIds.value.includes(projectId)) {
+      void hydrateCommandButtons(projectId);
+    }
+  }, delay);
+  commandButtonRetryTimers.set(projectId, timer);
+}
+
 async function hydrateCommandButtons(projectId) {
   if (
     hydratedCommandButtonProjects.has(projectId) ||
@@ -274,16 +301,27 @@ async function hydrateCommandButtons(projectId) {
     return;
   }
 
+  const retryTimer = commandButtonRetryTimers.get(projectId);
+  if (retryTimer !== undefined) {
+    clearTimeout(retryTimer);
+    commandButtonRetryTimers.delete(projectId);
+  }
+
   hydratingCommandButtonProjects.add(projectId);
+  let succeeded = false;
   try {
-    const succeeded = await commandButtonsStore.fetchButtons(projectId);
+    succeeded = await commandButtonsStore.fetchButtons(projectId);
     if (succeeded) {
       hydratedCommandButtonProjects.add(projectId);
+      commandButtonRetryAttempts.delete(projectId);
     }
   } catch {
     // Treat rejecting store implementations as a failed hydration too.
   } finally {
     hydratingCommandButtonProjects.delete(projectId);
+    if (!succeeded) {
+      scheduleCommandButtonHydrationRetry(projectId);
+    }
   }
 }
 
@@ -298,6 +336,14 @@ onMounted(() => {
   restoreSessionVisibility();
   projectsStore.fetchProjects();
   useProjectListRealtime(projectIds);
+});
+
+onBeforeUnmount(() => {
+  isUnmounted = true;
+  for (const timer of commandButtonRetryTimers.values()) {
+    clearTimeout(timer);
+  }
+  commandButtonRetryTimers.clear();
 });
 </script>
 

@@ -306,7 +306,8 @@ describe('ProjectListView', () => {
       expect(fetchButtons).toHaveBeenCalledWith('commands-project');
     });
 
-    it('retries command-definition hydration after a transient failure', async () => {
+    it('autonomously retries command-definition hydration after a transient failure', async () => {
+      vi.useFakeTimers();
       fetchButtons
         .mockResolvedValueOnce(false)
         .mockResolvedValueOnce(true);
@@ -321,22 +322,12 @@ describe('ProjectListView', () => {
 
       expect(fetchButtons).toHaveBeenCalledTimes(1);
 
-      projectsStore.projects = [fullProject({
-        id: 'commands-project',
-        runningSessionCount: 1,
-      })];
+      await vi.advanceTimersByTimeAsync(500);
       await flushAll(wrapper);
 
       expect(fetchButtons).toHaveBeenCalledTimes(2);
       expect(fetchButtons).toHaveBeenLastCalledWith('commands-project');
-
-      projectsStore.projects = [fullProject({
-        id: 'commands-project',
-        runningSessionCount: 2,
-      })];
-      await flushAll(wrapper);
-
-      expect(fetchButtons).toHaveBeenCalledTimes(2);
+      vi.useRealTimers();
     });
   });
 
