@@ -1,7 +1,16 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { modelProviders, settings } from '../database.js';
+import {
+  modelProviders,
+  settings,
+  projects,
+  projectDefaults,
+  sessionTemplates,
+  sessions,
+  kanbanBoards,
+  kanbanLanes,
+} from '../database.js';
 import { buildTierRef } from '@circuschief/shared';
 import modelTiersRouter from './modelTiers.js';
 
@@ -475,6 +484,86 @@ describe('Model Tiers API', () => {
 
     it('returns 404 for missing tier', async () => {
       await request(app).delete('/api/tiers/nonexistent').expect(404);
+    });
+
+    it('atomically degrades every persisted tier configuration to its active member', async () => {
+      const created = await request(app)
+        .post('/api/tiers')
+        .send({
+          name: 'Deletion Fallback Tier',
+          members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+        })
+        .expect(201);
+      const tierRef = buildTierRef(created.body.id);
+      const project = projects.create('Tier deletion references', '/tmp/tier-deletion-references');
+      const template = sessionTemplates.create({
+        projectId: project.id, name: 'Tier template', prompt: 'Run', model: tierRef,
+      });
+      projectDefaults.upsert(project.id, { model: tierRef, providerId: null });
+      const board = kanbanBoards.create(project.id);
+      const lane = kanbanLanes.create(board.id, { name: 'Tier lane', onEnterModel: tierRef });
+      const session = sessions.create(project.id, 'Tier session', 'Later', {
+        status: 'scheduled', model: tierRef,
+      });
+      sessions.update(session.id, { pendingModel: tierRef });
+      settings.setSummarySettings({
+        disableSessionSummaries: false,
+        sessionTitlePrompt: '',
+        summaryModel: tierRef,
+        summaryProviderId: null,
+      });
+
+      await request(app).delete(`/api/tiers/${created.body.id}`).expect(204);
+
+      expect(sessionTemplates.getById(template.id).model).toBe('model-a');
+      expect(projectDefaults.getByProjectId(project.id)).toMatchObject({
+        model: 'model-a', providerId: providerA.id,
+      });
+      expect(kanbanLanes.getById(lane.id).onEnterModel).toBe('model-a');
+      expect(sessions.getById(session.id)).toMatchObject({
+        model: 'model-a', pendingModel: 'model-a', providerId: providerA.id,
+        resolvedModel: null, resolvedProviderId: null,
+      });
+      expect(settings.getSummarySettings()).toMatchObject({
+        summaryModel: 'model-a', summaryProviderId: providerA.id,
+      });
+    });
+
+    it('clears every persisted selection when a tier has no active member', async () => {
+      const created = await request(app)
+        .post('/api/tiers')
+        .send({
+          name: 'Deletion Empty Fallback Tier',
+          members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+        })
+        .expect(201);
+      const tierRef = buildTierRef(created.body.id);
+      const project = projects.create('Tier deletion no member', '/tmp/tier-deletion-no-member');
+      const template = sessionTemplates.create({
+        projectId: project.id, name: 'Tier template', prompt: 'Run', model: tierRef,
+      });
+      projectDefaults.upsert(project.id, { model: tierRef, providerId: providerA.id });
+      const board = kanbanBoards.create(project.id);
+      const lane = kanbanLanes.create(board.id, { name: 'Tier lane', onEnterModel: tierRef });
+      const session = sessions.create(project.id, 'Tier session', 'Later', {
+        status: 'scheduled', model: tierRef,
+      });
+      sessions.update(session.id, { pendingModel: tierRef });
+      settings.setSummarySettings({
+        disableSessionSummaries: false,
+        sessionTitlePrompt: '',
+        summaryModel: tierRef,
+        summaryProviderId: null,
+      });
+      modelProviders.update(providerA.id, { enabled: false });
+
+      await request(app).delete(`/api/tiers/${created.body.id}`).expect(204);
+
+      expect(sessionTemplates.getById(template.id).model).toBeNull();
+      expect(projectDefaults.getByProjectId(project.id)).toMatchObject({ model: null, providerId: null });
+      expect(kanbanLanes.getById(lane.id).onEnterModel).toBeNull();
+      expect(sessions.getById(session.id)).toMatchObject({ model: null, pendingModel: null, providerId: null });
+      expect(settings.getSummarySettings()).toMatchObject({ summaryModel: '', summaryProviderId: null });
     });
   });
 });

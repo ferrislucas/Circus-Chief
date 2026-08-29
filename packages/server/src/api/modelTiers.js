@@ -8,6 +8,7 @@ import { isTierRef, parseTierRef } from '@circuschief/shared';
 import { validateTierMembers } from './model-validation.js';
 import { tierHasUnsupportedSummaryKindMember } from '../services/summaryModelResolver.js';
 import { getTierMembersResolved } from '../services/tierResolutionService.js';
+import { deleteTierAndDegradeReferences } from '../services/tierDeletionService.js';
 
 const ERR_TIER_NOT_FOUND = 'Tier not found';
 
@@ -118,11 +119,9 @@ router.patch('/:id', (req, res) => {
 
 // DELETE /api/tiers/:id — delete a tier
 router.delete('/:id', (req, res) => {
-  const tier = modelTiers.getByIdWithMembers(req.params.id);
-  if (!tier) return res.status(404).json({ error: ERR_TIER_NOT_FOUND });
-
   try {
-    modelTiers.delete(req.params.id);
+    const result = deleteTierAndDegradeReferences(req.params.id);
+    if (!result) return res.status(404).json({ error: ERR_TIER_NOT_FOUND });
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: error.message });
