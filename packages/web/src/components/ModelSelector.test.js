@@ -1123,6 +1123,7 @@ describe('ModelSelector', () => {
     function seedTiers(tiers) {
       const tiersStore = useTiersStore();
       tiersStore.tiers = tiers;
+      tiersStore.loaded = true;
     }
 
     it('renders a "Model Tiers" optgroup when tiers with members exist', async () => {
@@ -1252,6 +1253,28 @@ describe('ModelSelector', () => {
         const chip = wrapper.find('.tier-chip');
         expect(chip.exists()).toBe(true);
         expect(chip.text()).toContain('tier-1');
+      });
+
+      it('does not warn about a tier reference while the catalog is still loading', async () => {
+        const tiersStore = useTiersStore();
+        tiersStore.tiers = [];
+        tiersStore.loaded = false;
+
+        const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
+        await flushAll(wrapper);
+
+        expect(wrapper.find('.tier-chip').classes()).not.toContain('tier-chip--stale');
+        expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
+      });
+
+      it('warns when the tier catalog has loaded empty after the last tier was deleted', async () => {
+        seedTiers([]);
+
+        const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
+        await flushAll(wrapper);
+
+        expect(wrapper.find('.tier-chip').classes()).toContain('tier-chip--stale');
+        expect(wrapper.find('.unknown-model-badge').exists()).toBe(true);
       });
 
       it('marks the chip as stale and surfaces the unknown-model badge for a deleted tier', async () => {

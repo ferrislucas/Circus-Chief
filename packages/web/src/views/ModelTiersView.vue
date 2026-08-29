@@ -302,7 +302,7 @@ function providerName(providerId) {
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 onMounted(async () => {
   await Promise.all([
-    tiersStore.tiers.length === 0 ? tiersStore.fetchTiers() : Promise.resolve(),
+    !tiersStore.loaded ? tiersStore.fetchTiers() : Promise.resolve(),
     providersStore.providers.length === 0 ? providersStore.fetchProviders() : Promise.resolve(),
   ]);
 });

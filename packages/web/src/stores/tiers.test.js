@@ -36,6 +36,7 @@ describe('useTiersStore', () => {
       await store.fetchTiers();
 
       expect(store.tiers).toEqual(tiers);
+      expect(store.loaded).toBe(true);
       expect(store.loading).toBe(false);
       expect(store.error).toBeNull();
     });
@@ -48,6 +49,7 @@ describe('useTiersStore', () => {
 
       expect(store.error).toBe('boom');
       expect(store.tiers).toEqual([]);
+      expect(store.loaded).toBe(false);
     });
   });
 

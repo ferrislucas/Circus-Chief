@@ -17,7 +17,10 @@ export function tierDisplayName(modelValue, tiersStore) {
 }
 
 export function tierIsStale(modelValue, tiersStore, visibleTiers) {
-  if (tiersStore.tiers.length === 0) return false;
+  // `loaded` is false only for the real store's initial/failure state. Treat
+  // lightweight callers that predate the flag as ready, preserving the helper
+  // contract for callers that provide an explicit tier list.
+  if (tiersStore.loaded === false) return false;
   const tierId = modelValue.slice('tier::'.length);
   return !visibleTiers.some((tier) => tier.id === tierId);
 }

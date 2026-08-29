@@ -192,9 +192,10 @@ const validModelIds = computed(() => {
 function isValidModelId(modelId) {
   if (!modelId) return false;
   if (isTierRef(modelId)) {
-    // Valid if the tier exists with ≥1 member (or tiers haven't loaded yet — be permissive)
+    // Valid if the tier exists with ≥1 member. Before the tier catalog has
+    // loaded, remain permissive so mounting does not produce a false warning.
     const tierId = modelId.slice('tier::'.length);
-    return tiersStore.tiers.length === 0 || tiersWithMembers.value.some((t) => t.id === tierId);
+    return !tiersStore.loaded || tiersWithMembers.value.some((t) => t.id === tierId);
   }
   return validModelIds.value.has(modelId);
 }
@@ -431,7 +432,7 @@ onMounted(async () => {
     : Promise.resolve();
 
   // Also fetch tiers if not yet loaded
-  const tiersFetch = tiersStore.tiers.length === 0
+  const tiersFetch = !tiersStore.loaded
     ? tiersStore.fetchTiers()
     : Promise.resolve();
 

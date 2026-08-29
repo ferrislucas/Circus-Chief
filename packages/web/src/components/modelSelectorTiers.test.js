@@ -46,10 +46,11 @@ describe('model selector tier helpers', () => {
     expect(tierDisplayName('tier::deleted', tiersStore)).toBe('deleted');
   });
 
-  it('treats tier refs permissively before loading and as stale after loading', () => {
-    expect(tierIsStale('tier::saved', { tiers: [] }, [])).toBe(false);
-    expect(tierIsStale('tier::saved', { tiers: [{}] }, [{ id: 'saved' }])).toBe(false);
-    expect(tierIsStale('tier::saved', { tiers: [{}] }, [{ id: 'other' }])).toBe(true);
+  it('treats tier refs permissively before loading and as stale after an empty loaded result', () => {
+    expect(tierIsStale('tier::saved', { loaded: false, tiers: [] }, [])).toBe(false);
+    expect(tierIsStale('tier::saved', { loaded: true, tiers: [] }, [])).toBe(true);
+    expect(tierIsStale('tier::saved', { loaded: true, tiers: [{}] }, [{ id: 'saved' }])).toBe(false);
+    expect(tierIsStale('tier::saved', { loaded: true, tiers: [{}] }, [{ id: 'other' }])).toBe(true);
   });
 
   it('describes unresolved, stale, singular, and plural tier bindings', () => {

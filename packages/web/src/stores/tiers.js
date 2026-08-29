@@ -8,6 +8,10 @@ export const useTiersStore = defineStore('tiers', {
   state: () => ({
     tiers: [],
     loading: false,
+    // An empty list is meaningful only after the first successful fetch. This
+    // keeps a just-mounted selector from treating a still-loading tier ref as
+    // deleted, while allowing the last deleted tier to become visibly stale.
+    loaded: false,
     error: null,
   }),
 
@@ -27,6 +31,7 @@ export const useTiersStore = defineStore('tiers', {
       this.error = null;
       try {
         this.tiers = await api.getTiers();
+        this.loaded = true;
       } catch (err) {
         this.error = err.message;
       } finally {
