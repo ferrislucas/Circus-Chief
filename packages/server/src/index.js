@@ -5,7 +5,7 @@ import { dirname } from 'path';
 import { createApp } from './app.js';
 import { initDatabase, commandRuns, sessions } from './database.js';
 import { initWebSocket, webSocketManager, setCommandRunOutputAuthorizer } from './websocket.js';
-import { parseCliOptions } from './cli.js';
+import { describeBindHost, parseCliOptions } from './cli.js';
 import { settings } from './db/index.js';
 import * as prStatusService from './services/prStatusService.js';
 import * as systemMonitor from './services/systemMonitor.js';
@@ -39,7 +39,7 @@ function validateNodeEnvironment() {
   }
 }
 
-const { port, disableAnalytics } = parseCliOptions();
+const { port, host, disableAnalytics } = parseCliOptions();
 process.env.PORT = String(port);
 const production = process.env.NODE_ENV === 'production';
 const dbPath = process.env.DB_PATH || getDefaultDbPath();
@@ -167,8 +167,19 @@ async function shutdown(signal) {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-// Start server on all interfaces
-server.listen(port, '0.0.0.0', () => {
-  console.log(`Circus Chief running on http://localhost:${port}`);
-  console.log(`WebSocket available at ws://localhost:${port}/ws`);
+const { urlHost, wildcard } = describeBindHost(host);
+
+server.on('error', (err) => {
+  console.error(`Error: failed to bind to ${host}:${port} — ${err.code || err.message}`);
+  process.exit(1);
+});
+
+server.listen(port, host, () => {
+  console.log(`Circus Chief running on http://${urlHost}:${port}`);
+  console.log(`WebSocket available at ws://${urlHost}:${port}/ws`);
+  if (wildcard) {
+    console.warn(
+      `Warning: bound to all interfaces (${host}) — the server is reachable from the network.`
+    );
+  }
 });
