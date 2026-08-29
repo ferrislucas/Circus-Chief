@@ -418,6 +418,37 @@ describe('SchedulerService', () => {
       expect(result).toEqual({ claimed: true });
     });
 
+    it('project-broadcasts the `starting` transition so sibling dropdown rows update', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Hello', pendingModel: 'claude-sonnet-4-5' };
+      stubSuccessfulClaim(session);
+
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp', systemPrompt: 'Be helpful' });
+      messages.getBySessionId.mockReturnValue([]);
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
+      messages.create.mockReturnValue({ id: 'msg-1', sessionId: 'session-1', role: 'user', content: 'Hello', conversationId: 'conv-1' });
+      attachments.getBySessionId.mockReturnValue([]);
+
+      // Once claimed, the repository row already carries the 'starting' status;
+      // broadcastSessionStatus reads it back to build the SESSION_UPDATED payload.
+      sessions.getById.mockReturnValue({ ...session, id: 'session-1', status: 'starting' });
+
+      await scheduler.startScheduledSession(session);
+
+      // The session-scoped frame is still emitted (existing contract preserved)...
+      expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
+        sessionId: 'session-1',
+        status: 'starting',
+      });
+      // ...and now the project-scoped SESSION_UPDATED frame reaches project
+      // subscribers so a sibling row flips out of "⏰ Scheduled" immediately.
+      expect(broadcastToProject).toHaveBeenCalledWith('project-1', WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        session: expect.objectContaining({ id: 'session-1', status: 'starting' }),
+      });
+    });
+
     it('uses gitWorktree for working directory when available', async () => {
       scheduler.initialize(mockSessionManager);
       const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', gitWorktree: '/tmp/worktree', pendingPrompt: 'Hello', pendingModel: null };

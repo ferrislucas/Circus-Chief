@@ -12,8 +12,10 @@ import { useProjectsStore } from '../stores/projects.js';
 import { useUiStore } from '../stores/ui.js';
 import { useKanbanStore } from '../stores/kanban.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { projectSubscriptionIds, projectSubscriptionCounts } from '../composables/useProjectSubscription.js';
 
 const websocketHandlers = vi.hoisted(() => new Map());
+const websocketSend = vi.hoisted(() => vi.fn());
 
 // Mock components
 vi.mock('../components/ChangesTab.vue', () => ({
@@ -141,7 +143,7 @@ vi.mock('../composables/useWebSocket.js', () => {
     ensureSubscribed: vi.fn(() => Promise.resolve()),
     useWebSocket: vi.fn(() => ({
       isConnected: { value: true },
-      send: vi.fn(),
+      send: websocketSend,
       on: vi.fn((type, callback) => websocketHandlers.set(type, callback)),
       off: vi.fn((type) => websocketHandlers.delete(type)),
       disconnect: vi.fn(),
@@ -201,6 +203,9 @@ describe('SessionDetailView', () => {
       value: 640,
     });
     websocketHandlers.clear();
+    websocketSend.mockClear();
+    projectSubscriptionIds.clear();
+    projectSubscriptionCounts.clear();
     pinia = createPinia();
     setActivePinia(pinia);
 
@@ -5617,6 +5622,233 @@ describe('SessionDetailView', () => {
       await nextTick();
 
       expect(root.attributes('data-ready')).toBe('true');
+    });
+  });
+
+  describe('project subscription reconnect safety', () => {
+    const stubs = {
+      ConversationTab: true,
+      ChangesTab: true,
+      CanvasTab: true,
+      SummaryTab: true,
+      CommandsTab: true,
+      PrIndicators: true,
+    };
+
+    it('registers the detail view project subscription on mount', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: { plugins: [pinia, router], stubs },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // The shared registry is what useWebSocket's reconnect path iterates to
+      // re-subscribe, so membership here is what makes the subscription survive
+      // a WebSocket disconnect/reconnect.
+      expect(projectSubscriptionIds.has('proj-1')).toBe(true);
+      expect(projectSubscriptionCounts.get('proj-1')).toBe(1);
+      expect(websocketSend).toHaveBeenCalledWith(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId: 'proj-1' });
+    });
+
+    it('keeps the project id in the reconnect registry (useWebSocket onopen re-subscribes it)', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: { plugins: [pinia, router], stubs },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Simulate useWebSocket.onopen's reconnect loop: for each tracked project
+      // id, it sends SUBSCRIBE_PROJECT again. The detail view's project must be
+      // present for that re-subscribe to happen.
+      for (const projectId of projectSubscriptionIds) {
+        websocketSend(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId });
+      }
+      expect(websocketSend).toHaveBeenLastCalledWith(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId: 'proj-1' });
+    });
+
+    it('unsubscribes the project on unmount', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: { plugins: [pinia, router], stubs },
+      });
+
+      await flushPromises();
+      await nextTick();
+      expect(projectSubscriptionIds.has('proj-1')).toBe(true);
+
+      wrapper.unmount();
+      await flushPromises();
+
+      expect(projectSubscriptionIds.has('proj-1')).toBe(false);
+      expect(projectSubscriptionCounts.has('proj-1')).toBe(false);
+    });
+
+    it('swaps project subscriptions exactly once when navigating between projects', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Session One',
+        status: 'completed',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+      projectsStore.currentProject = { id: 'proj-1', name: 'Project 1' };
+      vi.spyOn(projectsStore, 'fetchProject').mockResolvedValue(undefined);
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: { plugins: [pinia, router], stubs },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      expect(projectSubscriptionIds.has('proj-1')).toBe(true);
+      expect(projectSubscriptionCounts.get('proj-1')).toBe(1);
+
+      sessionsStore.currentSession = {
+        id: 'session-2',
+        name: 'Session Two',
+        status: 'completed',
+        projectId: 'proj-2',
+      };
+
+      await router.push('/sessions/session-2');
+      await flushPromises();
+      await nextTick();
+
+      expect(projectSubscriptionIds.has('proj-1')).toBe(false);
+      expect(projectSubscriptionIds.has('proj-2')).toBe(true);
+      expect(projectSubscriptionCounts.get('proj-2')).toBe(1);
+      expect(websocketSend).toHaveBeenCalledWith(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId: 'proj-1' });
+      expect(websocketSend).toHaveBeenCalledWith(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId: 'proj-2' });
+    });
+  });
+
+  describe('live session chain (store-driven rows)', () => {
+    function seedParentChildTree() {
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: null,
+        updatedAt: 1000,
+        createdAt: 500,
+      };
+      const childSession = {
+        id: 'child-1',
+        name: 'Child',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+        lastMessageAt: 2000,
+        updatedAt: 2000,
+        createdAt: 1500,
+      };
+      sessionsStore.currentSession = parentSession;
+      sessionsStore.sessions = [parentSession, childSession];
+      return { parentSession, childSession };
+    }
+
+    it('liveSessionChain reflects store-side status updates while sessionChain stays stale', async () => {
+      const { parentSession, childSession } = seedParentChildTree();
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      const chainChild = wrapper.vm.sessionChain.find(entry => entry.session.id === 'child-1');
+      expect(chainChild.session.status).toBe('waiting');
+
+      // Simulate a store-side mutation (e.g. session-level polling or a
+      // session-level WS update) that replaces the object in the store.
+      sessionsStore._updateSessionInAllLists('child-1', { status: 'running' });
+      await nextTick();
+
+      // The legacy snapshot keeps pointing at the original object reference.
+      expect(wrapper.vm.sessionChain.find(entry => entry.session.id === 'child-1').session.status).toBe('waiting');
+      // The live chain re-resolves from the store, so the row renders running.
+      expect(wrapper.vm.liveSessionChain.find(entry => entry.session.id === 'child-1').session.status).toBe('running');
+    });
+
+    it('handleSessionUpdated patches both the workspace chain and the central store', async () => {
+      const { childSession } = seedParentChildTree();
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      const handleSessionUpdated = websocketHandlers.get(WS_MESSAGE_TYPES.SESSION_UPDATED);
+      expect(handleSessionUpdated).toBeTypeOf('function');
+
+      const updated = { ...childSession, status: 'running' };
+      handleSessionUpdated({ session: updated });
+      await nextTick();
+
+      // Both the chain entry and the central store now hold the fresh status,
+      // so a later buildSessionChain() cannot resurrect a stale one.
+      expect(wrapper.vm.sessionChain.find(entry => entry.session.id === 'child-1').session.status).toBe('running');
+      expect(sessionsStore.sessions.find(s => s.id === 'child-1').status).toBe('running');
     });
   });
 });
