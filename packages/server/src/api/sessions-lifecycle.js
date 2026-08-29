@@ -225,6 +225,15 @@ function launchBudgetFailure(session) {
     : null;
 }
 
+function pendingScheduleFailure(session) {
+  if (session.status === 'scheduled') {
+    return !session.scheduledAt || !session.pendingPrompt
+      ? { error: 'Session has no pending scheduled turn' }
+      : null;
+  }
+  return session.status === 'starting' ? null : { error: 'Session has no pending scheduled turn' };
+}
+
 router.post('/:id/run-scheduled-now', requireSession, async (req, res) => {
   const session = sessions.getById(req.params.id);
 
@@ -235,13 +244,8 @@ router.post('/:id/run-scheduled-now', requireSession, async (req, res) => {
   // "I already got what I wanted" outcome here, not an error, so it falls
   // through to the claim attempt below (which will cleanly lose and return
   // the current state) rather than 409ing.
-  if (session.status === 'scheduled') {
-    if (!session.scheduledAt || !session.pendingPrompt) {
-      return res.status(409).json({ error: 'Session has no pending scheduled turn' });
-    }
-  } else if (session.status !== 'starting') {
-    return res.status(409).json({ error: 'Session has no pending scheduled turn' });
-  }
+  const scheduleFailure = pendingScheduleFailure(session);
+  if (scheduleFailure) return res.status(409).json(scheduleFailure);
 
   const budgetFailure = launchBudgetFailure(session);
   if (budgetFailure) return res.status(409).json(budgetFailure);

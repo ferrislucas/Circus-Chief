@@ -353,15 +353,17 @@ function hasExistingSchedule(session) {
 }
 
 function resolveDeferredWakeup(sessionId, wakeup) {
-  if (!wakeup.deferredSentinel) return true;
+  if (!wakeup.deferredSentinel) return wakeup;
   const loopContext = resolveAutonomousLoopContext(sessionId);
   if (!loopContext) {
     logDroppedWakeup(sessionId, 'ScheduleWakeup requested the SDK autonomous-loop sentinel, but this turn has no resumable active Claude /loop conversation. The wakeup was not scheduled because Circus Chief cannot safely reconstruct the loop context.');
-    return false;
+    return null;
   }
-  wakeup.prompt = loopContext.prompt;
-  wakeup.pendingConversationId = loopContext.pendingConversationId;
-  return true;
+  return {
+    ...wakeup,
+    prompt: loopContext.prompt,
+    pendingConversationId: loopContext.pendingConversationId,
+  };
 }
 
 function wakeupCanReplaceExistingSchedule(sessionId, state, wakeup, session) {
@@ -404,14 +406,15 @@ function wakeupCanReplaceExistingSchedule(sessionId, state, wakeup, session) {
  */
 export function applyPendingWakeup(sessionId, controller) {
   const state = getTurnState(sessionId, controller);
-  const wakeup = state?.pendingWakeup;
-  if (!wakeup) return false;
+  const capturedWakeup = state?.pendingWakeup;
+  if (!capturedWakeup) return false;
   state.pendingWakeup = null;
 
   const session = sessions.getById(sessionId);
   if (!session) return false;
 
-  if (!resolveDeferredWakeup(sessionId, wakeup)) return false;
+  const wakeup = resolveDeferredWakeup(sessionId, capturedWakeup);
+  if (!wakeup) return false;
   if (!wakeupCanReplaceExistingSchedule(sessionId, state, wakeup, session)) return false;
 
   // Honour the SDK's promise (capturedAt + delay, which is what the agent was

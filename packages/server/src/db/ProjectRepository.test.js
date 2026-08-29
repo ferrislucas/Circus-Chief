@@ -7,6 +7,10 @@ function setSessionActivity(sessionId, value) {
   databaseManager.get().prepare('UPDATE sessions SET last_activity_at = ? WHERE id = ?').run(value, sessionId);
 }
 
+function setProjectUpdatedAt(projectId, value) {
+  databaseManager.get().prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(value, projectId);
+}
+
 describe('ProjectRepository', () => {
   // Uses global setup from test/setup.js
   let repo;
@@ -265,6 +269,8 @@ describe('ProjectRepository', () => {
     it('preserves sessionCount, lastActivityAt and updatedAt ordering behaviour', () => {
       const p1 = repo.create('Project 1', '/tmp/1');
       const p2 = repo.create('Project 2', '/tmp/2');
+      setProjectUpdatedAt(p1.id, 1);
+      setProjectUpdatedAt(p2.id, 2);
       const sessionRepo = new SessionRepository();
       sessionRepo.create(p1.id, 'Session A', 'prompt');
       sessionRepo.create(p1.id, 'Session B', 'prompt');

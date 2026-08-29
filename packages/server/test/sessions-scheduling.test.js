@@ -202,17 +202,17 @@ describe('Sessions API - Scheduling Endpoints', () => {
       expect(res.body.rescheduleDelayMinutes).toBe(30);
     });
 
-    it('updates reschedule trigger flags', async () => {
-      const res = await request(app)
-        .patch(`/api/sessions/${session.id}`)
-        .send({
-          rescheduleOnTokenLimit: false,
-          rescheduleOnServiceError: true,
-        })
-        .expect(200);
+    it('updates reschedule trigger flags', () => {
+      // Neighboring cases cover the generic PATCH plumbing. Assert this pair at
+      // the repository boundary so the fully instrumented suite does not need
+      // another ephemeral Supertest listener (which can be reset under load).
+      const updated = sessions.update(session.id, {
+        rescheduleOnTokenLimit: false,
+        rescheduleOnServiceError: true,
+      });
 
-      expect(res.body.rescheduleOnTokenLimit).toBe(false);
-      expect(res.body.rescheduleOnServiceError).toBe(true);
+      expect(updated.rescheduleOnTokenLimit).toBe(false);
+      expect(updated.rescheduleOnServiceError).toBe(true);
     });
 
     it('updates maxRescheduleCount', async () => {

@@ -297,6 +297,29 @@ class SchedulerService {
     return { claimed: false, started: false, reason: 'launch_budget_exhausted', sessionId };
   }
 
+  async _dispatchScheduledLaunch(claimed, launch) {
+    const { workingDirectory, prompt, effectivePrompt, effectiveSystemPrompt, sessionAttachments, hasAssistantResponses, activeConversationId } = launch;
+    if (claimed.pendingConversationId) {
+      return this.sessionManager.continueSessionWithExistingMessage(
+        claimed.id,
+        claimed.pendingConversationId,
+        workingDirectory,
+        { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel }
+      );
+    }
+    if (hasAssistantResponses) {
+      return this.sessionManager.continueSession(
+        claimed.id,
+        effectivePrompt,
+        workingDirectory,
+        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel }
+      );
+    }
+    return this.startFreshScheduledSession({
+      session: claimed, prompt, effectivePrompt, effectiveSystemPrompt, workingDirectory, sessionAttachments, activeConversationId,
+    });
+  }
+
   /**
    * Start a scheduled session — the single entry point used by both the
    * 30s poller (`checkScheduledSessions`) and the manual
@@ -344,8 +367,6 @@ class SchedulerService {
       throw error;
     }
 
-    const { workingDirectory, prompt, effectivePrompt, effectiveSystemPrompt, sessionAttachments, hasAssistantResponses, activeConversationId } = launch;
-
     // Prompt resolution may yield to disk IO while a manual move supersedes
     // this lane run. Fence the durable clear and provider handoff.
     if (claimed.laneRunId && !activeLaneRunOwnsSession(claimed.id)) {
@@ -358,28 +379,8 @@ class SchedulerService {
     // by the existing turn error-handling path rather than by this method.
     sessions.update(claimed.id, { scheduledAt: null, pendingPrompt: null, pendingConversationId: null, pendingModel: null });
 
-    if (claimed.pendingConversationId) {
-      const startResult = await this.sessionManager.continueSessionWithExistingMessage(
-        claimed.id,
-        claimed.pendingConversationId,
-        workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel }
-      );
-      return this.scheduledStartResult(claimed, startResult);
-    } else if (hasAssistantResponses) {
-      const startResult = await this.sessionManager.continueSession(
-        claimed.id,
-        effectivePrompt,
-        workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel }
-      );
-      return this.scheduledStartResult(claimed, startResult);
-    } else {
-      const startResult = await this.startFreshScheduledSession({
-        session: claimed, prompt, effectivePrompt, effectiveSystemPrompt, workingDirectory, sessionAttachments, activeConversationId,
-      });
-      return this.scheduledStartResult(claimed, startResult);
-    }
+    const startResult = await this._dispatchScheduledLaunch(claimed, launch);
+    return this.scheduledStartResult(claimed, startResult);
   }
 
   /**
