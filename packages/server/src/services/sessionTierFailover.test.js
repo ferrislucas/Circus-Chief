@@ -124,6 +124,29 @@ describe('runSessionCore tier failover (integration)', () => {
     expect(failoverBroadcast[2].sessionId).toBe(session.id);
   });
 
+  it('fails over when a retryable provider failure arrives as result:error', async () => {
+    mockQuery.mockImplementationOnce(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'failed-stream', model: 'model-a', slash_commands: [] };
+      yield { type: 'result', subtype: 'error', error: 'Rate limit exceeded' };
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    expect(isUnhealthy(providerA.id, 'model-a')).toBe(true);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.status).not.toBe('error');
+    expect(updated.error).toBeFalsy();
+    expect(updated.resolvedModel).toBe('model-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+
+    // The failed attempt is transparent: only the tier-failover notice is
+    // emitted, never a terminal session error / visible error message.
+    expect(broadcastToSession.mock.calls.some((call) => call[1] === 'session:error')).toBe(false);
+    expect(broadcastToSession.mock.calls.some((call) => call[1] === 'tier:failover')).toBe(true);
+  });
+
   it('marks the failed member unhealthy so a subsequent session start skips it', async () => {
     // eslint-disable-next-line require-yield -- always throws before yielding, matching agent.execute()'s async-iterable contract
     mockQuery.mockImplementationOnce(async function* () {

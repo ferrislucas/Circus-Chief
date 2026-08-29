@@ -325,7 +325,13 @@ export async function _executeSession({
     // Run the query with the agent (SDK via gateway, or mock)
     for await (const event of agent.execute(providerQueryParams, agentCallMeta)) {
       if (controller.signal.aborted) break;
-      await handleStreamEvent(sessionId, event, { controller });
+      await handleStreamEvent(sessionId, event, {
+        controller,
+        // `result:error` is a normal provider event, not an iterator rejection.
+        // Let the stream layer rethrow it only when this attempt can genuinely
+        // fail over, before it creates terminal error state/messages.
+        shouldThrowOnResultError: (error) => shouldRethrowForTierFailover(sessionId, error, tierContext),
+      });
     }
     if (controller.signal.aborted) {
       discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_cancelled');

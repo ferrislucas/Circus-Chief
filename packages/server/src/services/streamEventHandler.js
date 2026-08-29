@@ -429,7 +429,25 @@ function handleContentBlockStop(sessionId, _event) {
  * @param {string} sessionId
  * @param {Object} event
  */
-function handleResultEvent(sessionId, event) {
+function handleResultEvent(sessionId, event, { shouldThrowOnResultError } = {}) {
+  // A provider may report a failure as its normal terminal `result:error`
+  // event instead of rejecting the async iterable.  When the current attempt
+  // is eligible to transparently advance a model tier, turn that event back
+  // into an exception *before* recording terminal-error side effects.  The
+  // tier loop owns the retry notice/cooldown in that case; writing an error
+  // state or visible assistant error here would leak a failed attempt into a
+  // turn which is about to succeed on its next member.
+  if (event.subtype === 'error') {
+    const errorMessage = normalizeFinalErrorMessage(event.error);
+    const streamError = Object.assign(new Error(errorMessage),
+      event.error && typeof event.error === 'object' ? event.error : {},
+      Number.isFinite(event.status) ? { status: event.status } : {}
+    );
+    if (shouldThrowOnResultError?.(streamError)) {
+      throw streamError;
+    }
+  }
+
   // Capture the authoritative turn-termination text regardless of subtype, so the
   // completion path can later detect a graceful usage-limit/outage termination.
   finalResultEvents.set(sessionId, {
@@ -512,7 +530,7 @@ const eventHandlers = {
  * @param {Object} event
  * @param {{ controller?: AbortController }} options
  */
-export async function handleStreamEvent(sessionId, event, { controller } = {}) {
+export async function handleStreamEvent(sessionId, event, { controller, shouldThrowOnResultError } = {}) {
   // Check if session has been cleaned up (aborted/deleted) - don't process events for deleted sessions
   if (!activeSessions.has(sessionId)) {
     return;
@@ -528,7 +546,11 @@ export async function handleStreamEvent(sessionId, event, { controller } = {}) {
 
   const handler = eventHandlers[event.type];
   if (handler) {
-    handler(sessionId, event, controller || activeSession?.controller);
+    if (event.type === 'result') {
+      handler(sessionId, event, { shouldThrowOnResultError });
+    } else {
+      handler(sessionId, event, controller || activeSession?.controller);
+    }
   }
 }
 
