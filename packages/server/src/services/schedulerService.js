@@ -4,6 +4,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
 import { claimWorkflowSessionStart, withActiveLaneRunOwnership, activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { didSessionExecutionStart, rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
+import { broadcastSessionStatus } from './streamEventHandler.js';
 
 function broadcastRescheduledSession(sessionId, updated) {
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
@@ -317,7 +318,12 @@ class SchedulerService {
     }
 
     console.log(`[SchedulerService] Starting scheduled session ${claimed.id}: ${claimed.name}`);
-    broadcastToSession(claimed.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: claimed.id, status: 'starting' });
+    // broadcastSessionStatus sends both the session-scoped SESSION_STATUS frame
+    // and the project-scoped SESSION_UPDATED frame, so a sibling session's
+    // dropdown row in another view also flips out of "⏰ Scheduled" for the
+    // `starting` transition (previously only the `running` transition was
+    // project-broadcast).
+    broadcastSessionStatus(claimed.id, 'starting');
 
     let launch;
     try {
