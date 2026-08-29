@@ -6,6 +6,8 @@ import {
   seedSession,
   seedChildSession,
   updateSessionStatus,
+  seedCommandButton,
+  runCommandButtonAndWait,
 } from './helpers';
 
 /**
@@ -201,6 +203,29 @@ test.describe('Project list embedded session cards', () => {
     // without a running badge.
     await expect(card.locator('.embedded-session-list .session-card')).toHaveCount(2);
     await expect(card.locator('.embedded-session-list .status-badge.status-running')).toHaveCount(0);
+  });
+
+  test('shows visible Circus command run badges on embedded session cards', async ({ page }) => {
+    const project = await seedProject('project-command-badges', '/tmp');
+    const session = await seedSession(project.id, {
+      prompt: 'command badge',
+      name: 'command badge session',
+      startImmediately: false,
+    });
+    const button = await seedCommandButton(project.id, {
+      label: 'Project list command',
+      command: 'echo project-list-badge',
+      showOnList: true,
+    });
+
+    await runCommandButtonAndWait(session.id, button.id);
+    await page.goto('/');
+    await showEmbeddedSessions(page, project.name);
+
+    const card = embeddedSessionCard(page, project.name, session.name);
+    await expect(card).toBeVisible({ timeout: LIVE_TIMEOUT });
+    await expect(card.locator('.button-status-indicator[title="Project list command"]'))
+      .toBeVisible({ timeout: LIVE_TIMEOUT });
   });
 
   test('clicking an embedded session card navigates to the root session, never the session list', async ({ page }) => {

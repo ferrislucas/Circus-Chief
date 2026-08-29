@@ -524,10 +524,6 @@ onMounted(() => {
   color: var(--color-success);
 }
 
-.status-waiting {
-  color: var(--color-warning);
-}
-
 /* Mobile breakpoints */
 @media (max-width: 640px) {
   .empty-state {
