@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
-import request from 'supertest';
 import { projects, sessions } from '../src/database.js';
+import { createHttpTestServer } from './httpTestServer.js';
 
 // Mock websocket
 vi.mock('../src/websocket.js', () => ({
@@ -16,19 +16,28 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 describe('Sessions API - Scheduling Endpoints', () => {
   let app;
+  let client;
+  let closeServer;
   let project;
   let session;
+  // Keep the existing request call sites on the explicitly owned listener.
+  const request = () => client;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
 
     app = express();
     app.use(express.json());
     app.use('/api/sessions', sessionsRouter);
+    ({ client, close: closeServer } = await createHttpTestServer(app));
 
     // Create test data
     project = projects.create('Test Project', '/tmp/test');
     session = sessions.create(project.id, 'Test Session', 'Test prompt');
+  });
+
+  afterEach(async () => {
+    await closeServer?.();
   });
 
   describe('GET /api/sessions/scheduled', () => {
@@ -127,7 +136,7 @@ describe('Sessions API - Scheduling Endpoints', () => {
       expect(res.body[0].projectName).toBe(project.name);
     });
 
-    it('returns empty array when filtering by projectId with no scheduled sessions', async () => {
+    it('returns an HTTP empty array when filtering by projectId with no scheduled sessions', async () => {
       // Create another project without scheduled sessions
       const project2 = projects.create('Project 2', '/tmp/test2');
 
@@ -135,14 +144,11 @@ describe('Sessions API - Scheduling Endpoints', () => {
       const scheduledAt = Date.now() + 3600000;
       sessions.update(session.id, { status: 'scheduled', scheduledAt });
 
-      // The preceding test covers the HTTP route's projectId plumbing. Assert
-      // the empty-filter behavior at the repository boundary here so this
-      // distinct data case does not add another ephemeral Supertest listener.
-      // Under the fully instrumented suite that listener can be reset under
-      // load, producing a transport failure unrelated to scheduling behavior.
-      const scheduledForProject = sessions.getScheduledSessions(project2.id);
+      const res = await client
+        .get(`/api/sessions/scheduled?projectId=${project2.id}`)
+        .expect(200);
 
-      expect(scheduledForProject).toEqual([]);
+      expect(res.body).toEqual([]);
     });
 
     it('ignores invalid projectId and returns all scheduled sessions', async () => {
@@ -202,17 +208,26 @@ describe('Sessions API - Scheduling Endpoints', () => {
       expect(res.body.rescheduleDelayMinutes).toBe(30);
     });
 
-    it('updates reschedule trigger flags', () => {
-      // Neighboring cases cover the generic PATCH plumbing. Assert this pair at
-      // the repository boundary so the fully instrumented suite does not need
-      // another ephemeral Supertest listener (which can be reset under load).
-      const updated = sessions.update(session.id, {
+    it('PATCHes only allow-listed reschedule trigger flags and serializes them', async () => {
+      const res = await client
+        .patch(`/api/sessions/${session.id}`)
+        .send({
+          rescheduleOnTokenLimit: false,
+          rescheduleOnServiceError: true,
+          ignoredSchedulingField: 'must not be persisted',
+        })
+        .expect(200);
+
+      expect(res.body).toEqual(expect.objectContaining({
+        id: session.id,
         rescheduleOnTokenLimit: false,
         rescheduleOnServiceError: true,
-      });
-
-      expect(updated.rescheduleOnTokenLimit).toBe(false);
-      expect(updated.rescheduleOnServiceError).toBe(true);
+      }));
+      expect(res.body).not.toHaveProperty('ignoredSchedulingField');
+      expect(sessions.getById(session.id)).toEqual(expect.objectContaining({
+        rescheduleOnTokenLimit: false,
+        rescheduleOnServiceError: true,
+      }));
     });
 
     it('updates maxRescheduleCount', async () => {

@@ -3,7 +3,7 @@ import { sessions, messages, conversations, projects, attachments } from '../dat
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
-import { claimWorkflowSessionStart, withActiveLaneRunOwnership, activeLaneRunOwnsSession } from './workflowSessionService.js';
+import { claimWorkflowSessionStart, withActiveLaneRunOwnership, activeLaneRunOwnsSession, closeOwnWork } from './workflowSessionService.js';
 import { didSessionExecutionStart, rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 
 function broadcastRescheduledSession(sessionId, updated) {
@@ -288,11 +288,18 @@ class SchedulerService {
   _refuseLaunchPastBudget(sessionId) {
     const row = sessions.getById(sessionId);
     if (!row || !this.hasReachedLaunchBudget(row)) return null;
+    const error = `Scheduled launch refused: max total tokens reached (${row.maxTotalTokens.toLocaleString()}).`;
     sessions.update(sessionId, {
       status: 'stopped', scheduledAt: null, pendingPrompt: null,
       pendingConversationId: null, pendingModel: null,
-      error: `Scheduled launch refused: max total tokens reached (${row.maxTotalTokens.toLocaleString()}).`,
+      error,
     });
+    // The token cap is a hard terminal limit, not a retryable hold. A
+    // participating worker therefore must close its durable obligation and
+    // reconcile its lane run; otherwise the cleared schedule would strand an
+    // open run with no executable owner. This is intentionally idempotent for
+    // ordinary sessions and for a worker concurrently superseded or closed.
+    closeOwnWork(sessionId, 'closed_failed', error);
     broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'stopped' });
     return { claimed: false, started: false, reason: 'launch_budget_exhausted', sessionId };
   }
