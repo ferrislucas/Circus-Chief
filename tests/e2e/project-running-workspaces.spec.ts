@@ -44,7 +44,8 @@ function filterPill(page: Page, status: string) {
 }
 
 /**
- * The `running` / `waiting` / `idle` badges are *global* project counts
+ * The `running` badge is a global running-session count; `waiting` and `idle`
+ * badges are global project counts.
  * (playwright.config.ts: fullyParallel + workers: 4 — this spec file's own
  * tests are forced serial below, but 3 other workers are running unrelated
  * spec files against the same shared DB at the same time, and they create,
@@ -53,15 +54,27 @@ function filterPill(page: Page, status: string) {
  * because another worker can seed or finish a project in between.
  *
  * So badge counts are asserted through an invariant that holds within a
- * single render regardless of what the other workers are doing: with a status
- * filter applied, the pill's badge count equals the number of project cards
- * the list renders (projects store: `statusFacets` and `filteredProjects`
- * partition the same array with the same predicate). The per-status semantics
+ * single render regardless of what the other workers are doing for the project
+ * count badges: with a status filter applied, the pill's badge count equals
+ * the number of project cards the list renders. The per-status semantics
  * — e.g. that a `waiting`-status session with no pending agent input is not a
  * "waiting" project — are asserted by which filters our own seeded project
  * appears under, which is unaffected by other workers' projects.
  */
 async function expectPillCountMatchesFilteredList(page: Page, status: string) {
+  if (status === 'running') {
+    await expect
+      .poll(
+        async () => {
+          const badge = await filterPill(page, status).locator('.filter-count').textContent();
+          return Number(badge) === (await getStatusFacets()).running;
+        },
+        { timeout: LIVE_TIMEOUT }
+      )
+      .toBe(true);
+    return;
+  }
+
   await expect
     .poll(
       async () => {
@@ -74,7 +87,7 @@ async function expectPillCountMatchesFilteredList(page: Page, status: string) {
     .toBe(true);
 }
 
-/** Global project facets, derived from the API the same way the store does. */
+/** Global status facets, derived from the API the same way the store does. */
 async function getStatusFacets(): Promise<{ running: number; waiting: number; idle: number }> {
   const projects = await getProjects();
   let running = 0;
@@ -83,7 +96,7 @@ async function getStatusFacets(): Promise<{ running: number; waiting: number; id
   for (const p of projects) {
     const isRunning = (p.runningSessionCount ?? 0) > 0;
     const isWaiting = (p.waitingSessionCount ?? 0) > 0;
-    if (isRunning) running += 1;
+    running += p.runningSessionCount ?? 0;
     if (isWaiting) waiting += 1;
     if (!isRunning && !isWaiting) idle += 1;
   }
@@ -132,6 +145,10 @@ test.describe('Project list embedded session cards', () => {
     await updateSessionStatus(gamma.id, 'stopped');
 
     await page.goto('/');
+
+    // Four running sessions belong to this single project. The filter still
+    // renders one project card, but its badge must report all four sessions.
+    await expectPillCountMatchesFilteredList(page, 'running');
 
     const alphaCard = embeddedSessionCard(page, project.name, 'alpha');
     await expect(alphaCard).toBeVisible({ timeout: LIVE_TIMEOUT });
@@ -245,9 +262,9 @@ test.describe('Project list embedded session cards', () => {
 
     await page.goto('/');
 
-    // Badge counts are *global* project counts (RQ §9.6), so each pill's count
-    // is asserted against the list it filters to rather than an absolute
-    // number — see expectPillCountMatchesFilteredList(). A status='waiting'
+    // The running badge is a global session count; waiting and idle are global
+    // project counts. Each pill is asserted against its matching invariant —
+    // see expectPillCountMatchesFilteredList(). A status='waiting'
     // session is idle unless it has pending_agent_input, which is why
     // waitingProject shows up under `idle` below and never under `waiting`.
     await expect(filterPill(page, 'running')).toContainText('running');
@@ -286,10 +303,10 @@ test.describe('Project list embedded session cards', () => {
     await page.goto('/');
 
     // Only the running session makes this project active; status='waiting'
-    // alone does not represent a pending agent prompt. Badge counts are global
-    // and other workers move them constantly, so each pill's count is checked
-    // against the list it produces, while the semantics are asserted by which
-    // filters this project appears under.
+    // alone does not represent a pending agent prompt. Counts are global and
+    // other workers move them constantly, so each pill is checked against its
+    // matching invariant while the semantics are asserted by which filters
+    // this project appears under.
     await filterPill(page, 'running').click();
     await expect(projectCard(page, project.name)).toBeVisible();
     await expectPillCountMatchesFilteredList(page, 'running');
