@@ -7,8 +7,13 @@ import {
 import { isTierRef, parseTierRef } from '@circuschief/shared';
 import { validateTierMembers } from './model-validation.js';
 import { tierHasUnsupportedSummaryKindMember } from '../services/summaryModelResolver.js';
+import { getTierMembersResolved } from '../services/tierResolutionService.js';
 
 const ERR_TIER_NOT_FOUND = 'Tier not found';
+
+function withResolvableMembers(tier) {
+  return tier ? { ...tier, members: getTierMembersResolved(tier.id) } : tier;
+}
 
 const router = Router();
 
@@ -37,7 +42,7 @@ function checkSummaryTierKindGuard(tierId, members) {
 // GET /api/tiers — list all tiers with members
 router.get('/', (_req, res) => {
   try {
-    const all = modelTiers.getAllWithMembers();
+    const all = modelTiers.getAllWithMembers().map(withResolvableMembers);
     res.json(all);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -49,7 +54,7 @@ router.get('/:id', (req, res) => {
   try {
     const tier = modelTiers.getByIdWithMembers(req.params.id);
     if (!tier) return res.status(404).json({ error: ERR_TIER_NOT_FOUND });
-    res.json(tier);
+    res.json(withResolvableMembers(tier));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

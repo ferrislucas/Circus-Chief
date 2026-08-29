@@ -93,10 +93,10 @@ describe('runSessionCore tier failover (integration)', () => {
     expect(updated.resolvedProviderId).toBe(providerA.id);
   });
 
-  it('fails over to the next member when the first member throws a service error at start', async () => {
+  it('fails over to the next member for a status-only SDK error at start', async () => {
     // eslint-disable-next-line require-yield -- always throws before yielding, matching agent.execute()'s async-iterable contract
     mockQuery.mockImplementationOnce(async function* () {
-      throw new Error('Error: 529 Service overloaded');
+      throw Object.assign(new Error('Request failed'), { status: 503 });
     });
 
     await runSession(session.id, 'Initial prompt', tempDir, { model: null });
@@ -326,7 +326,7 @@ describe('runSessionCore tier failover (integration)', () => {
 
 // ── Fix 2: successor-aware cooldown ──────────────────────────────────────────
 
-describe('handleTierMemberFailure successor-aware cooldown (Fix 2)', () => {
+describe('handleTierMemberFailure cooldown', () => {
   let sessionRepo;
   let projectRepo;
   let session;
@@ -387,8 +387,8 @@ describe('handleTierMemberFailure successor-aware cooldown (Fix 2)', () => {
     expect(updated.resolvedModel).toBe('fix2-model-b');
   });
 
-  it('does NOT cool down the last failing member when no successor exists (Fix 2 dead-end prevention)', async () => {
-    // A fails → B fails (no next after B) → B should NOT be cooled
+  it('cools down the last failing member when no successor exists', async () => {
+    // A fails → B fails (no next after B) → both should be cooled
     // eslint-disable-next-line require-yield
     mockQuery.mockImplementation(async function* () {
       throw new Error('Error: 529 Service overloaded');
@@ -400,21 +400,18 @@ describe('handleTierMemberFailure successor-aware cooldown (Fix 2)', () => {
 
     // A was cooled (B was available when A failed)
     expect(isUnhealthy(providerA.id, 'fix2-model-a')).toBe(true);
-    // B was NOT cooled (no successor existed when B failed)
-    expect(isUnhealthy(providerB.id, 'fix2-model-b')).toBe(false);
+    // B also failed with a retryable outage and must be cooled.
+    expect(isUnhealthy(providerB.id, 'fix2-model-b')).toBe(true);
 
-    // A fresh new session can still resolve to a concrete member (B is not in cooldown)
-    const session2 = sessionRepo.create(session.projectId, 'Fix2 Session 2', 'prompt', 'standard');
-    sessionRepo.update(session2.id, { model: buildTierRef(tier.id) });
+    // Fresh sessions do not immediately hammer an entirely unavailable tier.
     const { resolveActiveModel } = await import('./tierResolutionService.js');
     const resolved = resolveActiveModel(buildTierRef(tier.id), {});
-    expect(resolved).not.toBeNull();
-    expect(resolved.model).toBe('fix2-model-b');
+    expect(resolved).toBeNull();
   });
 
-  it('reschedule-retry is not blocked by cooldown on single-member tier (Fix 2 + Fix 1)', async () => {
+  it('cools down a failing single-member tier', async () => {
     // Single-member tier: A fails with service error + auto-reschedule enabled.
-    // A must NOT be cooled so the rescheduled retry can re-resolve A.
+    // The sole member must be cooled so unrelated starts do not hammer it.
     const singleTier = modelTiers.create({
       name: 'Fix2 Single',
       members: [{ providerId: providerA.id, modelId: 'fix2-model-a', position: 0 }],
@@ -438,8 +435,7 @@ describe('handleTierMemberFailure successor-aware cooldown (Fix 2)', () => {
       // Acceptable if reschedule is not enabled in test env; main assertion below.
     }
 
-    // The sole member must NOT be in cooldown — it's the only hope for the retry
-    expect(isUnhealthy(providerA.id, 'fix2-model-a')).toBe(false);
+    expect(isUnhealthy(providerA.id, 'fix2-model-a')).toBe(true);
   });
 });
 

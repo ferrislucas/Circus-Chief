@@ -97,6 +97,29 @@ describe('ModelSelector', () => {
       expect(options[4].element.value).toBe(optionValue('anthropic', opus47.id));
       expect(options[5].element.value).toBe(optionValue('anthropic', opus.id));
     });
+
+    it('filters concrete models and mixed tiers by allowed provider kinds', async () => {
+      providersStore.providers.push({
+        id: 'google', name: 'Google', kind: 'google', models: [
+          { id: 'gemini', modelId: 'gemini-pro', displayName: 'Gemini Pro' },
+        ],
+      });
+      const tiersStore = useTiersStore();
+      tiersStore.tiers = [
+        { id: 'supported', name: 'Supported', members: [{ providerId: 'anthropic', modelId: sonnet.id }] },
+        { id: 'mixed', name: 'Mixed', members: [
+          { providerId: 'anthropic', modelId: sonnet.id },
+          { providerId: 'google', modelId: 'gemini-pro' },
+        ] },
+      ];
+
+      const wrapper = mountComponent({ allowedProviderKinds: ['anthropic', 'openai'] });
+      await flushAll(wrapper);
+      const text = wrapper.text();
+      expect(text).toContain('Supported');
+      expect(text).not.toContain('Mixed');
+      expect(text).not.toContain('Gemini Pro');
+    });
   });
 
   describe('selected state', () => {

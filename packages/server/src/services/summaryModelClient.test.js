@@ -314,7 +314,7 @@ describe('callSummaryModel tier failover (Work Item 2)', () => {
 
     expect(mocks.callClaude).toHaveBeenCalledTimes(2);
     expect(isUnhealthy(providerA.id, 'summary-model-a')).toBe(true);
-    expect(isUnhealthy(providerB.id, 'summary-model-b')).toBe(false);
+    expect(isUnhealthy(providerB.id, 'summary-model-b')).toBe(true);
   });
 
   it('skips a member whose provider kind is unsupported for summaries (google), without attempting or cooling it down', async () => {

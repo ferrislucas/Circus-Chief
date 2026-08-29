@@ -43,6 +43,29 @@ describe('Model Tiers API', () => {
       expect(response.body).toHaveLength(1);
       expect(response.body[0].members).toHaveLength(1);
     });
+
+    it('omits members whose provider is disabled', async () => {
+      await request(app).post('/api/tiers').send({
+        name: 'Unavailable Tier',
+        members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+      }).expect(201);
+      modelProviders.update(providerA.id, { enabled: false });
+
+      const response = await request(app).get('/api/tiers').expect(200);
+      expect(response.body[0].members).toEqual([]);
+    });
+
+    it('omits members whose model has been removed', async () => {
+      await request(app).post('/api/tiers').send({
+        name: 'Orphaned Tier',
+        members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+      }).expect(201);
+      const model = modelProviders.getById(providerA.id).models.find((entry) => entry.modelId === 'model-a');
+      modelProviders.removeModel(model.id);
+
+      const response = await request(app).get('/api/tiers').expect(200);
+      expect(response.body[0].members).toEqual([]);
+    });
   });
 
   describe('POST /api/tiers', () => {

@@ -84,7 +84,8 @@ export function clearUnhealthy(providerId, modelId) {
 
 /**
  * Get tier members for a tier, filtering out members whose provider no longer
- * exists or is disabled, and members whose specific model was removed from an
+ * exists or is disabled, and members whose specific model was removed, disabled,
+ * or marked unavailable on an
  * otherwise-still-present provider (Issue 3 — `model_tier_members.model_id` has
  * no FK, so a deleted model would otherwise leave an orphaned, unresolvable
  * member). Ordered by position.
@@ -100,7 +101,9 @@ export function getTierMembersResolved(tierId) {
       const provider = modelProviders.getById(m.providerId);
       if (!provider || provider.enabled === false) return false;
       // Reuse the already-fetched provider object — no extra query per member.
-      return provider.models.some((model) => model.modelId === m.modelId);
+      return provider.models.some(
+        (model) => model.modelId === m.modelId && model.enabled !== false && model.unavailable !== true
+      );
     })
     .sort((a, b) => a.position - b.position || a.createdAt - b.createdAt);
 }

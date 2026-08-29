@@ -109,10 +109,9 @@ async function attemptRunWithModel(
  * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string }} ctx
  */
 function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName }) {
-  const errMsg = error.message?.toLowerCase() || '';
   // Use the tighter failover-specific matcher (Fix 4) to avoid spurious failover
   // on non-quota errors (e.g. "Unexpected token in JSON" contains "token").
-  const isEligible = matchesStartFailoverEligibleError(errMsg);
+  const isEligible = matchesStartFailoverEligibleError(error);
   const isPreConversation = sessionHasNoAssistantMessages(sessionId);
 
   // Non-eligible error (auth, bad request, abort) or mid-conversation — don't advance
@@ -127,16 +126,18 @@ function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName }
   // beyond the one that just failed is attemptable.
   const nextMember = findNextHealthyTierMember(tierRef, member);
 
+  // Every retryable provider failure contributes to the shared cooldown,
+  // including the terminal member. Otherwise a fully unavailable tier (and
+  // especially a single-member tier) is hammered again by every new session.
+  markUnhealthy(member.providerId, member.modelId);
+
   if (!nextMember) {
-    // Nothing will actually be attempted next — rethrow WITHOUT cooling down so
-    // the terminal member stays resolvable for the reschedule-retry path.
-    // The existing error/auto-reschedule path already ran inside _executeSession.
+    // Nothing will actually be attempted next. The existing error/auto-
+    // reschedule path already ran inside _executeSession.
     throw error;
   }
 
-  // There IS a next healthy, attemptable member — cool down the failed one so
-  // new session starts are steered past it (F21), then emit the failover event.
-  markUnhealthy(member.providerId, member.modelId);
+  // There IS a next healthy, attemptable member — emit the failover event.
   emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember });
 }
 

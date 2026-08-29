@@ -125,6 +125,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  allowedProviderKinds: {
+    type: Array,
+    default: null,
+  },
 });
 
 // defineEmits requires a literal array (Vue compiler macro constraint) — the
@@ -140,9 +144,15 @@ const providersStore = useProvidersStore();
 const tiersStore = useTiersStore();
 
 // Tiers with at least one member (shown in the optgroup)
-const tiersWithMembers = computed(() =>
-  tiersStore.tiers.filter((t) => t.members && t.members.length > 0)
-);
+const providerKindAllowed = (providerId) => {
+  if (!props.allowedProviderKinds) return true;
+  const provider = providersStore.getById(providerId);
+  return provider && props.allowedProviderKinds.includes(provider.kind || 'anthropic');
+};
+
+const tiersWithMembers = computed(() => tiersStore.tiers.filter((tier) =>
+  tier.members?.length > 0 && tier.members.every((member) => providerKindAllowed(member.providerId))
+));
 
 // Tier chip: name and tooltip for the BOUND tier (Fix 8 — based on the raw
 // `modelValue` prop, not `effectiveSelectedModel`, so the chip keeps
@@ -241,7 +251,9 @@ function agentLabelFor(provider) {
 //   3) Alphabetical by name among custom providers
 const AGENT_SORT_ORDER = { 'claude-code': 0, 'gemini': 1, 'codex': 2 };
 const sortedProviders = computed(() => {
-  const list = [...providersStore.providers].filter((p) => p.enabled !== false);
+  const list = [...providersStore.providers].filter(
+    (p) => p.enabled !== false && (!props.allowedProviderKinds || props.allowedProviderKinds.includes(p.kind || 'anthropic'))
+  );
   list.sort((a, b) => {
     const aType = agentTypeFor(a);
     const bType = agentTypeFor(b);

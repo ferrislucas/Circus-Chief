@@ -105,9 +105,9 @@ async function callSummaryModelWithTierFailover(tierRef, { prompt, recentMessage
       }
       lastError = error;
       const nextMember = findNextEligibleSummaryMember(members, i);
-      // Preserve the terminal eligible member. Cooldown should steer the next
-      // attempt, not make the entire configured tier appear unavailable.
-      if (nextMember) markUnhealthy(member.providerId, member.modelId);
+      // Cool every retryable provider failure, including the terminal member,
+      // so subsequent summary jobs do not immediately hammer an unavailable tier.
+      markUnhealthy(member.providerId, member.modelId);
       logSummaryFailoverEvent({
         options,
         failedMember: member,

@@ -191,11 +191,10 @@ export function isTierFailoverEligibleError(session, error, sessionId = null, ti
     return false;
   }
 
-  const errorMessage = error.message.toLowerCase();
   // Use the tighter failover-specific matcher (Fix 4) rather than the broad
   // matchesTokenLimitError to avoid spurious cross-provider failover on
   // non-quota errors such as JSON parse errors containing "token".
-  const isEligible = matchesStartFailoverEligibleError(errorMessage);
+  const isEligible = matchesStartFailoverEligibleError(error);
   if (!isEligible || !sessionId || !sessionHasNoAssistantMessages(sessionId)) {
     return false;
   }
