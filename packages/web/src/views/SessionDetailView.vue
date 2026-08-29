@@ -90,7 +90,7 @@
         <SessionChatContent
           v-else-if="activeTab === 'chat'"
           :session-id="overlaySessionId"
-          :session-chain="sessionChain"
+          :session-chain="liveSessionChain"
           :summaries-map="summariesMap"
           mode="embedded"
           @session-created="handleOverlaySessionCreated"
@@ -110,7 +110,7 @@
       <SessionChatOverlay
         v-if="chatOverlayOpen"
         :session-id="overlaySessionId"
-        :session-chain="sessionChain"
+        :session-chain="liveSessionChain"
         :summaries-map="summariesMap"
         @close="handleOverlayClose"
         @session-created="handleOverlaySessionCreated"
@@ -166,6 +166,7 @@ import ArchiveConfirmModal from '../components/ArchiveConfirmModal.vue';
 import KanbanLaneSelectorModal from '../components/KanbanLaneSelectorModal.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
+import { useSessionDetailProjectSubscription } from '../composables/useSessionDetailProjectSubscription.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 const route = useRoute();
@@ -178,12 +179,17 @@ const todosStore = useTodosStore();
 const uiStore = useUiStore();
 const kanbanStore = useKanbanStore();
 
-const { send, on, off } = useWebSocket();
-
-let currentProjectSubscriptionId = null;
+const { on, off } = useWebSocket();
 
 const currentSessionId = ref(route.params.id);
 sessionsStore.viewedSessionId = route.params.id;
+
+// Project subscription bookkeeping (refcounted + reconnect-safe). See
+// useSessionDetailProjectSubscription for the rationale.
+const projectSubscription = useSessionDetailProjectSubscription(
+  () => currentSessionId.value,
+  sessionsStore,
+);
 
 const {
   gitStatus,
@@ -238,6 +244,7 @@ const {
   chatOverlayOpen,
   overlaySessionId,
   sessionChain,
+  liveSessionChain,
   summariesMap,
   isSessionActive,
   activeSessionStatus,
@@ -391,17 +398,13 @@ onMounted(async () => {
 
   await initializeSession(currentSessionId.value);
 
-  const projectId = sessionsStore.currentSession?.projectId;
   await ensureProjectKanbanData(sessionsStore.currentSession);
 
   await buildSessionChain();
   sessionChainReady.value = true;
   resolveOverlayTarget();
 
-  if (projectId) {
-    send(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId });
-    currentProjectSubscriptionId = projectId;
-  }
+  projectSubscription.ensure();
 
   if (route.query.overlay === 'open') {
     await openChatDestination({ replaceQuery: true });
@@ -430,14 +433,9 @@ watch(
         await openChatDestination({ replaceQuery: true });
       }
 
-      if (newProjectId !== currentProjectSubscriptionId) {
-        if (currentProjectSubscriptionId) {
-          send(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId: currentProjectSubscriptionId });
-        }
-        if (newProjectId) {
-          send(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId: newProjectId });
-        }
-        currentProjectSubscriptionId = newProjectId || null;
+      if (newProjectId !== projectSubscription.currentProjectId.value) {
+        projectSubscription.unsubscribe();
+        if (newProjectId) projectSubscription.subscribe(newProjectId);
       }
     }
   }
@@ -470,10 +468,8 @@ onActivated(() => {
 onUnmounted(() => {
   cleanup();
   resetGitStatus();
-  if (currentProjectSubscriptionId) {
-    send(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId: currentProjectSubscriptionId });
-    currentProjectSubscriptionId = null;
-  }
+  projectSubscription.stopWatcher();
+  projectSubscription.unsubscribe();
   off(WS_MESSAGE_TYPES.SESSION_CREATED, handleSessionCreated);
   off(WS_MESSAGE_TYPES.SESSION_UPDATED, handleSessionUpdated);
   sessionsStore.viewedSessionId = null;
@@ -661,6 +657,7 @@ defineExpose({
   overlaySessionId,
   chatOverlayOpen,
   sessionChain,
+  liveSessionChain,
   summariesMap,
   handleOverlayOpen,
 });

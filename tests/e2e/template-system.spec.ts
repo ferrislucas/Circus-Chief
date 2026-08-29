@@ -929,8 +929,7 @@ test.describe('Self-Chaining Template', () => {
     await page.goto(`/projects/${project.id}/templates/${template.id}`);
     const reloadedSelect = page.locator('#nextTemplate');
     await expect(reloadedSelect).toBeVisible({ timeout: 10000 });
-    const selectedValue = await reloadedSelect.inputValue();
-    expect(selectedValue).toBe(template.id);
+    await expect(reloadedSelect).toHaveValue(template.id, { timeout: 10000 });
   });
 
   test('self-chain: clearing self-chain via UI persists null', async ({ page }) => {

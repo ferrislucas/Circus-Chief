@@ -26,6 +26,22 @@ export function useSessionTree(currentSessionId, sessionChainReady) {
   const sessionChain = ref([]);
   const summariesMap = ref({});
 
+  // The chain stores `{ session, depth, ... }` entries whose `session` objects
+  // were snapshotted at build time. Store-side updates *replace* session
+  // objects (`sessions[i] = { ... }`), so raw chain entries can point at stale
+  // statuses. This computed re-resolves each entry's session from the central
+  // store on every read, so any mutation path (WS event, active-session
+  // polling, refetch) flows into the rendered rows without a full chain rebuild.
+  //
+  // Presentation-only: sorting still happens at build/patch time, so a status
+  // flip alone never re-orders rows (avoids rows jumping mid-run).
+  const liveSessionChain = computed(() =>
+    sessionChain.value.map(entry => {
+      const live = sessionsStore.getSessionById(entry.session.id);
+      return live ? { ...entry, session: live } : entry;
+    })
+  );
+
   // ── Session chain helpers ──────────────────────────────────────────
 
   function findRootSession(sessionId) {
@@ -165,6 +181,12 @@ export function useSessionTree(currentSessionId, sessionChainReady) {
     const updatedSession = msg.session;
     if (!updatedSession) return;
 
+    // Keep the central store in sync too. Without this, a later
+    // buildSessionChain()/fetchWorkspaceTree race could resurrect a stale
+    // status from the chain snapshot. Also complements liveSessionChain, which
+    // re-resolves chain entries from the store.
+    sessionsStore.updateSession(updatedSession);
+
     const idx = sessionChain.value.findIndex(
       entry => entry.session.id === updatedSession.id
     );
@@ -270,6 +292,7 @@ export function useSessionTree(currentSessionId, sessionChainReady) {
     chatOverlayOpen,
     overlaySessionId,
     sessionChain,
+    liveSessionChain,
     summariesMap,
     isSessionActive,
     activeSessionStatus,

@@ -39,6 +39,14 @@ function embeddedSessionCard(page: Page, projectName: string, sessionName: strin
     .filter({ hasText: sessionName });
 }
 
+async function showEmbeddedSessions(page: Page, projectName: string) {
+  const toggle = projectCard(page, projectName).locator('.sessions-toggle');
+  await expect(toggle).toBeVisible({ timeout: LIVE_TIMEOUT });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+}
+
 function filterPill(page: Page, status: string) {
   return page.getByRole('button', { name: new RegExp(`^${status}`) });
 }
@@ -149,6 +157,7 @@ test.describe('Project list embedded session cards', () => {
     // Four running sessions belong to this single project. The filter still
     // renders one project card, but its badge must report all four sessions.
     await expectPillCountMatchesFilteredList(page, 'running');
+    await showEmbeddedSessions(page, project.name);
 
     const alphaCard = embeddedSessionCard(page, project.name, 'alpha');
     await expect(alphaCard).toBeVisible({ timeout: LIVE_TIMEOUT });
@@ -183,6 +192,8 @@ test.describe('Project list embedded session cards', () => {
     const card = projectCard(page, project.name);
     await expect(card).toBeVisible();
 
+    await showEmbeddedSessions(page, project.name);
+
     // The existing "N sessions · …" line is intact.
     await expect(card.locator('.project-meta')).toContainText('2 sessions');
 
@@ -198,6 +209,7 @@ test.describe('Project list embedded session cards', () => {
     await updateSessionStatus(workspace.id, 'running');
 
     await page.goto('/');
+    await showEmbeddedSessions(page, project.name);
     const link = embeddedSessionCard(page, project.name, 'click-me');
     await expect(link).toBeVisible();
 
@@ -217,6 +229,7 @@ test.describe('Project list embedded session cards', () => {
     await updateSessionStatus(child2.id, 'running');
 
     await page.goto('/');
+    await showEmbeddedSessions(page, project.name);
     const link = embeddedSessionCard(page, project.name, 'live-root');
     await expect(link.locator('.status-badge.status-running')).toBeVisible();
 
@@ -241,6 +254,7 @@ test.describe('Project list embedded session cards', () => {
     const workspace = await seedSession(project.id, { prompt: 'new root', name: 'new-workspace', startImmediately: false });
     await updateSessionStatus(workspace.id, 'running');
 
+    await showEmbeddedSessions(page, project.name);
     const link = embeddedSessionCard(page, project.name, 'new-workspace');
     await expect(link).toBeVisible({ timeout: LIVE_TIMEOUT });
     await expect(link).toHaveAttribute('href', `/sessions/${workspace.id}`);

@@ -38,6 +38,7 @@ export const ProjectResponse = z.object({
   prPollInterval: z.number().int(),
   repoUrl: z.string().url().nullable().optional(),
   worktreePath: z.string().nullable(),
+  workspaceCount: z.number().int().nonnegative(),
   runningWorkspaces: z.array(RunningWorkspaceSummary),
   runningSessionCount: z.number().int().nonnegative(),
   waitingSessionCount: z.number().int().nonnegative(),
