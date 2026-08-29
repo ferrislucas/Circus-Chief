@@ -177,6 +177,7 @@ function buildUpdateData(body) {
 
 /**
  * Broadcast session update to both session and project subscribers.
+ * NOTE: duplicate of summaryBroadcast.broadcastSessionUpdate; consolidate in a follow-up.
  * @param {string} sessionId
  * @param {string} projectId
  * @param {object} updated - The updated session object

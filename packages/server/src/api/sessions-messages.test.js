@@ -241,4 +241,52 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
       expect.objectContaining({ model: null })
     );
   });
+
+  it('preserves an existing schedule when slash-command preparation fails', async () => {
+    const scheduledAt = Date.now() + 60_000;
+    sessions.update(claudeSession.id, {
+      status: 'stopped',
+      scheduledAt,
+      pendingPrompt: 'Scheduled continuation',
+      pendingConversationId: null,
+      pendingModel: 'claude-opus-test',
+    });
+    slashCommandService.resolvePromptSkillOrCommand.mockRejectedValueOnce(new Error('resolution failed'));
+
+    const res = await request(app)
+      .post(`/api/sessions/${claudeSession.id}/message`)
+      .send({ content: '/broken-command' });
+
+    expect(res.status).toBe(500);
+    expect(continueSession).not.toHaveBeenCalled();
+    expect(sessions.getById(claudeSession.id)).toMatchObject({
+      scheduledAt,
+      pendingPrompt: 'Scheduled continuation',
+      pendingConversationId: null,
+      pendingModel: 'claude-opus-test',
+    });
+  });
+
+  it('cancels an existing schedule after preparation succeeds and dispatches chat', async () => {
+    sessions.update(claudeSession.id, {
+      status: 'stopped',
+      scheduledAt: Date.now() + 60_000,
+      pendingPrompt: 'Scheduled continuation',
+      pendingConversationId: null,
+      pendingModel: 'claude-opus-test',
+    });
+
+    const res = await request(app)
+      .post(`/api/sessions/${claudeSession.id}/message`)
+      .send({ content: 'replace the schedule' });
+
+    expect(res.status).toBe(200);
+    expect(continueSession).toHaveBeenCalledTimes(1);
+    expect(sessions.getById(claudeSession.id)).toMatchObject({
+      scheduledAt: null,
+      pendingPrompt: null,
+      pendingConversationId: null,
+      pendingModel: null,
+    });
+  });
 });

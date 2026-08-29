@@ -16,6 +16,7 @@ import { schedulerService } from '../services/schedulerService.js';
 import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
 import { removeSessionFromBoard } from '../services/kanbanService.js';
 import { runNowFailureResponse } from '../services/sessionRunNowFailure.js';
+import { recordExplicitSchedule } from '../services/scheduleWakeupBridge.js';
 import {
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
@@ -187,6 +188,14 @@ router.post('/:id/schedule', requireSession, (req, res) => {
   if (!updated) {
     return res.status(409).json({ error: 'Session no longer owns an active lane run' });
   }
+  // Mark this as an explicit-schedule write only when it happened mid-turn —
+  // that's the only case where it can race a ScheduleWakeup call from the same
+  // turn (see scheduleWakeupBridge.js). A write to an idle session has no
+  // wakeup to take precedence over.
+  const activeSession = activeSessions.get(req.params.id);
+  if (activeSession?.controller) {
+    recordExplicitSchedule(req.params.id, activeSession.controller);
+  }
   broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, result.updateData);
   res.json(updated);
 });
@@ -211,6 +220,21 @@ router.post('/:id/schedule', requireSession, (req, res) => {
 // launches an agent. A caller that loses the race is not an error — the
 // session is already being started by the winner, so this responds 200
 // with the current session state (idempotent "already started" outcome).
+function launchBudgetFailure(session) {
+  return schedulerService.hasReachedLaunchBudget(session)
+    ? { error: 'Scheduled launch refused: session has reached its max total token budget', code: 'LAUNCH_BUDGET_EXHAUSTED' }
+    : null;
+}
+
+function pendingScheduleFailure(session) {
+  if (session.status === 'scheduled') {
+    return !session.scheduledAt || !session.pendingPrompt
+      ? { error: 'Session has no pending scheduled turn' }
+      : null;
+  }
+  return session.status === 'starting' ? null : { error: 'Session has no pending scheduled turn' };
+}
+
 router.post('/:id/run-scheduled-now', requireSession, async (req, res) => {
   const session = sessions.getById(req.params.id);
 
@@ -221,13 +245,11 @@ router.post('/:id/run-scheduled-now', requireSession, async (req, res) => {
   // "I already got what I wanted" outcome here, not an error, so it falls
   // through to the claim attempt below (which will cleanly lose and return
   // the current state) rather than 409ing.
-  if (session.status === 'scheduled') {
-    if (!session.scheduledAt || !session.pendingPrompt) {
-      return res.status(409).json({ error: 'Session has no pending scheduled turn' });
-    }
-  } else if (session.status !== 'starting') {
-    return res.status(409).json({ error: 'Session has no pending scheduled turn' });
-  }
+  const scheduleFailure = pendingScheduleFailure(session);
+  if (scheduleFailure) return res.status(409).json(scheduleFailure);
+
+  const budgetFailure = launchBudgetFailure(session);
+  if (budgetFailure) return res.status(409).json(budgetFailure);
 
   let promptOverride;
   if (req.body && req.body.prompt !== undefined) {
