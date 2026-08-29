@@ -284,6 +284,26 @@ describe('ProjectListView', () => {
 
       expect(fetchButtons).toHaveBeenCalledWith('commands-project');
     });
+
+    it('does not reload command definitions when project data refreshes with the same IDs', async () => {
+      projectsStore.projects = [fullProject({ id: 'commands-project' })];
+      projectsStore.loading = false;
+      projectsStore.error = null;
+
+      const wrapper = mount(ProjectListView, {
+        global: { plugins: [pinia, router] },
+      });
+      await flushAll(wrapper);
+
+      projectsStore.projects = [fullProject({
+        id: 'commands-project',
+        runningSessionCount: 1,
+      })];
+      await flushAll(wrapper);
+
+      expect(fetchButtons).toHaveBeenCalledTimes(1);
+      expect(fetchButtons).toHaveBeenCalledWith('commands-project');
+    });
   });
 
   describe('Embedded session cards', () => {

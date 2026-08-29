@@ -158,6 +158,7 @@ const projectFilters = useProjectFiltersStore();
 const commandButtonsStore = useCommandButtonsStore();
 const projectCards = ref({});
 const sessionVisibility = ref({});
+const hydratedCommandButtonProjects = new Set();
 let projectCardsRequest = 0;
 const sessionVisibilityStorageKey = 'circus-chief.project-list.session-visibility';
 
@@ -264,6 +265,8 @@ watch(
 // hydrate them here as well.
 watch(projectIds, (ids) => {
   for (const projectId of ids) {
+    if (hydratedCommandButtonProjects.has(projectId)) continue;
+    hydratedCommandButtonProjects.add(projectId);
     Promise.resolve(commandButtonsStore.fetchButtons(projectId)).catch(() => {});
   }
 }, { immediate: true });
@@ -522,6 +525,10 @@ onMounted(() => {
 
 .project-running-count.has-running-sessions {
   color: var(--color-success);
+}
+
+.status-waiting {
+  color: var(--color-warning);
 }
 
 /* Mobile breakpoints */
