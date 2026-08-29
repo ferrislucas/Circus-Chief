@@ -21,7 +21,8 @@ import {
   cleanupSessionState,
   broadcastSessionStatus,
 } from './streamEventHandler.js';
-import { shouldRescheduleOnError, isTierFailoverEligibleError, _checkProactiveReschedule } from './sessionErrors.js';
+import { shouldRescheduleOnError, isTierFailoverEligibleError, matchesStartFailoverEligibleError, _checkProactiveReschedule } from './sessionErrors.js';
+import { markUnhealthy } from './tierResolutionService.js';
 import { isTierRef } from '@circuschief/shared';
 import { runSessionWithTierFailover, hasResolvableTierMembers, applyStaleTierFallback } from './sessionTierFailover.js';
 import { schedulerService } from './schedulerService.js';
@@ -244,6 +245,12 @@ function withWorkflowTurnToken(queryParams, workflowTurn) {
 async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbacks, controller, broadcastConversationStateOnError, errorLabel, error }) {
   const { handleTemplateTriggerIfNeeded } = callbacks;
   if (shouldRethrowForTierFailover(sessionId, error, tierContext)) return 'rethrow';
+
+  // Terminal tier failures stay on the normal auto-reschedule path, but the
+  // failed member must still cool down so unrelated starts do not hammer it.
+  if (tierContext && matchesStartFailoverEligibleError(error)) {
+    markUnhealthy(tierContext.currentMemberProviderId, tierContext.currentMemberId);
+  }
 
   const rescheduled = await handleSessionError(sessionId, error, {
     controller,

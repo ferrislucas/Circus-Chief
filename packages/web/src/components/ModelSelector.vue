@@ -77,6 +77,12 @@
 import { ref, computed, watch, toRef, onMounted } from 'vue';
 import { useProvidersStore } from '../stores/providers.js';
 import { useTiersStore, isTierRef } from '../stores/tiers.js';
+import {
+  tierDisplayName,
+  tierDisplayTitle,
+  tierIsStale,
+  tierSupportsProviderKinds,
+} from './modelSelectorTiers.js';
 
 const props = defineProps({
   modelValue: {
@@ -131,11 +137,8 @@ const props = defineProps({
   },
 });
 
-// defineEmits requires a literal array (Vue compiler macro constraint) — the
-// event name constants used by every emit() call below are declared after it.
 const emit = defineEmits(['update:modelValue', 'model-selected', 'update:providerId']);
 
-// Event name constants (avoid repeating the literal strings across every emit() call below)
 const EVT_UPDATE_MODEL_VALUE = 'update:modelValue';
 const EVT_UPDATE_PROVIDER_ID = 'update:providerId';
 const EVT_MODEL_SELECTED = 'model-selected';
@@ -143,54 +146,25 @@ const EVT_MODEL_SELECTED = 'model-selected';
 const providersStore = useProvidersStore();
 const tiersStore = useTiersStore();
 
-// Tiers with at least one member (shown in the optgroup)
-const providerKindAllowed = (providerId) => {
-  if (!props.allowedProviderKinds) return true;
-  const provider = providersStore.getById(providerId);
-  return provider && props.allowedProviderKinds.includes(provider.kind || 'anthropic');
-};
-
 const tiersWithMembers = computed(() => tiersStore.tiers.filter((tier) =>
-  tier.members?.length > 0 && tier.members.every((member) => providerKindAllowed(member.providerId))
+  tierSupportsProviderKinds(tier, providersStore, props.allowedProviderKinds)
 ));
 
-// Tier chip: name and tooltip for the BOUND tier (Fix 8 — based on the raw
-// `modelValue` prop, not `effectiveSelectedModel`, so the chip keeps
-// identifying a stale/deleted tier ref instead of disappearing the moment
-// the <select> falls back to a concrete default model).
 const tierChipName = computed(() => {
   if (!isTierRef(props.modelValue)) return '';
-  const tierId = props.modelValue.slice('tier::'.length);
-  const tier = tiersStore.getById(tierId);
-  return tier?.name || tierId;
+  return tierDisplayName(props.modelValue, tiersStore);
 });
 
-// True when the bound value is a tier ref whose tier no longer exists (or has
-// no members) — i.e. deleted/emptied since it was saved. Permissive (false)
-// while tiers haven't loaded yet, mirroring `isValidModelId`'s tier check.
 const isStaleTierRef = computed(() => {
   if (!isTierRef(props.modelValue)) return false;
-  if (tiersStore.tiers.length === 0) return false;
-  const tierId = props.modelValue.slice('tier::'.length);
-  return !tiersWithMembers.value.some((t) => t.id === tierId);
+  return tierIsStale(props.modelValue, tiersStore, tiersWithMembers.value);
 });
 
 const tierChipTitle = computed(() => {
   if (!isTierRef(props.modelValue)) return '';
-  const tierId = props.modelValue.slice('tier::'.length);
-  const tier = tiersStore.getById(tierId);
-  if (!tier) {
-    return isStaleTierRef.value
-      ? `Model tier "${tierId}" is no longer available — choose a replacement to update it.`
-      : `Tier: ${tierId}`;
-  }
-  const memberCount = tier?.members?.length ?? 0;
-  return `Model tier "${tier.name}" — ${memberCount} member${memberCount !== 1 ? 's' : ''}`;
+  return tierDisplayTitle(props.modelValue, tiersStore, isStaleTierRef.value);
 });
 
-// Tooltip for the "unknown model" badge — tier-aware (Fix 8): a stale tier ref
-// gets a message naming the tier, while a stale concrete model id keeps the
-// original wording naming the model id.
 const unknownModelTitle = computed(() => {
   if (isTierRef(props.modelValue)) {
     return `Model tier "${tierChipName.value || props.modelValue}" is no longer available. Choose a replacement to update it.`;
@@ -198,14 +172,11 @@ const unknownModelTitle = computed(() => {
   return `Stored model '${props.modelValue}' is no longer available. Choose a replacement to update it.`;
 });
 
-// Check if providers have models loaded
-// Providers may have been fetched without models (e.g., from ProvidersView)
 const providersHaveModels = computed(() => providersStore.providers.length > 0 &&
     providersStore.providers.some(p => p.models && p.models.length > 0));
 
 const shouldPreserveCurrentValue = computed(() => props.sessionScoped || props.preserveCurrentValue);
 
-// Get all valid model IDs from all providers
 const validModelIds = computed(() => {
   const ids = new Set();
   for (const provider of visibleProviders.value) {
@@ -218,7 +189,6 @@ const validModelIds = computed(() => {
   return ids;
 });
 
-// Check if a model ID is valid (exists as an option, or is a valid tier ref)
 function isValidModelId(modelId) {
   if (!modelId) return false;
   if (isTierRef(modelId)) {
@@ -237,7 +207,6 @@ function agentTypeFor(provider) {
   return 'claude-code';
 }
 
-// Human-readable agent heading for optgroup labels.
 function agentLabelFor(provider) {
   const type = agentTypeFor(provider);
   if (type === 'codex') return 'Codex';
@@ -245,10 +214,6 @@ function agentLabelFor(provider) {
   return 'Claude Code';
 }
 
-// Sort providers by:
-//   1) Agent type: Claude Code first, then Gemini, then Codex
-//   2) Built-in before custom within the same agent
-//   3) Alphabetical by name among custom providers
 const AGENT_SORT_ORDER = { 'claude-code': 0, 'gemini': 1, 'codex': 2 };
 const sortedProviders = computed(() => {
   const list = [...providersStore.providers].filter(
