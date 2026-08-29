@@ -118,6 +118,15 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
 
     expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
     expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+    expect(sessionRepo.getById(root.id)).toEqual(expect.objectContaining({
+      status: 'scheduled',
+      ownWorkState: 'open',
+      executionState: 'scheduled',
+    }));
+    expect(getRun(run.id)).toEqual(expect.objectContaining({
+      status: 'open',
+      rootOwnWorkState: 'open',
+    }));
   });
 
   it('does not advance the card when the turn ends gracefully on a provider usage limit', async () => {

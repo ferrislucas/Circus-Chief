@@ -113,6 +113,19 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
       req.workingDirectory, renderedContent, req.project.systemPrompt || null
     );
 
+    // Cancel an obsolete continuation only after all fallible request
+    // preparation succeeds. A render, attachment, or slash-command failure
+    // must leave the existing schedule intact because no replacement turn was
+    // dispatched.
+    if (req.session_.scheduledAt && req.session_.pendingPrompt) {
+      sessions.update(req.session_.id, {
+        scheduledAt: null,
+        pendingPrompt: null,
+        pendingConversationId: null,
+        pendingModel: null,
+      });
+    }
+
     if (resolved) {
       continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, { systemPrompt: resolved.systemPrompt, fileAttachments: messageAttachments, model, interactive: true }).catch((error) => {
         console.error(`Continue session error (${resolved.type}):`, error);

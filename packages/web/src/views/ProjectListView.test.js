@@ -8,6 +8,7 @@ import { useProjectsStore } from '../stores/projects.js';
 import { useProjectFiltersStore } from '../stores/projectFilters.js';
 
 const { getWorkspaceCards } = vi.hoisted(() => ({ getWorkspaceCards: vi.fn() }));
+const { fetchButtons } = vi.hoisted(() => ({ fetchButtons: vi.fn().mockResolvedValue(true) }));
 
 // Mock the composable to avoid opening a WebSocket in jsdom.
 vi.mock('../composables/useProjectListRealtime.js', () => ({
@@ -24,6 +25,10 @@ vi.mock('../composables/useSummaryHelpers.js', () => ({
 
 vi.mock('../api/index.js', () => ({
   api: { getWorkspaceCards },
+}));
+
+vi.mock('../stores/commandButtons.js', () => ({
+  useCommandButtonsStore: () => ({ fetchButtons }),
 }));
 
 vi.mock('../components/SessionCard.vue', () => ({
@@ -86,6 +91,8 @@ describe('ProjectListView', () => {
     projectsStore = useProjectsStore();
     vi.spyOn(projectsStore, 'fetchProjects').mockResolvedValue(undefined);
     getWorkspaceCards.mockResolvedValue({ workspaces: [] });
+    fetchButtons.mockReset();
+    fetchButtons.mockResolvedValue(true);
   });
 
   describe('Page Header', () => {
@@ -245,6 +252,82 @@ describe('ProjectListView', () => {
       expect(summary.text()).toContain('2 running');
       expect(summary.text()).toContain('1 waiting');
       expect(summary.text()).toContain('3 workspaces');
+    });
+
+    it('highlights the running indicator only for projects with running sessions', async () => {
+      projectsStore.projects = [
+        fullProject({ id: 'running', runningSessionCount: 2 }),
+        fullProject({ id: 'idle', runningSessionCount: 0 }),
+      ];
+      projectsStore.loading = false;
+      projectsStore.error = null;
+
+      const wrapper = mount(ProjectListView, {
+        global: { plugins: [pinia, router] },
+      });
+      await flushAll(wrapper);
+
+      const counts = wrapper.findAll('.project-running-count');
+      expect(counts).toHaveLength(2);
+      expect(counts[0].classes()).toContain('has-running-sessions');
+      expect(counts[1].classes()).not.toContain('has-running-sessions');
+    });
+
+    it('loads Circus command definitions for the embedded session cards', async () => {
+      projectsStore.projects = [fullProject({ id: 'commands-project' })];
+      projectsStore.loading = false;
+      projectsStore.error = null;
+
+      const wrapper = mount(ProjectListView, {
+        global: { plugins: [pinia, router] },
+      });
+      await flushAll(wrapper);
+
+      expect(fetchButtons).toHaveBeenCalledWith('commands-project');
+    });
+
+    it('does not reload command definitions when project data refreshes with the same IDs', async () => {
+      projectsStore.projects = [fullProject({ id: 'commands-project' })];
+      projectsStore.loading = false;
+      projectsStore.error = null;
+
+      const wrapper = mount(ProjectListView, {
+        global: { plugins: [pinia, router] },
+      });
+      await flushAll(wrapper);
+
+      projectsStore.projects = [fullProject({
+        id: 'commands-project',
+        runningSessionCount: 1,
+      })];
+      await flushAll(wrapper);
+
+      expect(fetchButtons).toHaveBeenCalledTimes(1);
+      expect(fetchButtons).toHaveBeenCalledWith('commands-project');
+    });
+
+    it('autonomously retries command-definition hydration after a transient failure', async () => {
+      vi.useFakeTimers();
+      fetchButtons
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+      projectsStore.projects = [fullProject({ id: 'commands-project' })];
+      projectsStore.loading = false;
+      projectsStore.error = null;
+
+      const wrapper = mount(ProjectListView, {
+        global: { plugins: [pinia, router] },
+      });
+      await flushAll(wrapper);
+
+      expect(fetchButtons).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(500);
+      await flushAll(wrapper);
+
+      expect(fetchButtons).toHaveBeenCalledTimes(2);
+      expect(fetchButtons).toHaveBeenLastCalledWith('commands-project');
+      vi.useRealTimers();
     });
   });
 

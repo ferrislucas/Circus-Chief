@@ -30,7 +30,7 @@ describe('ProjectFiltersPanel', () => {
     }
   });
 
-  it('renders badge values from the statusFacets prop as project counts', () => {
+  it('renders the supplied session and project badge values', () => {
     const wrapper = mountPanel({ running: 7, waiting: 2, idle: 5 });
 
     const counts = wrapper.findAll('.filter-count').map((el) => el.text());
