@@ -16,6 +16,9 @@ import {
 import {
   addSessionToBoard,
   moveCard as moveCardService,
+  removeBoard as removeBoardService,
+  removeCard as removeCardService,
+  removeLane as removeLaneService,
 } from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
 import { validateModelId } from './model-validation.js';
@@ -277,7 +280,7 @@ router.delete('/', (req, res) => {
     return res.status(404).json({ error: 'Board not found' });
   }
 
-  kanbanBoards.delete(board.id);
+  removeBoardService(board);
 
   broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, {
     projectId,
@@ -396,7 +399,7 @@ router.delete('/lanes/:laneId', (req, res) => {
   const projectBoard = boardForProject(req.params.projectId);
   if (!laneBelongsToBoard(lane, projectBoard)) return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
 
-  kanbanLanes.delete(laneId);
+  removeLaneService(lane);
 
   // Broadcast updated board
   const board = kanbanBoards.getByProjectId(projectId);
@@ -439,20 +442,6 @@ router.put('/lanes/reorder', (req, res) => {
 });
 
 // ============== Card Endpoints ==============
-
-/**
- * Helper: delete a card and broadcast KANBAN_CARD_REMOVED.
- * Used by both the :cardId and by-workspace delete routes.
- */
-function deleteCardById(card, projectId) {
-  const laneId = card.laneId;
-  kanbanCards.delete(card.id);
-  broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED, {
-    projectId,
-    cardId: card.id,
-    laneId,
-  });
-}
 
 /**
  * POST /api/projects/:projectId/kanban/cards
@@ -564,7 +553,7 @@ router.delete('/cards/:cardId', (req, res) => {
   const board = boardForProject(projectId);
   if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: CARD_NOT_FOUND_ERROR });
 
-  deleteCardById(card, projectId);
+  removeCardService(card);
   res.status(204).send();
 });
 
@@ -690,7 +679,7 @@ router.delete('/cards/by-workspace/:workspaceId', (req, res) => {
   const board = boardForProject(projectId);
   if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
 
-  deleteCardById(card, projectId);
+  removeCardService(card);
   res.status(204).send();
 });
 
