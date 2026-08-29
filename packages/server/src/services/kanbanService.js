@@ -205,6 +205,91 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
 }
 
 /**
+ * Retire a card's active lane run and remove the card as one durable change.
+ *
+ * Every path that can remove a card — explicit card removal, session
+ * deletion, lane deletion, board deletion, and project deletion — must go
+ * through this family before an FK cascade can make the card unavailable to
+ * the lane-run state machine. `projectId` is derived from the card itself
+ * (card → lane → board → project) so the broadcast survives even when the
+ * card's sessions were already deleted.
+ *
+ * @param {Object} card - The card to remove
+ * @returns {Object|null} removal descriptor `{ projectId, laneId }` for the
+ *   caller's broadcast, or null when the card's lane is already gone and
+ *   there is no project left to notify
+ */
+export function removeCard(card) {
+  const projectId = kanbanCards.getProjectId(card.id);
+  const laneId = card.laneId;
+  databaseManager.transaction(() => {
+    supersedeRunForCard(card.id, 'card_removed');
+    kanbanCards.delete(card.id);
+  });
+
+  if (!projectId) {
+    // Only reachable if the card's lane vanished between the caller's fetch
+    // and this delete; warn so a silent cascade never goes unnoticed.
+    console.warn(`Kanban card ${card.id} removed without a resolvable project; no broadcast sent`);
+    return null;
+  }
+
+  broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED, {
+    projectId,
+    cardId: card.id,
+    laneId,
+  });
+  return { projectId, laneId };
+}
+
+/**
+ * Delete a lane and all of its cards, superseding their active lane runs.
+ *
+ * The supersessions, card deletions (via FK cascade from the lane), and lane
+ * deletion commit as ONE transaction, so no concurrent card add can slip past
+ * the supersession pass and be cascade-deleted while its run stays open.
+ * No per-card events are emitted: callers broadcast KANBAN_BOARD_UPDATED,
+ * which carries the full board and makes per-card events redundant.
+ *
+ * @param {Object} lane - The lane to delete
+ */
+export function removeLane(lane) {
+  databaseManager.transaction(() => {
+    for (const card of kanbanCards.getByLaneId(lane.id)) {
+      supersedeRunForCard(card.id, 'card_removed');
+    }
+    kanbanLanes.delete(lane.id);
+  });
+}
+
+/**
+ * Delete a board, all of its lanes, and all of their cards, superseding any
+ * active lane runs. Single transaction, for the same reasons as removeLane.
+ *
+ * @param {Object} board - The board to delete
+ */
+export function removeBoard(board) {
+  databaseManager.transaction(() => {
+    for (const card of kanbanCards.getByBoardId(board.id)) {
+      supersedeRunForCard(card.id, 'card_removed');
+    }
+    kanbanBoards.delete(board.id);
+  });
+}
+
+/**
+ * Delete a project's board (if any), superseding its active lane runs before
+ * the project row's own cascades remove the cards. Used by project deletion,
+ * where the board may not have been fetched yet.
+ *
+ * @param {string} projectId
+ */
+export function removeBoardForProject(projectId) {
+  const board = kanbanBoards.getByProjectId(projectId);
+  if (board) removeBoard(board);
+}
+
+/**
  * W6 (FRD: Kanban Lane-Run Structured Completion, FR-8): finish a
  * structured lane-run's transition into the target lane's on-enter
  * automation.
@@ -498,30 +583,22 @@ export async function stopLaneEntryRetryWorker(timeoutMs = 5_000) {
 }
 
 /**
- * Remove a session from the board (called when session is deleted).
+ * Remove a workspace's card from the board, superseding its active lane run.
  *
- * @param {string} sessionId - The session ID
+ * Called when a workspace root session is deleted. The card's project is
+ * resolved from the card itself, so the KANBAN_CARD_REMOVED broadcast fires
+ * even when this runs after the session row is already gone.
+ *
+ * @param {string} sessionId - Any session id in the workspace (root or child)
+ * @returns {Object|null} the removal descriptor from removeCard, or null when
+ *   the workspace had no card
  */
 export function removeSessionFromBoard(sessionId) {
   // Normalize to workspace root — cards are keyed to the root.
   const workspaceId = resolveWorkspaceId(sessionId);
   const card = kanbanCards.getBySessionId(workspaceId);
   if (!card) {
-    return; // Workspace wasn't on the board
+    return null; // Workspace wasn't on the board
   }
-
-  const laneId = card.laneId;
-  const rootSession = sessions.getById(workspaceId);
-  const projectId = rootSession?.projectId;
-
-  supersedeRunForCard(card.id, 'card_removed');
-  kanbanCards.delete(card.id);
-
-  if (projectId) {
-    broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED, {
-      projectId,
-      cardId: card.id,
-      laneId,
-    });
-  }
+  return removeCard(card);
 }

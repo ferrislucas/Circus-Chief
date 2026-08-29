@@ -6,7 +6,8 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync } from 'child_process';
 import crypto from 'crypto';
-import { projects, sessions, sessionTemplates, commandButtons, commandRuns, modelProviders, projectDefaults } from '../database.js';
+import { projects, sessions, sessionTemplates, commandButtons, commandRuns, modelProviders, projectDefaults, kanbanBoards, kanbanLanes, kanbanCards } from '../database.js';
+import { createLaneRunForEntry, attachRootSession, getRun } from '../services/workflowSessionService.js';
 
 // Mock websocket and sessionManager before importing the router
 vi.mock('../websocket.js', () => ({
@@ -2248,5 +2249,55 @@ describe('Circus command ownership checks (cross-project isolation)', () => {
 
     // Verify button B was NOT deleted
     expect(commandButtons.getById(buttonB.id)).not.toBeNull();
+  });
+});
+
+describe('DELETE /api/projects/:id kanban run retirement', () => {
+  let app;
+  let tempDir;
+  let projectId;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    app = express();
+    app.use(express.json());
+    app.use('/api/projects', projectsRouter);
+
+    tempDir = mkdtempSync(join(tmpdir(), 'project-kanban-delete-'));
+    const project = projects.create('Kanban Delete Test', tempDir);
+    projectId = project.id;
+  });
+
+  afterEach(() => {
+    if (existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('supersedes open lane runs before the project cascade removes their cards', async () => {
+    const board = kanbanBoards.getOrCreateForProject(projectId);
+    const lane = kanbanLanes.getByBoardId(board.id)[0];
+    const root = sessions.create(projectId, 'Root', 'prompt');
+    const card = kanbanCards.create(lane.id, root.id);
+    const run = createLaneRunForEntry({
+      projectId,
+      workspaceId: root.id,
+      cardId: card.id,
+      lane: { ...lane, onEnterPrompt: 'Do the work' },
+    });
+    const worker = sessions.create(projectId, 'Worker', 'work', { parentSessionId: root.id });
+    attachRootSession(run.id, worker.id);
+
+    const res = await request(app).delete(`/api/projects/${projectId}`);
+
+    expect(res.status).toBe(204);
+    // Run retired rather than orphaned by the project's FK cascades.
+    expect(getRun(run.id).status).toBe('superseded');
+    expect(projects.getById(projectId)).toBeNull();
+  });
+
+  it('deletes a project with no board without error', async () => {
+    const res = await request(app).delete(`/api/projects/${projectId}`);
+    expect(res.status).toBe(204);
+    expect(projects.getById(projectId)).toBeNull();
   });
 });

@@ -77,6 +77,21 @@ describe('Kanban API', () => {
     });
   }
 
+  function setupActiveRun() {
+    setupBoard();
+    const root = createSession('Root');
+    const card = kanbanCards.create(lanes[0].id, root.id);
+    const run = createLaneRunForEntry({
+      projectId,
+      workspaceId: root.id,
+      cardId: card.id,
+      lane: { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'Do the work' },
+    });
+    const worker = createChildSession(root.id, 'Lane worker');
+    attachRootSession(run.id, worker.id);
+    return { root, card, run, worker };
+  }
+
   describe('Idempotency-Key validation', () => {
     it.each([
       ['', 'an empty key'],
@@ -294,6 +309,17 @@ describe('Kanban API', () => {
         WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED,
         expect.objectContaining({ board: null })
       );
+    });
+
+    it('supersedes active lane runs before the board cascade removes their cards', async () => {
+      const { card, run, worker } = setupActiveRun();
+
+      const res = await request(app).delete(`/api/projects/${projectId}/kanban`);
+
+      expect(res.status).toBe(204);
+      expect(kanbanCards.getById(card.id)).toBeNull();
+      expect(getRun(run.id).status).toBe('superseded');
+      expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
     });
 
     it('returns 404 when no board exists', async () => {
@@ -533,6 +559,19 @@ describe('Kanban API', () => {
         WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED,
         expect.anything()
       );
+    });
+
+    it('supersedes active lane runs before the lane cascade removes their cards', async () => {
+      const { card, run, worker } = setupActiveRun();
+
+      const res = await request(app).delete(
+        `/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`
+      );
+
+      expect(res.status).toBe(204);
+      expect(kanbanCards.getById(card.id)).toBeNull();
+      expect(getRun(run.id).status).toBe('superseded');
+      expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
     });
   });
 
@@ -852,21 +891,6 @@ describe('Kanban API', () => {
   });
 
   describe('PUT /api/projects/:projectId/kanban/cards/by-workspace/:workspaceId/exit-lane', () => {
-    function setupActiveRun() {
-      setupBoard();
-      const root = createSession('Root');
-      const card = kanbanCards.create(lanes[0].id, root.id);
-      const run = createLaneRunForEntry({
-        projectId,
-        workspaceId: root.id,
-        cardId: card.id,
-        lane: { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'Do the work' },
-      });
-      const worker = createChildSession(root.id, 'Lane worker');
-      attachRootSession(run.id, worker.id);
-      return { root, card, run, worker };
-    }
-
     it('declares a deferred exit and broadcasts the active run', async () => {
       const { root, card, run } = setupActiveRun();
       kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Validate the work' });
@@ -1008,6 +1032,22 @@ describe('Kanban API', () => {
 
       expect(res.status).toBe(204);
       expect(kanbanCards.getById(card.id)).toBeNull();
+    });
+
+    it('supersedes an active lane run before removing the card', async () => {
+      const { root, card, run, worker } = setupActiveRun();
+
+      const res = await request(app).delete(
+        `/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}`
+      );
+
+      expect(res.status).toBe(204);
+      expect(kanbanCards.getById(card.id)).toBeNull();
+      // The open run is retired rather than orphaned pointing at a deleted card.
+      expect(getRun(run.id).status).toBe('superseded');
+      // The worker's obligation is cancelled so it can't later revive against a
+      // card that no longer exists.
+      expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
     });
 
     it('broadcasts KANBAN_CARD_REMOVED', async () => {

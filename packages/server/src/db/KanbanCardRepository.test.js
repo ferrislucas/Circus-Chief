@@ -332,4 +332,25 @@ describe('KanbanCardRepository', () => {
       expect(card).toBeNull();
     });
   });
+
+  describe('getProjectId', () => {
+    it('resolves the owning project via lane and board', () => {
+      const session = createSession();
+      const card = cardRepo.create(lanes[0].id, session.id);
+
+      expect(cardRepo.getProjectId(card.id)).toBe(projectId);
+    });
+
+    it('still resolves after the card\'s session row is deleted', () => {
+      const session = createSession();
+      const card = cardRepo.create(lanes[0].id, session.id);
+      sessionRepo.delete(session.id);
+
+      expect(cardRepo.getProjectId(card.id)).toBe(projectId);
+    });
+
+    it('returns null for an unknown card', () => {
+      expect(cardRepo.getProjectId('no-such-card')).toBeNull();
+    });
+  });
 });

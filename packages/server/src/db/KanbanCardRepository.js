@@ -127,6 +127,26 @@ export class KanbanCardRepository extends BaseRepository {
   }
 
   /**
+   * Resolve the owning project of a card via its lane's board.
+   * Independent of the card's session rows, so it keeps working when the
+   * sessions are deleted before the card (session-deletion path).
+   * @param {string} cardId
+   * @returns {string|null}
+   */
+  getProjectId(cardId) {
+    const row = this.db
+      .prepare(
+        `SELECT b.project_id
+         FROM kanban_cards kc
+         JOIN kanban_lanes l ON l.id = kc.lane_id
+         JOIN kanban_boards b ON b.id = l.board_id
+         WHERE kc.id = ?`
+      )
+      .get(cardId);
+    return row?.project_id ?? null;
+  }
+
+  /**
    * Create a card for a session in a lane
    * @param {string} laneId
    * @param {string} sessionId

@@ -46,6 +46,10 @@ import {
   getFullBoard,
   addSessionToBoard,
   moveCard,
+  removeCard,
+  removeLane,
+  removeBoard,
+  removeBoardForProject,
   removeSessionFromBoard,
   triggerStructuredTransitionAutomation,
   drainLaneEntryTrigger,
@@ -85,6 +89,17 @@ describe('kanbanService', () => {
       mode: 'standard',
       parentSessionId: parentId,
     });
+  }
+
+  /** Card in lanes[0] with an open lane run and an attached worker child. */
+  function setupActiveLaneRunCard() {
+    const root = createSession('Root');
+    const card = kanbanCards.create(lanes[0].id, root.id);
+    const lane = { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'Do the work' };
+    const run = createLaneRunForEntry({ projectId, workspaceId: root.id, cardId: card.id, lane });
+    const worker = createChildSession(root.id, 'Lane worker');
+    attachRootSession(run.id, worker.id);
+    return { root, card, run, worker, rootId: root.id };
   }
 
   // ── getFullBoard ───────────────────────────────────────────────────
@@ -479,6 +494,128 @@ describe('kanbanService', () => {
         WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED,
         expect.objectContaining({ cardId: card.id })
       );
+    });
+
+    it('returns null when the workspace has no card', () => {
+      const session = createSession();
+      expect(removeSessionFromBoard(session.id)).toBeNull();
+    });
+
+    it('cannot find the card once the session row is gone — callers must retire first', () => {
+      // The join row cascades with the session, so the card is unreachable by
+      // session id after deletion. This pins the ordering contract the
+      // session-delete route relies on: removeSessionFromBoard BEFORE the
+      // session cascade, not after.
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      sessions.delete(session.id);
+      vi.clearAllMocks();
+
+      expect(removeSessionFromBoard(session.id)).toBeNull();
+      expect(kanbanCards.getById(card.id)).not.toBeNull();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── removeCard / removeLane / removeBoard ─────────────────────────
+
+  describe('removeCard', () => {
+    it('deletes a legacy card with no active run and broadcasts', () => {
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      vi.clearAllMocks();
+
+      const result = removeCard(card);
+
+      expect(kanbanCards.getById(card.id)).toBeNull();
+      expect(result).toEqual({ projectId, laneId: lanes[0].id });
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED,
+        expect.objectContaining({ cardId: card.id })
+      );
+    });
+
+    it('derives the project from the card when its sessions are already deleted', () => {
+      // Cards fetched by lane (bulk removal) outlive their session rows;
+      // the broadcast project must come from card → lane → board.
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+      sessions.delete(session.id);
+      const card = kanbanCards.getByLaneId(lanes[0].id)[0];
+      vi.clearAllMocks();
+
+      const result = removeCard(card);
+
+      expect(result).toEqual({ projectId, laneId: lanes[0].id });
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED,
+        expect.objectContaining({ cardId: card.id, projectId })
+      );
+    });
+
+    it('rolls back both the supersession and the delete when the transaction fails', () => {
+      const { card, run } = setupActiveLaneRunCard();
+      // Force the card delete itself to blow up mid-transaction.
+      const deleteSpy = vi.spyOn(kanbanCards, 'delete')
+        .mockImplementationOnce(() => { throw new Error('boom'); });
+      try {
+        expect(() => removeCard(kanbanCards.getById(card.id))).toThrow('boom');
+      } finally {
+        deleteSpy.mockRestore();
+      }
+
+      // Nothing committed: run still open, card still present and owned.
+      expect(getRun(run.id).status).toBe('open');
+      expect(kanbanCards.getById(card.id).activeLaneRunId).toBe(run.id);
+    });
+  });
+
+  describe('removeLane', () => {
+    it('deletes the lane, its cards, and supersedes their runs in one commit', () => {
+      const { card, run } = setupActiveLaneRunCard();
+      vi.clearAllMocks();
+
+      removeLane(lanes[0]);
+
+      expect(kanbanLanes.getById(lanes[0].id)).toBeNull();
+      expect(kanbanCards.getById(card.id)).toBeNull();
+      expect(getRun(run.id).status).toBe('superseded');
+      // Bulk removal is one board-level change; no per-card events.
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('removeBoard', () => {
+    it('deletes the board, its lanes, and its cards, superseding runs', () => {
+      const { card, run } = setupActiveLaneRunCard();
+      const board = kanbanBoards.getByProjectId(projectId);
+      vi.clearAllMocks();
+
+      removeBoard(board);
+
+      expect(kanbanBoards.getByProjectId(projectId)).toBeNull();
+      expect(kanbanCards.getById(card.id)).toBeNull();
+      expect(getRun(run.id).status).toBe('superseded');
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('removeBoardForProject', () => {
+    it('supersedes runs and removes the board when one exists', () => {
+      const { card, run } = setupActiveLaneRunCard();
+      vi.clearAllMocks();
+
+      removeBoardForProject(projectId);
+
+      expect(kanbanBoards.getByProjectId(projectId)).toBeNull();
+      expect(kanbanCards.getById(card.id)).toBeNull();
+      expect(getRun(run.id).status).toBe('superseded');
+    });
+
+    it('is a no-op when the project has no board', () => {
+      expect(() => removeBoardForProject('no-such-project')).not.toThrow();
     });
   });
 
