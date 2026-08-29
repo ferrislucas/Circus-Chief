@@ -28,9 +28,10 @@ export const useProjectsStore = defineStore('projects', {
     getProjectById: (state) => (id) => state.projects.find((p) => p.id === id),
 
     /**
-     * Facets for the status filter — project counts, not session/workspace
-     * counts. `running` and `waiting` may overlap (a project with both counts
-     * toward both); `idle` is the complement of "any active session".
+     * Facets for the status filter. The running badge is a session total;
+     * waiting and idle remain project counts because their filters operate on
+     * projects. `running` and `waiting` may overlap; `idle` is the complement
+     * of "any active session".
      */
     statusFacets: (state) => {
       let running = 0;
@@ -39,7 +40,7 @@ export const useProjectsStore = defineStore('projects', {
       for (const project of state.projects) {
         const isRunning = project.runningSessionCount > 0;
         const isWaiting = project.waitingSessionCount > 0;
-        if (isRunning) running += 1;
+        running += project.runningSessionCount;
         if (isWaiting) waiting += 1;
         if (!isRunning && !isWaiting) idle += 1;
       }

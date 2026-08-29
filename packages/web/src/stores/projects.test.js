@@ -117,17 +117,18 @@ describe('useProjectsStore', () => {
   });
 
   describe('statusFacets getter', () => {
-    it('counts projects per status with running/waiting overlap', () => {
+    it('counts running sessions while retaining project counts for waiting and idle', () => {
       const store = useProjectsStore();
       store.projects = [
-        project({ id: 'run', runningSessionCount: 1, waitingSessionCount: 0 }),
+        project({ id: 'run', runningSessionCount: 2, waitingSessionCount: 0 }),
         project({ id: 'wait', runningSessionCount: 0, waitingSessionCount: 1 }),
-        project({ id: 'both', runningSessionCount: 1, waitingSessionCount: 1 }),
+        project({ id: 'both', runningSessionCount: 3, waitingSessionCount: 1 }),
         project({ id: 'idle', runningSessionCount: 0, waitingSessionCount: 0 }),
       ];
 
-      // running: run + both = 2; waiting: wait + both = 2; idle: idle = 1
-      expect(store.statusFacets).toEqual({ running: 2, waiting: 2, idle: 1 });
+      // running: 2 + 3 sessions = 5; waiting: wait + both = 2 projects;
+      // idle: idle = 1 project.
+      expect(store.statusFacets).toEqual({ running: 5, waiting: 2, idle: 1 });
     });
 
     it('treats a project with zero sessions as idle', () => {
