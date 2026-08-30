@@ -5028,6 +5028,24 @@ describe('Sessions Store', () => {
     });
 
     describe('getWorkflowEffectiveStatus', () => {
+      it('returns running when one descendant is active and another is waiting for input', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'root', status: 'completed', parentSessionId: null },
+          { id: 'running-child', status: 'running', parentSessionId: 'root' },
+          {
+            id: 'waiting-child',
+            status: 'waiting',
+            pendingAgentInput: { type: 'question' },
+            parentSessionId: 'root',
+          },
+        ];
+
+        const result = store.getWorkflowEffectiveStatus('root');
+
+        expect(result).toBe('running');
+      });
+
       it('returns idle when no running sessions exist', () => {
         const store = useSessionsStore();
         store.sessions = [

@@ -107,8 +107,8 @@ export const useSessionsStore = defineStore('sessions', {
           }
         }
         const runningStatuses = ['running', 'starting'];
-        if (allSessions.some((s) => s.pendingAgentInput)) return 'waiting';
-        return allSessions.some((s) => runningStatuses.includes(s.status)) ? 'running' : 'idle';
+        if (allSessions.some((s) => runningStatuses.includes(s.status))) return 'running';
+        return allSessions.some((s) => s.pendingAgentInput) ? 'waiting' : 'idle';
       };
     },
 
