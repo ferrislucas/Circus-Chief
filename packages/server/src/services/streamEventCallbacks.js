@@ -352,6 +352,24 @@ async function safeTriggerTemplate(sessionId, handleTemplateTriggerIfNeeded) {
 }
 
 /**
+ * Persist and broadcast an unrecoverable session error.
+ * @param {string} sessionId
+ * @param {Error} error
+ * @param {{ broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function }} options
+ */
+async function finalizeSessionError(sessionId, error, options) {
+  sessions.update(sessionId, { status: 'error', error: error.message });
+  createVisibleFinalErrorMessage(sessionId, error, activeConversationIds);
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
+  if (options.broadcastConversationState) broadcastFinalConversationState(sessionId);
+  summaryService.extractPrUrlIfNeeded(sessionId);
+  summaryService.onSessionComplete(sessionId);
+  if (options.handleTemplateTriggerIfNeeded) {
+    await safeTriggerTemplate(sessionId, options.handleTemplateTriggerIfNeeded);
+  }
+}
+
+/**
  * Handle session error with optional rescheduling
  * Encapsulates the duplicated error handling block from runSession/continueSession/continueSessionWithExistingMessage
  * @param {string} sessionId
@@ -402,24 +420,7 @@ export async function handleSessionError(sessionId, error, options = {}) {
   }
 
   // Normal error handling (no reschedule or reschedule limits reached)
-  sessions.update(sessionId, { status: 'error', error: error.message });
-  createVisibleFinalErrorMessage(sessionId, error, activeConversationIds);
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
-
-  // Optionally broadcast final conversation state (continueSession does this)
-  if (options.broadcastConversationState) {
-    broadcastFinalConversationState(sessionId);
-  }
-
-  // Extract PR URL before generating summary (PR may have been created before error)
-  summaryService.extractPrUrlIfNeeded(sessionId);
-  // Trigger summary generation on error
-  summaryService.onSessionComplete(sessionId);
-
-  // Trigger next template if configured (e.g., session completed work but process exited with error code)
-  if (options.handleTemplateTriggerIfNeeded) {
-    await safeTriggerTemplate(sessionId, options.handleTemplateTriggerIfNeeded);
-  }
+  await finalizeSessionError(sessionId, error, options);
 
   return false; // Not rescheduled
 }
