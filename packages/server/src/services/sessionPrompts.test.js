@@ -31,11 +31,37 @@ import {
   buildSystemPromptConfig,
 } from './sessionPrompts.js';
 import { getApiBaseUrl } from './apiBaseUrl.js';
+import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
 import {
-  DEFAULT_SERVER_PORT,
-  DEFAULT_SYSTEM_PROMPT,
-} from '@circuschief/shared';
+  CreateKanbanLaneRequest,
+  ReorderKanbanLanesRequest,
+  UpdateKanbanLaneRequest,
+} from '@circuschief/shared/contracts/kanban';
 import { readFileSync } from 'node:fs';
+
+const EXAMPLE_IDS = {
+  lane: '11111111-1111-4111-8111-111111111111',
+  target: '22222222-2222-4222-8222-222222222222',
+  first: '33333333-3333-4333-8333-333333333333',
+  second: '44444444-4444-4444-8444-444444444444',
+};
+
+function extractKanbanExample(prompt, heading) {
+  const match = prompt.match(new RegExp(`### ${heading}\\n[\\s\\S]*?` + '```bash\\n([\\s\\S]*?)\\n```'));
+  expect(match, `missing ${heading} example`).not.toBeNull();
+  const command = match[1];
+  const body = command.match(/-d '([^']+)'/);
+  expect(body, `${heading} needs a JSON request body`).not.toBeNull();
+  return { command, body: body[1] };
+}
+
+function parseExampleBody(body) {
+  return JSON.parse(body
+    .replaceAll('<lane_id>', EXAMPLE_IDS.lane)
+    .replaceAll('<target_lane_id>', EXAMPLE_IDS.target)
+    .replaceAll('<lane_id_1>', EXAMPLE_IDS.first)
+    .replaceAll('<lane_id_2>', EXAMPLE_IDS.second));
+}
 
 describe('sessionPrompts', () => {
   beforeEach(() => {
@@ -642,6 +668,74 @@ describe('sessionPrompts', () => {
       expect(result).toContain('Create a New Lane');
       expect(result).toContain('Update a Lane');
       expect(result).toContain('Delete a Lane');
+    });
+
+    it('documents every contract lane field and safe update semantics', () => {
+      projects.getById.mockReturnValue({});
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+      const laneFields = result.slice(
+        result.indexOf('### Lane Request Fields'),
+        result.indexOf('### Add Current Workspace to the Board')
+      );
+
+      for (const field of Object.keys(CreateKanbanLaneRequest.shape)) {
+        expect(laneFields, `missing create field ${field}`).toContain(`\`${field}\``);
+      }
+      expect(Object.keys(UpdateKanbanLaneRequest.shape)).toContain('completionTargetLaneId');
+      expect(laneFields).toContain('`completionTargetLaneId`');
+      expect(laneFields).toContain('**update-only**');
+      expect(laneFields).toContain('omitted fields preserve their current values');
+      expect(laneFields).toContain('explicit `null` clears nullable settings');
+      expect(laneFields).toContain('`plan`, `standard`, or `yolo`');
+      expect(laneFields).toContain('`low`, `medium`, `high`, `max`, or `auto`');
+      expect(laneFields).toContain('`legacy`, `shadow`, or `structured`');
+      expect(laneFields).toContain('mutually exclusive');
+      expect(laneFields).toContain('different lane on the same board');
+      expect(laneFields).toContain('`null` clears the destination');
+    });
+
+    it('documents board discovery before ID-dependent lane changes and valid request examples', () => {
+      projects.getById.mockReturnValue({});
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+      const boardRead = result.indexOf(`curl http://localhost:${DEFAULT_SERVER_PORT}/api/projects/${projectId}/kanban`);
+      const completionUpdate = result.indexOf('### Set Completion Routing');
+      const reorder = result.indexOf('### Reorder Lanes');
+
+      expect(boardRead).toBeGreaterThanOrEqual(0);
+      expect(result).toContain('authoritative source for current settings and lane IDs');
+      expect(result).toContain('use those returned IDs rather than guessing');
+      expect(boardRead).toBeLessThan(completionUpdate);
+      expect(boardRead).toBeLessThan(reorder);
+
+      const minimalCreate = extractKanbanExample(result, 'Create a New Lane');
+      const automatedCreate = extractKanbanExample(result, 'Create a Lane with Prompt Automation');
+      const rename = extractKanbanExample(result, 'Update a Lane');
+      const completion = extractKanbanExample(result, 'Set Completion Routing');
+      const clear = extractKanbanExample(result, 'Clear Lane Automation and Completion Routing');
+      const reorderExample = extractKanbanExample(result, 'Reorder Lanes');
+
+      expect(minimalCreate.command).toContain(`-X POST http://localhost:${DEFAULT_SERVER_PORT}/api/projects/${projectId}/kanban/lanes`);
+      expect(automatedCreate.command).toContain(`-X POST http://localhost:${DEFAULT_SERVER_PORT}/api/projects/${projectId}/kanban/lanes`);
+      expect(rename.command).toContain(`/api/projects/${projectId}/kanban/lanes/<lane_id>`);
+      expect(completion.command).toContain(`/api/projects/${projectId}/kanban/lanes/<lane_id>`);
+      expect(clear.command).toContain(`/api/projects/${projectId}/kanban/lanes/<lane_id>`);
+      expect(reorderExample.command).toContain(`-X PUT http://localhost:${DEFAULT_SERVER_PORT}/api/projects/${projectId}/kanban/lanes/reorder`);
+
+      expect(CreateKanbanLaneRequest.safeParse(parseExampleBody(minimalCreate.body)).success).toBe(true);
+      expect(CreateKanbanLaneRequest.safeParse(parseExampleBody(automatedCreate.body)).success).toBe(true);
+      expect(UpdateKanbanLaneRequest.safeParse(parseExampleBody(rename.body)).success).toBe(true);
+      expect(UpdateKanbanLaneRequest.safeParse(parseExampleBody(completion.body)).success).toBe(true);
+      expect(UpdateKanbanLaneRequest.safeParse(parseExampleBody(clear.body)).success).toBe(true);
+      expect(ReorderKanbanLanesRequest.safeParse(parseExampleBody(reorderExample.body)).success).toBe(true);
+    });
+
+    it('explains how to replace or disable lane-entry automation', () => {
+      projects.getById.mockReturnValue({});
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).toContain('set `onEnterPrompt` and `onEnterTemplateId: null`');
+      expect(result).toContain('set `onEnterTemplateId` and `onEnterPrompt: null`');
+      expect(result).toContain('"onEnterTemplateId":null,"onEnterPrompt":null');
     });
 
     it('uses workspaceId (not sessionId) and by-workspace routes in kanban instructions', () => {
