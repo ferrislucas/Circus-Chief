@@ -5028,6 +5028,18 @@ describe('Sessions Store', () => {
     });
 
     describe('getWorkflowEffectiveStatus', () => {
+      it('returns waiting for a single running session blocked on input', () => {
+        const store = useSessionsStore();
+        store.sessions = [{
+          id: 'root', status: 'running', pendingAgentInput: { type: 'question' }, parentSessionId: null,
+        }];
+
+        expect(store.getWorkflowEffectiveStatus('root')).toBe('waiting');
+        expect(store.getWorkflowAggregatedStatus('root')).toMatchObject({
+          effectiveStatus: 'waiting', runningCount: 0, waitingCount: 1,
+        });
+      });
+
       it('returns running when one descendant is active and another is waiting for input', () => {
         const store = useSessionsStore();
         store.sessions = [
@@ -5044,6 +5056,16 @@ describe('Sessions Store', () => {
         const result = store.getWorkflowEffectiveStatus('root');
 
         expect(result).toBe('running');
+      });
+
+      it('treats legacy status="waiting" as idle without pending input', () => {
+        const store = useSessionsStore();
+        store.sessions = [{ id: 'root', status: 'waiting', pendingAgentInput: false, parentSessionId: null }];
+
+        expect(store.getWorkflowEffectiveStatus('root')).toBe('idle');
+        expect(store.getWorkflowAggregatedStatus('root')).toMatchObject({
+          effectiveStatus: 'idle', waitingCount: 0,
+        });
       });
 
       it('returns idle when no running sessions exist', () => {

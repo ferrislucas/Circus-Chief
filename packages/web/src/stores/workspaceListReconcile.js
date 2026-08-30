@@ -12,10 +12,12 @@ export function workspaceVisibleMatches(card, query) {
       || (query.status === 'idle' && card.runningCount === 0 && card.waitingCount === 0));
 }
 
-function workspaceFacet(card) {
-  if (card.runningCount > 0) return 'running';
-  if (card.waitingCount > 0) return 'waiting';
-  return 'idle';
+function workspaceFacets(card) {
+  const facets = [];
+  if (card.runningCount > 0) facets.push('running');
+  if (card.waitingCount > 0) facets.push('waiting');
+  if (facets.length === 0) facets.push('idle');
+  return facets;
 }
 
 export function compareWorkspaceCards(cardsById, leftId, rightId) {
@@ -30,7 +32,11 @@ export function compareWorkspaceCards(cardsById, leftId, rightId) {
 
 export function adjustWorkspaceFacets(facets, existing, card, query) {
   const next = { ...facets };
-  if (workspaceBaseMatches(existing, query)) next[workspaceFacet(existing)] -= 1;
-  if (workspaceBaseMatches(card, query)) next[workspaceFacet(card)] += 1;
+  if (workspaceBaseMatches(existing, query)) {
+    for (const facet of workspaceFacets(existing)) next[facet] -= 1;
+  }
+  if (workspaceBaseMatches(card, query)) {
+    for (const facet of workspaceFacets(card)) next[facet] += 1;
+  }
   return next;
 }

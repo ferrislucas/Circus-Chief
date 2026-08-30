@@ -262,6 +262,7 @@ import { useKanbanStore } from '../stores/kanban.js';
 import { findNearestScheduledTime } from '../utils/scheduleInfo.js';
 import { getStatusIconSvg } from './statusIcons';
 import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
+import { isSessionActivelyRunning, summarizeWorkflowSessions } from '../utils/workflowStatus.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import MoveCardModal from './MoveCardModal.vue';
 import PrIndicators from './PrIndicators.vue';
@@ -372,38 +373,16 @@ const workflowStatus = computed(() => {
         : (props.workflowAggregate.waitingCount || 0) > 0 ? 'waiting' : 'idle',
     };
   }
-  const allSessions = getWorkflowSessions();
-  const runningStatuses = ['running', 'starting'];
-
-  let runningCount = 0;
-  let waitingCount = 0;
-  let scheduledCount = 0;
-  for (const s of allSessions) {
-    if (s.pendingAgentInput) waitingCount++;
-    else if (runningStatuses.includes(s.status)) runningCount++;
-    else if (s.status === 'waiting') waitingCount++;
-    if (s.status === 'scheduled') scheduledCount++;
-  }
-
-  return {
-    runningCount,
-    waitingCount,
-    scheduledCount,
-    totalCount: allSessions.length,
-    effectiveStatus: props.session.status,
-  };
+  return summarizeWorkflowSessions(getWorkflowSessions());
 });
 
 // Collect all running/starting session IDs in the workflow (full tree traversal)
 const runningSessionIds = computed(() => {
   if (props.workflowAggregate) {
-    return props.workflowAggregate.runningSessionIds?.length
-      ? props.workflowAggregate.runningSessionIds
-      : (props.workflowAggregate.runningCount > 0 ? [props.session.id] : []);
+    return props.workflowAggregate.runningSessionIds || [];
   }
-  const runningStatuses = ['running', 'starting'];
   return getWorkflowSessions()
-    .filter(s => runningStatuses.includes(s.status) && !s.pendingAgentInput)
+    .filter(s => isSessionActivelyRunning(s))
     .map(s => s.id);
 });
 

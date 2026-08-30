@@ -97,4 +97,21 @@ describe('getWorkspaceCardPage', () => {
     expect(getWorkspaceCardPage(db, 'project', { status: 'idle', limit: 10 }).cards.map((c) => c.id))
       .toEqual(['idle-waiting-status']);
   }));
+
+  it('counts a workflow with active and blocked members in both facets', () => withDb((db) => {
+    addSession(db, 'root', { status: 'running' });
+    addSession(db, 'blocked-child', {
+      parentId: 'root', status: 'running', pendingAgentInput: true,
+    });
+
+    const all = getWorkspaceCardPage(db, 'project', { limit: 10 });
+
+    expect(all.cards[0]).toMatchObject({ runningCount: 1, waitingCount: 1 });
+    expect(all.facets).toEqual({ running: 1, idle: 0, waiting: 1 });
+    expect(all.total).toBe(1);
+    expect(getWorkspaceCardPage(db, 'project', { status: 'running', limit: 10 }).cards)
+      .toHaveLength(1);
+    expect(getWorkspaceCardPage(db, 'project', { status: 'waiting', limit: 10 }).cards)
+      .toHaveLength(1);
+  }));
 });

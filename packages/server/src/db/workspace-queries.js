@@ -129,6 +129,7 @@ function parseCardPageRows(resultRows, limit) {
       idle: facetRow?.facet_idle || 0,
       waiting: facetRow?.facet_waiting || 0,
     },
+    total: facetRow?.facet_total || 0,
   };
 }
 
@@ -160,20 +161,21 @@ function buildWorkspaceCardPageSql(baseFilters, statusFilters, cursorClause, has
       SELECT
         COALESCE(SUM(CASE WHEN runningCount > 0 THEN 1 ELSE 0 END), 0) AS running,
         COALESCE(SUM(CASE WHEN runningCount = 0 AND waitingCount = 0 THEN 1 ELSE 0 END), 0) AS idle,
-        COALESCE(SUM(CASE WHEN waitingCount > 0 THEN 1 ELSE 0 END), 0) AS waiting
+        COALESCE(SUM(CASE WHEN waitingCount > 0 THEN 1 ELSE 0 END), 0) AS waiting,
+        COUNT(*) AS total
       FROM base
     ), paged AS (
       SELECT * FROM filtered WHERE 1=1 ${cursorClause}
       ORDER BY starred DESC, sort_activity DESC, updatedAt DESC, createdAt DESC, id DESC
       LIMIT @limit ${hasCursor ? '' : 'OFFSET @offset'}
     )
-    SELECT 'page' AS row_kind, paged.*, NULL AS facet_running, NULL AS facet_idle, NULL AS facet_waiting
+    SELECT 'page' AS row_kind, paged.*, NULL AS facet_running, NULL AS facet_idle, NULL AS facet_waiting, NULL AS facet_total
     FROM paged
     UNION ALL
     SELECT 'facets' AS row_kind,
       NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
       NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-      NULL, NULL, NULL, facets.running, facets.idle, facets.waiting
+      NULL, NULL, NULL, facets.running, facets.idle, facets.waiting, facets.total
     FROM facets`;
 }
 
@@ -217,11 +219,12 @@ export function getWorkspaceCardPage(db, projectId, options = {}) {
       rootId,
     })
   );
-  const { visibleRows, hasMore, facets } = parseCardPageRows(resultRows, limit);
+  const { visibleRows, hasMore, facets, total } = parseCardPageRows(resultRows, limit);
   const cards = visibleRows.map(toWorkspaceCard);
   return {
     cards,
     facets,
+    total,
     hasMore,
     nextCursor: hasMore ? encodeCursor(visibleRows.at(-1)) : null,
   };

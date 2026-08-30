@@ -220,6 +220,15 @@ describe('SessionCard', () => {
       expect(wrapper.find('.status-running').exists()).toBe(false);
     });
 
+    it('does not show needs input for legacy status="waiting" without pending input', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting', pendingAgentInput: false },
+      });
+
+      expect(wrapper.find('[aria-label="Agent input required"]').exists()).toBe(false);
+      expect(wrapper.find('.status-running').exists()).toBe(false);
+    });
+
 
     it('links to workspace detail page', () => {
       const wrapper = mountComponent();
