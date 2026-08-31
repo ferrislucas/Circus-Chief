@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- execution lifecycle boundaries remain deliberately adjacent. */
 import { sessions, messages, attachments, conversations } from '../database.js';
 import { resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
 import { reconcileAgentTypeForRun, deriveAgentTypeUpdate } from './sessionAgentGuard.js';
@@ -31,7 +30,6 @@ import { drainLaneEntryTrigger } from './kanbanService.js';
 
 async function resolveInitialSessionModelEnv(session, model) {
   const effectiveModel = model || session.model;
-  const provider = resolveProviderFromModel(effectiveModel);
   const providerMetadata = resolveProviderMetadataFromModel(effectiveModel);
   const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
 
@@ -39,7 +37,7 @@ async function resolveInitialSessionModelEnv(session, model) {
     await ensureWorktreeCommitAttributionHook(session.gitWorktree);
   }
 
-  const baseSessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
+  const baseSessionEnv = buildSessionEnv(resolveProviderFromModel(effectiveModel), session.thinkingEnabled, session.effortLevel);
   return {
     effectiveModel,
     sessionEnv: buildAgentEnv(baseSessionEnv, commitAttributionOverride),
@@ -209,11 +207,9 @@ export async function _executeSession({
     // error remains terminally failed. Neither path may be interpreted as
     // successful work.
     discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, controller.signal.aborted ? 'turn_cancelled' : 'turn_failed');
-    if (controller.signal.aborted) {
-      pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
-    } else {
-      closeOwnWork(sessionId, 'closed_failed', error.message, { turnToken: workflowTurn?.turnToken });
-    }
+    controller.signal.aborted
+      ? pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken })
+      : closeOwnWork(sessionId, 'closed_failed', error.message, { turnToken: workflowTurn?.turnToken });
     throw error;
   } finally {
     cleanupSessionState(sessionId, cleanupConversationId, controller);
