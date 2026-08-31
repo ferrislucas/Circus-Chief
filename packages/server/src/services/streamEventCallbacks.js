@@ -192,7 +192,12 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
     finalErrorSessionIds.delete(sessionId);
     clearPendingWakeup(sessionId, controller || activeSessions.get(sessionId)?.controller);
     associateAndCleanupWorkLogs(sessionId);
-    return { wasRescheduled: false, heldForLimit: false };
+    const session = sessions.getById(sessionId);
+    return {
+      wasRescheduled: false,
+      heldForLimit: false,
+      terminalError: new Error(session?.error || 'Provider turn ended with an error'),
+    };
   }
 
   // Session ready for follow-up - set to waiting instead of completed
@@ -347,11 +352,29 @@ async function safeTriggerTemplate(sessionId, handleTemplateTriggerIfNeeded) {
 }
 
 /**
+ * Persist and broadcast an unrecoverable session error.
+ * @param {string} sessionId
+ * @param {Error} error
+ * @param {{ broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function }} options
+ */
+async function finalizeSessionError(sessionId, error, options) {
+  sessions.update(sessionId, { status: 'error', error: error.message });
+  createVisibleFinalErrorMessage(sessionId, error, activeConversationIds);
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
+  if (options.broadcastConversationState) broadcastFinalConversationState(sessionId);
+  summaryService.extractPrUrlIfNeeded(sessionId);
+  summaryService.onSessionComplete(sessionId);
+  if (options.handleTemplateTriggerIfNeeded) {
+    await safeTriggerTemplate(sessionId, options.handleTemplateTriggerIfNeeded);
+  }
+}
+
+/**
  * Handle session error with optional rescheduling
  * Encapsulates the duplicated error handling block from runSession/continueSession/continueSessionWithExistingMessage
  * @param {string} sessionId
  * @param {Error} error
- * @param {{ controller: AbortController, shouldRescheduleOnError: Function, schedulerService: Object, errorLabel?: string, broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function }} options
+ * @param {{ controller: AbortController, shouldRescheduleOnError: Function, schedulerService: Object, errorLabel?: string, broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function, errorAlreadyRecorded?: boolean }} options
  */
 export async function handleSessionError(sessionId, error, options = {}) {
   const { controller, shouldRescheduleOnError, schedulerService } = options;
@@ -388,25 +411,16 @@ export async function handleSessionError(sessionId, error, options = {}) {
     return true;
   }
 
+  // A terminal result event is recorded and broadcast while the stream is
+  // still being consumed. Its completion path calls this function only to
+  // apply the shared retry policy; do not create a second visible error or
+  // repeat terminal side effects when no retry applies.
+  if (options.errorAlreadyRecorded) {
+    return false;
+  }
+
   // Normal error handling (no reschedule or reschedule limits reached)
-  sessions.update(sessionId, { status: 'error', error: error.message });
-  createVisibleFinalErrorMessage(sessionId, error, activeConversationIds);
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
-
-  // Optionally broadcast final conversation state (continueSession does this)
-  if (options.broadcastConversationState) {
-    broadcastFinalConversationState(sessionId);
-  }
-
-  // Extract PR URL before generating summary (PR may have been created before error)
-  summaryService.extractPrUrlIfNeeded(sessionId);
-  // Trigger summary generation on error
-  summaryService.onSessionComplete(sessionId);
-
-  // Trigger next template if configured (e.g., session completed work but process exited with error code)
-  if (options.handleTemplateTriggerIfNeeded) {
-    await safeTriggerTemplate(sessionId, options.handleTemplateTriggerIfNeeded);
-  }
+  await finalizeSessionError(sessionId, error, options);
 
   return false; // Not rescheduled
 }

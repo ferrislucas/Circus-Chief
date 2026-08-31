@@ -87,6 +87,20 @@ describe('W4: failure/cancellation propagation through _executeSession', () => {
     return stubAgent;
   }
 
+  function stubResultErrorAgent(message) {
+    const stubAgent = {
+      // Codex reports some terminal failures as a final stream event and then
+      // closes the generator normally instead of rejecting execute().
+      execute: vi.fn(async function* () {
+        yield { type: 'result', subtype: 'error', is_error: true, error: message };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+    return stubAgent;
+  }
+
   it('a permanent execution failure fails the run and does not move the card (AC-8)', async () => {
     stubThrowingAgent('boom: permanent failure');
 
@@ -125,13 +139,47 @@ describe('W4: failure/cancellation propagation through _executeSession', () => {
     markUnhealthy(provider.id, 'cooling-model', 60_000);
 
     await expect(runSession(root.id, 'do work', tempDir)).rejects.toThrow(
-      'All tier members exhausted for tier "Cooling tier"'
+      'No healthy member is currently available for tier "Cooling tier" (all members are cooling down)'
     );
 
     const updated = sessionRepo.getById(root.id);
     expect(activeSessions.has(root.id)).toBe(false);
     expect(updated.status).toBe('error');
     expect(updated.ownWorkState).toBe('closed_failed');
+    expect(updated.executionState).toBe('stopped');
+    expect(getRun(run.id).status).toBe('failed');
+    expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+  });
+
+  it('a terminal result event for a token limit is automatically rescheduled and keeps the run open', async () => {
+    sessionRepo.update(root.id, {
+      autoRescheduleEnabled: true,
+      rescheduleOnTokenLimit: true,
+      rescheduleDelayMinutes: 15,
+    });
+    stubResultErrorAgent("You've hit your usage limit. Try again later.");
+
+    await runSession(root.id, 'do work', tempDir);
+
+    const updated = sessionRepo.getById(root.id);
+    expect(updated.ownWorkState).toBe('open');
+    expect(updated.status).toBe('scheduled');
+    expect(updated.scheduledAt).toEqual(expect.any(Number));
+    expect(updated.rescheduleCount).toBe(1);
+    expect(updated.executionState).toBe('retrying');
+    expect(getRun(run.id).status).toBe('open');
+    expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+  });
+
+  it('a non-retryable terminal result event fails rather than successfully completing the run', async () => {
+    stubResultErrorAgent('boom: permanent result failure');
+
+    await runSession(root.id, 'do work', tempDir);
+
+    const updated = sessionRepo.getById(root.id);
+    expect(updated.status).toBe('error');
+    expect(updated.ownWorkState).toBe('closed_failed');
+    expect(updated.workflowReason).toBe('boom: permanent result failure');
     expect(updated.executionState).toBe('stopped');
     expect(getRun(run.id).status).toBe('failed');
     expect(cardRepo.getById(card.id).laneId).toBe(source.id);

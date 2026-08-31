@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { DEFAULT_TOKEN_COST_WEIGHTS, buildTierRef } from '@circuschief/shared';
@@ -9,13 +9,11 @@ import settingsRouter from './settings.js';
 // where GC pressure and event-loop contention cause sporadic slowdowns.
 describe('Settings API', { timeout: 30_000 }, () => {
   let app;
-  let server;
 
   beforeEach(() => {
     app = express();
     app.use(express.json());
     app.use('/api/settings', settingsRouter);
-    server = app.listen(0);
 
     // Remove any instance-property overrides that may have leaked from a prior
     // test (e.g. the "handles errors gracefully" mock replacement).  Deleting
@@ -32,13 +30,9 @@ describe('Settings API', { timeout: 30_000 }, () => {
     settings.resetSummarySettings();
   });
 
-  afterEach(async () => {
-    await new Promise((resolve) => server.close(resolve));
-  });
-
   describe('Summary settings', () => {
     it('returns expanded summary defaults', async () => {
-      const res = await request(server).get('/api/settings/summary');
+      const res = await request(app).get('/api/settings/summary');
 
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({
@@ -51,7 +45,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
     });
 
     it('rejects a summary body without summaryModel', async () => {
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/summary')
         .send({
           disableSessionSummaries: true,
@@ -64,7 +58,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
     });
 
     it('rejects a summary body without summaryProviderId', async () => {
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/summary')
         .send({
           disableSessionSummaries: true,
@@ -77,7 +71,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
     });
 
     it('accepts auto mode with an empty model and null provider', async () => {
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/summary')
         .send({
           disableSessionSummaries: true,
@@ -99,7 +93,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       const provider = modelProviders.getById('openai-default');
       const model = provider.models[0].modelId;
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/summary')
         .send({
           disableSessionSummaries: false,
@@ -116,7 +110,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
     });
 
     it('rejects provider/model ownership mismatches', async () => {
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/summary')
         .send({
           disableSessionSummaries: false,
@@ -133,7 +127,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       const provider = modelProviders.getById('openai-default');
       const model = provider.models[0].modelId;
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/summary')
         .send({
           disableSessionSummaries: false,
@@ -150,7 +144,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       const provider = modelProviders.getById('openai-default');
       const model = provider.models[0].modelId;
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/summary')
         .send({
           disableSessionSummaries: false,
@@ -164,7 +158,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
     });
 
     it('rejects provider-only auto mode', async () => {
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/summary')
         .send({
           disableSessionSummaries: false,
@@ -319,7 +313,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
 
   describe('GET /api/settings/token-weights', () => {
     it('returns default weights when not customized', async () => {
-      const res = await request(server).get('/api/settings/token-weights');
+      const res = await request(app).get('/api/settings/token-weights');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual(DEFAULT_TOKEN_COST_WEIGHTS);
@@ -334,7 +328,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       };
       settings.setTokenCostWeights(customWeights);
 
-      const res = await request(server).get('/api/settings/token-weights');
+      const res = await request(app).get('/api/settings/token-weights');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual(customWeights);
@@ -347,7 +341,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       };
 
       try {
-        const res = await request(server).get('/api/settings/token-weights');
+        const res = await request(app).get('/api/settings/token-weights');
 
         expect(res.status).toBe(500);
         expect(res.body.error).toBe('Failed to get token weights');
@@ -366,7 +360,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
         cacheCreation: 1.5,
       };
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/token-weights')
         .send(newWeights);
 
@@ -386,7 +380,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
         cacheCreation: 1.25,
       };
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/token-weights')
         .send(invalidWeights);
 
@@ -401,7 +395,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
         // missing cacheRead and cacheCreation
       };
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/token-weights')
         .send(incompleteWeights);
 
@@ -417,7 +411,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
         cacheCreation: 1.25,
       };
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/token-weights')
         .send(negativeWeights);
 
@@ -435,7 +429,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
         cacheCreation: 0,
       };
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/token-weights')
         .send(zeroWeights);
 
@@ -452,7 +446,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
         cacheCreation: 1.456,
       };
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/token-weights')
         .send(decimalWeights);
 
@@ -466,7 +460,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       };
 
       try {
-        const res = await request(server)
+        const res = await request(app)
           .put('/api/settings/token-weights')
           .send(DEFAULT_TOKEN_COST_WEIGHTS);
 
@@ -478,7 +472,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
     });
 
     it('rejects request with missing body', async () => {
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/token-weights')
         .send({});
 
@@ -495,7 +489,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
         extraField: 'ignored',
       };
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/token-weights')
         .send(weightsWithExtra);
 
@@ -520,7 +514,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       });
 
       // Then reset
-      const res = await request(server).delete('/api/settings/token-weights');
+      const res = await request(app).delete('/api/settings/token-weights');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual(DEFAULT_TOKEN_COST_WEIGHTS);
@@ -531,7 +525,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
     });
 
     it('returns defaults even if no custom weights were set', async () => {
-      const res = await request(server).delete('/api/settings/token-weights');
+      const res = await request(app).delete('/api/settings/token-weights');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual(DEFAULT_TOKEN_COST_WEIGHTS);
@@ -543,7 +537,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       };
 
       try {
-        const res = await request(server).delete('/api/settings/token-weights');
+        const res = await request(app).delete('/api/settings/token-weights');
 
         expect(res.status).toBe(500);
         expect(res.body.error).toBe('Failed to reset token weights');
@@ -556,7 +550,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
   describe('Integration: Full lifecycle', () => {
     it('GET -> PUT -> GET -> DELETE -> GET', async () => {
       // 1. Get defaults
-      let res = await request(server).get('/api/settings/token-weights');
+      let res = await request(app).get('/api/settings/token-weights');
       expect(res.status).toBe(200);
       expect(res.body).toEqual(DEFAULT_TOKEN_COST_WEIGHTS);
 
@@ -567,24 +561,24 @@ describe('Settings API', { timeout: 30_000 }, () => {
         cacheRead: 0.4,
         cacheCreation: 2.5,
       };
-      res = await request(server)
+      res = await request(app)
         .put('/api/settings/token-weights')
         .send(customWeights);
       expect(res.status).toBe(200);
       expect(res.body).toEqual(customWeights);
 
       // 3. Get custom
-      res = await request(server).get('/api/settings/token-weights');
+      res = await request(app).get('/api/settings/token-weights');
       expect(res.status).toBe(200);
       expect(res.body).toEqual(customWeights);
 
       // 4. Reset to defaults
-      res = await request(server).delete('/api/settings/token-weights');
+      res = await request(app).delete('/api/settings/token-weights');
       expect(res.status).toBe(200);
       expect(res.body).toEqual(DEFAULT_TOKEN_COST_WEIGHTS);
 
       // 5. Get defaults again
-      res = await request(server).get('/api/settings/token-weights');
+      res = await request(app).get('/api/settings/token-weights');
       expect(res.status).toBe(200);
       expect(res.body).toEqual(DEFAULT_TOKEN_COST_WEIGHTS);
     });
@@ -592,7 +586,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
 
   describe('GET /api/settings/general', () => {
     it('returns default settings when not customized', async () => {
-      const res = await request(server).get('/api/settings/general');
+      const res = await request(app).get('/api/settings/general');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
@@ -606,7 +600,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       };
       settings.setGeneralSettings(customSettings);
 
-      const res = await request(server).get('/api/settings/general');
+      const res = await request(app).get('/api/settings/general');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual(customSettings);
@@ -619,7 +613,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       };
 
       try {
-        const res = await request(server).get('/api/settings/general');
+        const res = await request(app).get('/api/settings/general');
 
         expect(res.status).toBe(500);
         expect(res.body.error).toBe('Failed to get general settings');
@@ -635,7 +629,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
         disableAnalytics: true,
       };
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/general')
         .send(newSettings);
 
@@ -652,7 +646,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
         disableAnalytics: 'not-a-boolean',
       };
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/general')
         .send(invalidSettings);
 
@@ -665,7 +659,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
         disableAnalytics: false,
       };
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/general')
         .send(newSettings);
 
@@ -678,7 +672,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
         disableAnalytics: true,
       };
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/general')
         .send(newSettings);
 
@@ -692,7 +686,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       };
 
       try {
-        const res = await request(server)
+        const res = await request(app)
           .put('/api/settings/general')
           .send({ disableAnalytics: false });
 
@@ -704,7 +698,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
     });
 
     it('rejects request with missing body', async () => {
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/general')
         .send({});
 
@@ -718,7 +712,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
         extraField: 'ignored',
       };
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/general')
         .send(settingsWithExtra);
 
@@ -737,7 +731,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       });
 
       // Then reset
-      const res = await request(server).delete('/api/settings/general');
+      const res = await request(app).delete('/api/settings/general');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
@@ -752,7 +746,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
     });
 
     it('returns defaults even if no custom settings were set', async () => {
-      const res = await request(server).delete('/api/settings/general');
+      const res = await request(app).delete('/api/settings/general');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
@@ -766,7 +760,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       };
 
       try {
-        const res = await request(server).delete('/api/settings/general');
+        const res = await request(app).delete('/api/settings/general');
 
         expect(res.status).toBe(500);
         expect(res.body.error).toBe('Failed to reset general settings');
@@ -779,7 +773,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
   describe('Integration: General settings full lifecycle', () => {
     it('GET -> PUT -> GET -> DELETE -> GET', async () => {
       // 1. Get defaults
-      let res = await request(server).get('/api/settings/general');
+      let res = await request(app).get('/api/settings/general');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         disableAnalytics: false,
@@ -789,26 +783,26 @@ describe('Settings API', { timeout: 30_000 }, () => {
       const customSettings = {
         disableAnalytics: true,
       };
-      res = await request(server)
+      res = await request(app)
         .put('/api/settings/general')
         .send(customSettings);
       expect(res.status).toBe(200);
       expect(res.body).toEqual(customSettings);
 
       // 3. Get custom
-      res = await request(server).get('/api/settings/general');
+      res = await request(app).get('/api/settings/general');
       expect(res.status).toBe(200);
       expect(res.body).toEqual(customSettings);
 
       // 4. Reset to defaults
-      res = await request(server).delete('/api/settings/general');
+      res = await request(app).delete('/api/settings/general');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         disableAnalytics: false,
       });
 
       // 5. Get defaults again
-      res = await request(server).get('/api/settings/general');
+      res = await request(app).get('/api/settings/general');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         disableAnalytics: false,

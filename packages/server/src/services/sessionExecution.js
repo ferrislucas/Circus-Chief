@@ -9,17 +9,10 @@ import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
 import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
 export { buildQueryParams } from './queryParamBuilder.js';
 import { buildQueryParams } from './queryParamBuilder.js';
+import { buildPromptWithAttachments } from './sessionPrompts.js';
 import {
-  buildPromptWithAttachments,
-} from './sessionPrompts.js';
-import {
-  activeSessions,
-  activeConversationIds,
-  handleStreamEvent,
-  handleTurnCompletion,
-  handleSessionError,
-  cleanupSessionState,
-  broadcastSessionStatus,
+  activeSessions, activeConversationIds, handleStreamEvent, handleTurnCompletion,
+  handleSessionError, cleanupSessionState, broadcastSessionStatus,
 } from './streamEventHandler.js';
 import { shouldRescheduleOnError, isTierFailoverEligibleError, matchesStartFailoverEligibleError, _checkProactiveReschedule } from './sessionErrors.js';
 import { markUnhealthy } from './tierResolutionService.js';
@@ -339,12 +332,41 @@ export async function _executeSession({
       return;
     }
     // Handle post-turn completion (work log association, status transition, summary, etc.)
-    const { wasRescheduled, heldForLimit } = await handleTurnCompletion(
+    const { wasRescheduled, heldForLimit, terminalError } = await handleTurnCompletion(
       sessionId,
       workingDirectory,
       { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded },
       { controller },
     );
+    // Some providers report terminal failures as a final stream event and then
+    // close their generator normally. Route that outcome through the same retry
+    // policy as a rejected execute() call; otherwise the normal completion path
+    // would incorrectly close the workflow obligation as successful.
+    if (terminalError) {
+      const rescheduled = await handleSessionError(sessionId, terminalError, {
+        controller,
+        shouldRescheduleOnError: (session, error, sid) =>
+          shouldRescheduleOnError(session, error, sid, tierContext),
+        schedulerService,
+        broadcastConversationState: broadcastConversationStateOnError,
+        errorLabel,
+        handleTemplateTriggerIfNeeded,
+        errorAlreadyRecorded: true,
+      });
+      discardDeferredCardMoveForTurn(
+        sessionId,
+        workflowTurn?.turnToken,
+        rescheduled ? 'turn_retrying' : 'turn_failed',
+      );
+      if (rescheduled) {
+        markExecutionState(sessionId, 'retrying');
+        return;
+      }
+      closeOwnWork(sessionId, 'closed_failed', terminalError.message, {
+        turnToken: workflowTurn?.turnToken,
+      });
+      return;
+    }
     await completeSuccessfulTurn({ sessionId, interactive, workflowTurn, wasRescheduled, heldForLimit });
   } catch (error) {
     const outcome = await handleTurnFailure({
