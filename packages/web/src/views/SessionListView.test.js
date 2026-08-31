@@ -717,6 +717,20 @@ describe('SessionListView', () => {
       expect(subscriptionIds()).toEqual(['root']);
     });
 
+    it('does not subscribe a blocked root when its authoritative running sessions are empty', async () => {
+      mockSessionsStore.sessions = [{
+        id: 'root',
+        name: 'Blocked root',
+        status: 'running',
+        pendingAgentInput: true,
+        runningSessionIds: [],
+      }];
+      mount(SessionListView);
+      await flushPromises();
+
+      expect(subscriptionIds()).toEqual([]);
+    });
+
     it('drops a workflow from streaming when its card reports that it is off-screen', async () => {
       mockSessionsStore.sessions = [{ id: 'root', name: 'Root', status: 'running' }];
       const wrapper = mount(SessionListView);
