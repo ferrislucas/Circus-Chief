@@ -23,6 +23,7 @@ vi.mock('./kanbanService.js', async (importOriginal) => {
 });
 
 import { continueSession, runSession } from './sessionManager.js';
+import { _executeSession } from './sessionExecution.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
@@ -150,6 +151,48 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
       blockingReason: 'Paused — provider limit or outage',
     }));
     expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
+  });
+
+  it('pauses the open run when an aborted provider stream exits normally', async () => {
+    const controller = new AbortController();
+    const agent = {
+      async *execute() {
+        controller.abort();
+        yield { type: 'assistant', text: 'ignored after abort' };
+      },
+    };
+
+    await _executeSession({
+      sessionId: root.id, agent, queryParams: { options: { env: {} } }, agentCallMeta: {}, controller,
+      workingDirectory: tempDir, callbacks: { handleTemplateTriggerIfNeeded: vi.fn(), handleAutoSendIfNeeded: vi.fn() },
+    });
+
+    expect(sessionRepo.getById(root.id)).toEqual(expect.objectContaining({
+      ownWorkState: 'open', executionState: 'paused', workflowReason: 'Stopped by user',
+    }));
+    expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'open', blockerKind: 'user_stop_pause' }));
+    expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+  });
+
+  it('pauses the open run when an aborted provider stream rejects', async () => {
+    const controller = new AbortController();
+    const agent = {
+      async *execute() {
+        controller.abort();
+        yield* [];
+        throw new Error('provider abort');
+      },
+    };
+
+    await expect(_executeSession({
+      sessionId: root.id, agent, queryParams: { options: { env: {} } }, agentCallMeta: {}, controller,
+      workingDirectory: tempDir, callbacks: { handleTemplateTriggerIfNeeded: vi.fn(), handleAutoSendIfNeeded: vi.fn() },
+    })).rejects.toThrow('provider abort');
+
+    expect(sessionRepo.getById(root.id)).toEqual(expect.objectContaining({
+      ownWorkState: 'open', executionState: 'paused', workflowReason: 'Stopped by user',
+    }));
+    expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'open', blockerKind: 'user_stop_pause' }));
   });
 
   it('keeps own work open when a human sends a successful interactive follow-up', async () => {

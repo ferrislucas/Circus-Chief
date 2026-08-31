@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- execution lifecycle boundaries remain deliberately adjacent. */
 import { sessions, messages, attachments, conversations } from '../database.js';
 import { resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
 import { reconcileAgentTypeForRun, deriveAgentTypeUpdate } from './sessionAgentGuard.js';
@@ -20,7 +21,7 @@ import { buildConversationContextForModelSwitch, buildConversationContextForCont
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { beginWorkflowTurn, discardDeferredCardMoveForTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, activeLaneRunOwnsSession } from './workflowSessionService.js';
+import { beginWorkflowTurn, discardDeferredCardMoveForTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, pauseForUserStop, activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
 // sessionExecution), safe because this is only called at runtime inside
@@ -125,7 +126,7 @@ export async function _executeSession({
     }
     if (controller.signal.aborted) {
       discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_cancelled');
-      closeOwnWork(sessionId, 'cancelled', 'Provider turn cancelled', { turnToken: workflowTurn?.turnToken });
+      pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
       return;
     }
     // Handle post-turn completion (work log association, status transition, summary, etc.)
@@ -204,14 +205,15 @@ export async function _executeSession({
       markExecutionState(sessionId, 'retrying');
       return; // Don't throw - session was rescheduled
     }
-    // FR-9.2/FR-9.4: distinguish a user-initiated stop (must land as
-    // 'cancelled', never a failure) from a genuine permanent error (must land
-    // as 'closed_failed'). Both are terminal — neither may be interpreted as
-    // success, and reconcileLaneRun() below fails/cancels the lane run so a
-    // structured card never advances past this session.
+    // A user abort pauses the open lane-run obligation; a genuine permanent
+    // error remains terminally failed. Neither path may be interpreted as
+    // successful work.
     discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, controller.signal.aborted ? 'turn_cancelled' : 'turn_failed');
-    closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message,
-      { turnToken: workflowTurn?.turnToken });
+    if (controller.signal.aborted) {
+      pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
+    } else {
+      closeOwnWork(sessionId, 'closed_failed', error.message, { turnToken: workflowTurn?.turnToken });
+    }
     throw error;
   } finally {
     cleanupSessionState(sessionId, cleanupConversationId, controller);
