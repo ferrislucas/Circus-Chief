@@ -29,6 +29,7 @@ import {
   broadcastSessionStatus,
 } from './streamEventHandler.js';
 import { cancelPrompt } from './promptStore.js';
+import { clearPendingWakeup } from './scheduleWakeupBridge.js';
 // Import execution helpers from sessionExecution.js
 import {
   createAgentForSession,
@@ -187,6 +188,11 @@ export async function continueSession(sessionId, content, workingDirectory, opti
     options,
     callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
   });
+}
+
+/** Whether a provider turn still owns this session's execution lifecycle. */
+export function isSessionActive(sessionId) {
+  return activeSessions.has(sessionId);
 }
 
 /**
@@ -378,12 +384,25 @@ export async function stopSession(sessionId) {
   if (sessionData) {
     // Session is actively processing - abort it
     sessionData.controller.abort();
+    clearPendingWakeup(sessionId, sessionData.controller);
     activeSessions.delete(sessionId);
   }
   // If not in activeSessions, session may have crashed or be waiting
   // Either way, we can still update the status to stopped
 
-  sessions.update(sessionId, { status: 'stopped' });
+  // A user-initiated stop must also cancel any pending scheduled continuation.
+  // Otherwise handleScheduledContinuationIfNeeded's status-agnostic predicate
+  // (deliberately unguarded, see its doc comment) will resurrect the schedule on
+  // the next completed chat turn — flipping the session back to 'scheduled',
+  // suppressing auto-send/template triggers for that turn, and firing a prompt
+  // the user believed they had cancelled.
+  sessions.update(sessionId, {
+    status: 'stopped',
+    scheduledAt: null,
+    pendingPrompt: null,
+    pendingConversationId: null,
+    pendingModel: null,
+  });
   broadcastSessionStatus(sessionId, 'stopped');
 
   // FR-9.4: a user-stopped blocking session must not be interpreted as
@@ -415,6 +434,7 @@ export function cleanupActiveSession(sessionId) {
   if (sessionData) {
     cancelPrompt(sessionId);
     sessionData.controller.abort();
+    clearPendingWakeup(sessionId, sessionData.controller);
     activeSessions.delete(sessionId);
     return true;
   }
