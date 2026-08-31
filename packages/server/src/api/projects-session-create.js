@@ -44,13 +44,18 @@ async function validatePreparedConfig(config, reqBody, projectId, project) {
   }
 
   // A tier binding has no single owning provider — the concrete provider is
-  // resolved per-run from the active tier member. Normalize away any stray
-  // concrete providerId (e.g. inherited from a project/system default) so it
-  // never shadows the tier's own resolution (Work Item 1).
+  // resolved per-run from the active tier member. An explicitly supplied
+  // providerId was rejected above; a provider inherited from project/system
+  // defaults is not part of the tier selection and must not be persisted.
+  // Clear that inherited value before validating the final resolved config.
+  if (isTierRef(config.model)) {
+    config.providerId = null;
+  }
+
   const configForGit = {
     ...config,
     model: finalModelResult.model,
-    providerId: isTierRef(finalModelResult.model) ? null : finalModelResult.providerId,
+    providerId: finalModelResult.providerId,
   };
 
   // Validate git settings for git repos

@@ -222,6 +222,7 @@ describe('draftSessionService', () => {
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
         pendingModel: null,
+        pendingProviderId: null,
       });
     });
 
@@ -329,7 +330,9 @@ describe('draftSessionService', () => {
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
         pendingModel: null,
+        pendingProviderId: null,
         model: 'gpt-5.4',
+        providerId: null,
         agentType: 'codex',
       });
 
@@ -347,7 +350,9 @@ describe('draftSessionService', () => {
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
         pendingModel: null,
+        pendingProviderId: null,
         model: 'claude-sonnet-test',
+        providerId: null,
         agentType: 'claude-code',
       });
 
@@ -365,7 +370,9 @@ describe('draftSessionService', () => {
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
         pendingModel: null,
+        pendingProviderId: null,
         model: 'gpt-4o-test',
+        providerId: null,
         agentType: 'codex',
       });
 
@@ -391,7 +398,9 @@ describe('draftSessionService', () => {
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
         pendingModel: null,
+        pendingProviderId: null,
         model: 'claude-sonnet',
+        providerId: null,
         agentType: 'claude-code',
       });
     });
@@ -404,6 +413,7 @@ describe('draftSessionService', () => {
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
         pendingModel: null,
+        pendingProviderId: null,
       });
     });
   });

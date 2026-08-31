@@ -1398,18 +1398,11 @@ describe('Projects API', () => {
 
   describe('Session creation with project defaults', () => {
     it('creates a session from prompt only and resolves project defaults', async () => {
-      const provider = modelProviders.create({
-        name: 'Prompt Only Provider',
-        kind: 'openai',
-        baseUrl: 'https://api.openai.test',
-        apiKey: 'test-key',
-      });
-
       await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
         mode: 'plan',
         thinkingEnabled: true,
         model: 'gpt-5.6-sol',
-        providerId: provider.id,
+        providerId: 'openai-default',
         effortLevel: 'high',
         startImmediately: false,
       });
@@ -1424,7 +1417,7 @@ describe('Projects API', () => {
       expect(session.mode).toBe('plan');
       expect(session.thinkingEnabled).toBe(true);
       expect(session.model).toBe('gpt-5.6-sol');
-      expect(session.providerId).toBe(provider.id);
+      expect(session.providerId).toBe('openai-default');
       expect(session.effortLevel).toBe('high');
       expect(session.status).toBe('waiting');
     });
@@ -1442,6 +1435,9 @@ describe('Projects API', () => {
         baseUrl: 'https://api.override.test',
         apiKey: 'test-key',
       });
+      modelProviders.addModel(defaultProvider.id, {
+        modelId: 'default-model', displayName: 'Default Model', tier: 'custom',
+      });
       modelProviders.addModel(overrideProvider.id, {
         modelId: 'override-model',
         displayName: 'Override Model',
@@ -1451,7 +1447,7 @@ describe('Projects API', () => {
       await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
         mode: 'plan',
         thinkingEnabled: false,
-        model: 'opus',
+        model: 'default-model',
         providerId: defaultProvider.id,
         effortLevel: 'low',
         startImmediately: false,
@@ -1461,7 +1457,7 @@ describe('Projects API', () => {
         prompt: 'Override defaults',
         mode: 'standard',
         thinkingEnabled: true,
-        model: 'haiku',
+        model: 'override-model',
         providerId: overrideProvider.id,
         effortLevel: 'max',
         startImmediately: true,
@@ -1472,7 +1468,7 @@ describe('Projects API', () => {
       const session = sessions.getById(res.body.id);
       expect(session.mode).toBe('standard');
       expect(session.thinkingEnabled).toBe(true);
-      expect(session.model).toBe('haiku');
+      expect(session.model).toBe('override-model');
       expect(session.providerId).toBe(overrideProvider.id);
       expect(session.effortLevel).toBe('max');
       expect(session.status).toBe('starting');
@@ -1726,7 +1722,7 @@ describe('Projects API', () => {
         expect(session.model).toBe(buildTierRef(tier.id));
       });
 
-      it('clears a stray concrete providerId when the model is a tier ref', async () => {
+      it('rejects an explicitly supplied providerId when the model is a tier ref', async () => {
         const strayProvider = modelProviders.create({
           name: 'Stray Provider',
           kind: 'openai',
@@ -1742,10 +1738,8 @@ describe('Projects API', () => {
           gitBranch: 'test-branch',
         });
 
-        expect(res.status).toBe(201);
-        const session = sessions.getById(res.body.id);
-        expect(session.model).toBe(buildTierRef(tier.id));
-        expect(session.providerId).toBeNull();
+        expect(res.status).toBe(400);
+        expect(res.body.error).toContain('providerId must be null when model is a tier reference');
       });
 
       it('normalizes away a project-default providerId when the explicit model is a tier ref', async () => {
