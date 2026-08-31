@@ -50,8 +50,15 @@ export const modelTiersMigrations = [
     up(db) {
       // Existing development databases predate the constraints. Keep the first
       // deterministic pair then make its positions canonical before indexing.
+      //
+      // Position repairs need two passes. A database which was opened by an
+      // earlier version of this migration can already have a uniqueness
+      // constraint/index on (tier_id, position); assigning final positions in
+      // place can then collide with a row that has not yet moved. Temporary
+      // TEXT values are valid in SQLite's non-STRICT INTEGER columns and let
+      // every retained row move out of the final position space first.
       db.transaction(() => {
-        const rows = db.prepare(`SELECT id, tier_id, provider_id, model_id
+        const rows = db.prepare(`SELECT id, tier_id, provider_id, model_id, position
           FROM model_tier_members ORDER BY tier_id, position ASC, created_at ASC, id ASC`).all();
         const seen = new Set();
         const keep = [];
@@ -64,11 +71,27 @@ export const modelTiersMigrations = [
             keep.push(row);
           }
         }
+
+        // Do not assume that legacy position values are numeric or that a
+        // previous partial migration did not leave arbitrary values behind.
+        // Pick values outside the complete existing set so this pass is safe
+        // even when the old table already has a uniqueness constraint.
+        const occupiedPositions = new Set(rows.map((row) => String(row.position)));
+        const temporaryPositionFor = (row, sequence) => {
+          let candidate = `__model_tier_repair_${sequence}_${row.id}__`;
+          while (occupiedPositions.has(candidate)) candidate = `_${candidate}`;
+          occupiedPositions.add(candidate);
+          return candidate;
+        };
+        const setTemporaryPosition = db.prepare('UPDATE model_tier_members SET position = ? WHERE id = ?');
+        keep.forEach((row, index) => setTemporaryPosition.run(temporaryPositionFor(row, index), row.id));
+
         let tierId = null;
         let position = 0;
+        const setFinalPosition = db.prepare('UPDATE model_tier_members SET position = ? WHERE id = ?');
         for (const row of keep) {
           if (row.tier_id !== tierId) { tierId = row.tier_id; position = 0; }
-          db.prepare('UPDATE model_tier_members SET position = ? WHERE id = ?').run(position++, row.id);
+          setFinalPosition.run(position++, row.id);
         }
         db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_mtm_tier_provider_model ON model_tier_members(tier_id, provider_id, model_id)');
         db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_mtm_tier_position ON model_tier_members(tier_id, position)');
