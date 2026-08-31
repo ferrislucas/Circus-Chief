@@ -2,19 +2,14 @@ import { sessions, messages, workLogs, conversations } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { updateTodos } from './todoStore.js';
-import * as summaryService from './summaryService.js';
 import * as diffService from './diffService.js';
 import * as gitService from './gitService.js';
 import {
   handleMessageStart,
   handleMessageDelta,
   handleTextDelta as _handleTextDelta,
-  handleResultUsage,
 } from './streamUsageHandler.js';
-import {
-  createVisibleFinalErrorMessage,
-  normalizeFinalErrorMessage,
-} from './visibleFinalErrorMessage.js';
+import { handleStreamResultEvent } from './streamErrorHandler.js';
 export { createWorkLog } from './workLogService.js';
 import { createWorkLog } from './workLogService.js';
 import { cancelPrompt } from './promptStore.js';
@@ -429,77 +424,10 @@ function handleContentBlockStop(sessionId, _event) {
  * @param {string} sessionId
  * @param {Object} event
  */
-function handleResultEvent(sessionId, event, { shouldThrowOnResultError } = {}) {
-  // A provider may report a failure as its normal terminal `result:error`
-  // event instead of rejecting the async iterable.  When the current attempt
-  // is eligible to transparently advance a model tier, turn that event back
-  // into an exception *before* recording terminal-error side effects.  The
-  // tier loop owns the retry notice/cooldown in that case; writing an error
-  // state or visible assistant error here would leak a failed attempt into a
-  // turn which is about to succeed on its next member.
-  if (event.subtype === 'error') {
-    const errorMessage = normalizeFinalErrorMessage(event.error);
-    const streamError = Object.assign(new Error(errorMessage),
-      event.error && typeof event.error === 'object' ? event.error : {},
-      Number.isFinite(event.status) ? { status: event.status } : {}
-    );
-    if (shouldThrowOnResultError?.(streamError)) {
-      throw streamError;
-    }
-  }
-
-  // Capture the authoritative turn-termination text regardless of subtype, so the
-  // completion path can later detect a graceful usage-limit/outage termination.
-  finalResultEvents.set(sessionId, {
-    subtype: event.subtype,
-    isError: Boolean(event.is_error),
-    resultText: typeof event.result === 'string' ? event.result : '',
+function handleResultEvent(sessionId, event, options = {}) {
+  return handleStreamResultEvent(sessionId, event, {
+    ...options, finalResultEvents, finalErrorSessionIds, activeConversationIds, broadcastSessionStatus,
   });
-
-  if (event.subtype === 'error') {
-    handleResultError(sessionId, event);
-  } else {
-    handleResultSuccess(sessionId, event);
-  }
-  // Note: Don't clear lastMessageIds here - let the post-loop association code handle it.
-  // Clearing here was causing work logs to never be associated because the 'result' event
-  // arrives before the loop ends, deleting the messageId before association can happen.
-}
-
-/**
- * Handle result error subtype
- * @param {string} sessionId
- * @param {Object} event
- */
-function handleResultError(sessionId, event) {
-  const errorMessage = normalizeFinalErrorMessage(event.error);
-  finalErrorSessionIds.add(sessionId);
-  sessions.update(sessionId, { status: 'error', error: errorMessage });
-  createVisibleFinalErrorMessage(sessionId, errorMessage, activeConversationIds);
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: errorMessage });
-  // Broadcast error status to project subscribers for session list updates
-  broadcastSessionStatus(sessionId, 'error');
-  // Extract PR URL before generating summary (PR may have been created before error)
-  summaryService.extractPrUrlIfNeeded(sessionId);
-  // Generate summary on error
-  summaryService.onSessionComplete(sessionId);
-}
-
-/**
- * Handle result success subtype — store cost and usage
- * @param {string} sessionId
- * @param {Object} event
- */
-function handleResultSuccess(sessionId, event) {
-  // Store cost info and broadcast to project subscribers
-  if (event.total_cost_usd !== undefined) {
-    sessions.update(sessionId, { costUsd: event.total_cost_usd });
-  }
-
-  // Store final usage stats to conversation (Issue #175)
-  if (event.usage || event.modelUsage) {
-    handleResultUsage(sessionId, event);
-  }
 }
 
 

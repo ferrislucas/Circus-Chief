@@ -112,6 +112,7 @@ export function getLaneSessionSettings(lane, session) {
   return {
     thinkingEnabled: lane.onEnterThinkingEnabled ?? session.thinkingEnabled,
     model: lane.onEnterModel || session.model,
+    providerId: lane.onEnterModel ? lane.onEnterProviderId : session.providerId,
     mode: lane.onEnterMode || session.mode,
     effortLevel: lane.onEnterEffortLevel || session.effortLevel || null,
     gitBranch: session.gitBranch,
@@ -128,6 +129,7 @@ export function getTemplateSessionSettings(template, session) {
   return {
     thinkingEnabled: template.thinkingEnabled !== null ? template.thinkingEnabled : session.thinkingEnabled,
     model: template.model || session.model,
+    providerId: template.model ? template.providerId : session.providerId,
     mode: template.mode || session.mode,
     gitBranch: template.gitBranch || session.gitBranch,
     gitMode: template.gitMode || null,
@@ -161,6 +163,7 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
     gitBranch: settings.gitBranch,
     status: 'starting',
     model: settings.model,
+    providerId: settings.providerId,
     agentType: deriveAgentTypeForModelOrTier(settings.model),
     parentSessionId: session.id,
   });
@@ -206,6 +209,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
       gitBranch: settings.gitBranch,
       sessionId: newSession.id,
       model: settings.model,
+      providerId: settings.providerId,
       abortController,
       });
     if (gitWorktree) {
@@ -226,6 +230,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
     const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
+      providerId: settings.providerId,
       ...(abortController ? { abortController } : {}),
     });
     if (!accepted) return undelivered('provider dispatch was not accepted');

@@ -266,6 +266,7 @@ export const DIRECT_FIELD_MAP = {
   rescheduleAtTokenCount: 'reschedule_at_token_count',
   pendingPrompt: 'pending_prompt',
   pendingModel: 'pending_model',
+  pendingProviderId: 'pending_provider_id',
   pendingConversationId: 'pending_conversation_id',
   effortLevel: 'effort_level',
   laneRunId: 'lane_run_id',

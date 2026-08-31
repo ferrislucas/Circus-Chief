@@ -66,6 +66,7 @@ function deriveSessionSettings(template, rootSession) {
     gitBranch: template.gitBranch || rootSession.gitBranch,
     gitMode: template.gitMode || null,
     model: template.model !== null ? template.model : rootSession.model,
+    providerId: template.model !== null ? template.providerId : rootSession.providerId,
     mode: template.mode !== null ? template.mode : rootSession.mode,
     effortLevel: template.effortLevel !== null ? template.effortLevel : rootSession.effortLevel,
     // Inherit rescheduling settings from root session
@@ -160,6 +161,7 @@ function buildChildSessionOptions(template, parentSession, settings) {
     parentSessionId: parentSession.id,
     status: 'starting',
     model: settings.model,
+    providerId: settings.providerId,
     effortLevel: settings.effortLevel,
     agentType: deriveAgentTypeForModelOrTier(settings.model),
   };
@@ -211,7 +213,9 @@ export async function checkAndTriggerNextTemplate(sessionId) {
       session: updatedSession,
     });
 
-    runSession(newSession.id, renderedPrompt, workingDirectory, { systemPrompt: project.systemPrompt, model: settings.model }).catch((error) => {
+    runSession(newSession.id, renderedPrompt, workingDirectory, {
+      systemPrompt: project.systemPrompt, model: settings.model, providerId: settings.providerId,
+    }).catch((error) => {
       console.error(`Template trigger: Error running session ${newSession.id}:`, error);
       const errorSession = sessions.update(newSession.id, { status: 'error', error: error.message });
       broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {

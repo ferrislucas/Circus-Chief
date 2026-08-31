@@ -108,7 +108,7 @@ async function attemptRunWithModel(
  * @param {Error} error
  * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string }} ctx
  */
-function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName }) {
+function classifyTierMemberFailure(error, { sessionId, member, tierRef, tierName }) {
   // Use the tighter failover-specific matcher (Fix 4) to avoid spurious failover
   // on non-quota errors (e.g. "Unexpected token in JSON" contains "token").
   const isEligible = matchesStartFailoverEligibleError(error);
@@ -131,14 +131,37 @@ function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName }
   // especially a single-member tier) is hammered again by every new session.
   markUnhealthy(member.providerId, member.modelId);
 
-  if (!nextMember) {
-    // Nothing will actually be attempted next. The existing error/auto-
-    // reschedule path already ran inside _executeSession.
-    throw error;
-  }
-
   // There IS a next healthy, attemptable member — emit the failover event.
-  emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember });
+  if (nextMember) emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember });
+  return nextMember;
+}
+
+/** Remove provider payloads/secrets and keep terminal errors bounded for UI/logs. */
+export function sanitizeTierFailureReason(error) {
+  const raw = String(error?.message || 'provider start failed')
+    .replace(/(?:api[_ -]?key|token|authorization|password)\s*[=:]\s*(?:Bearer\s+)?\S+/gi, '[redacted]')
+    .replace(/\b(?:sk-[\w-]+|Bearer\s+\S+)\b/gi, '[redacted]')
+    .replace(/[\r\n\t]+/g, ' ')
+    .trim();
+  return (raw || 'provider start failed').slice(0, 240);
+}
+
+export class ModelTierExhaustedError extends Error {
+  constructor({ tierId, tierName, attempts }) {
+    const rendered = attempts.map(({ providerId, modelId, reason }) => `${providerId}/${modelId} — ${reason}`).join('; ');
+    super(`Model tier "${tierName}" could not start the session. Attempts: ${rendered}.`);
+    this.name = 'ModelTierExhaustedError';
+    this.code = 'MODEL_TIER_EXHAUSTED';
+    this.tierId = tierId;
+    this.tierName = tierName;
+    this.attempts = attempts;
+  }
+}
+
+function cooldownUnavailableError(tierId, tierName) {
+  const error = new Error(`No healthy member is currently available for tier "${tierName}" (all members are cooling down)`);
+  Object.assign(error, { code: 'MODEL_TIER_COOLDOWN_UNAVAILABLE', tierId, tierName });
+  return error;
 }
 
 /**
@@ -152,6 +175,7 @@ function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName }
  * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string, nextMember: Object }} ctx
  */
 function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember }) {
+  const reason = sanitizeTierFailureReason(error);
   console.log(
     `[SessionManager] Tier failover: member ${member.modelId} (provider ${member.providerId}) failed; marking unhealthy and advancing to ${nextMember.modelId}`
   );
@@ -165,7 +189,7 @@ function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, ne
     fromProviderId: member.providerId,
     toModel: nextMember.modelId,
     toProviderId: nextMember.providerId,
-    reason: error.message,
+    reason,
     timestamp: Date.now(),
   });
 
@@ -178,7 +202,7 @@ function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, ne
       toProviderId: nextMember.providerId,
       tierRef,
       tierName,
-      reason: error.message,
+      reason,
       // Derive the source member's agent type from its OWN providerId (Fix 1 /
       // Issue 4) instead of assuming 'claude-code' or looking it up by modelId
       // alone — a failover away from a Codex/Gemini member (possibly sharing a
@@ -248,6 +272,7 @@ export async function runSessionWithTierFailover(
   // Ensure the model stored on the session is the tier ref
   sessions.update(sessionId, { model: tierRef });
 
+  const attempts = [];
   for (const member of members) {
     // Skip members already in cooldown
     if (isUnhealthy(member.providerId, member.modelId)) continue;
@@ -282,15 +307,20 @@ export async function runSessionWithTierFailover(
       snapshotSuccessfulMember(sessionId, tierRef, member);
       return execution; // done
     } catch (error) {
-      // Advances to the next member (loop continue) or rethrows on terminal errors.
-      handleTierMemberFailure(error, { sessionId, member, tierRef, tierName });
+      // Non-eligible and mid-conversation errors must retain their original
+      // protocol. Eligible startup failures are recorded exactly once.
+      const nextMember = classifyTierMemberFailure(error, { sessionId, member, tierRef, tierName });
+      attempts.push({ providerId: member.providerId, modelId: member.modelId, reason: sanitizeTierFailureReason(error) });
+      // No successor means this was the terminal real attempt. Do not emit a
+      // fake from/to notice; report the complete ordered exhaustion instead.
+      if (!nextMember) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
     }
   }
 
-  // All members were in cooldown or exhausted
-  throw new Error(
-    `All tier members exhausted for tier "${tierName}" — no healthy member could start the session`
-  );
+  if (attempts.length) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
+  // Every resolved member was skipped due to cooldown. This is deliberately
+  // distinct from exhaustion: no provider call happened during this run.
+  throw cooldownUnavailableError(tierId, tierName);
 }
 
 function _getTierName(tierId) {

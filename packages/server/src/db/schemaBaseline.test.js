@@ -95,7 +95,7 @@ describe('schema baseline', () => {
         'reschedule_on_token_limit', 'reschedule_on_service_error',
         'max_reschedule_count', 'max_total_tokens', 'reschedule_count',
         'reschedule_at_token_count', 'pending_prompt', 'slash_commands',
-        'pending_model', 'auto_send_pending_prompt', 'pending_agent_input', 'agent_type',
+        'pending_model', 'pending_provider_id', 'auto_send_pending_prompt', 'pending_agent_input', 'agent_type',
         'lane_run_id', 'own_work_state',
         'own_work_closed_at', 'workflow_updated_at', 'workflow_reason',
         'execution_state', 'subtree_outcome', 'last_activity_at',
@@ -152,12 +152,12 @@ describe('schema baseline', () => {
 
       expect(columnNames(db, 'projects')).toEqual(expect.arrayContaining(['worktree_path', 'kanban_enabled']));
       expect(columnNames(db, 'project_session_defaults')).toEqual(expect.arrayContaining(['provider_id', 'effort_level']));
-      expect(columnNames(db, 'session_templates')).toEqual(expect.arrayContaining(['model', 'mode', 'effort_level']));
+      expect(columnNames(db, 'session_templates')).toEqual(expect.arrayContaining(['model', 'provider_id', 'mode', 'effort_level']));
       expect(columnNames(db, 'conversation_messages')).toEqual(expect.arrayContaining(['conversation_id', 'model']));
       expect(columnNames(db, 'conversations')).toEqual(expect.arrayContaining(['model', 'parent_conversation_id', 'branch_from_message_id']));
       expect(columnNames(db, 'session_summaries')).toEqual(expect.arrayContaining(['last_summarized_message_id', 'workflow_fingerprint']));
       expect(columnNames(db, 'message_attachments')).toEqual(expect.arrayContaining(['file_path']));
-      expect(columnNames(db, 'kanban_lanes')).toEqual(expect.arrayContaining(['on_enter_reschedule_delay_minutes', 'completion_target_lane_id']));
+      expect(columnNames(db, 'kanban_lanes')).toEqual(expect.arrayContaining(['on_enter_provider_id', 'on_enter_reschedule_delay_minutes', 'completion_target_lane_id']));
       expect(columnNames(db, 'kanban_lanes')).not.toContain('completion_mode');
       expect(columnNames(db, 'kanban_cards')).toEqual(expect.arrayContaining(['active_lane_run_id', 'lane_entry_event_id']));
     });
@@ -168,6 +168,7 @@ describe('schema baseline', () => {
       const byName = new Map(columns(db, 'kanban_lanes').map((col) => [col.name, col]));
       expect(byName.get('on_enter_mode')).toBeTruthy();
       expect(byName.get('on_enter_model')).toBeTruthy();
+      expect(byName.get('on_enter_provider_id')).toBeTruthy();
       expect(byName.get('on_enter_effort_level')).toBeTruthy();
       expect(byName.get('on_enter_thinking_enabled')).toBeTruthy();
       expect(byName.get('on_enter_auto_reschedule_enabled').dflt_value).toBe('0');

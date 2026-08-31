@@ -164,7 +164,7 @@ test.describe('Model Tiers', () => {
       const tierName = `${TEST_PREFIX}Built-in Tier`;
       await createModal.locator('#tier-name').fill(tierName);
 
-      await createModal.locator('.member-select').selectOption('anthropic-default::claude-opus-4-8');
+      await createModal.locator('.member-select').selectOption('anthropic-default::claude-opus-5');
       await createModal.locator('button.btn-secondary', { hasText: 'Add' }).click();
       await expect(createModal.locator('.member-edit-row')).toHaveCount(1);
 

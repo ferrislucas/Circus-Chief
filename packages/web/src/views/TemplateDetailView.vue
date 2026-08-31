@@ -104,9 +104,11 @@
           <label for="model">Model</label>
           <ModelSelector
             v-model="formData.model"
+            :provider-id="formData.providerId"
             preserve-current-value
             :allow-empty="true"
             empty-label="Inherit from root session"
+            @update:provider-id="formData.providerId = $event"
           />
         </div>
 
@@ -263,6 +265,7 @@ const formData = ref({
   thinkingEnabled: null,
   gitBranch: '',
   model: null,
+  providerId: null,
   mode: null,
   effortLevel: null,
   showInQuickResponses: false,
@@ -288,6 +291,7 @@ const loadTemplate = async () => {
         thinkingEnabled: template.thinkingEnabled,  // Preserve null (inherit), true, or false
         gitBranch: template.gitBranch || '',
         model: template.model,                      // Preserve null (inherit) or model ID
+        providerId: template.providerId ?? null,
         mode: template.mode,                        // Preserve null (inherit), 'plan', 'standard', or 'yolo'
         effortLevel: template.effortLevel ?? null,
         showInQuickResponses: template.showInQuickResponses,
@@ -312,6 +316,7 @@ const onSubmit = async () => {
       thinkingEnabled: formData.value.thinkingEnabled,  // null = inherit, true/false = explicit
       gitBranch: formData.value.gitBranch || undefined,
       model: formData.value.model,                      // null = inherit
+      providerId: formData.value.providerId,
       mode: formData.value.mode,                        // null = inherit
       effortLevel: formData.value.effortLevel,          // null = inherit
       showInQuickResponses: formData.value.showInQuickResponses,

@@ -5,6 +5,14 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
 import { claimWorkflowSessionStart, withActiveLaneRunOwnership, activeLaneRunOwnsSession, closeOwnWork } from './workflowSessionService.js';
 import { didSessionExecutionStart, rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
+
+function clearedPendingSelection(session, extra = {}) {
+  return {
+    ...extra,
+    pendingModel: null,
+    ...(Object.hasOwn(session, 'pendingProviderId') ? { pendingProviderId: null } : {}),
+  };
+}
 import { broadcastSessionStatus } from './streamEventHandler.js';
 
 function broadcastRescheduledSession(sessionId, updated) {
@@ -189,7 +197,7 @@ class SchedulerService {
       session.id,
       effectivePrompt,
       workingDirectory,
-      { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel }
+      { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel, providerId: session.pendingProviderId }
     );
   }
 
@@ -248,10 +256,10 @@ class SchedulerService {
 
   /** Clear a stale start after its executor re-checks lane-run ownership. */
   rejectScheduledStart(session) {
-    const updated = sessions.update(session.id, {
+    const updated = sessions.update(session.id, clearedPendingSelection(session, {
       status: 'stopped', scheduledAt: null, pendingPrompt: null,
-      pendingModel: null, pendingConversationId: null,
-    });
+      pendingConversationId: null,
+    }));
     broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'stopped' });
     if (updated?.projectId) {
       broadcastToProject(updated.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
@@ -290,11 +298,11 @@ class SchedulerService {
     const row = sessions.getById(sessionId);
     if (!row || !this.hasReachedLaunchBudget(row)) return null;
     const error = `Scheduled launch refused: max total tokens reached (${row.maxTotalTokens.toLocaleString()}).`;
-    sessions.update(sessionId, {
+    sessions.update(sessionId, clearedPendingSelection(row, {
       status: 'stopped', scheduledAt: null, pendingPrompt: null,
-      pendingConversationId: null, pendingModel: null,
+      pendingConversationId: null,
       error,
-    });
+    }));
     // The token cap is a hard terminal limit, not a retryable hold. A
     // participating worker therefore must close its durable obligation and
     // reconcile its lane run; otherwise the cleared schedule would strand an
@@ -312,7 +320,7 @@ class SchedulerService {
         claimed.id,
         claimed.pendingConversationId,
         workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel }
+      { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel, providerId: claimed.pendingProviderId }
       );
     }
     if (hasAssistantResponses) {
@@ -320,7 +328,7 @@ class SchedulerService {
         claimed.id,
         effectivePrompt,
         workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel }
+      { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel, providerId: claimed.pendingProviderId }
       );
     }
     return this.startFreshScheduledSession({
@@ -398,7 +406,9 @@ class SchedulerService {
     // successfully, so it's now safe to clear the scheduling fields. Any
     // failure past this point is a normal in-flight turn failure, handled
     // by the existing turn error-handling path rather than by this method.
-    sessions.update(claimed.id, { scheduledAt: null, pendingPrompt: null, pendingConversationId: null, pendingModel: null });
+    sessions.update(claimed.id, clearedPendingSelection(claimed, {
+      scheduledAt: null, pendingPrompt: null, pendingConversationId: null,
+    }));
 
     const startResult = await this._dispatchScheduledLaunch(claimed, launch);
     return this.scheduledStartResult(claimed, startResult);

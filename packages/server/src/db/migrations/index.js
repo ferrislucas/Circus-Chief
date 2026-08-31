@@ -325,6 +325,9 @@ export const allMigrations = validateMigrations([
   // --- Model tiers (cross-model failover v1) ---
   mt.get('model_tiers-create-tables'),
   mt.get('sessions-add-resolved_model'),
+  // Present before the historical Kanban cutover so its copy SQL can retain it.
+  mt.get('model-tiers-provider-pair-columns'),
+  mt.get('model-tiers-repair-members-and-unique-indexes'),
 
   // --- Normalize retired Claude model ids in CONFIG columns only ---
   // (lanes/templates/defaults. Record columns like sessions.model are preserved.)
@@ -364,6 +367,10 @@ export const allMigrations = validateMigrations([
 
   // --- Remove the dead lane-trigger recursion counter (cap it fed was removed) ---
   k.get('sessions-drop-lane_trigger_depth'),
+
+  // Must follow all sessions/lane table-recreation cutovers so an upgrade
+  // cannot add these columns only to have a historical recreation drop them.
+  mt.get('model-tiers-provider-pair-columns'),
 
   // --- Sessions blocked on agent input ---
   // Keep this last: it is additive and must run for databases created before

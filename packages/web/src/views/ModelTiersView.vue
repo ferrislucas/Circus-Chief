@@ -284,15 +284,26 @@ const confirmingDelete = ref(null);
 const deleting = ref(false);
 
 // ── Computed ────────────────────────────────────────────────────────────────
-const addableProviders = computed(() =>
-  providersStore.providers
-    .filter((p) => p.enabled !== false && p.models && p.models.length > 0)
-    .map((p) => ({
-      ...p,
-      models: p.models.filter((model) => model.enabled !== false && model.unavailable !== true),
-    }))
-    .filter((p) => p.models.length > 0)
-);
+function isEnabledProvider(provider) {
+  return provider.enabled !== false && Array.isArray(provider.models) && provider.models.length > 0;
+}
+
+function availableModels(provider) {
+  return provider.models.filter((model) => model.enabled !== false && model.unavailable !== true);
+}
+
+function withAvailableModels(provider) {
+  return { ...provider, models: availableModels(provider) };
+}
+
+function hasAvailableModels(provider) {
+  return provider.models.length > 0;
+}
+
+const addableProviders = computed(() => providersStore.providers
+  .filter(isEnabledProvider)
+  .map(withAvailableModels)
+  .filter(hasAvailableModels));
 
 function providerName(providerId) {
   const p = providersStore.providers.find((x) => x.id === providerId);

@@ -440,6 +440,7 @@ export function applyPendingWakeup(sessionId, controller) {
     // symmetric durable clear). Leaving it would re-model the session at launch
     // and force modelChanged=true, breaking the autonomous-loop sentinel resume.
     pendingModel: null,
+    pendingProviderId: null,
   });
   const updated = session.laneRunId ? withActiveLaneRunOwnership(sessionId, update) : update();
 

@@ -35,7 +35,20 @@ import { agentGateway } from '../agents/AgentGateway.js';
 import { BaseAgent } from '../agents/BaseAgent.js';
 import { CodexAdapter } from '../agents/adapters/CodexAdapter.js';
 import { broadcastToSession } from '../websocket.js';
-import { resolveTierRefForContinueWithStaleFallback } from './sessionTierFailover.js';
+import { resolveTierRefForContinueWithStaleFallback, sanitizeTierFailureReason } from './sessionTierFailover.js';
+
+describe('sanitizeTierFailureReason', () => {
+  it('bounds and redacts credential-like values before outward reporting', () => {
+    const reason = sanitizeTierFailureReason(new Error(
+      'Provider rejected request: authorization=Bearer secret-token api_key=sk-super-secret\nretry later'
+    ));
+
+    expect(reason).toContain('[redacted]');
+    expect(reason).not.toContain('secret-token');
+    expect(reason).not.toContain('sk-super-secret');
+    expect(reason).not.toContain('\n');
+  });
+});
 
 describe('runSessionCore tier failover (integration)', () => {
   let sessionRepo;

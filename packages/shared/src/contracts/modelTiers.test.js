@@ -115,6 +115,15 @@ describe('Model Tier Contracts', () => {
       });
       expect(result.success).toBe(false);
     });
+
+    it('rejects a negative position', () => {
+      const result = TierMember.safeParse({
+        providerId: UUID,
+        modelId: 'claude-sonnet-5',
+        position: -1,
+      });
+      expect(result.success).toBe(false);
+    });
   });
 
   describe('CreateTierRequest', () => {
@@ -163,6 +172,45 @@ describe('Model Tier Contracts', () => {
     it('rejects missing members', () => {
       const result = CreateTierRequest.safeParse({ name: 'Fast tier' });
       expect(result.success).toBe(false);
+    });
+
+    it('rejects duplicate provider/model pairs', () => {
+      const result = CreateTierRequest.safeParse({
+        name: 'Duplicate tier',
+        members: [
+          { providerId: UUID, modelId: 'same-model', position: 0 },
+          { providerId: UUID, modelId: 'same-model', position: 1 },
+        ],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects gapped, duplicate, and out-of-order positions', () => {
+      for (const members of [
+        [
+          { providerId: UUID, modelId: 'model-a', position: 0 },
+          { providerId: UUID2, modelId: 'model-b', position: 2 },
+        ],
+        [
+          { providerId: UUID, modelId: 'model-a', position: 0 },
+          { providerId: UUID2, modelId: 'model-b', position: 0 },
+        ],
+        [
+          { providerId: UUID, modelId: 'model-a', position: 1 },
+          { providerId: UUID2, modelId: 'model-b', position: 0 },
+        ],
+      ]) {
+        expect(CreateTierRequest.safeParse({ name: 'Malformed tier', members }).success).toBe(false);
+      }
+    });
+
+    it('accepts an unlimited member list larger than ten', () => {
+      const members = Array.from({ length: 11 }, (_, position) => ({
+        providerId: `provider-${position}`,
+        modelId: `model-${position}`,
+        position,
+      }));
+      expect(CreateTierRequest.safeParse({ name: 'Long tier', members }).success).toBe(true);
     });
   });
 

@@ -78,15 +78,15 @@ export function deleteTierAndDegradeReferences(tierId) {
 
     db.prepare(
       `UPDATE session_templates
-       SET model = ?, updated_at = ?
+       SET model = ?, provider_id = ?, updated_at = ?
        WHERE model = ?`
-    ).run(fallbackModel, now, tierRef);
+    ).run(fallbackModel, fallbackProviderId, now, tierRef);
 
     db.prepare(
       `UPDATE kanban_lanes
-       SET on_enter_model = ?, updated_at = ?
+       SET on_enter_model = ?, on_enter_provider_id = ?, updated_at = ?
        WHERE on_enter_model = ?`
-    ).run(fallbackModel, now, tierRef);
+    ).run(fallbackModel, fallbackProviderId, now, tierRef);
 
     db.prepare(
       `UPDATE project_session_defaults
@@ -94,26 +94,21 @@ export function deleteTierAndDegradeReferences(tierId) {
        WHERE model = ?`
     ).run(fallbackModel, fallbackProviderId, now, tierRef);
 
-    // Both session model columns can carry future execution intent. Clearing
-    // resolved_* once model becomes concrete prevents a deleted tier's old
-    // snapshot from being mistaken for a still-live tier binding later.
+    // Current and pending selections are deliberately independent pairs.
+    // In particular, a pending-only tier ref must never overwrite the current
+    // provider or its resolved snapshot.
     db.prepare(
       `UPDATE sessions
-       SET model = CASE WHEN model = ? THEN ? ELSE model END,
-           pending_model = CASE WHEN pending_model = ? THEN ? ELSE pending_model END,
-           provider_id = CASE WHEN model = ? OR pending_model = ? THEN ? ELSE provider_id END,
-           resolved_model = CASE WHEN model = ? THEN NULL ELSE resolved_model END,
-           resolved_provider_id = CASE WHEN model = ? THEN NULL ELSE resolved_provider_id END,
+       SET model = ?, provider_id = ?, resolved_model = NULL, resolved_provider_id = NULL,
            updated_at = ?
-       WHERE model = ? OR pending_model = ?`
-    ).run(
-      tierRef, fallbackModel,
-      tierRef, fallbackModel,
-      tierRef, tierRef, fallbackProviderId,
-      tierRef, tierRef,
-      now,
-      tierRef, tierRef
-    );
+       WHERE model = ?`
+    ).run(fallbackModel, fallbackProviderId, now, tierRef);
+
+    db.prepare(
+      `UPDATE sessions
+       SET pending_model = ?, pending_provider_id = ?, updated_at = ?
+       WHERE pending_model = ?`
+    ).run(fallbackModel, fallbackProviderId, now, tierRef);
 
     rewriteSummarySettings(db, tierRef, fallback, now);
     db.prepare('DELETE FROM model_tiers WHERE id = ?').run(tierId);

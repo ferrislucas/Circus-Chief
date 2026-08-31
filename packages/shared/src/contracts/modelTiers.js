@@ -42,20 +42,30 @@ export const TierMember = z.object({
   // UUIDs. Only non-empty is required here.
   providerId: z.string().min(1),
   modelId: z.string().min(1),
-  position: z.number().int(),
+  position: z.number().int().nonnegative(),
+});
+
+const CanonicalTierMembers = z.array(TierMember).superRefine((members, ctx) => {
+  const pairs = new Set();
+  for (const [index, member] of members.entries()) {
+    const pair = `${member.providerId}\u0000${member.modelId}`;
+    if (pairs.has(pair)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index], message: 'Duplicate tier member provider/model pair' });
+    pairs.add(pair);
+    if (member.position !== index) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index, 'position'], message: 'Tier member positions must be contiguous starting at 0 and match array order' });
+  }
 });
 
 export const CreateTierRequest = z.object({
   name: z.string().min(1).max(100),
   description: z.string().nullable().optional(),
-  members: z.array(TierMember),
+  members: CanonicalTierMembers,
 });
 
 export const UpdateTierRequest = z
   .object({
     name: z.string().min(1).max(100).optional(),
     description: z.string().nullable().optional(),
-    members: z.array(TierMember).optional(),
+    members: CanonicalTierMembers.optional(),
   })
   .strict();
 

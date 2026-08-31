@@ -367,7 +367,7 @@ export async function _executeSession({
  *
  * @returns {{ session: Object, activeConversation: Object, promptWithAttachments: string }}
  */
-function beginSessionStart(sessionId, prompt, { model, fileAttachments, controller }) {
+function beginSessionStart(sessionId, prompt, { model, providerId, fileAttachments, controller }) {
   activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
 
   // Get the active conversation for this session (created in SessionRepository.create)
@@ -375,7 +375,7 @@ function beginSessionStart(sessionId, prompt, { model, fileAttachments, controll
   activeConversationIds.set(sessionId, activeConversation.id);
 
   // Update status to running and track the user-requested model (short format) on the session
-  sessions.update(sessionId, { status: 'running', ...(model && { model }) });
+  sessions.update(sessionId, { status: 'running', ...(model && { model, providerId: providerId ?? null }) });
   broadcastSessionStatus(sessionId, 'running');
 
   // Note: Initial user message is already created in SessionRepository.create()
@@ -423,6 +423,7 @@ async function _runTierBoundSession(sessionId, promptWithAttachments, workingDir
   return _runStandardSession(sessionId, promptWithAttachments, workingDirectory, {
     session: fallback.session,
     model: fallback.model,
+    providerId: fallback.session.providerId,
     systemPrompt,
     activeConversation,
     controller,
@@ -442,7 +443,7 @@ async function _runTierBoundSession(sessionId, promptWithAttachments, workingDir
  */
 export async function runSessionCore(sessionId, prompt, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
-  const { systemPrompt = null, fileAttachments = [], model = null, interactive = false,
+  const { systemPrompt = null, fileAttachments = [], model = null, providerId = null, interactive = false,
     abortController = null } = options;
   // Get session for settings
   const existing = sessions.getById(sessionId);
@@ -454,7 +455,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
   if (controller.signal.aborted) return rejectedSessionExecution(sessionId, 'dispatch_aborted');
 
   const { session, activeConversation, promptWithAttachments } =
-    beginSessionStart(sessionId, prompt, { model, fileAttachments, controller });
+    beginSessionStart(sessionId, prompt, { model, providerId, fileAttachments, controller });
 
   const startCtx = { session, systemPrompt, activeConversation, controller, callbacks };
 
@@ -468,7 +469,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
       })
     // ── Standard (non-tier) path ────────────────────────────────────────────
       : await _runStandardSession(sessionId, promptWithAttachments, workingDirectory, {
-        ...startCtx, model,
+        ...startCtx, model, providerId,
       });
   } catch (error) {
     // Resolution and tier selection can fail before _executeSession establishes
@@ -500,19 +501,19 @@ async function _runStandardSession(
   sessionId,
   promptWithAttachments,
   workingDirectory,
-  { session, model, systemPrompt, activeConversation, controller, callbacks }
+  { session, model, providerId, systemPrompt, activeConversation, controller, callbacks }
 ) {
   // Defense in depth: re-derive and persist the correct agent kind before creating
   // the adapter — self-heals legacy corrupted rows and any entry point that
   // bypasses the PATCH guard.
-  const reconciledSession = reconcileAgentTypeForRun(session, sessionId, model);
+  const reconciledSession = reconcileAgentTypeForRun(session, sessionId, model, providerId ?? session.providerId);
 
   // Create agent via gateway (or mock agent in mock mode)
   const agentType = reconciledSession.agentType || 'claude-code';
   const agent = createAgentForSession(agentType);
 
   const { effectiveModel, sessionEnv, commitAttributionOverride } =
-    await resolveInitialSessionModelEnv(reconciledSession, model);
+    await resolveInitialSessionModelEnv(reconciledSession, model, providerId ?? session.providerId);
 
   const queryParams = buildQueryParams({
     prompt: promptWithAttachments,

@@ -130,6 +130,7 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
         pendingPrompt: null,
         pendingConversationId: null,
         pendingModel: null,
+        pendingProviderId: null,
       });
     }
 

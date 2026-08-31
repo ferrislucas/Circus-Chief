@@ -52,6 +52,7 @@ export class SessionRepository extends BaseRepository {
       parentSessionId: row.parent_session_id,
       pendingPrompt: row.pending_prompt || null,
       pendingModel: row.pending_model || null,
+      pendingProviderId: row.pending_provider_id || null,
       effortLevel: row.effort_level || null,
       autoSendPendingPrompt: Boolean(row.auto_send_pending_prompt),
       // Persisted mirror of promptStore.js's in-memory pending-prompt queue —

@@ -157,10 +157,16 @@ describe('validateModelId', () => {
 
 describe('validateModelAndProvider', () => {
   it('passes through a concrete model with its providerId', () => {
-    expect(validateModelAndProvider('gpt-5.6-sol', 'some-provider-id')).toEqual({
-      model: 'gpt-5.6-sol',
-      providerId: 'some-provider-id',
-    });
+    const provider = modelProviders.create({ name: 'Concrete pair test', kind: 'openai' });
+    modelProviders.addModel(provider.id, { modelId: 'concrete-pair-test-model', displayName: 'Concrete pair test model' });
+    try {
+      expect(validateModelAndProvider('concrete-pair-test-model', provider.id)).toEqual({
+        model: 'concrete-pair-test-model',
+        providerId: provider.id,
+      });
+    } finally {
+      modelProviders.delete(provider.id);
+    }
   });
 
   it('normalizes providerId to null for a valid tier ref', () => {

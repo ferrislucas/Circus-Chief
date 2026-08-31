@@ -80,14 +80,25 @@ export function validateModelId(value, { allowNull = true, fieldName = 'model' }
  * by the active tier member, so a stray concrete `providerId` alongside a
  * tier ref would be stale/misleading and must be cleared.
  *
- * Non-tier values pass `providerId` through unchanged (existing per-field
- * validation, if any, still applies at the call site).
+ * Concrete selections retain legacy null-provider readability, but any newly
+ * supplied provider must be enabled and own an enabled, non-removed model.
  *
  * @param {*} model
  * @param {*} providerId
  * @param {{ allowNull?: boolean, fieldName?: string }} [options]
  * @returns {{ error?: string, model?: *, providerId?: * }}
  */
+function validateConcreteProvider(model, providerId) {
+  if (providerId === null || providerId === undefined) return null;
+  const provider = modelProviders.getById(providerId);
+  if (!provider) return `Invalid providerId "${providerId}"`;
+  if (provider.enabled === false) return `Provider "${providerId}" is disabled`;
+  const owned = provider.models?.find((entry) => entry.modelId === model);
+  return !owned || owned.enabled === false || owned.unavailable === true
+    ? `Model "${model}" is unavailable or is not owned by provider "${providerId}"`
+    : null;
+}
+
 export function validateModelAndProvider(model, providerId, options = {}) {
   const modelResult = validateModelId(model, options);
   if (modelResult.error) return { error: modelResult.error };
@@ -99,7 +110,16 @@ export function validateModelAndProvider(model, providerId, options = {}) {
     return { model: modelResult.value, providerId: null };
   }
 
-  return { model: modelResult.value, providerId };
+  // Empty/null selections clear the pair. Undefined remains undefined so
+  // PATCH callers can distinguish omitted from explicit clear.
+  if (modelResult.value === null || modelResult.value === '') {
+    return { model: modelResult.value, providerId: null };
+  }
+
+  const providerError = validateConcreteProvider(modelResult.value, providerId);
+  if (providerError) return { error: providerError };
+
+  return { model: modelResult.value, providerId: providerId ?? null };
 }
 
 /**
@@ -117,35 +137,29 @@ export function validateModelAndProvider(model, providerId, options = {}) {
  * @param {Array<{providerId: string, modelId: string}>} members
  * @returns {{ error?: string, value?: Array }}
  */
-export function validateTierMembers(members) {
-  if (!Array.isArray(members)) {
-    return { error: 'members must be an array' };
-  }
-
-  for (const member of members) {
+function validateTierMemberAvailability(member) {
     const provider = modelProviders.getById(member.providerId);
-    if (!provider) {
-      return { error: `Invalid tier member: unknown provider "${member.providerId}"` };
-    }
-    if (provider.enabled === false) {
-      return { error: `Invalid tier member: provider "${member.providerId}" is disabled` };
-    }
+    if (!provider) return `Invalid tier member: unknown provider "${member.providerId}"`;
+    if (provider.enabled === false) return `Invalid tier member: provider "${member.providerId}" is disabled`;
     const model = provider.models?.find((entry) => entry.modelId === member.modelId);
-    if (!model) {
-      return {
-        error: `Invalid tier member: model "${member.modelId}" is unavailable or is not owned by provider "${member.providerId}"`,
-      };
+    if (!model) return `Invalid tier member: model "${member.modelId}" is unavailable or is not owned by provider "${member.providerId}"`;
+    if (model.enabled === false) return `Invalid tier member: model "${member.modelId}" on provider "${member.providerId}" is disabled`;
+    if (model.unavailable === true) return `Invalid tier member: model "${member.modelId}" on provider "${member.providerId}" is unavailable`;
+    return null;
+}
+
+export function validateTierMembers(members) {
+  if (!Array.isArray(members)) return { error: 'members must be an array' };
+  const pairs = new Set();
+  for (const [index, member] of members.entries()) {
+    const pair = `${member.providerId}\u0000${member.modelId}`;
+    if (pairs.has(pair)) return { error: 'Duplicate tier member provider/model pair' };
+    pairs.add(pair);
+    if (!Number.isInteger(member.position) || member.position < 0 || member.position !== index) {
+      return { error: 'Tier member positions must be contiguous starting at 0 and match array order' };
     }
-    if (model.enabled === false) {
-      return {
-        error: `Invalid tier member: model "${member.modelId}" on provider "${member.providerId}" is disabled`,
-      };
-    }
-    if (model.unavailable === true) {
-      return {
-        error: `Invalid tier member: model "${member.modelId}" on provider "${member.providerId}" is unavailable`,
-      };
-    }
+    const availabilityError = validateTierMemberAvailability(member);
+    if (availabilityError) return { error: availabilityError };
   }
 
   return { value: members };
