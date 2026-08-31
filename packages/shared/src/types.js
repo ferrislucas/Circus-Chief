@@ -61,6 +61,10 @@
  * @property {string} modelId
  * @property {number} position
  * @property {number} createdAt
+ * @property {boolean} available
+ * @property {boolean} providerEnabled
+ * @property {boolean} modelEnabled
+ * @property {'provider_missing'|'provider_disabled'|'model_missing'|'model_disabled'|'model_unavailable'|null} unavailabilityReason
  */
 
 /**

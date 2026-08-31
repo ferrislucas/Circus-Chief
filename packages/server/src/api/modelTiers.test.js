@@ -53,7 +53,7 @@ describe('Model Tiers API', () => {
       expect(response.body[0].members).toHaveLength(1);
     });
 
-    it('omits members whose provider is disabled', async () => {
+    it('returns disabled-provider members with availability metadata', async () => {
       await request(app).post('/api/tiers').send({
         name: 'Unavailable Tier',
         members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
@@ -61,10 +61,18 @@ describe('Model Tiers API', () => {
       modelProviders.update(providerA.id, { enabled: false });
 
       const response = await request(app).get('/api/tiers').expect(200);
-      expect(response.body[0].members).toEqual([]);
+      expect(response.body[0].members).toMatchObject([{
+        providerId: providerA.id,
+        modelId: 'model-a',
+        position: 0,
+        available: false,
+        providerEnabled: false,
+        modelEnabled: true,
+        unavailabilityReason: 'provider_disabled',
+      }]);
     });
 
-    it('omits members whose model has been removed', async () => {
+    it('returns removed-model members with availability metadata', async () => {
       await request(app).post('/api/tiers').send({
         name: 'Orphaned Tier',
         members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
@@ -73,7 +81,14 @@ describe('Model Tiers API', () => {
       modelProviders.removeModel(model.id);
 
       const response = await request(app).get('/api/tiers').expect(200);
-      expect(response.body[0].members).toEqual([]);
+      expect(response.body[0].members).toMatchObject([{
+        providerId: providerA.id,
+        modelId: 'model-a',
+        available: false,
+        providerEnabled: true,
+        modelEnabled: false,
+        unavailabilityReason: 'model_missing',
+      }]);
     });
   });
 
@@ -258,6 +273,28 @@ describe('Model Tiers API', () => {
       expect(response.body.id).toBe(created.body.id);
     });
 
+    it('returns disabled-model members with availability metadata', async () => {
+      const created = await request(app)
+        .post('/api/tiers')
+        .send({
+          name: 'Disabled Model Tier',
+          members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+        })
+        .expect(201);
+      const model = modelProviders.getById(providerA.id).models.find((entry) => entry.modelId === 'model-a');
+      modelProviders.updateModel(model.id, { enabled: false });
+
+      const response = await request(app).get(`/api/tiers/${created.body.id}`).expect(200);
+      expect(response.body.members).toMatchObject([{
+        providerId: providerA.id,
+        modelId: 'model-a',
+        available: false,
+        providerEnabled: true,
+        modelEnabled: false,
+        unavailabilityReason: 'model_disabled',
+      }]);
+    });
+
     it('returns 404 for missing tier', async () => {
       await request(app).get('/api/tiers/nonexistent').expect(404);
     });
@@ -371,7 +408,7 @@ describe('Model Tiers API', () => {
         expect(stillThere.body.members).toEqual([]);
       });
 
-      it('does not validate members when the PATCH does not include a members field', async () => {
+    it('does not validate members when the PATCH does not include a members field', async () => {
         const created = await request(app)
           .post('/api/tiers')
           .send({
@@ -384,8 +421,51 @@ describe('Model Tiers API', () => {
           .patch(`/api/tiers/${created.body.id}`)
           .send({ name: 'Renamed Only' })
           .expect(200);
-        expect(response.body.name).toBe('Renamed Only');
-      });
+      expect(response.body.name).toBe('Renamed Only');
+    });
+
+    it('preserves a disabled member when a name-only UI edit submits the full member list', async () => {
+      const created = await request(app)
+        .post('/api/tiers')
+        .send({
+          name: 'Preserve Disabled Member',
+          members: [
+            { providerId: providerA.id, modelId: 'model-a', position: 0 },
+            { providerId: providerB.id, modelId: 'model-b', position: 1 },
+          ],
+        })
+        .expect(201);
+      modelProviders.update(providerB.id, { enabled: false });
+
+      const response = await request(app)
+        .patch(`/api/tiers/${created.body.id}`)
+        .send({
+          name: 'Renamed with Disabled Member',
+          members: [
+            { providerId: providerA.id, modelId: 'model-a', position: 0 },
+            { providerId: providerB.id, modelId: 'model-b', position: 1 },
+          ],
+        })
+        .expect(200);
+
+      expect(response.body.members).toMatchObject([
+        { providerId: providerA.id, modelId: 'model-a', position: 0, available: true },
+        {
+          providerId: providerB.id,
+          modelId: 'model-b',
+          position: 1,
+          available: false,
+          unavailabilityReason: 'provider_disabled',
+        },
+      ]);
+
+      modelProviders.update(providerB.id, { enabled: true });
+      const afterReenable = await request(app).get(`/api/tiers/${created.body.id}`).expect(200);
+      expect(afterReenable.body.members).toMatchObject([
+        { providerId: providerA.id, modelId: 'model-a', position: 0, available: true },
+        { providerId: providerB.id, modelId: 'model-b', position: 1, available: true },
+      ]);
+    });
 
       it('accepts introducing a valid cross-provider member via PATCH', async () => {
         const created = await request(app)

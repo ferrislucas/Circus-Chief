@@ -82,6 +82,16 @@ export const TierResponse = z.object({
       modelId: z.string(),
       position: z.number().int(),
       createdAt: z.number(),
+      available: z.boolean(),
+      providerEnabled: z.boolean(),
+      modelEnabled: z.boolean(),
+      unavailabilityReason: z.enum([
+        'provider_missing',
+        'provider_disabled',
+        'model_missing',
+        'model_disabled',
+        'model_unavailable',
+      ]).nullable(),
     })
   ),
   createdAt: z.number(),

@@ -109,6 +109,40 @@ export function getTierMembersResolved(tierId) {
 }
 
 /**
+ * Add management-only availability data to every persisted tier member.
+ *
+ * Unlike {@link getTierMembersResolved}, this deliberately never filters a
+ * member. Settings clients need the complete configured list so an unrelated
+ * edit cannot turn a temporarily unavailable member into a deletion.
+ *
+ * @param {Array<Object>} members
+ * @returns {Array<Object>}
+ */
+export function getTierMembersWithAvailability(members) {
+  return members.map((member) => {
+    const provider = modelProviders.getById(member.providerId);
+    const providerEnabled = Boolean(provider) && provider.enabled !== false;
+    const model = provider?.models?.find((entry) => entry.modelId === member.modelId);
+    const modelEnabled = Boolean(model) && model.enabled !== false;
+
+    let unavailabilityReason = null;
+    if (!provider) unavailabilityReason = 'provider_missing';
+    else if (!providerEnabled) unavailabilityReason = 'provider_disabled';
+    else if (!model) unavailabilityReason = 'model_missing';
+    else if (!modelEnabled) unavailabilityReason = 'model_disabled';
+    else if (model.unavailable === true) unavailabilityReason = 'model_unavailable';
+
+    return {
+      ...member,
+      available: unavailabilityReason === null,
+      providerEnabled,
+      modelEnabled,
+      unavailabilityReason,
+    };
+  });
+}
+
+/**
  * Resolve the active (model, providerId) for a model string or tier ref.
  *
  * - If `modelOrRef` is NOT a tier ref → passthrough. Returns `{ model, providerId }` unchanged.

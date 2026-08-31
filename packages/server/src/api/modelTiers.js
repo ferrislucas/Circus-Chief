@@ -7,13 +7,13 @@ import {
 import { isTierRef, parseTierRef } from '@circuschief/shared';
 import { validateTierMembers } from './model-validation.js';
 import { tierHasUnsupportedSummaryKindMember } from '../services/summaryModelResolver.js';
-import { getTierMembersResolved } from '../services/tierResolutionService.js';
+import { getTierMembersWithAvailability } from '../services/tierResolutionService.js';
 import { deleteTierAndDegradeReferences } from '../services/tierDeletionService.js';
 
 const ERR_TIER_NOT_FOUND = 'Tier not found';
 
-function withResolvableMembers(tier) {
-  return tier ? { ...tier, members: getTierMembersResolved(tier.id) } : tier;
+function withManagementMembers(tier) {
+  return tier ? { ...tier, members: getTierMembersWithAvailability(tier.members) } : tier;
 }
 
 const router = Router();
@@ -43,7 +43,7 @@ function checkSummaryTierKindGuard(tierId, members) {
 // GET /api/tiers — list all tiers with members
 router.get('/', (_req, res) => {
   try {
-    const all = modelTiers.getAllWithMembers().map(withResolvableMembers);
+    const all = modelTiers.getAllWithMembers().map(withManagementMembers);
     res.json(all);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -55,7 +55,7 @@ router.get('/:id', (req, res) => {
   try {
     const tier = modelTiers.getByIdWithMembers(req.params.id);
     if (!tier) return res.status(404).json({ error: ERR_TIER_NOT_FOUND });
-    res.json(withResolvableMembers(tier));
+    res.json(withManagementMembers(tier));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -75,7 +75,7 @@ router.post('/', (req, res) => {
 
   try {
     const tier = modelTiers.create(result.data);
-    res.status(201).json(withResolvableMembers(tier));
+    res.status(201).json(withManagementMembers(tier));
   } catch (error) {
     if (error.message?.includes('UNIQUE constraint failed')) {
       return res.status(409).json({ error: 'A tier with that name already exists' });
@@ -95,7 +95,9 @@ router.patch('/:id', (req, res) => {
   }
 
   if (result.data.members) {
-    const memberValidation = validateTierMembers(result.data.members);
+    const memberValidation = validateTierMembers(result.data.members, {
+      existingMembers: tier.members,
+    });
     if (memberValidation.error) {
       return res.status(400).json({ error: memberValidation.error });
     }
@@ -108,7 +110,7 @@ router.patch('/:id', (req, res) => {
 
   try {
     const updated = modelTiers.update(req.params.id, result.data);
-    res.json(withResolvableMembers(updated));
+    res.json(withManagementMembers(updated));
   } catch (error) {
     if (error.message?.includes('UNIQUE constraint failed')) {
       return res.status(409).json({ error: 'A tier with that name already exists' });

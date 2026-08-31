@@ -77,6 +77,10 @@
             <span class="member-info">
               <span class="member-model">{{ member.modelId }}</span>
               <span class="member-provider">{{ providerName(member.providerId) }}</span>
+              <span
+                v-if="!member.available"
+                class="member-unavailable"
+              >Unavailable: {{ availabilityLabel(member.unavailabilityReason) }}</span>
             </span>
           </div>
         </div>
@@ -143,6 +147,10 @@
             <span class="member-edit-info">
               <span class="member-model">{{ member.modelId }}</span>
               <span class="member-provider">{{ providerName(member.providerId) }}</span>
+              <span
+                v-if="!member.available"
+                class="member-unavailable"
+              >Unavailable: {{ availabilityLabel(member.unavailabilityReason) }}</span>
             </span>
             <div class="member-controls">
               <button
@@ -308,6 +316,17 @@ const addableProviders = computed(() => providersStore.providers
 function providerName(providerId) {
   const p = providersStore.providers.find((x) => x.id === providerId);
   return p ? p.name : providerId;
+}
+
+function availabilityLabel(reason) {
+  const labels = {
+    provider_missing: 'provider removed',
+    provider_disabled: 'provider disabled',
+    model_missing: 'model removed',
+    model_disabled: 'model disabled',
+    model_unavailable: 'model unavailable',
+  };
+  return labels[reason] || 'not executable';
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────

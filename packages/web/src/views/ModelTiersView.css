@@ -119,6 +119,11 @@ h2 {
   font-size: 0.75rem;
 }
 
+.member-unavailable {
+  color: var(--color-warning, #f59e0b);
+  font-size: 0.75rem;
+}
+
 .members-empty {
   font-size: 0.8125rem;
   color: var(--color-text-soft);

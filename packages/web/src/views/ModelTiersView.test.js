@@ -41,4 +41,41 @@ describe('ModelTiersView', () => {
     expect(options).not.toContain('Hidden');
     expect(wrapper.find('.member-select').html()).not.toContain('Disabled provider');
   });
+
+  it('keeps unavailable members in a name-only edit and marks them as unavailable', async () => {
+    const providersStore = useProvidersStore();
+    const tiersStore = useTiersStore();
+    providersStore.providers = [
+      { id: 'enabled-provider', name: 'Enabled', enabled: true, models: [{ modelId: 'ready', enabled: true }] },
+      { id: 'disabled-provider', name: 'Disabled', enabled: false, models: [{ modelId: 'paused', enabled: true }] },
+    ];
+    tiersStore.loaded = true;
+    tiersStore.tiers = [{
+      id: 'tier-1', name: 'Configured tier', description: null,
+      members: [
+        { id: 'member-1', providerId: 'enabled-provider', modelId: 'ready', position: 0, available: true },
+        {
+          id: 'member-2', providerId: 'disabled-provider', modelId: 'paused', position: 1,
+          available: false, unavailabilityReason: 'provider_disabled',
+        },
+      ],
+    }];
+    const updateTier = vi.spyOn(tiersStore, 'updateTier').mockResolvedValue(undefined);
+
+    const wrapper = mount(ModelTiersView, { global: { plugins: [tiersStore.$pinia] } });
+    await wrapper.findAll('.btn-ghost').find((button) => button.text() === 'Edit').trigger('click');
+    expect(wrapper.text()).toContain('Unavailable: provider disabled');
+
+    await wrapper.get('#tier-name').setValue('Renamed tier');
+    await wrapper.find('.modal-actions .btn-primary').trigger('click');
+
+    expect(updateTier).toHaveBeenCalledWith('tier-1', {
+      name: 'Renamed tier',
+      description: null,
+      members: [
+        { providerId: 'enabled-provider', modelId: 'ready', position: 0 },
+        { providerId: 'disabled-provider', modelId: 'paused', position: 1 },
+      ],
+    });
+  });
 });

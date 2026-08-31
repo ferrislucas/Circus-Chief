@@ -218,6 +218,24 @@ describe('tierResolutionService', () => {
       expect(members.map((m) => m.modelId)).toEqual(['model-a']);
     });
 
+    it('skips disabled members without changing persisted configuration', () => {
+      const tier = modelTiers.create({
+        name: 'Disabled First Member',
+        members: [
+          { providerId: providerA.id, modelId: 'model-a', position: 0 },
+          { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        ],
+      });
+      modelProviders.update(providerA.id, { enabled: false });
+
+      expect(resolveActiveModel(buildTierRef(tier.id))).toEqual({
+        model: 'model-b', providerId: providerB.id,
+      });
+      expect(modelTiers.getByIdWithMembers(tier.id).members.map((member) => member.modelId)).toEqual([
+        'model-a', 'model-b',
+      ]);
+    });
+
     it('excluding a deleted model also affects resolveActiveModel', () => {
       const extraModel = modelProviders.addModel(providerA.id, {
         modelId: 'model-a-extra',

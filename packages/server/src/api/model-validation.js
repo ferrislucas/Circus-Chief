@@ -126,15 +126,17 @@ export function validateModelAndProvider(model, providerId, options = {}) {
  * Validate a Model Tier's member list at write time (create/update) — Work
  * Item 3. A member is valid when its provider exists AND owns a
  * executable `provider_models` row for that `modelId`, mirroring
- * `getTierMembersResolved`'s runtime eligibility filter. Accepting a disabled
- * provider/model here would create a member that immediately disappears from
- * GET responses and cannot execute.
+ * `getTierMembersResolved`'s runtime eligibility filter. Existing members
+ * that later become unavailable may be retained during a full-list update:
+ * this lets a settings client preserve configuration while an operator has a
+ * provider or model disabled, without allowing new unusable members.
  *
  * The member list is validated atomically: the first invalid pair fails the
  * whole request, so a tier is never partially persisted with a mix of valid
  * and invalid members.
  *
  * @param {Array<{providerId: string, modelId: string}>} members
+ * @param {{ existingMembers?: Array<{providerId: string, modelId: string}> }} [options]
  * @returns {{ error?: string, value?: Array }}
  */
 function validateTierMemberAvailability(member) {
@@ -148,7 +150,7 @@ function validateTierMemberAvailability(member) {
     return null;
 }
 
-export function validateTierMembers(members) {
+export function validateTierMembers(members, { existingMembers = [] } = {}) {
   if (!Array.isArray(members)) return { error: 'members must be an array' };
   const pairs = new Set();
   for (const [index, member] of members.entries()) {
@@ -159,7 +161,10 @@ export function validateTierMembers(members) {
       return { error: 'Tier member positions must be contiguous starting at 0 and match array order' };
     }
     const availabilityError = validateTierMemberAvailability(member);
-    if (availabilityError) return { error: availabilityError };
+    const alreadyConfigured = existingMembers.some(
+      (existing) => existing.providerId === member.providerId && existing.modelId === member.modelId
+    );
+    if (availabilityError && !alreadyConfigured) return { error: availabilityError };
   }
 
   return { value: members };
