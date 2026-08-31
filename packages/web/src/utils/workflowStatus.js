@@ -20,6 +20,7 @@ export function collectWorkflowSessions(root, findChildren) {
     if (visited.has(sessionId)) continue;
     visited.add(sessionId);
     for (const child of findChildren(sessionId)) {
+      if (visited.has(child.id)) continue;
       sessions.push(child);
       stack.push(child.id);
     }
