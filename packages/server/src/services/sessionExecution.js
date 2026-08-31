@@ -342,31 +342,10 @@ export async function _executeSession({
     // close their generator normally. Route that outcome through the same retry
     // policy as a rejected execute() call; otherwise the normal completion path
     // would incorrectly close the workflow obligation as successful.
-    if (terminalError) {
-      const rescheduled = await handleSessionError(sessionId, terminalError, {
-        controller,
-        shouldRescheduleOnError: (session, error, sid) =>
-          shouldRescheduleOnError(session, error, sid, tierContext),
-        schedulerService,
-        broadcastConversationState: broadcastConversationStateOnError,
-        errorLabel,
-        handleTemplateTriggerIfNeeded,
-        errorAlreadyRecorded: true,
-      });
-      discardDeferredCardMoveForTurn(
-        sessionId,
-        workflowTurn?.turnToken,
-        rescheduled ? 'turn_retrying' : 'turn_failed',
-      );
-      if (rescheduled) {
-        markExecutionState(sessionId, 'retrying');
-        return;
-      }
-      closeOwnWork(sessionId, 'closed_failed', terminalError.message, {
-        turnToken: workflowTurn?.turnToken,
-      });
-      return;
-    }
+    if (terminalError) return handleTerminalStreamError({
+      sessionId, terminalError, controller, tierContext, broadcastConversationStateOnError,
+      errorLabel, handleTemplateTriggerIfNeeded, workflowTurn,
+    });
     await completeSuccessfulTurn({ sessionId, interactive, workflowTurn, wasRescheduled, heldForLimit });
   } catch (error) {
     const outcome = await handleTurnFailure({
@@ -377,6 +356,31 @@ export async function _executeSession({
   } finally {
     cleanupSessionState(sessionId, cleanupConversationId, controller);
   }
+}
+
+async function handleTerminalStreamError({
+  sessionId, terminalError, controller, tierContext, broadcastConversationStateOnError,
+  errorLabel, handleTemplateTriggerIfNeeded, workflowTurn,
+}) {
+  const rescheduled = await handleSessionError(sessionId, terminalError, {
+    controller,
+    shouldRescheduleOnError: (session, error, sid) =>
+      shouldRescheduleOnError(session, error, sid, tierContext),
+    schedulerService,
+    broadcastConversationState: broadcastConversationStateOnError,
+    errorLabel,
+    handleTemplateTriggerIfNeeded,
+    errorAlreadyRecorded: true,
+  });
+  discardDeferredCardMoveForTurn(
+    sessionId,
+    workflowTurn?.turnToken,
+    rescheduled ? 'turn_retrying' : 'turn_failed',
+  );
+  if (rescheduled) return markExecutionState(sessionId, 'retrying');
+  return closeOwnWork(sessionId, 'closed_failed', terminalError.message, {
+    turnToken: workflowTurn?.turnToken,
+  });
 }
 /**
  * Prepare the shared per-start state for {@link runSessionCore}: register the

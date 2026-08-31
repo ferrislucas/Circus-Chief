@@ -38,7 +38,8 @@ async function validatePreparedConfig(config, reqBody, projectId, project) {
     return { error: nextTemplateError, status: 400 };
   }
 
-  const finalModelResult = validateModelAndProvider(config.model, config.providerId);
+  const finalProviderId = isTierRef(config.model) ? null : config.providerId;
+  const finalModelResult = validateModelAndProvider(config.model, finalProviderId);
   if (finalModelResult.error) {
     return { error: finalModelResult.error, status: 400 };
   }
@@ -47,11 +48,6 @@ async function validatePreparedConfig(config, reqBody, projectId, project) {
   // resolved per-run from the active tier member. An explicitly supplied
   // providerId was rejected above; a provider inherited from project/system
   // defaults is not part of the tier selection and must not be persisted.
-  // Clear that inherited value before validating the final resolved config.
-  if (isTierRef(config.model)) {
-    config.providerId = null;
-  }
-
   const configForGit = {
     ...config,
     model: finalModelResult.model,

@@ -183,7 +183,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       });
       const tierRef = buildTierRef(tier.id);
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/summary')
         .send({
           disableSessionSummaries: false,
@@ -208,7 +208,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       });
       const tierRef = buildTierRef(tier.id);
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/summary')
         .send({
           disableSessionSummaries: false,
@@ -237,7 +237,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       });
       const tierRef = buildTierRef(tier.id);
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/summary')
         .send({
           disableSessionSummaries: false,
@@ -267,7 +267,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       });
       const tierRef = buildTierRef(tier.id);
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/summary')
         .send({
           disableSessionSummaries: false,
@@ -294,7 +294,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       });
       const tierRef = buildTierRef(tier.id);
 
-      const res = await request(server)
+      const res = await request(app)
         .put('/api/settings/summary')
         .send({
           disableSessionSummaries: false,
