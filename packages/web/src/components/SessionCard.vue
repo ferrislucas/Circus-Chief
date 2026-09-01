@@ -224,6 +224,7 @@
         v-if="hasRunningSession"
         :root-session-id="session.id"
         :session-ids="runningSessionIds"
+        default-collapsed
         data-testid="session-log-stream"
       />
     </router-link>
