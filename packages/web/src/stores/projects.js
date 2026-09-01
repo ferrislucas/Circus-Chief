@@ -30,8 +30,8 @@ export const useProjectsStore = defineStore('projects', {
     /**
      * Facets for the status filter. The running badge is a session total;
      * waiting and idle remain project counts because their filters operate on
-     * projects. `running` and `waiting` may overlap; `idle` is the complement
-     * of "any active session".
+     * projects. The server supplies mutually exclusive running and waiting
+     * session counts; idle is the complement of any active session.
      */
     statusFacets: (state) => {
       let running = 0;

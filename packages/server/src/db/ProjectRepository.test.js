@@ -317,7 +317,7 @@ describe('ProjectRepository', () => {
       expect(enriched.runningWorkspaces).toEqual([
         { id: root.id, name: 'root', activeCount: 4 },
       ]);
-      expect(enriched.runningSessionCount).toBe(4); // root + child-running + child-waiting + grandchild (running/starting)
+      expect(enriched.runningSessionCount).toBe(3); // root + child-running + grandchild
       expect(enriched.waitingSessionCount).toBe(1); // child-waiting (pendingAgentInput)
     });
 

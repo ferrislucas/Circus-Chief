@@ -276,7 +276,7 @@ describe('Workspace facade API', () => {
       expect(res.body.workspaces).toHaveLength(1);
       // "waiting" counts only sessions blocked on agent input (pending_agent_input),
       // not status='waiting' — 'Idle one' is idle here despite its status value.
-      expect(res.body.facets).toEqual({ running: 2, idle: 2, waiting: 1 });
+      expect(res.body.facets).toEqual({ running: 1, idle: 2, waiting: 1 });
       expect(res.body.pagination).toMatchObject({ total: 4, hasMore: true });
     });
 

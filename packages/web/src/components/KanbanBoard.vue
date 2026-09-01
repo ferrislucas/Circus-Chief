@@ -308,6 +308,7 @@ import KanbanBoardIcon from './KanbanBoardIcon.vue';
 import KanbanCardSessionDetails from './KanbanCardSessionDetails.vue';
 import KanbanLayoutToggle from './KanbanLayoutToggle.vue';
 import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
+import { isSessionActivelyRunning } from '../utils/workflowStatus.js';
 import { api } from '../api/ApiClient.js';
 import './KanbanBoard.css';
 const props = defineProps({
@@ -498,7 +499,7 @@ const isCardEffectivelyRunning = (session) => {
   if (sessionsStore.getWorkflowEffectiveStatus(session.id) === 'running') {
     return true;
   }
-  return ['running', 'starting'].includes(session.status);
+  return isSessionActivelyRunning(session);
 };
 // Board-level map of session id → button-status indicators. Built once per
 // recompute (rather than per-card during render) so the buttonMap and the

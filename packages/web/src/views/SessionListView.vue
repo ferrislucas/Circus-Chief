@@ -323,6 +323,7 @@ import { useWorkspaceListRealtime } from '../composables/useWorkspaceListRealtim
 import { useKanbanRealtime } from '../composables/useKanbanRealtime.js';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import { workspacePrSummary } from '../utils/workspaceCard.js';
+import { isSessionActivelyRunning } from '../utils/workflowStatus.js';
 import SessionCard from '../components/SessionCard.vue';
 import SessionFiltersPanel from '../components/SessionFiltersPanel.vue';
 import ArchivedTabContent from '../components/ArchivedTabContent.vue';
@@ -379,16 +380,17 @@ const projectId = computed(() => route.params.id);
 // A workflow is eligible only while the card is rendered, expanded, and in the
 // observer's prefetch margin. Keep this policy here so subscriptions stay pure.
 const cardVisibilityByRootId = ref({});
-const isRunningSession = session => ['running', 'starting'].includes(session.status);
 const workflowCardFromCard = card => {
   const rootSessionId = card.id;
   return {
     rootSessionId,
     // The card contract carries the running descendants, so list subscriptions
     // follow the session producing output instead of an idle workspace root.
-    runningSessionIds: card.runningSessionIds?.length
+    // An empty authoritative list must remain empty: a root blocked on agent
+    // input can retain a raw running status without actively producing output.
+    runningSessionIds: Array.isArray(card.runningSessionIds)
       ? card.runningSessionIds
-      : (isRunningSession(card) || card.runningCount > 0 ? [rootSessionId] : []),
+      : (isSessionActivelyRunning(card) || card.runningCount > 0 ? [rootSessionId] : []),
     eligible: activeTab.value === 'sessions'
       && cardVisibilityByRootId.value[rootSessionId] !== false
       && !streamingStore.isSessionLogCollapsed(rootSessionId),

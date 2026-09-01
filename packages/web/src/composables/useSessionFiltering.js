@@ -5,7 +5,7 @@ import { useSessionsStore } from '../stores/sessions.js';
  * Composable for managing session filter toggle cycling and tooltip computation.
  *
  * Handles:
- * - Status filter toggling (running / idle)
+ * - Status filter toggling (running / waiting / idle)
  * - Star filter three-state cycling (null → starred → unstarred → null)
  * - Scheduled filter three-state cycling (null → scheduled → not-scheduled → null)
  * - Tooltip text computation for star and scheduled filters
@@ -17,7 +17,7 @@ export function useSessionFiltering() {
 
   /**
    * Toggle a status filter. If already active, clears it; otherwise sets it as exclusive.
-   * @param {string} status - 'running' or 'idle'
+   * @param {string} status - 'running', 'waiting', or 'idle'
    */
   function toggleFilter(status) {
     if (sessionsStore.statusFilter === status) {
