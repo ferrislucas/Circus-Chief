@@ -11,6 +11,7 @@ import {
 import { callCodexSummary } from './summaryCodexClient.js';
 import { getTierMembersResolved, markUnhealthy, isUnhealthy } from './tierResolutionService.js';
 import { matchesStartFailoverEligibleError } from './sessionErrors.js';
+import { sanitizeTierFailureReason } from './tierFailureReason.js';
 import { isTierRef, parseTierRef } from '@circuschief/shared';
 import { modelProviders } from '../database.js';
 
@@ -163,7 +164,7 @@ function logSummaryFailoverEvent({ options, failedMember, tierRef, nextMember, e
       toModel: nextMember?.modelId ?? null,
       toProviderId: nextMember?.providerId ?? null,
       tierRef,
-      reason: error?.message,
+      reason: sanitizeTierFailureReason(error),
       agentType: 'summary',
     });
   } catch (_logErr) {

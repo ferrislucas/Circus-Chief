@@ -491,6 +491,31 @@ describe('Model Tiers API', () => {
 
     // ── Work Item 3: close the summary-settings bypass ─────────────────────
     describe('summary-tier kind guard', () => {
+      it('rejects emptying the configured summary tier', async () => {
+        const created = await request(app)
+          .post('/api/tiers')
+          .send({
+            name: 'Summary Tier Cannot Be Emptied',
+            members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+          })
+          .expect(201);
+
+        settings.setSummarySettings({ summaryModel: buildTierRef(created.body.id), summaryProviderId: null });
+
+        try {
+          const response = await request(app)
+            .patch(`/api/tiers/${created.body.id}`)
+            .send({ members: [] })
+            .expect(400);
+          expect(response.body.error).toContain('at least one executable model');
+
+          const unchanged = await request(app).get(`/api/tiers/${created.body.id}`).expect(200);
+          expect(unchanged.body.members).toHaveLength(1);
+        } finally {
+          settings.setSummarySettings({ summaryModel: '', summaryProviderId: null });
+        }
+      });
+
       it('rejects introducing an unsupported-kind member when this tier is the configured summary tier', async () => {
         const created = await request(app)
           .post('/api/tiers')

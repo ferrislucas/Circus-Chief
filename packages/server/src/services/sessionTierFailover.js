@@ -19,6 +19,9 @@ import {
 } from './sessionExecution.js';
 import { agentCallLogger } from './agentCallLogger.js';
 import { resolveAgentTypeFromModel } from './sessionProvider.js';
+import { sanitizeTierFailureReason } from './tierFailureReason.js';
+
+export { sanitizeTierFailureReason } from './tierFailureReason.js';
 
 /**
  * Execute a single attempt with a concrete (model, providerId) pair.
@@ -134,16 +137,6 @@ function classifyTierMemberFailure(error, { sessionId, member, tierRef, tierName
   // There IS a next healthy, attemptable member — emit the failover event.
   if (nextMember) emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember });
   return nextMember;
-}
-
-/** Remove provider payloads/secrets and keep terminal errors bounded for UI/logs. */
-export function sanitizeTierFailureReason(error) {
-  const raw = String(error?.message || 'provider start failed')
-    .replace(/(?:api[_ -]?key|token|authorization|password)\s*[=:]\s*(?:Bearer\s+)?\S+/gi, '[redacted]')
-    .replace(/\b(?:sk-[\w-]+|Bearer\s+\S+)\b/gi, '[redacted]')
-    .replace(/[\r\n\t]+/g, ' ')
-    .trim();
-  return (raw || 'provider start failed').slice(0, 240);
 }
 
 export class ModelTierExhaustedError extends Error {

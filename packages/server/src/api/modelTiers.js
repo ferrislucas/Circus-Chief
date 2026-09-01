@@ -34,6 +34,9 @@ function checkSummaryTierKindGuard(tierId, members) {
     isTierRef(summarySettings.summaryModel) && parseTierRef(summarySettings.summaryModel) === tierId;
   if (!isConfiguredSummaryTier) return null;
 
+  if (members.length === 0) {
+    return 'This tier is the configured summary model — it must contain at least one executable model (see Settings → Summary Settings)';
+  }
   if (tierHasUnsupportedSummaryKindMember(members)) {
     return 'This tier is the configured summary model — members must be Anthropic or OpenAI only (see Settings → Summary Settings)';
   }

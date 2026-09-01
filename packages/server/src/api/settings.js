@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { modelProviders, settings } from '../db/index.js';
+import { modelProviders, modelTiers, settings } from '../db/index.js';
 import { DEFAULT_SESSION_TITLE_PROMPT } from '../services/summaryService.js';
 import { SUPPORTED_SUMMARY_PROVIDER_KINDS, tierHasUnsupportedSummaryKindMember } from '../services/summaryModelResolver.js';
 import { getTierMembersResolved } from '../services/tierResolutionService.js';
@@ -169,7 +169,14 @@ function validateSummaryModelSelection(summaryModel, summaryProviderId) {
     // resolvable member, not just the currently-active one, so a later
     // failover member can't silently be unsupported.
     const tierId = parseTierRef(summaryModel);
-    const members = tierId ? getTierMembersResolved(tierId) : [];
+    const tier = tierId ? modelTiers.getByIdWithMembers(tierId) : null;
+    if (!tier) {
+      return 'Unknown summaryModel tier';
+    }
+    const members = getTierMembersResolved(tierId);
+    if (members.length === 0) {
+      return 'summaryModel tier must contain at least one executable model';
+    }
     if (tierHasUnsupportedSummaryKindMember(members)) {
       return 'summaryModel tier must contain only Anthropic or OpenAI models';
     }

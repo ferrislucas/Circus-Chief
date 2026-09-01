@@ -286,6 +286,23 @@ describe('callSummaryModel tier failover (Work Item 2)', () => {
     );
   });
 
+  it('redacts and bounds provider errors in summary failover logs', async () => {
+    const secret = 'sk-summary-secret';
+    mocks.callClaude
+      .mockRejectedValueOnce(Object.assign(new Error(`token=${secret} ${'x'.repeat(400)}`), { status: 529 }))
+      .mockResolvedValueOnce('{"short_summary":"from B"}');
+
+    await callSummaryModel('prompt', [], 'completed', {
+      summarySettings: tierSettings(tier.id),
+      logMeta: { sessionId: 'summary-session-redaction', callType: 'generateSessionSummary' },
+    });
+
+    const [, event] = mocks.agentCallLogger._logFailoverEvent.mock.calls[0];
+    expect(event.reason).not.toContain(secret);
+    expect(event.reason).toContain('[redacted]');
+    expect(event.reason.length).toBeLessThanOrEqual(240);
+  });
+
   it('does not advance past a non-retryable error (e.g. auth failure)', async () => {
     const authError = new Error('Invalid API key provided');
     mocks.callClaude.mockRejectedValueOnce(authError);

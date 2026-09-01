@@ -221,6 +221,36 @@ describe('Settings API', { timeout: 30_000 }, () => {
       expect(res.body.error).toContain('must be null');
     });
 
+    it('rejects a tier ref for a tier that does not exist', async () => {
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: buildTierRef('missing-summary-tier'),
+          summaryProviderId: null,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Unknown summaryModel tier');
+    });
+
+    it('rejects a summary tier with no executable members', async () => {
+      const tier = modelTiers.create({ name: 'Empty Summary Tier', members: [] });
+
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: buildTierRef(tier.id),
+          summaryProviderId: null,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('at least one executable model');
+    });
+
     // Work Item 1: a summary tier must not resolve — now or via a later
     // failover member — to a provider kind that summaryModelClient can't
     // route (only 'anthropic' and 'openai' are supported). Reject at
