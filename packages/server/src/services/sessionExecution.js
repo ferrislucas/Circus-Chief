@@ -353,6 +353,7 @@ export async function _executeSession({
       broadcastConversationStateOnError, errorLabel, error,
     });
     if (outcome === 'rethrow' || outcome === 'failed') throw error;
+    if (outcome === 'rescheduled') return { started: true, outcome };
   } finally {
     cleanupSessionState(sessionId, cleanupConversationId, controller);
   }
@@ -377,10 +378,14 @@ async function handleTerminalStreamError({
     workflowTurn?.turnToken,
     rescheduled ? 'turn_retrying' : 'turn_failed',
   );
-  if (rescheduled) return markExecutionState(sessionId, 'retrying');
-  return closeOwnWork(sessionId, 'closed_failed', terminalError.message, {
+  if (rescheduled) {
+    markExecutionState(sessionId, 'retrying');
+    return { started: true, outcome: 'rescheduled' };
+  }
+  closeOwnWork(sessionId, 'closed_failed', terminalError.message, {
     turnToken: workflowTurn?.turnToken,
   });
+  return { started: true, outcome: 'failed', error: terminalError };
 }
 /**
  * Prepare the shared per-start state for {@link runSessionCore}: register the

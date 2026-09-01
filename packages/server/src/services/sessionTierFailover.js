@@ -23,6 +23,33 @@ import { sanitizeTierFailureReason } from './tierFailureReason.js';
 
 export { sanitizeTierFailureReason } from './tierFailureReason.js';
 
+const terminalStreamFailures = new WeakSet();
+
+function throwTerminalStreamFailure(execution) {
+  if (execution?.outcome !== 'failed') return;
+  terminalStreamFailures.add(execution.error);
+  throw execution.error;
+}
+
+function recordTierAttemptFailure(error, {
+  sessionId, member, tierRef, tierId, tierName, attempts, wasPreConversation,
+}) {
+  const nextMember = classifyTierMemberFailure(error, {
+    sessionId,
+    member,
+    tierRef,
+    tierName,
+    // Terminal stream handling records its visible error before returning
+    // control here. Use the boundary captured before the provider attempt,
+    // rather than mistaking that error record for prior assistant output.
+    preConversationOverride: terminalStreamFailures.has(error) ? wasPreConversation : undefined,
+  });
+  attempts.push({ providerId: member.providerId, modelId: member.modelId, reason: sanitizeTierFailureReason(error) });
+  // No successor means this was the terminal real attempt. Do not emit a
+  // fake from/to notice; report the complete ordered exhaustion instead.
+  if (!nextMember) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
+}
+
 /**
  * Execute a single attempt with a concrete (model, providerId) pair.
  * Extracted so the tier failover loop can call it with different members.
@@ -111,11 +138,11 @@ async function attemptRunWithModel(
  * @param {Error} error
  * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string }} ctx
  */
-function classifyTierMemberFailure(error, { sessionId, member, tierRef, tierName }) {
+function classifyTierMemberFailure(error, { sessionId, member, tierRef, tierName, preConversationOverride }) {
   // Use the tighter failover-specific matcher (Fix 4) to avoid spurious failover
   // on non-quota errors (e.g. "Unexpected token in JSON" contains "token").
   const isEligible = matchesStartFailoverEligibleError(error);
-  const isPreConversation = sessionHasNoAssistantMessages(sessionId);
+  const isPreConversation = preConversationOverride ?? sessionHasNoAssistantMessages(sessionId);
 
   // Non-eligible error (auth, bad request, abort) or mid-conversation — don't advance
   if (!isEligible || !isPreConversation) {
@@ -283,6 +310,7 @@ export async function runSessionWithTierFailover(
     // liveness timestamps rather than carrying the previous member's clock.
     activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
 
+    const wasPreConversation = sessionHasNoAssistantMessages(sessionId);
     try {
       const execution = await attemptRunWithModel(sessionId, promptWithAttachments, workingDirectory, {
         systemPrompt,
@@ -297,16 +325,22 @@ export async function runSessionWithTierFailover(
       // to snapshot nor a failure to fail over from — surface it verbatim.
       if (execution && !execution.started) return execution;
 
+      // A provider may close its iterator normally after emitting result:error,
+      // and automatic retry scheduling also intentionally returns normally.
+      // Neither outcome is a successful member resolution. A reschedule ends
+      // this start without a snapshot; a terminal stream failure enters the
+      // same classification/exhaustion path as an iterator rejection.
+      if (execution?.outcome === 'rescheduled') return execution;
+      throwTerminalStreamFailure(execution);
+
       snapshotSuccessfulMember(sessionId, tierRef, member);
       return execution; // done
     } catch (error) {
       // Non-eligible and mid-conversation errors must retain their original
       // protocol. Eligible startup failures are recorded exactly once.
-      const nextMember = classifyTierMemberFailure(error, { sessionId, member, tierRef, tierName });
-      attempts.push({ providerId: member.providerId, modelId: member.modelId, reason: sanitizeTierFailureReason(error) });
-      // No successor means this was the terminal real attempt. Do not emit a
-      // fake from/to notice; report the complete ordered exhaustion instead.
-      if (!nextMember) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
+      recordTierAttemptFailure(error, {
+        sessionId, member, tierRef, tierId, tierName, attempts, wasPreConversation,
+      });
     }
   }
 
