@@ -24,12 +24,24 @@ curl -X POST ${apiUrl}/api/sessions/${sessionId}/circus-commands/<button_id>/run
 
 Response: { runId, buttonId, status: "running", output: "" }
 
-### Check Run Status & Output
+### Check Run Status
 \`\`\`bash
 curl ${apiUrl}/api/sessions/${sessionId}/circus-commands/runs/<run_id>
 \`\`\`
 
-Response: { runId, buttonId, status, exitCode, output, startedAt, completedAt }
+Response: { runId, buttonId, status, exitCode, startedAt, completedAt }
+
+### Inspect Command Output Selectively
+
+When a command has verbose output, retrieve a small descriptor rather than downloading its transcript in JSON. The returned path is relative to this workspace.
+
+\`\`\`bash
+curl ${apiUrl}/api/sessions/${sessionId}/circus-commands/runs/<run_id>/output-resource
+rg -n "FAIL|ERROR|AssertionError" .circus/runs/<run_id>/output.log
+tail -n 200 .circus/runs/<run_id>/output.log
+\`\`\`
+
+The transcript file may grow while status is \`running\`; prefer targeted search and reads over opening the whole file.
 
 ### List Command Runs
 \`\`\`bash

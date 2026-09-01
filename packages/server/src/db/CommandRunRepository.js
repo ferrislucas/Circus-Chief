@@ -98,6 +98,24 @@ export class CommandRunRepository extends BaseRepository {
   }
 
   /**
+   * Read a bounded number of persisted chunks for transcript materialization.
+   * Unlike readAfter this deliberately uses SQL LIMIT, so callers never fetch
+   * an unbounded number of chunk rows before applying their own byte budget.
+   */
+  readOutputPage(runId, after = 0, limit = 100) {
+    const pageSize = Math.max(1, Math.min(Number(limit) || 100, 1000));
+    const chunks = this.db.prepare(
+      `SELECT sequence, content, byte_length FROM command_run_output_chunks
+       WHERE run_id = ? AND sequence > ? ORDER BY sequence ASC LIMIT ?`
+    ).all(runId, Number(after) || 0, pageSize).map((row) => ({
+      sequence: row.sequence,
+      content: row.content,
+      byteLength: row.byte_length,
+    }));
+    return { chunks, highWater: this.getHighWater(runId) };
+  }
+
+  /**
    * Mark run as completed with exit code and final output
    */
   complete(runId, exitCode) {

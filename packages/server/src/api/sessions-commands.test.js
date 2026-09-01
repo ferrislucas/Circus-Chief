@@ -41,11 +41,17 @@ vi.mock('../services/commandRunner.js', () => ({
   },
 }));
 
+vi.mock('../services/commandRunOutputResource.js', () => ({
+  getCommandRunOutputResource: vi.fn(),
+  removeCommandRunOutputResource: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Import after mocks are set up
 import sessionsRouter from './sessions.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { broadcastToProject, broadcastToSession, broadcastToSessionAndProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { getCommandRunOutputResource, removeCommandRunOutputResource } from '../services/commandRunOutputResource.js';
 
 describe('Sessions API - Command Routes (sessions-commands.js)', () => {
   let app;
@@ -267,6 +273,40 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
     });
   });
 
+  describe('GET /api/sessions/:id/circus-commands/runs/:runId/output-resource', () => {
+    it('returns a small validated descriptor, never inline output', async () => {
+      const button = commandButtons.create({ projectId: project.id, label: 'Output', command: 'echo output' });
+      commandRuns.create({ id: 'output-run', sessionId: session.id, buttonId: button.id });
+      commandRuns.complete('output-run', 1);
+      getCommandRunOutputResource.mockResolvedValue({
+        runId: 'output-run', status: 'error', contentType: 'text/plain; charset=utf-8',
+        byteLength: 4_000_000, complete: true, updatedAt: 123, path: '.circus/runs/output-run/output.log',
+      });
+
+      const res = await request(app).get(`/api/sessions/${session.id}/circus-commands/runs/output-run/output-resource`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(expect.objectContaining({ byteLength: 4_000_000, path: '.circus/runs/output-run/output.log' }));
+      expect(res.body).not.toHaveProperty('output');
+      expect(JSON.stringify(res.body).length).toBeLessThan(300);
+    });
+
+    it('resolves root-owned output through a child and hides runs from another workflow', async () => {
+      const child = createChildSession();
+      const button = commandButtons.create({ projectId: project.id, label: 'Output', command: 'echo output' });
+      commandRuns.create({ id: 'root-output', sessionId: session.id, buttonId: button.id });
+      commandRuns.complete('root-output', 0);
+      getCommandRunOutputResource.mockResolvedValue({
+        runId: 'root-output', status: 'success', contentType: 'text/plain; charset=utf-8', byteLength: 0,
+        complete: true, updatedAt: 123, path: '.circus/runs/root-output/output.log',
+      });
+      expect((await request(app).get(`/api/sessions/${child.id}/circus-commands/runs/root-output/output-resource`)).status).toBe(200);
+
+      commandRuns.create({ id: 'child-output', sessionId: child.id, buttonId: button.id });
+      expect((await request(app).get(`/api/sessions/${child.id}/circus-commands/runs/child-output/output-resource`)).status).toBe(404);
+    });
+  });
+
   describe('DELETE /api/sessions/:id/circus-commands/runs/:runId', () => {
     it('returns 204 when run is deleted successfully', async () => {
       const button = commandButtons.create({ projectId: project.id, label: 'Del Button', command: 'echo del' });
@@ -278,6 +318,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
 
       expect(res.status).toBe(204);
       expect(commandRuns.getById('run-del')).toBeNull();
+      expect(removeCommandRunOutputResource).toHaveBeenCalledWith(expect.objectContaining({ runId: 'run-del' }));
     });
 
     it('returns 404 when run not found', async () => {
