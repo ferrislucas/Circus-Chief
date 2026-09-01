@@ -608,6 +608,37 @@ describe('Model Tiers API', () => {
       });
     });
 
+    it('pins a failed-over session to its own resolved member when deleting the tier', async () => {
+      const created = await request(app)
+        .post('/api/tiers')
+        .send({
+          name: 'Deletion Failed-Over Tier',
+          members: [
+            { providerId: providerA.id, modelId: 'model-a', position: 0 },
+            { providerId: providerB.id, modelId: 'model-b', position: 1 },
+          ],
+        })
+        .expect(201);
+      const tierRef = buildTierRef(created.body.id);
+      const project = projects.create('Tier deletion failed over', '/tmp/tier-deletion-failed-over');
+      const session = sessions.create(project.id, 'Failed-over tier session', 'Later', {
+        status: 'waiting', model: tierRef,
+      });
+      sessions.update(session.id, {
+        resolvedModel: 'model-b',
+        resolvedProviderId: providerB.id,
+      });
+
+      await request(app).delete(`/api/tiers/${created.body.id}`).expect(204);
+
+      expect(sessions.getById(session.id)).toMatchObject({
+        model: 'model-b',
+        providerId: providerB.id,
+        resolvedModel: null,
+        resolvedProviderId: null,
+      });
+    });
+
     it('clears every persisted selection when a tier has no active member', async () => {
       const created = await request(app)
         .post('/api/tiers')
