@@ -29,7 +29,7 @@ vi.mock('../websocket.js', () => ({
 import { runSession } from './sessionManager.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
-import { modelProviders, modelTiers, agentCallLogs } from '../database.js';
+import { modelProviders, modelTiers, agentCallLogs, workLogs } from '../database.js';
 import { isUnhealthy, markUnhealthy } from './tierResolutionService.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { BaseAgent } from '../agents/BaseAgent.js';
@@ -241,15 +241,75 @@ describe('runSessionCore tier failover (integration)', () => {
     expect(isUnhealthy(providerA.id, 'model-a')).toBe(false);
   });
 
-  it('does not fail over once an assistant message has been produced (mid-conversation boundary)', async () => {
-    // First member starts successfully, producing an assistant message. On a
-    // later run (simulated by manually invoking runSession again after the
-    // session already has assistant output), failures should not fail over.
-    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
-    expect(mockQuery).toHaveBeenCalledTimes(1);
+  it('does not fail over after a tool use is persisted before an eligible provider failure', async () => {
+    broadcastToSession.mockClear();
+    const attemptedModels = [];
+    mockQuery.mockImplementationOnce(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'tool-use-session', model: 'model-a', slash_commands: [] };
+      yield {
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: 'toolu_1', name: 'Read', input: { file_path: 'README.md' } }] },
+      };
+      throw new Error('Error: 529 Service overloaded');
+    });
 
-    const afterFirstRun = sessionRepo.getById(session.id);
-    expect(afterFirstRun.resolvedModel).toBe('model-a');
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529 Service overloaded/);
+
+    // The prompt must never be replayed on a later tier member after the tool
+    // call has been persisted as observable agent activity.
+    for (const [queryParams] of mockQuery.mock.calls) {
+      if (queryParams.options?.model) attemptedModels.push(queryParams.options.model);
+    }
+    expect(attemptedModels).not.toContain('model-b');
+    expect(workLogs.getBySessionId(session.id)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'tool_input', toolName: 'Read' }),
+    ]));
+    expect(broadcastToSession.mock.calls.some((call) => call[1] === 'tier:failover')).toBe(false);
+  });
+
+  it('does not fail over after a tool use before a streamed eligible provider failure', async () => {
+    broadcastToSession.mockClear();
+    const attemptedModels = [];
+    mockQuery.mockImplementationOnce(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'tool-result-error-session', model: 'model-a', slash_commands: [] };
+      yield {
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: 'toolu_2', name: 'Bash', input: { command: 'pwd' } }] },
+      };
+      yield { type: 'result', subtype: 'error', error: 'Rate limit exceeded' };
+    });
+
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/Rate limit exceeded/);
+
+    for (const [queryParams] of mockQuery.mock.calls) {
+      if (queryParams.options?.model) attemptedModels.push(queryParams.options.model);
+    }
+    expect(attemptedModels).not.toContain('model-b');
+    expect(broadcastToSession.mock.calls.some((call) => call[1] === 'tier:failover')).toBe(false);
+  });
+
+  it('does not fail over after textual assistant output before an eligible provider failure', async () => {
+    broadcastToSession.mockClear();
+    const attemptedModels = [];
+    mockQuery.mockImplementationOnce(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'text-session', model: 'model-a', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'I started the task.' }] } };
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529 Service overloaded/);
+
+    for (const [queryParams] of mockQuery.mock.calls) {
+      if (queryParams.options?.model) attemptedModels.push(queryParams.options.model);
+    }
+    expect(attemptedModels).not.toContain('model-b');
+    expect(broadcastToSession.mock.calls.some((call) => call[1] === 'tier:failover')).toBe(false);
   });
 
   // Fix 5: terminal-member + auto-reschedule — resolvedModel must NOT be set

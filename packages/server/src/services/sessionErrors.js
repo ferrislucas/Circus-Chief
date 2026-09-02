@@ -2,7 +2,7 @@ import { sessions, messages } from '../database.js';
 import { schedulerService } from './schedulerService.js';
 import { isTierRef } from '@circuschief/shared';
 import { findNextHealthyTierMember } from './tierResolutionService.js';
-import { sessionHasNoAssistantMessages } from './sessionAgentGuard.js';
+import { sessionHasNoObservableAgentActivity } from './sessionAgentGuard.js';
 
 /**
  * Check if error message matches token limit patterns.
@@ -177,7 +177,7 @@ function logSkippedReschedule(setting) {
  *  - `session.model` is a tier ref (`tier::<id>`)
  *  - `tierContext` was supplied (i.e. this attempt is part of the tier failover loop)
  *  - the error matches a failover-eligible pattern (service error or token/limit error)
- *  - the session has produced no assistant messages yet (start-only boundary)
+ *  - the session has produced no observable agent activity yet (start-only boundary)
  *  - there is another healthy member to advance to
  *
  * @param {object} session - Session object
@@ -195,7 +195,7 @@ export function isTierFailoverEligibleError(session, error, sessionId = null, ti
   // matchesTokenLimitError to avoid spurious cross-provider failover on
   // non-quota errors such as JSON parse errors containing "token".
   const isEligible = matchesStartFailoverEligibleError(error);
-  if (!isEligible || !sessionId || !sessionHasNoAssistantMessages(sessionId)) {
+  if (!isEligible || !sessionId || !sessionHasNoObservableAgentActivity(sessionId)) {
     return false;
   }
 

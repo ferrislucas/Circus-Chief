@@ -1,4 +1,4 @@
-import { messages, sessions } from '../database.js';
+import { messages, sessions, workLogs } from '../database.js';
 import { resolveAgentTypeFromModel, resolveProviderFromModel } from './sessionProvider.js';
 import { isTierRef } from '@circuschief/shared';
 import { resolveAnyMember } from './tierResolutionService.js';
@@ -140,6 +140,29 @@ export function checkCrossKindSwitch(session, requestedModel) {
 export function sessionHasNoAssistantMessages(sessionId) {
   const allMessages = messages.getBySessionId(sessionId);
   return !allMessages.some(m => m.role === 'assistant');
+}
+
+/**
+ * Whether a tier-backed provider attempt can still be transparently replayed.
+ *
+ * Start-time failover is allowed only before the agent has produced durable,
+ * user-observable activity. Assistant messages cover textual output; work logs
+ * cover tool calls/results, thinking, and other provider events that are
+ * persisted independently of an assistant message. This is intentionally a
+ * fresh database read at the failover decision point: stream-event persistence
+ * is synchronous, so activity recorded immediately before an error cannot be
+ * missed by an in-memory snapshot from the start of the attempt.
+ *
+ * This is stricter than {@link sessionHasNoAssistantMessages}; the latter
+ * remains the cross-kind conversation-lock boundary, while this helper owns
+ * the no-replay failover boundary.
+ *
+ * @param {string} sessionId
+ * @returns {boolean}
+ */
+export function sessionHasNoObservableAgentActivity(sessionId) {
+  if (!sessionHasNoAssistantMessages(sessionId)) return false;
+  return workLogs.getBySessionId(sessionId).length === 0;
 }
 
 /**

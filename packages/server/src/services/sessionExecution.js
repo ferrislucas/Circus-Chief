@@ -2,7 +2,7 @@ import { sessions, messages, attachments, conversations } from '../database.js';
 import { createCodexSpawner } from './codexSpawnHelper.js';
 import { createGeminiSpawner } from './geminiSpawnHelper.js';
 import { resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
-import { reconcileAgentTypeForRun } from './sessionAgentGuard.js';
+import { reconcileAgentTypeForRun, sessionHasNoObservableAgentActivity } from './sessionAgentGuard.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
 import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
@@ -315,17 +315,9 @@ export async function _executeSession({
   // execution, not merely this reusable session row.
   const providerQueryParams = withWorkflowTurnToken(queryParams, workflowTurn);
   try {
-    // Run the query with the agent (SDK via gateway, or mock)
-    for await (const event of agent.execute(providerQueryParams, agentCallMeta)) {
-      if (controller.signal.aborted) break;
-      await handleStreamEvent(sessionId, event, {
-        controller,
-        // `result:error` is a normal provider event, not an iterator rejection.
-        // Let the stream layer rethrow it only when this attempt can genuinely
-        // fail over, before it creates terminal error state/messages.
-        shouldThrowOnResultError: (error) => shouldRethrowForTierFailover(sessionId, error, tierContext),
-      });
-    }
+    const { observableActivityBeforeTerminalError } = await executeProviderStream({
+      sessionId, agent, providerQueryParams, agentCallMeta, controller, tierContext,
+    });
     if (controller.signal.aborted) {
       discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_cancelled');
       closeOwnWork(sessionId, 'cancelled', 'Provider turn cancelled', { turnToken: workflowTurn?.turnToken });
@@ -344,7 +336,7 @@ export async function _executeSession({
     // would incorrectly close the workflow obligation as successful.
     if (terminalError) return handleTerminalStreamError({
       sessionId, terminalError, controller, tierContext, broadcastConversationStateOnError,
-      errorLabel, handleTemplateTriggerIfNeeded, workflowTurn,
+      errorLabel, handleTemplateTriggerIfNeeded, workflowTurn, observableActivityBeforeTerminalError,
     });
     await completeSuccessfulTurn({ sessionId, interactive, workflowTurn, wasRescheduled, heldForLimit });
   } catch (error) {
@@ -359,9 +351,32 @@ export async function _executeSession({
   }
 }
 
+/**
+ * Consume one provider stream and capture whether activity preceded a streamed
+ * terminal error. The capture must happen before the result handler persists
+ * its own visible error message, which is not provider activity to replay.
+ */
+async function executeProviderStream({ sessionId, agent, providerQueryParams, agentCallMeta, controller, tierContext }) {
+  let observableActivityBeforeTerminalError = false;
+  for await (const event of agent.execute(providerQueryParams, agentCallMeta)) {
+    if (controller.signal.aborted) break;
+    if (event.type === 'result' && event.subtype === 'error') {
+      observableActivityBeforeTerminalError = !sessionHasNoObservableAgentActivity(sessionId);
+    }
+    await handleStreamEvent(sessionId, event, {
+      controller,
+      // `result:error` is a normal provider event, not an iterator rejection.
+      // Let the stream layer rethrow it only when this attempt can genuinely
+      // fail over, before it creates terminal error state/messages.
+      shouldThrowOnResultError: (error) => shouldRethrowForTierFailover(sessionId, error, tierContext),
+    });
+  }
+  return { observableActivityBeforeTerminalError };
+}
+
 async function handleTerminalStreamError({
   sessionId, terminalError, controller, tierContext, broadcastConversationStateOnError,
-  errorLabel, handleTemplateTriggerIfNeeded, workflowTurn,
+  errorLabel, handleTemplateTriggerIfNeeded, workflowTurn, observableActivityBeforeTerminalError,
 }) {
   const rescheduled = await handleSessionError(sessionId, terminalError, {
     controller,
@@ -385,7 +400,7 @@ async function handleTerminalStreamError({
   closeOwnWork(sessionId, 'closed_failed', terminalError.message, {
     turnToken: workflowTurn?.turnToken,
   });
-  return { started: true, outcome: 'failed', error: terminalError };
+  return { started: true, outcome: 'failed', error: terminalError, observableActivityBeforeTerminalError };
 }
 /**
  * Prepare the shared per-start state for {@link runSessionCore}: register the

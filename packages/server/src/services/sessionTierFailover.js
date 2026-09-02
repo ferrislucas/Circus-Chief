@@ -1,5 +1,9 @@
 import { sessions, modelTiers } from '../database.js';
-import { reconcileAgentTypeForRun, sessionHasNoAssistantMessages } from './sessionAgentGuard.js';
+import {
+  reconcileAgentTypeForRun,
+  sessionHasNoAssistantMessages,
+  sessionHasNoObservableAgentActivity,
+} from './sessionAgentGuard.js';
 import { isTierRef, parseTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   getTierMembersResolved,
@@ -23,16 +27,18 @@ import { sanitizeTierFailureReason } from './tierFailureReason.js';
 
 export { sanitizeTierFailureReason } from './tierFailureReason.js';
 
-const terminalStreamFailures = new WeakSet();
+const terminalStreamFailures = new WeakMap();
 
 function throwTerminalStreamFailure(execution) {
   if (execution?.outcome !== 'failed') return;
-  terminalStreamFailures.add(execution.error);
+  terminalStreamFailures.set(execution.error, {
+    observableActivityBeforeError: execution.observableActivityBeforeTerminalError,
+  });
   throw execution.error;
 }
 
 function recordTierAttemptFailure(error, {
-  sessionId, member, tierRef, tierId, tierName, attempts, wasPreConversation,
+  sessionId, member, tierRef, tierId, tierName, attempts, wasPreActivity,
 }) {
   const nextMember = classifyTierMemberFailure(error, {
     sessionId,
@@ -40,9 +46,12 @@ function recordTierAttemptFailure(error, {
     tierRef,
     tierName,
     // Terminal stream handling records its visible error before returning
-    // control here. Use the boundary captured before the provider attempt,
-    // rather than mistaking that error record for prior assistant output.
-    preConversationOverride: terminalStreamFailures.has(error) ? wasPreConversation : undefined,
+    // control here. Preserve the pre-attempt boundary only when the provider
+    // had not produced any activity before its result:error; otherwise the
+    // durable tool/output activity must block replay of the prompt.
+    preConversationOverride: terminalStreamFailures.get(error)?.observableActivityBeforeError
+      ? false
+      : (terminalStreamFailures.has(error) ? wasPreActivity : undefined),
   });
   attempts.push({ providerId: member.providerId, modelId: member.modelId, reason: sanitizeTierFailureReason(error) });
   // No successor means this was the terminal real attempt. Do not emit a
@@ -142,10 +151,10 @@ function classifyTierMemberFailure(error, { sessionId, member, tierRef, tierName
   // Use the tighter failover-specific matcher (Fix 4) to avoid spurious failover
   // on non-quota errors (e.g. "Unexpected token in JSON" contains "token").
   const isEligible = matchesStartFailoverEligibleError(error);
-  const isPreConversation = preConversationOverride ?? sessionHasNoAssistantMessages(sessionId);
+  const isPreActivity = preConversationOverride ?? sessionHasNoObservableAgentActivity(sessionId);
 
   // Non-eligible error (auth, bad request, abort) or mid-conversation — don't advance
-  if (!isEligible || !isPreConversation) {
+  if (!isEligible || !isPreActivity) {
     throw error;
   }
 
@@ -310,7 +319,7 @@ export async function runSessionWithTierFailover(
     // liveness timestamps rather than carrying the previous member's clock.
     activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
 
-    const wasPreConversation = sessionHasNoAssistantMessages(sessionId);
+    const wasPreActivity = sessionHasNoObservableAgentActivity(sessionId);
     try {
       const execution = await attemptRunWithModel(sessionId, promptWithAttachments, workingDirectory, {
         systemPrompt,
@@ -339,7 +348,7 @@ export async function runSessionWithTierFailover(
       // Non-eligible and mid-conversation errors must retain their original
       // protocol. Eligible startup failures are recorded exactly once.
       recordTierAttemptFailure(error, {
-        sessionId, member, tierRef, tierId, tierName, attempts, wasPreConversation,
+        sessionId, member, tierRef, tierId, tierName, attempts, wasPreActivity,
       });
     }
   }
