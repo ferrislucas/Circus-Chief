@@ -636,15 +636,32 @@ describe('start-time failover trigger set — matchesStartFailoverEligibleError 
     });
   });
 
-  // Work Item 2: widen the classifier to accept an Error-like object and
-  // check a numeric `status` code, for SDK errors (Anthropic Agent SDK,
-  // OpenAI client) whose message text may not contain any of the patterns
-  // above at all. The session path's existing string-only usage must be
-  // completely unaffected.
-  describe('Error-object status-code support (Work Item 2)', () => {
-    it.each([429, 500, 503, 529])('treats a bare Error with status %i as failover-eligible', (status) => {
-      const error = Object.assign(new Error('Something went wrong'), { status });
-      expect(matchesStartFailoverEligibleError(error)).toBe(true);
+  describe('structured and streamed provider error policy (Issue 2)', () => {
+    const fromStreamResult = ({ error, status }) => Object.assign(
+      new Error(error.message),
+      error,
+      Number.isFinite(status) ? { status } : {},
+    );
+
+    const cases = [
+      ['structured rate limit', Object.assign(new Error('Request failed'), { status: 429 }), true],
+      ['structured quota', Object.assign(new Error('insufficient quota'), { status: 400 }), true],
+      ['structured overload', Object.assign(new Error('provider overloaded'), { status: 500 }), true],
+      ['structured overload metadata', Object.assign(new Error('Request failed'), { status: 500, type: 'overloaded_error' }), true],
+      ['structured HTTP 503', Object.assign(new Error('Request failed'), { status: 503 }), true],
+      ['structured HTTP 529', Object.assign(new Error('Request failed'), { status: 529 }), true],
+      ['structured generic HTTP 500', Object.assign(new Error('Internal server error'), { status: 500 }), false],
+      ['streamed rate limit', fromStreamResult({ error: { message: 'too many requests' }, status: 429 }), true],
+      ['streamed quota', fromStreamResult({ error: { message: 'billing limit reached' }, status: 400 }), true],
+      ['streamed overload', fromStreamResult({ error: { message: 'upstream overloaded' }, status: 500 }), true],
+      ['streamed overload metadata', fromStreamResult({ error: { message: 'Request failed', type: 'overloaded_error' }, status: 500 }), true],
+      ['streamed HTTP 503', fromStreamResult({ error: { message: 'Request failed' }, status: 503 }), true],
+      ['streamed HTTP 529', fromStreamResult({ error: { message: 'Request failed' }, status: 529 }), true],
+      ['streamed generic HTTP 500', fromStreamResult({ error: { message: 'Internal server error' }, status: 500 }), false],
+    ];
+
+    it.each(cases)('%s → %s', (_shape, error, eligible) => {
+      expect(matchesStartFailoverEligibleError(error)).toBe(eligible);
     });
 
     it.each([400, 401, 404, 422])('does not treat status %i as failover-eligible on its own', (status) => {

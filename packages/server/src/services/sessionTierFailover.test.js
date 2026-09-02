@@ -160,6 +160,30 @@ describe('runSessionCore tier failover (integration)', () => {
     expect(broadcastToSession.mock.calls.some((call) => call[1] === 'tier:failover')).toBe(true);
   });
 
+  it.each([
+    ['a thrown structured error', () =>
+      // eslint-disable-next-line require-yield -- simulates an SDK failure before the first provider event
+      async function* () {
+        throw Object.assign(new Error('Internal server error'), { status: 500 });
+      }],
+    ['a streamed result:error', () => async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'generic-500-stream', model: 'model-a', slash_commands: [] };
+      yield { type: 'result', subtype: 'error', error: { message: 'Internal server error' }, status: 500 };
+    }],
+  ])('retains a generic HTTP 500 from %s instead of failing over', async (_shape, providerFailure) => {
+    mockQuery.mockImplementationOnce(providerFailure());
+    const failoverCountBefore = broadcastToSession.mock.calls
+      .filter((call) => call[1] === 'tier:failover').length;
+
+    const failure = await runSession(session.id, 'Initial prompt', tempDir, { model: null })
+      .then(() => null, error => error);
+
+    expect(failure).toMatchObject({ message: 'Internal server error' });
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(isUnhealthy(providerA.id, 'model-a')).toBe(false);
+    expect(broadcastToSession.mock.calls.filter((call) => call[1] === 'tier:failover')).toHaveLength(failoverCountBefore);
+  });
+
   it('exhausts the tier when the final member reports result:error without snapshotting it', async () => {
     mockQuery.mockImplementation(async function* () {
       yield { type: 'system', subtype: 'init', session_id: 'failed-stream', model: 'model-a', slash_commands: [] };

@@ -36,12 +36,39 @@ export function matchesTokenLimitError(message) {
   return patterns.some(pattern => message.includes(pattern));
 }
 
-// Numeric SDK error statuses treated as failover-eligible outages/overload
-// conditions (Work Item 2). The Anthropic Agent SDK and the OpenAI client
-// both throw errors carrying a numeric `error.status` that may not appear in
-// `error.message` at all — the message-substring patterns below can't catch
-// those, so this is an additive check, not a replacement for them.
-const FAILOVER_ELIGIBLE_STATUS_CODES = new Set([429, 500, 503, 529]);
+// Statuses that reliably identify a transient provider-availability failure
+// without needing message text. A generic 500 is deliberately absent: only
+// normalized transient evidence (below) may make a 500 eligible.
+const TRANSIENT_FAILOVER_STATUS_CODES = new Set([429, 503, 529]);
+
+const TRANSIENT_FAILOVER_PATTERNS = [
+  'overloaded',
+  'rate limit',
+  '503',
+  '529',
+  'unavailable',
+  'service unavailable',
+  'too many requests',
+];
+
+const QUOTA_FAILOVER_PATTERNS = [
+  'quota',
+  'rate limit',
+  'out of tokens',
+  'insufficient credit',
+  'billing limit',
+  'billing hard limit',
+];
+
+function normalizeFailoverErrorEvidence(messageOrError) {
+  const error = typeof messageOrError === 'object' && messageOrError !== null
+    ? messageOrError
+    : { message: messageOrError };
+  return [error.message, error.type, error.code, error.reason]
+    .filter(value => typeof value === 'string')
+    .join(' ')
+    .toLowerCase();
+}
 
 /**
  * Check if an error qualifies for start-time tier failover (Fix 4 / F16).
@@ -71,7 +98,7 @@ const FAILOVER_ELIGIBLE_STATUS_CODES = new Set([429, 500, 503, 529]);
  */
 export function matchesStartFailoverEligibleError(messageOrError) {
   const isErrorLike = typeof messageOrError === 'object' && messageOrError !== null;
-  const message = (isErrorLike ? messageOrError.message || '' : messageOrError || '').toLowerCase();
+  const message = normalizeFailoverErrorEvidence(messageOrError);
 
   // Delegate to matchesServiceError for service-level outage patterns
   if (matchesServiceError(message)) return true;
@@ -82,20 +109,12 @@ export function matchesStartFailoverEligibleError(messageOrError) {
   // that happens to mention "billing"). Use specific phrases that match real
   // provider wording instead (still covers PRD F16's "spending/billing limit
   // reached").
-  const quotaPatterns = [
-    'quota',
-    'rate limit',
-    'out of tokens',
-    'insufficient credit',
-    'billing limit',
-    'billing hard limit',
-  ];
-  if (quotaPatterns.some(pattern => message.includes(pattern))) return true;
+  if (QUOTA_FAILOVER_PATTERNS.some(pattern => message.includes(pattern))) return true;
 
   // Status-code check (SDK errors). Never applied to prompt-size errors —
   // those don't carry these status codes, so this can't accidentally
   // override the exclusion above.
-  if (isErrorLike && FAILOVER_ELIGIBLE_STATUS_CODES.has(messageOrError.status)) return true;
+  if (isErrorLike && TRANSIENT_FAILOVER_STATUS_CODES.has(messageOrError.status)) return true;
 
   return false;
 }
@@ -106,17 +125,7 @@ export function matchesStartFailoverEligibleError(messageOrError) {
  * @returns {boolean} True if matches service error
  */
 export function matchesServiceError(message) {
-  const patterns = [
-    'overloaded',
-    'rate limit',
-    '503',
-    '529',
-    'unavailable',
-    'service unavailable',
-    'too many requests',
-  ];
-
-  return patterns.some(pattern => message.includes(pattern));
+  return TRANSIENT_FAILOVER_PATTERNS.some(pattern => message.includes(pattern));
 }
 
 /**
