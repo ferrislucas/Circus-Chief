@@ -171,6 +171,47 @@ describe('W4: failure/cancellation propagation through _executeSession', () => {
     expect(cardRepo.getById(card.id).laneId).toBe(source.id);
   });
 
+  it('a retryable terminal result event fails over before closing the lane run', async () => {
+    const providerA = modelProviders.create({ name: 'Failing provider', kind: 'anthropic' });
+    const providerB = modelProviders.create({ name: 'Healthy provider', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'failing-model', displayName: 'Failing model' });
+    modelProviders.addModel(providerB.id, { modelId: 'healthy-model', displayName: 'Healthy model' });
+    const tier = modelTiers.create({
+      name: 'Workflow failover tier',
+      members: [
+        { providerId: providerA.id, modelId: 'failing-model', position: 0 },
+        { providerId: providerB.id, modelId: 'healthy-model', position: 1 },
+      ],
+    });
+    sessionRepo.update(root.id, { model: buildTierRef(tier.id) });
+
+    let attempt = 0;
+    const stubAgent = {
+      execute: vi.fn(async function* () {
+        attempt += 1;
+        if (attempt === 1) {
+          yield { type: 'result', subtype: 'error', is_error: true, error: '503 Service Unavailable' };
+          return;
+        }
+        yield { type: 'result', subtype: 'success' };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    await runSession(root.id, 'do work', tempDir);
+
+    const updated = sessionRepo.getById(root.id);
+    expect(stubAgent.execute).toHaveBeenCalledTimes(2);
+    expect(updated.ownWorkState).toBe('closed_successfully');
+    expect(updated.subtreeOutcome).toBe('succeeded');
+    expect(updated.resolvedModel).toBe('healthy-model');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    expect(getRun(run.id).status).toBe('succeeded');
+    expect(cardRepo.getById(card.id).laneId).toBe(target.id);
+  });
+
   it('a non-retryable terminal result event fails rather than successfully completing the run', async () => {
     stubResultErrorAgent('boom: permanent result failure');
 
