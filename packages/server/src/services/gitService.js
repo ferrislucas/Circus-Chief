@@ -1,5 +1,7 @@
+/* eslint-disable max-lines */
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { classifyGitError } from './gitErrorClassify.js';
 export {
   _setManagedHooksPath,
   clearWorktreeCommitAttribution,
@@ -296,6 +298,16 @@ export async function getBranchUpstream(directory) {
   }
 }
 
+/** Return whether the repository has the only remote supported by session sync. */
+export async function hasOriginRemote(directory) {
+  try {
+    await git(directory, 'remote get-url origin');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Get ahead/behind counts relative to an upstream branch.
  * @param {string} directory
@@ -368,7 +380,9 @@ function computeSyncStatus({ currentBranch, upstreamBranch, aheadCount, behindCo
  */
 export async function getSessionGitStatus(directory, options = {}) {
   const fetched = options.fetch === true;
+  const hasOrigin = await hasOriginRemote(directory);
   if (fetched) {
+    if (!hasOrigin) throw new GitSyncError('no_origin');
     await fetchOrigin(directory);
   }
 
@@ -387,6 +401,7 @@ export async function getSessionGitStatus(directory, options = {}) {
   });
 
   return {
+    hasOrigin,
     currentBranch,
     upstreamBranch,
     hasUpstream: Boolean(upstreamBranch),
@@ -401,6 +416,99 @@ export async function getSessionGitStatus(directory, options = {}) {
     lastCheckedAt: new Date().toISOString(),
     fetched,
   };
+}
+
+const SYNC_ERRORS = {
+  detached_head: [400, 'This worktree is detached. Check out a branch to push or pull.'],
+  no_origin: [400, 'No origin remote is configured for this worktree.'],
+  no_upstream: [400, 'This branch has no origin upstream. Publish it before pulling.'],
+  non_origin_upstream: [400, 'This branch does not track an origin branch.'],
+  dirty_worktree: [409, 'Pull stopped because the worktree has uncommitted changes. Commit, stash, or discard them, then pull again.'],
+  diverged: [409, 'Pull stopped: histories diverged. Resolve them in your normal Git workflow, then refresh.'],
+  push_rejected: [409, 'Push rejected because origin has newer commits. Pull and reconcile before pushing again.'],
+  pull_conflict: [409, 'Pull stopped by a conflict. Resolve it in the worktree, then refresh.'],
+  remote_unreachable: [502, 'Could not reach origin. Check authentication and network, then try again.'],
+  git_timeout: [504, 'Git operation timed out. Try again.'],
+  git_error: [502, 'Git synchronization failed. Check the worktree and origin, then try again.'],
+};
+
+export class GitSyncError extends Error {
+  constructor(code, cause) {
+    const [status, message] = SYNC_ERRORS[code] || SYNC_ERRORS.git_error;
+    super(message);
+    this.name = 'GitSyncError';
+    this.code = code;
+    this.status = status;
+    this.cause = cause;
+  }
+}
+
+// The operation-specific classification intentionally stays explicit so no raw Git
+// output leaves this boundary.
+// eslint-disable-next-line complexity
+function normalizeSyncError(error, operation) {
+  if (error instanceof GitSyncError) return error;
+  const classified = classifyGitError(error);
+  if (classified.code === 'git_timeout') return new GitSyncError('git_timeout', error);
+  if (classified.code === 'git_remote_unreachable' || classified.code === 'git_credential_required' || classified.code === 'git_permission_denied') {
+    return new GitSyncError('remote_unreachable', error);
+  }
+  const text = [error.message, error.stderr, error.stdout].filter(Boolean).join(' ').toLowerCase();
+  if (operation === 'push' && (text.includes('non-fast-forward') || text.includes('fetch first') || text.includes('rejected'))) return new GitSyncError('push_rejected', error);
+  if (operation === 'pull' && (text.includes('not possible to fast-forward') || text.includes('divergent') || text.includes('would overwrite'))) return new GitSyncError(text.includes('overwrite') ? 'dirty_worktree' : 'diverged', error);
+  if (operation === 'pull' && text.includes('conflict')) return new GitSyncError('pull_conflict', error);
+  return new GitSyncError('git_error', error);
+}
+
+async function getSyncTarget(directory, operation) {
+  const branch = await getCurrentBranch(directory);
+  if (!branch) throw new GitSyncError('detached_head');
+  if (!await hasOriginRemote(directory)) throw new GitSyncError('no_origin');
+  const upstream = await getBranchUpstream(directory);
+  if (upstream && !upstream.startsWith('origin/')) throw new GitSyncError('non_origin_upstream');
+  if (operation === 'pull' && !upstream) throw new GitSyncError('no_upstream');
+  return { branch, upstream };
+}
+
+async function statusAfterSync(directory) {
+  try { return await getSessionGitStatus(directory); } catch { return null; }
+}
+
+export async function pushSessionBranch(directory) {
+  let target;
+  try {
+    target = await getSyncTarget(directory, 'push');
+    const command = target.upstream
+      ? `push origin ${shellQuote(target.branch)}`
+      : `push -u origin ${shellQuote(target.branch)}`;
+    await git(directory, command);
+    const gitStatus = await getSessionGitStatus(directory);
+    const upstream = gitStatus.upstreamBranch || `origin/${target.branch}`;
+    return { operation: 'push', branch: target.branch, upstream, summary: `Pushed to ${upstream}.`, gitStatus };
+  } catch (error) {
+    const normalized = normalizeSyncError(error, 'push');
+    normalized.gitStatus = await statusAfterSync(directory);
+    throw normalized;
+  }
+}
+
+export async function pullSessionBranch(directory) {
+  let target;
+  try {
+    target = await getSyncTarget(directory, 'pull');
+    const localChanges = await getLocalChangeCount(directory);
+    if (localChanges > 0) throw new GitSyncError('dirty_worktree');
+    const counts = await getAheadBehindCounts(directory, target.upstream);
+    if (counts.aheadCount > 0 && counts.behindCount > 0) throw new GitSyncError('diverged');
+    const upstreamBranch = target.upstream.slice('origin/'.length);
+    await git(directory, `pull --ff-only origin ${shellQuote(upstreamBranch)}`);
+    const gitStatus = await getSessionGitStatus(directory);
+    return { operation: 'pull', branch: target.branch, upstream: target.upstream, summary: `Pulled ${target.upstream}.`, gitStatus };
+  } catch (error) {
+    const normalized = normalizeSyncError(error, 'pull');
+    normalized.gitStatus = await statusAfterSync(directory);
+    throw normalized;
+  }
 }
 
 /**

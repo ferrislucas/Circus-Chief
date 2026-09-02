@@ -6,6 +6,7 @@ import { getChanges, getChangesBranch } from '../services/diffService.js';
 import * as gitService from '../services/gitService.js';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import { commandRunner } from '../services/commandRunner.js';
+import logger from '../logger.js';
 
 // Import sub-routers
 import conversationsRouter from './sessions-conversations.js';
@@ -40,6 +41,7 @@ function buildUnknownGitStatus(error, fetched = false) {
   return {
     currentBranch: null,
     upstreamBranch: null,
+    hasOrigin: false,
     hasUpstream: false,
     hasUncommittedChanges: false,
     localChangeCount: 0,
@@ -285,6 +287,28 @@ router.get('/:id/git-status', requireSessionAndProject, async (req, res) => {
     });
   }
 });
+
+async function runGitSync(req, res, operation) {
+  const startedAt = Date.now();
+  try {
+    const result = await (operation === 'push'
+      ? gitService.pushSessionBranch(req.workingDirectory)
+      : gitService.pullSessionBranch(req.workingDirectory));
+    invalidateFilesCountCache(req.params.id);
+    logger.log('session_git_sync', { sessionId: req.params.id, operation, outcome: 'success', elapsedMs: Date.now() - startedAt });
+    res.json(result);
+  } catch (error) {
+    const status = Number.isInteger(error.status) ? error.status : 502;
+    const code = error.code || 'git_error';
+    logger.warn('session_git_sync', { sessionId: req.params.id, operation, outcome: code, elapsedMs: Date.now() - startedAt });
+    res.status(status).json({ code, error: error.message || 'Git synchronization failed.', ...(error.gitStatus ? { gitStatus: error.gitStatus } : {}) });
+  }
+}
+
+// POST endpoints deliberately accept no Git arguments: the service discovers and validates
+// the current branch/upstream from the already-authorized session worktree.
+router.post('/:id/git/push', requireSessionAndProject, (req, res) => runGitSync(req, res, 'push'));
+router.post('/:id/git/pull', requireSessionAndProject, (req, res) => runGitSync(req, res, 'pull'));
 
 // GET /api/sessions/:id/files-count - Get count of modified files
 // Uses a 60-second TTL cache to avoid expensive git operations on every request

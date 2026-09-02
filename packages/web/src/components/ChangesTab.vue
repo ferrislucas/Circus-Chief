@@ -20,8 +20,12 @@
         :status="gitStatus"
         :summary-text="gitStatusSummary"
         :loading="loading || gitStatusLoading"
-        :error="gitStatusError"
+        :operation="syncOperation"
+        :error="operationError || gitStatusError"
         @refresh-origin="handleRefreshOrigin"
+        @push="handlePush"
+        @pull="handlePull"
+        @dismiss-error="operationError = null"
       />
 
       <!-- Toolbar: Show when there are changes OR a default branch exists -->
@@ -72,6 +76,12 @@
       >
         <p v-if="compareMode === 'local'">
           No local git changes to show.
+        </p>
+        <p
+          v-if="compareMode === 'local'"
+          class="empty-state-orientation"
+        >
+          Use Compare to main to review committed work against the default branch.
         </p>
         <p v-else>
           No differences from {{ branchLabel }}.
@@ -148,6 +158,17 @@
         />
       </div>
     </template>
+    <PullConfirmModal
+      :is-open="showPullConfirm"
+      :loading="syncOperation === 'pull'"
+      :branch="gitStatus?.currentBranch"
+      :upstream="gitStatus?.upstreamBranch"
+      :behind-count="gitStatus?.behindCount || 0"
+      :ahead-count="gitStatus?.aheadCount || 0"
+      :local-change-count="gitStatus?.localChangeCount || 0"
+      @cancel="showPullConfirm = false"
+      @confirm="executeSync('pull')"
+    />
   </div>
 </template>
 
@@ -157,6 +178,8 @@ import { api } from '../api/ApiClient.js';
 import { parseDiff } from '../utils/diffParser.js';
 import DiffViewer from './DiffViewer.vue';
 import GitStatusSummary from './GitStatusSummary.vue';
+import PullConfirmModal from './PullConfirmModal.vue';
+import { useUiStore } from '../stores/ui.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -165,6 +188,7 @@ const props = defineProps({
   gitStatusLoading: { type: Boolean, default: false },
   gitStatusError: { type: [Object, String], default: null },
   refreshGitStatus: { type: Function, default: null },
+  applyGitStatus: { type: Function, default: null },
 });
 
 const emit = defineEmits(['update:fileCount', 'refreshGitStatus']);
@@ -178,6 +202,10 @@ const error = ref(null);
 const compareMode = ref('local');
 const defaultBranch = ref(null);
 const hasLoaded = ref(false);
+const syncOperation = ref(null);
+const showPullConfirm = ref(false);
+const operationError = ref(null);
+const uiStore = useUiStore();
 
 const initialLoading = computed(() => loading.value && !hasLoaded.value);
 
@@ -352,11 +380,61 @@ async function fetchChanges() {
 }
 
 async function handleRefreshOrigin() {
+  if (syncOperation.value) return;
   emit('refreshGitStatus');
   await Promise.all([
     props.refreshGitStatus ? props.refreshGitStatus({ fetch: true }) : null,
     fetchChanges(),
   ]);
+}
+
+function syncErrorMessage(syncError, operation) {
+  if (syncError?.message) return syncError.message;
+  return `${operation === 'push' ? 'Push' : 'Pull'} failed. Try again after checking the worktree and origin.`;
+}
+
+function handlePush() {
+  executeSync('push');
+}
+
+function handlePull() {
+  if (syncOperation.value) return;
+  if ((props.gitStatus?.localChangeCount || 0) > 0 || (props.gitStatus?.aheadCount || 0) > 0) {
+    showPullConfirm.value = true;
+    return;
+  }
+  executeSync('pull');
+}
+
+async function executeSync(operation) {
+  // Disabled controls alone cannot prevent two synchronous click handlers from
+  // observing the old render, so keep this guard at the request boundary.
+  if (syncOperation.value) return;
+  const sessionId = props.sessionId;
+  syncOperation.value = operation;
+  operationError.value = null;
+  showPullConfirm.value = false;
+  try {
+    const result = operation === 'push'
+      ? await api.pushSessionBranch(sessionId)
+      : await api.pullSessionBranch(sessionId);
+    if (props.sessionId !== sessionId) return;
+    props.applyGitStatus?.(result.gitStatus, sessionId);
+    uiStore.success(result.summary || `${operation === 'push' ? 'Pushed' : 'Pulled'} ${result.branch}.`);
+  } catch (syncError) {
+    if (props.sessionId !== sessionId) return;
+    operationError.value = syncErrorMessage(syncError, operation);
+    if (syncError?.gitStatus) props.applyGitStatus?.(syncError.gitStatus, sessionId);
+    uiStore.error(operationError.value);
+  } finally {
+    if (props.sessionId === sessionId) {
+      await Promise.all([
+        props.refreshGitStatus ? props.refreshGitStatus({ fetch: true }) : null,
+        fetchChanges(),
+      ]);
+      syncOperation.value = null;
+    }
+  }
 }
 
 // Fetch the default branch for comparison
@@ -402,6 +480,11 @@ defineExpose({
   modeState,
   allExpanded,
   toggleAllFiles,
+  executeSync,
+  handlePush,
+  handlePull,
+  syncOperation,
+  operationError,
   updateFileExpandedState,
   getExpandedStateForSection,
 });
@@ -431,6 +514,11 @@ defineExpose({
   text-align: center;
   padding: 2rem;
   color: var(--color-text-soft);
+}
+
+.empty-state-orientation {
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
 }
 
 .changes-toolbar {
