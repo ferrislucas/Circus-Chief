@@ -76,7 +76,7 @@
 
   <!-- Collapsed state — just a small expand button -->
   <div
-    v-else-if="hasContent && isCollapsed"
+    v-else-if="isCollapsed && (hasContent || defaultCollapsed)"
     class="log-collapsed"
     @click.stop.prevent="toggleCollapse"
   >
