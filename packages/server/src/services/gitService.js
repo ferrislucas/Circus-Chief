@@ -420,9 +420,11 @@ export async function getSessionGitStatus(directory, options = {}) {
 
 const SYNC_ERRORS = {
   detached_head: [400, 'This worktree is detached. Check out a branch to push or pull.'],
+  invalid_branch: [400, 'This branch name is not safe to synchronize.'],
   no_origin: [400, 'No origin remote is configured for this worktree.'],
   no_upstream: [400, 'This branch has no origin upstream. Publish it before pulling.'],
   non_origin_upstream: [400, 'This branch does not track an origin branch.'],
+  invalid_upstream: [400, 'This branch has an unsupported origin upstream.'],
   dirty_worktree: [409, 'Pull stopped because the worktree has uncommitted changes. Commit, stash, or discard them, then pull again.'],
   diverged: [409, 'Pull stopped: histories diverged. Resolve them in your normal Git workflow, then refresh.'],
   push_rejected: [409, 'Push rejected because origin has newer commits. Pull and reconcile before pushing again.'],
@@ -463,11 +465,32 @@ function normalizeSyncError(error, operation) {
 async function getSyncTarget(directory, operation) {
   const branch = await getCurrentBranch(directory);
   if (!branch) throw new GitSyncError('detached_head');
+  if (!await isValidBranchName(directory, branch)) throw new GitSyncError('invalid_branch');
   if (!await hasOriginRemote(directory)) throw new GitSyncError('no_origin');
   const upstream = await getBranchUpstream(directory);
-  if (upstream && !upstream.startsWith('origin/')) throw new GitSyncError('non_origin_upstream');
+  const upstreamBranch = await getValidatedOriginUpstreamBranch(directory, upstream);
   if (operation === 'pull' && !upstream) throw new GitSyncError('no_upstream');
-  return { branch, upstream };
+  return { branch, upstream, upstreamBranch };
+}
+
+async function isValidBranchName(directory, branch) {
+  try {
+    await git(directory, `check-ref-format --branch ${shellQuote(branch)}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function getValidatedOriginUpstreamBranch(directory, upstream) {
+  if (!upstream) return null;
+  if (!upstream.startsWith('origin/')) throw new GitSyncError('non_origin_upstream');
+
+  const branch = upstream.slice('origin/'.length);
+  if (!branch || !await isValidBranchName(directory, branch)) {
+    throw new GitSyncError('invalid_upstream');
+  }
+  return branch;
 }
 
 async function statusAfterSync(directory) {
@@ -478,9 +501,14 @@ export async function pushSessionBranch(directory) {
   let target;
   try {
     target = await getSyncTarget(directory, 'push');
+    // Always state both sides of the refspec. An existing upstream can map a
+    // local branch to a differently named origin branch, which a bare branch
+    // argument would silently ignore.
+    const remoteBranch = target.upstreamBranch || target.branch;
+    const refspec = `refs/heads/${target.branch}:refs/heads/${remoteBranch}`;
     const command = target.upstream
-      ? `push origin ${shellQuote(target.branch)}`
-      : `push -u origin ${shellQuote(target.branch)}`;
+      ? `push origin ${shellQuote(refspec)}`
+      : `push -u origin ${shellQuote(refspec)}`;
     await git(directory, command);
     const gitStatus = await getSessionGitStatus(directory);
     const upstream = gitStatus.upstreamBranch || `origin/${target.branch}`;

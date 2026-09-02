@@ -32,6 +32,7 @@ import {
   ensureWorktreeCommitAttributionHook,
   normalizeGitRemoteUrl,
   pinAuthorInWorktree,
+  pushSessionBranch,
   isGitRepo,
   setLogger,
 } from './gitService.js';
@@ -1404,6 +1405,35 @@ describe('gitService', () => {
 
       expect(status.currentBranch).toBeNull();
       expect(status.syncStatus).toBe('unknown');
+    });
+  });
+
+  describe('session branch push', () => {
+    async function commitFile(directory, filename, content, message) {
+      await writeFile(join(directory, filename), content);
+      execSync(`git add "${filename}"`, { cwd: directory });
+      execSync(`git commit -m "${message}"`, { cwd: directory });
+    }
+
+    it('pushes a local branch to its differently named origin upstream', async () => {
+      execSync('git checkout -b feature-local', { cwd: testDir });
+      execSync('git push origin HEAD:refs/heads/feature-remote', { cwd: testDir });
+      await fetchOrigin(testDir);
+      execSync('git branch --set-upstream-to=origin/feature-remote feature-local', { cwd: testDir });
+      await commitFile(testDir, 'mapped-upstream.txt', 'mapped', 'Push mapped upstream');
+
+      const result = await pushSessionBranch(testDir);
+
+      const localHead = execSync('git rev-parse HEAD', { cwd: testDir }).toString().trim();
+      const remoteHead = execSync('git rev-parse refs/heads/feature-remote', { cwd: bareRepoDir }).toString().trim();
+      expect(remoteHead).toBe(localHead);
+      expect(() => execSync('git rev-parse --verify refs/heads/feature-local', { cwd: bareRepoDir, stdio: 'pipe' })).toThrow();
+      expect(result.upstream).toBe('origin/feature-remote');
+      expect(result.gitStatus).toMatchObject({
+        upstreamBranch: 'origin/feature-remote',
+        aheadCount: 0,
+        behindCount: 0,
+      });
     });
   });
 });
