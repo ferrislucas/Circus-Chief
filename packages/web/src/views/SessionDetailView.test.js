@@ -51,7 +51,7 @@ vi.mock('../components/SessionChatHandle.vue', () => ({
 vi.mock('../components/SessionChatOverlay.vue', () => ({
   default: {
     name: 'SessionChatOverlay',
-    template: '<div class="session-chat-overlay">Chat Overlay</div>',
+    template: '<div class="session-chat-overlay"><button v-if="sessionChain?.length > 1" data-testid="session-tree-dropdown">Sessions</button></div>',
     props: ['sessionId', 'sessionChain', 'summariesMap'],
     emits: ['close', 'session-created', 'session-deleted']
   }
@@ -4178,11 +4178,11 @@ describe('SessionDetailView', () => {
       expect(wrapper.vm.sessionChain.filter(entry => entry.session.id === childSession.id)).toHaveLength(1);
     });
 
-    it('handleSessionCreated inserts a websocket-created child through addSessionToList', async () => {
+    it('handleSessionCreated adds a websocket-created child to an open overlay without changing its selection', async () => {
       const parentSession = {
         id: 'parent-1',
         name: 'Parent Session',
-        status: 'waiting',
+        status: 'running',
         projectId: 'proj-1',
         parentSessionId: null,
         updatedAt: 1000,
@@ -4219,6 +4219,12 @@ describe('SessionDetailView', () => {
       await flushPromises();
       await nextTick();
 
+      wrapper.vm.chatOverlayOpen = true;
+      await nextTick();
+      const selectedSessionId = wrapper.vm.overlaySessionId;
+      const treeOverlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
+      expect(treeOverlay.props('sessionChain')).toHaveLength(1);
+
       const handleSessionCreated = websocketHandlers.get(WS_MESSAGE_TYPES.SESSION_CREATED);
       expect(handleSessionCreated).toBeTypeOf('function');
       handleSessionCreated({ projectId: 'proj-1', session: childSession });
@@ -4227,6 +4233,59 @@ describe('SessionDetailView', () => {
 
       expect(addSessionToListSpy).toHaveBeenCalledWith(childSession);
       expect(wrapper.vm.sessionChain.filter(entry => entry.session.id === childSession.id)).toHaveLength(1);
+      expect(treeOverlay.props('sessionChain').some(entry => entry.session.id === childSession.id)).toBe(true);
+      expect(treeOverlay.find('[data-testid="session-tree-dropdown"]').exists()).toBe(true);
+      expect(wrapper.vm.overlaySessionId).toBe(selectedSessionId);
+      expect(wrapper.vm.chatOverlayOpen).toBe(true);
+    });
+
+    it('selects a running websocket-created child while the overlay is closed', async () => {
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: null,
+        updatedAt: 1000,
+        createdAt: 500,
+      };
+      const childSession = {
+        id: 'child-1',
+        name: 'Child Session',
+        status: 'running',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+        updatedAt: 2000,
+        createdAt: 1500,
+      };
+
+      sessionsStore.currentSession = parentSession;
+      sessionsStore.sessions = [parentSession];
+      api.getProjectSessions.mockResolvedValue([parentSession]);
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      const handleSessionCreated = websocketHandlers.get(WS_MESSAGE_TYPES.SESSION_CREATED);
+      handleSessionCreated({ projectId: 'proj-1', session: childSession });
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.vm.chatOverlayOpen).toBe(false);
+      expect(wrapper.vm.overlaySessionId).toBe(childSession.id);
     });
 
     it('session chain contains one entry per session id even if the store has duplicates', async () => {
