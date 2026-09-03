@@ -37,10 +37,10 @@ test.describe('Kanban exit-lane declaration', () => {
     const worker = await waitForChildSession(workspace.id, 15000);
     await waitForPendingPrompt(worker.id);
 
-    const exitLaneUrl = `/api/projects/${project.id}/kanban/cards/by-workspace/${workspace.id}/exit-lane`;
+    const exitLaneUrl = `/api/projects/${project.id}/kanban/cards/by-workspace/${workspace.id}/lane`;
     const response = await request.put(exitLaneUrl, { data: { laneId: exit.id } });
     expect(response.status()).toBe(200);
-    await expect(response.json()).resolves.toEqual(expect.objectContaining({ deferred: true, chosenExitLaneId: exit.id }));
+    await expect(response.json()).resolves.toEqual({ status: 'scheduled', laneId: exit.id });
     expect((await getSession(worker.id)).status).toBe('running');
     expect(findLaneOfSession(await getBoard(project.id), workspace.id)).toBe(source.name);
     expect(findCardOfSession(await getBoard(project.id), workspace.id).activeLaneRun.status).toBe('open');
@@ -53,7 +53,7 @@ test.describe('Kanban exit-lane declaration', () => {
     // Re-declaring overwrites the previous choice; the last declaration wins.
     const redeclare = await request.put(exitLaneUrl, { data: { laneId: altExit.id } });
     expect(redeclare.status()).toBe(200);
-    await expect(redeclare.json()).resolves.toEqual(expect.objectContaining({ deferred: true, chosenExitLaneId: altExit.id }));
+    await expect(redeclare.json()).resolves.toEqual({ status: 'scheduled', laneId: altExit.id });
     await expect(chip).toHaveText(`Exit lane: ${altExit.name}`);
 
     await navigateAndWait(page, `/sessions/${worker.id}`, { waitFor: '[data-testid="session-detail"][data-ready="true"]' });
@@ -80,7 +80,7 @@ test.describe('Kanban exit-lane declaration', () => {
     const worker = await waitForChildSession(workspace.id, 15000);
     await waitForPendingPrompt(worker.id);
 
-    const exitLaneUrl = `/api/projects/${project.id}/kanban/cards/by-workspace/${workspace.id}/exit-lane`;
+    const exitLaneUrl = `/api/projects/${project.id}/kanban/cards/by-workspace/${workspace.id}/lane`;
     const response = await request.put(exitLaneUrl, { data: { laneId: exit.id } });
     expect(response.status()).toBe(200);
 
@@ -101,9 +101,10 @@ test.describe('Kanban exit-lane declaration', () => {
     // Kept on the terminal run for diagnosis, but never applied as a move.
     expect(card.activeLaneRun.chosenExitLaneId).toBe(exit.id);
 
-    // Once the run is terminal there is nothing left to declare an exit for.
+    // Once the run is terminal, the same unified route is an immediate move.
     const late = await request.put(exitLaneUrl, { data: { laneId: exit.id } });
-    expect(late.status()).toBe(409);
-    await expect(late.json()).resolves.toEqual(expect.objectContaining({ code: 'KANBAN_NO_ACTIVE_LANE_RUN' }));
+    expect(late.status()).toBe(200);
+    await expect(late.json()).resolves.toEqual({ status: 'moved', laneId: exit.id });
+    expect(findLaneOfSession(await getBoard(project.id), workspace.id)).toBe(exit.name);
   });
 });

@@ -129,7 +129,7 @@ function replayOrPending(res, operation) {
   return res.status(202).set('Retry-After', '1').json({ operationId: operation.existing.id, status: operation.existing.status });
 }
 
-function completeOperation(operation, response, eventId = null, responseStatus = 200, includeMetadata = true) {
+function completeOperation(operation, response, { eventId = null, responseStatus = 200, includeMetadata = true } = {}) {
   if (!operation?.keyed || !operation.operation) return response;
   const body = includeMetadata
     ? { ...response, operationId: operation.operation.id, delivery: eventId ? { eventId, status: 'pending' } : null }
@@ -143,7 +143,7 @@ function completeOperation(operation, response, eventId = null, responseStatus =
 }
 
 function sendTerminalOperationResponse(res, operation, responseStatus, response) {
-  return res.status(responseStatus).json(completeOperation(operation, response, null, responseStatus));
+  return res.status(responseStatus).json(completeOperation(operation, response, { responseStatus }));
 }
 
 function failOperation(operation, error) {
@@ -455,7 +455,7 @@ router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req,
 
   try {
     const response = await addSessionToBoard(workspaceId, laneId, {
-      finalizeMutation: ({ card, eventId }) => completeOperation(operation, card, eventId, 201),
+      finalizeMutation: ({ card, eventId }) => completeOperation(operation, card, { eventId, responseStatus: 201 }),
     });
     res.status(201).json(response);
   } catch (error) {
@@ -527,7 +527,9 @@ router.put('/cards/by-workspace/:workspaceId/lane', async (req, res) => {
 
   try {
     const response = await routeWorkspaceCard(workspaceId, laneId, {
-      finalizeMutation: ({ response: routeResponse, eventId }) => completeOperation(operation, routeResponse, eventId, 200, false),
+      finalizeMutation: ({ response: routeResponse, eventId }) => completeOperation(operation, routeResponse, {
+        eventId, includeMetadata: false,
+      }),
     });
     res.json(response);
   } catch (error) {

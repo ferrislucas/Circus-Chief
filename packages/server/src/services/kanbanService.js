@@ -11,7 +11,7 @@ import {
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
-import { createLaneRunForEntry, supersedeRunForCard, isStructured } from './workflowSessionService.js';
+import { createLaneRunForEntry, supersedeRunForCard, isStructured, getRun } from './workflowSessionService.js';
 import { ApiError } from '../errors/ApiError.js';
 import { buildFullBoardResponse } from './kanbanBoardResponse.js';
 import {
@@ -189,8 +189,8 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
  *
  * @returns {Promise<{status: 'moved'|'scheduled', laneId: string}>}
  */
-// eslint-disable-next-line max-statements, complexity -- the transactional state decision is intentionally co-located.
 export async function routeWorkspaceCard(workspaceId, laneId, { finalizeMutation } = {}) {
+  // eslint-disable-next-line max-statements, complexity -- the transactional state decision is intentionally co-located.
   const outcome = databaseManager.immediateTransaction(() => {
     const db = databaseManager.get();
     const workspace = sessions.getById(workspaceId);
@@ -224,7 +224,10 @@ export async function routeWorkspaceCard(workspaceId, laneId, { finalizeMutation
           .run(crypto.randomUUID(), `${run.id}:route_selected:${laneId}:${time}`, run.id, JSON.stringify({ targetLaneId: laneId }), time);
       }
       const response = { status: 'scheduled', laneId };
-      return { response: finalizeMutation?.({ response, eventId: null }) ?? response, moved: null, projectId: workspace.projectId };
+      return {
+        response: finalizeMutation?.({ response, eventId: null }) ?? response,
+        moved: null, selectedRunId: run.id, cardId: card.id, projectId: workspace.projectId,
+      };
     }
 
     // Stale pointers cannot influence a direct route after the lock is held.
@@ -255,6 +258,12 @@ export async function routeWorkspaceCard(workspaceId, laneId, { finalizeMutation
       scheduleLaneEntryDelivery(outcome.moved.laneRun.laneEntryEventId);
       await new Promise((resolve) => setImmediate(resolve));
     }
+  } else if (outcome.selectedRunId) {
+    broadcastToProject(outcome.projectId, WS_MESSAGE_TYPES.KANBAN_EXIT_LANE_DECLARED, {
+      projectId: outcome.projectId,
+      cardId: outcome.cardId,
+      activeLaneRun: getRun(outcome.selectedRunId),
+    });
   }
   return outcome.response;
 }
