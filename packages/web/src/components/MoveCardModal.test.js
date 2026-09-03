@@ -242,7 +242,7 @@ describe('MoveCardModal.vue', () => {
   });
 
   describe('Move action - success path', () => {
-    it('calls kanbanStore.moveCard with correct parameters', async () => {
+    it('routes a workspace card with the selected lane', async () => {
       const wrapper = mountModal({ currentLaneId: 'lane-1' });
       wrapper.vm.selectedLaneId = 'lane-2';
       await wrapper.vm.$nextTick();

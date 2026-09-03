@@ -373,4 +373,19 @@ export const kanbanMigrations = [
       db.exec('ALTER TABLE sessions DROP COLUMN lane_trigger_depth');
     },
   },
+  {
+    // Unified workspace routing owns a destination at the lane-run level;
+    // provider-turn attribution is no longer part of card routing.
+    name: 'kanban-drop-deferred-card-move-turn-fence',
+    up(db) {
+      db.exec('DROP INDEX IF EXISTS idx_lane_runs_deferred_move_session');
+      const columns = getColumns(db, 'kanban_lane_runs');
+      for (const column of [
+        'deferred_move_session_id', 'deferred_move_turn_token',
+        'deferred_move_sort_order', 'deferred_move_run_on_enter',
+      ]) {
+        if (columns.includes(column)) db.exec(`ALTER TABLE kanban_lane_runs DROP COLUMN ${column}`);
+      }
+    },
+  },
 ];

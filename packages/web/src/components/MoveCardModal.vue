@@ -152,6 +152,10 @@ const props = defineProps({
     type: String,
     required: true,
   },
+  workspaceId: {
+    type: String,
+    required: true,
+  },
   currentLaneId: {
     type: String,
     required: true,
@@ -217,13 +221,13 @@ async function handleMove() {
 
   moving.value = true;
   try {
-    await kanbanStore.moveCard(
+    const result = await kanbanStore.routeWorkspaceCard(
       props.projectId,
+      props.workspaceId,
       props.cardId,
-      selectedLaneId.value,
-      { runOnEnterTemplate: runOnEnterTemplate.value }
+      selectedLaneId.value
     );
-    uiStore.success('Card moved successfully');
+    uiStore.success(result.status === 'scheduled' ? 'Card route selected' : 'Card moved successfully');
     emit('moved');
     close();
   } catch (err) {

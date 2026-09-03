@@ -85,18 +85,9 @@ export function KanbanApi(ApiClient) {
       return this._post(`/projects/${projectId}/kanban/cards`, data);
     },
 
-    /**
-     * Move a card to a different lane
-     * @param {string} projectId - Project ID
-     * @param {string} cardId - Card ID
-     * @param {Object} data - Move data
-     * @param {string} data.targetLaneId - Target lane ID
-     * @param {number} [data.sortOrder] - Optional sort order in target lane
-     * @param {boolean} [data.runOnEnterTemplate=true] - Whether to run on-enter template
-     * @returns {Promise<Object>}
-     */
-    async moveKanbanCard(projectId, cardId, data) {
-      return this._patch(`/projects/${projectId}/kanban/cards/${cardId}/move`, data);
+    /** Route a workspace card to a lane. */
+    async routeWorkspaceKanbanCard(projectId, workspaceId, laneId) {
+      return this._put(`/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/lane`, { laneId });
     },
 
     /**

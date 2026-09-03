@@ -637,7 +637,7 @@ describe('sessionPrompts', () => {
 
       expect(result).toContain('Get Board with All Lanes and Cards');
       expect(result).toContain('Add Current Workspace to the Board');
-      expect(result).toContain('Move a Card to a Different Lane');
+      expect(result).toContain("Move this Workspace's Card");
       expect(result).toContain('Remove a Card from the Board');
       expect(result).toContain('Create a New Lane');
       expect(result).toContain('Update a Lane');
@@ -656,17 +656,11 @@ describe('sessionPrompts', () => {
 
       // Kanban add-to-board uses workspaceId
       expect(result).toContain(`"workspaceId": "${sessionId}"`);
-      // Move and delete use by-workspace routes
-      expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/move`);
+      // Route and delete use by-workspace routes.
+      expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/lane`);
       expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}`);
-      expect(result).toContain(`/exit-lane`);
+      expect(result).not.toContain('/exit-lane');
       expect(result).not.toContain(['X-Circus-Session', 'Capability'].join('-'));
-      expect(result).toContain('This does **not** move the card now');
-      expect(result).toContain('failed or cancelled run discards the declaration');
-      expect(result).toContain('any session in this\nproject can choose');
-      expect(result).toContain('last valid declaration replaces any earlier pending exit');
-      expect(result).not.toContain('you are its worker');
-      expect(result).toContain('move endpoint above only when you want the card to move immediately');
       // No sessionId field in kanban examples
       expect(result).not.toContain(`"sessionId": "${sessionId}"`);
       // No <card_id> placeholder in kanban examples
@@ -683,7 +677,7 @@ describe('sessionPrompts', () => {
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
       expect(result).toContain(`"workspaceId": "${sessionId}"`);
-      expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/move`);
+      expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/lane`);
     });
 
     describe('command API instructions', () => {

@@ -358,6 +358,7 @@ export const allMigrations = validateMigrations([
 
   // --- Remove the dead lane-trigger recursion counter (cap it fed was removed) ---
   k.get('sessions-drop-lane_trigger_depth'),
+  k.get('kanban-drop-deferred-card-move-turn-fence'),
 
   // --- Sessions blocked on agent input ---
   // Keep this last: it is additive and must run for databases created before

@@ -46,6 +46,7 @@ import {
   getFullBoard,
   addSessionToBoard,
   moveCard,
+  routeWorkspaceCard,
   removeCard,
   removeLane,
   removeBoard,
@@ -870,7 +871,7 @@ describe('kanbanService', () => {
   });
 
   describe('durable completion outbox', () => {
-    it('acknowledges lane entry after its delivered worker defers and completes a card move', async () => {
+    it('acknowledges lane entry after its delivered worker selects a route and completes', async () => {
       kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Process this card' });
       const workspace = createSession('Workspace');
       const card = kanbanCards.create(lanes[0].id, workspace.id);
@@ -879,11 +880,8 @@ describe('kanbanService', () => {
       });
       runSession.mockImplementationOnce(async (workerId) => {
         const { turnToken } = beginWorkflowTurn(workerId);
-        const response = await moveCard(card.id, lanes[1].id, {
-          deferredSessionId: workerId,
-          deferredTurnToken: turnToken,
-        });
-        expect(response).toMatchObject({ deferred: true, scheduled: true });
+        const response = await routeWorkspaceCard(workspace.id, lanes[1].id);
+        expect(response).toMatchObject({ status: 'scheduled', laneId: lanes[1].id });
         expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
         finalizeOwnWorkCompletion(workerId, { turnToken });
         return { started: true };

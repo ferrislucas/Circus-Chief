@@ -282,6 +282,7 @@
       :is-open="showMoveCardModal"
       :project-id="projectId"
       :card-id="selectedCardForMove?.id"
+      :workspace-id="selectedCardForMove?.sessions?.[0]?.id"
       :current-lane-id="selectedCardCurrentLaneId"
       :session-name="selectedCardForMove?.sessions?.[0]?.name"
       :active-lane-run="selectedCardForMove?.activeLaneRun"
@@ -470,7 +471,7 @@ const {
   dragType, draggedCard, dropCardLaneId, dropCardIndex,
   handleCardDragStart, handleCardDragOver, handleDragEnd,
   handleDrop, moveCardInLane,
-} = useCardDragDrop(board, kanbanStore.reorderCards, kanbanStore.moveCard, toRef(props, 'projectId'));
+} = useCardDragDrop(board, kanbanStore.reorderCards, kanbanStore.routeWorkspaceCard, toRef(props, 'projectId'));
 
 // Modal state
 const showAddSessionModal = ref(false);

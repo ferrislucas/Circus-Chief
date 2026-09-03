@@ -11,7 +11,8 @@ import {
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
-import { createLaneRunForEntry, deferCardMoveForTurn, supersedeRunForCard, isStructured } from './workflowSessionService.js';
+import { createLaneRunForEntry, supersedeRunForCard, isStructured } from './workflowSessionService.js';
+import { ApiError } from '../errors/ApiError.js';
 import { buildFullBoardResponse } from './kanbanBoardResponse.js';
 import {
   beginLaneEntryDelivery,
@@ -139,8 +140,7 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
  * @returns {Promise<Object>} The moved card
  */
 export async function moveCard(cardId, targetLaneId, options = {}) {
-  const { sortOrder, runOnEnterTemplate = true, finalizeMutation,
-    deferredSessionId = null, deferredTurnToken = null } = options;
+  const { sortOrder, runOnEnterTemplate = true, finalizeMutation } = options;
 
   const card = kanbanCards.getByIdWithLane(cardId);
   if (!card) {
@@ -153,27 +153,6 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
   const sessionId = card.sessions?.[0]?.id;
   const session = sessionId ? sessions.getById(sessionId) : null;
   const lane = kanbanLanes.getById(targetLaneId);
-  if (deferredSessionId || deferredTurnToken) {
-    const deferred = deferCardMoveForTurn(cardId, targetLaneId, {
-      sessionId: deferredSessionId,
-      turnToken: deferredTurnToken,
-      sortOrder,
-      runOnEnterTemplate,
-    });
-    // Do not run the normal mutation finalizer: the card and entry outbox have
-    // not changed yet. The response intentionally describes a scheduled
-    // transition rather than claiming an immediate move.
-    return {
-      ...card,
-      deferred: true,
-      scheduled: true,
-      cardId,
-      laneRunId: deferred.run.id,
-      fromLaneId,
-      targetLaneId,
-      willRunAutomation: runOnEnterTemplate && isStructured(lane),
-    };
-  }
   // Supersession, movement, and the successor entry intent must commit
   // together. A delivery failure after this point is retryable outbox work.
   const { movedCard, laneRun, finalizedResult } = databaseManager.transaction(() => {
@@ -202,6 +181,82 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
   }
 
   return finalizedResult ?? movedCard;
+}
+
+/**
+ * Route a workspace card.  The immediate transaction owns the decision about
+ * whether a request is applied now or selected for an open lane run.
+ *
+ * @returns {Promise<{status: 'moved'|'scheduled', laneId: string}>}
+ */
+// eslint-disable-next-line max-statements, complexity -- the transactional state decision is intentionally co-located.
+export async function routeWorkspaceCard(workspaceId, laneId, { finalizeMutation } = {}) {
+  const outcome = databaseManager.immediateTransaction(() => {
+    const db = databaseManager.get();
+    const workspace = sessions.getById(workspaceId);
+    const card = kanbanCards.getBySessionId(workspaceId);
+    if (!workspace || !card) {
+      throw new ApiError('No card found for this workspace', { status: 404, code: 'KANBAN_WORKSPACE_CARD_NOT_FOUND' });
+    }
+    const sourceLane = kanbanLanes.getById(card.laneId);
+    const targetLane = kanbanLanes.getById(laneId);
+    if (!sourceLane || !targetLane || sourceLane.boardId !== targetLane.boardId) {
+      throw new ApiError('Target lane not found', { status: 404, code: 'KANBAN_TARGET_LANE_NOT_FOUND' });
+    }
+
+    const run = card.activeLaneRunId
+      ? db.prepare("SELECT * FROM kanban_lane_runs WHERE id=? AND status='open'").get(card.activeLaneRunId)
+      : null;
+    const ownsCard = run && run.card_id === card.id && run.source_lane_id === card.laneId;
+    if (ownsCard) {
+      if (run.chosen_exit_lane_id !== laneId) {
+        const time = Date.now();
+        const updated = db.prepare(`UPDATE kanban_lane_runs
+          SET chosen_exit_lane_id=?, chosen_exit_declared_at=?, updated_at=?
+          WHERE id=? AND status='open'`).run(laneId, time, time, run.id);
+        if (updated.changes !== 1) {
+          throw new ApiError('Lane routing changed concurrently; please retry', { status: 503, code: 'KANBAN_ROUTE_RETRYABLE' });
+        }
+        db.prepare(`INSERT INTO kanban_lane_run_audit_events
+          (id, operation_key, lane_run_id, session_id, event_type, details_json, created_at)
+          VALUES (?, ?, ?, NULL, 'route_selected', ?, ?)
+          ON CONFLICT(operation_key) DO NOTHING`)
+          .run(crypto.randomUUID(), `${run.id}:route_selected:${laneId}:${time}`, run.id, JSON.stringify({ targetLaneId: laneId }), time);
+      }
+      const response = { status: 'scheduled', laneId };
+      return { response: finalizeMutation?.({ response, eventId: null }) ?? response, moved: null, projectId: workspace.projectId };
+    }
+
+    // Stale pointers cannot influence a direct route after the lock is held.
+    if (card.activeLaneRunId) {
+      db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=? WHERE id=?').run(Date.now(), card.id);
+    }
+    const response = { status: 'moved', laneId };
+    if (card.laneId === laneId) {
+      return { response: finalizeMutation?.({ response, eventId: null }) ?? response, moved: null, projectId: workspace.projectId };
+    }
+    supersedeRunForCard(card.id, 'workspace_routed');
+    const moved = kanbanCards.moveToLane(card.id, laneId);
+    const laneRun = isStructured(targetLane)
+      ? createLaneRunForEntry({ projectId: workspace.projectId, workspaceId, cardId: card.id, lane: targetLane, cause: 'workspace_route' })
+      : null;
+    return {
+      response: finalizeMutation?.({ response, eventId: laneRun?.laneEntryEventId || null }) ?? response,
+      moved: { card, moved, laneRun }, projectId: workspace.projectId,
+    };
+  });
+
+  if (outcome.moved) {
+    broadcastToProject(outcome.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
+      projectId: outcome.projectId, cardId: outcome.moved.card.id, fromLaneId: outcome.moved.card.laneId,
+      toLaneId: outcome.moved.moved.laneId, card: outcome.moved.moved,
+    });
+    if (outcome.moved.laneRun) {
+      scheduleLaneEntryDelivery(outcome.moved.laneRun.laneEntryEventId);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  }
+  return outcome.response;
 }
 
 /**
