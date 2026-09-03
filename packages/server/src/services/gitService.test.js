@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, writeFile, realpath } from 'fs/promises';
+import { mkdtemp, readFile, rm, writeFile, realpath } from 'fs/promises';
 import { existsSync } from 'fs';
 import { tmpdir, homedir } from 'os';
 import { join } from 'path';
@@ -32,6 +32,7 @@ import {
   ensureWorktreeCommitAttributionHook,
   normalizeGitRemoteUrl,
   pinAuthorInWorktree,
+  pullSessionBranch,
   pushSessionBranch,
   isGitRepo,
   setLogger,
@@ -1434,6 +1435,53 @@ describe('gitService', () => {
         aheadCount: 0,
         behindCount: 0,
       });
+    });
+  });
+
+  describe('session branch pull', () => {
+    async function commitFile(directory, filename, content, message) {
+      await writeFile(join(directory, filename), content);
+      execSync(`git add "${filename}"`, { cwd: directory });
+      execSync(`git commit -m "${message}"`, { cwd: directory });
+    }
+
+    async function cloneOrigin() {
+      const cloneDir = await mkdtemp(join(tmpdir(), 'git-clone-'));
+      execSync(`git clone "${bareRepoDir}" "${cloneDir}"`);
+      execSync('git config user.email "other@test.com"', { cwd: cloneDir });
+      execSync('git config user.name "Other"', { cwd: cloneDir });
+      return cloneDir;
+    }
+
+    it('fast-forwards despite nonoverlapping uncommitted changes', async () => {
+      const cloneDir = await cloneOrigin();
+      try {
+        await writeFile(join(testDir, 'local-only.txt'), 'keep this local');
+        await commitFile(cloneDir, 'remote-only.txt', 'from origin', 'Remote change');
+        execSync('git push', { cwd: cloneDir });
+
+        const result = await pullSessionBranch(testDir);
+
+        expect(result).toMatchObject({ operation: 'pull', gitStatus: { behindCount: 0 } });
+        expect(await readFile(join(testDir, 'local-only.txt'), 'utf8')).toBe('keep this local');
+        expect(await readFile(join(testDir, 'remote-only.txt'), 'utf8')).toBe('from origin');
+      } finally {
+        await rm(cloneDir, { recursive: true, force: true });
+      }
+    });
+
+    it('reports a structured failure and preserves changes Git cannot safely overwrite', async () => {
+      const cloneDir = await cloneOrigin();
+      try {
+        await writeFile(join(testDir, 'README.md'), 'local edit');
+        await commitFile(cloneDir, 'README.md', 'remote edit', 'Conflicting remote change');
+        execSync('git push', { cwd: cloneDir });
+
+        await expect(pullSessionBranch(testDir)).rejects.toMatchObject({ code: 'dirty_worktree', status: 409 });
+        expect(await readFile(join(testDir, 'README.md'), 'utf8')).toBe('local edit');
+      } finally {
+        await rm(cloneDir, { recursive: true, force: true });
+      }
     });
   });
 });

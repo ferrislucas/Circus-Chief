@@ -457,7 +457,7 @@ function normalizeSyncError(error, operation) {
   }
   const text = [error.message, error.stderr, error.stdout].filter(Boolean).join(' ').toLowerCase();
   if (operation === 'push' && (text.includes('non-fast-forward') || text.includes('fetch first') || text.includes('rejected'))) return new GitSyncError('push_rejected', error);
-  if (operation === 'pull' && (text.includes('not possible to fast-forward') || text.includes('divergent') || text.includes('would overwrite'))) return new GitSyncError(text.includes('overwrite') ? 'dirty_worktree' : 'diverged', error);
+  if (operation === 'pull' && (text.includes('not possible to fast-forward') || text.includes('divergent') || text.includes('would be overwritten'))) return new GitSyncError(text.includes('overwritten') ? 'dirty_worktree' : 'diverged', error);
   if (operation === 'pull' && text.includes('conflict')) return new GitSyncError('pull_conflict', error);
   return new GitSyncError('git_error', error);
 }
@@ -524,8 +524,6 @@ export async function pullSessionBranch(directory) {
   let target;
   try {
     target = await getSyncTarget(directory, 'pull');
-    const localChanges = await getLocalChangeCount(directory);
-    if (localChanges > 0) throw new GitSyncError('dirty_worktree');
     const counts = await getAheadBehindCounts(directory, target.upstream);
     if (counts.aheadCount > 0 && counts.behindCount > 0) throw new GitSyncError('diverged');
     const upstreamBranch = target.upstream.slice('origin/'.length);
