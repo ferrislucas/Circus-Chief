@@ -22,7 +22,7 @@ vi.mock('./kanbanService.js', async (importOriginal) => {
   };
 });
 
-import { continueSession, runSession } from './sessionManager.js';
+import { continueSession, runSession, stopSession } from './sessionManager.js';
 import { _executeSession } from './sessionExecution.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
@@ -33,6 +33,7 @@ import { KanbanLaneRepository } from '../db/KanbanLaneRepository.js';
 import { KanbanCardRepository } from '../db/KanbanCardRepository.js';
 import { createLaneRunForEntry, attachRootSession, getRun, markHeldForLimit, supersedeRunForCard } from './workflowSessionService.js';
 import { moveCard } from './kanbanService.js';
+import { activeSessions } from './streamEventHandler.js';
 
 describe('W6: _executeSession triggers target-lane automation after a real success', () => {
   let projectRepo;
@@ -193,6 +194,33 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
       ownWorkState: 'open', executionState: 'paused', workflowReason: 'Stopped by user',
     }));
     expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'open', blockerKind: 'user_stop_pause' }));
+  });
+
+  it('does not complete the run when stopped during asynchronous turn completion', async () => {
+    const controller = new AbortController();
+    const agent = {
+      async *execute() {
+        yield { type: 'assistant', text: 'done' };
+        yield { type: 'result', success: true };
+      },
+    };
+    activeSessions.set(root.id, { controller });
+
+    await _executeSession({
+      sessionId: root.id, agent, queryParams: { options: { env: {} } }, agentCallMeta: {}, controller,
+      workingDirectory: tempDir,
+      callbacks: {
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn(async () => stopSession(root.id)),
+      },
+    });
+
+    expect(sessionRepo.getById(root.id)).toEqual(expect.objectContaining({
+      ownWorkState: 'open', executionState: 'paused', workflowReason: 'Stopped by user',
+    }));
+    expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'open', blockerKind: 'user_stop_pause' }));
+    expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+    expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
   });
 
   it('keeps own work open when a human sends a successful interactive follow-up', async () => {

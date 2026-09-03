@@ -549,6 +549,19 @@ describe('workflowSessionService', () => {
         .toBe(second.turnToken);
     });
 
+    it('rejects completion after the current turn has been paused', () => {
+      const { worker, run } = runningWorker();
+      const { turnToken } = beginWorkflowTurn(worker.id);
+      pauseForUserStop(worker.id, { turnToken });
+
+      expect(finalizeOwnWorkCompletion(worker.id, { turnToken })).toBeNull();
+      expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
+        ownWorkState: 'open', executionState: 'paused', workflowReason: 'Stopped by user',
+      }));
+      expect(getRun(run.id).status).toBe('open');
+      expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+    });
+
     it('discards a worker move when an external actor moves the card first', () => {
       const { worker, run } = runningWorker();
       const { turnToken } = beginWorkflowTurn(worker.id);

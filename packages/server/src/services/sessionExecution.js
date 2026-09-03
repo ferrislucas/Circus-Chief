@@ -134,6 +134,14 @@ export async function _executeSession({
       { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded },
       { controller },
     );
+    // stopSession() can abort while the asynchronous completion pipeline is
+    // running. Do not let any result from that stale pipeline reschedule,
+    // fail, hold, or successfully close the obligation after the stop pause.
+    if (controller.signal.aborted) {
+      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_cancelled');
+      pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
+      return;
+    }
     // Some providers report terminal failures as a final stream event and then
     // close their generator normally. Route that outcome through the same retry
     // policy as a rejected execute() call; otherwise the normal completion path

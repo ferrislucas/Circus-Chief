@@ -293,7 +293,9 @@ export function finalizeOwnWorkCompletion(sessionId, { turnToken = null } = {}) 
   if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return null;
   const result = databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
-    if (!isParticipating(s) || s.own_work_state !== 'open' || (turnToken && s.execution_turn_token !== turnToken)) return null;
+    if (!isParticipating(s)
+      || s.own_work_state !== 'open'
+      || (turnToken && (s.execution_turn_token !== turnToken || s.execution_state !== 'running'))) return null;
     // A future schedule is an explicit continuation obligation, never success.
     if (s.scheduled_at || s.pending_prompt) return null;
     const time = now();
