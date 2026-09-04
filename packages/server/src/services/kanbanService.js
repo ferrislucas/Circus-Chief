@@ -11,7 +11,7 @@ import {
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
-import { createLaneRunForEntry, supersedeRunForCard, isStructured, getRun } from './workflowSessionService.js';
+import { createLaneRunForEntry, supersedeLaneRun, supersedeRunForCard, isStructured, getRun } from './workflowSessionService.js';
 import { ApiError } from '../errors/ApiError.js';
 import { buildFullBoardResponse } from './kanbanBoardResponse.js';
 import {
@@ -53,6 +53,28 @@ function resolveWorkspaceId(sessionId) {
 function createRouteOutcome(status, laneId, finalizeMutation, { eventId = null, ...outcome } = {}) {
   const response = { status, laneId };
   return { response: finalizeMutation?.({ response, eventId }) ?? response, ...outcome };
+}
+
+/**
+ * Repair a card whose active-run pointer is stale before creating its next
+ * lane entry. Preconditions: the caller holds the route transaction and has
+ * validated `targetLane`. Postconditions: every pre-existing open run for the
+ * card is superseded, and a structured destination has a durable successor.
+ */
+function repairStaleRunAndMoveCard(db, { card, targetLane, workspace }) {
+  const openRun = db.prepare("SELECT id FROM kanban_lane_runs WHERE card_id=? AND status='open'").get(card.id);
+  if (openRun) supersedeLaneRun(openRun.id, 'workspace_routed');
+
+  const moved = kanbanCards.moveToLane(card.id, targetLane.id);
+  const laneRun = isStructured(targetLane)
+    ? createLaneRunForEntry({
+      projectId: workspace.projectId, workspaceId: workspace.id, cardId: card.id, lane: targetLane, cause: 'workspace_route',
+    })
+    : null;
+  if (isStructured(targetLane) && !laneRun) throw new Error('Structured lane entry run was not created');
+  if (!laneRun) db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE id=?')
+    .run(Date.now(), card.id);
+  return { moved, laneRun };
 }
 
 export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
@@ -238,15 +260,7 @@ export async function routeWorkspaceCard(workspaceId, laneId, { finalizeMutation
       });
     }
 
-    // Stale pointers cannot influence a direct route after the lock is held.
-    if (card.activeLaneRunId) {
-      db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=? WHERE id=?').run(Date.now(), card.id);
-    }
-    supersedeRunForCard(card.id, 'workspace_routed');
-    const moved = kanbanCards.moveToLane(card.id, laneId);
-    const laneRun = isStructured(targetLane)
-      ? createLaneRunForEntry({ projectId: workspace.projectId, workspaceId, cardId: card.id, lane: targetLane, cause: 'workspace_route' })
-      : null;
+    const { moved, laneRun } = repairStaleRunAndMoveCard(db, { card, targetLane, workspace });
     return createRouteOutcome('moved', laneId, finalizeMutation, {
       eventId: laneRun?.laneEntryEventId || null, moved: { card, moved, laneRun }, projectId: workspace.projectId,
     });

@@ -129,7 +129,7 @@ export function isStructured(lane) {
 
 /** True for a better-sqlite3 UNIQUE constraint violation, across driver versions. */
 function isUniqueConstraintError(error) {
-  return error?.code?.startsWith('SQLITE_CONSTRAINT') || /UNIQUE constraint failed/.test(error?.message || '');
+  return error?.code === 'SQLITE_CONSTRAINT_UNIQUE' || /UNIQUE constraint failed/.test(error?.message || '');
 }
 
 /**

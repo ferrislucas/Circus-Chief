@@ -136,6 +136,45 @@ describe('kanbanService', () => {
     });
   });
 
+  describe('routeWorkspaceCard stale lane-run pointers', () => {
+    it('supersedes the open run before entering a structured destination when the active pointer is stale', async () => {
+      const { root, card, run } = setupActiveLaneRunCard();
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Start destination work' });
+      databaseManager.get().prepare('UPDATE kanban_cards SET active_lane_run_id=? WHERE id=?')
+        .run('stale-run-pointer', card.id);
+
+      await expect(routeWorkspaceCard(root.id, lanes[1].id))
+        .resolves.toEqual({ status: 'moved', laneId: lanes[1].id });
+
+      const movedCard = kanbanCards.getById(card.id);
+      const destinationRun = getRun(movedCard.activeLaneRunId);
+      expect(movedCard.laneId).toBe(lanes[1].id);
+      expect(getRun(run.id)).toMatchObject({ status: 'superseded' });
+      expect(destinationRun).toMatchObject({ status: 'open', sourceLaneId: lanes[1].id });
+      expect(databaseManager.get().prepare("SELECT COUNT(*) count FROM kanban_lane_runs WHERE card_id=? AND status='open'")
+        .get(card.id).count).toBe(1);
+      expect(databaseManager.get().prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?')
+        .get(destinationRun.laneEntryEventId)).toMatchObject({ lane_id: lanes[1].id });
+    });
+
+    it('rolls back the card move and run repair when destination run creation fails', async () => {
+      const { root, card, run } = setupActiveLaneRunCard();
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Start destination work' });
+      databaseManager.get().prepare('UPDATE kanban_cards SET active_lane_run_id=? WHERE id=?')
+        .run('stale-run-pointer', card.id);
+      databaseManager.get().exec(`CREATE TRIGGER fail_destination_lane_run
+        BEFORE INSERT ON kanban_lane_runs WHEN NEW.source_lane_id = '${lanes[1].id}'
+        BEGIN SELECT RAISE(ABORT, 'destination run creation failed'); END`);
+
+      await expect(routeWorkspaceCard(root.id, lanes[1].id)).rejects.toThrow('destination run creation failed');
+
+      expect(kanbanCards.getById(card.id)).toMatchObject({ laneId: lanes[0].id, activeLaneRunId: 'stale-run-pointer' });
+      expect(getRun(run.id)).toMatchObject({ status: 'open' });
+      expect(databaseManager.get().prepare('SELECT COUNT(*) count FROM kanban_lane_runs WHERE card_id=?').get(card.id).count).toBe(1);
+      expect(databaseManager.get().prepare('SELECT COUNT(*) count FROM kanban_lane_entry_events WHERE card_id=?').get(card.id).count).toBe(1);
+    });
+  });
+
   // ── getFullBoard ───────────────────────────────────────────────────
 
   describe('getFullBoard', () => {
