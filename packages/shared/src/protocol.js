@@ -52,6 +52,7 @@ export const WS_MESSAGE_TYPES = {
 
   // System metrics events
   SYSTEM_METRICS: 'system:metrics',
+  PROVIDER_ALLOWANCE_UPDATED: 'provider:allowance_updated',
 
   // Kanban events
   KANBAN_BOARD_UPDATED: 'kanban:board_updated',

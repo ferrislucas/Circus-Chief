@@ -1,0 +1,38 @@
+import { describe, expect, it, vi } from 'vitest';
+import { ProviderAllowanceService } from './ProviderAllowanceService.js';
+
+const enabled = { id: 'openai-default', name: 'OpenAI', kind: 'openai', enabled: true };
+const disabled = { id: 'google-default', name: 'Google', kind: 'google', enabled: false };
+
+describe('ProviderAllowanceService', () => {
+  it('returns an explicit unknown snapshot for every enabled provider', () => {
+    const service = new ProviderAllowanceService({
+      providerRepository: { getAll: () => [enabled, disabled] },
+    });
+
+    expect(service.getSnapshots()).toEqual([expect.objectContaining({
+      providerId: enabled.id,
+      providerName: enabled.name,
+      status: 'unknown',
+      allowances: [],
+      source: null,
+      unavailableReason: expect.stringContaining('No verified'),
+    })]);
+  });
+
+  it('broadcasts a normalized changed snapshot without provider configuration', () => {
+    const broadcaster = vi.fn();
+    const service = new ProviderAllowanceService({
+      providerRepository: { getAll: () => [enabled] }, broadcaster,
+    });
+    const snapshot = {
+      providerId: enabled.id, providerName: enabled.name, providerKind: 'openai',
+      status: 'warning', source: 'provider', updatedAt: 1, staleAt: 2, unavailableReason: null,
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: 3 }],
+    };
+
+    service.observe(snapshot);
+    expect(broadcaster).toHaveBeenCalledWith('provider:allowance_updated', { snapshot });
+    expect(service.getSnapshots()).toEqual([snapshot]);
+  });
+});

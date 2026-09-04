@@ -18,6 +18,7 @@
         </router-link>
         <nav class="nav">
           <SystemIndicators />
+          <ProviderAllowanceIndicators />
           <router-link
             to="/settings"
             class="nav-link"
@@ -108,6 +109,7 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import ToastContainer from './components/ToastContainer.vue';
 import SystemIndicators from './components/SystemIndicators.vue';
+import ProviderAllowanceIndicators from './components/ProviderAllowanceIndicators.vue';
 import ConnectionBanner from './components/ConnectionBanner.vue';
 import { useVisualViewport } from './composables/useVisualViewport.js';
 

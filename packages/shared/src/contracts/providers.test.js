@@ -7,9 +7,21 @@ import {
   COMMIT_ATTRIBUTION_VALIDATION_MESSAGE,
   parseCommitAttributionOverride,
   normalizeCommitAttributionOverride,
+  ProviderAllowanceSnapshot,
 } from './providers.js';
 
 describe('Provider Contracts', () => {
+  describe('ProviderAllowanceSnapshot', () => {
+    it('accepts a redacted unknown snapshot and rejects unexpected fields', () => {
+      const snapshot = {
+        providerId: 'openai-default', providerName: 'OpenAI', providerKind: 'openai',
+        status: 'unknown', allowances: [], source: null, updatedAt: null, staleAt: null,
+        unavailableReason: 'No verified data',
+      };
+      expect(ProviderAllowanceSnapshot.safeParse(snapshot).success).toBe(true);
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, authToken: 'secret' }).success).toBe(false);
+    });
+  });
   describe('ProviderKind', () => {
     it('accepts "anthropic"', () => {
       expect(ProviderKind.safeParse('anthropic').success).toBe(true);
