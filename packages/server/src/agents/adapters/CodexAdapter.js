@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { BaseAgent } from '../BaseAgent.js';
 import { executeCodexCli } from './codexCliRunner.js';
+import { executeCodexAppServer } from './codexAppServerRunner.js';
 import { createCodexSpawner } from '../../services/codexSpawnHelper.js';
 
 /**
@@ -75,13 +76,29 @@ export class CodexAdapter extends BaseAgent {
    * @param {import('../types.js').AgentQueryParams} queryParams
    * @yields {Object} Normalized SDK events
    */
-  async *execute(queryParams, _meta) {
+  async *execute(queryParams, meta) {
     const options = queryParams.options || {};
     if (this._shouldUseDirectApi()) {
       yield* this._executeDirectApi(queryParams, options);
       return;
     }
+    if (process.env.CODEX_APP_SERVER_ENABLED === '1') {
+      yield* this._executeAppServer(queryParams, options, meta);
+      return;
+    }
     yield* this._executeCli(queryParams, options);
+  }
+
+  async *_executeAppServer(queryParams, options, meta) {
+    const spawnFn = this._spawnCodex ?? createCodexSpawner();
+    let child;
+    try {
+      child = spawnFn({ command: 'codex', args: ['app-server'], cwd: options.cwd, env: options.env, signal: options.abortController?.signal });
+    } catch (error) {
+      if (error?.code === 'ENOENT') { codexCliUnavailable = true; }
+      throw error;
+    }
+    yield* executeCodexAppServer(child, queryParams, options, meta || { sessionId: options.sessionId, conversationId: options.conversationId });
   }
 
   _shouldUseDirectApi() {

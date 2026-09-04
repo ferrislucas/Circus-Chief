@@ -140,7 +140,9 @@ function describePromptOutcome(record, outcome, result) {
     if (outcome === 'answer') {
       // Question text, selected labels, annotations, and free-text answers
       // are needed by the live callback, but must not enter durable history.
-      const answerCount = Object.keys(result.updatedInput?.answers || {}).length;
+      const answerCount = record.provider === 'claude'
+        ? Object.keys(result.updatedInput?.answers || {}).length
+        : (result.answers || []).length;
       return { toolName: 'AskUserQuestion', content: `User answered\nQuestions answered: ${answerCount}\nSelections recorded: ${answerCount}` };
     }
     return { toolName: 'AskUserQuestion', content: 'User did not answer' };
@@ -174,7 +176,7 @@ function permissionHistoryLines(record, outcome, result) {
   ].filter(Boolean);
 }
 
-export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, agentId = null, payload, signal, expiryMs = PROMPT_EXPIRY_MS }) {
+export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, agentId = null, provider = 'claude', externalRequestId = null, metadata = null, payload, signal, expiryMs = PROMPT_EXPIRY_MS }) {
   // An abort listener added after a signal is already aborted will never fire.
   if (signal?.aborted) {
     persistPreParkDenial({ sessionId, kind, payload, reason: 'aborted_before_park' });
@@ -199,10 +201,10 @@ export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, 
       resolve({ behavior: 'deny', message: CAPACITY_MESSAGE });
       return;
     }
-    const record = { id: randomUUID(), sessionId, conversationId, kind, toolUseId, agentId, payload,
+    const record = { id: randomUUID(), sessionId, conversationId, kind, toolUseId, agentId, provider, externalRequestId, metadata, payload,
       createdAt: Date.now(), resolve, signal, abortListener: null, expiryTimer: null };
-    record.abortListener = () => settle(record, 'cancelled', { behavior: 'deny', message: CANCELLED_MESSAGE });
-    record.expiryTimer = setTimeout(() => settle(record, 'expired', { behavior: 'deny', message: EXPIRED_MESSAGE }), expiryMs);
+    record.abortListener = () => settle(record, 'cancelled', terminalResult(record, 'cancelled', CANCELLED_MESSAGE));
+    record.expiryTimer = setTimeout(() => settle(record, 'expired', terminalResult(record, 'expired', EXPIRED_MESSAGE)), expiryMs);
     record.expiryTimer.unref?.();
     signal?.addEventListener('abort', record.abortListener, { once: true });
     if (queue) {
@@ -232,11 +234,16 @@ export function cancelPrompt(sessionId, reason = CANCELLED_MESSAGE) {
   if (!queue || !queue.length) return false;
   // Snapshot before iterating: `settle` mutates (splices) the live queue.
   for (const record of [...queue]) {
-    settle(record, 'cancelled', { behavior: 'deny', message: reason });
+    settle(record, 'cancelled', terminalResult(record, 'cancelled', reason));
   }
   return true;
 }
+
+function terminalResult(record, action, message) {
+  return record.provider === 'claude' ? { behavior: 'deny', message } : { action, message };
+}
 function questionResult(record, response) {
+  if (record.provider !== 'claude') return interactionQuestionResult(record, response);
   if (response.action === 'answer' && !hasValidQuestionAnswers(record.payload.questions, response.answers, response.customAnswers, response.annotations)) return null;
   return response.action === 'answer'
     ? { behavior: 'allow', updatedInput: {
@@ -248,6 +255,41 @@ function questionResult(record, response) {
       ...(response.annotations ? { annotations: response.annotations } : {}),
     } }
     : { behavior: 'deny', message: response.reason || 'Proceed on your best judgment and state your assumption.' };
+}
+
+function interactionQuestionResult(record, response) {
+  if (response.action === 'cancel') return { action: 'cancel' };
+  const questions = record.payload.questions || [];
+  const byId = new Map(questions.map((question) => [question.id, question]));
+  const seen = new Set();
+  if (!Array.isArray(response.answers) || response.answers.length > questions.length) return null;
+  for (const answer of response.answers) {
+    const question = byId.get(answer.questionId);
+    if (!question || seen.has(answer.questionId)) return null;
+    seen.add(answer.questionId);
+    const selected = answer.selectedOptionIds || [];
+    if (!Array.isArray(selected) || new Set(selected).size !== selected.length) return null;
+    const options = new Set((question.options || []).map((option) => option.id));
+    if (selected.some((id) => !options.has(id))) return null;
+    if (question.mode !== 'multiple' && selected.length > 1) return null;
+    if (answer.text != null && (!question.allowOther || !answer.text.trim() || selected.length)) return null;
+    if (!selected.length && !answer.text?.trim() && question.required) return null;
+  }
+  if (questions.some((question) => question.required && !seen.has(question.id))) return null;
+  return { action: 'answer', answers: response.answers.map((answer) => ({
+    questionId: answer.questionId,
+    selectedOptionIds: answer.selectedOptionIds || [],
+    ...(answer.text?.trim() ? { text: answer.text } : {}),
+  })) };
+}
+
+/**
+ * Park an interaction without binding the store to a provider's callback
+ * serialization. Adapters translate this normalized terminal value at their
+ * protocol boundary.
+ */
+export function requestInteraction({ sessionId, conversationId, kind = 'question', provider, externalRequestId, payload, metadata, signal, expiryMs }) {
+  return parkPrompt({ sessionId, conversationId, kind, provider, externalRequestId, payload, metadata, signal, expiryMs });
 }
 
 function hasValidQuestionAnswers(questions, answers, customAnswers = {}, annotations = {}) {
@@ -341,4 +383,13 @@ export function respondToPrompt(sessionId, promptId, response) {
   const result = record.kind === 'question' ? questionResult(record, response) : permissionResult(record, response);
   if (!result) return null;
   return settle(record, response.action, result);
+}
+
+// A server-initiated request may be resolved by the provider before a browser
+// response arrives. This is intentionally identity-based and not client
+// exposed. It removes a queued or visible item using the same atomic settle.
+export function invalidateInteraction({ sessionId, provider, externalRequestId }) {
+  const record = (prompts.get(sessionId) || []).find((item) => item.provider === provider && item.externalRequestId === externalRequestId);
+  if (!record) return false;
+  return settle(record, 'invalidated', { action: 'invalidated' });
 }
