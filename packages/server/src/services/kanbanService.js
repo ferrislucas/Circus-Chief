@@ -13,6 +13,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
 import { createLaneRunForEntry, supersedeLaneRun, supersedeRunForCard, isStructured, getRun } from './workflowSessionService.js';
 import { ApiError } from '../errors/ApiError.js';
+import { retrySqliteContention } from './sqliteContention.js';
 import { buildFullBoardResponse } from './kanbanBoardResponse.js';
 import {
   beginLaneEntryDelivery,
@@ -75,6 +76,61 @@ function repairStaleRunAndMoveCard(db, { card, targetLane, workspace }) {
   if (!laneRun) db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE id=?')
     .run(Date.now(), card.id);
   return { moved, laneRun };
+}
+
+function getOwningOpenRun(db, card) {
+  if (!card?.activeLaneRunId) return null;
+  const run = db.prepare("SELECT * FROM kanban_lane_runs WHERE id=? AND status='open'").get(card.activeLaneRunId);
+  return run && run.card_id === card.id && run.source_lane_id === card.laneId ? run : null;
+}
+
+function updateScheduledDestination(db, runId, laneId) {
+  const time = Date.now();
+  const update = db.prepare(`UPDATE kanban_lane_runs
+    SET chosen_exit_lane_id=?, chosen_exit_declared_at=?, updated_at=?
+    WHERE id=? AND status='open'`).run(laneId, time, time, runId);
+  return update.changes === 1 ? time : null;
+}
+
+function recordScheduledDestination(db, runId, laneId, time) {
+  db.prepare(`INSERT INTO kanban_lane_run_audit_events
+    (id, operation_key, lane_run_id, session_id, event_type, details_json, created_at)
+    VALUES (?, ?, ?, NULL, 'route_selected', ?, ?)
+    ON CONFLICT(operation_key) DO NOTHING`)
+    .run(crypto.randomUUID(), `${runId}:route_selected:${laneId}:${time}`, runId, JSON.stringify({ targetLaneId: laneId }), time);
+}
+
+function movedRouteOutcome(db, { card, targetLane, workspace, laneId, finalizeMutation }) {
+  const { moved, laneRun } = repairStaleRunAndMoveCard(db, { card, targetLane, workspace });
+  return createRouteOutcome('moved', laneId, finalizeMutation, {
+    eventId: laneRun?.laneEntryEventId || null, moved: { card, moved, laneRun }, projectId: workspace.projectId,
+  });
+}
+
+function scheduledRouteOutcome({ run, card, workspace, laneId, finalizeMutation }) {
+  return createRouteOutcome('scheduled', laneId, finalizeMutation, {
+    moved: null, selectedRunId: run.id, cardId: card.id, projectId: workspace.projectId,
+  });
+}
+
+/** Re-read after a conditional miss; never acknowledge an uncommitted route. */
+function scheduleRouteOrRecover(db, { workspaceId, card, run, targetLane, workspace, laneId, finalizeMutation }) {
+  if (run.chosen_exit_lane_id === laneId) return scheduledRouteOutcome({ run, card, workspace, laneId, finalizeMutation });
+  let selectedRun = run;
+  let selectedCard = card;
+  let time = updateScheduledDestination(db, selectedRun.id, laneId);
+  if (!time) {
+    selectedCard = kanbanCards.getBySessionId(workspaceId);
+    selectedRun = getOwningOpenRun(db, selectedCard);
+    if (!selectedRun) return movedRouteOutcome(db, { card: selectedCard || card, targetLane, workspace, laneId, finalizeMutation });
+    if (selectedRun.chosen_exit_lane_id === laneId) return scheduledRouteOutcome({
+      run: selectedRun, card: selectedCard, workspace, laneId, finalizeMutation,
+    });
+    time = updateScheduledDestination(db, selectedRun.id, laneId);
+    if (!time) throw new ApiError('Lane routing changed concurrently; please retry', { status: 503, code: 'KANBAN_ROUTE_RETRYABLE' });
+  }
+  recordScheduledDestination(db, selectedRun.id, laneId, time);
+  return scheduledRouteOutcome({ run: selectedRun, card: selectedCard, workspace, laneId, finalizeMutation });
 }
 
 export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
@@ -219,7 +275,7 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
  */
 export async function routeWorkspaceCard(workspaceId, laneId, { finalizeMutation } = {}) {
   // eslint-disable-next-line max-statements, complexity -- the transactional state decision is intentionally co-located.
-  const outcome = databaseManager.immediateTransaction(() => {
+  const outcome = await retrySqliteContention(() => databaseManager.immediateTransaction(() => {
     const db = databaseManager.get();
     const workspace = sessions.getById(workspaceId);
     const card = kanbanCards.getBySessionId(workspaceId);
@@ -236,35 +292,11 @@ export async function routeWorkspaceCard(workspaceId, laneId, { finalizeMutation
       return createRouteOutcome('noop', laneId, finalizeMutation, { moved: null, projectId: workspace.projectId });
     }
 
-    const run = card.activeLaneRunId
-      ? db.prepare("SELECT * FROM kanban_lane_runs WHERE id=? AND status='open'").get(card.activeLaneRunId)
-      : null;
-    const ownsCard = run && run.card_id === card.id && run.source_lane_id === card.laneId;
-    if (ownsCard) {
-      if (run.chosen_exit_lane_id !== laneId) {
-        const time = Date.now();
-        const updated = db.prepare(`UPDATE kanban_lane_runs
-          SET chosen_exit_lane_id=?, chosen_exit_declared_at=?, updated_at=?
-          WHERE id=? AND status='open'`).run(laneId, time, time, run.id);
-        if (updated.changes !== 1) {
-          throw new ApiError('Lane routing changed concurrently; please retry', { status: 503, code: 'KANBAN_ROUTE_RETRYABLE' });
-        }
-        db.prepare(`INSERT INTO kanban_lane_run_audit_events
-          (id, operation_key, lane_run_id, session_id, event_type, details_json, created_at)
-          VALUES (?, ?, ?, NULL, 'route_selected', ?, ?)
-          ON CONFLICT(operation_key) DO NOTHING`)
-          .run(crypto.randomUUID(), `${run.id}:route_selected:${laneId}:${time}`, run.id, JSON.stringify({ targetLaneId: laneId }), time);
-      }
-      return createRouteOutcome('scheduled', laneId, finalizeMutation, {
-        moved: null, selectedRunId: run.id, cardId: card.id, projectId: workspace.projectId,
-      });
-    }
+    const run = getOwningOpenRun(db, card);
+    if (run) return scheduleRouteOrRecover(db, { workspaceId, card, run, targetLane, workspace, laneId, finalizeMutation });
 
-    const { moved, laneRun } = repairStaleRunAndMoveCard(db, { card, targetLane, workspace });
-    return createRouteOutcome('moved', laneId, finalizeMutation, {
-      eventId: laneRun?.laneEntryEventId || null, moved: { card, moved, laneRun }, projectId: workspace.projectId,
-    });
-  });
+    return movedRouteOutcome(db, { card, targetLane, workspace, laneId, finalizeMutation });
+  }));
 
   if (outcome.moved) {
     broadcastToProject(outcome.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {

@@ -26,12 +26,13 @@ vi.mock('../services/kanbanService.js', async (importOriginal) => {
     // Default to the real implementation so existing POST /cards tests stay
     // behavioral; individual tests can mockRejectedValueOnce over it.
     addSessionToBoard: vi.fn(actual.addSessionToBoard),
+    routeWorkspaceCard: vi.fn(actual.routeWorkspaceCard),
   };
 });
 
 import kanbanRouter from './kanban.js';
 import { broadcastToProject } from '../websocket.js';
-import { addSessionToBoard as addSessionToBoardService } from '../services/kanbanService.js';
+import { addSessionToBoard as addSessionToBoardService, routeWorkspaceCard as routeWorkspaceCardService } from '../services/kanbanService.js';
 import { ApiError } from '../errors/ApiError.js';
 import {
   attachRootSession,
@@ -819,6 +820,21 @@ describe('Kanban API', () => {
       kanbanCards.create(lanes[0].id, root.id);
       const res = await request(app).put(`/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/lane`).send({ targetLaneId: lanes[1].id });
       expect(res.status).toBe(400);
+    });
+
+    it('returns 503 for exhausted retryable route contention', async () => {
+      setupBoard();
+      const root = createSession();
+      kanbanCards.create(lanes[0].id, root.id);
+      routeWorkspaceCardService.mockRejectedValueOnce(new ApiError('Lane routing is temporarily busy; please retry', {
+        status: 503, code: 'KANBAN_ROUTE_RETRYABLE',
+      }));
+
+      const res = await request(app).put(`/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/lane`)
+        .send({ laneId: lanes[1].id });
+
+      expect(res.status).toBe(503);
+      expect(res.body).toEqual({ error: 'Lane routing is temporarily busy; please retry', code: 'KANBAN_ROUTE_RETRYABLE' });
     });
   });
   describe('DELETE /api/projects/:projectId/kanban/cards/by-workspace/:workspaceId', () => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Mock external dependencies
 vi.mock('../websocket.js', () => ({
@@ -81,6 +81,10 @@ describe('kanbanService', () => {
     const board = kanbanBoards.create(projectId);
     boardId = board.id;
     lanes = kanbanLanes.getByBoardId(boardId);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   function createSession(name = 'Test Session') {
@@ -172,6 +176,67 @@ describe('kanbanService', () => {
       expect(getRun(run.id)).toMatchObject({ status: 'open' });
       expect(databaseManager.get().prepare('SELECT COUNT(*) count FROM kanban_lane_runs WHERE card_id=?').get(card.id).count).toBe(1);
       expect(databaseManager.get().prepare('SELECT COUNT(*) count FROM kanban_lane_entry_events WHERE card_id=?').get(card.id).count).toBe(1);
+    });
+  });
+
+  describe('routeWorkspaceCard SQLite contention and conditional races', () => {
+    it.each(['SQLITE_BUSY', 'SQLITE_LOCKED'])('retries %s and succeeds once contention clears', async (code) => {
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[0].id, workspace.id);
+      const immediateTransaction = vi.spyOn(databaseManager, 'immediateTransaction')
+        .mockImplementationOnce(() => {
+          const error = new Error('database is locked');
+          error.code = code;
+          throw error;
+        });
+
+      await expect(routeWorkspaceCard(workspace.id, lanes[1].id))
+        .resolves.toEqual({ status: 'moved', laneId: lanes[1].id });
+
+      expect(immediateTransaction).toHaveBeenCalledTimes(2);
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[1].id);
+      immediateTransaction.mockRestore();
+    });
+
+    it('returns a retryable service error after bounded SQLite contention retries are exhausted', async () => {
+      const workspace = createSession('Workspace');
+      kanbanCards.create(lanes[0].id, workspace.id);
+      const immediateTransaction = vi.spyOn(databaseManager, 'immediateTransaction')
+        .mockImplementation(() => {
+          const error = new Error('database is busy');
+          error.code = 'SQLITE_BUSY';
+          throw error;
+        });
+
+      await expect(routeWorkspaceCard(workspace.id, lanes[1].id)).rejects.toMatchObject({
+        status: 503,
+        code: 'KANBAN_ROUTE_RETRYABLE',
+      });
+
+      expect(immediateTransaction.mock.calls.length).toBeGreaterThan(1);
+      immediateTransaction.mockRestore();
+    });
+
+    it('rereads authoritative state after a conditional scheduled-route update loses its first write', async () => {
+      const { root, run } = setupActiveLaneRunCard();
+      const db = databaseManager.get();
+      const originalPrepare = db.prepare;
+      const prepare = vi.spyOn(db, 'prepare');
+      let loseFirstConditionalUpdate = true;
+      prepare.mockImplementation((sql) => {
+        const statement = originalPrepare.call(db, sql);
+        if (loseFirstConditionalUpdate && sql.includes('UPDATE kanban_lane_runs') && sql.includes('chosen_exit_lane_id')) {
+          loseFirstConditionalUpdate = false;
+          return { ...statement, run: () => ({ changes: 0 }) };
+        }
+        return statement;
+      });
+
+      await expect(routeWorkspaceCard(root.id, lanes[1].id))
+        .resolves.toEqual({ status: 'scheduled', laneId: lanes[1].id });
+
+      expect(getRun(run.id).chosenExitLaneId).toBe(lanes[1].id);
+      prepare.mockRestore();
     });
   });
 
