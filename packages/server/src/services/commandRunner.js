@@ -3,6 +3,7 @@ import { commandRuns } from '../database.js';
 import { TerminalOutputProcessor } from './terminalOutput.js';
 import { commandOutputMetrics, COMMAND_OUTPUT_METRICS } from './commandOutputMetrics.js';
 import { createCommandRunnerEnv, wrapCommandForPlatform } from './commandRunnerPlatform.js';
+import { commandRunOutputResourceService } from './commandRunOutputResource.js';
 
 // Re-export for backward compatibility
 export { stripAnsiCodes, TerminalOutputProcessor } from './terminalOutput.js';
@@ -12,11 +13,21 @@ export { createCommandRunnerEnv, wrapCommandForPlatform } from './commandRunnerP
  * Service for running commands and managing their execution
  */
 export class CommandRunner {
-  constructor({ outputBroadcastInterval = 250, outputDbFlushInterval = 500, outputBufferMaxBytes = 64 * 1024 } = {}) {
+  constructor({
+    outputBroadcastInterval = 250,
+    outputDbFlushInterval = 500,
+    outputBufferMaxBytes = 64 * 1024,
+    commandRunRepository = commandRuns,
+    outputResourceService = commandRunOutputResourceService,
+    spawnProcess = spawn,
+  } = {}) {
     this.processes = new Map();
     this.outputBroadcastInterval = outputBroadcastInterval;
     this.outputBufferFlushInterval = outputDbFlushInterval;
     this.outputBufferMaxBytes = outputBufferMaxBytes;
+    this.commandRunRepository = commandRunRepository;
+    this.outputResourceService = outputResourceService;
+    this.spawnProcess = spawnProcess;
   }
 
   /**
@@ -24,9 +35,9 @@ export class CommandRunner {
    */
   #createDatabaseRecord(runId, sessionId, buttonId) {
     if (!sessionId || !buttonId) return;
-    if (!commandRuns || typeof commandRuns.create !== 'function') return;
+    if (!this.commandRunRepository || typeof this.commandRunRepository.create !== 'function') return;
     try {
-      commandRuns.create({ id: runId, sessionId, buttonId });
+      this.commandRunRepository.create({ id: runId, sessionId, buttonId });
       console.log(`[commandRunner.run] Created run record in database for runId: ${runId}`);
     } catch (dbErr) {
       console.warn(`[commandRunner.run] Warning: Failed to create database record for runId: ${runId}`, dbErr.message);
@@ -36,18 +47,20 @@ export class CommandRunner {
   /**
    * Create process entry with buffer management.
    */
-  #createProcessEntry(child, sessionId, buttonId) {
+  #createProcessEntry(child, sessionId, buttonId, workingDirectory) {
     return {
       process: child,
       startTime: Date.now(),
       sessionId,
       buttonId,
+      workingDirectory,
       outputChunks: [],
       outputBytes: 0,
       lastDbWrite: Date.now(),
       bufferFlushTimer: null,
       broadcastFlushTimer: null,
       finalized: false,
+      artifactWrite: Promise.resolve(),
       outputProcessor: new TerminalOutputProcessor(),
     };
   }
@@ -63,16 +76,23 @@ export class CommandRunner {
     entry.outputBytes = 0;
     entry.onOutput?.(chunks.join(''));
     if (!entry.sessionId || !entry.buttonId) return;
-    if (!commandRuns || typeof commandRuns.appendBatch !== 'function') return;
+    if (!this.commandRunRepository || typeof this.commandRunRepository.appendBatch !== 'function') return;
     const startedAt = performance.now();
     commandOutputMetrics.increment(COMMAND_OUTPUT_METRICS.FLUSH_COUNT);
     try {
-      const persisted = commandRuns.appendBatch(runId, chunks);
+      const persisted = this.commandRunRepository.appendBatch(runId, chunks);
       commandOutputMetrics.increment(
         COMMAND_OUTPUT_METRICS.PERSISTED_BYTES,
         chunks.reduce((bytes, chunk) => bytes + Buffer.byteLength(chunk), 0),
       );
       for (const chunk of persisted) entry.onOutputChunk?.(chunk);
+      entry.artifactWrite = entry.artifactWrite.then(() => this.outputResourceService.append({
+        workingDirectory: entry.workingDirectory,
+        runId,
+        chunks: persisted,
+      })).catch((err) => {
+        console.warn(`[commandRunner.run] Command output artifact append failed for runId: ${runId}`, err.message);
+      });
       Object.assign(entry, { lastDbWrite: Date.now() });
     } catch (err) {
       commandOutputMetrics.increment(COMMAND_OUTPUT_METRICS.FLUSH_FAILURES);
@@ -97,6 +117,15 @@ export class CommandRunner {
     Object.assign(entry, { bufferFlushTimer: null, broadcastFlushTimer: null });
   }
 
+  #releaseOutputResource(entry, runId) {
+    void entry.artifactWrite.then(() => this.outputResourceService.close({
+      workingDirectory: entry.workingDirectory,
+      runId,
+    })).catch((err) => {
+      console.warn(`[commandRunner.run] Command output artifact close failed for runId: ${runId}`, err.message);
+    });
+  }
+
   /**
    * Handle process close event.
    * @param {{ entry: object, runId: string, exitCode: number|null, signal: string|null }} ctx
@@ -112,12 +141,12 @@ export class CommandRunner {
     this.#flushOutputBuffer(entry, runId);
     console.log(`[commandRunner.run] Process closed for runId: ${runId}, exitCode: ${exitCode}, signal: ${signal}`);
 
-    if (commandRuns && typeof commandRuns.complete === 'function' && typeof commandRuns.markKilled === 'function') {
+    if (this.commandRunRepository && typeof this.commandRunRepository.complete === 'function' && typeof this.commandRunRepository.markKilled === 'function') {
       try {
         if (signal) {
-          commandRuns.markKilled(runId);
+          this.commandRunRepository.markKilled(runId);
         } else {
-          commandRuns.complete(runId, exitCode || 0);
+          this.commandRunRepository.complete(runId, exitCode || 0);
         }
         console.log(`[commandRunner.run] Marked run as complete in database for runId: ${runId}`);
       } catch (dbErr) {
@@ -125,6 +154,7 @@ export class CommandRunner {
       }
     }
 
+    this.#releaseOutputResource(entry, runId);
     this.processes.delete(runId);
     if (onComplete) onComplete(exitCode);
     // Normalize to 1 on signal termination (signal info already logged above)
@@ -144,9 +174,10 @@ export class CommandRunner {
     const msg = entry ? `Failed to execute command: ${err.message}` : `Error running command: ${err.message}`;
     console.error(`[commandRunner.run] Error for runId: ${runId}`, err);
     if (onError) onError(msg);
-    if (commandRuns && typeof commandRuns.complete === 'function') {
-      try { commandRuns.complete(runId, 1); } catch (dbErr) { console.warn(`[commandRunner.run] DB error for runId: ${runId}`, dbErr.message); }
+    if (this.commandRunRepository && typeof this.commandRunRepository.complete === 'function') {
+      try { this.commandRunRepository.complete(runId, 1); } catch (dbErr) { console.warn(`[commandRunner.run] DB error for runId: ${runId}`, dbErr.message); }
     }
+    if (entry) this.#releaseOutputResource(entry, runId);
     this.processes.delete(runId);
     resolve(1);
   }
@@ -162,14 +193,14 @@ export class CommandRunner {
         this.#createDatabaseRecord(runId, sessionId, buttonId);
         const wrappedCommand = wrapCommandForPlatform(command);
 
-        const child = spawn('sh', ['-c', wrappedCommand], {
+        const child = this.spawnProcess('sh', ['-c', wrappedCommand], {
           cwd: workingDirectory,
           stdio: ['ignore', 'pipe', 'pipe'],
           detached: true,
           env: createCommandRunnerEnv(),
         });
 
-        const entry = this.#createProcessEntry(child, sessionId, buttonId);
+        const entry = this.#createProcessEntry(child, sessionId, buttonId, workingDirectory);
         entry.onOutput = (text) => {
           try { onOutput?.(text); } catch (err) { console.warn('[commandRunner.run] Output callback failed:', err.message); }
         };

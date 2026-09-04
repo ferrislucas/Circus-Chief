@@ -4,6 +4,7 @@ import { dirname, relative, resolve } from 'node:path';
 import { resolveGitExcludePath } from './gitService.js';
 
 const locks = new Map();
+const materializedArtifacts = new Map();
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const PAGE_SIZE = 100;
 
@@ -17,6 +18,10 @@ export class CommandOutputResourceError extends Error {
 function within(root, target) {
   const rel = relative(root, target);
   return rel === '' || (!rel.startsWith('..') && !rel.includes('../'));
+}
+
+function artifactKey(root, runId) {
+  return `${root}\0${runId}`;
 }
 
 async function normalDirectory(path) {
@@ -195,6 +200,9 @@ export async function getCommandRunOutputResource({ workingDirectory, run, repos
         currentRun = current;
       }
       const info = await outputStat(paths.output);
+      const key = artifactKey(paths.root, run.id);
+      if (currentRun.status === 'running') materializedArtifacts.set(key, paths);
+      else materializedArtifacts.delete(key);
       return {
         runId: run.id,
         status: currentRun.status,
@@ -205,15 +213,73 @@ export async function getCommandRunOutputResource({ workingDirectory, run, repos
         path: `.circus/runs/${run.id}/output.log`,
       };
     } catch (error) {
+      materializedArtifacts.delete(artifactKey(paths.root, run.id));
       if (error instanceof CommandOutputResourceError) throw error;
       throw new CommandOutputResourceError();
     }
   });
 }
 
+/**
+ * Append newly persisted command output to an already-materialized resource.
+ * Database persistence is authoritative: failures leave the resource marked
+ * stale so a later descriptor request rebuilds it from the repository.
+ */
+export async function appendCommandRunOutputResource({ workingDirectory, runId, chunks }) {
+  if (!RUN_ID.test(runId)) throw new CommandOutputResourceError();
+  let root;
+  try {
+    root = await realpath(workingDirectory);
+  } catch {
+    throw new CommandOutputResourceError();
+  }
+  const paths = materializedArtifacts.get(artifactKey(root, runId));
+  if (!paths || !chunks?.length) return false;
+
+  return synchronized(paths.output, async () => {
+    try {
+      const state = await readState(paths.state);
+      const output = await outputStat(paths.output);
+      const expectedSequence = (state?.sequence || 0) + 1;
+      if (!state || !output || state.legacy || chunks[0].sequence !== expectedSequence) {
+        throw new CommandOutputResourceError('Command output resource is stale');
+      }
+      await appendChunks(paths.output, chunks);
+      const info = await outputStat(paths.output);
+      await writeState(paths.state, { sequence: chunks.at(-1).sequence, size: info.size, legacy: false });
+      return true;
+    } catch (error) {
+      materializedArtifacts.delete(artifactKey(root, runId));
+      if (error instanceof CommandOutputResourceError) throw error;
+      throw new CommandOutputResourceError('Command output resource append failed');
+    }
+  });
+}
+
+/** Release the live registration after every command terminal path. */
+export async function closeCommandRunOutputResource({ workingDirectory, runId }) {
+  if (!RUN_ID.test(runId)) return;
+  let root;
+  try {
+    root = await realpath(workingDirectory);
+  } catch {
+    return;
+  }
+  const key = artifactKey(root, runId);
+  const paths = materializedArtifacts.get(key);
+  if (!paths) return;
+  await synchronized(paths.output, async () => { materializedArtifacts.delete(key); });
+}
+
+export const commandRunOutputResourceService = {
+  append: appendCommandRunOutputResource,
+  close: closeCommandRunOutputResource,
+};
+
 export async function removeCommandRunOutputResource({ workingDirectory, runId }) {
   if (!RUN_ID.test(runId)) throw new CommandOutputResourceError();
   const root = await realpath(workingDirectory);
+  materializedArtifacts.delete(artifactKey(root, runId));
   const runDirectory = resolve(root, '.circus', 'runs', runId);
   if (!within(root, runDirectory)) throw new CommandOutputResourceError();
   // Validate every existing component without creating anything during cleanup.

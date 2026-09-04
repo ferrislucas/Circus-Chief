@@ -7,6 +7,11 @@ import {
   wrapCommandForPlatform,
 } from './commandRunner.js';
 import * as osModule from 'os';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { EventEmitter } from 'node:events';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { getCommandRunOutputResource } from './commandRunOutputResource.js';
 
 describe('CommandRunner', () => {
   let runner;
@@ -29,6 +34,56 @@ describe('CommandRunner', () => {
       expect(output).toHaveLength(1);
       expect(output[0]).toContain('first');
       expect(output[0]).toContain('second');
+    });
+
+    it('grows an already-requested transcript in persisted output order without another descriptor request', async () => {
+      const workingDirectory = await mkdtemp(join(tmpdir(), 'circus-live-output-'));
+      const chunks = [];
+      const run = { id: 'live_transcript', sessionId: 'session_1', status: 'running', legacyByteLength: 0, outputHighWater: 0 };
+      const repository = {
+        create: vi.fn(),
+        complete: vi.fn(() => { run.status = 'success'; }),
+        markKilled: vi.fn(),
+        appendBatch: vi.fn((_runId, writes) => writes.map((content) => {
+          const chunk = { sequence: chunks.length + 1, content };
+          chunks.push(chunk);
+          run.outputHighWater = chunk.sequence;
+          return chunk;
+        })),
+        getHighWater: () => chunks.length,
+        getOutputResourceMetadata: () => run,
+        readOutputPage: (_id, after) => ({ chunks: chunks.filter((chunk) => chunk.sequence > after) }),
+      };
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.pid = 12345;
+      const runner = new CommandRunner({ outputDbFlushInterval: 5, commandRunRepository: repository, spawnProcess: () => child });
+
+      try {
+        const completion = runner.run(
+          {
+            runId: run.id,
+            command: 'delayed output command',
+            workingDirectory,
+          },
+          {},
+          { sessionId: run.sessionId, buttonId: 'button_1' },
+        );
+        const descriptor = await getCommandRunOutputResource({ workingDirectory, run, repository });
+
+        child.stdout.emit('data', Buffer.from('first\n'));
+        await vi.waitFor(async () => expect(await readFile(join(workingDirectory, descriptor.path), 'utf8')).toBe('first\n'));
+        child.stderr.emit('data', Buffer.from('second\n'));
+        await vi.waitFor(async () => expect(await readFile(join(workingDirectory, descriptor.path), 'utf8')).toBe('first\nsecond\n'));
+        child.stdout.emit('data', Buffer.from('third'));
+        child.emit('close', 0, null);
+        await expect(completion).resolves.toBe(0);
+        await vi.waitFor(async () => expect(await readFile(join(workingDirectory, descriptor.path), 'utf8')).toBe(chunks.map((chunk) => chunk.content).join('')));
+        expect(chunks.map((chunk) => chunk.content).join('')).toBe('first\nsecond\nthird');
+      } finally {
+        await rm(workingDirectory, { recursive: true, force: true });
+      }
     });
 
     it('contains an output callback failure while still completing the run', async () => {

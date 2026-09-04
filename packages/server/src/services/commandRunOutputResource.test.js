@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { getCommandRunOutputResource, removeCommandRunOutputResource } from './commandRunOutputResource.js';
+import {
+  appendCommandRunOutputResource,
+  getCommandRunOutputResource,
+  removeCommandRunOutputResource,
+} from './commandRunOutputResource.js';
 
 const roots = [];
 const execFileAsync = promisify(execFile);
@@ -36,6 +40,31 @@ describe('commandRunOutputResource', () => {
     const second = await getCommandRunOutputResource({ workingDirectory, run, repository });
     expect(second.path).toBe(first.path);
     expect(await readFile(join(workingDirectory, second.path), 'utf8')).toBe('new output\n');
+  });
+
+  it('reconciles a materialized transcript from persisted output after an append failure', async () => {
+    const workingDirectory = await root();
+    const chunks = [];
+    const run = { id: 'append_failure', sessionId: 'session_1', status: 'running', legacyByteLength: 0, outputHighWater: 0 };
+    const repository = {
+      getHighWater: () => chunks.length,
+      getOutputResourceMetadata: () => run,
+      readOutputPage: (_id, after) => ({ chunks: chunks.filter((chunk) => chunk.sequence > after) }),
+    };
+
+    const descriptor = await getCommandRunOutputResource({ workingDirectory, run, repository });
+    await rm(join(workingDirectory, '.circus', 'runs', run.id, 'output.log'));
+    chunks.push({ sequence: 1, content: 'persisted despite append failure\n' });
+    run.outputHighWater = 1;
+
+    await expect(appendCommandRunOutputResource({
+      workingDirectory,
+      runId: run.id,
+      chunks: [{ sequence: 1, content: 'persisted despite append failure\n' }],
+    })).rejects.toThrow();
+
+    await getCommandRunOutputResource({ workingDirectory, run, repository });
+    expect(await readFile(join(workingDirectory, descriptor.path), 'utf8')).toBe('persisted despite append failure\n');
   });
 
   it('materializes full legacy output and rejects unsafe run IDs', async () => {
