@@ -10,6 +10,13 @@ import {
   waitForSessionToExist,
 } from './helpers';
 
+async function expandLiveOutput(page: any) {
+  const collapsed = page.getByText('Show live output', { exact: true });
+  await expect(collapsed).toBeVisible({ timeout: 15000 });
+  await collapsed.click();
+  await expect(collapsed).toBeHidden({ timeout: 15000 });
+}
+
 test.describe('Child Session Live Output on Session List', () => {
   test.describe.configure({ timeout: 60000 });
 
@@ -74,6 +81,8 @@ test.describe('Child Session Live Output on Session List', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`, {
       waitFor: '.session-card',
     });
+
+    await expandLiveOutput(page);
 
     // Seed a work log on the child session
     await seedWorkLog(child.id, {
@@ -142,6 +151,8 @@ test.describe('Child Session Live Output on Session List', () => {
     const runningBadge = page.locator('.status-running');
     await expect(runningBadge).toBeVisible({ timeout: 15000 });
 
+    await expandLiveOutput(page);
+
     // Seed work log on parent
     await seedWorkLog(parent.id, {
       type: 'tool_input',
@@ -181,6 +192,8 @@ test.describe('Child Session Live Output on Session List', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`, {
       waitFor: '.session-card',
     });
+
+    await expandLiveOutput(page);
 
     // Seed a work log on the grandchild session
     await seedWorkLog(grandchild.id, {
@@ -261,6 +274,8 @@ test.describe('Child Session Live Output on Session List', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`, {
       waitFor: '.session-card',
     });
+
+    await expandLiveOutput(page);
 
     // Seed work logs on both children
     await seedWorkLog(child1.id, {
