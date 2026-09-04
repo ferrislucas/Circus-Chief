@@ -5,16 +5,18 @@ import { broadcastToProject } from '../websocket.js';
 import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
   getRun, attachRootSession, reconcileLaneRun,
-  supersedeRunForCard, declareExitLane, closeOwnWork, markExecutionState, markHeldForLimit,
-  computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition, deferCardMoveForTurn,
+  supersedeRunForCard, closeOwnWork, markExecutionState, markHeldForLimit,
+  computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition,
 } from './workflowSessionService.js';
 import { auditKanbanInvariants, reconcileKanbanOwnership } from './kanbanRecoveryService.js';
+import { kanbanRoutingMetrics } from './kanbanRoutingObservability.js';
 
 describe('workflowSessionService', () => {
   let project; let board; let source; let target; let root; let card;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    kanbanRoutingMetrics.reset();
     project = projects.create('Workflow project', '/tmp/workflow');
     board = kanbanBoards.create(project.id);
     [source, target] = kanbanLanes.getByBoardId(board.id);
@@ -36,6 +38,16 @@ describe('workflowSessionService', () => {
     expect(finalizeOwnWorkCompletion(worker.id, token).status).toBe('succeeded');
     expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
     expect(getRun(run.id).openCount).toBe(0);
+  });
+
+  it('counts a pending destination discarded by a superseded run after its transaction commits', async () => {
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    databaseManager.get().prepare('UPDATE kanban_lane_runs SET chosen_exit_lane_id=? WHERE id=?').run(target.id, run.id);
+
+    supersedeRunForCard(card.id, 'test_supersession');
+    await Promise.resolve();
+
+    expect(kanbanRoutingMetrics.snapshot().discarded).toBe(1);
   });
 
   it('broadcasts a completion card move only after the outer finalization transaction commits', () => {
@@ -161,17 +173,20 @@ describe('workflowSessionService', () => {
       expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
     });
 
-    it('cancels the run and does not move the card on a user stop', () => {
+    it('cancels the run, discards a pending destination, and does not move the card on a user stop', async () => {
       const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
       const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
       attachRootSession(run.id, worker.id);
       beginWorkflowTurn(worker.id);
+      databaseManager.get().prepare('UPDATE kanban_lane_runs SET chosen_exit_lane_id=? WHERE id=?').run(target.id, run.id);
 
       const reconciled = closeOwnWork(worker.id, 'cancelled', 'Stopped by user');
 
       expect(reconciled.status).toBe('cancelled');
       expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
       expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+      await Promise.resolve();
+      expect(kanbanRoutingMetrics.snapshot().discarded).toBe(1);
     });
 
     it('is idempotent: a second call after the first close is a no-op', () => {
@@ -448,212 +463,6 @@ describe('workflowSessionService', () => {
     }));
   });
 
-  describe('deferred exits for an active lane run', () => {
-    function runningWorker() {
-      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
-      const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
-      attachRootSession(run.id, worker.id);
-      beginWorkflowTurn(worker.id);
-      databaseManager.get().prepare("UPDATE sessions SET status='running' WHERE id=?").run(worker.id);
-      return { worker, run };
-    }
-
-    it('leaves the worker running so its in-flight turn can finish', () => {
-      const { worker, run } = runningWorker();
-
-      expect(declareExitLane(card.id, target.id)).toEqual(expect.objectContaining({ status: 'open' }));
-
-      // The whole point: the request that triggered this must not kill the
-      // turn that issued it. Own work stays open for normal completion.
-      const after = sessions.getById(worker.id);
-      expect(after.status).toBe('running');
-      expect(after.ownWorkState).toBe('open');
-      expect(after.executionState).toBe('running');
-      expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'open', chosenExitLaneId: target.id }));
-    });
-
-    it('uses the latest valid move request from one provider turn', () => {
-      const { worker, run } = runningWorker();
-      const { turnToken } = beginWorkflowTurn(worker.id);
-      const alternate = kanbanLanes.create(board.id, { name: 'Alternate', sortOrder: 9 });
-
-      deferCardMoveForTurn(card.id, target.id, { sessionId: worker.id, turnToken });
-      deferCardMoveForTurn(card.id, alternate.id, { sessionId: worker.id, turnToken });
-
-      expect(getRun(run.id).chosenExitLaneId).toBe(alternate.id);
-      finalizeOwnWorkCompletion(worker.id, { turnToken });
-      expect(kanbanCards.getById(card.id).laneId).toBe(alternate.id);
-    });
-
-    it('rejects an old completion after a newer turn replaces its token', () => {
-      const { worker, run } = runningWorker();
-      const first = beginWorkflowTurn(worker.id);
-      deferCardMoveForTurn(card.id, target.id, { sessionId: worker.id, turnToken: first.turnToken });
-      const second = beginWorkflowTurn(worker.id);
-
-      expect(finalizeOwnWorkCompletion(worker.id, { turnToken: first.turnToken })).toBeNull();
-      expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
-      expect(getRun(run.id).status).toBe('open');
-      // The raw durable token is what fences the late first completion.
-      expect(databaseManager.get().prepare('SELECT execution_turn_token FROM sessions WHERE id=?').get(worker.id).execution_turn_token)
-        .toBe(second.turnToken);
-    });
-
-    it('discards a worker move when an external actor moves the card first', () => {
-      const { worker, run } = runningWorker();
-      const { turnToken } = beginWorkflowTurn(worker.id);
-      deferCardMoveForTurn(card.id, target.id, { sessionId: worker.id, turnToken });
-
-      supersedeRunForCard(card.id, 'external_move');
-      kanbanCards.moveToLane(card.id, source.id === target.id ? source.id : target.id);
-      expect(finalizeOwnWorkCompletion(worker.id, { turnToken })).toBeNull();
-      expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
-      expect(getRun(run.id).status).toBe('superseded');
-    });
-
-    it('lands waiting/idle when the turn completes, not stuck running', () => {
-      const { worker } = runningWorker();
-      declareExitLane(card.id, target.id);
-      kanbanCards.moveToLane(card.id, target.id);
-
-      finalizeOwnWorkCompletion(worker.id);
-
-      const after = sessions.getById(worker.id);
-      expect(after.ownWorkState).toBe('closed_successfully');
-      expect(after.executionState).toBe('idle');
-    });
-
-    it('does not let the completion target override the declared lane', () => {
-      const { worker, run } = runningWorker();
-      declareExitLane(card.id, target.id);
-      finalizeOwnWorkCompletion(worker.id);
-
-      expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
-      expect(getRun(run.id).status).toBe('succeeded');
-      expect(attemptLaneRunTransition(run.id).pendingTargetLaneTrigger).toBeUndefined();
-    });
-
-    it.each([
-      ['closed_failed', 'provider error', 'failed'],
-      ['cancelled', 'Stopped by user', 'cancelled'],
-    ])('discards and audits a deferred exit when the run is %s', (outcome, reason, runStatus) => {
-      const { worker, run } = runningWorker();
-      declareExitLane(card.id, target.id);
-
-      expect(closeOwnWork(worker.id, outcome, reason).status).toBe(runStatus);
-      expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
-      expect(getRun(run.id).chosenExitLaneId).toBe(target.id);
-      expect(databaseManager.get().prepare(`SELECT session_id, details_json
-        FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='deferred_exit_discarded'`)
-        .get(run.id)).toEqual({
-        session_id: null,
-        details_json: JSON.stringify({ targetLaneId: target.id, outcome: runStatus }),
-      });
-    });
-
-    it('discards and audits a deferred exit when the run is superseded by a manual move', () => {
-      const { run } = runningWorker();
-      declareExitLane(card.id, target.id);
-
-      supersedeRunForCard(card.id, 'manual_move');
-
-      expect(getRun(run.id).status).toBe('superseded');
-      expect(getRun(run.id).chosenExitLaneId).toBe(target.id);
-      expect(databaseManager.get().prepare(`SELECT details_json
-        FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='deferred_exit_discarded'`)
-        .get(run.id)).toEqual({
-        details_json: JSON.stringify({ targetLaneId: target.id, outcome: 'superseded' }),
-      });
-    });
-
-    it('recovers a declared exit after a crash before turn completion', () => {
-      const { worker, run } = runningWorker();
-      declareExitLane(card.id, target.id);
-
-      // Simulate a process crash after the turn's own-work state was written
-      // but before its in-process reconciliation callback could run.
-      databaseManager.get().prepare(`UPDATE sessions SET own_work_state='closed_successfully',
-        own_work_closed_at=?, execution_state='idle' WHERE id=?`).run(Date.now(), worker.id);
-
-      const recovery = reconcileKanbanOwnership({ dryRun: false });
-
-      expect(getRun(run.id).status).toBe('succeeded');
-      expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
-      expect(databaseManager.get().prepare('SELECT count(*) count FROM kanban_lane_entry_events WHERE caused_by_run_id=?')
-        .get(run.id).count).toBe(0);
-      expect(recovery.report.ok).toBe(true);
-    });
-
-    it('recovers an undeclared stuck run whose root reached the terminal state', () => {
-      const { worker, run } = runningWorker();
-      // No declareExitLane: completion_target_lane_id (target) is the only exit.
-
-      databaseManager.get().prepare(`UPDATE sessions SET own_work_state='closed_successfully',
-        own_work_closed_at=?, execution_state='idle' WHERE id=?`).run(Date.now(), worker.id);
-
-      const recovery = reconcileKanbanOwnership({ dryRun: false });
-
-      expect(getRun(run.id).status).toBe('succeeded');
-      expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
-      expect(recovery.report.ok).toBe(true);
-    });
-
-    it('creates a successor run and a drainable entry event when the declared exit lane is structured', () => {
-      const { worker, run } = runningWorker();
-      // Make the target lane structured so a successor run must be created.
-      kanbanLanes.update(target.id, { onEnterPrompt: 'validate the work' });
-      declareExitLane(card.id, target.id);
-
-      databaseManager.get().prepare(`UPDATE sessions SET own_work_state='closed_successfully',
-        own_work_closed_at=?, execution_state='idle' WHERE id=?`).run(Date.now(), worker.id);
-
-      const recovery = reconcileKanbanOwnership({ dryRun: false });
-
-      expect(getRun(run.id).status).toBe('succeeded');
-      expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
-      // A successor run exists and its entry event is pending for the retry worker.
-      expect(databaseManager.get().prepare(`SELECT status FROM kanban_lane_entry_events
-        WHERE caused_by_run_id=?`).get(run.id).status).toBe('pending');
-      // The fresh successor must not be reported as an invariant violation.
-      expect(recovery.report.ok).toBe(true);
-    });
-
-    it('rejects a same-lane reorder without completing or superseding the run', () => {
-      const { worker, run } = runningWorker();
-
-      expect(() => declareExitLane(card.id, source.id))
-        .toThrow('exit lane must differ');
-
-      expect(getRun(run.id).status).toBe('open');
-      expect(sessions.getById(worker.id).ownWorkState).toBe('open');
-    });
-
-    it('does not interrupt an active child when declaring the root run exit', () => {
-      const { worker, run } = runningWorker();
-      const child = sessions.create(project.id, 'Child', 'child lane work', { parentSessionId: worker.id });
-      databaseManager.get().prepare("UPDATE sessions SET status='running' WHERE id=?").run(child.id);
-
-      expect(declareExitLane(card.id, target.id)).toEqual(expect.objectContaining({
-        id: run.id,
-        status: 'open',
-        chosenExitLaneId: target.id,
-      }));
-      expect(sessions.getById(worker.id).status).toBe('running');
-      expect(sessions.getById(child.id).status).toBe('running');
-      expect(getRun(run.id).status).toBe('open');
-    });
-
-    it('rejects a declaration once there is no open active run', () => {
-      const { worker } = runningWorker();
-      closeOwnWork(worker.id, 'closed_failed', 'boom');
-
-      expect(() => declareExitLane(card.id, target.id)).toThrow('no active lane run');
-    });
-
-    it('rejects a card with no active run', () => {
-      expect(() => declareExitLane(card.id, target.id)).toThrow('no active lane run');
-    });
-  });
 
   it('cancels a running member\'s workflow standing without aborting its turn when its run is superseded', () => {
     const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
