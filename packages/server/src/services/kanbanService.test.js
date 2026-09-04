@@ -140,6 +140,41 @@ describe('kanbanService', () => {
     });
   });
 
+  describe('routeWorkspaceCard repeated scheduled destinations', () => {
+    it('treats repeated requests for the same pending destination as no-ops without duplicate effects', async () => {
+      const { root, run } = setupActiveLaneRunCard();
+
+      await expect(routeWorkspaceCard(root.id, lanes[1].id))
+        .resolves.toEqual({ status: 'scheduled', laneId: lanes[1].id });
+      await expect(routeWorkspaceCard(root.id, lanes[1].id))
+        .resolves.toEqual({ status: 'noop', laneId: lanes[1].id });
+      await expect(routeWorkspaceCard(root.id, lanes[1].id))
+        .resolves.toEqual({ status: 'noop', laneId: lanes[1].id });
+
+      expect(getRun(run.id).chosenExitLaneId).toBe(lanes[1].id);
+      expect(databaseManager.get().prepare(
+        "SELECT COUNT(*) count FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='route_selected'",
+      ).get(run.id).count).toBe(1);
+      expect(broadcastToProject).toHaveBeenCalledTimes(1);
+      expect(broadcastToProject).toHaveBeenCalledWith(projectId, WS_MESSAGE_TYPES.KANBAN_EXIT_LANE_DECLARED, expect.any(Object));
+    });
+
+    it('emits exactly one mutation and side effect when overwriting a scheduled destination', async () => {
+      const { root, run } = setupActiveLaneRunCard();
+
+      await routeWorkspaceCard(root.id, lanes[1].id);
+      await expect(routeWorkspaceCard(root.id, lanes[2].id))
+        .resolves.toEqual({ status: 'scheduled', laneId: lanes[2].id });
+
+      expect(getRun(run.id).chosenExitLaneId).toBe(lanes[2].id);
+      expect(databaseManager.get().prepare(
+        "SELECT COUNT(*) count FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='route_selected'",
+      ).get(run.id).count).toBe(2);
+      expect(broadcastToProject).toHaveBeenCalledTimes(2);
+      expect(broadcastToProject).toHaveBeenLastCalledWith(projectId, WS_MESSAGE_TYPES.KANBAN_EXIT_LANE_DECLARED, expect.any(Object));
+    });
+  });
+
   describe('routeWorkspaceCard stale lane-run pointers', () => {
     it('supersedes the open run before entering a structured destination when the active pointer is stale', async () => {
       const { root, card, run } = setupActiveLaneRunCard();

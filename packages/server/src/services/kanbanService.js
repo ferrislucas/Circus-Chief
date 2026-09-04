@@ -113,9 +113,15 @@ function scheduledRouteOutcome({ run, card, workspace, laneId, finalizeMutation 
   });
 }
 
+function scheduledRouteNoopOutcome({ workspace, laneId, finalizeMutation }) {
+  return createRouteOutcome('noop', laneId, finalizeMutation, {
+    moved: null, projectId: workspace.projectId,
+  });
+}
+
 /** Re-read after a conditional miss; never acknowledge an uncommitted route. */
 function scheduleRouteOrRecover(db, { workspaceId, card, run, targetLane, workspace, laneId, finalizeMutation }) {
-  if (run.chosen_exit_lane_id === laneId) return scheduledRouteOutcome({ run, card, workspace, laneId, finalizeMutation });
+  if (run.chosen_exit_lane_id === laneId) return scheduledRouteNoopOutcome({ workspace, laneId, finalizeMutation });
   let selectedRun = run;
   let selectedCard = card;
   let time = updateScheduledDestination(db, selectedRun.id, laneId);
@@ -123,9 +129,9 @@ function scheduleRouteOrRecover(db, { workspaceId, card, run, targetLane, worksp
     selectedCard = kanbanCards.getBySessionId(workspaceId);
     selectedRun = getOwningOpenRun(db, selectedCard);
     if (!selectedRun) return movedRouteOutcome(db, { card: selectedCard || card, targetLane, workspace, laneId, finalizeMutation });
-    if (selectedRun.chosen_exit_lane_id === laneId) return scheduledRouteOutcome({
-      run: selectedRun, card: selectedCard, workspace, laneId, finalizeMutation,
-    });
+    if (selectedRun.chosen_exit_lane_id === laneId) {
+      return scheduledRouteNoopOutcome({ workspace, laneId, finalizeMutation });
+    }
     time = updateScheduledDestination(db, selectedRun.id, laneId);
     if (!time) throw new ApiError('Lane routing changed concurrently; please retry', { status: 503, code: 'KANBAN_ROUTE_RETRYABLE' });
   }
