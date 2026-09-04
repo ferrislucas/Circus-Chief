@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS session_templates (
   git_branch TEXT,
   git_mode TEXT,
   model TEXT,
+  provider_id TEXT REFERENCES providers(id),
   mode TEXT DEFAULT 'yolo' CHECK(mode IN ('plan', 'standard', 'yolo')),
   effort_level TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto')),
   -- Orphaned column: the per-template "target lane" mechanism was removed.
@@ -113,6 +114,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   pending_prompt TEXT,
   slash_commands TEXT,
   pending_model TEXT,
+  pending_provider_id TEXT REFERENCES providers(id),
   auto_send_pending_prompt INTEGER DEFAULT 0,
   -- True while the agent is blocked mid-turn on an AskUserQuestion or
   -- permission tool call awaiting the user's answer. Mirrors the in-memory
@@ -451,6 +453,7 @@ CREATE TABLE IF NOT EXISTS kanban_lanes (
   on_enter_prompt TEXT,
   on_enter_mode TEXT,
   on_enter_model TEXT,
+  on_enter_provider_id TEXT REFERENCES providers(id),
   on_enter_effort_level TEXT,
   on_enter_thinking_enabled INTEGER,
   on_enter_auto_reschedule_enabled INTEGER DEFAULT 0,

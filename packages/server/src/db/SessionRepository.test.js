@@ -4,6 +4,9 @@ import { ProjectRepository } from './ProjectRepository.js';
 import { MessageRepository } from './MessageRepository.js';
 import { ConversationRepository } from './ConversationRepository.js';
 import { SessionTemplateRepository } from './SessionTemplateRepository.js';
+import { ProviderRepository } from './ProviderRepository.js';
+import { ModelTierRepository } from './ModelTierRepository.js';
+import { buildTierRef } from '@circuschief/shared';
 
 describe('SessionRepository', () => {
   // Uses global setup from test/setup.js
@@ -382,6 +385,67 @@ describe('SessionRepository', () => {
           agentType: 'codex',
         });
         expect(session.agentType).toBe('codex');
+      });
+
+      // Work Item 2 (Model Tiers remediation): a `tier::<id>` model must
+      // resolve to its tier's first enabled member's agent kind, never
+      // silently default to 'claude-code'. SessionRepository.create() is the
+      // most central call site — the public session-create API leaves
+      // `config.agentType` unset, so this fallback determines the agentType
+      // persisted for essentially every directly-created session.
+      describe('with a Model Tier reference', () => {
+        let providerRepo;
+        let tierRepo;
+
+        beforeEach(() => {
+          providerRepo = new ProviderRepository();
+          tierRepo = new ModelTierRepository();
+        });
+
+        it('derives codex for a session bound to a Codex-first tier', () => {
+          const codexProvider = providerRepo.create({ name: 'Tier AgentType Codex Provider', kind: 'openai' });
+          providerRepo.addModel(codexProvider.id, { modelId: 'tier-agenttype-codex-model', displayName: 'Codex Model' });
+          const tier = tierRepo.create({
+            name: 'SessionRepository Codex Tier',
+            members: [{ providerId: codexProvider.id, modelId: 'tier-agenttype-codex-model', position: 0 }],
+          });
+
+          const session = repo.create(projectId, 'Test', 'Prompt', { model: buildTierRef(tier.id) });
+          expect(session.agentType).toBe('codex');
+        });
+
+        it('derives gemini for a session bound to a Gemini-first tier', () => {
+          const googleProvider = providerRepo.create({ name: 'Tier AgentType Gemini Provider', kind: 'google' });
+          providerRepo.addModel(googleProvider.id, { modelId: 'tier-agenttype-gemini-model', displayName: 'Gemini Model' });
+          const tier = tierRepo.create({
+            name: 'SessionRepository Gemini Tier',
+            members: [{ providerId: googleProvider.id, modelId: 'tier-agenttype-gemini-model', position: 0 }],
+          });
+
+          const session = repo.create(projectId, 'Test', 'Prompt', { model: buildTierRef(tier.id) });
+          expect(session.agentType).toBe('gemini');
+        });
+
+        it('defaults to claude-code (never throws) for a tier with no enabled members', () => {
+          const tier = tierRepo.create({ name: 'SessionRepository Empty Tier', members: [] });
+          const session = repo.create(projectId, 'Test', 'Prompt', { model: buildTierRef(tier.id) });
+          expect(session.agentType).toBe('claude-code');
+        });
+
+        it('explicit agentType still wins over tier-based resolution', () => {
+          const codexProvider = providerRepo.create({ name: 'Tier AgentType Override Provider', kind: 'openai' });
+          providerRepo.addModel(codexProvider.id, { modelId: 'tier-agenttype-override-model', displayName: 'Codex Model' });
+          const tier = tierRepo.create({
+            name: 'SessionRepository Override Tier',
+            members: [{ providerId: codexProvider.id, modelId: 'tier-agenttype-override-model', position: 0 }],
+          });
+
+          const session = repo.create(projectId, 'Test', 'Prompt', {
+            model: buildTierRef(tier.id),
+            agentType: 'claude-code',
+          });
+          expect(session.agentType).toBe('claude-code');
+        });
       });
     });
   });

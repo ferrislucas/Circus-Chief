@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { projects, projectDefaults } from '../database.js';
 import { ProjectSessionDefaultsRequest } from '@circuschief/shared/contracts/projects';
-import { validateModelId } from './model-validation.js';
+import { validateModelAndProvider } from './model-validation.js';
 
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
 
@@ -34,12 +34,14 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  const modelResult = validateModelId(result.data.model);
+  const modelResult = validateModelAndProvider(result.data.model, result.data.providerId);
   if (modelResult.error) {
     return res.status(400).json({ error: modelResult.error });
   }
 
-  const updated = projectDefaults.upsert(req.params.id, result.data);
+  const updated = projectDefaults.upsert(req.params.id, {
+    ...result.data, model: modelResult.model, providerId: modelResult.providerId,
+  });
   res.status(200).json(updated);
 });
 

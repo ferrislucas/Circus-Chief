@@ -35,12 +35,19 @@ function validateMessageRequest(session, content, model) {
     return { status: 400, body: { error: 'Session is not waiting for input' } };
   }
 
-  const modelResult = validateModelId(model);
+  // Re-selecting the model the session is already bound to is a no-op, not a
+  // new selection (the web client always echoes session.model on a plain
+  // follow-up). Normalize it away so a binding that went stale after creation
+  // (e.g. its tier was deleted) skips the write-time validation meant for NEW
+  // bindings and degrades per PRD E3/D6 instead of a 400.
+  const effectiveRequestedModel = model === session.model ? null : model;
+
+  const modelResult = validateModelId(effectiveRequestedModel);
   if (modelResult.error) {
     return { status: 400, body: { error: modelResult.error } };
   }
 
-  const crossKindError = checkCrossKindSwitch(session, model);
+  const crossKindError = checkCrossKindSwitch(session, effectiveRequestedModel);
   if (crossKindError) {
     return { status: 400, body: crossKindError };
   }
@@ -123,6 +130,7 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
         pendingPrompt: null,
         pendingConversationId: null,
         pendingModel: null,
+        pendingProviderId: null,
       });
     }
 

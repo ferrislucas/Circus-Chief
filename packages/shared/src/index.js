@@ -4,4 +4,5 @@ export * from './constants.js';
 export * from './utils.js';
 export * from './contracts/canvas.js';
 export * from './contracts/providers.js';
+export * from './contracts/modelTiers.js';
 export * from './contracts/prompts.js';

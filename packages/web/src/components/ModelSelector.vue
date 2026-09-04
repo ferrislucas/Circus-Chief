@@ -4,6 +4,21 @@
     :data-model="effectiveSelectedModel"
     :data-provider-id="effectiveSelectedProviderId || ''"
   >
+    <!--
+      Tier badge: shown whenever the BOUND value is a tier ref (F11), based on
+      the raw `modelValue` prop rather than `effectiveSelectedModel`. This
+      keeps the chip visible even when the tier has been deleted/emptied
+      (Fix 8) — `effectiveSelectedModel` falls back to a concrete default
+      model for the <select> in that case, but the chip must still surface
+      that the underlying binding is a (now-stale) tier reference rather than
+      silently presenting as an ordinary concrete-model selection.
+    -->
+    <span
+      v-if="isTierRef(props.modelValue)"
+      class="tier-chip"
+      :class="{ 'tier-chip--stale': isStaleTierRef }"
+      :title="tierChipTitle"
+    >Tier: {{ tierChipName }}</span>
     <select
       id="model-select"
       :value="effectiveSelectedKey"
@@ -17,6 +32,20 @@
       >
         {{ emptyLabel }}
       </option>
+      <!-- Tiers optgroup (shown only when tiers with ≥1 member exist) -->
+      <optgroup
+        v-if="tiersWithMembers.length > 0"
+        label="Model Tiers"
+      >
+        <option
+          v-for="tier in tiersWithMembers"
+          :key="`tier::${tier.id}`"
+          :value="`tier::${tier.id}`"
+        >
+          {{ tier.name }}{{ tier.description ? ` — ${tier.description}` : '' }}
+        </option>
+      </optgroup>
+
       <optgroup
         v-for="provider in visibleProviders"
         :key="provider.id"
@@ -39,7 +68,7 @@
     <span
       v-if="isUnknownModel"
       class="unknown-model-badge"
-      :title="`Stored model '${model}' is no longer available. Choose a replacement to update it.`"
+      :title="unknownModelTitle"
     >unknown model</span>
   </div>
 </template>
@@ -47,6 +76,13 @@
 <script setup>
 import { ref, computed, watch, toRef, onMounted } from 'vue';
 import { useProvidersStore } from '../stores/providers.js';
+import { useTiersStore, isTierRef } from '../stores/tiers.js';
+import {
+  tierDisplayName,
+  tierDisplayTitle,
+  tierIsStale,
+  tierSupportsProviderKinds,
+} from './modelSelectorTiers.js';
 
 const props = defineProps({
   modelValue: {
@@ -95,20 +131,52 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  allowedProviderKinds: {
+    type: Array,
+    default: null,
+  },
 });
 
 const emit = defineEmits(['update:modelValue', 'model-selected', 'update:providerId']);
 
-const providersStore = useProvidersStore();
+const EVT_UPDATE_MODEL_VALUE = 'update:modelValue';
+const EVT_UPDATE_PROVIDER_ID = 'update:providerId';
+const EVT_MODEL_SELECTED = 'model-selected';
 
-// Check if providers have models loaded
-// Providers may have been fetched without models (e.g., from ProvidersView)
+const providersStore = useProvidersStore();
+const tiersStore = useTiersStore();
+
+const tiersWithMembers = computed(() => tiersStore.tiers.filter((tier) =>
+  tierSupportsProviderKinds(tier, providersStore, props.allowedProviderKinds)
+));
+
+const tierChipName = computed(() => {
+  if (!isTierRef(props.modelValue)) return '';
+  return tierDisplayName(props.modelValue, tiersStore);
+});
+
+const isStaleTierRef = computed(() => {
+  if (!isTierRef(props.modelValue)) return false;
+  return tierIsStale(props.modelValue, tiersStore, tiersWithMembers.value);
+});
+
+const tierChipTitle = computed(() => {
+  if (!isTierRef(props.modelValue)) return '';
+  return tierDisplayTitle(props.modelValue, tiersStore, isStaleTierRef.value);
+});
+
+const unknownModelTitle = computed(() => {
+  if (isTierRef(props.modelValue)) {
+    return `Model tier "${tierChipName.value || props.modelValue}" is no longer available. Choose a replacement to update it.`;
+  }
+  return `Stored model '${props.modelValue}' is no longer available. Choose a replacement to update it.`;
+});
+
 const providersHaveModels = computed(() => providersStore.providers.length > 0 &&
     providersStore.providers.some(p => p.models && p.models.length > 0));
 
 const shouldPreserveCurrentValue = computed(() => props.sessionScoped || props.preserveCurrentValue);
 
-// Get all valid model IDs from all providers
 const validModelIds = computed(() => {
   const ids = new Set();
   for (const provider of visibleProviders.value) {
@@ -121,9 +189,15 @@ const validModelIds = computed(() => {
   return ids;
 });
 
-// Check if a model ID is valid (exists as an option)
 function isValidModelId(modelId) {
-  return modelId && validModelIds.value.has(modelId);
+  if (!modelId) return false;
+  if (isTierRef(modelId)) {
+    // Valid if the tier exists with ≥1 member. Before the tier catalog has
+    // loaded, remain permissive so mounting does not produce a false warning.
+    const tierId = modelId.slice('tier::'.length);
+    return !tiersStore.loaded || tiersWithMembers.value.some((t) => t.id === tierId);
+  }
+  return validModelIds.value.has(modelId);
 }
 
 // Map a provider kind to an agent type. Default to 'claude-code' when `kind`
@@ -134,7 +208,6 @@ function agentTypeFor(provider) {
   return 'claude-code';
 }
 
-// Human-readable agent heading for optgroup labels.
 function agentLabelFor(provider) {
   const type = agentTypeFor(provider);
   if (type === 'codex') return 'Codex';
@@ -142,13 +215,11 @@ function agentLabelFor(provider) {
   return 'Claude Code';
 }
 
-// Sort providers by:
-//   1) Agent type: Claude Code first, then Gemini, then Codex
-//   2) Built-in before custom within the same agent
-//   3) Alphabetical by name among custom providers
 const AGENT_SORT_ORDER = { 'claude-code': 0, 'gemini': 1, 'codex': 2 };
 const sortedProviders = computed(() => {
-  const list = [...providersStore.providers].filter((p) => p.enabled !== false);
+  const list = [...providersStore.providers].filter(
+    (p) => p.enabled !== false && (!props.allowedProviderKinds || props.allowedProviderKinds.includes(p.kind || 'anthropic'))
+  );
   list.sort((a, b) => {
     const aType = agentTypeFor(a);
     const bType = agentTypeFor(b);
@@ -356,9 +427,16 @@ const hasInitialized = ref(false);
 // Fetch providers with models on mount
 onMounted(async () => {
   // Fetch if no providers OR if providers exist but don't have models loaded
-  if (providersStore.providers.length === 0 || !providersHaveModels.value) {
-    await providersStore.fetchProviders();
-  }
+  const providersFetch = (providersStore.providers.length === 0 || !providersHaveModels.value)
+    ? providersStore.fetchProviders()
+    : Promise.resolve();
+
+  // Also fetch tiers if not yet loaded
+  const tiersFetch = !tiersStore.loaded
+    ? tiersStore.fetchTiers()
+    : Promise.resolve();
+
+  await Promise.all([providersFetch, tiersFetch]);
 
   // Don't emit default - let parent component control model selection
   // This prevents overriding project defaults with the component's internal default
@@ -369,6 +447,11 @@ onMounted(async () => {
 // This handles legacy/shorthand values that don't match actual option values
 function resolveModelId(modelValue) {
   if (!modelValue) return null;
+
+  // Tier refs are always valid as-is — no resolution needed
+  if (isTierRef(modelValue)) {
+    return modelValue;
+  }
 
   // If it's already a full model ID (contains 'claude-'), use as-is
   if (modelValue.includes('claude-')) {
@@ -426,6 +509,8 @@ const effectiveSelectedModel = computed(() => {
 
 const effectiveSelectedProviderId = computed(() => {
   if (!effectiveSelectedModel.value) return null;
+  // Tier refs have no concrete provider at selection time
+  if (isTierRef(effectiveSelectedModel.value)) return null;
   const option = findVisibleOption(effectiveSelectedModel.value, props.providerId || selectedProviderId.value);
   return option?.provider.id || null;
 });
@@ -435,6 +520,10 @@ const effectiveSelectedKey = computed(() => {
     return '';
   }
   if (!effectiveSelectedModel.value) return '';
+  // Tier refs map directly to the option value (no provider::model encoding needed)
+  if (isTierRef(effectiveSelectedModel.value)) {
+    return effectiveSelectedModel.value;
+  }
   const option = findVisibleOption(effectiveSelectedModel.value, props.providerId || selectedProviderId.value);
   return option ? optionKey(option.provider.id, option.model.modelId) : effectiveSelectedModel.value;
 });
@@ -465,6 +554,15 @@ function syncSelectionFromProviders() {
 
   const resolvedModel = props.modelValue ? resolveModelId(props.modelValue) : null;
 
+  // Tier refs don't need provider resolution — handle them directly
+  if (resolvedModel && isTierRef(resolvedModel)) {
+    if (selectedModel.value !== resolvedModel) {
+      selectedModel.value = resolvedModel;
+      selectedProviderId.value = null;
+    }
+    return;
+  }
+
   // Check if resolved model is valid (exists as an option)
   if (resolvedModel && isValidModelId(resolvedModel)) {
     applyResolvedModel(resolvedModel);
@@ -489,7 +587,7 @@ function applyResolvedModel(resolvedModel) {
   if (selectedModel.value === resolvedModel) {
     if (selectedProviderId.value !== resolvedProviderId) {
       selectedProviderId.value = resolvedProviderId;
-      emit('update:providerId', resolvedProviderId);
+      emit(EVT_UPDATE_PROVIDER_ID, resolvedProviderId);
     }
     return;
   }
@@ -497,10 +595,10 @@ function applyResolvedModel(resolvedModel) {
   selectedProviderId.value = resolvedProviderId;
   // Emit the resolved value back to parent if it changed
   if (resolvedModel !== props.modelValue) {
-    emit('update:modelValue', resolvedModel);
+    emit(EVT_UPDATE_MODEL_VALUE, resolvedModel);
   }
   if (resolvedProviderId !== props.providerId) {
-    emit('update:providerId', resolvedProviderId);
+    emit(EVT_UPDATE_PROVIDER_ID, resolvedProviderId);
   }
 }
 
@@ -508,7 +606,7 @@ function applyDefaultModel() {
   if (!defaultModel.value || selectedModel.value === defaultModel.value) return;
   selectedModel.value = defaultModel.value;
   selectedProviderId.value = findVisibleOption(defaultModel.value)?.provider.id || null;
-  emit('update:modelValue', defaultModel.value);
+  emit(EVT_UPDATE_MODEL_VALUE, defaultModel.value);
 }
 
 // NOTE: Removed defaultModel watcher - it should not override after initialization
@@ -516,6 +614,20 @@ function applyDefaultModel() {
 
 function handleModelChange(event) {
   const optionValue = event.target.value;
+
+  // Tier ref selected — option value IS the tier ref
+  if (optionValue && isTierRef(optionValue)) {
+    if (effectiveSelectedModel.value === optionValue) return;
+
+    selectedModel.value = optionValue;
+    selectedProviderId.value = null;
+
+    emit(EVT_UPDATE_MODEL_VALUE, optionValue);
+    emit(EVT_UPDATE_PROVIDER_ID, null);
+    emit(EVT_MODEL_SELECTED, { modelId: optionValue, providerId: null, kind: null, tierId: optionValue.slice('tier::'.length) });
+    return;
+  }
+
   const parsed = optionValue ? parseOptionKey(optionValue) : null;
   const metadata = parsed
     ? {
@@ -533,9 +645,9 @@ function handleModelChange(event) {
   selectedProviderId.value = metadata.providerId;
 
   // Emit for v-model (empty string when allowEmpty option is selected)
-  emit('update:modelValue', modelId);
-  emit('update:providerId', metadata.providerId);
-  emit('model-selected', metadata);
+  emit(EVT_UPDATE_MODEL_VALUE, modelId);
+  emit(EVT_UPDATE_PROVIDER_ID, metadata.providerId);
+  emit(EVT_MODEL_SELECTED, metadata);
 }
 
 function providerKindForId(providerId) {
@@ -618,7 +730,6 @@ function optionLabel(provider, model) {
   background-repeat: no-repeat;
   background-position: right 0.5rem center;
   background-size: 12px;
-  padding-right: 2rem;
 }
 
 .model-select:hover:not(:disabled) {
@@ -640,5 +751,29 @@ function optionLabel(provider, model) {
 .model-select option {
   background-color: var(--color-background);
   color: var(--color-text);
+}
+
+/* Tier chip badge shown alongside the selector when a tier is bound (F11) */
+.tier-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.375rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background-color: rgba(6, 182, 212, 0.15);
+  color: #06b6d4;
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  border-radius: 0.25rem;
+  white-space: nowrap;
+  cursor: default;
+}
+
+/* Stale/deleted tier ref (Fix 8): reuse the warning palette so a tier that no
+   longer resolves reads distinctly from a healthy, active tier binding. */
+.tier-chip--stale {
+  background-color: rgba(251, 191, 36, 0.12);
+  color: var(--color-warning, #fbbf24);
+  border-color: rgba(251, 191, 36, 0.4);
 }
 </style>

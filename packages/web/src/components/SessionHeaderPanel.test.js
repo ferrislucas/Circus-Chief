@@ -6,8 +6,8 @@ import SessionHeaderPanel from './SessionHeaderPanel.vue';
 vi.mock('./OverflowMenu.vue', () => ({
   default: {
     name: 'OverflowMenu',
-    template: '<div class="overflow-menu"><button @click="$emit(\'duplicate\')">Dup</button><button @click="$emit(\'archive\')">Arc</button><button @click="$emit(\'delete\')">Del</button><button @click="$emit(\'copySessionId\')">Copy</button></div>',
-    emits: ['duplicate', 'archive', 'delete', 'copySessionId'],
+    template: '<div class="overflow-menu"><button @click="$emit(\'duplicate\')">Dup</button><button @click="$emit(\'archive\')">Arc</button><button @click="$emit(\'unarchive\')">Unarc</button><button @click="$emit(\'delete\')">Del</button><button @click="$emit(\'copySessionId\')">Copy</button></div>',
+    emits: ['duplicate', 'archive', 'unarchive', 'delete', 'copySessionId'],
     props: ['isArchived', 'isDeleting', 'copySessionIdText'],
   }
 }));

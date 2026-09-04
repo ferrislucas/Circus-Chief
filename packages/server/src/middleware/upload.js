@@ -55,20 +55,52 @@ export const upload = multer({
 });
 
 /**
+ * Send a 4xx response for an upload error after draining any unread request body.
+ *
+ * When multer's fileFilter (or a size/count limit) rejects an upload, multer stops
+ * consuming the request stream. If we send the response while the client is still
+ * uploading the multipart body, Node resets the socket rather than reusing it,
+ * which surfaces on the client as a flaky `ECONNRESET` — and occasionally a
+ * garbled/incorrect status — mid-upload. This is timing-sensitive and worsens
+ * under load (e.g. coverage instrumentation), so it can slip past the test retry.
+ *
+ * Draining the remaining body and only then responding lets the connection close
+ * cleanly, making the rejection path deterministic.
+ */
+function respondWithUploadError(req, res, status, body) {
+  const finish = () => {
+    if (res.headersSent) return;
+    res.status(status).json(body);
+  };
+
+  // Already fully received (or nothing left to read) — respond immediately.
+  if (req.complete) {
+    finish();
+    return;
+  }
+
+  // Swallow errors from the aborted/reset stream; respond once drained or ended.
+  req.on('error', finish);
+  req.on('end', finish);
+  req.unpipe?.();
+  req.resume();
+}
+
+/**
  * Error handler middleware for multer errors
  */
 export function handleUploadError(err, req, res, next) {
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ error: 'File too large. Maximum size is 10MB.' });
+      return respondWithUploadError(req, res, 400, { error: 'File too large. Maximum size is 10MB.' });
     }
     if (err.code === 'LIMIT_FILE_COUNT') {
-      return res.status(400).json({ error: 'Too many files. Maximum is 10 files per request.' });
+      return respondWithUploadError(req, res, 400, { error: 'Too many files. Maximum is 10 files per request.' });
     }
-    return res.status(400).json({ error: err.message });
+    return respondWithUploadError(req, res, 400, { error: err.message });
   }
   if (err) {
-    return res.status(400).json({ error: err.message });
+    return respondWithUploadError(req, res, 400, { error: err.message });
   }
   next();
 }

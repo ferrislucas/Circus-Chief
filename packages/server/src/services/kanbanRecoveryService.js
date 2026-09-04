@@ -258,7 +258,7 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
       WHERE ((status='claimed' AND claim_expires_at < ?) OR (status='pending' AND claim_token IS NOT NULL AND claimed_at < ?)${recoveredClaim})`)
       .run(now, now - 5 * 60 * 1000, now - 5 * 60 * 1000, ...preservedEntryEventIds).changes;
     if (released) changes.push({ type: 'reclaimed_entry_claims', count: released });
-    const cancelled = db.prepare(`UPDATE sessions SET scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL,
+    const cancelled = db.prepare(`UPDATE sessions SET scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_provider_id=NULL,
       auto_send_pending_prompt=0, execution_state='idle', workflow_reason='reconciliation_unowned_worker', workflow_updated_at=?
       WHERE lane_run_id IN (SELECT id FROM kanban_lane_runs WHERE status IN ('superseded', 'failed', 'cancelled'))
         AND (scheduled_at IS NOT NULL OR execution_state IN ('running', 'starting', 'retrying', 'paused'))`).run(now).changes;

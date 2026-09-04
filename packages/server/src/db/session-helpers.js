@@ -3,24 +3,78 @@
  * config parsing, and update-clause builders.
  */
 
-import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
+import { DEFAULT_RESCHEDULE_DELAY_MINUTES, isTierRef, parseTierRef } from '@circuschief/shared';
 // Imported only to resolve agent type from a model at call time (runtime), so the
 // ES-module cycle (index → SessionRepository → session-helpers → index) is safe.
-import { modelProviders } from './index.js';
+import { modelProviders, modelTiers } from './index.js';
 
 /** Fallback agent runtime when none can be derived from the model/provider. */
 export const DEFAULT_AGENT_TYPE = 'claude-code';
 
 /**
- * Resolve the agent type ('claude-code' or 'codex') from a model ID by looking
- * up which provider owns the model. Inlined here (rather than in sessionProvider)
- * to avoid a circular dependency:
- *   database.js (index) → SessionRepository → sessionProvider → database.js
- * @param {string|null} modelId
- * @returns {'claude-code'|'codex'}
+ * Find the first enabled tier member (by position) for a tier id — a minimal,
+ * cooldown-unaware lookup used only to derive an initial `agentType` at
+ * session-create time (Work Item 2). Deliberately duplicates a slice of
+ * `tierResolutionService.getTierMembersResolved` rather than importing that
+ * module: `services/tierResolutionService.js` imports `../database.js`,
+ * which would re-introduce the exact
+ * `index → SessionRepository → session-helpers → index` cycle this file was
+ * already structured to avoid (see the module-level comment above). The
+ * authoritative, cooldown-aware resolution still happens at actual session
+ * start via `reconcileAgentTypeForRun` / the tier-failover loop — this is
+ * defense-in-depth so a freshly-created session's persisted `agentType`
+ * isn't wrong in the window before that.
+ * @param {string} tierId
+ * @returns {{ providerId: string, modelId: string }|null}
  */
-export function resolveAgentTypeFromModel(modelId) {
+function findFirstEnabledTierMember(tierId) {
+  const tier = modelTiers.getByIdWithMembers?.(tierId);
+  if (!tier) return null;
+  const enabled = (tier.members || []).filter((m) => {
+    const provider = modelProviders.getById(m.providerId);
+    if (!provider || provider.enabled === false) return false;
+    return provider.models?.some((model) => model.modelId === m.modelId);
+  });
+  if (enabled.length === 0) return null;
+  enabled.sort((a, b) => a.position - b.position || a.createdAt - b.createdAt);
+  return enabled[0];
+}
+
+/**
+ * Resolve the INITIAL agent type ('claude-code', 'codex', or 'gemini') for a
+ * newly-created session from its model field, by looking up which provider
+ * owns the model. Inlined here (rather than in sessionProvider) to avoid a
+ * circular dependency: database.js (index) → SessionRepository →
+ * session-helpers → database.js.
+ *
+ * Name note (Work Item 4 / nit): `services/sessionProvider.js` exports a
+ * DIFFERENT, provider-aware `resolveAgentTypeFromModel(modelId, providerId)`
+ * used everywhere agent type is re-derived at run time (failover logger,
+ * agent guard, draft/session provider paths) — that one disambiguates tier
+ * members that share a `modelId` across different providers. This variant is
+ * narrower and cooldown-unaware: it is a create-time-only, first-enabled-member
+ * lookup used solely to seed a freshly-created session's persisted `agentType`
+ * column (see `SessionRepository.create`). Always prefer
+ * `sessionProvider.resolveAgentTypeFromModel` outside of session creation.
+ *
+ * Tier-aware (Work Item 2): `modelId` may be a `tier::<id>` reference. It is
+ * resolved to its first enabled member before the provider lookup, so a
+ * Codex/Gemini-first tier correctly derives that kind at session-create time
+ * instead of silently defaulting to 'claude-code'.
+ * @param {string|null} modelId
+ * @returns {'claude-code'|'codex'|'gemini'}
+ */
+export function resolveInitialAgentTypeFromModel(modelId) {
   if (!modelId) return DEFAULT_AGENT_TYPE;
+
+  if (isTierRef(modelId)) {
+    const tierId = parseTierRef(modelId);
+    const member = tierId ? findFirstEnabledTierMember(tierId) : null;
+    if (!member) return DEFAULT_AGENT_TYPE;
+    const agentType = modelProviders.getAgentTypeForProvider(member.providerId);
+    return agentType || DEFAULT_AGENT_TYPE;
+  }
+
   const provider = modelProviders.getProviderByModelId(modelId);
   if (!provider) return DEFAULT_AGENT_TYPE;
   // ProviderRepository.getAgentTypeForProvider maps kind → agent adapter
@@ -123,6 +177,29 @@ export function mapWorkflow(row) {
     executionState: row.execution_state || 'idle', subtreeOutcome: row.subtree_outcome || 'open' };
 }
 
+/**
+ * Resolve the lane run a new child session inherits from its parent.
+ *
+ * A child always preserves its requested parent, but only inherits workflow
+ * membership while the parent's own work remains open and its lane run is
+ * still the card's authoritative active run on its source lane.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {string|null} parentSessionId
+ * @returns {string|null} the inherited lane_run_id, or null when detached
+ */
+export function resolveInheritedLaneRunId(db, parentSessionId) {
+  if (!parentSessionId) return null;
+  const parent = db.prepare('SELECT lane_run_id, own_work_state FROM sessions WHERE id = ?').get(parentSessionId);
+  if (!parent?.lane_run_id || parent.own_work_state !== 'open') return null;
+  const authoritativeRun = db.prepare(`SELECT 1 FROM kanban_lane_runs r
+    JOIN kanban_cards c ON c.id = r.card_id
+    WHERE r.id = ? AND r.status = 'open'
+      AND c.active_lane_run_id = r.id AND c.lane_id = r.source_lane_id`)
+    .get(parent.lane_run_id);
+  return authoritativeRun ? parent.lane_run_id : null;
+}
+
 /** Default values for session-create config fields */
 const CONFIG_DEFAULTS = {
   mode: 'yolo',
@@ -189,6 +266,7 @@ export const DIRECT_FIELD_MAP = {
   rescheduleAtTokenCount: 'reschedule_at_token_count',
   pendingPrompt: 'pending_prompt',
   pendingModel: 'pending_model',
+  pendingProviderId: 'pending_provider_id',
   pendingConversationId: 'pending_conversation_id',
   effortLevel: 'effort_level',
   laneRunId: 'lane_run_id',
@@ -199,6 +277,8 @@ export const DIRECT_FIELD_MAP = {
   executionState: 'execution_state',
   subtreeOutcome: 'subtree_outcome',
   agentType: 'agent_type',
+  resolvedModel: 'resolved_model',
+  resolvedProviderId: 'resolved_provider_id',
 };
 
 /** camelCase -> snake_case column mapping for boolean fields (converted to 1/0) */

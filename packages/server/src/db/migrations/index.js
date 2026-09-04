@@ -16,6 +16,7 @@ import { miscMigrations } from './miscMigrations.js';
 import { kanbanMigrations } from './kanbanMigrations.js';
 import { providerMigrations } from './providerMigrations.js';
 import { providerCommitAttributionMigrations } from './providerCommitAttributionMigrations.js';
+import { modelTiersMigrations } from './modelTiersMigrations.js';
 
 /**
  * Build a lookup map from a migrations array keyed by migration name.
@@ -38,6 +39,7 @@ const m = toLookup(miscMigrations);
 const k = toLookup(kanbanMigrations);
 const pr = toLookup(providerMigrations);
 const pca = toLookup(providerCommitAttributionMigrations);
+const mt = toLookup(modelTiersMigrations);
 
 /**
  * Repair sessions whose parent link was lost during schema consolidation.
@@ -320,6 +322,13 @@ export const allMigrations = validateMigrations([
   k.get('sessions-drop-target_lane_id'),
   k.get('session_templates-drop-target_lane_id'),
 
+  // --- Model tiers (cross-model failover v1) ---
+  mt.get('model_tiers-create-tables'),
+  mt.get('sessions-add-resolved_model'),
+  // Present before the historical Kanban cutover so its copy SQL can retain it.
+  mt.get('model-tiers-provider-pair-columns'),
+  mt.get('model-tiers-repair-members-and-unique-indexes'),
+
   // --- Normalize retired Claude model ids in CONFIG columns only ---
   // (lanes/templates/defaults. Record columns like sessions.model are preserved.)
   m.get('normalize-stale-claude-model-ids'),
@@ -360,6 +369,10 @@ export const allMigrations = validateMigrations([
   k.get('sessions-drop-lane_trigger_depth'),
   k.get('kanban-drop-deferred-card-move-turn-fence'),
   k.get('kanban-routing-observability'),
+
+  // Must follow all sessions/lane table-recreation cutovers so an upgrade
+  // cannot add these columns only to have a historical recreation drop them.
+  mt.get('model-tiers-provider-pair-columns'),
 
   // --- Sessions blocked on agent input ---
   // Keep this last: it is additive and must run for databases created before

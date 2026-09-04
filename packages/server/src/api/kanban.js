@@ -20,6 +20,7 @@ import {
   removeLane as removeLaneService,
 } from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
+import { validateModelAndProvider } from './model-validation.js';
 import { getRun } from '../services/workflowSessionService.js';
 import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
 import { isApiError } from '../errors/ApiError.js';
@@ -294,6 +295,13 @@ router.post('/lanes', (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
+  const modelResult = validateModelAndProvider(
+    result.data.onEnterModel, result.data.onEnterProviderId, { fieldName: 'onEnterModel' }
+  );
+  if (modelResult.error) {
+    return res.status(400).json({ error: modelResult.error });
+  }
+
   const board = kanbanBoards.getByProjectId(projectId);
   if (!board) {
     return res.status(404).json({ error: 'Board not found' });
@@ -304,7 +312,9 @@ router.post('/lanes', (req, res) => {
 
   let lane;
   try {
-    lane = kanbanLanes.create(board.id, result.data);
+    lane = kanbanLanes.create(board.id, {
+      ...result.data, onEnterModel: modelResult.model, onEnterProviderId: modelResult.providerId,
+    });
   } catch (error) {
     if (isApiError(error)) return res.status(error.status).json({ error: error.message, code: error.code, field: error.field });
     throw error;
@@ -344,12 +354,20 @@ router.patch('/lanes/:laneId', (req, res) => {
     return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
   }
 
+  const model = result.data.onEnterModel === undefined ? lane.onEnterModel : result.data.onEnterModel;
+  const providerId = result.data.onEnterProviderId === undefined
+    ? lane.onEnterProviderId : result.data.onEnterProviderId;
+  const modelResult = validateModelAndProvider(model, providerId, { fieldName: 'onEnterModel' });
+  if (modelResult.error) return res.status(400).json({ error: modelResult.error });
+
   const targetError = completionTargetError(lane.boardId, result.data.completionTargetLaneId, laneId);
   if (targetError) return res.status(targetError.status).json({ error: targetError.error });
 
   let updated;
   try {
-    updated = kanbanLanes.update(laneId, result.data);
+    updated = kanbanLanes.update(laneId, {
+      ...result.data, onEnterModel: modelResult.model, onEnterProviderId: modelResult.providerId,
+    });
   } catch (error) {
     if (isApiError(error)) return res.status(error.status).json({ error: error.message, code: error.code, field: error.field });
     throw error;

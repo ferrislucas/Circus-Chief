@@ -23,6 +23,9 @@ export const TOAST_DURATION = 5000;
 /** Default delay (in minutes) before auto-rescheduling a session. */
 export const DEFAULT_RESCHEDULE_DELAY_MINUTES = 60;
 
+/** Cooldown period (ms) before a failed tier member is retried in the same process. */
+export const DEFAULT_TIER_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
 /** Default maximum number of automatic reschedules for an API-created session. */
 export const DEFAULT_MAX_RESCHEDULE_COUNT = 24;
 

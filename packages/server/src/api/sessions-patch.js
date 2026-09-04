@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { sessions, sessionTemplates, modelProviders, sessionSummaries } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { WS_MESSAGE_TYPES, isTierRef } from '@circuschief/shared';
 import * as summaryService from '../services/summaryService.js';
 import { setSessionNameFromPr } from '../services/prUrlService.js';
 import { checkSessionCiStatusNow } from '../services/prStatusService.js';
 import { broadcastSummaryUpdate } from '../services/summaryBroadcast.js';
 import { requireSession } from '../middleware/sessionLookup.js';
-import { validateModelId } from './model-validation.js';
+import { validateModelId, validateModelAndProvider } from './model-validation.js';
 import { validateScheduledAt } from './scheduledAtValidation.js';
 import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
 import {
@@ -122,6 +122,7 @@ const FIELD_DEFINITIONS = [
   { field: 'nextTemplateId', validate: validateNextTemplateId },
   { field: 'model', validate: validateModelId },
   { field: 'pendingModel', validate: (value) => validateModelId(value, { fieldName: 'pendingModel' }) },
+  { field: 'pendingProviderId' },
   { field: 'autoSendPendingPrompt', transform: Boolean },
   { field: 'providerId', validate: validateProviderId },
   { field: 'prUrl', validate: validatePrUrl },
@@ -138,6 +139,18 @@ const FIELD_DEFINITIONS = [
   { field: 'rescheduleCount', transform: (v) => parseInt(v, 10) },
   { field: 'rescheduleAtTokenCount', transform: (v) => v ? parseInt(v, 10) : null },
 ];
+
+function applyTierProviderRule(updateData) {
+  if (!Object.hasOwn(updateData, 'model') || !isTierRef(updateData.model)) {
+    return { updateData };
+  }
+
+  if (Object.hasOwn(updateData, 'providerId') && updateData.providerId !== null) {
+    return { updateData: {}, error: 'providerId must be null when model is a tier reference' };
+  }
+
+  return { updateData: { ...updateData, providerId: null } };
+}
 
 /**
  * Build update data object from request body using field definitions.
@@ -172,7 +185,12 @@ function buildUpdateData(body) {
     updateData.prUrlAutoLinkDisabled = updateData.prUrl === null;
   }
 
-  return { updateData };
+  // A tier binding has no single owning provider — the concrete provider is
+  // resolved per-run from the active tier member (Work Item 1). Reject an
+  // explicit concrete providerId submitted alongside a tier-bound `model`,
+  // and otherwise normalize the companion providerId to null so a stale
+  // concrete value can never shadow the tier's own resolution.
+  return applyTierProviderRule(updateData);
 }
 
 /**
@@ -274,9 +292,36 @@ function handlePrUrlSideEffects(session, sessionId, updateData) {
   });
 }
 
+function normalizeSessionSelectionPairs(input, session) {
+  const updateData = { ...input };
+  const pairs = [
+    ['model', 'providerId', session.model, session.providerId],
+    ['pendingModel', 'pendingProviderId', session.pendingModel, session.pendingProviderId],
+  ];
+  for (const [modelField, providerField, currentModel, currentProvider] of pairs) {
+    if (!Object.hasOwn(updateData, modelField) && !Object.hasOwn(updateData, providerField)) continue;
+    const model = Object.hasOwn(updateData, modelField) ? updateData[modelField] : currentModel;
+    const providerId = Object.hasOwn(updateData, providerField) ? updateData[providerField] : currentProvider;
+    const normalized = validateModelAndProvider(model, providerId, { fieldName: modelField });
+    if (normalized.error) return { error: normalized.error };
+    updateData[modelField] = normalized.model;
+    updateData[providerField] = normalized.providerId;
+  }
+  return { updateData };
+}
+
+function applyImplicitScheduledStatus(updateData, requestStatus, sessionStatus) {
+  if (updateData.scheduledAt != null && requestStatus === undefined && !['running', 'starting'].includes(sessionStatus)) {
+    return { ...updateData, status: 'scheduled' };
+  }
+  return updateData;
+}
+
 // PATCH /api/sessions/:id - Update session settings
 router.patch('/:id', requireSession, (req, res) => {
-  const { updateData, error } = buildUpdateData(req.body);
+  const built = buildUpdateData(req.body);
+  const { error } = built;
+  let updateData = built.updateData;
 
   if (error) {
     return res.status(400).json({ error });
@@ -286,16 +331,14 @@ router.patch('/:id', requireSession, (req, res) => {
     return res.status(400).json({ error: 'No valid fields to update' });
   }
 
-  if (
-    updateData.scheduledAt != null &&
-    req.body.status === undefined &&
-    !['running', 'starting'].includes(req.session_.status)
-  ) {
-    updateData.status = 'scheduled';
-  }
+  const normalizedPairs = normalizeSessionSelectionPairs(updateData, req.session_);
+  if (normalizedPairs.error) return res.status(400).json({ error: normalizedPairs.error });
+  updateData = normalizedPairs.updateData;
+
+  updateData = applyImplicitScheduledStatus(updateData, req.body.status, req.session_.status);
 
   const { driftError, agentTypeUpdate } = applyModelDriftGuard(
-    req.session_, req.params.id, updateData, req.body.providerId,
+    req.session_, req.params.id, updateData, updateData.pendingProviderId ?? updateData.providerId,
   );
   if (driftError) {
     return res.status(400).json(driftError);
