@@ -14,6 +14,7 @@ import { getRun } from './workflowRunReader.js';
 import { recomputeSubtreeOutcomes } from './workflowSessionState.js';
 import { broadcastCardTransition, moveCardForTransition } from './workflowLaneTransition.js';
 import { SESSION_EXECUTION_STATES } from '@circuschief/shared';
+import { publishDiscardedPendingDestination } from './kanbanRoutingObservability.js';
 
 export { getRun } from './workflowRunReader.js';
 export { computeSubtreeOutcome, recomputeSubtreeOutcomes } from './workflowSessionState.js';
@@ -389,13 +390,14 @@ export function reconcileLaneRun(runId, { allowTransition = true, deferBroadcast
       // Keep the terminal run attached to its card. The board response and
       // card details use this pointer to expose a failure's owning session.
       audit(db, runId, `run_${state}`, { sessionId: failed?.id || cancelled?.id });
-      return { result: getRun(runId), shouldTransition: false };
+      return { result: getRun(runId), shouldTransition: false, discardedPendingDestination: Boolean(run.chosen_exit_lane_id) };
     }
     return { result: getRun(runId), shouldTransition: rootOutcome === 'succeeded' };
   });
   // allowTransition=false reconciles a run (marks it terminal, releases state)
   // without ever moving its card or creating a successor run — used by boot
   // recovery, which must not mutate the board ahead of the preflight audit.
+  if (reconciliation.discardedPendingDestination) publishDiscardedPendingDestination();
   return reconciliation.shouldTransition && allowTransition
     ? attemptLaneRunTransition(runId, { deferBroadcast })
     : reconciliation.result;
@@ -524,8 +526,9 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
     for (const member of db.prepare('SELECT id FROM sessions WHERE lane_run_id=?').all(runId)) {
       audit(db, runId, 'member_cancelled_on_supersession', { sessionId: member.id, details: { reason } });
     }
-    return getRun(runId);
+    return { run: getRun(runId), discardedPendingDestination: Boolean(run.chosen_exit_lane_id) };
   });
+  if (result?.discardedPendingDestination) publishDiscardedPendingDestination();
   // Deliberately no dedicated lane-run websocket event yet. User-originated
   // card transitions emit their authoritative visible update after commit
   // (KANBAN_CARD_MOVED or KANBAN_CARD_REMOVED); lane/board removal also emits
@@ -533,7 +536,7 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
   // refetch to observe supersession until the protocol gains a run event.
   // NOTE: startup reconciliation (kanbanRecoveryService) also supersedes runs
   // with no paired event at all — clients only converge on it via refetch.
-  return result;
+  return result?.run || null;
 }
 
 export function supersedeRunForCard(cardId, reason = 'manual_move') {

@@ -23,6 +23,7 @@ import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js
 import { getRun } from '../services/workflowSessionService.js';
 import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
 import { isApiError } from '../errors/ApiError.js';
+import { kanbanRoutingMetrics } from '../services/kanbanRoutingObservability.js';
 
 const router = Router({ mergeParams: true });
 const LANE_NOT_FOUND_ERROR = 'Lane not found';
@@ -491,7 +492,7 @@ router.delete('/cards/:cardId', (req, res) => {
 // ============== Workspace-addressed Card Routes (agent-friendly) ==============
 
 /** Route a workspace card; the service decides whether it moves or is scheduled. */
-// eslint-disable-next-line max-statements -- route-level validation and idempotency fences stay adjacent.
+// eslint-disable-next-line max-statements, complexity -- route-level validation and idempotency fences stay adjacent.
 router.put('/cards/by-workspace/:workspaceId/lane', async (req, res) => {
   const { workspaceId: rawWorkspaceId } = req.params;
 
@@ -500,18 +501,24 @@ router.put('/cards/by-workspace/:workspaceId/lane', async (req, res) => {
 
   const workspace = sessions.getById(workspaceId);
   if (!workspace || workspace.projectId !== req.params.projectId) {
+    kanbanRoutingMetrics.recordRejected('validation');
     return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
   }
 
   const card = kanbanCards.getBySessionId(workspaceId);
   if (!card) {
+    kanbanRoutingMetrics.recordRejected('validation');
     return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
   }
   const board = boardForProject(req.params.projectId);
-  if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
+  if (!cardBelongsToBoard(card, board)) {
+    kanbanRoutingMetrics.recordRejected('validation');
+    return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
+  }
 
   const result = RouteKanbanCardRequest.safeParse(req.body);
   if (!result.success) {
+    kanbanRoutingMetrics.recordRejected('validation');
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
@@ -522,6 +529,7 @@ router.put('/cards/by-workspace/:workspaceId/lane', async (req, res) => {
 
   const targetLane = targetLaneForBoard(laneId, board);
   if (!targetLane) {
+    kanbanRoutingMetrics.recordRejected('validation');
     return sendTerminalOperationResponse(res, operation, 404, { error: TARGET_LANE_NOT_FOUND_ERROR });
   }
 
@@ -534,6 +542,7 @@ router.put('/cards/by-workspace/:workspaceId/lane', async (req, res) => {
     res.json(response);
   } catch (error) {
     if (isApiError(error)) {
+      if (error.code === 'KANBAN_ROUTE_RETRYABLE') kanbanRoutingMetrics.recordRejected('contention');
       return sendTerminalResponseFromCatch(res, operation, error.status, { error: error.message, code: error.code });
     }
     console.error('Failed to route kanban card by workspace:', error);

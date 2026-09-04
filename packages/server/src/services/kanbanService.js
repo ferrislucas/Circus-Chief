@@ -14,6 +14,7 @@ import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.j
 import { createLaneRunForEntry, supersedeLaneRun, supersedeRunForCard, isStructured, getRun } from './workflowSessionService.js';
 import { ApiError } from '../errors/ApiError.js';
 import { retrySqliteContention } from './sqliteContention.js';
+import { kanbanRoutingMetrics, recordRouteDecision } from './kanbanRoutingObservability.js';
 import { buildFullBoardResponse } from './kanbanBoardResponse.js';
 import {
   beginLaneEntryDelivery,
@@ -107,21 +108,22 @@ function movedRouteOutcome(db, { card, targetLane, workspace, laneId, finalizeMu
   });
 }
 
-function scheduledRouteOutcome({ run, card, workspace, laneId, finalizeMutation }) {
+function scheduledRouteOutcome({ run, card, workspace, laneId, finalizeMutation, overwritten = false }) {
   return createRouteOutcome('scheduled', laneId, finalizeMutation, {
     moved: null, selectedRunId: run.id, cardId: card.id, projectId: workspace.projectId,
+    auditOutcome: overwritten ? 'scheduled_overwritten' : 'scheduled',
   });
 }
 
-function scheduledRouteNoopOutcome({ workspace, laneId, finalizeMutation }) {
+function scheduledRouteNoopOutcome({ workspace, laneId, finalizeMutation, run = null }) {
   return createRouteOutcome('noop', laneId, finalizeMutation, {
-    moved: null, projectId: workspace.projectId,
+    moved: null, projectId: workspace.projectId, auditRunId: run?.id || null,
   });
 }
 
 /** Re-read after a conditional miss; never acknowledge an uncommitted route. */
 function scheduleRouteOrRecover(db, { workspaceId, card, run, targetLane, workspace, laneId, finalizeMutation }) {
-  if (run.chosen_exit_lane_id === laneId) return scheduledRouteNoopOutcome({ workspace, laneId, finalizeMutation });
+  if (run.chosen_exit_lane_id === laneId) return scheduledRouteNoopOutcome({ workspace, laneId, finalizeMutation, run });
   let selectedRun = run;
   let selectedCard = card;
   let time = updateScheduledDestination(db, selectedRun.id, laneId);
@@ -130,13 +132,14 @@ function scheduleRouteOrRecover(db, { workspaceId, card, run, targetLane, worksp
     selectedRun = getOwningOpenRun(db, selectedCard);
     if (!selectedRun) return movedRouteOutcome(db, { card: selectedCard || card, targetLane, workspace, laneId, finalizeMutation });
     if (selectedRun.chosen_exit_lane_id === laneId) {
-      return scheduledRouteNoopOutcome({ workspace, laneId, finalizeMutation });
+      return scheduledRouteNoopOutcome({ workspace, laneId, finalizeMutation, run: selectedRun });
     }
     time = updateScheduledDestination(db, selectedRun.id, laneId);
     if (!time) throw new ApiError('Lane routing changed concurrently; please retry', { status: 503, code: 'KANBAN_ROUTE_RETRYABLE' });
   }
   recordScheduledDestination(db, selectedRun.id, laneId, time);
-  return scheduledRouteOutcome({ run: selectedRun, card: selectedCard, workspace, laneId, finalizeMutation });
+  return scheduledRouteOutcome({ run: selectedRun, card: selectedCard, workspace, laneId, finalizeMutation,
+    overwritten: Boolean(run.chosen_exit_lane_id) });
 }
 
 export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
@@ -279,7 +282,8 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
  *
  * @returns {Promise<{status: 'noop'|'moved'|'scheduled', laneId: string}>}
  */
-export async function routeWorkspaceCard(workspaceId, laneId, { finalizeMutation } = {}) {
+export async function routeWorkspaceCard(workspaceId, laneId, { finalizeMutation, callerSessionId = null } = {}) {
+  const requestAt = Date.now();
   // eslint-disable-next-line max-statements, complexity -- the transactional state decision is intentionally co-located.
   const outcome = await retrySqliteContention(() => databaseManager.immediateTransaction(() => {
     const db = databaseManager.get();
@@ -294,15 +298,25 @@ export async function routeWorkspaceCard(workspaceId, laneId, { finalizeMutation
       throw new ApiError('Target lane not found', { status: 404, code: 'KANBAN_TARGET_LANE_NOT_FOUND' });
     }
 
-    if (card.laneId === laneId) {
-      return createRouteOutcome('noop', laneId, finalizeMutation, { moved: null, projectId: workspace.projectId });
-    }
-
     const run = getOwningOpenRun(db, card);
-    if (run) return scheduleRouteOrRecover(db, { workspaceId, card, run, targetLane, workspace, laneId, finalizeMutation });
-
-    return movedRouteOutcome(db, { card, targetLane, workspace, laneId, finalizeMutation });
+    const decision = card.laneId === laneId
+      ? createRouteOutcome('noop', laneId, finalizeMutation, {
+        moved: null, projectId: workspace.projectId, auditRunId: run?.id || null,
+      })
+      : run
+        ? scheduleRouteOrRecover(db, { workspaceId, card, run, targetLane, workspace, laneId, finalizeMutation })
+        : movedRouteOutcome(db, { card, targetLane, workspace, laneId, finalizeMutation });
+    const auditOutcome = decision.auditOutcome || decision.response.status;
+    recordRouteDecision(db, {
+      projectId: workspace.projectId, workspaceId, callerSessionId, sourceLaneId: card.laneId,
+      destinationLaneId: laneId, outcome: auditOutcome,
+      laneRunId: decision.selectedRunId || decision.auditRunId || null,
+      requestAt, committedAt: Date.now(),
+    });
+    return decision;
   }));
+
+  kanbanRoutingMetrics.recordAccepted(outcome.auditOutcome || outcome.response.status);
 
   if (outcome.moved) {
     broadcastToProject(outcome.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {

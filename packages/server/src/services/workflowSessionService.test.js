@@ -9,12 +9,14 @@ import {
   computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition,
 } from './workflowSessionService.js';
 import { auditKanbanInvariants, reconcileKanbanOwnership } from './kanbanRecoveryService.js';
+import { kanbanRoutingMetrics } from './kanbanRoutingObservability.js';
 
 describe('workflowSessionService', () => {
   let project; let board; let source; let target; let root; let card;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    kanbanRoutingMetrics.reset();
     project = projects.create('Workflow project', '/tmp/workflow');
     board = kanbanBoards.create(project.id);
     [source, target] = kanbanLanes.getByBoardId(board.id);
@@ -36,6 +38,16 @@ describe('workflowSessionService', () => {
     expect(finalizeOwnWorkCompletion(worker.id, token).status).toBe('succeeded');
     expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
     expect(getRun(run.id).openCount).toBe(0);
+  });
+
+  it('counts a pending destination discarded by a superseded run after its transaction commits', async () => {
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    databaseManager.get().prepare('UPDATE kanban_lane_runs SET chosen_exit_lane_id=? WHERE id=?').run(target.id, run.id);
+
+    supersedeRunForCard(card.id, 'test_supersession');
+    await Promise.resolve();
+
+    expect(kanbanRoutingMetrics.snapshot().discarded).toBe(1);
   });
 
   it('broadcasts a completion card move only after the outer finalization transaction commits', () => {
@@ -161,17 +173,20 @@ describe('workflowSessionService', () => {
       expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
     });
 
-    it('cancels the run and does not move the card on a user stop', () => {
+    it('cancels the run, discards a pending destination, and does not move the card on a user stop', async () => {
       const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
       const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
       attachRootSession(run.id, worker.id);
       beginWorkflowTurn(worker.id);
+      databaseManager.get().prepare('UPDATE kanban_lane_runs SET chosen_exit_lane_id=? WHERE id=?').run(target.id, run.id);
 
       const reconciled = closeOwnWork(worker.id, 'cancelled', 'Stopped by user');
 
       expect(reconciled.status).toBe('cancelled');
       expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
       expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+      await Promise.resolve();
+      expect(kanbanRoutingMetrics.snapshot().discarded).toBe(1);
     });
 
     it('is idempotent: a second call after the first close is a no-op', () => {

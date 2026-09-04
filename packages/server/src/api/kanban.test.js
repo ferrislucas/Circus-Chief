@@ -34,6 +34,7 @@ import kanbanRouter from './kanban.js';
 import { broadcastToProject } from '../websocket.js';
 import { addSessionToBoard as addSessionToBoardService, routeWorkspaceCard as routeWorkspaceCardService } from '../services/kanbanService.js';
 import { ApiError } from '../errors/ApiError.js';
+import { kanbanRoutingMetrics } from '../services/kanbanRoutingObservability.js';
 import {
   attachRootSession,
   createLaneRunForEntry,
@@ -51,6 +52,7 @@ describe('Kanban API', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    kanbanRoutingMetrics.reset();
 
     app = express();
     app.use(express.json());
@@ -820,6 +822,7 @@ describe('Kanban API', () => {
       kanbanCards.create(lanes[0].id, root.id);
       const res = await request(app).put(`/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/lane`).send({ targetLaneId: lanes[1].id });
       expect(res.status).toBe(400);
+      expect(kanbanRoutingMetrics.snapshot().rejected.validation).toBe(1);
     });
 
     it('returns 503 for exhausted retryable route contention', async () => {
@@ -835,6 +838,7 @@ describe('Kanban API', () => {
 
       expect(res.status).toBe(503);
       expect(res.body).toEqual({ error: 'Lane routing is temporarily busy; please retry', code: 'KANBAN_ROUTE_RETRYABLE' });
+      expect(kanbanRoutingMetrics.snapshot().rejected.contention).toBe(1);
     });
   });
   describe('DELETE /api/projects/:projectId/kanban/cards/by-workspace/:workspaceId', () => {

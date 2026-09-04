@@ -61,6 +61,7 @@ import {
 } from './workflowSessionService.js';
 import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
 import { resolveProviderMetadataFromModel } from './sessionProvider.js';
+import { kanbanRoutingMetrics } from './kanbanRoutingObservability.js';
 
 describe('kanbanService', () => {
   let projectId;
@@ -69,6 +70,7 @@ describe('kanbanService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    kanbanRoutingMetrics.reset();
     process.env.USE_CODEX_DIRECT_API = '1';
     resolveProviderMetadataFromModel.mockReturnValue({
       kind: 'openai', authToken: 'test-key', commitAttributionOverride: null,
@@ -172,6 +174,53 @@ describe('kanbanService', () => {
       ).get(run.id).count).toBe(2);
       expect(broadcastToProject).toHaveBeenCalledTimes(2);
       expect(broadcastToProject).toHaveBeenLastCalledWith(projectId, WS_MESSAGE_TYPES.KANBAN_EXIT_LANE_DECLARED, expect.any(Object));
+    });
+  });
+
+  describe('routeWorkspaceCard observability', () => {
+    it('durably audits direct, scheduled, overwritten, and no-op route decisions with routing context', async () => {
+      const direct = createSession('Direct workspace');
+      kanbanCards.create(lanes[0].id, direct.id);
+      const { root, run } = setupActiveLaneRunCard();
+
+      await routeWorkspaceCard(direct.id, lanes[1].id, { callerSessionId: 'caller-direct' });
+      await routeWorkspaceCard(root.id, lanes[1].id, { callerSessionId: 'caller-scheduled' });
+      await routeWorkspaceCard(root.id, lanes[2].id, { callerSessionId: 'caller-overwrite' });
+      await routeWorkspaceCard(root.id, lanes[2].id, { callerSessionId: 'caller-noop' });
+
+      const records = databaseManager.get().prepare(`SELECT project_id, workspace_id, caller_session_id,
+        source_lane_id, destination_lane_id, outcome, lane_run_id, request_at, committed_at
+        FROM kanban_routing_audit_events ORDER BY request_at, rowid`).all();
+      expect(records).toEqual([
+        expect.objectContaining({ project_id: projectId, workspace_id: direct.id, caller_session_id: 'caller-direct',
+          source_lane_id: lanes[0].id, destination_lane_id: lanes[1].id, outcome: 'moved', lane_run_id: null,
+          request_at: expect.any(Number), committed_at: expect.any(Number) }),
+        expect.objectContaining({ project_id: projectId, workspace_id: root.id, caller_session_id: 'caller-scheduled',
+          source_lane_id: lanes[0].id, destination_lane_id: lanes[1].id, outcome: 'scheduled', lane_run_id: run.id,
+          request_at: expect.any(Number), committed_at: expect.any(Number) }),
+        expect.objectContaining({ project_id: projectId, workspace_id: root.id, caller_session_id: 'caller-overwrite',
+          source_lane_id: lanes[0].id, destination_lane_id: lanes[2].id, outcome: 'scheduled_overwritten', lane_run_id: run.id,
+          request_at: expect.any(Number), committed_at: expect.any(Number) }),
+        expect.objectContaining({ project_id: projectId, workspace_id: root.id, caller_session_id: 'caller-noop',
+          source_lane_id: lanes[0].id, destination_lane_id: lanes[2].id, outcome: 'noop', lane_run_id: run.id,
+          request_at: expect.any(Number), committed_at: expect.any(Number) }),
+      ]);
+    });
+
+    it('counts every accepted outcome while keeping repeated requests free of duplicate mutation events', async () => {
+      const { root, run } = setupActiveLaneRunCard();
+
+      await routeWorkspaceCard(root.id, lanes[1].id);
+      await routeWorkspaceCard(root.id, lanes[2].id);
+      await routeWorkspaceCard(root.id, lanes[2].id);
+
+      expect(kanbanRoutingMetrics.snapshot()).toMatchObject({
+        accepted: { scheduled: 1, scheduled_overwritten: 1, noop: 1 },
+        overwritten: 1,
+      });
+      expect(databaseManager.get().prepare(
+        "SELECT COUNT(*) count FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='route_selected'",
+      ).get(run.id).count).toBe(2);
     });
   });
 
