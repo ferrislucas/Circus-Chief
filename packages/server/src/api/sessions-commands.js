@@ -5,10 +5,12 @@ import { requireRootSessionAndProject } from '../middleware/sessionLookup.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { broadcastCommandEvent, broadcastCommandOutput } from './commandEventBroadcast.js';
-import { getCommandRunOutputResource, removeCommandRunOutputResource } from '../services/commandRunOutputResource.js';
+import { getCommandRunOutputResource } from '../services/commandRunOutputResource.js';
+import { processCommandRunOutputCleanup } from '../services/commandRunOutputCleanup.js';
 
 // Error message constants
 const ERR_BUTTON_NOT_FOUND = 'Circus Command not found';
+const ERR_RUN_NOT_FOUND = 'Run not found';
 
 const router = Router();
 
@@ -122,7 +124,7 @@ router.get('/:id/circus-commands/runs/:runId', requireRootSessionAndProject, (re
   // Otherwise check database
   const run = commandRuns.getById(runId);
   if (!run || run.sessionId !== sessionId) {
-    return res.status(404).json({ error: 'Run not found' });
+    return res.status(404).json({ error: ERR_RUN_NOT_FOUND });
   }
 
   res.json({
@@ -140,7 +142,7 @@ router.get('/:id/circus-commands/runs/:runId', requireRootSessionAndProject, (re
 router.get('/:id/circus-commands/runs/:runId/output', requireRootSessionAndProject, (req, res) => {
   const { runId } = req.params;
   const run = commandRuns.getById(runId);
-  if (!run || run.sessionId !== req.rootSessionId) return res.status(404).json({ error: 'Run not found' });
+  if (!run || run.sessionId !== req.rootSessionId) return res.status(404).json({ error: ERR_RUN_NOT_FOUND });
   const page = commandRuns.readAfter(runId, req.query.after, req.query.limitBytes);
   res.json({ ...page, after: Number(req.query.after) || 0 });
 });
@@ -148,8 +150,8 @@ router.get('/:id/circus-commands/runs/:runId/output', requireRootSessionAndProje
 // GET a small, workspace-relative descriptor for the full command transcript.
 router.get('/:id/circus-commands/runs/:runId/output-resource', requireRootSessionAndProject, async (req, res) => {
   const { runId } = req.params;
-  const run = commandRuns.getById(runId);
-  if (!run || run.sessionId !== req.rootSessionId) return res.status(404).json({ error: 'Run not found' });
+  const run = commandRuns.getOutputResourceMetadata(runId);
+  if (!run || run.sessionId !== req.rootSessionId) return res.status(404).json({ error: ERR_RUN_NOT_FOUND });
   try {
     const descriptor = await getCommandRunOutputResource({
       workingDirectory: req.rootWorkingDirectory,
@@ -158,6 +160,7 @@ router.get('/:id/circus-commands/runs/:runId/output-resource', requireRootSessio
     });
     return res.json(CommandRunOutputResourceResponse.parse(descriptor));
   } catch (error) {
+    if (error?.notFound) return res.status(404).json({ error: ERR_RUN_NOT_FOUND });
     console.error(`Unable to materialize command output resource for ${runId}:`, error);
     return res.status(500).json({ error: 'Command output resource could not be created', code: 'COMMAND_OUTPUT_RESOURCE_FAILED' });
   }
@@ -170,7 +173,7 @@ router.delete('/:id/circus-commands/runs/:runId', requireRootSessionAndProject, 
 
   const run = commandRuns.getById(runId);
   if (!run || run.sessionId !== sessionId) {
-    return res.status(404).json({ error: 'Run not found' });
+    return res.status(404).json({ error: ERR_RUN_NOT_FOUND });
   }
 
   if (commandRunner.isRunning(runId)) {
@@ -178,9 +181,7 @@ router.delete('/:id/circus-commands/runs/:runId', requireRootSessionAndProject, 
   }
 
   commandRuns.deleteById(runId);
-  removeCommandRunOutputResource({ workingDirectory: req.rootWorkingDirectory, runId }).catch((error) => {
-    console.error(`Unable to clean up command output resource for ${runId}:`, error);
-  });
+  processCommandRunOutputCleanup().catch((error) => console.error('[Command output cleanup] pass failed', error));
 
   const projectId = req.rootSession_.projectId;
 
@@ -209,11 +210,9 @@ router.delete('/:id/circus-commands/:buttonId/runs/all', requireRootSessionAndPr
 
   // Broadcast individual COMMAND_RUN_DELETED events for each deleted run
   for (const run of deletedRuns) {
-    removeCommandRunOutputResource({ workingDirectory: req.rootWorkingDirectory, runId: run.id }).catch((error) => {
-      console.error(`Unable to clean up command output resource for ${run.id}:`, error);
-    });
     broadcastCommandEvent(sessionId, projectId, WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, { runId: run.id, buttonId: run.buttonId });
   }
+  processCommandRunOutputCleanup().catch((error) => console.error('[Command output cleanup] pass failed', error));
 
   res.status(204).send();
 });

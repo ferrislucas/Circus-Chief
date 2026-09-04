@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 export {
   _setManagedHooksPath,
@@ -30,6 +30,7 @@ export {
 } from './gitWorktree.js';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 export const DEFAULT_GIT_MAX_BUFFER = 100 * 1024 * 1024;
 
 /** Default timeout for git subprocesses (ms). Override with GIT_TIMEOUT_MS env var. */
@@ -114,6 +115,25 @@ export async function git(directory, command, opts = {}) {
       throw timeoutErr;
     }
     throw err;
+  }
+}
+
+/** Resolve Git-owned paths without interpreting workspace-controlled .git files. */
+export async function resolveGitExcludePath(directory) {
+  const options = {
+    cwd: directory,
+    timeout: Number(process.env.GIT_TIMEOUT_MS) || DEFAULT_GIT_TIMEOUT_MS,
+    env: { ...process.env, ...DEFAULT_GIT_ENV },
+  };
+  try {
+    const [{ stdout: exclude }, { stdout: common }] = await Promise.all([
+      execFileAsync('git', ['rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'], options),
+      execFileAsync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], options),
+    ]);
+    return { excludePath: exclude.trim(), commonDirectory: common.trim() };
+  } catch (error) {
+    if (error?.code === 128) return null;
+    throw error;
   }
 }
 

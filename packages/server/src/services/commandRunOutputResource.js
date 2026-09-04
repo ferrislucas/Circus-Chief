@@ -1,5 +1,7 @@
-import { appendFile, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join, relative, resolve } from 'node:path';
+import { constants } from 'node:fs';
+import { lstat, mkdir, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { dirname, relative, resolve } from 'node:path';
+import { resolveGitExcludePath } from './gitService.js';
 
 const locks = new Map();
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -23,28 +25,39 @@ async function normalDirectory(path) {
   if (!info.isDirectory() || info.isSymbolicLink()) throw new CommandOutputResourceError();
 }
 
+async function readNormalFile(path) {
+  try {
+    const info = await lstat(path);
+    if (!info.isFile() || info.isSymbolicLink()) throw new CommandOutputResourceError();
+    return await readFile(path, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return '';
+    throw error;
+  }
+}
+
 async function registerGitExclude(root) {
   try {
-    const dotGit = join(root, '.git');
-    const info = await lstat(dotGit);
-    let gitDirectory = dotGit;
-    if (!info.isDirectory()) {
-      const pointer = await readFile(dotGit, 'utf8');
-      const match = /^gitdir:\s*(.+)\s*$/m.exec(pointer);
-      if (!match) return;
-      gitDirectory = resolve(root, match[1]);
-    }
-    const exclude = join(gitDirectory, 'info', 'exclude');
+    const resolved = await resolveGitExcludePath(root);
+    if (!resolved) return;
+    const common = await realpath(resolved.commonDirectory);
+    const exclude = resolve(resolved.excludePath);
+    if (!within(common, exclude)) throw new CommandOutputResourceError();
     await mkdir(dirname(exclude), { recursive: true, mode: 0o700 });
-    let current = '';
-    try { current = await readFile(exclude, 'utf8'); } catch { /* New repository metadata. */ }
+    const parent = await realpath(dirname(exclude));
+    if (!within(common, parent)) throw new CommandOutputResourceError();
+    const current = await readNormalFile(exclude);
     if (!current.split(/\r?\n/).includes('.circus/runs/')) {
-      await appendFile(exclude, `${current && !current.endsWith('\n') ? '\n' : ''}.circus/runs/\n`, { encoding: 'utf8', mode: 0o600 });
+      const handle = await open(exclude, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
+      try {
+        await handle.writeFile(`${current && !current.endsWith('\n') ? '\n' : ''}.circus/runs/\n`, 'utf8');
+      } finally {
+        await handle.close();
+      }
     }
   } catch (error) {
-    // A non-git workspace remains supported. Git metadata is deliberately best
-    // effort so an unrelated permission issue cannot prevent transcript access.
-    if (error?.code !== 'ENOENT') console.error('Unable to register Circus output git exclude:', error);
+    if (error instanceof CommandOutputResourceError) throw error;
+    throw new CommandOutputResourceError();
   }
 }
 
@@ -93,16 +106,21 @@ async function outputStat(path) {
   }
 }
 
-async function writeLegacy(output, legacy) {
-  // Buffer slices avoid cutting a UTF-8 character in half while keeping writes bounded.
-  const data = Buffer.from(legacy, 'utf8');
-  for (let offset = 0; offset < data.length; offset += 64 * 1024) {
-    await appendFile(output, data.subarray(offset, offset + 64 * 1024));
+async function appendData(output, data) {
+  const handle = await open(output, constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW);
+  try { await handle.writeFile(data); } finally { await handle.close(); }
+}
+
+async function writeLegacy(output, run, repository) {
+  for (let offset = 0; offset < run.legacyByteLength; offset += 64 * 1024) {
+    const page = repository.readLegacyOutputPage(run.id, offset, 64 * 1024);
+    if (!page.length) break;
+    await appendData(output, page);
   }
 }
 
 async function appendChunks(output, chunks) {
-  for (const chunk of chunks) await appendFile(output, chunk.content, { encoding: 'utf8' });
+  for (const chunk of chunks) await appendData(output, chunk.content);
 }
 
 async function copyChunkPages(output, runId, repository, initialSequence = 0) {
@@ -123,15 +141,15 @@ async function rebuild(paths, run, repository) {
   try {
     await writeFile(temporary, '', { mode: 0o600, flag: 'wx' });
     let sequence = 0;
-    if (run.output && !run.outputHighWater) {
-      await writeLegacy(temporary, run.output);
+    if (run.legacyByteLength && !run.outputHighWater) {
+      await writeLegacy(temporary, run, repository);
       sequence = 1;
     } else {
       sequence = await copyChunkPages(temporary, run.id, repository);
     }
     await rename(temporary, paths.output);
     const info = await outputStat(paths.output);
-    await writeState(paths.state, { sequence, size: info.size, legacy: Boolean(run.output && !run.outputHighWater) });
+    await writeState(paths.state, { sequence, size: info.size, legacy: Boolean(run.legacyByteLength && !run.outputHighWater) });
   } catch (error) {
     await rm(temporary, { force: true }).catch(() => {});
     throw error;
@@ -165,13 +183,24 @@ export async function getCommandRunOutputResource({ workingDirectory, run, repos
   return synchronized(paths.output, async () => {
     try {
       await materialize(paths, run, repository);
+      let currentRun = run;
+      if (repository.getOutputResourceMetadata) {
+        const current = repository.getOutputResourceMetadata(run.id);
+        if (!current || current.sessionId !== run.sessionId) {
+          await rm(paths.runDirectory, { recursive: true, force: true });
+          const error = new CommandOutputResourceError();
+          error.notFound = true;
+          throw error;
+        }
+        currentRun = current;
+      }
       const info = await outputStat(paths.output);
       return {
         runId: run.id,
-        status: run.status,
+        status: currentRun.status,
         contentType: 'text/plain; charset=utf-8',
         byteLength: info.size,
-        complete: run.status !== 'running',
+        complete: currentRun.status !== 'running',
         updatedAt: Math.floor(info.mtimeMs),
         path: `.circus/runs/${run.id}/output.log`,
       };
@@ -183,6 +212,19 @@ export async function getCommandRunOutputResource({ workingDirectory, run, repos
 }
 
 export async function removeCommandRunOutputResource({ workingDirectory, runId }) {
-  const paths = await pathsFor(workingDirectory, runId);
-  await rm(paths.runDirectory, { recursive: true, force: true });
+  if (!RUN_ID.test(runId)) throw new CommandOutputResourceError();
+  const root = await realpath(workingDirectory);
+  const runDirectory = resolve(root, '.circus', 'runs', runId);
+  if (!within(root, runDirectory)) throw new CommandOutputResourceError();
+  // Validate every existing component without creating anything during cleanup.
+  for (const path of [resolve(root, '.circus'), resolve(root, '.circus', 'runs'), runDirectory]) {
+    try {
+      const info = await lstat(path);
+      if (info.isSymbolicLink() || !info.isDirectory()) throw new CommandOutputResourceError();
+    } catch (error) {
+      if (error?.code === 'ENOENT') return;
+      throw error;
+    }
+  }
+  await rm(runDirectory, { recursive: true, force: true });
 }

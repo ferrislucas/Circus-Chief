@@ -73,6 +73,31 @@ export class CommandRunRepository extends BaseRepository {
     ).get(runId).sequence;
   }
 
+  /** Read descriptor metadata without mapping the potentially huge legacy output. */
+  getOutputResourceMetadata(id) {
+    const row = this.db.prepare(`SELECT cr.id, cr.session_id, cr.button_id, cr.status,
+      cr.exit_code, cr.started_at, cr.completed_at, length(CAST(cr.output AS BLOB)) AS legacy_byte_length,
+      EXISTS(SELECT 1 FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS has_output,
+      (SELECT COALESCE(MAX(sequence), 0) FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS output_high_water
+      FROM command_runs cr WHERE cr.id = ?`).get(id);
+    if (!row) return null;
+    return {
+      id: row.id, sessionId: row.session_id, buttonId: row.button_id, status: row.status,
+      exitCode: row.exit_code, startedAt: row.started_at, completedAt: row.completed_at,
+      legacyByteLength: row.legacy_byte_length || 0, hasOutput: Boolean(row.has_output),
+      outputHighWater: row.output_high_water || 0,
+    };
+  }
+
+  /** Read legacy TEXT as a byte range. CAST makes SQLite substr offsets byte-based. */
+  readLegacyOutputPage(runId, offset = 0, limitBytes = 64 * 1024) {
+    const limit = Math.max(1, Math.min(Number(limitBytes) || 64 * 1024, 1024 * 1024));
+    const row = this.db.prepare(
+      'SELECT substr(CAST(output AS BLOB), ?, ?) AS content FROM command_runs WHERE id = ?'
+    ).get((Number(offset) || 0) + 1, limit, runId);
+    return row?.content || Buffer.alloc(0);
+  }
+
   /** Read an ordered, bounded page without materializing the full transcript. */
   readAfter(runId, after = 0, limitBytes = 65536) {
     const limit = Math.max(1, Math.min(Number(limitBytes) || 65536, 1024 * 1024));

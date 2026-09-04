@@ -54,6 +54,22 @@ describe('CommandRunRepository', () => {
   });
 
   describe('appendOutput', () => {
+    it('pages legacy output as bytes without selecting it in descriptor metadata', () => {
+      repository.create({ id: 'legacy-run', sessionId: testSessionId, buttonId: testButtonId });
+      const legacy = 'é'.repeat(70_000);
+      repository.db.prepare('UPDATE command_runs SET output = ? WHERE id = ?').run(legacy, 'legacy-run');
+
+      const metadata = repository.getOutputResourceMetadata('legacy-run');
+      expect(metadata).not.toHaveProperty('output');
+      expect(metadata.legacyByteLength).toBe(Buffer.byteLength(legacy));
+      const pages = [];
+      for (let offset = 0; offset < metadata.legacyByteLength; offset += 64 * 1024) {
+        pages.push(repository.readLegacyOutputPage('legacy-run', offset));
+      }
+      expect(Buffer.concat(pages).toString('utf8')).toBe(legacy);
+      expect(Math.max(...pages.map((page) => page.length))).toBeLessThanOrEqual(64 * 1024);
+    });
+
     it('appends text as ordered output chunks', () => {
       const run = repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
       expect(run.output).toBe('');
