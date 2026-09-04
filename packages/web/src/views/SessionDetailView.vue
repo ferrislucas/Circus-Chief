@@ -44,6 +44,8 @@
         @add-to-board="handleAddToBoard"
       />
 
+      <TierFailoverHistory :session-id="currentSessionId" />
+
       <SessionTabsPanel
         :session-id="currentSessionId"
         :project-id="sessionsStore.currentSession.projectId"
@@ -159,6 +161,7 @@ import CanvasTab from '../components/CanvasTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
 import CommandsTab from '../components/CommandsTab.vue';
 import SessionHeaderPanel from '../components/SessionHeaderPanel.vue';
+import TierFailoverHistory from '../components/TierFailoverHistory.vue';
 import SessionTabsPanel from '../components/SessionTabsPanel.vue';
 import SessionChatHandle from '../components/SessionChatHandle.vue';
 import SessionChatOverlay from '../components/SessionChatOverlay.vue';
