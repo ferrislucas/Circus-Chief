@@ -171,6 +171,20 @@ export const miscMigrations = [
       `);
     },
   },
+  {
+    name: 'command-runs-add-output-cleanup-exhaustion',
+    up(db) {
+      addColumnIfMissing(db, 'command_run_output_cleanup', 'exhausted_at', 'INTEGER');
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_command_run_output_cleanup_eligible
+          ON command_run_output_cleanup (next_attempt_at, created_at)
+          WHERE exhausted_at IS NULL;
+        UPDATE command_run_output_cleanup
+        SET exhausted_at = created_at
+        WHERE exhausted_at IS NULL AND attempts >= 8;
+      `);
+    },
+  },
 
   // --- Session templates ---
   {

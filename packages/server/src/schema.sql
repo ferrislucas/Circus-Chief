@@ -319,8 +319,13 @@ CREATE TABLE IF NOT EXISTS command_run_output_cleanup (
   attempts INTEGER NOT NULL DEFAULT 0,
   next_attempt_at INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
+  exhausted_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
+
+CREATE INDEX IF NOT EXISTS idx_command_run_output_cleanup_eligible
+  ON command_run_output_cleanup (next_attempt_at, created_at)
+  WHERE exhausted_at IS NULL;
 
 CREATE TRIGGER IF NOT EXISTS trg_command_run_output_cleanup
 BEFORE DELETE ON command_runs
