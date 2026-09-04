@@ -890,6 +890,30 @@ describe('streamEventHandler', () => {
       expect(mockHandleTemplate).not.toHaveBeenCalled();
     });
 
+    it('does not launch automation when the turn is stopped during completion', async () => {
+      const controller = new AbortController();
+      activeSessions.set('sess-1', { controller });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockImplementation(async () => {
+        controller.abort();
+        return { staged: null, unstaged: null, untracked: null };
+      });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      }, { controller });
+
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
     it('does not call auto-send or template trigger when rescheduled', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
