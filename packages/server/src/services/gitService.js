@@ -381,14 +381,20 @@ function computeSyncStatus({ currentBranch, upstreamBranch, aheadCount, behindCo
 export async function getSessionGitStatus(directory, options = {}) {
   const fetched = options.fetch === true;
   const hasOrigin = await hasOriginRemote(directory);
-  if (fetched) {
-    if (!hasOrigin) throw new GitSyncError('no_origin');
-    await fetchOrigin(directory);
-  }
-
+  // Local facts are authoritative even when an optional remote refresh fails.
+  // Collect them first so clients never lose branch or dirty-worktree context.
   const currentBranch = await getCurrentBranch(directory);
   const localChangeCount = await getLocalChangeCount(directory);
   const upstreamBranch = currentBranch ? await getBranchUpstream(directory) : null;
+  let remoteError = null;
+  if (fetched) {
+    try {
+      if (!hasOrigin) throw new GitSyncError('no_origin');
+      await fetchOrigin(directory);
+    } catch (error) {
+      remoteError = normalizeSyncError(error, 'refresh');
+    }
+  }
   const counts = upstreamBranch
     ? await getAheadBehindCounts(directory, upstreamBranch)
     : { aheadCount: 0, behindCount: 0 };
@@ -414,7 +420,11 @@ export async function getSessionGitStatus(directory, options = {}) {
     isBehind: counts.behindCount > 0,
     syncStatus,
     lastCheckedAt: new Date().toISOString(),
-    fetched,
+    fetched: fetched && !remoteError,
+    ...(remoteError ? {
+      remoteError: { code: remoteError.code, message: remoteError.message },
+      error: remoteError.message,
+    } : {}),
   };
 }
 

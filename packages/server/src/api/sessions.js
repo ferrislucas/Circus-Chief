@@ -7,6 +7,7 @@ import * as gitService from '../services/gitService.js';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import { commandRunner } from '../services/commandRunner.js';
 import logger from '../logger.js';
+import { canonicalWorktreePath, runWithWorktreeSyncLock } from '../services/gitSyncCoordinator.js';
 
 // Import sub-routers
 import conversationsRouter from './sessions-conversations.js';
@@ -273,9 +274,9 @@ router.get('/:id/default-branch', requireSessionAndProject, async (req, res) => 
 router.get('/:id/git-status', requireSessionAndProject, async (req, res) => {
   const shouldFetch = req.query.fetch === 'true';
   try {
-    const status = await gitService.getSessionGitStatus(req.workingDirectory, {
-      fetch: shouldFetch,
-    });
+    const status = shouldFetch
+      ? await runWithWorktreeSyncLock(req.workingDirectory, (directory) => gitService.getSessionGitStatus(directory, { fetch: true }))
+      : await gitService.getSessionGitStatus(req.workingDirectory, { fetch: false });
     res.json({
       workingDirectory: req.workingDirectory,
       ...status,
@@ -290,17 +291,20 @@ router.get('/:id/git-status', requireSessionAndProject, async (req, res) => {
 
 async function runGitSync(req, res, operation) {
   const startedAt = Date.now();
+  const worktree = await canonicalWorktreePath(req.workingDirectory);
+  const safeWorktree = worktree.split(/[\\/]/).filter(Boolean).pop() || 'worktree';
+  logger.log('session_git_sync_attempt', { sessionId: req.params.id, operation, worktree: safeWorktree });
   try {
-    const result = await (operation === 'push'
-      ? gitService.pushSessionBranch(req.workingDirectory)
-      : gitService.pullSessionBranch(req.workingDirectory));
+    const result = await runWithWorktreeSyncLock(worktree, (directory) => (operation === 'push'
+      ? gitService.pushSessionBranch(directory)
+      : gitService.pullSessionBranch(directory)));
     invalidateFilesCountCache(req.params.id);
-    logger.log('session_git_sync', { sessionId: req.params.id, operation, outcome: 'success', elapsedMs: Date.now() - startedAt });
+    logger.log('session_git_sync_outcome', { sessionId: req.params.id, operation, worktree: safeWorktree, outcome: 'success', elapsedMs: Date.now() - startedAt });
     res.json(result);
   } catch (error) {
     const status = Number.isInteger(error.status) ? error.status : 502;
     const code = error.code || 'git_error';
-    logger.warn('session_git_sync', { sessionId: req.params.id, operation, outcome: code, elapsedMs: Date.now() - startedAt });
+    logger.warn('session_git_sync_outcome', { sessionId: req.params.id, operation, worktree: safeWorktree, outcome: code, elapsedMs: Date.now() - startedAt });
     res.status(status).json({ code, error: error.message || 'Git synchronization failed.', ...(error.gitStatus ? { gitStatus: error.gitStatus } : {}) });
   }
 }

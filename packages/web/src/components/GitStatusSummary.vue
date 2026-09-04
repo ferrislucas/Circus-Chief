@@ -1,7 +1,7 @@
 <template>
   <section class="git-status-summary" :class="{ 'is-muted': !hasAttention }">
     <div class="git-status-copy">
-      <div class="git-status-title">{{ title }}</div>
+      <div class="git-status-title">{{ title }} <span v-if="statusChip" class="git-status-chip">{{ statusChip }}</span></div>
       <div class="git-status-counts">{{ operationText || summaryText }}</div>
       <div v-if="branchMapping" class="git-status-branch">{{ branchMapping }}</div>
       <div v-if="unavailableReason" class="git-status-reason">{{ unavailableReason }}</div>
@@ -32,8 +32,13 @@ const pushReason = computed(() => pushDisabled.value ? 'Nothing to push' : props
 const pullReason = computed(() => pullDisabled.value ? 'Already up to date' : 'Pull from origin');
 const disabledReasons = computed(() => [pushDisabled.value && showPush.value ? pushReason.value : null, pullDisabled.value && showPull.value ? pullReason.value : null].filter(Boolean).join(' · '));
 const unavailableReason = computed(() => { if (!props.status) return null; if (!hasBranch.value) return 'HEAD is detached — checkout a branch to push or pull.'; if (!hasOrigin.value) return 'No origin remote configured — push/pull unavailable.'; if (!showPull.value) return 'Branch has no origin upstream. Publish it to enable pull.'; return null; });
-const hasAttention = computed(() => Boolean(props.error || props.status?.aheadCount || props.status?.behindCount || props.status?.syncStatus === 'unpublished' || props.status?.syncStatus === 'diverged'));
+const hasAttention = computed(() => Boolean(props.error || props.status?.remoteError || props.status?.syncStatus === 'diverged' || props.status?.blockedPull));
 const title = computed(() => hasAttention.value ? 'Git attention' : 'Git status');
+const statusChip = computed(() => {
+  if (props.status?.remoteError) return 'Refresh failed';
+  const labels = { clean: 'In sync', ahead: 'Ahead', behind: 'Behind', unpublished: 'Unpublished', dirty: 'Local changes', diverged: 'Diverged' };
+  return labels[props.status?.syncStatus] || null;
+});
 const branchMapping = computed(() => !hasBranch.value ? null : props.status?.upstreamBranch ? `${props.status.currentBranch} → ${props.status.upstreamBranch}` : `${props.status.currentBranch} has no upstream`);
 const pushLabel = computed(() => props.status?.syncStatus === 'unpublished' ? `Publish${props.status?.aheadCount ? ` (${props.status.aheadCount})` : ''}` : `Push${props.status?.aheadCount ? ` (${props.status.aheadCount})` : ''}`);
 const pullLabel = computed(() => `Pull${props.status?.behindCount ? ` (${props.status.behindCount})` : ''}`);
@@ -42,5 +47,5 @@ const lastCheckedText = computed(() => props.status?.lastCheckedAt ? new Date(pr
 const errorMessage = computed(() => typeof props.error === 'string' ? props.error : props.error?.message || 'Git status lookup failed');
 </script>
 <style scoped>
-.git-status-summary{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:.75rem;padding:.875rem;border:1px solid rgba(245,158,11,.45);border-radius:6px;background:rgba(245,158,11,.1)}.git-status-summary.is-muted{border-color:var(--color-border);background:var(--color-bg-soft,rgba(255,255,255,.04))}.git-status-copy{min-width:0}.git-status-title{color:var(--color-text);font-size:.875rem;font-weight:600}.git-status-counts{margin-top:.25rem;color:var(--color-text);font-size:.8125rem}.git-status-branch,.git-status-checked,.git-status-reason,.git-status-action-help{margin-top:.25rem;color:var(--color-text-soft);font-size:.75rem;overflow-wrap:anywhere}.git-status-error{margin-top:.375rem;color:var(--color-error);font-size:.75rem}.dismiss-error{margin-left:.5rem;color:inherit;background:none;border:0;text-decoration:underline;cursor:pointer}.git-status-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.5rem;flex-shrink:0}.git-status-actions .btn{min-height:2.375rem;display:inline-flex;align-items:center;justify-content:center;gap:.375rem;white-space:nowrap}.git-status-action-help{width:100%}@media(max-width:768px){.git-status-summary{flex-direction:column}.git-status-actions{width:100%;justify-content:flex-start}.git-status-actions .btn{flex:1}}
+.git-status-summary{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;margin-bottom:.75rem;padding:.875rem;border:1px solid rgba(245,158,11,.45);border-radius:6px;background:rgba(245,158,11,.1)}.git-status-summary.is-muted{border-color:var(--color-border);background:var(--color-bg-soft,rgba(255,255,255,.04))}.git-status-copy{min-width:0}.git-status-title{color:var(--color-text);font-size:.875rem;font-weight:600}.git-status-chip{display:inline-block;margin-left:.4rem;padding:.1rem .35rem;border:1px solid var(--color-border);border-radius:999px;color:var(--color-text-soft);font-size:.6875rem;font-weight:500}.git-status-counts{margin-top:.25rem;color:var(--color-text);font-size:.8125rem}.git-status-branch,.git-status-checked,.git-status-reason,.git-status-action-help{margin-top:.25rem;color:var(--color-text-soft);font-size:.75rem;overflow-wrap:anywhere}.git-status-error{margin-top:.375rem;color:var(--color-error);font-size:.75rem}.dismiss-error{margin-left:.5rem;color:inherit;background:none;border:0;text-decoration:underline;cursor:pointer}.git-status-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.5rem;flex-shrink:0}.git-status-actions .btn{min-height:2.375rem;display:inline-flex;align-items:center;justify-content:center;gap:.375rem;white-space:nowrap}.git-status-action-help{width:100%}@media(max-width:768px){.git-status-summary{flex-direction:column}.git-status-actions{width:100%;justify-content:flex-start}.git-status-actions .btn{flex:1}}
 </style>

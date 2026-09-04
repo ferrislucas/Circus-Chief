@@ -542,7 +542,7 @@ defineExpose({
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 2.75rem;
+  min-height: 2.375rem;
   padding: 0.5rem 0.75rem;
   border: 1px solid transparent;
   background-color: transparent;
@@ -566,15 +566,14 @@ defineExpose({
 }
 
 .toggle-button.active {
-  background-color: var(--color-primary);
-  color: var(--color-background);
+  background-color: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  color: var(--color-text);
   border-color: var(--color-primary);
   font-weight: 600;
 }
 
 .toggle-button.active:hover:not(:disabled) {
-  background-color: var(--color-primary);
-  filter: brightness(1.1);
+  background-color: color-mix(in srgb, var(--color-primary) 20%, transparent);
 }
 
 .btn-link {
