@@ -4,7 +4,7 @@
       <!-- Status filter buttons (sessions tab only) -->
       <template v-if="showStatusFilters">
         <button
-          v-for="status in ['running', 'idle']"
+          v-for="status in ['running', 'waiting', 'idle']"
           :key="status"
           :class="[
             'filter-btn',
@@ -85,7 +85,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useSessionFiltering } from '../composables/useSessionFiltering.js';
 
 const props = defineProps({
-  /** Whether to show status filter buttons (running/idle) */
+  /** Whether to show status filter buttons (running/waiting/idle) */
   showStatusFilters: {
     type: Boolean,
     default: true,
@@ -113,7 +113,7 @@ const {
 } = useSessionFiltering();
 
 // Authoritative facets come from the workspace-card list response.
-const statusFilterCounts = computed(() => props.statusCounts || { running: 0, idle: 0 });
+const statusFilterCounts = computed(() => props.statusCounts || { running: 0, waiting: 0, idle: 0 });
 </script>
 
 <style scoped>
