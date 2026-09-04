@@ -265,15 +265,8 @@ function interactionQuestionResult(record, response) {
   if (!Array.isArray(response.answers) || response.answers.length > questions.length) return null;
   for (const answer of response.answers) {
     const question = byId.get(answer.questionId);
-    if (!question || seen.has(answer.questionId)) return null;
+    if (!question || seen.has(answer.questionId) || !isValidInteractionAnswer(question, answer)) return null;
     seen.add(answer.questionId);
-    const selected = answer.selectedOptionIds || [];
-    if (!Array.isArray(selected) || new Set(selected).size !== selected.length) return null;
-    const options = new Set((question.options || []).map((option) => option.id));
-    if (selected.some((id) => !options.has(id))) return null;
-    if (question.mode !== 'multiple' && selected.length > 1) return null;
-    if (answer.text != null && (!question.allowOther || !answer.text.trim() || selected.length)) return null;
-    if (!selected.length && !answer.text?.trim() && question.required) return null;
   }
   if (questions.some((question) => question.required && !seen.has(question.id))) return null;
   return { action: 'answer', answers: response.answers.map((answer) => ({
@@ -281,6 +274,16 @@ function interactionQuestionResult(record, response) {
     selectedOptionIds: answer.selectedOptionIds || [],
     ...(answer.text?.trim() ? { text: answer.text } : {}),
   })) };
+}
+
+function isValidInteractionAnswer(question, answer) {
+  const selected = answer.selectedOptionIds || [];
+  if (!Array.isArray(selected) || new Set(selected).size !== selected.length) return false;
+  const options = new Set((question.options || []).map((option) => option.id));
+  if (selected.some((id) => !options.has(id))) return false;
+  if (question.mode !== 'multiple' && selected.length > 1) return false;
+  if (answer.text != null && (!question.allowOther || !answer.text.trim() || selected.length)) return false;
+  return Boolean(selected.length || answer.text?.trim() || !question.required);
 }
 
 /**

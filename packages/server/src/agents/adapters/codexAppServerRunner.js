@@ -2,6 +2,13 @@ import { createCodexEventMapper } from './codexEventMapper.js';
 import { CodexAppServerClient } from './CodexAppServerClient.js';
 import { encodeError, encodeUserInputResponse, normalizeUserInputRequest } from './codexAppServerCodec.js';
 import { invalidateInteraction, requestInteraction } from '../../services/promptStore.js';
+import { createCodexSpawner } from '../../services/codexSpawnHelper.js';
+
+export async function *spawnCodexAppServer(spawnOverride, queryParams, options, meta) {
+  const spawn = spawnOverride ?? createCodexSpawner();
+  const child = spawn({ command: 'codex', args: ['app-server'], cwd: options.cwd, env: options.env, signal: options.abortController?.signal });
+  yield* executeCodexAppServer(child, queryParams, options, meta || { sessionId: options.sessionId, conversationId: options.conversationId });
+}
 
 // Runs one persistent App Server connection for a single execution. The
 // adapter owns spawning; this module owns only protocol-to-event translation.

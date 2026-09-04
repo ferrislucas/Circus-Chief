@@ -30,23 +30,26 @@ export function normalizeUserInputRequest(request) {
 }
 
 function normalizeQuestion(question, ids) {
-  if (!question || typeof question.id !== 'string' || !question.id || question.id.length > 128 || ids.has(question.id)) throw new Error('Codex question ids must be unique bounded strings');
+  validateQuestion(question, ids);
   ids.add(question.id);
-  if (typeof question.question !== 'string' || !question.question.trim() || question.question.length > MAX_TEXT) throw new Error('Codex question text is invalid');
   const options = question.options == null ? [] : question.options;
-  if (!Array.isArray(options) || options.length > MAX_OPTIONS) throw new Error('Codex question options exceed the supported limit');
-  const optionIds = new Set();
+  validateOptions(options);
   return {
     id: question.id, prompt: question.question, question: question.question, header: bounded(question.header, 256),
     mode: options.length ? 'single' : 'text', required: true, allowOther: Boolean(question.isOther),
     options: options.map((option, index) => {
-      if (!option || typeof option.label !== 'string' || !option.label.trim() || option.label.length > 512 || typeof option.description !== 'string' || option.description.length > MAX_TEXT) throw new Error('Codex option is invalid');
       const id = `option-${index}`;
-      if (optionIds.has(id)) throw new Error('Codex option ids must be unique');
-      optionIds.add(id);
       return { id, label: option.label, description: option.description };
     }),
   };
+}
+function validateQuestion(question, ids) {
+  if (!question || typeof question.id !== 'string' || !question.id || question.id.length > 128 || ids.has(question.id)) throw new Error('Codex question ids must be unique bounded strings');
+  if (typeof question.question !== 'string' || !question.question.trim() || question.question.length > MAX_TEXT) throw new Error('Codex question text is invalid');
+}
+function validateOptions(options) {
+  if (!Array.isArray(options) || options.length > MAX_OPTIONS) throw new Error('Codex question options exceed the supported limit');
+  if (options.some((option) => !option || typeof option.label !== 'string' || !option.label.trim() || option.label.length > 512 || typeof option.description !== 'string' || option.description.length > MAX_TEXT)) throw new Error('Codex option is invalid');
 }
 function bounded(value, length) { return typeof value === 'string' ? value.slice(0, length) : ''; }
 
