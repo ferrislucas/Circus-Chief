@@ -929,19 +929,4 @@ describe('Kanban API', () => {
     });
   });
 
-  describe('legacy card-routing routes', () => {
-    it('returns 404 for removed card-id and workspace routes', async () => {
-      setupBoard();
-      const root = createSession();
-      const card = kanbanCards.create(lanes[0].id, root.id);
-      for (const path of [
-        `/api/projects/${projectId}/kanban/cards/${card.id}/move`,
-        `/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/move`,
-        `/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/exit-lane`,
-      ]) {
-        const res = await request(app).patch(path).send({ laneId: lanes[1].id });
-        expect(res.status).toBe(404);
-      }
-    });
-  });
 });

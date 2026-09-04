@@ -277,7 +277,7 @@ export const useKanbanStore = defineStore('kanban', {
 
       try {
         const result = await api.routeWorkspaceKanbanCard(projectId, workspaceId, targetLaneId);
-        if (result.status === 'scheduled') {
+        if (result.status !== 'moved') {
           if (optimisticResult) this._revertCardMove(optimisticResult.sourceLane, optimisticResult.card, targetLaneId);
           return result;
         }

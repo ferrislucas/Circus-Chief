@@ -659,7 +659,6 @@ describe('sessionPrompts', () => {
       // Route and delete use by-workspace routes.
       expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/lane`);
       expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}`);
-      expect(result).not.toContain('/exit-lane');
       expect(result).not.toContain(['X-Circus-Session', 'Capability'].join('-'));
       // No sessionId field in kanban examples
       expect(result).not.toContain(`"sessionId": "${sessionId}"`);

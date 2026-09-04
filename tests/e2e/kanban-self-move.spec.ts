@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
-  cleanupCreatedResources, seedProject, seedSession, waitForChildSession,
+  cleanupCreatedResources, seedProject, seedSession, waitForChildSession, waitForChildSessions,
   navigateAndWait, openSessionOverlay, getSession, stopSession,
 } from './helpers';
 import {
@@ -9,19 +9,19 @@ import {
   PARKED_PROMPT, waitForPendingPrompt,
 } from './kanbanLaneRunHelpers';
 
-test.describe('Kanban exit-lane declaration', () => {
+test.describe('Kanban unified lane routing', () => {
   test.describe.configure({ timeout: 120000 });
   let project: any;
 
   test.beforeEach(async () => {
     await cleanupCreatedResources();
-    project = await seedProject('Kanban exit-lane declaration', process.cwd());
+    project = await seedProject('Kanban unified lane routing', process.cwd());
     await getBoard(project.id);
   });
 
   test.afterEach(async () => { await cleanupCreatedResources(); });
 
-  test('declaring an active run exit does not abort it and takes that exit on completion', async ({ page, request }) => {
+  test('schedules an active run destination and starts structured destination automation on completion', async ({ page, request }) => {
     const board = await getBoard(project.id);
     const source = getLaneByName(board, 'In Progress');
     const done = getLaneByName(board, 'Done');
@@ -29,6 +29,7 @@ test.describe('Kanban exit-lane declaration', () => {
     const altExit = getLaneByName(board, 'To Do');
     await navigateAndWait(page, `/projects/${project.id}/kanban`, { waitFor: '.kanban-board' });
     await configureAutomatedLane(page, project.id, source.name, { prompt: PARKED_PROMPT, targetLabel: done.name });
+    await configureAutomatedLane(page, project.id, altExit.name, { prompt: PARKED_PROMPT, targetLabel: done.name });
     const workspace = await seedSession(project.id, { name: 'Self move workspace', prompt: 'root', startImmediately: false });
 
     await page.reload();
@@ -63,6 +64,8 @@ test.describe('Kanban exit-lane declaration', () => {
     // The card takes the declared exit, not the lane's configured completion target.
     await expectCardSettlesInLane(project.id, workspace.id, altExit.name, 60000);
     expect(findLaneOfSession(await getBoard(project.id), workspace.id)).not.toBe(done.name);
+    const children = await waitForChildSessions(workspace.id, 2, 15000);
+    expect(children).toHaveLength(2);
   });
 
   test('a cancelled run discards the declaration instead of moving the card', async ({ page, request }) => {
@@ -72,6 +75,7 @@ test.describe('Kanban exit-lane declaration', () => {
     const exit = getLaneByName(board, 'Review');
     await navigateAndWait(page, `/projects/${project.id}/kanban`, { waitFor: '.kanban-board' });
     await configureAutomatedLane(page, project.id, source.name, { prompt: PARKED_PROMPT, targetLabel: done.name });
+    await configureAutomatedLane(page, project.id, exit.name, { prompt: PARKED_PROMPT, targetLabel: done.name });
     const workspace = await seedSession(project.id, { name: 'Cancelled run workspace', prompt: 'root', startImmediately: false });
 
     await page.reload();
@@ -106,5 +110,7 @@ test.describe('Kanban exit-lane declaration', () => {
     expect(late.status()).toBe(200);
     await expect(late.json()).resolves.toEqual({ status: 'moved', laneId: exit.id });
     expect(findLaneOfSession(await getBoard(project.id), workspace.id)).toBe(exit.name);
+    const children = await waitForChildSessions(workspace.id, 2, 15000);
+    expect(children).toHaveLength(2);
   });
 });
