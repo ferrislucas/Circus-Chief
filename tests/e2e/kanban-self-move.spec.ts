@@ -105,12 +105,13 @@ test.describe('Kanban unified lane routing', () => {
     expect(card.activeLaneRun.pausedCount).toBe(1);
     expect(card.activeLaneRun.chosenExitLaneId).toBe(exit.id);
 
-    // The paused run remains active, so the shared exit can still be updated.
+    // The paused run retains the shared exit. Repeating that same declaration
+    // is idempotent; it must not revive the removed per-turn deferred move.
     const late = await request.put(exitLaneUrl, { data: { laneId: exit.id } });
     expect(late.status()).toBe(200);
-    await expect(late.json()).resolves.toEqual(expect.objectContaining({
-      deferred: true,
-      chosenExitLaneId: exit.id,
-    }));
+    await expect(late.json()).resolves.toEqual({ status: 'noop', laneId: exit.id });
+
+    const retained = findCardOfSession(await getBoard(project.id), workspace.id);
+    expect(retained.activeLaneRun.chosenExitLaneId).toBe(exit.id);
   });
 });

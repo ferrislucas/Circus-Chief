@@ -20,7 +20,7 @@ import { buildConversationContextForModelSwitch, buildConversationContextForCont
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { beginWorkflowTurn, discardDeferredCardMoveForTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, pauseForUserStop, activeLaneRunOwnsSession } from './workflowSessionService.js';
+import { beginWorkflowTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, pauseForUserStop, activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
 // sessionExecution), safe because this is only called at runtime inside
@@ -118,7 +118,6 @@ export async function _executeSession({
       await handleStreamEvent(sessionId, event, { controller });
     }
     if (controller.signal.aborted) {
-      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_cancelled');
       pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
       return;
     }
@@ -131,7 +130,6 @@ export async function _executeSession({
     );
   // A stop invalidates the completion pipeline; stale work must not close the paused obligation.
     if (controller.signal.aborted) {
-      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_cancelled');
       pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
       return;
     }
@@ -196,7 +194,6 @@ export async function _executeSession({
       return; // Don't throw - session was rescheduled
     }
     // User aborts pause the obligation; permanent errors terminally fail it.
-    discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, controller.signal.aborted ? 'turn_cancelled' : 'turn_failed');
     controller.signal.aborted
       ? pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken })
       : closeOwnWork(sessionId, 'closed_failed', error.message, { turnToken: workflowTurn?.turnToken });
