@@ -72,6 +72,7 @@ import * as summaryService from './summaryService.js';
 import * as diffService from './diffService.js';
 import * as gitService from './gitService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { abortForUserStop } from './sessionAbort.js';
 import {
   createWorkLog,
   associateAndBroadcastWorkLogs,
@@ -1833,7 +1834,8 @@ describe('streamEventHandler', () => {
     });
 
     it('does not update when controller is aborted', async () => {
-      const controller = { signal: { aborted: true } };
+      const controller = new AbortController();
+      abortForUserStop(controller);
       const error = new Error('Aborted');
       const mockShouldReschedule = vi.fn();
       const mockScheduler = { rescheduleSession: vi.fn() };
@@ -2040,7 +2042,8 @@ describe('streamEventHandler', () => {
     });
 
     it('does not call extractPrUrlIfNeeded when controller is aborted', async () => {
-      const controller = { signal: { aborted: true } };
+      const controller = new AbortController();
+      abortForUserStop(controller);
       const error = new Error('Aborted');
 
       const mockShouldReschedule = vi.fn();
@@ -2117,7 +2120,8 @@ describe('streamEventHandler', () => {
     });
 
     it('does not call handleTemplateTriggerIfNeeded when controller is aborted', async () => {
-      const controller = { signal: { aborted: true } };
+      const controller = new AbortController();
+      abortForUserStop(controller);
       const error = new Error('Aborted');
 
       const mockShouldReschedule = vi.fn();

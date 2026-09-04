@@ -30,6 +30,7 @@ import {
 } from './streamEventHandler.js';
 import { cancelPrompt } from './promptStore.js';
 import { clearPendingWakeup } from './scheduleWakeupBridge.js';
+import { abortForUserStop } from './sessionAbort.js';
 // Import execution helpers from sessionExecution.js
 import {
   createAgentForSession,
@@ -383,7 +384,7 @@ export async function stopSession(sessionId) {
 
   if (sessionData) {
     // Session is actively processing - abort it
-    sessionData.controller.abort();
+    abortForUserStop(sessionData.controller);
     clearPendingWakeup(sessionId, sessionData.controller);
     activeSessions.delete(sessionId);
   }

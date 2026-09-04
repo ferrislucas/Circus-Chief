@@ -17,6 +17,7 @@ import {
 import { applyPendingWakeup, clearPendingWakeup } from './scheduleWakeupBridge.js';
 import { withActiveLaneRunOwnership } from './workflowSessionService.js';
 import { broadcastSessionUpdate } from './summaryBroadcast.js';
+import { isUserStopAbort } from './sessionAbort.js';
 
 /**
  * Broadcast the session- and project-scoped updates for a status transition to
@@ -416,7 +417,7 @@ export async function handleSessionError(sessionId, error, options = {}) {
   // not survive an error or be inherited by a replacement turn.
   clearPendingWakeup(sessionId, controller);
 
-  if (controller.signal.aborted) {
+  if (isUserStopAbort(controller)) {
     // A user-initiated stop is intentional. A mid-turn-scheduled session that the
     // user stops will have its schedule cleared by the stop handler; we honour that
     // by not preserving the schedule here.

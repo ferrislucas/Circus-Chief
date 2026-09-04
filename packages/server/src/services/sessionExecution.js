@@ -22,6 +22,7 @@ import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { beginWorkflowTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, pauseForUserStop, activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
+import { isUserStopAbort } from './sessionAbort.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
 // sessionExecution), safe because this is only called at runtime inside
 // _executeSession, long after the module graph is loaded (same pattern as
@@ -118,8 +119,11 @@ export async function _executeSession({
       await handleStreamEvent(sessionId, event, { controller });
     }
     if (controller.signal.aborted) {
-      pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
-      return;
+      if (isUserStopAbort(controller)) {
+        pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
+        return;
+      }
+      throw controller.signal.reason || new Error('Session execution was aborted');
     }
     // Handle post-turn completion (work log association, status transition, summary, etc.)
     const { wasRescheduled, heldForLimit, terminalError } = await handleTurnCompletion(
@@ -130,8 +134,11 @@ export async function _executeSession({
     );
   // A stop invalidates the completion pipeline; stale work must not close the paused obligation.
     if (controller.signal.aborted) {
-      pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
-      return;
+      if (isUserStopAbort(controller)) {
+        pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
+        return;
+      }
+      throw controller.signal.reason || new Error('Session execution was aborted');
     }
     // Some providers report terminal failures as a final stream event and then
     // close their generator normally. Route that outcome through the same retry
@@ -194,7 +201,7 @@ export async function _executeSession({
       return; // Don't throw - session was rescheduled
     }
     // User aborts pause the obligation; permanent errors terminally fail it.
-    controller.signal.aborted
+    isUserStopAbort(controller)
       ? pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken })
       : closeOwnWork(sessionId, 'closed_failed', error.message, { turnToken: workflowTurn?.turnToken });
     throw error;
