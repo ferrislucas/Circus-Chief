@@ -30,19 +30,14 @@ import { drainLaneEntryTrigger } from './kanbanService.js';
 
 async function resolveInitialSessionModelEnv(session, model) {
   const effectiveModel = model || session.model;
-  const providerMetadata = resolveProviderMetadataFromModel(effectiveModel);
-  const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
+  const { commitAttributionOverride = null } = resolveProviderMetadataFromModel(effectiveModel) || {};
 
   if (session.gitWorktree && commitAttributionOverride) {
     await ensureWorktreeCommitAttributionHook(session.gitWorktree);
   }
 
   const baseSessionEnv = buildSessionEnv(resolveProviderFromModel(effectiveModel), session.thinkingEnabled, session.effortLevel);
-  return {
-    effectiveModel,
-    sessionEnv: buildAgentEnv(baseSessionEnv, commitAttributionOverride),
-    commitAttributionOverride,
-  };
+  return { effectiveModel, sessionEnv: buildAgentEnv(baseSessionEnv, commitAttributionOverride), commitAttributionOverride };
 }
 /**
  * Create the agent for a session, using gateway + logging + VCR.
@@ -134,9 +129,7 @@ export async function _executeSession({
       { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded },
       { controller },
     );
-    // stopSession() can abort while the asynchronous completion pipeline is
-    // running. Do not let any result from that stale pipeline reschedule,
-    // fail, hold, or successfully close the obligation after the stop pause.
+  // A stop invalidates the completion pipeline; stale work must not close the paused obligation.
     if (controller.signal.aborted) {
       discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_cancelled');
       pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
@@ -211,9 +204,7 @@ export async function _executeSession({
       markExecutionState(sessionId, 'retrying');
       return; // Don't throw - session was rescheduled
     }
-    // A user abort pauses the open lane-run obligation; a genuine permanent
-    // error remains terminally failed. Neither path may be interpreted as
-    // successful work.
+    // User aborts pause the obligation; permanent errors terminally fail it.
     discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, controller.signal.aborted ? 'turn_cancelled' : 'turn_failed');
     controller.signal.aborted
       ? pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken })

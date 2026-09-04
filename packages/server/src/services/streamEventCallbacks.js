@@ -101,6 +101,32 @@ function associateAndCleanupWorkLogs(sessionId) {
   }
 }
 
+function isTurnActive(sessionId, controller) {
+  return activeSessions.get(sessionId)?.controller === controller && !controller?.signal?.aborted;
+}
+
+const inactiveCompletion = () => ({ wasRescheduled: false, heldForLimit: false });
+
+async function proactivelyReschedule(sessionId, callback) {
+  if (!callback) return false;
+  return callback(sessionId);
+}
+
+async function broadcastCompletionChanges(sessionId, workingDirectory) {
+  const session = sessions.getById(sessionId);
+  if (session) await broadcastChangesUpdate(sessionId, session.projectId, workingDirectory);
+}
+
+async function autoSendQueuedPrompt(sessionId, callback) {
+  return callback ? callback(sessionId) : false;
+}
+
+function transitionToWaiting(sessionId, wasScheduledMidTurn) {
+  if (wasScheduledMidTurn) return;
+  sessions.update(sessionId, { status: 'waiting', error: null });
+  broadcastSessionStatus(sessionId, 'waiting');
+}
+
 /**
  * Handle post-turn activities for a session that's ready for follow-up.
  * @param {string} sessionId
@@ -109,11 +135,6 @@ function associateAndCleanupWorkLogs(sessionId) {
  * @returns {Promise<{wasRescheduled: boolean, heldForLimit: boolean}>}
  */
 async function handleActiveSessionCompletion(sessionId, workingDirectory, callbacks, controller) {
-  const turnStillActive = () => {
-    const activeSession = activeSessions.get(sessionId);
-    return activeSession?.controller === controller && !controller?.signal?.aborted;
-  };
-
   // Apply first, then decide whether to suppress the waiting transition. A
   // merely captured wakeup is not sufficient: deferred-loop resolution and
   // lane ownership can still reject it at this boundary.
@@ -123,12 +144,9 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   // this turn, or for a replacement turn to take ownership of the session.
   // Once either happens, this stale completion must not write status or launch
   // any of the automatic continuations below.
-  if (!turnStillActive()) return { wasRescheduled: false, heldForLimit: false };
+  if (!isTurnActive(sessionId, controller)) return inactiveCompletion();
 
-  if (!wasScheduledMidTurn) {
-    sessions.update(sessionId, { status: 'waiting', error: null });
-    broadcastSessionStatus(sessionId, 'waiting');
-  }
+  transitionToWaiting(sessionId, wasScheduledMidTurn);
 
   // Applying a wakeup can create a diagnostic work log when it loses to a
   // later explicit schedule or its lane run was superseded. Associate only
@@ -145,9 +163,9 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   // double-drive a session that's simultaneously scheduled to retry (Issue 3).
   const { checkProactiveReschedule } = callbacks;
   let wasProactivelyRescheduled = false;
-  if (!wasScheduledMidTurn && checkProactiveReschedule) {
-    wasProactivelyRescheduled = await checkProactiveReschedule(sessionId);
-    if (!turnStillActive()) return { wasRescheduled: false, heldForLimit: false };
+  if (!wasScheduledMidTurn) {
+    wasProactivelyRescheduled = await proactivelyReschedule(sessionId, checkProactiveReschedule);
+    if (!isTurnActive(sessionId, controller)) return inactiveCompletion();
     if (wasProactivelyRescheduled) {
       return { wasRescheduled: true, heldForLimit: false }; // Session was rescheduled, don't continue with normal completion
     }
@@ -159,11 +177,8 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   summaryService.onSessionActivity(sessionId);
 
   // Broadcast changes update when turn completes (real-time indicator)
-  const currentSession = sessions.getById(sessionId);
-  if (currentSession) {
-    await broadcastChangesUpdate(sessionId, currentSession.projectId, workingDirectory);
-    if (!turnStillActive()) return { wasRescheduled: false, heldForLimit: false };
-  }
+  await broadcastCompletionChanges(sessionId, workingDirectory);
+  if (!isTurnActive(sessionId, controller)) return inactiveCompletion();
 
   // A card transition is now owned exclusively by workflowSessionService.
   // Keep provider limits visible to the caller so a participating obligation
@@ -173,14 +188,14 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   // Auto-send queued prompt if enabled (runs BEFORE template trigger)
   const { handleAutoSendIfNeeded, handleTemplateTriggerIfNeeded } = callbacks;
   let autoSendFired = false;
-  if (!wasScheduledMidTurn && turnStillActive() && handleAutoSendIfNeeded) {
-    autoSendFired = await handleAutoSendIfNeeded(sessionId);
-    if (!turnStillActive()) return { wasRescheduled: false, heldForLimit: false };
+  if (!wasScheduledMidTurn) {
+    autoSendFired = await autoSendQueuedPrompt(sessionId, handleAutoSendIfNeeded);
+    if (!isTurnActive(sessionId, controller)) return inactiveCompletion();
   }
 
   // Only trigger next template if auto-send did NOT fire
   // (if auto-send fired, template will trigger after that turn completes)
-  if (!wasScheduledMidTurn && !autoSendFired && turnStillActive() && handleTemplateTriggerIfNeeded) {
+  if (!wasScheduledMidTurn && !autoSendFired && handleTemplateTriggerIfNeeded) {
     await handleTemplateTriggerIfNeeded(sessionId);
   }
 

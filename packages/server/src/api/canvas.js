@@ -5,7 +5,7 @@ import { extname, join, basename } from 'path';
 import { canvasItems } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES, UpdateCanvasItemRequest } from '@circuschief/shared';
-import { upload, handleUploadError } from '../middleware/upload.js';
+import { handleUploadError, uploadSingleMiddleware } from '../middleware/upload.js';
 import { requireRootSessionAndProject } from '../middleware/sessionLookup.js';
 import {
   isBinaryContent,
@@ -83,7 +83,7 @@ router.use('/', trashRoutes);
 // 1. Multipart mode: FormData with 'file' field - from browser file uploads
 // 2. File mode: { filePath } - reads file from disk
 // 3. Inline mode: { type, content, filename } - uses provided content directly
-router.post('/:id/canvas', requireRootSessionAndProject, upload.single('file'), handleUploadError, (req, res) => {
+router.post('/:id/canvas', requireRootSessionAndProject, uploadSingleMiddleware('file'), handleUploadError, (req, res) => {
   const { filePath, type, content, filename } = req.body;
   let result;
 
