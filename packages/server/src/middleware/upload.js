@@ -92,17 +92,3 @@ export function uploadMiddleware(fieldName, maxCount) {
     upload.array(fieldName, maxCount)(req, res, next);
   };
 }
-
-/**
- * Skip Multer for JSON requests while preserving its single-file `req.file`
- * contract for multipart routes.
- */
-export function uploadSingleMiddleware(fieldName) {
-  return (req, res, next) => {
-    const contentType = req.get('content-type');
-    if (!contentType || !contentType.startsWith('multipart/form-data')) {
-      return next();
-    }
-    upload.single(fieldName)(req, res, next);
-  };
-}
