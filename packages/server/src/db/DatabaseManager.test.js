@@ -832,11 +832,10 @@ describe('DatabaseManager', () => {
     it('includes the built-in Fable catalog entry', () => {
       const db = manager.get();
 
-      expect(db.prepare("SELECT model_id, display_name, description, tier FROM provider_models WHERE model_id = 'claude-fable-5'").get()).toEqual({
+      expect(db.prepare("SELECT model_id, display_name, description FROM provider_models WHERE model_id = 'claude-fable-5'").get()).toEqual({
         model_id: 'claude-fable-5',
         display_name: 'Fable 5',
         description: 'Next-generation intelligence',
-        tier: 'fable',
       });
     });
 
@@ -881,7 +880,7 @@ describe('DatabaseManager', () => {
           model_id: 'claude-fable-5',
           display_name: 'Fable 5',
           description: 'Next-generation intelligence',
-          tier: 'fable',
+          tier: null,
         });
       } finally {
         db.close();

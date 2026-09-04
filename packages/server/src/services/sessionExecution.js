@@ -38,7 +38,7 @@ async function resolveInitialSessionModelEnv(session, model) {
     await ensureWorktreeCommitAttributionHook(session.gitWorktree);
   }
 
-  const baseSessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
+  const baseSessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel, effectiveModel);
   return {
     effectiveModel,
     sessionEnv: buildAgentEnv(baseSessionEnv, commitAttributionOverride),
@@ -248,7 +248,7 @@ function buildContinueModelAndEnv(session, sessionId, model) {
   const providerMetadata = resolveProviderMetadataFromModel(effectiveModel);
   const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
   const sessionEnv = buildAgentEnv(
-    buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel),
+    buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel, effectiveModel),
     commitAttributionOverride
   );
 

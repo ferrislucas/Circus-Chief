@@ -47,6 +47,7 @@
 <script setup>
 import { ref, computed, watch, toRef, onMounted } from 'vue';
 import { useProvidersStore } from '../stores/providers.js';
+import { LEGACY_BUILTIN_SHORTHAND_MAP } from '@circuschief/shared';
 
 const props = defineProps({
   modelValue: {
@@ -210,7 +211,7 @@ function hasActiveMatch(modelId, providerId) {
 // created via the API with only `model` set), then a built-in model-id
 // prefix inference for a soft-removed row not present in the bulk payload.
 // Session-scoped pickers fall back to the built-in Anthropic provider only as
-// a last resort (legacy tier aliases like 'sonnet' with no owning provider).
+// a last resort (legacy shorthand aliases like 'sonnet' with no owning provider).
 // Configuration forms (non-session-scoped) return null in that last-resort
 // case instead, since they have no session context to default to.
 const currentValueProviderId = computed(() => {
@@ -329,8 +330,8 @@ function withDisabledModelsHidden(provider, keepModelIds, markPreservedUnavailab
   };
 }
 
-// Default model resolution honours Phase 6 rules:
-//   - Prefer the first built-in Anthropic provider's sonnet (or first) model.
+// Default model resolution: first enabled model in repository/UI order.
+//   - Prefer the first built-in Anthropic provider's first enabled model.
 //   - If NO Anthropic providers exist at all, return null rather than silently
 //     selecting a Codex model (Codex has no "default" concept in the UI yet).
 const defaultModel = computed(() => {
@@ -344,8 +345,7 @@ const defaultModel = computed(() => {
   const candidate = builtIn || anthropicProviders[0];
   const enabledModels = candidate?.models?.filter((model) => model.enabled !== false) || [];
   if (enabledModels.length) {
-    const sonnet = enabledModels.find((m) => m.tier === 'sonnet');
-    return sonnet?.modelId || enabledModels[0].modelId;
+    return enabledModels[0].modelId;
   }
   return null;
 });
@@ -365,26 +365,21 @@ onMounted(async () => {
   hasInitialized.value = true;
 });
 
-// Helper to convert tier names (e.g., 'sonnet') to full model IDs
-// This handles legacy/shorthand values that don't match actual option values
+// Helper to convert legacy bare shorthand values (e.g., 'sonnet') to full
+// model IDs using the legacy built-in shorthand map. These values may have
+// been stored by older versions of the application.
 function resolveModelId(modelValue) {
   if (!modelValue) return null;
 
-  // If it's already a full model ID (contains 'claude-'), use as-is
-  if (modelValue.includes('claude-')) {
+  // If it's already a full model ID (contains a hyphen typical of model IDs), use as-is
+  if (modelValue.includes('-') && !LEGACY_BUILTIN_SHORTHAND_MAP[modelValue.toLowerCase()]) {
     return modelValue;
   }
 
-  // It's a tier name like 'sonnet', 'opus', 'haiku' - find matching model
-  // (only resolve against an Anthropic built-in; Codex has no tier map)
-  const builtIn = providersStore.providers.find(
-    (p) => p.isBuiltIn && agentTypeFor(p) === 'claude-code'
-  );
-  if (builtIn?.models?.length) {
-    const match = builtIn.models.find(m => m.tier === modelValue);
-    if (match) {
-      return match.modelId;
-    }
+  // Check if it's a legacy shorthand value
+  const resolved = LEGACY_BUILTIN_SHORTHAND_MAP[modelValue.toLowerCase()];
+  if (resolved) {
+    return resolved;
   }
 
   // Fallback: return as-is (will show empty if no match, but at least we tried)
@@ -449,7 +444,7 @@ watch(toRef(props, 'providerId'), (newProviderId) => {
   selectedProviderId.value = newProviderId;
 }, { flush: 'sync' });
 
-// Also watch providers - when they load, we may need to resolve tier names
+// Also watch providers - when they load, we may need to resolve legacy shorthand
 // Use immediate: true to run on mount when providers might already be loaded
 watch(() => providersStore.providers, syncSelectionFromProviders, { deep: true, immediate: true });
 

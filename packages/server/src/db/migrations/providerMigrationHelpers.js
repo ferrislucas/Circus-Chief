@@ -1,6 +1,10 @@
 import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
-import { getTableSql } from './migrationUtils.js';
+import { getTableSql, getColumns } from './migrationUtils.js';
 import { BUILT_IN_OPENAI_COMMIT_ATTRIBUTION } from '../seedBaselineData.js';
+
+function columnExists(db, table, column) {
+  return getColumns(db, table).some((col) => col.name === column);
+}
 
 const ANTHROPIC_PROVIDER_ID = 'anthropic-default';
 const OPENAI_PROVIDER_ID = 'openai-default';
@@ -10,7 +14,6 @@ const FABLE_MODEL = {
   modelId: 'claude-fable-5',
   displayName: 'Fable 5',
   description: 'Next-generation intelligence',
-  tier: 'fable',
 };
 
 /**
@@ -24,19 +27,26 @@ const FABLE_MODEL = {
  * @param {import('better-sqlite3').Database} db
  * @param {string} providerId
  * @param {Array} models - one of CLAUDE_MODELS / OPENAI_MODELS / GEMINI_MODELS
- * @param {(model: object) => string} tierFor - resolves the `tier` column
- *   value for a catalog entry (Anthropic rows carry a real tier; OpenAI/Google
- *   built-in rows use the fixed 'custom' tier).
  */
-function seedCatalogModels(db, providerId, models, tierFor) {
-  const insertModel = db.prepare(
-    `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  );
+function seedCatalogModels(db, providerId, models) {
+  const hasTier = columnExists(db, 'provider_models', 'tier');
+  const insertModel = hasTier
+    ? db.prepare(
+        `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+         VALUES (?, ?, ?, ?, ?, 'custom', ?)`
+      )
+    : db.prepare(
+        `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      );
 
   const now = Date.now();
   for (const model of models) {
-    insertModel.run(model.seedId, providerId, model.id, model.name, model.description, tierFor(model), now);
+    if (hasTier) {
+      insertModel.run(model.seedId, providerId, model.id, model.name, model.description, now);
+    } else {
+      insertModel.run(model.seedId, providerId, model.id, model.name, model.description, now);
+    }
   }
 }
 
@@ -62,7 +72,7 @@ export function seedBuiltInAnthropicProvider(db) {
     ).run(ANTHROPIC_PROVIDER_ID, 'Anthropic (Official)', now, now);
   }
 
-  seedCatalogModels(db, ANTHROPIC_PROVIDER_ID, CLAUDE_MODELS, (model) => model.tier);
+  seedCatalogModels(db, ANTHROPIC_PROVIDER_ID, CLAUDE_MODELS);
 }
 
 /**
@@ -92,7 +102,7 @@ export function seedBuiltInOpenAIProvider(db) {
      VALUES (?, ?, NULL, NULL, 'openai', ?, 1, ?, ?)`
   ).run(OPENAI_PROVIDER_ID, 'OpenAI (Official)', BUILT_IN_OPENAI_COMMIT_ATTRIBUTION, now, now);
 
-  seedCatalogModels(db, OPENAI_PROVIDER_ID, OPENAI_MODELS, () => 'custom');
+  seedCatalogModels(db, OPENAI_PROVIDER_ID, OPENAI_MODELS);
 }
 
 export function seedBuiltInGoogleProvider(db) {
@@ -105,7 +115,7 @@ export function seedBuiltInGoogleProvider(db) {
      VALUES (?, ?, NULL, NULL, 'google', 1, ?, ?)`
   ).run(GOOGLE_PROVIDER_ID, 'Google (Official)', now, now);
 
-  seedCatalogModels(db, GOOGLE_PROVIDER_ID, GEMINI_MODELS, () => 'custom');
+  seedCatalogModels(db, GOOGLE_PROVIDER_ID, GEMINI_MODELS);
 }
 
 export function seedBuiltInProviders(db) {
@@ -147,6 +157,9 @@ export function updateBuiltInSonnet5(db) {
 }
 
 export function widenProviderModelsTierCheckForFable(db) {
+  if (!columnExists(db, 'provider_models', 'tier')) {
+    return;
+  }
   const existingSql = getTableSql(db, 'provider_models') || '';
   if (!existingSql || existingSql.includes("'fable'")) {
     return;
@@ -185,33 +198,60 @@ export function widenProviderModelsTierCheckForFable(db) {
 export function seedBuiltInFable5(db) {
   widenProviderModelsTierCheckForFable(db);
 
-  db.prepare(
-    `INSERT OR IGNORE INTO provider_models (
-       id, provider_id, model_id, display_name, description, tier, created_at
-     )
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    FABLE_MODEL.id,
-    ANTHROPIC_PROVIDER_ID,
-    FABLE_MODEL.modelId,
-    FABLE_MODEL.displayName,
-    FABLE_MODEL.description,
-    FABLE_MODEL.tier,
-    Date.now()
-  );
+  const hasTier = columnExists(db, 'provider_models', 'tier');
+  if (hasTier) {
+    db.prepare(
+      `INSERT OR IGNORE INTO provider_models (
+         id, provider_id, model_id, display_name, description, tier, created_at
+       )
+       VALUES (?, ?, ?, ?, ?, 'fable', ?)`
+    ).run(
+      FABLE_MODEL.id,
+      ANTHROPIC_PROVIDER_ID,
+      FABLE_MODEL.modelId,
+      FABLE_MODEL.displayName,
+      FABLE_MODEL.description,
+      Date.now()
+    );
 
-  db.prepare(
-    `UPDATE provider_models
-     SET model_id = ?, display_name = ?, description = ?, tier = ?
-     WHERE provider_id = ? AND id = ?`
-  ).run(
-    FABLE_MODEL.modelId,
-    FABLE_MODEL.displayName,
-    FABLE_MODEL.description,
-    FABLE_MODEL.tier,
-    ANTHROPIC_PROVIDER_ID,
-    FABLE_MODEL.id
-  );
+    db.prepare(
+      `UPDATE provider_models
+       SET model_id = ?, display_name = ?, description = ?
+       WHERE provider_id = ? AND id = ?`
+    ).run(
+      FABLE_MODEL.modelId,
+      FABLE_MODEL.displayName,
+      FABLE_MODEL.description,
+      ANTHROPIC_PROVIDER_ID,
+      FABLE_MODEL.id
+    );
+  } else {
+    db.prepare(
+      `INSERT OR IGNORE INTO provider_models (
+         id, provider_id, model_id, display_name, description, created_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(
+      FABLE_MODEL.id,
+      ANTHROPIC_PROVIDER_ID,
+      FABLE_MODEL.modelId,
+      FABLE_MODEL.displayName,
+      FABLE_MODEL.description,
+      Date.now()
+    );
+
+    db.prepare(
+      `UPDATE provider_models
+       SET model_id = ?, display_name = ?, description = ?
+       WHERE provider_id = ? AND id = ?`
+    ).run(
+      FABLE_MODEL.modelId,
+      FABLE_MODEL.displayName,
+      FABLE_MODEL.description,
+      ANTHROPIC_PROVIDER_ID,
+      FABLE_MODEL.id
+    );
+  }
 }
 
 /**
@@ -219,20 +259,25 @@ export function seedBuiltInFable5(db) {
  * below (seeding, lifecycle sync, and the one-time older-lifecycle disable).
  */
 const CATALOGS_BY_PROVIDER = [
-  [ANTHROPIC_PROVIDER_ID, CLAUDE_MODELS, (model) => model.tier],
-  [OPENAI_PROVIDER_ID, OPENAI_MODELS, () => 'custom'],
-  [GOOGLE_PROVIDER_ID, GEMINI_MODELS, () => 'custom'],
+  [ANTHROPIC_PROVIDER_ID, CLAUDE_MODELS],
+  [OPENAI_PROVIDER_ID, OPENAI_MODELS],
+  [GOOGLE_PROVIDER_ID, GEMINI_MODELS],
 ];
 
 /** Seed current catalogs after enabled/sort_order columns have been added. */
 export function syncBuiltInModelCatalogs(db) {
   const now = Date.now();
-  const insert = db.prepare(`INSERT OR IGNORE INTO provider_models
-    (id, provider_id, model_id, display_name, description, tier, enabled, sort_order, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM provider_models WHERE provider_id = ?), ?)`);
-  for (const [providerId, models, tierFor] of CATALOGS_BY_PROVIDER) {
+  const hasTier = columnExists(db, 'provider_models', 'tier');
+  const insertModel = hasTier
+    ? db.prepare(`INSERT OR IGNORE INTO provider_models
+      (id, provider_id, model_id, display_name, description, tier, enabled, sort_order, created_at)
+      VALUES (?, ?, ?, ?, ?, 'custom', ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM provider_models WHERE provider_id = ?), ?)`)
+    : db.prepare(`INSERT OR IGNORE INTO provider_models
+      (id, provider_id, model_id, display_name, description, enabled, sort_order, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM provider_models WHERE provider_id = ?), ?)`);
+  for (const [providerId, models] of CATALOGS_BY_PROVIDER) {
     for (const model of models) {
-      insert.run(model.seedId, providerId, model.id, model.name, model.description, tierFor(model), model.defaultEnabled === false ? 0 : 1, providerId, now);
+      insertModel.run(model.seedId, providerId, model.id, model.name, model.description, model.defaultEnabled === false ? 0 : 1, providerId, now);
     }
   }
 }

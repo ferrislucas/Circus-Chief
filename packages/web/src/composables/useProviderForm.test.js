@@ -159,8 +159,8 @@ describe('useProviderForm', () => {
       await nextTick();
 
       expect(result.localModels.value).toEqual([
-        { _serverId: 'm1', modelId: 'gpt-4', displayName: 'GPT-4', tier: 'sonnet', enabled: true, sortOrder: null },
-        { _serverId: 'm2', modelId: 'gpt-3.5', displayName: 'GPT-3.5', tier: 'custom', enabled: true, sortOrder: null },
+        { _serverId: 'm1', modelId: 'gpt-4', displayName: 'GPT-4', enabled: true, sortOrder: null },
+        { _serverId: 'm2', modelId: 'gpt-3.5', displayName: 'GPT-3.5', enabled: true, sortOrder: null },
       ]);
     });
 
@@ -237,7 +237,7 @@ describe('useProviderForm', () => {
       expect(result.envVarKeys.value).toEqual([]);
     });
 
-    it('should default model tier to custom when not specified', async () => {
+    it('does not retain a tier when loading models', async () => {
       const { result } = createForm();
 
       providerRef.value = {
@@ -252,7 +252,7 @@ describe('useProviderForm', () => {
       isOpenRef.value = true;
       await nextTick();
 
-      expect(result.localModels.value[0].tier).toBe('custom');
+      expect(result.localModels.value[0].tier).toBeUndefined();
     });
   });
 
@@ -344,7 +344,7 @@ describe('useProviderForm', () => {
       const { result } = createForm();
       result.addLocalModel();
       expect(result.localModels.value).toEqual([
-        { _localKey: expect.any(String), modelId: '', displayName: '', tier: 'custom', enabled: true },
+        { _localKey: expect.any(String), modelId: '', displayName: '', enabled: true },
       ]);
     });
 
@@ -657,7 +657,7 @@ describe('useProviderForm', () => {
       );
     });
 
-    it('should pass defaultSonnetModel when a sonnet-tier model exists', async () => {
+    it('uses the first enabled model as testModel', async () => {
       mockProvidersStore.testConnection.mockResolvedValue({ success: true });
 
       const { result } = createForm();
@@ -670,12 +670,12 @@ describe('useProviderForm', () => {
 
       expect(mockProvidersStore.testConnection).toHaveBeenCalledWith(
         expect.objectContaining({
-          defaultSonnetModel: 'claude-3-sonnet',
+          testModel: 'claude-3-sonnet',
         }),
       );
     });
 
-    it('should not pass defaultSonnetModel when no sonnet-tier model exists', async () => {
+    it('uses the first enabled model regardless of its former tier', async () => {
       mockProvidersStore.testConnection.mockResolvedValue({ success: true });
 
       const { result } = createForm();
@@ -688,7 +688,7 @@ describe('useProviderForm', () => {
 
       expect(mockProvidersStore.testConnection).toHaveBeenCalledWith(
         expect.objectContaining({
-          defaultSonnetModel: undefined,
+          testModel: 'custom-model',
         }),
       );
     });
@@ -1032,7 +1032,6 @@ describe('useProviderForm', () => {
         expect(mockProvidersStore.addModel).toHaveBeenCalledWith('new-p', {
           modelId: 'new-model',
           displayName: 'New Model',
-          tier: 'custom',
           enabled: true,
         });
       });
@@ -1095,7 +1094,6 @@ describe('useProviderForm', () => {
         expect(mockProvidersStore.updateModel).toHaveBeenCalledWith('p1', 'm1', {
           modelId: 'model-a',
           displayName: 'Model A Updated',
-          tier: 'custom',
           enabled: true,
         });
       });
@@ -1169,7 +1167,6 @@ describe('useProviderForm', () => {
         expect(mockProvidersStore.addModel).toHaveBeenCalledWith('new-p', {
           modelId: 'my-model',
           displayName: 'my-model',
-          tier: 'custom',
           enabled: true,
         });
       });
@@ -1433,7 +1430,7 @@ describe('useProviderForm', () => {
         kind: 'openai',
         baseUrl: 'https://api.openai.com/v1',
         authToken: 'sk-xyz',
-        defaultSonnetModel: 'gpt-4o',
+        testModel: 'gpt-4o',
         apiTimeoutMs: 45000,
       });
       expect(callArgs).not.toHaveProperty('additionalEnvVars');

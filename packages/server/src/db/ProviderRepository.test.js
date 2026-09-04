@@ -3,7 +3,6 @@ import {
   ProviderRepository,
   PROVIDER_KINDS,
   AGENT_TYPE_BY_KIND,
-  MODEL_TIER_ALIASES,
 } from './ProviderRepository.js';
 import { OPENAI_MODELS } from '@circuschief/shared';
 
@@ -214,7 +213,6 @@ describe('ProviderRepository', () => {
       repo.addModel(provider.id, {
         modelId: 'my-sonnet-v1',
         displayName: 'My Sonnet',
-        tier: 'sonnet',
       });
 
       const providers = repo.getAll();
@@ -326,7 +324,7 @@ describe('ProviderRepository', () => {
 
       expect(model.modelId).toBe('custom-model-id');
       expect(model.displayName).toBe('Custom Model');
-      expect(model.tier).toBe('sonnet');
+      expect(model.tier).toBeUndefined();
 
       const models = repo.getModels(provider.id);
       expect(models.length).toBe(1);
@@ -343,15 +341,13 @@ describe('ProviderRepository', () => {
         authToken: 'token',
       });
 
-      repo.addModel(provider.id, { modelId: 'model-opus', displayName: 'Opus', tier: 'opus' });
-      repo.addModel(provider.id, { modelId: 'model-sonnet', displayName: 'Sonnet', tier: 'sonnet' });
-      repo.addModel(provider.id, { modelId: 'model-haiku', displayName: 'Haiku', tier: 'haiku' });
+      repo.addModel(provider.id, { modelId: 'model-first', displayName: 'First' });
+      repo.addModel(provider.id, { modelId: 'model-second', displayName: 'Second' });
+      repo.addModel(provider.id, { modelId: 'model-third', displayName: 'Third' });
 
       const models = repo.getModels(provider.id);
       expect(models.length).toBe(3);
-      expect(models.some((m) => m.tier === 'opus')).toBe(true);
-      expect(models.some((m) => m.tier === 'sonnet')).toBe(true);
-      expect(models.some((m) => m.tier === 'haiku')).toBe(true);
+      expect(models.map((m) => m.modelId)).toEqual(['model-first', 'model-second', 'model-third']);
 
       // Cleanup
       repo.delete(provider.id);
@@ -489,7 +485,7 @@ describe('ProviderRepository', () => {
 
       expect(updated.modelId).toBe('new-model-id');
       expect(updated.displayName).toBe('Original Model'); // Unchanged
-      expect(updated.tier).toBe('sonnet'); // Unchanged
+      expect(updated.tier).toBeUndefined();
 
       // Verify in database
       const models = repo.getModels(provider.id);
@@ -522,7 +518,7 @@ describe('ProviderRepository', () => {
       repo.delete(provider.id);
     });
 
-    it('updates tier field', () => {
+    it('ignores a legacy tier field', () => {
       const provider = repo.create({
         name: 'Update Tier',
         baseUrl: 'https://api.test.com',
@@ -537,7 +533,7 @@ describe('ProviderRepository', () => {
 
       const updated = repo.updateModel(model.id, { tier: 'opus' });
 
-      expect(updated.tier).toBe('opus');
+      expect(updated.tier).toBeUndefined();
 
       // Cleanup
       repo.delete(provider.id);
@@ -564,7 +560,7 @@ describe('ProviderRepository', () => {
 
       expect(updated.modelId).toBe('new-id');
       expect(updated.displayName).toBe('New Name');
-      expect(updated.tier).toBe('opus');
+      expect(updated.tier).toBeUndefined();
 
       // Cleanup
       repo.delete(provider.id);
@@ -587,7 +583,7 @@ describe('ProviderRepository', () => {
 
       expect(updated.modelId).toBe('test-model');
       expect(updated.displayName).toBe('Test Model');
-      expect(updated.tier).toBe('sonnet');
+      expect(updated.tier).toBeUndefined();
 
       // Cleanup
       repo.delete(provider.id);
@@ -638,7 +634,7 @@ describe('ProviderRepository', () => {
       expect(retrieved.id).toBe(model.id);
       expect(retrieved.modelId).toBe('test-model-id');
       expect(retrieved.displayName).toBe('Test Model');
-      expect(retrieved.tier).toBe('sonnet');
+      expect(retrieved.tier).toBeUndefined();
 
       // Cleanup
       repo.delete(provider.id);
@@ -782,9 +778,7 @@ describe('ProviderRepository', () => {
       // Models array should contain all three models
       expect(Array.isArray(result.models)).toBe(true);
       expect(result.models.length).toBe(3);
-      expect(result.models.some((m) => m.tier === 'opus' && m.modelId === 'full-opus')).toBe(true);
-      expect(result.models.some((m) => m.tier === 'sonnet' && m.modelId === 'full-sonnet')).toBe(true);
-      expect(result.models.some((m) => m.tier === 'haiku' && m.modelId === 'full-haiku')).toBe(true);
+      expect(result.models.map((m) => m.modelId)).toEqual(['full-opus', 'full-sonnet', 'full-haiku']);
 
       // No legacy default model fields
       expect(result.defaultOpusModel).toBeUndefined();
@@ -797,7 +791,7 @@ describe('ProviderRepository', () => {
   });
 
   describe('getAllModelIds', () => {
-    it('returns distinct sorted registered model ids plus tier aliases', () => {
+    it('returns distinct sorted registered model ids', () => {
       const provider = repo.create({
         name: 'Model Id Enumeration',
         kind: 'openai',
@@ -816,11 +810,7 @@ describe('ProviderRepository', () => {
         expect(ids).toEqual([...ids].sort());
         expect(ids).toContain('zz-enumerated-model');
         expect(ids).toContain('gpt-5.6-sol');
-        for (const alias of MODEL_TIER_ALIASES) {
-          expect(ids).toContain(alias);
-          expect(repo.getProviderByModelId(alias)).toBeNull();
-          expect(repo.getProviderMetadataByModelId(alias)).not.toBeNull();
-        }
+        expect(ids).not.toContain('sonnet');
         expect(new Set(ids).size).toBe(ids.length);
       } finally {
         repo.delete(provider.id);
@@ -979,10 +969,10 @@ describe('ProviderRepository', () => {
         .run(id, 'Built-in OpenAI (test)', 'openai', now, now);
       repo.db
         .prepare(
-          `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
         )
-        .run('test-builtin-openai-gpt4o', id, 'gpt-4o', 'GPT-4o', null, 'custom', now);
+        .run('test-builtin-openai-gpt4o', id, 'gpt-4o', 'GPT-4o', null, now);
 
       try {
         const result = repo.getProviderByModelId('gpt-4o');

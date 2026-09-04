@@ -65,13 +65,13 @@ describe('seedBuiltInAnthropicProvider (single source of truth: CLAUDE_MODELS)',
     }
   });
 
-  it('derives display name, description, and tier from CLAUDE_MODELS for every seeded row', () => {
+  it('derives display name and description from CLAUDE_MODELS for every seeded row', () => {
     const db = freshDb();
     try {
       seedBuiltInAnthropicProvider(db);
 
       const rows = db
-        .prepare('SELECT model_id, display_name, description, tier FROM provider_models WHERE provider_id = ?')
+        .prepare('SELECT model_id, display_name, description FROM provider_models WHERE provider_id = ?')
         .all('anthropic-default');
       const byModelId = new Map(rows.map((r) => [r.model_id, r]));
 
@@ -80,7 +80,6 @@ describe('seedBuiltInAnthropicProvider (single source of truth: CLAUDE_MODELS)',
         expect(row).toBeDefined();
         expect(row.display_name).toBe(model.name);
         expect(row.description).toBe(model.description);
-        expect(row.tier).toBe(model.tier);
       }
     } finally {
       db.close();

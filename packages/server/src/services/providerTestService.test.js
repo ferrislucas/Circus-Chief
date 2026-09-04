@@ -62,6 +62,7 @@ describe('providerTestService', () => {
         kind: 'anthropic',
         baseUrl: 'https://api.anthropic.com',
         authToken: 'sk-ant',
+        testModel: 'claude-sonnet-4-20250514',
         apiTimeoutMs: 30000,
       });
       expect(result.success).toBe(true);
@@ -69,13 +70,13 @@ describe('providerTestService', () => {
       expect(result.details.model).toBe('claude-sonnet-4-20250514');
       expect(result.details.usage).toEqual({ input_tokens: 1, output_tokens: 1 });
       expect(anthropicCreateSpy).toHaveBeenCalledWith(expect.objectContaining({
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-4-20250514',
       }));
     });
 
     it('401 → auth failure shape', async () => {
       anthropicCreateSpy.mockRejectedValue(apiError({ status: 401, type: 'authentication_error' }));
-      const result = await testProviderConnection({ kind: 'anthropic', authToken: 'bad' });
+      const result = await testProviderConnection({ kind: 'anthropic', authToken: 'bad', testModel: 'test-model' });
       expect(result).toEqual({
         success: false,
         message: 'Authentication failed. Check your auth token.',
@@ -85,7 +86,7 @@ describe('providerTestService', () => {
 
     it('404 → model failure shape', async () => {
       anthropicCreateSpy.mockRejectedValue(apiError({ status: 404, type: 'not_found_error' }));
-      const result = await testProviderConnection({ kind: 'anthropic' });
+      const result = await testProviderConnection({ kind: 'anthropic', testModel: 'test-model' });
       expect(result).toEqual({
         success: false,
         message: 'Model not found. Check the model ID.',
@@ -95,7 +96,7 @@ describe('providerTestService', () => {
 
     it('ECONNREFUSED → base URL failure shape', async () => {
       anthropicCreateSpy.mockRejectedValue(apiError({ code: 'ECONNREFUSED' }));
-      const result = await testProviderConnection({ kind: 'anthropic' });
+      const result = await testProviderConnection({ kind: 'anthropic', testModel: 'test-model' });
       expect(result.success).toBe(false);
       expect(result.message).toBe('Could not connect to server. Check the base URL.');
       expect(result.details.code).toBe('ECONNREFUSED');
@@ -103,7 +104,7 @@ describe('providerTestService', () => {
 
     it('ETIMEDOUT → timeout failure shape', async () => {
       anthropicCreateSpy.mockRejectedValue(apiError({ code: 'ETIMEDOUT' }));
-      const result = await testProviderConnection({ kind: 'anthropic', apiTimeoutMs: 1000 });
+      const result = await testProviderConnection({ kind: 'anthropic', testModel: 'test-model', apiTimeoutMs: 1000 });
       expect(result.success).toBe(false);
       expect(result.message).toBe('Connection timed out. Try increasing the timeout.');
       expect(result.details.code).toBe('ETIMEDOUT');
@@ -111,7 +112,7 @@ describe('providerTestService', () => {
 
     it('default behavior when kind is omitted → anthropic path', async () => {
       anthropicCreateSpy.mockResolvedValue({ model: 'x', usage: {} });
-      const result = await testProviderConnection({ authToken: 'sk' });
+      const result = await testProviderConnection({ authToken: 'sk', testModel: 'test-model' });
       expect(result.success).toBe(true);
       expect(anthropicCreateSpy).toHaveBeenCalledTimes(1);
       expect(openaiListSpy).not.toHaveBeenCalled();
@@ -129,6 +130,7 @@ describe('providerTestService', () => {
         kind: 'openai',
         baseUrl: 'https://api.openai.com/v1',
         authToken: 'sk-test',
+        testModel: 'gpt-4o',
       });
       expect(result.success).toBe(true);
       expect(result.message).toBe('Connection successful');
@@ -147,6 +149,7 @@ describe('providerTestService', () => {
         kind: 'openai',
         baseUrl: 'https://chat-only.local/v1',
         authToken: 'sk',
+        testModel: 'gpt-4o-mini',
       });
       expect(result.success).toBe(true);
       expect(result.details.model).toBe('gpt-4o-mini');
@@ -163,6 +166,7 @@ describe('providerTestService', () => {
       const result = await testProviderConnection({
         kind: 'openai',
         authToken: 'bad',
+        testModel: 'gpt-4o-mini',
       });
       expect(result).toEqual({
         success: false,
@@ -177,6 +181,7 @@ describe('providerTestService', () => {
       const result = await testProviderConnection({
         kind: 'openai',
         baseUrl: 'https://nowhere.local',
+        testModel: 'gpt-4o-mini',
       });
       expect(result.success).toBe(false);
       expect(result.message).toBe('Could not connect to server. Check the base URL.');
@@ -188,6 +193,7 @@ describe('providerTestService', () => {
       const result = await testProviderConnection({
         kind: 'openai',
         apiTimeoutMs: 500,
+        testModel: 'gpt-4o-mini',
       });
       expect(result.success).toBe(false);
       expect(result.message).toBe('Connection timed out. Try increasing the timeout.');
@@ -200,6 +206,7 @@ describe('providerTestService', () => {
       const result = await testProviderConnection({
         kind: 'openai',
         authToken: 'bad',
+        testModel: 'gpt-4o-mini',
       });
       expect(result).toEqual({
         success: false,
@@ -208,7 +215,7 @@ describe('providerTestService', () => {
       });
     });
 
-    it('empty list + no defaultSonnetModel → success with empty details', async () => {
+    it('empty list + no test model → success with empty details', async () => {
       openaiListSpy.mockResolvedValue({ data: [] });
       const result = await testProviderConnection({
         kind: 'openai',
@@ -220,12 +227,12 @@ describe('providerTestService', () => {
       expect(result.details.model).toBeUndefined();
     });
 
-    it('empty list but defaultSonnetModel supplied → echoes that model', async () => {
+    it('empty list but testModel supplied → echoes that model', async () => {
       openaiListSpy.mockResolvedValue({ data: [] });
       const result = await testProviderConnection({
         kind: 'openai',
         authToken: 'sk',
-        defaultSonnetModel: 'custom-model-id',
+        testModel: 'custom-model-id',
       });
       expect(result.success).toBe(true);
       expect(result.details.model).toBe('custom-model-id');
@@ -233,7 +240,7 @@ describe('providerTestService', () => {
 
     it('response shape always includes { success, message, details }', async () => {
       openaiListSpy.mockRejectedValue(apiError({ status: 500, type: 'server_error', message: 'boom' }));
-      const result = await testProviderConnection({ kind: 'openai' });
+      const result = await testProviderConnection({ kind: 'openai', testModel: 'gpt-4o-mini' });
       expect(Object.keys(result).sort()).toEqual(['details', 'message', 'success']);
       expect(result.success).toBe(false);
       expect(result.details.code).toBe(500);

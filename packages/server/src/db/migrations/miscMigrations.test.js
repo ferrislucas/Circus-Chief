@@ -140,7 +140,6 @@ describe('providers-seed-built-in-openai migration', () => {
         id: model.seedId,
         display_name: model.name,
         description: model.description,
-        tier: 'custom',
       });
     }
   });
@@ -194,8 +193,8 @@ describe('providers-seed-built-in-openai migration', () => {
         { id: 'openai-gpt-5-4', modelId: 'gpt-5.4', displayName: 'GPT-5.4', description: 'High capability professional work' },
       ];
       const insert = db.prepare(
-        `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-         VALUES (?, ?, ?, ?, ?, 'custom', ?)`
+        `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
       );
       for (const model of legacyModels) {
         insert.run(model.id, 'openai-default', model.modelId, model.displayName, model.description, now);
@@ -252,8 +251,8 @@ describe('providers-seed-built-in-openai migration', () => {
          VALUES (?, ?, 'openai', 0, ?, ?)`
       ).run('custom-openai-legacy-test', 'Custom OpenAI', now, now);
       db.prepare(
-        `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-         VALUES (?, ?, ?, ?, ?, 'custom', ?)`
+        `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
       ).run('custom-openai-legacy-test-gpt-5-5', 'custom-openai-legacy-test', 'gpt-5.5', 'Custom GPT-5.5', null, now);
 
       seedOpenAIMigration.up(db);

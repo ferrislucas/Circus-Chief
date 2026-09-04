@@ -19,7 +19,7 @@ import { createGeminiSpawner } from './geminiSpawnHelper.js';
  * @param {'anthropic'|'openai'} [config.kind='anthropic'] - Provider kind
  * @param {string} [config.baseUrl] - Base URL for the provider
  * @param {string} [config.authToken] - Auth token for the provider
- * @param {string} [config.defaultSonnetModel] - For anthropic: model to test against
+ * @param {string} [config.testModel] - The model to test against
  * @param {number} [config.apiTimeoutMs] - API timeout in milliseconds
  * @returns {Promise<{success: boolean, message: string, details?: Object}>}
  */
@@ -39,7 +39,15 @@ export async function testProviderConnection(config, deps = {}) {
  * @private
  */
 async function testAnthropicConnection(config) {
-  const { baseUrl, authToken, defaultSonnetModel, apiTimeoutMs } = config;
+  const { baseUrl, authToken, testModel, apiTimeoutMs } = config;
+
+  if (!testModel) {
+    return {
+      success: false,
+      message: 'Add and enable a model before testing the connection.',
+      details: { code: 'no_model', type: 'validation' },
+    };
+  }
 
   try {
     const clientOptions = {};
@@ -52,7 +60,6 @@ async function testAnthropicConnection(config) {
 
     // Use a minimal message to test connectivity.
     // This verifies: network, auth, and model availability.
-    const testModel = defaultSonnetModel || 'claude-sonnet-5';
 
     const response = await client.messages.create({
       model: testModel,
@@ -114,12 +121,19 @@ async function testOpenAIClient(client, config) {
 
 async function testOpenAIModelsEndpoint(client, config) {
   const listResult = await client.models.list();
-  const first = pickFirstModel(listResult) || config.defaultSonnetModel || null;
+  const first = pickFirstModel(listResult) || config.testModel || null;
   return connectionSuccess(first ? { model: first } : {});
 }
 
 async function testOpenAIChatEndpoint(client, config) {
-  const testModel = config.defaultSonnetModel || 'gpt-4o-mini';
+  const testModel = config.testModel;
+  if (!testModel) {
+    return {
+      success: false,
+      message: 'Add and enable a model before testing the connection.',
+      details: { code: 'no_model', type: 'validation' },
+    };
+  }
   const response = await client.chat.completions.create({
     model: testModel,
     max_tokens: 1,

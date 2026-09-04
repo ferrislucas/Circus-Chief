@@ -68,7 +68,6 @@ function buildFormFromProvider(provider) {
     _serverId: m.id,
     modelId: m.modelId,
     displayName: m.displayName,
-    tier: m.tier || 'custom',
     enabled: m.enabled !== false,
     sortOrder: m.sortOrder ?? null,
   }));
@@ -169,7 +168,6 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
         _localKey: localId('model'),
         modelId: '',
         displayName: '',
-        tier: 'custom',
         enabled: true,
       });
     } catch {
@@ -216,13 +214,13 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     testResult.value = null;
 
     try {
-      const sonnetModel = localModels.value.find((m) => m.tier === 'sonnet');
+      const firstEnabledModel = localModels.value.find((m) => m.enabled !== false && m.modelId?.trim());
       // Narrow payload — do NOT bundle additionalEnvVars or models here.
       const config = {
         kind: form.value.kind || 'anthropic',
         baseUrl: form.value.baseUrl || undefined,
         authToken: form.value.authToken || undefined,
-        defaultSonnetModel: sonnetModel?.modelId || undefined,
+        testModel: firstEnabledModel?.modelId?.trim() || undefined,
         apiTimeoutMs: form.value.apiTimeoutMs || undefined,
       };
       testResult.value = await providersStore.testConnection(config);
@@ -238,8 +236,7 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     return (
       model.modelId.trim() !== original.modelId ||
       model.displayName.trim() !== original.displayName ||
-      model.tier !== original.tier
-      || model.enabled !== original.enabled
+      model.enabled !== original.enabled
     );
   }
 
@@ -247,7 +244,6 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     return {
       modelId: model.modelId.trim(),
       displayName: model.displayName.trim() || model.modelId.trim(),
-      tier: model.tier || 'custom',
       enabled: model.enabled !== false,
     };
   }
