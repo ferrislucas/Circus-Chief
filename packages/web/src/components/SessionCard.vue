@@ -55,7 +55,7 @@
           <!-- Session status badges -->
           <p class="session-meta">
             <span
-              v-if="session.pendingAgentInput"
+              v-if="workflowStatus.waitingCount > 0"
               class="status-badge status-waiting agent-input-indicator"
               aria-label="Agent input required"
               title="The agent is waiting for your input"
@@ -262,6 +262,7 @@ import { useKanbanStore } from '../stores/kanban.js';
 import { findNearestScheduledTime } from '../utils/scheduleInfo.js';
 import { getStatusIconSvg } from './statusIcons';
 import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
+import { isSessionActivelyRunning, summarizeWorkflowSessions } from '../utils/workflowStatus.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import MoveCardModal from './MoveCardModal.vue';
 import PrIndicators from './PrIndicators.vue';
@@ -364,39 +365,24 @@ const workflowStatus = computed(() => {
   if (props.workflowAggregate) {
     return {
       runningCount: props.workflowAggregate.runningCount || 0,
+      waitingCount: props.workflowAggregate.waitingCount || 0,
       scheduledCount: props.workflowAggregate.scheduledCount || 0,
       totalCount: (props.workflowAggregate.descendantCount || 0) + 1,
-      effectiveStatus: (props.workflowAggregate.runningCount || 0) > 0 ? 'running' : 'idle',
+      effectiveStatus: (props.workflowAggregate.runningCount || 0) > 0
+        ? 'running'
+        : (props.workflowAggregate.waitingCount || 0) > 0 ? 'waiting' : 'idle',
     };
   }
-  const allSessions = getWorkflowSessions();
-  const runningStatuses = ['running', 'starting'];
-
-  let runningCount = 0;
-  let scheduledCount = 0;
-  for (const s of allSessions) {
-    if (runningStatuses.includes(s.status)) runningCount++;
-    if (s.status === 'scheduled') scheduledCount++;
-  }
-
-  return {
-    runningCount,
-    scheduledCount,
-    totalCount: allSessions.length,
-    effectiveStatus: props.session.status,
-  };
+  return summarizeWorkflowSessions(getWorkflowSessions());
 });
 
 // Collect all running/starting session IDs in the workflow (full tree traversal)
 const runningSessionIds = computed(() => {
   if (props.workflowAggregate) {
-    return props.workflowAggregate.runningSessionIds?.length
-      ? props.workflowAggregate.runningSessionIds
-      : (props.workflowAggregate.runningCount > 0 ? [props.session.id] : []);
+    return props.workflowAggregate.runningSessionIds || [];
   }
-  const runningStatuses = ['running', 'starting'];
   return getWorkflowSessions()
-    .filter(s => runningStatuses.includes(s.status))
+    .filter(s => isSessionActivelyRunning(s))
     .map(s => s.id);
 });
 

@@ -282,6 +282,7 @@
       :is-open="showMoveCardModal"
       :project-id="projectId"
       :card-id="selectedCardForMove?.id"
+      :workspace-id="selectedCardForMove?.sessions?.[0]?.id"
       :current-lane-id="selectedCardCurrentLaneId"
       :session-name="selectedCardForMove?.sessions?.[0]?.name"
       :active-lane-run="selectedCardForMove?.activeLaneRun"
@@ -308,6 +309,7 @@ import KanbanBoardIcon from './KanbanBoardIcon.vue';
 import KanbanCardSessionDetails from './KanbanCardSessionDetails.vue';
 import KanbanLayoutToggle from './KanbanLayoutToggle.vue';
 import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
+import { isSessionActivelyRunning } from '../utils/workflowStatus.js';
 import { api } from '../api/ApiClient.js';
 import './KanbanBoard.css';
 const props = defineProps({
@@ -469,7 +471,7 @@ const {
   dragType, draggedCard, dropCardLaneId, dropCardIndex,
   handleCardDragStart, handleCardDragOver, handleDragEnd,
   handleDrop, moveCardInLane,
-} = useCardDragDrop(board, kanbanStore.reorderCards, kanbanStore.moveCard, toRef(props, 'projectId'));
+} = useCardDragDrop(board, kanbanStore.reorderCards, kanbanStore.routeWorkspaceCard, toRef(props, 'projectId'));
 
 // Modal state
 const showAddSessionModal = ref(false);
@@ -498,7 +500,7 @@ const isCardEffectivelyRunning = (session) => {
   if (sessionsStore.getWorkflowEffectiveStatus(session.id) === 'running') {
     return true;
   }
-  return ['running', 'starting'].includes(session.status);
+  return isSessionActivelyRunning(session);
 };
 // Board-level map of session id → button-status indicators. Built once per
 // recompute (rather than per-card during render) so the buttonMap and the

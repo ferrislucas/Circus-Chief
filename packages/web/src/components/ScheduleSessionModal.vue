@@ -69,6 +69,7 @@ import { ref, reactive, computed, watch, nextTick } from 'vue';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
+import { formatDateTimeLocal } from '../utils/formatters.js';
 
 const props = defineProps({
   isOpen: { type: Boolean, default: false },
@@ -92,7 +93,7 @@ const form = reactive({
 const minDateTime = computed(() => {
   const now = new Date();
   now.setMinutes(now.getMinutes() + 1);
-  return now.toISOString().slice(0, 16);
+  return formatDateTimeLocal(now);
 });
 
 // Single source of truth for which prompt will be submitted.

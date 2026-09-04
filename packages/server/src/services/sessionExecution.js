@@ -149,11 +149,6 @@ export async function _executeSession({
         handleTemplateTriggerIfNeeded,
         errorAlreadyRecorded: true,
       });
-      discardDeferredCardMoveForTurn(
-        sessionId,
-        workflowTurn?.turnToken,
-        rescheduled ? 'turn_retrying' : 'turn_failed',
-      );
       if (rescheduled) {
         markExecutionState(sessionId, 'retrying');
         return;
@@ -165,19 +160,16 @@ export async function _executeSession({
     }
     // FR-4/FR-5: a self-scheduled continuation is an open obligation, not success.
     if (wasRescheduled) {
-      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_rescheduled');
       markExecutionState(sessionId, 'scheduled');
       return;
     }
     // FR-9.8: a graceful provider limit/outage leaves the lane obligation open.
     if (heldForLimit) {
-      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'provider_held');
       markHeldForLimit(sessionId);
       return;
     }
     // W6/FR-8: finish target-lane automation after a successful, non-continuing turn.
     if (interactive && workflowTurn?.executionStateBeforeTurn !== 'paused') {
-      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'interactive_turn_does_not_complete_work');
       finishWorkflowTurn(sessionId, workflowTurn?.turnToken);
       return;
     }
@@ -200,7 +192,6 @@ export async function _executeSession({
       // FR-9.1/FR-9.5: a transient error with an automatic retry/reschedule
       // keeps the session (and its lane run) open — only the execution_state
       // dimension moves, own_work_state is untouched.
-      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_retrying');
       markExecutionState(sessionId, 'retrying');
       return; // Don't throw - session was rescheduled
     }

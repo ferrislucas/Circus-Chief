@@ -14,9 +14,7 @@
 // it as "needs an answer" made nearly every idle session match. A session
 // genuinely blocked on AskUserQuestion/permission stays status='running' for
 // the whole time it's blocked; pending_agent_input is the only signal for
-// that. Because a session can be both running AND pending_agent_input at the
-// same time, running_count and waiting_count are NOT disjoint — active_count
-// is computed with an OR, not a sum, to avoid double-counting that session.
+// that. User-facing running and waiting counts are intentionally disjoint.
 // WORKSPACE_AGGREGATES_CTE's waiting_count uses this same pending_agent_input
 // definition (not status='waiting') so the project-list "waiting" pill and its
 // embedded per-project workspace-card list agree on which sessions match.
@@ -36,7 +34,7 @@ export const PROJECT_ACTIVITY_SQL = `
     WHERE instr(tree.path, '/' || s.id || '/') = 0
   ), agg AS (
     SELECT tree.root_id, tree.project_id, r.name,
-      SUM(CASE WHEN s.status IN ('running', 'starting') THEN 1 ELSE 0 END) AS running_count,
+      SUM(CASE WHEN s.status IN ('running', 'starting') AND s.pending_agent_input = 0 THEN 1 ELSE 0 END) AS running_count,
       SUM(CASE WHEN s.pending_agent_input = 1 THEN 1 ELSE 0 END) AS waiting_count,
       SUM(CASE WHEN s.status IN ('running', 'starting') OR s.pending_agent_input = 1 THEN 1 ELSE 0 END) AS active_count,
       MAX(MAX(COALESCE(s.last_activity_at, 0), COALESCE(s.updated_at, 0), COALESCE(s.created_at, 0))) AS last_activity_at

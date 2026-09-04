@@ -207,8 +207,6 @@ export function useSessionTree(currentSessionId, sessionChainReady) {
     const newSession = msg.session;
     if (!newSession?.parentSessionId) return;
 
-    if (chatOverlayOpen.value) return;
-
     const isChildOfTree = sessionChain.value.some(
       entry => entry.session.id === newSession.parentSessionId
     );
@@ -216,7 +214,7 @@ export function useSessionTree(currentSessionId, sessionChainReady) {
 
     sessionsStore.addSessionToList(newSession);
 
-    if (newSession.status === 'running' || newSession.status === 'starting') {
+    if (!chatOverlayOpen.value && (newSession.status === 'running' || newSession.status === 'starting')) {
       overlaySessionId.value = newSession.id;
     }
 

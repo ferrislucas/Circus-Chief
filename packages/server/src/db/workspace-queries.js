@@ -22,8 +22,10 @@ const WORKSPACE_AGGREGATES_CTE = `
     WHERE instr(tree.path, '/' || s.id || '/') = 0
   ), aggregates AS (
     SELECT tree.root_id,
-      SUM(CASE WHEN s.status IN ('running', 'starting') THEN 1 ELSE 0 END) AS running_count,
-      GROUP_CONCAT(CASE WHEN s.status IN ('running', 'starting') THEN s.id END ORDER BY s.id = tree.root_id DESC, s.id) AS running_session_ids,
+      -- A process parked on an interactive prompt retains status='running',
+      -- but is user-facing "waiting" work, not actively running work.
+      SUM(CASE WHEN s.status IN ('running', 'starting') AND s.pending_agent_input = 0 THEN 1 ELSE 0 END) AS running_count,
+      GROUP_CONCAT(CASE WHEN s.status IN ('running', 'starting') AND s.pending_agent_input = 0 THEN s.id END ORDER BY s.id = tree.root_id DESC, s.id) AS running_session_ids,
       GROUP_CONCAT(s.id ORDER BY s.id = tree.root_id DESC, s.id) AS member_ids,
       SUM(CASE WHEN s.status = 'scheduled' THEN 1 ELSE 0 END) AS scheduled_count,
       MIN(CASE WHEN s.status = 'scheduled' THEN s.scheduled_at END) AS nearest_scheduled_at,
@@ -65,7 +67,7 @@ function workspaceFilters({ archived, starred, scheduled, rootId = null }) {
 function statusPredicates(status) {
   if (status === 'running') return ['runningCount > 0'];
   if (status === 'waiting') return ['waitingCount > 0'];
-  if (status === 'idle') return ['runningCount = 0'];
+  if (status === 'idle') return ['runningCount = 0', 'waitingCount = 0'];
   return [];
 }
 
@@ -127,6 +129,7 @@ function parseCardPageRows(resultRows, limit) {
       idle: facetRow?.facet_idle || 0,
       waiting: facetRow?.facet_waiting || 0,
     },
+    total: facetRow?.facet_total || 0,
   };
 }
 
@@ -157,21 +160,22 @@ function buildWorkspaceCardPageSql(baseFilters, statusFilters, cursorClause, has
     ), facets AS (
       SELECT
         COALESCE(SUM(CASE WHEN runningCount > 0 THEN 1 ELSE 0 END), 0) AS running,
-        COALESCE(SUM(CASE WHEN runningCount = 0 THEN 1 ELSE 0 END), 0) AS idle,
-        COALESCE(SUM(CASE WHEN waitingCount > 0 THEN 1 ELSE 0 END), 0) AS waiting
+        COALESCE(SUM(CASE WHEN runningCount = 0 AND waitingCount = 0 THEN 1 ELSE 0 END), 0) AS idle,
+        COALESCE(SUM(CASE WHEN waitingCount > 0 THEN 1 ELSE 0 END), 0) AS waiting,
+        COUNT(*) AS total
       FROM base
     ), paged AS (
       SELECT * FROM filtered WHERE 1=1 ${cursorClause}
       ORDER BY starred DESC, sort_activity DESC, updatedAt DESC, createdAt DESC, id DESC
       LIMIT @limit ${hasCursor ? '' : 'OFFSET @offset'}
     )
-    SELECT 'page' AS row_kind, paged.*, NULL AS facet_running, NULL AS facet_idle, NULL AS facet_waiting
+    SELECT 'page' AS row_kind, paged.*, NULL AS facet_running, NULL AS facet_idle, NULL AS facet_waiting, NULL AS facet_total
     FROM paged
     UNION ALL
     SELECT 'facets' AS row_kind,
       NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
       NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-      NULL, NULL, NULL, facets.running, facets.idle, facets.waiting
+      NULL, NULL, NULL, facets.running, facets.idle, facets.waiting, facets.total
     FROM facets`;
 }
 
@@ -215,11 +219,12 @@ export function getWorkspaceCardPage(db, projectId, options = {}) {
       rootId,
     })
   );
-  const { visibleRows, hasMore, facets } = parseCardPageRows(resultRows, limit);
+  const { visibleRows, hasMore, facets, total } = parseCardPageRows(resultRows, limit);
   const cards = visibleRows.map(toWorkspaceCard);
   return {
     cards,
     facets,
+    total,
     hasMore,
     nextCursor: hasMore ? encodeCursor(visibleRows.at(-1)) : null,
   };

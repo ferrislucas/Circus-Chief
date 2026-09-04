@@ -34,6 +34,7 @@ import { KanbanCardRepository } from '../db/KanbanCardRepository.js';
 import { createLaneRunForEntry, attachRootSession, getRun, markHeldForLimit, supersedeRunForCard } from './workflowSessionService.js';
 import { moveCard } from './kanbanService.js';
 import { activeSessions } from './streamEventHandler.js';
+import { routeWorkspaceCard } from './kanbanService.js';
 
 describe('W6: _executeSession triggers target-lane automation after a real success', () => {
   let projectRepo;
@@ -309,13 +310,10 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
   it('AC1/AC2: defers its own move until after output following the request is preserved', async () => {
     const nonStructuredLane = laneRepo.getByBoardId(board.id).find((lane) => lane.id !== source.id && lane.id !== target.id);
     const stubAgent = {
-      execute: vi.fn(async function* (queryParams, agentCallMeta) {
+      execute: vi.fn(async function* () {
         yield { type: 'assistant', message: { content: [{ type: 'text', text: 'before move' }] } };
-        const scheduled = await moveCard(card.id, nonStructuredLane.id, {
-          deferredSessionId: agentCallMeta.sessionId,
-          deferredTurnToken: queryParams.options.env.CIRCUSCHIEF_WORKFLOW_TURN_TOKEN,
-        });
-        expect(scheduled).toMatchObject({ deferred: true, scheduled: true, targetLaneId: nonStructuredLane.id });
+        const scheduled = await routeWorkspaceCard(workspace.id, nonStructuredLane.id);
+        expect(scheduled).toEqual({ status: 'scheduled', laneId: nonStructuredLane.id });
         // The card has not moved while this provider is still live.
         expect(cardRepo.getById(card.id).laneId).toBe(source.id);
         yield { type: 'assistant', message: { content: [{ type: 'text', text: 'after move' }] } };
@@ -351,12 +349,9 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
   it('starts structured destination delivery only after the originating provider returns', async () => {
     let providerReturned = false;
     const stubAgent = {
-      execute: vi.fn(async function* (queryParams, agentCallMeta) {
-        const scheduled = await moveCard(card.id, target.id, {
-          deferredSessionId: agentCallMeta.sessionId,
-          deferredTurnToken: queryParams.options.env.CIRCUSCHIEF_WORKFLOW_TURN_TOKEN,
-        });
-        expect(scheduled.deferred).toBe(true);
+      execute: vi.fn(async function* () {
+        const scheduled = await routeWorkspaceCard(workspace.id, target.id);
+        expect(scheduled).toEqual({ status: 'scheduled', laneId: target.id });
         expect(cardRepo.getById(card.id).laneId).toBe(source.id);
         expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
         yield { type: 'assistant', text: 'move queued, finishing now' };
@@ -380,11 +375,8 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
     const stubAgent = {
       // Deliberately throws before ever yielding, to simulate a provider failure mid-turn.
       // eslint-disable-next-line require-yield
-      execute: vi.fn(async function* (queryParams, agentCallMeta) {
-        await moveCard(card.id, target.id, {
-          deferredSessionId: agentCallMeta.sessionId,
-          deferredTurnToken: queryParams.options.env.CIRCUSCHIEF_WORKFLOW_TURN_TOKEN,
-        });
+      execute: vi.fn(async function* () {
+        await routeWorkspaceCard(workspace.id, target.id);
         throw new Error('provider failed after requesting move');
       }),
       supportsResume: () => false,

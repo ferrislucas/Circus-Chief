@@ -96,7 +96,7 @@ export function sendWorkspaceCards(res, projectId, query, startedAt) {
   if (!options)
     return res.status(400).json({ error: 'Invalid workspace card pagination or filters' });
   const page = sessions.getWorkspaceCardPage(projectId, options);
-  const { cards, facets } = page;
+  const { cards, facets, total: allTotal } = page;
   const memberIds = [...new Set(cards.flatMap((card) => card.memberIds))];
   const memberIdSet = new Set(memberIds);
   const runsBySession = buildRunsBySession(
@@ -119,7 +119,7 @@ export function sendWorkspaceCards(res, projectId, query, startedAt) {
       latestCommandRuns: workspaceCommandRuns(card, runsBySession),
     };
   });
-  const total = options.status ? facets[options.status] : facets.running + facets.idle;
+  const total = options.status ? facets[options.status] : allTotal;
   return sendWorkspaceJson(
     res,
     {

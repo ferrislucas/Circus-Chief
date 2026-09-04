@@ -217,6 +217,16 @@ describe('SessionCard', () => {
       expect(indicator.text()).toContain('needs input');
       expect(indicator.attributes('title')).toBe('The agent is waiting for your input');
       expect(indicator.find('.agent-input-icon').exists()).toBe(true);
+      expect(wrapper.find('.status-running').exists()).toBe(false);
+    });
+
+    it('does not show needs input for legacy status="waiting" without pending input', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting', pendingAgentInput: false },
+      });
+
+      expect(wrapper.find('[aria-label="Agent input required"]').exists()).toBe(false);
+      expect(wrapper.find('.status-running').exists()).toBe(false);
     });
 
 
