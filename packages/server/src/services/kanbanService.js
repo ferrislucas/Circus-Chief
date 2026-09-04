@@ -49,6 +49,12 @@ function resolveWorkspaceId(sessionId) {
   return sessions.getRootSessionId(sessionId) || sessionId;
 }
 
+/** Build the committed route outcome and its public response in one place. */
+function createRouteOutcome(status, laneId, finalizeMutation, { eventId = null, ...outcome } = {}) {
+  const response = { status, laneId };
+  return { response: finalizeMutation?.({ response, eventId }) ?? response, ...outcome };
+}
+
 export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
   const { runOnEnterTemplate = true, laneRunId = null, childSessionId = null,
     beforeDispatch, abortController } = options;
@@ -187,7 +193,7 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
  * Route a workspace card.  The immediate transaction owns the decision about
  * whether a request is applied now or selected for an open lane run.
  *
- * @returns {Promise<{status: 'moved'|'scheduled', laneId: string}>}
+ * @returns {Promise<{status: 'noop'|'moved'|'scheduled', laneId: string}>}
  */
 export async function routeWorkspaceCard(workspaceId, laneId, { finalizeMutation } = {}) {
   // eslint-disable-next-line max-statements, complexity -- the transactional state decision is intentionally co-located.
@@ -202,6 +208,10 @@ export async function routeWorkspaceCard(workspaceId, laneId, { finalizeMutation
     const targetLane = kanbanLanes.getById(laneId);
     if (!sourceLane || !targetLane || sourceLane.boardId !== targetLane.boardId) {
       throw new ApiError('Target lane not found', { status: 404, code: 'KANBAN_TARGET_LANE_NOT_FOUND' });
+    }
+
+    if (card.laneId === laneId) {
+      return createRouteOutcome('noop', laneId, finalizeMutation, { moved: null, projectId: workspace.projectId });
     }
 
     const run = card.activeLaneRunId
@@ -223,30 +233,23 @@ export async function routeWorkspaceCard(workspaceId, laneId, { finalizeMutation
           ON CONFLICT(operation_key) DO NOTHING`)
           .run(crypto.randomUUID(), `${run.id}:route_selected:${laneId}:${time}`, run.id, JSON.stringify({ targetLaneId: laneId }), time);
       }
-      const response = { status: 'scheduled', laneId };
-      return {
-        response: finalizeMutation?.({ response, eventId: null }) ?? response,
+      return createRouteOutcome('scheduled', laneId, finalizeMutation, {
         moved: null, selectedRunId: run.id, cardId: card.id, projectId: workspace.projectId,
-      };
+      });
     }
 
     // Stale pointers cannot influence a direct route after the lock is held.
     if (card.activeLaneRunId) {
       db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=? WHERE id=?').run(Date.now(), card.id);
     }
-    const response = { status: 'moved', laneId };
-    if (card.laneId === laneId) {
-      return { response: finalizeMutation?.({ response, eventId: null }) ?? response, moved: null, projectId: workspace.projectId };
-    }
     supersedeRunForCard(card.id, 'workspace_routed');
     const moved = kanbanCards.moveToLane(card.id, laneId);
     const laneRun = isStructured(targetLane)
       ? createLaneRunForEntry({ projectId: workspace.projectId, workspaceId, cardId: card.id, lane: targetLane, cause: 'workspace_route' })
       : null;
-    return {
-      response: finalizeMutation?.({ response, eventId: laneRun?.laneEntryEventId || null }) ?? response,
-      moved: { card, moved, laneRun }, projectId: workspace.projectId,
-    };
+    return createRouteOutcome('moved', laneId, finalizeMutation, {
+      eventId: laneRun?.laneEntryEventId || null, moved: { card, moved, laneRun }, projectId: workspace.projectId,
+    });
   });
 
   if (outcome.moved) {

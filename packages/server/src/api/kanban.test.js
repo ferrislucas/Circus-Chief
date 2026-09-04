@@ -802,6 +802,17 @@ describe('Kanban API', () => {
       expect(getRun(run.id).chosenExitLaneId).toBe(lanes[1].id);
     });
 
+    it('reports a current-lane request during an active run as a no-op', async () => {
+      const { root, run, card } = setupActiveRun();
+      const res = await request(app).put(`/api/projects/${projectId}/kanban/cards/by-workspace/${root.id}/lane`).send({ laneId: lanes[0].id });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ status: 'noop', laneId: lanes[0].id });
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
+      expect(getRun(run.id).chosenExitLaneId).toBeNull();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
     it('rejects malformed route bodies', async () => {
       setupBoard();
       const root = createSession();

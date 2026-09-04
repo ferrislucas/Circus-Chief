@@ -56,7 +56,9 @@ import {
   drainLaneEntryTrigger,
   reclaimExpiredLaneEntryClaims,
 } from './kanbanService.js';
-import { beginWorkflowTurn, createLaneRunForEntry, attachRootSession, finalizeOwnWorkCompletion, getRun } from './workflowSessionService.js';
+import {
+  beginWorkflowTurn, createLaneRunForEntry, attachRootSession, finalizeOwnWorkCompletion, getRun, attemptLaneRunTransition,
+} from './workflowSessionService.js';
 import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
 import { resolveProviderMetadataFromModel } from './sessionProvider.js';
 
@@ -102,6 +104,37 @@ describe('kanbanService', () => {
     attachRootSession(run.id, worker.id);
     return { root, card, run, worker, rootId: root.id };
   }
+
+  describe('routeWorkspaceCard current-lane requests', () => {
+    it('is a no-op during an owning run and cannot restart the current structured lane on completion', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', completionTargetLaneId: lanes[1].id });
+      const { root, card, run } = setupActiveLaneRunCard();
+      const before = kanbanCards.getById(card.id);
+
+      await expect(routeWorkspaceCard(root.id, lanes[0].id)).resolves.toEqual({ status: 'noop', laneId: lanes[0].id });
+
+      expect(kanbanCards.getById(card.id)).toEqual(before);
+      expect(getRun(run.id).chosenExitLaneId).toBeNull();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+
+      attemptLaneRunTransition(run.id);
+
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[1].id);
+      expect(databaseManager.get().prepare("SELECT COUNT(*) count FROM kanban_lane_runs WHERE status='open'").get().count).toBe(0);
+    });
+
+    it('is a no-op without an active run', async () => {
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[0].id, workspace.id);
+      const before = kanbanCards.getById(card.id);
+
+      await expect(routeWorkspaceCard(workspace.id, lanes[0].id)).resolves.toEqual({ status: 'noop', laneId: lanes[0].id });
+
+      expect(kanbanCards.getById(card.id)).toEqual(before);
+      expect(broadcastToProject).not.toHaveBeenCalled();
+      expect(databaseManager.get().prepare('SELECT COUNT(*) count FROM kanban_lane_runs').get().count).toBe(0);
+    });
+  });
 
   // ── getFullBoard ───────────────────────────────────────────────────
 
