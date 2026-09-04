@@ -74,10 +74,13 @@ export function activeLaneRunOwnsSession(sessionId) {
  * (own work closed successfully) is never fenced — its lane_run_id is a
  * historical pointer, not an active obligation, so its scheduled continuations
  * and reschedules run as ordinary system work on its own row. Non-participating
- * sessions are never fenced. */
+ * sessions are never fenced. A missing session is fenced so callers using this
+ * as a final pre-provider race check fail closed if the row was deleted during
+ * asynchronous launch preparation. */
 export function laneRunFencesSystemWork(sessionId) {
   const db = databaseManager.get();
   const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
+  if (!session) return true;
   if (!isParticipating(session)) return false;
   if (session.own_work_state === 'closed_successfully') return false;
   return !(session.own_work_state === 'open' && activeRunOwnsSession(db, session));

@@ -823,6 +823,10 @@ describe('retired (closed_successfully) sessions keep scheduling fences open', (
   });
 
   it('laneRunFencesSystemWork exempts retired and non-participating sessions only', () => {
+    // Missing row: fenced so the final pre-provider check fails closed if a
+    // session is deleted during asynchronous launch preparation.
+    expect(laneRunFencesSystemWork('deleted-session')).toBe(true);
+
     // Non-participating: never fenced.
     expect(laneRunFencesSystemWork(root.id)).toBe(false);
 
