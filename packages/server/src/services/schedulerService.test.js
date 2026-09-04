@@ -354,6 +354,7 @@ describe('SchedulerService', () => {
           pendingPrompt: null,
           pendingConversationId: null,
           pendingModel: null,
+          pendingInteractive: false,
           error: 'Scheduled launch refused: max total tokens reached (1,000).',
         });
         expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
@@ -496,7 +497,7 @@ describe('SchedulerService', () => {
         sessionId: 'session-1',
         status: 'starting',
       });
-      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp', { systemPrompt: 'Be helpful', fileAttachments: [], model: 'claude-sonnet-4-5' });
+      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp', { systemPrompt: 'Be helpful', fileAttachments: [], model: 'claude-sonnet-4-5', interactive: false });
       expect(result).toEqual({ claimed: true });
     });
 
@@ -544,7 +545,7 @@ describe('SchedulerService', () => {
 
       await scheduler.startScheduledSession(session);
 
-      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp/worktree', { systemPrompt: undefined, fileAttachments: [], model: null });
+      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp/worktree', { systemPrompt: undefined, fileAttachments: [], model: null, interactive: false });
     });
 
     it('continues session when there are existing assistant messages', async () => {
@@ -562,7 +563,7 @@ describe('SchedulerService', () => {
 
       await scheduler.startScheduledSession(session);
 
-      expect(mockSessionManager.continueSession).toHaveBeenCalledWith('session-1', 'Follow-up message', '/tmp', { systemPrompt: undefined, fileAttachments: [], model: 'claude-opus-4-5' });
+      expect(mockSessionManager.continueSession).toHaveBeenCalledWith('session-1', 'Follow-up message', '/tmp', { systemPrompt: undefined, fileAttachments: [], model: 'claude-opus-4-5', interactive: false });
       expect(mockSessionManager.runSession).not.toHaveBeenCalled();
     });
 
@@ -655,7 +656,7 @@ describe('SchedulerService', () => {
         'session-1',
         'conv-99',
         '/tmp',
-        { systemPrompt: 'Be helpful', model: 'claude-sonnet-4-5' }
+        { systemPrompt: 'Be helpful', model: 'claude-sonnet-4-5', interactive: false }
       );
       expect(mockSessionManager.runSession).not.toHaveBeenCalled();
       expect(mockSessionManager.continueSession).not.toHaveBeenCalled();
@@ -816,6 +817,7 @@ describe('SchedulerService', () => {
         rescheduleCount: 1,
         pendingPrompt: 'Continue',
         pendingConversationId: null,
+        pendingInteractive: false,
         error: expect.stringContaining('Rescheduled (1x)'),
       });
       expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {

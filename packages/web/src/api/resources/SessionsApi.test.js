@@ -705,7 +705,18 @@ describe('SessionsApi', () => {
 
       expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/schedule', expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify(scheduleData),
+        body: JSON.stringify({ ...scheduleData, interactive: true }),
+      }));
+    });
+
+    it('allows callers to explicitly create a system-origin schedule', async () => {
+      const scheduleData = { scheduledAt: Date.now() + 60000, prompt: 'Follow up' };
+      mockFetch.mockReturnValue(mockResponse({ id: 'sess-123' }));
+
+      await client.scheduleSession('sess-123', scheduleData, { interactive: false });
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/schedule', expect.objectContaining({
+        body: JSON.stringify({ ...scheduleData, interactive: false }),
       }));
     });
   });

@@ -189,7 +189,7 @@ class SchedulerService {
       session.id,
       effectivePrompt,
       workingDirectory,
-      { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel }
+      { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel, interactive: Boolean(session.pendingInteractive) }
     );
   }
 
@@ -250,7 +250,7 @@ class SchedulerService {
   rejectScheduledStart(session) {
     const updated = sessions.update(session.id, {
       status: 'stopped', scheduledAt: null, pendingPrompt: null,
-      pendingModel: null, pendingConversationId: null,
+      pendingModel: null, pendingConversationId: null, pendingInteractive: false,
     });
     broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'stopped' });
     if (updated?.projectId) {
@@ -292,7 +292,7 @@ class SchedulerService {
     const error = `Scheduled launch refused: max total tokens reached (${row.maxTotalTokens.toLocaleString()}).`;
     sessions.update(sessionId, {
       status: 'stopped', scheduledAt: null, pendingPrompt: null,
-      pendingConversationId: null, pendingModel: null,
+      pendingConversationId: null, pendingModel: null, pendingInteractive: false,
       error,
     });
     // The token cap is a hard terminal limit, not a retryable hold. A
@@ -312,7 +312,7 @@ class SchedulerService {
         claimed.id,
         claimed.pendingConversationId,
         workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel }
+        { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel, interactive: Boolean(claimed.pendingInteractive) }
       );
     }
     if (hasAssistantResponses) {
@@ -320,7 +320,7 @@ class SchedulerService {
         claimed.id,
         effectivePrompt,
         workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel }
+        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel, interactive: Boolean(claimed.pendingInteractive) }
       );
     }
     return this.startFreshScheduledSession({
@@ -390,7 +390,7 @@ class SchedulerService {
 
     // Prompt resolution may yield to disk IO while a manual move supersedes
     // this lane run. Fence the durable clear and provider handoff.
-    if (claimed.laneRunId && !activeLaneRunOwnsSession(claimed.id)) {
+    if (claimed.laneRunId && !claimed.pendingInteractive && !activeLaneRunOwnsSession(claimed.id)) {
       return { claimed: true, ...this.finishScheduledStart(claimed, rejectedSessionExecution(claimed.id, 'lane_run_ownership_lost')) };
     }
 
@@ -449,9 +449,11 @@ class SchedulerService {
       rescheduleCount: newRescheduleCount,
       pendingPrompt,
       pendingConversationId,
+      pendingInteractive: Boolean(session.pendingInteractive),
       error: `Rescheduled (${newRescheduleCount}x): ${reason}`,
     });
-    const updated = session.laneRunId ? withActiveLaneRunOwnership(sessionId, update) : update();
+    const updated = session.laneRunId && !session.pendingInteractive
+      ? withActiveLaneRunOwnership(sessionId, update) : update();
     if (!updated) return false;
 
     broadcastRescheduledSession(sessionId, updated);

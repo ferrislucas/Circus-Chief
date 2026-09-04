@@ -402,6 +402,7 @@ export async function stopSession(sessionId) {
     pendingPrompt: null,
     pendingConversationId: null,
     pendingModel: null,
+    pendingInteractive: false,
   });
   broadcastSessionStatus(sessionId, 'stopped');
 

@@ -274,6 +274,10 @@ function handlePrUrlSideEffects(session, sessionId, updateData) {
   });
 }
 
+function canEditLiveUserSchedule(session) {
+  return session.status === 'scheduled' && session.pendingInteractive;
+}
+
 // PATCH /api/sessions/:id - Update session settings
 router.patch('/:id', requireSession, (req, res) => {
   const { updateData, error } = buildUpdateData(req.body);
@@ -304,7 +308,8 @@ router.patch('/:id', requireSession, (req, res) => {
 
   const schedulingMutation = Object.hasOwn(updateData, 'scheduledAt') || updateData.status === 'scheduled';
   const update = () => sessions.update(req.params.id, updateData);
-  const updated = schedulingMutation && req.session_.laneRunId
+  const userScheduleLive = canEditLiveUserSchedule(req.session_);
+  const updated = schedulingMutation && req.session_.laneRunId && !userScheduleLive
     ? withActiveLaneRunOwnership(req.params.id, update)
     : update();
   if (!updated) {

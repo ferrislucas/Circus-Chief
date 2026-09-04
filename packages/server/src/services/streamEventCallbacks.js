@@ -74,7 +74,7 @@ async function handleScheduledContinuationIfNeeded(sessionId, controller, { appl
     // Mirror the REST endpoint's and the bridge's lane-run fencing so a
     // superseded worker cannot be flipped back to 'scheduled' by a leftover
     // schedule row on either the completion or the error path.
-    const updated = session.laneRunId
+    const updated = session.laneRunId && !session.pendingInteractive
       ? withActiveLaneRunOwnership(sessionId, transition)
       : transition();
     if (!updated) {

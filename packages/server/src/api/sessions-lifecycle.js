@@ -81,21 +81,35 @@ router.put('/:id/summary', requireRootSessionAndProject, async (req, res) => {
 
 // Validate a /schedule request body and build the session update payload.
 // Returns either { status, error } for a 4xx response, or { updateData } on success.
+function validateInteractive(interactive) {
+  return interactive === undefined || typeof interactive === 'boolean'
+    ? null
+    : { status: 400, error: { error: 'interactive must be a boolean' } };
+}
+
+function validateScheduleFields(body) {
+  const allowedFields = new Set(['prompt', 'scheduledAt', 'model', 'interactive']);
+  const unexpectedFields = Object.keys(body || {}).filter((key) => !allowedFields.has(key));
+  return unexpectedFields.length === 0
+    ? null
+    : {
+      status: 400,
+      error: {
+        error: `Unexpected field(s): ${unexpectedFields.join(', ')}. Only prompt, scheduledAt, model, and interactive are accepted; set reschedule policy via PATCH /api/sessions/:id.`,
+      },
+    };
+}
+
 function buildScheduleUpdate(req) {
   // Reject any field not in the explicit allow-list so callers migrating from the old
   // configureSchedule contract get a clear signal rather than silent data loss.
-  const ALLOWED_FIELDS = new Set(['prompt', 'scheduledAt', 'model']);
-  const unexpectedFields = Object.keys(req.body || {}).filter((k) => !ALLOWED_FIELDS.has(k));
-  if (unexpectedFields.length > 0) {
-    return {
-      status: 400,
-      error: {
-        error: `Unexpected field(s): ${unexpectedFields.join(', ')}. Only prompt, scheduledAt, and model are accepted; set reschedule policy via PATCH /api/sessions/:id.`,
-      },
-    };
-  }
+  const fieldsError = validateScheduleFields(req.body);
+  if (fieldsError) return fieldsError;
 
-  const { prompt, scheduledAt: scheduledAtRaw, model } = req.body;
+  const { prompt, scheduledAt: scheduledAtRaw, model, interactive } = req.body;
+
+  const interactiveError = validateInteractive(interactive);
+  if (interactiveError) return interactiveError;
 
   // Validate prompt
   if (typeof prompt !== 'string' || prompt.trim() === '') {
@@ -126,6 +140,7 @@ function buildScheduleUpdate(req) {
     scheduledAt,
     pendingPrompt: prompt,
     pendingConversationId: null,
+    pendingInteractive: interactive === true,
     ...modelResult.agentTypeUpdate,
   };
   if (Object.prototype.hasOwnProperty.call(modelResult, 'pendingModel')) {
@@ -174,8 +189,9 @@ function resolveScheduleModel(req, model) {
 //   prompt      {string}               required — becomes pendingPrompt
 //   scheduledAt {ISO 8601 | epoch ms}  required — must be in the future
 //   model       {string}               optional — becomes pendingModel; cross-kind guarded
+//   interactive {boolean}              optional — marks a user-originated follow-up
 //
-// Only prompt, scheduledAt, and model are honored here. Reschedule-policy fields
+// Only prompt, scheduledAt, model, and interactive are honored here. Reschedule-policy fields
 // must be set at session creation time or via PATCH /api/sessions/:id.
 router.post('/:id/schedule', requireSession, (req, res) => {
   const result = buildScheduleUpdate(req);
@@ -184,7 +200,8 @@ router.post('/:id/schedule', requireSession, (req, res) => {
   }
 
   const update = () => sessions.update(req.params.id, result.updateData);
-  const updated = req.session_.laneRunId ? withActiveLaneRunOwnership(req.params.id, update) : update();
+  const updated = req.session_.laneRunId && !result.updateData.pendingInteractive
+    ? withActiveLaneRunOwnership(req.params.id, update) : update();
   if (!updated) {
     return res.status(409).json({ error: 'Session no longer owns an active lane run' });
   }

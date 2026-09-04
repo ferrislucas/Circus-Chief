@@ -86,7 +86,7 @@ function clearExecutableMemberState(db, runId, reason, time) {
   return db.prepare(`UPDATE sessions SET own_work_state='cancelled', own_work_closed_at=?, workflow_reason=?,
     workflow_updated_at=?, execution_state=CASE WHEN status='running' THEN execution_state ELSE 'stopped' END,
     status=CASE WHEN status='scheduled' THEN 'stopped' ELSE status END,
-    scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_conversation_id=NULL,
+    scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_conversation_id=NULL, pending_interactive=NULL,
     auto_send_pending_prompt=0, reschedule_count=0
     WHERE lane_run_id=? AND own_work_state='open'`).run(time, reason, time, runId);
 }
@@ -107,8 +107,10 @@ export function claimWorkflowSessionStart(sessionId) {
       audit(db, session.lane_run_id, 'scheduled_start_claimed', { sessionId });
       return true;
     }
+    // A user scheduled follow-up has the same authority as an interactive send.
+    if (session.pending_interactive) return true;
     const time = now();
-    db.prepare(`UPDATE sessions SET scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL,
+    db.prepare(`UPDATE sessions SET scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_interactive=NULL,
       auto_send_pending_prompt=0, execution_state='stopped', status=CASE WHEN status='scheduled' THEN 'stopped' ELSE status END,
       workflow_updated_at=? WHERE id=?`).run(time, sessionId);
     audit(db, session.lane_run_id, 'stale_start_rejected', { sessionId });

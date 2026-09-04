@@ -433,6 +433,7 @@ export function applyPendingWakeup(sessionId, controller) {
     scheduledAt,
     pendingPrompt: wakeup.prompt,
     pendingConversationId: wakeup.pendingConversationId,
+    pendingInteractive: false,
     error: null,
     // ScheduleWakeup's SDK input is only delaySeconds/prompt/reason — a wakeup
     // has no model component, so it must not inherit a stale one-shot

@@ -99,6 +99,28 @@ describe('Sessions API - POST /:id/schedule', () => {
     expect(stored.status).toBe('scheduled');
     expect(stored.scheduledAt).toBe(scheduledAt);
     expect(stored.pendingPrompt).toBe(prompt);
+    expect(stored.pendingInteractive).toBe(false);
+  });
+
+  it('marks an interactive schedule as user-originated', async () => {
+    const scheduledAt = Date.now() + 3600000;
+
+    const response = await request(app)
+      .post(`/api/sessions/${session.id}/schedule`)
+      .send({ prompt: 'Schedule this follow-up for me', scheduledAt, interactive: true })
+      .expect(200);
+
+    expect(response.body.pendingInteractive).toBe(true);
+    expect(sessions.getById(session.id).pendingInteractive).toBe(true);
+  });
+
+  it('rejects a non-boolean interactive flag', async () => {
+    const response = await request(app)
+      .post(`/api/sessions/${session.id}/schedule`)
+      .send({ prompt: 'Continue', scheduledAt: Date.now() + 3600000, interactive: 'yes' })
+      .expect(400);
+
+    expect(response.body.error).toBe('interactive must be a boolean');
   });
 
   it('accepts an ISO 8601 scheduledAt string and normalizes to epoch ms', async () => {
