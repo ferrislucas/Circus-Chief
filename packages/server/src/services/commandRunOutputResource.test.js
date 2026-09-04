@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import {
   appendCommandRunOutputResource,
   getCommandRunOutputResource,
+  OUTPUT_BYTE_WINDOW,
   removeCommandRunOutputResource,
 } from './commandRunOutputResource.js';
 
@@ -65,6 +66,60 @@ describe('commandRunOutputResource', () => {
 
     await getCommandRunOutputResource({ workingDirectory, run, repository });
     expect(await readFile(join(workingDirectory, descriptor.path), 'utf8')).toBe('persisted despite append failure\n');
+  });
+
+  it('reconstructs an oversized persisted chunk through bounded byte reads', async () => {
+    const workingDirectory = await root();
+    const byteWindow = OUTPUT_BYTE_WINDOW;
+    const output = Buffer.from(`stdout: ${'\u00e9'.repeat(90_000)}\nstderr: done\n`);
+    const reads = [];
+    const repository = {
+      getHighWater: () => 1,
+      readOutputByteWindow: (_id, sequence, offset, limit) => {
+        reads.push({ sequence, offset, limit });
+        expect(limit).toBeLessThanOrEqual(byteWindow);
+        if ((sequence >= 1 && offset === 0) || sequence > 1 || (sequence === 1 && offset >= output.length)) return null;
+        return { sequence: 1, byteLength: output.length, content: output.subarray(offset, offset + limit) };
+      },
+    };
+
+    const descriptor = await getCommandRunOutputResource({
+      workingDirectory,
+      run: { id: 'oversized_chunk', status: 'success', legacyByteLength: 0, outputHighWater: 1 },
+      repository,
+    });
+
+    expect(reads).toHaveLength(Math.ceil(output.length / byteWindow) + 1);
+    expect(await readFile(join(workingDirectory, descriptor.path))).toEqual(output);
+  });
+
+  it('preserves mixed UTF-8, empty, and stdout/stderr chunks while reconstructing byte windows', async () => {
+    const workingDirectory = await root();
+    const chunks = [
+      { sequence: 1, content: Buffer.from('stdout: caf') },
+      { sequence: 2, content: Buffer.from('\u00e9\n') },
+      { sequence: 3, content: Buffer.alloc(0) },
+      { sequence: 4, content: Buffer.from('stderr: \u96fb\u6c17\nstdout: fin\n') },
+    ];
+    const expected = Buffer.concat(chunks.map(({ content }) => content));
+    const repository = {
+      getHighWater: () => 4,
+      readOutputByteWindow: (_id, sequence, offset, limit) => {
+        const chunk = chunks.find((candidate) => candidate.sequence > sequence || (candidate.sequence === sequence && offset > 0 && offset < candidate.content.length));
+        if (!chunk) return null;
+        const start = chunk.sequence === sequence ? offset : 0;
+        return { sequence: chunk.sequence, byteLength: chunk.content.length, content: chunk.content.subarray(start, start + limit) };
+      },
+    };
+
+    const descriptor = await getCommandRunOutputResource({
+      workingDirectory,
+      run: { id: 'mixed_bytes', status: 'success', legacyByteLength: 0, outputHighWater: 4 },
+      repository,
+    });
+
+    expect(descriptor.byteLength).toBe(expected.length);
+    expect(await readFile(join(workingDirectory, descriptor.path))).toEqual(expected);
   });
 
   it('materializes full legacy output and rejects unsafe run IDs', async () => {

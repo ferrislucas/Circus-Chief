@@ -3,6 +3,7 @@ import { BaseRepository } from './BaseRepository.js';
 // Keep well below SQLite's historical 999-variable default while allowing
 // list endpoints to fan out across an arbitrary number of sessions.
 const SESSION_ID_CHUNK_SIZE = 500;
+export const COMMAND_RUN_OUTPUT_BYTE_WINDOW = 64 * 1024;
 
 /**
  * Command run repository class for persisting command execution history
@@ -90,8 +91,8 @@ export class CommandRunRepository extends BaseRepository {
   }
 
   /** Read legacy TEXT as a byte range. CAST makes SQLite substr offsets byte-based. */
-  readLegacyOutputPage(runId, offset = 0, limitBytes = 64 * 1024) {
-    const limit = Math.max(1, Math.min(Number(limitBytes) || 64 * 1024, 1024 * 1024));
+  readLegacyOutputPage(runId, offset = 0, limitBytes = COMMAND_RUN_OUTPUT_BYTE_WINDOW) {
+    const limit = Math.max(1, Math.min(Number(limitBytes) || COMMAND_RUN_OUTPUT_BYTE_WINDOW, 1024 * 1024));
     const row = this.db.prepare(
       'SELECT substr(CAST(output AS BLOB), ?, ?) AS content FROM command_runs WHERE id = ?'
     ).get((Number(offset) || 0) + 1, limit, runId);
@@ -138,6 +139,30 @@ export class CommandRunRepository extends BaseRepository {
       byteLength: row.byte_length,
     }));
     return { chunks, highWater: this.getHighWater(runId) };
+  }
+
+  /**
+   * Read at most one byte window from the ordered chunk transcript. SQLite
+   * slices the BLOB before it crosses the database boundary, so this never
+   * materializes a whole oversized chunk in application memory.
+   */
+  readOutputByteWindow(runId, afterSequence = 0, offset = 0, limitBytes = COMMAND_RUN_OUTPUT_BYTE_WINDOW) {
+    const sequence = Math.max(0, Number(afterSequence) || 0);
+    const byteOffset = Math.max(0, Number(offset) || 0);
+    const limit = Math.max(1, Math.min(Number(limitBytes) || COMMAND_RUN_OUTPUT_BYTE_WINDOW, COMMAND_RUN_OUTPUT_BYTE_WINDOW));
+    const row = this.db.prepare(
+      `SELECT sequence, byte_length,
+        substr(CAST(content AS BLOB), ?, ?) AS content
+       FROM command_run_output_chunks
+       WHERE run_id = ? AND (sequence > ? OR (sequence = ? AND ? > 0))
+       ORDER BY sequence ASC LIMIT 1`
+    ).get(byteOffset + 1, limit, runId, sequence, sequence, byteOffset);
+    if (!row) return null;
+    return {
+      sequence: row.sequence,
+      byteLength: row.byte_length,
+      content: row.content || Buffer.alloc(0),
+    };
   }
 
   /**

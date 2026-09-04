@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { CommandRunRepository } from './CommandRunRepository.js';
+import { COMMAND_RUN_OUTPUT_BYTE_WINDOW, CommandRunRepository } from './CommandRunRepository.js';
 import { SessionRepository } from './SessionRepository.js';
 import { CommandButtonRepository } from './CommandButtonRepository.js';
 import { ProjectRepository } from './ProjectRepository.js';
@@ -84,6 +84,28 @@ describe('CommandRunRepository', () => {
         { sequence: 1, content: 'line 1\n' },
         { sequence: 2, content: 'line 2\n' },
       ]);
+    });
+
+    it('reads an oversized chunk as ordered byte windows', () => {
+      repository.create({ id: 'oversized-run', sessionId: testSessionId, buttonId: testButtonId });
+      const output = `prefix:${'\u00e9'.repeat(90_000)}:suffix`;
+      const expected = Buffer.from(output);
+      repository.appendOutput('oversized-run', output);
+
+      const pages = [];
+      let sequence = 0;
+      let offset = 0;
+      for (;;) {
+        const page = repository.readOutputByteWindow('oversized-run', sequence, offset, COMMAND_RUN_OUTPUT_BYTE_WINDOW);
+        if (!page) break;
+        expect(page.content.length).toBeLessThanOrEqual(COMMAND_RUN_OUTPUT_BYTE_WINDOW);
+        pages.push(page.content);
+        if (offset + page.content.length < page.byteLength) offset += page.content.length;
+        else { sequence = page.sequence; offset = 0; }
+      }
+
+      expect(pages).toHaveLength(Math.ceil(expected.length / COMMAND_RUN_OUTPUT_BYTE_WINDOW));
+      expect(Buffer.concat(pages)).toEqual(expected);
     });
 
     it('handles empty text gracefully', () => {

@@ -2,11 +2,12 @@ import { constants } from 'node:fs';
 import { lstat, mkdir, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, relative, resolve } from 'node:path';
 import { resolveGitExcludePath } from './gitService.js';
+import { COMMAND_RUN_OUTPUT_BYTE_WINDOW } from '../db/CommandRunRepository.js';
 
 const locks = new Map();
 const materializedArtifacts = new Map();
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
-const PAGE_SIZE = 100;
+export const OUTPUT_BYTE_WINDOW = COMMAND_RUN_OUTPUT_BYTE_WINDOW;
 
 export class CommandOutputResourceError extends Error {
   constructor(message = 'Command output resource could not be materialized') {
@@ -116,28 +117,62 @@ async function appendData(output, data) {
   try { await handle.writeFile(data); } finally { await handle.close(); }
 }
 
+/** Writes one bounded byte slice; memory use is O(OUTPUT_BYTE_WINDOW). */
+async function appendBoundedWindow(output, content) {
+  const bytes = Buffer.isBuffer(content) ? content : Buffer.from(content || '');
+  if (bytes.length > OUTPUT_BYTE_WINDOW) throw new CommandOutputResourceError('Command output byte window exceeded');
+  if (bytes.length) await appendData(output, bytes);
+  return bytes.length;
+}
+
 async function writeLegacy(output, run, repository) {
-  for (let offset = 0; offset < run.legacyByteLength; offset += 64 * 1024) {
-    const page = repository.readLegacyOutputPage(run.id, offset, 64 * 1024);
+  for (let offset = 0; offset < run.legacyByteLength; offset += OUTPUT_BYTE_WINDOW) {
+    const page = repository.readLegacyOutputPage(run.id, offset, OUTPUT_BYTE_WINDOW);
     if (!page.length) break;
-    await appendData(output, page);
+    const copied = await appendBoundedWindow(output, page);
+    if (copied < OUTPUT_BYTE_WINDOW) break;
   }
 }
 
 async function appendChunks(output, chunks) {
-  for (const chunk of chunks) await appendData(output, chunk.content);
+  for (const chunk of chunks) await appendBoundedWindow(output, chunk.content);
 }
 
-async function copyChunkPages(output, runId, repository, initialSequence = 0) {
+async function copyChunkWindows(output, runId, repository, initialSequence = 0) {
+  // Compatibility for narrow test doubles. Production repositories use the
+  // byte-window reader below and never expose a full chunk to this service.
+  if (!repository.readOutputByteWindow) return copyChunkRows(output, runId, repository, initialSequence);
+
+  let sequence = initialSequence;
+  let offset = 0;
+  for (;;) {
+    const chunk = repository.readOutputByteWindow(runId, sequence, offset, OUTPUT_BYTE_WINDOW);
+    if (!chunk) return sequence;
+    const copied = await appendBoundedWindow(output, chunk.content);
+    const byteLength = Number(chunk.byteLength);
+    if (!Number.isInteger(byteLength) || byteLength < offset + copied) {
+      throw new CommandOutputResourceError('Invalid command output byte window');
+    }
+    if (offset + copied < byteLength) {
+      if (!copied) throw new CommandOutputResourceError('Empty command output byte window');
+      offset += copied;
+    } else {
+      sequence = chunk.sequence;
+      offset = 0;
+    }
+  }
+}
+
+async function copyChunkRows(output, runId, repository, initialSequence) {
   let sequence = initialSequence;
   let chunks;
   do {
-    ({ chunks } = repository.readOutputPage(runId, sequence, PAGE_SIZE));
+    ({ chunks } = repository.readOutputPage(runId, sequence, 100));
     if (chunks.length) {
       await appendChunks(output, chunks);
       sequence = chunks.at(-1).sequence;
     }
-  } while (chunks.length === PAGE_SIZE);
+  } while (chunks.length === 100);
   return sequence;
 }
 
@@ -150,7 +185,7 @@ async function rebuild(paths, run, repository) {
       await writeLegacy(temporary, run, repository);
       sequence = 1;
     } else {
-      sequence = await copyChunkPages(temporary, run.id, repository);
+      sequence = await copyChunkWindows(temporary, run.id, repository);
     }
     await rename(temporary, paths.output);
     const info = await outputStat(paths.output);
@@ -171,7 +206,7 @@ async function materialize(paths, run, repository) {
   if (state.legacy || !run.outputHighWater) return;
   const highWater = repository.getHighWater(run.id);
   if (state.sequence > highWater) return rebuild(paths, run, repository);
-  const sequence = await copyChunkPages(paths.output, run.id, repository, state.sequence);
+  const sequence = await copyChunkWindows(paths.output, run.id, repository, state.sequence);
   outputInfo = await outputStat(paths.output);
   await writeState(paths.state, { sequence, size: outputInfo.size, legacy: false });
 }
