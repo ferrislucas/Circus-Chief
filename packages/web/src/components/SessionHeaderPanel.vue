@@ -61,6 +61,7 @@
       :is-open="showMoveCardModal"
       :project-id="session.projectId"
       :card-id="sessionCard?.id"
+      :workspace-id="sessionCard?.sessions?.[0]?.id || sessionId"
       :current-lane-id="sessionLane?.id"
       :session-name="session.name"
       @update:is-open="showMoveCardModal = $event"
