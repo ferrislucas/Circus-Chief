@@ -6,10 +6,14 @@ import {
   cleanupCreatedResources,
   navigateAndWait,
   updateSessionStatus,
-  getAPIURL,
 } from './helpers';
 
-const API_URL = getAPIURL();
+async function expandLiveOutput(page: any) {
+  const collapsed = page.getByText('Show live output', { exact: true });
+  await expect(collapsed).toBeVisible({ timeout: 15000 });
+  await collapsed.click();
+  await expect(collapsed).toBeHidden({ timeout: 15000 });
+}
 
 /**
  * E2E Tests for Session Live Output Improvements
@@ -55,6 +59,8 @@ test.describe('Session Live Output', () => {
         waitFor: '.session-card',
       });
 
+      await expandLiveOutput(page);
+
       // Seed a work log via API — the server broadcasts SESSION_WORK_LOG,
       // the frontend picks it up and renders in SessionLogStream
       await seedWorkLog(session.id, {
@@ -89,6 +95,8 @@ test.describe('Session Live Output', () => {
         waitFor: '.session-card',
       });
 
+      await expandLiveOutput(page);
+
       // Seed a work log — this triggers a server broadcast
       await seedWorkLog(session.id, {
         type: 'tool_input',
@@ -122,6 +130,8 @@ test.describe('Session Live Output', () => {
       await navigateAndWait(page, `/projects/${project.id}/sessions`, {
         waitFor: '.session-card',
       });
+
+      await expandLiveOutput(page);
 
       // Seed multiple work logs with small delays
       await seedWorkLog(session.id, {
@@ -179,15 +189,15 @@ test.describe('Session Live Output', () => {
         waitFor: '.session-card',
       });
 
-      // Seed a work log to make the log stream visible
+      // Session-card output defaults closed and does not subscribe until opened.
+      await expandLiveOutput(page);
+
+      // Seed a work log after opening the stream.
       await seedWorkLog(session.id, {
         type: 'tool_input',
         content: JSON.stringify({ command: 'test' }),
         toolName: 'Bash',
       });
-
-      // Wait for the expanded log stream
-      await page.waitForSelector('.session-log-stream', { timeout: 15000 });
 
       // Verify log header is visible
       const logHeader = page.locator('.log-header');
