@@ -1032,10 +1032,7 @@ describe('SessionDetailView', () => {
       };
       kanbanStore.currentProjectId = 'proj-1';
       const addSpy = vi.spyOn(kanbanStore, 'addSessionToBoard');
-      const moveSpy = vi.spyOn(kanbanStore, 'moveCard').mockResolvedValue({
-        id: 'card-1',
-        laneId: 'lane-2',
-      });
+      const moveSpy = vi.spyOn(kanbanStore, 'routeWorkspaceCard').mockResolvedValue({ status: 'moved', laneId: 'lane-2' });
 
       await router.push('/sessions/session-1');
       await router.isReady();
@@ -1058,7 +1055,7 @@ describe('SessionDetailView', () => {
       await wrapper.findAll('.mock-lane-option')[1].trigger('click');
       await flushPromises();
 
-      expect(moveSpy).toHaveBeenCalledWith('proj-1', 'card-1', 'lane-2');
+      expect(moveSpy).toHaveBeenCalledWith('proj-1', 'session-1', 'card-1', 'lane-2');
       expect(addSpy).not.toHaveBeenCalled();
     });
   });

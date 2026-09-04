@@ -268,25 +268,27 @@ export const useKanbanStore = defineStore('kanban', {
       }
     },
 
-    /**
-     * Move a card to a different lane
-     */
-    async moveCard(projectId, cardId, targetLaneId, options = {}) {
+    /** Route a workspace card to a lane. */
+    async routeWorkspaceCard(projectId, workspaceId, cardId, targetLaneId) {
       this.error = null;
 
       // Optimistic update
       const optimisticResult = this._moveCardOptimistic(cardId, targetLaneId);
 
       try {
-        const movedCard = await api.moveKanbanCard(projectId, cardId, { targetLaneId, ...options });
-
-        // Update card in state with server response
-        const location = this._findCardLocation(cardId);
-        if (location) {
-          location.lane.cards[location.cardIndex] = movedCard;
+        const result = await api.routeWorkspaceKanbanCard(projectId, workspaceId, targetLaneId);
+        if (result.status !== 'moved') {
+          if (optimisticResult) this._revertCardMove(optimisticResult.sourceLane, optimisticResult.card, targetLaneId);
+          return result;
         }
 
-        return movedCard;
+        // The route response deliberately exposes no card internals.
+        const location = this._findCardLocation(cardId);
+        if (location) {
+          location.lane.cards[location.cardIndex] = { ...location.card, laneId: targetLaneId };
+        }
+
+        return result;
       } catch (err) {
         // Revert on error
         if (optimisticResult) {

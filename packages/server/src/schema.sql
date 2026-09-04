@@ -525,6 +525,12 @@ CREATE TABLE IF NOT EXISTS kanban_lane_run_audit_events (
   event_type TEXT NOT NULL, details_json TEXT, created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_lane_run_audit_run ON kanban_lane_run_audit_events(lane_run_id, created_at);
+CREATE TABLE IF NOT EXISTS kanban_routing_audit_events (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
+  caller_session_id TEXT, source_lane_id TEXT NOT NULL, destination_lane_id TEXT NOT NULL,
+  outcome TEXT NOT NULL, lane_run_id TEXT, request_at INTEGER NOT NULL, committed_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kanban_routing_audit_workspace ON kanban_routing_audit_events(workspace_id, committed_at);
 
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);

@@ -111,7 +111,7 @@ Included for every project. Also includes a dynamically populated list of availa
 |--------|----------|-------------|
 | GET | `/api/projects/{projectId}/kanban` | Get board with all lanes and cards |
 | POST | `/api/projects/{projectId}/kanban/cards` | Add current workspace to the board. Body: `{"workspaceId": "...", "laneId": "..."}` |
-| PATCH | `/api/projects/{projectId}/kanban/cards/by-workspace/{workspaceId}/move` | Move a workspace card to a different lane. Body: `{"targetLaneId": "..."}` |
+| PUT | `/api/projects/{projectId}/kanban/cards/by-workspace/{workspaceId}/lane` | Route a workspace card to a lane. Body: `{"laneId": "..."}` |
 | DELETE | `/api/projects/{projectId}/kanban/cards/by-workspace/{workspaceId}` | Remove a workspace card |
 | POST | `/api/projects/{projectId}/kanban/lanes` | Create a new lane. Body: `{"name": "..."}` |
 | PATCH | `/api/projects/{projectId}/kanban/lanes/{lane_id}` | Update a lane. Body: `{"name": "..."}` |

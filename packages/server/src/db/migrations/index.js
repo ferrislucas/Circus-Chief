@@ -367,6 +367,8 @@ export const allMigrations = validateMigrations([
 
   // --- Remove the dead lane-trigger recursion counter (cap it fed was removed) ---
   k.get('sessions-drop-lane_trigger_depth'),
+  k.get('kanban-drop-deferred-card-move-turn-fence'),
+  k.get('kanban-routing-observability'),
 
   // Must follow all sessions/lane table-recreation cutovers so an upgrade
   // cannot add these columns only to have a historical recreation drop them.

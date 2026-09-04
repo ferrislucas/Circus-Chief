@@ -99,3 +99,7 @@ export function generateId() {
 export function transaction(fn) {
   return databaseManager.transaction(fn);
 }
+
+export function immediateTransaction(fn) {
+  return databaseManager.immediateTransaction(fn);
+}
