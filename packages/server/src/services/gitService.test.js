@@ -1369,6 +1369,27 @@ describe('gitService', () => {
       }
     });
 
+    it('preserves local status when pruning removes the configured upstream', async () => {
+      const currentBranch = await getCurrentBranch(testDir);
+      execSync(`git update-ref -d "refs/heads/${currentBranch}"`, { cwd: bareRepoDir });
+      await writeFile(join(testDir, 'local-change.txt'), 'local');
+
+      const status = await getSessionGitStatus(testDir, { fetch: true });
+
+      expect(status).toMatchObject({
+        currentBranch,
+        upstreamBranch: `origin/${currentBranch}`,
+        hasUpstream: true,
+        hasUncommittedChanges: true,
+        localChangeCount: 1,
+        aheadCount: 0,
+        behindCount: 0,
+        fetched: false,
+        remoteError: { code: 'git_error' },
+      });
+      expect(status.syncStatus).toBe('dirty');
+    });
+
     it('reports diverged branches', async () => {
       const cloneDir = await cloneOrigin();
       try {

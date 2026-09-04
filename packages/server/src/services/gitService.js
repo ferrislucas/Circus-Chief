@@ -395,9 +395,16 @@ export async function getSessionGitStatus(directory, options = {}) {
       remoteError = normalizeSyncError(error, 'refresh');
     }
   }
-  const counts = upstreamBranch
-    ? await getAheadBehindCounts(directory, upstreamBranch)
-    : { aheadCount: 0, behindCount: 0 };
+  let counts = { aheadCount: 0, behindCount: 0 };
+  if (upstreamBranch) {
+    try {
+      counts = await getAheadBehindCounts(directory, upstreamBranch);
+    } catch (error) {
+      // A successful pruning fetch can remove the configured upstream ref. Keep
+      // the local facts collected above and report comparison as unavailable.
+      remoteError ||= normalizeSyncError(error, 'refresh');
+    }
+  }
   const syncStatus = computeSyncStatus({
     currentBranch,
     upstreamBranch,
