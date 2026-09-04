@@ -4138,7 +4138,7 @@ describe('SessionDetailView', () => {
       const childSession = {
         id: 'child-1',
         name: 'Child Session',
-        status: 'waiting',
+        status: 'running',
         projectId: 'proj-1',
         parentSessionId: 'parent-1',
         updatedAt: 2000,
