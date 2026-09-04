@@ -5,7 +5,7 @@ import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
-import { activeLaneRunOwnsSession, closeOwnWork } from './workflowSessionService.js';
+import { laneRunFencesSystemWork, closeOwnWork } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 import {
   shouldRescheduleOnError,
@@ -326,7 +326,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   let session = context.session;
   const { conversation, lastUserMessage } = context;
 
-  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
+  if (!interactive && laneRunFencesSystemWork(sessionId)) {
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
 

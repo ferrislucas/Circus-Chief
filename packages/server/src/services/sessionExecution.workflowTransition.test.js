@@ -191,7 +191,7 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
     expect(drainLaneEntryTriggerMock).toHaveBeenCalledTimes(1);
   });
 
-  it('runs an interactive turn after its lane run has succeeded, but rejects a system turn', async () => {
+  it('runs both interactive and system turns on a retired worker, without altering the board', async () => {
     const stubAgent = {
       execute: vi.fn(async function* () {
         yield { type: 'assistant', text: 'done' };
@@ -204,12 +204,27 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
 
     await runSession(root.id, 'do work', tempDir);
     expect(getRun(run.id).status).toBe('succeeded');
+    expect(cardRepo.getById(card.id).laneId).toBe(target.id);
 
     await continueSession(root.id, 'A human follow-up', tempDir, { interactive: true });
     expect(stubAgent.execute).toHaveBeenCalledTimes(2);
 
-    await runSession(root.id, 'A stale system turn', tempDir);
-    expect(stubAgent.execute).toHaveBeenCalledTimes(2);
+    // A retired worker (own work closed successfully) keeps a historical
+    // lane_run_id pointer. Its scheduled continuations and reschedules are
+    // ordinary system work on its own row — the lane-run fence must not
+    // reject them (regression: a usage-limit reschedule used to be silently
+    // dropped here).
+    await runSession(root.id, 'A scheduled continuation', tempDir);
+    expect(stubAgent.execute).toHaveBeenCalledTimes(3);
+
+    // The board is untouched by post-retirement turns: the run stays
+    // succeeded, the card stays in its target lane, and no new target-lane
+    // automation is triggered.
+    const updated = sessionRepo.getById(root.id);
+    expect(updated.ownWorkState).toBe('closed_successfully');
+    expect(getRun(run.id).status).toBe('succeeded');
+    expect(cardRepo.getById(card.id).laneId).toBe(target.id);
+    expect(drainLaneEntryTriggerMock).toHaveBeenCalledTimes(1);
   });
 
   it('does not call the provider when ownership is lost after admission but before execution', async () => {

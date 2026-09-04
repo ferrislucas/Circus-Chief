@@ -3,7 +3,7 @@ import { sessions, messages, conversations, projects, attachments } from '../dat
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
-import { claimWorkflowSessionStart, withActiveLaneRunOwnership, activeLaneRunOwnsSession, closeOwnWork } from './workflowSessionService.js';
+import { claimWorkflowSessionStart, withActiveLaneRunOwnership, laneRunFencesSystemWork, closeOwnWork } from './workflowSessionService.js';
 import { didSessionExecutionStart, rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 import { broadcastSessionStatus } from './streamEventHandler.js';
 
@@ -389,8 +389,9 @@ class SchedulerService {
     }
 
     // Prompt resolution may yield to disk IO while a manual move supersedes
-    // this lane run. Fence the durable clear and provider handoff.
-    if (claimed.laneRunId && !activeLaneRunOwnsSession(claimed.id)) {
+    // this lane run. Fence the durable clear and provider handoff. Retired
+    // workers (own work closed successfully) are never fenced here.
+    if (laneRunFencesSystemWork(claimed.id)) {
       return { claimed: true, ...this.finishScheduledStart(claimed, rejectedSessionExecution(claimed.id, 'lane_run_ownership_lost')) };
     }
 
