@@ -50,4 +50,16 @@ test.describe('Provider allowance indicators', () => {
 
   });
 
+  test('uses the compact mobile badge without horizontal overflow', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 720 });
+    await page.goto('/');
+
+    const indicators = page.getByTestId('provider-allowance-indicators');
+    await expect(indicators).toBeVisible();
+    await expect(indicators.getByTestId('provider-allowance-item')).toHaveCount(0);
+    await expect(indicators.locator('.mobile-button')).toBeVisible();
+    await expect(indicators.locator('.attention-badge')).toHaveText('2');
+    await expect(indicators.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  });
+
 });

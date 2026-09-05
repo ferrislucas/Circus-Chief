@@ -171,6 +171,7 @@ const liveAnnouncement = ref('');
 let removeReconnect = null;
 let previousFocus = null;
 let resizeObserver = null;
+const observedLayoutElements = new Set();
 let announcementTimer = null;
 let hasObservedSnapshots = false;
 let previousStatuses = new Map();
@@ -179,10 +180,26 @@ function measureVisibleItems() {
   const availableWidth = desktopItemsRef.value?.getBoundingClientRect().width ?? 0;
   const itemWidths = measurementItems.value.map((item) => item.getBoundingClientRect().width);
   const overflowWidth = overflowMeasureRef.value?.getBoundingClientRect().width ?? 0;
-  visibleCount.value = selectVisibleItems(itemWidths, availableWidth, overflowWidth);
+  const styles = desktopItemsRef.value ? getComputedStyle(desktopItemsRef.value) : null;
+  const gap = Number.parseFloat(styles?.columnGap || styles?.gap || '0') || 0;
+  visibleCount.value = selectVisibleItems(itemWidths, availableWidth, overflowWidth, gap);
 }
 
-watch(snapshots, () => nextTick(measureVisibleItems), { flush: 'post' });
+function observeLayoutMeasurements() {
+  if (!resizeObserver) return;
+  [desktopItemsRef.value, ...measurementItems.value, overflowMeasureRef.value]
+    .filter(Boolean)
+    .forEach((element) => {
+      if (observedLayoutElements.has(element)) return;
+      resizeObserver.observe(element);
+      observedLayoutElements.add(element);
+    });
+}
+
+watch(snapshots, () => nextTick(() => {
+  observeLayoutMeasurements();
+  measureVisibleItems();
+}), { flush: 'post' });
 
 function statusText(status) { return status[0].toUpperCase() + status.slice(1); }
 function compactValue(snapshot) {
@@ -267,15 +284,18 @@ onMounted(() => {
   on(WS_MESSAGE_TYPES.SESSION_UPDATED, reconcileSessionPriority);
   removeReconnect = onReconnect(() => store.fetch());
   resizeObserver = new ResizeObserver(measureVisibleItems);
-  resizeObserver.observe(desktopItemsRef.value);
   document.addEventListener('keydown', handleDocumentKeydown);
-  nextTick(measureVisibleItems);
+  nextTick(() => {
+    observeLayoutMeasurements();
+    measureVisibleItems();
+  });
 });
 onUnmounted(() => {
   off(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, onUpdate);
   off(WS_MESSAGE_TYPES.SESSION_UPDATED, reconcileSessionPriority);
   removeReconnect?.();
   resizeObserver?.disconnect();
+  observedLayoutElements.clear();
   clearTimeout(announcementTimer);
   document.removeEventListener('keydown', handleDocumentKeydown);
 });

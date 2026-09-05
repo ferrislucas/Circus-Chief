@@ -127,6 +127,24 @@ describe('ProviderAllowanceIndicators', () => {
     expect(wrapper.find('.overflow-button').text()).toBe('+2');
   });
 
+  it('uses the rendered flex gap when deciding how many desktop items fit', async () => {
+    seedSnapshots(3);
+    rectSpy.mockImplementation(function getBoundingClientRect() {
+      const width = this.classList.contains('desktop-items') ? 189
+        : this.classList.contains('allowance-item') ? 70
+          : this.classList.contains('overflow-button') ? 30 : 0;
+      return { width, height: 0, top: 0, left: 0, right: width, bottom: 0, x: 0, y: 0, toJSON: () => ({}) };
+    });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    wrapper.find('.desktop-items').element.style.gap = '10px';
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+
+    expect(wrapper.findAll('.desktop-items .allowance-item')).toHaveLength(1);
+    expect(wrapper.find('.desktop-items .overflow-button').text()).toBe('+2');
+  });
+
   it('re-measures when the container changes size and disconnects on unmount', async () => {
     seedSnapshots(4);
     const wrapper = mount(ProviderAllowanceIndicators);
