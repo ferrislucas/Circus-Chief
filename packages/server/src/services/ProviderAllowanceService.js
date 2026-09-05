@@ -24,7 +24,7 @@ export class ProviderAllowanceService {
     for (const id of this.snapshots.keys()) if (!activeIds.has(id)) this.snapshots.delete(id);
 
     const snapshots = ProviderAllowanceListResponse.parse(providers.map((provider) =>
-      withFreshness(this.snapshots.get(provider.id) || this.#unknownSnapshot(provider), this.clock.now()),
+      withFreshness(this.#normalizeSnapshot(this.snapshots.get(provider.id), provider), this.clock.now()),
     ));
     const activeProviderIds = new Set(
       (this.sessionRepository?.getActiveAndWaiting() || []).map((session) => session.providerId).filter(Boolean),
@@ -34,9 +34,9 @@ export class ProviderAllowanceService {
 
   observe(snapshot) {
     if (!this.isEnabled()) return null;
-    const normalized = ProviderAllowanceSnapshot.parse(snapshot);
-    const enabledProviderIds = new Set(this.#enabledProviders().map((provider) => provider.id));
-    if (!enabledProviderIds.has(normalized.providerId)) return null;
+    const provider = this.#enabledProviders().find((candidate) => candidate.id === snapshot?.providerId);
+    if (!provider) return null;
+    const normalized = this.#normalizeSnapshot(snapshot, provider);
     const previous = this.snapshots.get(normalized.providerId);
     this.snapshots.set(normalized.providerId, normalized);
     if (!isDeepStrictEqual(previous, normalized)) {
@@ -59,10 +59,89 @@ export class ProviderAllowanceService {
     };
   }
 
+  #normalizeSnapshot(snapshot, provider) {
+    if (!snapshot || typeof snapshot !== 'object') return this.#unknownSnapshot(provider);
+
+    const allowances = Array.isArray(snapshot.allowances)
+      ? snapshot.allowances.map(normalizeAllowance).filter(Boolean)
+      : [];
+    const authoritativePercentages = allowances.map((allowance) => allowance.remainingPercent).filter((value) => value !== null);
+    const hasAuthoritativePercentage = authoritativePercentages.length > 0;
+
+    return ProviderAllowanceSnapshot.parse({
+      providerId: provider.id,
+      providerName: provider.name,
+      providerKind: provider.kind,
+      status: hasAuthoritativePercentage ? deriveStatus(Math.min(...authoritativePercentages)) : 'unknown',
+      allowances,
+      source: isSource(snapshot.source) ? snapshot.source : null,
+      updatedAt: finiteNumberOrNull(snapshot.updatedAt),
+      staleAt: finiteNumberOrNull(snapshot.staleAt),
+      unavailableReason: typeof snapshot.unavailableReason === 'string' ? snapshot.unavailableReason : null,
+    });
+  }
+
   #enabledProviders() {
     return this.providerRepository.getEnabledForAllowances?.()
       ?? this.providerRepository.getAll().filter((provider) => provider.enabled);
   }
+}
+
+// Adapter values are untrusted. A percentage exists only when it can be
+// derived from a non-negative remaining amount and a positive limit.
+export function normalizeAllowance(allowance) {
+  if (!hasDisplayIdentity(allowance)) return null;
+
+  const remaining = finiteNumberOrNull(allowance.remaining);
+  const limit = finiteNumberOrNull(allowance.limit);
+  const normalizedRemaining = remaining === null ? null : Math.max(0, remaining);
+  const normalizedLimit = limit !== null && limit > 0 ? limit : null;
+  const remainingPercent = normalizedRemaining !== null && normalizedLimit !== null
+    ? percentage(normalizedRemaining, normalizedLimit)
+    : null;
+
+  return {
+    key: allowance.key,
+    label: allowance.label,
+    remaining: normalizedRemaining,
+    limit: normalizedLimit,
+    remainingPercent,
+    unit: allowance.unit,
+    resetsAt: finiteNumberOrNull(allowance.resetsAt),
+  };
+}
+
+function hasDisplayIdentity(allowance) {
+  return allowance && typeof allowance === 'object'
+    && typeof allowance.key === 'string' && Boolean(allowance.key)
+    && typeof allowance.label === 'string' && Boolean(allowance.label)
+    && isUnit(allowance.unit);
+}
+
+export function percentage(remaining, limit) {
+  return Math.min(100, Math.max(0, (remaining / limit) * 100));
+}
+
+// Status thresholds apply to the most depleted authoritative allowance.
+export const ALLOWANCE_STATUS_THRESHOLDS = Object.freeze({ warning: 50, critical: 10 });
+
+export function deriveStatus(remainingPercent) {
+  if (remainingPercent <= 0) return 'exhausted';
+  if (remainingPercent <= ALLOWANCE_STATUS_THRESHOLDS.critical) return 'critical';
+  if (remainingPercent <= ALLOWANCE_STATUS_THRESHOLDS.warning) return 'warning';
+  return 'available';
+}
+
+function finiteNumberOrNull(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function isUnit(value) {
+  return ['tokens', 'requests', 'credits', 'other'].includes(value);
+}
+
+function isSource(value) {
+  return ['provider', 'observed-header', 'configured'].includes(value);
 }
 
 export function withFreshness(snapshot, now) {
