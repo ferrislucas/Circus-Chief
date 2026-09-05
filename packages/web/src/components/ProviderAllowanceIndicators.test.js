@@ -168,7 +168,7 @@ describe('ProviderAllowanceIndicators', () => {
     expect(resizeObservers[0].disconnect).toHaveBeenCalledOnce();
   });
 
-  it('traps focus in the dialog, closes on document Escape, and restores the invoking trigger', async () => {
+  it('contains keyboard focus, closes on Escape, and restores the exact invoking trigger', async () => {
     const store = useProviderAllowancesStore();
     store.snapshots = [snapshot()];
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
@@ -180,15 +180,56 @@ describe('ProviderAllowanceIndicators', () => {
     await trigger.trigger('click');
     await nextTick();
 
+    const dialog = wrapper.find('[role="dialog"]').element;
     const closeButton = wrapper.find('.close-button').element;
-    expect(document.activeElement).toBe(wrapper.find('[role="dialog"]').element);
-    closeButton.focus();
-    closeButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(document.activeElement).toBe(dialog);
+
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
     expect(document.activeElement).toBe(closeButton);
+
+    closeButton.focus();
+    closeButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(dialog);
+
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    outside.focus();
+    expect(document.activeElement).toBe(dialog);
 
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await nextTick();
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    expect(document.activeElement).toBe(trigger.element);
+
+    const closedEscape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    document.dispatchEvent(closedEscape);
+    expect(closedEscape.defaultPrevented).toBe(false);
+  });
+
+  it('opens from the overflow trigger and keeps the dialog focused when it has no focusable children', async () => {
+    seedSnapshots(4);
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+
+    const trigger = wrapper.find('[data-testid="provider-allowance-overflow"]');
+    trigger.element.focus();
+    await trigger.trigger('click');
+    await nextTick();
+
+    const dialog = wrapper.find('[role="dialog"]').element;
+    const closeButton = wrapper.find('.close-button').element;
+    closeButton.disabled = true;
+    dialog.focus();
+    const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    dialog.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(dialog);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await nextTick();
     expect(document.activeElement).toBe(trigger.element);
   });
 

@@ -153,6 +153,8 @@ import { useProviderAllowancesStore, lowestAllowance } from '../stores/providerA
 import { selectVisibleItems } from './providerAllowanceOverflow.js';
 import { formatAllowance, formatExactTime, formatRelativeTime, sourceLabel } from './providerAllowanceFormatting.js';
 
+const DIALOG_FOCUSABLE_SELECTOR = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 const store = useProviderAllowancesStore();
 const { on, off, onReconnect } = useWebSocket();
 const isOpen = ref(false);
@@ -222,31 +224,45 @@ function open(providerId = null) {
 function close() {
   isOpen.value = false;
   focusedProviderId.value = null;
-  previousFocus?.focus?.();
+  if (previousFocus?.isConnected) previousFocus.focus();
+  previousFocus = null;
 }
 function focusableDialogElements() {
-  return [...(dialogRef.value?.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? [])];
+  return [...(dialogRef.value?.querySelectorAll(DIALOG_FOCUSABLE_SELECTOR) ?? [])];
 }
 function trapFocus(event) {
   if (event.key !== 'Tab') return;
+  const dialog = dialogRef.value;
   const elements = focusableDialogElements();
-  if (!elements.length) return;
+  if (!elements.length) {
+    event.preventDefault();
+    dialog?.focus();
+    return;
+  }
   const first = elements[0];
   const last = elements[elements.length - 1];
-  if (event.shiftKey && document.activeElement === first) {
+  if (event.shiftKey && (document.activeElement === dialog || document.activeElement === first)) {
     event.preventDefault();
     last.focus();
   } else if (!event.shiftKey && document.activeElement === last) {
     event.preventDefault();
-    first.focus();
+    dialog?.focus();
   }
 }
 function handleDocumentKeydown(event) {
-  if (isOpen.value && event.key === 'Escape') {
+  if (event.key === 'Escape') {
     event.preventDefault();
     close();
   }
 }
+function containFocus(event) {
+  if (isOpen.value && !dialogRef.value?.contains(event.target)) dialogRef.value?.focus();
+}
+watch(isOpen, (dialogOpen) => {
+  const action = dialogOpen ? 'addEventListener' : 'removeEventListener';
+  document[action]('keydown', handleDocumentKeydown);
+  document[action]('focusin', containFocus);
+});
 function queueAttentionAnnouncement(snapshot) {
   clearTimeout(announcementTimer);
   announcementTimer = setTimeout(() => {
@@ -284,7 +300,6 @@ onMounted(() => {
   on(WS_MESSAGE_TYPES.SESSION_UPDATED, reconcileSessionPriority);
   removeReconnect = onReconnect(() => store.fetch());
   resizeObserver = new ResizeObserver(measureVisibleItems);
-  document.addEventListener('keydown', handleDocumentKeydown);
   nextTick(() => {
     observeLayoutMeasurements();
     measureVisibleItems();
@@ -298,6 +313,7 @@ onUnmounted(() => {
   observedLayoutElements.clear();
   clearTimeout(announcementTimer);
   document.removeEventListener('keydown', handleDocumentKeydown);
+  document.removeEventListener('focusin', containFocus);
 });
 </script>
 
