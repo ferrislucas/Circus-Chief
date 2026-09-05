@@ -32,8 +32,22 @@ vi.mock('../websocket.js', () => ({
   broadcastToProject: vi.fn(),
 }));
 
+// The workflow session service reads the sessions table directly through the
+// real SQLite database (databaseManager), which this suite replaces with the
+// mocked repository layer above — no rows exist there, and the missing-row
+// fail-closed policy would fence every launch. Stub the ownership boundary so
+// tests exercise scheduling logic; the fence itself is covered in
+// workflowSessionService.test.js and by the explicit fence test below.
+vi.mock('./workflowSessionService.js', () => ({
+  claimWorkflowSessionStart: vi.fn(() => true),
+  withActiveLaneRunOwnership: vi.fn((_sessionId, mutation) => mutation()),
+  laneRunFencesSystemWork: vi.fn(() => false),
+  closeOwnWork: vi.fn(),
+}));
+
 import { sessions, messages, conversations, projects, attachments } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
+import { laneRunFencesSystemWork } from './workflowSessionService.js';
 
 describe('SchedulerService', () => {
   let scheduler;
@@ -709,6 +723,44 @@ describe('SchedulerService', () => {
 
       expect(mockSessionManager.continueSessionWithExistingMessage).toHaveBeenCalled();
       expect(mockSessionManager.runSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects the launch and clears the stale schedule when the lane-run fence trips', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = {
+        id: 'session-1', name: 'Test Session', projectId: 'project-1',
+        pendingPrompt: 'Hello', pendingModel: null,
+      };
+      stubSuccessfulClaim(session);
+
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+      messages.getBySessionId.mockReturnValue([]);
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
+      messages.create.mockReturnValue({ id: 'msg-1', sessionId: 'session-1', role: 'user', content: 'Hello', conversationId: 'conv-1' });
+      attachments.getBySessionId.mockReturnValue([]);
+      laneRunFencesSystemWork.mockReturnValueOnce(true);
+
+      const result = await scheduler.startScheduledSession(session);
+
+      // Fenced launch keeps the claim but reports a rejected execution and
+      // never reaches the executor.
+      expect(result).toEqual({
+        claimed: true,
+        started: false,
+        sessionId: 'session-1',
+        reason: 'lane_run_ownership_lost',
+      });
+      expect(mockSessionManager.runSession).not.toHaveBeenCalled();
+      // The durable schedule fields are cleared alongside the stopped status
+      // so the stale schedule cannot re-fire on a later poll.
+      expect(sessions.update).toHaveBeenCalledWith('session-1', {
+        status: 'stopped',
+        scheduledAt: null,
+        pendingPrompt: null,
+        pendingModel: null,
+        pendingConversationId: null,
+      });
+      expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: 'session-1', status: 'stopped' });
     });
 
     describe('concurrency (manual/manual and manual/poller races)', () => {

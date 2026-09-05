@@ -20,7 +20,7 @@ import { buildConversationContextForModelSwitch, buildConversationContextForCont
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { beginWorkflowTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, pauseForUserStop, activeLaneRunOwnsSession } from './workflowSessionService.js';
+import { beginWorkflowTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, pauseForUserStop, laneRunFencesSystemWork } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 import { isUserStopAbort } from './sessionAbort.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
@@ -93,7 +93,7 @@ export async function _executeSession({
 }) {
   const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded } = callbacks; const workflowTurn = beginWorkflowTurn(sessionId);
   // Last ownership fence before the irreversible provider call.
-  if (!interactive && !workflowTurn && !activeLaneRunOwnsSession(sessionId)) {
+  if (!interactive && !workflowTurn && laneRunFencesSystemWork(sessionId)) {
     cleanupSessionState(sessionId, cleanupConversationId, controller);
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
@@ -380,7 +380,9 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   }
   // A closed lane run only blocks system-owned work. Human follow-ups must
   // remain available after a workflow completes or a card is manually moved.
-  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
+  // Retired workers (own work closed successfully) are never fenced, so their
+  // scheduled continuations and reschedules run as ordinary system work.
+  if (!interactive && laneRunFencesSystemWork(sessionId)) {
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
 
@@ -448,7 +450,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
   // Get session for settings
   let session = sessions.getById(sessionId);
   if (!session) throw new Error('Session not found');
-  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
+  if (!interactive && laneRunFencesSystemWork(sessionId)) {
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
   const controller = abortController || new AbortController();
