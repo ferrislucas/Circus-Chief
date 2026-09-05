@@ -5,8 +5,9 @@ import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
-import { laneRunFencesSystemWork, closeOwnWork } from './workflowSessionService.js';
+import { activeLaneRunOwnsSession, closeOwnWork } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
+import { clearedPendingSchedule } from './pendingSchedule.js';
 import {
   shouldRescheduleOnError,
   _checkProactiveReschedule,
@@ -326,7 +327,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   let session = context.session;
   const { conversation, lastUserMessage } = context;
 
-  if (!interactive && laneRunFencesSystemWork(sessionId)) {
+  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
 
@@ -368,6 +369,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     controller,
     workingDirectory,
     callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
+    interactive,
     errorLabel: 'Continue session with existing message error',
   });
   return execution || startedSessionExecution(sessionId);
@@ -398,10 +400,7 @@ export async function stopSession(sessionId) {
   // the user believed they had cancelled.
   sessions.update(sessionId, {
     status: 'stopped',
-    scheduledAt: null,
-    pendingPrompt: null,
-    pendingConversationId: null,
-    pendingModel: null,
+    ...clearedPendingSchedule,
   });
   broadcastSessionStatus(sessionId, 'stopped');
 

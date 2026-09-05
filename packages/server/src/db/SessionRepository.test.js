@@ -931,6 +931,14 @@ describe('SessionRepository', () => {
 
       expect(updated.pendingModel).toBeNull();
     });
+
+    it('round-trips and clears nullable pending schedule provenance as a boolean', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+
+      expect(session.pendingInteractive).toBe(false);
+      expect(repo.update(session.id, { pendingInteractive: true }).pendingInteractive).toBe(true);
+      expect(repo.update(session.id, { pendingInteractive: null }).pendingInteractive).toBe(false);
+    });
   });
 
   describe('delete', () => {

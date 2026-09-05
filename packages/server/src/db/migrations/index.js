@@ -365,4 +365,7 @@ export const allMigrations = validateMigrations([
   // Keep this last: it is additive and must run for databases created before
   // pending_agent_input was added to schema.sql.
   s.get('sessions-add-pending_agent_input'),
+
+  // --- Server-derived origin of user-created scheduled follow-ups ---
+  s.get('sessions-add-pending_interactive'),
 ]);
