@@ -68,7 +68,7 @@ test.describe('Kanban unified lane routing', () => {
     expect(children).toHaveLength(2);
   });
 
-  test('a cancelled run discards the declaration instead of moving the card', async ({ page, request }) => {
+  test('stopping a worker pauses the run and preserves its declared exit', async ({ page, request }) => {
     const board = await getBoard(project.id);
     const source = getLaneByName(board, 'In Progress');
     const done = getLaneByName(board, 'Done');
@@ -88,29 +88,30 @@ test.describe('Kanban unified lane routing', () => {
     const response = await request.put(exitLaneUrl, { data: { laneId: exit.id } });
     expect(response.status()).toBe(200);
 
-    // Stop the parked worker: the run is cancelled while the declaration is
-    // still outstanding. The declaration must be discarded, never applied —
-    // the card stays in the source lane.
+    // A user stop pauses the worker's still-open obligation. It must not apply
+    // the exit early or discard the shared declaration: the run can be resumed
+    // later and should retain the operator's chosen exit.
     await stopSession(worker.id);
 
     await expect.poll(async () => (
-      findCardOfSession(await getBoard(project.id), workspace.id)?.activeLaneRun?.status
-    ), { timeout: 15000 }).toBe('cancelled');
+      findCardOfSession(await getBoard(project.id), workspace.id)?.activeLaneRun?.blockerKind
+    ), { timeout: 15000 }).toBe('user_stop_pause');
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const after = await getBoard(project.id);
     expect(findLaneOfSession(after, workspace.id)).toBe(source.name);
     const card = findCardOfSession(after, workspace.id);
-    expect(card.activeLaneRun.status).toBe('cancelled');
-    // Kept on the terminal run for diagnosis, but never applied as a move.
+    expect(card.activeLaneRun.status).toBe('open');
+    expect(card.activeLaneRun.pausedCount).toBe(1);
     expect(card.activeLaneRun.chosenExitLaneId).toBe(exit.id);
 
-    // Once the run is terminal, the same unified route is an immediate move.
+    // The paused run retains the shared exit. Repeating that same declaration
+    // is idempotent; it must not revive the removed per-turn deferred move.
     const late = await request.put(exitLaneUrl, { data: { laneId: exit.id } });
     expect(late.status()).toBe(200);
-    await expect(late.json()).resolves.toEqual({ status: 'moved', laneId: exit.id });
-    expect(findLaneOfSession(await getBoard(project.id), workspace.id)).toBe(exit.name);
-    const children = await waitForChildSessions(workspace.id, 2, 15000);
-    expect(children).toHaveLength(2);
+    await expect(late.json()).resolves.toEqual({ status: 'noop', laneId: exit.id });
+
+    const retained = findCardOfSession(await getBoard(project.id), workspace.id);
+    expect(retained.activeLaneRun.chosenExitLaneId).toBe(exit.id);
   });
 });

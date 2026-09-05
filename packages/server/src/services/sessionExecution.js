@@ -20,8 +20,9 @@ import { buildConversationContextForModelSwitch, buildConversationContextForCont
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { beginWorkflowTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, activeLaneRunOwnsSession } from './workflowSessionService.js';
+import { beginWorkflowTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, pauseForUserStop, activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
+import { isUserStopAbort } from './sessionAbort.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
 // sessionExecution), safe because this is only called at runtime inside
 // _executeSession, long after the module graph is loaded (same pattern as
@@ -30,20 +31,14 @@ import { drainLaneEntryTrigger } from './kanbanService.js';
 
 async function resolveInitialSessionModelEnv(session, model) {
   const effectiveModel = model || session.model;
-  const provider = resolveProviderFromModel(effectiveModel);
-  const providerMetadata = resolveProviderMetadataFromModel(effectiveModel);
-  const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
+  const { commitAttributionOverride = null } = resolveProviderMetadataFromModel(effectiveModel) || {};
 
   if (session.gitWorktree && commitAttributionOverride) {
     await ensureWorktreeCommitAttributionHook(session.gitWorktree);
   }
 
-  const baseSessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
-  return {
-    effectiveModel,
-    sessionEnv: buildAgentEnv(baseSessionEnv, commitAttributionOverride),
-    commitAttributionOverride,
-  };
+  const baseSessionEnv = buildSessionEnv(resolveProviderFromModel(effectiveModel), session.thinkingEnabled, session.effortLevel);
+  return { effectiveModel, sessionEnv: buildAgentEnv(baseSessionEnv, commitAttributionOverride), commitAttributionOverride };
 }
 /**
  * Create the agent for a session, using gateway + logging + VCR.
@@ -124,8 +119,11 @@ export async function _executeSession({
       await handleStreamEvent(sessionId, event, { controller });
     }
     if (controller.signal.aborted) {
-      closeOwnWork(sessionId, 'cancelled', 'Provider turn cancelled', { turnToken: workflowTurn?.turnToken });
-      return;
+      if (isUserStopAbort(controller)) {
+        pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
+        return;
+      }
+      throw controller.signal.reason || new Error('Session execution was aborted');
     }
     // Handle post-turn completion (work log association, status transition, summary, etc.)
     const { wasRescheduled, heldForLimit, terminalError } = await handleTurnCompletion(
@@ -134,6 +132,14 @@ export async function _executeSession({
       { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded },
       { controller },
     );
+  // A stop invalidates the completion pipeline; stale work must not close the paused obligation.
+    if (controller.signal.aborted) {
+      if (isUserStopAbort(controller)) {
+        pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
+        return;
+      }
+      throw controller.signal.reason || new Error('Session execution was aborted');
+    }
     // Some providers report terminal failures as a final stream event and then
     // close their generator normally. Route that outcome through the same retry
     // policy as a rejected execute() call; otherwise the normal completion path
@@ -196,13 +202,10 @@ export async function _executeSession({
       markExecutionState(sessionId, 'retrying');
       return; // Don't throw - session was rescheduled
     }
-    // FR-9.2/FR-9.4: distinguish a user-initiated stop (must land as
-    // 'cancelled', never a failure) from a genuine permanent error (must land
-    // as 'closed_failed'). Both are terminal — neither may be interpreted as
-    // success, and reconcileLaneRun() below fails/cancels the lane run so a
-    // structured card never advances past this session.
-    closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message,
-      { turnToken: workflowTurn?.turnToken });
+    // User aborts pause the obligation; permanent errors terminally fail it.
+    isUserStopAbort(controller)
+      ? pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken })
+      : closeOwnWork(sessionId, 'closed_failed', error.message, { turnToken: workflowTurn?.turnToken });
     throw error;
   } finally {
     cleanupSessionState(sessionId, cleanupConversationId, controller);

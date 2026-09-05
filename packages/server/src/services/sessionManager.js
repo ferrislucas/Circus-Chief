@@ -5,7 +5,7 @@ import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
-import { activeLaneRunOwnsSession, closeOwnWork } from './workflowSessionService.js';
+import { activeLaneRunOwnsSession, pauseForUserStop } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 import { clearedPendingSchedule } from './pendingSchedule.js';
 import {
@@ -31,6 +31,7 @@ import {
 } from './streamEventHandler.js';
 import { cancelPrompt } from './promptStore.js';
 import { clearPendingWakeup } from './scheduleWakeupBridge.js';
+import { abortForUserStop } from './sessionAbort.js';
 // Import execution helpers from sessionExecution.js
 import {
   createAgentForSession,
@@ -385,7 +386,7 @@ export async function stopSession(sessionId) {
 
   if (sessionData) {
     // Session is actively processing - abort it
-    sessionData.controller.abort();
+    abortForUserStop(sessionData.controller);
     clearPendingWakeup(sessionId, sessionData.controller);
     activeSessions.delete(sessionId);
   }
@@ -404,10 +405,9 @@ export async function stopSession(sessionId) {
   });
   broadcastSessionStatus(sessionId, 'stopped');
 
-  // FR-9.4: a user-stopped blocking session must not be interpreted as
-  // success — close its own-work obligation as cancelled (no-op if it isn't
-  // a lane-run participant, or its own work is already closed).
-  closeOwnWork(sessionId, 'cancelled', 'Stopped by user');
+  // A user stop pauses an active structured-lane obligation rather than
+  // cancelling it. Non-participating and already-closed sessions are no-ops.
+  pauseForUserStop(sessionId);
 
   // Trigger summary generation on stop (session is truly complete now)
   summaryService.onSessionComplete(sessionId);

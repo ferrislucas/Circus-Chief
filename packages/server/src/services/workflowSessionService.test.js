@@ -5,7 +5,7 @@ import { broadcastToProject } from '../websocket.js';
 import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
   getRun, attachRootSession, reconcileLaneRun,
-  supersedeRunForCard, closeOwnWork, markExecutionState, markHeldForLimit,
+  supersedeRunForCard, closeOwnWork, markExecutionState, markHeldForLimit, pauseForUserStop,
   computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition,
 } from './workflowSessionService.js';
 import { auditKanbanInvariants, reconcileKanbanOwnership } from './kanbanRecoveryService.js';
@@ -173,7 +173,7 @@ describe('workflowSessionService', () => {
       expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
     });
 
-    it('cancels the run, discards a pending destination, and does not move the card on a user stop', async () => {
+    it('retains terminal cancellation support and discards a pending destination', async () => {
       const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
       const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
       attachRootSession(run.id, worker.id);
@@ -225,6 +225,71 @@ describe('workflowSessionService', () => {
     });
   });
 
+  describe('pauseForUserStop (FR-10)', () => {
+    function participatingWorker() {
+      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+      const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+      attachRootSession(run.id, worker.id);
+      return { worker, run };
+    }
+
+    it('pauses open owned work without cancelling its obligation or lane run', () => {
+      const { worker, run } = participatingWorker();
+      beginWorkflowTurn(worker.id);
+
+      expect(pauseForUserStop(worker.id)).toBe(true);
+      expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
+        ownWorkState: 'open', executionState: 'paused', workflowReason: 'Stopped by user', subtreeOutcome: 'open',
+      }));
+      expect(getRun(run.id)).toEqual(expect.objectContaining({
+        status: 'open', blockingSessionId: worker.id,
+        blockingReason: 'Paused — stopped by user', blockerKind: 'user_stop_pause',
+      }));
+      expect(kanbanCards.getById(card.id)).toEqual(expect.objectContaining({ laneId: source.id, activeLaneRunId: run.id }));
+      const events = databaseManager.get().prepare('SELECT event_type FROM kanban_lane_run_audit_events WHERE lane_run_id=?').all(run.id);
+      expect(events.map((event) => event.event_type)).toContain('own_work_paused_by_user');
+      expect(events.map((event) => event.event_type)).not.toEqual(expect.arrayContaining(['own_work_cancelled', 'run_cancelled']));
+    });
+
+    it('is idempotent, refuses closed or unowned work, and fences old turns', () => {
+      const { worker, run } = participatingWorker();
+      const oldTurn = beginWorkflowTurn(worker.id);
+      expect(pauseForUserStop(worker.id, { turnToken: oldTurn.turnToken })).toBe(true);
+      expect(pauseForUserStop(worker.id, { turnToken: oldTurn.turnToken })).toBe(false);
+      const newTurn = beginWorkflowTurn(worker.id);
+      expect(newTurn.executionStateBeforeTurn).toBe('paused');
+      expect(sessions.getById(worker.id).workflowReason).toBeNull();
+      expect(pauseForUserStop(worker.id, { turnToken: oldTurn.turnToken })).toBe(false);
+      expect(sessions.getById(worker.id).executionState).toBe('running');
+      expect(pauseForUserStop(worker.id, { turnToken: newTurn.turnToken })).toBe(true);
+      expect(supersedeRunForCard(card.id, 'manual move')).toBeTruthy();
+      expect(pauseForUserStop(worker.id)).toBe(false);
+      expect(databaseManager.get().prepare("SELECT * FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='own_work_paused_by_user'").all(run.id)).toHaveLength(2);
+    });
+
+    it('reclassifies a provider-limit pause when the user explicitly stops the session', () => {
+      const { worker, run } = participatingWorker();
+      expect(markHeldForLimit(worker.id)).toBe(true);
+      expect(getRun(run.id).blockerKind).toBe('provider_limit_pause');
+
+      expect(pauseForUserStop(worker.id)).toBe(true);
+      expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
+        executionState: 'paused', workflowReason: 'Stopped by user',
+      }));
+      expect(getRun(run.id)).toEqual(expect.objectContaining({
+        blockingReason: 'Paused — stopped by user', blockerKind: 'user_stop_pause',
+      }));
+      expect(databaseManager.get().prepare("SELECT * FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='own_work_paused_by_user'").all(run.id)).toHaveLength(1);
+      expect(pauseForUserStop(worker.id)).toBe(false);
+    });
+
+    it('is a hot-path no-op for a non-participating session', () => {
+      const plain = sessions.create(project.id, 'Plain', 'unrelated work');
+      expect(pauseForUserStop(plain.id)).toBe(false);
+      expect(sessions.getById(plain.id)).toEqual(expect.objectContaining({ ownWorkState: 'open', executionState: 'idle' }));
+    });
+  });
+
   it('markExecutionState is a no-op for a non-participating session', () => {
     const plain = sessions.create(project.id, 'Plain', 'unrelated work');
     markExecutionState(plain.id, 'retrying');
@@ -248,6 +313,7 @@ describe('workflowSessionService', () => {
         pausedCount: 1,
         blockingSessionId: worker.id,
         blockingReason: 'Paused — provider limit or outage',
+        blockerKind: 'provider_limit_pause',
       }));
     });
 
