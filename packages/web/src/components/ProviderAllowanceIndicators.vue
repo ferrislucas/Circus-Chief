@@ -4,7 +4,7 @@
     class="provider-allowances"
     data-testid="provider-allowance-indicators"
   >
-    <div class="desktop-items">
+    <div ref="desktopItemsRef" class="desktop-items">
       <button
         v-for="snapshot in visibleSnapshots"
         :key="snapshot.providerId"
@@ -25,6 +25,18 @@
         :aria-label="`Show ${hiddenCount} more providers`"
         @click="open()"
       >+{{ hiddenCount }}</button>
+    </div>
+    <div class="measurement-items" aria-hidden="true">
+      <span
+        v-for="snapshot in snapshots"
+        :key="snapshot.providerId"
+        ref="measurementItems"
+        class="allowance-item"
+      >
+        <span class="provider-name">{{ snapshot.providerName }}</span>
+        <span>{{ compactValue(snapshot) }}</span>
+      </span>
+      <span ref="overflowMeasureRef" class="overflow-button">+{{ snapshots.length }}</span>
     </div>
     <button
       type="button"
@@ -61,24 +73,39 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { ProviderAllowanceUpdatedPayload } from '@circuschief/shared/contracts/providers';
 import { useWebSocket } from '../composables/useWebSocket.js';
 import { useProviderAllowancesStore, lowestAllowance } from '../stores/providerAllowances.js';
+import { selectVisibleItems } from './providerAllowanceOverflow.js';
 
 const store = useProviderAllowancesStore();
 const { on, off, onReconnect } = useWebSocket();
 const isOpen = ref(false);
 const focusedProviderId = ref(null);
 const dialogRef = ref(null);
+const desktopItemsRef = ref(null);
+const measurementItems = ref([]);
+const overflowMeasureRef = ref(null);
 const snapshots = computed(() => store.snapshots);
 const attentionCount = computed(() => store.attentionCount);
-const visibleSnapshots = computed(() => snapshots.value.slice(0, 3));
+const visibleCount = ref(0);
+const visibleSnapshots = computed(() => snapshots.value.slice(0, visibleCount.value));
 const hiddenCount = computed(() => Math.max(0, snapshots.value.length - visibleSnapshots.value.length));
 const error = computed(() => store.error);
 let removeReconnect = null;
 let previousFocus = null;
+let resizeObserver = null;
+
+function measureVisibleItems() {
+  const availableWidth = desktopItemsRef.value?.getBoundingClientRect().width ?? 0;
+  const itemWidths = measurementItems.value.map((item) => item.getBoundingClientRect().width);
+  const overflowWidth = overflowMeasureRef.value?.getBoundingClientRect().width ?? 0;
+  visibleCount.value = selectVisibleItems(itemWidths, availableWidth, overflowWidth);
+}
+
+watch(snapshots, () => nextTick(measureVisibleItems), { flush: 'post' });
 
 function statusText(status) { return status === 'critical' ? 'Critical' : status[0].toUpperCase() + status.slice(1); }
 function compactValue(snapshot) {
@@ -118,10 +145,18 @@ onMounted(() => {
   store.fetch();
   on(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, onUpdate);
   removeReconnect = onReconnect(() => store.fetch());
+  resizeObserver = new ResizeObserver(measureVisibleItems);
+  resizeObserver.observe(desktopItemsRef.value);
+  nextTick(measureVisibleItems);
 });
-onUnmounted(() => { off(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, onUpdate); removeReconnect?.(); });
+onUnmounted(() => {
+  off(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, onUpdate);
+  removeReconnect?.();
+  resizeObserver?.disconnect();
+});
 </script>
 
 <style scoped>
 .provider-allowances,.desktop-items{display:flex;align-items:center;gap:.35rem;min-width:0}.allowance-item,.overflow-button,.mobile-button,.close-button{border:0;background:transparent;color:var(--color-text-soft);font:inherit;cursor:pointer}.allowance-item{display:inline-flex;gap:.3rem;align-items:center;white-space:nowrap;padding:.35rem;border-radius:4px}.allowance-item:hover,.overflow-button:hover{background:var(--color-background-mute,rgba(127,127,127,.12));color:var(--color-text)}.provider-name{font-weight:600}.is-warning{color:#a66b00}.is-critical,.is-exhausted{color:#c33}.is-stale{opacity:.68}.mobile-button{display:none;position:relative;font-size:1.25rem}.attention-badge{position:absolute;top:-.35rem;right:-.5rem;min-width:1rem;height:1rem;border-radius:99px;background:#c33;color:#fff;font-size:.65rem;line-height:1rem}.dialog-backdrop{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.42);display:grid;place-items:center;padding:1rem}.allowance-dialog{width:min(36rem,100%);max-height:80vh;overflow:auto;background:var(--color-background-soft);color:var(--color-text);border:1px solid var(--color-border);border-radius:8px;padding:1rem;box-shadow:0 20px 50px rgba(0,0,0,.3);outline:none}.dialog-heading,.provider-detail header{display:flex;justify-content:space-between;align-items:center}.dialog-heading h2{margin:0}.close-button{font-size:1.6rem}.provider-detail{padding:.8rem 0;border-top:1px solid var(--color-border)}.provider-detail.focused{background:rgba(180,130,0,.08)}.provider-detail p,.provider-detail ul{margin:.45rem 0}.provider-detail small{display:block;color:var(--color-text-soft);margin-top:.3rem}.status{font-size:.8rem}.fetch-error{color:#a66b00}@media(max-width:700px){.desktop-items{display:none}.mobile-button{display:block}.allowance-dialog{align-self:end;border-radius:10px 10px 0 0;max-height:85vh}}
+.measurement-items{position:absolute;visibility:hidden;pointer-events:none;white-space:nowrap;height:0;overflow:hidden}
 </style>
