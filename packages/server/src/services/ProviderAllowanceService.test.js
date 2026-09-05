@@ -27,7 +27,7 @@ describe('ProviderAllowanceService', () => {
     });
     const snapshot = {
       providerId: enabled.id, providerName: enabled.name, providerKind: 'openai',
-      status: 'warning', source: 'provider', updatedAt: 1, staleAt: 2, unavailableReason: null,
+      status: 'warning', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
       allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: 3 }],
     };
 
@@ -43,7 +43,7 @@ describe('ProviderAllowanceService', () => {
     });
     const snapshot = {
       providerId: enabled.id, providerName: enabled.name, providerKind: 'openai',
-      status: 'warning', source: 'provider', updatedAt: 1, staleAt: 2, unavailableReason: null,
+      status: 'warning', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
       allowances: [],
     };
 
@@ -71,12 +71,41 @@ describe('ProviderAllowanceService', () => {
 
     service.observe({
       providerId: 'provider-c', providerName: 'C', providerKind: 'openai',
-      status: 'exhausted', source: 'provider', updatedAt: 1, staleAt: 2, unavailableReason: null,
+      status: 'exhausted', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
       allowances: [],
     });
 
     expect(service.getSnapshots().map(({ providerId }) => providerId)).toEqual([
       'provider-b', 'provider-c', 'provider-a', 'provider-d',
     ]);
+  });
+
+  it('marks cached snapshots stale at read time while retaining their last-known values', () => {
+    const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled] }, clock: { now: () => 10 } });
+    service.observe({
+      providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
+      status: 'warning', source: 'provider', updatedAt: 1, staleAt: 5, unavailableReason: null,
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: null }],
+    });
+
+    expect(service.getSnapshots()[0]).toMatchObject({ status: 'stale', updatedAt: 1, staleAt: 5, allowances: [{ remaining: 25, limit: 100 }] });
+  });
+
+  it('rejects disabled or unknown provider updates and compares snapshots independent of key order', () => {
+    const broadcaster = vi.fn();
+    const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled, disabled] }, broadcaster });
+    const valid = {
+      providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
+      status: 'warning', source: 'provider', updatedAt: 1, staleAt: 2, unavailableReason: null, allowances: [],
+    };
+
+    expect(service.observe({ ...valid, providerId: disabled.id })).toBeNull();
+    expect(service.observe({ ...valid, providerId: 'missing' })).toBeNull();
+    expect(broadcaster).not.toHaveBeenCalled();
+    service.observe(valid);
+    service.observe({ allowances: [], unavailableReason: null, staleAt: 2, updatedAt: 1, source: 'provider', status: 'warning', providerKind: enabled.kind, providerName: enabled.name, providerId: enabled.id });
+    expect(broadcaster).toHaveBeenCalledTimes(1);
+    service.observe({ ...valid, status: 'critical' });
+    expect(broadcaster).toHaveBeenCalledTimes(2);
   });
 });

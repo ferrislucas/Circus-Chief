@@ -59,6 +59,23 @@ describe('ProviderAllowanceIndicators', () => {
     expect(wrapper.find('[data-testid="provider-allowance-indicators"]').exists()).toBe(false);
   });
 
+  it('formats percentage-only allowance data without pretending null values are quantities', async () => {
+    const store = useProviderAllowancesStore();
+    store.snapshots = [{
+      providerId: 'openai', providerName: 'OpenAI', providerKind: 'openai', status: 'available', source: 'provider', updatedAt: null, staleAt: null, unavailableReason: null,
+      allowances: [{ key: 'requests', label: 'Requests', remaining: null, limit: null, remainingPercent: 25, unit: 'requests', resetsAt: null }],
+    }];
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await nextTick();
+
+    expect(wrapper.text()).toContain('25% remaining');
+    expect(wrapper.text()).not.toContain('null / null');
+  });
+
   it('uses the container width to show complete items and reserves overflow control space', async () => {
     seedSnapshots(4);
     const wrapper = mount(ProviderAllowanceIndicators);

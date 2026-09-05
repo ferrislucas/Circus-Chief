@@ -1,5 +1,6 @@
 import { ProviderAllowanceListResponse, ProviderAllowanceSnapshot } from '@circuschief/shared/contracts/providers';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { isDeepStrictEqual } from 'node:util';
 
 /**
  * Keeps the provider-usage boundary intentionally honest. Providers without a
@@ -18,13 +19,13 @@ export class ProviderAllowanceService {
 
   getSnapshots() {
     if (!this.isEnabled()) return [];
-    const providers = this.providerRepository.getAll().filter((provider) => provider.enabled);
+    const providers = this.#enabledProviders();
     const activeIds = new Set(providers.map((provider) => provider.id));
     for (const id of this.snapshots.keys()) if (!activeIds.has(id)) this.snapshots.delete(id);
 
-    const snapshots = ProviderAllowanceListResponse.parse(providers.map((provider) => (
-      this.snapshots.get(provider.id) || this.#unknownSnapshot(provider)
-    )));
+    const snapshots = ProviderAllowanceListResponse.parse(providers.map((provider) =>
+      withFreshness(this.snapshots.get(provider.id) || this.#unknownSnapshot(provider), this.clock.now()),
+    ));
     const activeProviderIds = new Set(
       (this.sessionRepository?.getActiveAndWaiting() || []).map((session) => session.providerId).filter(Boolean),
     );
@@ -34,9 +35,11 @@ export class ProviderAllowanceService {
   observe(snapshot) {
     if (!this.isEnabled()) return null;
     const normalized = ProviderAllowanceSnapshot.parse(snapshot);
+    const enabledProviderIds = new Set(this.#enabledProviders().map((provider) => provider.id));
+    if (!enabledProviderIds.has(normalized.providerId)) return null;
     const previous = this.snapshots.get(normalized.providerId);
     this.snapshots.set(normalized.providerId, normalized);
-    if (JSON.stringify(previous) !== JSON.stringify(normalized)) {
+    if (!isDeepStrictEqual(previous, normalized)) {
       this.broadcaster?.(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, { snapshot: normalized });
     }
     return normalized;
@@ -55,6 +58,16 @@ export class ProviderAllowanceService {
       unavailableReason: 'No verified provider allowance data is available.',
     };
   }
+
+  #enabledProviders() {
+    return this.providerRepository.getAll().filter((provider) => provider.enabled);
+  }
+}
+
+export function withFreshness(snapshot, now) {
+  return snapshot.staleAt !== null && snapshot.staleAt <= now && snapshot.status !== 'stale'
+    ? { ...snapshot, status: 'stale' }
+    : snapshot;
 }
 
 const ATTENTION_STATUSES = new Set(['warning', 'critical', 'exhausted']);

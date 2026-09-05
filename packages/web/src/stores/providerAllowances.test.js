@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 
 const { getProviderAllowances } = vi.hoisted(() => ({ getProviderAllowances: vi.fn() }));
@@ -16,6 +16,8 @@ describe('provider allowances store', () => {
     setActivePinia(createPinia());
     getProviderAllowances.mockReset();
   });
+
+  afterEach(() => vi.useRealTimers());
 
   it('parses fetched snapshots before replacing state', async () => {
     const store = useProviderAllowancesStore();
@@ -62,5 +64,29 @@ describe('provider allowances store', () => {
     expect(isAttention(snapshot('d', 'exhausted'))).toBe(true);
     expect(isAttention(snapshot('d', 'unknown'))).toBe(false);
     expect(lowestAllowance({ allowances: [{ remainingPercent: null }, { remainingPercent: 20 }, { remainingPercent: 10 }] }).remainingPercent).toBe(10);
+  });
+
+  it('marks snapshots stale at their staleAt boundary', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(100);
+    const store = useProviderAllowancesStore();
+    store.replace({ ...snapshot(), status: 'warning', staleAt: 200 });
+
+    vi.advanceTimersByTime(100);
+
+    expect(store.snapshots[0].status).toBe('stale');
+  });
+
+  it('does not let an in-flight fetch clobber a websocket update', async () => {
+    const store = useProviderAllowancesStore();
+    let resolveFetch;
+    getProviderAllowances.mockReturnValue(new Promise((resolve) => { resolveFetch = resolve; }));
+
+    const fetchPromise = store.fetch();
+    store.replace(snapshot('openai-default', 'critical'));
+    resolveFetch([snapshot('openai-default', 'available')]);
+    await fetchPromise;
+
+    expect(store.snapshots[0].status).toBe('critical');
   });
 });

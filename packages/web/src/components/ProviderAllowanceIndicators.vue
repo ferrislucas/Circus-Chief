@@ -119,6 +119,7 @@ function ariaLabel(snapshot) {
 }
 function formatAllowance(allowance) {
   if (allowance.remainingPercent === null) return 'Unknown';
+  if (allowance.remaining === null || allowance.limit === null) return `${Math.round(allowance.remainingPercent)}% remaining`;
   return `${allowance.remaining} / ${allowance.limit} ${allowance.unit} remaining (${Math.round(allowance.remainingPercent)}%)`;
 }
 function formatReset(value) { return new Date(value).toLocaleString(); }
