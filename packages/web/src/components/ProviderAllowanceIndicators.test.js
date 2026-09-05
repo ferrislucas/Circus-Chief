@@ -56,17 +56,17 @@ describe('ProviderAllowanceIndicators', () => {
     }));
   }
 
-  function snapshot({ providerId = 'openai', status = 'ok', resetsAt = null } = {}) {
+  function snapshot({ providerId = 'openai', status = 'ok', resetsAt = null, source = 'provider', updatedAt = null, unavailableReason = null, allowances } = {}) {
     return {
       providerId,
       providerName: providerId === 'openai' ? 'OpenAI' : providerId,
       providerKind: 'openai',
       status,
-      source: 'provider',
-      updatedAt: null,
+      source,
+      updatedAt,
       staleAt: null,
-      unavailableReason: null,
-      allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt }],
+      unavailableReason,
+      allowances: allowances ?? [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt }],
     };
   }
 
@@ -174,5 +174,48 @@ describe('ProviderAllowanceIndicators', () => {
     await nextTick();
     await vi.runAllTimersAsync();
     expect(wrapper.find('[aria-live="polite"]').text()).toBe('OpenAI usage is exhausted.');
+  });
+
+  it('shows provenance, relative and exact reset times, and stale last-known metadata in details', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T10:00:00Z'));
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot({
+      status: 'stale',
+      source: 'observed-header',
+      updatedAt: '2026-01-02T09:30:00Z',
+      resetsAt: '2026-01-02T12:00:00Z',
+    })];
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await nextTick();
+
+    const detail = wrapper.find('.provider-detail');
+    expect(detail.text()).toContain('Source: Observed from provider response headers');
+    expect(detail.text()).toContain('resets in 2 hours');
+    expect(detail.find('time[datetime="2026-01-02T12:00:00Z"]').exists()).toBe(true);
+    expect(detail.text()).toContain('Last updated 30 minutes ago');
+    expect(detail.text()).toContain('Last value may be out of date.');
+  });
+
+  it('uses the unavailable fallback and exposes fetch errors without any snapshots', async () => {
+    api.getProviderAllowances.mockRejectedValueOnce(new Error('network down'));
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await Promise.resolve();
+    await nextTick();
+
+    expect(wrapper.find('[data-testid="provider-allowance-fetch-error"]').text()).toContain('Unable to load provider usage');
+
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot({ allowances: [], unavailableReason: null })];
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await nextTick();
+    expect(wrapper.find('.unavailable').text()).toBe('Usage data is unavailable.');
   });
 });

@@ -1,9 +1,10 @@
 <template>
   <div
-    v-if="snapshots.length"
+    v-if="snapshots.length || error"
     class="provider-allowances"
     data-testid="provider-allowance-indicators"
   >
+    <p v-if="error" data-testid="provider-allowance-fetch-error" class="fetch-error">Unable to load provider usage. Showing the last available data when available.</p>
     <div ref="desktopItemsRef" class="desktop-items">
       <button
         v-for="snapshot in visibleSnapshots"
@@ -55,17 +56,17 @@
           <h2 id="provider-allowance-title">Provider usage</h2>
           <button ref="closeRef" class="close-button" type="button" aria-label="Close provider usage" @click="close">×</button>
         </div>
-        <p v-if="error" class="fetch-error">Showing the last available provider data.</p>
         <article v-for="snapshot in snapshots" :key="snapshot.providerId" class="provider-detail" :class="{ focused: snapshot.providerId === focusedProviderId }">
           <header><strong>{{ snapshot.providerName }}</strong><span :class="`status is-${snapshot.status}`">{{ statusText(snapshot.status) }}</span></header>
+          <p class="source">Source: {{ sourceLabel(snapshot.source) }}</p>
           <p v-if="!snapshot.allowances.length" class="unavailable">{{ snapshot.unavailableReason || 'Usage data is unavailable.' }}</p>
           <ul v-else>
             <li v-for="allowance in snapshot.allowances" :key="allowance.key">
               <strong>{{ allowance.label }}</strong>: {{ formatAllowance(allowance) }}
-              <span v-if="allowance.resetsAt"> · resets {{ formatReset(allowance.resetsAt) }}</span>
+              <span v-if="allowance.resetsAt"> · resets {{ formatRelativeTime(allowance.resetsAt) }} (<time :datetime="allowance.resetsAt">{{ formatExactTime(allowance.resetsAt) }}</time>)</span>
             </li>
           </ul>
-          <small v-if="snapshot.updatedAt">Updated {{ formatReset(snapshot.updatedAt) }}</small>
+          <small v-if="snapshot.updatedAt">Last updated {{ formatRelativeTime(snapshot.updatedAt) }} (<time :datetime="snapshot.updatedAt">{{ formatExactTime(snapshot.updatedAt) }}</time>)</small>
           <small v-if="snapshot.status === 'stale'">Last value may be out of date.</small>
         </article>
       </section>
@@ -80,6 +81,7 @@ import { ProviderAllowanceUpdatedPayload } from '@circuschief/shared/contracts/p
 import { useWebSocket } from '../composables/useWebSocket.js';
 import { useProviderAllowancesStore, lowestAllowance } from '../stores/providerAllowances.js';
 import { selectVisibleItems } from './providerAllowanceOverflow.js';
+import { formatAllowance, formatExactTime, formatRelativeTime, sourceLabel } from './providerAllowanceFormatting.js';
 
 const store = useProviderAllowancesStore();
 const { on, off, onReconnect } = useWebSocket();
@@ -122,11 +124,6 @@ function ariaLabel(snapshot) {
   const value = allowance ? `${Math.round(allowance.remainingPercent)}% remaining in ${allowance.label}` : 'usage unknown';
   const reset = allowance?.resetsAt ? `, resets ${formatReset(allowance.resetsAt)}` : '';
   return `${snapshot.providerName}: ${statusText(snapshot.status)}, ${value}${reset}`;
-}
-function formatAllowance(allowance) {
-  if (allowance.remainingPercent === null) return 'Unknown';
-  if (allowance.remaining === null || allowance.limit === null) return `${Math.round(allowance.remainingPercent)}% remaining`;
-  return `${allowance.remaining} / ${allowance.limit} ${allowance.unit} remaining (${Math.round(allowance.remainingPercent)}%)`;
 }
 function formatReset(value) { return new Date(value).toLocaleString(); }
 function open(providerId = null) {
