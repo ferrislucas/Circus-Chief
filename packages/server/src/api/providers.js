@@ -10,7 +10,7 @@ import {
 } from '@circuschief/shared/contracts/providers';
 import { testProviderConnection } from '../services/providerTestService.js';
 import { assertValidReorder } from '../db/providerModelOperations.js';
-import { providerAllowanceService } from '../services/providerAllowanceServiceInstance.js';
+import { getProviderAllowanceService } from '../services/providerAllowanceServiceInstance.js';
 
 // Error message constants
 const ERR_PROVIDER_NOT_FOUND = 'Provider not found';
@@ -48,7 +48,7 @@ router.get('/', (_req, res) => {
 // Must precede /:id so "allowances" is never interpreted as a provider id.
 router.get('/allowances', (_req, res) => {
   try {
-    res.json(providerAllowanceService.getSnapshots());
+    res.json(getProviderAllowanceService().getSnapshots());
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

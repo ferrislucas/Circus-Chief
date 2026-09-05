@@ -1,8 +1,19 @@
 import { modelProviders } from '../database.js';
-import { broadcast } from '../websocket.js';
 import { ProviderAllowanceService } from './ProviderAllowanceService.js';
 
-export const providerAllowanceService = new ProviderAllowanceService({
-  providerRepository: modelProviders,
-  broadcaster: broadcast,
-});
+let providerAllowanceService;
+
+async function broadcastProviderAllowanceUpdate(...args) {
+  const { broadcast } = await import('../websocket.js');
+  return broadcast(...args);
+}
+
+export function getProviderAllowanceService() {
+  if (!providerAllowanceService) {
+    providerAllowanceService = new ProviderAllowanceService({
+      providerRepository: modelProviders,
+      broadcaster: broadcastProviderAllowanceUpdate,
+    });
+  }
+  return providerAllowanceService;
+}
