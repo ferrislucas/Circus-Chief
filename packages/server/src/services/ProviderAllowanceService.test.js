@@ -35,4 +35,20 @@ describe('ProviderAllowanceService', () => {
     expect(broadcaster).toHaveBeenCalledWith('provider:allowance_updated', { snapshot });
     expect(service.getSnapshots()).toEqual([snapshot]);
   });
+
+  it('does not retain or broadcast allowance updates while disabled', () => {
+    const broadcaster = vi.fn();
+    const service = new ProviderAllowanceService({
+      providerRepository: { getAll: () => [enabled] }, broadcaster, isEnabled: () => false,
+    });
+    const snapshot = {
+      providerId: enabled.id, providerName: enabled.name, providerKind: 'openai',
+      status: 'warning', source: 'provider', updatedAt: 1, staleAt: 2, unavailableReason: null,
+      allowances: [],
+    };
+
+    service.observe(snapshot);
+    expect(broadcaster).not.toHaveBeenCalled();
+    expect(service.getSnapshots()).toEqual([]);
+  });
 });

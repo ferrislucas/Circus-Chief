@@ -7,14 +7,16 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
  * than inferred from call logs or credentials.
  */
 export class ProviderAllowanceService {
-  constructor({ providerRepository, broadcaster = null, clock = Date }) {
+  constructor({ providerRepository, broadcaster = null, clock = Date, isEnabled = () => true }) {
     this.providerRepository = providerRepository;
     this.broadcaster = broadcaster;
     this.clock = clock;
+    this.isEnabled = isEnabled;
     this.snapshots = new Map();
   }
 
   getSnapshots() {
+    if (!this.isEnabled()) return [];
     const providers = this.providerRepository.getAll().filter((provider) => provider.enabled);
     const activeIds = new Set(providers.map((provider) => provider.id));
     for (const id of this.snapshots.keys()) if (!activeIds.has(id)) this.snapshots.delete(id);
@@ -25,6 +27,7 @@ export class ProviderAllowanceService {
   }
 
   observe(snapshot) {
+    if (!this.isEnabled()) return null;
     const normalized = ProviderAllowanceSnapshot.parse(snapshot);
     const previous = this.snapshots.get(normalized.providerId);
     this.snapshots.set(normalized.providerId, normalized);

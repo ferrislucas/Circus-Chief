@@ -1,5 +1,6 @@
 import { modelProviders } from '../database.js';
 import { ProviderAllowanceService } from './ProviderAllowanceService.js';
+import { areProviderAllowanceIndicatorsEnabled } from './providerAllowanceFeatureFlag.js';
 
 let providerAllowanceService;
 
@@ -13,6 +14,7 @@ export function getProviderAllowanceService() {
     providerAllowanceService = new ProviderAllowanceService({
       providerRepository: modelProviders,
       broadcaster: broadcastProviderAllowanceUpdate,
+      isEnabled: areProviderAllowanceIndicatorsEnabled,
     });
   }
   return providerAllowanceService;

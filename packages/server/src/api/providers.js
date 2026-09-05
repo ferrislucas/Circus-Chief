@@ -11,6 +11,7 @@ import {
 import { testProviderConnection } from '../services/providerTestService.js';
 import { assertValidReorder } from '../db/providerModelOperations.js';
 import { getProviderAllowanceService } from '../services/providerAllowanceServiceInstance.js';
+import { areProviderAllowanceIndicatorsEnabled } from '../services/providerAllowanceFeatureFlag.js';
 
 // Error message constants
 const ERR_PROVIDER_NOT_FOUND = 'Provider not found';
@@ -48,7 +49,7 @@ router.get('/', (_req, res) => {
 // Must precede /:id so "allowances" is never interpreted as a provider id.
 router.get('/allowances', (_req, res) => {
   try {
-    res.json(getProviderAllowanceService().getSnapshots());
+    res.json(areProviderAllowanceIndicatorsEnabled() ? getProviderAllowanceService().getSnapshots() : []);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

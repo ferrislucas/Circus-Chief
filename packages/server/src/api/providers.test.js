@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { modelProviders } from '../database.js';
+import { modelProviders, settings } from '../database.js';
 import { testProviderConnection } from '../services/providerTestService.js';
 import { OPENAI_MODELS, CLAUDE_MODELS } from '@circuschief/shared';
 
@@ -28,6 +28,7 @@ describe('Providers API', () => {
   });
 
   afterEach(() => {
+    settings.delete('provider_allowance_indicators_v1');
     // Cleanup test data
     if (testProviderId) {
       try {
@@ -37,6 +38,16 @@ describe('Providers API', () => {
       }
       testProviderId = null;
     }
+  });
+
+  describe('GET /api/providers/allowances', () => {
+    it('is disabled by default and only returns snapshots when enabled', async () => {
+      await request(app).get('/api/providers/allowances').expect(200).expect([]);
+
+      settings.set('provider_allowance_indicators_v1', 'true');
+      const response = await request(app).get('/api/providers/allowances').expect(200);
+      expect(response.body.length).toBeGreaterThan(0);
+    });
   });
 
   describe('GET /api/providers', () => {
