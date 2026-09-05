@@ -60,7 +60,8 @@ export class ProviderAllowanceService {
   }
 
   #enabledProviders() {
-    return this.providerRepository.getAll().filter((provider) => provider.enabled);
+    return this.providerRepository.getEnabledForAllowances?.()
+      ?? this.providerRepository.getAll().filter((provider) => provider.enabled);
   }
 }
 

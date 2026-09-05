@@ -4,8 +4,17 @@
     class="provider-allowances"
     data-testid="provider-allowance-indicators"
   >
-    <p v-if="error" data-testid="provider-allowance-fetch-error" class="fetch-error">Unable to load provider usage. Showing the last available data when available.</p>
-    <div ref="desktopItemsRef" class="desktop-items">
+    <p
+      v-if="error"
+      data-testid="provider-allowance-fetch-error"
+      class="fetch-error"
+    >
+      Unable to load provider usage. Showing the last available data when available.
+    </p>
+    <div
+      ref="desktopItemsRef"
+      class="desktop-items"
+    >
       <button
         v-for="snapshot in visibleSnapshots"
         :key="snapshot.providerId"
@@ -25,9 +34,14 @@
         class="overflow-button"
         :aria-label="`Show ${hiddenCount} more providers`"
         @click="open()"
-      >+{{ hiddenCount }}</button>
+      >
+        +{{ hiddenCount }}
+      </button>
     </div>
-    <div class="measurement-items" aria-hidden="true">
+    <div
+      class="measurement-items"
+      aria-hidden="true"
+    >
       <span
         v-for="snapshot in snapshots"
         :key="snapshot.providerId"
@@ -37,7 +51,10 @@
         <span class="provider-name">{{ snapshot.providerName }}</span>
         <span>{{ compactValue(snapshot) }}</span>
       </span>
-      <span ref="overflowMeasureRef" class="overflow-button">+{{ snapshots.length }}</span>
+      <span
+        ref="overflowMeasureRef"
+        class="overflow-button"
+      >+{{ snapshots.length }}</span>
     </div>
     <button
       type="button"
@@ -46,22 +63,73 @@
       @click="open()"
     >
       <span aria-hidden="true">◌</span>
-      <span v-if="attentionCount" class="attention-badge">{{ attentionCount }}</span>
+      <span
+        v-if="attentionCount"
+        class="attention-badge"
+      >{{ attentionCount }}</span>
     </button>
-    <p class="live-announcement" aria-live="polite" aria-atomic="true">{{ liveAnnouncement }}</p>
+    <p
+      class="live-announcement"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      {{ liveAnnouncement }}
+    </p>
 
-    <div v-if="isOpen" class="dialog-backdrop" @click.self="close">
-      <section ref="dialogRef" class="allowance-dialog" role="dialog" aria-modal="true" aria-labelledby="provider-allowance-title" tabindex="-1" @keydown="trapFocus">
+    <div
+      v-if="isOpen"
+      class="dialog-backdrop"
+      @click.self="close"
+    >
+      <section
+        ref="dialogRef"
+        class="allowance-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="provider-allowance-title"
+        tabindex="-1"
+        @keydown="trapFocus"
+      >
         <div class="dialog-heading">
-          <h2 id="provider-allowance-title">Provider usage</h2>
-          <button ref="closeRef" class="close-button" type="button" aria-label="Close provider usage" @click="close">×</button>
+          <h2 id="provider-allowance-title">
+            Provider usage
+          </h2>
+          <button
+            ref="closeRef"
+            class="close-button"
+            type="button"
+            aria-label="Close provider usage"
+            @click="close"
+          >
+            ×
+          </button>
         </div>
-        <article v-for="snapshot in snapshots" :key="snapshot.providerId" class="provider-detail" :class="{ focused: snapshot.providerId === focusedProviderId }">
-          <header><strong>{{ snapshot.providerName }}</strong><span :class="`status is-${snapshot.status}`">{{ statusText(snapshot.status) }}</span></header>
-          <p class="source">Source: {{ sourceLabel(snapshot.source) }}</p>
-          <p v-if="!snapshot.allowances.length" class="unavailable">{{ snapshot.unavailableReason || 'Usage data is unavailable.' }}</p>
+        <article
+          v-for="snapshot in snapshots"
+          :key="snapshot.providerId"
+          class="provider-detail"
+          :class="{ focused: snapshot.providerId === focusedProviderId }"
+        >
+          <header>
+            <strong>{{ snapshot.providerName }}</strong>
+            <span :class="`status is-${snapshot.status}`">
+              {{ statusText(snapshot.status) }}
+            </span>
+          </header>
+          <p class="source">
+            Source: {{ sourceLabel(snapshot.source) }}
+          </p>
+          <p
+            v-if="!snapshot.allowances.length"
+            class="unavailable"
+          >
+            {{ snapshot.unavailableReason || 'Usage data is unavailable.' }}
+          </p>
           <ul v-else>
-            <li v-for="allowance in snapshot.allowances" :key="allowance.key">
+            <li
+              v-for="allowance in snapshot.allowances"
+              :key="allowance.key"
+            >
               <strong>{{ allowance.label }}</strong>: {{ formatAllowance(allowance) }}
               <span v-if="allowance.resetsAt"> · resets {{ formatRelativeTime(allowance.resetsAt) }} (<time :datetime="allowance.resetsAt">{{ formatExactTime(allowance.resetsAt) }}</time>)</span>
             </li>
@@ -114,7 +182,7 @@ function measureVisibleItems() {
 
 watch(snapshots, () => nextTick(measureVisibleItems), { flush: 'post' });
 
-function statusText(status) { return status === 'critical' ? 'Critical' : status[0].toUpperCase() + status.slice(1); }
+function statusText(status) { return status[0].toUpperCase() + status.slice(1); }
 function compactValue(snapshot) {
   const allowance = lowestAllowance(snapshot);
   return allowance ? `${Math.round(allowance.remainingPercent)}%` : '—';
@@ -205,7 +273,148 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.provider-allowances,.desktop-items{display:flex;align-items:center;gap:.35rem;min-width:0}.allowance-item,.overflow-button,.mobile-button,.close-button{border:0;background:transparent;color:var(--color-text-soft);font:inherit;cursor:pointer}.allowance-item{display:inline-flex;gap:.3rem;align-items:center;white-space:nowrap;padding:.35rem;border-radius:4px}.allowance-item:hover,.overflow-button:hover{background:var(--color-background-mute,rgba(127,127,127,.12));color:var(--color-text)}.provider-name{font-weight:600}.is-warning{color:#a66b00}.is-critical,.is-exhausted{color:#c33}.is-stale{opacity:.68}.mobile-button{display:none;position:relative;font-size:1.25rem}.attention-badge{position:absolute;top:-.35rem;right:-.5rem;min-width:1rem;height:1rem;border-radius:99px;background:#c33;color:#fff;font-size:.65rem;line-height:1rem}.dialog-backdrop{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.42);display:grid;place-items:center;padding:1rem}.allowance-dialog{width:min(36rem,100%);max-height:80vh;overflow:auto;background:var(--color-background-soft);color:var(--color-text);border:1px solid var(--color-border);border-radius:8px;padding:1rem;box-shadow:0 20px 50px rgba(0,0,0,.3);outline:none}.dialog-heading,.provider-detail header{display:flex;justify-content:space-between;align-items:center}.dialog-heading h2{margin:0}.close-button{font-size:1.6rem}.provider-detail{padding:.8rem 0;border-top:1px solid var(--color-border)}.provider-detail.focused{background:rgba(180,130,0,.08)}.provider-detail p,.provider-detail ul{margin:.45rem 0}.provider-detail small{display:block;color:var(--color-text-soft);margin-top:.3rem}.status{font-size:.8rem}.fetch-error{color:#a66b00}@media(max-width:700px){.desktop-items{display:none}.mobile-button{display:block}.allowance-dialog{align-self:end;border-radius:10px 10px 0 0;max-height:85vh}}
-.measurement-items{position:absolute;visibility:hidden;pointer-events:none;white-space:nowrap;height:0;overflow:hidden}
-.live-announcement{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.provider-allowances,
+.desktop-items {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  min-width: 0;
+}
+
+.allowance-item,
+.overflow-button,
+.mobile-button,
+.close-button {
+  border: 0;
+  background: transparent;
+  color: var(--color-text-soft);
+  font: inherit;
+  cursor: pointer;
+}
+
+.allowance-item {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .35rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.allowance-item:hover,
+.overflow-button:hover {
+  background: var(--color-background-mute);
+  color: var(--color-text);
+}
+
+.provider-name { font-weight: 600; }
+.is-warning,
+.fetch-error { color: var(--color-warning); }
+.is-critical,
+.is-exhausted { color: var(--color-error); }
+.is-stale { opacity: .68; }
+
+.mobile-button {
+  position: relative;
+  display: none;
+  font-size: 1.25rem;
+}
+
+.attention-badge {
+  position: absolute;
+  top: -.35rem;
+  right: -.5rem;
+  min-width: 1rem;
+  height: 1rem;
+  border-radius: 99px;
+  background: var(--color-error);
+  color: var(--color-text);
+  font-size: .65rem;
+  line-height: 1rem;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, .42);
+}
+
+.allowance-dialog {
+  width: min(36rem, 100%);
+  max-height: 80vh;
+  padding: 1rem;
+  overflow: auto;
+  outline: none;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-background-soft);
+  color: var(--color-text);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .3);
+}
+
+.dialog-heading,
+.provider-detail header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dialog-heading h2 { margin: 0; }
+.close-button { font-size: 1.6rem; }
+
+.provider-detail {
+  padding: .8rem 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.provider-detail.focused {
+  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
+}
+
+.provider-detail p,
+.provider-detail ul { margin: .45rem 0; }
+
+.provider-detail small {
+  display: block;
+  margin-top: .3rem;
+  color: var(--color-text-soft);
+}
+
+.status { font-size: .8rem; }
+
+.measurement-items {
+  position: absolute;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.live-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .desktop-items { display: none; }
+  .mobile-button { display: block; }
+
+  .allowance-dialog {
+    align-self: end;
+    max-height: 85vh;
+    border-radius: 10px 10px 0 0;
+  }
+}
 </style>
