@@ -39,6 +39,14 @@ describe('Providers API', () => {
     }
   });
 
+  describe('GET /api/providers/allowances', () => {
+    it('returns a snapshot for every enabled provider', async () => {
+      const response = await request(app).get('/api/providers/allowances').expect(200);
+      expect(response.body.length).toBeGreaterThan(0);
+      expect(response.body.every((snapshot) => snapshot.providerId && snapshot.status)).toBe(true);
+    });
+  });
+
   describe('GET /api/providers', () => {
     it('returns both built-in Anthropic and OpenAI providers', async () => {
       const response = await request(app)
