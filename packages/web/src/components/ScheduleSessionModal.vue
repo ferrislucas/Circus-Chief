@@ -139,7 +139,7 @@ async function handleSchedule() {
     // Update the session store immediately with the API response
     // This ensures the UI shows the correct scheduled time without waiting for WebSocket
     sessionsStore.updateSession(updatedSession);
-    uiStore.showToast('Workspace scheduled successfully', 'success');
+    uiStore.success('Workspace scheduled successfully');
     close();
   } catch (caughtError) {
     console.error('Failed to schedule workspace:', caughtError);

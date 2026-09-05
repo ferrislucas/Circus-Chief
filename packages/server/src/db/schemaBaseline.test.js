@@ -107,8 +107,8 @@ describe('schema baseline', () => {
   it('has canonical sessions defaults', () => {
     withDb((db) => {
       const byName = new Map(columns(db, 'sessions').map((col) => [col.name, col]));
-    expect(byName.get('mode').dflt_value).toBe("'yolo'");
-    expect(byName.get('pending_interactive').dflt_value).toBe('NULL');
+      expect(byName.get('mode').dflt_value).toBe("'yolo'");
+      expect(byName.get('pending_interactive').dflt_value).toBe('NULL');
       expect(byName.get('thinking_enabled').dflt_value).toBe('1');
       expect(byName.get('reschedule_delay_minutes').dflt_value).toBe(String(DEFAULT_RESCHEDULE_DELAY_MINUTES));
       expect(byName.get('agent_type').dflt_value).toBe("'claude-code'");
