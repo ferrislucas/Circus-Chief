@@ -106,25 +106,36 @@ describe('Sessions API - POST /:id/schedule', () => {
     expect(stored.pendingInteractive).toBe(true);
   });
 
-  it('derives an idle schedule as user-originated instead of trusting interactive JSON', async () => {
+  it('derives an idle schedule as user-originated from server-owned turn state', async () => {
     const scheduledAt = Date.now() + 3600000;
 
     const response = await request(app)
       .post(`/api/sessions/${session.id}/schedule`)
-      .send({ prompt: 'Schedule this follow-up for me', scheduledAt, interactive: false })
+      .send({ prompt: 'Schedule this follow-up for me', scheduledAt })
       .expect(200);
 
     expect(response.body.pendingInteractive).toBe(true);
     expect(sessions.getById(session.id).pendingInteractive).toBe(true);
   });
 
-  it('does not let a caller choose schedule authority with interactive JSON', async () => {
+  it('rejects the legacy interactive field because schedule provenance is server-assigned', async () => {
+    const response = await request(app)
+      .post(`/api/sessions/${session.id}/schedule`)
+      .send({ prompt: 'Schedule this follow-up for me', scheduledAt: Date.now() + 3600000, interactive: true })
+      .expect(400);
+
+    expect(response.body).toEqual({
+      error: 'Unexpected field(s): interactive. Only prompt, scheduledAt, and model are accepted; set reschedule policy via PATCH /api/sessions/:id.',
+    });
+  });
+
+  it('keeps an active schedule system-originated', async () => {
     sessions.update(session.id, { status: 'running' });
     activeSessions.set(session.id, { controller: { signal: { aborted: false } } });
 
     const response = await request(app)
       .post(`/api/sessions/${session.id}/schedule`)
-      .send({ prompt: 'Continue', scheduledAt: Date.now() + 3600000, interactive: true })
+      .send({ prompt: 'Continue', scheduledAt: Date.now() + 3600000 })
       .expect(200);
 
     expect(response.body.pendingInteractive).toBe(false);
@@ -154,7 +165,7 @@ describe('Sessions API - POST /:id/schedule', () => {
 
     const response = await request(app)
       .post(`/api/sessions/${worker.id}/schedule`)
-      .send({ prompt: 'Revive the superseded worker', scheduledAt: Date.now() + 3600000, interactive: true })
+      .send({ prompt: 'Revive the superseded worker', scheduledAt: Date.now() + 3600000 })
       .expect(409);
 
     expect(response.body.error).toBe('Session no longer owns an active lane run');

@@ -80,10 +80,9 @@ router.put('/:id/summary', requireRootSessionAndProject, async (req, res) => {
 });
 
 function validateScheduleFields(body) {
-  // `interactive` remains tolerated for stale callers, but is deliberately
-  // ignored. It is not part of the public contract and can never grant
-  // schedule authority.
-  const allowedFields = new Set(['prompt', 'scheduledAt', 'model', 'interactive']);
+  // Schedule provenance is derived from the target's server-owned turn state;
+  // callers cannot supply an authority discriminator.
+  const allowedFields = new Set(['prompt', 'scheduledAt', 'model']);
   const unexpectedFields = Object.keys(body || {}).filter((key) => !allowedFields.has(key));
   return unexpectedFields.length === 0
     ? null

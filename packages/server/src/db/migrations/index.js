@@ -366,6 +366,6 @@ export const allMigrations = validateMigrations([
   // pending_agent_input was added to schema.sql.
   s.get('sessions-add-pending_agent_input'),
 
-  // --- Origin of user-created scheduled follow-ups ---
+  // --- Server-derived origin of user-created scheduled follow-ups ---
   s.get('sessions-add-pending_interactive'),
 ]);

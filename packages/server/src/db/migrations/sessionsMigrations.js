@@ -339,7 +339,7 @@ export const sessionsMigrations = [
     up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'pending_agent_input', COL_INTEGER_NOT_NULL_DEFAULT_0); },
   },
 
-  // --- Origin of a pending schedule: interactive UI follow-up vs system work ---
+  // --- Server-derived origin of a pending schedule: user follow-up vs system work ---
   {
     name: 'sessions-add-pending_interactive',
     up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'pending_interactive', COL_INTEGER_DEFAULT_NULL); },
