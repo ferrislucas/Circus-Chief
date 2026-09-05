@@ -124,6 +124,13 @@ function close() {
   emit('close');
 }
 
+function scheduleErrorMessage(caughtError) {
+  const detail = caughtError instanceof Error && caughtError.message
+    ? caughtError.message
+    : 'Please try again.';
+  return `Failed to schedule workspace: ${detail}`;
+}
+
 async function handleSchedule() {
   if (!isValid.value || loading.value) return;
 
@@ -143,7 +150,8 @@ async function handleSchedule() {
     close();
   } catch (caughtError) {
     console.error('Failed to schedule workspace:', caughtError);
-    error.value = caughtError.message || 'Failed to schedule workspace.';
+    error.value = scheduleErrorMessage(caughtError);
+    uiStore.error(error.value);
   } finally {
     loading.value = false;
   }
