@@ -10,6 +10,7 @@ import { requireSession } from '../middleware/sessionLookup.js';
 import { validateModelId } from './model-validation.js';
 import { validateScheduledAt } from './scheduledAtValidation.js';
 import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
+import { clearedPendingSchedule } from '../services/pendingSchedule.js';
 import {
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
@@ -278,6 +279,12 @@ function canEditLiveUserSchedule(session) {
   return session.status === 'scheduled' && session.pendingInteractive;
 }
 
+function normalizeScheduleCancellation(updateData) {
+  if (updateData.scheduledAt === null) {
+    Object.assign(updateData, clearedPendingSchedule, { status: 'waiting' });
+  }
+}
+
 // PATCH /api/sessions/:id - Update session settings
 router.patch('/:id', requireSession, (req, res) => {
   const { updateData, error } = buildUpdateData(req.body);
@@ -307,6 +314,7 @@ router.patch('/:id', requireSession, (req, res) => {
   Object.assign(updateData, agentTypeUpdate);
 
   const schedulingMutation = Object.hasOwn(updateData, 'scheduledAt') || updateData.status === 'scheduled';
+  normalizeScheduleCancellation(updateData);
   const update = () => sessions.update(req.params.id, updateData);
   const userScheduleLive = canEditLiveUserSchedule(req.session_);
   const updated = schedulingMutation && req.session_.laneRunId && !userScheduleLive

@@ -147,6 +147,7 @@ export async function _executeSession({
         errorLabel,
         handleTemplateTriggerIfNeeded,
         errorAlreadyRecorded: true,
+        interactive,
       });
       if (rescheduled) {
         markExecutionState(sessionId, 'retrying');
@@ -186,6 +187,7 @@ export async function _executeSession({
       broadcastConversationState: broadcastConversationStateOnError,
       errorLabel,
       handleTemplateTriggerIfNeeded,
+      interactive,
     });
     if (rescheduled) {
       // FR-9.1/FR-9.5: a transient error with an automatic retry/reschedule

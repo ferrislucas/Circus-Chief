@@ -7,6 +7,7 @@ import * as slashCommandService from '../services/slashCommandService.js';
 import { checkCrossKindSwitch } from '../services/sessionAgentGuard.js';
 import { getRootSession, renderTemplatePrompt } from '../services/templateTriggerService.js';
 import { validateModelId } from './model-validation.js';
+import { clearedPendingSchedule } from '../services/pendingSchedule.js';
 
 const router = Router();
 
@@ -118,13 +119,7 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
     // must leave the existing schedule intact because no replacement turn was
     // dispatched.
     if (req.session_.scheduledAt && req.session_.pendingPrompt) {
-      sessions.update(req.session_.id, {
-        scheduledAt: null,
-        pendingPrompt: null,
-        pendingConversationId: null,
-        pendingModel: null,
-        pendingInteractive: false,
-      });
+      sessions.update(req.session_.id, clearedPendingSchedule);
     }
 
     if (resolved) {

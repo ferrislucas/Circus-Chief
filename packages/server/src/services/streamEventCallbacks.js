@@ -299,7 +299,7 @@ function computeRetryMode(sessionId) {
  * @param {Object} schedulerService
  * @returns {Promise<boolean>}
  */
-async function tryRescheduleOnError(sessionId, error, shouldRescheduleOnError, schedulerService) {
+async function tryRescheduleOnError(sessionId, error, { shouldRescheduleOnError, schedulerService, interactive = false }) {
   const session = sessions.getById(sessionId);
   if (!session || !shouldRescheduleOnError(session, error, sessionId)) {
     return false;
@@ -311,7 +311,7 @@ async function tryRescheduleOnError(sessionId, error, shouldRescheduleOnError, s
   const rescheduled = await schedulerService.rescheduleSession(
     sessionId,
     error.message,
-    { retryExistingMessage, conversationId }
+    { retryExistingMessage, conversationId, interactive }
   );
   if (rescheduled) {
     console.log(`[SessionManager] Session ${sessionId} rescheduled due to error (retryExistingMessage=${retryExistingMessage})`);
@@ -374,10 +374,10 @@ async function finalizeSessionError(sessionId, error, options) {
  * Encapsulates the duplicated error handling block from runSession/continueSession/continueSessionWithExistingMessage
  * @param {string} sessionId
  * @param {Error} error
- * @param {{ controller: AbortController, shouldRescheduleOnError: Function, schedulerService: Object, errorLabel?: string, broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function, errorAlreadyRecorded?: boolean }} options
+ * @param {{ controller: AbortController, shouldRescheduleOnError: Function, schedulerService: Object, errorLabel?: string, broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function, errorAlreadyRecorded?: boolean, interactive?: boolean }} options
  */
 export async function handleSessionError(sessionId, error, options = {}) {
-  const { controller, shouldRescheduleOnError, schedulerService } = options;
+  const { controller, shouldRescheduleOnError, schedulerService, interactive = false } = options;
   const errorLabel = options.errorLabel || 'Session error';
   console.error(`${errorLabel}:`, error);
   console.error('Error stack:', error.stack);
@@ -406,7 +406,7 @@ export async function handleSessionError(sessionId, error, options = {}) {
   }
 
   // Check if we should reschedule instead of marking as error
-  const rescheduled = await tryRescheduleOnError(sessionId, error, shouldRescheduleOnError, schedulerService);
+  const rescheduled = await tryRescheduleOnError(sessionId, error, { shouldRescheduleOnError, schedulerService, interactive });
   if (rescheduled) {
     return true;
   }

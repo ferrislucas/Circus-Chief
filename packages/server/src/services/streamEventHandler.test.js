@@ -1689,6 +1689,24 @@ describe('streamEventHandler', () => {
       );
     });
 
+    it('carries a claimed user schedule origin into its retry after durable state is cleared', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('retryable failure');
+      sessions.getById.mockReturnValue({ autoRescheduleEnabled: true });
+      const mockScheduler = { rescheduleSession: vi.fn().mockResolvedValue(true) };
+
+      await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: vi.fn().mockReturnValue(true),
+        schedulerService: mockScheduler,
+        interactive: true,
+      });
+
+      expect(mockScheduler.rescheduleSession).toHaveBeenCalledWith(
+        'sess-1', error.message, expect.objectContaining({ interactive: true })
+      );
+    });
+
     it('falls through to error handling when reschedule fails', async () => {
       const controller = { signal: { aborted: false } };
       const error = new Error('token limit exceeded');
