@@ -1,4 +1,4 @@
-import { modelProviders } from '../database.js';
+import { modelProviders, sessions } from '../database.js';
 import { ProviderAllowanceService } from './ProviderAllowanceService.js';
 import { areProviderAllowanceIndicatorsEnabled } from './providerAllowanceFeatureFlag.js';
 
@@ -13,6 +13,7 @@ export function getProviderAllowanceService() {
   if (!providerAllowanceService) {
     providerAllowanceService = new ProviderAllowanceService({
       providerRepository: modelProviders,
+      sessionRepository: sessions,
       broadcaster: broadcastProviderAllowanceUpdate,
       isEnabled: areProviderAllowanceIndicatorsEnabled,
     });

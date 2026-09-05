@@ -51,4 +51,32 @@ describe('ProviderAllowanceService', () => {
     expect(broadcaster).not.toHaveBeenCalled();
     expect(service.getSnapshots()).toEqual([]);
   });
+
+  it('prioritizes active-session providers, then attention providers, using configured order as a tiebreaker', () => {
+    const providers = [
+      { id: 'provider-a', name: 'A', kind: 'openai', enabled: true },
+      { id: 'provider-b', name: 'B', kind: 'openai', enabled: true },
+      { id: 'provider-c', name: 'C', kind: 'openai', enabled: true },
+      { id: 'provider-d', name: 'D', kind: 'openai', enabled: true },
+    ];
+    const service = new ProviderAllowanceService({
+      providerRepository: { getAll: () => providers },
+      sessionRepository: {
+        getActiveAndWaiting: () => [
+          { id: 'active-b', providerId: 'provider-b' },
+          { id: 'also-active-b', providerId: 'provider-b' },
+        ],
+      },
+    });
+
+    service.observe({
+      providerId: 'provider-c', providerName: 'C', providerKind: 'openai',
+      status: 'exhausted', source: 'provider', updatedAt: 1, staleAt: 2, unavailableReason: null,
+      allowances: [],
+    });
+
+    expect(service.getSnapshots().map(({ providerId }) => providerId)).toEqual([
+      'provider-b', 'provider-c', 'provider-a', 'provider-d',
+    ]);
+  });
 });

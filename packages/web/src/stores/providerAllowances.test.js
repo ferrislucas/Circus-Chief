@@ -46,6 +46,15 @@ describe('provider allowances store', () => {
     expect(store.snapshots[0].status).toBe('warning');
   });
 
+  it('preserves the server priority order after fetching', async () => {
+    const store = useProviderAllowancesStore();
+    getProviderAllowances.mockResolvedValue([snapshot('active'), snapshot('attention', 'warning'), snapshot('configured')]);
+
+    await store.fetch();
+
+    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['active', 'attention', 'configured']);
+  });
+
   it('derives attention and the lowest non-null percentage', () => {
     const store = useProviderAllowancesStore();
     store.snapshots = [snapshot('a', 'warning'), snapshot('b', 'critical'), snapshot('c', 'available')];
