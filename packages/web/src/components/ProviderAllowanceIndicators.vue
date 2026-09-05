@@ -19,6 +19,7 @@
         v-for="snapshot in visibleSnapshots"
         :key="snapshot.providerId"
         class="allowance-item"
+        data-testid="provider-allowance-item"
         :class="`is-${snapshot.status}`"
         type="button"
         :aria-label="ariaLabel(snapshot)"
@@ -32,6 +33,7 @@
         v-if="hiddenCount"
         type="button"
         class="overflow-button"
+        data-testid="provider-allowance-overflow"
         :aria-label="`Show ${hiddenCount} more providers`"
         @click="open()"
       >
@@ -281,6 +283,12 @@ onUnmounted(() => {
   min-width: 0;
 }
 
+.provider-allowances {
+  width: min(34rem, 40vw);
+}
+
+.desktop-items { flex: 1 1 auto; }
+
 .allowance-item,
 .overflow-button,
 .mobile-button,
@@ -408,6 +416,7 @@ onUnmounted(() => {
 }
 
 @media (max-width: 480px) {
+  .provider-allowances { width: auto; }
   .desktop-items { display: none; }
   .mobile-button { display: block; }
 
