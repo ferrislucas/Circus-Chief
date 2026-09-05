@@ -40,7 +40,11 @@ describe('ProviderAllowanceIndicators', () => {
     });
   });
 
-  afterEach(() => rectSpy.mockRestore());
+  afterEach(() => {
+    rectSpy.mockRestore();
+    vi.useRealTimers();
+    document.body.replaceChildren();
+  });
 
   function seedSnapshots(count) {
     const store = useProviderAllowancesStore();
@@ -52,9 +56,23 @@ describe('ProviderAllowanceIndicators', () => {
     }));
   }
 
+  function snapshot({ providerId = 'openai', status = 'ok', resetsAt = null } = {}) {
+    return {
+      providerId,
+      providerName: providerId === 'openai' ? 'OpenAI' : providerId,
+      providerKind: 'openai',
+      status,
+      source: 'provider',
+      updatedAt: null,
+      staleAt: null,
+      unavailableReason: null,
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt }],
+    };
+  }
+
   it('renders nothing when the disabled allowance response is empty', async () => {
     api.getProviderAllowances.mockResolvedValueOnce([]);
-    const wrapper = mount(ProviderAllowanceIndicators);
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await Promise.resolve();
     expect(wrapper.find('[data-testid="provider-allowance-indicators"]').exists()).toBe(false);
   });
@@ -65,7 +83,7 @@ describe('ProviderAllowanceIndicators', () => {
       providerId: 'openai', providerName: 'OpenAI', providerKind: 'openai', status: 'available', source: 'provider', updatedAt: null, staleAt: null, unavailableReason: null,
       allowances: [{ key: 'requests', label: 'Requests', remaining: null, limit: null, remainingPercent: 25, unit: 'requests', resetsAt: null }],
     }];
-    const wrapper = mount(ProviderAllowanceIndicators);
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await nextTick();
     resizeObservers[0].trigger();
     await nextTick();
@@ -108,5 +126,53 @@ describe('ProviderAllowanceIndicators', () => {
     expect(wrapper.find('.desktop-items .overflow-button').exists()).toBe(false);
     wrapper.unmount();
     expect(resizeObservers[0].disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('traps focus in the dialog, closes on document Escape, and restores the invoking trigger', async () => {
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot()];
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+    const trigger = wrapper.find('.desktop-items .allowance-item');
+    trigger.element.focus();
+    await trigger.trigger('click');
+    await nextTick();
+
+    const closeButton = wrapper.find('.close-button').element;
+    expect(document.activeElement).toBe(wrapper.find('[role="dialog"]').element);
+    closeButton.focus();
+    closeButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(document.activeElement).toBe(closeButton);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await nextTick();
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    expect(document.activeElement).toBe(trigger.element);
+  });
+
+  it('includes reset time in compact item labels and politely announces only critical/exhausted transitions', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T03:04:05Z'));
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot({ resetsAt: '2026-01-03T03:04:05Z' })];
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+
+    expect(wrapper.find('.desktop-items .allowance-item').attributes('aria-label')).toContain('resets');
+    expect(wrapper.find('[aria-live="polite"]').text()).toBe('');
+
+    store.replace(snapshot({ status: 'warning' }));
+    await nextTick();
+    expect(wrapper.find('[aria-live="polite"]').text()).toBe('');
+
+    store.replace(snapshot({ status: 'critical' }));
+    store.replace(snapshot({ status: 'exhausted' }));
+    await nextTick();
+    await vi.runAllTimersAsync();
+    expect(wrapper.find('[aria-live="polite"]').text()).toBe('OpenAI usage is exhausted.');
   });
 });
