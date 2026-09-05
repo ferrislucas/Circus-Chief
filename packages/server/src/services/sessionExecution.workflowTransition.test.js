@@ -22,7 +22,8 @@ vi.mock('./kanbanService.js', async (importOriginal) => {
   };
 });
 
-import { continueSession, runSession } from './sessionManager.js';
+import { continueSession, runSession, stopSession } from './sessionManager.js';
+import { _executeSession } from './sessionExecution.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
@@ -31,7 +32,9 @@ import { KanbanBoardRepository } from '../db/KanbanBoardRepository.js';
 import { KanbanLaneRepository } from '../db/KanbanLaneRepository.js';
 import { KanbanCardRepository } from '../db/KanbanCardRepository.js';
 import { createLaneRunForEntry, attachRootSession, getRun, markHeldForLimit, supersedeRunForCard } from './workflowSessionService.js';
+import { activeSessions } from './streamEventHandler.js';
 import { routeWorkspaceCard } from './kanbanService.js';
+import { abortForUserStop } from './sessionAbort.js';
 
 describe('W6: _executeSession triggers target-lane automation after a real success', () => {
   let projectRepo;
@@ -149,6 +152,98 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
       pausedCount: 1,
       blockingReason: 'Paused — provider limit or outage',
     }));
+    expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
+  });
+
+  it('pauses the open run when an aborted provider stream exits normally', async () => {
+    const controller = new AbortController();
+    const agent = {
+      async *execute() {
+        abortForUserStop(controller);
+        yield { type: 'assistant', text: 'ignored after abort' };
+      },
+    };
+
+    await _executeSession({
+      sessionId: root.id, agent, queryParams: { options: { env: {} } }, agentCallMeta: {}, controller,
+      workingDirectory: tempDir, callbacks: { handleTemplateTriggerIfNeeded: vi.fn(), handleAutoSendIfNeeded: vi.fn() },
+    });
+
+    expect(sessionRepo.getById(root.id)).toEqual(expect.objectContaining({
+      ownWorkState: 'open', executionState: 'paused', workflowReason: 'Stopped by user',
+    }));
+    expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'open', blockerKind: 'user_stop_pause' }));
+    expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+  });
+
+  it('pauses the open run when an aborted provider stream rejects', async () => {
+    const controller = new AbortController();
+    const agent = {
+      async *execute() {
+        abortForUserStop(controller);
+        yield* [];
+        throw new Error('provider abort');
+      },
+    };
+
+    await expect(_executeSession({
+      sessionId: root.id, agent, queryParams: { options: { env: {} } }, agentCallMeta: {}, controller,
+      workingDirectory: tempDir, callbacks: { handleTemplateTriggerIfNeeded: vi.fn(), handleAutoSendIfNeeded: vi.fn() },
+    })).rejects.toThrow('provider abort');
+
+    expect(sessionRepo.getById(root.id)).toEqual(expect.objectContaining({
+      ownWorkState: 'open', executionState: 'paused', workflowReason: 'Stopped by user',
+    }));
+    expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'open', blockerKind: 'user_stop_pause' }));
+  });
+
+  it('fails rather than user-pausing the run when infrastructure aborts the provider stream', async () => {
+    const controller = new AbortController();
+    const ownershipError = new Error('Lane-entry claim ownership was lost');
+    const agent = {
+      async *execute() {
+        controller.abort(ownershipError);
+        yield { type: 'assistant', text: 'ignored after abort' };
+      },
+    };
+
+    await expect(_executeSession({
+      sessionId: root.id, agent, queryParams: { options: { env: {} } }, agentCallMeta: {}, controller,
+      workingDirectory: tempDir, callbacks: { handleTemplateTriggerIfNeeded: vi.fn(), handleAutoSendIfNeeded: vi.fn() },
+    })).rejects.toThrow('Lane-entry claim ownership was lost');
+
+    expect(sessionRepo.getById(root.id)).toEqual(expect.objectContaining({
+      ownWorkState: 'closed_failed', workflowReason: 'Lane-entry claim ownership was lost',
+    }));
+    expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'failed' }));
+    expect(getRun(run.id).blockerKind).not.toBe('user_stop_pause');
+    expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+  });
+
+  it('does not complete the run when stopped during asynchronous turn completion', async () => {
+    const controller = new AbortController();
+    const agent = {
+      async *execute() {
+        yield { type: 'assistant', text: 'done' };
+        yield { type: 'result', success: true };
+      },
+    };
+    activeSessions.set(root.id, { controller });
+
+    await _executeSession({
+      sessionId: root.id, agent, queryParams: { options: { env: {} } }, agentCallMeta: {}, controller,
+      workingDirectory: tempDir,
+      callbacks: {
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn(async () => stopSession(root.id)),
+      },
+    });
+
+    expect(sessionRepo.getById(root.id)).toEqual(expect.objectContaining({
+      ownWorkState: 'open', executionState: 'paused', workflowReason: 'Stopped by user',
+    }));
+    expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'open', blockerKind: 'user_stop_pause' }));
+    expect(cardRepo.getById(card.id).laneId).toBe(source.id);
     expect(drainLaneEntryTriggerMock).not.toHaveBeenCalled();
   });
 

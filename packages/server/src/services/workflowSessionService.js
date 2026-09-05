@@ -14,6 +14,7 @@ import { getRun } from './workflowRunReader.js';
 import { recomputeSubtreeOutcomes } from './workflowSessionState.js';
 import { broadcastCardTransition, moveCardForTransition } from './workflowLaneTransition.js';
 import { SESSION_EXECUTION_STATES } from '@circuschief/shared';
+import { USER_STOP_REASON } from './workflowPauseReasons.js';
 import { publishDiscardedPendingDestination } from './kanbanRoutingObservability.js';
 
 export { getRun } from './workflowRunReader.js';
@@ -243,10 +244,35 @@ export function beginWorkflowTurn(sessionId) {
     const executionStateBeforeTurn = s.execution_state;
     const turnToken = id();
     const time = now();
-    db.prepare('UPDATE sessions SET execution_state=\'running\', execution_turn_token=?, workflow_updated_at=? WHERE id=?')
+    db.prepare('UPDATE sessions SET execution_state=\'running\', execution_turn_token=?, workflow_reason=NULL, workflow_updated_at=? WHERE id=?')
       .run(turnToken, time, sessionId);
     audit(db, s.lane_run_id, 'turn_started', { sessionId });
     return { executionStateBeforeTurn, turnToken };
+  });
+}
+
+/**
+ * Pause a participating member because the user stopped it, while preserving
+ * its open obligation. The hot-path check keeps ordinary sessions out of a
+ * transaction; ownership and optional turn-token fences make late abort
+ * callbacks harmless after supersession or a resumed turn.
+ */
+export function pauseForUserStop(sessionId, { turnToken = null } = {}) {
+  if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return false;
+  return databaseManager.transaction(() => {
+    const db = databaseManager.get(); const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
+    if (!isParticipating(session)
+      || session.own_work_state !== 'open'
+      || (session.execution_state === 'paused' && session.workflow_reason === USER_STOP_REASON)
+      || (turnToken && session.execution_turn_token !== turnToken)
+      || !activeRunOwnsSession(db, session)) return false;
+    const time = now(); const transitionId = id();
+    db.prepare(`UPDATE sessions SET execution_state='paused', workflow_reason=?, workflow_updated_at=?
+      WHERE id=?`).run(USER_STOP_REASON, time, sessionId);
+    audit(db, session.lane_run_id, 'own_work_paused_by_user', {
+      sessionId, details: { pausedAt: time, transitionId },
+    });
+    return true;
   });
 }
 
@@ -269,7 +295,9 @@ export function finalizeOwnWorkCompletion(sessionId, { turnToken = null } = {}) 
   if (!isParticipating(databaseManager.get().prepare('SELECT lane_run_id FROM sessions WHERE id=?').get(sessionId))) return null;
   const result = databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
-    if (!isParticipating(s) || s.own_work_state !== 'open' || (turnToken && s.execution_turn_token !== turnToken)) return null;
+    if (!isParticipating(s)
+      || s.own_work_state !== 'open'
+      || (turnToken && (s.execution_turn_token !== turnToken || s.execution_state !== 'running'))) return null;
     // A future schedule is an explicit continuation obligation, never success.
     if (s.scheduled_at || s.pending_prompt) return null;
     const time = now();
@@ -285,8 +313,8 @@ export function finalizeOwnWorkCompletion(sessionId, { turnToken = null } = {}) 
 /**
  * Terminally close a session's own-work obligation via failure or
  * cancellation (success goes through finalizeOwnWorkCompletion instead), and
- * reconcile its lane run (FR-9: permanent failures and user
- * stops/cancellations must never be interpreted as success). No-op — returns
+ * reconcile its lane run. User stops pause open lane-run obligations instead;
+ * cancellation remains available for supersession and legacy callers. No-op — returns
  * null — for non-participating sessions or sessions whose own work is
  * already closed, so callers may invoke this unconditionally on every
  * error/stop path without checking participation first.
@@ -362,8 +390,8 @@ export function markHeldForLimit(sessionId) {
  */
 // W4 (FR-9): closeOwnWork() is the single entry point that ever sets
 // own_work_state to closed_failed/cancelled — see sessionExecution.js
-// (permanent execution failure) and sessionManager.js#stopSession (user
-// stop/cancellation). Both call through here to fail/cancel the run.
+// (permanent execution failure). User stops use pauseForUserStop() so an open
+// lane run remains supervised and can later resume.
 //
 // W5 (FR-6/FR-7): the run-level predicate is now defined in terms of the
 // freshly recomputed root subtree_outcome, matching FR-7's literal
