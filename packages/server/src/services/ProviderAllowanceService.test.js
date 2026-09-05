@@ -95,22 +95,6 @@ describe('ProviderAllowanceService', () => {
     expect(snapshot(-1)).toMatchObject({ status: 'exhausted', allowances: [{ remaining: 0, remainingPercent: 0 }] });
   });
 
-  it('does not retain or broadcast allowance updates while disabled', () => {
-    const broadcaster = vi.fn();
-    const service = new ProviderAllowanceService({
-      providerRepository: { getAll: () => [enabled] }, broadcaster, isEnabled: () => false,
-    });
-    const snapshot = {
-      providerId: enabled.id, providerName: enabled.name, providerKind: 'openai',
-      status: 'warning', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
-      allowances: [],
-    };
-
-    service.observe(snapshot);
-    expect(broadcaster).not.toHaveBeenCalled();
-    expect(service.getSnapshots()).toEqual([]);
-  });
-
   it('prioritizes active-session providers, then attention providers, using configured order as a tiebreaker', () => {
     const providers = [
       { id: 'provider-a', name: 'A', kind: 'openai', enabled: true },
@@ -150,7 +134,7 @@ describe('ProviderAllowanceService', () => {
     expect(service.getSnapshots()[0]).toMatchObject({ status: 'stale', updatedAt: 1, staleAt: 5, allowances: [{ remaining: 25, limit: 100 }] });
   });
 
-  it('rejects disabled or unknown provider updates and compares snapshots independent of key order', () => {
+  it('does not retain or broadcast allowance updates for disabled or unknown providers', () => {
     const broadcaster = vi.fn();
     const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled, disabled] }, broadcaster });
     const valid = {

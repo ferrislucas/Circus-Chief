@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { modelProviders, settings } from '../database.js';
+import { modelProviders } from '../database.js';
 import {
   COMMIT_ATTRIBUTION_VALIDATION_MESSAGE,
   CreateProviderRequest,
@@ -11,7 +11,6 @@ import {
 import { testProviderConnection } from '../services/providerTestService.js';
 import { assertValidReorder } from '../db/providerModelOperations.js';
 import { getProviderAllowanceService } from '../services/providerAllowanceServiceInstance.js';
-import { areProviderAllowanceIndicatorsEnabled, PROVIDER_ALLOWANCE_INDICATORS_SETTING } from '../services/providerAllowanceFeatureFlag.js';
 
 // Error message constants
 const ERR_PROVIDER_NOT_FOUND = 'Provider not found';
@@ -49,7 +48,7 @@ router.get('/', (_req, res) => {
 // Must precede /:id so "allowances" is never interpreted as a provider id.
 router.get('/allowances', (_req, res) => {
   try {
-    res.json(areProviderAllowanceIndicatorsEnabled() ? getProviderAllowanceService().getSnapshots() : []);
+    res.json(getProviderAllowanceService().getSnapshots());
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -60,7 +59,6 @@ router.get('/allowances', (_req, res) => {
 // normalization and WebSocket broadcaster used by production updates.
 router.post('/allowances/test-observe', (req, res) => {
   if (!process.env.VCR_MODE) return res.sendStatus(404);
-  settings.set(PROVIDER_ALLOWANCE_INDICATORS_SETTING, 'true');
   const snapshot = getProviderAllowanceService().observe(req.body?.snapshot);
   return snapshot ? res.sendStatus(204) : res.sendStatus(400);
 });

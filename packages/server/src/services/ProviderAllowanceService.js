@@ -8,17 +8,15 @@ import { isDeepStrictEqual } from 'node:util';
  * than inferred from call logs or credentials.
  */
 export class ProviderAllowanceService {
-  constructor({ providerRepository, sessionRepository = null, broadcaster = null, clock = Date, isEnabled = () => true }) {
+  constructor({ providerRepository, sessionRepository = null, broadcaster = null, clock = Date }) {
     this.providerRepository = providerRepository;
     this.sessionRepository = sessionRepository;
     this.broadcaster = broadcaster;
     this.clock = clock;
-    this.isEnabled = isEnabled;
     this.snapshots = new Map();
   }
 
   getSnapshots() {
-    if (!this.isEnabled()) return [];
     const providers = this.#enabledProviders();
     const activeIds = new Set(providers.map((provider) => provider.id));
     for (const id of this.snapshots.keys()) if (!activeIds.has(id)) this.snapshots.delete(id);
@@ -33,7 +31,6 @@ export class ProviderAllowanceService {
   }
 
   observe(snapshot) {
-    if (!this.isEnabled()) return null;
     const provider = this.#enabledProviders().find((candidate) => candidate.id === snapshot?.providerId);
     if (!provider) return null;
     const normalized = this.#normalizeSnapshot(snapshot, provider);
