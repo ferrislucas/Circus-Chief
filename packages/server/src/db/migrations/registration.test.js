@@ -36,4 +36,12 @@ describe('migration registration', () => {
 
     expect(names).toContain('sessions-add-pending_agent_input');
   });
+
+  it('registers the nullable pending schedule provenance migration after pending agent input', () => {
+    const names = allMigrations.map(({ name }) => name);
+    const pendingAgentInputIndex = names.indexOf('sessions-add-pending_agent_input');
+    const pendingInteractiveIndex = names.indexOf('sessions-add-pending_interactive');
+
+    expect(pendingInteractiveIndex).toBeGreaterThan(pendingAgentInputIndex);
+  });
 });

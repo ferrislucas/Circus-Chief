@@ -38,18 +38,6 @@ function isParticipating(session) {
   return Boolean(session?.lane_run_id);
 }
 
-/** A session that discharged its obligation to a lane run which has since
- * completed. It keeps its lane_run_id pointer for history but is board-inert:
- * every own-work write is a no-op (each requires own_work_state='open').
- * Scheduling fences exempt it — its token-limit reschedules, explicit
- * schedules, and wakeups must not be silently dropped by that stale pointer.
- * cancelled/closed_failed are deliberately NOT exempt: they were terminalized
- * with their schedules cleared (clearExecutableMemberState) and FR-9 forbids
- * reviving permanently-failed work. */
-function retiredFromLaneRun(session) {
-  return Boolean(session?.lane_run_id && session?.own_work_state === 'closed_successfully');
-}
-
 function activeRunOwnsSession(db, session) {
   if (!isParticipating(session)) return true;
   return Boolean(db.prepare(`SELECT 1 FROM kanban_lane_runs r
@@ -69,43 +57,15 @@ export function activeLaneRunOwnsSession(sessionId) {
   return Boolean(session?.own_work_state === 'open' && activeRunOwnsSession(db, session));
 }
 
-/** True when a lane-run fence must REJECT system-owned (non-interactive) work
- * for this session. Identical to !activeLaneRunOwnsSession for participating
- * sessions, with one deliberate exemption: a session retired from its lane run
- * (own work closed successfully) is never fenced — its lane_run_id is a
- * historical pointer, not an active obligation, so its scheduled continuations
- * and reschedules run as ordinary system work on its own row. Non-participating
- * sessions are never fenced. A missing session is fenced so callers using this
- * as a final pre-provider race check fail closed if the row was deleted during
- * asynchronous launch preparation. */
-export function laneRunFencesSystemWork(sessionId) {
-  const db = databaseManager.get();
-  const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
-  if (!session) return true;
-  if (!isParticipating(session)) return false;
-  if (session.own_work_state === 'closed_successfully') return false;
-  return !(session.own_work_state === 'open' && activeRunOwnsSession(db, session));
-}
-
 /** Execute a synchronous write only while a lane worker still owns its run.
  * The predicate and write share one SQLite transaction, closing the gap
- * between an explicit schedule/reschedule request and a manual move.
- *
- * A retired worker (own work closed successfully) is board-inert but still a
- * live conversational session: it keeps a historical lane_run_id pointer, and
- * its scheduling writes (error reschedules, explicit schedules, wakeups) go
- * through unfenced so a follow-up turn's token-limit retry is never dropped. */
+ * between an explicit schedule/reschedule request and a manual move. */
 export function withActiveLaneRunOwnership(sessionId, mutation) {
   return databaseManager.transaction(() => {
     const db = databaseManager.get();
     const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!session) return null;
-    if (!retiredFromLaneRun(session) && session.lane_run_id
-      && (session.own_work_state !== 'open' || !activeRunOwnsSession(db, session))) {
-      console.warn(
-        `[workflowSessionService] withActiveLaneRunOwnership rejected write for session ${sessionId}: `
-        + `own_work_state=${session.own_work_state}, lane_run_id=${session.lane_run_id}`
-      );
+    if (session.lane_run_id && (session.own_work_state !== 'open' || !activeRunOwnsSession(db, session))) {
       return null;
     }
     return mutation();
@@ -121,15 +81,13 @@ export function withActiveLaneRunOwnership(sessionId, mutation) {
  * withActiveLaneRunOwnership, releaseCardFromRun, claimWorkflowSessionStart)
  * prevent it from advancing the board once its own_work_state is 'cancelled'
  * here. `waiting` members are already idle and remain available for
- * follow-up messages. These fences deliberately do NOT apply to members
- * retired with own_work_state='closed_successfully' (see retiredFromLaneRun):
- * their obligation is discharged, so scheduling is ordinary session work.
+ * follow-up messages.
  */
 function clearExecutableMemberState(db, runId, reason, time) {
   return db.prepare(`UPDATE sessions SET own_work_state='cancelled', own_work_closed_at=?, workflow_reason=?,
     workflow_updated_at=?, execution_state=CASE WHEN status='running' THEN execution_state ELSE 'stopped' END,
     status=CASE WHEN status='scheduled' THEN 'stopped' ELSE status END,
-    scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_conversation_id=NULL,
+    scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_conversation_id=NULL, pending_interactive=NULL,
     auto_send_pending_prompt=0, reschedule_count=0
     WHERE lane_run_id=? AND own_work_state='open'`).run(time, reason, time, runId);
 }
@@ -150,15 +108,10 @@ export function claimWorkflowSessionStart(sessionId) {
       audit(db, session.lane_run_id, 'scheduled_start_claimed', { sessionId });
       return true;
     }
-    // A retired worker's scheduled follow-ups (error reschedules, explicit
-    // schedules) are legitimate: claim them instead of clearing the schedule.
-    // Must precede the clearing branch below, which durably discards it.
-    if (session.own_work_state === 'closed_successfully') {
-      audit(db, session.lane_run_id, 'scheduled_start_claimed', { sessionId });
-      return true;
-    }
+    // A user scheduled follow-up has the same authority as an interactive send.
+    if (session.pending_interactive) return true;
     const time = now();
-    db.prepare(`UPDATE sessions SET scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL,
+    db.prepare(`UPDATE sessions SET scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_interactive=NULL,
       auto_send_pending_prompt=0, execution_state='stopped', status=CASE WHEN status='scheduled' THEN 'stopped' ELSE status END,
       workflow_updated_at=? WHERE id=?`).run(time, sessionId);
     audit(db, session.lane_run_id, 'stale_start_rejected', { sessionId });

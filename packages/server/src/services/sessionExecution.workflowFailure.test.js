@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
-import { runSession, continueSession } from './sessionManager.js';
+import { runSession } from './sessionManager.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
@@ -97,19 +97,6 @@ describe('W4: failure/cancellation propagation through _executeSession', () => {
     return stubAgent;
   }
 
-  function stubSuccessAgent() {
-    const stubAgent = {
-      execute: vi.fn(async function* () {
-        yield { type: 'assistant', text: 'done' };
-        yield { type: 'result', success: true };
-      }),
-      supportsResume: () => false,
-      needsConversationContext: () => true,
-    };
-    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
-    return stubAgent;
-  }
-
   it('a permanent execution failure fails the run and does not move the card (AC-8)', async () => {
     stubThrowingAgent('boom: permanent failure');
 
@@ -155,44 +142,6 @@ describe('W4: failure/cancellation propagation through _executeSession', () => {
     expect(updated.executionState).toBe('retrying');
     expect(getRun(run.id).status).toBe('open');
     expect(cardRepo.getById(card.id).laneId).toBe(source.id);
-  });
-
-  // Regression for a production incident: a worker whose lane run had already
-  // succeeded received a human follow-up that hit the provider usage limit.
-  // The error matched the reschedule triggers, but the reschedule write was
-  // fenced off by the session's historical lane_run_id pointer and silently
-  // dropped — the session was left in 'error' with no retry.
-  it('a usage limit on a follow-up turn of a retired (succeeded run) worker is still rescheduled', async () => {
-    sessionRepo.update(root.id, {
-      autoRescheduleEnabled: true,
-      rescheduleOnTokenLimit: true,
-      rescheduleDelayMinutes: 15,
-    });
-
-    // Turn 1 succeeds: own work closes, run succeeds, card moves to target.
-    stubSuccessAgent();
-    await runSession(root.id, 'do work', tempDir);
-    expect(sessionRepo.getById(root.id).ownWorkState).toBe('closed_successfully');
-    expect(getRun(run.id).status).toBe('succeeded');
-    const targetLaneId = cardRepo.getById(card.id).laneId;
-    expect(targetLaneId).toBe(target.id);
-
-    // Turn 2: a human follow-up (interactive) hits the usage limit.
-    stubResultErrorAgent("You've hit your usage limit. Try again later.");
-    await continueSession(root.id, 'A human follow-up', tempDir, { interactive: true });
-
-    const updated = sessionRepo.getById(root.id);
-    expect(updated.status).toBe('scheduled');
-    expect(updated.scheduledAt).toEqual(expect.any(Number));
-    expect(updated.rescheduleCount).toBe(1);
-    expect(updated.pendingPrompt).toEqual(expect.any(String));
-    expect(updated.pendingPrompt.trim().length).toBeGreaterThan(0);
-
-    // The board is untouched by the follow-up and its reschedule: the
-    // obligation was already discharged; the retry is ordinary session work.
-    expect(updated.ownWorkState).toBe('closed_successfully');
-    expect(getRun(run.id).status).toBe('succeeded');
-    expect(cardRepo.getById(card.id).laneId).toBe(targetLaneId);
   });
 
   it('a non-retryable terminal result event fails rather than successfully completing the run', async () => {

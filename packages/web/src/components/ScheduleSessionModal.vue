@@ -19,6 +19,14 @@
       </div>
 
       <div class="modal-body">
+        <p
+          v-if="error"
+          data-testid="schedule-error"
+          class="form-error"
+          role="alert"
+        >
+          {{ error }}
+        </p>
         <!-- Scheduled Time -->
         <div class="form-group">
           <label
@@ -84,6 +92,7 @@ const emit = defineEmits(['close', 'update:isOpen']);
 const uiStore = useUiStore();
 const sessionsStore = useInjectedSessionsStore();
 const loading = ref(false);
+const error = ref(null);
 
 const form = reactive({
   scheduledAtLocal: '',
@@ -115,27 +124,36 @@ function close() {
   emit('close');
 }
 
+function scheduleErrorMessage(caughtError) {
+  const detail = caughtError instanceof Error && caughtError.message
+    ? caughtError.message
+    : 'Please try again.';
+  return `Failed to schedule workspace: ${detail}`;
+}
+
 async function handleSchedule() {
-  if (!isValid.value) return;
+  if (!isValid.value || loading.value) return;
 
   const scheduledAt = new Date(form.scheduledAtLocal).getTime();
   const prompt = resolvedPrompt.value;
 
   const payload = { prompt, scheduledAt };
 
-  // Close modal immediately for better UX
-  close();
-
-  // Make API call in background
+  loading.value = true;
+  error.value = null;
   try {
     const updatedSession = await api.scheduleSession(props.sessionId, payload);
     // Update the session store immediately with the API response
     // This ensures the UI shows the correct scheduled time without waiting for WebSocket
     sessionsStore.updateSession(updatedSession);
-    uiStore.showToast('Workspace scheduled successfully', 'success');
-  } catch (error) {
-    console.error('Failed to schedule workspace:', error);
-    uiStore.showToast(`Failed to schedule workspace: ${  error.message}`, 'error');
+    uiStore.success('Workspace scheduled successfully');
+    close();
+  } catch (caughtError) {
+    console.error('Failed to schedule workspace:', caughtError);
+    error.value = scheduleErrorMessage(caughtError);
+    uiStore.error(error.value);
+  } finally {
+    loading.value = false;
   }
 }
 
@@ -145,6 +163,7 @@ watch(
   (isOpen) => {
     if (isOpen) {
       form.scheduledAtLocal = '';
+      error.value = null;
     }
   }
 );
@@ -203,6 +222,11 @@ watch(
 
 .modal-body {
   padding: 1.5rem;
+}
+
+.form-error {
+  margin: 0 0 1rem;
+  color: var(--color-error, #f87171);
 }
 
 .modal-footer {
