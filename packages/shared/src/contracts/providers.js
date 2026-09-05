@@ -147,7 +147,7 @@ export const ProviderAllowance = z.object({
   remainingPercent: z.number().finite().min(0).max(100).nullable(),
   unit: ProviderAllowanceUnit,
   resetsAt: z.number().finite().nullable(),
-});
+}).strict();
 export const ProviderAllowanceSnapshot = z.object({
   providerId: PROVIDER_ROW_ID,
   providerName: z.string().min(1),

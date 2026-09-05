@@ -63,6 +63,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { ProviderAllowanceUpdatedPayload } from '@circuschief/shared/contracts/providers';
 import { useWebSocket } from '../composables/useWebSocket.js';
 import { useProviderAllowancesStore, lowestAllowance } from '../stores/providerAllowances.js';
 
@@ -105,7 +106,14 @@ function close() {
   focusedProviderId.value = null;
   previousFocus?.focus?.();
 }
-function onUpdate(message) { if (message.snapshot) store.replace(message.snapshot); }
+function onUpdate(message) {
+  const parsed = ProviderAllowanceUpdatedPayload.safeParse(message);
+  if (!parsed.success) {
+    console.warn('Dropped invalid provider allowance websocket payload');
+    return;
+  }
+  store.replace(parsed.data.snapshot);
+}
 onMounted(() => {
   store.fetch();
   on(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, onUpdate);

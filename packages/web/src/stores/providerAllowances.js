@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { ProviderAllowanceListResponse } from '@circuschief/shared/contracts/providers';
 import { api } from '../composables/useApi.js';
 
 function isAttention(snapshot) {
@@ -21,7 +22,10 @@ export const useProviderAllowancesStore = defineStore('providerAllowances', {
     async fetch() {
       this.loading = true;
       try {
-        this.snapshots = await api.getProviderAllowances();
+        const response = await api.getProviderAllowances();
+        const parsed = ProviderAllowanceListResponse.safeParse(response);
+        if (!parsed.success) throw new Error('Invalid provider allowance response');
+        this.snapshots = parsed.data;
         this.error = null;
       } catch (error) {
         this.error = error.message;
