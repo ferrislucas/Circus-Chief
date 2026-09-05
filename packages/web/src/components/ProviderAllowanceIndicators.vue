@@ -256,9 +256,15 @@ function onUpdate(message) {
   }
   store.replace(parsed.data.snapshot);
 }
+function reconcileSessionPriority() {
+  // The REST response has the complete, authoritative active-session order.
+  // A single session event cannot safely reconstruct it client-side.
+  store.fetch();
+}
 onMounted(() => {
   store.fetch();
   on(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, onUpdate);
+  on(WS_MESSAGE_TYPES.SESSION_UPDATED, reconcileSessionPriority);
   removeReconnect = onReconnect(() => store.fetch());
   resizeObserver = new ResizeObserver(measureVisibleItems);
   resizeObserver.observe(desktopItemsRef.value);
@@ -267,6 +273,7 @@ onMounted(() => {
 });
 onUnmounted(() => {
   off(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, onUpdate);
+  off(WS_MESSAGE_TYPES.SESSION_UPDATED, reconcileSessionPriority);
   removeReconnect?.();
   resizeObserver?.disconnect();
   clearTimeout(announcementTimer);

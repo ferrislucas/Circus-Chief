@@ -5,11 +5,16 @@ import { createPinia, setActivePinia } from 'pinia';
 import { useProviderAllowancesStore } from '../stores/providerAllowances.js';
 import { api } from '../composables/useApi.js';
 
+const { websocketListeners } = vi.hoisted(() => ({ websocketListeners: new Map() }));
 vi.mock('../composables/useApi.js', () => ({
   api: { getProviderAllowances: vi.fn().mockResolvedValue([]) },
 }));
 vi.mock('../composables/useWebSocket.js', () => ({
-  useWebSocket: () => ({ on: vi.fn(), off: vi.fn(), onReconnect: vi.fn(() => vi.fn()) }),
+  useWebSocket: () => ({
+    on: vi.fn((event, handler) => websocketListeners.set(event, handler)),
+    off: vi.fn((event) => websocketListeners.delete(event)),
+    onReconnect: vi.fn(() => vi.fn()),
+  }),
 }));
 
 import ProviderAllowanceIndicators from './ProviderAllowanceIndicators.vue';
@@ -20,6 +25,7 @@ describe('ProviderAllowanceIndicators', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia());
+    websocketListeners.clear();
     api.getProviderAllowances.mockImplementation(() => new Promise(() => {}));
     resizeObservers = [];
     globalThis.ResizeObserver = class {
@@ -75,6 +81,22 @@ describe('ProviderAllowanceIndicators', () => {
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await Promise.resolve();
     expect(wrapper.find('[data-testid="provider-allowance-indicators"]').exists()).toBe(false);
+  });
+
+  it('reconciles the authoritative order after an active-session lifecycle update', async () => {
+    api.getProviderAllowances.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      snapshot({ providerId: 'active', status: 'available' }),
+      snapshot({ providerId: 'attention', status: 'warning' }),
+    ]);
+    const wrapper = mount(ProviderAllowanceIndicators);
+
+    websocketListeners.get('session:updated')({ session: { id: 'session-1', providerId: 'active', status: 'running' } });
+    await Promise.resolve();
+    await nextTick();
+
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
+    expect(useProviderAllowancesStore().snapshots.map(({ providerId }) => providerId)).toEqual(['active', 'attention']);
+    wrapper.unmount();
   });
 
   it('formats percentage-only allowance data without pretending null values are quantities', async () => {

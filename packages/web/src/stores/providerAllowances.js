@@ -6,6 +6,28 @@ function isAttention(snapshot) {
   return ['warning', 'critical', 'exhausted'].includes(snapshot.status);
 }
 
+function snapshotPriority(snapshot, activeProviderIds) {
+  if (activeProviderIds.has(snapshot.providerId)) return 0;
+  return isAttention(snapshot) ? 1 : 2;
+}
+
+// JavaScript's stable sort preserves the server/configured order for equal
+// priorities, keeping indicators from jittering between equivalent updates.
+export function prioritizeSnapshots(snapshots, activeProviderIds = []) {
+  if (activeProviderIds === null) return [...snapshots];
+  const activeIds = new Set(activeProviderIds);
+  return [...snapshots]
+    .map((snapshot, index) => ({ snapshot, index }))
+    .sort((left, right) => snapshotPriority(left.snapshot, activeIds) - snapshotPriority(right.snapshot, activeIds) || left.index - right.index)
+    .map(({ snapshot }) => snapshot);
+}
+
+function upsertSnapshot(snapshots, nextSnapshot) {
+  const index = snapshots.findIndex((snapshot) => snapshot.providerId === nextSnapshot.providerId);
+  if (index === -1) return [...snapshots, nextSnapshot];
+  return snapshots.map((snapshot, currentIndex) => currentIndex === index ? nextSnapshot : snapshot);
+}
+
 function lowestAllowance(snapshot) {
   return snapshot.allowances
     .filter((allowance) => allowance.remainingPercent !== null)
@@ -13,21 +35,23 @@ function lowestAllowance(snapshot) {
 }
 
 export const useProviderAllowancesStore = defineStore('providerAllowances', {
-  state: () => ({ snapshots: [], error: null, snapshotVersion: 0, staleTimer: null }),
+  // Before a session event arrives, REST is the authoritative source for
+  // active-provider ordering. An empty array means the active set is known.
+  state: () => ({ snapshots: [], activeProviderIds: null, error: null, snapshotVersion: 0, staleTimer: null }),
   getters: {
     attentionCount: (state) => state.snapshots.filter(isAttention).length,
     compactAllowance: () => (snapshot) => lowestAllowance(snapshot),
   },
   actions: {
     async fetch() {
-      const snapshotVersion = this.snapshotVersion;
+      const snapshotVersion = this.snapshotVersion + 1;
+      this.snapshotVersion = snapshotVersion;
       try {
         const response = await api.getProviderAllowances();
         const parsed = ProviderAllowanceListResponse.safeParse(response);
         if (!parsed.success) throw new Error('Invalid provider allowance response');
         if (snapshotVersion !== this.snapshotVersion) return;
-        this.snapshots = markStaleSnapshots(parsed.data);
-        this.snapshotVersion += 1;
+        this.snapshots = prioritizeSnapshots(markStaleSnapshots(parsed.data), this.activeProviderIds);
         this.error = null;
         this.scheduleStaleness();
       } catch (error) {
@@ -35,17 +59,20 @@ export const useProviderAllowancesStore = defineStore('providerAllowances', {
       }
     },
     replace(snapshot) {
-      const index = this.snapshots.findIndex((item) => item.providerId === snapshot.providerId);
       const freshSnapshot = markStaleSnapshots([snapshot])[0];
-      if (index === -1) this.snapshots.push(freshSnapshot);
-      else this.snapshots.splice(index, 1, freshSnapshot);
+      this.snapshots = prioritizeSnapshots(upsertSnapshot(this.snapshots, freshSnapshot), this.activeProviderIds ?? []);
       this.snapshotVersion += 1;
       this.scheduleStaleness();
+    },
+    setActiveProviderIds(providerIds) {
+      this.activeProviderIds = [...new Set(providerIds)];
+      this.snapshots = prioritizeSnapshots(this.snapshots, this.activeProviderIds);
+      this.snapshotVersion += 1;
     },
     refreshStaleness() {
       const refreshed = markStaleSnapshots(this.snapshots);
       if (refreshed.some((snapshot, index) => snapshot !== this.snapshots[index])) {
-        this.snapshots = refreshed;
+        this.snapshots = prioritizeSnapshots(refreshed, this.activeProviderIds);
         this.snapshotVersion += 1;
       }
       this.scheduleStaleness();

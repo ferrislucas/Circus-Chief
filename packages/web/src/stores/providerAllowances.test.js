@@ -40,21 +40,53 @@ describe('provider allowances store', () => {
     expect(store.error).toBe('network down');
   });
 
-  it('replaces a matching snapshot without changing the order of others', () => {
+  it('reorders immediately when live updates move providers into attention states', () => {
     const store = useProviderAllowancesStore();
-    store.snapshots = [snapshot('a'), snapshot('b')];
-    store.replace(snapshot('a', 'warning'));
-    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['a', 'b']);
-    expect(store.snapshots[0].status).toBe('warning');
+    store.snapshots = [snapshot('a'), snapshot('b'), snapshot('c')];
+
+    store.replace(snapshot('c', 'warning'));
+    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['c', 'a', 'b']);
+
+    store.replace(snapshot('b', 'exhausted'));
+    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['c', 'b', 'a']);
   });
 
   it('preserves the server priority order after fetching', async () => {
     const store = useProviderAllowancesStore();
+    store.setActiveProviderIds(['active']);
     getProviderAllowances.mockResolvedValue([snapshot('active'), snapshot('attention', 'warning'), snapshot('configured')]);
 
     await store.fetch();
 
     expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['active', 'attention', 'configured']);
+  });
+
+  it('recomputes priority when active sessions start, stop, or switch providers', () => {
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot('a'), snapshot('b', 'warning'), snapshot('c')];
+
+    store.setActiveProviderIds(['c']);
+    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['c', 'b', 'a']);
+
+    store.setActiveProviderIds(['a']);
+    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['a', 'b', 'c']);
+
+    store.setActiveProviderIds([]);
+    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('converges REST reconciliation and subsequent websocket updates on one deduplicated order', async () => {
+    const store = useProviderAllowancesStore();
+    store.setActiveProviderIds(['b']);
+    getProviderAllowances.mockResolvedValue([snapshot('a'), snapshot('b'), snapshot('c', 'warning')]);
+
+    await store.fetch();
+    store.replace(snapshot('a', 'exhausted'));
+    store.replace(snapshot('b', 'warning'));
+
+    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['b', 'c', 'a']);
+    expect(store.snapshots).toHaveLength(3);
+    expect(new Set(store.snapshots.map(({ providerId }) => providerId)).size).toBe(3);
   });
 
   it('derives attention and the lowest non-null percentage', () => {
