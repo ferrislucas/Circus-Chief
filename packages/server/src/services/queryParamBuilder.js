@@ -57,7 +57,7 @@ function buildClaudeCodeQueryParams({
  */
 function buildCodexQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
-  claudeMcpConfigHomeDirectory,
+  claudeMcpConfigHomeDirectory, conversationId = null,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   const effectiveModel = isVCR ? 'gpt-4o-mini' : model;
@@ -76,6 +76,8 @@ function buildCodexQueryParams({
       effortLevel: session?.effortLevel ?? null,
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
       sandboxMode: getSandboxModeForSession(session?.mode),
+      sessionId,
+      conversationId,
       ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
     },
   };

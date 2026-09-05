@@ -22,7 +22,7 @@
     <template v-if="prompt.kind === 'question'">
       <div
         v-for="(question, index) in prompt.payload.questions"
-        :key="question.question"
+        :key="questionKey(question)"
         class="question-block"
       >
         <div class="question-heading">
@@ -35,22 +35,22 @@
 
         <div
           class="option-list"
-          :aria-label="question.question"
+          :aria-label="question.prompt || question.question"
         >
           <label
             v-for="(option, optionIndex) in question.options"
-            :key="option.label"
+            :key="optionKey(option)"
             class="option-card"
-            :class="{ 'is-selected': isOptionSelected(question, option.label), 'is-focused': isOptionFocused(index, option.label) }"
-            @focusin="setFocusedOption(index, option.label)"
+            :class="{ 'is-selected': isOptionSelected(question, optionKey(option)), 'is-focused': isOptionFocused(index, optionKey(option)) }"
+            @focusin="setFocusedOption(index, optionKey(option))"
           >
             <input
               :ref="(element) => setFirstAnswerControl(index, optionIndex, element)"
-              v-model="answers[question.question]"
+              v-model="answers[questionKey(question)]"
               class="option-control"
               :type="question.multiSelect ? 'checkbox' : 'radio'"
               :name="`question-${index}`"
-              :value="option.label"
+              :value="optionKey(option)"
               :disabled="submitting"
               @change="clearOther(question)"
             >
@@ -63,7 +63,7 @@
               <small v-if="option.description">{{ option.description }}</small>
             </span>
             <span
-              v-if="isOptionSelected(question, option.label)"
+              v-if="isOptionSelected(question, optionKey(option))"
               class="selected-mark"
               aria-hidden="true"
             >Selected</span>
@@ -77,8 +77,9 @@
           </label>
 
           <label
+            v-if="allowsText(question)"
             class="option-card option-card--other"
-            :class="{ 'is-selected': Boolean(other[question.question]?.trim()), 'is-focused': isOptionFocused(index, 'other') }"
+            :class="{ 'is-selected': Boolean(other[questionKey(question)]?.trim()), 'is-focused': isOptionFocused(index, 'other') }"
             @focusin="setFocusedOption(index, 'other')"
           >
             <span
@@ -87,7 +88,7 @@
             >+</span>
             <span class="option-copy"><strong>Other</strong><small>Give the agent your own answer.</small></span>
             <input
-              v-model="other[question.question]"
+              v-model="other[questionKey(question)]"
               class="form-input other-input"
               placeholder="Other…"
               :disabled="submitting"
@@ -99,7 +100,7 @@
         <label class="additional-response question-notes">
           <span>Note <em>optional</em></span>
           <textarea
-            v-model="notes[question.question]"
+            v-model="notes[questionKey(question)]"
             class="form-input form-textarea question-note"
             :disabled="submitting"
             placeholder="Why this choice?"
@@ -238,7 +239,7 @@ function setFirstAnswerControl(questionIndex, optionIndex, element) {
 
 watch(() => props.prompt?.id, async () => {
   answers.value = {};
-  for (const question of props.prompt?.payload.questions || []) if (question.multiSelect) answers.value[question.question] = [];
+  for (const question of props.prompt?.payload.questions || []) if (question.multiSelect || question.mode === 'multiple') answers.value[questionKey(question)] = [];
   other.value = {}; notes.value = {}; reason.value = ''; destination.value = 'session'; showDenyReason.value = false;
   focusedOption.value = { question: 0, label: null }; firstAnswerControls.value = [];
   await nextTick();
@@ -249,14 +250,18 @@ watch(() => props.prompt?.id, async () => {
 
 function setFocusedOption(question, label) { focusedOption.value = { question, label }; }
 function isOptionFocused(question, label) { return focusedOption.value.question === question && focusedOption.value.label === label; }
+function questionKey(question) { return question.id || question.question; }
+function optionKey(option) { return option.id || option.label; }
+function isMultiple(question) { return question.mode === 'multiple' || question.multiSelect; }
+function allowsText(question) { return question.allowOther !== false || question.mode === 'text'; }
 function isOptionSelected(question, label) {
-  const selected = answers.value[question.question];
+  const selected = answers.value[questionKey(question)];
   return Array.isArray(selected) ? selected.includes(label) : selected === label;
 }
 function shouldShowPreview(index, question, option) { return isOptionSelected(question, option.label) || isOptionFocused(index, option.label); }
 function hasAnswer(question) {
-  const selected = answers.value[question.question];
-  return Boolean(other.value[question.question]?.trim() || (Array.isArray(selected) ? selected.length : selected));
+  const key = questionKey(question); const selected = answers.value[key];
+  return question.required === false || Boolean(other.value[key]?.trim() || (Array.isArray(selected) ? selected.length : selected));
 }
 const canSubmit = computed(() => Boolean(props.prompt?.payload.questions?.every(hasAnswer)));
 // Main-agent prompts (no agentId) render no origin metadata. Subagent
@@ -278,14 +283,14 @@ const permissionDiffFiles = computed(() => {
 });
 function respond(response) { emit('respond', response); }
 function selectedAnswer(question) {
-  const selected = answers.value[question.question];
+  const selected = answers.value[questionKey(question)];
   return Array.isArray(selected) ? selected : selected ? [selected] : [];
 }
-function collectAnswers() { return Object.fromEntries(props.prompt.payload.questions.map((question) => [question.question, selectedAnswer(question)])); }
+function collectAnswers() { return Object.fromEntries(props.prompt.payload.questions.map((question) => [questionKey(question), selectedAnswer(question)])); }
 function collectCustomAnswers() {
   return Object.fromEntries(props.prompt.payload.questions.flatMap((question) => {
-    const custom = other.value[question.question];
-    return custom?.trim() ? [[question.question, custom]] : [];
+    const custom = other.value[questionKey(question)];
+    return custom?.trim() ? [[questionKey(question), custom]] : [];
   }));
 }
 function collectAnnotations() {
@@ -297,15 +302,25 @@ function collectAnnotations() {
     return Object.keys(annotation).length ? [[question.question, annotation]] : [];
   }));
 }
-function submitAnswers() { if (!canSubmit.value) return; const annotations = collectAnnotations(); const customAnswers = collectCustomAnswers(); respond({ action: 'answer', answers: collectAnswers(), ...(Object.keys(customAnswers).length ? { customAnswers } : {}), ...(Object.keys(annotations).length ? { annotations } : {}) }); }
+function submitAnswers() {
+  if (!canSubmit.value) return;
+  const customAnswers = collectCustomAnswers();
+  if (props.prompt.provider && props.prompt.provider !== 'claude') {
+    return respond({ action: 'answer', answers: props.prompt.payload.questions
+      .filter((question) => hasAnswer(question))
+      .map((question) => ({ questionId: questionKey(question), selectedOptionIds: selectedAnswer(question), ...(customAnswers[questionKey(question)] ? { text: customAnswers[questionKey(question)] } : {}) })) });
+  }
+  const annotations = collectAnnotations();
+  respond({ action: 'answer', answers: collectAnswers(), ...(Object.keys(customAnswers).length ? { customAnswers } : {}), ...(Object.keys(annotations).length ? { annotations } : {}) });
+}
 function chooseOption(index) {
   const question = props.prompt?.payload.questions?.[focusedOption.value.question]; const option = question?.options?.[index];
   if (!question || !option || props.submitting) return;
-  other.value[question.question] = '';
-  if (question.multiSelect) { const selected = answers.value[question.question]; answers.value[question.question] = selected.includes(option.label) ? selected.filter((label) => label !== option.label) : [...selected, option.label]; } else answers.value[question.question] = option.label;
+  const key = questionKey(question); other.value[key] = '';
+  if (isMultiple(question)) { const selected = answers.value[key] || []; const value = optionKey(option); answers.value[key] = selected.includes(value) ? selected.filter((label) => label !== value) : [...selected, value]; } else answers.value[key] = optionKey(option);
 }
-function selectOther(question) { answers.value[question.question] = question.multiSelect ? [] : ''; }
-function clearOther(question) { other.value[question.question] = ''; }
+function selectOther(question) { answers.value[questionKey(question)] = isMultiple(question) ? [] : ''; }
+function clearOther(question) { other.value[questionKey(question)] = ''; }
 // Radios and checkboxes are inputs, but cannot receive typed text. Treating
 // them as typing targets prevents the prompt shortcuts from working on the
 // control we deliberately autofocus for native keyboard/screen-reader use.
