@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import sessionsRouter from './sessions.js';
-import { projects, sessions, modelProviders, messages, conversations } from '../database.js';
+import { projects, sessions, modelProviders, messages, conversations, kanbanBoards, kanbanCards, kanbanLanes } from '../database.js';
+import {
+  attachRootSession, beginWorkflowTurn, createLaneRunForEntry,
+  finalizeOwnWorkCompletion, supersedeRunForCard,
+} from '../services/workflowSessionService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as diffService from '../services/diffService.js';
@@ -573,5 +577,62 @@ describe('Sessions API - POST /:id/schedule', () => {
 
     expect(response.body.error).toMatch(/Unexpected field/i);
     expect(response.body.error).toContain('junkKey');
+  });
+
+  // ── Lane-run ownership fencing (retired vs superseded workers) ─────────────
+  //
+  // A worker retired from its lane run (own work closed successfully) keeps a
+  // historical lane_run_id pointer. Scheduling it is ordinary session work and
+  // must succeed; only genuinely displaced workers (superseded/cancelled) are
+  // fenced with 409.
+
+  function buildLaneRunWorker() {
+    const board = kanbanBoards.create(project.id);
+    const [source, target] = kanbanLanes.getByBoardId(board.id);
+    const workspace = sessions.create(project.id, 'Workspace', 'work');
+    const card = kanbanCards.create(source.id, workspace.id);
+    const worker = sessions.create(project.id, 'Lane worker', 'complete the lane', {
+      parentSessionId: workspace.id,
+    });
+    const run = createLaneRunForEntry({
+      projectId: project.id,
+      workspaceId: workspace.id,
+      cardId: card.id,
+      lane: { ...source, onEnterPrompt: 'complete the lane', completionTargetLaneId: target.id },
+    });
+    attachRootSession(run.id, worker.id);
+    return { source, target, workspace, card, worker, run };
+  }
+
+  it('schedules a retired (succeeded run) worker instead of 409ing', async () => {
+    const { worker } = buildLaneRunWorker();
+    finalizeOwnWorkCompletion(worker.id, beginWorkflowTurn(worker.id));
+    expect(sessions.getById(worker.id).ownWorkState).toBe('closed_successfully');
+
+    const response = await request(app)
+      .post(`/api/sessions/${worker.id}/schedule`)
+      .send({ prompt: 'Continue', scheduledAt: Date.now() + 3600000 })
+      .expect(200);
+
+    expect(response.body).toEqual(expect.objectContaining({
+      id: worker.id,
+      status: 'scheduled',
+      scheduledAt: expect.any(Number),
+    }));
+    expect(sessions.getById(worker.id).scheduledAt).toEqual(expect.any(Number));
+  });
+
+  it('still 409s a superseded (cancelled) worker', async () => {
+    const { worker, card } = buildLaneRunWorker();
+    supersedeRunForCard(card.id, 'manual_move');
+    expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
+
+    const response = await request(app)
+      .post(`/api/sessions/${worker.id}/schedule`)
+      .send({ prompt: 'Continue', scheduledAt: Date.now() + 3600000 })
+      .expect(409);
+
+    expect(response.body.error).toBe('Session no longer owns an active lane run');
+    expect(sessions.getById(worker.id).scheduledAt).toBeNull();
   });
 });
