@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import sessionsRouter from './sessions.js';
-import { projects, sessions, modelProviders, messages, conversations } from '../database.js';
+import {
+  projects, sessions, modelProviders, messages, conversations,
+  kanbanBoards, kanbanCards, kanbanLanes,
+} from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as diffService from '../services/diffService.js';
@@ -12,6 +15,7 @@ import {
   handleTurnCompletion,
 } from '../services/streamEventHandler.js';
 import { captureScheduleWakeup, __resetWakeupTurnStatesForTest } from '../services/scheduleWakeupBridge.js';
+import { attachRootSession, createLaneRunForEntry, supersedeRunForCard } from '../services/workflowSessionService.js';
 
 // Mock websocket
 vi.mock('../websocket.js', () => ({
@@ -99,28 +103,90 @@ describe('Sessions API - POST /:id/schedule', () => {
     expect(stored.status).toBe('scheduled');
     expect(stored.scheduledAt).toBe(scheduledAt);
     expect(stored.pendingPrompt).toBe(prompt);
-    expect(stored.pendingInteractive).toBe(false);
+    expect(stored.pendingInteractive).toBe(true);
   });
 
-  it('marks an interactive schedule as user-originated', async () => {
+  it('derives an idle schedule as user-originated instead of trusting interactive JSON', async () => {
     const scheduledAt = Date.now() + 3600000;
 
     const response = await request(app)
       .post(`/api/sessions/${session.id}/schedule`)
-      .send({ prompt: 'Schedule this follow-up for me', scheduledAt, interactive: true })
+      .send({ prompt: 'Schedule this follow-up for me', scheduledAt, interactive: false })
       .expect(200);
 
     expect(response.body.pendingInteractive).toBe(true);
     expect(sessions.getById(session.id).pendingInteractive).toBe(true);
   });
 
-  it('rejects a non-boolean interactive flag', async () => {
+  it('does not let a caller choose schedule authority with interactive JSON', async () => {
+    sessions.update(session.id, { status: 'running' });
+    activeSessions.set(session.id, { controller: { signal: { aborted: false } } });
+
     const response = await request(app)
       .post(`/api/sessions/${session.id}/schedule`)
-      .send({ prompt: 'Continue', scheduledAt: Date.now() + 3600000, interactive: 'yes' })
-      .expect(400);
+      .send({ prompt: 'Continue', scheduledAt: Date.now() + 3600000, interactive: true })
+      .expect(200);
 
-    expect(response.body.error).toBe('interactive must be a boolean');
+    expect(response.body.pendingInteractive).toBe(false);
+    expect(sessions.getById(session.id).pendingInteractive).toBe(false);
+  });
+
+  function attachLaneWorker() {
+    const board = kanbanBoards.create(project.id);
+    const [source, target] = kanbanLanes.getByBoardId(board.id);
+    const workspace = sessions.create(project.id, 'Workspace', 'work');
+    const worker = sessions.create(project.id, 'Lane worker', 'work', { parentSessionId: workspace.id });
+    const card = kanbanCards.create(source.id, workspace.id);
+    const run = createLaneRunForEntry({
+      projectId: project.id,
+      workspaceId: workspace.id,
+      cardId: card.id,
+      lane: { ...source, onEnterPrompt: 'Perform lane work', completionTargetLaneId: target.id },
+    });
+    attachRootSession(run.id, worker.id);
+    return { card, run, worker };
+  }
+
+  it('keeps a forged interactive schedule fenced after its active lane worker is superseded', async () => {
+    const { card, worker } = attachLaneWorker();
+    activeSessions.set(worker.id, { controller: { signal: { aborted: false } } });
+    supersedeRunForCard(card.id, 'test_supersession');
+
+    const response = await request(app)
+      .post(`/api/sessions/${worker.id}/schedule`)
+      .send({ prompt: 'Revive the superseded worker', scheduledAt: Date.now() + 3600000, interactive: true })
+      .expect(409);
+
+    expect(response.body.error).toBe('Session no longer owns an active lane run');
+    expect(sessions.getById(worker.id).scheduledAt).toBeNull();
+  });
+
+  it('allows an idle terminal lane worker to create a trusted user schedule', async () => {
+    const { card, worker } = attachLaneWorker();
+    supersedeRunForCard(card.id, 'test_supersession');
+
+    const response = await request(app)
+      .post(`/api/sessions/${worker.id}/schedule`)
+      .send({ prompt: 'A user follow-up', scheduledAt: Date.now() + 3600000 })
+      .expect(200);
+
+    expect(response.body.pendingInteractive).toBe(true);
+    expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
+      status: 'scheduled',
+      pendingInteractive: true,
+    }));
+  });
+
+  it('keeps an open lane worker self-schedule on the system-origin path', async () => {
+    const { worker } = attachLaneWorker();
+    activeSessions.set(worker.id, { controller: { signal: { aborted: false } } });
+
+    const response = await request(app)
+      .post(`/api/sessions/${worker.id}/schedule`)
+      .send({ prompt: 'Continue lane work', scheduledAt: Date.now() + 3600000 })
+      .expect(200);
+
+    expect(response.body.pendingInteractive).toBe(false);
   });
 
   it('accepts an ISO 8601 scheduledAt string and normalizes to epoch ms', async () => {

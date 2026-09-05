@@ -407,8 +407,8 @@ export function SessionsApi(ApiClient) {
      * @param {Object} data - Scheduling data
      * @returns {Promise<Object>}
      */
-    async scheduleSession(id, data, { interactive = true } = {}) {
-      return this._post(`/sessions/${id}/schedule`, { ...data, interactive });
+    async scheduleSession(id, data) {
+      return this._post(`/sessions/${id}/schedule`, data);
     },
 
     /**

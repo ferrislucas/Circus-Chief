@@ -79,15 +79,10 @@ router.put('/:id/summary', requireRootSessionAndProject, async (req, res) => {
   }
 });
 
-// Validate a /schedule request body and build the session update payload.
-// Returns either { status, error } for a 4xx response, or { updateData } on success.
-function validateInteractive(interactive) {
-  return interactive === undefined || typeof interactive === 'boolean'
-    ? null
-    : { status: 400, error: { error: 'interactive must be a boolean' } };
-}
-
 function validateScheduleFields(body) {
+  // `interactive` remains tolerated for stale callers, but is deliberately
+  // ignored. It is not part of the public contract and can never grant
+  // schedule authority.
   const allowedFields = new Set(['prompt', 'scheduledAt', 'model', 'interactive']);
   const unexpectedFields = Object.keys(body || {}).filter((key) => !allowedFields.has(key));
   return unexpectedFields.length === 0
@@ -95,9 +90,25 @@ function validateScheduleFields(body) {
     : {
       status: 400,
       error: {
-        error: `Unexpected field(s): ${unexpectedFields.join(', ')}. Only prompt, scheduledAt, model, and interactive are accepted; set reschedule policy via PATCH /api/sessions/:id.`,
+        error: `Unexpected field(s): ${unexpectedFields.join(', ')}. Only prompt, scheduledAt, and model are accepted; set reschedule policy via PATCH /api/sessions/:id.`,
       },
     };
+}
+
+/**
+ * Derive trusted schedule provenance from server-owned turn state exactly once
+ * per request. An agent can self-schedule only while its provider turn owns a
+ * controller; after that turn ends, it cannot issue a later request. Therefore
+ * an idle target is a user-originated schedule, while an active target remains
+ * system-originated regardless of JSON supplied by the caller.
+ */
+function deriveScheduleOrigin(sessionId) {
+  const controller = activeSessions.get(sessionId)?.controller;
+  return {
+    controller,
+    hasActiveProviderTurn: Boolean(controller),
+    isTrustedUserSchedule: !controller,
+  };
 }
 
 function buildScheduleUpdate(req) {
@@ -106,10 +117,7 @@ function buildScheduleUpdate(req) {
   const fieldsError = validateScheduleFields(req.body);
   if (fieldsError) return fieldsError;
 
-  const { prompt, scheduledAt: scheduledAtRaw, model, interactive } = req.body;
-
-  const interactiveError = validateInteractive(interactive);
-  if (interactiveError) return interactiveError;
+  const { prompt, scheduledAt: scheduledAtRaw, model } = req.body;
 
   // Validate prompt
   if (typeof prompt !== 'string' || prompt.trim() === '') {
@@ -135,19 +143,20 @@ function buildScheduleUpdate(req) {
     return modelResult;
   }
 
+  const scheduleOrigin = deriveScheduleOrigin(req.params.id);
   const updateData = {
-    status: activeSessions.has(req.params.id) ? req.session_.status : 'scheduled',
+    status: scheduleOrigin.hasActiveProviderTurn ? req.session_.status : 'scheduled',
     scheduledAt,
     pendingPrompt: prompt,
     pendingConversationId: null,
-    pendingInteractive: interactive === true,
+    pendingInteractive: scheduleOrigin.isTrustedUserSchedule,
     ...modelResult.agentTypeUpdate,
   };
   if (Object.prototype.hasOwnProperty.call(modelResult, 'pendingModel')) {
     updateData.pendingModel = modelResult.pendingModel;
   }
 
-  return { updateData };
+  return { updateData, scheduleOrigin };
 }
 
 // Validate the optional model field for /schedule and resolve the agentType update.
@@ -189,9 +198,8 @@ function resolveScheduleModel(req, model) {
 //   prompt      {string}               required — becomes pendingPrompt
 //   scheduledAt {ISO 8601 | epoch ms}  required — must be in the future
 //   model       {string}               optional — becomes pendingModel; cross-kind guarded
-//   interactive {boolean}              optional — marks a user-originated follow-up
 //
-// Only prompt, scheduledAt, model, and interactive are honored here. Reschedule-policy fields
+// Only prompt, scheduledAt, and model are public inputs here. Reschedule-policy fields
 // must be set at session creation time or via PATCH /api/sessions/:id.
 router.post('/:id/schedule', requireSession, (req, res) => {
   const result = buildScheduleUpdate(req);
@@ -200,7 +208,7 @@ router.post('/:id/schedule', requireSession, (req, res) => {
   }
 
   const update = () => sessions.update(req.params.id, result.updateData);
-  const updated = req.session_.laneRunId && !result.updateData.pendingInteractive
+  const updated = req.session_.laneRunId && !result.scheduleOrigin.isTrustedUserSchedule
     ? withActiveLaneRunOwnership(req.params.id, update) : update();
   if (!updated) {
     return res.status(409).json({ error: 'Session no longer owns an active lane run' });
@@ -209,9 +217,8 @@ router.post('/:id/schedule', requireSession, (req, res) => {
   // that's the only case where it can race a ScheduleWakeup call from the same
   // turn (see scheduleWakeupBridge.js). A write to an idle session has no
   // wakeup to take precedence over.
-  const activeSession = activeSessions.get(req.params.id);
-  if (activeSession?.controller) {
-    recordExplicitSchedule(req.params.id, activeSession.controller);
+  if (result.scheduleOrigin.hasActiveProviderTurn) {
+    recordExplicitSchedule(req.params.id, result.scheduleOrigin.controller);
   }
   broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, result.updateData);
   res.json(updated);
