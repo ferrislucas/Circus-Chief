@@ -9,21 +9,21 @@ import {
   UpdateKanbanLaneRequest,
   ReorderKanbanLanesRequest,
   CreateKanbanCardRequest,
-  MoveKanbanCardRequest,
-  DeclareExitLaneRequest,
+  RouteKanbanCardRequest,
   ReorderKanbanCardsRequest,
 } from '@circuschief/shared/contracts/kanban';
 import {
   addSessionToBoard,
-  moveCard as moveCardService,
+  routeWorkspaceCard,
   removeBoard as removeBoardService,
   removeCard as removeCardService,
   removeLane as removeLaneService,
 } from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
-import { getRun, declareExitLane, isStructured } from '../services/workflowSessionService.js';
+import { getRun } from '../services/workflowSessionService.js';
 import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
 import { isApiError } from '../errors/ApiError.js';
+import { kanbanRoutingMetrics } from '../services/kanbanRoutingObservability.js';
 
 const router = Router({ mergeParams: true });
 const LANE_NOT_FOUND_ERROR = 'Lane not found';
@@ -130,10 +130,11 @@ function replayOrPending(res, operation) {
   return res.status(202).set('Retry-After', '1').json({ operationId: operation.existing.id, status: operation.existing.status });
 }
 
-function completeOperation(operation, response, eventId = null, responseStatus = 200) {
+function completeOperation(operation, response, { eventId = null, responseStatus = 200, includeMetadata = true } = {}) {
   if (!operation?.keyed || !operation.operation) return response;
-  const body = { ...response, operationId: operation.operation.id,
-    delivery: eventId ? { eventId, status: 'pending' } : null };
+  const body = includeMetadata
+    ? { ...response, operationId: operation.operation.id, delivery: eventId ? { eventId, status: 'pending' } : null }
+    : response;
   const updated = databaseManager.get().prepare(`UPDATE kanban_api_operations
     SET status='completed', response_status=?, result_json=?, lane_entry_event_id=?, owner_token=NULL, lease_expires_at=NULL, updated_at=?
     WHERE id=? AND status='processing' AND owner_token=?`)
@@ -143,7 +144,7 @@ function completeOperation(operation, response, eventId = null, responseStatus =
 }
 
 function sendTerminalOperationResponse(res, operation, responseStatus, response) {
-  return res.status(responseStatus).json(completeOperation(operation, response, null, responseStatus));
+  return res.status(responseStatus).json(completeOperation(operation, response, { responseStatus }));
 }
 
 function failOperation(operation, error) {
@@ -202,16 +203,6 @@ function laneBelongsToBoard(lane, board) {
 function targetLaneForBoard(targetLaneId, board) {
   const targetLane = kanbanLanes.getById(targetLaneId);
   return laneBelongsToBoard(targetLane, board) ? targetLane : null;
-}
-
-function deferredMoveContext(req) {
-  const sessionId = req.get('X-Circus-Session-Id');
-  const turnToken = req.get('X-Circus-Workflow-Turn-Token');
-  if (!sessionId && !turnToken) return null;
-  if (!sessionId || !turnToken) {
-    return { error: 'Deferred card moves require both X-Circus-Session-Id and X-Circus-Workflow-Turn-Token' };
-  }
-  return { sessionId, turnToken };
 }
 
 function completionTargetError(boardId, targetLaneId, sourceLaneId = null) {
@@ -465,7 +456,7 @@ router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req,
 
   try {
     const response = await addSessionToBoard(workspaceId, laneId, {
-      finalizeMutation: ({ card, eventId }) => completeOperation(operation, card, eventId, 201),
+      finalizeMutation: ({ card, eventId }) => completeOperation(operation, card, { eventId, responseStatus: 201 }),
     });
     res.status(201).json(response);
   } catch (error) {
@@ -476,54 +467,6 @@ router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req,
       return sendTerminalResponseFromCatch(res, operation, error.status, { error: error.message, code: error.code });
     }
     console.error('Failed to add kanban card:', error);
-    return sendFailureFromCatch(res, operation, error);
-  }
-});
-
-/**
- * PATCH /api/projects/:projectId/kanban/cards/:cardId/move
- * Move card to a different lane
- */
-router.patch('/cards/:cardId/move', async (req, res) => {
-  const { cardId } = req.params;
-
-  const result = MoveKanbanCardRequest.safeParse(req.body);
-  if (!result.success) {
-    return res.status(400).json({ error: result.error.issues[0].message });
-  }
-
-  const card = kanbanCards.getByIdWithLane(cardId);
-  if (!card) {
-    return res.status(404).json({ error: CARD_NOT_FOUND_ERROR });
-  }
-  const board = boardForProject(req.params.projectId);
-  if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: CARD_NOT_FOUND_ERROR });
-
-  const { targetLaneId, sortOrder, runOnEnterTemplate } = result.data;
-  const deferred = deferredMoveContext(req);
-  if (deferred?.error) return res.status(400).json({ error: deferred.error });
-  const operation = beginOperation(req, `card_move:${cardId}`);
-  if (operation.conflict) return res.status(409).json({ error: 'Idempotency-Key was already used with a different payload' });
-  if (replayOrPending(res, operation)) return;
-
-  const targetLane = targetLaneForBoard(targetLaneId, board);
-  if (!targetLane) {
-    return sendTerminalOperationResponse(res, operation, 404, { error: TARGET_LANE_NOT_FOUND_ERROR });
-  }
-
-  try {
-    const response = await moveCardService(cardId, targetLaneId, {
-      sortOrder,
-      runOnEnterTemplate,
-      ...(deferred && { deferredSessionId: deferred.sessionId, deferredTurnToken: deferred.turnToken }),
-      finalizeMutation: ({ card: movedCard, eventId }) => completeOperation(operation, movedCard, eventId),
-    });
-    res.json(response.deferred ? completeOperation(operation, response) : response);
-  } catch (error) {
-    if (isApiError(error)) {
-      return sendTerminalResponseFromCatch(res, operation, error.status, { error: error.message, code: error.code });
-    }
-    console.error('Failed to move kanban card:', error);
     return sendFailureFromCatch(res, operation, error);
   }
 });
@@ -548,13 +491,9 @@ router.delete('/cards/:cardId', (req, res) => {
 
 // ============== Workspace-addressed Card Routes (agent-friendly) ==============
 
-/**
- * PATCH /api/projects/:projectId/kanban/cards/by-workspace/:workspaceId/move
- * Move the workspace's card to a different lane.
- * No card ID needed — the agent addresses by workspace ID.
- */
-// eslint-disable-next-line max-statements, complexity -- ownership and idempotency fences stay adjacent to the mutation
-router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
+/** Route a workspace card; the service decides whether it moves or is scheduled. */
+// eslint-disable-next-line max-statements, complexity -- route-level validation and idempotency fences stay adjacent.
+router.put('/cards/by-workspace/:workspaceId/lane', async (req, res) => {
   const { workspaceId: rawWorkspaceId } = req.params;
 
   // Normalize to workspace root (forgiving if a child id is passed)
@@ -562,86 +501,52 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
 
   const workspace = sessions.getById(workspaceId);
   if (!workspace || workspace.projectId !== req.params.projectId) {
+    kanbanRoutingMetrics.recordRejected('validation');
     return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
   }
 
   const card = kanbanCards.getBySessionId(workspaceId);
   if (!card) {
+    kanbanRoutingMetrics.recordRejected('validation');
     return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
   }
   const board = boardForProject(req.params.projectId);
-  if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
+  if (!cardBelongsToBoard(card, board)) {
+    kanbanRoutingMetrics.recordRejected('validation');
+    return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
+  }
 
-  const result = MoveKanbanCardRequest.safeParse(req.body);
+  const result = RouteKanbanCardRequest.safeParse(req.body);
   if (!result.success) {
+    kanbanRoutingMetrics.recordRejected('validation');
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  const { targetLaneId, sortOrder, runOnEnterTemplate } = result.data;
-  const deferred = deferredMoveContext(req);
-  if (deferred?.error) return res.status(400).json({ error: deferred.error });
-  const operation = beginOperation(req, `workspace_move:${workspaceId}`);
+  const { laneId } = result.data;
+  const operation = beginOperation(req, `workspace_lane:${workspaceId}`);
   if (operation.conflict) return res.status(409).json({ error: 'Idempotency-Key was already used with a different payload' });
   if (replayOrPending(res, operation)) return;
 
-  const targetLane = targetLaneForBoard(targetLaneId, board);
+  const targetLane = targetLaneForBoard(laneId, board);
   if (!targetLane) {
+    kanbanRoutingMetrics.recordRejected('validation');
     return sendTerminalOperationResponse(res, operation, 404, { error: TARGET_LANE_NOT_FOUND_ERROR });
   }
 
   try {
-    const response = await moveCardService(card.id, targetLaneId, {
-      sortOrder,
-      runOnEnterTemplate,
-      ...(deferred && { deferredSessionId: deferred.sessionId, deferredTurnToken: deferred.turnToken }),
-      finalizeMutation: ({ card: movedCard, eventId }) => completeOperation(operation, movedCard, eventId),
+    const response = await routeWorkspaceCard(workspaceId, laneId, {
+      finalizeMutation: ({ response: routeResponse, eventId }) => completeOperation(operation, routeResponse, {
+        eventId, includeMetadata: false,
+      }),
     });
-    res.json(response.deferred ? completeOperation(operation, response) : response);
+    res.json(response);
   } catch (error) {
     if (isApiError(error)) {
+      if (error.code === 'KANBAN_ROUTE_RETRYABLE') kanbanRoutingMetrics.recordRejected('contention');
       return sendTerminalResponseFromCatch(res, operation, error.status, { error: error.message, code: error.code });
     }
-    console.error('Failed to move kanban card by workspace:', error);
+    console.error('Failed to route kanban card by workspace:', error);
     return sendFailureFromCatch(res, operation, error);
-  }
-});
-
-/** Set the shared, last-writer-wins destination for an active run without moving or interrupting it. */
-router.put('/cards/by-workspace/:workspaceId/exit-lane', (req, res) => {
-  const workspaceId = sessions.getRootSessionId(req.params.workspaceId) || req.params.workspaceId;
-  const workspace = sessions.getById(workspaceId);
-  if (!workspace || workspace.projectId !== req.params.projectId) {
-    return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
-  }
-  const card = kanbanCards.getBySessionId(workspaceId);
-  const board = boardForProject(req.params.projectId);
-  if (!card || !cardBelongsToBoard(card, board)) {
-    return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
-  }
-  const result = DeclareExitLaneRequest.safeParse(req.body);
-  if (!result.success) return res.status(400).json({ error: result.error.issues[0].message });
-
-  // Naturally idempotent: middleware validates a supplied key's format, then this route ignores it.
-  try {
-    const run = declareExitLane(card.id, result.data.laneId);
-    const response = {
-      cardId: card.id,
-      laneRunId: run.id,
-      deferred: true,
-      chosenExitLaneId: run.chosenExitLaneId,
-      chosenExitLaneName: run.chosenExitLaneName,
-      willRunAutomation: isStructured(kanbanLanes.getById(result.data.laneId)),
-    };
-    broadcastToProject(workspace.projectId, WS_MESSAGE_TYPES.KANBAN_EXIT_LANE_DECLARED, {
-      projectId: workspace.projectId,
-      cardId: card.id,
-      activeLaneRun: run,
-    });
-    return res.json(response);
-  } catch (error) {
-    if (isApiError(error)) return res.status(error.status).json({ error: error.message, code: error.code });
-    console.error('Failed to declare kanban exit lane:', error);
-    return res.status(500).json({ error: GENERIC_OPERATION_FAILURE });
   }
 });
 

@@ -393,7 +393,7 @@ const workflowCardFromCard = card => {
       : (isSessionActivelyRunning(card) || card.runningCount > 0 ? [rootSessionId] : []),
     eligible: activeTab.value === 'sessions'
       && cardVisibilityByRootId.value[rootSessionId] !== false
-      && !streamingStore.isSessionLogCollapsed(rootSessionId),
+      && !streamingStore.isSessionLogCollapsed(rootSessionId, true),
   };
 };
 const eligibleIdsFor = key => [...new Set(eligibleWorkflowCards.value
@@ -601,7 +601,7 @@ async function addSessionToLane(lane) {
       : kanbanStore.getCardBySessionId(sessionToAdd.value.id);
     if (existingCard) {
       if (currentLaneIdForSessionToAdd.value === lane.id) return;
-      await kanbanStore.moveCard(route.params.id, existingCard.id, lane.id);
+      await kanbanStore.routeWorkspaceCard(route.params.id, sessionToAdd.value.id, existingCard.id, lane.id);
       uiStore.success(`Session moved to "${lane.name}"`);
     } else {
       await kanbanStore.addSessionToBoard(route.params.id, sessionToAdd.value.id, lane.id);

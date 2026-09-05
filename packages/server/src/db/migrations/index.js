@@ -358,9 +358,14 @@ export const allMigrations = validateMigrations([
 
   // --- Remove the dead lane-trigger recursion counter (cap it fed was removed) ---
   k.get('sessions-drop-lane_trigger_depth'),
+  k.get('kanban-drop-deferred-card-move-turn-fence'),
+  k.get('kanban-routing-observability'),
 
   // --- Sessions blocked on agent input ---
   // Keep this last: it is additive and must run for databases created before
   // pending_agent_input was added to schema.sql.
   s.get('sessions-add-pending_agent_input'),
+
+  // --- Server-derived origin of user-created scheduled follow-ups ---
+  s.get('sessions-add-pending_interactive'),
 ]);

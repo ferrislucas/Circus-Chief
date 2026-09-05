@@ -114,7 +114,10 @@ vi.mock('./PrIndicators.vue', () => ({
 vi.mock('./SessionLogStream.vue', () => ({
   default: defineComponent({
     name: 'SessionLogStream',
-    props: ['sessionIds'],
+    props: {
+      sessionIds: Array,
+      defaultCollapsed: Boolean,
+    },
     setup(props) {
       return () => h('div', { class: 'session-log-stream-mock', 'data-session-ids': JSON.stringify(props.sessionIds) });
     },
@@ -1119,6 +1122,13 @@ describe('SessionCard', () => {
         session: { ...baseSession, status: 'running' },
       });
       expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+    });
+
+    it('defaults the session-card live output to collapsed', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+      expect(wrapper.findComponent({ name: 'SessionLogStream' }).props('defaultCollapsed')).toBe(true);
     });
 
     it('renders SessionLogStream when workspace status is "starting"', () => {

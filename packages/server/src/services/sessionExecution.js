@@ -20,7 +20,7 @@ import { buildConversationContextForModelSwitch, buildConversationContextForCont
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { beginWorkflowTurn, discardDeferredCardMoveForTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, activeLaneRunOwnsSession } from './workflowSessionService.js';
+import { beginWorkflowTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
 // sessionExecution), safe because this is only called at runtime inside
@@ -124,7 +124,6 @@ export async function _executeSession({
       await handleStreamEvent(sessionId, event, { controller });
     }
     if (controller.signal.aborted) {
-      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_cancelled');
       closeOwnWork(sessionId, 'cancelled', 'Provider turn cancelled', { turnToken: workflowTurn?.turnToken });
       return;
     }
@@ -148,12 +147,8 @@ export async function _executeSession({
         errorLabel,
         handleTemplateTriggerIfNeeded,
         errorAlreadyRecorded: true,
+        interactive,
       });
-      discardDeferredCardMoveForTurn(
-        sessionId,
-        workflowTurn?.turnToken,
-        rescheduled ? 'turn_retrying' : 'turn_failed',
-      );
       if (rescheduled) {
         markExecutionState(sessionId, 'retrying');
         return;
@@ -165,19 +160,16 @@ export async function _executeSession({
     }
     // FR-4/FR-5: a self-scheduled continuation is an open obligation, not success.
     if (wasRescheduled) {
-      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_rescheduled');
       markExecutionState(sessionId, 'scheduled');
       return;
     }
     // FR-9.8: a graceful provider limit/outage leaves the lane obligation open.
     if (heldForLimit) {
-      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'provider_held');
       markHeldForLimit(sessionId);
       return;
     }
     // W6/FR-8: finish target-lane automation after a successful, non-continuing turn.
     if (interactive && workflowTurn?.executionStateBeforeTurn !== 'paused') {
-      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'interactive_turn_does_not_complete_work');
       finishWorkflowTurn(sessionId, workflowTurn?.turnToken);
       return;
     }
@@ -195,12 +187,12 @@ export async function _executeSession({
       broadcastConversationState: broadcastConversationStateOnError,
       errorLabel,
       handleTemplateTriggerIfNeeded,
+      interactive,
     });
     if (rescheduled) {
       // FR-9.1/FR-9.5: a transient error with an automatic retry/reschedule
       // keeps the session (and its lane run) open — only the execution_state
       // dimension moves, own_work_state is untouched.
-      discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, 'turn_retrying');
       markExecutionState(sessionId, 'retrying');
       return; // Don't throw - session was rescheduled
     }
@@ -209,7 +201,6 @@ export async function _executeSession({
     // as 'closed_failed'). Both are terminal — neither may be interpreted as
     // success, and reconcileLaneRun() below fails/cancels the lane run so a
     // structured card never advances past this session.
-    discardDeferredCardMoveForTurn(sessionId, workflowTurn?.turnToken, controller.signal.aborted ? 'turn_cancelled' : 'turn_failed');
     closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message,
       { turnToken: workflowTurn?.turnToken });
     throw error;

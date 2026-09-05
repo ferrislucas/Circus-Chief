@@ -603,7 +603,7 @@ async function addSessionToLane(lane) {
     const existingCard = kanbanStore.getCardBySessionId(sessionToAdd.value.id);
     if (existingCard) {
       if (currentLaneIdForSessionToAdd.value === lane.id) return;
-      await kanbanStore.moveCard(sessionToAdd.value.projectId, existingCard.id, lane.id);
+      await kanbanStore.routeWorkspaceCard(sessionToAdd.value.projectId, sessionToAdd.value.id, existingCard.id, lane.id);
       uiStore.success(`Session moved to "${lane.name}"`);
     } else {
       const workspaceId = sessionsStore.getRootSession(sessionToAdd.value.id)?.id || sessionToAdd.value.id;

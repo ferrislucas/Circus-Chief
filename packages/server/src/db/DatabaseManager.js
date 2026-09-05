@@ -122,6 +122,17 @@ export class DatabaseManager {
   transaction(fn) {
     return this.get().transaction(fn)();
   }
+
+  /**
+   * Run a synchronous callback in an IMMEDIATE SQLite transaction.  This
+   * reserves the write lock before the callback reads branch-defining state,
+   * which is required for transitions that race workflow completion.
+   * @param {Function} fn - Synchronous durable database work
+   * @returns {any}
+   */
+  immediateTransaction(fn) {
+    return this.get().transaction(fn).immediate();
+  }
 }
 
 // Singleton instance
