@@ -5,9 +5,8 @@ import { broadcastToProject } from '../websocket.js';
 import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
   getRun, attachRootSession, reconcileLaneRun,
-  supersedeRunForCard, closeOwnWork, markExecutionState, markHeldForLimit,
+  supersedeRunForCard, closeOwnWork, markExecutionState, markHeldForLimit, pauseForUserStop,
   computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition,
-  withActiveLaneRunOwnership, claimWorkflowSessionStart, laneRunFencesSystemWork,
 } from './workflowSessionService.js';
 import { auditKanbanInvariants, reconcileKanbanOwnership } from './kanbanRecoveryService.js';
 import { kanbanRoutingMetrics } from './kanbanRoutingObservability.js';
@@ -174,7 +173,7 @@ describe('workflowSessionService', () => {
       expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
     });
 
-    it('cancels the run, discards a pending destination, and does not move the card on a user stop', async () => {
+    it('retains terminal cancellation support and discards a pending destination', async () => {
       const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
       const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
       attachRootSession(run.id, worker.id);
@@ -226,6 +225,71 @@ describe('workflowSessionService', () => {
     });
   });
 
+  describe('pauseForUserStop (FR-10)', () => {
+    function participatingWorker() {
+      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+      const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+      attachRootSession(run.id, worker.id);
+      return { worker, run };
+    }
+
+    it('pauses open owned work without cancelling its obligation or lane run', () => {
+      const { worker, run } = participatingWorker();
+      beginWorkflowTurn(worker.id);
+
+      expect(pauseForUserStop(worker.id)).toBe(true);
+      expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
+        ownWorkState: 'open', executionState: 'paused', workflowReason: 'Stopped by user', subtreeOutcome: 'open',
+      }));
+      expect(getRun(run.id)).toEqual(expect.objectContaining({
+        status: 'open', blockingSessionId: worker.id,
+        blockingReason: 'Paused — stopped by user', blockerKind: 'user_stop_pause',
+      }));
+      expect(kanbanCards.getById(card.id)).toEqual(expect.objectContaining({ laneId: source.id, activeLaneRunId: run.id }));
+      const events = databaseManager.get().prepare('SELECT event_type FROM kanban_lane_run_audit_events WHERE lane_run_id=?').all(run.id);
+      expect(events.map((event) => event.event_type)).toContain('own_work_paused_by_user');
+      expect(events.map((event) => event.event_type)).not.toEqual(expect.arrayContaining(['own_work_cancelled', 'run_cancelled']));
+    });
+
+    it('is idempotent, refuses closed or unowned work, and fences old turns', () => {
+      const { worker, run } = participatingWorker();
+      const oldTurn = beginWorkflowTurn(worker.id);
+      expect(pauseForUserStop(worker.id, { turnToken: oldTurn.turnToken })).toBe(true);
+      expect(pauseForUserStop(worker.id, { turnToken: oldTurn.turnToken })).toBe(false);
+      const newTurn = beginWorkflowTurn(worker.id);
+      expect(newTurn.executionStateBeforeTurn).toBe('paused');
+      expect(sessions.getById(worker.id).workflowReason).toBeNull();
+      expect(pauseForUserStop(worker.id, { turnToken: oldTurn.turnToken })).toBe(false);
+      expect(sessions.getById(worker.id).executionState).toBe('running');
+      expect(pauseForUserStop(worker.id, { turnToken: newTurn.turnToken })).toBe(true);
+      expect(supersedeRunForCard(card.id, 'manual move')).toBeTruthy();
+      expect(pauseForUserStop(worker.id)).toBe(false);
+      expect(databaseManager.get().prepare("SELECT * FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='own_work_paused_by_user'").all(run.id)).toHaveLength(2);
+    });
+
+    it('reclassifies a provider-limit pause when the user explicitly stops the session', () => {
+      const { worker, run } = participatingWorker();
+      expect(markHeldForLimit(worker.id)).toBe(true);
+      expect(getRun(run.id).blockerKind).toBe('provider_limit_pause');
+
+      expect(pauseForUserStop(worker.id)).toBe(true);
+      expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
+        executionState: 'paused', workflowReason: 'Stopped by user',
+      }));
+      expect(getRun(run.id)).toEqual(expect.objectContaining({
+        blockingReason: 'Paused — stopped by user', blockerKind: 'user_stop_pause',
+      }));
+      expect(databaseManager.get().prepare("SELECT * FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='own_work_paused_by_user'").all(run.id)).toHaveLength(1);
+      expect(pauseForUserStop(worker.id)).toBe(false);
+    });
+
+    it('is a hot-path no-op for a non-participating session', () => {
+      const plain = sessions.create(project.id, 'Plain', 'unrelated work');
+      expect(pauseForUserStop(plain.id)).toBe(false);
+      expect(sessions.getById(plain.id)).toEqual(expect.objectContaining({ ownWorkState: 'open', executionState: 'idle' }));
+    });
+  });
+
   it('markExecutionState is a no-op for a non-participating session', () => {
     const plain = sessions.create(project.id, 'Plain', 'unrelated work');
     markExecutionState(plain.id, 'retrying');
@@ -249,6 +313,7 @@ describe('workflowSessionService', () => {
         pausedCount: 1,
         blockingSessionId: worker.id,
         blockingReason: 'Paused — provider limit or outage',
+        blockerKind: 'provider_limit_pause',
       }));
     });
 
@@ -704,150 +769,5 @@ describe('workflowSessionService', () => {
 
       expect(() => sessions.create(project.id, 'Child', 'on time', { parentSessionId: worker.id })).not.toThrow();
     });
-  });
-});
-
-describe('retired (closed_successfully) sessions keep scheduling fences open', () => {
-  let project; let source; let target; let root;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    project = projects.create('Retired worker project', '/tmp/retired-worker');
-    const board = kanbanBoards.create(project.id);
-    [source, target] = kanbanLanes.getByBoardId(board.id);
-    root = sessions.create(project.id, 'Root', 'work');
-  });
-
-  function structuredLane() {
-    return { ...kanbanLanes.getById(source.id), onEnterPrompt: 'Perform lane work', completionTargetLaneId: target.id };
-  }
-
-  let cardSeq = 0;
-
-  /** Each scenario needs its own card (a card is keyed to one workspace
-   * session, and can be owned by only one run at a time), so pair every fresh
-   * card with its own workspace session. Returns { card, workspace }. */
-  function freshCard() {
-    cardSeq += 1;
-    const workspace = sessions.create(project.id, `Workspace ${cardSeq}`, 'work');
-    return { card: kanbanCards.create(source.id, workspace.id), workspace };
-  }
-
-  /** Build a worker attached to an owning run on a fresh card.
-   * @param {{ closeViaFinalize?: boolean }} options - true (default) closes
-   *   own work through finalizeOwnWorkCompletion (run succeeds); false marks
-   *   own work closed directly while the run stays open (e.g. waiting on
-   *   descendants). */
-  function retiredWorker({ closeViaFinalize = true } = {}) {
-    const { card, workspace } = freshCard();
-    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: workspace.id });
-    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: workspace.id, cardId: card.id, lane: structuredLane() });
-    attachRootSession(run.id, worker.id);
-    if (closeViaFinalize) {
-      finalizeOwnWorkCompletion(worker.id, beginWorkflowTurn(worker.id)); // run succeeds
-    } else {
-      databaseManager.get().prepare("UPDATE sessions SET own_work_state='closed_successfully' WHERE id=?").run(worker.id);
-    }
-    return { worker, run, card };
-  }
-
-  /** Build a worker attached to an owning run on a fresh card, in the given
-   * terminal/displaced state. */
-  function workerOnFreshCard({ supersede = false, failOwnWork = false } = {}) {
-    const { card, workspace } = freshCard();
-    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: workspace.id });
-    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: workspace.id, cardId: card.id, lane: structuredLane() });
-    attachRootSession(run.id, worker.id);
-    if (supersede) supersedeRunForCard(card.id, 'manual_move');
-    if (failOwnWork) {
-      databaseManager.get().prepare("UPDATE sessions SET own_work_state='closed_failed' WHERE id=?").run(worker.id);
-    }
-    return { worker, run, card };
-  }
-
-  it('withActiveLaneRunOwnership runs the mutation for a retired worker on a succeeded run', () => {
-    const { worker } = retiredWorker();
-    expect(sessions.getById(worker.id).ownWorkState).toBe('closed_successfully');
-    expect(withActiveLaneRunOwnership(worker.id, () => 'ran')).toBe('ran');
-  });
-
-  it('withActiveLaneRunOwnership runs the mutation for closed_successfully on a still-open run', () => {
-    const { worker, run } = retiredWorker({ closeViaFinalize: false });
-    expect(getRun(run.id).status).toBe('open');
-    expect(sessions.getById(worker.id).ownWorkState).toBe('closed_successfully');
-    expect(withActiveLaneRunOwnership(worker.id, () => 'ran')).toBe('ran');
-  });
-
-  it('withActiveLaneRunOwnership still rejects a superseded (cancelled) member, and warns', () => {
-    const { worker } = workerOnFreshCard({ supersede: true });
-    expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
-
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      expect(withActiveLaneRunOwnership(worker.id, () => 'ran')).toBeNull();
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(worker.id));
-    } finally {
-      warnSpy.mockRestore();
-    }
-  });
-
-  it('claimWorkflowSessionStart claims a retired worker and preserves its schedule', () => {
-    const { worker, run } = retiredWorker();
-    sessions.update(worker.id, { scheduledAt: Date.now() + 60_000, pendingPrompt: 'Continue' });
-
-    expect(claimWorkflowSessionStart(worker.id)).toBe(true);
-
-    const after = sessions.getById(worker.id);
-    expect(after.scheduledAt).toEqual(expect.any(Number));
-    expect(after.pendingPrompt).toBe('Continue');
-    expect(after.ownWorkState).toBe('closed_successfully');
-    const auditRow = databaseManager.get()
-      .prepare("SELECT session_id FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='scheduled_start_claimed' AND session_id=?")
-      .get(run.id, worker.id);
-    expect(auditRow).toBeTruthy();
-  });
-
-  it('claimWorkflowSessionStart still rejects and clears a superseded member', () => {
-    const { worker, run } = workerOnFreshCard({ supersede: true });
-    sessions.update(worker.id, { scheduledAt: Date.now() + 60_000, pendingPrompt: 'Continue' });
-
-    expect(claimWorkflowSessionStart(worker.id)).toBe(false);
-
-    const after = sessions.getById(worker.id);
-    expect(after.scheduledAt).toBeNull();
-    expect(after.pendingPrompt).toBeNull();
-    const auditRow = databaseManager.get()
-      .prepare("SELECT session_id FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='stale_start_rejected' AND session_id=?")
-      .get(run.id, worker.id);
-    expect(auditRow).toBeTruthy();
-  });
-
-  it('laneRunFencesSystemWork exempts retired and non-participating sessions only', () => {
-    // Missing row: fenced so the final pre-provider check fails closed if a
-    // session is deleted during asynchronous launch preparation.
-    expect(laneRunFencesSystemWork('deleted-session')).toBe(true);
-
-    // Non-participating: never fenced.
-    expect(laneRunFencesSystemWork(root.id)).toBe(false);
-
-    // Open worker on an actively owning run: not fenced.
-    const { worker: openWorker } = workerOnFreshCard();
-    expect(laneRunFencesSystemWork(openWorker.id)).toBe(false);
-
-    // Retired worker on a succeeded run: not fenced (the fix).
-    const { worker: retired } = retiredWorker();
-    expect(laneRunFencesSystemWork(retired.id)).toBe(false);
-
-    // closed_successfully while the run is still open: not fenced.
-    const { worker: closedEarly } = retiredWorker({ closeViaFinalize: false });
-    expect(laneRunFencesSystemWork(closedEarly.id)).toBe(false);
-
-    // Superseded (cancelled) member: fenced.
-    const { worker: cancelledWorker } = workerOnFreshCard({ supersede: true });
-    expect(laneRunFencesSystemWork(cancelledWorker.id)).toBe(true);
-
-    // closed_failed member: fenced (FR-9 — permanent failures stay dead).
-    const { worker: failedWorker } = workerOnFreshCard({ failOwnWork: true });
-    expect(laneRunFencesSystemWork(failedWorker.id)).toBe(true);
   });
 });

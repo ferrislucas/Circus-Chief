@@ -14,6 +14,7 @@ const TABLE_SESSIONS = 'sessions';
 // Column type constants
 const COL_INTEGER_DEFAULT_0 = 'INTEGER DEFAULT 0';
 const COL_INTEGER_NOT_NULL_DEFAULT_0 = 'INTEGER NOT NULL DEFAULT 0';
+const COL_INTEGER_DEFAULT_NULL = 'INTEGER DEFAULT NULL';
 
 /**
  * SQL column definition for the sessions table with updated status CHECK constraint.
@@ -141,7 +142,7 @@ export const sessionsMigrations = [
   // --- Scheduling columns ---
   {
     name: 'sessions-add-scheduled_at',
-    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'scheduled_at', 'INTEGER DEFAULT NULL'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'scheduled_at', COL_INTEGER_DEFAULT_NULL); },
   },
   {
     name: 'sessions-add-reschedule_delay_minutes',
@@ -336,6 +337,12 @@ export const sessionsMigrations = [
   {
     name: 'sessions-add-pending_agent_input',
     up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'pending_agent_input', COL_INTEGER_NOT_NULL_DEFAULT_0); },
+  },
+
+  // --- Server-derived origin of a pending schedule: user follow-up vs system work ---
+  {
+    name: 'sessions-add-pending_interactive',
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'pending_interactive', COL_INTEGER_DEFAULT_NULL); },
   },
 
 ];

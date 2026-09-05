@@ -17,6 +17,7 @@ import {
 import { applyPendingWakeup, clearPendingWakeup } from './scheduleWakeupBridge.js';
 import { withActiveLaneRunOwnership } from './workflowSessionService.js';
 import { broadcastSessionUpdate } from './summaryBroadcast.js';
+import { isUserStopAbort } from './sessionAbort.js';
 
 /**
  * Broadcast the session- and project-scoped updates for a status transition to
@@ -74,7 +75,7 @@ async function handleScheduledContinuationIfNeeded(sessionId, controller, { appl
     // Mirror the REST endpoint's and the bridge's lane-run fencing so a
     // superseded worker cannot be flipped back to 'scheduled' by a leftover
     // schedule row on either the completion or the error path.
-    const updated = session.laneRunId
+    const updated = session.laneRunId && !session.pendingInteractive
       ? withActiveLaneRunOwnership(sessionId, transition)
       : transition();
     if (!updated) {
@@ -101,6 +102,32 @@ function associateAndCleanupWorkLogs(sessionId) {
   }
 }
 
+function isTurnActive(sessionId, controller) {
+  return activeSessions.get(sessionId)?.controller === controller && !controller?.signal?.aborted;
+}
+
+const inactiveCompletion = () => ({ wasRescheduled: false, heldForLimit: false });
+
+async function proactivelyReschedule(sessionId, callback) {
+  if (!callback) return false;
+  return callback(sessionId);
+}
+
+async function broadcastCompletionChanges(sessionId, workingDirectory) {
+  const session = sessions.getById(sessionId);
+  if (session) await broadcastChangesUpdate(sessionId, session.projectId, workingDirectory);
+}
+
+async function autoSendQueuedPrompt(sessionId, callback) {
+  return callback ? callback(sessionId) : false;
+}
+
+function transitionToWaiting(sessionId, wasScheduledMidTurn) {
+  if (wasScheduledMidTurn) return;
+  sessions.update(sessionId, { status: 'waiting', error: null });
+  broadcastSessionStatus(sessionId, 'waiting');
+}
+
 /**
  * Handle post-turn activities for a session that's ready for follow-up.
  * @param {string} sessionId
@@ -114,10 +141,13 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   // lane ownership can still reject it at this boundary.
   const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId, controller);
 
-  if (!wasScheduledMidTurn) {
-    sessions.update(sessionId, { status: 'waiting', error: null });
-    broadcastSessionStatus(sessionId, 'waiting');
-  }
+  // Every await in this pipeline is an opportunity for stopSession() to abort
+  // this turn, or for a replacement turn to take ownership of the session.
+  // Once either happens, this stale completion must not write status or launch
+  // any of the automatic continuations below.
+  if (!isTurnActive(sessionId, controller)) return inactiveCompletion();
+
+  transitionToWaiting(sessionId, wasScheduledMidTurn);
 
   // Applying a wakeup can create a diagnostic work log when it loses to a
   // later explicit schedule or its lane run was superseded. Associate only
@@ -134,8 +164,9 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   // double-drive a session that's simultaneously scheduled to retry (Issue 3).
   const { checkProactiveReschedule } = callbacks;
   let wasProactivelyRescheduled = false;
-  if (!wasScheduledMidTurn && checkProactiveReschedule) {
-    wasProactivelyRescheduled = await checkProactiveReschedule(sessionId);
+  if (!wasScheduledMidTurn) {
+    wasProactivelyRescheduled = await proactivelyReschedule(sessionId, checkProactiveReschedule);
+    if (!isTurnActive(sessionId, controller)) return inactiveCompletion();
     if (wasProactivelyRescheduled) {
       return { wasRescheduled: true, heldForLimit: false }; // Session was rescheduled, don't continue with normal completion
     }
@@ -147,10 +178,8 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   summaryService.onSessionActivity(sessionId);
 
   // Broadcast changes update when turn completes (real-time indicator)
-  const currentSession = sessions.getById(sessionId);
-  if (currentSession) {
-    await broadcastChangesUpdate(sessionId, currentSession.projectId, workingDirectory);
-  }
+  await broadcastCompletionChanges(sessionId, workingDirectory);
+  if (!isTurnActive(sessionId, controller)) return inactiveCompletion();
 
   // A card transition is now owned exclusively by workflowSessionService.
   // Keep provider limits visible to the caller so a participating obligation
@@ -160,8 +189,9 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   // Auto-send queued prompt if enabled (runs BEFORE template trigger)
   const { handleAutoSendIfNeeded, handleTemplateTriggerIfNeeded } = callbacks;
   let autoSendFired = false;
-  if (!wasScheduledMidTurn && handleAutoSendIfNeeded) {
-    autoSendFired = await handleAutoSendIfNeeded(sessionId);
+  if (!wasScheduledMidTurn) {
+    autoSendFired = await autoSendQueuedPrompt(sessionId, handleAutoSendIfNeeded);
+    if (!isTurnActive(sessionId, controller)) return inactiveCompletion();
   }
 
   // Only trigger next template if auto-send did NOT fire
@@ -299,7 +329,7 @@ function computeRetryMode(sessionId) {
  * @param {Object} schedulerService
  * @returns {Promise<boolean>}
  */
-async function tryRescheduleOnError(sessionId, error, shouldRescheduleOnError, schedulerService) {
+async function tryRescheduleOnError(sessionId, error, { shouldRescheduleOnError, schedulerService, interactive = false }) {
   const session = sessions.getById(sessionId);
   if (!session || !shouldRescheduleOnError(session, error, sessionId)) {
     return false;
@@ -311,7 +341,7 @@ async function tryRescheduleOnError(sessionId, error, shouldRescheduleOnError, s
   const rescheduled = await schedulerService.rescheduleSession(
     sessionId,
     error.message,
-    { retryExistingMessage, conversationId }
+    { retryExistingMessage, conversationId, interactive }
   );
   if (rescheduled) {
     console.log(`[SessionManager] Session ${sessionId} rescheduled due to error (retryExistingMessage=${retryExistingMessage})`);
@@ -374,10 +404,10 @@ async function finalizeSessionError(sessionId, error, options) {
  * Encapsulates the duplicated error handling block from runSession/continueSession/continueSessionWithExistingMessage
  * @param {string} sessionId
  * @param {Error} error
- * @param {{ controller: AbortController, shouldRescheduleOnError: Function, schedulerService: Object, errorLabel?: string, broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function, errorAlreadyRecorded?: boolean }} options
+ * @param {{ controller: AbortController, shouldRescheduleOnError: Function, schedulerService: Object, errorLabel?: string, broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function, errorAlreadyRecorded?: boolean, interactive?: boolean }} options
  */
 export async function handleSessionError(sessionId, error, options = {}) {
-  const { controller, shouldRescheduleOnError, schedulerService } = options;
+  const { controller, shouldRescheduleOnError, schedulerService, interactive = false } = options;
   const errorLabel = options.errorLabel || 'Session error';
   console.error(`${errorLabel}:`, error);
   console.error('Error stack:', error.stack);
@@ -387,7 +417,7 @@ export async function handleSessionError(sessionId, error, options = {}) {
   // not survive an error or be inherited by a replacement turn.
   clearPendingWakeup(sessionId, controller);
 
-  if (controller.signal.aborted) {
+  if (isUserStopAbort(controller)) {
     // A user-initiated stop is intentional. A mid-turn-scheduled session that the
     // user stops will have its schedule cleared by the stop handler; we honour that
     // by not preserving the schedule here.
@@ -406,7 +436,7 @@ export async function handleSessionError(sessionId, error, options = {}) {
   }
 
   // Check if we should reschedule instead of marking as error
-  const rescheduled = await tryRescheduleOnError(sessionId, error, shouldRescheduleOnError, schedulerService);
+  const rescheduled = await tryRescheduleOnError(sessionId, error, { shouldRescheduleOnError, schedulerService, interactive });
   if (rescheduled) {
     return true;
   }

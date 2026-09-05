@@ -72,6 +72,7 @@ import * as summaryService from './summaryService.js';
 import * as diffService from './diffService.js';
 import * as gitService from './gitService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { abortForUserStop } from './sessionAbort.js';
 import {
   createWorkLog,
   associateAndBroadcastWorkLogs,
@@ -890,6 +891,30 @@ describe('streamEventHandler', () => {
       expect(mockHandleTemplate).not.toHaveBeenCalled();
     });
 
+    it('does not launch automation when the turn is stopped during completion', async () => {
+      const controller = new AbortController();
+      activeSessions.set('sess-1', { controller });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockImplementation(async () => {
+        controller.abort();
+        return { staged: null, unstaged: null, untracked: null };
+      });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      }, { controller });
+
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
     it('does not call auto-send or template trigger when rescheduled', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
@@ -1689,6 +1714,24 @@ describe('streamEventHandler', () => {
       );
     });
 
+    it('carries a claimed user schedule origin into its retry after durable state is cleared', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('retryable failure');
+      sessions.getById.mockReturnValue({ autoRescheduleEnabled: true });
+      const mockScheduler = { rescheduleSession: vi.fn().mockResolvedValue(true) };
+
+      await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: vi.fn().mockReturnValue(true),
+        schedulerService: mockScheduler,
+        interactive: true,
+      });
+
+      expect(mockScheduler.rescheduleSession).toHaveBeenCalledWith(
+        'sess-1', error.message, expect.objectContaining({ interactive: true })
+      );
+    });
+
     it('falls through to error handling when reschedule fails', async () => {
       const controller = { signal: { aborted: false } };
       const error = new Error('token limit exceeded');
@@ -1809,7 +1852,8 @@ describe('streamEventHandler', () => {
     });
 
     it('does not update when controller is aborted', async () => {
-      const controller = { signal: { aborted: true } };
+      const controller = new AbortController();
+      abortForUserStop(controller);
       const error = new Error('Aborted');
       const mockShouldReschedule = vi.fn();
       const mockScheduler = { rescheduleSession: vi.fn() };
@@ -2016,7 +2060,8 @@ describe('streamEventHandler', () => {
     });
 
     it('does not call extractPrUrlIfNeeded when controller is aborted', async () => {
-      const controller = { signal: { aborted: true } };
+      const controller = new AbortController();
+      abortForUserStop(controller);
       const error = new Error('Aborted');
 
       const mockShouldReschedule = vi.fn();
@@ -2093,7 +2138,8 @@ describe('streamEventHandler', () => {
     });
 
     it('does not call handleTemplateTriggerIfNeeded when controller is aborted', async () => {
-      const controller = { signal: { aborted: true } };
+      const controller = new AbortController();
+      abortForUserStop(controller);
       const error = new Error('Aborted');
 
       const mockShouldReschedule = vi.fn();
