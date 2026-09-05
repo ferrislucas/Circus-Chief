@@ -277,13 +277,20 @@ function interactionQuestionResult(record, response) {
 }
 
 function isValidInteractionAnswer(question, answer) {
-  const selected = answer.selectedOptionIds || [];
-  if (!Array.isArray(selected) || new Set(selected).size !== selected.length) return false;
+  const selected = interactionSelection(answer);
   const options = new Set((question.options || []).map((option) => option.id));
-  if (selected.some((id) => !options.has(id))) return false;
+  if (!selected || !selected.every((id) => options.has(id))) return false;
   if (question.mode !== 'multiple' && selected.length > 1) return false;
-  if (answer.text != null && (!question.allowOther || !answer.text.trim() || selected.length)) return false;
+  if (!otherTextIsAllowed(question, answer, selected)) return false;
   return Boolean(selected.length || answer.text?.trim() || !question.required);
+}
+// Selections must be an array of unique ids; null when malformed.
+function interactionSelection({ selectedOptionIds: selected = [] }) {
+  return Array.isArray(selected) && new Set(selected).size === selected.length ? selected : null;
+}
+// “Other” free text requires opt-in, non-empty text, and no predefined selections.
+function otherTextIsAllowed(question, { text }, selected) {
+  return text == null || (Boolean(question.allowOther) && Boolean(text.trim()) && selected.length === 0);
 }
 
 /**

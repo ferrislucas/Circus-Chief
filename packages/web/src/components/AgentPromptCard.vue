@@ -100,7 +100,7 @@
         <label class="additional-response question-notes">
           <span>Note <em>optional</em></span>
           <textarea
-          v-model="notes[questionKey(question)]"
+            v-model="notes[questionKey(question)]"
             class="form-input form-textarea question-note"
             :disabled="submitting"
             placeholder="Why this choice?"
