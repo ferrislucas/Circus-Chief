@@ -179,15 +179,12 @@ describe('workflowSessionService', () => {
       attachRootSession(run.id, worker.id);
       beginWorkflowTurn(worker.id);
       databaseManager.get().prepare('UPDATE kanban_lane_runs SET chosen_exit_lane_id=? WHERE id=?').run(target.id, run.id);
-      databaseManager.get().prepare('UPDATE kanban_lane_runs SET chosen_exit_lane_id=? WHERE id=?').run(target.id, run.id);
 
       const reconciled = closeOwnWork(worker.id, 'cancelled', 'Stopped by user');
 
       expect(reconciled.status).toBe('cancelled');
       expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
       expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
-      await Promise.resolve();
-      expect(kanbanRoutingMetrics.snapshot().discarded).toBe(1);
       await Promise.resolve();
       expect(kanbanRoutingMetrics.snapshot().discarded).toBe(1);
     });
@@ -268,6 +265,22 @@ describe('workflowSessionService', () => {
       expect(supersedeRunForCard(card.id, 'manual move')).toBeTruthy();
       expect(pauseForUserStop(worker.id)).toBe(false);
       expect(databaseManager.get().prepare("SELECT * FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='own_work_paused_by_user'").all(run.id)).toHaveLength(2);
+    });
+
+    it('reclassifies a provider-limit pause when the user explicitly stops the session', () => {
+      const { worker, run } = participatingWorker();
+      expect(markHeldForLimit(worker.id)).toBe(true);
+      expect(getRun(run.id).blockerKind).toBe('provider_limit_pause');
+
+      expect(pauseForUserStop(worker.id)).toBe(true);
+      expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
+        executionState: 'paused', workflowReason: 'Stopped by user',
+      }));
+      expect(getRun(run.id)).toEqual(expect.objectContaining({
+        blockingReason: 'Paused — stopped by user', blockerKind: 'user_stop_pause',
+      }));
+      expect(databaseManager.get().prepare("SELECT * FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='own_work_paused_by_user'").all(run.id)).toHaveLength(1);
+      expect(pauseForUserStop(worker.id)).toBe(false);
     });
 
     it('is a hot-path no-op for a non-participating session', () => {

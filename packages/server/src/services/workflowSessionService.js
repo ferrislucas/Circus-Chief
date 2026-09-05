@@ -261,7 +261,7 @@ export function pauseForUserStop(sessionId, { turnToken = null } = {}) {
     const db = databaseManager.get(); const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!isParticipating(session)
       || session.own_work_state !== 'open'
-      || session.execution_state === 'paused'
+      || (session.execution_state === 'paused' && session.workflow_reason === USER_STOP_REASON)
       || (turnToken && session.execution_turn_token !== turnToken)
       || !activeRunOwnsSession(db, session)) return false;
     const time = now(); const transitionId = id();
