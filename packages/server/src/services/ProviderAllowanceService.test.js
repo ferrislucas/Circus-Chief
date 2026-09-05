@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { ProviderAllowanceService } from './ProviderAllowanceService.js';
 
 const enabled = { id: 'openai-default', name: 'OpenAI', kind: 'openai', enabled: true };
@@ -32,7 +33,7 @@ describe('ProviderAllowanceService', () => {
     };
 
     service.observe(snapshot);
-    expect(broadcaster).toHaveBeenCalledWith('provider:allowance_updated', { snapshot });
+    expect(broadcaster).toHaveBeenCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, { snapshot });
     expect(service.getSnapshots()).toEqual([snapshot]);
   });
 
@@ -59,7 +60,7 @@ describe('ProviderAllowanceService', () => {
     };
     expect(received).toEqual(expected);
     expect(service.getSnapshots()).toEqual([expected]);
-    expect(broadcaster).toHaveBeenCalledWith('provider:allowance_updated', { snapshot: expected });
+    expect(broadcaster).toHaveBeenCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, { snapshot: expected });
   });
 
   it('uses unknown state when an adapter cannot supply an authoritative positive limit', () => {

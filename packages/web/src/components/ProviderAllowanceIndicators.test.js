@@ -83,6 +83,37 @@ describe('ProviderAllowanceIndicators', () => {
     expect(wrapper.find('[data-testid="provider-allowance-indicators"]').exists()).toBe(false);
   });
 
+  it('applies a real provider allowance WebSocket envelope without a REST refresh', async () => {
+    const store = useProviderAllowancesStore();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    store.snapshots = [snapshot({
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 90, limit: 100, remainingPercent: 90, unit: 'requests', resetsAt: null }],
+    })];
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    api.getProviderAllowances.mockClear();
+
+    const onAllowanceUpdate = websocketListeners.get('provider_allowance_updated');
+    onAllowanceUpdate({
+      type: 'provider_allowance_updated',
+      snapshot: snapshot({
+        status: 'critical',
+        allowances: [{ key: 'requests', label: 'Requests', remaining: 5, limit: 100, remainingPercent: 5, unit: 'requests', resetsAt: null }],
+      }),
+    });
+    await nextTick();
+
+    expect(api.getProviderAllowances).not.toHaveBeenCalled();
+    expect(store.snapshots[0].allowances[0].remainingPercent).toBe(5);
+    expect(wrapper.get('[data-testid="provider-allowance-item"]').text()).toContain('5%');
+
+    onAllowanceUpdate({ type: 'provider_allowance_updated', snapshot: { providerId: 'invalid' } });
+    onAllowanceUpdate({ type: 'provider_allowance_updated', snapshot: snapshot(), rawProviderHeader: 'secret' });
+    expect(store.snapshots[0].allowances[0].remainingPercent).toBe(5);
+    expect(warning).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
   it('reconciles the authoritative order after an active-session lifecycle update', async () => {
     api.getProviderAllowances.mockResolvedValueOnce([]).mockResolvedValueOnce([
       snapshot({ providerId: 'active', status: 'available' }),

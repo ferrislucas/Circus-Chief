@@ -93,7 +93,7 @@ test.describe('Provider allowance indicators', () => {
 
     const indicators = page.getByTestId('provider-allowance-indicators');
     await observeAllowance(allowanceSnapshot(bravo.id, bravo.name, 'exhausted', 0));
-    await expect.poll(() => receivedFrames.some((frame) => frame.includes('provider:allowance_updated'))).toBe(true);
+    await expect.poll(() => receivedFrames.some((frame) => frame.includes('provider_allowance_updated'))).toBe(true);
     await indicators.getByRole('button', { name: 'Show provider usage' }).click();
     const detailTexts = await page.getByRole('dialog').locator('.provider-detail').allTextContents();
     expect(detailTexts.findIndex((text) => text.includes(bravo.name))).toBeLessThan(detailTexts.findIndex((text) => text.includes(alpha.name)));

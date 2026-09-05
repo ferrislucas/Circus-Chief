@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { WS_MESSAGE_TYPES } from '../protocol.js';
 
 export const COMMIT_ATTRIBUTION_VALIDATION_MESSAGE =
   'Commit attribution must be in the format "Name <email@example.com>" or "Co-authored-by: Name <email@example.com>".';
@@ -161,6 +162,7 @@ export const ProviderAllowanceSnapshot = z.object({
 }).strict();
 export const ProviderAllowanceListResponse = z.array(ProviderAllowanceSnapshot);
 export const ProviderAllowanceUpdatedPayload = z.object({
+  type: z.literal(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED),
   snapshot: ProviderAllowanceSnapshot,
 }).strict();
 
