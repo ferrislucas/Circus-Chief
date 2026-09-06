@@ -18,3 +18,8 @@ export function getProviderAllowanceService() {
   }
   return providerAllowanceService;
 }
+
+export function getProviderAllowanceObserver() {
+  const service = getProviderAllowanceService();
+  return service.observe.bind(service);
+}

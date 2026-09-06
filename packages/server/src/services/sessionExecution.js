@@ -6,6 +6,7 @@ import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
 import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
 import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
 import { buildAgentConfig, buildAgentEnv } from './sessionAgentConfig.js';
+import { getProviderAllowanceObserver } from './providerAllowanceServiceInstance.js';
 export { buildAgentEnv } from './sessionAgentConfig.js';
 export { buildQueryParams } from './queryParamBuilder.js';
 import { buildQueryParams } from './queryParamBuilder.js';
@@ -52,7 +53,7 @@ async function resolveInitialSessionModelEnv(session, model) {
  * @returns {{ execute: (queryParams: any, meta?: any) => AsyncGenerator }}
  */
 export function createAgentForSession(agentType = 'claude-code', config = {}) {
-  const mergedConfig = { ...buildAgentConfig(agentType), ...config };
+  const mergedConfig = { ...buildAgentConfig(agentType), ...(agentType === 'codex' ? { allowanceObserver: getProviderAllowanceObserver() } : {}), ...config };
   const baseAgent = agentGateway.createAgent(agentType, mergedConfig);
 
   // Wrap with VCR adapter if in VCR mode

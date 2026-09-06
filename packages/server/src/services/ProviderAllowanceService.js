@@ -33,6 +33,7 @@ export class ProviderAllowanceService {
   observe(snapshot) {
     const provider = this.#enabledProviders().find((candidate) => candidate.id === snapshot?.providerId);
     if (!provider) return null;
+    if (snapshot?.source === 'observed-header' && snapshot.providerKind !== provider.kind) return null;
     const normalized = this.#normalizeSnapshot(snapshot, provider);
     const previous = this.snapshots.get(normalized.providerId);
     this.snapshots.set(normalized.providerId, normalized);
@@ -65,6 +66,7 @@ export class ProviderAllowanceService {
     const authoritativePercentages = allowances.map((allowance) => allowance.remainingPercent).filter((value) => value !== null);
     const hasAuthoritativePercentage = authoritativePercentages.length > 0;
 
+    const updatedAt = finiteNumberOrNull(snapshot.updatedAt);
     return ProviderAllowanceSnapshot.parse({
       providerId: provider.id,
       providerName: provider.name,
@@ -72,8 +74,8 @@ export class ProviderAllowanceService {
       status: hasAuthoritativePercentage ? deriveStatus(Math.min(...authoritativePercentages)) : 'unknown',
       allowances,
       source: isSource(snapshot.source) ? snapshot.source : null,
-      updatedAt: finiteNumberOrNull(snapshot.updatedAt),
-      staleAt: finiteNumberOrNull(snapshot.staleAt),
+      updatedAt,
+      staleAt: calculateStaleAt(snapshot, updatedAt),
       unavailableReason: typeof snapshot.unavailableReason === 'string' ? snapshot.unavailableReason : null,
     });
   }
@@ -82,6 +84,12 @@ export class ProviderAllowanceService {
     return this.providerRepository.getEnabledForAllowances?.()
       ?? this.providerRepository.getAll().filter((provider) => provider.enabled);
   }
+}
+
+function calculateStaleAt(snapshot, updatedAt) {
+  const staleAfterMs = finiteNumberOrNull(snapshot.staleAfterMs);
+  if (updatedAt !== null && staleAfterMs !== null && staleAfterMs >= 0) return updatedAt + staleAfterMs;
+  return finiteNumberOrNull(snapshot.staleAt);
 }
 
 // Adapter values are untrusted. A percentage exists only when it can be
