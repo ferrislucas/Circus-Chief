@@ -88,6 +88,7 @@ describe('schema baseline', () => {
         'id', 'project_id', 'name', 'status', 'mode', 'thinking_enabled',
         'archived', 'git_branch', 'git_worktree', 'pr_url', 'pr_url_auto_link_disabled',
         'error', 'effort_level', 'cost_usd', 'claude_session_id', 'model', 'provider_id',
+        'resolved_model', 'resolved_provider_id',
         'next_template_id', 'parent_session_id', 'input_tokens', 'output_tokens',
         'thinking_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens',
         'web_search_requests', 'context_window', 'starred', 'manually_named',
@@ -100,7 +101,7 @@ describe('schema baseline', () => {
         'own_work_closed_at', 'workflow_updated_at', 'workflow_reason',
         'execution_state', 'subtree_outcome', 'last_activity_at',
         'created_at', 'updated_at', 'pending_conversation_id',
-        'resolved_model', 'resolved_provider_id', 'execution_turn_token', 'pending_interactive',
+        'execution_turn_token', 'pending_interactive',
       ]);
     });
   });
