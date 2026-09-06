@@ -8,7 +8,7 @@ const snapshots = [
   allowanceSnapshot('delta', 'Delta', 'exhausted', 0),
 ];
 const LIVE_SERVER_TESTS = new Set([
-  'normalizes live updates, reorders attention states, and never leaks source secrets',
+  'normalizes live updates, preserves server order, and never leaks source secrets',
   'reconciles the server snapshot after reconnect and renders unknown and stale states honestly',
 ]);
 
@@ -73,7 +73,7 @@ test.describe('Provider allowance indicators', () => {
     expect(await page.locator('html').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   });
 
-  test('normalizes live updates, reorders attention states, and never leaks source secrets', async ({ page }) => {
+  test('normalizes live updates, preserves server order, and never leaks source secrets', async ({ page }) => {
     const alpha = await createProvider({ name: 'Allowance Alpha', kind: 'openai' });
     const bravo = await createProvider({ name: 'Allowance Bravo', kind: 'openai' });
     const receivedFrames: string[] = [];
@@ -92,11 +92,12 @@ test.describe('Provider allowance indicators', () => {
     await page.goto('/');
 
     const indicators = page.getByTestId('provider-allowance-indicators');
+    await expect(indicators).toContainText('80%');
     await observeAllowance(allowanceSnapshot(bravo.id, bravo.name, 'exhausted', 0));
     await expect.poll(() => receivedFrames.some((frame) => frame.includes('provider_allowance_updated'))).toBe(true);
     await indicators.getByRole('button', { name: 'Show provider usage' }).click();
     const detailTexts = await page.getByRole('dialog').locator('.provider-detail').allTextContents();
-    expect(detailTexts.findIndex((text) => text.includes(bravo.name))).toBeLessThan(detailTexts.findIndex((text) => text.includes(alpha.name)));
+    expect(detailTexts.findIndex((text) => text.includes(alpha.name))).toBeLessThan(detailTexts.findIndex((text) => text.includes(bravo.name)));
     await expect(page.getByRole('dialog')).toContainText('0%');
 
     const response = await fetch(`${API_URL}/api/providers/allowances`);
