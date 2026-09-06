@@ -39,7 +39,7 @@ describe('CommandRunner', () => {
     it('grows an already-requested transcript in persisted output order without another descriptor request', async () => {
       const workingDirectory = await mkdtemp(join(tmpdir(), 'circus-live-output-'));
       const chunks = [];
-      const run = { id: 'live_transcript', sessionId: 'session_1', status: 'running', legacyByteLength: 0, outputHighWater: 0 };
+      const run = { id: 'live_transcript', sessionId: 'session_1', status: 'running', outputHighWater: 0 };
       const repository = {
         create: vi.fn(),
         complete: vi.fn(() => { run.status = 'success'; }),
@@ -89,7 +89,7 @@ describe('CommandRunner', () => {
     it('preserves raw terminal bytes in transcripts before and after materialization while retaining rendered callbacks', async () => {
       const workingDirectory = await mkdtemp(join(tmpdir(), 'circus-raw-output-'));
       const persisted = [];
-      const run = { id: 'raw_transcript', sessionId: 'session_1', status: 'running', legacyByteLength: 0, outputHighWater: 0 };
+      const run = { id: 'raw_transcript', sessionId: 'session_1', status: 'running', outputHighWater: 0 };
       const repository = {
         create: vi.fn(),
         complete: vi.fn(() => { run.status = 'success'; }),

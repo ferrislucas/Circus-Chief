@@ -95,15 +95,6 @@ async function appendBoundedWindow(output, content) {
   return bytes.length;
 }
 
-async function writeLegacy(output, run, repository) {
-  for (let offset = 0; offset < run.legacyByteLength; offset += OUTPUT_BYTE_WINDOW) {
-    const page = repository.readLegacyOutputPage(run.id, offset, OUTPUT_BYTE_WINDOW);
-    if (!page.length) break;
-    const copied = await appendBoundedWindow(output, page);
-    if (copied < OUTPUT_BYTE_WINDOW) break;
-  }
-}
-
 async function appendChunks(output, chunks) {
   for (const chunk of chunks) await appendBoundedWindow(output, chunk.rawContent ?? chunk.content);
 }
@@ -150,16 +141,10 @@ async function rebuild(paths, run, repository) {
   const temporary = `${paths.output}.${process.pid}.${Date.now()}.tmp`;
   try {
     await writeFile(temporary, '', { mode: 0o600, flag: 'wx' });
-    let sequence = 0;
-    if (run.legacyByteLength && !run.outputHighWater) {
-      await writeLegacy(temporary, run, repository);
-      sequence = 1;
-    } else {
-      sequence = await copyChunkWindows(temporary, run.id, repository);
-    }
+    const sequence = await copyChunkWindows(temporary, run.id, repository);
     await rename(temporary, paths.output);
     const info = await outputStat(paths.output);
-    await writeState(paths.state, { sequence, size: info.size, legacy: Boolean(run.legacyByteLength && !run.outputHighWater) });
+    await writeState(paths.state, { sequence, size: info.size });
   } catch (error) {
     await rm(temporary, { force: true }).catch(() => {});
     throw error;
@@ -169,16 +154,15 @@ async function rebuild(paths, run, repository) {
 async function materialize(paths, run, repository) {
   const state = await readState(paths.state);
   let outputInfo = await outputStat(paths.output);
-  if (!state || !outputInfo || state.size !== outputInfo.size || (state.legacy && run.outputHighWater)) {
+  if (!state || !outputInfo || state.size !== outputInfo.size) {
     await rebuild(paths, run, repository);
     return;
   }
-  if (state.legacy) return;
   const highWater = repository.getHighWater(run.id);
   if (state.sequence > highWater) return rebuild(paths, run, repository);
   const sequence = await copyChunkWindows(paths.output, run.id, repository, state.sequence);
   outputInfo = await outputStat(paths.output);
-  await writeState(paths.state, { sequence, size: outputInfo.size, legacy: false });
+  await writeState(paths.state, { sequence, size: outputInfo.size });
 }
 
 function synchronized(key, operation) {
@@ -253,7 +237,7 @@ export async function appendCommandRunOutputResource({ workingDirectory, runId, 
     try {
       const state = await readState(paths.state);
       const output = await outputStat(paths.output);
-      if (!state || !output || state.legacy) {
+      if (!state || !output) {
         throw new CommandOutputResourceError('Command output resource is stale');
       }
       const pending = chunks.filter((chunk) => chunk.sequence > state.sequence);
@@ -264,7 +248,7 @@ export async function appendCommandRunOutputResource({ workingDirectory, runId, 
       }
       await appendChunks(paths.output, pending);
       const info = await outputStat(paths.output);
-      await writeState(paths.state, { sequence: pending.at(-1).sequence, size: info.size, legacy: false });
+      await writeState(paths.state, { sequence: pending.at(-1).sequence, size: info.size });
       return true;
     } catch (error) {
       materializedArtifacts.delete(artifactKey(root, runId));

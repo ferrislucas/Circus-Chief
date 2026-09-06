@@ -9,7 +9,6 @@ import {
   appendCommandRunOutputResource,
   getCommandRunOutputResource,
   OUTPUT_BYTE_WINDOW,
-  removeCommandRunOutputResource,
 } from './commandRunOutputResource.js';
 
 const roots = [];
@@ -47,7 +46,7 @@ describe('commandRunOutputResource', () => {
   it('reconciles output persisted between its historical snapshot and live registration', async () => {
     const workingDirectory = await root();
     const chunks = [{ sequence: 1, content: 'before handoff\n' }];
-    const run = { id: 'handoff_gap', sessionId: 'session_1', status: 'running', legacyByteLength: 0, outputHighWater: 1 };
+    const run = { id: 'handoff_gap', sessionId: 'session_1', status: 'running', outputHighWater: 1 };
     let handoffAppend;
     let releaseHandoff;
     let signalSnapshotRead;
@@ -95,7 +94,7 @@ describe('commandRunOutputResource', () => {
   it('finishes the handoff as complete when the run completes', async () => {
     const workingDirectory = await root();
     const chunks = [{ sequence: 1, content: 'before completion\n' }];
-    const run = { id: 'handoff_complete', sessionId: 'session_1', status: 'running', legacyByteLength: 0, outputHighWater: 1 };
+    const run = { id: 'handoff_complete', sessionId: 'session_1', status: 'running', outputHighWater: 1 };
     const repository = {
       getHighWater: () => chunks.at(-1)?.sequence || 0,
       readOutputPage: (_id, after) => ({ chunks: chunks.filter((chunk) => chunk.sequence > after) }),
@@ -122,7 +121,7 @@ describe('commandRunOutputResource', () => {
   it('does not expose or resurrect an artifact when the run is deleted during handoff', async () => {
     const workingDirectory = await root();
     let deleted = false;
-    const run = { id: 'handoff_deleted', sessionId: 'session_1', status: 'running', legacyByteLength: 0, outputHighWater: 0 };
+    const run = { id: 'handoff_deleted', sessionId: 'session_1', status: 'running', outputHighWater: 0 };
     const repository = {
       getHighWater: () => 0,
       readOutputPage: () => ({ chunks: [] }),
@@ -143,7 +142,7 @@ describe('commandRunOutputResource', () => {
   it('reconciles a materialized transcript from persisted output after an append failure', async () => {
     const workingDirectory = await root();
     const chunks = [];
-    const run = { id: 'append_failure', sessionId: 'session_1', status: 'running', legacyByteLength: 0, outputHighWater: 0 };
+    const run = { id: 'append_failure', sessionId: 'session_1', status: 'running', outputHighWater: 0 };
     const repository = {
       getHighWater: () => chunks.length,
       getOutputResourceMetadata: () => run,
@@ -168,7 +167,7 @@ describe('commandRunOutputResource', () => {
   it('appends live chunks through bounded byte writes at and above 64 KiB', async () => {
     const workingDirectory = await root();
     const chunks = [];
-    const run = { id: 'large_live_chunk', sessionId: 'session_1', status: 'running', legacyByteLength: 0, outputHighWater: 0 };
+    const run = { id: 'large_live_chunk', sessionId: 'session_1', status: 'running', outputHighWater: 0 };
     const repository = {
       getHighWater: () => chunks.length,
       getOutputResourceMetadata: () => run,
@@ -197,7 +196,7 @@ describe('commandRunOutputResource', () => {
     const workingDirectory = await root();
     const persisted = [{ sequence: 1, content: Buffer.from('first\n') }, { sequence: 2, content: Buffer.from('second\n') }];
     let visibleChunks = [];
-    const run = { id: 'partial_live_failure', sessionId: 'session_1', status: 'running', legacyByteLength: 0, outputHighWater: 2 };
+    const run = { id: 'partial_live_failure', sessionId: 'session_1', status: 'running', outputHighWater: 2 };
     const repository = {
       getHighWater: () => visibleChunks.length,
       getOutputResourceMetadata: () => run,
@@ -242,7 +241,7 @@ describe('commandRunOutputResource', () => {
 
     const descriptor = await getCommandRunOutputResource({
       workingDirectory,
-      run: { id: 'oversized_chunk', status: 'success', legacyByteLength: 0, outputHighWater: 1 },
+      run: { id: 'oversized_chunk', status: 'success', outputHighWater: 1 },
       repository,
     });
 
@@ -271,7 +270,7 @@ describe('commandRunOutputResource', () => {
 
     const descriptor = await getCommandRunOutputResource({
       workingDirectory,
-      run: { id: 'mixed_bytes', status: 'success', legacyByteLength: 0, outputHighWater: 4 },
+      run: { id: 'mixed_bytes', status: 'success', outputHighWater: 4 },
       repository,
     });
 
@@ -279,19 +278,10 @@ describe('commandRunOutputResource', () => {
     expect(await readFile(join(workingDirectory, descriptor.path))).toEqual(expected);
   });
 
-  it('materializes full legacy output and rejects unsafe run IDs', async () => {
+  it('rejects unsafe run IDs', async () => {
     const workingDirectory = await root();
-    const legacy = 'é'.repeat(40_000);
-    const bytes = Buffer.from(legacy);
-    const repository = {
-      getHighWater: () => 0,
-      readOutputPage: () => ({ chunks: [] }),
-      readLegacyOutputPage: (_id, offset, limit) => bytes.subarray(offset, offset + limit),
-    };
-    const descriptor = await getCommandRunOutputResource({ workingDirectory, run: { id: 'legacy_1', status: 'success', legacyByteLength: bytes.length, outputHighWater: 0 }, repository });
-    expect(await readFile(join(workingDirectory, descriptor.path), 'utf8')).toBe(legacy);
-    await expect(getCommandRunOutputResource({ workingDirectory, run: { id: '../escape', status: 'success', output: '', outputHighWater: 0 }, repository })).rejects.toThrow();
-    await removeCommandRunOutputResource({ workingDirectory, runId: 'legacy_1' });
+    const repository = { getHighWater: () => 0, readOutputPage: () => ({ chunks: [] }) };
+    await expect(getCommandRunOutputResource({ workingDirectory, run: { id: '../escape', status: 'success', outputHighWater: 0 }, repository })).rejects.toThrow();
   });
 
   it('does not follow workspace-controlled Git indirection to mutate external metadata', async () => {
@@ -313,7 +303,7 @@ describe('commandRunOutputResource', () => {
   it('creates an output resource without Git metadata mutation', async () => {
     const workingDirectory = await root();
     const repository = { getHighWater: () => 0, readOutputPage: () => ({ chunks: [] }) };
-    const descriptor = await getCommandRunOutputResource({ workingDirectory, run: { id: 'no_git_run', status: 'success', legacyByteLength: 0, outputHighWater: 0 }, repository });
+    const descriptor = await getCommandRunOutputResource({ workingDirectory, run: { id: 'no_git_run', status: 'success', outputHighWater: 0 }, repository });
     expect(descriptor.path).toBe('.circus/runs/no_git_run/output.log');
     await expect(lstat(join(workingDirectory, '.git'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
@@ -323,7 +313,7 @@ describe('commandRunOutputResource', () => {
     const outside = await root();
     await symlink(outside, join(workingDirectory, '.circus'));
     const repository = { getHighWater: () => 0, readOutputPage: () => ({ chunks: [] }) };
-    await expect(getCommandRunOutputResource({ workingDirectory, run: { id: 'safe_run', status: 'success', legacyByteLength: 0, outputHighWater: 0 }, repository })).rejects.toThrow();
+    await expect(getCommandRunOutputResource({ workingDirectory, run: { id: 'safe_run', status: 'success', outputHighWater: 0 }, repository })).rejects.toThrow();
     expect((await lstat(outside)).isDirectory()).toBe(true);
   });
 });

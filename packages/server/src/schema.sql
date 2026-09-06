@@ -307,7 +307,6 @@ CREATE TABLE IF NOT EXISTS command_runs (
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   button_id TEXT NOT NULL REFERENCES command_buttons(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'success', 'error', 'killed')),
-  output TEXT NOT NULL DEFAULT '',
   exit_code INTEGER,
   started_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   completed_at INTEGER

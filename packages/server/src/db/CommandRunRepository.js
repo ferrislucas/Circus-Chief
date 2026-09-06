@@ -19,9 +19,9 @@ export class CommandRunRepository extends BaseRepository {
       sessionId: row.session_id,
       buttonId: row.button_id,
       status: row.status,
-      // Kept for legacy rows only. New runs write append-only chunks.
-      output: row.output || '',
-      hasOutput: Boolean(row.has_output) || Boolean(row.output),
+      // Transcript content is stored exclusively as append-only chunks.
+      output: '',
+      hasOutput: Boolean(row.has_output),
       outputHighWater: row.output_high_water || 0,
       exitCode: row.exit_code,
       startedAt: row.started_at,
@@ -33,8 +33,8 @@ export class CommandRunRepository extends BaseRepository {
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO command_runs (id, session_id, button_id, status, output, started_at)
-         VALUES (?, ?, ?, 'running', '', ?)`
+        `INSERT INTO command_runs (id, session_id, button_id, status, started_at)
+         VALUES (?, ?, ?, 'running', ?)`
       )
       .run(id, sessionId, buttonId, now);
     return this.getById(id);
@@ -76,10 +76,10 @@ export class CommandRunRepository extends BaseRepository {
     ).get(runId).sequence;
   }
 
-  /** Read descriptor metadata without mapping the potentially huge legacy output. */
+  /** Read descriptor metadata without mapping transcript content. */
   getOutputResourceMetadata(id) {
     const row = this.db.prepare(`SELECT cr.id, cr.session_id, cr.button_id, cr.status,
-      cr.exit_code, cr.started_at, cr.completed_at, length(CAST(cr.output AS BLOB)) AS legacy_byte_length,
+      cr.exit_code, cr.started_at, cr.completed_at,
       EXISTS(SELECT 1 FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS has_output,
       (SELECT COALESCE(MAX(sequence), 0) FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS output_high_water
       FROM command_runs cr WHERE cr.id = ?`).get(id);
@@ -87,18 +87,9 @@ export class CommandRunRepository extends BaseRepository {
     return {
       id: row.id, sessionId: row.session_id, buttonId: row.button_id, status: row.status,
       exitCode: row.exit_code, startedAt: row.started_at, completedAt: row.completed_at,
-      legacyByteLength: row.legacy_byte_length || 0, hasOutput: Boolean(row.has_output),
+      hasOutput: Boolean(row.has_output),
       outputHighWater: row.output_high_water || 0,
     };
-  }
-
-  /** Read legacy TEXT as a byte range. CAST makes SQLite substr offsets byte-based. */
-  readLegacyOutputPage(runId, offset = 0, limitBytes = COMMAND_RUN_OUTPUT_BYTE_WINDOW) {
-    const limit = Math.max(1, Math.min(Number(limitBytes) || COMMAND_RUN_OUTPUT_BYTE_WINDOW, 1024 * 1024));
-    const row = this.db.prepare(
-      'SELECT substr(CAST(output AS BLOB), ?, ?) AS content FROM command_runs WHERE id = ?'
-    ).get((Number(offset) || 0) + 1, limit, runId);
-    return row?.content || Buffer.alloc(0);
   }
 
   /** Read an ordered, bounded page without materializing the full transcript. */
@@ -115,11 +106,6 @@ export class CommandRunRepository extends BaseRepository {
       chunks.push({ sequence: row.sequence, content: row.content });
       bytes += row.byte_length;
       if (bytes >= limit) break;
-    }
-    // Legacy rows predate chunks and remain readable as one bounded chunk.
-    if (!chunks.length && !after) {
-      const legacy = this.db.prepare('SELECT output FROM command_runs WHERE id = ?').get(runId)?.output;
-      if (legacy) return { chunks: [{ sequence: 1, content: legacy.slice(0, limit) }], highWater: 1, hasMore: Buffer.byteLength(legacy) > limit };
     }
     const highWater = this.getHighWater(runId);
     return { chunks, highWater, hasMore: chunks.length ? chunks[chunks.length - 1].sequence < highWater : false };
@@ -380,7 +366,7 @@ export class CommandRunRepository extends BaseRepository {
       .prepare(
         `SELECT *
          FROM (
-           SELECT cr.id, cr.session_id, cr.button_id, cr.status, cr.exit_code, cr.output, cr.started_at, cr.completed_at,
+           SELECT cr.id, cr.session_id, cr.button_id, cr.status, cr.exit_code, cr.started_at, cr.completed_at,
              EXISTS(SELECT 1 FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS has_output,
              (SELECT COALESCE(MAX(sequence), 0) FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS output_high_water,
              ROW_NUMBER() OVER (PARTITION BY cr.button_id ORDER BY COALESCE(cr.completed_at, cr.started_at) DESC, cr.id DESC) as rn
