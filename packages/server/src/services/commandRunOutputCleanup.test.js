@@ -111,4 +111,17 @@ describe('command run output cleanup', () => {
     expect(commandRuns.db.prepare(`SELECT working_directory FROM command_run_output_cleanup
       WHERE run_id = ?`).get('cascade-run')).toEqual({ working_directory: '/tmp/cascade-cleanup' });
   });
+
+  it('captures artifact identity before workspace project deletion', () => {
+    const project = projects.create('Project cascade cleanup', '/tmp/project-cascade-cleanup');
+    const session = sessions.create(project.id, 'Project cascade cleanup', 'test');
+    const button = commandButtons.create({ projectId: project.id, label: 'test', command: 'true' });
+    commandRuns.create({ id: 'project-cascade-run', sessionId: session.id, buttonId: button.id });
+
+    projects.delete(project.id);
+
+    expect(commandRuns.getById('project-cascade-run')).toBeNull();
+    expect(commandRuns.db.prepare(`SELECT working_directory FROM command_run_output_cleanup
+      WHERE run_id = ?`).get('project-cascade-run')).toEqual({ working_directory: '/tmp/project-cascade-cleanup' });
+  });
 });
