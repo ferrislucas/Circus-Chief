@@ -70,4 +70,46 @@ describe('session prompt responses', () => {
       updatedInput: { answers: { 'Deploy where?': '  Preview deployment  ' } },
     });
   });
+
+  it('keeps an interaction answer scoped to its prompt session and rejects unknown option ids', async () => {
+    const project = projects.create('Interaction scope project', '/tmp/prompts');
+    const session = sessions.create(project.id, 'Interactive prompt', 'Ask a question');
+    const otherSession = sessions.create(project.id, 'Other session', 'Do unrelated work');
+    const promptPromise = parkPrompt({
+      sessionId: session.id, conversationId: 'conversation-3', provider: 'codex', externalRequestId: 'rpc-1', kind: 'question',
+      payload: { questions: [{ id: 'environment', question: 'Deploy where?', mode: 'single', required: true, allowOther: false, options: [{ id: 'staging', label: 'Staging' }] }] },
+    });
+    const prompt = getPrompt(session.id);
+    const app = express();
+    app.use(express.json());
+    app.use('/api/sessions', sessionsRouter);
+
+    const crossSession = await request(app)
+      .post(`/api/sessions/${otherSession.id}/prompt/${prompt.id}/respond`)
+      .send({ action: 'answer', answers: [{ questionId: 'environment', selectedOptionIds: ['staging'] }] });
+    expect(crossSession.status).toBe(409);
+
+    const unknownOption = await request(app)
+      .post(`/api/sessions/${session.id}/prompt/${prompt.id}/respond`)
+      .send({ action: 'answer', answers: [{ questionId: 'environment', selectedOptionIds: ['production'] }] });
+    expect(unknownOption.status).toBe(422);
+    expect(getPrompt(session.id)?.id).toBe(prompt.id);
+
+    const missingRequired = await request(app)
+      .post(`/api/sessions/${session.id}/prompt/${prompt.id}/respond`)
+      .send({ action: 'answer', answers: [] });
+    expect(missingRequired.status).toBe(422);
+
+    const incompatibleMode = await request(app)
+      .post(`/api/sessions/${session.id}/prompt/${prompt.id}/respond`)
+      .send({ action: 'answer', answers: [{ questionId: 'environment', selectedOptionIds: ['staging', 'staging'] }] });
+    expect(incompatibleMode.status).toBe(422);
+    expect(getPrompt(session.id)?.id).toBe(prompt.id);
+
+    const valid = await request(app)
+      .post(`/api/sessions/${session.id}/prompt/${prompt.id}/respond`)
+      .send({ action: 'answer', answers: [{ questionId: 'environment', selectedOptionIds: ['staging'] }] });
+    expect(valid.status).toBe(200);
+    await expect(promptPromise).resolves.toEqual({ action: 'answer', answers: [{ questionId: 'environment', selectedOptionIds: ['staging'] }] });
+  });
 });

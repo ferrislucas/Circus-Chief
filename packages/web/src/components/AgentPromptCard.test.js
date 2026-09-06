@@ -11,6 +11,19 @@ async function pressKey(key) {
 const prompt = { id: 'prompt-1', kind: 'question', payload: { questions: [{ question: 'Choose', multiSelect: true, options: [{ label: 'A', description: 'first' }, { label: 'B', description: 'second' }] }] } };
 
 describe('AgentPromptCard', () => {
+  it('renders untrusted normalized question text as text rather than HTML', () => {
+    const wrapper = mount(AgentPromptCard, { props: { prompt: {
+      id: 'escaped-question', provider: 'codex', kind: 'question', payload: { questions: [{
+        id: 'untrusted', question: '<img src=x onerror=alert(1)>', mode: 'single', required: true, allowOther: false,
+        options: [{ id: 'unsafe', label: '<script>alert(1)</script>', description: '<b>description</b>' }],
+      }] },
+    } } });
+
+    expect(wrapper.text()).toContain('<img src=x onerror=alert(1)>');
+    expect(wrapper.find('img').exists()).toBe(false);
+    expect(wrapper.find('script').exists()).toBe(false);
+  });
+
   it('renders normalized single, multiple, and text questions and submits their native-shaped answers', async () => {
     const onRespond = vi.fn();
     const normalizedPrompt = {

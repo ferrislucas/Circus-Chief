@@ -56,4 +56,34 @@ describe('Codex App Server user-input codec', () => {
       })).toThrow('Codex user-input response contains an unknown or malformed option id');
     }
   });
+
+  it('rejects malformed native question fields instead of coercing or truncating them', () => {
+    expect(() => normalizeUserInputRequest(request([{
+      id: 'multi', question: 'Select checks', isMultiSelect: 'yes',
+      options: [{ label: 'Unit', description: 'Fast' }],
+    }]))).toThrow('Codex question multi-select mode is invalid');
+
+    expect(() => normalizeUserInputRequest(request([{
+      id: 'header', header: 'x'.repeat(257), question: 'Choose',
+      options: [{ label: 'One', description: 'Only choice' }],
+    }]))).toThrow('Codex question header is invalid');
+  });
+
+  it('normalizes an explicitly requested multi-select question without accepting a mixed answer mode', () => {
+    const normalized = normalizeUserInputRequest(request([{
+      id: 'checks', question: 'Select checks', isMultiSelect: true,
+      options: [{ label: 'Unit', description: 'Fast' }, { label: 'E2E', description: 'Broad' }],
+    }]));
+
+    expect(normalized.payload.questions[0]).toMatchObject({ mode: 'multiple' });
+  });
+
+  it.each([
+    ['too many questions', Array.from({ length: 4 }, (_, index) => ({ id: `q-${index}`, question: 'Choose', options: [] })), '1–3 questions'],
+    ['too many options', [{ id: 'q', question: 'Choose', options: Array.from({ length: 17 }, (_, index) => ({ label: `Option ${index}`, description: 'Choice' })) }], 'options exceed'],
+    ['oversized question', [{ id: 'q', question: 'x'.repeat(8_001), options: [] }], 'question text is invalid'],
+    ['oversized option description', [{ id: 'q', question: 'Choose', options: [{ label: 'Option', description: 'x'.repeat(8_001) }] }], 'option is invalid'],
+  ])('rejects %s at the native request boundary', (_name, questions, expected) => {
+    expect(() => normalizeUserInputRequest(request(questions))).toThrow(expected);
+  });
 });

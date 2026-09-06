@@ -54,8 +54,8 @@ function normalizeQuestion(question, ids) {
   const options = question.options == null ? [] : question.options;
   validateOptions(options);
   return {
-    id: question.id, prompt: question.question, question: question.question, header: bounded(question.header, 256),
-    mode: options.length ? 'single' : 'text', required: true, allowOther: Boolean(question.isOther),
+    id: question.id, prompt: question.question, question: question.question, header: question.header || '',
+    mode: options.length ? (question.isMultiSelect ? 'multiple' : 'single') : 'text', required: true, allowOther: question.isOther === true,
     options: options.map((option, index) => {
       const id = `option-${index}`;
       return { id, label: option.label, description: option.description };
@@ -65,13 +65,14 @@ function normalizeQuestion(question, ids) {
 function validateQuestion(question, ids) {
   if (!question || typeof question.id !== 'string' || !question.id || question.id.length > 128 || ids.has(question.id)) throw new Error('Codex question ids must be unique bounded strings');
   if (typeof question.question !== 'string' || !question.question.trim() || question.question.length > MAX_TEXT) throw new Error('Codex question text is invalid');
+  if (question.header != null && (typeof question.header !== 'string' || question.header.length > 256)) throw new Error('Codex question header is invalid');
+  if (question.isOther != null && typeof question.isOther !== 'boolean') throw new Error('Codex question other-answer mode is invalid');
+  if (question.isMultiSelect != null && typeof question.isMultiSelect !== 'boolean') throw new Error('Codex question multi-select mode is invalid');
 }
 function validateOptions(options) {
   if (!Array.isArray(options) || options.length > MAX_OPTIONS) throw new Error('Codex question options exceed the supported limit');
   if (options.some((option) => !option || typeof option.label !== 'string' || !option.label.trim() || option.label.length > 512 || typeof option.description !== 'string' || option.description.length > MAX_TEXT)) throw new Error('Codex option is invalid');
 }
-function bounded(value, length) { return typeof value === 'string' ? value.slice(0, length) : ''; }
-
 export function encodeUserInputResponse(responseContext, outcome) {
   if (outcome?.action !== 'answer') throw new Error('Codex App Server has no safe cancellation response for requestUserInput');
   if (!responseContext || typeof responseContext !== 'object') throw new Error('Codex user-input response context is invalid');
