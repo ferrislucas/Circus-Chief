@@ -16,6 +16,14 @@ export function initializeParams() {
   return { clientInfo: { name: 'Circus Chief', version: '1.0.0' }, capabilities: { experimentalApi: true } };
 }
 
+// App Server interactive input is experimental and therefore must be explicitly
+// acknowledged. Keep this protocol-version contract at the codec boundary.
+export function validateInitializeResult(result) {
+  if (result?.capabilities?.experimentalApi !== true) {
+    throw new Error('Codex App Server is incompatible: experimentalApi capability is required');
+  }
+}
+
 export function normalizeUserInputRequest(request) {
   if (request?.method !== 'item/tool/requestUserInput' || !request.params || request.id == null) throw new Error('Unsupported Codex server request');
   const { threadId, turnId, itemId, questions } = request.params;

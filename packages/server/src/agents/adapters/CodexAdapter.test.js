@@ -84,7 +84,7 @@ function createFakeAppServerChild(capture) {
     write(chunk, _encoding, callback) {
       const request = JSON.parse(chunk.toString());
       capture.requests.push(request);
-      if (request.method === 'initialize') child.emitMessage({ id: request.id, result: {} });
+      if (request.method === 'initialize') child.emitMessage({ id: request.id, result: { capabilities: { experimentalApi: true } } });
       if (request.method === 'thread/start') child.emitMessage({ id: request.id, result: { thread: { id: 'thread-1' } } });
       if (request.method === 'turn/start') {
         child.emitMessage({ id: request.id, result: { turn: { id: 'turn-1' } } });

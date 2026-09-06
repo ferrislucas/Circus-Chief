@@ -3,15 +3,17 @@ import { EventEmitter } from 'events';
 import { Readable, Writable } from 'stream';
 import { executeCodexAppServer } from './codexAppServerRunner.js';
 
-function createAppServerChild() {
+function createAppServerChild(initializeResult = { capabilities: { experimentalApi: true } }) {
   const child = new EventEmitter();
+  child.requests = [];
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
   child.kill = vi.fn();
   child.stdin = new Writable({
     write(chunk, _encoding, callback) {
       const request = JSON.parse(chunk.toString());
-      if (request.method === 'initialize') child.emitMessage({ id: request.id, result: {} });
+      child.requests.push(request);
+      if (request.method === 'initialize') child.emitMessage({ id: request.id, result: initializeResult });
       if (request.method === 'thread/start') child.emitMessage({ id: request.id, result: { thread: { id: 'thread-1' } } });
       if (request.method === 'turn/start') child.emitMessage({ id: request.id, result: { turn: { id: 'turn-1' } } });
       callback();
@@ -40,6 +42,15 @@ function execute(child, controller = new AbortController()) {
 }
 
 describe('executeCodexAppServer lifecycle failures', () => {
+  it('fails compatibility before starting a thread or turn', async () => {
+    const child = createAppServerChild({ capabilities: { experimentalApi: false } });
+    const generator = execute(child);
+
+    await expect(nextWithDeadline(generator)).rejects.toThrow('Codex App Server is incompatible: experimentalApi capability is required');
+    expect(child.requests.map((request) => request.method)).toEqual(['initialize']);
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+  });
+
   it.each([
     ['child exit', (child) => child.emit('exit', 1), /exited with code 1/],
     ['malformed JSON-RPC', (child) => child.stdout.push('not json\n'), /invalid JSON-RPC/],

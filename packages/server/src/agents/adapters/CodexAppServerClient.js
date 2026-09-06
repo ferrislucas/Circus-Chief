@@ -1,5 +1,5 @@
 import readline from 'readline';
-import { initializeParams, parseJsonRpcLine } from './codexAppServerCodec.js';
+import { initializeParams, parseJsonRpcLine, validateInitializeResult } from './codexAppServerCodec.js';
 
 /** Minimal persistent JSON-RPC client for one Codex App Server turn. */
 export class CodexAppServerClient {
@@ -17,7 +17,17 @@ export class CodexAppServerClient {
     this.onExit = (code) => this.close(new Error(`Codex App Server exited with code ${code}`));
     child.on('error', this.onError); child.on('exit', this.onExit);
   }
-  async initialize() { await this.request('initialize', initializeParams()); this.notify('initialized', {}); }
+  async initialize() {
+    try {
+      const result = await this.request('initialize', initializeParams());
+      validateInitializeResult(result);
+      this.notify('initialized', {});
+    } catch (error) {
+      this.close(error);
+      if (error?.message?.startsWith('Codex App Server is incompatible:')) throw error;
+      throw new Error(`Codex App Server initialization failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   request(method, params) {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
