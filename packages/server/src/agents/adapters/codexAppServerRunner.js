@@ -14,16 +14,31 @@ export async function *spawnCodexAppServer(spawnOverride, queryParams, options, 
 // adapter owns spawning; this module owns only protocol-to-event translation.
 export async function *executeCodexAppServer(child, queryParams, options, meta = {}) {
   const events = []; let wake; let done = false; let failure;
+  const interactionController = new AbortController();
+  const abortInteractions = (reason) => {
+    if (!interactionController.signal.aborted) interactionController.abort(reason);
+  };
+  const fail = (error) => {
+    if (failure || done) return;
+    failure = error instanceof Error ? error : new Error(String(error));
+    abortInteractions(failure);
+    wake?.();
+  };
+  const onAbort = () => fail(options.abortController.signal.reason || new Error('Codex App Server turn aborted'));
+  options.abortController?.signal?.addEventListener('abort', onAbort, { once: true });
   const mapper = createCodexEventMapper({ model: options.model });
   const push = (items) => { events.push(...items); wake?.(); wake = null; };
   const client = new CodexAppServerClient({
     child,
+    onClose: fail,
     onNotification: async (message) => {
       if (message.method === 'serverRequest/resolved') {
         const id = message.params?.requestId ?? message.params?.id;
         invalidateInteraction({ sessionId: meta.sessionId, provider: 'codex', externalRequestId: id });
         return;
       }
+      if (message.method === 'turn/failed') throw new Error(message.params?.error?.message || 'Codex turn failed');
+      if (message.method === 'error') throw new Error(message.params?.message || 'Codex App Server protocol error');
       if (message.method === 'turn/completed') { push(mapper.map({ type: 'turn.completed', usage: message.params?.turn?.usage })); done = true; wake?.(); return; }
       if (message.method === 'item/completed') push(mapper.map({ type: 'item.completed', item: message.params?.item }));
     },
@@ -31,9 +46,11 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
       if (request.method !== 'item/tool/requestUserInput') return client.respondError(request.id, -32601, 'Unsupported server request');
       try {
         const normalized = normalizeUserInputRequest(request);
-        const outcome = await requestInteraction({ sessionId: meta.sessionId, conversationId: meta.conversationId, provider: 'codex', kind: 'question', ...normalized, signal: options.abortController?.signal });
+        const outcome = await requestInteraction({ sessionId: meta.sessionId, conversationId: meta.conversationId, provider: 'codex', kind: 'question', ...normalized, signal: interactionController.signal });
+        if (client.closed) return;
         client.respond(request.id, encodeUserInputResponse(request.id, outcome).result);
       } catch (error) {
+        if (client.closed) return;
         const response = encodeError(request.id, -32602, error instanceof Error ? error.message : 'Invalid user-input request');
         client.respondError(response.id, response.error.code, response.error.message);
       }
@@ -52,6 +69,8 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
     }
     while (events.length) yield events.shift();
   } finally {
+    options.abortController?.signal?.removeEventListener('abort', onAbort);
+    abortInteractions(new Error('Codex App Server turn closed'));
     client.close();
     try { child.kill('SIGTERM'); } catch { /* child already exited */ }
   }
