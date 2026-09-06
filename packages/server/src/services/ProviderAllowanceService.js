@@ -120,7 +120,7 @@ export function percentage(remaining, limit) {
 }
 
 // Status thresholds apply to the most depleted authoritative allowance.
-export const ALLOWANCE_STATUS_THRESHOLDS = Object.freeze({ warning: 50, critical: 10 });
+export const ALLOWANCE_STATUS_THRESHOLDS = Object.freeze({ warning: 25, critical: 10 });
 
 export function deriveStatus(remainingPercent) {
   if (remainingPercent <= 0) return 'exhausted';

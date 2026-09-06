@@ -82,17 +82,23 @@ describe('ProviderAllowanceService', () => {
     });
   });
 
-  it('derives warning, critical, and exhausted statuses from clamped authoritative percentages', () => {
+  it.each([
+    ['exhausted at zero', 0, 'exhausted'],
+    ['critical above zero', 0.1, 'critical'],
+    ['critical at the 10% boundary', 10, 'critical'],
+    ['warning above 10%', 10.1, 'warning'],
+    ['warning at the 25% boundary', 25, 'warning'],
+    ['available above 25%', 25.1, 'available'],
+    ['available at a representative healthy value', 50, 'available'],
+  ])('derives %s from clamped authoritative percentages', (_caseName, remaining, status) => {
     const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled] } });
-    const snapshot = (remaining) => service.observe({
+    const observeRemaining = (remainingAmount) => service.observe({
       providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
       status: 'unknown', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
-      allowances: [{ key: 'requests', label: 'Requests', remaining, limit: 100, remainingPercent: 99, unit: 'requests', resetsAt: null }],
+      allowances: [{ key: 'requests', label: 'Requests', remaining: remainingAmount, limit: 100, remainingPercent: 99, unit: 'requests', resetsAt: null }],
     });
 
-    expect(snapshot(50)).toMatchObject({ status: 'warning', allowances: [{ remainingPercent: 50 }] });
-    expect(snapshot(10)).toMatchObject({ status: 'critical', allowances: [{ remainingPercent: 10 }] });
-    expect(snapshot(-1)).toMatchObject({ status: 'exhausted', allowances: [{ remaining: 0, remainingPercent: 0 }] });
+    expect(observeRemaining(remaining)).toMatchObject({ status, allowances: [{ remainingPercent: remaining }] });
   });
 
   it('prioritizes active-session providers, then attention providers, using configured order as a tiebreaker', () => {

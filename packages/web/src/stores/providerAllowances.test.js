@@ -89,10 +89,18 @@ describe('provider allowances store', () => {
     expect(new Set(store.snapshots.map(({ providerId }) => providerId)).size).toBe(3);
   });
 
-  it('derives attention and the lowest non-null percentage', () => {
+  it('derives attention and the lowest non-null percentage from server-normalized statuses', () => {
     const store = useProviderAllowancesStore();
-    store.snapshots = [snapshot('a', 'warning'), snapshot('b', 'critical'), snapshot('c', 'available')];
+    store.snapshots = [
+      snapshot('a', 'warning'),
+      snapshot('b', 'critical'),
+      {
+        ...snapshot('c', 'available'),
+        allowances: [{ key: 'requests', label: 'Requests', remaining: 30, limit: 100, remainingPercent: 30, unit: 'requests', resetsAt: null }],
+      },
+    ];
     expect(store.attentionCount).toBe(2);
+    expect(store.snapshots.find(({ providerId }) => providerId === 'c')).toMatchObject({ status: 'available', allowances: [{ remainingPercent: 30 }] });
     expect(isAttention(snapshot('d', 'exhausted'))).toBe(true);
     expect(isAttention(snapshot('d', 'unknown'))).toBe(false);
     expect(lowestAllowance({ allowances: [{ remainingPercent: null }, { remainingPercent: 20 }, { remainingPercent: 10 }] }).remainingPercent).toBe(10);
