@@ -1,5 +1,14 @@
 import multer from 'multer';
 
+// These limits apply only after an upload has already been rejected. They are
+// deliberately much smaller than the accepted upload limit: they allow a
+// client that is nearly finished to receive its normal 4xx response without
+// letting an abusive client keep a request open indefinitely.
+export const REJECTED_UPLOAD_DRAIN_MAX_BYTES = 2 * 1024 * 1024;
+export const REJECTED_UPLOAD_DRAIN_TIMEOUT_MS = 250;
+
+const rejectedUploadDrains = new WeakSet();
+
 /**
  * Allowed MIME types for file uploads
  */
@@ -35,9 +44,78 @@ function fileFilter(_req, file, cb) {
   if (ALLOWED_MIME_TYPES.includes(file.mimetype) || file.mimetype.startsWith('text/')) {
     cb(null, true);
   } else {
+    beginBoundedRejectedUploadDrain(_req);
     cb(new Error(`File type ${file.mimetype} not allowed`), false);
   }
 }
+
+/**
+ * Allow only a small, time-bounded tail of a request after rejecting its file.
+ *
+ * Multer waits for the request to end before it forwards a file-filter error to
+ * Express. Starting the bound here prevents a client that never sends EOF from
+ * keeping Multer (and its socket) alive forever. Every path removes its own
+ * listeners and the termination path destroys the request so no further bytes
+ * are consumed.
+ */
+export function beginBoundedRejectedUploadDrain(req) {
+  if (rejectedUploadDrains.has(req)) return;
+  rejectedUploadDrains.add(req);
+
+  let settled = false;
+  let drainedBytes = 0;
+
+  const cleanup = () => {
+    rejectedUploadDrains.delete(req);
+    clearTimeout(timeout);
+    req.removeListener('data', onData);
+    req.removeListener('end', settle);
+    req.removeListener('aborted', settle);
+    req.removeListener('close', settle);
+    req.removeListener('error', settle);
+  };
+
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+  };
+
+  const terminate = () => {
+    if (settled) return;
+    settle();
+    if (!req.destroyed) req.destroy();
+    if (req.socket && !req.socket.destroyed) req.socket.destroy();
+  };
+
+  const onData = (chunk) => {
+    drainedBytes += chunk.length;
+    if (drainedBytes > REJECTED_UPLOAD_DRAIN_MAX_BYTES) terminate();
+  };
+
+  const timeout = setTimeout(terminate, REJECTED_UPLOAD_DRAIN_TIMEOUT_MS);
+  timeout.unref?.();
+
+  req.on('data', onData);
+  req.once('end', settle);
+  req.once('aborted', settle);
+  req.once('close', settle);
+  req.once('error', settle);
+}
+
+const memoryStorage = multer.memoryStorage();
+
+const boundedMemoryStorage = {
+  _handleFile(req, file, callback) {
+    // Multer exposes file-size rejection through the stream's limit event
+    // before it forwards the eventual LIMIT_FILE_SIZE error to Express.
+    file.stream.once('limit', () => beginBoundedRejectedUploadDrain(req));
+    memoryStorage._handleFile(req, file, callback);
+  },
+  _removeFile(req, file, callback) {
+    memoryStorage._removeFile(req, file, callback);
+  },
+};
 
 /**
  * Multer configuration for file uploads
@@ -46,7 +124,7 @@ function fileFilter(_req, file, cb) {
  * - Max 10 files per request
  */
 export const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: boundedMemoryStorage,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB per file
     files: 10, // Max 10 files per request
