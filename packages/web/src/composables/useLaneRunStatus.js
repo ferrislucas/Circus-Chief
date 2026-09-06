@@ -13,7 +13,8 @@ export function laneRunLabel(run) {
 }
 
 export function isPausedLaneRun(run) {
-  return run?.status === 'open' && run.blockingReason === 'Paused — provider limit or outage';
+  return run?.status === 'open'
+    && ['user_stop_pause', 'provider_limit_pause'].includes(run.blockerKind);
 }
 
 export function formatLaneRunTime(timestamp) {

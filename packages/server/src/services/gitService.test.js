@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, writeFile, realpath } from 'fs/promises';
+import { mkdtemp, readFile, rm, writeFile, realpath } from 'fs/promises';
 import { existsSync } from 'fs';
 import { tmpdir, homedir } from 'os';
 import { join } from 'path';
@@ -32,6 +32,8 @@ import {
   ensureWorktreeCommitAttributionHook,
   normalizeGitRemoteUrl,
   pinAuthorInWorktree,
+  pullSessionBranch,
+  pushSessionBranch,
   isGitRepo,
   setLogger,
 } from './gitService.js';
@@ -1367,6 +1369,27 @@ describe('gitService', () => {
       }
     });
 
+    it('preserves local status when pruning removes the configured upstream', async () => {
+      const currentBranch = await getCurrentBranch(testDir);
+      execSync(`git update-ref -d "refs/heads/${currentBranch}"`, { cwd: bareRepoDir });
+      await writeFile(join(testDir, 'local-change.txt'), 'local');
+
+      const status = await getSessionGitStatus(testDir, { fetch: true });
+
+      expect(status).toMatchObject({
+        currentBranch,
+        upstreamBranch: `origin/${currentBranch}`,
+        hasUpstream: true,
+        hasUncommittedChanges: true,
+        localChangeCount: 1,
+        aheadCount: 0,
+        behindCount: 0,
+        fetched: false,
+        remoteError: { code: 'git_error' },
+      });
+      expect(status.syncStatus).toBe('dirty');
+    });
+
     it('reports diverged branches', async () => {
       const cloneDir = await cloneOrigin();
       try {
@@ -1404,6 +1427,82 @@ describe('gitService', () => {
 
       expect(status.currentBranch).toBeNull();
       expect(status.syncStatus).toBe('unknown');
+    });
+  });
+
+  describe('session branch push', () => {
+    async function commitFile(directory, filename, content, message) {
+      await writeFile(join(directory, filename), content);
+      execSync(`git add "${filename}"`, { cwd: directory });
+      execSync(`git commit -m "${message}"`, { cwd: directory });
+    }
+
+    it('pushes a local branch to its differently named origin upstream', async () => {
+      execSync('git checkout -b feature-local', { cwd: testDir });
+      execSync('git push origin HEAD:refs/heads/feature-remote', { cwd: testDir });
+      await fetchOrigin(testDir);
+      execSync('git branch --set-upstream-to=origin/feature-remote feature-local', { cwd: testDir });
+      await commitFile(testDir, 'mapped-upstream.txt', 'mapped', 'Push mapped upstream');
+
+      const result = await pushSessionBranch(testDir);
+
+      const localHead = execSync('git rev-parse HEAD', { cwd: testDir }).toString().trim();
+      const remoteHead = execSync('git rev-parse refs/heads/feature-remote', { cwd: bareRepoDir }).toString().trim();
+      expect(remoteHead).toBe(localHead);
+      expect(() => execSync('git rev-parse --verify refs/heads/feature-local', { cwd: bareRepoDir, stdio: 'pipe' })).toThrow();
+      expect(result.upstream).toBe('origin/feature-remote');
+      expect(result.gitStatus).toMatchObject({
+        upstreamBranch: 'origin/feature-remote',
+        aheadCount: 0,
+        behindCount: 0,
+      });
+    });
+  });
+
+  describe('session branch pull', () => {
+    async function commitFile(directory, filename, content, message) {
+      await writeFile(join(directory, filename), content);
+      execSync(`git add "${filename}"`, { cwd: directory });
+      execSync(`git commit -m "${message}"`, { cwd: directory });
+    }
+
+    async function cloneOrigin() {
+      const cloneDir = await mkdtemp(join(tmpdir(), 'git-clone-'));
+      execSync(`git clone "${bareRepoDir}" "${cloneDir}"`);
+      execSync('git config user.email "other@test.com"', { cwd: cloneDir });
+      execSync('git config user.name "Other"', { cwd: cloneDir });
+      return cloneDir;
+    }
+
+    it('fast-forwards despite nonoverlapping uncommitted changes', async () => {
+      const cloneDir = await cloneOrigin();
+      try {
+        await writeFile(join(testDir, 'local-only.txt'), 'keep this local');
+        await commitFile(cloneDir, 'remote-only.txt', 'from origin', 'Remote change');
+        execSync('git push', { cwd: cloneDir });
+
+        const result = await pullSessionBranch(testDir);
+
+        expect(result).toMatchObject({ operation: 'pull', gitStatus: { behindCount: 0 } });
+        expect(await readFile(join(testDir, 'local-only.txt'), 'utf8')).toBe('keep this local');
+        expect(await readFile(join(testDir, 'remote-only.txt'), 'utf8')).toBe('from origin');
+      } finally {
+        await rm(cloneDir, { recursive: true, force: true });
+      }
+    });
+
+    it('reports a structured failure and preserves changes Git cannot safely overwrite', async () => {
+      const cloneDir = await cloneOrigin();
+      try {
+        await writeFile(join(testDir, 'README.md'), 'local edit');
+        await commitFile(cloneDir, 'README.md', 'remote edit', 'Conflicting remote change');
+        execSync('git push', { cwd: cloneDir });
+
+        await expect(pullSessionBranch(testDir)).rejects.toMatchObject({ code: 'dirty_worktree', status: 409 });
+        expect(await readFile(join(testDir, 'README.md'), 'utf8')).toBe('local edit');
+      } finally {
+        await rm(cloneDir, { recursive: true, force: true });
+      }
     });
   });
 });

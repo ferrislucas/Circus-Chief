@@ -63,6 +63,15 @@ describe('SessionLogStream', () => {
       expect(wrapper.find('.log-collapsed').exists()).toBe(false);
     });
 
+    it('renders the collapsed control without hydrating content for session cards', () => {
+      mockStreamingStore.isSessionLogCollapsed.mockReturnValue(true);
+
+      const wrapper = mountComponent({ defaultCollapsed: true });
+
+      expect(wrapper.find('.log-collapsed-label').text()).toBe('Show live output');
+      expect(mockStreamingStore.isSessionLogCollapsed).toHaveBeenCalledWith('session-1', true);
+    });
+
     it('renders work log entries when sessionWorkLogs has data', () => {
       mockStreamingStore.getSessionWorkLogs.mockReturnValue([
         { id: '1', type: 'tool_use', tool: 'Read', summary: 'Reading file.js' },
@@ -175,6 +184,20 @@ describe('SessionLogStream', () => {
       await wrapper.find('.log-collapsed').trigger('click');
 
       expect(mockStreamingStore.toggleSessionLogCollapsed).toHaveBeenCalledWith('session-42');
+    });
+
+    it('expands a session-card panel using its default-collapsed preference', async () => {
+      mockStreamingStore.isSessionLogCollapsed.mockReturnValue(true);
+
+      const wrapper = mountComponent({
+        sessionIds: ['session-42'],
+        rootSessionId: 'root-session',
+        defaultCollapsed: true,
+      });
+      await wrapper.find('.log-collapsed').trigger('click');
+
+      expect(mockStreamingStore.toggleSessionLogCollapsed)
+        .toHaveBeenCalledWith('root-session', true);
     });
   });
 

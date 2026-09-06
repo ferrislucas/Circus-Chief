@@ -354,6 +354,7 @@ describe('SchedulerService', () => {
           pendingPrompt: null,
           pendingConversationId: null,
           pendingModel: null,
+          pendingInteractive: null,
           error: 'Scheduled launch refused: max total tokens reached (1,000).',
         });
         expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
@@ -472,7 +473,7 @@ describe('SchedulerService', () => {
 
     it('updates session status and runs fresh session', async () => {
       scheduler.initialize(mockSessionManager);
-      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Hello', pendingModel: 'claude-sonnet-4-5' };
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Hello', pendingModel: 'claude-sonnet-4-5', pendingInteractive: true };
       stubSuccessfulClaim(session);
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp', systemPrompt: 'Be helpful' });
@@ -491,12 +492,13 @@ describe('SchedulerService', () => {
         pendingPrompt: null,
         pendingConversationId: null,
         pendingModel: null,
+        pendingInteractive: null,
       });
       expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
         sessionId: 'session-1',
         status: 'starting',
       });
-      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp', { systemPrompt: 'Be helpful', fileAttachments: [], model: 'claude-sonnet-4-5' });
+      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp', { systemPrompt: 'Be helpful', fileAttachments: [], model: 'claude-sonnet-4-5', interactive: true });
       expect(result).toEqual({ claimed: true });
     });
 
@@ -544,7 +546,7 @@ describe('SchedulerService', () => {
 
       await scheduler.startScheduledSession(session);
 
-      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp/worktree', { systemPrompt: undefined, fileAttachments: [], model: null });
+      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp/worktree', { systemPrompt: undefined, fileAttachments: [], model: null, interactive: false });
     });
 
     it('continues session when there are existing assistant messages', async () => {
@@ -562,7 +564,7 @@ describe('SchedulerService', () => {
 
       await scheduler.startScheduledSession(session);
 
-      expect(mockSessionManager.continueSession).toHaveBeenCalledWith('session-1', 'Follow-up message', '/tmp', { systemPrompt: undefined, fileAttachments: [], model: 'claude-opus-4-5' });
+      expect(mockSessionManager.continueSession).toHaveBeenCalledWith('session-1', 'Follow-up message', '/tmp', { systemPrompt: undefined, fileAttachments: [], model: 'claude-opus-4-5', interactive: false });
       expect(mockSessionManager.runSession).not.toHaveBeenCalled();
     });
 
@@ -655,7 +657,7 @@ describe('SchedulerService', () => {
         'session-1',
         'conv-99',
         '/tmp',
-        { systemPrompt: 'Be helpful', model: 'claude-sonnet-4-5' }
+        { systemPrompt: 'Be helpful', model: 'claude-sonnet-4-5', interactive: false }
       );
       expect(mockSessionManager.runSession).not.toHaveBeenCalled();
       expect(mockSessionManager.continueSession).not.toHaveBeenCalled();
@@ -684,6 +686,7 @@ describe('SchedulerService', () => {
         pendingPrompt: null,
         pendingConversationId: null,
         pendingModel: null,
+        pendingInteractive: null,
       });
     });
 
@@ -816,6 +819,7 @@ describe('SchedulerService', () => {
         rescheduleCount: 1,
         pendingPrompt: 'Continue',
         pendingConversationId: null,
+        pendingInteractive: false,
         error: expect.stringContaining('Rescheduled (1x)'),
       });
       expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
@@ -831,6 +835,24 @@ describe('SchedulerService', () => {
         sessionId: 'session-1',
         session: updatedSession,
       });
+    });
+
+    it('preserves claimed user provenance for a retry after the durable launch clear', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = {
+        id: 'session-1', projectId: 'project-1', laneRunId: 'terminal-run',
+        pendingInteractive: false, rescheduleDelayMinutes: 15, rescheduleCount: 0,
+        maxRescheduleCount: null, maxTotalTokens: null, inputTokens: 0, outputTokens: 0,
+      };
+      sessions.getById.mockReturnValue(session);
+      sessions.update.mockReturnValue({ ...session, status: 'scheduled', pendingInteractive: true });
+
+      const result = await scheduler.rescheduleSession('session-1', 'retryable failure', { interactive: true });
+
+      expect(result).toBe(true);
+      expect(sessions.update).toHaveBeenCalledWith('session-1', expect.objectContaining({
+        status: 'scheduled', pendingInteractive: true,
+      }));
     });
 
     it('with retryExistingMessage=true sets pendingPrompt to existing message and stores pendingConversationId', async () => {

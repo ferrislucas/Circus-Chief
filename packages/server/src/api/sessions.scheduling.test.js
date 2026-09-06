@@ -72,10 +72,13 @@ describe('Sessions API - Scheduling PATCH behavior', () => {
       expect(response.body.scheduledAt).toBe(scheduledAt);
     });
 
-    it('does not auto-promote when scheduledAt is cleared', async () => {
+    it('cancels a schedule by clearing every pending field and returning to waiting', async () => {
       sessions.update(session.id, {
         status: 'scheduled',
         scheduledAt: Date.now() + 3600000,
+        pendingPrompt: 'Scheduled follow-up',
+        pendingModel: 'claude-sonnet-4-5',
+        pendingInteractive: true,
       });
 
       const response = await request(app)
@@ -83,8 +86,12 @@ describe('Sessions API - Scheduling PATCH behavior', () => {
         .send({ scheduledAt: null })
         .expect(200);
 
-      expect(response.body.status).toBe('scheduled');
+      expect(response.body.status).toBe('waiting');
       expect(response.body.scheduledAt).toBeNull();
+      expect(response.body.pendingPrompt).toBeNull();
+      expect(response.body.pendingModel).toBeNull();
+      expect(response.body.pendingConversationId).toBeNull();
+      expect(response.body.pendingInteractive).toBe(false);
     });
 
     it('does not auto-promote a running session', async () => {
