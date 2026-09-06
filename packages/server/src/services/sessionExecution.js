@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { sessions, messages, attachments, conversations } from '../database.js';
 import { createCodexSpawner } from './codexSpawnHelper.js';
 import { createGeminiSpawner } from './geminiSpawnHelper.js';
@@ -20,8 +21,9 @@ import { isTierRef } from '@circuschief/shared';
 import { runSessionWithTierFailover, hasResolvableTierMembers, applyStaleTierFallback } from './sessionTierFailover.js';
 import { schedulerService } from './schedulerService.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
-import { beginWorkflowTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, activeLaneRunOwnsSession } from './workflowSessionService.js';
+import { beginWorkflowTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, pauseForUserStop, activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
+import { isUserStopAbort } from './sessionAbort.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
 // sessionExecution), safe because this is only called at runtime inside
 // _executeSession, long after the module graph is loaded (same pattern as
@@ -232,7 +234,7 @@ function withWorkflowTurnToken(queryParams, workflowTurn) {
  * @param {Error} opts.error
  * @returns {Promise<'rethrow'|'rescheduled'|'failed'>}
  */
-async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbacks, controller, broadcastConversationStateOnError, errorLabel, error }) {
+async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbacks, controller, broadcastConversationStateOnError, errorLabel, error, interactive }) {
   const { handleTemplateTriggerIfNeeded } = callbacks;
   if (shouldRethrowForTierFailover(sessionId, error, tierContext)) return 'rethrow';
 
@@ -250,6 +252,7 @@ async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbac
     broadcastConversationState: broadcastConversationStateOnError,
     errorLabel,
     handleTemplateTriggerIfNeeded,
+    interactive,
   });
   if (rescheduled) {
     // FR-9.1/FR-9.5: a transient error with an automatic retry/reschedule
@@ -263,8 +266,11 @@ async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbac
   // as 'closed_failed'). Both are terminal — neither may be interpreted as
   // success, and reconcileLaneRun() below fails/cancels the lane run so a
   // structured card never advances past this session.
-  closeOwnWork(sessionId, controller.signal.aborted ? 'cancelled' : 'closed_failed', error.message,
-    { turnToken: workflowTurn?.turnToken });
+  if (isUserStopAbort(controller)) {
+    pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
+  } else {
+    closeOwnWork(sessionId, 'closed_failed', error.message, { turnToken: workflowTurn?.turnToken });
+  }
   return 'failed';
 }
 
@@ -285,6 +291,8 @@ async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbac
  * @param {string} [options.errorLabel] - Label for error logging
  * @param {Object|null} [options.tierContext] - Tier failover context passed to shouldRescheduleOnError
  */
+// The orchestration branches mirror the distinct durable workflow outcomes.
+// eslint-disable-next-line complexity
 export async function _executeSession({
   sessionId,
   agent,
@@ -314,8 +322,11 @@ export async function _executeSession({
       sessionId, agent, providerQueryParams, agentCallMeta, controller, tierContext,
     });
     if (controller.signal.aborted) {
-      closeOwnWork(sessionId, 'cancelled', 'Provider turn cancelled', { turnToken: workflowTurn?.turnToken });
-      return;
+      if (isUserStopAbort(controller)) {
+        pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
+        return;
+      }
+      throw controller.signal.reason || new Error('Session execution was aborted');
     }
     // Handle post-turn completion (work log association, status transition, summary, etc.)
     const { wasRescheduled, heldForLimit, terminalError } = await handleTurnCompletion(
@@ -324,19 +335,27 @@ export async function _executeSession({
       { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded },
       { controller },
     );
+  // A stop invalidates the completion pipeline; stale work must not close the paused obligation.
+    if (controller.signal.aborted) {
+      if (isUserStopAbort(controller)) {
+        pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
+        return;
+      }
+      throw controller.signal.reason || new Error('Session execution was aborted');
+    }
     // Some providers report terminal failures as a final stream event and then
     // close their generator normally. Route that outcome through the same retry
     // policy as a rejected execute() call; otherwise the normal completion path
     // would incorrectly close the workflow obligation as successful.
     if (terminalError) return handleTerminalStreamError({
       sessionId, terminalError, controller, tierContext, broadcastConversationStateOnError,
-      errorLabel, handleTemplateTriggerIfNeeded, workflowTurn, observableActivityBeforeTerminalError,
+      errorLabel, handleTemplateTriggerIfNeeded, workflowTurn, observableActivityBeforeTerminalError, interactive,
     });
     await completeSuccessfulTurn({ sessionId, interactive, workflowTurn, wasRescheduled, heldForLimit });
   } catch (error) {
     const outcome = await handleTurnFailure({
       sessionId, workflowTurn, tierContext, callbacks, controller,
-      broadcastConversationStateOnError, errorLabel, error,
+      broadcastConversationStateOnError, errorLabel, error, interactive,
     });
     if (outcome === 'rethrow' || outcome === 'failed') throw error;
     if (outcome === 'rescheduled') return { started: true, outcome };
@@ -370,7 +389,7 @@ async function executeProviderStream({ sessionId, agent, providerQueryParams, ag
 
 async function handleTerminalStreamError({
   sessionId, terminalError, controller, tierContext, broadcastConversationStateOnError,
-  errorLabel, handleTemplateTriggerIfNeeded, workflowTurn, observableActivityBeforeTerminalError,
+  errorLabel, handleTemplateTriggerIfNeeded, workflowTurn, observableActivityBeforeTerminalError, interactive,
 }) {
   const rescheduled = await handleSessionError(sessionId, terminalError, {
     controller,
@@ -381,6 +400,7 @@ async function handleTerminalStreamError({
     errorLabel,
     handleTemplateTriggerIfNeeded,
     errorAlreadyRecorded: true,
+    interactive,
   });
   if (rescheduled) {
     markExecutionState(sessionId, 'retrying');

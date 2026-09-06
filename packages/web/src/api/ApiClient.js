@@ -63,7 +63,7 @@ export class ApiClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
+      throw this.#buildError(response.status, errorData);
     }
 
     if (response.status === 204) {
@@ -71,6 +71,14 @@ export class ApiClient {
     }
 
     return response.json();
+  }
+
+  #buildError(status, data) {
+    const error = new Error(data.message || data.error || `HTTP ${status}`);
+    error.status = status;
+    if (data.code) error.code = data.code;
+    if (data.gitStatus) error.gitStatus = data.gitStatus;
+    return error;
   }
 
   /**
@@ -88,7 +96,7 @@ export class ApiClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
+      throw this.#buildError(response.status, errorData);
     }
 
     return response.json();

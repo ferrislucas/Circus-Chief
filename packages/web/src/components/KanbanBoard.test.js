@@ -316,12 +316,24 @@ describe('KanbanBoard.vue', () => {
         openCount: 1,
         blockingSessionId: 'held-session-1',
         blockingReason: 'Paused — provider limit or outage',
+        blockerKind: 'provider_limit_pause',
       };
 
       const wrapper = mountBoard();
       const resume = wrapper.get('.lane-run-resume-link');
       expect(resume.text()).toBe('Resume');
       expect(resume.attributes('to')).toBe('/sessions/held-session-1');
+    });
+
+    it('shows Resume and the user-stop reason for a user-paused run', () => {
+      mockKanbanStoreData.board.lanes[0].cards[0].activeLaneRun = {
+        status: 'open', sourceLaneName: 'To Do', rootOwnWorkState: 'open', openCount: 1,
+        blockingSessionId: 'stopped-session-1', blockingReason: 'Paused — stopped by user', blockerKind: 'user_stop_pause',
+      };
+
+      const wrapper = mountBoard();
+      expect(wrapper.get('.lane-run-resume-link').attributes('to')).toBe('/sessions/stopped-session-1');
+      expect(wrapper.text()).toContain('Paused — stopped by user');
     });
 
     it('does not show Resume for a non-paused open lane run', () => {

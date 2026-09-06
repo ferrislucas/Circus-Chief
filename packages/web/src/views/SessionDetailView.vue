@@ -77,6 +77,7 @@
           :git-status-loading="gitStatusLoading"
           :git-status-error="gitStatusError"
           :refresh-git-status="refreshGitStatus"
+          :apply-git-status="applyGitStatus"
           @update:file-count="changesFileCount = $event"
         />
         <CanvasTab
@@ -204,6 +205,7 @@ const {
   indicatorTitle: gitStatusIndicatorTitle,
   hasActionableGitStatus,
   refresh: refreshGitStatus,
+  applyStatus: applyGitStatus,
   reset: resetGitStatus,
 } = useSessionGitStatus({
   getSessionId: () => currentSessionId.value,

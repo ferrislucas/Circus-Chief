@@ -100,7 +100,7 @@ describe('schema baseline', () => {
         'own_work_closed_at', 'workflow_updated_at', 'workflow_reason',
         'execution_state', 'subtree_outcome', 'last_activity_at',
         'created_at', 'updated_at', 'pending_conversation_id',
-        'resolved_model', 'resolved_provider_id', 'execution_turn_token',
+        'resolved_model', 'resolved_provider_id', 'execution_turn_token', 'pending_interactive',
       ]);
     });
   });
@@ -109,6 +109,7 @@ describe('schema baseline', () => {
     withDb((db) => {
       const byName = new Map(columns(db, 'sessions').map((col) => [col.name, col]));
       expect(byName.get('mode').dflt_value).toBe("'yolo'");
+      expect(byName.get('pending_interactive').dflt_value).toBe('NULL');
       expect(byName.get('thinking_enabled').dflt_value).toBe('1');
       expect(byName.get('reschedule_delay_minutes').dflt_value).toBe(String(DEFAULT_RESCHEDULE_DELAY_MINUTES));
       expect(byName.get('agent_type').dflt_value).toBe("'claude-code'");

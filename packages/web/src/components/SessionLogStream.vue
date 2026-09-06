@@ -76,7 +76,7 @@
 
   <!-- Collapsed state — just a small expand button -->
   <div
-    v-else-if="hasContent && isCollapsed"
+    v-else-if="isCollapsed && (hasContent || defaultCollapsed)"
     class="log-collapsed"
     @click.stop.prevent="toggleCollapse"
   >
@@ -111,6 +111,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 const props = defineProps({
   sessionIds: { type: Array, required: true },
   rootSessionId: { type: String, default: '' },
+  defaultCollapsed: { type: Boolean, default: false },
 });
 
 const streamingStore = useSessionStreamingStore();
@@ -158,7 +159,9 @@ const thinking = computed(() => {
 });
 
 const isCollapsed = computed(() =>
-  streamingStore.isSessionLogCollapsed(collapseSessionId.value),
+  props.defaultCollapsed
+    ? streamingStore.isSessionLogCollapsed(collapseSessionId.value, true)
+    : streamingStore.isSessionLogCollapsed(collapseSessionId.value),
 );
 
 const hasContent = computed(() => recentLogs.value.length > 0 || partialText.value || thinking.value);
@@ -174,7 +177,11 @@ const partialTextPreview = computed(() => {
 });
 
 function toggleCollapse() {
-  streamingStore.toggleSessionLogCollapsed(collapseSessionId.value);
+  if (props.defaultCollapsed) {
+    streamingStore.toggleSessionLogCollapsed(collapseSessionId.value, true);
+  } else {
+    streamingStore.toggleSessionLogCollapsed(collapseSessionId.value);
+  }
 }
 </script>
 

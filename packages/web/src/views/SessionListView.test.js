@@ -742,14 +742,20 @@ describe('SessionListView', () => {
       expect(subscriptionIds()).toEqual([]);
     });
 
-    it('drops collapsed workflows and clears subscriptions outside the sessions tab', async () => {
+    it('subscribes only expanded workflows and clears subscriptions outside the sessions tab', async () => {
       mockSessionsStore.sessions = [{ id: 'root', name: 'Root', status: 'running' }];
       mockStreamingStore.isSessionLogCollapsed.mockReturnValue(true);
-      mount(SessionListView);
+      const collapsedWrapper = mount(SessionListView);
       await flushPromises();
       expect(subscriptionIds()).toEqual([]);
+      expect(mockStreamingStore.isSessionLogCollapsed).toHaveBeenCalledWith('root', true);
+      collapsedWrapper.unmount();
 
       mockStreamingStore.isSessionLogCollapsed.mockReturnValue(false);
+      mount(SessionListView);
+      await flushPromises();
+      expect(subscriptionIds()).toEqual(['root']);
+
       mockRoute.name = 'ProjectCommands';
       await nextTick();
       expect(subscriptionIds()).toEqual([]);

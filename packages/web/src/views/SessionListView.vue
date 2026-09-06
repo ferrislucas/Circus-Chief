@@ -393,7 +393,7 @@ const workflowCardFromCard = card => {
       : (isSessionActivelyRunning(card) || card.runningCount > 0 ? [rootSessionId] : []),
     eligible: activeTab.value === 'sessions'
       && cardVisibilityByRootId.value[rootSessionId] !== false
-      && !streamingStore.isSessionLogCollapsed(rootSessionId),
+      && !streamingStore.isSessionLogCollapsed(rootSessionId, true),
   };
 };
 const eligibleIdsFor = key => [...new Set(eligibleWorkflowCards.value
