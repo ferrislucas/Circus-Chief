@@ -47,10 +47,10 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
     onServerRequest: async (request) => {
       if (request.method !== 'item/tool/requestUserInput') return client.respondError(request.id, -32601, 'Unsupported server request');
       try {
-        const normalized = normalizeUserInputRequest(request);
+        const { responseContext, ...normalized } = normalizeUserInputRequest(request);
         const outcome = await requestInteraction({ sessionId: meta.sessionId, conversationId: meta.conversationId, provider: 'codex', kind: 'question', ...normalized, signal: interactionController.signal });
         if (client.closed) return;
-        client.respond(request.id, encodeUserInputResponse(request.id, outcome).result);
+        client.respond(request.id, encodeUserInputResponse(responseContext, outcome).result);
       } catch (error) {
         if (client.closed) return;
         const response = encodeError(request.id, -32602, error instanceof Error ? error.message : 'Invalid user-input request');

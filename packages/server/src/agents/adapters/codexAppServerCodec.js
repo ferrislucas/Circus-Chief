@@ -34,7 +34,18 @@ export function normalizeUserInputRequest(request) {
     externalRequestId: request.id,
     metadata: { threadId, turnId, itemId },
     payload: { questions: questions.map((question) => normalizeQuestion(question, ids)) },
+    responseContext: createResponseContext(request.id, questions),
   };
+}
+
+function createResponseContext(externalRequestId, questions) {
+  return Object.freeze({
+    externalRequestId,
+    nativeOptionsByQuestion: Object.freeze(Object.fromEntries(questions.map((question) => [
+      question.id,
+      Object.freeze(Object.fromEntries((question.options || []).map((option, index) => [`option-${index}`, option.label]))),
+    ]))),
+  });
 }
 
 function normalizeQuestion(question, ids) {
@@ -61,11 +72,22 @@ function validateOptions(options) {
 }
 function bounded(value, length) { return typeof value === 'string' ? value.slice(0, length) : ''; }
 
-export function encodeUserInputResponse(externalRequestId, outcome) {
+export function encodeUserInputResponse(responseContext, outcome) {
   if (outcome?.action !== 'answer') throw new Error('Codex App Server has no safe cancellation response for requestUserInput');
-  return { id: externalRequestId, result: { answers: Object.fromEntries(outcome.answers.map((answer) => [answer.questionId, {
-    answers: answer.text ? [answer.text] : answer.selectedOptionIds,
+  if (!responseContext || typeof responseContext !== 'object') throw new Error('Codex user-input response context is invalid');
+  return { id: responseContext.externalRequestId, result: { answers: Object.fromEntries(outcome.answers.map((answer) => [answer.questionId, {
+    answers: answer.text ? [answer.text] : nativeAnswers(responseContext, answer),
   }])) } };
+}
+
+function nativeAnswers({ nativeOptionsByQuestion }, { questionId, selectedOptionIds }) {
+  const nativeOptions = nativeOptionsByQuestion?.[questionId];
+  if (!nativeOptions || !Array.isArray(selectedOptionIds) || new Set(selectedOptionIds).size !== selectedOptionIds.length) {
+    throw new Error('Codex user-input response contains an unknown or malformed option id');
+  }
+  const answers = selectedOptionIds.map((id) => nativeOptions[id]);
+  if (answers.some((answer) => typeof answer !== 'string')) throw new Error('Codex user-input response contains an unknown or malformed option id');
+  return answers;
 }
 
 export function encodeError(id, code, message) { return { id, error: { code, message } }; }
