@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { lstat, mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
+import { chmod, lstat, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -137,27 +137,28 @@ describe('commandRunOutputResource', () => {
     await removeCommandRunOutputResource({ workingDirectory, runId: 'legacy_1' });
   });
 
-  it('uses the local git exclude file without changing a tracked gitignore', async () => {
+  it('does not follow workspace-controlled Git indirection to mutate external metadata', async () => {
     const workingDirectory = await root();
-    await execFileAsync('git', ['init'], { cwd: workingDirectory });
+    const externalGitDirectory = await root();
+    const externalExclude = join(externalGitDirectory, '.git', 'info', 'exclude');
+    await execFileAsync('git', ['init'], { cwd: externalGitDirectory });
+    await writeFile(join(workingDirectory, '.git'), `gitdir: ${join(externalGitDirectory, '.git')}\n`);
+    await writeFile(externalExclude, 'external rules\n');
+    await chmod(externalExclude, 0o000);
     const repository = { getHighWater: () => 0, readOutputPage: () => ({ chunks: [] }) };
-    await getCommandRunOutputResource({ workingDirectory, run: { id: 'git_run', status: 'success', output: '', outputHighWater: 0 }, repository });
-    expect(await readFile(join(workingDirectory, '.git', 'info', 'exclude'), 'utf8')).toContain('.circus/runs/');
+    await expect(getCommandRunOutputResource({
+      workingDirectory, run: { id: 'git_run', status: 'success', output: '', outputHighWater: 0 }, repository,
+    })).resolves.toMatchObject({ path: '.circus/runs/git_run/output.log' });
+    await chmod(externalExclude, 0o600);
+    expect(await readFile(externalExclude, 'utf8')).toBe('external rules\n');
   });
 
-  it('uses the common Git exclude file for a linked worktree', async () => {
-    const repositoryRoot = await root();
+  it('creates an output resource without Git metadata mutation', async () => {
     const workingDirectory = await root();
-    await execFileAsync('git', ['init'], { cwd: repositoryRoot });
-    await execFileAsync('git', ['config', 'user.email', 'test@example.com'], { cwd: repositoryRoot });
-    await execFileAsync('git', ['config', 'user.name', 'Test'], { cwd: repositoryRoot });
-    await execFileAsync('git', ['commit', '--allow-empty', '-m', 'initial'], { cwd: repositoryRoot });
-    await rm(workingDirectory, { recursive: true });
-    await execFileAsync('git', ['worktree', 'add', workingDirectory, '-b', 'linked-test'], { cwd: repositoryRoot });
     const repository = { getHighWater: () => 0, readOutputPage: () => ({ chunks: [] }) };
-    await getCommandRunOutputResource({ workingDirectory, run: { id: 'linked_run', status: 'success', legacyByteLength: 0, outputHighWater: 0 }, repository });
-    const { stdout } = await execFileAsync('git', ['check-ignore', '.circus/runs/linked_run/output.log'], { cwd: workingDirectory });
-    expect(stdout.trim()).toBe('.circus/runs/linked_run/output.log');
+    const descriptor = await getCommandRunOutputResource({ workingDirectory, run: { id: 'no_git_run', status: 'success', legacyByteLength: 0, outputHighWater: 0 }, repository });
+    expect(descriptor.path).toBe('.circus/runs/no_git_run/output.log');
+    await expect(lstat(join(workingDirectory, '.git'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('rejects symlinks inside the managed output tree', async () => {

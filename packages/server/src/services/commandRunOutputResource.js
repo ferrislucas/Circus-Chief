@@ -1,7 +1,6 @@
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, relative, resolve } from 'node:path';
-import { resolveGitExcludePath } from './gitService.js';
+import { relative, resolve } from 'node:path';
 import { COMMAND_RUN_OUTPUT_BYTE_WINDOW } from '../db/CommandRunRepository.js';
 
 const locks = new Map();
@@ -25,62 +24,32 @@ function artifactKey(root, runId) {
   return `${root}\0${runId}`;
 }
 
+function trustedArtifactPaths(root, runId) {
+  if (!RUN_ID.test(runId)) throw new CommandOutputResourceError();
+  const circus = resolve(root, '.circus');
+  const runs = resolve(circus, 'runs');
+  const runDirectory = resolve(runs, runId);
+  const output = resolve(runDirectory, 'output.log');
+  const state = resolve(runDirectory, 'output.state.json');
+  if (![circus, runs, runDirectory, output, state].every((path) => within(root, path))) {
+    throw new CommandOutputResourceError();
+  }
+  return { root, circus, runs, runDirectory, output, state };
+}
+
 async function normalDirectory(path) {
   await mkdir(path, { recursive: true, mode: 0o700 });
   const info = await lstat(path);
   if (!info.isDirectory() || info.isSymbolicLink()) throw new CommandOutputResourceError();
 }
 
-async function readNormalFile(path) {
-  try {
-    const info = await lstat(path);
-    if (!info.isFile() || info.isSymbolicLink()) throw new CommandOutputResourceError();
-    return await readFile(path, 'utf8');
-  } catch (error) {
-    if (error?.code === 'ENOENT') return '';
-    throw error;
-  }
-}
-
-async function registerGitExclude(root) {
-  try {
-    const resolved = await resolveGitExcludePath(root);
-    if (!resolved) return;
-    const common = await realpath(resolved.commonDirectory);
-    const exclude = resolve(resolved.excludePath);
-    if (!within(common, exclude)) throw new CommandOutputResourceError();
-    await mkdir(dirname(exclude), { recursive: true, mode: 0o700 });
-    const parent = await realpath(dirname(exclude));
-    if (!within(common, parent)) throw new CommandOutputResourceError();
-    const current = await readNormalFile(exclude);
-    if (!current.split(/\r?\n/).includes('.circus/runs/')) {
-      const handle = await open(exclude, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
-      try {
-        await handle.writeFile(`${current && !current.endsWith('\n') ? '\n' : ''}.circus/runs/\n`, 'utf8');
-      } finally {
-        await handle.close();
-      }
-    }
-  } catch (error) {
-    if (error instanceof CommandOutputResourceError) throw error;
-    throw new CommandOutputResourceError();
-  }
-}
-
 async function pathsFor(workingDirectory, runId) {
-  if (!RUN_ID.test(runId)) throw new CommandOutputResourceError();
-  let root;
   try {
-    root = await realpath(workingDirectory);
-    const circus = resolve(root, '.circus');
-    const runs = resolve(circus, 'runs');
-    const runDirectory = resolve(runs, runId);
-    if (![circus, runs, runDirectory].every((item) => within(root, item))) throw new CommandOutputResourceError();
-    await normalDirectory(circus);
-    await normalDirectory(runs);
-    await normalDirectory(runDirectory);
-    await registerGitExclude(root);
-    return { root, runDirectory, output: resolve(runDirectory, 'output.log'), state: resolve(runDirectory, 'output.state.json') };
+    const paths = trustedArtifactPaths(await realpath(workingDirectory), runId);
+    await normalDirectory(paths.circus);
+    await normalDirectory(paths.runs);
+    await normalDirectory(paths.runDirectory);
+    return paths;
   } catch (error) {
     if (error instanceof CommandOutputResourceError) throw error;
     throw new CommandOutputResourceError();
@@ -312,13 +281,10 @@ export const commandRunOutputResourceService = {
 };
 
 export async function removeCommandRunOutputResource({ workingDirectory, runId }) {
-  if (!RUN_ID.test(runId)) throw new CommandOutputResourceError();
-  const root = await realpath(workingDirectory);
-  materializedArtifacts.delete(artifactKey(root, runId));
-  const runDirectory = resolve(root, '.circus', 'runs', runId);
-  if (!within(root, runDirectory)) throw new CommandOutputResourceError();
+  const paths = trustedArtifactPaths(await realpath(workingDirectory), runId);
+  materializedArtifacts.delete(artifactKey(paths.root, runId));
   // Validate every existing component without creating anything during cleanup.
-  for (const path of [resolve(root, '.circus'), resolve(root, '.circus', 'runs'), runDirectory]) {
+  for (const path of [paths.circus, paths.runs, paths.runDirectory]) {
     try {
       const info = await lstat(path);
       if (info.isSymbolicLink() || !info.isDirectory()) throw new CommandOutputResourceError();
@@ -327,5 +293,5 @@ export async function removeCommandRunOutputResource({ workingDirectory, runId }
       throw error;
     }
   }
-  await rm(runDirectory, { recursive: true, force: true });
+  await rm(paths.runDirectory, { recursive: true, force: true });
 }
