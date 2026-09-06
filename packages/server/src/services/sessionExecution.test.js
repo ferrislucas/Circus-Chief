@@ -739,17 +739,27 @@ describe('createAgentForSession config forwarding', () => {
     spy.mockRestore();
   });
 
-  it('codex → calls agentGateway.createAgent("codex", { spawnCodexProcess: <function> })', () => {
+  it('does not start allowance observation for Codex while the rollout is disabled', () => {
+    delete process.env.PROVIDER_ALLOWANCES_ENABLED;
     const spy = vi.spyOn(agentGateway, 'createAgent');
     createAgentForSession('codex');
     expect(spy).toHaveBeenCalledWith(
       'codex',
       expect.objectContaining({
         spawnCodexProcess: expect.any(Function),
-        allowanceObserver: expect.any(Function),
+        allowanceObserver: null,
       }),
     );
     spy.mockRestore();
+  });
+
+  it('starts real adapter observation only when the rollout is explicitly enabled', () => {
+    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
+    const spy = vi.spyOn(agentGateway, 'createAgent');
+    createAgentForSession('codex');
+    expect(spy).toHaveBeenCalledWith('codex', expect.objectContaining({ allowanceObserver: expect.any(Function) }));
+    spy.mockRestore();
+    delete process.env.PROVIDER_ALLOWANCES_ENABLED;
   });
 });
 

@@ -2,6 +2,16 @@
 
 ## OpenAI direct API adapter
 
+## Rollout configuration
+
+Provider allowances are disabled by default. To enable the validated OpenAI
+direct-API path in local development or a controlled validation environment,
+start the server with `PROVIDER_ALLOWANCES_ENABLED=1`. No other value enables
+the feature. Roll back immediately by removing the variable or setting any
+other value, then restart the server; the API returns `[]` and the client does
+not mount allowance UI or listeners. Keep the default disabled until real
+provider behavior has been validated and the release criteria are met.
+
 The supported production source is the OpenAI direct API path in
 `CodexAdapter`. It reads only the documented `x-ratelimit-limit-*`,
 `x-ratelimit-remaining-*`, and `x-ratelimit-reset-*` response headers for

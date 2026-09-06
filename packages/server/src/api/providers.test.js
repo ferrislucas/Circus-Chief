@@ -44,6 +44,7 @@ describe('Providers API', () => {
   });
 
   afterEach(() => {
+    delete process.env.PROVIDER_ALLOWANCES_ENABLED;
     // Cleanup test data
     if (testProviderId) {
       try {
@@ -56,10 +57,18 @@ describe('Providers API', () => {
   });
 
   describe('GET /api/providers/allowances', () => {
-    it('returns a snapshot for every enabled provider', async () => {
+    it('returns an empty list and does not initialize observation when the rollout is disabled', async () => {
+      delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+      const response = await request(app).get('/api/providers/allowances').expect(200);
+      expect(response.body).toEqual([]);
+      expect(mockAllowanceService.getSnapshots).not.toHaveBeenCalled();
+    });
+
+    it('returns snapshots only when explicitly opted in', async () => {
+      process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
       const response = await request(app).get('/api/providers/allowances').expect(200);
       expect(response.body.length).toBeGreaterThan(0);
-      expect(response.body.every((snapshot) => snapshot.providerId && snapshot.status)).toBe(true);
+      expect(mockAllowanceService.getSnapshots).toHaveBeenCalledOnce();
     });
   });
 
