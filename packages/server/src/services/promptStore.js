@@ -313,10 +313,17 @@ function serializeQuestionAnswers(questions, answers, customAnswers = {}) {
 }
 
 function permissionResult(record, response) {
-  if (response.action === 'allow') return { behavior: 'allow' };
+  // The CLI's runtime schema for the can_use_tool response requires
+  // `updatedInput` on the allow branch: the host SDK's TypeScript marks it
+  // optional, but the CLI validates host responses with a Zod object that
+  // does not (see the `invalid_union` failure surfaced as "Tool permission
+  // request failed: ZodError …" when it is absent). Echo the tool input back
+  // unchanged so an accept is a genuine no-op.
+  const allowed = { behavior: 'allow', updatedInput: record.payload.input || {} };
+  if (response.action === 'allow') return allowed;
   if (response.action === 'always_allow' && Array.isArray(record.payload.suggestions) && record.payload.suggestions.length) {
     return {
-      behavior: 'allow',
+      ...allowed,
       updatedPermissions: record.payload.suggestions.map((suggestion) => ({
         ...suggestion,
         destination: response.destination || 'session',

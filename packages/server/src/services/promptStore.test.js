@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
 vi.mock('../websocket.js', () => ({ broadcastToSession: vi.fn(), broadcastToProject: vi.fn() }));
 vi.mock('./workLogService.js', () => ({ createWorkLog: vi.fn() }));
@@ -528,8 +529,89 @@ describe('promptStore work-log emission', () => {
     expect(respondToPrompt(`always-${destination}`, prompt.id, { action: 'always_allow', destination })).toBe(true);
     await expect(promise).resolves.toEqual({
       behavior: 'allow',
+      updatedInput: { command: 'git status' },
       updatedPermissions: suggestions.map((suggestion) => ({ ...suggestion, destination })),
     });
+  });
+
+  // CLI regression: the SDK's runtime can_use_tool response schema requires
+  // `updatedInput` on every allow branch (TypeScript types mark it optional,
+  // the CLI's Zod validation does not). Omitting it makes the CLI fail the
+  // union parse and deny the tool with "Tool permission request failed:
+  // ZodError: [ { code: \"invalid_union\", ... } ]" after the user approves.
+  it.each(['allow', 'always_allow'])('returns updatedInput on %s so the CLI can parse the approve response', async (action) => {
+    const { promise, prompt } = park(`approve-${action}`, 'permission', {
+      toolName: 'Bash', input: { command: 'git status' }, suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash' }] }],
+    });
+
+    respondToPrompt(`approve-${action}`, prompt.id, { action });
+
+    const result = await promise;
+    expect(result.behavior).toBe('allow');
+    expect(result.updatedInput).toEqual({ command: 'git status' });
+  });
+});
+
+// Faithful reconstruction of the CLI's runtime `can_use_tool` response schema
+// (extracted from the bundled claude binary used by the installed
+// @anthropic-ai/claude-agent-sdk). The SDK's TypeScript types mark
+// `updatedInput` optional on the allow branch, but this Zod object REQUIRES
+// it. A host response that omits it fails the union parse with
+// `invalid_union`, and the CLI denies the tool, surfacing to the session:
+// "Tool permission request failed: ZodError: [ { code: \"invalid_union\", ... } ]".
+// The `.catch()` on `updatedPermissions` replicates the CLI's graceful
+// handling of malformed suggestions (dropped with a warning, not rejected).
+const CLI_PERMISSION_BEHAVIORS = ['allow', 'deny', 'ask'];
+const CLI_PERMISSION_DESTINATIONS = ['userSettings', 'projectSettings', 'localSettings', 'session', 'cliArg'];
+const CLI_PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk', 'auto'];
+const CLI_PERMISSION_RULE = z.object({
+  toolName: z.string(),
+  ruleContent: z.string().optional(),
+});
+const CLI_PERMISSION_UPDATE = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('addRules'), rules: z.array(CLI_PERMISSION_RULE), behavior: z.enum(CLI_PERMISSION_BEHAVIORS), destination: z.enum(CLI_PERMISSION_DESTINATIONS) }),
+  z.object({ type: z.literal('replaceRules'), rules: z.array(CLI_PERMISSION_RULE), behavior: z.enum(CLI_PERMISSION_BEHAVIORS), destination: z.enum(CLI_PERMISSION_DESTINATIONS) }),
+  z.object({ type: z.literal('removeRules'), rules: z.array(CLI_PERMISSION_RULE), behavior: z.enum(CLI_PERMISSION_BEHAVIORS), destination: z.enum(CLI_PERMISSION_DESTINATIONS) }),
+  z.object({ type: z.literal('setMode'), mode: z.enum(CLI_PERMISSION_MODES), destination: z.enum(CLI_PERMISSION_DESTINATIONS) }),
+  z.object({ type: z.literal('addDirectories'), directories: z.array(z.string()), destination: z.enum(CLI_PERMISSION_DESTINATIONS) }),
+  z.object({ type: z.literal('removeDirectories'), directories: z.array(z.string()), destination: z.enum(CLI_PERMISSION_DESTINATIONS) }),
+]);
+const CLI_PERMISSION_RESULT_SCHEMA = z.union([
+  z.object({
+    behavior: z.literal('allow'),
+    // Required at runtime even though the SDK's TypeScript marks it optional.
+    updatedInput: z.record(z.string(), z.unknown()),
+    updatedPermissions: z.array(CLI_PERMISSION_UPDATE).optional().catch(() => undefined),
+    toolUseID: z.string().optional(),
+  }),
+  z.object({
+    behavior: z.literal('deny'),
+    message: z.string(),
+    interrupt: z.boolean().optional(),
+    toolUseID: z.string().optional(),
+  }),
+]);
+
+describe('promptStore canUseTool responses satisfy the CLI permission-result schema', () => {
+  it.each(['allow', 'always_allow'])('an %s response parses as a valid CLI permission result (regression: invalid_union without updatedInput)', async (action) => {
+    const { promise, prompt } = park(`cli-schema-${action}`, 'permission', {
+      toolName: 'Bash', input: { command: 'git status' },
+      suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'Bash(git status)' }], behavior: 'allow' }],
+    });
+
+    expect(respondToPrompt(`cli-schema-${action}`, prompt.id, { action })).toBe(true);
+    const result = await promise;
+
+    expect(() => CLI_PERMISSION_RESULT_SCHEMA.parse(result)).not.toThrow();
+  });
+
+  it('a deny response parses as a valid CLI permission result', async () => {
+    const { promise, prompt } = park('cli-schema-deny', 'permission');
+
+    respondToPrompt('cli-schema-deny', prompt.id, { action: 'deny', reason: 'not now' });
+    const result = await promise;
+
+    expect(() => CLI_PERMISSION_RESULT_SCHEMA.parse(result)).not.toThrow();
   });
 });
 
@@ -673,7 +755,7 @@ describe('promptStore bounded lifecycle', () => {
     expect(createWorkLog).toHaveBeenCalledTimes(1);
 
     expect(respondToPrompt('expiry-handoff', second.prompt.id, { action: 'allow' })).toBe(true);
-    await expect(second.promise).resolves.toEqual({ behavior: 'allow' });
+    await expect(second.promise).resolves.toEqual({ behavior: 'allow', updatedInput: permissionPayload.input });
   });
 
   it('expires queued prompts before they can be promoted', async () => {
