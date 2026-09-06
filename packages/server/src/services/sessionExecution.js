@@ -530,9 +530,16 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     // Resolution and tier selection can fail before _executeSession establishes
     // its own error/finally boundary. Do not leave the session registered as
     // active or a participating lane run waiting forever for open work.
-    sessions.update(sessionId, { status: 'error', error: error.message });
-    broadcastSessionStatus(sessionId, 'error');
-    closeOwnWork(sessionId, 'closed_failed', error.message);
+    //
+    // A user stop is not a permanent error: stopSession() already set the
+    // status to 'stopped' and paused any open lane obligation, so this catch
+    // must not overwrite that state or fail the run. Keep parity with
+    // handleTurnFailure — only real failures terminally close own work.
+    if (!isUserStopAbort(controller)) {
+      sessions.update(sessionId, { status: 'error', error: error.message });
+      broadcastSessionStatus(sessionId, 'error');
+      closeOwnWork(sessionId, 'closed_failed', error.message);
+    }
     throw error;
   } finally {
     cleanupSessionState(sessionId, false, controller);
