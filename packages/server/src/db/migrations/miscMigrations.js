@@ -132,6 +132,13 @@ export const miscMigrations = [
     },
   },
   {
+    name: 'command-runs-preserve-raw-output-chunks',
+    up(db) {
+      addColumnIfMissing(db, 'command_run_output_chunks', 'raw_content', 'BLOB');
+      addColumnIfMissing(db, 'command_run_output_chunks', 'raw_byte_length', 'INTEGER');
+    },
+  },
+  {
     name: 'command-runs-create-output-cleanup',
     up(db) {
       db.exec(`

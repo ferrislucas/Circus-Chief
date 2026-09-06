@@ -429,6 +429,8 @@ CREATE TABLE IF NOT EXISTS command_run_output_chunks (
   sequence INTEGER NOT NULL,
   content TEXT NOT NULL,
   byte_length INTEGER NOT NULL,
+  raw_content BLOB,
+  raw_byte_length INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   PRIMARY KEY (run_id, sequence)
 );

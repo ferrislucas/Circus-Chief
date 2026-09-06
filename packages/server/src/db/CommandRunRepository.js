@@ -47,7 +47,7 @@ export class CommandRunRepository extends BaseRepository {
     return this.appendBatch(runId, text ? [text] : []);
   }
 
-  /** Persist bounded, append-only chunks and return their assigned cursors. */
+  /** Persist raw bytes separately from the rendered text used by existing clients. */
   appendBatch(runId, chunks) {
     const items = chunks.filter(Boolean);
     if (!items.length) return [];
@@ -56,13 +56,15 @@ export class CommandRunRepository extends BaseRepository {
         'SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence FROM command_run_output_chunks WHERE run_id = ?'
       ).get(runId).sequence;
       const insert = this.db.prepare(
-        `INSERT INTO command_run_output_chunks (run_id, sequence, content, byte_length, created_at)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO command_run_output_chunks (run_id, sequence, content, byte_length, raw_content, raw_byte_length, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
       );
-      return items.map((content, index) => {
+      return items.map((item, index) => {
+        const content = typeof item === 'string' ? item : item.rendered || '';
+        const rawContent = Buffer.from(typeof item === 'string' ? item : item.raw || content);
         const sequence = next + index;
-        insert.run(runId, sequence, content, Buffer.byteLength(content), Date.now());
-        return { sequence, content };
+        insert.run(runId, sequence, content, Buffer.byteLength(content), rawContent, rawContent.length, Date.now());
+        return { sequence, content, rawContent };
       });
     });
     return write();
@@ -151,8 +153,8 @@ export class CommandRunRepository extends BaseRepository {
     const byteOffset = Math.max(0, Number(offset) || 0);
     const limit = Math.max(1, Math.min(Number(limitBytes) || COMMAND_RUN_OUTPUT_BYTE_WINDOW, COMMAND_RUN_OUTPUT_BYTE_WINDOW));
     const row = this.db.prepare(
-      `SELECT sequence, byte_length,
-        substr(CAST(content AS BLOB), ?, ?) AS content
+      `SELECT sequence, COALESCE(raw_byte_length, byte_length) AS byte_length,
+        substr(COALESCE(raw_content, CAST(content AS BLOB)), ?, ?) AS content
        FROM command_run_output_chunks
        WHERE run_id = ? AND (sequence > ? OR (sequence = ? AND ? > 0))
        ORDER BY sequence ASC LIMIT 1`

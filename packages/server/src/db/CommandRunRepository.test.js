@@ -86,6 +86,16 @@ describe('CommandRunRepository', () => {
       ]);
     });
 
+    it('stores raw bytes independently of the rendered output used by existing clients', () => {
+      repository.create({ id: 'raw-run', sessionId: testSessionId, buttonId: testButtonId });
+      const raw = Buffer.from('\x1b[31mred\x1b[0m\rprogress\n');
+
+      repository.appendBatch('raw-run', [{ raw, rendered: 'progress\n' }]);
+
+      expect(repository.readAfter('raw-run').chunks).toEqual([{ sequence: 1, content: 'progress\n' }]);
+      expect(repository.readOutputByteWindow('raw-run').content).toEqual(raw);
+    });
+
     it('reads an oversized chunk as ordered byte windows', () => {
       repository.create({ id: 'oversized-run', sessionId: testSessionId, buttonId: testButtonId });
       const output = `prefix:${'\u00e9'.repeat(90_000)}:suffix`;

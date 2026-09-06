@@ -54,7 +54,8 @@ export class CommandRunner {
       sessionId,
       buttonId,
       workingDirectory,
-      outputChunks: [],
+      persistedOutputChunks: [],
+      renderedOutputChunks: [],
       outputBytes: 0,
       lastDbWrite: Date.now(),
       bufferFlushTimer: null,
@@ -70,11 +71,13 @@ export class CommandRunner {
    */
   #flushOutputBuffer(entryInput, runId) {
     const entry = entryInput;
-    if (!entry.outputChunks.length) return;
-    const chunks = entry.outputChunks;
-    entry.outputChunks = [];
+    if (!entry.persistedOutputChunks.length) return;
+    const chunks = entry.persistedOutputChunks;
+    const renderedChunks = entry.renderedOutputChunks;
+    entry.persistedOutputChunks = [];
+    entry.renderedOutputChunks = [];
     entry.outputBytes = 0;
-    entry.onOutput?.(chunks.join(''));
+    if (renderedChunks.length) entry.onOutput?.(renderedChunks.join(''));
     if (!entry.sessionId || !entry.buttonId) return;
     if (!this.commandRunRepository || typeof this.commandRunRepository.appendBatch !== 'function') return;
     const startedAt = performance.now();
@@ -83,9 +86,11 @@ export class CommandRunner {
       const persisted = this.commandRunRepository.appendBatch(runId, chunks);
       commandOutputMetrics.increment(
         COMMAND_OUTPUT_METRICS.PERSISTED_BYTES,
-        chunks.reduce((bytes, chunk) => bytes + Buffer.byteLength(chunk), 0),
+        chunks.reduce((bytes, chunk) => bytes + chunk.raw.length, 0),
       );
-      for (const chunk of persisted) entry.onOutputChunk?.(chunk);
+      // The cursor and WebSocket contracts remain rendered-text only. Raw
+      // bytes are reserved for the transcript resource below.
+      for (const chunk of persisted) entry.onOutputChunk?.({ sequence: chunk.sequence, content: chunk.content });
       entry.artifactWrite = entry.artifactWrite.then(() => this.outputResourceService.append({
         workingDirectory: entry.workingDirectory,
         runId,
@@ -102,12 +107,14 @@ export class CommandRunner {
     }
   }
 
-  #appendOutput(entry, text) {
-    if (!text) return;
-    commandOutputMetrics.increment(COMMAND_OUTPUT_METRICS.PRODUCED_BYTES, Buffer.byteLength(text));
+  #appendOutput(entry, { raw, rendered = '' }) {
+    if (!raw?.length && !rendered) return;
+    const rawBytes = raw || Buffer.alloc(0);
+    commandOutputMetrics.increment(COMMAND_OUTPUT_METRICS.PRODUCED_BYTES, rawBytes.length);
     Object.assign(entry, {
-      outputChunks: [...entry.outputChunks, text],
-      outputBytes: entry.outputBytes + Buffer.byteLength(text),
+      persistedOutputChunks: [...entry.persistedOutputChunks, { raw: rawBytes, rendered }],
+      renderedOutputChunks: rendered ? [...entry.renderedOutputChunks, rendered] : entry.renderedOutputChunks,
+      outputBytes: entry.outputBytes + rawBytes.length,
     });
   }
 
@@ -137,7 +144,7 @@ export class CommandRunner {
     entry.finalized = true;
     this.#clearFlushTimers(entry);
     const remainingText = entry.outputProcessor.flush();
-    this.#appendOutput(entry, remainingText);
+    this.#appendOutput(entry, { raw: Buffer.alloc(0), rendered: remainingText });
     this.#flushOutputBuffer(entry, runId);
     console.log(`[commandRunner.run] Process closed for runId: ${runId}, exitCode: ${exitCode}, signal: ${signal}`);
 
@@ -168,7 +175,8 @@ export class CommandRunner {
       if (entry.finalized) return;
       entry.finalized = true;
       this.#clearFlushTimers(entry);
-      this.#appendOutput(entry, entry.outputProcessor.flush());
+      const remainingText = entry.outputProcessor.flush();
+      this.#appendOutput(entry, { raw: Buffer.alloc(0), rendered: remainingText });
       this.#flushOutputBuffer(entry, runId);
     }
     const msg = entry ? `Failed to execute command: ${err.message}` : `Error running command: ${err.message}`;
@@ -216,11 +224,10 @@ export class CommandRunner {
         entry.bufferFlushTimer = setInterval(() => this.#flushOutputBuffer(entry, runId), this.outputBufferFlushInterval);
 
         const handleData = (data) => {
-          const text = entry.outputProcessor.process(data.toString());
-          if (text) {
-            this.#appendOutput(entry, text);
-            if (entry.outputBytes >= this.outputBufferMaxBytes) this.#flushOutputBuffer(entry, runId);
-          }
+          const raw = Buffer.from(data);
+          const rendered = entry.outputProcessor.process(raw.toString());
+          this.#appendOutput(entry, { raw, rendered });
+          if (entry.outputBytes >= this.outputBufferMaxBytes) this.#flushOutputBuffer(entry, runId);
         };
 
         child.stdout.on('data', handleData);

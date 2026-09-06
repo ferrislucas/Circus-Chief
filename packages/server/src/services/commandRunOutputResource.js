@@ -104,7 +104,7 @@ async function writeLegacy(output, run, repository) {
 }
 
 async function appendChunks(output, chunks) {
-  for (const chunk of chunks) await appendBoundedWindow(output, chunk.content);
+  for (const chunk of chunks) await appendBoundedWindow(output, chunk.rawContent ?? chunk.content);
 }
 
 async function copyChunkWindows(output, runId, repository, initialSequence = 0) {
