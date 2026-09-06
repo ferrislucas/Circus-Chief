@@ -3,16 +3,18 @@ import { CodexAppServerClient } from './CodexAppServerClient.js';
 import { encodeError, encodeUserInputResponse, normalizeUserInputRequest } from './codexAppServerCodec.js';
 import { invalidateInteraction, requestInteraction } from '../../services/promptStore.js';
 import { createCodexSpawner } from '../../services/codexSpawnHelper.js';
+import { buildCodexExecutionConfig } from './codexExecutionConfig.js';
 
 export async function *spawnCodexAppServer(spawnOverride, queryParams, options, meta) {
   const spawn = spawnOverride ?? createCodexSpawner();
-  const child = spawn({ command: 'codex', args: ['app-server'], cwd: options.cwd, env: options.env, signal: options.abortController?.signal });
-  yield* executeCodexAppServer(child, queryParams, options, meta || { sessionId: options.sessionId, conversationId: options.conversationId });
+  const config = buildCodexExecutionConfig(options);
+  const child = spawn({ command: 'codex', args: ['app-server', ...config.configArgs], cwd: config.cwd, env: config.env, signal: config.signal });
+  yield* executeCodexAppServer(child, queryParams, options, meta || { sessionId: options.sessionId, conversationId: options.conversationId }, config);
 }
 
 // Runs one persistent App Server connection for a single execution. The
 // adapter owns spawning; this module owns only protocol-to-event translation.
-export async function *executeCodexAppServer(child, queryParams, options, meta = {}) {
+export async function *executeCodexAppServer(child, queryParams, options, meta = {}, resolvedConfig = buildCodexExecutionConfig(options)) {
   const events = []; let wake; let done = false; let failure;
   const interactionController = new AbortController();
   const abortInteractions = (reason) => {
@@ -58,10 +60,10 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
   });
   try {
     await client.initialize();
-    const thread = await client.request('thread/start', { cwd: options.cwd, model: options.model, sandbox: options.sandboxMode, developerInstructions: options.systemPrompt || null });
+    const thread = await client.request('thread/start', { cwd: resolvedConfig.cwd, model: resolvedConfig.model, sandbox: resolvedConfig.sandbox, developerInstructions: resolvedConfig.systemPrompt });
     const threadId = thread?.thread?.id;
     if (!threadId) throw new Error('Codex App Server did not return a thread id');
-    await client.request('turn/start', { threadId, input: [{ type: 'text', text: queryParams.prompt }], cwd: options.cwd, model: options.model, effort: options.effortLevel || null });
+    await client.request('turn/start', { threadId, input: [{ type: 'text', text: queryParams.prompt }], cwd: resolvedConfig.cwd, model: resolvedConfig.model, effort: resolvedConfig.reasoningEffort });
     while (!done) {
       if (failure) throw failure;
       if (events.length) { yield events.shift(); continue; }

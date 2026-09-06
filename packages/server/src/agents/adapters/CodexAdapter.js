@@ -2,7 +2,7 @@ import { BaseAgent } from '../BaseAgent.js';
 import { executeCodexCli } from './codexCliRunner.js';
 import { spawnCodexAppServer } from './codexAppServerRunner.js';
 import { createCodexSpawner } from '../../services/codexSpawnHelper.js';
-import { serializeMcpServersToArgs } from './codexMcpArgs.js';
+import { buildCodexExecutionConfig } from './codexExecutionConfig.js';
 
 /**
  * Module-level flag: once an ENOENT is observed for the Codex CLI, remember
@@ -117,45 +117,25 @@ export class CodexAdapter extends BaseAgent {
 
   _spawnCodexChild(queryParams, options) {
     const spawnFn = this._spawnCodex ?? createCodexSpawner();
-    const { cwd, env, abortController, model, sandboxMode, effortLevel, mcpServers } = options;
-    const effectiveSandbox = sandboxMode || 'workspace-write';
-    const codexReasoningEffort = resolveCodexReasoningEffort(effortLevel);
+    const config = buildCodexExecutionConfig(options);
     const args = [
       'exec',
       '--json',
       '--skip-git-repo-check',
-      '--sandbox', effectiveSandbox,
-      '-m', model,
+      '--sandbox', config.sandbox,
+      '-m', config.model,
     ];
+    args.push(...config.configArgs);
 
-    if (codexReasoningEffort) {
-      args.push(
-        '-c', `model_reasoning_effort=${codexReasoningEffort}`,
-        '-c', `plan_mode_reasoning_effort=${codexReasoningEffort}`
-      );
-    }
-
-    // Serialize MCP config and collect credential env vars to inject.
-    const mcpConfig = (mcpServers && typeof mcpServers === 'object')
-      ? serializeMcpServersToArgs(mcpServers, { baseEnv: env })
-      : { args: [], env: {} };
-    args.push(...mcpConfig.args);
-
-    // Defense in depth: when no API key is in the env, force ChatGPT auth
-    // so the CLI uses its own OAuth flow even if some env var leaks through.
-    if (!env?.OPENAI_API_KEY) {
-      args.push('-c', 'preferred_auth_method=chatgpt');
-    }
-
-    console.log('[CodexAdapter] auth_mode_hint =', env?.OPENAI_API_KEY ? 'apikey' : 'chatgpt');
+    console.log('[CodexAdapter] auth_mode_hint =', config.usesChatGptAuth ? 'chatgpt' : 'apikey');
 
     try {
       return spawnFn({
         command: 'codex',
         args,
-        cwd,
-        env: { ...env, ...mcpConfig.env },
-        signal: abortController?.signal,
+        cwd: config.cwd,
+        env: config.env,
+        signal: config.signal,
       });
     } catch (err) {
       if (err && err.code === 'ENOENT') {
@@ -264,13 +244,6 @@ function resolveDirectApiInputs(options) {
     systemPrompt: typeof options.systemPrompt === 'string' ? options.systemPrompt : null,
     abortController: options.abortController,
   };
-}
-
-function resolveCodexReasoningEffort(effortLevel) {
-  if (!effortLevel || effortLevel === 'auto') return null;
-  if (effortLevel === 'max') return 'xhigh';
-  if (['low', 'medium', 'high'].includes(effortLevel)) return effortLevel;
-  return null;
 }
 
 function buildChatMessages(prompt, systemPrompt) {

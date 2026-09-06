@@ -74,6 +74,29 @@ function createFakeChild({ stdoutLines = [], stderr = '', exitCode = 0, emitErro
   return child;
 }
 
+function createFakeAppServerChild(capture) {
+  const child = new EventEmitter();
+  child.stdout = new Readable({ read() {} });
+  child.stderr = new Readable({ read() {} });
+  child.kill = vi.fn();
+  child.emitMessage = (message) => child.stdout.push(`${JSON.stringify(message)}\n`);
+  child.stdin = new Writable({
+    write(chunk, _encoding, callback) {
+      const request = JSON.parse(chunk.toString());
+      capture.requests.push(request);
+      if (request.method === 'initialize') child.emitMessage({ id: request.id, result: {} });
+      if (request.method === 'thread/start') child.emitMessage({ id: request.id, result: { thread: { id: 'thread-1' } } });
+      if (request.method === 'turn/start') {
+        child.emitMessage({ id: request.id, result: { turn: { id: 'turn-1' } } });
+        child.emitMessage({ method: 'item/completed', params: { item: { id: 'message-1', type: 'agent_message', text: 'App Server response' } } });
+        child.emitMessage({ method: 'turn/completed', params: { turn: { usage: { input_tokens: 3, output_tokens: 2 } } } });
+      }
+      callback();
+    },
+  });
+  return child;
+}
+
 function loadFixture() {
   const raw = fs.readFileSync(fixturePath, 'utf-8');
   return raw.trim().split('\n').filter(Boolean);
@@ -91,10 +114,12 @@ describe('CodexAdapter', () => {
   beforeEach(() => {
     _resetCodexCliUnavailableForTests();
     delete process.env.USE_CODEX_DIRECT_API;
+    delete process.env.CODEX_APP_SERVER_ENABLED;
   });
 
   afterEach(() => {
     delete process.env.USE_CODEX_DIRECT_API;
+    delete process.env.CODEX_APP_SERVER_ENABLED;
   });
 
   it('extends BaseAgent', () => {
@@ -188,6 +213,53 @@ describe('CodexAdapter', () => {
     const sandboxIdx = spawnArgs.args.indexOf('--sandbox');
     expect(sandboxIdx).toBeGreaterThan(-1);
     expect(spawnArgs.args[sandboxIdx + 1]).toBe('read-only');
+  });
+
+  it('App Server path: preserves legacy launch, protocol, and streaming configuration', async () => {
+    process.env.CODEX_APP_SERVER_ENABLED = '1';
+    const capture = { requests: [] };
+    const fakeSpawn = vi.fn(() => createFakeAppServerChild(capture));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    const events = await collect(adapter.execute({
+      prompt: 'inspect the repository',
+      options: {
+        model: 'gpt-5-codex',
+        cwd: '/workspace/project',
+        env: { PATH: '/usr/bin' },
+        sandboxMode: 'read-only',
+        effortLevel: 'max',
+        systemPrompt: 'Keep changes small.',
+        mcpServers: {
+          local: { command: 'node', args: ['mcp-server.js'], env: { MCP_TOKEN: 'top-secret' } },
+        },
+        abortController: new AbortController(),
+      },
+    }, { sessionId: 'session-1', conversationId: 'conversation-1' }));
+
+    const spawnArgs = fakeSpawn.mock.calls[0][0];
+    expect(spawnArgs).toMatchObject({ command: 'codex', cwd: '/workspace/project' });
+    expect(spawnArgs.args).toEqual(expect.arrayContaining([
+      'app-server',
+      'model_reasoning_effort=xhigh',
+      'plan_mode_reasoning_effort=xhigh',
+      'preferred_auth_method=chatgpt',
+      'mcp_servers.local.command="node"',
+      'mcp_servers.local.args=["mcp-server.js"]',
+    ]));
+    expect(spawnArgs.args.join(' ')).not.toContain('top-secret');
+    expect(spawnArgs.env).toMatchObject({ PATH: '/usr/bin', MCP_TOKEN: 'top-secret' });
+
+    const threadStart = capture.requests.find((request) => request.method === 'thread/start');
+    expect(threadStart.params).toEqual({
+      cwd: '/workspace/project',
+      model: 'gpt-5-codex',
+      sandbox: 'read-only',
+      developerInstructions: 'Keep changes small.',
+    });
+    const turnStart = capture.requests.find((request) => request.method === 'turn/start');
+    expect(turnStart.params).toMatchObject({ cwd: '/workspace/project', model: 'gpt-5-codex', effort: 'xhigh' });
+    expect(events.some((event) => event.type === 'stream_event')).toBe(true);
   });
 
   it('CLI path: appends -c preferred_auth_method=chatgpt when no OPENAI_API_KEY in env', async () => {
