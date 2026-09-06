@@ -172,7 +172,7 @@ async function materialize(paths, run, repository) {
     await rebuild(paths, run, repository);
     return;
   }
-  if (state.legacy || !run.outputHighWater) return;
+  if (state.legacy) return;
   const highWater = repository.getHighWater(run.id);
   if (state.sequence > highWater) return rebuild(paths, run, repository);
   const sequence = await copyChunkWindows(paths.output, run.id, repository, state.sequence);
@@ -187,26 +187,34 @@ function synchronized(key, operation) {
   return next.finally(() => { if (locks.get(key) === next) locks.delete(key); });
 }
 
-export async function getCommandRunOutputResource({ workingDirectory, run, repository }) {
+async function currentRunMetadata(paths, run, repository) {
+  if (!repository.getOutputResourceMetadata) return run;
+  const current = repository.getOutputResourceMetadata(run.id);
+  if (current && current.sessionId === run.sessionId) return current;
+  await rm(paths.runDirectory, { recursive: true, force: true });
+  const error = new CommandOutputResourceError();
+  error.notFound = true;
+  throw error;
+}
+
+export async function getCommandRunOutputResource({ workingDirectory, run, repository, beforeLiveRegistration }) {
   const paths = await pathsFor(workingDirectory, run.id);
   return synchronized(paths.output, async () => {
     try {
       await materialize(paths, run, repository);
-      let currentRun = run;
-      if (repository.getOutputResourceMetadata) {
-        const current = repository.getOutputResourceMetadata(run.id);
-        if (!current || current.sessionId !== run.sessionId) {
-          await rm(paths.runDirectory, { recursive: true, force: true });
-          const error = new CommandOutputResourceError();
-          error.notFound = true;
-          throw error;
-        }
-        currentRun = current;
-      }
-      const info = await outputStat(paths.output);
+      let currentRun = await currentRunMetadata(paths, run, repository);
       const key = artifactKey(paths.root, run.id);
-      if (currentRun.status === 'running') materializedArtifacts.set(key, paths);
-      else materializedArtifacts.delete(key);
+      if (currentRun.status === 'running') {
+        // Register while holding the same per-run lock used by appends. Any
+        // output persisted during materialization queues behind this handoff.
+        materializedArtifacts.set(key, paths);
+        await beforeLiveRegistration?.();
+        currentRun = await currentRunMetadata(paths, run, repository);
+        await materialize(paths, currentRun, repository);
+        currentRun = await currentRunMetadata(paths, run, repository);
+      }
+      if (currentRun.status !== 'running') materializedArtifacts.delete(key);
+      const info = await outputStat(paths.output);
       return {
         runId: run.id,
         status: currentRun.status,
@@ -244,13 +252,18 @@ export async function appendCommandRunOutputResource({ workingDirectory, runId, 
     try {
       const state = await readState(paths.state);
       const output = await outputStat(paths.output);
-      const expectedSequence = (state?.sequence || 0) + 1;
-      if (!state || !output || state.legacy || chunks[0].sequence !== expectedSequence) {
+      if (!state || !output || state.legacy) {
         throw new CommandOutputResourceError('Command output resource is stale');
       }
-      await appendChunks(paths.output, chunks);
+      const pending = chunks.filter((chunk) => chunk.sequence > state.sequence);
+      if (!pending.length) return true;
+      const expectedSequence = state.sequence + 1;
+      if (pending[0].sequence !== expectedSequence || pending.some((chunk, index) => chunk.sequence !== expectedSequence + index)) {
+        throw new CommandOutputResourceError('Command output resource is stale');
+      }
+      await appendChunks(paths.output, pending);
       const info = await outputStat(paths.output);
-      await writeState(paths.state, { sequence: chunks.at(-1).sequence, size: info.size, legacy: false });
+      await writeState(paths.state, { sequence: pending.at(-1).sequence, size: info.size, legacy: false });
       return true;
     } catch (error) {
       materializedArtifacts.delete(artifactKey(root, runId));

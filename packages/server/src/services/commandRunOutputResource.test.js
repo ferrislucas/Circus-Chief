@@ -43,6 +43,102 @@ describe('commandRunOutputResource', () => {
     expect(await readFile(join(workingDirectory, second.path), 'utf8')).toBe('new output\n');
   });
 
+  it('reconciles output persisted between its historical snapshot and live registration', async () => {
+    const workingDirectory = await root();
+    const chunks = [{ sequence: 1, content: 'before handoff\n' }];
+    const run = { id: 'handoff_gap', sessionId: 'session_1', status: 'running', legacyByteLength: 0, outputHighWater: 1 };
+    let handoffAppend;
+    let releaseHandoff;
+    let signalSnapshotRead;
+    const handoffBarrier = new Promise((resolve) => { releaseHandoff = resolve; });
+    const snapshotRead = new Promise((resolve) => { signalSnapshotRead = resolve; });
+    const repository = {
+      getHighWater: () => chunks.at(-1)?.sequence || 0,
+      readOutputPage: (_id, after) => ({ chunks: chunks.filter((chunk) => chunk.sequence > after) }),
+      getOutputResourceMetadata: () => {
+        if (!handoffAppend) {
+          const handoffChunk = { sequence: 2, content: 'during handoff\n' };
+          chunks.push(handoffChunk);
+          run.outputHighWater = 2;
+          handoffAppend = appendCommandRunOutputResource({ workingDirectory, runId: run.id, chunks: [handoffChunk] });
+        }
+        return run;
+      },
+    };
+
+    const descriptorPromise = getCommandRunOutputResource({
+      workingDirectory,
+      run,
+      repository,
+      beforeLiveRegistration: () => {
+        signalSnapshotRead();
+        return handoffBarrier;
+      },
+    });
+    await expect(Promise.race([
+      snapshotRead.then(() => true),
+      new Promise((resolve) => setTimeout(() => resolve(false), 50)),
+    ])).resolves.toBe(true);
+    const laterChunk = { sequence: 3, content: 'after handoff\n' };
+    chunks.push(laterChunk);
+    run.outputHighWater = 3;
+    const laterAppend = appendCommandRunOutputResource({ workingDirectory, runId: run.id, chunks: [laterChunk] });
+    releaseHandoff();
+    const descriptor = await descriptorPromise;
+    await expect(handoffAppend).resolves.toBe(true);
+    await expect(laterAppend).resolves.toBe(true);
+
+    expect(await readFile(join(workingDirectory, descriptor.path), 'utf8')).toBe('before handoff\nduring handoff\nafter handoff\n');
+  });
+
+  it('finishes the handoff as complete when the run completes', async () => {
+    const workingDirectory = await root();
+    const chunks = [{ sequence: 1, content: 'before completion\n' }];
+    const run = { id: 'handoff_complete', sessionId: 'session_1', status: 'running', legacyByteLength: 0, outputHighWater: 1 };
+    const repository = {
+      getHighWater: () => chunks.at(-1)?.sequence || 0,
+      readOutputPage: (_id, after) => ({ chunks: chunks.filter((chunk) => chunk.sequence > after) }),
+      getOutputResourceMetadata: () => run,
+    };
+
+    const descriptor = await getCommandRunOutputResource({
+      workingDirectory,
+      run,
+      repository,
+      beforeLiveRegistration: () => {
+        chunks.push({ sequence: 2, content: 'at completion\n' });
+        Object.assign(run, { status: 'success', outputHighWater: 2 });
+      },
+    });
+
+    expect(descriptor).toMatchObject({ complete: true, status: 'success' });
+    expect(await readFile(join(workingDirectory, descriptor.path), 'utf8')).toBe('before completion\nat completion\n');
+    await expect(appendCommandRunOutputResource({
+      workingDirectory, runId: run.id, chunks: [{ sequence: 3, content: 'must not resurrect\n' }],
+    })).resolves.toBe(false);
+  });
+
+  it('does not expose or resurrect an artifact when the run is deleted during handoff', async () => {
+    const workingDirectory = await root();
+    let deleted = false;
+    const run = { id: 'handoff_deleted', sessionId: 'session_1', status: 'running', legacyByteLength: 0, outputHighWater: 0 };
+    const repository = {
+      getHighWater: () => 0,
+      readOutputPage: () => ({ chunks: [] }),
+      getOutputResourceMetadata: () => (deleted ? null : run),
+    };
+
+    await expect(getCommandRunOutputResource({
+      workingDirectory,
+      run,
+      repository,
+      beforeLiveRegistration: () => { deleted = true; },
+    })).rejects.toMatchObject({ notFound: true });
+    await expect(appendCommandRunOutputResource({
+      workingDirectory, runId: run.id, chunks: [{ sequence: 1, content: 'deleted\n' }],
+    })).resolves.toBe(false);
+  });
+
   it('reconciles a materialized transcript from persisted output after an append failure', async () => {
     const workingDirectory = await root();
     const chunks = [];
