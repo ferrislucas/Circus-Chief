@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { rmSync } from 'node:fs';
 import { chmod, lstat, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -162,6 +163,66 @@ describe('commandRunOutputResource', () => {
 
     await getCommandRunOutputResource({ workingDirectory, run, repository });
     expect(await readFile(join(workingDirectory, descriptor.path), 'utf8')).toBe('persisted despite append failure\n');
+  });
+
+  it('appends live chunks through bounded byte writes at and above 64 KiB', async () => {
+    const workingDirectory = await root();
+    const chunks = [];
+    const run = { id: 'large_live_chunk', sessionId: 'session_1', status: 'running', legacyByteLength: 0, outputHighWater: 0 };
+    const repository = {
+      getHighWater: () => chunks.length,
+      getOutputResourceMetadata: () => run,
+      readOutputPage: (_id, after) => ({ chunks: chunks.filter((chunk) => chunk.sequence > after) }),
+    };
+    const descriptor = await getCommandRunOutputResource({ workingDirectory, run, repository });
+    const exactWindow = Buffer.alloc(OUTPUT_BYTE_WINDOW, 0x61);
+    const justOverWindow = Buffer.concat([Buffer.from('é'), Buffer.alloc(OUTPUT_BYTE_WINDOW, 0x62)]);
+    const substantiallyLarge = Buffer.alloc(OUTPUT_BYTE_WINDOW * 8 + 17, 0x63);
+    const subsequent = Buffer.from('still live\n');
+    const appended = [exactWindow, justOverWindow, substantiallyLarge, subsequent].map((content, index) => ({ sequence: index + 1, content }));
+    chunks.push(...appended);
+    run.outputHighWater = appended.length;
+
+    await expect(appendCommandRunOutputResource({ workingDirectory, runId: run.id, chunks: appended })).resolves.toBe(true);
+    expect(await readFile(join(workingDirectory, descriptor.path))).toEqual(Buffer.concat([exactWindow, justOverWindow, substantiallyLarge, subsequent]));
+    await expect(appendCommandRunOutputResource({
+      workingDirectory, runId: run.id, chunks: [{ sequence: 5, content: Buffer.from('later output\n') }],
+    })).resolves.toBe(true);
+    expect(await readFile(join(workingDirectory, descriptor.path))).toEqual(Buffer.concat([
+      exactWindow, justOverWindow, substantiallyLarge, subsequent, Buffer.from('later output\n'),
+    ]));
+  });
+
+  it('surfaces a partial live-write failure and reconciles the artifact from persisted chunks', async () => {
+    const workingDirectory = await root();
+    const persisted = [{ sequence: 1, content: Buffer.from('first\n') }, { sequence: 2, content: Buffer.from('second\n') }];
+    let visibleChunks = [];
+    const run = { id: 'partial_live_failure', sessionId: 'session_1', status: 'running', legacyByteLength: 0, outputHighWater: 2 };
+    const repository = {
+      getHighWater: () => visibleChunks.length,
+      getOutputResourceMetadata: () => run,
+      readOutputPage: (_id, after) => ({ chunks: visibleChunks.filter((chunk) => chunk.sequence > after) }),
+    };
+    const descriptor = await getCommandRunOutputResource({ workingDirectory, run: { ...run, outputHighWater: 0 }, repository });
+    const output = join(workingDirectory, descriptor.path);
+    visibleChunks = persisted;
+    const failingChunk = {
+      sequence: 2,
+      get content() {
+        rmSync(output);
+        return persisted[1].content;
+      },
+    };
+
+    await expect(appendCommandRunOutputResource({
+      workingDirectory, runId: run.id, chunks: [persisted[0], failingChunk],
+    })).rejects.toThrow('append failed');
+    await expect(appendCommandRunOutputResource({
+      workingDirectory, runId: run.id, chunks: [{ sequence: 3, content: Buffer.from('stale\n') }],
+    })).resolves.toBe(false);
+
+    await getCommandRunOutputResource({ workingDirectory, run, repository });
+    expect(await readFile(output)).toEqual(Buffer.concat(persisted.map((chunk) => chunk.content)));
   });
 
   it('reconstructs an oversized persisted chunk through bounded byte reads', async () => {

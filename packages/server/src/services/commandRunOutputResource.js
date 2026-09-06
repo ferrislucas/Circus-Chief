@@ -86,11 +86,12 @@ async function appendData(output, data) {
   try { await handle.writeFile(data); } finally { await handle.close(); }
 }
 
-/** Writes one bounded byte slice; memory use is O(OUTPUT_BYTE_WINDOW). */
+/** Writes accepted output in bounded byte segments; the limit is per write, not per chunk. */
 async function appendBoundedWindow(output, content) {
   const bytes = Buffer.isBuffer(content) ? content : Buffer.from(content || '');
-  if (bytes.length > OUTPUT_BYTE_WINDOW) throw new CommandOutputResourceError('Command output byte window exceeded');
-  if (bytes.length) await appendData(output, bytes);
+  for (let offset = 0; offset < bytes.length; offset += OUTPUT_BYTE_WINDOW) {
+    await appendData(output, bytes.subarray(offset, offset + OUTPUT_BYTE_WINDOW));
+  }
   return bytes.length;
 }
 
