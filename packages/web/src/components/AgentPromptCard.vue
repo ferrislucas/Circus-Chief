@@ -48,10 +48,10 @@
               :ref="(element) => setFirstAnswerControl(index, optionIndex, element)"
               v-model="answers[questionKey(question)]"
               class="option-control"
-              :type="question.multiSelect ? 'checkbox' : 'radio'"
+              :type="isMultiple(question) ? 'checkbox' : 'radio'"
               :name="`question-${index}`"
               :value="optionKey(option)"
-              :disabled="submitting"
+              :disabled="!isActionable || submitting"
               @change="clearOther(question)"
             >
             <span
@@ -91,7 +91,7 @@
               v-model="other[questionKey(question)]"
               class="form-input other-input"
               placeholder="Other…"
-              :disabled="submitting"
+              :disabled="!isActionable || submitting"
               @input="selectOther(question)"
             >
           </label>
@@ -102,7 +102,7 @@
           <textarea
             v-model="notes[questionKey(question)]"
             class="form-input form-textarea question-note"
-            :disabled="submitting"
+            :disabled="!isActionable || submitting"
             placeholder="Why this choice?"
           />
         </label>
@@ -116,14 +116,14 @@
         >Sending response…</span>
         <button
           class="btn prompt-primary-action"
-          :disabled="submitting || !canSubmit"
+          :disabled="!isActionable || submitting || !canSubmit"
           @click="submitAnswers"
         >
           Send answers
         </button>
         <button
           class="btn-link prompt-quiet-action"
-          :disabled="submitting"
+          :disabled="!isActionable || submitting"
           @click="respond({ action: 'cancel' })"
         >
           Skip and let the agent decide
@@ -239,7 +239,7 @@ function setFirstAnswerControl(questionIndex, optionIndex, element) {
 
 watch(() => props.prompt?.id, async () => {
   answers.value = {};
-  for (const question of props.prompt?.payload.questions || []) if (question.multiSelect || question.mode === 'multiple') answers.value[questionKey(question)] = [];
+  for (const question of props.prompt?.payload.questions || []) if (isMultiple(question)) answers.value[questionKey(question)] = [];
   other.value = {}; notes.value = {}; reason.value = ''; destination.value = 'session'; showDenyReason.value = false;
   focusedOption.value = { question: 0, label: null }; firstAnswerControls.value = [];
   await nextTick();
@@ -252,8 +252,13 @@ function setFocusedOption(question, label) { focusedOption.value = { question, l
 function isOptionFocused(question, label) { return focusedOption.value.question === question && focusedOption.value.label === label; }
 function questionKey(question) { return question.id || question.question; }
 function optionKey(option) { return option.id || option.label; }
-function isMultiple(question) { return question.mode === 'multiple' || question.multiSelect; }
-function allowsText(question) { return question.allowOther !== false || question.mode === 'text'; }
+function questionUI(question) {
+  if (['single', 'multiple', 'text'].includes(question.mode)) return { mode: question.mode, allowOther: question.allowOther === true };
+  return { mode: question.multiSelect ? 'multiple' : question.options?.length ? 'single' : 'text', allowOther: question.allowOther !== false };
+}
+function isMultiple(question) { return questionUI(question).mode === 'multiple'; }
+function allowsText(question) { const ui = questionUI(question); return ui.mode === 'text' || ui.allowOther; }
+const isActionable = computed(() => !props.prompt?.status || props.prompt.status === 'pending');
 function isOptionSelected(question, label) {
   const selected = answers.value[questionKey(question)];
   return Array.isArray(selected) ? selected.includes(label) : selected === label;
@@ -263,7 +268,7 @@ function hasAnswer(question) {
   const key = questionKey(question); const selected = answers.value[key];
   return question.required === false || Boolean(other.value[key]?.trim() || (Array.isArray(selected) ? selected.length : selected));
 }
-const canSubmit = computed(() => Boolean(props.prompt?.payload.questions?.every(hasAnswer)));
+const canSubmit = computed(() => isActionable.value && Boolean(props.prompt?.payload.questions?.every(hasAnswer)));
 // Main-agent prompts (no agentId) render no origin metadata. Subagent
 // prompts get a short, visually stable label; the full id stays available
 // via the `title` attribute so it's never lost, just not spelled out inline
@@ -303,7 +308,7 @@ function collectAnnotations() {
   }));
 }
 function submitAnswers() {
-  if (!canSubmit.value) return;
+  if (!isActionable.value || !canSubmit.value) return;
   const customAnswers = collectCustomAnswers();
   if (props.prompt.provider && props.prompt.provider !== 'claude') {
     return respond({ action: 'answer', answers: props.prompt.payload.questions
@@ -315,11 +320,11 @@ function submitAnswers() {
 }
 function chooseOption(index) {
   const question = props.prompt?.payload.questions?.[focusedOption.value.question]; const option = question?.options?.[index];
-  if (!question || !option || props.submitting) return;
+  if (!question || !option || !isActionable.value || props.submitting) return;
   const key = questionKey(question); other.value[key] = '';
   if (isMultiple(question)) { const selected = answers.value[key] || []; const value = optionKey(option); answers.value[key] = selected.includes(value) ? selected.filter((label) => label !== value) : [...selected, value]; } else answers.value[key] = optionKey(option);
 }
-function selectOther(question) { answers.value[questionKey(question)] = isMultiple(question) ? [] : ''; }
+function selectOther(question) { if (isActionable.value) answers.value[questionKey(question)] = isMultiple(question) ? [] : ''; }
 function clearOther(question) { other.value[questionKey(question)] = ''; }
 // Radios and checkboxes are inputs, but cannot receive typed text. Treating
 // them as typing targets prevents the prompt shortcuts from working on the
