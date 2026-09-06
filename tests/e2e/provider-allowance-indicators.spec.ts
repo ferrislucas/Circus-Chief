@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { API_URL, cleanupCreatedResources, createProvider } from './helpers';
+import {
+  API_URL, cleanupCreatedResources, getProvider, seedProject, seedSession, waitForStatus,
+} from './helpers';
 
 const snapshots = [
   allowanceSnapshot('alpha', 'Alpha', 'available', 81),
@@ -8,8 +10,7 @@ const snapshots = [
   allowanceSnapshot('delta', 'Delta', 'exhausted', 0),
 ];
 const LIVE_SERVER_TESTS = new Set([
-  'normalizes live updates, preserves server order, and never leaks source secrets',
-  'reconciles the server snapshot after reconnect and renders unknown and stale states honestly',
+  'renders an adapter-observed OpenAI allowance update without source metadata',
 ]);
 
 function allowanceSnapshot(providerId: string, providerName: string, status: string, percent: number) {
@@ -73,72 +74,36 @@ test.describe('Provider allowance indicators', () => {
     expect(await page.locator('html').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   });
 
-  test('normalizes live updates, preserves server order, and never leaks source secrets', async ({ page }) => {
-    const alpha = await createProvider({ name: 'Allowance Alpha', kind: 'openai' });
-    const bravo = await createProvider({ name: 'Allowance Bravo', kind: 'openai' });
+  test('renders an adapter-observed OpenAI allowance update without source metadata', async ({ page }) => {
+    const project = await seedProject('Allowance adapter E2E', process.cwd());
+    const provider = await getProvider('openai-default');
     const receivedFrames: string[] = [];
     page.on('websocket', (socket) => socket.on('framereceived', (frame) => receivedFrames.push(frame.payload)));
 
-    await observeAllowance({
-      ...allowanceSnapshot(alpha.id, alpha.name, 'available', 80),
-      credentials: { token: 'provider-source-secret-sentinel' },
-      allowances: [{
-        ...allowanceSnapshot(alpha.id, alpha.name, 'available', 80).allowances[0],
-        upstreamMetadata: 'provider-source-secret-sentinel',
-      }],
-    });
-    await observeAllowance(allowanceSnapshot(bravo.id, bravo.name, 'available', 75));
-    await page.setViewportSize({ width: 375, height: 720 });
     await page.goto('/');
+    const session = await seedSession(project.id, {
+      prompt: 'Return a brief allowance fixture response.',
+      model: 'gpt-5.4', providerId: provider.id, startImmediately: true,
+    });
+    await waitForStatus(session.id, 'waiting');
+
+    await page.setViewportSize({ width: 375, height: 720 });
 
     const indicators = page.getByTestId('provider-allowance-indicators');
-    await expect(indicators).toContainText('80%');
-    await observeAllowance(allowanceSnapshot(bravo.id, bravo.name, 'exhausted', 0));
+    await expect(indicators).toContainText('75%');
     await expect.poll(() => receivedFrames.some((frame) => frame.includes('provider_allowance_updated'))).toBe(true);
     await indicators.getByRole('button', { name: 'Show provider usage' }).click();
     const detailTexts = await page.getByRole('dialog').locator('.provider-detail').allTextContents();
-    expect(detailTexts.findIndex((text) => text.includes(alpha.name))).toBeLessThan(detailTexts.findIndex((text) => text.includes(bravo.name)));
-    await expect(page.getByRole('dialog')).toContainText('0%');
+    expect(detailTexts.some((text) => text.includes(provider.name))).toBe(true);
+    await expect(page.getByRole('dialog')).toContainText('75%');
 
     const response = await fetch(`${API_URL}/api/providers/allowances`);
     const responseText = await response.text();
     await expect(response.ok).toBe(true);
-    expect(responseText).not.toContain('provider-source-secret-sentinel');
-    expect(receivedFrames.join('\n')).not.toContain('provider-source-secret-sentinel');
-    await expect(page.getByRole('dialog')).not.toContainText('provider-source-secret-sentinel');
-    expect(await page.locator('html').innerHTML()).not.toContain('provider-source-secret-sentinel');
-  });
-
-  test('reconciles the server snapshot after reconnect and renders unknown and stale states honestly', async ({ page }) => {
-    const provider = await createProvider({ name: 'Allowance Reconnect', kind: 'openai' });
-    await observeAllowance(allowanceSnapshot(provider.id, provider.name, 'warning', 40));
-    await page.setViewportSize({ width: 375, height: 720 });
-    await page.goto('/');
-
-    const indicators = page.getByTestId('provider-allowance-indicators');
-    await expect(indicators).toContainText('40%');
-    await page.context().setOffline(true);
-    await observeAllowance({
-      ...allowanceSnapshot(provider.id, provider.name, 'available', 99),
-      allowances: [],
-      status: 'unknown',
-      source: null,
-      unavailableReason: 'The provider did not supply verified usage.',
-    });
-    await page.context().setOffline(false);
-    await page.reload();
-    await expect(indicators).toContainText('—');
-    await page.getByRole('button', { name: 'Show provider usage' }).click();
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toContainText('Unknown');
-    await expect(dialog).toContainText('The provider did not supply verified usage.');
-    await page.keyboard.press('Escape');
-
-    await observeAllowance({ ...allowanceSnapshot(provider.id, provider.name, 'warning', 40), staleAt: Date.now() - 1 });
-    await page.reload();
-    await page.getByRole('button', { name: 'Show provider usage' }).click();
-    await expect(dialog).toContainText('Stale');
-    await expect(dialog).toContainText('Last value may be out of date.');
+    expect(responseText).not.toContain('authorization');
+    expect(responseText).not.toContain('req_sanitized');
+    expect(receivedFrames.join('\n')).not.toContain('authorization');
+    expect(receivedFrames.join('\n')).not.toContain('req_sanitized');
   });
 
   test('supports complete keyboard dialog operation and restores the exact opener on desktop and mobile', async ({ page }) => {
@@ -169,12 +134,3 @@ test.describe('Provider allowance indicators', () => {
   });
 
 });
-
-async function observeAllowance(snapshot: Record<string, unknown>) {
-  const response = await fetch(`${API_URL}/api/providers/allowances/test-observe`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ snapshot }),
-  });
-  expect(response.status).toBe(204);
-}

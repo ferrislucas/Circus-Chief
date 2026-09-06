@@ -519,7 +519,7 @@ export async function seedProject(
 
 export async function seedSession(
   projectId: string,
-  data: { prompt: string; name?: string; mode?: string; model?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string; effortLevel?: string; scheduledAt?: string | number | Date; autoRescheduleEnabled?: boolean }
+  data: { prompt: string; name?: string; mode?: string; model?: string; providerId?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string; effortLevel?: string; scheduledAt?: string | number | Date; autoRescheduleEnabled?: boolean }
 ) {
   const scheduledAt =
     data.scheduledAt instanceof Date

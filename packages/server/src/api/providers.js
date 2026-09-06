@@ -54,15 +54,6 @@ router.get('/allowances', (_req, res) => {
   }
 });
 
-// This harness is only present while the hermetic VCR-backed E2E server is
-// running. It deliberately routes raw adapter-shaped data through the same
-// normalization and WebSocket broadcaster used by production updates.
-router.post('/allowances/test-observe', (req, res) => {
-  if (!process.env.VCR_MODE) return res.sendStatus(404);
-  const snapshot = getProviderAllowanceService().observe(req.body?.snapshot);
-  return snapshot ? res.sendStatus(204) : res.sendStatus(400);
-});
-
 // POST /api/providers - Create provider
 router.post('/', (req, res) => {
   const result = CreateProviderRequest.safeParse(req.body);

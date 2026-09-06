@@ -5,10 +5,21 @@ import { modelProviders } from '../database.js';
 import { testProviderConnection } from '../services/providerTestService.js';
 import { OPENAI_MODELS, CLAUDE_MODELS } from '@circuschief/shared';
 
+const { mockAllowanceService } = vi.hoisted(() => ({
+  mockAllowanceService: {
+    getSnapshots: vi.fn(() => []),
+    observe: vi.fn(),
+  },
+}));
+
 // Mock providerTestService so we can spy on kind forwarding without hitting
 // external APIs.
 vi.mock('../services/providerTestService.js', () => ({
   testProviderConnection: vi.fn(),
+}));
+
+vi.mock('../services/providerAllowanceServiceInstance.js', () => ({
+  getProviderAllowanceService: vi.fn(() => mockAllowanceService),
 }));
 
 // Import the router
@@ -21,6 +32,11 @@ describe('Providers API', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAllowanceService.getSnapshots.mockReturnValue([{
+      providerId: 'openai-default',
+      providerName: 'OpenAI',
+      status: 'unknown',
+    }]);
 
     app = express();
     app.use(express.json());
@@ -44,6 +60,25 @@ describe('Providers API', () => {
       const response = await request(app).get('/api/providers/allowances').expect(200);
       expect(response.body.length).toBeGreaterThan(0);
       expect(response.body.every((snapshot) => snapshot.providerId && snapshot.status)).toBe(true);
+    });
+  });
+
+  describe('allowance mutation routes', () => {
+    it('does not mount test-observe in the normal router, even in VCR mode', async () => {
+      const previousVcrMode = process.env.VCR_MODE;
+      process.env.VCR_MODE = 'replay';
+
+      try {
+        await request(app)
+          .post('/api/providers/allowances/test-observe')
+          .send({ snapshot: { providerId: 'openai-default', allowances: [] } })
+          .expect(404);
+
+        expect(mockAllowanceService.observe).not.toHaveBeenCalled();
+      } finally {
+        if (previousVcrMode === undefined) delete process.env.VCR_MODE;
+        else process.env.VCR_MODE = previousVcrMode;
+      }
     });
   });
 
