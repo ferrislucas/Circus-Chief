@@ -114,6 +114,25 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
+  it('preserves the server active-first order after a live allowance update when active providers are unknown', async () => {
+    api.getProviderAllowances.mockResolvedValueOnce([
+      snapshot({ providerId: 'active', status: 'available' }),
+      snapshot({ providerId: 'attention', status: 'warning' }),
+    ]);
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await Promise.resolve();
+    await nextTick();
+
+    websocketListeners.get('provider_allowance_updated')({
+      type: 'provider_allowance_updated',
+      snapshot: snapshot({ providerId: 'attention', status: 'critical' }),
+    });
+    await nextTick();
+
+    expect(useProviderAllowancesStore().snapshots.map(({ providerId }) => providerId)).toEqual(['active', 'attention']);
+    wrapper.unmount();
+  });
+
   it('reconciles the authoritative order after an active-session lifecycle update', async () => {
     api.getProviderAllowances.mockResolvedValueOnce([]).mockResolvedValueOnce([
       snapshot({ providerId: 'active', status: 'available' }),

@@ -60,7 +60,7 @@ export const useProviderAllowancesStore = defineStore('providerAllowances', {
     },
     replace(snapshot) {
       const freshSnapshot = markStaleSnapshots([snapshot])[0];
-      this.snapshots = prioritizeSnapshots(upsertSnapshot(this.snapshots, freshSnapshot), this.activeProviderIds ?? []);
+      this.snapshots = prioritizeSnapshots(upsertSnapshot(this.snapshots, freshSnapshot), this.activeProviderIds);
       this.snapshotVersion += 1;
       this.scheduleStaleness();
     },

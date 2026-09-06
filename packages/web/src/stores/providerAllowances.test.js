@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia';
 const { getProviderAllowances } = vi.hoisted(() => ({ getProviderAllowances: vi.fn() }));
 vi.mock('../composables/useApi.js', () => ({ api: { getProviderAllowances } }));
 
-import { isAttention, lowestAllowance, useProviderAllowancesStore } from './providerAllowances.js';
+import { isAttention, lowestAllowance, prioritizeSnapshots, useProviderAllowancesStore } from './providerAllowances.js';
 
 const snapshot = (providerId = 'openai-default', status = 'available') => ({
   providerId, providerName: providerId, providerKind: 'openai', status, allowances: [],
@@ -42,6 +42,7 @@ describe('provider allowances store', () => {
 
   it('reorders immediately when live updates move providers into attention states', () => {
     const store = useProviderAllowancesStore();
+    store.setActiveProviderIds([]);
     store.snapshots = [snapshot('a'), snapshot('b'), snapshot('c')];
 
     store.replace(snapshot('c', 'warning'));
@@ -49,6 +50,13 @@ describe('provider allowances store', () => {
 
     store.replace(snapshot('b', 'exhausted'));
     expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['c', 'b', 'a']);
+  });
+
+  it('preserves authoritative REST ordering for an unknown active-provider set but prioritizes attention when it is known empty', () => {
+    const snapshots = [snapshot('active'), snapshot('attention', 'warning')];
+
+    expect(prioritizeSnapshots(snapshots, null).map(({ providerId }) => providerId)).toEqual(['active', 'attention']);
+    expect(prioritizeSnapshots(snapshots, []).map(({ providerId }) => providerId)).toEqual(['attention', 'active']);
   });
 
   it('preserves the server priority order after fetching', async () => {
