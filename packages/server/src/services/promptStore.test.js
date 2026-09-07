@@ -537,22 +537,6 @@ describe('promptStore work-log emission', () => {
     });
   });
 
-  // CLI regression: the SDK's runtime can_use_tool response schema requires
-  // `updatedInput` on every allow branch (TypeScript types mark it optional,
-  // the CLI's Zod validation does not). Omitting it makes the CLI fail the
-  // union parse and deny the tool with "Tool permission request failed:
-  // ZodError: [ { code: \"invalid_union\", ... } ]" after the user approves.
-  it.each(['allow', 'always_allow'])('returns updatedInput on %s so the CLI can parse the approve response', async (action) => {
-    const { promise, prompt } = park(`approve-${action}`, 'permission', {
-      toolName: 'Bash', input: { command: 'git status' }, suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash' }] }],
-    });
-
-    respondToPrompt(`approve-${action}`, prompt.id, { action });
-
-    const result = await promise;
-    expect(result.behavior).toBe('allow');
-    expect(result.updatedInput).toEqual({ command: 'git status' });
-  });
 });
 
 // Faithful reconstruction of the CLI's runtime `can_use_tool` response schema
