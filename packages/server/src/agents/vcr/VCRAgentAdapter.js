@@ -298,10 +298,10 @@ function findPermissionResultMismatch(call, observed, recorded) {
       ]
       : []),
     ...(recorded.behavior === 'allow'
-      ? [['updatedPermissions', observed?.updatedPermissions, recorded.updatedPermissions, deepEqualIgnoringKeyOrder]]
+      ? [['updatedPermissions', observed?.updatedPermissions, recorded.updatedPermissions, deepEqualIgnoringObjectKeyOrder]]
       : []),
     ...(call.toolName === 'AskUserQuestion'
-      ? [['updatedInput', observed?.updatedInput, recorded.updatedInput, deepEqualIgnoringKeyOrder]]
+      ? [['updatedInput', observed?.updatedInput, recorded.updatedInput, deepEqualIgnoringObjectKeyOrder]]
       : []),
   ];
   const mismatch = comparisons.find(([, observedValue, recordedValue, compare]) => !compare(observedValue, recordedValue));
@@ -315,23 +315,17 @@ function formatResultValue(value) {
   return value === undefined ? 'absent' : JSON.stringify(value);
 }
 
-function deepEqualIgnoringKeyOrder(left, right) {
+function deepEqualIgnoringObjectKeyOrder(left, right) {
   if (Object.is(left, right)) return true;
   if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return false;
 
   if (Array.isArray(left) || Array.isArray(right)) {
     if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
-    const unmatched = [...right];
-    return left.every((item) => {
-      const matchIndex = unmatched.findIndex((candidate) => deepEqualIgnoringKeyOrder(item, candidate));
-      if (matchIndex === -1) return false;
-      unmatched.splice(matchIndex, 1);
-      return true;
-    });
+    return left.every((item, index) => deepEqualIgnoringObjectKeyOrder(item, right[index]));
   }
 
   const leftKeys = Object.keys(left);
   const rightKeys = Object.keys(right);
   return leftKeys.length === rightKeys.length
-    && leftKeys.every((key) => Object.hasOwn(right, key) && deepEqualIgnoringKeyOrder(left[key], right[key]));
+    && leftKeys.every((key) => Object.hasOwn(right, key) && deepEqualIgnoringObjectKeyOrder(left[key], right[key]));
 }

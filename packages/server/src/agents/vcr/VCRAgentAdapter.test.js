@@ -367,6 +367,57 @@ describe('VCRAgentAdapter', () => {
       }, 'key-order')).not.toThrow();
     });
 
+    it('accepts nested replay objects whose keys have a different insertion order than the cassette', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'Edit',
+        result: {
+          behavior: 'allow',
+          updatedPermissions: [{ rules: [{ toolName: 'Edit', path: 'notes.md' }], destination: 'session' }],
+        },
+      }, {
+        behavior: 'allow',
+        updatedPermissions: [{ destination: 'session', rules: [{ path: 'notes.md', toolName: 'Edit' }] }],
+      }, 'nested-key-order')).not.toThrow();
+    });
+
+    it('rejects reordered updatedPermissions during replay', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'Edit',
+        result: {
+          behavior: 'allow',
+          updatedPermissions: [
+            { destination: 'session', rules: [{ toolName: 'Edit' }] },
+            { destination: 'projectSettings', rules: [{ toolName: 'Bash' }] },
+          ],
+        },
+      }, {
+        behavior: 'allow',
+        updatedPermissions: [
+          { destination: 'projectSettings', rules: [{ toolName: 'Bash' }] },
+          { destination: 'session', rules: [{ toolName: 'Edit' }] },
+        ],
+      }, 'updated-permissions-array-order')).toThrow(/updatedPermissions mismatch/i);
+    });
+
+    it('rejects reordered nested question data during replay', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'AskUserQuestion',
+        result: {
+          behavior: 'allow',
+          updatedInput: { questions: [{ question: 'First?' }, { question: 'Second?' }] },
+        },
+      }, {
+        behavior: 'allow',
+        updatedInput: { questions: [{ question: 'Second?' }, { question: 'First?' }] },
+      }, 'nested-question-array-order')).toThrow(/updatedInput mismatch/i);
+    });
+
     it('ignores host-owned fields retained in an older permission cassette', () => {
       const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
 
