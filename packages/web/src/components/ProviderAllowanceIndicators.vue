@@ -133,10 +133,10 @@
               :key="allowance.key"
             >
               <strong>{{ allowance.label }}</strong>: {{ formatAllowance(allowance) }}
-              <span v-if="allowance.resetsAt"> · resets {{ formatRelativeTime(allowance.resetsAt) }} (<time :datetime="allowance.resetsAt">{{ formatExactTime(allowance.resetsAt) }}</time>)</span>
+              <span v-if="allowance.resetsAt"> · resets {{ formatRelativeTime(allowance.resetsAt) }} (<time :datetime="formatDateTime(allowance.resetsAt)">{{ formatExactTime(allowance.resetsAt) }}</time>)</span>
             </li>
           </ul>
-          <small v-if="snapshot.updatedAt">Last updated {{ formatRelativeTime(snapshot.updatedAt) }} (<time :datetime="snapshot.updatedAt">{{ formatExactTime(snapshot.updatedAt) }}</time>)</small>
+          <small v-if="snapshot.updatedAt">Last updated {{ formatRelativeTime(snapshot.updatedAt) }} (<time :datetime="formatDateTime(snapshot.updatedAt)">{{ formatExactTime(snapshot.updatedAt) }}</time>)</small>
           <small v-if="snapshot.status === 'stale'">Last value may be out of date.</small>
         </article>
       </section>
@@ -215,6 +215,7 @@ function ariaLabel(snapshot) {
   return `${snapshot.providerName}: ${statusText(snapshot.status)}, ${value}${reset}`;
 }
 function formatReset(value) { return new Date(value).toLocaleString(); }
+function formatDateTime(value) { return new Date(value).toISOString(); }
 function open(providerId = null) {
   previousFocus = document.activeElement;
   focusedProviderId.value = providerId;

@@ -7,7 +7,7 @@ import { api } from '../composables/useApi.js';
 
 const { websocketListeners } = vi.hoisted(() => ({ websocketListeners: new Map() }));
 vi.mock('../composables/useApi.js', () => ({
-  api: { getProviderAllowances: vi.fn().mockResolvedValue([]) },
+  api: { getProviderAllowances: vi.fn().mockResolvedValue({ snapshots: [], activeProviderIds: [] }) },
 }));
 vi.mock('../composables/useWebSocket.js', () => ({
   useWebSocket: () => ({
@@ -77,7 +77,7 @@ describe('ProviderAllowanceIndicators', () => {
   }
 
   it('renders nothing when the disabled allowance response is empty', async () => {
-    api.getProviderAllowances.mockResolvedValueOnce([]);
+    api.getProviderAllowances.mockResolvedValueOnce({ snapshots: [], activeProviderIds: [] });
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await Promise.resolve();
     expect(wrapper.find('[data-testid="provider-allowance-indicators"]').exists()).toBe(false);
@@ -115,10 +115,13 @@ describe('ProviderAllowanceIndicators', () => {
   });
 
   it('preserves the server active-first order after a live allowance update when active providers are unknown', async () => {
-    api.getProviderAllowances.mockResolvedValueOnce([
-      snapshot({ providerId: 'active', status: 'available' }),
-      snapshot({ providerId: 'attention', status: 'warning' }),
-    ]);
+    api.getProviderAllowances.mockResolvedValueOnce({
+      snapshots: [
+        snapshot({ providerId: 'active', status: 'available' }),
+        snapshot({ providerId: 'attention', status: 'warning' }),
+      ],
+      activeProviderIds: ['active'],
+    });
     const wrapper = mount(ProviderAllowanceIndicators);
     await Promise.resolve();
     await nextTick();
@@ -134,10 +137,15 @@ describe('ProviderAllowanceIndicators', () => {
   });
 
   it('reconciles the authoritative order after an active-session lifecycle update', async () => {
-    api.getProviderAllowances.mockResolvedValueOnce([]).mockResolvedValueOnce([
-      snapshot({ providerId: 'active', status: 'available' }),
-      snapshot({ providerId: 'attention', status: 'warning' }),
-    ]);
+    api.getProviderAllowances
+      .mockResolvedValueOnce({ snapshots: [], activeProviderIds: [] })
+      .mockResolvedValueOnce({
+        snapshots: [
+          snapshot({ providerId: 'active', status: 'available' }),
+          snapshot({ providerId: 'attention', status: 'warning' }),
+        ],
+        activeProviderIds: ['active'],
+      });
     const wrapper = mount(ProviderAllowanceIndicators);
 
     websocketListeners.get('session:updated')({ session: { id: 'session-1', providerId: 'active', status: 'running' } });
@@ -287,7 +295,7 @@ describe('ProviderAllowanceIndicators', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-02T03:04:05Z'));
     const store = useProviderAllowancesStore();
-    store.snapshots = [snapshot({ resetsAt: '2026-01-03T03:04:05Z' })];
+    store.snapshots = [snapshot({ resetsAt: Date.parse('2026-01-03T03:04:05Z') })];
     const wrapper = mount(ProviderAllowanceIndicators);
     await nextTick();
     resizeObservers[0].trigger();
@@ -314,8 +322,8 @@ describe('ProviderAllowanceIndicators', () => {
     store.snapshots = [snapshot({
       status: 'stale',
       source: 'observed-header',
-      updatedAt: '2026-01-02T09:30:00Z',
-      resetsAt: '2026-01-02T12:00:00Z',
+      updatedAt: Date.parse('2026-01-02T09:30:00Z'),
+      resetsAt: Date.parse('2026-01-02T12:00:00Z'),
     })];
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await nextTick();
@@ -327,8 +335,9 @@ describe('ProviderAllowanceIndicators', () => {
     const detail = wrapper.find('.provider-detail');
     expect(detail.text()).toContain('Source: Observed from provider response headers');
     expect(detail.text()).toContain('resets in 2 hours');
-    expect(detail.find('time[datetime="2026-01-02T12:00:00Z"]').exists()).toBe(true);
+    expect(detail.find('time[datetime="2026-01-02T12:00:00.000Z"]').exists()).toBe(true);
     expect(detail.text()).toContain('Last updated 30 minutes ago');
+    expect(detail.find('time[datetime="2026-01-02T09:30:00.000Z"]').exists()).toBe(true);
     expect(detail.text()).toContain('Last value may be out of date.');
   });
 
