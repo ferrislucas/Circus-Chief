@@ -317,7 +317,7 @@ function isPlainRecord(value) {
 }
 
 function permissionResult(record, response) {
-  // See the CLI schema reconstruction in promptStore.test.js for why this echo is required.
+  // See the CLI schema reconstruction in promptStore.test.js and https://github.com/anthropics/claude-agent-sdk-typescript/issues/453 for why this echo is required.
   const allowed = {
     behavior: 'allow',
     updatedInput: isPlainRecord(record.payload.input) ? record.payload.input : {},
