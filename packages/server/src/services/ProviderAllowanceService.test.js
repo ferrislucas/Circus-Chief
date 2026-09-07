@@ -101,20 +101,20 @@ describe('ProviderAllowanceService', () => {
     expect(observeRemaining(remaining)).toMatchObject({ status, allowances: [{ remainingPercent: remaining }] });
   });
 
-  it('prioritizes active-session providers, then attention providers, using configured order as a tiebreaker', () => {
+  it('prioritizes executing-session providers, then attention providers, using configured order as a tiebreaker', () => {
     const providers = [
       { id: 'provider-a', name: 'A', kind: 'openai', enabled: true },
       { id: 'provider-b', name: 'B', kind: 'openai', enabled: true },
       { id: 'provider-c', name: 'C', kind: 'openai', enabled: true },
       { id: 'provider-d', name: 'D', kind: 'openai', enabled: true },
     ];
+    const getExecutingProviderIds = vi.fn(() => ['provider-b']);
+    const getActiveAndWaiting = vi.fn(() => [{ id: 'idle-c', providerId: 'provider-c' }]);
     const service = new ProviderAllowanceService({
       providerRepository: { getAll: () => providers },
       sessionRepository: {
-        getActiveAndWaiting: () => [
-          { id: 'active-b', providerId: 'provider-b' },
-          { id: 'also-active-b', providerId: 'provider-b' },
-        ],
+        getExecutingProviderIds,
+        getActiveAndWaiting,
       },
     });
 
@@ -127,6 +127,8 @@ describe('ProviderAllowanceService', () => {
     expect(service.getSnapshots().snapshots.map(({ providerId }) => providerId)).toEqual([
       'provider-b', 'provider-c', 'provider-a', 'provider-d',
     ]);
+    expect(getExecutingProviderIds).toHaveBeenCalledOnce();
+    expect(getActiveAndWaiting).not.toHaveBeenCalled();
   });
 
   it('marks cached snapshots stale at read time while retaining their last-known values', () => {

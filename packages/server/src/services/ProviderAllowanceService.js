@@ -24,9 +24,9 @@ export class ProviderAllowanceService {
     const snapshots = providers.map((provider) =>
       withFreshness(this.#normalizeSnapshot(this.snapshots.get(provider.id), provider), this.clock.now()),
     );
-    const activeProviderIds = new Set(
-      (this.sessionRepository?.getActiveAndWaiting() || []).map((session) => session.providerId).filter(Boolean),
-    );
+    // A `waiting` session is idle: allowance priority tracks only providers
+    // used by work that is starting or running, via a distinct DB projection.
+    const activeProviderIds = new Set(this.sessionRepository?.getExecutingProviderIds?.() || []);
     return ProviderAllowanceListResponse.parse({
       snapshots: prioritizeSnapshots(snapshots, activeProviderIds),
       activeProviderIds: [...activeProviderIds],
