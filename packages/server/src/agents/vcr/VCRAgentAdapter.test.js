@@ -391,6 +391,39 @@ describe('VCRAgentAdapter', () => {
       }, 'semantic-divergence')).toThrow(/diverges/i);
     });
 
+    it('rejects deny results whose message differs from the recording', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'Bash',
+        result: { behavior: 'deny', message: 'This command requires approval' },
+      }, {
+        behavior: 'deny', message: 'Command is not permitted',
+      }, 'deny-message')).toThrow(/message[\s\S]*Recorded:[\s\S]*This command requires approval[\s\S]*Observed:[\s\S]*Command is not permitted/i);
+    });
+
+    it('rejects deny results whose interrupt value differs from the recording', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'Bash',
+        result: { behavior: 'deny', message: 'Denied', interrupt: true },
+      }, {
+        behavior: 'deny', message: 'Denied', interrupt: false,
+      }, 'deny-interrupt-value')).toThrow(/interrupt[\s\S]*Recorded:[\s\S]*true[\s\S]*Observed:[\s\S]*false/i);
+    });
+
+    it('rejects deny results when interrupt is absent in one result and present in the other', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'Bash',
+        result: { behavior: 'deny', message: 'Denied' },
+      }, {
+        behavior: 'deny', message: 'Denied', interrupt: true,
+      }, 'deny-interrupt-presence')).toThrow(/interrupt[\s\S]*Recorded:[\s\S]*absent[\s\S]*Observed:[\s\S]*true/i);
+    });
+
     it('rejects a gated cassette that has no recorded callback result', async () => {
       const fixtureKey = CassetteStore.buildKey('runSession', 'missing gated result');
       CassetteStore.save(testCassetteDir, fixtureKey, {
