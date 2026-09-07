@@ -5,10 +5,21 @@ import { modelProviders } from '../database.js';
 import { testProviderConnection } from '../services/providerTestService.js';
 import { OPENAI_MODELS, CLAUDE_MODELS } from '@circuschief/shared';
 
+const { mockAllowanceService } = vi.hoisted(() => ({
+  mockAllowanceService: {
+    getSnapshots: vi.fn(() => ({ snapshots: [], activeProviderIds: [] })),
+    observe: vi.fn(),
+  },
+}));
+
 // Mock providerTestService so we can spy on kind forwarding without hitting
 // external APIs.
 vi.mock('../services/providerTestService.js', () => ({
   testProviderConnection: vi.fn(),
+}));
+
+vi.mock('../services/providerAllowanceServiceInstance.js', () => ({
+  getProviderAllowanceService: vi.fn(() => mockAllowanceService),
 }));
 
 // Import the router
@@ -21,6 +32,10 @@ describe('Providers API', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAllowanceService.getSnapshots.mockReturnValue({
+      snapshots: [{ providerId: 'openai-default', providerName: 'OpenAI', status: 'unknown' }],
+      activeProviderIds: [],
+    });
 
     app = express();
     app.use(express.json());
@@ -28,6 +43,7 @@ describe('Providers API', () => {
   });
 
   afterEach(() => {
+    delete process.env.PROVIDER_ALLOWANCES_ENABLED;
     // Cleanup test data
     if (testProviderId) {
       try {
@@ -37,6 +53,41 @@ describe('Providers API', () => {
       }
       testProviderId = null;
     }
+  });
+
+  describe('GET /api/providers/allowances', () => {
+    it('returns an empty list and does not initialize observation when the rollout is disabled', async () => {
+      delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+      const response = await request(app).get('/api/providers/allowances').expect(200);
+      expect(response.body).toEqual({ snapshots: [], activeProviderIds: [] });
+      expect(mockAllowanceService.getSnapshots).not.toHaveBeenCalled();
+    });
+
+    it('returns snapshots only when explicitly opted in', async () => {
+      process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
+      const response = await request(app).get('/api/providers/allowances').expect(200);
+      expect(response.body.snapshots.length).toBeGreaterThan(0);
+      expect(mockAllowanceService.getSnapshots).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('allowance mutation routes', () => {
+    it('does not mount test-observe in the normal router, even in VCR mode', async () => {
+      const previousVcrMode = process.env.VCR_MODE;
+      process.env.VCR_MODE = 'replay';
+
+      try {
+        await request(app)
+          .post('/api/providers/allowances/test-observe')
+          .send({ snapshot: { providerId: 'openai-default', allowances: [] } })
+          .expect(404);
+
+        expect(mockAllowanceService.observe).not.toHaveBeenCalled();
+      } finally {
+        if (previousVcrMode === undefined) delete process.env.VCR_MODE;
+        else process.env.VCR_MODE = previousVcrMode;
+      }
+    });
   });
 
   describe('GET /api/providers', () => {

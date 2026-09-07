@@ -229,6 +229,25 @@ describe('ProviderRepository', () => {
     });
   });
 
+  describe('getEnabledForAllowances', () => {
+    it('returns enabled provider metadata without loading their models', () => {
+      const custom = repo.create({
+        name: 'Allowance Provider',
+        baseUrl: 'https://api.allowance.test',
+        authToken: 'token',
+      });
+      repo.update(custom.id, { enabled: false });
+
+      const providers = repo.getEnabledForAllowances();
+
+      expect(providers).not.toContainEqual(expect.objectContaining({ id: custom.id }));
+      expect(providers).toContainEqual(expect.objectContaining({ id: 'anthropic-default', enabled: true }));
+      expect(providers.every((provider) => !Object.hasOwn(provider, 'models'))).toBe(true);
+
+      repo.delete(custom.id);
+    });
+  });
+
   describe('update', () => {
     it('updates provider name', () => {
       const provider = repo.create({

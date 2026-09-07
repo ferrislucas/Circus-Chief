@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { BaseAgent } from '../BaseAgent.js';
 import { executeCodexCli } from './codexCliRunner.js';
 import { createCodexSpawner } from '../../services/codexSpawnHelper.js';
+import { createOpenAIStream } from './openaiDirectApi.js';
 
 /**
  * Module-level flag: once an ENOENT is observed for the Codex CLI, remember
@@ -55,10 +56,11 @@ export class CodexAdapter extends BaseAgent {
    *   where {@code client.chat.completions.create} is OpenAI-SDK-compatible.
    * @param {Object} [opts.rest] - Passed to {@link BaseAgent}.
    */
-  constructor({ spawnCodexProcess, openaiClientFactory, ...rest } = {}) {
+  constructor({ spawnCodexProcess, openaiClientFactory, allowanceObserver = null, clock = Date, ...rest } = {}) {
     super(rest);
     this._spawnCodex = spawnCodexProcess;
     this._openaiClientFactory = openaiClientFactory;
+    this._allowance = { allowanceObserver, clock };
   }
 
   getCapabilities() {
@@ -185,7 +187,7 @@ export class CodexAdapter extends BaseAgent {
     const requestOptions = {
       ...(abortController?.signal && { signal: abortController.signal }),
     };
-    const stream = await client.chat.completions.create(request, requestOptions);
+    const stream = await createOpenAIStream({ client, request, requestOptions, providerId: options.providerId, ...this._allowance });
 
     const onAbort = () => {
       try { stream?.controller?.abort?.(); } catch { /* ignore */ }
@@ -236,6 +238,7 @@ export class CodexAdapter extends BaseAgent {
     const { default: OpenAI } = await import('openai');
     return new OpenAI({ baseURL, apiKey, timeout });
   }
+
 }
 
 /**
