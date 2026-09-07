@@ -522,8 +522,8 @@ describe('promptStore work-log emission', () => {
 
   it.each(['session', 'projectSettings'])('passes every SDK suggestion through unchanged with the %s destination', async (destination) => {
     const suggestions = [
-      { type: 'addRules', rules: [{ toolName: 'Bash', rule: 'Bash(git status)' }] },
-      { type: 'replaceRules', rules: [{ toolName: 'Write', rule: 'Write(src/**)' }] },
+      { type: 'addRules', rules: [{ toolName: 'Bash', rule: 'Bash(git status)' }], behavior: 'allow', destination: 'userSettings' },
+      { type: 'replaceRules', rules: [{ toolName: 'Write', rule: 'Write(src/**)' }], behavior: 'allow', destination: 'userSettings' },
     ];
     const { promise, prompt } = park(`always-${destination}`, 'permission', {
       toolName: 'Bash', input: { command: 'git status' }, suggestions,
