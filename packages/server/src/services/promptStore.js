@@ -317,12 +317,7 @@ function isPlainRecord(value) {
 }
 
 function permissionResult(record, response) {
-  // The CLI's runtime schema for the can_use_tool response requires
-  // `updatedInput` on the allow branch: the host SDK's TypeScript marks it
-  // optional, but the CLI validates host responses with a Zod object that
-  // does not (see the `invalid_union` failure surfaced as "Tool permission
-  // request failed: ZodError …" when it is absent). Echo the tool input back
-  // unchanged so an accept is a genuine no-op.
+  // See the CLI schema reconstruction in promptStore.test.js for why this echo is required.
   const allowed = {
     behavior: 'allow',
     updatedInput: isPlainRecord(record.payload.input) ? record.payload.input : {},

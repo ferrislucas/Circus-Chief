@@ -548,6 +548,8 @@ describe('promptStore work-log emission', () => {
 // it. A host response that omits it fails the union parse with
 // `invalid_union`, and the CLI denies the tool, surfacing to the session:
 // "Tool permission request failed: ZodError: [ { code: \"invalid_union\", ... } ]".
+// `decisionClassification` is deliberately omitted: the real schema accepts
+// it as optional, but it is not needed to validate the host responses here.
 // The `.catch()` on `updatedPermissions` replicates the CLI's graceful
 // handling of malformed suggestions (dropped with a warning, not rejected).
 const CLI_PERMISSION_BEHAVIORS = ['allow', 'deny', 'ask'];
@@ -569,7 +571,6 @@ const CLI_PERMISSION_UPDATE = z.discriminatedUnion('type', [
 const CLI_PERMISSION_RESULT_SCHEMA = z.union([
   z.object({
     behavior: z.literal('allow'),
-    // Required at runtime even though the SDK's TypeScript marks it optional.
     updatedInput: z.record(z.string(), z.unknown()),
     updatedPermissions: z.array(CLI_PERMISSION_UPDATE).optional().catch(() => undefined),
     toolUseID: z.string().optional(),
