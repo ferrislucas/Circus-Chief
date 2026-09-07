@@ -14,7 +14,6 @@ function snapshotPriority(snapshot, activeProviderIds) {
 // JavaScript's stable sort preserves the server/configured order for equal
 // priorities, keeping indicators from jittering between equivalent updates.
 export function prioritizeSnapshots(snapshots, activeProviderIds = []) {
-  if (activeProviderIds === null) return [...snapshots];
   const activeIds = new Set(activeProviderIds);
   return [...snapshots]
     .map((snapshot, index) => ({ snapshot, index }))
@@ -35,9 +34,7 @@ function lowestAllowance(snapshot) {
 }
 
 export const useProviderAllowancesStore = defineStore('providerAllowances', {
-  // Before a session event arrives, REST is the authoritative source for
-  // active-provider ordering. An empty array means the active set is known.
-  state: () => ({ snapshots: [], activeProviderIds: null, error: null, snapshotVersion: 0, staleTimer: null }),
+  state: () => ({ snapshots: [], activeProviderIds: [], error: null, snapshotVersion: 0, staleTimer: null }),
   getters: {
     attentionCount: (state) => state.snapshots.filter(isAttention).length,
     compactAllowance: () => (snapshot) => lowestAllowance(snapshot),
@@ -51,7 +48,8 @@ export const useProviderAllowancesStore = defineStore('providerAllowances', {
         const parsed = ProviderAllowanceListResponse.safeParse(response);
         if (!parsed.success) throw new Error('Invalid provider allowance response');
         if (snapshotVersion !== this.snapshotVersion) return;
-        this.snapshots = prioritizeSnapshots(markStaleSnapshots(parsed.data), this.activeProviderIds);
+        this.activeProviderIds = [...new Set(parsed.data.activeProviderIds)];
+        this.snapshots = prioritizeSnapshots(markStaleSnapshots(parsed.data.snapshots), this.activeProviderIds);
         this.error = null;
         this.scheduleStaleness();
       } catch (error) {

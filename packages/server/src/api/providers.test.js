@@ -7,7 +7,7 @@ import { OPENAI_MODELS, CLAUDE_MODELS } from '@circuschief/shared';
 
 const { mockAllowanceService } = vi.hoisted(() => ({
   mockAllowanceService: {
-    getSnapshots: vi.fn(() => []),
+    getSnapshots: vi.fn(() => ({ snapshots: [], activeProviderIds: [] })),
     observe: vi.fn(),
   },
 }));
@@ -32,11 +32,10 @@ describe('Providers API', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockAllowanceService.getSnapshots.mockReturnValue([{
-      providerId: 'openai-default',
-      providerName: 'OpenAI',
-      status: 'unknown',
-    }]);
+    mockAllowanceService.getSnapshots.mockReturnValue({
+      snapshots: [{ providerId: 'openai-default', providerName: 'OpenAI', status: 'unknown' }],
+      activeProviderIds: [],
+    });
 
     app = express();
     app.use(express.json());
@@ -60,14 +59,14 @@ describe('Providers API', () => {
     it('returns an empty list and does not initialize observation when the rollout is disabled', async () => {
       delete process.env.PROVIDER_ALLOWANCES_ENABLED;
       const response = await request(app).get('/api/providers/allowances').expect(200);
-      expect(response.body).toEqual([]);
+      expect(response.body).toEqual({ snapshots: [], activeProviderIds: [] });
       expect(mockAllowanceService.getSnapshots).not.toHaveBeenCalled();
     });
 
     it('returns snapshots only when explicitly opted in', async () => {
       process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
       const response = await request(app).get('/api/providers/allowances').expect(200);
-      expect(response.body.length).toBeGreaterThan(0);
+      expect(response.body.snapshots.length).toBeGreaterThan(0);
       expect(mockAllowanceService.getSnapshots).toHaveBeenCalledOnce();
     });
   });

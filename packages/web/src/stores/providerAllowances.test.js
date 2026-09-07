@@ -42,27 +42,37 @@ describe('provider allowances store', () => {
 
   it('reorders immediately when live updates move providers into attention states', () => {
     const store = useProviderAllowancesStore();
-    store.setActiveProviderIds([]);
-    store.snapshots = [snapshot('a'), snapshot('b'), snapshot('c')];
+    getProviderAllowances.mockResolvedValue({
+      snapshots: [snapshot('a'), snapshot('b'), snapshot('c')],
+      activeProviderIds: [],
+    });
 
-    store.replace(snapshot('c', 'warning'));
-    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['c', 'a', 'b']);
+    return store.fetch().then(() => {
+      store.replace(snapshot('c', 'warning'));
+      expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['c', 'a', 'b']);
 
-    store.replace(snapshot('b', 'exhausted'));
-    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['c', 'b', 'a']);
+      store.replace(snapshot('b', 'exhausted'));
+      expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['c', 'b', 'a']);
+    });
   });
 
-  it('preserves authoritative REST ordering for an unknown active-provider set but prioritizes attention when it is known empty', () => {
-    const snapshots = [snapshot('active'), snapshot('attention', 'warning')];
+  it('moves a recovered provider out of attention while preserving configured order within equal-priority groups', () => {
+    const store = useProviderAllowancesStore();
+    store.setActiveProviderIds([]);
+    store.snapshots = [snapshot('a'), snapshot('b', 'warning'), snapshot('c', 'critical')];
 
-    expect(prioritizeSnapshots(snapshots, null).map(({ providerId }) => providerId)).toEqual(['active', 'attention']);
-    expect(prioritizeSnapshots(snapshots, []).map(({ providerId }) => providerId)).toEqual(['attention', 'active']);
+    store.replace(snapshot('b', 'available'));
+
+    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['c', 'a', 'b']);
   });
 
   it('preserves the server priority order after fetching', async () => {
     const store = useProviderAllowancesStore();
     store.setActiveProviderIds(['active']);
-    getProviderAllowances.mockResolvedValue([snapshot('active'), snapshot('attention', 'warning'), snapshot('configured')]);
+    getProviderAllowances.mockResolvedValue({
+      snapshots: [snapshot('active'), snapshot('attention', 'warning'), snapshot('configured')],
+      activeProviderIds: ['active'],
+    });
 
     await store.fetch();
 
@@ -86,7 +96,10 @@ describe('provider allowances store', () => {
   it('converges REST reconciliation and subsequent websocket updates on one deduplicated order', async () => {
     const store = useProviderAllowancesStore();
     store.setActiveProviderIds(['b']);
-    getProviderAllowances.mockResolvedValue([snapshot('a'), snapshot('b'), snapshot('c', 'warning')]);
+    getProviderAllowances.mockResolvedValue({
+      snapshots: [snapshot('a'), snapshot('b'), snapshot('c', 'warning')],
+      activeProviderIds: ['b'],
+    });
 
     await store.fetch();
     store.replace(snapshot('a', 'exhausted'));
@@ -132,7 +145,7 @@ describe('provider allowances store', () => {
 
     const fetchPromise = store.fetch();
     store.replace(snapshot('openai-default', 'critical'));
-    resolveFetch([snapshot('openai-default', 'available')]);
+    resolveFetch({ snapshots: [snapshot('openai-default', 'available')], activeProviderIds: [] });
     await fetchPromise;
 
     expect(store.snapshots[0].status).toBe('critical');

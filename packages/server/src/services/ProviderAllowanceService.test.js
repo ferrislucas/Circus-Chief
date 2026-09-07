@@ -11,14 +11,14 @@ describe('ProviderAllowanceService', () => {
       providerRepository: { getAll: () => [enabled, disabled] },
     });
 
-    expect(service.getSnapshots()).toEqual([expect.objectContaining({
+    expect(service.getSnapshots()).toEqual(expect.objectContaining({ snapshots: [expect.objectContaining({
       providerId: enabled.id,
       providerName: enabled.name,
       status: 'unknown',
       allowances: [],
       source: null,
       unavailableReason: expect.stringContaining('No verified'),
-    })]);
+    })], activeProviderIds: [] }));
   });
 
   it('broadcasts a normalized changed snapshot without provider configuration', () => {
@@ -34,7 +34,7 @@ describe('ProviderAllowanceService', () => {
 
     service.observe(snapshot);
     expect(broadcaster).toHaveBeenCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, { snapshot });
-    expect(service.getSnapshots()).toEqual([snapshot]);
+    expect(service.getSnapshots()).toEqual({ snapshots: [snapshot], activeProviderIds: [] });
   });
 
   it('normalizes inconsistent adapter measurements and broadcasts only the canonical snapshot', () => {
@@ -59,7 +59,7 @@ describe('ProviderAllowanceService', () => {
       allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: 3 }],
     };
     expect(received).toEqual(expected);
-    expect(service.getSnapshots()).toEqual([expected]);
+    expect(service.getSnapshots()).toEqual({ snapshots: [expected], activeProviderIds: [] });
     expect(broadcaster).toHaveBeenCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, { snapshot: expected });
   });
 
@@ -124,7 +124,7 @@ describe('ProviderAllowanceService', () => {
       allowances: [{ key: 'requests', label: 'Requests', remaining: 0, limit: 100, remainingPercent: 0, unit: 'requests', resetsAt: null }],
     });
 
-    expect(service.getSnapshots().map(({ providerId }) => providerId)).toEqual([
+    expect(service.getSnapshots().snapshots.map(({ providerId }) => providerId)).toEqual([
       'provider-b', 'provider-c', 'provider-a', 'provider-d',
     ]);
   });
@@ -137,7 +137,7 @@ describe('ProviderAllowanceService', () => {
       allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: null }],
     });
 
-    expect(service.getSnapshots()[0]).toMatchObject({ status: 'stale', updatedAt: 1, staleAt: 5, allowances: [{ remaining: 25, limit: 100 }] });
+    expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'stale', updatedAt: 1, staleAt: 5, allowances: [{ remaining: 25, limit: 100 }] });
   });
 
   it('does not retain or broadcast allowance updates for disabled or unknown providers', () => {

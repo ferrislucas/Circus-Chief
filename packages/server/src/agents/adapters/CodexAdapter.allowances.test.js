@@ -52,7 +52,7 @@ describe('CodexAdapter OpenAI allowance observation', () => {
       options: { model: 'gpt-4o-mini', env: { OPENAI_API_KEY: 'sk-test' }, providerId: 'openai-production' },
     }, { model: 'gpt-4o-mini', env: { OPENAI_API_KEY: 'sk-test' }, providerId: 'openai-production' }));
 
-    expect(service.getSnapshots()).toEqual([expect.objectContaining({
+    expect(service.getSnapshots().snapshots).toEqual([expect.objectContaining({
       providerId: 'openai-production', status: 'available', source: 'observed-header',
       allowances: [
         expect.objectContaining({ key: 'requests', remaining: 75, limit: 100, remainingPercent: 75 }),
@@ -83,7 +83,7 @@ describe('CodexAdapter OpenAI allowance observation', () => {
 
     await collect(adapter._executeDirectApi({ prompt: 'hello', options: { model: 'gpt-4o-mini', env: { OPENAI_API_KEY: 'sk-test' }, providerId } }, { model: 'gpt-4o-mini', env: { OPENAI_API_KEY: 'sk-test' }, providerId }));
 
-    expect(service.getSnapshots().every((snapshot) => snapshot.status === 'unknown')).toBe(true);
+    expect(service.getSnapshots().snapshots.every((snapshot) => snapshot.status === 'unknown')).toBe(true);
     expect(broadcaster).not.toHaveBeenCalled();
   });
 });

@@ -21,13 +21,16 @@ export class ProviderAllowanceService {
     const activeIds = new Set(providers.map((provider) => provider.id));
     for (const id of this.snapshots.keys()) if (!activeIds.has(id)) this.snapshots.delete(id);
 
-    const snapshots = ProviderAllowanceListResponse.parse(providers.map((provider) =>
+    const snapshots = providers.map((provider) =>
       withFreshness(this.#normalizeSnapshot(this.snapshots.get(provider.id), provider), this.clock.now()),
-    ));
+    );
     const activeProviderIds = new Set(
       (this.sessionRepository?.getActiveAndWaiting() || []).map((session) => session.providerId).filter(Boolean),
     );
-    return prioritizeSnapshots(snapshots, activeProviderIds);
+    return ProviderAllowanceListResponse.parse({
+      snapshots: prioritizeSnapshots(snapshots, activeProviderIds),
+      activeProviderIds: [...activeProviderIds],
+    });
   }
 
   observe(snapshot) {

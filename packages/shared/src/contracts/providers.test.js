@@ -53,8 +53,15 @@ describe('Provider Contracts', () => {
       expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], authToken: 'secret' }] }).success).toBe(false);
     });
 
+    it('validates a redacted allowance response with snapshots and active provider IDs', () => {
+      const response = { snapshots: [snapshot], activeProviderIds: ['openai-default'] };
+      expect(ProviderAllowanceListResponse.safeParse(response).success).toBe(true);
+      expect(ProviderAllowanceListResponse.safeParse({ ...response, activeProviderIds: ['openai-default', { id: 'session-id' }] }).success).toBe(false);
+      expect(ProviderAllowanceListResponse.safeParse({ ...response, sessions: [{ id: 'session-id' }] }).success).toBe(false);
+      expect(ProviderAllowanceListResponse.safeParse({ ...response, authToken: 'secret' }).success).toBe(false);
+    });
+
     it('validates complete websocket update envelopes', () => {
-      expect(ProviderAllowanceListResponse.safeParse([snapshot]).success).toBe(true);
       expect(ProviderAllowanceUpdatedPayload.safeParse({ type: 'provider_allowance_updated', snapshot }).success).toBe(true);
       expect(ProviderAllowanceUpdatedPayload.safeParse({ type: 'provider_allowance_updated', snapshot, authToken: 'secret' }).success).toBe(false);
       expect(ProviderAllowanceUpdatedPayload.safeParse({ type: 'wrong_event', snapshot }).success).toBe(false);

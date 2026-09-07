@@ -17,6 +17,6 @@ describe('providers allowance router import', () => {
     await request(app)
       .get('/api/providers/allowances')
       .expect(200)
-      .expect((response) => expect(response.body).toEqual(expect.any(Array)));
+      .expect((response) => expect(response.body).toEqual({ snapshots: [], activeProviderIds: [] }));
   });
 });

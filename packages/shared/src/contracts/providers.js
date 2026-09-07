@@ -160,7 +160,10 @@ export const ProviderAllowanceSnapshot = z.object({
   staleAt: z.number().finite().nullable(),
   unavailableReason: z.string().nullable(),
 }).strict();
-export const ProviderAllowanceListResponse = z.array(ProviderAllowanceSnapshot);
+export const ProviderAllowanceListResponse = z.object({
+  snapshots: z.array(ProviderAllowanceSnapshot),
+  activeProviderIds: z.array(PROVIDER_ROW_ID),
+}).strict();
 export const ProviderAllowanceUpdatedPayload = z.object({
   type: z.literal(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED),
   snapshot: ProviderAllowanceSnapshot,

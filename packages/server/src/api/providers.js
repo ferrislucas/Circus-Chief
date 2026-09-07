@@ -49,7 +49,9 @@ router.get('/', (_req, res) => {
 // Must precede /:id so "allowances" is never interpreted as a provider id.
 router.get('/allowances', (_req, res) => {
   try {
-    res.json(isProviderAllowancesEnabled() ? getProviderAllowanceService().getSnapshots() : []);
+    res.json(isProviderAllowancesEnabled()
+      ? getProviderAllowanceService().getSnapshots()
+      : { snapshots: [], activeProviderIds: [] });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
