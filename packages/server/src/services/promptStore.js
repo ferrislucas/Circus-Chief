@@ -312,6 +312,10 @@ function serializeQuestionAnswers(questions, answers, customAnswers = {}) {
   }));
 }
 
+function isPlainRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value);
+}
+
 function permissionResult(record, response) {
   // The CLI's runtime schema for the can_use_tool response requires
   // `updatedInput` on the allow branch: the host SDK's TypeScript marks it
@@ -319,7 +323,10 @@ function permissionResult(record, response) {
   // does not (see the `invalid_union` failure surfaced as "Tool permission
   // request failed: ZodError …" when it is absent). Echo the tool input back
   // unchanged so an accept is a genuine no-op.
-  const allowed = { behavior: 'allow', updatedInput: record.payload.input || {} };
+  const allowed = {
+    behavior: 'allow',
+    updatedInput: isPlainRecord(record.payload.input) ? record.payload.input : {},
+  };
   if (response.action === 'allow') return allowed;
   if (response.action === 'always_allow' && Array.isArray(record.payload.suggestions) && record.payload.suggestions.length) {
     return {

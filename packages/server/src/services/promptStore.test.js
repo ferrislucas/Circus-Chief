@@ -595,6 +595,21 @@ describe('promptStore canUseTool responses satisfy the CLI permission-result sch
     expect(() => CLI_PERMISSION_RESULT_SCHEMA.parse(result)).not.toThrow();
   });
 
+  it.each([
+    ['array', ['git status']],
+    ['string', 'git status'],
+  ])('an allow response with a %s input still parses as a valid CLI permission result', async (_inputType, input) => {
+    const sessionId = `cli-schema-non-record-${_inputType}`;
+    const { promise, prompt } = park(sessionId, 'permission', {
+      toolName: 'Bash', input, suggestions: [],
+    });
+
+    expect(respondToPrompt(sessionId, prompt.id, { action: 'allow' })).toBe(true);
+    const result = await promise;
+
+    expect(() => CLI_PERMISSION_RESULT_SCHEMA.parse(result)).not.toThrow();
+  });
+
   it('a deny response parses as a valid CLI permission result', async () => {
     const { promise, prompt } = park('cli-schema-deny', 'permission');
 
