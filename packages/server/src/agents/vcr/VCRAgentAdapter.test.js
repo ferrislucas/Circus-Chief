@@ -356,6 +356,41 @@ describe('VCRAgentAdapter', () => {
       expect(received).toEqual([{ type: 'result', subtype: 'success' }]);
     });
 
+    it('accepts question results whose updatedInput keys have a different insertion order than the cassette', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'AskUserQuestion',
+        result: { behavior: 'allow', updatedInput: { command: 'answer', file_path: 'notes.md' } },
+      }, {
+        behavior: 'allow', updatedInput: { file_path: 'notes.md', command: 'answer' },
+      }, 'key-order')).not.toThrow();
+    });
+
+    it('ignores host-owned fields retained in an older permission cassette', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'Edit',
+        result: { behavior: 'allow', decisionClassification: 'previous-host-format' },
+      }, { behavior: 'allow' }, 'host-owned-field')).not.toThrow();
+    });
+
+    it('still rejects semantic permission divergences during replay', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'Edit',
+        result: {
+          behavior: 'allow',
+          updatedPermissions: [{ behavior: 'allow', destination: 'session', rules: [{ toolName: 'Edit' }] }],
+        },
+      }, {
+        behavior: 'allow',
+        updatedPermissions: [{ behavior: 'allow', destination: 'projectSettings', rules: [{ toolName: 'Edit' }] }],
+      }, 'semantic-divergence')).toThrow(/diverges/i);
+    });
+
     it('rejects a gated cassette that has no recorded callback result', async () => {
       const fixtureKey = CassetteStore.buildKey('runSession', 'missing gated result');
       CassetteStore.save(testCassetteDir, fixtureKey, {

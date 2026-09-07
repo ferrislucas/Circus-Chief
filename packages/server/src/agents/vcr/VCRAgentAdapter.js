@@ -145,11 +145,21 @@ export class VCRAgentAdapter {
         'Re-record this cassette with the agent-prompt cassette generator.'
       );
     }
-    if (JSON.stringify(observed) === JSON.stringify(call.result)) return;
+    const recorded = call.result;
+    const matchesBehavior = observed?.behavior === recorded.behavior;
+    const matchesUpdatedPermissions = recorded.behavior !== 'allow'
+      || deepEqualIgnoringKeyOrder(observed?.updatedPermissions, recorded.updatedPermissions);
+    // AskUserQuestion changes the tool input to carry the user's answer. A
+    // permission allow only echoes its input to satisfy the CLI, so it is
+    // host-owned formatting rather than decision semantics.
+    const matchesQuestionInput = call.toolName !== 'AskUserQuestion'
+      || deepEqualIgnoringKeyOrder(observed?.updatedInput, recorded.updatedInput);
+    if (matchesBehavior && matchesUpdatedPermissions && matchesQuestionInput) return;
     throw new Error(
       `VCR replay: cassette "${cassetteKey}" canUseTool("${call.toolName}") returned a result that diverges from the recording.\n` +
       `  Recorded: ${JSON.stringify(call.result)}\n` +
       `  Observed: ${JSON.stringify(observed)}\n` +
+      '  Comparison: semantic (behavior + updatedPermissions) comparison — host-owned fields are ignored; AskUserQuestion updatedInput is compared.\n' +
       '  Remedy: re-record this cassette with the agent-prompt cassette generator.'
     );
   }
@@ -279,4 +289,25 @@ export class VCRAgentAdapter {
   getCapabilities() {
     return this.innerAgent.getCapabilities?.() ?? {};
   }
+}
+
+function deepEqualIgnoringKeyOrder(left, right) {
+  if (Object.is(left, right)) return true;
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return false;
+
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    const unmatched = [...right];
+    return left.every((item) => {
+      const matchIndex = unmatched.findIndex((candidate) => deepEqualIgnoringKeyOrder(item, candidate));
+      if (matchIndex === -1) return false;
+      unmatched.splice(matchIndex, 1);
+      return true;
+    });
+  }
+
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key) => Object.hasOwn(right, key) && deepEqualIgnoringKeyOrder(left[key], right[key]));
 }
