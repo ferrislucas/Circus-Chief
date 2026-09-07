@@ -136,6 +136,41 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
+  it('reorders hydrated visible providers after a WebSocket status transition without refetching', async () => {
+    api.getProviderAllowances.mockResolvedValueOnce({
+      snapshots: [
+        snapshot({ providerId: 'active', status: 'available' }),
+        snapshot({ providerId: 'healthy', status: 'available' }),
+        snapshot({ providerId: 'constrained', status: 'available' }),
+      ],
+      activeProviderIds: ['active'],
+    });
+    rectSpy.mockImplementation(function getBoundingClientRect() {
+      const width = this.classList.contains('desktop-items') ? 400
+        : this.classList.contains('allowance-item') ? 70
+          : this.classList.contains('overflow-button') ? 30 : 0;
+      return { width, height: 0, top: 0, left: 0, right: width, bottom: 0, x: 0, y: 0, toJSON: () => ({}) };
+    });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await Promise.resolve();
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+
+    expect(wrapper.findAll('.desktop-items .allowance-item .provider-name').map((item) => item.text())).toEqual(['active', 'healthy', 'constrained']);
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
+
+    websocketListeners.get('provider_allowance_updated')({
+      type: 'provider_allowance_updated',
+      snapshot: snapshot({ providerId: 'constrained', status: 'critical' }),
+    });
+    await nextTick();
+
+    expect(wrapper.findAll('.desktop-items .allowance-item .provider-name').map((item) => item.text())).toEqual(['active', 'constrained', 'healthy']);
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
   it('reconciles the authoritative order after an active-session lifecycle update', async () => {
     api.getProviderAllowances
       .mockResolvedValueOnce({ snapshots: [], activeProviderIds: [] })
