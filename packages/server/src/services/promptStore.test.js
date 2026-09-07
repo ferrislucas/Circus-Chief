@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
 vi.mock('../websocket.js', () => ({ broadcastToSession: vi.fn(), broadcastToProject: vi.fn() }));
@@ -554,7 +557,9 @@ describe('promptStore work-log emission', () => {
 
 // Faithful reconstruction of the CLI's runtime `can_use_tool` response schema
 // (extracted from the bundled claude binary used by the installed
-// @anthropic-ai/claude-agent-sdk). The SDK's TypeScript types mark
+// @anthropic-ai/claude-agent-sdk 0.3.163). To re-derive it after an SDK
+// upgrade: `strings -a <cli-binary> | grep -o 'dO7=[^;]\{0,500\}'`.
+// The SDK's TypeScript types mark
 // `updatedInput` optional on the allow branch, but this Zod object REQUIRES
 // it. A host response that omits it fails the union parse with
 // `invalid_union`, and the CLI denies the tool, surfacing to the session:
@@ -564,6 +569,7 @@ describe('promptStore work-log emission', () => {
 const CLI_PERMISSION_BEHAVIORS = ['allow', 'deny', 'ask'];
 const CLI_PERMISSION_DESTINATIONS = ['userSettings', 'projectSettings', 'localSettings', 'session', 'cliArg'];
 const CLI_PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk', 'auto'];
+const REQUIRED_SDK_VERSION = '0.3.163';
 const CLI_PERMISSION_RULE = z.object({
   toolName: z.string(),
   ruleContent: z.string().optional(),
@@ -612,6 +618,22 @@ describe('promptStore canUseTool responses satisfy the CLI permission-result sch
     const result = await promise;
 
     expect(() => CLI_PERMISSION_RESULT_SCHEMA.parse(result)).not.toThrow();
+  });
+});
+
+describe('CLI schema reconstruction provenance', () => {
+  it('is pinned to the SDK version used to reconstruct it', () => {
+    const sdkEntryPoint = fileURLToPath(import.meta.resolve('@anthropic-ai/claude-agent-sdk'));
+    const installedSdkVersion = JSON.parse(readFileSync(join(dirname(sdkEntryPoint), 'package.json'), 'utf8')).version;
+
+    expect(REQUIRED_SDK_VERSION, 'SDK upgraded — re-verify the reconstruction against the new binary, then bump this constant').toBe(installedSdkVersion);
+  });
+
+  it('validates a known-good allow response with updatedInput', () => {
+    expect(() => CLI_PERMISSION_RESULT_SCHEMA.parse({
+      behavior: 'allow',
+      updatedInput: { command: 'git status' },
+    })).not.toThrow();
   });
 });
 
