@@ -3,9 +3,29 @@ import express from 'express';
 import request from 'supertest';
 import sessionsRouter from '../src/api/sessions.js';
 import { projects, sessions } from '../src/database.js';
-import { cancelPrompt, getPrompt, parkPrompt } from '../src/services/promptStore.js';
+import { cancelPrompt, getPrompt, parkPrompt, requestInteraction } from '../src/services/promptStore.js';
 
 describe('session prompt responses', () => {
+  it('hydrates a pending Codex interaction through REST without WebSocket delivery', async () => {
+    const project = projects.create('Codex hydration project', '/tmp/prompts');
+    const session = sessions.create(project.id, 'Codex hydration session', 'Ask a question');
+    const promptPromise = requestInteraction({
+      sessionId: session.id, conversationId: 'conversation-hydration', provider: 'codex', externalRequestId: 'rpc-hydration', kind: 'question',
+      metadata: { connectionId: 'connection-1', threadId: 'thread-1' },
+      payload: { questions: [{ id: 'database', question: 'Database?', mode: 'single', required: true, allowOther: false, options: [{ id: 'postgres', label: 'PostgreSQL' }] }] },
+    });
+    const app = express();
+    app.use(express.json());
+    app.use('/api/sessions', sessionsRouter);
+
+    const hydrated = await request(app).get(`/api/sessions/${session.id}/prompt`);
+
+    expect(hydrated.status).toBe(200);
+    expect(hydrated.body).toMatchObject({ provider: 'codex', externalRequestId: 'rpc-hydration', sessionId: session.id });
+    cancelPrompt(session.id);
+    await expect(promptPromise).resolves.toEqual({ action: 'cancelled', message: 'Session was cancelled.' });
+  });
+
   it('rejects invalid answers without consuming the pending prompt', async () => {
     const project = projects.create('Prompt project', '/tmp/prompts');
     const session = sessions.create(project.id, 'Prompt session', 'Ask a question');

@@ -18,6 +18,7 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
   const events = []; let wake; let done = false; let failure;
   const handledServerRequests = new Set();
   const interactionController = new AbortController();
+  let client;
   const abortInteractions = (reason) => {
     if (!interactionController.signal.aborted) interactionController.abort(reason);
   };
@@ -27,11 +28,17 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
     abortInteractions(failure);
     wake?.();
   };
-  const onAbort = () => fail(options.abortController.signal.reason || new Error('Codex App Server turn aborted'));
+  const onAbort = () => {
+    const error = options.abortController.signal.reason || new Error('Codex App Server turn aborted');
+    // Close first: request waiters then settle locally, but must not write a
+    // cancellation-shaped response to an interrupted provider connection.
+    client?.close(error);
+    fail(error);
+  };
   options.abortController?.signal?.addEventListener('abort', onAbort, { once: true });
   const mapper = createCodexEventMapper({ model: options.model });
   const push = (items) => { events.push(...items); wake?.(); wake = null; };
-  const client = new CodexAppServerClient({
+  client = new CodexAppServerClient({
     child,
     onClose: fail,
     onNotification: async (message) => {
@@ -54,7 +61,10 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
         const identity = serverRequestIdentity(normalized.metadata.threadId, request.id);
         if (handledServerRequests.has(identity)) return;
         handledServerRequests.add(identity);
-        const outcome = await requestInteraction({ sessionId: meta.sessionId, conversationId: meta.conversationId, provider: 'codex', kind: 'question', ...normalized, signal: interactionController.signal });
+        const outcome = await requestInteraction({
+          sessionId: meta.sessionId, conversationId: meta.conversationId, provider: 'codex', kind: 'question',
+          ...normalized, signal: interactionController.signal, expiryMs: interactionExpiryMs(options),
+        });
         if (client.closed) return;
         // The provider has already resolved this request, so its matching
         // notification invalidated the local prompt. It expects no response.
@@ -89,4 +99,10 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
 
 function serverRequestIdentity(threadId, requestId) {
   return JSON.stringify([threadId, requestId]);
+}
+
+function interactionExpiryMs({ interactionTimeoutMs }) {
+  return Number.isFinite(interactionTimeoutMs) && interactionTimeoutMs >= 0
+    ? interactionTimeoutMs
+    : undefined;
 }

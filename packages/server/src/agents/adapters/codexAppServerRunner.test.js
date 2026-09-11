@@ -36,10 +36,20 @@ async function nextWithDeadline(generator) {
   }
 }
 
-function execute(child, controller = new AbortController()) {
+function execute(child, controller = new AbortController(), overrides = {}) {
   return executeCodexAppServer(child, { prompt: 'hello' }, {
     cwd: process.cwd(), model: 'gpt-5-codex', abortController: controller,
+    ...overrides,
   }, { sessionId: 'session-1', conversationId: 'conversation-1' });
+}
+
+function requestUserInput(child, id) {
+  child.emitMessage({
+    id, method: 'item/tool/requestUserInput', params: {
+      threadId: 'thread-1', turnId: 'turn-1', itemId: `item-${id}`,
+      questions: [{ id: 'database', question: 'Database?', options: [{ label: 'PostgreSQL', description: 'Relational' }] }],
+    },
+  });
 }
 
 describe('executeCodexAppServer lifecycle failures', () => {
@@ -132,6 +142,59 @@ describe('executeCodexAppServer lifecycle failures', () => {
 
     await expect(pending).rejects.toThrow('session stopped');
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+  });
+
+  it('makes a stopped blocked interaction non-actionable without forwarding a late answer', async () => {
+    const child = createAppServerChild();
+    const controller = new AbortController();
+    const generator = execute(child, controller);
+    const pending = generator.next();
+    await new Promise((resolve) => setImmediate(resolve));
+    requestUserInput(child, 'provider-request-stop');
+    await new Promise((resolve) => setImmediate(resolve));
+    const prompt = getPrompt('session-1');
+
+    controller.abort(new Error('session stopped'));
+
+    await expect(pending).rejects.toThrow('session stopped');
+    expect(getPrompt('session-1')).toBeNull();
+    expect(respondToPrompt('session-1', prompt.id, { action: 'cancel' })).toBe(false);
+    expect(child.requests.filter((request) => request.id === 'provider-request-stop')).toEqual([]);
+  });
+
+  it('expires a blocked interaction using the configured timeout', async () => {
+    const child = createAppServerChild();
+    const generator = execute(child, new AbortController(), { interactionTimeoutMs: 1 });
+    const pending = generator.next();
+    await new Promise((resolve) => setImmediate(resolve));
+    requestUserInput(child, 'provider-request-timeout');
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(getPrompt('session-1')).toBeNull();
+    expect(child.requests.filter((request) => request.id === 'provider-request-timeout')).toEqual([
+      expect.objectContaining({ error: expect.objectContaining({ code: -32602 }) }),
+    ]);
+
+    child.emit('exit', 1);
+    await expect(pending).rejects.toThrow('exited with code 1');
+  });
+
+  it('cleans up multiple blocked interactions when the App Server exits', async () => {
+    const child = createAppServerChild();
+    const generator = execute(child);
+    const pending = generator.next();
+    await new Promise((resolve) => setImmediate(resolve));
+    requestUserInput(child, 'provider-request-first');
+    requestUserInput(child, 'provider-request-second');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(getPromptQueue('session-1')).toHaveLength(2);
+    child.emit('exit', 1);
+
+    await expect(pending).rejects.toThrow('exited with code 1');
+    expect(getPromptQueue('session-1')).toEqual([]);
+    expect(child.requests.filter((request) => String(request.id).startsWith('provider-request-'))).toEqual([]);
   });
 
   it('drains stderr so App Server diagnostics cannot block the child', async () => {
