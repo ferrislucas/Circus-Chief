@@ -41,7 +41,7 @@ function broadcastPendingInput(record, pendingAgentInput) {
 }
 
 function project(record) {
-  const { resolve: _resolve, abortListener: _abortListener, signal: _signal, expiryTimer: _expiryTimer, ...wire } = record;
+  const { resolve: _resolve, promise: _promise, abortListener: _abortListener, signal: _signal, expiryTimer: _expiryTimer, ...wire } = record;
   return wire;
 }
 
@@ -194,14 +194,16 @@ export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, 
     persistPreParkDenial({ sessionId, kind, payload, reason: 'invalid_request' });
     return Promise.resolve({ behavior: 'deny', message: 'Please re-ask using distinct question text.' });
   }
-  return new Promise((resolve) => {
-    const queue = prompts.get(sessionId);
-    if (queue?.length >= MAX_PROMPTS_PER_SESSION) {
-      persistPreParkDenial({ sessionId, kind, payload, reason: 'prompt_capacity_exceeded' });
-      resolve({ behavior: 'deny', message: CAPACITY_MESSAGE });
-      return;
-    }
-    const record = { id: randomUUID(), sessionId, conversationId, kind, toolUseId, agentId, provider, externalRequestId, metadata, payload,
+  const queue = prompts.get(sessionId);
+  const duplicate = queue?.find((record) => isDuplicateInteraction(record, { provider, externalRequestId, metadata }));
+  if (duplicate) return duplicate.promise;
+  if (queue?.length >= MAX_PROMPTS_PER_SESSION) {
+    persistPreParkDenial({ sessionId, kind, payload, reason: 'prompt_capacity_exceeded' });
+    return Promise.resolve({ behavior: 'deny', message: CAPACITY_MESSAGE });
+  }
+  let record;
+  const promise = new Promise((resolve) => {
+    record = { id: randomUUID(), sessionId, conversationId, kind, toolUseId, agentId, provider, externalRequestId, metadata, payload,
       createdAt: Date.now(), resolve, signal, abortListener: null, expiryTimer: null };
     record.abortListener = () => settle(record, 'cancelled', terminalResult(record, 'cancelled', CANCELLED_MESSAGE));
     record.expiryTimer = setTimeout(() => settle(record, 'expired', terminalResult(record, 'expired', EXPIRED_MESSAGE)), expiryMs);
@@ -219,6 +221,14 @@ export function parkPrompt({ sessionId, conversationId, kind, toolUseId = null, 
     safelyBroadcast(record, 'set pending prompt badge', () => broadcastPendingInput(record, true));
     safelyBroadcast(record, 'publish interactive prompt', () => broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PROMPT, { sessionId, prompt: project(record) }));
   });
+  record.promise = promise;
+  return promise;
+}
+
+function isDuplicateInteraction(record, { provider, externalRequestId, metadata }) {
+  if (externalRequestId == null || record.provider !== provider || record.externalRequestId !== externalRequestId) return false;
+  return record.metadata?.connectionId === metadata?.connectionId
+    && record.metadata?.threadId === metadata?.threadId;
 }
 
 export function getPrompt(sessionId) {

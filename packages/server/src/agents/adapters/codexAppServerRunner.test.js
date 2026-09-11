@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { Readable, Writable } from 'stream';
 import { executeCodexAppServer } from './codexAppServerRunner.js';
-import { getPrompt, respondToPrompt } from '../../services/promptStore.js';
+import { getPrompt, getPromptQueue, respondToPrompt } from '../../services/promptStore.js';
 
 function createAppServerChild(initializeResult = { capabilities: { experimentalApi: true } }) {
   const child = new EventEmitter();
@@ -64,6 +64,34 @@ describe('executeCodexAppServer lifecycle failures', () => {
     expect(getPrompt('session-1')).toBeNull();
     expect(respondToPrompt('session-1', prompt.id, { action: 'cancel' })).toBe(false);
     expect(child.requests.filter((request) => request.id === 'provider-request-7')).toEqual([]);
+
+    child.emit('exit', 1);
+    await expect(pending).rejects.toThrow('exited with code 1');
+  });
+
+  it('deduplicates a repeated provider request and writes one response after the browser answers', async () => {
+    const child = createAppServerChild();
+    const generator = execute(child);
+    const pending = generator.next();
+    await new Promise((resolve) => setImmediate(resolve));
+    const request = {
+      id: 'provider-request-race', method: 'item/tool/requestUserInput', params: {
+        threadId: 'thread-1', turnId: 'turn-1', itemId: 'item-1',
+        questions: [{ id: 'database', question: 'Database?', options: [{ label: 'PostgreSQL', description: 'Relational' }] }],
+      },
+    };
+
+    child.emitMessage(request);
+    child.emitMessage(request);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(getPromptQueue('session-1')).toHaveLength(1);
+    const prompt = getPrompt('session-1');
+    expect(respondToPrompt('session-1', prompt.id, {
+      action: 'answer', answers: [{ questionId: 'database', selectedOptionIds: ['option-0'] }],
+    })).toBe(true);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(child.requests.filter((item) => item.id === 'provider-request-race')).toHaveLength(1);
 
     child.emit('exit', 1);
     await expect(pending).rejects.toThrow('exited with code 1');

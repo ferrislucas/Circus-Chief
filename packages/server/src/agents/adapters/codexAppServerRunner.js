@@ -16,6 +16,7 @@ export async function *spawnCodexAppServer(spawnOverride, queryParams, options, 
 // adapter owns spawning; this module owns only protocol-to-event translation.
 export async function *executeCodexAppServer(child, queryParams, options, meta = {}, resolvedConfig = buildCodexExecutionConfig(options)) {
   const events = []; let wake; let done = false; let failure;
+  const handledServerRequests = new Set();
   const interactionController = new AbortController();
   const abortInteractions = (reason) => {
     if (!interactionController.signal.aborted) interactionController.abort(reason);
@@ -48,6 +49,11 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
       if (request.method !== 'item/tool/requestUserInput') return client.respondError(request.id, -32601, 'Unsupported server request');
       try {
         const { responseContext, ...normalized } = normalizeUserInputRequest(request);
+        // One runner owns one App Server connection; thread plus request id is
+        // therefore the provider-request identity within this connection.
+        const identity = serverRequestIdentity(normalized.metadata.threadId, request.id);
+        if (handledServerRequests.has(identity)) return;
+        handledServerRequests.add(identity);
         const outcome = await requestInteraction({ sessionId: meta.sessionId, conversationId: meta.conversationId, provider: 'codex', kind: 'question', ...normalized, signal: interactionController.signal });
         if (client.closed) return;
         // The provider has already resolved this request, so its matching
@@ -79,4 +85,8 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
     client.close();
     try { child.kill('SIGTERM'); } catch { /* child already exited */ }
   }
+}
+
+function serverRequestIdentity(threadId, requestId) {
+  return JSON.stringify([threadId, requestId]);
 }
