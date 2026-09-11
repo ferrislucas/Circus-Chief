@@ -312,11 +312,20 @@ function serializeQuestionAnswers(questions, answers, customAnswers = {}) {
   }));
 }
 
+function isPlainRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value);
+}
+
 function permissionResult(record, response) {
-  if (response.action === 'allow') return { behavior: 'allow' };
+  // See the CLI schema reconstruction in promptStore.test.js and https://github.com/anthropics/claude-agent-sdk-typescript/issues/453 for why this echo is required.
+  const allowed = {
+    behavior: 'allow',
+    updatedInput: isPlainRecord(record.payload.input) ? record.payload.input : {},
+  };
+  if (response.action === 'allow') return allowed;
   if (response.action === 'always_allow' && Array.isArray(record.payload.suggestions) && record.payload.suggestions.length) {
     return {
-      behavior: 'allow',
+      ...allowed,
       updatedPermissions: record.payload.suggestions.map((suggestion) => ({
         ...suggestion,
         destination: response.destination || 'session',
