@@ -30,11 +30,13 @@ test.describe('Project List Live Output', () => {
     await waitForSessionToExist(session.id);
     await updateSessionStatus(session.id, 'running');
 
-    await navigateAndWait(page, '/projects', { waitFor: '.project-card' });
-    await page.getByRole('button', { name: 'Show sessions' }).click();
-    await expect(page.locator('.embedded-session-list .session-card')).toBeVisible();
+    await navigateAndWait(page, '/');
+    const projectCard = page.locator('.project-card', { hasText: 'Project List Live Output' });
+    await expect(projectCard).toBeVisible();
+    await projectCard.getByRole('button', { name: 'Show sessions' }).click();
+    await expect(projectCard.locator('.embedded-session-list .session-card')).toBeVisible();
 
-    const stream = page.locator('[data-testid="session-log-stream"]');
+    const stream = projectCard.locator('[data-testid="session-log-stream"]');
     await expect(stream).toBeVisible();
     await stream.getByText('Show live output', { exact: true }).click();
 
