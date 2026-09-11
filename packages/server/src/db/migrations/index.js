@@ -182,6 +182,9 @@ export const allMigrations = validateMigrations([
   // --- Command buttons ---
   m.get('command_buttons-add-show_on_list'),
   m.get('command_runs-create-output-chunks'),
+  m.get('command-runs-preserve-raw-output-chunks'),
+  m.get('command-runs-create-output-cleanup'),
+  m.get('command-runs-add-output-cleanup-exhaustion'),
 
   // --- Session todos ---
   c.get('session_todos-add-conversation_id'),
@@ -365,4 +368,7 @@ export const allMigrations = validateMigrations([
   // Keep this last: it is additive and must run for databases created before
   // pending_agent_input was added to schema.sql.
   s.get('sessions-add-pending_agent_input'),
+
+  // --- Server-derived origin of user-created scheduled follow-ups ---
+  s.get('sessions-add-pending_interactive'),
 ]);

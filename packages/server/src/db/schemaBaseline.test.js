@@ -99,7 +99,7 @@ describe('schema baseline', () => {
         'lane_run_id', 'own_work_state',
         'own_work_closed_at', 'workflow_updated_at', 'workflow_reason',
         'execution_state', 'subtree_outcome', 'last_activity_at',
-        'created_at', 'updated_at', 'pending_conversation_id', 'execution_turn_token',
+        'created_at', 'updated_at', 'pending_conversation_id', 'execution_turn_token', 'pending_interactive',
       ]);
     });
   });
@@ -108,6 +108,7 @@ describe('schema baseline', () => {
     withDb((db) => {
       const byName = new Map(columns(db, 'sessions').map((col) => [col.name, col]));
       expect(byName.get('mode').dflt_value).toBe("'yolo'");
+      expect(byName.get('pending_interactive').dflt_value).toBe('NULL');
       expect(byName.get('thinking_enabled').dflt_value).toBe('1');
       expect(byName.get('reschedule_delay_minutes').dflt_value).toBe(String(DEFAULT_RESCHEDULE_DELAY_MINUTES));
       expect(byName.get('agent_type').dflt_value).toBe("'claude-code'");
@@ -275,7 +276,7 @@ describe('schema baseline', () => {
         `INSERT INTO command_buttons (id, project_id, label, command, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
       ).run('button-activity', 'project-activity', 'Run', 'echo hi', now, now);
       db.prepare(
-        `INSERT INTO command_runs (id, session_id, button_id, status, output, started_at) VALUES (?, ?, ?, 'running', '', ?)`
+        `INSERT INTO command_runs (id, session_id, button_id, status, started_at) VALUES (?, ?, ?, 'running', ?)`
       ).run('run-activity', 'session-activity', 'button-activity', now + 2000);
 
       expect(db.prepare('SELECT last_activity_at FROM sessions WHERE id = ?').get('session-activity').last_activity_at)

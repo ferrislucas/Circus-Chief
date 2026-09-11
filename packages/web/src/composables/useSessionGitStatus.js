@@ -103,6 +103,16 @@ export function useSessionGitStatus({ getSessionId }) {
     error.value = null;
   }
 
+  // Results from push/pull are authoritative for the current session, but never
+  // let a late response from a previously viewed session replace its status.
+  function applyStatus(status, sessionId = getSessionId()) {
+    if (!status || !sessionId || getSessionId() !== sessionId) return false;
+    requestToken += 1;
+    gitStatus.value = status;
+    error.value = status.error ? new Error(status.error) : null;
+    return true;
+  }
+
   return {
     gitStatus,
     loading,
@@ -112,6 +122,7 @@ export function useSessionGitStatus({ getSessionId }) {
     indicatorTitle,
     hasActionableGitStatus,
     refresh,
+    applyStatus,
     reset,
   };
 }

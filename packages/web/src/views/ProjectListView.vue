@@ -145,17 +145,21 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useProjectFiltersStore } from '../stores/projectFilters.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useProjectListRealtime } from '../composables/useProjectListRealtime.js';
+import { useRunningSessionSubscriptions } from '../composables/useRunningSessionSubscriptions.js';
+import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import ProjectFiltersPanel from '../components/ProjectFiltersPanel.vue';
 import SessionCard from '../components/SessionCard.vue';
 import { formatRelativeTime } from '../composables/useSummaryHelpers.js';
 import { api } from '../api/index.js';
 import { workspacePrSummary } from '../utils/workspaceCard.js';
+import { isSessionActivelyRunning } from '../utils/workflowStatus.js';
 
 const router = useRouter();
 const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
 const projectFilters = useProjectFiltersStore();
 const commandButtonsStore = useCommandButtonsStore();
+const streamingStore = useSessionStreamingStore();
 const projectCards = ref({});
 const sessionVisibility = ref({});
 const hydratedCommandButtonProjects = new Set();
@@ -172,6 +176,24 @@ const sessionVisibilityStorageKey = 'circus-chief.project-list.session-visibilit
 const visibleProjects = computed(() => projectsStore.filteredProjects);
 const statusFacets = computed(() => projectsStore.statusFacets);
 const projectIds = computed(() => projectsStore.projects.map((p) => p.id));
+
+// Session cards default to a collapsed output pane. Only hydrate a running
+// workflow while its project's cards are visible and its pane is expanded.
+// This matches the session-list streaming policy without subscribing to the
+// project's hidden previews.
+const eligibleSessionIds = computed(() => [...new Set(
+  Object.entries(projectCards.value)
+    .filter(([projectId]) => areSessionsVisible(projectId))
+    .flatMap(([, workspaces]) => workspaces)
+    .flatMap((workspace) => {
+      if (streamingStore.isSessionLogCollapsed(workspace.id, true)) return [];
+      return Array.isArray(workspace.runningSessionIds)
+        ? workspace.runningSessionIds
+        : (isSessionActivelyRunning(workspace) || workspace.runningCount > 0 ? [workspace.id] : []);
+    })
+)]);
+
+useRunningSessionSubscriptions(eligibleSessionIds);
 
 function goToSessions(projectId) {
   router.push(`/projects/${projectId}/sessions`);

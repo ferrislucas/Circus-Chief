@@ -6,6 +6,7 @@ import * as slashCommandService from './slashCommandService.js';
 import { claimWorkflowSessionStart, withActiveLaneRunOwnership, activeLaneRunOwnsSession, closeOwnWork } from './workflowSessionService.js';
 import { didSessionExecutionStart, rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 import { broadcastSessionStatus } from './streamEventHandler.js';
+import { clearedPendingSchedule } from './pendingSchedule.js';
 
 function broadcastRescheduledSession(sessionId, updated) {
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
@@ -189,7 +190,7 @@ class SchedulerService {
       session.id,
       effectivePrompt,
       workingDirectory,
-      { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel }
+      { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel, interactive: Boolean(session.pendingInteractive) }
     );
   }
 
@@ -249,8 +250,7 @@ class SchedulerService {
   /** Clear a stale start after its executor re-checks lane-run ownership. */
   rejectScheduledStart(session) {
     const updated = sessions.update(session.id, {
-      status: 'stopped', scheduledAt: null, pendingPrompt: null,
-      pendingModel: null, pendingConversationId: null,
+      status: 'stopped', ...clearedPendingSchedule,
     });
     broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'stopped' });
     if (updated?.projectId) {
@@ -291,8 +291,7 @@ class SchedulerService {
     if (!row || !this.hasReachedLaunchBudget(row)) return null;
     const error = `Scheduled launch refused: max total tokens reached (${row.maxTotalTokens.toLocaleString()}).`;
     sessions.update(sessionId, {
-      status: 'stopped', scheduledAt: null, pendingPrompt: null,
-      pendingConversationId: null, pendingModel: null,
+      status: 'stopped', ...clearedPendingSchedule,
       error,
     });
     // The token cap is a hard terminal limit, not a retryable hold. A
@@ -312,7 +311,7 @@ class SchedulerService {
         claimed.id,
         claimed.pendingConversationId,
         workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel }
+        { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel, interactive: Boolean(claimed.pendingInteractive) }
       );
     }
     if (hasAssistantResponses) {
@@ -320,7 +319,7 @@ class SchedulerService {
         claimed.id,
         effectivePrompt,
         workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel }
+        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel, interactive: Boolean(claimed.pendingInteractive) }
       );
     }
     return this.startFreshScheduledSession({
@@ -390,7 +389,7 @@ class SchedulerService {
 
     // Prompt resolution may yield to disk IO while a manual move supersedes
     // this lane run. Fence the durable clear and provider handoff.
-    if (claimed.laneRunId && !activeLaneRunOwnsSession(claimed.id)) {
+    if (claimed.laneRunId && !claimed.pendingInteractive && !activeLaneRunOwnsSession(claimed.id)) {
       return { claimed: true, ...this.finishScheduledStart(claimed, rejectedSessionExecution(claimed.id, 'lane_run_ownership_lost')) };
     }
 
@@ -398,7 +397,7 @@ class SchedulerService {
     // successfully, so it's now safe to clear the scheduling fields. Any
     // failure past this point is a normal in-flight turn failure, handled
     // by the existing turn error-handling path rather than by this method.
-    sessions.update(claimed.id, { scheduledAt: null, pendingPrompt: null, pendingConversationId: null, pendingModel: null });
+    sessions.update(claimed.id, clearedPendingSchedule);
 
     const startResult = await this._dispatchScheduledLaunch(claimed, launch);
     return this.scheduledStartResult(claimed, startResult);
@@ -413,7 +412,7 @@ class SchedulerService {
    *   - conversationId: the active conversation to retry (required when retryExistingMessage is true)
    * @returns {boolean} True if rescheduled, false if limits reached
    */
-  async rescheduleSession(sessionId, reason, { retryExistingMessage = false, conversationId = null } = {}) {
+  async rescheduleSession(sessionId, reason, { retryExistingMessage = false, conversationId = null, interactive = false } = {}) {
     const session = sessions.getById(sessionId);
     if (!session) {
       console.error(`[SchedulerService] Session not found: ${sessionId}`);
@@ -449,9 +448,11 @@ class SchedulerService {
       rescheduleCount: newRescheduleCount,
       pendingPrompt,
       pendingConversationId,
+      pendingInteractive: interactive || Boolean(session.pendingInteractive),
       error: `Rescheduled (${newRescheduleCount}x): ${reason}`,
     });
-    const updated = session.laneRunId ? withActiveLaneRunOwnership(sessionId, update) : update();
+    const updated = session.laneRunId && !interactive && !session.pendingInteractive
+      ? withActiveLaneRunOwnership(sessionId, update) : update();
     if (!updated) return false;
 
     broadcastRescheduledSession(sessionId, updated);

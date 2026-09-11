@@ -931,6 +931,14 @@ describe('SessionRepository', () => {
 
       expect(updated.pendingModel).toBeNull();
     });
+
+    it('round-trips and clears nullable pending schedule provenance as a boolean', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+
+      expect(session.pendingInteractive).toBe(false);
+      expect(repo.update(session.id, { pendingInteractive: true }).pendingInteractive).toBe(true);
+      expect(repo.update(session.id, { pendingInteractive: null }).pendingInteractive).toBe(false);
+    });
   });
 
   describe('delete', () => {
@@ -1766,10 +1774,10 @@ describe('SessionRepository', () => {
       repo.db
         .prepare(
           `INSERT INTO command_runs
-           (id, session_id, button_id, status, output, exit_code, started_at, completed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+           (id, session_id, button_id, status, exit_code, started_at, completed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
-        .run('run-latest-activity', session.id, 'button-latest-activity', 'success', '', 0, startedAt, completedAt);
+        .run('run-latest-activity', session.id, 'button-latest-activity', 'success', 0, startedAt, completedAt);
 
       const retrieved = repo.getById(session.id);
 

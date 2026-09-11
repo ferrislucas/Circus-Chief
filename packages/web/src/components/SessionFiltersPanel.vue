@@ -120,6 +120,7 @@ const statusFilterCounts = computed(() => props.statusCounts || { running: 0, wa
 .status-filters {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-bottom: 1rem;
 }
