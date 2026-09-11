@@ -1838,10 +1838,10 @@ describe('SessionRepository', () => {
       repo.db
         .prepare(
           `INSERT INTO command_runs
-           (id, session_id, button_id, status, output, exit_code, started_at, completed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+           (id, session_id, button_id, status, exit_code, started_at, completed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
-        .run('run-latest-activity', session.id, 'button-latest-activity', 'success', '', 0, startedAt, completedAt);
+        .run('run-latest-activity', session.id, 'button-latest-activity', 'success', 0, startedAt, completedAt);
 
       const retrieved = repo.getById(session.id);
 

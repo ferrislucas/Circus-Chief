@@ -65,6 +65,10 @@ function recreationSessionColumnNames() {
   }
 }
 
+function triggerExists(db, name) {
+  return db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?").get(name) !== undefined;
+}
+
 describe('sessions immutable-parentage upgrade', () => {
   it('keeps tier-resolution columns in schema, recreation DDL, and the row-copy list', () => {
     const schemaDb = new Database(':memory:');
@@ -129,6 +133,7 @@ describe('sessions immutable-parentage upgrade', () => {
 
       expect(db.pragma('foreign_key_list(sessions)').find((fk) => fk.from === 'parent_session_id').on_delete).toBe('NO ACTION');
       expect(databaseSessionIndexNames(db)).toContain('idx_sessions_lane_run');
+      expect(triggerExists(db, 'trg_command_run_output_cleanup')).toBe(true);
     } finally {
       db.close();
     }
