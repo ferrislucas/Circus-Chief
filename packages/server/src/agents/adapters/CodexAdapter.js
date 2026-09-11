@@ -45,6 +45,9 @@ export class CodexAdapter extends BaseAgent {
     reasoningEffort: true,
     toolUse: true,
     resume: false,
+    // The default Codex capability describes legacy CLI/direct API routing.
+    // A live App Server connection promotes this only after its handshake.
+    interactiveInput: false,
   });
 
   /**
@@ -60,10 +63,11 @@ export class CodexAdapter extends BaseAgent {
     super(rest);
     this._spawnCodex = spawnCodexProcess;
     this._openaiClientFactory = openaiClientFactory;
+    this._interactiveInputAvailable = false;
   }
 
   getCapabilities() {
-    return { ...CodexAdapter.capabilities };
+    return { ...CodexAdapter.capabilities, interactiveInput: this._interactiveInputAvailable };
   }
 
   supportsResume() {
@@ -78,12 +82,19 @@ export class CodexAdapter extends BaseAgent {
    */
   async *execute(queryParams, meta) {
     const options = queryParams.options || {};
+    if (options.requiresInteractiveInput === true) {
+      if (!this._canUseInteractiveAppServer()) {
+        throw new Error('Codex interactive input requires the enabled and compatible App Server transport');
+      }
+      yield* this._executeAppServer(queryParams, options, meta);
+      return;
+    }
     if (this._shouldUseDirectApi()) {
       yield* this._executeDirectApi(queryParams, options);
       return;
     }
     if (process.env.CODEX_APP_SERVER_ENABLED === '1') {
-      yield* spawnCodexAppServer(this._spawnCodex, queryParams, options, meta);
+      yield* this._executeAppServer(queryParams, options, meta);
       return;
     }
     yield* this._executeCli(queryParams, options);
@@ -94,6 +105,17 @@ export class CodexAdapter extends BaseAgent {
     if (this._spawnCodex === null) return true;
     if (codexCliUnavailable) return true;
     return false;
+  }
+
+  _canUseInteractiveAppServer() {
+    return process.env.CODEX_APP_SERVER_ENABLED === '1' && !this._shouldUseDirectApi();
+  }
+
+  async *_executeAppServer(queryParams, options, meta) {
+    yield* spawnCodexAppServer(this._spawnCodex, queryParams, {
+      ...options,
+      onInteractiveInputAvailable: () => { this._interactiveInputAvailable = true; },
+    }, meta);
   }
 
   /**

@@ -135,12 +135,49 @@ describe('CodexAdapter', () => {
       reasoningEffort: true,
       toolUse: true,
       resume: false,
+      interactiveInput: false,
     });
   });
 
   it('static CodexAdapter.capabilities deep-equals the instance shape', () => {
     const adapter = new CodexAdapter();
     expect(CodexAdapter.capabilities).toEqual(adapter.getCapabilities());
+  });
+
+  it('reports interactive input only after an App Server handshake succeeds', async () => {
+    process.env.CODEX_APP_SERVER_ENABLED = '1';
+    const capture = { requests: [] };
+    const adapter = new CodexAdapter({ spawnCodexProcess: vi.fn(() => createFakeAppServerChild(capture)) });
+
+    expect(adapter.getCapabilities().interactiveInput).toBe(false);
+
+    await collect(adapter.execute({
+      prompt: 'ask for input if needed',
+      options: { model: 'gpt-5-codex', requiresInteractiveInput: true, env: {}, abortController: new AbortController() },
+    }));
+
+    expect(adapter.getCapabilities().interactiveInput).toBe(true);
+  });
+
+  it.each([
+    ['the legacy CLI', {}, {}],
+    ['the direct API', { USE_CODEX_DIRECT_API: '1' }, { openaiClientFactory: vi.fn() }],
+  ])('rejects an interaction-required turn before routing it to %s', async (_transport, environment, constructorOptions) => {
+    Object.assign(process.env, environment);
+    const spawnCodexProcess = vi.fn(() => createFakeChild());
+    const adapter = new CodexAdapter({ spawnCodexProcess, ...constructorOptions });
+
+    expect(adapter.getCapabilities().interactiveInput).toBe(false);
+
+    await expect(collect(adapter.execute({
+      prompt: 'ask the user to choose',
+      options: { requiresInteractiveInput: true, env: {}, abortController: new AbortController() },
+    }))).rejects.toThrow('Codex interactive input requires the enabled and compatible App Server transport');
+
+    expect(spawnCodexProcess).not.toHaveBeenCalled();
+    if (constructorOptions.openaiClientFactory) {
+      expect(constructorOptions.openaiClientFactory).not.toHaveBeenCalled();
+    }
   });
 
   it('supportsResume() returns false', () => {

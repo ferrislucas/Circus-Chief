@@ -79,6 +79,7 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
   });
   try {
     await client.initialize();
+    options.onInteractiveInputAvailable?.();
     const thread = await client.request('thread/start', { cwd: resolvedConfig.cwd, model: resolvedConfig.model, sandbox: resolvedConfig.sandbox, developerInstructions: resolvedConfig.systemPrompt });
     const threadId = thread?.thread?.id;
     if (!threadId) throw new Error('Codex App Server did not return a thread id');
