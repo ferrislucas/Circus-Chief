@@ -307,11 +307,55 @@ CREATE TABLE IF NOT EXISTS command_runs (
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   button_id TEXT NOT NULL REFERENCES command_buttons(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'success', 'error', 'killed')),
-  output TEXT NOT NULL DEFAULT '',
   exit_code INTEGER,
   started_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   completed_at INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS command_run_output_cleanup (
+  run_id TEXT PRIMARY KEY,
+  working_directory TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  exhausted_at INTEGER,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
+CREATE INDEX IF NOT EXISTS idx_command_run_output_cleanup_eligible
+  ON command_run_output_cleanup (next_attempt_at, created_at)
+  WHERE exhausted_at IS NULL;
+
+CREATE TRIGGER IF NOT EXISTS trg_command_run_output_cleanup
+BEFORE DELETE ON command_runs
+FOR EACH ROW
+BEGIN
+  INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
+  SELECT OLD.id, COALESCE(s.git_worktree, p.working_directory)
+  FROM sessions s JOIN projects p ON p.id = s.project_id WHERE s.id = OLD.session_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_session_command_output_cleanup
+BEFORE DELETE ON sessions FOR EACH ROW BEGIN
+  INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
+  SELECT cr.id, COALESCE(OLD.git_worktree, p.working_directory)
+  FROM command_runs cr JOIN projects p ON p.id = OLD.project_id WHERE cr.session_id = OLD.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_button_command_output_cleanup
+BEFORE DELETE ON command_buttons FOR EACH ROW BEGIN
+  INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
+  SELECT cr.id, COALESCE(s.git_worktree, p.working_directory)
+  FROM command_runs cr JOIN sessions s ON s.id = cr.session_id
+  JOIN projects p ON p.id = s.project_id WHERE cr.button_id = OLD.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_project_command_output_cleanup
+BEFORE DELETE ON projects FOR EACH ROW BEGIN
+  INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
+  SELECT cr.id, COALESCE(s.git_worktree, OLD.working_directory)
+  FROM command_runs cr JOIN sessions s ON s.id = cr.session_id WHERE s.project_id = OLD.id;
+END;
 
 -- Keep sessions.last_activity_at current as activity happens, so the
 -- workspace-card list query can read it as a plain column. See the
@@ -384,6 +428,8 @@ CREATE TABLE IF NOT EXISTS command_run_output_chunks (
   sequence INTEGER NOT NULL,
   content TEXT NOT NULL,
   byte_length INTEGER NOT NULL,
+  raw_content BLOB,
+  raw_byte_length INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   PRIMARY KEY (run_id, sequence)
 );
