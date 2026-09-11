@@ -4,9 +4,9 @@ import { setActivePinia, createPinia } from 'pinia';
 import ProjectFiltersPanel from './ProjectFiltersPanel.vue';
 import { useProjectFiltersStore } from '../stores/projectFilters.js';
 
-function mountPanel(statusFacets = { running: 0, waiting: 0, idle: 0 }) {
+function mountPanel(statusFacets = { running: 0, waiting: 0, idle: 0 }, pinnedCount = 0) {
   return mount(ProjectFiltersPanel, {
-    props: { statusFacets },
+    props: { statusFacets, pinnedCount },
   });
 }
 
@@ -16,13 +16,13 @@ describe('ProjectFiltersPanel', () => {
     localStorage.clear();
   });
 
-  it('renders three filter buttons in the session-list style', () => {
+  it('renders status filters and the always-available pinned filter', () => {
     const wrapper = mountPanel({ running: 2, waiting: 1, idle: 0 });
 
     const buttons = wrapper.findAll('.filter-btn');
-    expect(buttons).toHaveLength(3);
+    expect(buttons).toHaveLength(4);
 
-    const labels = buttons.map((b) => b.find('.filter-label').text());
+    const labels = buttons.slice(0, 3).map((b) => b.find('.filter-label').text());
     expect(labels).toEqual(['running', 'waiting', 'idle']);
 
     for (const button of buttons) {
@@ -34,7 +34,7 @@ describe('ProjectFiltersPanel', () => {
     const wrapper = mountPanel({ running: 7, waiting: 2, idle: 5 });
 
     const counts = wrapper.findAll('.filter-count').map((el) => el.text());
-    expect(counts).toEqual(['7', '2', '5']);
+    expect(counts).toEqual(['7', '2', '5', '0']);
   });
 
   it('sets the filter on click and clears it when the active pill is clicked again', async () => {
@@ -74,5 +74,16 @@ describe('ProjectFiltersPanel', () => {
     expect(buttons[0].attributes('aria-label')).toBe('running (3)');
     expect(buttons[1].attributes('aria-label')).toBe('waiting (1)');
     expect(buttons[2].attributes('aria-label')).toBe('idle (9)');
+  });
+
+  it('toggles pinned-only independently with accessible pressed state', async () => {
+    const wrapper = mountPanel({ running: 1, waiting: 0, idle: 0 }, 3);
+    const pinFilter = wrapper.find('.pinned-filter-btn');
+
+    expect(pinFilter.attributes('aria-label')).toBe('Pinned projects (3)');
+    expect(pinFilter.attributes('aria-pressed')).toBe('false');
+    await pinFilter.trigger('click');
+    expect(useProjectFiltersStore().pinnedOnly).toBe(true);
+    expect(pinFilter.attributes('aria-pressed')).toBe('true');
   });
 });

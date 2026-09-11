@@ -97,6 +97,7 @@ describe('Projects Contracts', () => {
       onSessionDeleted: null,
       prPollInterval: 60000,
       worktreePath: null,
+      pinned: false,
       workspaceCount: 0,
       runningWorkspaces: [],
       runningSessionCount: 0,
@@ -108,6 +109,12 @@ describe('Projects Contracts', () => {
     it('validates complete project response', () => {
       const result = ProjectResponse.safeParse(validProject);
       expect(result.success).toBe(true);
+    });
+
+    it('requires pinned to be a boolean', () => {
+      const { pinned: _pinned, ...withoutPinned } = validProject;
+      expect(ProjectResponse.safeParse(withoutPinned).success).toBe(false);
+      expect(ProjectResponse.safeParse({ ...validProject, pinned: 1 }).success).toBe(false);
     });
 
     it('validates project with worktreePath as string', () => {

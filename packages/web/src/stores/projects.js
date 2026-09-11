@@ -13,6 +13,7 @@ function normalizeProject(project) {
     runningWorkspaces: project.runningWorkspaces ?? [],
     runningSessionCount: project.runningSessionCount ?? 0,
     waitingSessionCount: project.waitingSessionCount ?? 0,
+    pinned: project.pinned ?? false,
   };
 }
 
@@ -22,6 +23,7 @@ export const useProjectsStore = defineStore('projects', {
     currentProject: null,
     loading: false,
     error: null,
+    pendingPinIds: [],
   }),
 
   getters: {
@@ -47,19 +49,15 @@ export const useProjectsStore = defineStore('projects', {
       return { running, waiting, idle };
     },
 
+    pinnedFacet: (state) => state.projects.filter((project) => project.pinned).length,
+
+    isPinPending: (state) => (id) => state.pendingPinIds.includes(id),
+
     /** Projects visible under the current status filter from `projectFilters`. */
     filteredProjects() {
-      const filter = useProjectFiltersStore().statusFilter;
-      if (filter === 'running') {
-        return this.projects.filter((p) => p.runningSessionCount > 0);
-      }
-      if (filter === 'waiting') {
-        return this.projects.filter((p) => p.waitingSessionCount > 0);
-      }
-      if (filter === 'idle') {
-        return this.projects.filter((p) => p.runningSessionCount === 0 && p.waitingSessionCount === 0);
-      }
-      return this.projects;
+      const filters = useProjectFiltersStore();
+      if (filters.pinnedOnly) return this.projects.filter((project) => project.pinned);
+      return this.projects.filter((project) => project.pinned || matchesStatus(project, filters.statusFilter));
     },
   },
 
@@ -138,6 +136,31 @@ export const useProjectsStore = defineStore('projects', {
       }
     },
 
+    async toggleProjectPin(id) {
+      if (this.pendingPinIds.includes(id)) return;
+      const index = this.projects.findIndex((project) => project.id === id);
+      if (index === -1) return;
+
+      const previous = this.projects[index];
+      const nextPinned = !previous.pinned;
+      this.pendingPinIds.push(id);
+      this.projects[index] = { ...previous, pinned: nextPinned };
+      if (this.currentProject?.id === id) this.currentProject = this.projects[index];
+
+      try {
+        const updated = normalizeProject(await api.updateProject(id, { pinned: nextPinned }));
+        this.projects[index] = updated;
+        if (this.currentProject?.id === id) this.currentProject = updated;
+        return updated;
+      } catch (err) {
+        this.projects[index] = previous;
+        if (this.currentProject?.id === id) this.currentProject = previous;
+        throw err;
+      } finally {
+        this.pendingPinIds = this.pendingPinIds.filter((pendingId) => pendingId !== id);
+      }
+    },
+
     async deleteProject(id) {
       this.loading = true;
       this.error = null;
@@ -156,3 +179,10 @@ export const useProjectsStore = defineStore('projects', {
     },
   },
 });
+
+function matchesStatus(project, status) {
+  if (!status) return true;
+  if (status === 'running') return project.runningSessionCount > 0;
+  if (status === 'waiting') return project.waitingSessionCount > 0;
+  return project.runningSessionCount === 0 && project.waitingSessionCount === 0;
+}

@@ -174,5 +174,43 @@ describe('useProjectsStore', () => {
       filters.setStatusFilter('idle');
       expect(store.filteredProjects.map((p) => p.id)).toEqual(['idle']);
     });
+
+    it('keeps pinned projects visible under a status filter and lets pinned-only win', () => {
+      store.projects[1].pinned = true; // waiting
+      filters.setStatusFilter('running');
+      expect(store.filteredProjects.map((p) => p.id)).toEqual(['run', 'wait', 'both']);
+
+      filters.setPinnedOnly(true);
+      expect(store.filteredProjects.map((p) => p.id)).toEqual(['wait']);
+    });
+  });
+
+  describe('pinning', () => {
+    it('optimistically toggles, reconciles the server result, and tracks only the affected project', async () => {
+      const store = useProjectsStore();
+      store.projects = [project({ id: 'a' }), project({ id: 'b' })];
+      let resolveUpdate;
+      api.updateProject.mockReturnValue(new Promise((resolve) => { resolveUpdate = resolve; }));
+
+      const pending = store.toggleProjectPin('a');
+      expect(store.projects[0].pinned).toBe(true);
+      expect(store.isPinPending('a')).toBe(true);
+      expect(store.isPinPending('b')).toBe(false);
+      expect(api.updateProject).toHaveBeenCalledWith('a', { pinned: true });
+
+      resolveUpdate(project({ id: 'a', pinned: true }));
+      await pending;
+      expect(store.isPinPending('a')).toBe(false);
+    });
+
+    it('rolls a failed pin update back without using the page error state', async () => {
+      const store = useProjectsStore();
+      store.projects = [project({ id: 'a', pinned: false })];
+      api.updateProject.mockRejectedValue(new Error('boom'));
+
+      await expect(store.toggleProjectPin('a')).rejects.toThrow('boom');
+      expect(store.projects[0].pinned).toBe(false);
+      expect(store.error).toBeNull();
+    });
   });
 });

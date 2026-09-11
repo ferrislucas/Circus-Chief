@@ -453,7 +453,7 @@ describe('ProjectListView', () => {
       await flushAll(wrapper);
 
       const pills = wrapper.findAll('.filter-btn');
-      expect(pills).toHaveLength(3);
+      expect(pills).toHaveLength(4);
     });
 
     it('renders the list from filteredProjects, not the raw array', async () => {

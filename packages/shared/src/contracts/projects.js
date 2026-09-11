@@ -9,6 +9,7 @@ export const CreateProjectRequest = z.object({
   prPollInterval: z.number().int().min(10000).optional(), // Min 10 seconds
   repoUrl: z.string().url().nullable().optional(),
   worktreePath: z.string().nullable().optional(),
+  pinned: z.boolean().optional(),
 });
 
 export const UpdateProjectRequest = z.object({
@@ -38,6 +39,7 @@ export const ProjectResponse = z.object({
   prPollInterval: z.number().int(),
   repoUrl: z.string().url().nullable().optional(),
   worktreePath: z.string().nullable(),
+  pinned: z.boolean(),
   workspaceCount: z.number().int().nonnegative(),
   runningWorkspaces: z.array(RunningWorkspaceSummary),
   runningSessionCount: z.number().int().nonnegative(),
