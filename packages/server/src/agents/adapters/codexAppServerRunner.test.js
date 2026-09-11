@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { Readable, Writable } from 'stream';
 import { executeCodexAppServer } from './codexAppServerRunner.js';
+import { getPrompt, respondToPrompt } from '../../services/promptStore.js';
 
 function createAppServerChild(initializeResult = { capabilities: { experimentalApi: true } }) {
   const child = new EventEmitter();
@@ -42,6 +43,32 @@ function execute(child, controller = new AbortController()) {
 }
 
 describe('executeCodexAppServer lifecycle failures', () => {
+  it('invalidates a provider-resolved request without writing a second JSON-RPC response', async () => {
+    const child = createAppServerChild();
+    const generator = execute(child);
+    const pending = generator.next();
+    await new Promise((resolve) => setImmediate(resolve));
+    child.emitMessage({
+      id: 'provider-request-7', method: 'item/tool/requestUserInput', params: {
+        threadId: 'thread-1', turnId: 'turn-1', itemId: 'item-1',
+        questions: [{ id: 'database', question: 'Database?', options: [{ label: 'PostgreSQL', description: 'Relational' }] }],
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    const prompt = getPrompt('session-1');
+    expect(prompt).toMatchObject({ provider: 'codex', externalRequestId: 'provider-request-7' });
+
+    child.emitMessage({ method: 'serverRequest/resolved', params: { requestId: 'provider-request-7' } });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(getPrompt('session-1')).toBeNull();
+    expect(respondToPrompt('session-1', prompt.id, { action: 'cancel' })).toBe(false);
+    expect(child.requests.filter((request) => request.id === 'provider-request-7')).toEqual([]);
+
+    child.emit('exit', 1);
+    await expect(pending).rejects.toThrow('exited with code 1');
+  });
+
   it('fails compatibility before starting a thread or turn', async () => {
     const child = createAppServerChild({ capabilities: { experimentalApi: false } });
     const generator = execute(child);
