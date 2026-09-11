@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { Readable, Writable } from 'stream';
 import { executeCodexAppServer } from './codexAppServerRunner.js';
 import { getPrompt, getPromptQueue, respondToPrompt } from '../../services/promptStore.js';
+import logger from '../../logger.js';
 
 function createAppServerChild(initializeResult = { capabilities: { experimentalApi: true } }) {
   const child = new EventEmitter();
@@ -52,7 +53,38 @@ function requestUserInput(child, id) {
   });
 }
 
+afterEach(() => vi.restoreAllMocks());
+
 describe('executeCodexAppServer lifecycle failures', () => {
+  it('emits redacted request and settlement observability', async () => {
+    const log = vi.spyOn(logger, 'log');
+    const child = createAppServerChild();
+    const generator = execute(child);
+    const pending = generator.next();
+    await new Promise((resolve) => setImmediate(resolve));
+    child.emitMessage({
+      id: 'provider-request-observability', method: 'item/tool/requestUserInput', params: {
+        threadId: 'thread-1', turnId: 'turn-1', itemId: 'item-1',
+        questions: [{ id: 'secret-question', question: 'What is the secret?', isOther: true }],
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    const prompt = getPrompt('session-1');
+    expect(respondToPrompt('session-1', prompt.id, {
+      action: 'answer', answers: [{ questionId: 'secret-question', text: 'sk-live-never-log-this' }],
+    })).toBe(true);
+    await new Promise((resolve) => setImmediate(resolve));
+    child.emit('exit', 1);
+    await expect(pending).rejects.toThrow('exited with code 1');
+
+    const entries = log.mock.calls.map((args) => JSON.stringify(args));
+    const output = entries.join('\n');
+    expect(output).toContain('Codex App Server user-input request received');
+    expect(output).toContain('Interactive prompt settled');
+    expect(output).not.toContain('What is the secret?');
+    expect(output).not.toContain('sk-live-never-log-this');
+  });
+
   it('invalidates a provider-resolved request without writing a second JSON-RPC response', async () => {
     const child = createAppServerChild();
     const generator = execute(child);

@@ -1,5 +1,6 @@
 import readline from 'readline';
 import { initializeParams, parseJsonRpcLine, validateInitializeResult } from './codexAppServerCodec.js';
+import logger from '../../logger.js';
 
 /** Minimal persistent JSON-RPC client for one Codex App Server turn. */
 export class CodexAppServerClient {
@@ -65,6 +66,10 @@ export class CodexAppServerClient {
   close(error = null) {
     if (this.closed) return;
     this.closed = true;
+    logger.log('Codex App Server connection closed', {
+      reason: error ? 'error' : 'normal',
+      outstandingRpcRequests: this.pending.size,
+    });
     const failure = error || new Error('Codex App Server connection closed');
     this.rl.close();
     this.child.stderr?.off?.('data', this.onStderr);

@@ -69,6 +69,14 @@ function settle(record, outcome, result) {
   // observable operational errors, but cannot strand the blocked agent or
   // prevent the next queued interaction from being surfaced.
   persistPromptOutcome(record, outcome, result);
+  logger.log('Interactive prompt settled', {
+    sessionId: record.sessionId,
+    promptId: record.id,
+    provider: record.provider,
+    kind: record.kind,
+    outcome,
+    elapsedMs: Math.max(0, Date.now() - record.createdAt),
+  });
   broadcastPromptResolution(record, outcome);
   if (removal.queue.length === 0) {
     // Queue drained: only now does the "needs attention" badge clear. One

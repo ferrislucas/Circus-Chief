@@ -4,6 +4,7 @@ import { encodeError, encodeUserInputResponse, normalizeUserInputRequest } from 
 import { invalidateInteraction, requestInteraction } from '../../services/promptStore.js';
 import { createCodexSpawner } from '../../services/codexSpawnHelper.js';
 import { buildCodexExecutionConfig } from './codexExecutionConfig.js';
+import logger from '../../logger.js';
 
 export async function *spawnCodexAppServer(spawnOverride, queryParams, options, meta) {
   const spawn = spawnOverride ?? createCodexSpawner();
@@ -25,9 +26,17 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
   const fail = (error) => {
     if (failure || done) return;
     failure = error instanceof Error ? error : new Error(String(error));
+    logger.error('Codex App Server execution failed', {
+      sessionId: meta.sessionId,
+      outstandingServerRequests: handledServerRequests.size,
+    });
     abortInteractions(failure);
     wake?.();
   };
+  logger.log('Codex App Server startup', {
+    sessionId: meta.sessionId,
+    conversationId: meta.conversationId,
+  });
   const onAbort = () => {
     const error = options.abortController.signal.reason || new Error('Codex App Server turn aborted');
     // Close first: request waiters then settle locally, but must not write a
@@ -44,7 +53,8 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
     onNotification: async (message) => {
       if (message.method === 'serverRequest/resolved') {
         const id = message.params?.requestId ?? message.params?.id;
-        invalidateInteraction({ sessionId: meta.sessionId, provider: 'codex', externalRequestId: id });
+        const invalidated = invalidateInteraction({ sessionId: meta.sessionId, provider: 'codex', externalRequestId: id });
+        if (!invalidated) logger.log('Codex App Server unknown request resolution', { sessionId: meta.sessionId, requestId: String(id) });
         return;
       }
       if (message.method === 'turn/failed') throw new Error(message.params?.error?.message || 'Codex turn failed');
@@ -59,8 +69,19 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
         // One runner owns one App Server connection; thread plus request id is
         // therefore the provider-request identity within this connection.
         const identity = serverRequestIdentity(normalized.metadata.threadId, request.id);
-        if (handledServerRequests.has(identity)) return;
+        if (handledServerRequests.has(identity)) {
+          logger.log('Codex App Server duplicate user-input request', { sessionId: meta.sessionId, requestId: String(request.id) });
+          return;
+        }
         handledServerRequests.add(identity);
+        logger.log('Codex App Server user-input request received', {
+          sessionId: meta.sessionId,
+          conversationId: meta.conversationId,
+          requestId: String(request.id),
+          threadId: normalized.metadata.threadId,
+          turnId: normalized.metadata.turnId,
+          questionCount: normalized.payload.questions.length,
+        });
         const outcome = await requestInteraction({
           sessionId: meta.sessionId, conversationId: meta.conversationId, provider: 'codex', kind: 'question',
           ...normalized, signal: interactionController.signal, expiryMs: interactionExpiryMs(options),
@@ -78,7 +99,16 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
     },
   });
   try {
-    await client.initialize();
+    try {
+      await client.initialize();
+    } catch (error) {
+      logger.error('Codex App Server initialization failed', {
+        sessionId: meta.sessionId,
+        compatibility: error?.message?.startsWith('Codex App Server is incompatible:') || false,
+      });
+      throw error;
+    }
+    logger.log('Codex App Server initialized', { sessionId: meta.sessionId });
     options.onInteractiveInputAvailable?.();
     const thread = await client.request('thread/start', { cwd: resolvedConfig.cwd, model: resolvedConfig.model, sandbox: resolvedConfig.sandbox, developerInstructions: resolvedConfig.systemPrompt });
     const threadId = thread?.thread?.id;
