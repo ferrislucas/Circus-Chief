@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { projects, sessions, messages, sessionSummaries, settings } from '../database.js';
+import { projects, sessions, messages, sessionSummaries, settings, modelProviders, modelTiers } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 
 // Mock the websocket module to avoid WebSocket server dependency
@@ -134,6 +134,8 @@ import {
   _updateSessionFromSummary,
   hasSemanticSummaryChanged,
 } from './summaryService.js';
+import { isUnhealthy } from './tierResolutionService.js';
+import { buildTierRef } from '@circuschief/shared';
 
 describe('summaryService', () => {
   let projectId;
@@ -4136,5 +4138,64 @@ describe('summaryService', () => {
 
       summaryService.cleanupSession(child.id);
     });
+  });
+});
+
+// ── Work Item 2: summaryGenerate.js inherits tier failover ─────────────────
+//
+// callSummaryModel is the single entry point summaryGenerate.js's
+// _doGenerateSummary calls through (with summarySettings: globalSettings,
+// no resolvedModel override). This exercises the real end-to-end path —
+// generateSummary → _doGenerateSummary → callSummaryModel → callClaude →
+// the mocked Claude Agent SDK — to prove the tier-failover behavior
+// implemented and unit-tested in summaryModelClient.test.js is genuinely
+// reachable through this caller, not just wired in isolation.
+describe('Work Item 2: summaryGenerate.js inherits tier failover', () => {
+  let projectId;
+  let sessionId;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const project = projects.create('Tier Failover Project', '/tmp/test-tier-failover');
+    projectId = project.id;
+    const session = sessions.create(projectId, 'Tier Failover Session', 'Initial prompt', 'standard');
+    sessionId = session.id;
+    messages.create(sessionId, 'assistant', 'Response 1');
+    messages.create(sessionId, 'user', 'Follow-up message');
+  });
+
+  afterEach(() => {
+    summaryService.cleanupSession(sessionId);
+  });
+
+  it('fails over to the next tier member at the summaryGenerate.js call site and successfully generates a summary', async () => {
+    const providerA = modelProviders.create({ name: 'Gen Tier Provider A', kind: 'anthropic' });
+    const providerB = modelProviders.create({ name: 'Gen Tier Provider B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'gen-tier-model-a', displayName: 'A' });
+    modelProviders.addModel(providerB.id, { modelId: 'gen-tier-model-b', displayName: 'B' });
+    const tier = modelTiers.create({
+      name: 'Gen Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'gen-tier-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'gen-tier-model-b', position: 1 },
+      ],
+    });
+    settings.setSummarySettings({ summaryModel: buildTierRef(tier.id), summaryProviderId: null });
+
+    vi.mocked(query).mockClear();
+    // eslint-disable-next-line require-yield -- always throws before yielding
+    vi.mocked(query).mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    const result = await summaryService.generateSummary(sessionId, 0, true, true);
+
+    expect(result).toBeTruthy();
+    expect(vi.mocked(query)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(query).mock.calls[0][0].options.model).toBe('gen-tier-model-a');
+    expect(vi.mocked(query).mock.calls[1][0].options.model).toBe('gen-tier-model-b');
+    expect(isUnhealthy(providerA.id, 'gen-tier-model-a')).toBe(true);
+
+    settings.setSummarySettings({ summaryModel: '', summaryProviderId: null });
   });
 });

@@ -103,6 +103,54 @@ export class AgentCallLogger {
   }
 
   /**
+   * Log a tier failover event as a completed agent-call entry (Fix 4 / F26).
+   * Creates a single-row "tierFailover" call-type log entry that appears in
+   * Settings → Logs alongside regular agent calls.
+   *
+   * The entry is logged with `success: true` (status `'completed'`) because a
+   * failover that successfully advances to the next member is not a call
+   * failure — it's a benign system event. `errorMessage` still carries the
+   * triggering reason for context. Stats are grouped by `call_type`, so the
+   * `tierFailover` bucket stays segregated from real runSession cost/failure
+   * rollups regardless of this flag (Issue 4).
+   *
+   * @param {string} sessionId
+   * @param {{ fromModel, fromProviderId, toModel, toProviderId, tierRef, tierName, reason, agentType }} opts
+   *   `agentType` should reflect the *source* (failing) member's agent type —
+   *   callers must pass it explicitly; it is not assumed to be 'claude-code'.
+   */
+  _logFailoverEvent(sessionId, { fromModel, fromProviderId, toModel, toProviderId, tierRef, tierName, reason, agentType }) {
+    const callId = nanoid();
+    const metadata = {
+      fromModel: fromModel || null,
+      fromProviderId: fromProviderId || null,
+      toModel: toModel || null,
+      toProviderId: toProviderId || null,
+      tierRef: tierRef || null,
+      tierName: tierName || null,
+      reason: reason || null,
+    };
+
+    agentCallLogs.create({
+      id: callId,
+      sessionId,
+      conversationId: null,
+      agentType: agentType || 'claude-code',
+      model: fromModel || null,
+      callType: 'tierFailover',
+      promptLength: 0,
+      metadata,
+    });
+
+    // Immediately complete the log entry as a neutral system event (no streaming).
+    // success: true → status 'completed' — a failover that advances is not a failure.
+    agentCallLogs.complete(callId, {
+      success: true,
+      errorMessage: reason || 'Tier failover',
+    });
+  }
+
+  /**
    * Delete all logs from both the database and the in-memory active calls map.
    * @returns {number} Number of deleted rows
    */

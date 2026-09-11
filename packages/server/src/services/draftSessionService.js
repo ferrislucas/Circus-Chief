@@ -3,7 +3,8 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
 import { resolveAgentTypeFromModel } from './sessionProvider.js';
-import { validateModelId } from '../api/model-validation.js';
+import { resolveModelForAgentKind } from './sessionAgentGuard.js';
+import { validateModelAndProvider } from '../api/model-validation.js';
 
 /**
  * Validates that a session is a draft (waiting status with no assistant messages).
@@ -105,6 +106,25 @@ function getOrCreateInitialMessage(session, options) {
   return initialMessage;
 }
 
+function deriveAgentTypeForDraft(session, model) {
+  if (!model) {
+    return session.agentType;
+  }
+
+  const resolved = resolveModelForAgentKind(model);
+  if (resolved.unresolved) {
+    return session.agentType;
+  }
+
+  return resolveAgentTypeFromModel(resolved.modelId, resolved.providerIdHint);
+}
+
+function selectDraftModelPair(session, options) {
+  if (options.model !== undefined) return { model: options.model, providerId: options.providerId ?? null };
+  if (session.pendingModel != null) return { model: session.pendingModel, providerId: session.pendingProviderId ?? null };
+  return { model: session.model, providerId: session.providerId ?? null };
+}
+
 /**
  * Starts a draft session by resolving the prompt, creating messages if needed,
  * and kicking off the session manager.
@@ -126,8 +146,9 @@ export async function startDraft(session, options = {}) {
   const workingDirectory = session.gitWorktree || project.workingDirectory;
 
   // Model to use for this session (optional - SDK will use default if not provided)
-  const model = options.model || session.pendingModel || session.model || null;
-  const modelResult = validateModelId(model);
+  const selection = selectDraftModelPair(session, options);
+  const model = selection.model || null;
+  const modelResult = validateModelAndProvider(model, selection.providerId);
   if (modelResult.error) {
     throw new DraftSessionError(modelResult.error, 400);
   }
@@ -135,7 +156,14 @@ export async function startDraft(session, options = {}) {
   // Resolve the agent type from the selected model before launching.
   // Draft sessions have no assistant messages yet, so the session is still
   // choosing its initial runtime – the selected model determines agentType.
-  const agentType = model ? resolveAgentTypeFromModel(model) : session.agentType;
+  // `model` may be a tier ref (Work Item 2): resolve it to its active
+  // member's (modelId, providerId) first — a raw `tier::<id>` handed to
+  // resolveAgentTypeFromModel would silently fall through to 'claude-code'.
+  // The actual start-time tier-failover path re-derives this again per
+  // attempt, but persisting the correct kind here avoids a window where the
+  // session row (and any UI reading it before the run loop reconciles)
+  // shows the wrong agent kind.
+  const agentType = deriveAgentTypeForDraft(session, model);
 
   // Get or create the initial user message
   const initialMessage = getOrCreateInitialMessage(session, options);
@@ -149,8 +177,8 @@ export async function startDraft(session, options = {}) {
   sessions.update(session.id, {
     status: 'starting',
     pendingModel: null,
-    ...(model ? { model, agentType } : {}),
-    ...(options.providerId !== undefined ? { providerId: options.providerId } : {}),
+    pendingProviderId: null,
+    ...(model ? { model, providerId: modelResult.providerId, agentType } : {}),
   });
 
   // Resolve skill/command invocations so skill body goes into system prompt
@@ -162,7 +190,9 @@ export async function startDraft(session, options = {}) {
 
   // Start session manager (non-blocking)
   const { runSession } = await import('./sessionManager.js');
-  runSession(session.id, effectivePrompt, workingDirectory, { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model }).catch((error) => {
+  runSession(session.id, effectivePrompt, workingDirectory, {
+    systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model, providerId: modelResult.providerId,
+  }).catch((error) => {
     console.error('Session error:', error);
     sessions.update(session.id, { status: 'error', error: error.message });
   });

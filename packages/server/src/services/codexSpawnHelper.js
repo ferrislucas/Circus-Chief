@@ -26,7 +26,7 @@ export function createCodexSpawner() {
     const { command, args, cwd, env, signal } = options;
     if (isE2ESpawnCaptureEnabled()) {
       captureSpawnAttempt('codex', options);
-      return createCapturedSpawnProcess('codex');
+      return createCapturedSpawnProcess('codex', options);
     }
 
     // Replace 'node' with the absolute path to the current Node executable

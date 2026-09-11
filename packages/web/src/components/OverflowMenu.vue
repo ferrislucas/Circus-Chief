@@ -83,7 +83,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick, defineExpose } from 'vue';
 
-const emit = defineEmits(['duplicate', 'archive', 'copySessionId', 'delete']);
+const emit = defineEmits(['duplicate', 'archive', 'unarchive', 'copySessionId', 'delete']);
 
 const props = defineProps({
   ariaLabel: {
@@ -193,7 +193,7 @@ function handleOutsideClick() {
 function handleItemClick(item, index) {
   if (index === 0) {
     // First item is always Archive/Unarchive
-    emit('archive');
+    emit(props.isArchived ? 'unarchive' : 'archive');
   } else if (index === 1) {
     // Second item is always Duplicate
     emit('duplicate');

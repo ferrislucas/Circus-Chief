@@ -1,9 +1,11 @@
 import { Router } from 'express';
-import { modelProviders, settings } from '../db/index.js';
+import { modelProviders, modelTiers, settings } from '../db/index.js';
 import { DEFAULT_SESSION_TITLE_PROMPT } from '../services/summaryService.js';
+import { SUPPORTED_SUMMARY_PROVIDER_KINDS, tierHasUnsupportedSummaryKindMember } from '../services/summaryModelResolver.js';
+import { getTierMembersResolved } from '../services/tierResolutionService.js';
+import { isTierRef, parseTierRef } from '@circuschief/shared';
 
 const router = Router();
-const SUPPORTED_SUMMARY_PROVIDER_KINDS = new Set(['anthropic', 'openai']);
 
 /**
  * GET /api/settings/token-weights
@@ -145,12 +147,47 @@ router.put('/summary', (req, res) => {
 
 function validateSummaryModelSelection(summaryModel, summaryProviderId) {
   if (!summaryModel) {
-    if (summaryProviderId !== null) {
-      return 'summaryProviderId must be null when summaryModel is empty';
-    }
-    return null;
+    return validateEmptySummaryModel(summaryProviderId);
   }
 
+  // Fix 7: a tier ref has no single owning provider — bypass provider
+  // ownership validation entirely and require summaryProviderId to be null
+  // (the concrete provider is resolved per-run from the tier's active
+  // member by summaryModelResolver.resolveSummaryModel).
+  if (isTierRef(summaryModel)) {
+    return validateSummaryTierSelection(summaryModel, summaryProviderId);
+  }
+
+  return validateConcreteSummaryModelSelection(summaryModel, summaryProviderId);
+}
+
+function validateEmptySummaryModel(summaryProviderId) {
+  return summaryProviderId === null
+    ? null
+    : 'summaryProviderId must be null when summaryModel is empty';
+}
+
+function validateSummaryTierSelection(summaryModel, summaryProviderId) {
+  if (summaryProviderId !== null) {
+    return 'summaryProviderId must be null when summaryModel is a tier reference';
+  }
+
+  // Validate every resolvable member, not just the active one, so a later
+  // failover member cannot silently route to an unsupported provider kind.
+  const tierId = parseTierRef(summaryModel);
+  const tier = tierId ? modelTiers.getByIdWithMembers(tierId) : null;
+  if (!tier) return 'Unknown summaryModel tier';
+
+  const members = getTierMembersResolved(tierId);
+  if (members.length === 0) {
+    return 'summaryModel tier must contain at least one executable model';
+  }
+  return tierHasUnsupportedSummaryKindMember(members)
+    ? 'summaryModel tier must contain only Anthropic or OpenAI models'
+    : null;
+}
+
+function validateConcreteSummaryModelSelection(summaryModel, summaryProviderId) {
   if (!summaryProviderId) {
     return 'summaryProviderId is required when summaryModel is set';
   }

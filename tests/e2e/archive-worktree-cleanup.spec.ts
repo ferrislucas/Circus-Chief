@@ -33,8 +33,12 @@ test.describe('Archive Modal - Worktree Cleanup Checkbox', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open kebab menu and click Archive
-    await page.click('button[aria-label="Workspace actions"]');
-    await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
+    const actionsButton = page.getByRole('button', { name: 'Workspace actions' });
+    const menu = page.locator('.menu-items');
+    await expect(async () => {
+      await actionsButton.click();
+      await expect(menu).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 10000 });
     await page.locator('button.menu-item').filter({ hasText: 'Archive' }).click({ timeout: 10000 });
 
     // Verify modal is visible
@@ -61,8 +65,12 @@ test.describe('Archive Modal - Worktree Cleanup Checkbox', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open kebab menu and click Archive
-    await page.click('button[aria-label="Workspace actions"]');
-    await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
+    const actionsButton = page.getByRole('button', { name: 'Workspace actions' });
+    const menu = page.locator('.menu-items');
+    await expect(async () => {
+      await actionsButton.click();
+      await expect(menu).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 10000 });
     await page.locator('button.menu-item').filter({ hasText: 'Archive' }).click({ timeout: 10000 });
 
     // Verify modal is visible

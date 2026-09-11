@@ -38,7 +38,9 @@
               <label class="form-label">Model</label>
               <ModelSelector
                 v-model="form.model"
+                :provider-id="form.providerId"
                 preserve-current-value
+                @update:provider-id="form.providerId = $event"
               />
             </div>
 
@@ -258,6 +260,7 @@ const form = reactive({
   scheduledAtLocal: '',
   // Session settings
   model: null,
+  providerId: null,
   mode: 'standard',
   thinkingEnabled: false,
   // Template chaining
@@ -299,6 +302,33 @@ function convertToLocalDatetime(timestamp) {
   return formatDateTimeLocal(new Date(timestamp));
 }
 
+function hydrateSessionSettings(session) {
+  const hasPendingSelection = session.pendingModel !== null
+    && session.pendingModel !== undefined;
+  form.model = hasPendingSelection ? session.pendingModel : (session.model || null);
+  form.providerId = hasPendingSelection
+    ? (session.pendingProviderId || null)
+    : (session.providerId || null);
+  form.mode = session.mode || 'standard';
+  form.thinkingEnabled = session.thinkingEnabled || false;
+}
+
+function hydrateSchedulingSettings(session) {
+  form.scheduledAtLocal = convertToLocalDatetime(session.scheduledAt);
+  form.nextTemplateId = session.nextTemplateId || null;
+}
+
+function hydrateRescheduleSettings(session) {
+  form.autoRescheduleEnabled = session.autoRescheduleEnabled || false;
+  form.rescheduleDelayMinutes = session.rescheduleDelayMinutes || DEFAULT_RESCHEDULE_DELAY_MINUTES;
+  form.rescheduleOnTokenLimit = session.rescheduleOnTokenLimit ?? true;
+  form.rescheduleOnServiceError = session.rescheduleOnServiceError ?? true;
+  form.maxRescheduleCount = session.maxRescheduleCount;
+  form.maxTotalTokens = session.maxTotalTokens;
+  form.rescheduleAtTokenCount = session.rescheduleAtTokenCount;
+  form.resetRescheduleCount = false;
+}
+
 async function handleSave() {
   loading.value = true;
   error.value = null;
@@ -307,6 +337,7 @@ async function handleSave() {
     const updateData = {
       // Session settings
       model: form.model,
+      providerId: form.providerId,
       mode: form.mode,
       thinkingEnabled: form.thinkingEnabled,
       // Template chaining
@@ -320,6 +351,14 @@ async function handleSave() {
       maxTotalTokens: form.maxTotalTokens || null,
       rescheduleAtTokenCount: form.rescheduleAtTokenCount || null,
     };
+
+    // Scheduled runs resolve the pending pair first. Keep it in lockstep with
+    // the workspace setting so a scheduled edit cannot retain a stale provider
+    // for an otherwise identical model id.
+    if (props.session?.status === 'scheduled') {
+      updateData.pendingModel = form.model;
+      updateData.pendingProviderId = form.providerId;
+    }
 
     // Update scheduled time if changed
     if (props.session?.status === 'scheduled' && form.scheduledAtLocal) {
@@ -351,22 +390,9 @@ watch(
   (isOpen) => {
     if (isOpen && props.session) {
       error.value = null; // Clear any previous errors
-      form.scheduledAtLocal = convertToLocalDatetime(props.session.scheduledAt);
-      // Session settings
-      form.model = props.session.model || null;
-      form.mode = props.session.mode || 'standard';
-      form.thinkingEnabled = props.session.thinkingEnabled || false;
-      // Template chaining
-      form.nextTemplateId = props.session.nextTemplateId || null;
-      // Scheduling options
-      form.autoRescheduleEnabled = props.session.autoRescheduleEnabled || false;
-      form.rescheduleDelayMinutes = props.session.rescheduleDelayMinutes || DEFAULT_RESCHEDULE_DELAY_MINUTES;
-      form.rescheduleOnTokenLimit = props.session.rescheduleOnTokenLimit ?? true;
-      form.rescheduleOnServiceError = props.session.rescheduleOnServiceError ?? true;
-      form.maxRescheduleCount = props.session.maxRescheduleCount;
-      form.maxTotalTokens = props.session.maxTotalTokens;
-      form.rescheduleAtTokenCount = props.session.rescheduleAtTokenCount;
-      form.resetRescheduleCount = false;
+      hydrateSessionSettings(props.session);
+      hydrateSchedulingSettings(props.session);
+      hydrateRescheduleSettings(props.session);
     }
   }
 );

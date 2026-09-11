@@ -250,7 +250,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         expect.any(String), // prompt
         testTempDir,
-        { systemPrompt: null, fileAttachments: expect.any(Array), model: 'claude-opus-4-6' }
+        expect.objectContaining({ systemPrompt: null, fileAttachments: expect.any(Array), model: 'claude-opus-4-6', providerId: null })
       );
     });
 
@@ -268,7 +268,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         expect.any(String),
         testTempDir,
-        { systemPrompt: null, fileAttachments: expect.any(Array), model: null }
+        expect.objectContaining({ systemPrompt: null, fileAttachments: expect.any(Array), model: null, providerId: null })
       );
     });
 
@@ -297,7 +297,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         expect.any(String),
         testTempDir,
-        { systemPrompt: null, fileAttachments: expect.any(Array), model: 'custom-provider-sonnet' }
+        expect.objectContaining({ systemPrompt: null, fileAttachments: expect.any(Array), model: 'custom-provider-sonnet', providerId: null })
       );
       modelProviders.delete(provider.id);
     });

@@ -1,7 +1,7 @@
 import { sessions, sessionTemplates, attachments } from '../database.js';
 import * as slashCommandService from '../services/slashCommandService.js';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
-import { resolveProviderMetadataFromModel } from '../services/sessionProvider.js';
+import { resolveCommitAttributionOverrideForModel } from '../services/sessionProvider.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES, DEFAULT_MAX_RESCHEDULE_COUNT } from '@circuschief/shared';
@@ -60,12 +60,6 @@ export function normalizeProviderId(value) {
     throw new TypeError('providerId must be a string or null');
   }
   return value;
-}
-
-function resolveProviderDefault(explicit, projectDefault, systemDefault) {
-  if (explicit !== undefined) return explicit;
-  if (projectDefault !== undefined && projectDefault !== null) return projectDefault;
-  return systemDefault ?? null;
 }
 
 /**
@@ -184,13 +178,18 @@ export function prepareSessionConfig(body, projectDefs, systemDefaults) {
   const explicitProviderId = normalizeProviderId(body.providerId);
   const projectProviderId = normalizeProviderId(projectDefs?.providerId);
   const systemProviderId = normalizeProviderId(systemDefaults.providerId);
+  const selection = body.model !== undefined
+    ? { model: body.model, providerId: explicitProviderId ?? null }
+    : projectDefs?.model != null
+      ? { model: projectDefs.model, providerId: projectProviderId ?? null }
+      : { model: systemDefaults.model || null, providerId: systemProviderId ?? null };
 
   return {
     prompt: body.prompt,
     name: body.name,
     mode: resolveDefault(body.mode, projectDefs?.mode, systemDefaults.mode),
-    model: resolveDefault(body.model, projectDefs?.model, systemDefaults.model || null),
-    providerId: resolveProviderDefault(explicitProviderId, projectProviderId, systemProviderId),
+    model: selection.model,
+    providerId: selection.providerId,
     effortLevel,
     gitBranch: resolveDefault(body.gitBranch, projectDefs?.gitBranch, null),
     gitMode: resolveDefault(body.gitMode, projectDefs?.gitMode, systemDefaults.gitMode),
@@ -226,6 +225,7 @@ export function applyTemplateOverrides(configInput) {
   }
   if (template.model) {
     config.model = template.model;
+    config.providerId = template.providerId ?? null;
   }
   if (template.effortLevel !== null && template.effortLevel !== undefined) {
     config.effortLevel = template.effortLevel;
@@ -290,6 +290,7 @@ export function buildSchedulingUpdate(config, initialStatus) {
   if (initialStatus === 'waiting' || initialStatus === 'scheduled') {
     update.pendingPrompt = config.prompt;
     update.pendingModel = config.model;
+    update.pendingProviderId = config.providerId;
   }
 
   return update;
@@ -337,8 +338,7 @@ async function resolveSessionWorkingDirectory({ session, config, project }) {
     gitBranch: config.gitBranch || null,
     sessionId: session.id,
     worktreeBasePath: project.worktreePath || null,
-    commitAttributionOverride:
-      resolveProviderMetadataFromModel(config.model)?.commitAttributionOverride ?? null,
+    commitAttributionOverride: resolveCommitAttributionOverrideForModel(config.model),
   });
   return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
 }
@@ -358,6 +358,7 @@ async function startSessionImmediately({ session, config, project, workingDirect
     systemPrompt: finalSystemPrompt,
     fileAttachments: sessionAttachments,
     model: config.model,
+    providerId: config.providerId,
   }).catch((error) => {
     console.error('Session error:', error);
     sessions.update(session.id, { status: 'error', error: error.message });

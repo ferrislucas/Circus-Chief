@@ -36,6 +36,7 @@
         allow-empty
         empty-label="Use default summary model"
         :hide-built-in-duplicates="false"
+        :allowed-provider-kinds="['anthropic', 'openai']"
         select-class="form-input"
         @model-selected="handleModelSelected"
       />

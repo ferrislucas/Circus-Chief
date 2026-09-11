@@ -21,6 +21,7 @@ import { schedulerService } from './schedulerService.js';
 import {
   matchesTokenLimitError,
   matchesServiceError,
+  matchesStartFailoverEligibleError,
   shouldRescheduleOnError,
   _checkProactiveReschedule,
   turnEndedDueToLimitOrOutage,
@@ -563,6 +564,127 @@ describe('sessionErrors', () => {
         { role: 'assistant', content: bulletSummary },
       ]);
       expect(turnEndedDueToLimitOrOutage('sess-1', null)).toBe(false);
+    });
+  });
+});
+
+// ── Fix 4: start-time failover trigger set (matchesStartFailoverEligibleError) ─
+//
+// matchesStartFailoverEligibleError is tighter than the broad matchesTokenLimitError
+// used for auto-reschedule decisions. It only triggers on genuine quota/billing/
+// capacity errors, not on generic phrases that happen to contain "token" or "limit"
+// (e.g. "Unexpected token in JSON", "file limit exceeded in 3 files").
+//
+// The table below is the authoritative, covered record of the intended trigger set.
+
+describe('start-time failover trigger set — matchesStartFailoverEligibleError (Fix 4 — F16)', () => {
+  const shouldTrigger = [
+    // Service availability patterns (via matchesServiceError)
+    'Error: 529 Service overloaded',
+    'Error: 503 Service Unavailable',
+    'too many requests — rate limit exceeded',
+    'service unavailable right now',
+    // Quota / billing patterns specific to start-time failover
+    'quota exhausted for this billing period',
+    'rate limit reached',
+    'out of tokens for this account',
+    'insufficient credit balance',
+    'billing limit reached',
+    'billing hard limit reached',
+  ];
+
+  const shouldNotTrigger = [
+    // Non-quota / non-capacity errors that MUST NOT trigger cross-provider failover
+    'Invalid API key',
+    'authentication failed',
+    'Unexpected token in JSON',   // generic parse error containing "token"
+    'file not found: /foo/bar',
+    'Command failed with exit code 1',
+    'ECONNREFUSED',
+    'syntax error on line 42',
+    'permission denied',
+    'null pointer exception',
+    // Work Item 3: the bare substring "billing" (without "limit") must NOT
+    // trigger start-time failover — only 'billing limit' / 'billing hard
+    // limit' do. This was broader than the other tightened patterns and
+    // could fire on unrelated text that merely mentions billing.
+    'billing',
+    'updated the billing dashboard copy for the invoices page',
+    'implemented the retry handler for the billing service',
+    // broad token/limit phrases that are fine for reschedule but too broad for failover
+    "you've hit your limit",      // matchesTokenLimitError catches "limit" — startFailover does NOT
+    'usage cap reached',           // "cap" only in matchesTokenLimitError — NOT in startFailover
+    'usage exceeded for this period', // "exceeded" only in matchesTokenLimitError — NOT in startFailover
+    // Issue 2: prompt-size errors are intentionally excluded from start-time
+    // failover — failing over won't fix an oversized prompt and can mask a
+    // real prompt-size bug. They remain covered by matchesTokenLimitError
+    // for the broader auto-reschedule decision (see tests above).
+    'context length exceeded',
+    'max_tokens parameter exceeded',
+    'context window is full',
+  ];
+
+  describe('errors that DO trigger start-time failover', () => {
+    it.each(shouldTrigger)('"%s" → triggers failover', (msg) => {
+      expect(matchesStartFailoverEligibleError(msg.toLowerCase())).toBe(true);
+    });
+  });
+
+  describe('errors that do NOT trigger start-time failover', () => {
+    it.each(shouldNotTrigger)('"%s" → does not trigger failover', (msg) => {
+      expect(matchesStartFailoverEligibleError(msg.toLowerCase())).toBe(false);
+    });
+  });
+
+  describe('structured and streamed provider error policy (Issue 2)', () => {
+    const fromStreamResult = ({ error, status }) => Object.assign(
+      new Error(error.message),
+      error,
+      Number.isFinite(status) ? { status } : {},
+    );
+
+    const cases = [
+      ['structured rate limit', Object.assign(new Error('Request failed'), { status: 429 }), true],
+      ['structured quota', Object.assign(new Error('insufficient quota'), { status: 400 }), true],
+      ['structured overload', Object.assign(new Error('provider overloaded'), { status: 500 }), true],
+      ['structured overload metadata', Object.assign(new Error('Request failed'), { status: 500, type: 'overloaded_error' }), true],
+      ['structured HTTP 503', Object.assign(new Error('Request failed'), { status: 503 }), true],
+      ['structured HTTP 529', Object.assign(new Error('Request failed'), { status: 529 }), true],
+      ['structured generic HTTP 500', Object.assign(new Error('Internal server error'), { status: 500 }), false],
+      ['streamed rate limit', fromStreamResult({ error: { message: 'too many requests' }, status: 429 }), true],
+      ['streamed quota', fromStreamResult({ error: { message: 'billing limit reached' }, status: 400 }), true],
+      ['streamed overload', fromStreamResult({ error: { message: 'upstream overloaded' }, status: 500 }), true],
+      ['streamed overload metadata', fromStreamResult({ error: { message: 'Request failed', type: 'overloaded_error' }, status: 500 }), true],
+      ['streamed HTTP 503', fromStreamResult({ error: { message: 'Request failed' }, status: 503 }), true],
+      ['streamed HTTP 529', fromStreamResult({ error: { message: 'Request failed' }, status: 529 }), true],
+      ['streamed generic HTTP 500', fromStreamResult({ error: { message: 'Internal server error' }, status: 500 }), false],
+    ];
+
+    it.each(cases)('%s → %s', (_shape, error, eligible) => {
+      expect(matchesStartFailoverEligibleError(error)).toBe(eligible);
+    });
+
+    it.each([400, 401, 404, 422])('does not treat status %i as failover-eligible on its own', (status) => {
+      const error = Object.assign(new Error('Something went wrong'), { status });
+      expect(matchesStartFailoverEligibleError(error)).toBe(false);
+    });
+
+    it('still matches on message text when passed an Error object with no status', () => {
+      const error = new Error('Error: 529 Service overloaded');
+      expect(matchesStartFailoverEligibleError(error)).toBe(true);
+    });
+
+    it('a status code does not override the prompt-size exclusion when the message is the real signal', () => {
+      // A 400 "context length exceeded" is a prompt-size error, not an
+      // outage — must still be excluded even though 400 isn't in the
+      // eligible status set anyway (guards against a future status-set change).
+      const error = Object.assign(new Error('context length exceeded'), { status: 400 });
+      expect(matchesStartFailoverEligibleError(error)).toBe(false);
+    });
+
+    it('continues to accept plain lowercased strings unchanged (session path)', () => {
+      expect(matchesStartFailoverEligibleError('error: 529 service overloaded')).toBe(true);
+      expect(matchesStartFailoverEligibleError('invalid api key')).toBe(false);
     });
   });
 });

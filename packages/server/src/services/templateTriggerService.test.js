@@ -384,7 +384,7 @@ Please review the above work.
         expect.any(String), // new session id
         expect.stringContaining('Follow up:'), // rendered prompt
         expect.stringContaining(tempDir), // working directory
-        { systemPrompt: null, model: 'claude-sonnet-4-20250514' } // options object
+        expect.objectContaining({ systemPrompt: null, model: 'claude-sonnet-4-20250514', providerId: null }) // options object
       );
     });
 
@@ -405,7 +405,7 @@ Please review the above work.
         expect.any(String),
         expect.stringContaining('Full summary of the parent session work'),
         expect.any(String),
-        { systemPrompt: null, model: 'claude-sonnet-4-20250514' } // options object
+        expect.objectContaining({ systemPrompt: null, model: 'claude-sonnet-4-20250514', providerId: null }) // options object
       );
     });
 

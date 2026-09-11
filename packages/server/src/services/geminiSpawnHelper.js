@@ -32,8 +32,9 @@ export function createGeminiSpawner() {
     robustEnv.GEMINI_CLI_TRUST_WORKSPACE = 'true';
 
     if (isE2ESpawnCaptureEnabled()) {
-      captureSpawnAttempt('gemini', { ...options, env: robustEnv });
-      return createCapturedSpawnProcess('gemini');
+      const capturedOptions = { ...options, env: robustEnv };
+      captureSpawnAttempt('gemini', capturedOptions);
+      return createCapturedSpawnProcess('gemini', capturedOptions);
     }
 
     return spawn(actualCommand, args, {

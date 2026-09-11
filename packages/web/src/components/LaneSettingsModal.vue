@@ -261,11 +261,13 @@
             <SessionFormOptions
               :mode="form.onEnterMode || 'standard'"
               :model="form.onEnterModel"
+              :provider-id="form.onEnterProviderId"
               :effort-level="form.onEnterEffortLevel"
               :thinking-enabled="form.onEnterThinkingEnabled ?? false"
               :hide-start-immediately="true"
               @update:mode="form.onEnterMode = $event"
               @update:model="form.onEnterModel = $event"
+              @update:provider-id="form.onEnterProviderId = $event"
               @update:effort-level="form.onEnterEffortLevel = $event"
               @update:thinking-enabled="form.onEnterThinkingEnabled = $event"
             />
@@ -466,6 +468,7 @@ const form = reactive({
   // Agent settings
   onEnterMode: null,
   onEnterModel: null,
+  onEnterProviderId: null,
   onEnterEffortLevel: null,
   onEnterThinkingEnabled: null,
   // Auto-reschedule
@@ -536,6 +539,7 @@ function buildFormFromLane(lane) {
     onEnterPrompt: lane.onEnterPrompt || '',
     onEnterMode: lane.onEnterMode || null,
     onEnterModel: lane.onEnterModel || null,
+    onEnterProviderId: lane.onEnterProviderId || null,
     onEnterEffortLevel: lane.onEnterEffortLevel || null,
     onEnterThinkingEnabled: lane.onEnterThinkingEnabled ?? null,
     completionTargetLaneId: lane.completionTargetLaneId || null,
@@ -643,6 +647,7 @@ function buildSaveDataForNone() {
     onEnterPrompt: null,
     onEnterMode: null,
     onEnterModel: null,
+    onEnterProviderId: null,
     onEnterEffortLevel: null,
     onEnterThinkingEnabled: null,
     onEnterAutoRescheduleEnabled: false,
@@ -679,6 +684,7 @@ function buildSaveDataForPrompt(formData) {
     onEnterPrompt: formData.onEnterPrompt.trim(),
     onEnterMode: formData.onEnterMode,
     onEnterModel: formData.onEnterModel,
+    onEnterProviderId: formData.onEnterProviderId,
     onEnterEffortLevel: formData.onEnterEffortLevel,
     onEnterThinkingEnabled: formData.onEnterThinkingEnabled,
     onEnterAutoRescheduleEnabled: formData.onEnterAutoRescheduleEnabled,

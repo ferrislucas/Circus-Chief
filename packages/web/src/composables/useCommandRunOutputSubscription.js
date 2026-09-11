@@ -73,6 +73,18 @@ export function subscribeCommandRunOutput(sessionId, runId) {
           this.initializing = false;
           return Promise.resolve();
         }
+        // A finished run whose buffered output predates this subscription may
+        // not carry a recorded cursor (e.g. its output arrived before any pane
+        // was opened, and the run completed with no completion-time cursor
+        // handler). Re-syncing from cursor 0 would re-append the whole stream
+        // on top of the text we already hold. Once the run is terminal the
+        // buffered text is authoritative — treat the stream as fully consumed.
+        const stored = store.runs[runId];
+        if (stored && stored.status !== 'running' && stored.output && !stored.outputHighWater) {
+          this.highWater = Number.MAX_SAFE_INTEGER;
+          this.initializing = false;
+          return Promise.resolve();
+        }
         if (!this.syncing) {
           this.syncing = store.syncRunOutput(sessionId, runId, this.highWater, (chunk) => this.applyChunk(chunk))
             .then(({ hasMore }) => {
