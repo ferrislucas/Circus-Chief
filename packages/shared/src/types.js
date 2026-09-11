@@ -182,12 +182,22 @@ export const DEFAULT_MODEL = 'claude-opus-5';
 
 export const OPENAI_MODELS = [
   {
+    id: 'gpt-6',
+    name: 'GPT-6',
+    description: 'Next-generation frontier model for complex professional work',
+    seedId: 'openai-gpt-6',
+    lifecycle: 'current',
+    defaultEnabled: true,
+    evidence: CATALOG_EVIDENCE,
+    reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
     id: 'gpt-5.6-sol',
     name: 'GPT-5.6 Sol',
     description: 'Frontier model for complex professional work',
     seedId: 'openai-gpt-5-6-sol',
-    lifecycle: 'current',
-    defaultEnabled: true,
+    lifecycle: 'older',
+    defaultEnabled: false,
     evidence: CATALOG_EVIDENCE,
     reviewedDate: CATALOG_REVIEWED_DATE,
   },
@@ -196,8 +206,8 @@ export const OPENAI_MODELS = [
     name: 'GPT-5.6 Terra',
     description: 'Capable lower-cost GPT-5.6 model',
     seedId: 'openai-gpt-5-6-terra',
-    lifecycle: 'current',
-    defaultEnabled: true,
+    lifecycle: 'older',
+    defaultEnabled: false,
     evidence: CATALOG_EVIDENCE,
     reviewedDate: CATALOG_REVIEWED_DATE,
   },
@@ -206,8 +216,8 @@ export const OPENAI_MODELS = [
     name: 'GPT-5.6 Luna',
     description: 'Fastest and most cost-efficient GPT-5.6 model',
     seedId: 'openai-gpt-5-6-luna',
-    lifecycle: 'current',
-    defaultEnabled: true,
+    lifecycle: 'older',
+    defaultEnabled: false,
     evidence: CATALOG_EVIDENCE,
     reviewedDate: CATALOG_REVIEWED_DATE,
   },
@@ -252,13 +262,14 @@ export const OPENAI_MODELS = [
     reviewedDate: CATALOG_REVIEWED_DATE,
   },
 ];
-export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
+export const DEFAULT_OPENAI_MODEL = 'gpt-6';
 
 // This is deliberately separate from OPENAI_MODELS. The latter is the catalog
 // of models available to direct OpenAI-compatible providers; summaries run via
 // the Codex CLI and must only offer model IDs that its non-interactive runner
 // supports. Keep this list in sync with Codex CLI model support.
 export const CODEX_SUMMARY_MODELS = [
+  'gpt-6',
   'gpt-5.6-sol',
   'gpt-5.6-terra',
   'gpt-5.6-luna',

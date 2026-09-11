@@ -44,12 +44,10 @@ describe('catalog matrix completeness (FRD §0 / Phase 1 gate)', () => {
   });
 
   it('classifies superseded GPT-5.x generations as older, disabled by default', () => {
-    for (const id of ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.5']) {
+    for (const id of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.5']) {
       expect(OPENAI_MODELS.find((m) => m.id === id)).toMatchObject({ lifecycle: 'older', defaultEnabled: false });
     }
-    for (const id of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
-      expect(OPENAI_MODELS.find((m) => m.id === id)).toMatchObject({ lifecycle: 'current', defaultEnabled: true });
-    }
+    expect(OPENAI_MODELS.find((m) => m.id === 'gpt-6')).toMatchObject({ lifecycle: 'current', defaultEnabled: true });
   });
 
   it('classifies every Gemini entry as current (no superseded sibling in this catalog)', () => {
@@ -95,8 +93,9 @@ describe('DEFAULT_MODEL', () => {
 });
 
 describe('OPENAI_MODELS', () => {
-  it('includes the GPT-5.6 family', () => {
+  it('includes GPT-6 as the current OpenAI model and retains the GPT-5.6 family', () => {
     const ids = OPENAI_MODELS.map((m) => m.id);
+    expect(ids).toContain('gpt-6');
     expect(ids).toContain('gpt-5.6-sol');
     expect(ids).toContain('gpt-5.6-terra');
     expect(ids).toContain('gpt-5.6-luna');
@@ -108,7 +107,11 @@ describe('OPENAI_MODELS', () => {
     expect(OPENAI_MODELS.find((m) => m.id === 'gpt-5.5')).toMatchObject({ defaultEnabled: false });
   });
 
-  it('gives each GPT-5.6 model a stable seed id and display name', () => {
+  it('gives GPT-6 and each GPT-5.6 model stable seed ids and display names', () => {
+    expect(OPENAI_MODELS.find((m) => m.id === 'gpt-6')).toMatchObject({
+      name: 'GPT-6',
+      seedId: 'openai-gpt-6',
+    });
     expect(OPENAI_MODELS.find((m) => m.id === 'gpt-5.6-sol')).toMatchObject({
       name: 'GPT-5.6 Sol',
       seedId: 'openai-gpt-5-6-sol',
@@ -130,7 +133,7 @@ describe('OPENAI_MODELS', () => {
 });
 
 describe('DEFAULT_OPENAI_MODEL', () => {
-  it('defaults to gpt-5.6-sol', () => {
-    expect(DEFAULT_OPENAI_MODEL).toBe('gpt-5.6-sol');
+  it('defaults to gpt-6', () => {
+    expect(DEFAULT_OPENAI_MODEL).toBe('gpt-6');
   });
 });
