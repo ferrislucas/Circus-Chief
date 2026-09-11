@@ -1,15 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { setActivePinia, createPinia } from 'pinia';
+import { reactive } from 'vue';
 import SessionLogStream from './SessionLogStream.vue';
 
 // Mock streaming store
+const collapseState = reactive({ value: false });
 const mockStreamingStore = {
   getSessionWorkLogs: vi.fn(() => []),
   getSessionPartialText: vi.fn(() => ''),
   getPartialThinking: vi.fn(() => null),
-  isSessionLogCollapsed: vi.fn(() => false),
-  toggleSessionLogCollapsed: vi.fn(),
+  isSessionLogCollapsed: vi.fn(() => collapseState.value),
+  toggleSessionLogCollapsed: vi.fn(() => { collapseState.value = !collapseState.value; }),
 };
 
 vi.mock('../stores/sessionStreaming.js', () => ({
@@ -39,8 +41,11 @@ describe('SessionLogStream', () => {
     mockStreamingStore.getSessionWorkLogs.mockReturnValue([]);
     mockStreamingStore.getSessionPartialText.mockReturnValue('');
     mockStreamingStore.getPartialThinking.mockReturnValue(null);
-    mockStreamingStore.isSessionLogCollapsed.mockReturnValue(false);
-    mockStreamingStore.toggleSessionLogCollapsed.mockReset();
+    collapseState.value = false;
+    mockStreamingStore.isSessionLogCollapsed.mockImplementation(() => collapseState.value);
+    mockStreamingStore.toggleSessionLogCollapsed.mockImplementation(() => {
+      collapseState.value = !collapseState.value;
+    });
 
     // Reset sessions store mock
     mockSessionsStore.sessions = [];
@@ -153,12 +158,22 @@ describe('SessionLogStream', () => {
       expect(wrapper.find('.log-summary').text()).toBe('Reading config file');
     });
 
-    it('hides component entirely when no content even if not collapsed', () => {
+    it('hides component entirely without default-collapsed behavior when no content', () => {
       mockStreamingStore.isSessionLogCollapsed.mockReturnValue(false);
       // No content at all
       const wrapper = mountComponent();
       expect(wrapper.find('.session-log-stream').exists()).toBe(false);
       expect(wrapper.find('.log-collapsed').exists()).toBe(false);
+    });
+
+    it('renders an empty expanded pane with default-collapsed behavior', () => {
+      mockStreamingStore.isSessionLogCollapsed.mockReturnValue(false);
+
+      const wrapper = mountComponent({ defaultCollapsed: true });
+
+      expect(wrapper.find('.session-log-stream').exists()).toBe(true);
+      expect(wrapper.find('.log-header-label').text()).toBe('Live Output');
+      expect(wrapper.find('.log-empty-state').text()).toBe('Waiting for output…');
     });
   });
 
@@ -198,6 +213,16 @@ describe('SessionLogStream', () => {
 
       expect(mockStreamingStore.toggleSessionLogCollapsed)
         .toHaveBeenCalledWith('root-session', true);
+    });
+
+    it('keeps the session-card pane visible after expanding an empty stream', async () => {
+      collapseState.value = true;
+
+      const wrapper = mountComponent({ defaultCollapsed: true });
+      await wrapper.find('.log-collapsed').trigger('click');
+
+      expect(wrapper.find('.session-log-stream').exists()).toBe(true);
+      expect(wrapper.find('.log-empty-state').exists()).toBe(true);
     });
   });
 
