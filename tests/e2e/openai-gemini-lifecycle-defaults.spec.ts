@@ -39,21 +39,21 @@ test.describe('OpenAI built-in catalog lifecycle defaults', () => {
     await cleanupCreatedResources();
   });
 
-  test('providers API: current OpenAI models are enabled by default; older models (including retired gpt-5.5) are disabled by default', async () => {
+  test('providers API: GPT-6 is enabled by default; older GPT-5.x models are disabled by default', async () => {
     const providers = await getProviders();
     const builtIn = providers.find((p: any) => p.id === 'openai-default');
     expect(builtIn, 'Built-in OpenAI provider should exist').toBeTruthy();
 
     const byModelId = new Map(builtIn.models.map((m: any) => [m.modelId, m]));
 
-    for (const currentId of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
+    for (const currentId of ['gpt-6']) {
       const model = byModelId.get(currentId);
       expect(model, `${currentId} should exist`).toBeTruthy();
       expect(model.lifecycle).toBe('current');
       expect(model.enabled).toBe(true);
     }
 
-    for (const olderId of ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.5']) {
+    for (const olderId of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.5']) {
       const model = byModelId.get(olderId);
       expect(model, `${olderId} should exist (valid/resolvable, just hidden from new selection)`).toBeTruthy();
       expect(model.lifecycle).toBe('older');
@@ -61,7 +61,7 @@ test.describe('OpenAI built-in catalog lifecycle defaults', () => {
     }
   });
 
-  test('a fresh draft session model selector only offers current-lifecycle OpenAI models; gpt-5.5 is hidden by default', async ({ page }) => {
+  test('a fresh draft session model selector only offers GPT-6; GPT-5.x models are hidden by default', async ({ page }) => {
     const session = await seedSession(project.id, {
       prompt: 'Test OpenAI lifecycle defaults in model selector',
       startImmediately: false,
@@ -86,10 +86,10 @@ test.describe('OpenAI built-in catalog lifecycle defaults', () => {
       return Array.from(select.options).map((opt) => opt.value);
     });
 
-    for (const currentId of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
+    for (const currentId of ['gpt-6']) {
       expect(optionValues.some((v) => v.endsWith(`::${currentId}`)), `${currentId} should be offered`).toBe(true);
     }
-    for (const olderId of ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.5']) {
+    for (const olderId of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.5']) {
       expect(optionValues.some((v) => v.endsWith(`::${olderId}`)), `${olderId} should be hidden by default`).toBe(false);
     }
   });
