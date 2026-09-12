@@ -58,10 +58,9 @@ export class AgentGateway {
   /**
    * Get capabilities for an agent type.
    *
-   * Prefers the adapter's static `capabilities` field (no instantiation),
-   * falling back to constructing an empty instance and calling
-   * `getCapabilities()` for backward compatibility with adapters that
-   * haven't migrated yet.
+   * Prefers the adapter's static `capabilities` field so capability discovery
+   * does not instantiate transports. Older adapters without static metadata
+   * retain the instance fallback for backward compatibility.
    *
    * @param {string} agentType
    * @returns {Object|null}
@@ -73,12 +72,9 @@ export class AgentGateway {
     const AdapterClass = this.adapters.get(agentType);
     if (!AdapterClass) return null;
 
-    let caps;
-    if (AdapterClass.capabilities) {
-      caps = { ...AdapterClass.capabilities };
-    } else {
-      caps = new AdapterClass({}).getCapabilities();
-    }
+    const caps = AdapterClass.capabilities
+      ? { ...AdapterClass.capabilities }
+      : new AdapterClass({}).getCapabilities();
     this._capabilitiesCache.set(agentType, caps);
     return caps;
   }

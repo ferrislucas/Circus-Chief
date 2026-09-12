@@ -33,10 +33,27 @@ export const PermissionPromptResponse = z.object({
   destination: z.enum(['session', 'projectSettings']).optional(),
 });
 
+// Provider-neutral responses use stable, server-generated ids.  Keeping this
+// separate from QuestionPromptResponse lets the Claude SDK retain its legacy
+// question-text keyed callback contract while interactive transports never
+// expose their request ids to the browser.
+const InteractionAnswer = z.object({
+  questionId: z.string().min(1).max(128),
+  selectedOptionIds: z.array(z.string().min(1).max(128)).max(32).optional(),
+  text: z.string().min(1).max(8_000).optional(),
+}).strict();
+export const InteractionPromptResponse = z.union([
+  z.object({
+    action: z.literal('answer'),
+    answers: z.array(InteractionAnswer).min(1).max(3),
+  }).strict(),
+  z.object({ action: z.literal('cancel'), reason: z.string().max(1_000).optional() }).strict(),
+]);
+
 export const PROMPT_ACTIONS_BY_KIND = Object.freeze({
   question: new Set(['answer', 'cancel']),
   permission: new Set(['allow', 'always_allow', 'deny']),
 });
 export const PromptResponse = z.union([
-  QuestionPromptResponse, PermissionPromptResponse,
+  QuestionPromptResponse, PermissionPromptResponse, InteractionPromptResponse,
 ]);

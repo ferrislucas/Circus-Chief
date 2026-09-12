@@ -115,7 +115,7 @@ vi.mock('./SessionLogStream.vue', () => ({
   default: defineComponent({
     name: 'SessionLogStream',
     props: {
-      sessionIds: Array,
+      sessionIds: { type: Array, default: () => [] },
       defaultCollapsed: Boolean,
     },
     setup(props) {

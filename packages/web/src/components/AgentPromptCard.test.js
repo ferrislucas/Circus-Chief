@@ -11,6 +11,67 @@ async function pressKey(key) {
 const prompt = { id: 'prompt-1', kind: 'question', payload: { questions: [{ question: 'Choose', multiSelect: true, options: [{ label: 'A', description: 'first' }, { label: 'B', description: 'second' }] }] } };
 
 describe('AgentPromptCard', () => {
+  it('renders untrusted normalized question text as text rather than HTML', () => {
+    const wrapper = mount(AgentPromptCard, { props: { prompt: {
+      id: 'escaped-question', provider: 'codex', kind: 'question', payload: { questions: [{
+        id: 'untrusted', question: '<img src=x onerror=alert(1)>', mode: 'single', required: true, allowOther: false,
+        options: [{ id: 'unsafe', label: '<script>alert(1)</script>', description: '<b>description</b>' }],
+      }] },
+    } } });
+
+    expect(wrapper.text()).toContain('<img src=x onerror=alert(1)>');
+    expect(wrapper.find('img').exists()).toBe(false);
+    expect(wrapper.find('script').exists()).toBe(false);
+  });
+
+  it('renders normalized single, multiple, and text questions and submits their native-shaped answers', async () => {
+    const onRespond = vi.fn();
+    const normalizedPrompt = {
+      id: 'codex-modes', provider: 'codex', kind: 'question', payload: { questions: [
+        { id: 'environment', question: 'Environment?', mode: 'single', required: true, allowOther: false, options: [{ id: 'staging', label: 'Staging', description: 'Safe preview' }, { id: 'production', label: 'Production', description: 'Live deploy' }] },
+        { id: 'checks', question: 'Checks?', mode: 'multiple', required: true, allowOther: true, options: [{ id: 'unit', label: 'Unit', description: 'Fast feedback' }, { id: 'e2e', label: 'E2E', description: 'Browser coverage' }] },
+        { id: 'context', question: 'Anything else?', mode: 'text', required: true, allowOther: true },
+      ] },
+    };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: normalizedPrompt, onRespond } });
+
+    expect(wrapper.findAll('input[type="radio"]')).toHaveLength(2);
+    expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(2);
+    expect(wrapper.text()).toContain('Safe preview');
+    expect(wrapper.text()).toContain('Browser coverage');
+    expect(wrapper.findAll('.other-input')).toHaveLength(2);
+    expect(wrapper.get('button.prompt-primary-action').attributes('disabled')).toBeDefined();
+
+    await wrapper.findAll('input[type="radio"]')[0].setValue(true);
+    await wrapper.findAll('input[type="checkbox"]')[0].setValue(true);
+    await wrapper.findAll('input[type="checkbox"]')[1].setValue(true);
+    await wrapper.findAll('.other-input')[1].setValue('Keep this reversible');
+    expect(wrapper.get('button.prompt-primary-action').attributes('disabled')).toBeUndefined();
+    await wrapper.get('button.prompt-primary-action').trigger('click');
+
+    expect(onRespond).toHaveBeenCalledWith({
+      action: 'answer',
+      answers: [
+        { questionId: 'environment', selectedOptionIds: ['staging'] },
+        { questionId: 'checks', selectedOptionIds: ['unit', 'e2e'] },
+        { questionId: 'context', selectedOptionIds: [], text: 'Keep this reversible' },
+      ],
+    });
+  });
+
+  it('makes settled normalized prompts non-actionable', async () => {
+    const settledPrompt = {
+      id: 'settled-codex', provider: 'codex', kind: 'question', status: 'invalidated', payload: { questions: [
+        { id: 'choice', question: 'Choose', mode: 'single', required: true, allowOther: false, options: [{ id: 'a', label: 'A' }] },
+      ] },
+    };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: settledPrompt } });
+
+    expect(wrapper.get('input[type="radio"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('button.prompt-primary-action').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('button.prompt-quiet-action').attributes('disabled')).toBeDefined();
+  });
+
   it('makes Other mutually exclusive with selected options and preserves multi-select whitespace', async () => {
     const onRespond = vi.fn();
     const multiOtherPrompt = { id: 'multi-other', kind: 'question', payload: { questions: [{ question: 'Pick', multiSelect: true, options: [{ label: 'One', description: '' }, { label: 'Two', description: '' }] }] } };

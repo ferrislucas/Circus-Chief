@@ -43,6 +43,7 @@ describe('Agents API', () => {
         reasoningEffort: true,
         toolUse: true,
         resume: false,
+        interactiveInput: true,
       });
     });
 
