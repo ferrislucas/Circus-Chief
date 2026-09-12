@@ -36,7 +36,6 @@
           <span class="moving-label">Moving:</span>
           <span class="moving-session-name">{{ displayName }}</span>
         </div>
-
         <div
           v-if="lanes.length === 0"
           class="empty-state"

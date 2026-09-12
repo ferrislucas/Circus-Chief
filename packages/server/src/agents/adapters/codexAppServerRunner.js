@@ -70,13 +70,14 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
       }
       if (message.method === 'turn/failed') throw new Error(message.params?.error?.message || 'Codex turn failed');
       if (message.method === 'error') throw new Error(message.params?.message || 'Codex App Server protocol error');
-      if (message.method === 'turn/completed') { push(mapper.map({ type: 'turn.completed', usage: message.params?.turn?.usage })); done = true; wake?.(); return; }
+      if (message.method === 'thread/tokenUsage/updated') return push(mapper.map({ type: 'thread/tokenUsage/updated', tokenUsage: message.params?.tokenUsage }));
+      if (message.method === 'turn/completed') { push(mapper.map({ type: 'turn.completed' })); done = true; wake?.(); return; }
       if (message.method === 'item/completed') push(mapper.map({ type: 'item.completed', item: message.params?.item }));
   }
   async function handleServerRequest(request) {
       if (request.method !== 'item/tool/requestUserInput') return client.respondError(request.id, -32601, 'Unsupported server request');
       try {
-        const { responseContext, ...normalized } = normalizeUserInputRequest(request);
+        const { responseContext, autoResolutionMs, ...normalized } = normalizeUserInputRequest(request);
         // One runner owns one App Server connection; thread plus request id is
         // therefore the provider-request identity within this connection.
         const identity = serverRequestIdentity(normalized.metadata.threadId, request.id);
@@ -97,7 +98,7 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
           sessionId: meta.sessionId, conversationId: meta.conversationId, provider: 'codex', kind: 'question',
           ...normalized,
           metadata: { ...normalized.metadata, connectionId },
-          signal: interactionController.signal, expiryMs: interactionExpiryMs(options),
+          signal: interactionController.signal, expiryMs: autoResolutionMs ?? interactionExpiryMs(options),
         });
         if (client.closed) return;
         // The provider has already resolved this request, so its matching

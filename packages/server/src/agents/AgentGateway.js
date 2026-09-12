@@ -10,8 +10,6 @@ export class AgentGateway {
   constructor() {
     /** @type {Map<string, typeof import('./BaseAgent.js').BaseAgent>} */
     this.adapters = new Map();
-    /** @type {Map<string, Object>} */
-    this._capabilitiesCache = new Map();
     this._registerDefaultAdapters();
   }
 
@@ -28,8 +26,6 @@ export class AgentGateway {
    */
   registerAdapter(agentType, AdapterClass) {
     this.adapters.set(agentType, AdapterClass);
-    // Invalidate any cached capabilities for this type.
-    this._capabilitiesCache.delete(agentType);
   }
 
   /**
@@ -58,25 +54,17 @@ export class AgentGateway {
   /**
    * Get capabilities for an agent type.
    *
-   * Prefers the adapter's static `capabilities` field so capability discovery
-   * does not instantiate transports. Older adapters without static metadata
-   * retain the instance fallback for backward compatibility.
+   * Capabilities come from an adapter instance. Some transports (notably
+   * Codex's direct API fallback) are selected from runtime configuration, so
+   * static metadata can advertise capabilities the active transport lacks.
    *
    * @param {string} agentType
    * @returns {Object|null}
    */
   getAgentCapabilities(agentType) {
-    const cached = this._capabilitiesCache.get(agentType);
-    if (cached) return cached;
-
     const AdapterClass = this.adapters.get(agentType);
     if (!AdapterClass) return null;
-
-    const caps = AdapterClass.capabilities
-      ? { ...AdapterClass.capabilities }
-      : new AdapterClass({}).getCapabilities();
-    this._capabilitiesCache.set(agentType, caps);
-    return caps;
+    return new AdapterClass({}).getCapabilities();
   }
 
   /**

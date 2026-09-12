@@ -47,24 +47,18 @@ describe('Agents API', () => {
       });
     });
 
-    it('does not instantiate adapter classes when serving capabilities', async () => {
-      // Spy on adapter constructors; the handler should NOT call them.
+    it('resolves capabilities from adapter instances when serving capabilities', async () => {
       const claudeSpy = vi.spyOn(ClaudeCodeAdapter.prototype, 'getCapabilities');
       const codexSpy = vi.spyOn(CodexAdapter.prototype, 'getCapabilities');
 
-      // Force a fresh gateway so any cached capabilities from earlier tests
-      // do not mask instantiation. We wire in a fresh router backed by a
-      // dedicated gateway in tests by invalidating the module-level cache.
       const freshGateway = new AgentGateway();
-      // Prime: reading via the gateway also should not call getCapabilities
-      // (because both adapters expose static `capabilities`).
       freshGateway.getAllAgentCapabilities();
 
       const res = await request(app).get('/api/agents');
       expect(res.status).toBe(200);
 
-      expect(claudeSpy).not.toHaveBeenCalled();
-      expect(codexSpy).not.toHaveBeenCalled();
+      expect(claudeSpy).toHaveBeenCalled();
+      expect(codexSpy).toHaveBeenCalled();
 
       claudeSpy.mockRestore();
       codexSpy.mockRestore();

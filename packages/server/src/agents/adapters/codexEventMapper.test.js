@@ -183,17 +183,26 @@ describe('codexEventMapper', () => {
     expect(out[0].content).toContain('exit code: 1');
   });
 
-  it('turn.completed with usage → result(success) with mapped usage', () => {
+  it('uses cumulative App Server tokenUsage totals in preference to legacy turn completion usage', () => {
     const m = createCodexEventMapper();
-    const out = m.map({
-      type: 'turn.completed',
-      usage: { input_tokens: 12, cached_input_tokens: 0, output_tokens: 4 },
-    });
+    expect(m.map({ type: 'thread/tokenUsage/updated', tokenUsage: { total: { inputTokens: 12, outputTokens: 4 } } })).toEqual([]);
+    expect(m.map({ type: 'thread/tokenUsage/updated', tokenUsage: { total: { inputTokens: 20, outputTokens: 9 } } })).toEqual([]);
+    const out = m.map({ type: 'turn.completed', usage: { input_tokens: 999, output_tokens: 999 } });
     expect(out).toEqual([{
       type: 'result',
       subtype: 'success',
-      usage: { input_tokens: 12, output_tokens: 4 },
+      usage: { input_tokens: 20, output_tokens: 9 },
     }]);
+  });
+
+  it.each([
+    ['commandExecution', { command: 'pwd', aggregated_output: '/tmp', exit_code: 0 }, 'command_execution'],
+    ['fileChange', { changes: [{ path: 'a.js', kind: 'update' }] }, 'file_change'],
+  ])('normalizes App Server camelCase %s items', (type, details, tool_name) => {
+    const m = createCodexEventMapper();
+    expect(m.map({ type: 'item.completed', item: { type, ...details } })).toEqual([
+      expect.objectContaining({ type: 'tool_result', tool_name }),
+    ]);
   });
 
   it('turn.completed with no usage → result(success) with zeros', () => {

@@ -33,7 +33,7 @@ export function validateInitializeResult(result) {
 
 export function normalizeUserInputRequest(request) {
   if (request?.method !== 'item/tool/requestUserInput' || !request.params || request.id == null) throw new Error('Unsupported Codex server request');
-  const { threadId, turnId, itemId, questions } = request.params;
+  const { threadId, turnId, itemId, questions, autoResolutionMs } = request.params;
   if (![threadId, turnId, itemId].every((value) => typeof value === 'string' && value)) throw new Error('Malformed Codex user-input request context');
   if (!Array.isArray(questions) || questions.length < 1 || questions.length > MAX_QUESTIONS) throw new Error('Codex user-input requests must contain 1–3 questions');
   const ids = new Set();
@@ -41,6 +41,7 @@ export function normalizeUserInputRequest(request) {
     externalRequestId: request.id,
     metadata: { threadId, turnId, itemId },
     payload: { questions: questions.map((question) => normalizeQuestion(question, ids)) },
+    autoResolutionMs: normalizeAutoResolutionMs(autoResolutionMs),
     responseContext: createResponseContext(request.id, questions),
   };
 }
@@ -62,7 +63,11 @@ function normalizeQuestion(question, ids) {
   validateOptions(options);
   return {
     id: question.id, prompt: question.question, question: question.question, header: question.header || '',
-    mode: options.length ? (question.isMultiSelect ? 'multiple' : 'single') : 'text', required: true, allowOther: question.isOther === true,
+    // Codex 0.145.0 has no multi-select field. Do not invent one: the native
+    // response shape can carry arrays, but the request contract cannot ask for
+    // that semantics.
+    mode: options.length ? 'single' : 'text', required: true, allowOther: question.isOther === true,
+    isSecret: question.isSecret === true,
     options: options.map((option, index) => {
       const id = `option-${index}`;
       return { id, label: option.label, description: option.description };
@@ -74,7 +79,13 @@ function validateQuestion(question, ids) {
   if (!hasValidQuestionText(question)) throw new Error('Codex question text is invalid');
   if (question.header != null && (typeof question.header !== 'string' || question.header.length > 256)) throw new Error('Codex question header is invalid');
   if (question.isOther != null && typeof question.isOther !== 'boolean') throw new Error('Codex question other-answer mode is invalid');
-  if (question.isMultiSelect != null && typeof question.isMultiSelect !== 'boolean') throw new Error('Codex question multi-select mode is invalid');
+  if (question.isSecret != null && typeof question.isSecret !== 'boolean') throw new Error('Codex question secret mode is invalid');
+  if (question.isMultiSelect != null) throw new Error('Codex App Server 0.145.0 does not support multi-select questions');
+}
+function normalizeAutoResolutionMs(value) {
+  if (value == null) return undefined;
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error('Codex auto-resolution timeout is invalid');
+  return value;
 }
 function hasValidQuestionId(question, ids) {
   return question && typeof question.id === 'string' && Boolean(question.id)

@@ -59,6 +59,15 @@ describe('AgentPromptCard', () => {
     });
   });
 
+  it('masks Codex secret free-form responses', () => {
+    const wrapper = mount(AgentPromptCard, { props: { prompt: {
+      id: 'secret', provider: 'codex', kind: 'question', payload: { questions: [
+        { id: 'token', question: 'Token?', mode: 'text', required: true, allowOther: true, isSecret: true },
+      ] },
+    } } });
+    expect(wrapper.get('.other-input').attributes('type')).toBe('password');
+  });
+
   it('makes settled normalized prompts non-actionable', async () => {
     const settledPrompt = {
       id: 'settled-codex', provider: 'codex', kind: 'question', status: 'invalidated', payload: { questions: [

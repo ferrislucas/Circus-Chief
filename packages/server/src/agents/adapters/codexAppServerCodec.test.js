@@ -27,14 +27,14 @@ describe('Codex App Server user-input codec', () => {
       action: 'answer',
       answers: [
         { questionId: 'database', selectedOptionIds: ['option-0'] },
-        { questionId: 'features', selectedOptionIds: ['option-0', 'option-1'] },
+        { questionId: 'features', selectedOptionIds: ['option-1'] },
         { questionId: 'deployment', text: 'Self-hosted Kubernetes' },
       ],
     });
 
     expect(response).toEqual({ id: 'provider-request-7', result: { answers: {
       database: { answers: ['PostgreSQL'] },
-      features: { answers: ['Audit log', 'API tokens'] },
+      features: { answers: ['API tokens'] },
       deployment: { answers: ['Self-hosted Kubernetes'] },
     } } });
   });
@@ -59,9 +59,9 @@ describe('Codex App Server user-input codec', () => {
 
   it('rejects malformed native question fields instead of coercing or truncating them', () => {
     expect(() => normalizeUserInputRequest(request([{
-      id: 'multi', question: 'Select checks', isMultiSelect: 'yes',
+      id: 'multi', question: 'Select checks', isSecret: 'yes',
       options: [{ label: 'Unit', description: 'Fast' }],
-    }]))).toThrow('Codex question multi-select mode is invalid');
+    }]))).toThrow('Codex question secret mode is invalid');
 
     expect(() => normalizeUserInputRequest(request([{
       id: 'header', header: 'x'.repeat(257), question: 'Choose',
@@ -69,13 +69,17 @@ describe('Codex App Server user-input codec', () => {
     }]))).toThrow('Codex question header is invalid');
   });
 
-  it('normalizes an explicitly requested multi-select question without accepting a mixed answer mode', () => {
-    const normalized = normalizeUserInputRequest(request([{
+  it('rejects undeclared multi-select semantics and preserves schema-declared secret and timeout fields', () => {
+    expect(() => normalizeUserInputRequest(request([{
       id: 'checks', question: 'Select checks', isMultiSelect: true,
-      options: [{ label: 'Unit', description: 'Fast' }, { label: 'E2E', description: 'Broad' }],
-    }]));
+      options: [{ label: 'Unit', description: 'Fast' }],
+    }]))).toThrow('does not support multi-select');
 
-    expect(normalized.payload.questions[0]).toMatchObject({ mode: 'multiple' });
+    const secretRequest = request([{
+      id: 'secret', header: 'Credential', question: 'Token?', isSecret: true, isOther: true,
+    }]);
+    const normalized = normalizeUserInputRequest({ ...secretRequest, params: { ...secretRequest.params, autoResolutionMs: 500 } });
+    expect(normalized).toMatchObject({ autoResolutionMs: 500, payload: { questions: [{ isSecret: true, mode: 'text' }] } });
   });
 
   it.each([

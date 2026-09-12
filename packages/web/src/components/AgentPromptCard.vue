@@ -89,6 +89,7 @@
             <span class="option-copy"><strong>Other</strong><small>Give the agent your own answer.</small></span>
             <input
               v-model="other[questionKey(question)]"
+              :type="question.isSecret ? 'password' : 'text'"
               class="form-input other-input"
               placeholder="Other…"
               :disabled="!isActionable || submitting"
