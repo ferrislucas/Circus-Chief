@@ -23,8 +23,13 @@ function createAppServerChild(initializeResult) {
 }
 
 describe('CodexAppServerClient initialization compatibility', () => {
-  it('accepts only an experimental API-capable initialization response', async () => {
-    const child = createAppServerChild({ capabilities: { experimentalApi: true } });
+  const supportedInitializeResult = {
+    userAgent: 'Circus Chief/0.145.0 (Mac OS; x86_64)',
+    codexHome: '/tmp/codex', platformFamily: 'unix', platformOs: 'macos',
+  };
+
+  it('accepts the version-pinned App Server initialize fixture', async () => {
+    const child = createAppServerChild(supportedInitializeResult);
     const client = new CodexAppServerClient({ child });
 
     await expect(client.initialize()).resolves.toBeUndefined();
@@ -36,14 +41,14 @@ describe('CodexAppServerClient initialization compatibility', () => {
   });
 
   it.each([
-    ['missing capabilities', {}],
-    ['experimental API unavailable', { capabilities: { experimentalApi: false } }],
-    ['changed capabilities schema', { capabilities: ['experimentalApi'] }],
+    ['missing required fields', {}],
+    ['a missing platform', { ...supportedInitializeResult, platformOs: undefined }],
+    ['changed response schema', { capabilities: ['experimentalApi'] }],
   ])('rejects %s before a turn can start', async (_name, initializeResult) => {
     const child = createAppServerChild(initializeResult);
     const client = new CodexAppServerClient({ child });
 
-    await expect(client.initialize()).rejects.toThrow('Codex App Server is incompatible: experimentalApi capability is required');
+    await expect(client.initialize()).rejects.toThrow('Codex App Server is incompatible: initialize response does not match the supported protocol');
     expect(client.closed).toBe(true);
   });
 

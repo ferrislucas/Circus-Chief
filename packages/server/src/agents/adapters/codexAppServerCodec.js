@@ -1,6 +1,9 @@
 const MAX_QUESTIONS = 3;
 const MAX_OPTIONS = 16;
 const MAX_TEXT = 8_000;
+// Captured from `codex-cli 0.145.0` App Server. The initialize result reports
+// host metadata, not a reflection of client-requested capabilities.
+export const CODEX_APP_SERVER_PROTOCOL_FIXTURE_VERSION = '0.145.0';
 
 export function parseJsonRpcLine(line) {
   let message;
@@ -19,8 +22,12 @@ export function initializeParams() {
 // App Server interactive input is experimental and therefore must be explicitly
 // acknowledged. Keep this protocol-version contract at the codec boundary.
 export function validateInitializeResult(result) {
-  if (result?.capabilities?.experimentalApi !== true) {
-    throw new Error('Codex App Server is incompatible: experimentalApi capability is required');
+  if (!result || typeof result !== 'object' || Array.isArray(result)
+    || typeof result.userAgent !== 'string' || !result.userAgent.trim()
+    || typeof result.codexHome !== 'string' || !result.codexHome
+    || typeof result.platformFamily !== 'string' || !result.platformFamily
+    || typeof result.platformOs !== 'string' || !result.platformOs) {
+    throw new Error('Codex App Server is incompatible: initialize response does not match the supported protocol');
   }
 }
 
@@ -63,11 +70,19 @@ function normalizeQuestion(question, ids) {
   };
 }
 function validateQuestion(question, ids) {
-  if (!question || typeof question.id !== 'string' || !question.id || question.id.length > 128 || ids.has(question.id)) throw new Error('Codex question ids must be unique bounded strings');
-  if (typeof question.question !== 'string' || !question.question.trim() || question.question.length > MAX_TEXT) throw new Error('Codex question text is invalid');
+  if (!hasValidQuestionId(question, ids)) throw new Error('Codex question ids must be unique bounded strings');
+  if (!hasValidQuestionText(question)) throw new Error('Codex question text is invalid');
   if (question.header != null && (typeof question.header !== 'string' || question.header.length > 256)) throw new Error('Codex question header is invalid');
   if (question.isOther != null && typeof question.isOther !== 'boolean') throw new Error('Codex question other-answer mode is invalid');
   if (question.isMultiSelect != null && typeof question.isMultiSelect !== 'boolean') throw new Error('Codex question multi-select mode is invalid');
+}
+function hasValidQuestionId(question, ids) {
+  return question && typeof question.id === 'string' && Boolean(question.id)
+    && question.id.length <= 128 && !ids.has(question.id);
+}
+function hasValidQuestionText(question) {
+  return typeof question.question === 'string' && Boolean(question.question.trim())
+    && question.question.length <= MAX_TEXT;
 }
 function validateOptions(options) {
   if (!Array.isArray(options) || options.length > MAX_OPTIONS) throw new Error('Codex question options exceed the supported limit');

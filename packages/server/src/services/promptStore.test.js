@@ -776,6 +776,32 @@ describe('promptStore concurrent prompt queue', () => {
     await expect(second).resolves.toEqual({ action: 'answer', answers: [{ questionId: 'database', selectedOptionIds: ['postgres'] }] });
     expect(createWorkLog.mock.calls.filter(([sessionId]) => sessionId === 'provider-duplicate')).toHaveLength(1);
   });
+
+  it('scopes provider invalidation to its App Server connection and thread', async () => {
+    const payload = { questions: [{ id: 'database', question: 'Database?', mode: 'single', required: true, allowOther: false, options: [{ id: 'postgres', label: 'PostgreSQL' }] }] };
+    const first = requestInteraction({
+      sessionId: 'scoped-invalidation', conversationId: 'conv-1', provider: 'codex', kind: 'question',
+      externalRequestId: 7, metadata: { connectionId: 'connection-a', threadId: 'thread-a' }, payload,
+    });
+    const second = requestInteraction({
+      sessionId: 'scoped-invalidation', conversationId: 'conv-1', provider: 'codex', kind: 'question',
+      externalRequestId: 7, metadata: { connectionId: 'connection-b', threadId: 'thread-b' }, payload,
+    });
+
+    expect(getPromptQueue('scoped-invalidation')).toHaveLength(2);
+    expect(invalidateInteraction({
+      sessionId: 'scoped-invalidation', provider: 'codex', externalRequestId: 7,
+      metadata: { connectionId: 'connection-a', threadId: 'thread-a' },
+    })).toBe(true);
+    await expect(first).resolves.toEqual({ action: 'invalidated' });
+    expect(getPrompt('scoped-invalidation')?.metadata).toMatchObject({ connectionId: 'connection-b', threadId: 'thread-b' });
+
+    const prompt = getPrompt('scoped-invalidation');
+    expect(respondToPrompt('scoped-invalidation', prompt.id, {
+      action: 'answer', answers: [{ questionId: 'database', selectedOptionIds: ['postgres'] }],
+    })).toBe(true);
+    await expect(second).resolves.toMatchObject({ action: 'answer' });
+  });
 });
 
 describe('promptStore bounded lifecycle', () => {

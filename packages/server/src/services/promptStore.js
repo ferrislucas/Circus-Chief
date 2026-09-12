@@ -7,6 +7,8 @@ import { PROMPT_ACTIONS_BY_KIND } from '@circuschief/shared/contracts/prompts';
 import { buildSafeToolInputSummary, buildSafeHeadline, buildSafeBlockedPath } from './promptDurableSummary.js';
 import logger from '../logger.js';
 
+/* eslint-disable max-lines -- prompt queue transitions and their validation share one auditable state machine. */
+
 // Sessions hold an *ordered queue* of parked prompts, not a single record.
 //
 // Why: the SDK dispatches `can_use_tool` control requests concurrently, not
@@ -425,8 +427,10 @@ export function respondToPrompt(sessionId, promptId, response) {
 // A server-initiated request may be resolved by the provider before a browser
 // response arrives. This is intentionally identity-based and not client
 // exposed. It removes a queued or visible item using the same atomic settle.
-export function invalidateInteraction({ sessionId, provider, externalRequestId }) {
-  const record = (prompts.get(sessionId) || []).find((item) => item.provider === provider && item.externalRequestId === externalRequestId);
+export function invalidateInteraction({ sessionId, provider, externalRequestId, metadata = null }) {
+  const record = (prompts.get(sessionId) || []).find((item) => isDuplicateInteraction(item, {
+    provider, externalRequestId, metadata,
+  }));
   if (!record) return false;
   return settle(record, 'invalidated', { action: 'invalidated' });
 }

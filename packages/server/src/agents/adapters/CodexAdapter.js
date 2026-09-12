@@ -1,25 +1,13 @@
 import { BaseAgent } from '../BaseAgent.js';
-import { executeCodexCli } from './codexCliRunner.js';
 import { spawnCodexAppServer } from './codexAppServerRunner.js';
-import { createCodexSpawner } from '../../services/codexSpawnHelper.js';
-import { buildCodexExecutionConfig } from './codexExecutionConfig.js';
-
-/**
- * Module-level flag: once an ENOENT is observed for the Codex CLI, remember
- * it so subsequent calls skip the spawn attempt and can short-circuit the
- * direct-API path selection.
- */
-let codexCliUnavailable = false;
 
 /**
  * Adapter for OpenAI Codex / any OpenAI-Chat-Completions-compatible model.
  *
  * Two execution paths:
  *
- *   1. CLI path (default) — spawns `codex exec --json ...` and parses its
- *      line-delimited JSON stdout. Uses {@link createCodexEventMapper} to
- *      normalize events into the SDK-shaped envelope the rest of the app
- *      already understands.
+ *   1. App Server path (default) — spawns `codex app-server` and maintains
+ *      the bidirectional JSON-RPC connection needed for interactive input.
  *
  *   2. Direct-API path — activated by {@code USE_CODEX_DIRECT_API=1}. Uses
  *      the official {@code openai} SDK with Chat Completions streaming
@@ -45,9 +33,7 @@ export class CodexAdapter extends BaseAgent {
     reasoningEffort: true,
     toolUse: true,
     resume: false,
-    // The default Codex capability describes legacy CLI/direct API routing.
-    // A live App Server connection promotes this only after its handshake.
-    interactiveInput: false,
+    interactiveInput: true,
   });
 
   /**
@@ -63,11 +49,10 @@ export class CodexAdapter extends BaseAgent {
     super(rest);
     this._spawnCodex = spawnCodexProcess;
     this._openaiClientFactory = openaiClientFactory;
-    this._interactiveInputAvailable = false;
   }
 
   getCapabilities() {
-    return { ...CodexAdapter.capabilities, interactiveInput: this._interactiveInputAvailable };
+    return { ...CodexAdapter.capabilities, interactiveInput: !this._shouldUseDirectApi() };
   }
 
   supportsResume() {
@@ -82,92 +67,22 @@ export class CodexAdapter extends BaseAgent {
    */
   async *execute(queryParams, meta) {
     const options = queryParams.options || {};
-    if (options.requiresInteractiveInput === true) {
-      if (!this._canUseInteractiveAppServer()) {
-        throw new Error('Codex interactive input requires the enabled and compatible App Server transport');
-      }
-      yield* this._executeAppServer(queryParams, options, meta);
-      return;
-    }
     if (this._shouldUseDirectApi()) {
       yield* this._executeDirectApi(queryParams, options);
       return;
     }
-    if (process.env.CODEX_APP_SERVER_ENABLED === '1') {
-      yield* this._executeAppServer(queryParams, options, meta);
-      return;
-    }
-    yield* this._executeCli(queryParams, options);
+    yield* this._executeAppServer(queryParams, options, meta);
   }
 
   _shouldUseDirectApi() {
     if (process.env.USE_CODEX_DIRECT_API === '1') return true;
-    if (this._spawnCodex === null) return true;
-    if (codexCliUnavailable) return true;
     return false;
-  }
-
-  _canUseInteractiveAppServer() {
-    return process.env.CODEX_APP_SERVER_ENABLED === '1' && !this._shouldUseDirectApi();
   }
 
   async *_executeAppServer(queryParams, options, meta) {
     yield* spawnCodexAppServer(this._spawnCodex, queryParams, {
       ...options,
-      onInteractiveInputAvailable: () => { this._interactiveInputAvailable = true; },
     }, meta);
-  }
-
-  /**
-   * CLI path — spawn the Codex CLI and stream JSON events.
-   *
-   * Real invocation (v0.124.0):
-   *   codex exec --json --skip-git-repo-check --sandbox <mode> -m <model>
-   *
-   * Notes:
-   *   - The `exec` subcommand is required (bare `codex --json` does not work).
-   *   - There is no `--system` flag; system prompts are prepended to the
-   *     stdin prompt via {@link composeCliPrompt}.
-   *   - Sandbox mode is driven by {@code options.sandboxMode} (defaults to
-   *     `workspace-write`) which is set by
-   *     {@code buildCodexQueryParams} from {@code session.mode}.
-   */
-  async *_executeCli(queryParams, options) {
-    const child = this._spawnCodexChild(queryParams, options);
-    yield* executeCodexCli(child, queryParams, options, markCodexCliUnavailable);
-  }
-
-  _spawnCodexChild(queryParams, options) {
-    const spawnFn = this._spawnCodex ?? createCodexSpawner();
-    const config = buildCodexExecutionConfig(options);
-    const args = [
-      'exec',
-      '--json',
-      '--skip-git-repo-check',
-      '--sandbox', config.sandbox,
-      '-m', config.model,
-    ];
-    args.push(...config.configArgs);
-
-    console.log('[CodexAdapter] auth_mode_hint =', config.usesChatGptAuth ? 'chatgpt' : 'apikey');
-
-    try {
-      return spawnFn({
-        command: 'codex',
-        args,
-        cwd: config.cwd,
-        env: config.env,
-        signal: config.signal,
-      });
-    } catch (err) {
-      if (err && err.code === 'ENOENT') {
-        codexCliUnavailable = true;
-        const notFound = new Error('Codex CLI not found');
-        notFound.code = 'CODEX_CLI_NOT_FOUND';
-        throw notFound;
-      }
-      throw err;
-    }
   }
 
   /**
@@ -245,20 +160,7 @@ export class CodexAdapter extends BaseAgent {
   }
 }
 
-/**
- * Test-only: reset the module-level ENOENT cache so each test case starts
- * from a known state.
- * @private
- */
-export function _resetCodexCliUnavailableForTests() {
-  codexCliUnavailable = false;
-}
-
 // --- Direct-API helpers ----------------------------------------------------
-
-function markCodexCliUnavailable() {
-  codexCliUnavailable = true;
-}
 
 function resolveDirectApiInputs(options) {
   return {

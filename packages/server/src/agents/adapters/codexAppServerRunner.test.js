@@ -5,7 +5,10 @@ import { executeCodexAppServer } from './codexAppServerRunner.js';
 import { getPrompt, getPromptQueue, respondToPrompt } from '../../services/promptStore.js';
 import logger from '../../logger.js';
 
-function createAppServerChild(initializeResult = { capabilities: { experimentalApi: true } }) {
+function createAppServerChild(initializeResult = {
+  userAgent: 'Circus Chief/0.145.0 (Mac OS; x86_64)',
+  codexHome: '/tmp/codex', platformFamily: 'unix', platformOs: 'macos',
+}) {
   const child = new EventEmitter();
   child.requests = [];
   child.stdout = new Readable({ read() {} });
@@ -140,10 +143,10 @@ describe('executeCodexAppServer lifecycle failures', () => {
   });
 
   it('fails compatibility before starting a thread or turn', async () => {
-    const child = createAppServerChild({ capabilities: { experimentalApi: false } });
+    const child = createAppServerChild({});
     const generator = execute(child);
 
-    await expect(nextWithDeadline(generator)).rejects.toThrow('Codex App Server is incompatible: experimentalApi capability is required');
+    await expect(nextWithDeadline(generator)).rejects.toThrow('Codex App Server is incompatible: initialize response does not match the supported protocol');
     expect(child.requests.map((request) => request.method)).toEqual(['initialize']);
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
   });

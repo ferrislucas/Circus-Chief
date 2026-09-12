@@ -5,6 +5,7 @@ import { invalidateInteraction, requestInteraction } from '../../services/prompt
 import { createCodexSpawner } from '../../services/codexSpawnHelper.js';
 import { buildCodexExecutionConfig } from './codexExecutionConfig.js';
 import logger from '../../logger.js';
+import { randomUUID } from 'crypto';
 
 export async function *spawnCodexAppServer(spawnOverride, queryParams, options, meta) {
   const spawn = spawnOverride ?? createCodexSpawner();
@@ -15,11 +16,13 @@ export async function *spawnCodexAppServer(spawnOverride, queryParams, options, 
 
 // Runs one persistent App Server connection for a single execution. The
 // adapter owns spawning; this module owns only protocol-to-event translation.
+// eslint-disable-next-line max-params, max-lines-per-function, max-statements -- connection lifecycle, callbacks, and cleanup share one ownership boundary.
 export async function *executeCodexAppServer(child, queryParams, options, meta = {}, resolvedConfig = buildCodexExecutionConfig(options)) {
   const events = []; let wake; let done = false; let failure;
   const handledServerRequests = new Set();
+  const connectionId = randomUUID();
+  let activeThreadId = null;
   const interactionController = new AbortController();
-  let client;
   const abortInteractions = (reason) => {
     if (!interactionController.signal.aborted) interactionController.abort(reason);
   };
@@ -47,13 +50,21 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
   options.abortController?.signal?.addEventListener('abort', onAbort, { once: true });
   const mapper = createCodexEventMapper({ model: options.model });
   const push = (items) => { events.push(...items); wake?.(); wake = null; };
-  client = new CodexAppServerClient({
+  const client = new CodexAppServerClient({
     child,
     onClose: fail,
-    onNotification: async (message) => {
+    onNotification: handleNotification,
+    onServerRequest: handleServerRequest,
+  });
+  async function handleNotification(message) {
       if (message.method === 'serverRequest/resolved') {
         const id = message.params?.requestId ?? message.params?.id;
-        const invalidated = invalidateInteraction({ sessionId: meta.sessionId, provider: 'codex', externalRequestId: id });
+        const invalidated = invalidateInteraction({
+          sessionId: meta.sessionId,
+          provider: 'codex',
+          externalRequestId: id,
+          metadata: { connectionId, threadId: activeThreadId },
+        });
         if (!invalidated) logger.log('Codex App Server unknown request resolution', { sessionId: meta.sessionId, requestId: String(id) });
         return;
       }
@@ -61,8 +72,8 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
       if (message.method === 'error') throw new Error(message.params?.message || 'Codex App Server protocol error');
       if (message.method === 'turn/completed') { push(mapper.map({ type: 'turn.completed', usage: message.params?.turn?.usage })); done = true; wake?.(); return; }
       if (message.method === 'item/completed') push(mapper.map({ type: 'item.completed', item: message.params?.item }));
-    },
-    onServerRequest: async (request) => {
+  }
+  async function handleServerRequest(request) {
       if (request.method !== 'item/tool/requestUserInput') return client.respondError(request.id, -32601, 'Unsupported server request');
       try {
         const { responseContext, ...normalized } = normalizeUserInputRequest(request);
@@ -84,7 +95,9 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
         });
         const outcome = await requestInteraction({
           sessionId: meta.sessionId, conversationId: meta.conversationId, provider: 'codex', kind: 'question',
-          ...normalized, signal: interactionController.signal, expiryMs: interactionExpiryMs(options),
+          ...normalized,
+          metadata: { ...normalized.metadata, connectionId },
+          signal: interactionController.signal, expiryMs: interactionExpiryMs(options),
         });
         if (client.closed) return;
         // The provider has already resolved this request, so its matching
@@ -96,8 +109,7 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
         const response = encodeError(request.id, -32602, error instanceof Error ? error.message : 'Invalid user-input request');
         client.respondError(response.id, response.error.code, response.error.message);
       }
-    },
-  });
+  }
   try {
     try {
       await client.initialize();
@@ -113,6 +125,7 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
     const thread = await client.request('thread/start', { cwd: resolvedConfig.cwd, model: resolvedConfig.model, sandbox: resolvedConfig.sandbox, developerInstructions: resolvedConfig.systemPrompt });
     const threadId = thread?.thread?.id;
     if (!threadId) throw new Error('Codex App Server did not return a thread id');
+    activeThreadId = threadId;
     await client.request('turn/start', { threadId, input: [{ type: 'text', text: queryParams.prompt }], cwd: resolvedConfig.cwd, model: resolvedConfig.model, effort: resolvedConfig.reasoningEffort });
     while (!done) {
       if (failure) throw failure;
