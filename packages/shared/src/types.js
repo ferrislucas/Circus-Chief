@@ -196,8 +196,8 @@ export const OPENAI_MODELS = [
     name: 'GPT-5.6 Sol',
     description: 'Frontier model for complex professional work',
     seedId: 'openai-gpt-5-6-sol',
-    lifecycle: 'older',
-    defaultEnabled: false,
+    lifecycle: 'current',
+    defaultEnabled: true,
     evidence: CATALOG_EVIDENCE,
     reviewedDate: CATALOG_REVIEWED_DATE,
   },
@@ -206,8 +206,8 @@ export const OPENAI_MODELS = [
     name: 'GPT-5.6 Terra',
     description: 'Capable lower-cost GPT-5.6 model',
     seedId: 'openai-gpt-5-6-terra',
-    lifecycle: 'older',
-    defaultEnabled: false,
+    lifecycle: 'current',
+    defaultEnabled: true,
     evidence: CATALOG_EVIDENCE,
     reviewedDate: CATALOG_REVIEWED_DATE,
   },
@@ -216,8 +216,8 @@ export const OPENAI_MODELS = [
     name: 'GPT-5.6 Luna',
     description: 'Fastest and most cost-efficient GPT-5.6 model',
     seedId: 'openai-gpt-5-6-luna',
-    lifecycle: 'older',
-    defaultEnabled: false,
+    lifecycle: 'current',
+    defaultEnabled: true,
     evidence: CATALOG_EVIDENCE,
     reviewedDate: CATALOG_REVIEWED_DATE,
   },
@@ -262,7 +262,7 @@ export const OPENAI_MODELS = [
     reviewedDate: CATALOG_REVIEWED_DATE,
   },
 ];
-export const DEFAULT_OPENAI_MODEL = 'gpt-6';
+export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
 
 // This is deliberately separate from OPENAI_MODELS. The latter is the catalog
 // of models available to direct OpenAI-compatible providers; summaries run via

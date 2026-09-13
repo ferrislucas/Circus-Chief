@@ -41,12 +41,11 @@ describe('fresh-install built-in model catalog order', () => {
     });
   });
 
-  it('orders openai-default models to match OPENAI_MODELS catalog order (default-first)', () => {
+  it('orders openai-default models to match the newest-first OPENAI_MODELS catalog order', () => {
     withDb((db) => {
       const models = getModels(db, 'openai-default');
       expect(models.map((m) => m.modelId)).toEqual(OPENAI_MODELS.map((m) => m.id));
-      // The default model ('gpt-6') must sort first, not alphabetically last.
-      expect(models[0].modelId).toBe('gpt-6');
+      expect(models[0].modelId).toBe('gpt-6-astra');
     });
   });
 

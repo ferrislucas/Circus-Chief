@@ -43,11 +43,14 @@ describe('catalog matrix completeness (FRD §0 / Phase 1 gate)', () => {
     expect(CLAUDE_MODELS.find((m) => m.id === 'claude-opus-5')).toMatchObject({ lifecycle: 'current', defaultEnabled: true });
   });
 
-  it('classifies superseded GPT-5.x generations as older, disabled by default', () => {
-    for (const id of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.5']) {
+  it('retains GPT-5.6 models as current and enabled alongside GPT-6 Astra', () => {
+    for (const id of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
+      expect(OPENAI_MODELS.find((m) => m.id === id)).toMatchObject({ lifecycle: 'current', defaultEnabled: true });
+    }
+    for (const id of ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.5']) {
       expect(OPENAI_MODELS.find((m) => m.id === id)).toMatchObject({ lifecycle: 'older', defaultEnabled: false });
     }
-    expect(OPENAI_MODELS.find((m) => m.id === 'gpt-6')).toMatchObject({ lifecycle: 'current', defaultEnabled: true });
+    expect(OPENAI_MODELS.find((m) => m.id === 'gpt-6-astra')).toMatchObject({ lifecycle: 'current', defaultEnabled: true });
   });
 
   it('classifies every Gemini entry as current (no superseded sibling in this catalog)', () => {
@@ -112,11 +115,7 @@ describe('OPENAI_MODELS', () => {
     expect(OPENAI_MODELS.find((m) => m.id === 'gpt-5.5')).toMatchObject({ defaultEnabled: false });
   });
 
-  it('gives GPT-6 and each GPT-5.6 model stable seed ids and display names', () => {
-    expect(OPENAI_MODELS.find((m) => m.id === 'gpt-6')).toMatchObject({
-      name: 'GPT-6',
-      seedId: 'openai-gpt-6',
-    });
+  it('gives each GPT-5.6 model stable seed ids and display names', () => {
     expect(OPENAI_MODELS.find((m) => m.id === 'gpt-5.6-sol')).toMatchObject({
       name: 'GPT-5.6 Sol',
       seedId: 'openai-gpt-5-6-sol',
@@ -138,7 +137,12 @@ describe('OPENAI_MODELS', () => {
 });
 
 describe('DEFAULT_OPENAI_MODEL', () => {
-  it('defaults to gpt-6', () => {
-    expect(DEFAULT_OPENAI_MODEL).toBe('gpt-6');
+  it('defaults to the available GPT-5.6 Sol choice, not GPT-6 Astra', () => {
+    expect(DEFAULT_OPENAI_MODEL).toBe('gpt-5.6-sol');
+    expect(OPENAI_MODELS.find((m) => m.id === DEFAULT_OPENAI_MODEL)).toMatchObject({
+      lifecycle: 'current',
+      defaultEnabled: true,
+    });
+    expect(DEFAULT_OPENAI_MODEL).not.toBe('gpt-6-astra');
   });
 });
