@@ -182,10 +182,10 @@ export const DEFAULT_MODEL = 'claude-opus-5';
 
 export const OPENAI_MODELS = [
   {
-    id: 'gpt-6',
-    name: 'GPT-6',
-    description: 'Next-generation frontier model for complex professional work',
-    seedId: 'openai-gpt-6',
+    id: 'gpt-6-astra',
+    name: 'GPT-6 Astra',
+    description: 'Next-generation frontier model',
+    seedId: 'openai-gpt-6-astra',
     lifecycle: 'current',
     defaultEnabled: true,
     evidence: CATALOG_EVIDENCE,

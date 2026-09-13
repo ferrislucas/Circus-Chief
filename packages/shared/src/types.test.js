@@ -93,12 +93,17 @@ describe('DEFAULT_MODEL', () => {
 });
 
 describe('OPENAI_MODELS', () => {
-  it('includes GPT-6 as the current OpenAI model and retains the GPT-5.6 family', () => {
+  it('puts GPT-6 Astra first as the current, enabled OpenAI catalog entry', () => {
     const ids = OPENAI_MODELS.map((m) => m.id);
-    expect(ids).toContain('gpt-6');
-    expect(ids).toContain('gpt-5.6-sol');
-    expect(ids).toContain('gpt-5.6-terra');
-    expect(ids).toContain('gpt-5.6-luna');
+    expect(OPENAI_MODELS[0]).toMatchObject({
+      id: 'gpt-6-astra',
+      name: 'GPT-6 Astra',
+      description: 'Next-generation frontier model',
+      seedId: 'openai-gpt-6-astra',
+      lifecycle: 'current',
+      defaultEnabled: true,
+    });
+    expect(ids).not.toContain('gpt-6');
   });
 
   it('includes gpt-5.5 as a disabled-by-default legacy choice', () => {
