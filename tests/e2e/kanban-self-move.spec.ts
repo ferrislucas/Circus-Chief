@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
 import {
   cleanupCreatedResources, seedProject, seedSession, waitForChildSession, waitForChildSessions,
-  navigateAndWait, openSessionOverlay, getSession, stopSession,
+  navigateAndWait, getSession, stopSession,
 } from './helpers';
 import {
   addSessionToLaneViaUI, configureAutomatedLane, expectCardSettlesInLane,
-  findCardOfSession, findLaneOfSession, getBoard, getLaneByName, laneByTitle,
+  findCardOfSession, findLaneOfSession, getBoard, getLaneByName,
   PARKED_PROMPT, waitForPendingPrompt,
 } from './kanbanLaneRunHelpers';
 
@@ -21,7 +21,7 @@ test.describe('Kanban unified lane routing', () => {
 
   test.afterEach(async () => { await cleanupCreatedResources(); });
 
-  test('schedules an active run destination and starts structured destination automation on completion', async ({ page, request }) => {
+  test('moves immediately and starts structured destination automation while the source run is active', async ({ page, request }) => {
     const board = await getBoard(project.id);
     const source = getLaneByName(board, 'In Progress');
     const done = getLaneByName(board, 'Done');
@@ -41,34 +41,24 @@ test.describe('Kanban unified lane routing', () => {
     const exitLaneUrl = `/api/projects/${project.id}/kanban/cards/by-workspace/${workspace.id}/lane`;
     const response = await request.put(exitLaneUrl, { data: { laneId: exit.id } });
     expect(response.status()).toBe(200);
-    await expect(response.json()).resolves.toEqual({ status: 'scheduled', laneId: exit.id });
+    await expect(response.json()).resolves.toEqual({ status: 'moved', laneId: exit.id });
     expect((await getSession(worker.id)).status).toBe('running');
-    expect(findLaneOfSession(await getBoard(project.id), workspace.id)).toBe(source.name);
-    expect(findCardOfSession(await getBoard(project.id), workspace.id).activeLaneRun.status).toBe('open');
+    expect(findLaneOfSession(await getBoard(project.id), workspace.id)).toBe(exit.name);
+    expect(findCardOfSession(await getBoard(project.id), workspace.id).activeLaneRun).toBeNull();
 
-    // The declaration is pushed to the open board over WebSocket: the card
-    // shows the chosen exit without a reload.
-    const chip = laneByTitle(page, source.name).locator('.lane-run-exit-lane');
-    await expect(chip).toHaveText(`Exit lane: ${exit.name}`);
-
-    // Re-declaring overwrites the previous choice; the last declaration wins.
+    // A second manual move is also immediate and supersedes the first
+    // destination run rather than declaring a deferred exit.
     const redeclare = await request.put(exitLaneUrl, { data: { laneId: altExit.id } });
     expect(redeclare.status()).toBe(200);
-    await expect(redeclare.json()).resolves.toEqual({ status: 'scheduled', laneId: altExit.id });
-    await expect(chip).toHaveText(`Exit lane: ${altExit.name}`);
-
-    await navigateAndWait(page, `/sessions/${worker.id}`, { waitFor: '[data-testid="session-detail"][data-ready="true"]' });
-    const prompt = (await openSessionOverlay(page)).locator('.agent-prompt-card');
-    await prompt.locator('.option-card').first().click();
-    await prompt.locator('button.prompt-primary-action').click();
-    // The card takes the declared exit, not the lane's configured completion target.
-    await expectCardSettlesInLane(project.id, workspace.id, altExit.name, 60000);
+    await expect(redeclare.json()).resolves.toEqual({ status: 'moved', laneId: altExit.id });
+    await expectCardSettlesInLane(project.id, workspace.id, altExit.name);
+    expect(findCardOfSession(await getBoard(project.id), workspace.id).activeLaneRun.status).toBe('open');
     expect(findLaneOfSession(await getBoard(project.id), workspace.id)).not.toBe(done.name);
     const children = await waitForChildSessions(workspace.id, 2, 15000);
     expect(children).toHaveLength(2);
   });
 
-  test('stopping a worker pauses the run and preserves its declared exit', async ({ page, request }) => {
+  test('stopping a superseded source worker does not pause the destination run', async ({ page, request }) => {
     const board = await getBoard(project.id);
     const source = getLaneByName(board, 'In Progress');
     const done = getLaneByName(board, 'Done');
@@ -87,31 +77,30 @@ test.describe('Kanban unified lane routing', () => {
     const exitLaneUrl = `/api/projects/${project.id}/kanban/cards/by-workspace/${workspace.id}/lane`;
     const response = await request.put(exitLaneUrl, { data: { laneId: exit.id } });
     expect(response.status()).toBe(200);
-
-    // A user stop pauses the worker's still-open obligation. It must not apply
-    // the exit early or discard the shared declaration: the run can be resumed
-    // later and should retain the operator's chosen exit.
-    await stopSession(worker.id);
-
+    await expect(response.json()).resolves.toEqual({ status: 'moved', laneId: exit.id });
     await expect.poll(async () => (
-      findCardOfSession(await getBoard(project.id), workspace.id)?.activeLaneRun?.blockerKind
-    ), { timeout: 15000 }).toBe('user_stop_pause');
+      findLaneOfSession(await getBoard(project.id), workspace.id)
+    )).toBe(exit.name);
+    const destinationWorker = (await waitForChildSessions(workspace.id, 2, 15000))
+      .find((session) => session.id !== worker.id);
+    expect(destinationWorker).toBeTruthy();
+    await waitForPendingPrompt(destinationWorker!.id);
+
+    // The source worker no longer owns the card after the manual move.
+    await stopSession(worker.id);
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const after = await getBoard(project.id);
-    expect(findLaneOfSession(after, workspace.id)).toBe(source.name);
+    expect(findLaneOfSession(after, workspace.id)).toBe(exit.name);
     const card = findCardOfSession(after, workspace.id);
     expect(card.activeLaneRun.status).toBe('open');
-    expect(card.activeLaneRun.pausedCount).toBe(1);
-    expect(card.activeLaneRun.chosenExitLaneId).toBe(exit.id);
+    expect(card.activeLaneRun.blockerKind).toBe('open_work');
+    expect(card.activeLaneRun.pausedCount).toBe(0);
+    expect(card.activeLaneRun.chosenExitLaneId).toBeNull();
 
-    // The paused run retains the shared exit. Repeating that same declaration
-    // is idempotent; it must not revive the removed per-turn deferred move.
+    // Repeating the current destination remains idempotent.
     const late = await request.put(exitLaneUrl, { data: { laneId: exit.id } });
     expect(late.status()).toBe(200);
     await expect(late.json()).resolves.toEqual({ status: 'noop', laneId: exit.id });
-
-    const retained = findCardOfSession(await getBoard(project.id), workspace.id);
-    expect(retained.activeLaneRun.chosenExitLaneId).toBe(exit.id);
   });
 });

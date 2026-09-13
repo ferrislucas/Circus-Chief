@@ -364,10 +364,10 @@ test.describe('Kanban structured lane runs', () => {
   });
 
   // ----------------------------------------------------------------
-  // 5. AC-9: the unified route treats a move during an open run as an exit
-  //    selection. The run remains authoritative until it completes.
+  // 5. A manual move during an open run is authoritative and immediate.
+  //    The superseded run must not later apply its configured completion.
   // ----------------------------------------------------------------
-  test('routing an open run selects its exit and completion applies it', async ({ page }) => {
+  test('manually moving an open run applies immediately and supersedes its completion', async ({ page }) => {
     const board = await getBoard(project.id);
     const inProgress = getLaneByName(board, 'In Progress');
     const done = getLaneByName(board, 'Done');
@@ -391,17 +391,18 @@ test.describe('Kanban structured lane runs', () => {
     await waitForStatus(worker.id, 'scheduled', 20000);
     expect(findCardOfSession(await getBoard(project.id), workspace.id).activeLaneRun.status).toBe('open');
 
-    // A user routes the card to a lane with no automation/target. Since the
-    // current lane run is open, this selects its exit without moving yet.
+    // A user move is authoritative even while automation is open.
     await moveCardViaUI(page, cardByIdInLane(page, 'In Progress', workspace.id), 'Review');
-    await expect(cardByIdInLane(page, 'In Progress', workspace.id)).toBeVisible();
+    await expect(cardByIdInLane(page, 'Review', workspace.id)).toBeVisible();
 
     let boardNow = await getBoard(project.id);
-    expect(findLaneOfSession(boardNow, workspace.id)).toBe('In Progress');
-    expect(findCardOfSession(boardNow, workspace.id).activeLaneRun.chosenExitLaneName).toBe('Review');
+    expect(findLaneOfSession(boardNow, workspace.id)).toBe('Review');
+    expect(findCardOfSession(boardNow, workspace.id).activeLaneRun).toBeNull();
 
-    await resumeScheduledSessionViaUI(page, worker.id);
-    await expectCardSettlesInLane(project.id, workspace.id, 'Review');
+    // Supersession cancels the worker's pending continuation, so it cannot be
+    // resumed later to move the card to Done.
+    await expect.poll(async () => (await getSession(worker.id)).status).toBe('stopped');
+    await new Promise((r) => setTimeout(r, 1000));
     boardNow = await getBoard(project.id);
     expect(findLaneOfSession(boardNow, workspace.id)).toBe('Review');
     expect(findCardOfSession(boardNow, workspace.id).activeLaneRun).toBeNull();
