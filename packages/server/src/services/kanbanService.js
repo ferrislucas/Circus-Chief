@@ -11,7 +11,10 @@ import {
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
-import { createLaneRunForEntry, supersedeLaneRun, supersedeRunForCard, isStructured, getRun } from './workflowSessionService.js';
+import {
+  createLaneRunForEntry, supersedeLaneRun, supersedeLaneRunAuthorityOnly,
+  supersedeRunForCard, isStructured, getRun,
+} from './workflowSessionService.js';
 import { ApiError } from '../errors/ApiError.js';
 import { retrySqliteContention } from './sqliteContention.js';
 import { kanbanRoutingMetrics, recordRouteDecision } from './kanbanRoutingObservability.js';
@@ -63,9 +66,16 @@ function createRouteOutcome(status, laneId, finalizeMutation, { eventId = null, 
  * validated `targetLane`. Postconditions: every pre-existing open run for the
  * card is superseded, and a structured destination has a durable successor.
  */
-function repairStaleRunAndMoveCard(db, { card, targetLane, workspace, supersessionReason = 'workspace_routed' }) {
+function repairStaleRunAndMoveCard(db, {
+  card, targetLane, workspace, supersessionReason = 'workspace_routed', preserveMemberSessions = false,
+}) {
   const openRun = db.prepare("SELECT id FROM kanban_lane_runs WHERE card_id=? AND status='open'").get(card.id);
-  if (openRun) supersedeLaneRun(openRun.id, supersessionReason);
+  // Manual routes revoke only source automation authority; automatic repair
+  // retains the existing full-cancellation behavior.
+  if (openRun) {
+    const supersede = preserveMemberSessions ? supersedeLaneRunAuthorityOnly : supersedeLaneRun;
+    supersede(openRun.id, supersessionReason);
+  }
 
   const moved = kanbanCards.moveToLane(card.id, targetLane.id);
   const laneRun = isStructured(targetLane)
@@ -104,6 +114,7 @@ function recordScheduledDestination(db, runId, laneId, time) {
 function movedRouteOutcome(db, { card, targetLane, workspace, laneId, finalizeMutation, manualMove = false }) {
   const { moved, laneRun, supersededRunId } = repairStaleRunAndMoveCard(db, {
     card, targetLane, workspace, supersessionReason: manualMove ? 'manual_card_move' : 'workspace_routed',
+    preserveMemberSessions: manualMove,
   });
   return createRouteOutcome('moved', laneId, finalizeMutation, {
     eventId: laneRun?.laneEntryEventId || null, moved: { card, moved, laneRun }, projectId: workspace.projectId,

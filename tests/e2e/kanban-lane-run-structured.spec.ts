@@ -399,9 +399,9 @@ test.describe('Kanban structured lane runs', () => {
     expect(findLaneOfSession(boardNow, workspace.id)).toBe('Review');
     expect(findCardOfSession(boardNow, workspace.id).activeLaneRun).toBeNull();
 
-    // Supersession cancels the worker's pending continuation, so it cannot be
-    // resumed later to move the card to Done.
-    await expect.poll(async () => (await getSession(worker.id)).status).toBe('stopped');
+    // The source worker keeps its independently scheduled continuation, but
+    // the superseded run can no longer use it to move the card to Done.
+    await expect.poll(async () => (await getSession(worker.id)).status).toBe('scheduled');
     await new Promise((r) => setTimeout(r, 1000));
     boardNow = await getBoard(project.id);
     expect(findLaneOfSession(boardNow, workspace.id)).toBe('Review');

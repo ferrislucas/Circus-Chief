@@ -57,7 +57,8 @@ import {
   reclaimExpiredLaneEntryClaims,
 } from './kanbanService.js';
 import {
-  beginWorkflowTurn, createLaneRunForEntry, attachRootSession, finalizeOwnWorkCompletion, getRun, attemptLaneRunTransition,
+  beginWorkflowTurn, claimWorkflowSessionStart, createLaneRunForEntry, attachRootSession,
+  finalizeOwnWorkCompletion, getRun, attemptLaneRunTransition,
 } from './workflowSessionService.js';
 import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
 import { resolveProviderMetadataFromModel } from './sessionProvider.js';
@@ -157,6 +158,34 @@ describe('kanbanService', () => {
       expect(broadcastToProject).toHaveBeenCalledWith(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, expect.objectContaining({
         cardId: card.id, fromLaneId: lanes[0].id, toLaneId: lanes[1].id,
       }));
+    });
+
+    it('preserves a source worker\'s lifecycle and pending schedule while revoking its card authority', async () => {
+      const { root, card, run, worker } = setupActiveLaneRunCard();
+      const scheduledAt = Date.now() + 60_000;
+      databaseManager.get().prepare(`UPDATE sessions SET status='scheduled', scheduled_at=?, pending_prompt=?,
+        pending_interactive=1, auto_send_pending_prompt=1,
+        reschedule_count=2 WHERE id=?`)
+        .run(scheduledAt, 'Continue independently', worker.id);
+
+      await routeWorkspaceCard(root.id, lanes[1].id, { manualMove: true });
+
+      const preservedWorker = sessions.getById(worker.id);
+      expect(preservedWorker).toMatchObject({
+        laneRunId: null,
+        ownWorkState: 'open',
+        status: 'scheduled',
+        scheduledAt,
+        pendingPrompt: 'Continue independently',
+        pendingInteractive: true,
+        autoSendPendingPrompt: true,
+        rescheduleCount: 2,
+      });
+      expect(claimWorkflowSessionStart(worker.id)).toBe(true);
+
+      attemptLaneRunTransition(run.id);
+      expect(getRun(run.id).status).toBe('superseded');
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[1].id);
     });
   });
 
