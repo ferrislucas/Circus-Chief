@@ -196,13 +196,30 @@ describe('codexEventMapper', () => {
   });
 
   it.each([
-    ['commandExecution', { command: 'pwd', aggregated_output: '/tmp', exit_code: 0 }, 'command_execution'],
+    ['commandExecution', { command: 'pwd', aggregatedOutput: '/tmp', exitCode: 17 }, 'command_execution'],
     ['fileChange', { changes: [{ path: 'a.js', kind: 'update' }] }, 'file_change'],
   ])('normalizes App Server camelCase %s items', (type, details, tool_name) => {
     const m = createCodexEventMapper();
     expect(m.map({ type: 'item.completed', item: { type, ...details } })).toEqual([
       expect.objectContaining({ type: 'tool_result', tool_name }),
     ]);
+  });
+
+  it('preserves protocol-native command output and non-zero exit status', () => {
+    const m = createCodexEventMapper();
+    const [result] = m.map({ type: 'item/completed', item: {
+      type: 'commandExecution', command: 'false', aggregatedOutput: 'permission denied', exitCode: 126,
+    } });
+    expect(result.content).toContain('permission denied');
+    expect(result.content).toContain('exit code: 126');
+  });
+
+  it('maps an App Server thread/started lifecycle notification only once', () => {
+    const m = createCodexEventMapper({ model: 'gpt-5-codex' });
+    expect(m.map({ type: 'thread/started', thread: { id: 'thread-1' } })).toEqual([expect.objectContaining({
+      type: 'system', subtype: 'init', session_id: 'thread-1', model: 'gpt-5-codex',
+    })]);
+    expect(m.map({ type: 'thread/started', thread: { id: 'thread-1' } })).toEqual([]);
   });
 
   it('turn.completed with no usage → result(success) with zeros', () => {

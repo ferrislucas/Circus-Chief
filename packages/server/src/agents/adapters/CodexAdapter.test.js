@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { Readable, Writable } from 'stream';
-import { CodexAdapter } from './CodexAdapter.js';
+import { CodexAdapter, _resetCodexCliUnavailableForTests } from './CodexAdapter.js';
 import { BaseAgent } from '../BaseAgent.js';
 
 function createAppServerChild(capture) {
@@ -35,14 +35,14 @@ async function collect(generator) {
   return events;
 }
 
-afterEach(() => { delete process.env.USE_CODEX_DIRECT_API; });
+afterEach(() => { delete process.env.USE_CODEX_DIRECT_API; _resetCodexCliUnavailableForTests(); });
 
 describe('CodexAdapter', () => {
   it('extends BaseAgent and advertises App Server interaction support by default', () => {
     const adapter = new CodexAdapter();
     expect(adapter).toBeInstanceOf(BaseAgent);
     expect(adapter.getCapabilities()).toEqual({
-      streaming: true, thinking: false, reasoningEffort: true, toolUse: true, resume: false, interactiveInput: true,
+      streaming: false, thinking: false, reasoningEffort: true, toolUse: true, resume: false, interactiveInput: true,
     });
   });
 
@@ -80,8 +80,37 @@ describe('CodexAdapter', () => {
     const create = vi.fn(async function *stream() { yield { choices: [{ delta: { content: 'Hello' } }] }; });
     const adapter = new CodexAdapter({ openaiClientFactory: () => ({ chat: { completions: { create } } }) });
     expect(adapter.getCapabilities().interactiveInput).toBe(false);
+    expect(adapter.getCapabilities().streaming).toBe(true);
     const events = await collect(adapter.execute({ prompt: 'hello', options: { model: 'gpt-5-codex', env: {}, abortController: new AbortController() } }));
     expect(create).toHaveBeenCalledOnce();
     expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
+  });
+
+  it('uses direct API when an injected CLI spawner is explicitly null', async () => {
+    const create = vi.fn(async function *stream() { yield { choices: [{ delta: { content: 'Hello' } }] }; });
+    const adapter = new CodexAdapter({ spawnCodexProcess: null, openaiClientFactory: () => ({ chat: { completions: { create } } }) });
+    expect(adapter.getCapabilities()).toMatchObject({ streaming: true, interactiveInput: false });
+    await collect(adapter.execute({ prompt: 'hello', options: { model: 'gpt-5-codex', env: {}, abortController: new AbortController() } }));
+    expect(create).toHaveBeenCalledOnce();
+  });
+
+  it('falls back to direct API on ENOENT and remembers the unavailable CLI', async () => {
+    const missing = Object.assign(new Error('codex missing'), { code: 'ENOENT' });
+    const spawn = vi.fn(() => { throw missing; });
+    const create = vi.fn(async function *stream() { yield { choices: [{ delta: { content: 'Hello' } }] }; });
+    const adapter = new CodexAdapter({ spawnCodexProcess: spawn, openaiClientFactory: () => ({ chat: { completions: { create } } }) });
+    await collect(adapter.execute({ prompt: 'hello', options: { model: 'gpt-5-codex', env: {}, abortController: new AbortController() } }));
+    expect(create).toHaveBeenCalledOnce();
+    expect(adapter.getCapabilities()).toMatchObject({ streaming: true, interactiveInput: false });
+    await collect(adapter.execute({ prompt: 'again', options: { model: 'gpt-5-codex', env: {}, abortController: new AbortController() } }));
+    expect(spawn).toHaveBeenCalledOnce();
+  });
+
+  it('does not hide non-ENOENT App Server failures behind direct API', async () => {
+    const spawn = vi.fn(() => { throw new Error('permission denied'); });
+    const create = vi.fn();
+    const adapter = new CodexAdapter({ spawnCodexProcess: spawn, openaiClientFactory: () => ({ chat: { completions: { create } } }) });
+    await expect(collect(adapter.execute({ prompt: 'hello', options: { model: 'gpt-5-codex', env: {}, abortController: new AbortController() } }))).rejects.toThrow('permission denied');
+    expect(create).not.toHaveBeenCalled();
   });
 });

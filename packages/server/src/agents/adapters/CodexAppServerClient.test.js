@@ -52,6 +52,14 @@ describe('CodexAppServerClient initialization compatibility', () => {
     expect(client.closed).toBe(true);
   });
 
+  it.each(['0.144.0', '0.146.0', 'not-a-version'])('rejects an incompatible App Server version (%s)', async (version) => {
+    const child = createAppServerChild({ ...supportedInitializeResult, userAgent: `codex/${version} (Mac OS; x86_64)` });
+    const client = new CodexAppServerClient({ child });
+
+    await expect(client.initialize()).rejects.toThrow(`expected 0.145.0; received ${version}`);
+    expect(client.closed).toBe(true);
+  });
+
   it('surfaces initialization errors as compatibility failures', async () => {
     const child = createAppServerChild(undefined);
     child.stdin = new Writable({

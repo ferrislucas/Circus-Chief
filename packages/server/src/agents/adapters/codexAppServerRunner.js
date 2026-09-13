@@ -70,6 +70,7 @@ export async function *executeCodexAppServer(child, queryParams, options, meta =
       }
       if (message.method === 'turn/failed') throw new Error(message.params?.error?.message || 'Codex turn failed');
       if (message.method === 'error') throw new Error(message.params?.message || 'Codex App Server protocol error');
+      if (message.method === 'thread/started') return push(mapper.map({ type: 'thread/started', thread: message.params?.thread }));
       if (message.method === 'thread/tokenUsage/updated') return push(mapper.map({ type: 'thread/tokenUsage/updated', tokenUsage: message.params?.tokenUsage }));
       if (message.method === 'turn/completed') { push(mapper.map({ type: 'turn.completed' })); done = true; wake?.(); return; }
       if (message.method === 'item/completed') push(mapper.map({ type: 'item.completed', item: message.params?.item }));

@@ -1,6 +1,8 @@
 import { BaseAgent } from '../BaseAgent.js';
 import { spawnCodexAppServer } from './codexAppServerRunner.js';
 
+let codexCliUnavailable = false;
+
 /**
  * Adapter for OpenAI Codex / any OpenAI-Chat-Completions-compatible model.
  *
@@ -28,7 +30,7 @@ import { spawnCodexAppServer } from './codexAppServerRunner.js';
  */
 export class CodexAdapter extends BaseAgent {
   static capabilities = Object.freeze({
-    streaming: true,
+    streaming: false,
     thinking: false,
     reasoningEffort: true,
     toolUse: true,
@@ -52,7 +54,8 @@ export class CodexAdapter extends BaseAgent {
   }
 
   getCapabilities() {
-    return { ...CodexAdapter.capabilities, interactiveInput: !this._shouldUseDirectApi() };
+    if (this._shouldUseDirectApi()) return { ...CodexAdapter.capabilities, streaming: true, interactiveInput: false };
+    return { ...CodexAdapter.capabilities };
   }
 
   supportsResume() {
@@ -76,13 +79,19 @@ export class CodexAdapter extends BaseAgent {
 
   _shouldUseDirectApi() {
     if (process.env.USE_CODEX_DIRECT_API === '1') return true;
+    if (this._spawnCodex === null) return true;
+    if (codexCliUnavailable) return true;
     return false;
   }
 
   async *_executeAppServer(queryParams, options, meta) {
-    yield* spawnCodexAppServer(this._spawnCodex, queryParams, {
-      ...options,
-    }, meta);
+    try {
+      yield* spawnCodexAppServer(this._spawnCodex, queryParams, { ...options }, meta);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      codexCliUnavailable = true;
+      yield* this._executeDirectApi(queryParams, options);
+    }
   }
 
   /**
@@ -159,6 +168,9 @@ export class CodexAdapter extends BaseAgent {
     return new OpenAI({ baseURL, apiKey, timeout });
   }
 }
+
+/** Test-only reset for the remembered unavailable executable state. */
+export function _resetCodexCliUnavailableForTests() { codexCliUnavailable = false; }
 
 // --- Direct-API helpers ----------------------------------------------------
 

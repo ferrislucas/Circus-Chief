@@ -53,7 +53,7 @@ export function createCodexEventMapper({ model } = {}) {
   const warnedUnknownItemTypes = new Set();
 
   const handlers = {
-    'thread.started': (evt) => handleThreadStarted(evt, model),
+    'thread.started': (evt) => mapperState.initialize(evt.thread_id, model),
     'turn.started': () => [],
     'item.started': () => [],
     'item.completed': (evt) => handleItemCompleted(evt, mapperState, warnedUnknownItemTypes),
@@ -65,12 +65,13 @@ export function createCodexEventMapper({ model } = {}) {
 
   function map(codexEvent) {
     if (!codexEvent || typeof codexEvent !== 'object') return [];
-    const handler = handlers[codexEvent.type];
+    const type = normalizeEventType(codexEvent.type);
+    const handler = handlers[type];
     if (!handler) {
       console.warn(`[codexEventMapper] Unknown Codex event type: "${codexEvent.type}"`);
       return [];
     }
-    return handler(codexEvent);
+    return handler(type === codexEvent.type ? codexEvent : normalizeEvent(codexEvent, type));
   }
 
   return {
@@ -90,6 +91,15 @@ class MapperState {
   reset() {
     this.lastUsage = null;
     this.terminated = false;
+    this.initialized = false;
+  }
+
+  initialize(threadId, model) {
+    if (this.initialized || typeof threadId !== 'string' || !threadId) return [];
+    this.initialized = true;
+    const init = { type: 'system', subtype: 'init', session_id: threadId };
+    if (model) init.model = model;
+    return [init];
   }
 
   /**
@@ -143,14 +153,13 @@ class MapperState {
 
 // --- Pure event handlers ---------------------------------------------------
 
-function handleThreadStarted(evt, model) {
-  const init = {
-    type: 'system',
-    subtype: 'init',
-    session_id: evt.thread_id,
-  };
-  if (model) init.model = model;
-  return [init];
+function normalizeEventType(type) {
+  return ({ 'thread/started': 'thread.started', 'item/completed': 'item.completed', 'turn/completed': 'turn.completed', 'turn/failed': 'turn.failed' })[type] || type;
+}
+
+function normalizeEvent(event, type) {
+  if (type === 'thread.started') return { ...event, type, thread_id: event.thread?.id ?? event.params?.thread?.id };
+  return { ...event, type };
 }
 
 function handleItemCompleted(evt, _state, warnedTypes) {
@@ -218,10 +227,12 @@ function handleError(evt) {
 function mapCommandExecution(item) {
   const cmd = item.command || '';
   const parts = [`$ ${cmd}`];
-  if (item.exit_code !== undefined && item.exit_code !== 0) {
-    parts.push(`exit code: ${item.exit_code}`);
+  const exitCode = item.exitCode ?? item.exit_code;
+  const output = item.aggregatedOutput ?? item.aggregated_output;
+  if (exitCode !== undefined && exitCode !== 0) {
+    parts.push(`exit code: ${exitCode}`);
   }
-  if (item.aggregated_output) parts.push(item.aggregated_output);
+  if (output) parts.push(output);
   return {
     type: 'tool_result',
     tool_name: 'command_execution',

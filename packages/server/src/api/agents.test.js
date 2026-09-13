@@ -38,7 +38,7 @@ describe('Agents API', () => {
       });
 
       expect(codex.capabilities).toEqual({
-        streaming: true,
+        streaming: false,
         thinking: false,
         reasoningEffort: true,
         toolUse: true,

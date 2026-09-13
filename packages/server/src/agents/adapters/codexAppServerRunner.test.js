@@ -237,12 +237,14 @@ describe('executeCodexAppServer lifecycle failures', () => {
     const generator = execute(child);
     const first = generator.next();
     await new Promise((resolve) => setImmediate(resolve));
-    child.emitMessage({ method: 'item/completed', params: { item: { type: 'commandExecution', command: 'pwd', aggregated_output: '/tmp', exit_code: 0 } } });
+    child.emitMessage({ method: 'thread/started', params: { thread: { id: 'thread-1' } } });
+    child.emitMessage({ method: 'item/completed', params: { item: { type: 'commandExecution', command: 'pwd', aggregatedOutput: '/tmp', exitCode: 7 } } });
     child.emitMessage({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread-1', turnId: 'turn-1', tokenUsage: { total: { inputTokens: 7, outputTokens: 3 } } } });
     child.emitMessage({ method: 'turn/completed', params: { turn: {} } });
     const events = [(await first).value];
     for await (const event of generator) events.push(event);
     expect(events).toContainEqual(expect.objectContaining({ type: 'tool_result', tool_name: 'command_execution' }));
+    expect(events.filter((event) => event.type === 'system' && event.subtype === 'init')).toHaveLength(1);
     expect(events.at(-1)).toMatchObject({ type: 'result', usage: { input_tokens: 7, output_tokens: 3 } });
   });
 

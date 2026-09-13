@@ -4,6 +4,7 @@ const MAX_TEXT = 8_000;
 // Captured from `codex-cli 0.145.0` App Server. The initialize result reports
 // host metadata, not a reflection of client-requested capabilities.
 export const CODEX_APP_SERVER_PROTOCOL_FIXTURE_VERSION = '0.145.0';
+export const CODEX_APP_SERVER_SUPPORTED_VERSION = '0.145.0';
 
 export function parseJsonRpcLine(line) {
   let message;
@@ -22,12 +23,28 @@ export function initializeParams() {
 // App Server interactive input is experimental and therefore must be explicitly
 // acknowledged. Keep this protocol-version contract at the codec boundary.
 export function validateInitializeResult(result) {
-  if (!result || typeof result !== 'object' || Array.isArray(result)
-    || typeof result.userAgent !== 'string' || !result.userAgent.trim()
-    || typeof result.codexHome !== 'string' || !result.codexHome
-    || typeof result.platformFamily !== 'string' || !result.platformFamily
-    || typeof result.platformOs !== 'string' || !result.platformOs) {
+  if (!hasInitializeShape(result)) {
     throw new Error('Codex App Server is incompatible: initialize response does not match the supported protocol');
+  }
+  validateInitializeVersion(result.userAgent);
+}
+
+function hasInitializeShape(result) {
+  return Boolean(result && typeof result === 'object' && !Array.isArray(result)
+    && hasNonEmptyString(result.userAgent)
+    && hasNonEmptyString(result.codexHome)
+    && hasNonEmptyString(result.platformFamily)
+    && hasNonEmptyString(result.platformOs));
+}
+
+function hasNonEmptyString(value) {
+  return typeof value === 'string' && Boolean(value.trim());
+}
+
+function validateInitializeVersion(userAgent) {
+  const actualVersion = userAgent.match(/\/([^\s]+)/)?.[1] || 'missing';
+  if (actualVersion !== CODEX_APP_SERVER_SUPPORTED_VERSION) {
+    throw new Error(`Codex App Server is incompatible: expected ${CODEX_APP_SERVER_SUPPORTED_VERSION}; received ${actualVersion}`);
   }
 }
 
