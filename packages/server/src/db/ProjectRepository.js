@@ -103,7 +103,7 @@ export class ProjectRepository extends BaseRepository {
     prPollInterval: { column: 'pr_poll_interval' },
     repoUrl: { column: 'repo_url' },
     worktreePath: { column: 'worktree_path' },
-    pinned: { column: 'pinned', transform: Boolean },
+    pinned: { column: 'pinned', transform: (value) => value ? 1 : 0 },
   };
 
   update(id, data) {

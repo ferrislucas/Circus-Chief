@@ -85,6 +85,14 @@ describe('Projects Contracts', () => {
       expect(invalid.success).toBe(false);
     });
 
+    it('accepts a boolean pinned preference and rejects non-booleans', () => {
+      expect(UpdateProjectRequest.safeParse({ pinned: true })).toMatchObject({
+        success: true,
+        data: { pinned: true },
+      });
+      expect(UpdateProjectRequest.safeParse({ pinned: 1 }).success).toBe(false);
+    });
+
   });
 
   describe('ProjectResponse', () => {

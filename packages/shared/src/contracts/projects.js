@@ -21,6 +21,7 @@ export const UpdateProjectRequest = z.object({
   prPollInterval: z.number().int().min(10000).optional(), // Min 10 seconds
   repoUrl: z.string().url().nullable().optional(),
   worktreePath: z.string().nullable().optional(),
+  pinned: z.boolean().optional(),
 });
 
 export const RunningWorkspaceSummary = z.object({

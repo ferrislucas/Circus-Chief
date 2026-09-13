@@ -15,6 +15,11 @@ function projectCard(page: import('@playwright/test').Page, name: string) {
 }
 
 test.describe('Project pinning', () => {
+  // Both scenarios deliberately exercise global project facets and use the
+  // shared cleanup helper, so running them concurrently can delete each
+  // other's fixtures midway through an assertion.
+  test.describe.configure({ mode: 'serial' });
+
   test.beforeEach(async () => cleanupAll());
   test.afterEach(async () => cleanupAll());
 
@@ -40,7 +45,9 @@ test.describe('Project pinning', () => {
     await page.goto('/');
 
     await page.getByRole('button', { name: /Pinned projects \(1\)/ }).click();
-    await page.getByRole('button', { name: /idle \(2\)/ }).click();
+    // Other spec files can contribute projects to these global facets while
+    // the full suite runs in parallel, so the idle count is not fixture-local.
+    await page.getByRole('button', { name: /idle \(\d+\)/ }).click();
     await expect(projectCard(page, pinned.name)).toBeVisible();
     await expect(projectCard(page, unpinned.name)).toHaveCount(0);
   });
