@@ -3,6 +3,7 @@ import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared
 import { DatabaseManager } from '../DatabaseManager.js';
 import { getModels } from '../providerModelOperations.js';
 import { providerMigrations } from './providerMigrations.js';
+import { allMigrations } from './index.js';
 
 function withDb(fn) {
   const manager = new DatabaseManager();
@@ -54,6 +55,63 @@ describe('fresh-install built-in model catalog order', () => {
       const models = getModels(db, 'google-default');
       expect(models.map((m) => m.modelId)).toEqual(GEMINI_MODELS.map((m) => m.id));
       expect(models[0].modelId).toBe('gemini-2.5-pro');
+    });
+  });
+});
+
+describe('OpenAI catalog synchronization for existing installations', () => {
+  it('backfills GPT-6 Astra once without changing a user’s existing model state or selected default', () => {
+    withDb((db) => {
+      const now = Date.now();
+      db.prepare('DELETE FROM provider_models WHERE id = ?').run('openai-gpt-6-astra');
+      db.prepare(`UPDATE provider_models
+        SET enabled = ?, sort_order = ?, removed_at = ?
+        WHERE id = ?`)
+        .run(0, 41, null, 'openai-gpt-5-6-sol');
+      db.prepare(`UPDATE provider_models
+        SET enabled = ?, sort_order = ?, removed_at = ?
+        WHERE id = ?`)
+        .run(1, 42, now, 'openai-gpt-5-6-terra');
+      db.prepare('UPDATE provider_models SET sort_order = ? WHERE id = ?')
+        .run(43, 'openai-gpt-5-6-luna');
+
+      db.prepare(`INSERT INTO projects (id, name, working_directory, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)`)
+        .run('astra-upgrade-project', 'Astra upgrade project', '/tmp/astra-upgrade-project', now, now);
+      db.prepare(`INSERT INTO project_session_defaults
+        (id, project_id, model, provider_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(
+          'astra-upgrade-defaults',
+          'astra-upgrade-project',
+          'gpt-5.6-sol',
+          'openai-default',
+          now,
+          now
+        );
+
+      for (const migration of allMigrations) migration.up(db);
+      for (const migration of allMigrations) migration.up(db);
+
+      expect(db.prepare(`SELECT enabled, sort_order, removed_at FROM provider_models WHERE id = ?`)
+        .get('openai-gpt-5-6-sol')).toEqual({ enabled: 0, sort_order: 41, removed_at: null });
+      expect(db.prepare(`SELECT enabled, sort_order, removed_at FROM provider_models WHERE id = ?`)
+        .get('openai-gpt-5-6-terra')).toEqual({ enabled: 1, sort_order: 42, removed_at: now });
+      expect(db.prepare('SELECT sort_order FROM provider_models WHERE id = ?')
+        .get('openai-gpt-5-6-luna')).toEqual({ sort_order: 43 });
+      expect(db.prepare('SELECT model FROM project_session_defaults WHERE id = ?')
+        .get('astra-upgrade-defaults')).toEqual({ model: 'gpt-5.6-sol' });
+
+      const astraRows = db.prepare(`SELECT id, model_id, enabled, lifecycle FROM provider_models
+        WHERE provider_id = ? AND model_id = ?`).all('openai-default', 'gpt-6-astra');
+      expect(astraRows).toEqual([{
+        id: 'openai-gpt-6-astra',
+        model_id: 'gpt-6-astra',
+        enabled: 1,
+        lifecycle: 'current',
+      }]);
+      expect(db.prepare(`SELECT COUNT(*) AS count FROM provider_models
+        WHERE provider_id = ? AND model_id = ?`).get('openai-default', 'gpt-6')).toEqual({ count: 0 });
     });
   });
 });
