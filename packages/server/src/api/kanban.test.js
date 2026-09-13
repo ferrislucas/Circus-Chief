@@ -885,13 +885,18 @@ describe('Kanban API', () => {
       expect(kanbanCards.getById(card.id).laneId).toBe(lanes[1].id);
     });
 
-    it('normalizes a child id and schedules an active run', async () => {
+    it('normalizes a child id and immediately moves despite an active run', async () => {
       const { worker, run, card } = setupActiveRun();
       const res = await request(app).put(`/api/projects/${projectId}/kanban/cards/by-workspace/${worker.id}/lane`).send({ laneId: lanes[1].id });
       expect(res.status).toBe(200);
-      expect(res.body).toMatchObject({ status: 'scheduled', laneId: lanes[1].id });
-      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
-      expect(getRun(run.id).chosenExitLaneId).toBe(lanes[1].id);
+      expect(res.body).toMatchObject({ status: 'moved', laneId: lanes[1].id });
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[1].id);
+      expect(getRun(run.id)).toMatchObject({
+        status: 'superseded', chosenExitLaneId: null, failureReason: 'manual_card_move',
+      });
+      expect(broadcastToProject).toHaveBeenCalledWith(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, expect.objectContaining({
+        cardId: card.id, fromLaneId: lanes[0].id, toLaneId: lanes[1].id,
+      }));
     });
 
     it('reports a current-lane request during an active run as a no-op', async () => {
