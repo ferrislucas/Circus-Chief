@@ -264,12 +264,11 @@ export const OPENAI_MODELS = [
 ];
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
 
-// This is deliberately separate from OPENAI_MODELS. The latter is the catalog
-// of models available to direct OpenAI-compatible providers; summaries run via
-// the Codex CLI and must only offer model IDs that its non-interactive runner
-// supports. Keep this list in sync with Codex CLI model support.
+// This is deliberately separate from OPENAI_MODELS. Catalog availability does
+// not imply Codex summary-runner compatibility: summaries run via the Codex
+// CLI and must only offer model IDs its non-interactive runner supports. Keep
+// this list in sync with that runner's supported model IDs.
 export const CODEX_SUMMARY_MODELS = [
-  'gpt-6',
   'gpt-5.6-sol',
   'gpt-5.6-terra',
   'gpt-5.6-luna',

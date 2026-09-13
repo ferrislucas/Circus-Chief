@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS, DEFAULT_MODEL, DEFAULT_OPENAI_MODEL } from './types.js';
+import {
+  CLAUDE_MODELS,
+  OPENAI_MODELS,
+  GEMINI_MODELS,
+  DEFAULT_MODEL,
+  DEFAULT_OPENAI_MODEL,
+  CODEX_SUMMARY_MODELS,
+} from './types.js';
 
 describe('catalog matrix completeness (FRD §0 / Phase 1 gate)', () => {
   const catalogs = { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS };
@@ -144,5 +151,19 @@ describe('DEFAULT_OPENAI_MODEL', () => {
       defaultEnabled: true,
     });
     expect(DEFAULT_OPENAI_MODEL).not.toBe('gpt-6-astra');
+  });
+});
+
+describe('CODEX_SUMMARY_MODELS', () => {
+  it('retains only the separately supported Codex summary-runner models', () => {
+    expect(CODEX_SUMMARY_MODELS).toEqual([
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'gpt-5.3-codex',
+    ]);
+    expect(CODEX_SUMMARY_MODELS).not.toContain('gpt-6-astra');
   });
 });
