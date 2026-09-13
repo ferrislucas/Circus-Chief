@@ -4,6 +4,7 @@ import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { createApp } from './app.js';
 import { initDatabase, commandRuns, sessions } from './database.js';
+import { processCommandRunOutputCleanup } from './services/commandRunOutputCleanup.js';
 import { initWebSocket, webSocketManager, setCommandRunOutputAuthorizer } from './websocket.js';
 import { parseCliOptions } from './cli.js';
 import { settings } from './db/index.js';
@@ -60,6 +61,10 @@ mkdirSync(dirname(dbPath), { recursive: true });
 
 // Initialize database
 initDatabase(dbPath);
+processCommandRunOutputCleanup().catch((error) => console.error('[Command output cleanup] startup pass failed', error));
+setInterval(() => {
+  processCommandRunOutputCleanup().catch((error) => console.error('[Command output cleanup] periodic pass failed', error));
+}, 30_000).unref();
 setCommandRunOutputAuthorizer((runId, requestedSessionId) => {
   const run = commandRuns.getById(runId);
   const rootSessionId = sessions.getRootSessionId(requestedSessionId);

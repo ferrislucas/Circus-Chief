@@ -276,7 +276,7 @@ describe('schema baseline', () => {
         `INSERT INTO command_buttons (id, project_id, label, command, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
       ).run('button-activity', 'project-activity', 'Run', 'echo hi', now, now);
       db.prepare(
-        `INSERT INTO command_runs (id, session_id, button_id, status, output, started_at) VALUES (?, ?, ?, 'running', '', ?)`
+        `INSERT INTO command_runs (id, session_id, button_id, status, started_at) VALUES (?, ?, ?, 'running', ?)`
       ).run('run-activity', 'session-activity', 'button-activity', now + 2000);
 
       expect(db.prepare('SELECT last_activity_at FROM sessions WHERE id = ?').get('session-activity').last_activity_at)

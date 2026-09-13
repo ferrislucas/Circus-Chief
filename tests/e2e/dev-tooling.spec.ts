@@ -80,6 +80,21 @@ function readPortFile(dir?: string): string | null {
   return null;
 }
 
+/**
+ * Resolve the port used by this Playwright run. pw.sh exports API_URL as the
+ * authoritative endpoint; .server-port remains the fallback for direct runs.
+ */
+function readActivePort(): string | null {
+  if (process.env.API_URL) {
+    try {
+      return new URL(process.env.API_URL).port || null;
+    } catch {
+      return null;
+    }
+  }
+  return readPortFile();
+}
+
 // ---------------------------------------------------------------------------
 // Temp directory tracking for cleanup
 // ---------------------------------------------------------------------------
@@ -166,8 +181,8 @@ test.describe('Category 1: start-server.sh Script Behavior', () => {
   });
 
   // Test 5
-  test('current worktree .server-port file exists with valid port', () => {
-    const port = readPortFile();
+  test('current worktree has a valid configured server port', () => {
+    const port = readActivePort();
     expect(port).not.toBeNull();
 
     const portNum = parseInt(port!, 10);
@@ -201,8 +216,8 @@ test.describe('Category 2: Port Isolation & Server Liveness', () => {
   test.describe.configure({ timeout: 15_000 });
 
   // Test 6
-  test('.server-port contains a valid port number', () => {
-    const portContent = readPortFile();
+  test('configured server port is a valid port number', () => {
+    const portContent = readActivePort();
     expect(portContent).not.toBeNull();
     expect(portContent).toMatch(/^\d+$/);
 
@@ -212,8 +227,8 @@ test.describe('Category 2: Port Isolation & Server Liveness', () => {
   });
 
   // Test 7
-  test('server is running on the port from .server-port', async () => {
-    const port = readPortFile();
+  test('server is running on the configured port', async () => {
+    const port = readActivePort();
     expect(port).not.toBeNull();
 
     const url = `http://localhost:${port}/api/projects`;
@@ -225,8 +240,8 @@ test.describe('Category 2: Port Isolation & Server Liveness', () => {
   });
 
   // Test 8
-  test('helpers.ts getAPIURL returns URL matching .server-port', () => {
-    const port = readPortFile();
+  test('helpers.ts getAPIURL returns URL matching the configured port', () => {
+    const port = readActivePort();
     expect(port).not.toBeNull();
 
     const expectedURL = `http://localhost:${port}`;
