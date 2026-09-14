@@ -138,28 +138,29 @@ export const useProjectsStore = defineStore('projects', {
 
     async toggleProjectPin(id) {
       if (this.pendingPinIds.includes(id)) return;
-      const index = this.projects.findIndex((project) => project.id === id);
-      if (index === -1) return;
+      const project = this.projects.find((entry) => entry.id === id);
+      if (!project) return;
 
-      const previous = this.projects[index];
-      const nextPinned = !previous.pinned;
+      const previousPinned = project.pinned;
+      const nextPinned = !previousPinned;
       this.pendingPinIds.push(id);
-      this.projects[index] = { ...previous, pinned: nextPinned };
-      if (this.currentProject?.id === id) this.currentProject = this.projects[index];
+      this.projects = patchProjectPin(this.projects, id, nextPinned);
+      this.currentProject = patchCurrentProjectPin(this.currentProject, id, nextPinned);
 
       try {
         const updated = await api.updateProject(id, { pinned: nextPinned });
         // A mutation response is a base project record, whereas the list is an
         // aggregated read model. Replacing it would discard fresh activity and
         // navigation data, so only reconcile the server-authoritative pin state.
-        this.projects = reconcileProjectPin(this.projects, id, updated.pinned);
-        if (this.currentProject?.id === id) {
-          this.currentProject = { ...this.currentProject, pinned: updated.pinned };
-        }
+        this.projects = patchProjectPin(this.projects, id, updated.pinned);
+        this.currentProject = patchCurrentProjectPin(this.currentProject, id, updated.pinned);
         return updated;
       } catch (err) {
-        this.projects[index] = previous;
-        if (this.currentProject?.id === id) this.currentProject = previous;
+        // Refreshes can replace or reorder the list while the request is in
+        // flight. Restore just the optimistic field on the project that still
+        // has this ID; never revive a stale whole-project snapshot.
+        this.projects = patchProjectPin(this.projects, id, previousPinned);
+        this.currentProject = patchCurrentProjectPin(this.currentProject, id, previousPinned);
         throw err;
       } finally {
         this.pendingPinIds = this.pendingPinIds.filter((pendingId) => pendingId !== id);
@@ -192,8 +193,12 @@ function matchesStatus(project, status) {
   return project.runningSessionCount === 0 && project.waitingSessionCount === 0;
 }
 
-function reconcileProjectPin(projects, id, pinned) {
+function patchProjectPin(projects, id, pinned) {
   return projects.map((project) => (
     project.id === id ? { ...project, pinned } : project
   ));
+}
+
+function patchCurrentProjectPin(project, id, pinned) {
+  return project?.id === id ? { ...project, pinned } : project;
 }

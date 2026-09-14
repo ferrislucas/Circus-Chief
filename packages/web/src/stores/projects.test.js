@@ -30,6 +30,16 @@ function project(overrides = {}) {
   };
 }
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('useProjectsStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
@@ -282,6 +292,91 @@ describe('useProjectsStore', () => {
       await expect(store.toggleProjectPin('a')).rejects.toThrow('boom');
       expect(store.projects[0].pinned).toBe(false);
       expect(store.error).toBeNull();
+    });
+
+    it('reconciles a pending pin by ID after a refresh reorders the list', async () => {
+      const store = useProjectsStore();
+      const update = deferred();
+      store.projects = [project({ id: 'a', pinned: false }), project({ id: 'b', pinned: false })];
+      api.updateProject.mockReturnValue(update.promise);
+
+      const pending = store.toggleProjectPin('a');
+      api.getProjects.mockResolvedValue([
+        project({ id: 'b', pinned: false, lastActivityAt: 20 }),
+        project({ id: 'a', pinned: false, lastActivityAt: 30, preview: { title: 'fresh' } }),
+      ]);
+      await store.fetchProjects({ silent: true });
+
+      update.resolve(project({ id: 'a', pinned: true }));
+      await pending;
+
+      expect(store.projects).toMatchObject([
+        { id: 'b', pinned: false, lastActivityAt: 20 },
+        { id: 'a', pinned: true, lastActivityAt: 30, preview: { title: 'fresh' } },
+      ]);
+    });
+
+    it('never rolls back a different project when a refresh removes the pending project', async () => {
+      const store = useProjectsStore();
+      const update = deferred();
+      store.projects = [project({ id: 'a', pinned: false }), project({ id: 'b', pinned: true })];
+      api.updateProject.mockReturnValue(update.promise);
+
+      const pending = store.toggleProjectPin('a');
+      api.getProjects.mockResolvedValue([project({ id: 'b', pinned: true, lastActivityAt: 99 })]);
+      await store.fetchProjects({ silent: true });
+
+      update.reject(new Error('boom'));
+      await expect(pending).rejects.toThrow('boom');
+
+      expect(store.projects).toEqual([expect.objectContaining({ id: 'b', pinned: true, lastActivityAt: 99 })]);
+      expect(store.isPinPending('a')).toBe(false);
+    });
+
+    it('rolls back only the previous pin value after refreshed activity replaces the target', async () => {
+      const store = useProjectsStore();
+      const update = deferred();
+      store.projects = [project({ id: 'a', pinned: false, lastActivityAt: 1, sessionCount: 1 })];
+      api.updateProject.mockReturnValue(update.promise);
+
+      const pending = store.toggleProjectPin('a');
+      api.getProjects.mockResolvedValue([
+        project({ id: 'a', pinned: true, lastActivityAt: 2, sessionCount: 9, preview: { title: 'new activity' } }),
+      ]);
+      await store.fetchProjects({ silent: true });
+
+      update.reject(new Error('boom'));
+      await expect(pending).rejects.toThrow('boom');
+
+      expect(store.projects[0]).toMatchObject({
+        id: 'a', pinned: false, lastActivityAt: 2, sessionCount: 9, preview: { title: 'new activity' },
+      });
+    });
+
+    it('keeps pending state project-local, allows different projects concurrently, and suppresses duplicates', async () => {
+      const store = useProjectsStore();
+      const updateA = deferred();
+      const updateB = deferred();
+      store.projects = [project({ id: 'a', pinned: false }), project({ id: 'b', pinned: false })];
+      api.updateProject.mockReturnValueOnce(updateA.promise).mockReturnValueOnce(updateB.promise);
+
+      const pendingA = store.toggleProjectPin('a');
+      const duplicateA = store.toggleProjectPin('a');
+      const pendingB = store.toggleProjectPin('b');
+
+      expect(api.updateProject).toHaveBeenCalledTimes(2);
+      expect(store.projects).toMatchObject([{ id: 'a', pinned: true }, { id: 'b', pinned: true }]);
+      expect(store.isPinPending('a')).toBe(true);
+      expect(store.isPinPending('b')).toBe(true);
+
+      updateA.resolve(project({ id: 'a', pinned: true }));
+      await Promise.all([pendingA, duplicateA]);
+      expect(store.isPinPending('a')).toBe(false);
+      expect(store.isPinPending('b')).toBe(true);
+
+      updateB.resolve(project({ id: 'b', pinned: true }));
+      await pendingB;
+      expect(store.isPinPending('b')).toBe(false);
     });
   });
 });

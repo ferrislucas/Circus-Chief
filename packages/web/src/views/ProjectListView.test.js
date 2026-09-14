@@ -6,6 +6,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import ProjectListView from './ProjectListView.vue';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProjectFiltersStore } from '../stores/projectFilters.js';
+import { useUiStore } from '../stores/ui.js';
 
 const { getWorkspaceCards } = vi.hoisted(() => ({ getWorkspaceCards: vi.fn() }));
 const { fetchButtons } = vi.hoisted(() => ({ fetchButtons: vi.fn().mockResolvedValue(true) }));
@@ -506,6 +507,23 @@ describe('ProjectListView', () => {
 
       expect(wrapper.find('.welcome-heading').text()).toBe('Welcome to Circus Chief');
       expect(wrapper.find('.no-match').exists()).toBe(false);
+    });
+  });
+
+  describe('Project pinning', () => {
+    it('shows the shared error toast when a pin mutation fails', async () => {
+      projectsStore.projects = [fullProject()];
+      projectsStore.loading = false;
+      vi.spyOn(projectsStore, 'toggleProjectPin').mockRejectedValue(new Error('Pin update failed'));
+      const uiStore = useUiStore();
+      vi.spyOn(uiStore, 'error');
+      const wrapper = mount(ProjectListView, { global: { plugins: [pinia, router] } });
+      await flushAll(wrapper);
+
+      await wrapper.find('.project-pin-button').trigger('click');
+      await flushAll(wrapper);
+
+      expect(uiStore.error).toHaveBeenCalledWith('Pin update failed');
     });
   });
 });
