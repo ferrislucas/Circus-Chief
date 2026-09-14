@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS projects (
   pr_poll_interval INTEGER NOT NULL DEFAULT 60000,
   repo_url TEXT,
   worktree_path TEXT,
+  pinned INTEGER NOT NULL DEFAULT 0,
   kanban_enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
