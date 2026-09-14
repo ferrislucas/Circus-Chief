@@ -186,6 +186,77 @@ describe('useProjectsStore', () => {
   });
 
   describe('pinning', () => {
+    it('keeps the aggregated list model and its position when a pin update succeeds', async () => {
+      const store = useProjectsStore();
+      const aggregatedProject = project({
+        id: 'active',
+        pinned: false,
+        sessionCount: 7,
+        workspaceCount: 3,
+        runningSessionCount: 4,
+        waitingSessionCount: 2,
+        lastActivityAt: 1_700_000_000_000,
+        runningWorkspaces: [{ id: 'workspace-1', name: 'Build', activeCount: 4 }],
+        preview: { sessionId: 'session-1', title: 'Recent activity' },
+        navigation: { workspaceId: 'workspace-1' },
+      });
+      store.projects = [aggregatedProject, project({ id: 'other', name: 'Other project' })];
+      api.updateProject.mockResolvedValue({
+        id: 'active',
+        name: 'my-repo',
+        workingDirectory: '/tmp/my-repo',
+        pinned: true,
+        createdAt: 1_600_000_000_000,
+        updatedAt: 1_600_000_000_000,
+      });
+
+      const pending = store.toggleProjectPin('active');
+      expect(store.projects[0]).toMatchObject({ ...aggregatedProject, pinned: true });
+      expect(store.projects.map((entry) => entry.id)).toEqual(['active', 'other']);
+
+      await pending;
+
+      expect(store.projects).toEqual([
+        { ...aggregatedProject, pinned: true },
+        project({ id: 'other', name: 'Other project' }),
+      ]);
+    });
+
+    it('keeps an active project visible after successful unpinning under a status filter', async () => {
+      const store = useProjectsStore();
+      const filters = useProjectFiltersStore();
+      filters.setStatusFilter('running');
+      store.projects = [project({
+        id: 'active',
+        pinned: true,
+        sessionCount: 2,
+        workspaceCount: 1,
+        runningSessionCount: 2,
+        waitingSessionCount: 0,
+        lastActivityAt: 1_700_000_000_000,
+        runningWorkspaces: [{ id: 'workspace-1', name: 'Build', activeCount: 2 }],
+      })];
+      api.updateProject.mockResolvedValue({
+        id: 'active',
+        name: 'my-repo',
+        workingDirectory: '/tmp/my-repo',
+        pinned: false,
+      });
+
+      await store.toggleProjectPin('active');
+
+      expect(store.projects[0]).toMatchObject({
+        pinned: false,
+        sessionCount: 2,
+        workspaceCount: 1,
+        runningSessionCount: 2,
+        waitingSessionCount: 0,
+        lastActivityAt: 1_700_000_000_000,
+        runningWorkspaces: [{ id: 'workspace-1', name: 'Build', activeCount: 2 }],
+      });
+      expect(store.filteredProjects.map((entry) => entry.id)).toEqual(['active']);
+    });
+
     it('optimistically toggles, reconciles the server result, and tracks only the affected project', async () => {
       const store = useProjectsStore();
       store.projects = [project({ id: 'a' }), project({ id: 'b' })];

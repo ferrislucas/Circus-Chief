@@ -148,9 +148,14 @@ export const useProjectsStore = defineStore('projects', {
       if (this.currentProject?.id === id) this.currentProject = this.projects[index];
 
       try {
-        const updated = normalizeProject(await api.updateProject(id, { pinned: nextPinned }));
-        this.projects[index] = updated;
-        if (this.currentProject?.id === id) this.currentProject = updated;
+        const updated = await api.updateProject(id, { pinned: nextPinned });
+        // A mutation response is a base project record, whereas the list is an
+        // aggregated read model. Replacing it would discard fresh activity and
+        // navigation data, so only reconcile the server-authoritative pin state.
+        this.projects = reconcileProjectPin(this.projects, id, updated.pinned);
+        if (this.currentProject?.id === id) {
+          this.currentProject = { ...this.currentProject, pinned: updated.pinned };
+        }
         return updated;
       } catch (err) {
         this.projects[index] = previous;
@@ -185,4 +190,10 @@ function matchesStatus(project, status) {
   if (status === 'running') return project.runningSessionCount > 0;
   if (status === 'waiting') return project.waitingSessionCount > 0;
   return project.runningSessionCount === 0 && project.waitingSessionCount === 0;
+}
+
+function reconcileProjectPin(projects, id, pinned) {
+  return projects.map((project) => (
+    project.id === id ? { ...project, pinned } : project
+  ));
 }
