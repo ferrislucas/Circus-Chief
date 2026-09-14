@@ -71,14 +71,12 @@ describe('subscribeCommandRunOutput', () => {
     expect(store.syncRunOutput).toHaveBeenCalledWith(SESSION_ID, RUN_ID, 0, expect.any(Function));
   });
 
-  it('applies in-order live chunks with completion-tolerant appends', async () => {
+  it('applies in-order live chunks', async () => {
     await subscribeAndSettleInitialSync();
 
     receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 1, content: 'LINE 1\n' });
 
-    // Ordering and de-duplication live here (by sequence), so the store must
-    // not second-guess a chunk that lands after the run is marked complete.
-    expect(store.appendOutput).toHaveBeenCalledWith(RUN_ID, 'LINE 1\n', { allowAfterCompletion: true });
+    expect(store.appendOutput).toHaveBeenCalledWith(RUN_ID, 'LINE 1\n');
   });
 
   it('ignores chunks already covered by the current high-water mark', async () => {
@@ -141,7 +139,7 @@ describe('subscribeCommandRunOutput', () => {
 
     // The stream still continues from where the snapshot left off.
     receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 3, content: 'LINE 3\n' });
-    expect(store.appendOutput).toHaveBeenCalledWith(RUN_ID, 'LINE 3\n', { allowAfterCompletion: true });
+    expect(store.appendOutput).toHaveBeenCalledWith(RUN_ID, 'LINE 3\n');
   });
 
   it('resumes a catch-up read from the output already rendered by the store', async () => {

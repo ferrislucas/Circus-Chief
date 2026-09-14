@@ -19,11 +19,11 @@ const mockKanbanStoreData = vi.hoisted(() => ({
   createLane: vi.fn().mockResolvedValue({}),
 }));
 
-const mockApi = vi.hoisted(() => ({
-  getServerInfo: vi.fn().mockResolvedValue({
-    automationStatus: { http: 'available', scheduler: 'operational', kanban: 'operational' },
-  }),
-}));
+const healthyAutomationStatus = () => ({
+  automationStatus: { http: 'available', scheduler: 'operational', kanban: 'operational', reasonCode: null },
+});
+
+const mockApi = vi.hoisted(() => ({ getServerInfo: vi.fn() }));
 
 vi.mock('../api/ApiClient.js', () => ({ api: mockApi }));
 
@@ -148,9 +148,7 @@ describe('KanbanBoard.vue', () => {
     mockKanbanStoreData.reorderCards.mockResolvedValue({});
     mockKanbanStoreData.createLane.mockResolvedValue({});
     mockApi.getServerInfo.mockReset();
-    mockApi.getServerInfo.mockResolvedValue({
-      automationStatus: { http: 'available', scheduler: 'operational', kanban: 'operational' },
-    });
+    mockApi.getServerInfo.mockResolvedValue(healthyAutomationStatus());
 
     mockKanbanStore = useKanbanStore();
     commandButtonsStore = useCommandButtonsStore();
@@ -182,6 +180,29 @@ describe('KanbanBoard.vue', () => {
     mockKanbanStoreData.board.lanes[0].cards[0].sessions.push({ id: 'child-1', name: 'Child', pendingAgentInput: true });
     const wrapper = mountBoard();
     expect(wrapper.find('[aria-label="Agent input required"]').exists()).toBe(true);
+  });
+
+  it('does not show a running control for a session blocked on input', () => {
+    const blocked = { id: 'session-1', name: 'Workspace 1', status: 'running', pendingAgentInput: true };
+    mockKanbanStoreData.board.lanes[0].cards[0].sessions = [blocked];
+    sessionsStore.sessions = [blocked];
+
+    const wrapper = mountBoard();
+
+    expect(wrapper.findAll('.kanban-card')[0]
+      .find('[aria-label="Workspace running"]').exists()).toBe(false);
+  });
+
+  it('keeps the running control when another workflow member is actively running', () => {
+    const root = { id: 'session-1', name: 'Workspace 1', status: 'running', pendingAgentInput: true };
+    const activeChild = { id: 'child-1', parentSessionId: 'session-1', status: 'running' };
+    mockKanbanStoreData.board.lanes[0].cards[0].sessions = [root, activeChild];
+    sessionsStore.sessions = [root, activeChild];
+
+    const wrapper = mountBoard();
+
+    expect(wrapper.findAll('.kanban-card')[0]
+      .find('[aria-label="Workspace running"]').exists()).toBe(true);
   });
 
   describe('Component renders correctly', () => {
@@ -217,61 +238,72 @@ describe('KanbanBoard.vue', () => {
     });
   });
 
-  describe('automation status refresh', () => {
-    it('does not warn when the Kanban automation status is operational', async () => {
+  describe('automation disabled badge', () => {
+    const preflightFailed = {
+      automationStatus: {
+        http: 'available',
+        scheduler: 'operational',
+        kanban: 'degraded',
+        reasonCode: 'KANBAN_PREFLIGHT_FAILED',
+        message: 'Kanban automation is disabled. Run the Kanban recovery command, then restart the server.',
+      },
+    };
+
+    it('stays hidden when automation preflight passed', async () => {
       const wrapper = mountBoard();
       await flushPromises();
 
-      expect(wrapper.find('[data-testid="automation-warning"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="automation-badge"]').exists()).toBe(false);
     });
 
-    it('warns when the Kanban automation status is degraded', async () => {
+    it('shows the recovery message when preflight failed', async () => {
+      mockApi.getServerInfo.mockResolvedValue(preflightFailed);
+
+      const wrapper = mountBoard();
+      await flushPromises();
+
+      const badge = wrapper.get('[data-testid="automation-badge"]');
+      expect(badge.text()).toContain('Automation disabled');
+      expect(badge.attributes('title')).toContain('Run the Kanban recovery command');
+    });
+
+    it('stays hidden when only delivery health is degraded', async () => {
+      // Regression guard: delivery health is a heuristic over terminal event
+      // counts and previously pinned a permanent warning on a healthy board.
       mockApi.getServerInfo.mockResolvedValue({
         automationStatus: {
           http: 'available',
           scheduler: 'operational',
           kanban: 'degraded',
-          message: 'Workers are paused.',
+          reasonCode: null,
+          deliveryHealth: { status: 'degraded', reasons: ['exhausted delivery events'] },
         },
       });
 
       const wrapper = mountBoard();
       await flushPromises();
 
-      expect(wrapper.get('[data-testid="automation-warning"]').text()).toContain('Workers are paused.');
+      expect(wrapper.find('[data-testid="automation-badge"]').exists()).toBe(false);
     });
 
-    it('clears a degraded warning when a later poll reports healthy automation', async () => {
-      vi.useFakeTimers();
-      mockApi.getServerInfo
-        .mockResolvedValueOnce({ automationStatus: { http: 'available', scheduler: 'operational', kanban: 'degraded', message: 'Workers are paused.' } })
-        .mockResolvedValueOnce({ automationStatus: { http: 'available', scheduler: 'operational', kanban: 'operational' } });
+    it('stays hidden when the status request fails', async () => {
+      mockApi.getServerInfo.mockRejectedValue(new Error('temporary network failure'));
 
       const wrapper = mountBoard();
       await flushPromises();
-      expect(wrapper.get('[data-testid="automation-warning"]').text()).toContain('Workers are paused.');
 
-      await vi.advanceTimersByTimeAsync(30_000);
-      await flushPromises();
-      expect(wrapper.find('[data-testid="automation-warning"]').exists()).toBe(false);
-      wrapper.unmount();
+      expect(wrapper.find('[data-testid="automation-badge"]').exists()).toBe(false);
     });
 
-    it('keeps a known degraded warning when a refresh fails and cleans up its timer', async () => {
+    it('checks preflight once instead of polling', async () => {
       vi.useFakeTimers();
-      mockApi.getServerInfo
-        .mockResolvedValueOnce({ automationStatus: { http: 'available', scheduler: 'operational', kanban: 'degraded', message: 'Workers are paused.' } })
-        .mockRejectedValueOnce(new Error('temporary network failure'));
-
       const wrapper = mountBoard();
       await flushPromises();
-      await vi.advanceTimersByTimeAsync(30_000);
-      await flushPromises();
-      expect(wrapper.get('[data-testid="automation-warning"]').text()).toContain('Workers are paused.');
 
+      await vi.advanceTimersByTimeAsync(120_000);
+
+      expect(mockApi.getServerInfo).toHaveBeenCalledTimes(1);
       wrapper.unmount();
-      await vi.advanceTimersByTimeAsync(30_000);
-      expect(mockApi.getServerInfo).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -284,12 +316,24 @@ describe('KanbanBoard.vue', () => {
         openCount: 1,
         blockingSessionId: 'held-session-1',
         blockingReason: 'Paused — provider limit or outage',
+        blockerKind: 'provider_limit_pause',
       };
 
       const wrapper = mountBoard();
       const resume = wrapper.get('.lane-run-resume-link');
       expect(resume.text()).toBe('Resume');
       expect(resume.attributes('to')).toBe('/sessions/held-session-1');
+    });
+
+    it('shows Resume and the user-stop reason for a user-paused run', () => {
+      mockKanbanStoreData.board.lanes[0].cards[0].activeLaneRun = {
+        status: 'open', sourceLaneName: 'To Do', rootOwnWorkState: 'open', openCount: 1,
+        blockingSessionId: 'stopped-session-1', blockingReason: 'Paused — stopped by user', blockerKind: 'user_stop_pause',
+      };
+
+      const wrapper = mountBoard();
+      expect(wrapper.get('.lane-run-resume-link').attributes('to')).toBe('/sessions/stopped-session-1');
+      expect(wrapper.text()).toContain('Paused — stopped by user');
     });
 
     it('does not show Resume for a non-paused open lane run', () => {

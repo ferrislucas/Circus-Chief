@@ -21,11 +21,27 @@ describe('migration registration', () => {
       'kanban-durable-delivery-and-api-operations',
       'kanban-delivery-health-status-index',
       'kanban-api-operation-leases-and-canonical-responses',
+      'kanban-lane-run-declared-exit-lane',
+      'kanban-drop-exit-lane-caller-attribution',
     ];
 
     for (const name of durableDeliveryMigrations) {
       expect(names).toContain(name);
       expect(names.indexOf(name)).toBeGreaterThan(workflowIndex);
     }
+  });
+
+  it('registers the pending agent input migration for upgraded databases', () => {
+    const names = allMigrations.map(({ name }) => name);
+
+    expect(names).toContain('sessions-add-pending_agent_input');
+  });
+
+  it('registers the nullable pending schedule provenance migration after pending agent input', () => {
+    const names = allMigrations.map(({ name }) => name);
+    const pendingAgentInputIndex = names.indexOf('sessions-add-pending_agent_input');
+    const pendingInteractiveIndex = names.indexOf('sessions-add-pending_interactive');
+
+    expect(pendingInteractiveIndex).toBeGreaterThan(pendingAgentInputIndex);
   });
 });

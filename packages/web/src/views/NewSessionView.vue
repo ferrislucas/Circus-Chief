@@ -256,6 +256,7 @@ import { useUiStore } from '../stores/ui.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { api } from '../composables/useApi.js';
+import { WORKSPACE_PICKER_MAX_RESULTS } from '../stores/workspaceList.js';
 import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import {
   useNewSessionForm,
@@ -324,8 +325,12 @@ const workingDirectory = computed(() => {
   return project?.workingDirectory || null;
 });
 
-// Get available sessions that can be parents (completed sessions only)
-const availableSessions = computed(() => sessionsStore.sessions
+// This picker lists completed root workspaces to continue from. It reads the
+// compact workspace-card endpoint (root-only, unarchived, paginated) rather
+// than the legacy full session list, and keeps its hydration local so opening
+// the form does not repopulate the shared project-wide session store.
+const parentWorkspaceSessions = ref([]);
+const availableSessions = computed(() => parentWorkspaceSessions.value
     .filter((s) => s.status === 'completed')
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
 
@@ -397,6 +402,14 @@ onUnmounted(() => {
 onMounted(async () => {
   const projectId = route.params.id;
   restoreDraftFromStorage(textareaRef);
+
+  try {
+    const result = await api.getWorkspaceCardsForPicker(projectId, { max: WORKSPACE_PICKER_MAX_RESULTS });
+    parentWorkspaceSessions.value = result.workspaces || [];
+  } catch {
+    // The parent picker is optional; leave it hidden when its lookup fails.
+    parentWorkspaceSessions.value = [];
+  }
 
   // Fetch project defaults FIRST to ensure model is set before ModelSelector renders
   try {

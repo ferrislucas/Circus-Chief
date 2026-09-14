@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { DatabaseManager } from './DatabaseManager.js';
 import { repairMissingSessionParentsFromWorktree } from './migrations/index.js';
 import { providerMigrations } from './migrations/providerMigrations.js';
@@ -190,6 +193,34 @@ describe('DatabaseManager', () => {
   });
 
   describe('migrations', () => {
+    it('adds pending_agent_input when reopening an existing database created before that column', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'circuschief-migration-'));
+      const dbPath = join(dir, 'app.db');
+      const initialManager = new DatabaseManager();
+      const upgradedManager = new DatabaseManager();
+
+      try {
+        initialManager.init(dbPath);
+        initialManager.close();
+
+        const legacyDb = new Database(dbPath);
+        legacyDb.exec('ALTER TABLE sessions DROP COLUMN pending_agent_input');
+        legacyDb.close();
+
+        upgradedManager.init(dbPath);
+        const column = upgradedManager.get()
+          .prepare('PRAGMA table_info(sessions)')
+          .all()
+          .find(({ name }) => name === 'pending_agent_input');
+
+        expect(column).toMatchObject({ type: 'INTEGER', notnull: 1, dflt_value: '0' });
+      } finally {
+        initialManager.close();
+        upgradedManager.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     it('allows stopped status in sessions table', () => {
       const db = manager.get();
       const now = Date.now();

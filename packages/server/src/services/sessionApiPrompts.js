@@ -27,7 +27,7 @@ Optional fields: same as creating a workspace. Add \`scheduledAt\` to schedule t
 \`\`\`bash
 curl ${apiUrl}/api/providers
 \`\`\`
-Returns configured providers, each with \`kind\` (\`anthropic\` | \`openai\` | \`google\`) and a \`models\` array of \`{modelId, displayName, tier, enabled, lifecycle}\`. Use a \`models[].modelId\` value as the \`model\` field when creating a workspace/session (see below) — this is the authoritative list of accepted values.
+Returns configured providers, each with \`kind\` (\`anthropic\` | \`openai\` | \`google\`) and a \`models\` array of \`{modelId, displayName, tier, enabled, lifecycle}\`. Use a listed \`models[].modelId\` to discover the currently available model choices for new workspaces/sessions. This is a discoverability list, not an exhaustive validation contract: validation also accepts SDK tier aliases (such as \`fable\`, \`opus\`, \`sonnet\`, and \`haiku\`) and can retain historical model IDs that are not listed.
 
 ### Send a Follow-up Message
 \`\`\`bash
@@ -118,6 +118,21 @@ ${buildSessionCrudOps(apiUrl, projectId, sessionId, workspaceId)}
 ${buildProjectOps(apiUrl, sessionId)}`;
 }
 
+function buildLaneContext(projectId) {
+  const board = kanbanBoards.getByProjectId(projectId);
+  if (!board) {
+    return '';
+  }
+
+  const lanes = kanbanLanes.getByBoardId(board.id);
+  if (!lanes?.length) {
+    return '';
+  }
+
+  const laneList = lanes.map((lane) => `  - "${lane.name}" (ID: ${lane.id})`).join('\n');
+  return `\n### Available Lanes\n${laneList}\n`;
+}
+
 /**
  * Build Kanban API instructions for system prompt.
  * @param {string} sessionId - Current session ID
@@ -131,20 +146,8 @@ export function buildKanbanApiInstructions(sessionId, projectId) {
   }
 
   const apiUrl = getApiBaseUrl();
-  // Compute the workspace id for this session — the agent uses workspace
-  // addressing for all kanban operations.
   const workspaceId = sessions.getRootSessionId(sessionId) || sessionId;
-  const board = kanbanBoards.getByProjectId(projectId);
-
-  // Get lane names for context
-  let laneContext = '';
-  if (board) {
-    const lanes = kanbanLanes.getByBoardId(board.id);
-    if (lanes && lanes.length > 0) {
-      const laneList = lanes.map((l) => `  - "${l.name}" (ID: ${l.id})`).join('\n');
-      laneContext = `\n### Available Lanes\n${laneList}\n`;
-    }
-  }
+  const laneContext = buildLaneContext(projectId);
 
   return `## Kanban Board API
 
@@ -164,13 +167,12 @@ curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
   -d '{"workspaceId": "${workspaceId}", "laneId": "<lane_id>"}'
 \`\`\`
 
-### Move a Card to a Different Lane
+### Move this Workspace's Card
 \`\`\`bash
-curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/move \\
+curl -X PUT ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/lane \\
   -H "Content-Type: application/json" \\
-  -d '{"targetLaneId": "<lane_id>"}'
+  -d '{"laneId":"<lane_id>"}'
 \`\`\`
-
 ### Remove a Card from the Board
 \`\`\`bash
 curl -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}

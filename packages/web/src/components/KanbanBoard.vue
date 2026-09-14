@@ -1,20 +1,21 @@
 <!-- eslint-disable max-lines -->
 <template>
   <div class="kanban-board">
-    <div
-      v-if="automationWarning"
-      class="automation-warning"
-      role="alert"
-      data-testid="automation-warning"
-    >
-      <strong>Automation unavailable.</strong> {{ automationWarning }} Manual board access is still available.
-    </div>
     <!-- Board header bar: always rendered (outside the loading/error/empty chain) -->
     <div class="board-header-bar">
       <KanbanLayoutToggle
         :layout="effectiveLayout"
         @select="layoutMode = $event"
       />
+      <span
+        v-if="automationDisabledMessage"
+        class="automation-badge"
+        role="status"
+        :title="automationDisabledMessage"
+        data-testid="automation-badge"
+      >
+        Automation disabled
+      </span>
     </div>
 
     <div
@@ -281,6 +282,7 @@
       :is-open="showMoveCardModal"
       :project-id="projectId"
       :card-id="selectedCardForMove?.id"
+      :workspace-id="selectedCardForMove?.sessions?.[0]?.id"
       :current-lane-id="selectedCardCurrentLaneId"
       :session-name="selectedCardForMove?.sessions?.[0]?.name"
       :active-lane-run="selectedCardForMove?.activeLaneRun"
@@ -307,6 +309,7 @@ import KanbanBoardIcon from './KanbanBoardIcon.vue';
 import KanbanCardSessionDetails from './KanbanCardSessionDetails.vue';
 import KanbanLayoutToggle from './KanbanLayoutToggle.vue';
 import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
+import { isSessionActivelyRunning } from '../utils/workflowStatus.js';
 import { api } from '../api/ApiClient.js';
 import './KanbanBoard.css';
 const props = defineProps({
@@ -315,27 +318,23 @@ const props = defineProps({
 const kanbanStore = useKanbanStore();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
-const automationWarning = ref('Checking automation status…');
-const AUTOMATION_STATUS_REFRESH_MS = 30_000;
-let automationStatusInterval = null;
-let automationStatusRequestInFlight = false;
+
+// Surface only a failed startup preflight: that means lane-entry delivery is
+// genuinely disabled and cards will silently stop advancing.  Delivery-health
+// degradation is deliberately NOT surfaced here — it is a heuristic over event
+// counts and previously produced a permanent false-positive banner.  Preflight
+// is a boot-time boolean, so this is fetched once rather than polled, and any
+// fetch failure leaves the badge hidden instead of guessing.
+const automationDisabledMessage = ref('');
 
 async function fetchAutomationStatus() {
-  if (automationStatusRequestInFlight) return;
-  automationStatusRequestInFlight = true;
   try {
-    const info = await api.getServerInfo();
-    const status = info.automationStatus;
-    automationWarning.value = status?.kanban === 'operational' ? ''
-      : (status?.message || 'Unable to verify whether lane automation and scheduling are available.');
+    const status = (await api.getServerInfo())?.automationStatus;
+    automationDisabledMessage.value = status?.reasonCode === 'KANBAN_PREFLIGHT_FAILED'
+      ? (status.message || 'Kanban automation is disabled. Run the Kanban recovery command, then restart the server.')
+      : '';
   } catch {
-    // Do not replace a known degraded status with a less useful transient
-    // network error. The next successful poll will still update the banner.
-    if (!automationWarning.value) {
-      automationWarning.value = 'Unable to verify whether lane automation and scheduling are available.';
-    }
-  } finally {
-    automationStatusRequestInFlight = false;
+    automationDisabledMessage.value = '';
   }
 }
 // ==================== Layout state ====================
@@ -374,7 +373,6 @@ const onMqlChange = (e) => { isNarrow.value = e.matches; };
 
 onMounted(() => {
   fetchAutomationStatus();
-  automationStatusInterval = setInterval(fetchAutomationStatus, AUTOMATION_STATUS_REFRESH_MS);
   if (typeof window !== 'undefined' && window.matchMedia) {
     _mql = window.matchMedia('(max-width: 640px)');
     isNarrow.value = _mql.matches;
@@ -383,10 +381,6 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  if (automationStatusInterval) {
-    clearInterval(automationStatusInterval);
-    automationStatusInterval = null;
-  }
   if (_mql) {
     _mql.removeEventListener('change', onMqlChange);
     _mql = null;
@@ -477,7 +471,7 @@ const {
   dragType, draggedCard, dropCardLaneId, dropCardIndex,
   handleCardDragStart, handleCardDragOver, handleDragEnd,
   handleDrop, moveCardInLane,
-} = useCardDragDrop(board, kanbanStore.reorderCards, kanbanStore.moveCard, toRef(props, 'projectId'));
+} = useCardDragDrop(board, kanbanStore.reorderCards, kanbanStore.routeWorkspaceCard, toRef(props, 'projectId'));
 
 // Modal state
 const showAddSessionModal = ref(false);
@@ -506,7 +500,7 @@ const isCardEffectivelyRunning = (session) => {
   if (sessionsStore.getWorkflowEffectiveStatus(session.id) === 'running') {
     return true;
   }
-  return ['running', 'starting'].includes(session.status);
+  return isSessionActivelyRunning(session);
 };
 // Board-level map of session id → button-status indicators. Built once per
 // recompute (rather than per-card during render) so the buttonMap and the

@@ -51,7 +51,7 @@ export function createFilterPersistence(filterKey, storageKey, validValues, stor
 
 export const useSessionFiltersStore = defineStore('sessionFilters', {
   state: () => ({
-    statusFilter: null,   // 'running' | 'idle' | null
+    statusFilter: null,   // 'running' | 'waiting' | 'idle' | null
     starredFilter: null,  // 'starred' | 'unstarred' | null
     scheduledFilter: null, // 'scheduled' | 'not-scheduled' | null
   }),
@@ -78,7 +78,7 @@ export const useSessionFiltersStore = defineStore('sessionFilters', {
     restoreStatusFilter() {
       try {
         const filter = localStorage.getItem('sessionStatusFilter');
-        if (filter === 'running' || filter === 'idle') {
+        if (filter === 'running' || filter === 'waiting' || filter === 'idle') {
           this.statusFilter = filter;
         }
       } catch (error) {

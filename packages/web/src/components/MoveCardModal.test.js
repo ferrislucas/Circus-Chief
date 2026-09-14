@@ -16,6 +16,7 @@ vi.mock('../stores/kanban.js', () => ({
       ],
     },
     moveCard: vi.fn().mockResolvedValue({}),
+    routeWorkspaceCard: vi.fn().mockResolvedValue({ status: 'moved', laneId: 'lane-2' }),
     removeCard: vi.fn().mockResolvedValue({}),
   })),
 }));
@@ -97,6 +98,12 @@ describe('MoveCardModal.vue', () => {
     it('displays close button (×) in header', () => {
       const wrapper = mountModal();
       expect(wrapper.find('.close-btn').exists()).toBe(true);
+    });
+
+    it('explains that an active automation run is superseded immediately', () => {
+      const wrapper = mountModal({ activeLaneRun: { status: 'open' } });
+      expect(wrapper.find('.lane-run-warning').text()).toContain('supersedes its active automation run');
+      expect(wrapper.find('.lane-run-warning').text()).not.toContain('applied later');
     });
   });
 
@@ -199,50 +206,15 @@ describe('MoveCardModal.vue', () => {
     });
   });
 
-  describe('Automation checkbox behavior', () => {
-    it('hides checkbox when no destination lane is selected', () => {
+  describe('Destination automation', () => {
+    it('does not offer an automation bypass', () => {
       const wrapper = mountModal();
       expect(wrapper.find('.automation-option').exists()).toBe(false);
-    });
-
-    it('hides checkbox when selected lane has no automation', async () => {
-      const wrapper = mountModal({ currentLaneId: 'lane-3' });
-      wrapper.vm.selectedLaneId = 'lane-1';
-      await wrapper.vm.$nextTick();
-      await wrapper.vm.$nextTick(); // Double tick to ensure computed updates
-      expect(wrapper.find('.automation-option').exists()).toBe(false);
-    });
-
-    it('shows checkbox when selected lane has onEnterTemplateId', async () => {
-      const wrapper = mountModal({ currentLaneId: 'lane-1' });
-      wrapper.vm.selectedLaneId = 'lane-3';
-      await wrapper.vm.$nextTick();
-      // showAutomationCheckbox is not exposed - skip assertion
-      // Covered by E2E tests
-      expect(wrapper.vm.selectedLaneId).toBe('lane-3');
-    });
-
-    it('shows checkbox when selected lane has onEnterPrompt', async () => {
-      const wrapper = mountModal({ currentLaneId: 'lane-1' });
-      wrapper.vm.selectedLaneId = 'lane-4';
-      await wrapper.vm.$nextTick();
-      // showAutomationCheckbox is not exposed - skip assertion
-      // Covered by E2E tests
-      expect(wrapper.vm.selectedLaneId).toBe('lane-4');
-    });
-
-    it('checks checkbox by default when it appears', async () => {
-      const wrapper = mountModal({ currentLaneId: 'lane-1' });
-      wrapper.vm.selectedLaneId = 'lane-3';
-      await wrapper.vm.$nextTick();
-      // runOnEnterTemplate is not exposed - skip assertion
-      // Covered by E2E tests
-      expect(wrapper.vm.selectedLaneId).toBe('lane-3');
     });
   });
 
   describe('Move action - success path', () => {
-    it('calls kanbanStore.moveCard with correct parameters', async () => {
+    it('routes a workspace card with the selected lane', async () => {
       const wrapper = mountModal({ currentLaneId: 'lane-1' });
       wrapper.vm.selectedLaneId = 'lane-2';
       await wrapper.vm.$nextTick();
@@ -276,17 +248,6 @@ describe('MoveCardModal.vue', () => {
       // handleMove is not exposed - skip test
       // Covered by E2E tests
       expect(wrapper.vm.selectedLaneId).toBe('lane-2');
-    });
-  });
-
-  describe('Move action - with automation checkbox unchecked', () => {
-    it('calls moveCard with runOnEnterTemplate: false when unchecked', async () => {
-      const wrapper = mountModal({ currentLaneId: 'lane-1' });
-      wrapper.vm.selectedLaneId = 'lane-3';
-      await wrapper.vm.$nextTick();
-      // handleMove is not exposed - skip test
-      // Covered by E2E tests
-      expect(wrapper.vm.selectedLaneId).toBe('lane-3');
     });
   });
 

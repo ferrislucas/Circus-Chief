@@ -11,7 +11,13 @@ import {
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
-import { createLaneRunForEntry, supersedeRunForCard, isStructured } from './workflowSessionService.js';
+import {
+  createLaneRunForEntry, supersedeLaneRun, supersedeLaneRunAuthorityOnly,
+  supersedeRunForCard, isStructured, getRun,
+} from './workflowSessionService.js';
+import { ApiError } from '../errors/ApiError.js';
+import { retrySqliteContention } from './sqliteContention.js';
+import { kanbanRoutingMetrics, recordRouteDecision } from './kanbanRoutingObservability.js';
 import { buildFullBoardResponse } from './kanbanBoardResponse.js';
 import {
   beginLaneEntryDelivery,
@@ -48,8 +54,110 @@ function resolveWorkspaceId(sessionId) {
   return sessions.getRootSessionId(sessionId) || sessionId;
 }
 
+/** Build the committed route outcome and its public response in one place. */
+function createRouteOutcome(status, laneId, finalizeMutation, { eventId = null, ...outcome } = {}) {
+  const response = { status, laneId };
+  return { response: finalizeMutation?.({ response, eventId }) ?? response, ...outcome };
+}
+
+/**
+ * Repair a card whose active-run pointer is stale before creating its next
+ * lane entry. Preconditions: the caller holds the route transaction and has
+ * validated `targetLane`. Postconditions: every pre-existing open run for the
+ * card is superseded, and a structured destination has a durable successor.
+ */
+function repairStaleRunAndMoveCard(db, {
+  card, targetLane, workspace, supersessionReason = 'workspace_routed', preserveMemberSessions = false,
+}) {
+  const openRun = db.prepare("SELECT id FROM kanban_lane_runs WHERE card_id=? AND status='open'").get(card.id);
+  // Manual routes revoke only source automation authority; automatic repair
+  // retains the existing full-cancellation behavior.
+  if (openRun) {
+    const supersede = preserveMemberSessions ? supersedeLaneRunAuthorityOnly : supersedeLaneRun;
+    supersede(openRun.id, supersessionReason);
+  }
+
+  const moved = kanbanCards.moveToLane(card.id, targetLane.id);
+  const laneRun = isStructured(targetLane)
+    ? createLaneRunForEntry({
+      projectId: workspace.projectId, workspaceId: workspace.id, cardId: card.id, lane: targetLane, cause: 'workspace_route',
+    })
+    : null;
+  if (isStructured(targetLane) && !laneRun) throw new Error('Structured lane entry run was not created');
+  if (!laneRun) db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE id=?')
+    .run(Date.now(), card.id);
+  return { moved, laneRun, supersededRunId: openRun?.id || null };
+}
+
+function getOwningOpenRun(db, card) {
+  if (!card?.activeLaneRunId) return null;
+  const run = db.prepare("SELECT * FROM kanban_lane_runs WHERE id=? AND status='open'").get(card.activeLaneRunId);
+  return run && run.card_id === card.id && run.source_lane_id === card.laneId ? run : null;
+}
+
+function updateScheduledDestination(db, runId, laneId) {
+  const time = Date.now();
+  const update = db.prepare(`UPDATE kanban_lane_runs
+    SET chosen_exit_lane_id=?, chosen_exit_declared_at=?, updated_at=?
+    WHERE id=? AND status='open'`).run(laneId, time, time, runId);
+  return update.changes === 1 ? time : null;
+}
+
+function recordScheduledDestination(db, runId, laneId, time) {
+  db.prepare(`INSERT INTO kanban_lane_run_audit_events
+    (id, operation_key, lane_run_id, session_id, event_type, details_json, created_at)
+    VALUES (?, ?, ?, NULL, 'route_selected', ?, ?)
+    ON CONFLICT(operation_key) DO NOTHING`)
+    .run(crypto.randomUUID(), `${runId}:route_selected:${laneId}:${time}`, runId, JSON.stringify({ targetLaneId: laneId }), time);
+}
+
+function movedRouteOutcome(db, { card, targetLane, workspace, laneId, finalizeMutation, manualMove = false }) {
+  const { moved, laneRun, supersededRunId } = repairStaleRunAndMoveCard(db, {
+    card, targetLane, workspace, supersessionReason: manualMove ? 'manual_card_move' : 'workspace_routed',
+    preserveMemberSessions: manualMove,
+  });
+  return createRouteOutcome('moved', laneId, finalizeMutation, {
+    eventId: laneRun?.laneEntryEventId || null, moved: { card, moved, laneRun }, projectId: workspace.projectId,
+    auditRunId: supersededRunId,
+  });
+}
+
+function scheduledRouteOutcome({ run, card, workspace, laneId, finalizeMutation, overwritten = false }) {
+  return createRouteOutcome('scheduled', laneId, finalizeMutation, {
+    moved: null, selectedRunId: run.id, cardId: card.id, projectId: workspace.projectId,
+    auditOutcome: overwritten ? 'scheduled_overwritten' : 'scheduled',
+  });
+}
+
+function scheduledRouteNoopOutcome({ workspace, laneId, finalizeMutation, run = null }) {
+  return createRouteOutcome('noop', laneId, finalizeMutation, {
+    moved: null, projectId: workspace.projectId, auditRunId: run?.id || null,
+  });
+}
+
+/** Re-read after a conditional miss; never acknowledge an uncommitted route. */
+function scheduleRouteOrRecover(db, { workspaceId, card, run, targetLane, workspace, laneId, finalizeMutation }) {
+  if (run.chosen_exit_lane_id === laneId) return scheduledRouteNoopOutcome({ workspace, laneId, finalizeMutation, run });
+  let selectedRun = run;
+  let selectedCard = card;
+  let time = updateScheduledDestination(db, selectedRun.id, laneId);
+  if (!time) {
+    selectedCard = kanbanCards.getBySessionId(workspaceId);
+    selectedRun = getOwningOpenRun(db, selectedCard);
+    if (!selectedRun) return movedRouteOutcome(db, { card: selectedCard || card, targetLane, workspace, laneId, finalizeMutation });
+    if (selectedRun.chosen_exit_lane_id === laneId) {
+      return scheduledRouteNoopOutcome({ workspace, laneId, finalizeMutation, run: selectedRun });
+    }
+    time = updateScheduledDestination(db, selectedRun.id, laneId);
+    if (!time) throw new ApiError('Lane routing changed concurrently; please retry', { status: 503, code: 'KANBAN_ROUTE_RETRYABLE' });
+  }
+  recordScheduledDestination(db, selectedRun.id, laneId, time);
+  return scheduledRouteOutcome({ run: selectedRun, card: selectedCard, workspace, laneId, finalizeMutation,
+    overwritten: Boolean(run.chosen_exit_lane_id) });
+}
+
 export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
-  const { runOnEnterTemplate = true, depth = 0, laneRunId = null, childSessionId = null,
+  const { runOnEnterTemplate = true, laneRunId = null, childSessionId = null,
     beforeDispatch, abortController } = options;
 
   if (!runOnEnterTemplate) return { delivered: true, rootSessionId: null };
@@ -58,11 +166,11 @@ export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}
   let result = { delivered: true, rootSessionId: null };
   if (lane?.onEnterTemplateId) {
     result = await triggerOnEnterTemplate(sessionId, lane, {
-      depth, laneRunId, childSessionId, beforeDispatch, abortController,
+      laneRunId, childSessionId, beforeDispatch, abortController,
     });
   } else if (lane?.onEnterPrompt) {
     result = await triggerOnEnterPrompt(sessionId, lane, {
-      depth, laneRunId, childSessionId, beforeDispatch, abortController,
+      laneRunId, childSessionId, beforeDispatch, abortController,
     });
   }
   if (!result?.delivered) throw new Error(`Lane-entry delivery failed: ${result?.reason || 'unknown error'}`);
@@ -77,12 +185,11 @@ export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}
  * @param {Object} [options] - Options
  * @param {number} [options.sortOrder] - Optional sort order
  * @param {boolean} [options.runOnEnterTemplate=true] - Whether to run lane on-enter automation
- * @param {number} [options.depth=0] - Current recursion depth for template triggers
  * @returns {Object} The created card
  * @throws {Error} If session already has a card on the board
  */
 export async function addSessionToBoard(sessionId, laneId, options = {}) {
-  const { sortOrder, runOnEnterTemplate = true, depth = 0, finalizeMutation } = options;
+  const { sortOrder, runOnEnterTemplate = true, finalizeMutation } = options;
 
   // Normalize to workspace root — all cards are keyed to the root session.
   const workspaceId = resolveWorkspaceId(sessionId);
@@ -115,11 +222,10 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
 
     // Lane entry automation fires on the workspace root (consistent with
     // "all sessions in a workspace move together").
-    const rootDepth = rootSession.laneTriggerDepth || 0;
     // Every automated entry is committed before it is delivered.  This is the
     // durable success boundary for add/move/completion alike.
     if (laneRun) {
-      scheduleLaneEntryDelivery(laneRun.laneEntryEventId, { depth: depth || rootDepth });
+      scheduleLaneEntryDelivery(laneRun.laneEntryEventId);
       // Let the accepted handoff reach its first asynchronous boundary so
       // callers retain the established immediate session-created UX, without
       // making their result dependent on delivery success.
@@ -138,11 +244,10 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
  * @param {Object} [options] - Options
  * @param {number} [options.sortOrder] - Optional sort order in target lane
  * @param {boolean} [options.runOnEnterTemplate=true] - Whether to run the on-enter template
- * @param {number} [options.depth=0] - Current recursion depth for template triggers
  * @returns {Promise<Object>} The moved card
  */
 export async function moveCard(cardId, targetLaneId, options = {}) {
-  const { sortOrder, runOnEnterTemplate = true, depth = 0, finalizeMutation } = options;
+  const { sortOrder, runOnEnterTemplate = true, finalizeMutation } = options;
 
   const card = kanbanCards.getByIdWithLane(cardId);
   if (!card) {
@@ -158,7 +263,7 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
   // Supersession, movement, and the successor entry intent must commit
   // together. A delivery failure after this point is retryable outbox work.
   const { movedCard, laneRun, finalizedResult } = databaseManager.transaction(() => {
-    supersedeRunForCard(cardId, 'manual_move');
+    supersedeRunForCard(cardId, 'card_moved');
     const updatedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
     const createdRun = session && runOnEnterTemplate && isStructured(lane)
       ? createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause: 'manual_move' })
@@ -177,12 +282,162 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
     });
 
     if (laneRun) {
-      scheduleLaneEntryDelivery(laneRun.laneEntryEventId, { depth });
+      scheduleLaneEntryDelivery(laneRun.laneEntryEventId);
       await new Promise((resolve) => setImmediate(resolve));
     }
   }
 
   return finalizedResult ?? movedCard;
+}
+
+/**
+ * Route a workspace card.  The immediate transaction owns the decision about
+ * whether a request is applied now. Public manual routes are authoritative:
+ * an open lane run is superseded as part of the same committed move. Internal
+ * automation-owned callers retain deferred exit selection.
+ *
+ * @returns {Promise<{status: 'noop'|'moved'|'scheduled', laneId: string}>}
+ */
+export async function routeWorkspaceCard(workspaceId, laneId, {
+  finalizeMutation, callerSessionId = null, manualMove = false,
+} = {}) {
+  const requestAt = Date.now();
+  // eslint-disable-next-line max-statements, complexity -- the transactional state decision is intentionally co-located.
+  const outcome = await retrySqliteContention(() => databaseManager.immediateTransaction(() => {
+    const db = databaseManager.get();
+    const workspace = sessions.getById(workspaceId);
+    const card = kanbanCards.getBySessionId(workspaceId);
+    if (!workspace || !card) {
+      throw new ApiError('No card found for this workspace', { status: 404, code: 'KANBAN_WORKSPACE_CARD_NOT_FOUND' });
+    }
+    const sourceLane = kanbanLanes.getById(card.laneId);
+    const targetLane = kanbanLanes.getById(laneId);
+    if (!sourceLane || !targetLane || sourceLane.boardId !== targetLane.boardId) {
+      throw new ApiError('Target lane not found', { status: 404, code: 'KANBAN_TARGET_LANE_NOT_FOUND' });
+    }
+
+    const run = getOwningOpenRun(db, card);
+    const decision = card.laneId === laneId
+      ? createRouteOutcome('noop', laneId, finalizeMutation, {
+        moved: null, projectId: workspace.projectId, auditRunId: run?.id || null,
+      })
+      : manualMove || !run
+        ? movedRouteOutcome(db, { card, targetLane, workspace, laneId, finalizeMutation, manualMove })
+        : scheduleRouteOrRecover(db, { workspaceId, card, run, targetLane, workspace, laneId, finalizeMutation });
+    const auditOutcome = decision.auditOutcome || decision.response.status;
+    recordRouteDecision(db, {
+      projectId: workspace.projectId, workspaceId, callerSessionId, sourceLaneId: card.laneId,
+      destinationLaneId: laneId, outcome: auditOutcome,
+      laneRunId: decision.selectedRunId || decision.auditRunId || null,
+      requestAt, committedAt: Date.now(),
+    });
+    return decision;
+  }));
+
+  kanbanRoutingMetrics.recordAccepted(outcome.auditOutcome || outcome.response.status);
+
+  if (outcome.moved) {
+    broadcastToProject(outcome.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
+      projectId: outcome.projectId, cardId: outcome.moved.card.id, fromLaneId: outcome.moved.card.laneId,
+      toLaneId: outcome.moved.moved.laneId, card: outcome.moved.moved,
+    });
+    if (outcome.moved.laneRun) {
+      scheduleLaneEntryDelivery(outcome.moved.laneRun.laneEntryEventId);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  } else if (outcome.selectedRunId) {
+    broadcastToProject(outcome.projectId, WS_MESSAGE_TYPES.KANBAN_EXIT_LANE_DECLARED, {
+      projectId: outcome.projectId,
+      cardId: outcome.cardId,
+      activeLaneRun: getRun(outcome.selectedRunId),
+    });
+  }
+  return outcome.response;
+}
+
+/**
+ * Retire a card's active lane run and remove the card as one durable change.
+ *
+ * Every path that can remove a card — explicit card removal, session
+ * deletion, lane deletion, board deletion, and project deletion — must go
+ * through this family before an FK cascade can make the card unavailable to
+ * the lane-run state machine. `projectId` is derived from the card itself
+ * (card → lane → board → project) so the broadcast survives even when the
+ * card's sessions were already deleted.
+ *
+ * @param {Object} card - The card to remove
+ * @returns {Object|null} removal descriptor `{ projectId, laneId }` for the
+ *   caller's broadcast, or null when the card's lane is already gone and
+ *   there is no project left to notify
+ */
+export function removeCard(card) {
+  const projectId = kanbanCards.getProjectId(card.id);
+  const laneId = card.laneId;
+  databaseManager.transaction(() => {
+    supersedeRunForCard(card.id, 'card_removed');
+    kanbanCards.delete(card.id);
+  });
+
+  if (!projectId) {
+    // Only reachable if the card's lane vanished between the caller's fetch
+    // and this delete; warn so a silent cascade never goes unnoticed.
+    console.warn(`Kanban card ${card.id} removed without a resolvable project; no broadcast sent`);
+    return null;
+  }
+
+  broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED, {
+    projectId,
+    cardId: card.id,
+    laneId,
+  });
+  return { projectId, laneId };
+}
+
+/**
+ * Delete a lane and all of its cards, superseding their active lane runs.
+ *
+ * The supersessions, card deletions (via FK cascade from the lane), and lane
+ * deletion commit as ONE transaction, so no concurrent card add can slip past
+ * the supersession pass and be cascade-deleted while its run stays open.
+ * No per-card events are emitted: callers broadcast KANBAN_BOARD_UPDATED,
+ * which carries the full board and makes per-card events redundant.
+ *
+ * @param {Object} lane - The lane to delete
+ */
+export function removeLane(lane) {
+  databaseManager.transaction(() => {
+    for (const card of kanbanCards.getByLaneId(lane.id)) {
+      supersedeRunForCard(card.id, 'card_removed');
+    }
+    kanbanLanes.delete(lane.id);
+  });
+}
+
+/**
+ * Delete a board, all of its lanes, and all of their cards, superseding any
+ * active lane runs. Single transaction, for the same reasons as removeLane.
+ *
+ * @param {Object} board - The board to delete
+ */
+export function removeBoard(board) {
+  databaseManager.transaction(() => {
+    for (const card of kanbanCards.getByBoardId(board.id)) {
+      supersedeRunForCard(card.id, 'card_removed');
+    }
+    kanbanBoards.delete(board.id);
+  });
+}
+
+/**
+ * Delete a project's board (if any), superseding its active lane runs before
+ * the project row's own cascades remove the cards. Used by project deletion,
+ * where the board may not have been fetched yet.
+ *
+ * @param {string} projectId
+ */
+export function removeBoardForProject(projectId) {
+  const board = kanbanBoards.getByProjectId(projectId);
+  if (board) removeBoard(board);
 }
 
 /**
@@ -214,14 +469,18 @@ export async function triggerStructuredTransitionAutomation(pending) {
   // A descriptor without its run is an invariant violation, not a request to
   // reconstruct ownership after the card move has already been exposed.
   if (!laneRun) throw new Error(`Target lane run is missing for entry event ${pending.laneEntryEventId || 'unknown'}`);
-  return drainLaneEntryTrigger(laneRun.lane_entry_event_id, { depth: workspaceSession.laneTriggerDepth || 0 });
+  return drainLaneEntryTrigger(laneRun.lane_entry_event_id);
 }
 
-const ENTRY_EVENT_LEASE_MS = 5 * 60 * 1000;
+const envPositiveInt = (name, fallback) => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+};
+const ENTRY_EVENT_LEASE_MS = envPositiveInt('KANBAN_ENTRY_LEASE_MS', 5 * 60 * 1000);
 const ENTRY_EVENT_RENEWAL_MS = Math.floor(ENTRY_EVENT_LEASE_MS / 3);
-const MAX_ENTRY_EVENT_ATTEMPTS = 8;
-const RETRY_BASE_MS = 1_000;
-const RETRY_MAX_MS = 5 * 60 * 1000;
+const MAX_ENTRY_EVENT_ATTEMPTS = envPositiveInt('KANBAN_ENTRY_MAX_ATTEMPTS', 8);
+const RETRY_BASE_MS = envPositiveInt('KANBAN_ENTRY_RETRY_BASE_MS', 1_000);
+const RETRY_MAX_MS = envPositiveInt('KANBAN_ENTRY_RETRY_MAX_MS', 5 * 60 * 1000);
 const RETRY_JITTER = 0.2;
 
 /**
@@ -230,9 +489,9 @@ const RETRY_JITTER = 0.2;
  * retryable outbox state rather than turn a successful add or move into a
  * failed API request.
  */
-function scheduleLaneEntryDelivery(eventId, options) {
+function scheduleLaneEntryDelivery(eventId) {
   if (isLaneEntryDeliveryStopping()) return;
-  void drainLaneEntryTrigger(eventId, options).catch((error) => {
+  void drainLaneEntryTrigger(eventId).catch((error) => {
     console.error(`Kanban lane-entry delivery ${eventId} failed; queued for retry:`, error);
   });
 }
@@ -292,8 +551,11 @@ function createLaneEntryClaimGuard(eventId, token, abortController) {
 function completeVerifiedLaneEntry(eventId, rootSessionId, token) {
   if (!eventId || !rootSessionId || !token) return false;
   const db = databaseManager.get();
+  // Verify root attachment, not run liveness: a run legitimately superseded
+  // by the very child we're delivering (e.g. it moved its own card) is a
+  // successful delivery, not a failure. Status is intentionally not checked.
   const owner = db.prepare(`SELECT 1 FROM kanban_lane_runs
-    WHERE lane_entry_event_id=? AND status='open' AND root_session_id=?`).get(eventId, rootSessionId);
+    WHERE lane_entry_event_id=? AND root_session_id=?`).get(eventId, rootSessionId);
   if (!owner) throw new Error('Lane-entry delivery did not attach the expected run root');
   const time = Date.now();
   const completed = db.prepare(`UPDATE kanban_lane_entry_events SET status='completed', delivery_phase='completed', completed_at=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL
@@ -355,7 +617,7 @@ function resolveDeliveryState(event) {
 /** Drain one committed completion handoff. Safe to call repeatedly. */
 // eslint-disable-next-line complexity -- deliberately linear durable state machine
 // eslint-disable-next-line max-statements, complexity -- durable transition boundaries are intentionally linear
-async function drainLaneEntryTriggerImpl(eventId, options = {}) {
+async function drainLaneEntryTriggerImpl(eventId) {
   const token = claimLaneEntryTrigger(eventId);
   if (!token) return false;
   const abortController = new AbortController();
@@ -384,7 +646,7 @@ async function drainLaneEntryTriggerImpl(eventId, options = {}) {
     let rootSessionId = resolved.rootSessionId;
     if (resolved.state === 'needs_delivery') {
       const delivery = await triggerLaneEntryAutomation(event.workspace_id, event.lane_id, {
-        runOnEnterTemplate: true, depth: options.depth || 0, laneRunId: resolved.run.id,
+        runOnEnterTemplate: true, laneRunId: resolved.run.id,
         childSessionId: resolved.rootSessionId,
         abortController,
         beforeDispatch: () => { claim.assertCurrent(); return markDispatchIntent(event.id, token); },
@@ -415,9 +677,9 @@ async function drainLaneEntryTriggerImpl(eventId, options = {}) {
  * This public boundary is intentionally used by HTTP, completion, and retry
  * callers alike so graceful shutdown cannot miss a source of side effects.
  */
-export function drainLaneEntryTrigger(eventId, options = {}) {
+export function drainLaneEntryTrigger(eventId) {
   if (isLaneEntryDeliveryStopping()) return Promise.resolve(false);
-  return trackLaneEntryDelivery(drainLaneEntryTriggerImpl(eventId, options));
+  return trackLaneEntryDelivery(drainLaneEntryTriggerImpl(eventId));
 }
 
 /** Reclaim only leases that have actually expired (shared by startup and polling). */
@@ -472,30 +734,22 @@ export async function stopLaneEntryRetryWorker(timeoutMs = 5_000) {
 }
 
 /**
- * Remove a session from the board (called when session is deleted).
+ * Remove a workspace's card from the board, superseding its active lane run.
  *
- * @param {string} sessionId - The session ID
+ * Called when a workspace root session is deleted. The card's project is
+ * resolved from the card itself, so the KANBAN_CARD_REMOVED broadcast fires
+ * even when this runs after the session row is already gone.
+ *
+ * @param {string} sessionId - Any session id in the workspace (root or child)
+ * @returns {Object|null} the removal descriptor from removeCard, or null when
+ *   the workspace had no card
  */
 export function removeSessionFromBoard(sessionId) {
   // Normalize to workspace root — cards are keyed to the root.
   const workspaceId = resolveWorkspaceId(sessionId);
   const card = kanbanCards.getBySessionId(workspaceId);
   if (!card) {
-    return; // Workspace wasn't on the board
+    return null; // Workspace wasn't on the board
   }
-
-  const laneId = card.laneId;
-  const rootSession = sessions.getById(workspaceId);
-  const projectId = rootSession?.projectId;
-
-  supersedeRunForCard(card.id, 'card_removed');
-  kanbanCards.delete(card.id);
-
-  if (projectId) {
-    broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED, {
-      projectId,
-      cardId: card.id,
-      laneId,
-    });
-  }
+  return removeCard(card);
 }

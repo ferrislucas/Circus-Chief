@@ -28,8 +28,12 @@ import {
   CreateWorkspaceSessionRequest,
 } from '@circuschief/shared/contracts/workspaces';
 import { hasPendingPrompt } from '../services/promptStore.js';
+import { sendWorkspaceJson, sendWorkspaceCards, decorateWorkspaceCard } from './workspace-cards.js';
 
-const withPendingAgentInput = (session) => ({ ...session, pendingAgentInput: hasPendingPrompt(session.id) });
+const withPendingAgentInput = (session) => ({
+  ...session,
+  pendingAgentInput: hasPendingPrompt(session.id),
+});
 
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
 const ERR_WORKSPACE_NOT_FOUND = 'Workspace not found';
@@ -117,56 +121,53 @@ function handleCreateError(res, session, error, label) {
   return res.status(500).json({ error: error.message || 'Internal server error' });
 }
 
+function listProjectWorkspaces(req, res) {
+  const startedAt = performance.now();
+  const project = projects.getById(req.params.projectId);
+  if (!project) return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
+
+  const { archived, starred, limit, offset, view } = req.query;
+  if (view === 'cards') return sendWorkspaceCards(res, req.params.projectId, req.query, startedAt);
+
+  const archivedFilter = archived === 'true' ? true : archived === 'false' ? false : null;
+  const starredFilter = starred === 'true' ? true : starred === 'false' ? false : null;
+  const parsedLimit = limit ? parseInt(limit, 10) : null;
+  const parsedOffset = offset ? parseInt(offset, 10) : 0;
+  const workspaces = sessions
+    .getRootsByProjectId(req.params.projectId, {
+      archived: archivedFilter,
+      starred: starredFilter,
+      limit: parsedLimit,
+      offset: parsedOffset,
+    })
+    .map(withPendingAgentInput);
+  if (parsedLimit === null) return res.json(workspaces);
+
+  const total = sessions.getRootsCountByProjectId(req.params.projectId, {
+    archived: archivedFilter,
+    starred: starredFilter,
+  });
+  return res.json({
+    workspaces,
+    pagination: {
+      total,
+      limit: parsedLimit,
+      offset: parsedOffset,
+      hasMore: parsedOffset + workspaces.length < total,
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/projects/:projectId/workspaces — list workspaces (root sessions)
 //
 // Response shapes:
+//   With `view=cards`           → cursor-paginated cards (limit 1-500, default 50; cursor base64url ≤512 chars)
+//                                  with filters status={running,idle}, archived/starred/scheduled={true,false}
 //   Without `limit` query param → bare array of root session rows.
 //   With `limit` query param    → { workspaces: [...], pagination: { total, limit, offset, hasMore } }
 // ---------------------------------------------------------------------------
-projectWorkspacesRouter.get('/:projectId/workspaces', (req, res) => {
-  const project = projects.getById(req.params.projectId);
-  if (!project) {
-    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
-  }
-
-  const { archived, starred, limit, offset } = req.query;
-  let archivedFilter = null;
-  if (archived === 'true') archivedFilter = true;
-  else if (archived === 'false') archivedFilter = false;
-
-  let starredFilter = null;
-  if (starred === 'true') starredFilter = true;
-  else if (starred === 'false') starredFilter = false;
-
-  const parsedLimit = limit ? parseInt(limit, 10) : null;
-  const parsedOffset = offset ? parseInt(offset, 10) : 0;
-
-  const workspaces = sessions.getRootsByProjectId(req.params.projectId, {
-    archived: archivedFilter,
-    starred: starredFilter,
-    limit: parsedLimit,
-    offset: parsedOffset,
-  });
-
-  if (parsedLimit !== null) {
-    const total = sessions.getRootsCountByProjectId(req.params.projectId, {
-      archived: archivedFilter,
-      starred: starredFilter,
-    });
-    return res.json({
-      workspaces: workspaces.map(withPendingAgentInput),
-      pagination: {
-        total,
-        limit: parsedLimit,
-        offset: parsedOffset,
-        hasMore: parsedOffset + workspaces.length < total,
-      },
-    });
-  }
-
-  return res.json(workspaces.map(withPendingAgentInput));
-});
+projectWorkspacesRouter.get('/:projectId/workspaces', listProjectWorkspaces);
 
 // ---------------------------------------------------------------------------
 // POST /api/projects/:projectId/workspaces — create a new workspace
@@ -176,7 +177,9 @@ projectWorkspacesRouter.post('/:projectId/workspaces', async (req, res) => {
   try {
     const validation = CreateWorkspaceRequest.safeParse(req.body);
     if (!validation.success) {
-      return res.status(400).json({ error: validation.error.issues[0]?.message || 'Invalid request body' });
+      return res
+        .status(400)
+        .json({ error: validation.error.issues[0]?.message || 'Invalid request body' });
     }
 
     const project = projects.getById(req.params.projectId);
@@ -187,7 +190,12 @@ projectWorkspacesRouter.post('/:projectId/workspaces', async (req, res) => {
     // Force parentSessionId to null — this is always a root (workspace)
     const body = { ...req.body, parentSessionId: null };
 
-    const prepared = await validateAndPrepareSessionConfig(body, req.files, req.params.projectId, project);
+    const prepared = await validateAndPrepareSessionConfig(
+      body,
+      req.files,
+      req.params.projectId,
+      project
+    );
     if (prepared.error) {
       return res.status(prepared.status).json({ error: prepared.error });
     }
@@ -196,27 +204,49 @@ projectWorkspacesRouter.post('/:projectId/workspaces', async (req, res) => {
     config.agentType = resolveAgentTypeFromModel(config.model);
     const initialStatus = determineInitialStatus(config);
     session = createSessionRow(req.params.projectId, config, nextTemplateId, initialStatus);
-    return await startSessionOrFail(req, res, { session, config, project, projectId: req.params.projectId });
+    return await startSessionOrFail(req, res, {
+      session,
+      config,
+      project,
+      projectId: req.params.projectId,
+    });
   } catch (error) {
     return handleCreateError(res, session, error, 'Workspace creation error:');
   }
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/workspaces/:workspaceId — workspace detail with its session tree
+// GET /api/workspaces/:workspaceId — legacy workspace detail with its session tree
 // ---------------------------------------------------------------------------
 workspacesRouter.get('/:workspaceId', (req, res) => {
+  const startedAt = performance.now();
   const resolved = resolveWorkspace(res, req.params.workspaceId);
   if (!resolved) return;
 
   const { workspace } = resolved;
   const descendantIds = sessions.getAllDescendantIds(workspace.id);
   const descendants = descendantIds.length > 0 ? sessions.getByIds(descendantIds) : [];
+  // This endpoint is used by external API consumers, so retain its full session
+  // row contract. The compact member projection lives at /members.
+  return sendWorkspaceJson(
+    res,
+    {
+      ...withPendingAgentInput(workspace),
+      sessions: descendants.map(withPendingAgentInput),
+    },
+    startedAt
+  );
+});
 
-  return res.json({
-    ...withPendingAgentInput(workspace),
-    sessions: descendants.map(withPendingAgentInput),
-  });
+// Bounded reconciliation endpoint for project realtime events. Unlike the list
+// query, this only walks the requested workspace tree.
+workspacesRouter.get('/:workspaceId/card', (req, res) => {
+  const startedAt = performance.now();
+  const resolved = resolveWorkspace(res, req.params.workspaceId);
+  if (!resolved) return;
+  const card = sessions.getWorkspaceCard(resolved.project.id, resolved.workspace.id);
+  if (!card) return res.status(404).json({ error: ERR_WORKSPACE_NOT_FOUND });
+  return sendWorkspaceJson(res, decorateWorkspaceCard(card, resolved.project.id), startedAt);
 });
 
 // ---------------------------------------------------------------------------
@@ -227,7 +257,9 @@ workspacesRouter.post('/:workspaceId/sessions', async (req, res) => {
   try {
     const validation = CreateWorkspaceSessionRequest.safeParse(req.body);
     if (!validation.success) {
-      return res.status(400).json({ error: validation.error.issues[0]?.message || 'Invalid request body' });
+      return res
+        .status(400)
+        .json({ error: validation.error.issues[0]?.message || 'Invalid request body' });
     }
 
     const resolved = resolveWorkspace(res, req.params.workspaceId);
@@ -242,7 +274,12 @@ workspacesRouter.post('/:workspaceId/sessions', async (req, res) => {
 
     const body = { ...req.body, parentSessionId: parentValidation.parentSessionId };
 
-    const prepared = await validateAndPrepareSessionConfig(body, req.files, workspace.projectId, project);
+    const prepared = await validateAndPrepareSessionConfig(
+      body,
+      req.files,
+      workspace.projectId,
+      project
+    );
     if (prepared.error) {
       return res.status(prepared.status).json({ error: prepared.error });
     }
@@ -251,7 +288,12 @@ workspacesRouter.post('/:workspaceId/sessions', async (req, res) => {
     config.agentType = resolveAgentTypeFromModel(config.model);
     const initialStatus = determineInitialStatus(config);
     session = createSessionRow(workspace.projectId, config, nextTemplateId, initialStatus);
-    return await startSessionOrFail(req, res, { session, config, project, projectId: workspace.projectId });
+    return await startSessionOrFail(req, res, {
+      session,
+      config,
+      project,
+      projectId: workspace.projectId,
+    });
   } catch (error) {
     return handleCreateError(res, session, error, 'Workspace session creation error:');
   }

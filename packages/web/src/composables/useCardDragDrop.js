@@ -6,7 +6,7 @@ import { ref } from 'vue';
  *
  * @param {import('vue').Ref<object>} board - Reactive reference to the kanban board
  * @param {Function} reorderCardsFn - Function to call for card reordering: (projectId, laneId, cardOrder) => Promise
- * @param {Function} moveCardFn - Function to call for cross-lane card moves: (projectId, cardId, targetLaneId, opts) => Promise
+ * @param {Function} moveCardFn - Function to call for cross-lane routing: (projectId, workspaceId, cardId, targetLaneId) => Promise
  * @param {import('vue').Ref<string>} projectId - Reactive reference to the project ID
  */
 export function useCardDragDrop(board, reorderCardsFn, moveCardFn, projectId) {
@@ -74,9 +74,10 @@ export function useCardDragDrop(board, reorderCardsFn, moveCardFn, projectId) {
 
   const moveCardToLane = async (cardId, targetLaneId) => {
     try {
-      await moveCardFn(projectId.value, cardId, targetLaneId, {
-        runOnEnterTemplate: true,
-      });
+      const card = board.value?.lanes?.flatMap((lane) => lane.cards || []).find((item) => item.id === cardId);
+      const workspaceId = card?.sessions?.[0]?.id;
+      if (!workspaceId) throw new Error('Card workspace is unavailable');
+      await moveCardFn(projectId.value, workspaceId, cardId, targetLaneId);
     } catch (err) {
       console.error('Failed to move card:', err);
     }

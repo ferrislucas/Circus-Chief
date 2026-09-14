@@ -9,17 +9,21 @@ import {
   UpdateKanbanLaneRequest,
   ReorderKanbanLanesRequest,
   CreateKanbanCardRequest,
-  MoveKanbanCardRequest,
+  RouteKanbanCardRequest,
   ReorderKanbanCardsRequest,
 } from '@circuschief/shared/contracts/kanban';
 import {
   addSessionToBoard,
-  moveCard as moveCardService,
+  routeWorkspaceCard,
+  removeBoard as removeBoardService,
+  removeCard as removeCardService,
+  removeLane as removeLaneService,
 } from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
 import { getRun } from '../services/workflowSessionService.js';
 import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
 import { isApiError } from '../errors/ApiError.js';
+import { kanbanRoutingMetrics } from '../services/kanbanRoutingObservability.js';
 
 const router = Router({ mergeParams: true });
 const LANE_NOT_FOUND_ERROR = 'Lane not found';
@@ -27,7 +31,8 @@ const CARD_NOT_FOUND_ERROR = 'Card not found';
 const TARGET_LANE_NOT_FOUND_ERROR = 'Target lane not found';
 const WORKSPACE_CARD_NOT_FOUND_ERROR = 'No card found for this workspace';
 const OPERATION_LEASE_MS = 30_000;
-
+const MAX_OPERATION_ATTEMPTS = 5;
+const GENERIC_OPERATION_FAILURE = 'The operation could not be completed. Please try again.';
 function canonicalPayload(payload) {
   if (Array.isArray(payload)) return payload.map(canonicalPayload);
   if (payload && typeof payload === 'object') {
@@ -53,25 +58,51 @@ function validateIdempotencyKey(req, res, next) {
 
 /** Reserve a durable API operation. Unkeyed calls retain legacy semantics,
  * while keyed calls get database-enforced replay protection. */
+function reclaimOperation(db, existing, now) {
+  // Lease-expiry recovery is not a client retry. Only exhausted retryable
+  // rows become terminal, and this transition must remain ownership-fenced.
+  if (existing.attempt_count >= MAX_OPERATION_ATTEMPTS && ['retryable', 'failed', 'abandoned'].includes(existing.status)) {
+    const terminalError = existing.terminal_error || GENERIC_OPERATION_FAILURE;
+    const failed = db.prepare(`UPDATE kanban_api_operations SET status='failed', owner_token=NULL,
+      lease_expires_at=NULL, terminal_error=?, updated_at=?
+      WHERE id=? AND attempt_count>=? AND status IN ('retryable','failed','abandoned')`)
+      .run(terminalError, now, existing.id, MAX_OPERATION_ATTEMPTS);
+    if (!failed.changes) return null;
+    return { existing: { ...existing, status: 'failed', terminal_error: terminalError } };
+  }
+  const token = crypto.randomUUID();
+  const taken = db.prepare(`UPDATE kanban_api_operations
+    SET status='processing', owner_token=?, lease_expires_at=?,
+      attempt_count=attempt_count + CASE WHEN status IN ('retryable','failed','abandoned') THEN 1 ELSE 0 END, updated_at=?
+    WHERE id=? AND (status IN ('retryable','failed','abandoned') OR (status='processing' AND lease_expires_at<=?))`)
+    .run(token, now + OPERATION_LEASE_MS, now, existing.id, now);
+  if (!taken.changes) return null;
+  const operation = db.prepare('SELECT * FROM kanban_api_operations WHERE id=?').get(existing.id);
+  return { operation: { ...operation, token } };
+}
+
 function beginOperation(req, endpoint) {
   const key = req.kanbanIdempotencyKey;
   if (!key) return { keyed: false };
   const payloadHash = crypto.createHash('sha256').update(JSON.stringify(canonicalPayload(req.body))).digest('hex');
   const db = databaseManager.get();
-  let existing = db.prepare(`SELECT * FROM kanban_api_operations
+  const existing = db.prepare(`SELECT * FROM kanban_api_operations
     WHERE project_id=? AND endpoint=? AND operation_key=?`).get(req.params.projectId, endpoint, key);
   if (existing) {
     if (existing.payload_hash !== payloadHash) return { conflict: true };
-    // A completed operation is immutable and always replays its canonical
-    // status/body.  A live owner is never allowed to mutate on a duplicate.
-    if (existing.status !== 'processing' || existing.lease_expires_at > Date.now()) return { keyed: true, existing };
-    const token = crypto.randomUUID(); const now = Date.now();
-    const taken = db.prepare(`UPDATE kanban_api_operations
-      SET owner_token=?, lease_expires_at=?, attempt_count=attempt_count+1, updated_at=?
-      WHERE id=? AND status='processing' AND lease_expires_at<=?`).run(token, now + OPERATION_LEASE_MS, now, existing.id, now);
-    if (!taken.changes) return beginOperation(req, endpoint);
-    existing = db.prepare('SELECT * FROM kanban_api_operations WHERE id=?').get(existing.id);
-    return { keyed: true, operation: { ...existing, token } };
+    // Completed operations are immutable and replay their canonical status/body.
+    // A failed mutation is different: the mutation and this operation's
+    // completion record are committed atomically, so a caught failure means
+    // there is no partial board transition to replay. Reclaim it for a safe
+    // same-key retry instead of permanently caching a transient 500.
+    const now = Date.now();
+    const canRetry = existing.status === 'retryable'
+      || existing.status === 'failed' // Backward-compatible recovery for rows written before retryable failures.
+      || existing.status === 'abandoned'
+      || (existing.status === 'processing' && existing.lease_expires_at <= now);
+    if (!canRetry) return { keyed: true, existing };
+    const reclaimed = reclaimOperation(db, existing, now);
+    return reclaimed ? { keyed: true, ...reclaimed } : beginOperation(req, endpoint);
   }
   const now = Date.now(); const token = crypto.randomUUID();
   const operation = { id: crypto.randomUUID(), projectId: req.params.projectId, key, endpoint, payloadHash, token };
@@ -93,13 +124,17 @@ function replayOrPending(res, operation) {
   if (operation.existing.status === 'completed' && operation.existing.result_json) {
     return res.status(operation.existing.response_status || 200).json(JSON.parse(operation.existing.result_json));
   }
+  if (operation.existing.status === 'failed') {
+    return res.status(500).json({ error: operation.existing.terminal_error || GENERIC_OPERATION_FAILURE });
+  }
   return res.status(202).set('Retry-After', '1').json({ operationId: operation.existing.id, status: operation.existing.status });
 }
 
-function completeOperation(operation, response, eventId = null, responseStatus = 200) {
+function completeOperation(operation, response, { eventId = null, responseStatus = 200, includeMetadata = true } = {}) {
   if (!operation?.keyed || !operation.operation) return response;
-  const body = { ...response, operationId: operation.operation.id,
-    delivery: eventId ? { eventId, status: 'pending' } : null };
+  const body = includeMetadata
+    ? { ...response, operationId: operation.operation.id, delivery: eventId ? { eventId, status: 'pending' } : null }
+    : response;
   const updated = databaseManager.get().prepare(`UPDATE kanban_api_operations
     SET status='completed', response_status=?, result_json=?, lane_entry_event_id=?, owner_token=NULL, lease_expires_at=NULL, updated_at=?
     WHERE id=? AND status='processing' AND owner_token=?`)
@@ -109,7 +144,47 @@ function completeOperation(operation, response, eventId = null, responseStatus =
 }
 
 function sendTerminalOperationResponse(res, operation, responseStatus, response) {
-  return res.status(responseStatus).json(completeOperation(operation, response, null, responseStatus));
+  return res.status(responseStatus).json(completeOperation(operation, response, { responseStatus }));
+}
+
+function failOperation(operation, error) {
+  const correlationId = crypto.randomUUID();
+  const clientError = `${GENERIC_OPERATION_FAILURE} Reference ID: ${correlationId}`;
+  // Keep provider/service details in server logs only; operation rows are
+  // inspectable and must not become a durable raw-error replay channel.
+  console.error(`[Kanban operation failure] correlationId=${correlationId}`, error);
+  const response = { error: clientError };
+  if (!operation?.keyed || !operation.operation) return response;
+  const body = { ...response, operationId: operation.operation.id, delivery: null };
+  const updated = databaseManager.get().prepare(`UPDATE kanban_api_operations
+    SET status='retryable', response_status=NULL, result_json=NULL, terminal_error=?, owner_token=NULL, lease_expires_at=NULL, updated_at=?
+    WHERE id=? AND status='processing' AND owner_token=?`)
+    .run(clientError, Date.now(), operation.operation.id, operation.operation.token);
+  if (updated.changes !== 1) throw new Error('Kanban operation ownership was lost before failure persistence');
+  return body;
+}
+
+// An operation can lose its lease after the mutation service rejects. Do not
+// let the best-effort persistence of that error replace the original HTTP
+// response with another exception from the route's catch block.
+function sendFailureFromCatch(res, operation, error) {
+  try {
+    return res.status(500).json(failOperation(operation, error));
+  } catch (persistenceError) {
+    console.error('Failed to persist kanban operation failure:', persistenceError);
+    const correlationId = crypto.randomUUID();
+    console.error(`[Kanban operation failure persistence] correlationId=${correlationId}`, error);
+    return res.status(500).json({ error: `${GENERIC_OPERATION_FAILURE} Reference ID: ${correlationId}` });
+  }
+}
+
+function sendTerminalResponseFromCatch(res, operation, responseStatus, response) {
+  try {
+    return sendTerminalOperationResponse(res, operation, responseStatus, response);
+  } catch (persistenceError) {
+    console.error('Failed to persist terminal kanban operation response:', persistenceError);
+    return res.status(responseStatus).json(response);
+  }
 }
 
 function boardForProject(projectId) {
@@ -123,6 +198,11 @@ function cardBelongsToBoard(card, board) {
 
 function laneBelongsToBoard(lane, board) {
   return Boolean(lane && board && lane.boardId === board.id);
+}
+
+function targetLaneForBoard(targetLaneId, board) {
+  const targetLane = kanbanLanes.getById(targetLaneId);
+  return laneBelongsToBoard(targetLane, board) ? targetLane : null;
 }
 
 function completionTargetError(boardId, targetLaneId, sourceLaneId = null) {
@@ -190,7 +270,7 @@ router.delete('/', (req, res) => {
     return res.status(404).json({ error: 'Board not found' });
   }
 
-  kanbanBoards.delete(board.id);
+  removeBoardService(board);
 
   broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, {
     projectId,
@@ -299,7 +379,7 @@ router.delete('/lanes/:laneId', (req, res) => {
   const projectBoard = boardForProject(req.params.projectId);
   if (!laneBelongsToBoard(lane, projectBoard)) return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
 
-  kanbanLanes.delete(laneId);
+  removeLaneService(lane);
 
   // Broadcast updated board
   const board = kanbanBoards.getByProjectId(projectId);
@@ -344,20 +424,6 @@ router.put('/lanes/reorder', (req, res) => {
 // ============== Card Endpoints ==============
 
 /**
- * Helper: delete a card and broadcast KANBAN_CARD_REMOVED.
- * Used by both the :cardId and by-workspace delete routes.
- */
-function deleteCardById(card, projectId) {
-  const laneId = card.laneId;
-  kanbanCards.delete(card.id);
-  broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED, {
-    projectId,
-    cardId: card.id,
-    laneId,
-  });
-}
-
-/**
  * POST /api/projects/:projectId/kanban/cards
  * Add a workspace to the board (create card in a lane).
  * Body: { workspaceId, laneId }
@@ -381,72 +447,27 @@ router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req,
     return sendTerminalOperationResponse(res, operation, 409, { error: 'Session already has a card on the board' });
   }
 
-  // Verify lane exists
+  // Verify lane exists and belongs to this project's board
   const lane = kanbanLanes.getById(laneId);
-  if (!lane) {
-    return sendTerminalOperationResponse(res, operation, 404, { error: LANE_NOT_FOUND_ERROR });
-  }
   const board = boardForProject(req.params.projectId);
-  if (!laneBelongsToBoard(lane, board)) {
+  if (!lane || !laneBelongsToBoard(lane, board)) {
     return sendTerminalOperationResponse(res, operation, 404, { error: LANE_NOT_FOUND_ERROR });
   }
 
   try {
     const response = await addSessionToBoard(workspaceId, laneId, {
-      finalizeMutation: ({ card, eventId }) => completeOperation(operation, card, eventId, 201),
+      finalizeMutation: ({ card, eventId }) => completeOperation(operation, card, { eventId, responseStatus: 201 }),
     });
     res.status(201).json(response);
   } catch (error) {
     if (error.message === 'Session already has a card on the board') {
-      return sendTerminalOperationResponse(res, operation, 409, { error: error.message });
+      return sendTerminalResponseFromCatch(res, operation, 409, { error: error.message });
     }
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * PATCH /api/projects/:projectId/kanban/cards/:cardId/move
- * Move card to a different lane
- */
-router.patch('/cards/:cardId/move', async (req, res) => {
-  const { cardId } = req.params;
-
-  const result = MoveKanbanCardRequest.safeParse(req.body);
-  if (!result.success) {
-    return res.status(400).json({ error: result.error.issues[0].message });
-  }
-
-  const card = kanbanCards.getByIdWithLane(cardId);
-  if (!card) {
-    return res.status(404).json({ error: CARD_NOT_FOUND_ERROR });
-  }
-  const board = boardForProject(req.params.projectId);
-  if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: CARD_NOT_FOUND_ERROR });
-
-  const { targetLaneId, sortOrder, runOnEnterTemplate } = result.data;
-  const operation = beginOperation(req, `card_move:${cardId}`);
-  if (operation.conflict) return res.status(409).json({ error: 'Idempotency-Key was already used with a different payload' });
-  if (replayOrPending(res, operation)) return;
-
-  // Verify target lane exists
-  const targetLane = kanbanLanes.getById(targetLaneId);
-  if (!targetLane) {
-    return sendTerminalOperationResponse(res, operation, 404, { error: TARGET_LANE_NOT_FOUND_ERROR });
-  }
-  if (!laneBelongsToBoard(targetLane, board)) {
-    return sendTerminalOperationResponse(res, operation, 404, { error: TARGET_LANE_NOT_FOUND_ERROR });
-  }
-
-  try {
-    const response = await moveCardService(cardId, targetLaneId, {
-      sortOrder,
-      runOnEnterTemplate,
-      finalizeMutation: ({ card: movedCard, eventId }) => completeOperation(operation, movedCard, eventId),
-    });
-    res.json(response);
-  } catch (error) {
-    console.error('Failed to move kanban card:', error);
-    res.status(500).json({ error: error.message });
+    if (isApiError(error)) {
+      return sendTerminalResponseFromCatch(res, operation, error.status, { error: error.message, code: error.code });
+    }
+    console.error('Failed to add kanban card:', error);
+    return sendFailureFromCatch(res, operation, error);
   }
 });
 
@@ -464,19 +485,15 @@ router.delete('/cards/:cardId', (req, res) => {
   const board = boardForProject(projectId);
   if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: CARD_NOT_FOUND_ERROR });
 
-  deleteCardById(card, projectId);
+  removeCardService(card);
   res.status(204).send();
 });
 
 // ============== Workspace-addressed Card Routes (agent-friendly) ==============
 
-/**
- * PATCH /api/projects/:projectId/kanban/cards/by-workspace/:workspaceId/move
- * Move the workspace's card to a different lane.
- * No card ID needed — the agent addresses by workspace ID.
- */
-// eslint-disable-next-line max-statements -- ownership and idempotency fences stay adjacent to the mutation
-router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
+/** Route a workspace card; the service decides whether it moves or is scheduled. */
+// eslint-disable-next-line max-statements, complexity -- route-level validation and idempotency fences stay adjacent.
+router.put('/cards/by-workspace/:workspaceId/lane', async (req, res) => {
   const { workspaceId: rawWorkspaceId } = req.params;
 
   // Normalize to workspace root (forgiving if a child id is passed)
@@ -484,44 +501,53 @@ router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
 
   const workspace = sessions.getById(workspaceId);
   if (!workspace || workspace.projectId !== req.params.projectId) {
+    kanbanRoutingMetrics.recordRejected('validation');
     return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
   }
 
   const card = kanbanCards.getBySessionId(workspaceId);
   if (!card) {
+    kanbanRoutingMetrics.recordRejected('validation');
     return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
   }
   const board = boardForProject(req.params.projectId);
-  if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
+  if (!cardBelongsToBoard(card, board)) {
+    kanbanRoutingMetrics.recordRejected('validation');
+    return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
+  }
 
-  const result = MoveKanbanCardRequest.safeParse(req.body);
+  const result = RouteKanbanCardRequest.safeParse(req.body);
   if (!result.success) {
+    kanbanRoutingMetrics.recordRejected('validation');
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  const { targetLaneId, sortOrder, runOnEnterTemplate } = result.data;
-  const operation = beginOperation(req, `workspace_move:${workspaceId}`);
+  const { laneId } = result.data;
+  const operation = beginOperation(req, `workspace_lane:${workspaceId}`);
   if (operation.conflict) return res.status(409).json({ error: 'Idempotency-Key was already used with a different payload' });
   if (replayOrPending(res, operation)) return;
 
-  const targetLane = kanbanLanes.getById(targetLaneId);
+  const targetLane = targetLaneForBoard(laneId, board);
   if (!targetLane) {
-    return sendTerminalOperationResponse(res, operation, 404, { error: TARGET_LANE_NOT_FOUND_ERROR });
-  }
-  if (!laneBelongsToBoard(targetLane, board)) {
+    kanbanRoutingMetrics.recordRejected('validation');
     return sendTerminalOperationResponse(res, operation, 404, { error: TARGET_LANE_NOT_FOUND_ERROR });
   }
 
   try {
-    const response = await moveCardService(card.id, targetLaneId, {
-      sortOrder,
-      runOnEnterTemplate,
-      finalizeMutation: ({ card: movedCard, eventId }) => completeOperation(operation, movedCard, eventId),
+    const response = await routeWorkspaceCard(workspaceId, laneId, {
+      manualMove: true,
+      finalizeMutation: ({ response: routeResponse, eventId }) => completeOperation(operation, routeResponse, {
+        eventId, includeMetadata: false,
+      }),
     });
     res.json(response);
   } catch (error) {
-    console.error('Failed to move kanban card by workspace:', error);
-    res.status(500).json({ error: error.message });
+    if (isApiError(error)) {
+      if (error.code === 'KANBAN_ROUTE_RETRYABLE') kanbanRoutingMetrics.recordRejected('contention');
+      return sendTerminalResponseFromCatch(res, operation, error.status, { error: error.message, code: error.code });
+    }
+    console.error('Failed to route kanban card by workspace:', error);
+    return sendFailureFromCatch(res, operation, error);
   }
 });
 
@@ -548,7 +574,7 @@ router.delete('/cards/by-workspace/:workspaceId', (req, res) => {
   const board = boardForProject(projectId);
   if (!cardBelongsToBoard(card, board)) return res.status(404).json({ error: WORKSPACE_CARD_NOT_FOUND_ERROR });
 
-  deleteCardById(card, projectId);
+  removeCardService(card);
   res.status(204).send();
 });
 

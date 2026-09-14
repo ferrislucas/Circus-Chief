@@ -9,6 +9,13 @@ vi.mock('../api/ApiClient.js', () => ({
       .fn()
       .mockResolvedValue({ branchDiff: '', staged: '', unstaged: '', untracked: '' }),
     getSessionDefaultBranch: vi.fn().mockResolvedValue({ branch: null }),
+    pullSessionBranch: vi.fn().mockResolvedValue({
+      operation: 'pull',
+      branch: 'feature',
+      summary: 'Pulled origin/feature.',
+      gitStatus: { currentBranch: 'feature', upstreamBranch: 'origin/feature', localChangeCount: 1, behindCount: 0 },
+    }),
+    pushSessionBranch: vi.fn(),
   },
 }));
 
@@ -98,6 +105,40 @@ describe('ChangesTab', () => {
     await wrapper.vm.$forceUpdate();
     await nextTick();
   }
+
+  it('requires confirmation before a dirty pull and sends the confirmed request', async () => {
+    const applyGitStatus = vi.fn();
+    const wrapper = mountComponent({
+      sessionId: 'test-session',
+      gitStatus: {
+        currentBranch: 'feature',
+        upstreamBranch: 'origin/feature',
+        localChangeCount: 1,
+        aheadCount: 0,
+        behindCount: 1,
+      },
+      applyGitStatus,
+    });
+    await flushAll(wrapper);
+
+    await wrapper.findComponent({ name: 'GitStatusSummary' }).vm.$emit('pull');
+    await nextTick();
+    const modal = wrapper.findComponent({ name: 'PullConfirmModal' });
+    expect(document.body.textContent).toContain('Your worktree has 1 uncommitted local change.');
+    expect(api.pullSessionBranch).not.toHaveBeenCalled();
+
+    await modal.vm.$emit('cancel');
+    await nextTick();
+    expect(api.pullSessionBranch).not.toHaveBeenCalled();
+
+    await wrapper.findComponent({ name: 'GitStatusSummary' }).vm.$emit('pull');
+    await nextTick();
+    await modal.vm.$emit('confirm');
+    await flushAll(wrapper);
+
+    expect(api.pullSessionBranch).toHaveBeenCalledWith('test-session');
+    expect(applyGitStatus).toHaveBeenCalledWith(expect.objectContaining({ localChangeCount: 1 }), 'test-session');
+  });
 
   it('shows loading state while fetching', async () => {
     let resolvePromise;

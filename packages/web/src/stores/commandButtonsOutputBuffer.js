@@ -96,15 +96,9 @@ export function flushOutput(store, runId) {
     return;
   }
 
-  // Don't flush output for completed runs - output is already finalized
-  // This prevents duplication if a flush timer fires after completeRun
-  if (store.runs[runId].status !== 'running') {
-    delete store._outputBuffers[runId];
-    delete store._flushTimers[runId];
-    return;
-  }
-
-  // Combine existing output with buffer in one batched state update
+  // Completion and persisted-output events travel on separate WebSocket paths,
+  // so a final chunk can arrive after the run is marked complete. Retain that
+  // chunk; subscribers deduplicate persisted chunks by sequence number.
   patchRunOutput(store, runId, buffer);
 
   // Clear the buffer
@@ -119,26 +113,16 @@ export function flushOutput(store, runId) {
  * @param {Object} store - The Pinia store instance
  * @param {string} runId - The run ID
  * @param {string} text - The text to append
- * @param {Object} [options]
- * @param {boolean} [options.allowAfterCompletion=false] - Set by callers that
- *   dedupe by persisted sequence number (the command-run output subscription).
- *   Their catch-up chunks may legitimately land after the completion event -
- *   e.g. a resync issued because the socket was backpressured - and dropping
- *   them would truncate the tail of the run permanently.
  */
-export function appendOutput(store, runId, text, { allowAfterCompletion = false } = {}) {
+export function appendOutput(store, runId, text) {
   if (!store.runs[runId]) {
     return;
   }
 
-  // Ignore output for completed runs to prevent duplication
-  // (WS output events can arrive after the complete event due to race conditions)
-  if (store.runs[runId].status !== 'running') {
-    // The throttled buffer path is finalized once a run completes, so
-    // sequenced catch-up text is applied straight to the rendered output.
-    if (allowAfterCompletion && text) patchRunOutput(store, runId, text);
-    return;
-  }
+  // Completion and persisted-output events travel on separate WebSocket
+  // paths, so a final output chunk can arrive after COMMAND_RUN_COMPLETE.
+  // Keep accepting it: duplicate delivery is handled below and subscribers
+  // already reject repeated chunk sequences.
 
   // Deduplicate identical output messages arriving from dual-channel WS broadcasts
   // (server broadcasts to both session and project channels, client may receive both)

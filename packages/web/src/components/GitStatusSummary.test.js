@@ -18,9 +18,11 @@ describe('GitStatusSummary', () => {
       },
     });
 
-    expect(wrapper.text()).toContain('Git attention');
+    // Uncommitted files are reported, but only syncable Git state (ahead,
+    // behind, unpublished, or diverged commits) raises the attention banner.
+    expect(wrapper.text()).toContain('Git status');
     expect(wrapper.text()).toContain('3 local files');
-    expect(wrapper.text()).toContain('feature/session-detail -> origin/feature/session-detail');
+    expect(wrapper.text()).toContain('feature/session-detail → origin/feature/session-detail');
 
     const button = wrapper.find('.refresh-origin-button');
     expect(button.exists()).toBe(true);

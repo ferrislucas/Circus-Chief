@@ -1,5 +1,20 @@
 import { api } from '../../composables/useApi.js';
 
+// AbortControllers are intentionally kept outside Pinia state: they are
+// request-lifecycle objects, not application state. A WeakMap also lets each
+// store instance maintain independent per-session requests without relying on
+// Vue's handling of non-plain objects.
+const sessionFetchControllers = new WeakMap();
+
+function getSessionFetchControllers(store) {
+  let controllers = sessionFetchControllers.get(store);
+  if (!controllers) {
+    controllers = new Map();
+    sessionFetchControllers.set(store, controllers);
+  }
+  return controllers;
+}
+
 /**
  * Update a session in a list, or add it if not found.
  * @param {Array} listInput - The list to update
@@ -42,41 +57,12 @@ function getDescendantSessionIds(sessions, sessionId) {
  * @param {Array} targetList - The list to add to
  * @param {Object} sessionData - The session data
  */
-/**
- * Fetch child sessions for a given parent and merge them into the sessions list.
- */
-async function fetchChildSessions(sessionsList, projectId, parentId) {
-  try {
-    const projectSessions = await api.getProjectSessions(projectId);
-    const childSessions = projectSessions.filter(s => s.parentSessionId === parentId);
-    const newChildren = childSessions.filter(child => !sessionsList.find(s => s.id === child.id));
-    sessionsList.push(...newChildren);
-  } catch (error) { console.error('Failed to fetch child sessions:', error); }
-}
 
 function moveSessionBetweenLists(sourceList, targetList, sessionData) {
   const existingSession = sourceList.find((s) => s.id === sessionData.id);
   const merged = existingSession ? { ...existingSession, ...sessionData } : sessionData;
   updateSessionInList(targetList, merged, true);
   return sourceList.filter((s) => s.id !== sessionData.id);
-}
-
-/**
- * Fetch ancestor sessions that are not already in the sessions array.
- * @param {Array} sessions - The current sessions array
- * @param {string|null} startParentId - The first parentSessionId to follow
- */
-async function fetchAncestorSessions(sessions, startParentId) {
-  let parentId = startParentId;
-  while (parentId) {
-    const existingParent = sessions.find((s) => s.id === parentId);
-    if (existingParent) { parentId = existingParent.parentSessionId; continue; }
-    try {
-      const parentSession = await api.getSession(parentId);
-      sessions.push(parentSession);
-      parentId = parentSession.parentSessionId;
-    } catch (error) { console.error('Failed to fetch parent session:', error); break; }
-  }
 }
 
 /**
@@ -115,35 +101,15 @@ export const sessionActions = {
     }
   },
 
-  async fetchArchivedSessions(projectId, { reset = true } = {}) {
-    const PAGE_SIZE = 25;
-    if (reset) { this.archivedSessions = []; this.archivedPagination.offset = 0; }
-    this.archivedPagination.loading = true;
-    this.error = null;
-    try {
-      const response = await api.getProjectSessions(
-        projectId, true, this.starredFilter, { limit: PAGE_SIZE, offset: this.archivedPagination.offset }
-      );
-      this.archivedSessions = reset ? response.sessions : [...this.archivedSessions, ...response.sessions];
-      this.archivedPagination = {
-        total: response.pagination.total,
-        offset: this.archivedPagination.offset + response.sessions.length,
-        hasMore: response.pagination.hasMore, loading: false,
-      };
-    } catch (err) { this.error = err.message; this.archivedPagination.loading = false; }
-  },
-
-  async loadMoreArchivedSessions(projectId) {
-    if (this.archivedPagination.hasMore && !this.archivedPagination.loading) {
-      await this.fetchArchivedSessions(projectId, { reset: false });
-    }
-  },
-
   async fetchSession(id, showLoading = true) {
+    const controllers = getSessionFetchControllers(this);
+    controllers.get(id)?.abort();
+    const controller = new AbortController();
+    controllers.set(id, controller);
     if (showLoading) this.loading = true;
     this.error = null;
     try {
-      const fetchedSession = await api.getSession(id);
+      const fetchedSession = await api.getSession(id, { signal: controller.signal });
       // Guard: only set currentSession if the user is still viewing this session.
       // This prevents stale in-flight requests (e.g., from polling that was active
       // for a previous session) from overwriting currentSession after navigation.
@@ -163,14 +129,46 @@ export const sessionActions = {
       } else {
         this.sessions.push(fetchedSession);
       }
-      if (this.currentSession?.parentSessionId) {
-        await fetchAncestorSessions(this.sessions, this.currentSession.parentSessionId);
+    } catch (err) {
+      if (err?.name !== 'AbortError' && controllers.get(id) === controller) this.error = err.message;
+    } finally {
+      if (controllers.get(id) === controller) {
+        controllers.delete(id);
+        if (showLoading) this.loading = false;
       }
-      if (this.currentSession?.projectId) {
-        await fetchChildSessions(this.sessions, this.currentSession.projectId, id);
+    }
+  },
+
+  /**
+   * Hydrate a session's whole workspace (root + every descendant) into
+   * `this.sessions` in one request, via GET /api/workspaces/:workspaceId
+   * (which accepts any member session id, not just the root, and resolves
+   * it server-side). `getRootSession`/`getChildSessions`/`groupedSessions`
+   * all walk `this.sessions` by parentSessionId, so anything that needs the
+   * full chain (useSessionTree.buildSessionChain) must call this first —
+   * `fetchSession` only ever loads the single requested session.
+   *
+   * Best-effort: errors are swallowed like the other chain-building calls in
+   * this file (e.g. summary fetches). A failure here degrades the session
+   * chain to a single entry; it must not block the detail view from loading.
+   */
+  async fetchWorkspaceTree(sessionId) {
+    const controllers = getSessionFetchControllers(this);
+    const controllerKey = `workspace:${sessionId}`;
+    controllers.get(controllerKey)?.abort();
+    const controller = new AbortController();
+    controllers.set(controllerKey, controller);
+    try {
+      const detail = await api.getWorkspaceDetail(sessionId, { signal: controller.signal });
+      if (controller.signal.aborted || (this.viewedSessionId && this.viewedSessionId !== sessionId)) return;
+      if (!detail) return;
+      const { sessions: descendants, ...root } = detail;
+      for (const row of [root, ...(descendants || [])]) {
+        updateSessionInList(this.sessions, row, true);
       }
-    } catch (err) { this.error = err.message; }
-    finally { if (showLoading) this.loading = false; }
+    } finally {
+      if (controllers.get(controllerKey) === controller) controllers.delete(controllerKey);
+    }
   },
 
   async createSession(projectId, data) {
@@ -256,19 +254,7 @@ export const sessionActions = {
     try {
       await api.deleteSession(id);
       this.sessions = this.sessions.filter((s) => !deletedIds.has(s.id));
-      const prevArchivedCount = this.archivedSessions.length;
       this.archivedSessions = this.archivedSessions.filter((s) => !deletedIds.has(s.id));
-      const removedArchivedCount = prevArchivedCount - this.archivedSessions.length;
-      if (removedArchivedCount > 0) {
-        const nextTotal = Math.max(0, this.archivedPagination.total - removedArchivedCount);
-        const nextOffset = Math.max(0, this.archivedPagination.offset - removedArchivedCount);
-        this.archivedPagination = {
-          ...this.archivedPagination,
-          total: nextTotal,
-          offset: nextOffset,
-          hasMore: nextOffset < nextTotal,
-        };
-      }
       if (this.currentSession?.id && deletedIds.has(this.currentSession.id)) this.currentSession = null;
     } catch (err) { this.error = err.message; throw err; }
   },

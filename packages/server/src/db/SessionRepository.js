@@ -1,6 +1,8 @@
+/* eslint-disable max-lines -- Session persistence APIs share a mapper and transaction boundary. */
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { messages, conversations } from './index.js';
+import { SESSION_EXECUTION_STATES } from '@circuschief/shared';
 import {
   ACTIVITY_FIELDS_SQL,
   SESSION_ORDER_BY,
@@ -14,6 +16,8 @@ import {
   DEFAULT_AGENT_TYPE,
   resolveAgentTypeFromModel,
 } from './session-helpers.js';
+import { getWorkspaceCardPage } from './workspace-queries.js';
+import { getProjectActivityAggregates } from './project-activity-queries.js';
 
 /**
  * Session repository class
@@ -49,13 +53,16 @@ export class SessionRepository extends BaseRepository {
       pendingModel: row.pending_model || null,
       effortLevel: row.effort_level || null,
       autoSendPendingPrompt: Boolean(row.auto_send_pending_prompt),
+      // Persisted mirror of promptStore.js's in-memory pending-prompt queue —
+      // true while the agent is blocked on AskUserQuestion/permission. Kept in
+      // sync by promptStore.js only; unrelated to `status`.
+      pendingAgentInput: Boolean(row.pending_agent_input),
       slashCommands: row.slash_commands || null,
       // Agent runtime driving this session (fallback to 'claude-code' for legacy rows).
       agentType: row.agent_type || DEFAULT_AGENT_TYPE,
       ...mapTokenUsage(row),
       ...mapScheduling(row),
       // Kanban fields
-      laneTriggerDepth: row.lane_trigger_depth || 0,
       ...mapWorkflow(row),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -161,6 +168,25 @@ export class SessionRepository extends BaseRepository {
     return this.db.prepare(sql).get(...params).count;
   }
 
+  /**
+   * Purpose-built list projection for workspace cards.  Unlike getRootsByProjectId,
+   * this deliberately selects a small allowlist and computes workflow state in one
+   * set-based query.  Keeping this here also prevents a future session column from
+   * accidentally becoming part of the list payload.
+   */
+  getWorkspaceCardPage(projectId, options = {}) {
+    return getWorkspaceCardPage(this.db, projectId, options);
+  }
+
+  /** Aggregate per-project active-workspace data across all projects (for the project list). */
+  getProjectActivityAggregates() {
+    return getProjectActivityAggregates(this.db);
+  }
+
+  getWorkspaceCard(projectId, rootId) {
+    return getWorkspaceCardPage(this.db, projectId, { rootId, limit: 1 }).cards[0] || null;
+  }
+
   /** Get count of sessions for a project with optional archived/starred filters */
   getCountByProjectId(projectId, { archived = null, starred = null } = {}) {
     let sql = `SELECT COUNT(*) as count FROM sessions WHERE project_id = ?`;
@@ -234,6 +260,13 @@ export class SessionRepository extends BaseRepository {
   }
 
   update(id, data) {
+    // execution_state is intentionally not an API-writable field, but it is
+    // updated by the workflow service through this repository. Keep the
+    // persistence boundary strict so a typo cannot strand a lane worker in a
+    // state no client or recovery path understands.
+    if (data.executionState !== undefined && !SESSION_EXECUTION_STATES.includes(data.executionState)) {
+      throw new Error(`Invalid session execution state: ${data.executionState}`);
+    }
     const { updates, values } = buildUpdateClauses(data);
 
     if (updates.length === 0) return this.getById(id);
@@ -352,19 +385,52 @@ export class SessionRepository extends BaseRepository {
   }
 
   /**
-   * Get sessions stuck in 'starting' whose updated_at is older than the given cutoff timestamp.
-   * Used by the boot-time stale-startup recovery sweep.
-   * @param {number} cutoff - Absolute timestamp; rows with updated_at < cutoff are stale.
+   * Sessions left in 'starting' by a previous process. Startup work happens in
+   * the server process, so none can still be live when boot recovery runs.
    * @returns {Array<object>}
    */
-  getStaleStartingSessions(cutoff) {
-    const rows = this.db
-      .prepare(
-        `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s
-         WHERE status = 'starting' AND updated_at < ? AND archived = 0`
-      )
-      .all(cutoff);
-    return this.mapAll(rows);
+  getOrphanedStartingSessions() {
+    return this.getRecoverableSessions('starting');
+  }
+
+  /**
+   * Sessions left in 'running' by a previous process. Agent processes are
+   * children of the server, so no session can still be genuinely running at
+   * boot — every such row is orphaned regardless of how recently it was
+   * touched, so no staleness cutoff applies.
+   * @returns {Array<object>}
+   */
+  getOrphanedRunningSessions() {
+    return this.getRecoverableSessions('running');
+  }
+
+  /**
+   * Clear `pending_agent_input` on every session that still has it set.
+   * promptStore.js's parked-prompt queue lives only in process memory and
+   * always starts empty on boot, so any row where this flag is still 1 is
+   * describing an interactive prompt that died with the previous process —
+   * it can never be answered. Left uncleared, the project list's "waiting"
+   * aggregate (project-activity-queries.js) and the workspace-card "waiting"
+   * status filter would keep surfacing that session/project indefinitely,
+   * while every other pendingAgentInput read (which derives live from
+   * hasPendingPrompt()) would correctly show false — a permanent mismatch.
+   * @returns {number} Count of rows cleared.
+   */
+  clearStalePendingAgentInput() {
+    return this.db.prepare('UPDATE sessions SET pending_agent_input = 0 WHERE pending_agent_input = 1').run().changes;
+  }
+
+  /**
+   * Non-archived sessions in `status`. With a `cutoff`, only those untouched
+   * since it; without one, every match regardless of recency.
+   * @param {string} status
+   * @param {number} [cutoff] - Absolute timestamp; rows with updated_at < cutoff match.
+   * @returns {Array<object>}
+   */
+  getRecoverableSessions(status, cutoff) {
+    const hasCutoff = cutoff != null;
+    const sql = `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s WHERE status = ? AND archived = 0${hasCutoff ? ' AND updated_at < ?' : ''}`;
+    return this.mapAll(this.db.prepare(sql).all(...(hasCutoff ? [status, cutoff] : [status])));
   }
 
   /** Get all scheduled sessions, optionally filtered by project */
@@ -381,8 +447,7 @@ export class SessionRepository extends BaseRepository {
 
     sql += ` ORDER BY s.scheduled_at ASC`;
 
-    const rows = this.db.prepare(sql).all(...params);
-    return rows.map(row => ({
+    return this.db.prepare(sql).all(...params).map(row => ({
       ...SessionRepository.#mapSession(row),
       projectName: row.project_name,
     }));

@@ -359,6 +359,14 @@ describe('SessionStreaming Store', () => {
   });
 
   describe('toggleSessionLogCollapsed', () => {
+    it('defaults session-card logs to collapsed until the user expands them', () => {
+      const store = useSessionStreamingStore();
+      expect(store.isSessionLogCollapsed('session-1', true)).toBe(true);
+
+      store.toggleSessionLogCollapsed('session-1', true);
+      expect(store.isSessionLogCollapsed('session-1', true)).toBe(false);
+    });
+
     it('adds sessionId to collapsed set', () => {
       const store = useSessionStreamingStore();
       expect(store.isSessionLogCollapsed('session-1')).toBe(false);
@@ -386,6 +394,13 @@ describe('SessionStreaming Store', () => {
       expect(saved).toContain('session-1');
       expect(saved).toContain('session-2');
     });
+
+    it('persists expanded session-card logs separately', () => {
+      const store = useSessionStreamingStore();
+      store.toggleSessionLogCollapsed('session-1', true);
+
+      expect(JSON.parse(localStorage.getItem('expandedSessionLogs'))).toContain('session-1');
+    });
   });
 
   describe('restoreCollapsedLogState', () => {
@@ -398,6 +413,16 @@ describe('SessionStreaming Store', () => {
       expect(store.isSessionLogCollapsed('session-1')).toBe(true);
       expect(store.isSessionLogCollapsed('session-2')).toBe(true);
       expect(store.isSessionLogCollapsed('session-3')).toBe(false);
+    });
+
+    it('restores expanded session-card logs', () => {
+      const store = useSessionStreamingStore();
+      localStorage.setItem('expandedSessionLogs', JSON.stringify(['session-1']));
+
+      store.restoreCollapsedLogState();
+
+      expect(store.isSessionLogCollapsed('session-1', true)).toBe(false);
+      expect(store.isSessionLogCollapsed('session-2', true)).toBe(true);
     });
 
     it('handles missing localStorage gracefully', () => {

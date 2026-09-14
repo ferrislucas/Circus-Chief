@@ -53,6 +53,21 @@ module.exports = {
       },
     },
     {
+      // These server lifecycle modules remain intentionally cohesive. Keep the
+      // narrowly-scoped size exemption visible in config, not inline.
+      files: [
+        'packages/server/src/db/SessionRepository.js',
+        'packages/server/src/services/commandRunner.js',
+        // sessionExecution must keep the provider and workflow-completion
+        // (deferred card-move) lifecycle in a single boundary, which needs
+        // slightly more room than the default 300-line limit.
+        'packages/server/src/services/sessionExecution.js',
+      ],
+      rules: {
+        'max-lines': ['error', { max: 350, skipBlankLines: true, skipComments: true }],
+      },
+    },
+    {
       // Test files have relaxed rules - MUST come last to override other patterns
       files: ['**/*.test.js'],
       rules: {

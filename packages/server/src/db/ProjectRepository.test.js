@@ -1,6 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ProjectRepository } from './ProjectRepository.js';
 import { SessionRepository } from './SessionRepository.js';
+import { databaseManager } from '../database.js';
+
+function setSessionActivity(sessionId, value) {
+  databaseManager.get().prepare('UPDATE sessions SET last_activity_at = ? WHERE id = ?').run(value, sessionId);
+}
+
+function setProjectUpdatedAt(projectId, value) {
+  databaseManager.get().prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(value, projectId);
+}
 
 describe('ProjectRepository', () => {
   // Uses global setup from test/setup.js
@@ -179,6 +188,7 @@ describe('ProjectRepository', () => {
 
       expect(projects).toHaveLength(1);
       expect(projects[0].sessionCount).toBe(0);
+      expect(projects[0].workspaceCount).toBe(0);
       expect(projects[0].lastActivityAt).toBeNull();
     });
 
@@ -201,6 +211,20 @@ describe('ProjectRepository', () => {
       expect(projects[0].sessionCount).toBe(3);
     });
 
+    it('counts only non-archived root sessions as workspaces', () => {
+      const project = repo.create('Test Project', '/tmp/test');
+      const sessionRepo = new SessionRepository();
+      const root = sessionRepo.create(project.id, 'Workspace', 'root prompt');
+      sessionRepo.create(project.id, 'Child', 'child prompt', { parentSessionId: root.id });
+      const archivedRoot = sessionRepo.create(project.id, 'Archived workspace', 'root prompt');
+      sessionRepo.update(archivedRoot.id, { archived: true });
+
+      const [result] = repo.getAll();
+
+      expect(result.sessionCount).toBe(2);
+      expect(result.workspaceCount).toBe(1);
+    });
+
     it('returns lastActivityAt as most recent session updated_at', () => {
       const project = repo.create('Test Project', '/tmp/test');
       const sessionRepo = new SessionRepository();
@@ -217,6 +241,134 @@ describe('ProjectRepository', () => {
       expect(projects[0].lastActivityAt).toBeGreaterThan(0);
       // lastActivityAt should be from session 2 (the most recently updated)
       expect(projects[0].lastActivityAt).toBeGreaterThanOrEqual(s1.updatedAt);
+    });
+  });
+
+  describe('getAll enrichment', () => {
+    it('exposes runningWorkspaces, runningSessionCount and waitingSessionCount on every project', () => {
+      const project = repo.create('Active Project', '/tmp/active');
+
+      const projects = repo.getAll();
+
+      const enriched = projects.find((p) => p.id === project.id);
+      expect(Array.isArray(enriched.runningWorkspaces)).toBe(true);
+      expect(enriched.runningSessionCount).toBe(0);
+      expect(enriched.waitingSessionCount).toBe(0);
+    });
+
+    it('returns empty array and zero counts (not undefined/null) for a project with no sessions', () => {
+      repo.create('Empty Project', '/tmp/empty');
+
+      const projects = repo.getAll();
+
+      expect(projects).toHaveLength(1);
+      expect(projects[0].runningWorkspaces).toEqual([]);
+      expect(projects[0].runningSessionCount).toBe(0);
+      expect(projects[0].waitingSessionCount).toBe(0);
+    });
+
+    it('returns empty array and zero counts for a project whose workspaces are all inactive', () => {
+      const project = repo.create('Idle Project', '/tmp/idle');
+      const sessionRepo = new SessionRepository();
+      sessionRepo.create(project.id, 'Stopped', 'prompt', { status: 'stopped' });
+      sessionRepo.create(project.id, 'Completed', 'prompt', { status: 'completed' });
+
+      const projects = repo.getAll();
+
+      expect(projects).toHaveLength(1);
+      expect(projects[0].runningWorkspaces).toEqual([]);
+      expect(projects[0].runningSessionCount).toBe(0);
+      expect(projects[0].waitingSessionCount).toBe(0);
+    });
+
+    it('preserves sessionCount, lastActivityAt and updatedAt ordering behaviour', () => {
+      const p1 = repo.create('Project 1', '/tmp/1');
+      const p2 = repo.create('Project 2', '/tmp/2');
+      setProjectUpdatedAt(p1.id, 1);
+      setProjectUpdatedAt(p2.id, 2);
+      const sessionRepo = new SessionRepository();
+      sessionRepo.create(p1.id, 'Session A', 'prompt');
+      sessionRepo.create(p1.id, 'Session B', 'prompt');
+      const archived = sessionRepo.create(p1.id, 'Archived', 'prompt');
+      sessionRepo.update(archived.id, { archived: true });
+
+      const projects = repo.getAll();
+
+      expect(projects.map((p) => p.id)).toEqual([p2.id, p1.id]);
+      const p1Result = projects.find((p) => p.id === p1.id);
+      expect(p1Result.sessionCount).toBe(2);
+      expect(p1Result.lastActivityAt).toBeGreaterThan(0);
+    });
+
+    it('computes activeCount across a multi-level tree including the root self-count', () => {
+      const project = repo.create('Tree Project', '/tmp/tree');
+      const sessionRepo = new SessionRepository();
+      const root = sessionRepo.create(project.id, 'root', 'prompt', { status: 'running' });
+      sessionRepo.create(project.id, 'child-running', 'prompt', { status: 'running', parentSessionId: root.id });
+      // Blocked on AskUserQuestion: status stays 'running', pendingAgentInput is
+      // the "waiting" signal (persisted by promptStore.js, simulated directly here).
+      const childWaiting = sessionRepo.create(project.id, 'child-waiting', 'prompt', { status: 'running', parentSessionId: root.id });
+      sessionRepo.update(childWaiting.id, { pendingAgentInput: true });
+      sessionRepo.create(project.id, 'grandchild', 'prompt', { status: 'starting', parentSessionId: root.id });
+
+      const projects = repo.getAll();
+
+      const enriched = projects.find((p) => p.id === project.id);
+      expect(enriched.runningWorkspaces).toEqual([
+        { id: root.id, name: 'root', activeCount: 4 },
+      ]);
+      expect(enriched.runningSessionCount).toBe(3); // root + child-running + grandchild
+      expect(enriched.waitingSessionCount).toBe(1); // child-waiting (pendingAgentInput)
+    });
+
+    it('enriches each project independently', () => {
+      const active = repo.create('Active', '/tmp/active');
+      const idle = repo.create('Idle', '/tmp/idle');
+      const sessionRepo = new SessionRepository();
+      sessionRepo.create(active.id, 'Root', 'prompt', { status: 'running' });
+
+      const projects = repo.getAll();
+
+      const activeResult = projects.find((p) => p.id === active.id);
+      const idleResult = projects.find((p) => p.id === idle.id);
+      expect(activeResult.runningSessionCount).toBe(1);
+      expect(activeResult.runningWorkspaces).toHaveLength(1);
+      expect(idleResult.runningSessionCount).toBe(0);
+      expect(idleResult.runningWorkspaces).toEqual([]);
+    });
+
+    it('excludes an archived root workspace from runningWorkspaces', () => {
+      const project = repo.create('Archived Project', '/tmp/archived');
+      const sessionRepo = new SessionRepository();
+      const archived = sessionRepo.create(project.id, 'Archived Root', 'prompt', { status: 'running' });
+      sessionRepo.update(archived.id, { archived: true });
+
+      const projects = repo.getAll();
+
+      const enriched = projects.find((p) => p.id === project.id);
+      expect(enriched.runningWorkspaces).toEqual([]);
+      expect(enriched.runningSessionCount).toBe(0);
+    });
+
+    it('orders runningWorkspaces by lastActivityAt descending', () => {
+      const project = repo.create('Ordered Project', '/tmp/ordered');
+      const sessionRepo = new SessionRepository();
+      const older = sessionRepo.create(project.id, 'older', 'prompt', { status: 'running' });
+      const newer = sessionRepo.create(project.id, 'newer', 'prompt', { status: 'running' });
+      // Activity timestamps must exceed each session's created_at/updated_at
+      // (Date.now() at creation), or the activity query's MAX(last_activity_at,
+      // updated_at, created_at) masks them. They must also differ, otherwise the
+      // fallback `root_id DESC` tie-break orders by random UUIDs and the
+      // assertion becomes a coin flip whenever the two creates land in the same
+      // millisecond (the flaky CI failure this test previously caused).
+      const base = Date.now() + 60_000;
+      setSessionActivity(older.id, base);
+      setSessionActivity(newer.id, base + 60_000);
+
+      const projects = repo.getAll();
+
+      const enriched = projects.find((p) => p.id === project.id);
+      expect(enriched.runningWorkspaces.map((w) => w.id)).toEqual([newer.id, older.id]);
     });
   });
 
@@ -246,6 +398,13 @@ describe('ProjectRepository', () => {
 
       expect(updated.name).toBe('New Name');
       expect(updated.workingDirectory).toBe('/tmp/new');
+    });
+
+    it('persists the pinned preference as a boolean', () => {
+      const project = repo.create('Test', '/tmp/test');
+
+      expect(repo.update(project.id, { pinned: true }).pinned).toBe(true);
+      expect(repo.update(project.id, { pinned: false }).pinned).toBe(false);
     });
 
     it('updates updatedAt timestamp', () => {

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { CommandRunRepository } from './CommandRunRepository.js';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { COMMAND_RUN_OUTPUT_BYTE_WINDOW, CommandRunRepository } from './CommandRunRepository.js';
 import { SessionRepository } from './SessionRepository.js';
 import { CommandButtonRepository } from './CommandButtonRepository.js';
 import { ProjectRepository } from './ProjectRepository.js';
@@ -68,6 +68,38 @@ describe('CommandRunRepository', () => {
         { sequence: 1, content: 'line 1\n' },
         { sequence: 2, content: 'line 2\n' },
       ]);
+    });
+
+    it('stores raw bytes independently of the rendered output used by existing clients', () => {
+      repository.create({ id: 'raw-run', sessionId: testSessionId, buttonId: testButtonId });
+      const raw = Buffer.from('\x1b[31mred\x1b[0m\rprogress\n');
+
+      repository.appendBatch('raw-run', [{ raw, rendered: 'progress\n' }]);
+
+      expect(repository.readAfter('raw-run').chunks).toEqual([{ sequence: 1, content: 'progress\n' }]);
+      expect(repository.readOutputByteWindow('raw-run').content).toEqual(raw);
+    });
+
+    it('reads an oversized chunk as ordered byte windows', () => {
+      repository.create({ id: 'oversized-run', sessionId: testSessionId, buttonId: testButtonId });
+      const output = `prefix:${'\u00e9'.repeat(90_000)}:suffix`;
+      const expected = Buffer.from(output);
+      repository.appendOutput('oversized-run', output);
+
+      const pages = [];
+      let sequence = 0;
+      let offset = 0;
+      for (;;) {
+        const page = repository.readOutputByteWindow('oversized-run', sequence, offset, COMMAND_RUN_OUTPUT_BYTE_WINDOW);
+        if (!page) break;
+        expect(page.content.length).toBeLessThanOrEqual(COMMAND_RUN_OUTPUT_BYTE_WINDOW);
+        pages.push(page.content);
+        if (offset + page.content.length < page.byteLength) offset += page.content.length;
+        else { sequence = page.sequence; offset = 0; }
+      }
+
+      expect(pages).toHaveLength(Math.ceil(expected.length / COMMAND_RUN_OUTPUT_BYTE_WINDOW));
+      expect(Buffer.concat(pages)).toEqual(expected);
     });
 
     it('handles empty text gracefully', () => {
@@ -457,6 +489,58 @@ describe('CommandRunRepository', () => {
     it('returns empty array for project with no runs', () => {
       const latestRuns = repository.getLatestRunsForProject('nonexistent-project');
       expect(latestRuns).toEqual([]);
+    });
+  });
+
+  describe('getLatestRunsForSessions', () => {
+    it('splits large session lists into SQLite-safe queries while preserving order', () => {
+      repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-1', 0);
+
+      const testSession = new SessionRepository().getById(testSessionId);
+      const laterSession = new SessionRepository().create(
+        testSession.projectId,
+        'Later Session',
+        'Later prompt'
+      );
+      repository.create({ id: 'run-2', sessionId: laterSession.id, buttonId: testButtonId });
+      repository.complete('run-2', 0);
+      repository.db.prepare('UPDATE command_runs SET completed_at = ? WHERE id = ?').run(1, 'run-1');
+      repository.db.prepare('UPDATE command_runs SET completed_at = ? WHERE id = ?').run(2, 'run-2');
+
+      const prepare = vi.spyOn(repository.db, 'prepare');
+      const sessionIds = [
+        testSessionId,
+        ...Array.from({ length: 499 }, (_, index) => `missing-session-${index}`),
+        laterSession.id,
+      ];
+
+      const latestRuns = repository.getLatestRunsForSessions(sessionIds);
+
+      expect(latestRuns.map(({ id }) => id)).toEqual(['run-2', 'run-1']);
+      expect(prepare.mock.calls.filter(([sql]) => sql.includes('FROM command_runs cr WHERE cr.session_id IN')))
+        .toHaveLength(2);
+    });
+
+    it('omits output-chunk subqueries by default and includes them on request', () => {
+      repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-1', 0);
+
+      const prepare = vi.spyOn(repository.db, 'prepare');
+      const light = repository.getLatestRunsForSessions([testSessionId]);
+      const lightSql = prepare.mock.calls.map(([sql]) => sql).join(' ');
+      expect(lightSql).not.toContain('command_run_output_chunks');
+      expect(light[0]).toMatchObject({ id: 'run-1', status: 'success', exitCode: 0 });
+      // hasOutput coerces falsy → false when the column is absent; consumers
+      // that resume output polling must opt in to the real value.
+      expect(light[0].hasOutput).toBe(false);
+
+      prepare.mockClear();
+      const full = repository.getLatestRunsForSessions([testSessionId], { includeOutputMetadata: true });
+      const fullSql = prepare.mock.calls.map(([sql]) => sql).join(' ');
+      expect(fullSql).toContain('command_run_output_chunks');
+      expect(full[0]).toMatchObject({ id: 'run-1', status: 'success', exitCode: 0 });
+      expect(full[0].outputHighWater).toBe(0);
     });
   });
 

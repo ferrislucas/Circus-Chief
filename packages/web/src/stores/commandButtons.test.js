@@ -112,8 +112,9 @@ describe('CommandButtons Store', () => {
         { id: 'btn-1', projectId: 'proj-1', label: 'Test' }
       ]);
 
-      await store.fetchButtons('proj-1');
+      const succeeded = await store.fetchButtons('proj-1');
       expect(store.error).toBeNull();
+      expect(succeeded).toBe(true);
     });
 
     it('sets error state on API failure', async () => {
@@ -121,9 +122,10 @@ describe('CommandButtons Store', () => {
       const errorMessage = 'Failed to fetch buttons';
       api.getCommandButtons.mockRejectedValue(new Error(errorMessage));
 
-      await store.fetchButtons('proj-1');
+      const succeeded = await store.fetchButtons('proj-1');
       expect(store.error).toBe(errorMessage);
       expect(store.loading).toBe(false);
+      expect(succeeded).toBe(false);
     });
 
     it('handles empty button list from API', async () => {
@@ -600,7 +602,7 @@ describe('CommandButtons Store', () => {
       expect(store.runs['nonexistent']).toBeUndefined();
     });
 
-    it('appendOutput ignores output for completed runs', () => {
+    it('appendOutput preserves output that arrives after command completion', () => {
       const store = useCommandButtonsStore();
       store.runs = {
         'run-1': { runId: 'run-1', status: 'success', output: 'final output', outputTruncated: false },
@@ -609,10 +611,10 @@ describe('CommandButtons Store', () => {
       store.appendOutput('run-1', ' extra');
       store.flushPendingOutput('run-1');
 
-      expect(store.runs['run-1'].output).toBe('final output');
+      expect(store.runs['run-1'].output).toBe('final output extra');
     });
 
-    it('appendOutput ignores output for errored runs', () => {
+    it('appendOutput preserves output that arrives after an error event', () => {
       const store = useCommandButtonsStore();
       store.runs = {
         'run-1': { runId: 'run-1', status: 'error', output: 'error output', outputTruncated: false },
@@ -621,10 +623,10 @@ describe('CommandButtons Store', () => {
       store.appendOutput('run-1', ' extra');
       store.flushPendingOutput('run-1');
 
-      expect(store.runs['run-1'].output).toBe('error output');
+      expect(store.runs['run-1'].output).toBe('error output extra');
     });
 
-    it('appendOutput applies sequenced catch-up text that lands after completion', () => {
+    it('appendOutput applies catch-up text that lands after completion', () => {
       const store = useCommandButtonsStore();
       store.runs = {
         'run-1': { runId: 'run-1', status: 'success', output: 'LINE 67\n', outputTruncated: false },
@@ -632,7 +634,8 @@ describe('CommandButtons Store', () => {
 
       // A resync issued while the run was still going can only resolve after
       // the completion event; its chunks must still reach the rendered output.
-      store.appendOutput('run-1', 'LINE 68\n', { allowAfterCompletion: true });
+      store.appendOutput('run-1', 'LINE 68\n');
+      store.flushPendingOutput('run-1');
 
       expect(store.runs['run-1'].output).toBe('LINE 67\nLINE 68\n');
     });
@@ -643,7 +646,8 @@ describe('CommandButtons Store', () => {
         'run-1': { runId: 'run-1', status: 'error', output: 'boom', outputTruncated: false },
       };
 
-      store.appendOutput('run-1', ' trailing', { allowAfterCompletion: true });
+      store.appendOutput('run-1', ' trailing');
+      store.flushPendingOutput('run-1');
 
       expect(store.runs['run-1'].output).toBe('boom trailing');
     });

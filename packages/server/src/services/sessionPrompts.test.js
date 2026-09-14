@@ -31,7 +31,10 @@ import {
   buildSystemPromptConfig,
 } from './sessionPrompts.js';
 import { getApiBaseUrl } from './apiBaseUrl.js';
-import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
+import {
+  DEFAULT_SERVER_PORT,
+  DEFAULT_SYSTEM_PROMPT,
+} from '@circuschief/shared';
 import { readFileSync } from 'node:fs';
 
 describe('sessionPrompts', () => {
@@ -405,6 +408,15 @@ describe('sessionPrompts', () => {
       expect(result).toContain('**Current Workspace ID:** workspace-root-id');
     });
 
+    it('describes provider models as discoverable choices, not the complete validation contract', () => {
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).toContain('currently available model choices');
+      expect(result).toContain('not an exhaustive validation contract');
+      expect(result).toContain('SDK tier aliases');
+      expect(result).toContain('historical model IDs');
+    });
+
     it('documents workspace creation and add-session verbs (not bare parentSessionId)', () => {
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
@@ -634,7 +646,7 @@ describe('sessionPrompts', () => {
 
       expect(result).toContain('Get Board with All Lanes and Cards');
       expect(result).toContain('Add Current Workspace to the Board');
-      expect(result).toContain('Move a Card to a Different Lane');
+      expect(result).toContain("Move this Workspace's Card");
       expect(result).toContain('Remove a Card from the Board');
       expect(result).toContain('Create a New Lane');
       expect(result).toContain('Update a Lane');
@@ -653,9 +665,10 @@ describe('sessionPrompts', () => {
 
       // Kanban add-to-board uses workspaceId
       expect(result).toContain(`"workspaceId": "${sessionId}"`);
-      // Move and delete use by-workspace routes
-      expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/move`);
+      // Route and delete use by-workspace routes.
+      expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/lane`);
       expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}`);
+      expect(result).not.toContain(['X-Circus-Session', 'Capability'].join('-'));
       // No sessionId field in kanban examples
       expect(result).not.toContain(`"sessionId": "${sessionId}"`);
       // No <card_id> placeholder in kanban examples
@@ -672,7 +685,7 @@ describe('sessionPrompts', () => {
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
       expect(result).toContain(`"workspaceId": "${sessionId}"`);
-      expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/move`);
+      expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/lane`);
     });
 
     describe('command API instructions', () => {

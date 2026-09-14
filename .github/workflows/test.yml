@@ -31,6 +31,9 @@ jobs:
       - name: Run ESLint
         run: yarn lint
 
+      - name: Smoke-test native Node server boot
+        run: bash scripts/smoke-server-boot.sh
+
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest

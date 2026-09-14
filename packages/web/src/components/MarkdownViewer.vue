@@ -177,6 +177,7 @@ const renderedContent = computed(() => renderMarkdown(props.content));
 
 .markdown-viewer :deep(pre code) {
   display: block;
+  white-space: pre;
   min-width: max-content;
   padding: 0;
   background-color: transparent;

@@ -4,7 +4,7 @@
       <!-- Status filter buttons (sessions tab only) -->
       <template v-if="showStatusFilters">
         <button
-          v-for="status in ['running', 'idle']"
+          v-for="status in ['running', 'waiting', 'idle']"
           :key="status"
           :class="[
             'filter-btn',
@@ -80,11 +80,12 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useSessionFiltering } from '../composables/useSessionFiltering.js';
 
-defineProps({
-  /** Whether to show status filter buttons (running/idle) */
+const props = defineProps({
+  /** Whether to show status filter buttons (running/waiting/idle) */
   showStatusFilters: {
     type: Boolean,
     default: true,
@@ -93,6 +94,11 @@ defineProps({
   showScheduledFilter: {
     type: Boolean,
     default: true,
+  },
+  /** Authoritative facets from the workspace-card list response. */
+  statusCounts: {
+    type: Object,
+    default: null,
   },
 });
 
@@ -104,14 +110,17 @@ const {
   starFilterTooltip,
   toggleScheduledFilterIcon,
   scheduledFilterTooltip,
-  statusFilterCounts,
 } = useSessionFiltering();
+
+// Authoritative facets come from the workspace-card list response.
+const statusFilterCounts = computed(() => props.statusCounts || { running: 0, waiting: 0, idle: 0 });
 </script>
 
 <style scoped>
 .status-filters {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-bottom: 1rem;
 }

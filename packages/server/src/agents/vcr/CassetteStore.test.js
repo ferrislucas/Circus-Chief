@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { CassetteStore } from './CassetteStore';
-
 describe('CassetteStore', () => {
   const testCassetteDir = path.join('tests', 'cassettes', 'temp-test');
 
@@ -58,6 +57,7 @@ describe('CassetteStore', () => {
       const loaded = CassetteStore.load(nestedDir, key);
       expect(loaded).not.toBeNull();
     });
+
   });
 
   describe('atomic writes', () => {

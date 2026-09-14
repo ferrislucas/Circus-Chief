@@ -73,8 +73,10 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
 
         // Add new buttons
         this.buttons.push(...newButtons);
+        return true;
       } catch (err) {
         this.error = err.message;
+        return false;
       } finally {
         this.loading = false;
       }
@@ -214,8 +216,8 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       }
     },
 
-    appendOutput(runId, text, options) {
-      appendOutputHelper(this, runId, text, options);
+    appendOutput(runId, text) {
+      appendOutputHelper(this, runId, text);
     },
 
     flushPendingOutput(runId) {

@@ -315,19 +315,18 @@ const updateFormattedOutput = debounceLeading((output) => {
  * Watch for output changes and update formatted output (debounced)
  * Only processes when output section is expanded (lazy loading)
  * Simplified - no spinner logic needed
+ *
+ * Loading output for a run that hasn't been fetched yet (e.g. runs loaded
+ * from list queries, which exclude output) is handled by the showOutput
+ * subscription watch below, which owns the single fetch-and-populate path.
+ * This watch used to also trigger commandButtonsStore.fetchRunOutput() here,
+ * but that raced with the subscription's own catch-up sync - both requests
+ * could resolve out of order, and the sync's append-based catch-up could
+ * land after fetchRunOutput's set-based load, duplicating the output text.
  */
 watch(
   () => [props.run?.output, showOutput.value],
   ([newOutput, isVisible]) => {
-    // Fetch output from server if pane is expanded but output isn't loaded yet.
-    // Note: empty string is falsy, so this triggers for runs loaded from list
-    // queries (which exclude output). Runs that genuinely produced no output
-    // will re-fetch each time, which is an acceptable single lightweight GET.
-    if (isVisible && !newOutput && props.run?.runId && props.run?.status !== 'running') {
-      commandButtonsStore.fetchRunOutput(props.sessionId, props.run.runId);
-      return; // Output will arrive reactively once fetch completes, triggering this watcher again
-    }
-
     if (!newOutput) {
       formattedOutput.value = '';
       outputIsTruncatedForDisplay.value = false;
@@ -358,7 +357,13 @@ watch(
 
 /**
  * Expanding the output pane is a fresh request to view the latest output:
- * reset to tail mode and scroll to the bottom once the pane is mounted.
+ * subscribe for live updates (which also fetches and populates any output
+ * not yet loaded), reset to tail mode, and scroll to the bottom.
+ *
+ * immediate: true so this also runs on mount when the pane is already
+ * expanded (persisted collapse state survives component remounts, e.g.
+ * switching tabs and back) - otherwise a remounted, already-expanded pane
+ * would show stale/empty output with no active subscription to populate it.
  */
 watch(
   () => showOutput.value,
@@ -370,7 +375,7 @@ watch(
       resetTail({ scroll: true });
     }
   },
-  { immediate: false }
+  { immediate: true }
 );
 
 /**

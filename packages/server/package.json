@@ -29,7 +29,7 @@
     "http-proxy-middleware": "^3.0.7",
     "liquidjs": "^10.27.1",
     "multer": "^2.2.0",
-    "nanoid": "^3.3.0",
+    "nanoid": "^3.3.18",
     "openai": "^4.104.0",
     "ws": "^8.21.0",
     "yaml": "^2.8.3",

@@ -62,9 +62,9 @@ export function subscribeCommandRunOutput(sessionId, runId) {
           void this.sync();
           return false;
         }
-        // Ordering and de-duplication are owned here (by sequence), so the run
-        // completing mid-catch-up must not discard the remaining output.
-        this.store.appendOutput(runId, chunk.content, { allowAfterCompletion: true });
+        // Ordering and de-duplication are owned here by sequence. The output
+        // buffer also accepts a final persisted chunk after completion.
+        this.store.appendOutput(runId, chunk.content);
         this.highWater = chunk.sequence;
         // Publish the cursor so a snapshot fetch, or a subscription created
         // later for the same run, resumes here instead of replaying output.

@@ -12,9 +12,6 @@ import { runSession } from './sessionManager.js';
 import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
 import { attachRootSession } from './workflowSessionService.js';
 
-// Maximum depth for recursive lane-entry template triggers
-export const MAX_LANE_TRIGGER_DEPTH = 5;
-
 function throwIfAborted(controller) {
   if (controller?.signal.aborted) throw controller.signal.reason || new Error('Lane-entry delivery was aborted');
 }
@@ -138,23 +135,15 @@ export function getTemplateSessionSettings(template, session) {
 }
 
 /**
- * Trigger the on-enter template for a lane.
- *
- * @param {string} sessionId - The session that entered the lane
- * @param {Object} lane - The lane with template info
- * @param {Object} [options] - Options
- * @param {number} [options.depth=0] - Current recursion depth
- */
-/**
  * Create and configure a child session from a template for lane entry.
  * @param {Object} template
  * @param {Object} session - Parent session
  * @param {Object} lane
- * @param {number} depth - Current trigger depth
+ * @param {Object} [options] - Options
  * @returns {{ newSession: Object, renderedPrompt: string, settings: Object }}
  */
 async function buildChildSessionFromTemplate(template, session, lane, options = {}) {
-  const { depth, laneRunId = null, childSessionId = null } = options;
+  const { laneRunId = null, childSessionId = null } = options;
   // Render prompt with workspace context
   const rootSession = getRootSession(session);
   const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
@@ -181,7 +170,6 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
   // Configure remaining fields not supported by create()
   sessions.update(newSession.id, {
     nextTemplateId: template.nextTemplateId || null,
-    laneTriggerDepth: depth + 1,
   });
 
   return { newSession, renderedPrompt, settings };
@@ -189,12 +177,7 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
 
 // eslint-disable-next-line max-statements, complexity -- capability, cancellation, setup, and dispatch fences form one boundary
 export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
-  const { depth = 0, laneRunId = null, childSessionId = null, beforeDispatch, abortController } = options;
-
-  if (depth >= MAX_LANE_TRIGGER_DEPTH) {
-    console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
-    return undelivered('lane trigger depth limit reached');
-  }
+  const { laneRunId = null, childSessionId = null, beforeDispatch, abortController } = options;
 
   const template = sessionTemplates.getById(lane.onEnterTemplateId);
   if (!template) {
@@ -211,7 +194,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
 
   try {
     const { newSession, renderedPrompt, settings } = await buildChildSessionFromTemplate(
-      template, session, lane, { depth, laneRunId, childSessionId }
+      template, session, lane, { laneRunId, childSessionId }
     );
 
     // Determine working directory
@@ -256,22 +239,13 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
 }
 
 /**
- * Trigger a custom prompt for a lane when a session enters it.
- *
- * @param {string} sessionId - The session that entered the lane
- * @param {Object} lane - The lane with prompt info
- * @param {Object} [options] - Options
- * @param {number} [options.depth=0] - Current recursion depth
- */
-/**
  * Create and configure a child session from a lane's on-enter prompt.
  * @param {Object} lane
  * @param {Object} session - Parent session
- * @param {number} depth - Current trigger depth
  * @returns {Promise<{ newSession: Object, renderedPrompt: string, settings: Object }>}
  */
 async function buildChildSessionFromPrompt(lane, session, options = {}) {
-  const { depth, laneRunId = null, childSessionId = null } = options;
+  const { laneRunId = null, childSessionId = null } = options;
   // Render prompt with workspace context
   const rootSession = getRootSession(session);
   const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
@@ -293,7 +267,7 @@ async function buildChildSessionFromPrompt(lane, session, options = {}) {
   if (laneRunId && !childSessionId) attachRootSession(laneRunId, newSession.id);
 
   // Configure remaining fields not supported by create()
-  const sessionUpdates = { laneTriggerDepth: depth + 1 };
+  const sessionUpdates = {};
   if (lane.onEnterAutoRescheduleEnabled) {
     Object.assign(sessionUpdates, {
       autoRescheduleEnabled: true,
@@ -311,12 +285,7 @@ async function buildChildSessionFromPrompt(lane, session, options = {}) {
 }
 
 export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
-  const { depth = 0, laneRunId = null, childSessionId = null, beforeDispatch, abortController } = options;
-
-  if (depth >= MAX_LANE_TRIGGER_DEPTH) {
-    console.warn(`Lane trigger depth limit reached for session ${sessionId} in lane ${lane.id}`);
-    return undelivered('lane trigger depth limit reached');
-  }
+  const { laneRunId = null, childSessionId = null, beforeDispatch, abortController } = options;
 
   const context = getSessionAndProjectForTrigger(sessionId);
   if (!context) return undelivered('workspace session or project not found');
@@ -327,7 +296,7 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
 
   try {
     const { newSession, renderedPrompt, settings } = await buildChildSessionFromPrompt(
-      lane, session, { depth, laneRunId, childSessionId }
+      lane, session, { laneRunId, childSessionId }
     );
 
     // Determine working directory
