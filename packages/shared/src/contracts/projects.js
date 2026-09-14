@@ -1,26 +1,25 @@
 import { z } from 'zod';
 
-export const CreateProjectRequest = z.object({
-  name: z.string().min(1),
-  workingDirectory: z.string().min(1),
+// Shared editable fields deliberately exclude mutation-only fields such as pinned.
+const projectEditableFields = {
   systemPrompt: z.string().nullable().optional(),
   onSessionCreated: z.string().nullable().optional(),
   onSessionDeleted: z.string().nullable().optional(),
   prPollInterval: z.number().int().min(10000).optional(), // Min 10 seconds
   repoUrl: z.string().url().nullable().optional(),
   worktreePath: z.string().nullable().optional(),
-  pinned: z.boolean().optional(),
-});
+};
+
+export const CreateProjectRequest = z.object({
+  name: z.string().min(1),
+  workingDirectory: z.string().min(1),
+  ...projectEditableFields,
+}).strict();
 
 export const UpdateProjectRequest = z.object({
   name: z.string().min(1).optional(),
   workingDirectory: z.string().min(1).optional(),
-  systemPrompt: z.string().nullable().optional(),
-  onSessionCreated: z.string().nullable().optional(),
-  onSessionDeleted: z.string().nullable().optional(),
-  prPollInterval: z.number().int().min(10000).optional(), // Min 10 seconds
-  repoUrl: z.string().url().nullable().optional(),
-  worktreePath: z.string().nullable().optional(),
+  ...projectEditableFields,
   pinned: z.boolean().optional(),
 });
 

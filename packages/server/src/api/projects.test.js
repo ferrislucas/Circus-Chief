@@ -80,6 +80,26 @@ describe('Projects API', () => {
     }
   });
 
+  describe('POST /api/projects', () => {
+    it('rejects caller-controlled pinned state and relies on the database default', async () => {
+      const rejected = await request(app).post('/api/projects').send({
+        name: 'Pinned Create Attempt',
+        workingDirectory: tempDir,
+        pinned: true,
+      });
+
+      expect(rejected.status).toBe(400);
+
+      const created = await request(app).post('/api/projects').send({
+        name: 'Default Pin State',
+        workingDirectory: tempDir,
+      });
+
+      expect(created.status).toBe(201);
+      expect(created.body.pinned).toBe(false);
+    });
+  });
+
   describe('POST /api/projects/:id/sessions', () => {
     it('broadcasts SESSION_CREATED on successful session creation', async () => {
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({

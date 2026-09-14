@@ -59,6 +59,16 @@ describe('Projects Contracts', () => {
       expect(valid.data.systemPrompt).toBeNull();
     });
 
+    it('rejects caller-controlled pinned state', () => {
+      const result = CreateProjectRequest.safeParse({
+        name: 'Test Project',
+        workingDirectory: '/tmp/test',
+        pinned: true,
+      });
+
+      expect(result.success).toBe(false);
+    });
+
   });
 
   describe('UpdateProjectRequest', () => {
