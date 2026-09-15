@@ -6,7 +6,7 @@ vi.mock('fs', async (importOriginal) => {
 });
 
 import { readFileSync } from 'fs';
-import { parseCliOptions } from './cli.js';
+import { describeBindHost, parseCliOptions } from './cli.js';
 
 describe('parseCliOptions', () => {
   let exitSpy;
@@ -22,6 +22,7 @@ describe('parseCliOptions', () => {
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     process.env = { ...originalEnv };
     delete process.env.PORT;
+    delete process.env.HOST;
   });
 
   afterEach(() => {
@@ -31,17 +32,17 @@ describe('parseCliOptions', () => {
 
   it('returns default port when no arguments provided', () => {
     const result = parseCliOptions(['node', 'cli.js']);
-    expect(result).toEqual({ port: 5000, disableAnalytics: false });
+    expect(result).toEqual({ port: 5000, host: '127.0.0.1', disableAnalytics: false });
   });
 
   it('parses custom port with -p flag', () => {
     const result = parseCliOptions(['node', 'cli.js', '-p', '8080']);
-    expect(result).toEqual({ port: 8080, disableAnalytics: false });
+    expect(result).toEqual({ port: 8080, host: '127.0.0.1', disableAnalytics: false });
   });
 
   it('parses custom port with --port flag', () => {
     const result = parseCliOptions(['node', 'cli.js', '--port', '3000']);
-    expect(result).toEqual({ port: 3000, disableAnalytics: false });
+    expect(result).toEqual({ port: 3000, host: '127.0.0.1', disableAnalytics: false });
   });
 
   it('exits with error for non-numeric port', () => {
@@ -116,25 +117,25 @@ describe('parseCliOptions', () => {
 
   it('accepts minimum valid port (1)', () => {
     const result = parseCliOptions(['node', 'cli.js', '-p', '1']);
-    expect(result).toEqual({ port: 1, disableAnalytics: false });
+    expect(result).toEqual({ port: 1, host: '127.0.0.1', disableAnalytics: false });
   });
 
   it('accepts maximum valid port (65535)', () => {
     const result = parseCliOptions(['node', 'cli.js', '-p', '65535']);
-    expect(result).toEqual({ port: 65535, disableAnalytics: false });
+    expect(result).toEqual({ port: 65535, host: '127.0.0.1', disableAnalytics: false });
   });
 
   describe('PORT environment variable', () => {
     it('respects PORT env var when no CLI flag is given', () => {
       process.env.PORT = '8080';
       const result = parseCliOptions(['node', 'cli.js']);
-      expect(result).toEqual({ port: 8080, disableAnalytics: false });
+      expect(result).toEqual({ port: 8080, host: '127.0.0.1', disableAnalytics: false });
     });
 
     it('CLI --port flag takes precedence over PORT env var', () => {
       process.env.PORT = '8080';
       const result = parseCliOptions(['node', 'cli.js', '--port', '3000']);
-      expect(result).toEqual({ port: 3000, disableAnalytics: false });
+      expect(result).toEqual({ port: 3000, host: '127.0.0.1', disableAnalytics: false });
     });
 
     it('exits with error for invalid PORT env var', () => {
@@ -160,7 +161,74 @@ describe('parseCliOptions', () => {
 
     it('can combine --no-analytics with --port', () => {
       const result = parseCliOptions(['node', 'cli.js', '-p', '8080', '--no-analytics']);
-      expect(result).toEqual({ port: 8080, disableAnalytics: true });
+      expect(result).toEqual({ port: 8080, host: '127.0.0.1', disableAnalytics: true });
+    });
+  });
+
+  describe('--host flag', () => {
+    it.each([
+      ['--host', '0.0.0.0'],
+      ['-H', '0.0.0.0'],
+    ])('parses %s', (flag, host) => {
+      const result = parseCliOptions(['node', 'cli.js', flag, host]);
+      expect(result.host).toBe(host);
+    });
+
+    it.each(['::', '::1', '192.168.1.50', 'myhost.local'])(
+      'passes through %s unchanged',
+      (host) => {
+        expect(parseCliOptions(['node', 'cli.js', '--host', host]).host).toBe(host);
+      }
+    );
+
+    it('trims whitespace', () => {
+      expect(parseCliOptions(['node', 'cli.js', '--host', '  ::1  ']).host).toBe('::1');
+    });
+
+    it.each(['', '   '])('rejects an empty host', (host) => {
+      expect(() => parseCliOptions(['node', 'cli.js', '--host', host])).toThrow('process.exit');
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid host'));
+    });
+
+    it('combines with the other options', () => {
+      expect(parseCliOptions(['node', 'cli.js', '-p', '8080', '-H', '0.0.0.0', '--no-analytics']))
+        .toEqual({ port: 8080, host: '0.0.0.0', disableAnalytics: true });
+    });
+
+    it('includes host configuration in help text', () => {
+      expect(() => parseCliOptions(['node', 'cli.js', '--help'])).toThrow('process.exit');
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('--host'));
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('env: HOST'));
+    });
+  });
+
+  describe('HOST environment variable', () => {
+    it('respects HOST when no CLI flag is given', () => {
+      process.env.HOST = '0.0.0.0';
+      expect(parseCliOptions(['node', 'cli.js']).host).toBe('0.0.0.0');
+    });
+
+    it('gives --host precedence over HOST', () => {
+      process.env.HOST = '0.0.0.0';
+      expect(parseCliOptions(['node', 'cli.js', '--host', '::1']).host).toBe('::1');
+    });
+
+    it('falls back to the default when HOST is empty', () => {
+      process.env.HOST = '';
+      expect(parseCliOptions(['node', 'cli.js']).host).toBe('127.0.0.1');
+    });
+  });
+
+  describe('describeBindHost', () => {
+    it.each([
+      ['127.0.0.1', { urlHost: '127.0.0.1', wildcard: false }],
+      ['192.168.1.50', { urlHost: '192.168.1.50', wildcard: false }],
+      ['::1', { urlHost: '[::1]', wildcard: false }],
+      ['0.0.0.0', { urlHost: 'localhost', wildcard: true }],
+      ['::', { urlHost: 'localhost', wildcard: true }],
+    ])('describes %s', (host, expected) => {
+      expect(describeBindHost(host)).toEqual(expected);
     });
   });
 
