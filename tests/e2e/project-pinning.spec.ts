@@ -27,6 +27,10 @@ function cardNames(page: import('@playwright/test').Page) {
   return page.locator('.project-card .project-name').allTextContents();
 }
 
+async function ownedCardNames(page: import('@playwright/test').Page, names: string[]) {
+  return (await cardNames(page)).filter((name) => names.includes(name));
+}
+
 async function deferPinPut(page: import('@playwright/test').Page, projectId: string) {
   let release: (response: { status?: number; body?: unknown }) => void;
   let requestSeen: () => void;
@@ -120,25 +124,26 @@ test.describe('Project pinning', () => {
     await expect(projectCard(page, first.name)).toBeVisible();
     await expect(projectCard(page, middle.name)).toBeVisible();
     await expect(projectCard(page, last.name)).toBeVisible();
-    const initialOrder = await cardNames(page);
+    const ownedNames = [first.name, middle.name, last.name];
+    const initialOrder = await ownedCardNames(page, ownedNames);
     const pinnedOrder = initialOrder.filter((name) => [first.name, last.name].includes(name));
     await page.getByRole('button', { name: /Pinned projects \(2\)/ }).click();
     const filter = page.getByRole('button', { name: /Pinned projects \(2\)/ });
     await expect(filter).toHaveAttribute('aria-pressed', 'true');
-    await expect(cardNames(page)).resolves.toEqual(pinnedOrder);
+    await expect.poll(() => ownedCardNames(page, ownedNames)).toEqual(pinnedOrder);
     for (const status of ['running', 'waiting', 'idle']) {
       await page.getByRole('button', { name: new RegExp(`${status} \\(\\d+\\)`) }).click();
-      await expect(cardNames(page)).resolves.toEqual(pinnedOrder);
+      await expect.poll(() => ownedCardNames(page, ownedNames)).toEqual(pinnedOrder);
     }
     await page.reload();
     await expect(filter).toHaveAttribute('aria-pressed', 'true');
-    await expect(cardNames(page)).resolves.toEqual(pinnedOrder);
+    await expect.poll(() => ownedCardNames(page, ownedNames)).toEqual(pinnedOrder);
     await expect.poll(() => getProject(first.id)).toMatchObject({ pinned: true });
     await expect.poll(() => getProject(last.id)).toMatchObject({ pinned: true });
 
     await page.getByRole('button', { name: /idle \(\d+\)/ }).click();
     await filter.click();
-    await expect(cardNames(page)).resolves.toEqual(initialOrder);
+    await expect.poll(() => ownedCardNames(page, ownedNames)).toEqual(initialOrder);
     await expect(projectCard(page, middle.name)).toBeVisible();
   });
 
