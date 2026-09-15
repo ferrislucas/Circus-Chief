@@ -91,7 +91,10 @@
                   <span class="status-dot" aria-hidden="true" />
                   {{ project.runningSessionCount }} running
                 </span>
-                <span class="session-status-count status-waiting">
+                <span
+                  class="session-status-count status-waiting"
+                  :class="{ 'has-waiting-sessions': project.waitingSessionCount > 0 }"
+                >
                   <span class="status-dot" aria-hidden="true" />
                   {{ project.waitingSessionCount }} waiting
                 </span>
@@ -638,6 +641,10 @@ onBeforeUnmount(() => {
 }
 
 .status-waiting {
+  color: var(--color-text-soft);
+}
+
+.status-waiting.has-waiting-sessions {
   color: var(--color-warning);
 }
 

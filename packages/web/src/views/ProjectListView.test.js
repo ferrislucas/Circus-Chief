@@ -288,6 +288,27 @@ describe('ProjectListView', () => {
       expect(counts[1].classes()).not.toContain('has-running-sessions');
     });
 
+    it('highlights the waiting indicator only for projects with waiting sessions', async () => {
+      projectsStore.projects = [
+        fullProject({ id: 'waiting', waitingSessionCount: 1 }),
+        fullProject({ id: 'not-waiting', waitingSessionCount: 0 }),
+      ];
+      projectsStore.loading = false;
+      projectsStore.error = null;
+
+      const wrapper = mount(ProjectListView, {
+        global: { plugins: [pinia, router] },
+      });
+      await flushAll(wrapper);
+
+      const counts = wrapper.findAll('.status-waiting');
+      expect(counts).toHaveLength(2);
+      expect(counts[0].text()).toContain('1 waiting');
+      expect(counts[1].text()).toContain('0 waiting');
+      expect(counts[0].classes()).toContain('has-waiting-sessions');
+      expect(counts[1].classes()).not.toContain('has-waiting-sessions');
+    });
+
     it('loads Circus command definitions for the embedded session cards', async () => {
       projectsStore.projects = [fullProject({ id: 'commands-project' })];
       projectsStore.loading = false;
