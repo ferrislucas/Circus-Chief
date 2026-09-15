@@ -6,6 +6,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import ProjectListView from './ProjectListView.vue';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProjectFiltersStore } from '../stores/projectFilters.js';
+import { useUiStore } from '../stores/ui.js';
 
 const { getWorkspaceCards } = vi.hoisted(() => ({ getWorkspaceCards: vi.fn() }));
 const { fetchButtons } = vi.hoisted(() => ({ fetchButtons: vi.fn().mockResolvedValue(true) }));
@@ -287,6 +288,27 @@ describe('ProjectListView', () => {
       expect(counts[1].classes()).not.toContain('has-running-sessions');
     });
 
+    it('highlights the waiting indicator only for projects with waiting sessions', async () => {
+      projectsStore.projects = [
+        fullProject({ id: 'waiting', waitingSessionCount: 1 }),
+        fullProject({ id: 'not-waiting', waitingSessionCount: 0 }),
+      ];
+      projectsStore.loading = false;
+      projectsStore.error = null;
+
+      const wrapper = mount(ProjectListView, {
+        global: { plugins: [pinia, router] },
+      });
+      await flushAll(wrapper);
+
+      const counts = wrapper.findAll('.status-waiting');
+      expect(counts).toHaveLength(2);
+      expect(counts[0].text()).toContain('1 waiting');
+      expect(counts[1].text()).toContain('0 waiting');
+      expect(counts[0].classes()).toContain('has-waiting-sessions');
+      expect(counts[1].classes()).not.toContain('has-waiting-sessions');
+    });
+
     it('loads Circus command definitions for the embedded session cards', async () => {
       projectsStore.projects = [fullProject({ id: 'commands-project' })];
       projectsStore.loading = false;
@@ -453,7 +475,7 @@ describe('ProjectListView', () => {
       await flushAll(wrapper);
 
       const pills = wrapper.findAll('.filter-btn');
-      expect(pills).toHaveLength(3);
+      expect(pills).toHaveLength(4);
     });
 
     it('renders the list from filteredProjects, not the raw array', async () => {
@@ -506,6 +528,23 @@ describe('ProjectListView', () => {
 
       expect(wrapper.find('.welcome-heading').text()).toBe('Welcome to Circus Chief');
       expect(wrapper.find('.no-match').exists()).toBe(false);
+    });
+  });
+
+  describe('Project pinning', () => {
+    it('shows the shared error toast when a pin mutation fails', async () => {
+      projectsStore.projects = [fullProject()];
+      projectsStore.loading = false;
+      vi.spyOn(projectsStore, 'toggleProjectPin').mockRejectedValue(new Error('Pin update failed'));
+      const uiStore = useUiStore();
+      vi.spyOn(uiStore, 'error');
+      const wrapper = mount(ProjectListView, { global: { plugins: [pinia, router] } });
+      await flushAll(wrapper);
+
+      await wrapper.find('.project-pin-button').trigger('click');
+      await flushAll(wrapper);
+
+      expect(uiStore.error).toHaveBeenCalledWith('Pin update failed');
     });
   });
 });

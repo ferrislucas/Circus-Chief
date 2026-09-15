@@ -1,3 +1,4 @@
+<!-- eslint-disable max-lines -->
 <template>
   <div class="container">
     <div class="page-header">
@@ -11,6 +12,7 @@
     <ProjectFiltersPanel
       v-if="!projectsStore.loading && !projectsStore.error && projectsStore.projects.length > 0"
       :status-facets="statusFacets"
+      :pinned-count="pinnedFacet"
       class="project-filters"
     />
 
@@ -89,7 +91,10 @@
                   <span class="status-dot" aria-hidden="true" />
                   {{ project.runningSessionCount }} running
                 </span>
-                <span class="session-status-count status-waiting">
+                <span
+                  class="session-status-count status-waiting"
+                  :class="{ 'has-waiting-sessions': project.waitingSessionCount > 0 }"
+                >
                   <span class="status-dot" aria-hidden="true" />
                   {{ project.waitingSessionCount }} waiting
                 </span>
@@ -100,6 +105,11 @@
               </div>
             </div>
             <div class="project-actions">
+              <ProjectPinButton
+                :project="project"
+                :pending="projectsStore.isPinPending(project.id)"
+                @toggle="toggleProjectPin(project)"
+              />
               <button
                 v-if="projectCards[project.id]?.length"
                 type="button"
@@ -138,6 +148,7 @@
 </template>
 
 <script setup>
+/* eslint-disable max-lines */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
@@ -147,7 +158,9 @@ import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useProjectListRealtime } from '../composables/useProjectListRealtime.js';
 import { useRunningSessionSubscriptions } from '../composables/useRunningSessionSubscriptions.js';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
+import { useUiStore } from '../stores/ui.js';
 import ProjectFiltersPanel from '../components/ProjectFiltersPanel.vue';
+import ProjectPinButton from '../components/ProjectPinButton.vue';
 import SessionCard from '../components/SessionCard.vue';
 import { formatRelativeTime } from '../composables/useSummaryHelpers.js';
 import { api } from '../api/index.js';
@@ -160,6 +173,7 @@ const sessionsStore = useSessionsStore();
 const projectFilters = useProjectFiltersStore();
 const commandButtonsStore = useCommandButtonsStore();
 const streamingStore = useSessionStreamingStore();
+const uiStore = useUiStore();
 const projectCards = ref({});
 const sessionVisibility = ref({});
 const hydratedCommandButtonProjects = new Set();
@@ -175,6 +189,7 @@ const sessionVisibilityStorageKey = 'circus-chief.project-list.session-visibilit
 // The list and facets are client-side derivatives of the full project array.
 const visibleProjects = computed(() => projectsStore.filteredProjects);
 const statusFacets = computed(() => projectsStore.statusFacets);
+const pinnedFacet = computed(() => projectsStore.pinnedFacet);
 const projectIds = computed(() => projectsStore.projects.map((p) => p.id));
 
 // Session cards default to a collapsed output pane. Only hydrate a running
@@ -197,6 +212,14 @@ useRunningSessionSubscriptions(eligibleSessionIds);
 
 function goToSessions(projectId) {
   router.push(`/projects/${projectId}/sessions`);
+}
+
+async function toggleProjectPin(project) {
+  try {
+    await projectsStore.toggleProjectPin(project.id);
+  } catch (error) {
+    uiStore.error(error.message || 'Unable to update project pin.');
+  }
 }
 
 function areSessionsVisible(projectId) {
@@ -354,6 +377,7 @@ watch(projectIds, (ids) => {
 
 onMounted(() => {
   projectFilters.restoreStatusFilter();
+  projectFilters.restorePinnedOnly();
   restoreSessionVisibility();
   projectsStore.fetchProjects();
   useProjectListRealtime(projectIds);
@@ -617,6 +641,10 @@ onBeforeUnmount(() => {
 }
 
 .status-waiting {
+  color: var(--color-text-soft);
+}
+
+.status-waiting.has-waiting-sessions {
   color: var(--color-warning);
 }
 

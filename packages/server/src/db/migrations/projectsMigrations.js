@@ -48,6 +48,10 @@ export const projectsMigrations = [
     up(db) { addColumnIfMissing(db, 'projects', 'worktree_path', 'TEXT'); },
   },
   {
+    name: 'projects-add-pinned',
+    up(db) { addColumnIfMissing(db, 'projects', 'pinned', 'INTEGER NOT NULL DEFAULT 0'); },
+  },
+  {
     name: 'projects-drop-summary-columns',
     up(db) { migrateProjectsDropSummaryColumns(db); },
   },

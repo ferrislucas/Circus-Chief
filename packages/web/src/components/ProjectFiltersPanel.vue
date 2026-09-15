@@ -17,6 +17,18 @@
         <span class="filter-label">{{ status }}</span>
         <span class="filter-count">{{ statusFacets[status] }}</span>
       </button>
+      <button
+        :class="['filter-btn', 'pinned-filter-btn', { active: projectFilters.pinnedOnly, 'filter-btn-empty': pinnedCount === 0 }]"
+        type="button"
+        :aria-label="`Pinned projects (${pinnedCount})`"
+        :aria-pressed="projectFilters.pinnedOnly"
+        @click="projectFilters.togglePinnedOnly()"
+      >
+        <svg class="pin-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M8 3h8l-1 6 3 3v2H6v-2l3-3-1-6Zm4 11v7" />
+        </svg>
+        <span class="filter-count">{{ pinnedCount }}</span>
+      </button>
     </div>
   </div>
 </template>
@@ -31,6 +43,10 @@ const props = defineProps({
   statusFacets: {
     type: Object,
     default: () => ({ running: 0, waiting: 0, idle: 0 }),
+  },
+  pinnedCount: {
+    type: Number,
+    default: 0,
   },
 });
 
@@ -104,5 +120,30 @@ function toggleFilter(status) {
   background: var(--color-primary);
   border-color: var(--color-primary);
   color: white;
+}
+
+.filter-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.pinned-filter-btn {
+  min-width: 2.5rem;
+  justify-content: center;
+  padding-inline: 0.5rem;
+}
+
+.pin-icon {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.pinned-filter-btn.active .pin-icon {
+  fill: currentColor;
 }
 </style>

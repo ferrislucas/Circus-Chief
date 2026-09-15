@@ -1,114 +1,244 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createPinia, setActivePinia } from 'pinia';
-import { useCommandButtonsStore } from '../stores/commandButtons.js';
-import { subscribeCommandRunOutput } from './useCommandRunOutputSubscription.js';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
-// The subscription composable talks to a real WebSocket by default. For these
-// unit-level checks, register a no-op socket so listeners and control frames
-// can be sent safely; live socket behavior is covered by the E2E suite.
+const SESSION_ID = 'session-1';
+const RUN_ID = 'run-1';
+
+/** Handlers registered through the mocked `useWebSocket().on`. */
+let wsHandlers;
+let sent;
+let store;
+let subscribeCommandRunOutput;
+
+/** Deliver a socket frame to every handler registered for its type. */
+function receive(type, payload) {
+  for (const handler of wsHandlers.get(type) || []) handler(payload);
+}
+
+/** A promise plus its resolver, so a sync can be held open mid-test. */
+function deferred() {
+  let resolve;
+  const promise = new Promise((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
 vi.mock('./useWebSocket.js', () => ({
-  useWebSocket: () => ({ send: vi.fn(), on: vi.fn(), off: vi.fn() }),
+  useWebSocket: () => ({
+    on: (type, handler) => {
+      if (!wsHandlers.has(type)) wsHandlers.set(type, []);
+      wsHandlers.get(type).push(handler);
+    },
+    send: (type, payload) => sent.push({ type, payload }),
+  }),
 }));
 
-describe('useCommandRunOutputSubscription', () => {
-  let store;
+vi.mock('../stores/commandButtons.js', () => ({
+  useCommandButtonsStore: () => store,
+}));
 
-  beforeEach(() => {
-    setActivePinia(createPinia());
-    store = useCommandButtonsStore();
+describe('subscribeCommandRunOutput', () => {
+  beforeEach(async () => {
+    wsHandlers = new Map();
+    sent = [];
+    store = {
+      runs: { [RUN_ID]: { runId: RUN_ID, status: 'running', outputHighWater: 0 } },
+      appendOutput: vi.fn(),
+      syncCalls: [],
+      syncRunOutput: vi.fn(),
+    };
+    // Module-level subscription bookkeeping must not leak between tests.
+    vi.resetModules();
+    ({ subscribeCommandRunOutput } = await import('./useCommandRunOutputSubscription.js'));
   });
 
-  it('skips the catch-up sync for a finished run that already holds output but no cursor (no re-append duplication)', () => {
-    // Scenario behind the flaky "output persisting across tabs" test failure:
-    // the run completed while the pane was collapsed, so its text arrived via
-    // the plain output path and outputHighWater was never recorded. A fresh
-    // subscribe over cursor 0 would otherwise re-append the entire stream.
-    store.runs['run-1'] = {
-      runId: 'run-1',
-      buttonId: 'btn-1',
-      sessionId: 'sess-1',
-      status: 'success',
-      output: 'Persist output',
-      exitCode: 0,
-      outputTruncated: false,
-      // NOTE: no outputHighWater on purpose
-    };
-    store.syncRunOutput = vi.fn().mockResolvedValue({ highWater: 0, hasMore: false });
+  /** Subscribe and settle the initial catch-up read with no chunks. */
+  async function subscribeAndSettleInitialSync() {
+    store.syncRunOutput.mockResolvedValueOnce({ highWater: 0, hasMore: false });
+    const unsubscribe = subscribeCommandRunOutput(SESSION_ID, RUN_ID);
+    await vi.waitFor(() => expect(store.syncRunOutput).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    await Promise.resolve();
+    return unsubscribe;
+  }
 
-    const unsubscribe = subscribeCommandRunOutput('sess-1', 'run-1');
+  it('subscribes on the socket and issues an initial catch-up read', async () => {
+    await subscribeAndSettleInitialSync();
 
-    // The terminal-run guard must prevent the fetch-and-append path entirely.
+    expect(sent).toContainEqual({
+      type: WS_MESSAGE_TYPES.SUBSCRIBE_COMMAND_RUN_OUTPUT,
+      payload: { sessionId: SESSION_ID, runId: RUN_ID },
+    });
+    expect(store.syncRunOutput).toHaveBeenCalledWith(SESSION_ID, RUN_ID, 0, expect.any(Function));
+  });
+
+  it('applies in-order live chunks', async () => {
+    await subscribeAndSettleInitialSync();
+
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 1, content: 'LINE 1\n' });
+
+    expect(store.appendOutput).toHaveBeenCalledWith(RUN_ID, 'LINE 1\n', { sequence: 1 });
+  });
+
+  it('applies identical consecutive chunks when their sequences differ', async () => {
+    await subscribeAndSettleInitialSync();
+
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 1, content: '.' });
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 2, content: '.' });
+
+    expect(store.appendOutput).toHaveBeenNthCalledWith(1, RUN_ID, '.', { sequence: 1 });
+    expect(store.appendOutput).toHaveBeenNthCalledWith(2, RUN_ID, '.', { sequence: 2 });
+  });
+
+  it('ignores chunks already covered by the current high-water mark', async () => {
+    await subscribeAndSettleInitialSync();
+
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 1, content: 'LINE 1\n' });
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 1, content: 'LINE 1\n' });
+
+    expect(store.appendOutput).toHaveBeenCalledTimes(1);
+    expect(store.appendOutput).toHaveBeenCalledWith(RUN_ID, 'LINE 1\n', { sequence: 1 });
+  });
+
+  it('re-reads the persisted stream when a live sequence is missing', async () => {
+    await subscribeAndSettleInitialSync();
+    store.syncRunOutput.mockResolvedValueOnce({ highWater: 4, hasMore: false });
+
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 5, content: 'LINE 5\n' });
+
+    expect(store.appendOutput).not.toHaveBeenCalled();
+    expect(store.syncRunOutput).toHaveBeenCalledTimes(2);
+  });
+
+  it('runs a follow-up read for chunks rejected while a read was in flight', async () => {
+    await subscribeAndSettleInitialSync();
+
+    const inFlight = deferred();
+    store.syncRunOutput.mockReturnValueOnce(inFlight.promise);
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 5, content: 'LINE 5\n' });
+    expect(store.syncRunOutput).toHaveBeenCalledTimes(2);
+
+    // This chunk is rejected while the read is open. It may have been persisted
+    // after that read started, so dropping it here would lose it permanently.
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 6, content: 'LINE 6\n' });
+    expect(store.syncRunOutput).toHaveBeenCalledTimes(2);
+
+    store.syncRunOutput.mockResolvedValueOnce({ highWater: 6, hasMore: false });
+    inFlight.resolve({ highWater: 5, hasMore: false });
+
+    await vi.waitFor(() => expect(store.syncRunOutput).toHaveBeenCalledTimes(3));
+  });
+
+  it('publishes the applied cursor so a later viewer does not replay output', async () => {
+    await subscribeAndSettleInitialSync();
+    store.advanceOutputHighWater = vi.fn();
+
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 1, content: 'LINE 1\n' });
+
+    expect(store.advanceOutputHighWater).toHaveBeenCalledWith(RUN_ID, 1);
+  });
+
+  it('skips chunks a snapshot fetch rendered while the catch-up read was open', async () => {
+    await subscribeAndSettleInitialSync();
+
+    // Expanding a collapsed pane reads the same persisted stream from the start.
+    // Whichever loader lands second must not append output twice.
+    store.runs[RUN_ID] = { ...store.runs[RUN_ID], status: 'success', outputHighWater: 2 };
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 1, content: 'LINE 1\n' });
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 2, content: 'LINE 2\n' });
+
+    expect(store.appendOutput).not.toHaveBeenCalled();
+
+    // The stream still continues from where the snapshot left off.
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 3, content: 'LINE 3\n' });
+    expect(store.appendOutput).toHaveBeenCalledWith(RUN_ID, 'LINE 3\n', { sequence: 3 });
+  });
+
+  it('resumes a catch-up read from the output already rendered by the store', async () => {
+    await subscribeAndSettleInitialSync();
+    store.runs[RUN_ID] = { ...store.runs[RUN_ID], outputHighWater: 5 };
+    store.syncRunOutput.mockResolvedValueOnce({ highWater: 5, hasMore: false });
+
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT_RESYNC_REQUIRED, { runId: RUN_ID });
+
+    expect(store.syncRunOutput).toHaveBeenLastCalledWith(SESSION_ID, RUN_ID, 5, expect.any(Function));
+  });
+
+  it('skips the catch-up sync for a finished run that already holds output but no cursor', () => {
+    // A run that completed while its pane was collapsed can hold output
+    // delivered by the completion payload, which records no cursor. A fresh
+    // subscribe over cursor 0 would re-append the whole persisted stream on
+    // top of that text, so the terminal-run guard must prevent the
+    // fetch-and-append path entirely.
+    store.runs[RUN_ID] = { runId: RUN_ID, status: 'success', output: 'Persist output' };
+
+    const unsubscribe = subscribeCommandRunOutput(SESSION_ID, RUN_ID);
+
     expect(store.syncRunOutput).not.toHaveBeenCalled();
+    expect(store.appendOutput).not.toHaveBeenCalled();
+
+    // Late persisted frames for the finished run are stale, not new output.
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 1, content: 'Persist output' });
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT_SUBSCRIBED, { runId: RUN_ID });
+    expect(store.syncRunOutput).not.toHaveBeenCalled();
+    expect(store.appendOutput).not.toHaveBeenCalled();
 
     unsubscribe();
-    expect(store.runs['run-1'].output).toBe('Persist output');
   });
 
-  it('still syncs when the completed run has no buffered output yet', () => {
-    // A completed run whose output was never loaded must keep the normal
+  it('still syncs a finished run whose output has not been loaded yet', async () => {
+    // A completed run whose output was never rendered must keep the normal
     // fetch-and-append path so expanding the pane shows the content.
-    store.runs['run-1'] = {
-      runId: 'run-1',
-      buttonId: 'btn-1',
-      sessionId: 'sess-1',
-      status: 'success',
-      output: '',
-      exitCode: 0,
-      outputTruncated: false,
-    };
-    store.syncRunOutput = vi.fn().mockResolvedValue({ highWater: 1, hasMore: false });
+    store.runs[RUN_ID] = { runId: RUN_ID, status: 'success', output: '' };
+    store.syncRunOutput.mockResolvedValueOnce({ highWater: 2, hasMore: false });
 
-    const unsubscribe = subscribeCommandRunOutput('sess-1', 'run-1');
+    const unsubscribe = subscribeCommandRunOutput(SESSION_ID, RUN_ID);
 
-    expect(store.syncRunOutput).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(store.syncRunOutput).toHaveBeenCalledTimes(1));
 
     unsubscribe();
   });
 
-  it('keeps the catch-up sync for running runs, even when output is already buffered', () => {
+  it('keeps the catch-up sync for a running run that already buffers output', async () => {
     // A live run still needs sync (gap repair + live chunks); the guard only
     // applies to terminal runs.
-    store.runs['run-1'] = {
-      runId: 'run-1',
-      buttonId: 'btn-1',
-      sessionId: 'sess-1',
-      status: 'running',
-      output: 'partial',
-      exitCode: null,
-      outputTruncated: false,
-    };
-    store.syncRunOutput = vi.fn().mockResolvedValue({ highWater: 1, hasMore: false });
+    store.runs[RUN_ID] = { runId: RUN_ID, status: 'running', output: 'partial' };
+    store.syncRunOutput.mockResolvedValueOnce({ highWater: 5, hasMore: false });
 
-    const unsubscribe = subscribeCommandRunOutput('sess-1', 'run-1');
+    const unsubscribe = subscribeCommandRunOutput(SESSION_ID, RUN_ID);
 
-    expect(store.syncRunOutput).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(store.syncRunOutput).toHaveBeenCalledTimes(1));
 
     unsubscribe();
   });
 
-  it('subscribes with a persisted cursor when the run entry already carries one', () => {
-    // Layer A keeps the store cursor up to date on completion; a re-subscribe
-    // (e.g. tab switch) must hand that cursor to the sync rather than 0.
-    store.runs['run-1'] = {
-      runId: 'run-1',
-      buttonId: 'btn-1',
-      sessionId: 'sess-1',
-      status: 'success',
-      output: 'Persist output',
-      exitCode: 0,
-      outputTruncated: false,
-      outputHighWater: 7,
-    };
-    store.syncRunOutput = vi.fn(async (_sessionId, _runId, after, applyChunk) => ({
-      highWater: after,
-      hasMore: false,
-    }));
+  it('subscribes with the cursor a finished run entry already carries', async () => {
+    // A re-subscribe (e.g. tab switch) must hand the stored cursor to the sync
+    // rather than restarting from 0.
+    store.runs[RUN_ID] = { runId: RUN_ID, status: 'success', output: 'Persist output', outputHighWater: 7 };
+    store.syncRunOutput.mockResolvedValueOnce({ highWater: 7, hasMore: false });
 
-    const unsubscribe = subscribeCommandRunOutput('sess-1', 'run-1');
+    const unsubscribe = subscribeCommandRunOutput(SESSION_ID, RUN_ID);
 
-    expect(store.syncRunOutput).toHaveBeenCalledTimes(1);
-    expect(store.syncRunOutput.mock.calls[0][2]).toBe(7);
+    await vi.waitFor(() => expect(store.syncRunOutput).toHaveBeenCalledTimes(1));
+    expect(store.syncRunOutput).toHaveBeenCalledWith(SESSION_ID, RUN_ID, 7, expect.any(Function));
 
     unsubscribe();
+  });
+
+  it('shares one socket subscription across viewers and releases it on the last unsubscribe', async () => {
+    const unsubscribeA = await subscribeAndSettleInitialSync();
+    const unsubscribeB = subscribeCommandRunOutput(SESSION_ID, RUN_ID);
+
+    const subscribeFrames = sent.filter((f) => f.type === WS_MESSAGE_TYPES.SUBSCRIBE_COMMAND_RUN_OUTPUT);
+    expect(subscribeFrames).toHaveLength(1);
+
+    unsubscribeA();
+    expect(sent.some((f) => f.type === WS_MESSAGE_TYPES.UNSUBSCRIBE_COMMAND_RUN_OUTPUT)).toBe(false);
+
+    unsubscribeB();
+    expect(sent).toContainEqual({
+      type: WS_MESSAGE_TYPES.UNSUBSCRIBE_COMMAND_RUN_OUTPUT,
+      payload: { runId: RUN_ID },
+    });
   });
 });
