@@ -596,6 +596,19 @@ describe('CommandButtons Store', () => {
       expect(store.runs['run-1'].output).toBe('Hello World');
     });
 
+    it('preserves identical persisted chunks with distinct sequences', () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'run-1': { runId: 'run-1', status: 'running', output: '', outputTruncated: false },
+      };
+
+      store.appendOutput('run-1', '.', { sequence: 1 });
+      store.appendOutput('run-1', '.', { sequence: 2 });
+      store.flushPendingOutput('run-1');
+
+      expect(store.runs['run-1'].output).toBe('..');
+    });
+
     it('appendOutput does nothing for non-existent run', () => {
       const store = useCommandButtonsStore();
       store.appendOutput('nonexistent', 'text');

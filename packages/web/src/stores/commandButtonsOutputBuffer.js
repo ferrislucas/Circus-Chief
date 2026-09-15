@@ -113,25 +113,30 @@ export function flushOutput(store, runId) {
  * @param {Object} store - The Pinia store instance
  * @param {string} runId - The run ID
  * @param {string} text - The text to append
+ * @param {{ sequence?: number }|undefined} options - Persisted delivery identity, when available
  */
-export function appendOutput(store, runId, text) {
+export function appendOutput(store, runId, text, options) {
   if (!store.runs[runId]) {
     return;
   }
 
   // Completion and persisted-output events travel on separate WebSocket
   // paths, so a final output chunk can arrive after COMMAND_RUN_COMPLETE.
-  // Keep accepting it: duplicate delivery is handled below and subscribers
-  // already reject repeated chunk sequences.
+  // Keep accepting it: the subscription rejects repeated persisted sequences.
 
-  // Deduplicate identical output messages arriving from dual-channel WS broadcasts
-  // (server broadcasts to both session and project channels, client may receive both)
-  const now = Date.now();
-  const lastAppend = store._lastAppendedText[runId];
-  if (lastAppend && lastAppend.text === text && (now - lastAppend.timestamp) < 100) {
-    return; // Skip duplicate
+  // Persisted output is ordered and deduplicated by sequence in the
+  // subscription. Do not apply this legacy content/time heuristic to it:
+  // consecutive, valid chunks may have identical content.
+  if (options?.sequence === undefined) {
+    // Deduplicate identical output messages arriving from dual-channel WS broadcasts
+    // (server broadcasts to both session and project channels, client may receive both)
+    const now = Date.now();
+    const lastAppend = store._lastAppendedText[runId];
+    if (lastAppend && lastAppend.text === text && (now - lastAppend.timestamp) < 100) {
+      return; // Skip duplicate
+    }
+    store._lastAppendedText[runId] = { text, timestamp: now };
   }
-  store._lastAppendedText[runId] = { text, timestamp: now };
 
   // Append to buffer
   store._outputBuffers[runId] = (store._outputBuffers[runId] || '') + text;

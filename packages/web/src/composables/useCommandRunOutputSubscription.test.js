@@ -76,7 +76,17 @@ describe('subscribeCommandRunOutput', () => {
 
     receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 1, content: 'LINE 1\n' });
 
-    expect(store.appendOutput).toHaveBeenCalledWith(RUN_ID, 'LINE 1\n');
+    expect(store.appendOutput).toHaveBeenCalledWith(RUN_ID, 'LINE 1\n', { sequence: 1 });
+  });
+
+  it('applies identical consecutive chunks when their sequences differ', async () => {
+    await subscribeAndSettleInitialSync();
+
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 1, content: '.' });
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 2, content: '.' });
+
+    expect(store.appendOutput).toHaveBeenNthCalledWith(1, RUN_ID, '.', { sequence: 1 });
+    expect(store.appendOutput).toHaveBeenNthCalledWith(2, RUN_ID, '.', { sequence: 2 });
   });
 
   it('ignores chunks already covered by the current high-water mark', async () => {
@@ -86,6 +96,7 @@ describe('subscribeCommandRunOutput', () => {
     receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 1, content: 'LINE 1\n' });
 
     expect(store.appendOutput).toHaveBeenCalledTimes(1);
+    expect(store.appendOutput).toHaveBeenCalledWith(RUN_ID, 'LINE 1\n', { sequence: 1 });
   });
 
   it('re-reads the persisted stream when a live sequence is missing', async () => {
@@ -139,7 +150,7 @@ describe('subscribeCommandRunOutput', () => {
 
     // The stream still continues from where the snapshot left off.
     receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 3, content: 'LINE 3\n' });
-    expect(store.appendOutput).toHaveBeenCalledWith(RUN_ID, 'LINE 3\n');
+    expect(store.appendOutput).toHaveBeenCalledWith(RUN_ID, 'LINE 3\n', { sequence: 3 });
   });
 
   it('resumes a catch-up read from the output already rendered by the store', async () => {
