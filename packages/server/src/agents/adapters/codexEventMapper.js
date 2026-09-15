@@ -53,23 +53,25 @@ export function createCodexEventMapper({ model } = {}) {
   const warnedUnknownItemTypes = new Set();
 
   const handlers = {
-    'thread.started': (evt) => handleThreadStarted(evt, model),
+    'thread.started': (evt) => mapperState.initialize(evt.thread_id, model),
     'turn.started': () => [],
     'item.started': () => [],
     'item.completed': (evt) => handleItemCompleted(evt, mapperState, warnedUnknownItemTypes),
     'turn.completed': (evt) => mapperState.onTurnCompleted(evt),
+    'thread/tokenUsage/updated': (evt) => mapperState.onTokenUsage(evt.tokenUsage),
     'turn.failed': (evt) => handleTurnFailed(evt),
     'error': (evt) => handleError(evt),
   };
 
   function map(codexEvent) {
     if (!codexEvent || typeof codexEvent !== 'object') return [];
-    const handler = handlers[codexEvent.type];
+    const type = normalizeEventType(codexEvent.type);
+    const handler = handlers[type];
     if (!handler) {
       console.warn(`[codexEventMapper] Unknown Codex event type: "${codexEvent.type}"`);
       return [];
     }
-    return handler(codexEvent);
+    return handler(type === codexEvent.type ? codexEvent : normalizeEvent(codexEvent, type));
   }
 
   return {
@@ -89,6 +91,15 @@ class MapperState {
   reset() {
     this.lastUsage = null;
     this.terminated = false;
+    this.initialized = false;
+  }
+
+  initialize(threadId, model) {
+    if (this.initialized || typeof threadId !== 'string' || !threadId) return [];
+    this.initialized = true;
+    const init = { type: 'system', subtype: 'init', session_id: threadId };
+    if (model) init.model = model;
+    return [init];
   }
 
   /**
@@ -102,8 +113,22 @@ class MapperState {
     return [this.buildResultEvent()];
   }
 
+  onTokenUsage(tokenUsage) {
+    // The App Server sends cumulative totals. Replacing, rather than adding,
+    // avoids double counting when it emits multiple progress notifications.
+    const total = tokenUsage?.total;
+    if (!total || typeof total !== 'object') return [];
+    this.lastUsage = {
+      input_tokens: total.inputTokens,
+      output_tokens: total.outputTokens,
+    };
+    return [];
+  }
+
   onTurnCompleted(evt) {
-    if (evt && evt.usage) {
+    // `codex exec --json` (the retained legacy transport) reports usage on
+    // turn completion. App Server does not; it uses tokenUsage notifications.
+    if (!this.lastUsage && evt?.usage) {
       this.lastUsage = {
         input_tokens: evt.usage.input_tokens,
         output_tokens: evt.usage.output_tokens,
@@ -128,19 +153,19 @@ class MapperState {
 
 // --- Pure event handlers ---------------------------------------------------
 
-function handleThreadStarted(evt, model) {
-  const init = {
-    type: 'system',
-    subtype: 'init',
-    session_id: evt.thread_id,
-  };
-  if (model) init.model = model;
-  return [init];
+function normalizeEventType(type) {
+  return ({ 'thread/started': 'thread.started', 'item/completed': 'item.completed', 'turn/completed': 'turn.completed', 'turn/failed': 'turn.failed' })[type] || type;
+}
+
+function normalizeEvent(event, type) {
+  if (type === 'thread.started') return { ...event, type, thread_id: event.thread?.id ?? event.params?.thread?.id };
+  return { ...event, type };
 }
 
 function handleItemCompleted(evt, _state, warnedTypes) {
   const item = evt.item;
   if (!item || typeof item !== 'object') return [];
+  const type = normalizeItemType(item.type);
 
   if (isAgentMessageItem(item)) {
     const text = typeof item.text === 'string' ? item.text : '';
@@ -159,28 +184,32 @@ function handleItemCompleted(evt, _state, warnedTypes) {
     ];
   }
 
-  if (item.type === 'command_execution') {
+  if (type === 'command_execution') {
     return [mapCommandExecution(item)];
   }
 
-  if (item.type === 'file_change') {
+  if (type === 'file_change') {
     return [mapFileChange(item)];
   }
 
-  if (item.type === 'reasoning') {
+  if (type === 'reasoning') {
     return [mapReasoning(item)];
   }
 
   // Unknown types — warn once per type
-  if (item.type && !warnedTypes.has(item.type)) {
-    warnedTypes.add(item.type);
-    console.warn(`[codexEventMapper] Ignoring unsupported item.type "${item.type}"`);
+  if (type && !warnedTypes.has(type)) {
+    warnedTypes.add(type);
+    console.warn(`[codexEventMapper] Ignoring unsupported item.type "${type}"`);
   }
   return [];
 }
 
 function isAgentMessageItem(item) {
   return item.type === 'agent_message' || item.type === 'agentMessage';
+}
+
+function normalizeItemType(type) {
+  return ({ agentMessage: 'agent_message', commandExecution: 'command_execution', fileChange: 'file_change' })[type] || type;
 }
 
 function handleTurnFailed(evt) {
@@ -198,10 +227,12 @@ function handleError(evt) {
 function mapCommandExecution(item) {
   const cmd = item.command || '';
   const parts = [`$ ${cmd}`];
-  if (item.exit_code !== undefined && item.exit_code !== 0) {
-    parts.push(`exit code: ${item.exit_code}`);
+  const exitCode = item.exitCode ?? item.exit_code;
+  const output = item.aggregatedOutput ?? item.aggregated_output;
+  if (exitCode !== undefined && exitCode !== 0) {
+    parts.push(`exit code: ${exitCode}`);
   }
-  if (item.aggregated_output) parts.push(item.aggregated_output);
+  if (output) parts.push(output);
   return {
     type: 'tool_result',
     tool_name: 'command_execution',

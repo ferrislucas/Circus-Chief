@@ -11,7 +11,7 @@
     "start": "NODE_ENV=production node packages/server/src/index.js -p 5000",
     "test": "yarn workspaces run test",
     "test:integration": "vitest run --config tests/integration/vitest.config.js",
-    "test:coverage": "yarn workspaces run test:coverage",
+    "test:coverage": "concurrently --kill-others-on-fail --names server,shared,web \"yarn workspace @circuschief/server test:coverage\" \"yarn workspace @circuschief/shared test:coverage\" \"yarn workspace @circuschief/web test:coverage\"",
     "test:e2e": "./scripts/pw.sh test",
     "test:publish-script": "bash scripts/publish.test.sh && bash scripts/package-artifact.test.sh",
     "lint": "node scripts/check-root-plan-files.mjs && npx eslint packages/*/src"

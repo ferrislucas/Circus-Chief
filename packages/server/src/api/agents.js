@@ -6,8 +6,9 @@ const router = Router();
 /**
  * GET /api/agents
  *
- * Returns the capabilities of every registered agent adapter, sourced from the
- * adapter's static `capabilities` field (no adapter instantiation).
+ * Returns the capabilities of every registered agent adapter. Capabilities
+ * are resolved from the configured transport so they remain truthful when a
+ * runtime fallback is active.
  *
  * Response shape:
  *   [

@@ -99,21 +99,20 @@ describe('AgentGateway', () => {
       expect(agent._spawnCodex).toBe(fakeSpawner);
     });
 
-    it('getAgentCapabilities("codex") returns codex capabilities WITHOUT calling constructor', () => {
+    it('getAgentCapabilities("codex") resolves runtime transport capabilities', () => {
       const gateway = new AgentGateway();
-      // Spy on the constructor via a prototype method hook is awkward in JS;
-      // instead, rely on the contract that the static field is present and
-      // ensure the returned caps match the static field exactly (same reference
-      // content).
       const caps = gateway.getAgentCapabilities('codex');
       expect(caps).toEqual({
-        streaming: true,
+        streaming: false,
         thinking: false,
         reasoningEffort: true,
         toolUse: true,
         resume: false,
+        interactiveInput: true,
       });
-      expect(caps).toEqual(CodexAdapter.capabilities);
+      process.env.USE_CODEX_DIRECT_API = '1';
+      expect(gateway.getAgentCapabilities('codex').interactiveInput).toBe(false);
+      delete process.env.USE_CODEX_DIRECT_API;
     });
 
     it('getAllAgentCapabilities() returns entries for every registered adapter', () => {
@@ -125,7 +124,7 @@ describe('AgentGateway', () => {
         streaming: true, thinking: true, reasoningEffort: true, toolUse: true, resume: true,
       });
       expect(byType['codex']).toEqual({
-        streaming: true, thinking: false, reasoningEffort: true, toolUse: true, resume: false,
+        streaming: false, thinking: false, reasoningEffort: true, toolUse: true, resume: false, interactiveInput: true,
       });
       expect(byType['gemini']).toEqual({
         streaming: true, thinking: false, reasoningEffort: false, toolUse: true, resume: false,
