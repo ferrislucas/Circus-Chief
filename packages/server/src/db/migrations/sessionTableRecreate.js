@@ -14,6 +14,8 @@ const TABLE_SESSIONS = 'sessions';
 const SESSIONS_TARGET_MODE_DEFAULT = "'yolo'";
 const SESSIONS_TARGET_THINKING_ENABLED_DEFAULT = '1';
 
+export const SESSIONS_TIER_RESOLUTION_COLUMNS = ['resolved_model', 'resolved_provider_id'];
+
 function quoteIdentifier(identifier) {
   return `"${identifier.replaceAll('"', '""')}"`;
 }
@@ -69,6 +71,8 @@ export const SESSIONS_ALL_CURRENT_COLUMNS = `
     claude_session_id TEXT,
     model TEXT,
     provider_id TEXT,
+    resolved_model TEXT,
+    resolved_provider_id TEXT,
     next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
     parent_session_id TEXT REFERENCES sessions(id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
     input_tokens INTEGER DEFAULT 0,
@@ -92,6 +96,7 @@ export const SESSIONS_ALL_CURRENT_COLUMNS = `
     pending_prompt TEXT,
     slash_commands TEXT,
     pending_model TEXT,
+    pending_provider_id TEXT,
     auto_send_pending_prompt INTEGER DEFAULT 0,
     agent_type TEXT DEFAULT 'claude-code',
     pending_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
@@ -111,6 +116,7 @@ export const SESSIONS_ALL_CURRENT_COLUMN_NAMES = [
   'id', 'project_id', 'name', 'status', 'mode', 'thinking_enabled',
   'archived', 'git_branch', 'git_worktree', 'pr_url', 'error',
   'effort_level', 'cost_usd', 'claude_session_id', 'model', 'provider_id',
+  ...SESSIONS_TIER_RESOLUTION_COLUMNS,
   'next_template_id', 'parent_session_id', 'input_tokens', 'output_tokens',
   'thinking_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens',
   'web_search_requests', 'context_window', 'starred', 'manually_named',
@@ -118,7 +124,7 @@ export const SESSIONS_ALL_CURRENT_COLUMN_NAMES = [
   'reschedule_on_token_limit', 'reschedule_on_service_error',
   'max_reschedule_count', 'max_total_tokens', 'reschedule_count',
   'reschedule_at_token_count', 'pending_prompt', 'slash_commands',
-  'pending_model', 'auto_send_pending_prompt', 'agent_type',
+  'pending_model', 'pending_provider_id', 'auto_send_pending_prompt', 'agent_type',
   'pending_conversation_id', 'created_at', 'updated_at',
   'lane_run_id', 'own_work_state', 'own_work_closed_at', 'workflow_updated_at',
   'workflow_reason', 'execution_state', 'subtree_outcome', 'last_activity_at',

@@ -4,6 +4,7 @@ import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import ModelSelector from './ModelSelector.vue';
 import { useProvidersStore } from '../stores/providers.js';
+import { useTiersStore } from '../stores/tiers.js';
 import { CLAUDE_MODELS, OPENAI_MODELS } from '@circuschief/shared';
 
 // Use actual model data from the shared package. This suite was written
@@ -48,6 +49,11 @@ describe('ModelSelector', () => {
 
     // Mock the fetch method to prevent API calls
     vi.spyOn(providersStore, 'fetchProviders').mockResolvedValue();
+
+    // Mock the tiers store fetch to prevent real API calls; individual tier
+    // tests below override `tiersStore.tiers` directly before mounting.
+    const tiersStore = useTiersStore();
+    vi.spyOn(tiersStore, 'fetchTiers').mockResolvedValue();
   });
 
   const mountComponent = (props = {}, attrs = {}) => mount(ModelSelector, {
@@ -90,6 +96,29 @@ describe('ModelSelector', () => {
       expect(options[3].element.value).toBe(optionValue('anthropic', opusLegacy.id));
       expect(options[4].element.value).toBe(optionValue('anthropic', opus47.id));
       expect(options[5].element.value).toBe(optionValue('anthropic', opus.id));
+    });
+
+    it('filters concrete models and mixed tiers by allowed provider kinds', async () => {
+      providersStore.providers.push({
+        id: 'google', name: 'Google', kind: 'google', models: [
+          { id: 'gemini', modelId: 'gemini-pro', displayName: 'Gemini Pro' },
+        ],
+      });
+      const tiersStore = useTiersStore();
+      tiersStore.tiers = [
+        { id: 'supported', name: 'Supported', members: [{ providerId: 'anthropic', modelId: sonnet.id }] },
+        { id: 'mixed', name: 'Mixed', members: [
+          { providerId: 'anthropic', modelId: sonnet.id },
+          { providerId: 'google', modelId: 'gemini-pro' },
+        ] },
+      ];
+
+      const wrapper = mountComponent({ allowedProviderKinds: ['anthropic', 'openai'] });
+      await flushAll(wrapper);
+      const text = wrapper.text();
+      expect(text).toContain('Supported');
+      expect(text).not.toContain('Mixed');
+      expect(text).not.toContain('Gemini Pro');
     });
   });
 
@@ -1087,6 +1116,204 @@ describe('ModelSelector', () => {
 
       expect(onUpdateModelValue).not.toHaveBeenCalled();
       expect(wrapper.attributes('data-model')).toBe('gpt-5.5');
+    });
+  });
+
+  describe('tier support', () => {
+    function seedTiers(tiers) {
+      const tiersStore = useTiersStore();
+      tiersStore.tiers = tiers;
+      tiersStore.loaded = true;
+    }
+
+    it('renders a "Model Tiers" optgroup when tiers with members exist', async () => {
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+
+      const wrapper = mountComponent({ modelValue: sonnet.id });
+      await flushAll(wrapper);
+
+      const optgroups = wrapper.findAll('optgroup');
+      const tierGroup = optgroups.find((g) => g.attributes('label') === 'Model Tiers');
+      expect(tierGroup).toBeTruthy();
+      expect(tierGroup.text()).toContain('High Priority');
+    });
+
+    it('does not render the tier optgroup when no tiers have members', async () => {
+      seedTiers([{ id: 'tier-1', name: 'Empty Tier', description: null, members: [] }]);
+
+      const wrapper = mountComponent({ modelValue: sonnet.id });
+      await flushAll(wrapper);
+
+      const optgroups = wrapper.findAll('optgroup');
+      const tierGroup = optgroups.find((g) => g.attributes('label') === 'Model Tiers');
+      expect(tierGroup).toBeFalsy();
+    });
+
+    it('does not render the tier optgroup when there are no tiers at all', async () => {
+      seedTiers([]);
+
+      const wrapper = mountComponent({ modelValue: sonnet.id });
+      await flushAll(wrapper);
+
+      const optgroups = wrapper.findAll('optgroup');
+      const tierGroup = optgroups.find((g) => g.attributes('label') === 'Model Tiers');
+      expect(tierGroup).toBeFalsy();
+    });
+
+    it('shows the tier description alongside the name in the option label', async () => {
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: 'top models', members: [{ id: 'm1' }] }]);
+
+      const wrapper = mountComponent({ modelValue: sonnet.id });
+      await flushAll(wrapper);
+
+      const option = wrapper.find('option[value="tier::tier-1"]');
+      expect(option.exists()).toBe(true);
+      expect(option.text()).toBe('High Priority — top models');
+    });
+
+    it('selects the tier option value directly (no provider::model encoding)', async () => {
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+
+      const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
+      await flushAll(wrapper);
+
+      const select = wrapper.find('select');
+      expect(select.element.value).toBe('tier::tier-1');
+    });
+
+    it('emits update:modelValue with the tier ref and clears providerId when a tier is selected', async () => {
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+
+      const onUpdateModelValue = vi.fn();
+      const onUpdateProviderId = vi.fn();
+      const onModelSelected = vi.fn();
+      const wrapper = mountComponent(
+        { modelValue: sonnet.id },
+        { 'onUpdate:modelValue': onUpdateModelValue, 'onUpdate:providerId': onUpdateProviderId, onModelSelected }
+      );
+      await flushAll(wrapper);
+
+      await wrapper.find('select').setValue('tier::tier-1');
+      await flushAll(wrapper);
+
+      expect(onUpdateModelValue).toHaveBeenCalledWith('tier::tier-1');
+      expect(onUpdateProviderId).toHaveBeenCalledWith(null);
+      expect(onModelSelected).toHaveBeenCalledWith({
+        modelId: 'tier::tier-1',
+        providerId: null,
+        kind: null,
+        tierId: 'tier-1',
+      });
+    });
+
+    it('emits a concrete model selection when switching away from a tier', async () => {
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+
+      const onUpdateModelValue = vi.fn();
+      const onUpdateProviderId = vi.fn();
+      const wrapper = mountComponent(
+        { modelValue: 'tier::tier-1' },
+        { 'onUpdate:modelValue': onUpdateModelValue, 'onUpdate:providerId': onUpdateProviderId }
+      );
+      await flushAll(wrapper);
+
+      await wrapper.find('select').setValue(optionValue('anthropic', opus.id));
+      await flushAll(wrapper);
+
+      expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
+      expect(onUpdateProviderId).toHaveBeenCalledWith('anthropic');
+    });
+
+    it('does not emit again when re-selecting the same tier', async () => {
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+
+      const onUpdateModelValue = vi.fn();
+      const wrapper = mountComponent(
+        { modelValue: 'tier::tier-1' },
+        { 'onUpdate:modelValue': onUpdateModelValue }
+      );
+      await flushAll(wrapper);
+
+      await wrapper.find('select').setValue('tier::tier-1');
+      await flushAll(wrapper);
+
+      expect(onUpdateModelValue).not.toHaveBeenCalled();
+    });
+
+    // Fix 8: a deleted/emptied tier ref must remain visibly identifiable as a
+    // stale tier binding rather than silently presenting as an unrelated
+    // concrete default model in an editable form.
+    describe('stale tier ref', () => {
+      it('keeps showing the tier chip when the bound tier no longer exists', async () => {
+        seedTiers([]); // tier-1 was deleted
+
+        const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
+        await flushAll(wrapper);
+
+        const chip = wrapper.find('.tier-chip');
+        expect(chip.exists()).toBe(true);
+        expect(chip.text()).toContain('tier-1');
+      });
+
+      it('does not warn about a tier reference while the catalog is still loading', async () => {
+        const tiersStore = useTiersStore();
+        tiersStore.tiers = [];
+        tiersStore.loaded = false;
+
+        const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
+        await flushAll(wrapper);
+
+        expect(wrapper.find('.tier-chip').classes()).not.toContain('tier-chip--stale');
+        expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
+      });
+
+      it('warns when the tier catalog has loaded empty after the last tier was deleted', async () => {
+        seedTiers([]);
+
+        const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
+        await flushAll(wrapper);
+
+        expect(wrapper.find('.tier-chip').classes()).toContain('tier-chip--stale');
+        expect(wrapper.find('.unknown-model-badge').exists()).toBe(true);
+      });
+
+      it('marks the chip as stale and surfaces the unknown-model badge for a deleted tier', async () => {
+        // A non-empty tiers list that does NOT include tier-1 signals the
+        // tiers store has genuinely loaded (as opposed to an empty array,
+        // which is treated permissively as "not fetched yet") and tier-1 was
+        // deleted.
+        seedTiers([{ id: 'other-tier', name: 'Other Tier', description: null, members: [{ id: 'm1' }] }]);
+
+        const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
+        await flushAll(wrapper);
+
+        expect(wrapper.find('.tier-chip').classes()).toContain('tier-chip--stale');
+        expect(wrapper.find('.unknown-model-badge').exists()).toBe(true);
+      });
+
+      it('keeps showing the tier chip when the bound tier still exists but was emptied of members', async () => {
+        seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [] }]);
+
+        const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
+        await flushAll(wrapper);
+
+        const chip = wrapper.find('.tier-chip');
+        expect(chip.exists()).toBe(true);
+        expect(chip.text()).toContain('High Priority');
+        expect(chip.classes()).toContain('tier-chip--stale');
+      });
+
+      it('does not mark a healthy, resolvable tier as stale', async () => {
+        seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+
+        const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
+        await flushAll(wrapper);
+
+        const chip = wrapper.find('.tier-chip');
+        expect(chip.exists()).toBe(true);
+        expect(chip.classes()).not.toContain('tier-chip--stale');
+        expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
+      });
     });
   });
 

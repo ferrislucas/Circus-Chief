@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { sessionTemplates } from '../database.js';
 import { CreateSessionTemplateRequest, UpdateSessionTemplateRequest } from '@circuschief/shared/contracts/templates';
-import { validateModelId } from './model-validation.js';
+import { validateModelAndProvider } from './model-validation.js';
 
 const router = Router();
 
@@ -18,14 +18,14 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  const modelResult = validateModelId(result.data.model);
+  const modelResult = validateModelAndProvider(result.data.model, result.data.providerId);
   if (modelResult.error) {
     return res.status(400).json({ error: modelResult.error });
   }
 
   const template = sessionTemplates.create({
     projectId: null, // Global template
-    ...result.data,
+    ...result.data, model: modelResult.model, providerId: modelResult.providerId,
   });
   res.status(201).json(template);
 });
@@ -51,12 +51,16 @@ router.patch('/:id', (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  const modelResult = validateModelId(result.data.model);
+  const model = result.data.model === undefined ? template.model : result.data.model;
+  const providerId = result.data.providerId === undefined ? template.providerId : result.data.providerId;
+  const modelResult = validateModelAndProvider(model, providerId);
   if (modelResult.error) {
     return res.status(400).json({ error: modelResult.error });
   }
 
-  const updated = sessionTemplates.update(req.params.id, result.data);
+  const updated = sessionTemplates.update(req.params.id, {
+    ...result.data, model: modelResult.model, providerId: modelResult.providerId,
+  });
   res.json(updated);
 });
 

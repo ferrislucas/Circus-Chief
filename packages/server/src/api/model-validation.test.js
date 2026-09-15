@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { modelProviders } from '../database.js';
-import { validateModelId } from './model-validation.js';
+import { modelProviders, modelTiers } from '../database.js';
+import { validateModelId, validateModelAndProvider, validateTierMembers } from './model-validation.js';
+import { buildTierRef } from '@circuschief/shared';
 
 describe('validateModelId', () => {
   it('accepts a built-in model id', () => {
@@ -76,5 +77,238 @@ describe('validateModelId', () => {
     } finally {
       modelProviders.delete(provider.id);
     }
+  });
+
+  describe('Model Tier references', () => {
+    function makeProviderWithModel(kind, modelId) {
+      const provider = modelProviders.create({
+        name: `Tier-ref test provider (${kind}/${modelId})`,
+        kind,
+        baseUrl: 'https://api.example.com/v1',
+        authToken: 'token',
+      });
+      modelProviders.addModel(provider.id, { modelId, displayName: modelId, tier: 'custom' });
+      return provider;
+    }
+
+    it('accepts a tier ref that resolves to an enabled member', () => {
+      const provider = makeProviderWithModel('openai', 'tier-ref-valid-model');
+      const tier = modelTiers.create({
+        name: 'Tier Ref Valid Test',
+        members: [{ providerId: provider.id, modelId: 'tier-ref-valid-model', position: 0 }],
+      });
+
+      try {
+        expect(validateModelId(buildTierRef(tier.id))).toEqual({ value: buildTierRef(tier.id) });
+      } finally {
+        modelTiers.delete(tier.id);
+        modelProviders.delete(provider.id);
+      }
+    });
+
+    it('rejects a malformed tier ref (empty id)', () => {
+      const result = validateModelId('tier::');
+      expect(result.error).toContain('malformed tier reference');
+    });
+
+    it('rejects a tier ref for an unknown tier id', () => {
+      const result = validateModelId(buildTierRef('00000000-0000-0000-0000-000000000000'));
+      expect(result.error).toContain('does not exist or has no enabled members');
+    });
+
+    it('rejects a tier ref whose tier has no enabled members', () => {
+      const tier = modelTiers.create({ name: 'Tier Ref Empty Test', members: [] });
+      try {
+        const result = validateModelId(buildTierRef(tier.id));
+        expect(result.error).toContain('does not exist or has no enabled members');
+      } finally {
+        modelTiers.delete(tier.id);
+      }
+    });
+
+    it('rejects a tier ref whose only member was deleted from its provider', () => {
+      const provider = modelProviders.create({
+        name: 'Tier-ref orphan test provider',
+        kind: 'openai',
+        baseUrl: 'https://api.example.com/v1',
+        authToken: 'token',
+      });
+      const model = modelProviders.addModel(provider.id, {
+        modelId: 'tier-ref-orphan-model',
+        displayName: 'tier-ref-orphan-model',
+        tier: 'custom',
+      });
+      const tier = modelTiers.create({
+        name: 'Tier Ref Orphan Test',
+        members: [{ providerId: provider.id, modelId: 'tier-ref-orphan-model', position: 0 }],
+      });
+
+      try {
+        modelProviders.removeModel(model.id);
+        const result = validateModelId(buildTierRef(tier.id));
+        expect(result.error).toContain('does not exist or has no enabled members');
+      } finally {
+        modelTiers.delete(tier.id);
+        modelProviders.delete(provider.id);
+      }
+    });
+  });
+});
+
+describe('validateModelAndProvider', () => {
+  it('passes through a concrete model with its providerId', () => {
+    const provider = modelProviders.create({ name: 'Concrete pair test', kind: 'openai' });
+    modelProviders.addModel(provider.id, { modelId: 'concrete-pair-test-model', displayName: 'Concrete pair test model' });
+    try {
+      expect(validateModelAndProvider('concrete-pair-test-model', provider.id)).toEqual({
+        model: 'concrete-pair-test-model',
+        providerId: provider.id,
+      });
+    } finally {
+      modelProviders.delete(provider.id);
+    }
+  });
+
+  it('normalizes providerId to null for a valid tier ref', () => {
+    const provider = modelProviders.create({
+      name: 'Tier + provider normalization test',
+      kind: 'openai',
+      baseUrl: 'https://api.example.com/v1',
+      authToken: 'token',
+    });
+    modelProviders.addModel(provider.id, {
+      modelId: 'tier-provider-norm-model',
+      displayName: 'Norm Model',
+      tier: 'custom',
+    });
+    const tier = modelTiers.create({
+      name: 'Tier + provider normalization test',
+      members: [{ providerId: provider.id, modelId: 'tier-provider-norm-model', position: 0 }],
+    });
+
+    try {
+      const ref = buildTierRef(tier.id);
+      expect(validateModelAndProvider(ref, null)).toEqual({ model: ref, providerId: null });
+      expect(validateModelAndProvider(ref, undefined)).toEqual({ model: ref, providerId: null });
+    } finally {
+      modelTiers.delete(tier.id);
+      modelProviders.delete(provider.id);
+    }
+  });
+
+  it('rejects a concrete providerId supplied alongside a tier ref', () => {
+    const provider = modelProviders.create({
+      name: 'Tier + stray provider test',
+      kind: 'openai',
+      baseUrl: 'https://api.example.com/v1',
+      authToken: 'token',
+    });
+    modelProviders.addModel(provider.id, {
+      modelId: 'tier-stray-provider-model',
+      displayName: 'Stray Model',
+      tier: 'custom',
+    });
+    const tier = modelTiers.create({
+      name: 'Tier + stray provider test',
+      members: [{ providerId: provider.id, modelId: 'tier-stray-provider-model', position: 0 }],
+    });
+
+    try {
+      const ref = buildTierRef(tier.id);
+      const result = validateModelAndProvider(ref, provider.id);
+      expect(result.error).toContain('providerId must be null when model is a tier reference');
+    } finally {
+      modelTiers.delete(tier.id);
+      modelProviders.delete(provider.id);
+    }
+  });
+
+  it('propagates the underlying model validation error', () => {
+    expect(validateModelAndProvider('not-a-real-model', null).error).toContain('Invalid model id');
+  });
+});
+
+// ── Work Item 3: catalog/ownership validation for tier members ─────────────
+
+describe('validateTierMembers', () => {
+  it('accepts an empty member list', () => {
+    expect(validateTierMembers([])).toEqual({ value: [] });
+  });
+
+  it('accepts a valid single-provider member list', () => {
+    const provider = modelProviders.create({ name: 'Tier Members Valid Provider', kind: 'anthropic' });
+    modelProviders.addModel(provider.id, { modelId: 'tier-members-valid-model', displayName: 'Model' });
+    const members = [{ providerId: provider.id, modelId: 'tier-members-valid-model', position: 0 }];
+
+    expect(validateTierMembers(members)).toEqual({ value: members });
+  });
+
+  it('accepts a valid cross-provider member list, preserving configured order', () => {
+    const providerA = modelProviders.create({ name: 'Tier Members Cross A', kind: 'anthropic' });
+    const providerB = modelProviders.create({ name: 'Tier Members Cross B', kind: 'openai' });
+    modelProviders.addModel(providerA.id, { modelId: 'cross-model-a', displayName: 'A' });
+    modelProviders.addModel(providerB.id, { modelId: 'cross-model-b', displayName: 'B' });
+    const members = [
+      { providerId: providerB.id, modelId: 'cross-model-b', position: 0 },
+      { providerId: providerA.id, modelId: 'cross-model-a', position: 1 },
+    ];
+
+    expect(validateTierMembers(members)).toEqual({ value: members });
+  });
+
+  it('rejects an unknown provider id', () => {
+    const result = validateTierMembers([
+      { providerId: 'nonexistent-provider', modelId: 'whatever', position: 0 },
+    ]);
+    expect(result.error).toContain('nonexistent-provider');
+  });
+
+  it('rejects an unknown model id for a real provider', () => {
+    const provider = modelProviders.create({ name: 'Tier Members Unknown Model Provider', kind: 'anthropic' });
+    const result = validateTierMembers([
+      { providerId: provider.id, modelId: 'not-a-real-model-id', position: 0 },
+    ]);
+    expect(result.error).toContain('not-a-real-model-id');
+    expect(result.error).toContain(provider.id);
+  });
+
+  it('rejects a real model id paired with the wrong provider', () => {
+    // gpt-5.5 is owned by the built-in openai-default provider, not anthropic-default.
+    const result = validateTierMembers([
+      { providerId: 'anthropic-default', modelId: 'gpt-5.5', position: 0 },
+    ]);
+    expect(result.error).toContain('gpt-5.5');
+    expect(result.error).toContain('anthropic-default');
+  });
+
+  it('rejects the whole list atomically when it contains a mix of valid and invalid members', () => {
+    const provider = modelProviders.create({ name: 'Tier Members Mixed Provider', kind: 'anthropic' });
+    modelProviders.addModel(provider.id, { modelId: 'mixed-valid-model', displayName: 'Valid' });
+    const result = validateTierMembers([
+      { providerId: provider.id, modelId: 'mixed-valid-model', position: 0 },
+      { providerId: provider.id, modelId: 'mixed-invalid-model', position: 1 },
+    ]);
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain('mixed-invalid-model');
+  });
+
+  it('rejects a disabled model with an actionable error', () => {
+    const result = validateTierMembers([
+      { providerId: 'anthropic-default', modelId: 'claude-opus-4-8', position: 0 },
+    ]);
+    expect(result.error).toContain('claude-opus-4-8');
+    expect(result.error).toContain('disabled');
+  });
+
+  it('rejects a model owned by a disabled provider with an actionable error', () => {
+    const provider = modelProviders.create({ name: 'Tier Members Disabled Provider', kind: 'anthropic' });
+    modelProviders.addModel(provider.id, { modelId: 'disabled-provider-model', displayName: 'Model' });
+    modelProviders.update(provider.id, { enabled: false });
+
+    const result = validateTierMembers([
+      { providerId: provider.id, modelId: 'disabled-provider-model', position: 0 },
+    ]);
+    expect(result.error).toContain(provider.id);
+    expect(result.error).toContain('disabled');
   });
 });

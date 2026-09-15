@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
+import http from 'http';
+import net from 'net';
 import request from 'supertest';
 import { upload, handleUploadError } from './upload.js';
 
@@ -236,6 +238,82 @@ describe('Upload Middleware', () => {
         .expect(200);
 
       expect(response.body.files).toHaveLength(1);
+    });
+
+    describe('Rejected request draining', () => {
+      async function openIncompleteRejectedUpload() {
+        const server = http.createServer(app);
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const { port } = server.address();
+        const socket = net.connect(port, '127.0.0.1');
+        const boundary = 'upload-drain-boundary';
+
+        await new Promise((resolve, reject) => {
+          socket.once('connect', resolve);
+          socket.once('error', reject);
+        });
+
+        socket.write([
+          'POST /upload HTTP/1.1',
+          'Host: 127.0.0.1',
+          `Content-Type: multipart/form-data; boundary=${boundary}`,
+          'Transfer-Encoding: chunked',
+          '',
+          '',
+        ].join('\r\n'));
+
+        const writeChunk = (body) => {
+          socket.write(`${Buffer.byteLength(body).toString(16)}\r\n${body}\r\n`);
+        };
+
+        writeChunk([
+          `--${boundary}`,
+          'Content-Disposition: form-data; name="files"; filename="malware.exe"',
+          'Content-Type: application/x-msdownload',
+          '',
+          '',
+        ].join('\r\n'));
+        // Busboy emits the file event only after the first body byte.
+        writeChunk('x');
+
+        return { server, socket, writeChunk };
+      }
+
+      async function closeWithin(socket, timeoutMs) {
+        return new Promise((resolve) => {
+          const timer = setTimeout(() => resolve(false), timeoutMs);
+          socket.once('close', () => {
+            clearTimeout(timer);
+            resolve(true);
+          });
+        });
+      }
+
+      async function closeServer(server, socket) {
+        socket.destroy();
+        await new Promise((resolve) => server.close(resolve));
+      }
+
+      it('terminates an incomplete rejected upload within the drain timeout', async () => {
+        const { server, socket } = await openIncompleteRejectedUpload();
+
+        try {
+          expect(await closeWithin(socket, 750)).toBe(true);
+        } finally {
+          await closeServer(server, socket);
+        }
+      });
+
+      it('stops consuming a rejected upload after its drain byte ceiling', async () => {
+        const { server, socket, writeChunk } = await openIncompleteRejectedUpload();
+
+        try {
+          writeChunk('x'.repeat(3 * 1024 * 1024));
+          expect(await closeWithin(socket, 750)).toBe(true);
+        } finally {
+          await closeServer(server, socket);
+        }
+      });
     });
   });
 

@@ -14,7 +14,8 @@ import {
   buildUpdateClauses,
   claimScheduledRow,
   DEFAULT_AGENT_TYPE,
-  resolveAgentTypeFromModel,
+  resolveInitialAgentTypeFromModel,
+  resolveInheritedLaneRunId,
 } from './session-helpers.js';
 import { getWorkspaceCardPage } from './workspace-queries.js';
 import { getProjectActivityAggregates } from './project-activity-queries.js';
@@ -51,6 +52,7 @@ export class SessionRepository extends BaseRepository {
       parentSessionId: row.parent_session_id,
       pendingPrompt: row.pending_prompt || null,
       pendingModel: row.pending_model || null,
+      pendingProviderId: row.pending_provider_id || null,
       effortLevel: row.effort_level || null,
       autoSendPendingPrompt: Boolean(row.auto_send_pending_prompt),
       // Persisted mirror of promptStore.js's in-memory pending-prompt queue —
@@ -60,6 +62,10 @@ export class SessionRepository extends BaseRepository {
       slashCommands: row.slash_commands || null,
       // Agent runtime driving this session (fallback to 'claude-code' for legacy rows).
       agentType: row.agent_type || DEFAULT_AGENT_TYPE,
+      // Tier failover: concrete model/provider snapshot from last successful start
+      // (better-sqlite3 already returns null, not undefined, for unset TEXT columns)
+      resolvedModel: row.resolved_model,
+      resolvedProviderId: row.resolved_provider_id,
       ...mapTokenUsage(row),
       ...mapScheduling(row),
       // Kanban fields
@@ -95,22 +101,15 @@ export class SessionRepository extends BaseRepository {
     const config = parseCreateConfig(options, Array.prototype.slice.call(arguments, 4));
 
     // Resolve agentType: explicit override → model-based derivation → fallback.
-    // resolveAgentTypeFromModel(null) returns DEFAULT_AGENT_TYPE, so the absent-model
-    // case is covered without a separate branch.
-    const agentType = config.agentType ?? resolveAgentTypeFromModel(config.model);
+    // resolveInitialAgentTypeFromModel(null) returns DEFAULT_AGENT_TYPE, so the
+    // absent-model case is covered without a separate branch.
+    const agentType = config.agentType ?? resolveInitialAgentTypeFromModel(config.model);
 
     const id = databaseManager.generateId();
     const now = Date.now();
     // Resolve workflow lineage before insertion. A child always preserves the
     // requested parent; it only joins a lane run while that workflow is open.
-    const parentWorkflow = config.parentSessionId
-      ? this.db.prepare('SELECT lane_run_id, own_work_state FROM sessions WHERE id = ?').get(config.parentSessionId)
-      : null;
-    const laneRunId = parentWorkflow?.own_work_state === 'open' && parentWorkflow.lane_run_id
-      && this.db.prepare(`SELECT 1 FROM kanban_lane_runs r JOIN kanban_cards c ON c.id=r.card_id
-        WHERE r.id=? AND r.status='open' AND c.active_lane_run_id=r.id AND c.lane_id=r.source_lane_id`)
-        .get(parentWorkflow.lane_run_id)
-      ? parentWorkflow.lane_run_id : null;
+    const laneRunId = resolveInheritedLaneRunId(this.db, config.parentSessionId);
     this.db
       .prepare(
         `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, provider_id, effort_level, agent_type, lane_run_id, created_at, updated_at)

@@ -193,6 +193,19 @@ describe('MiscApi', () => {
   });
 
   describe('Agent Call Logs', () => {
+    describe('getSessionAgentCalls', () => {
+      it('gets detailed calls for a session with pagination options', async () => {
+        mockFetch.mockReturnValue(mockResponse([]));
+
+        await client.getSessionAgentCalls('sess/123', { limit: 25, offset: 50 });
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/sessions/sess%2F123/agent-calls?limit=25&offset=50',
+          expect.any(Object)
+        );
+      });
+    });
+
     describe('getAgentCallLogs', () => {
       it('sends GET without params when no filters', async () => {
         mockFetch.mockReturnValue(mockResponse({ logs: [], pagination: {} }));

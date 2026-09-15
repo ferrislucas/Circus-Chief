@@ -125,7 +125,7 @@ describe('Sessions API - POST /:id/schedule', () => {
       .expect(400);
 
     expect(response.body).toEqual({
-      error: 'Unexpected field(s): interactive. Only prompt, scheduledAt, and model are accepted; set reschedule policy via PATCH /api/sessions/:id.',
+      error: 'Unexpected field(s): interactive. Only prompt, scheduledAt, model, and providerId are accepted; set reschedule policy via PATCH /api/sessions/:id.',
     });
   });
 
