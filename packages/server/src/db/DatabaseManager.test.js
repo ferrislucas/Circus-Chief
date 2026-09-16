@@ -1,13 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { DatabaseManager } from './DatabaseManager.js';
 import { repairMissingSessionParentsFromWorktree } from './migrations/index.js';
 import { providerMigrations } from './migrations/providerMigrations.js';
 import { bootstrapDefaultSessionTemplates } from './bootstrapDefaultSessionTemplates.js';
 import { DEFAULT_SESSION_TEMPLATES } from './defaultSessionTemplates.js';
+import { logger } from '../logger.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe('DatabaseManager', () => {
   let manager;
@@ -202,29 +206,39 @@ describe('DatabaseManager', () => {
   });
 
   describe('migrations', () => {
-    it('upgrades a pre-lane-run database before creating the lane-run index', () => {
+    it('upgrades the pre-lane-run release schema before creating the lane-run index', () => {
       const dir = mkdtempSync(join(tmpdir(), 'circuschief-lane-run-migration-'));
       const dbPath = join(dir, 'app.db');
-      const initialManager = new DatabaseManager();
       const upgradedManager = new DatabaseManager();
       const reopenedManager = new DatabaseManager();
+      const initializationLog = vi.spyOn(logger, 'log');
 
       try {
-        initialManager.init(dbPath);
-        initialManager.get().prepare(
-          'INSERT INTO projects (id, name, working_directory) VALUES (?, ?, ?)'
-        ).run('project-before-upgrade', 'Existing project', '/existing-project');
-        initialManager.get().prepare(
-          "INSERT INTO sessions (id, project_id, name, status) VALUES (?, ?, ?, 'waiting')"
-        ).run('session-before-upgrade', 'project-before-upgrade', 'Existing session');
-        initialManager.close();
-
+        // This fixture is schema.sql from the last release before lane-run
+        // persistence (1.17.0), rather than a current database with selected
+        // columns removed. It therefore exercises every intervening migration
+        // dependency against a database shape users could actually have.
         const legacyDb = new Database(dbPath);
-        legacyDb.exec('DROP INDEX IF EXISTS idx_sessions_lane_run');
-        legacyDb.exec('ALTER TABLE sessions DROP COLUMN lane_run_id');
-        legacyDb.close();
+        try {
+          const legacySchema = readFileSync(
+            join(__dirname, 'migrations', '__fixtures__', 'prior-lane-run-release-1.17.0.sql'),
+            'utf8'
+          );
+          legacyDb.exec(legacySchema);
+          legacyDb.prepare(
+            'INSERT INTO projects (id, name, working_directory) VALUES (?, ?, ?)'
+          ).run('project-before-upgrade', 'Existing project', '/existing-project');
+          legacyDb.prepare(
+            "INSERT INTO sessions (id, project_id, name, status) VALUES (?, ?, ?, 'waiting')"
+          ).run('session-before-upgrade', 'project-before-upgrade', 'Existing session');
+        } finally {
+          legacyDb.close();
+        }
 
         upgradedManager.init(dbPath);
+        expect(initializationLog).toHaveBeenCalledWith(
+          expect.stringContaining('Initializing existing database before applying current schema')
+        );
         const upgradedDb = upgradedManager.get();
         expect(upgradedDb.prepare('PRAGMA table_info(sessions)').all().map(({ name }) => name))
           .toContain('lane_run_id');
@@ -240,7 +254,7 @@ describe('DatabaseManager', () => {
         expect(reopenedManager.get().prepare('PRAGMA index_list(sessions)').all().map(({ name }) => name))
           .toContain('idx_sessions_lane_run');
       } finally {
-        initialManager.close();
+        initializationLog.mockRestore();
         upgradedManager.close();
         reopenedManager.close();
         rmSync(dir, { recursive: true, force: true });
@@ -252,6 +266,7 @@ describe('DatabaseManager', () => {
       const dbPath = join(dir, 'app.db');
       const initialManager = new DatabaseManager();
       const upgradedManager = new DatabaseManager();
+      const logError = vi.spyOn(logger, 'error').mockImplementation(() => {});
 
       try {
         initialManager.init(dbPath);
@@ -270,7 +285,12 @@ describe('DatabaseManager', () => {
         }
 
         expect(error).toMatchObject({ code: 'SQLITE_ERROR' });
+        expect(logError).toHaveBeenCalledWith(
+          expect.stringContaining('Existing database initialization failed'),
+          error
+        );
       } finally {
+        logError.mockRestore();
         initialManager.close();
         upgradedManager.close();
         rmSync(dir, { recursive: true, force: true });

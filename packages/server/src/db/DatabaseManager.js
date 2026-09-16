@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { allMigrations } from './migrations/index.js';
 import { seedBaselineData } from './seedBaselineData.js';
 import { bootstrapDefaultSessionTemplates } from './bootstrapDefaultSessionTemplates.js';
+import { logger } from '../logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -46,9 +47,15 @@ export class DatabaseManager {
       // Existing databases must migrate before applying current schema
       // objects. Some schema indexes reference columns introduced by those
       // migrations (for example sessions.lane_run_id).
-      seedBaselineData(this.#db);
-      this.#runMigrations();
-      this.#applySchema();
+      logger.log(`[DatabaseManager] Initializing existing database before applying current schema: ${dbPath}`);
+      try {
+        seedBaselineData(this.#db);
+        this.#runMigrations();
+        this.#applySchema();
+      } catch (error) {
+        logger.error(`[DatabaseManager] Existing database initialization failed: ${dbPath}`, error);
+        throw error;
+      }
     }
 
     // Bootstrap default session templates once on a fresh database only.
