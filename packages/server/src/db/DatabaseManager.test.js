@@ -64,6 +64,15 @@ describe('DatabaseManager', () => {
       expect(tables).toContain('canvas_items');
     });
 
+    it('creates the lane-run column and index on a fresh database', () => {
+      const db = manager.get();
+
+      expect(db.prepare('PRAGMA table_info(sessions)').all().map(({ name }) => name))
+        .toContain('lane_run_id');
+      expect(db.prepare('PRAGMA index_list(sessions)').all().map(({ name }) => name))
+        .toContain('idx_sessions_lane_run');
+    });
+
     it('repairs missing session parent links from inherited worktree paths', () => {
       const db = manager.get();
       const projectId = 'project-1';
@@ -193,6 +202,81 @@ describe('DatabaseManager', () => {
   });
 
   describe('migrations', () => {
+    it('upgrades a pre-lane-run database before creating the lane-run index', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'circuschief-lane-run-migration-'));
+      const dbPath = join(dir, 'app.db');
+      const initialManager = new DatabaseManager();
+      const upgradedManager = new DatabaseManager();
+      const reopenedManager = new DatabaseManager();
+
+      try {
+        initialManager.init(dbPath);
+        initialManager.get().prepare(
+          'INSERT INTO projects (id, name, working_directory) VALUES (?, ?, ?)'
+        ).run('project-before-upgrade', 'Existing project', '/existing-project');
+        initialManager.get().prepare(
+          "INSERT INTO sessions (id, project_id, name, status) VALUES (?, ?, ?, 'waiting')"
+        ).run('session-before-upgrade', 'project-before-upgrade', 'Existing session');
+        initialManager.close();
+
+        const legacyDb = new Database(dbPath);
+        legacyDb.exec('DROP INDEX IF EXISTS idx_sessions_lane_run');
+        legacyDb.exec('ALTER TABLE sessions DROP COLUMN lane_run_id');
+        legacyDb.close();
+
+        upgradedManager.init(dbPath);
+        const upgradedDb = upgradedManager.get();
+        expect(upgradedDb.prepare('PRAGMA table_info(sessions)').all().map(({ name }) => name))
+          .toContain('lane_run_id');
+        expect(upgradedDb.prepare('PRAGMA index_list(sessions)').all().map(({ name }) => name))
+          .toContain('idx_sessions_lane_run');
+        expect(upgradedDb.prepare('SELECT name FROM projects WHERE id = ?').get('project-before-upgrade'))
+          .toMatchObject({ name: 'Existing project' });
+        expect(upgradedDb.prepare('SELECT name FROM sessions WHERE id = ?').get('session-before-upgrade'))
+          .toMatchObject({ name: 'Existing session' });
+        upgradedManager.close();
+
+        expect(() => reopenedManager.init(dbPath)).not.toThrow();
+        expect(reopenedManager.get().prepare('PRAGMA index_list(sessions)').all().map(({ name }) => name))
+          .toContain('idx_sessions_lane_run');
+      } finally {
+        initialManager.close();
+        upgradedManager.close();
+        reopenedManager.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('surfaces a malformed existing database instead of treating it as a compatible upgrade', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'circuschief-malformed-migration-'));
+      const dbPath = join(dir, 'app.db');
+      const initialManager = new DatabaseManager();
+      const upgradedManager = new DatabaseManager();
+
+      try {
+        initialManager.init(dbPath);
+        initialManager.close();
+
+        const malformedDb = new Database(dbPath);
+        malformedDb.pragma('foreign_keys = OFF');
+        malformedDb.exec('DROP TABLE sessions; CREATE TABLE sessions (id TEXT PRIMARY KEY)');
+        malformedDb.close();
+
+        let error;
+        try {
+          upgradedManager.init(dbPath);
+        } catch (caughtError) {
+          error = caughtError;
+        }
+
+        expect(error).toMatchObject({ code: 'SQLITE_ERROR' });
+      } finally {
+        initialManager.close();
+        upgradedManager.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     it('adds pending_agent_input when reopening an existing database created before that column', () => {
       const dir = mkdtempSync(join(tmpdir(), 'circuschief-migration-'));
       const dbPath = join(dir, 'app.db');
