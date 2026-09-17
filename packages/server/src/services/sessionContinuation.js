@@ -10,7 +10,8 @@ import { activeSessions, activeConversationIds, broadcastSessionStatus } from '.
 import { buildPromptWithAttachments } from './sessionPrompts.js';
 import { createAgentForSession, buildAgentEnv, _executeSession } from './sessionExecution.js';
 import { resolveTierRefForContinueWithStaleFallback } from './sessionTierFailover.js';
-import { startedSessionExecution } from './sessionStartResult.js';
+import { activeLaneRunOwnsSession } from './workflowSessionService.js';
+import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 
 /**
  * Build prompt with conversation context for a continuation.
@@ -195,6 +196,15 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   let session = sessions.getById(sessionId);
   if (!session) {
     throw new Error('Session not found');
+  }
+
+  // A scheduled/automatic continuation can race with a manual card move that
+  // revokes its lane-run ownership. Reject before registering active state,
+  // creating a user message, or changing the session status. _executeSession
+  // repeats this immediately before provider dispatch to close the remaining
+  // race window.
+  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
+    return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
 
   const controller = new AbortController();

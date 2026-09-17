@@ -8,7 +8,7 @@
  * to buildQueryParams — never the raw `tier::<id>` sentinel.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { projects, sessions, conversations, modelTiers, modelProviders } from '../database.js';
+import { projects, sessions, messages, conversations, modelTiers, modelProviders } from '../database.js';
 import { buildTierRef } from '@circuschief/shared';
 import { clearUnhealthy } from './tierResolutionService.js';
 
@@ -25,6 +25,7 @@ let capturedQueryParams = [];
 // tests can assert the agent adapter is created from the RECONCILED agentType
 // (Work Item 4), not a stale pre-reconciliation value.
 let capturedAgentTypes = [];
+const workflowMock = vi.hoisted(() => ({ laneRunOwnsSession: true }));
 
 vi.mock('./sessionExecution.js', async (importOriginal) => {
   const original = await importOriginal();
@@ -78,7 +79,17 @@ vi.mock('./streamEventHandler.js', async (importOriginal) => {
   };
 });
 
+vi.mock('./workflowSessionService.js', async (importOriginal) => {
+  const original = await importOriginal();
+  return {
+    ...original,
+    activeLaneRunOwnsSession: vi.fn(() => workflowMock.laneRunOwnsSession),
+  };
+});
+
 import { continueSessionCore } from './sessionContinuation.js';
+import { activeSessions, broadcastSessionStatus } from './streamEventHandler.js';
+import { broadcastToSession } from '../websocket.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const noop = vi.fn();
@@ -101,7 +112,9 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
   beforeEach(() => {
     capturedQueryParams = [];
     capturedAgentTypes = [];
+    workflowMock.laneRunOwnsSession = true;
     vi.clearAllMocks();
+    activeSessions.clear();
 
     project = projects.create('Tier Test Project', '/tmp/tier-continue-test');
     providerA = modelProviders.create({ name: 'Provider A', kind: 'anthropic' });
@@ -111,6 +124,28 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
     modelProviders.addModel(providerA.id, { modelId: 'claude-opus-4-6', displayName: 'Opus' });
     modelProviders.addModel(providerA.id, { modelId: 'claude-sonnet-5', displayName: 'Sonnet' });
     modelProviders.addModel(providerA.id, { modelId: 'model-x', displayName: 'Model X' });
+  });
+
+  it('rejects a non-interactive continuation that lost lane-run ownership before mutating session state', async () => {
+    const session = createTestSession(project, { laneRunId: 'superseded-run' });
+    const messagesBefore = messages.getBySessionId(session.id);
+    workflowMock.laneRunOwnsSession = false;
+
+    const result = await continueSessionCore(session.id, 'Stale automated continuation', '/tmp/test', {
+      options: { interactive: false }, callbacks: mockCallbacks,
+    });
+
+    expect(result).toEqual({
+      started: false,
+      sessionId: session.id,
+      reason: 'lane_run_ownership_lost',
+    });
+    expect(activeSessions.has(session.id)).toBe(false);
+    expect(messages.getBySessionId(session.id)).toEqual(messagesBefore);
+    expect(sessions.getById(session.id).status).toBe('waiting');
+    expect(broadcastToSession).not.toHaveBeenCalled();
+    expect(broadcastSessionStatus).not.toHaveBeenCalled();
+    expect(capturedQueryParams).toHaveLength(0);
   });
 
   it('uses resolvedModel snapshot when session.model is a tier ref and no model is passed', async () => {
