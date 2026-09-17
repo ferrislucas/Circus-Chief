@@ -73,6 +73,23 @@ test.describe('Project pinning', () => {
     await expect.poll(() => getProject(project.id)).toMatchObject({ pinned: false });
   });
 
+  test('keeps a project pinned after leaving and returning to the projects list', async ({ page }) => {
+    const project = await seedProject('navigation pin target', '/tmp');
+    await page.goto('/');
+
+    const card = projectCard(page, project.name);
+    await card.getByRole('button', { name: `Pin ${project.name}` }).click();
+    await expect.poll(() => getProject(project.id)).toMatchObject({ pinned: true });
+
+    await card.locator('.project-card-header').click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/sessions$`));
+    await page.goto('/');
+
+    await expect(projectCard(page, project.name)
+      .getByRole('button', { name: `Unpin ${project.name}` }))
+      .toHaveAttribute('aria-pressed', 'true');
+  });
+
   test('pinned-only takes precedence over a simultaneously active status filter', async ({ page }) => {
     const pinned = await seedProject('pinned project', '/tmp');
     const unpinned = await seedProject('unpinned project', '/tmp');
