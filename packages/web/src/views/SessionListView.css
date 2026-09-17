@@ -2,7 +2,7 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 }
 
 .page-header h1 {
@@ -65,7 +65,7 @@
   display: flex;
   gap: 0;
   border-bottom: 1px solid var(--color-border);
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
   /* Sticky positioning - accounts for header + safe area on iOS */
   position: -webkit-sticky; /* Safari prefix */
   position: sticky;
@@ -73,7 +73,7 @@
   top: calc(var(--header-height-computed, 51px) + var(--viewport-offset-top, 0px));
   background-color: var(--color-background);
   z-index: 99;
-  padding: 0.5rem 0.5rem 0 0.5rem;
+  padding: 0.5rem 0 0;
 }
 
 /* iPad and larger screens - account for safe area */
@@ -103,7 +103,8 @@
 .tab {
   background: none;
   border: none;
-  padding: 0.75rem 1.25rem;
+  min-height: 42px;
+  padding: 0.65rem 1rem;
   font-size: 0.9rem;
   color: var(--color-text-soft);
   cursor: pointer;
@@ -151,6 +152,10 @@
   gap: 1rem;
 }
 
+.session-list :deep(.session-card) {
+  box-shadow: var(--shadow-raised);
+}
+
 .tab-spacer {
   height: 1rem;
 }
@@ -164,6 +169,10 @@
   .page-header .btn {
     width: 100%;
     justify-content: center;
+  }
+
+  .page-header {
+    gap: 0.75rem;
   }
 
   /* Hide desktop tabs on mobile */

@@ -71,12 +71,17 @@ p {
 
 .btn {
   flex: 0 0 auto;
+  min-height: 44px;
 }
 
 @media (max-width: 640px) {
   .circus-time-panel {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .btn {
+    width: 100%;
   }
 }
 </style>

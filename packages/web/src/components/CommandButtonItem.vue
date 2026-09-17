@@ -539,7 +539,7 @@ defineExpose({
 .command-button-item {
   background-color: var(--color-background-soft);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
+  border-radius: var(--radius-lg);
   padding: 1rem;
   display: flex;
   flex-direction: column;
@@ -555,6 +555,7 @@ defineExpose({
 
 .button-info {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -570,6 +571,7 @@ defineExpose({
   color: var(--color-text-soft);
   font-size: 0.85rem;
   font-family: var(--font-mono);
+  overflow-wrap: anywhere;
 }
 
 .button-actions {
@@ -577,6 +579,8 @@ defineExpose({
   align-items: center;
   gap: 0.75rem;
 }
+
+.button-actions :deep(.action-menu-trigger), .button-actions :deep(.action-menu-button) { min-width: var(--control-height); min-height: var(--control-height); }
 
 .status-indicator {
   width: 1.5rem;
@@ -627,6 +631,7 @@ defineExpose({
   align-items: center;
   gap: 0.5rem;
   cursor: pointer;
+  min-height: 44px;
   padding: 0.5rem;
   border-radius: 4px;
   transition: background-color 0.2s;
@@ -661,7 +666,7 @@ defineExpose({
   padding: 0.75rem;
   background-color: var(--color-background);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   position: relative;
 }
 
@@ -679,9 +684,10 @@ defineExpose({
   font-size: 0.8rem;
   color: var(--color-text-soft);
   white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 300px;
-  overflow-y: auto;
+  overflow-wrap: anywhere;
+  max-height: min(360px, 42dvh);
+  overflow: auto;
+  overscroll-behavior: contain;
   line-height: 1.4;
 }
 
@@ -759,11 +765,14 @@ defineExpose({
 
   .button-actions {
     width: 100%;
-    justify-content: space-between;
+    justify-content: stretch;
+    flex-wrap: wrap;
   }
 
   .button-actions button {
-    flex: 1;
+    flex: 1 1 120px;
+    min-height: 44px;
   }
+  .output-content { padding: 0.5rem; }
 }
 </style>

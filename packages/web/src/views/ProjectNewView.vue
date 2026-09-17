@@ -325,6 +325,13 @@ h1 {
   }
 
   .form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin: 0 -1rem -1rem;
+    padding: 0.75rem 1rem calc(0.75rem + var(--safe-area-inset-bottom));
+    background: var(--color-background-soft);
+    border-top: 1px solid var(--color-border);
     flex-direction: column-reverse;
   }
 

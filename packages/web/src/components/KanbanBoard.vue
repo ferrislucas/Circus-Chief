@@ -62,7 +62,11 @@
         <div
           class="lane-header"
           :class="{ 'lane-header-accordion': effectiveLayout === 'vertical' }"
+          :role="effectiveLayout === 'vertical' ? 'button' : undefined"
+          :tabindex="effectiveLayout === 'vertical' ? 0 : undefined"
           @click="handleLaneHeaderClick(lane.id)"
+          @keydown.enter.prevent="handleLaneHeaderClick(lane.id)"
+          @keydown.space.prevent="handleLaneHeaderClick(lane.id)"
         >
           <div class="lane-title-row">
             <!-- Chevron: only shown in vertical/accordion mode -->
@@ -88,6 +92,7 @@
             <button
               class="lane-settings-btn"
               title="Lane settings"
+              aria-label="Lane settings"
               @click.stop="openLaneSettings(lane)"
             >
               <KanbanBoardIcon name="settings" />
@@ -145,6 +150,7 @@
                   v-if="cardIndex > 0"
                   class="card-reorder-btn"
                   title="Move card up"
+                  aria-label="Move card up"
                   @click.prevent="moveCardInLane(lane.id, cardIndex, cardIndex - 1)"
                 >
                   <KanbanBoardIcon name="reorder-up" />
@@ -153,6 +159,7 @@
                   v-if="cardIndex < lane.cards.length - 1"
                   class="card-reorder-btn"
                   title="Move card down"
+                  aria-label="Move card down"
                   @click.prevent="moveCardInLane(lane.id, cardIndex, cardIndex + 1)"
                 >
                   <KanbanBoardIcon name="reorder-down" />
@@ -161,6 +168,7 @@
               <button
                 class="card-move-btn"
                 title="Move to lane"
+                aria-label="Move to lane"
                 @click.prevent="openMoveCardModal(card, lane.id)"
               >
                 <KanbanBoardIcon name="move" />
@@ -168,6 +176,7 @@
               <button
                 class="card-remove-btn"
                 title="Remove from board"
+                aria-label="Remove from board"
                 @click.prevent="handleRemoveCard(card.id)"
               >
                 &times;

@@ -278,6 +278,7 @@ function formatLastModified(timestamp) { return timestamp ? `Modified ${formatRe
 .viewer-header {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   align-items: flex-start;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
@@ -306,6 +307,7 @@ function formatLastModified(timestamp) { return timestamp ? `Modified ${formatRe
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .header-actions {
@@ -319,7 +321,8 @@ function formatLastModified(timestamp) { return timestamp ? `Modified ${formatRe
   cursor: pointer;
   font-size: 0.9rem;
   font-weight: 500;
-  padding: 0;
+  min-height: 40px;
+  padding: 0.25rem 0;
   white-space: nowrap;
   transition: text-decoration 0.15s ease;
 }
@@ -356,7 +359,7 @@ function formatLastModified(timestamp) { return timestamp ? `Modified ${formatRe
   font-weight: 500;
   transition: background 0.15s ease, border-color 0.15s ease;
   white-space: nowrap;
-  min-height: 28px;
+  min-height: var(--control-height);
 }
 
 .btn-edit-toggle:hover {
@@ -381,7 +384,7 @@ function formatLastModified(timestamp) { return timestamp ? `Modified ${formatRe
   font-weight: 600;
   cursor: pointer;
   list-style: none;
-  min-height: 28px;
+  min-height: var(--control-height);
 }
 
 .version-dropdown summary::-webkit-details-marker {
@@ -411,6 +414,7 @@ function formatLastModified(timestamp) { return timestamp ? `Modified ${formatRe
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-height: 44px;
   padding: 0.5rem 0.75rem;
   cursor: pointer;
   font-size: 0.875rem;
@@ -433,6 +437,13 @@ function formatLastModified(timestamp) { return timestamp ? `Modified ${formatRe
 .version-current {
   color: var(--color-primary);
   font-size: 0.75rem;
+}
+
+@media (max-width: 640px) {
+  .viewer-header { padding: 0.75rem; }
+  .viewer-header-middle { align-items: flex-start; flex-direction: column; gap: 0.5rem; }
+  .header-actions { width: 100%; flex-wrap: wrap; }
+  .breadcrumb-back { min-height: 44px; }
 }
 
 /* File menu container and button */

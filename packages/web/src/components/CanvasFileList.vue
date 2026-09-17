@@ -280,6 +280,19 @@ defineExpose({
   gap: 0.25rem;
 }
 
+.list-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: var(--control-height);
+  padding: 0.25rem 0.5rem;
+  color: var(--color-text-soft);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .file-row {
   display: flex;
   flex-direction: column;
@@ -290,13 +303,15 @@ defineExpose({
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   cursor: pointer;
-  transition: background-color 0.15s;
-  min-height: 48px;
+  transition: background-color 0.15s, border-color 0.15s;
+  min-height: 56px;
 }
 
 .file-row:hover {
   background: var(--color-background-mute);
 }
+
+.file-row.selected { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, var(--color-background-soft)); }
 
 .file-row-top {
   width: 100%;
@@ -313,7 +328,7 @@ defineExpose({
 
 .file-name {
   font-weight: 500;
-  word-break: break-word;
+  overflow-wrap: anywhere;
   line-height: 1.4;
 }
 
@@ -350,8 +365,8 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   border-radius: 8px;
   border: none;
@@ -387,7 +402,7 @@ defineExpose({
   position: absolute;
   top: 100%;
   right: 0;
-  min-width: 200px;
+  min-width: min(200px, calc(100vw - 2rem));
   margin-top: 0.5rem;
   padding: 0.25rem 0;
   list-style: none;
@@ -403,6 +418,7 @@ defineExpose({
   align-items: center;
   gap: 0.75rem;
   width: 100%;
+  min-height: 44px;
   padding: 0.5rem 1rem;
   border: none;
   background: transparent;
@@ -423,6 +439,12 @@ defineExpose({
 
 .menu-item.is-danger:hover {
   background: rgba(248, 113, 113, 0.1);
+}
+
+@media (max-width: 640px) {
+  .file-row { padding: 0.75rem; }
+  .file-row-bottom { gap: 0.5rem; }
+  .file-time { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 
 .menu-item-icon {

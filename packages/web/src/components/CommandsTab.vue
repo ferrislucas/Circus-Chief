@@ -267,15 +267,19 @@ defineExpose({
 .commands-tab {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1rem;
+  padding: 0.75rem 0 calc(1rem + var(--safe-area-inset-bottom));
+  min-width: 0;
 }
 
 .tab-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--color-border);
+  padding: 0.75rem;
+  background: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
 .tab-header h3 {
@@ -298,6 +302,7 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.75rem;
   padding: 0.75rem 1rem;
   background-color: rgba(248, 81, 73, 0.1);
   border: 1px solid var(--color-error);
@@ -310,6 +315,7 @@ defineExpose({
   border: 1px solid var(--color-error);
   border-radius: 4px;
   color: var(--color-error);
+  min-height: 36px;
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
   cursor: pointer;
@@ -350,5 +356,8 @@ defineExpose({
   .commands-list {
     gap: 1rem;
   }
+  .tab-header .btn { width: 100%; min-height: 44px; }
+  .error-banner { align-items: flex-start; flex-direction: column; }
+  .error-banner .dismiss-btn { min-height: 44px; width: 100%; }
 }
 </style>

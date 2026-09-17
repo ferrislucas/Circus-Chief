@@ -494,6 +494,12 @@ async function deleteProvider() {
 }
 
 @media (max-width: 520px) {
+  .page-header .btn-primary {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+
   .provider-card {
     padding: 1rem;
   }
@@ -506,7 +512,11 @@ async function deleteProvider() {
 
   .provider-actions {
     justify-content: flex-start;
+    width: 100%;
   }
+
+  .provider-actions .btn,
+  .provider-toggle { min-height: 44px; }
 
   .modal-overlay {
     align-items: stretch;
@@ -515,7 +525,7 @@ async function deleteProvider() {
   .modal {
     max-width: none;
     max-height: none;
-    min-height: 100vh;
+    min-height: 100dvh;
     border-radius: 0;
     border-left: 0;
     border-right: 0;
@@ -523,6 +533,10 @@ async function deleteProvider() {
 
   .modal-footer {
     justify-content: space-between;
+    padding-bottom: calc(1rem + var(--safe-area-inset-bottom));
   }
+
+  .close-btn,
+  .modal-footer .btn { min-height: 44px; min-width: 44px; }
 }
 </style>

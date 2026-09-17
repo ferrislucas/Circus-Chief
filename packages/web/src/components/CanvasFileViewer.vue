@@ -243,6 +243,7 @@ function selectVersion(itemId) {
 .canvas-file-viewer {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   /* Removed height: 100% - causes layout issues on iPad Safari when combined with
      sticky positioning. The natural document flow works correctly without it. */
 }
@@ -275,6 +276,7 @@ function selectVersion(itemId) {
 .viewer-content {
   flex: 1;
   overflow: auto;
+  overscroll-behavior: contain;
   background: var(--color-background-soft);
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
@@ -311,10 +313,13 @@ function selectVersion(itemId) {
   font-size: 0.8125rem;
   margin: 0;
   font-family: var(--font-mono);
+  overflow-x: auto;
+  white-space: pre;
 }
 
 .viewer-text {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-size: 0.9375rem;
 }
 
@@ -325,6 +330,12 @@ function selectVersion(itemId) {
   overflow-x: auto;
   white-space: pre;
   line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .viewer-content { padding: 0.75rem; border-radius: var(--radius-sm); }
+  .viewer-content-editing { min-height: min(400px, 56dvh); padding: 0; }
+  .viewer-code, .viewer-json { font-size: 0.75rem; }
 }
 
 .viewer-code code {

@@ -172,7 +172,7 @@ onUnmounted(() => {
 }
 
 .app-header {
-  background-color: var(--color-background-soft);
+  background-color: color-mix(in srgb, var(--color-background-soft) 92%, var(--color-background));
   border-bottom: 1px solid var(--color-border);
   padding: 5px 0 !important;
   margin: 0 !important;
@@ -181,7 +181,7 @@ onUnmounted(() => {
   position: sticky;
   top: var(--viewport-offset-top, 0px);
   z-index: 100;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.18);
 
   /* Add safe area padding for iOS notch/status bar */
   padding-top: calc(5px + var(--safe-area-inset-top, 0px)) !important;
@@ -247,7 +247,9 @@ onUnmounted(() => {
   font-weight: 500;
   text-decoration: none;
   transition: color 0.2s ease;
-  padding: 0.5rem 0;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0.5rem;
   border-bottom: 2px solid transparent;
   display: flex;
   align-items: center;
@@ -267,6 +269,24 @@ onUnmounted(() => {
 @media (max-width: 480px) {
   .nav {
     gap: 0.75rem;
+  }
+
+  .app-header .container {
+    padding-right: 0.75rem !important;
+    padding-left: 0.75rem !important;
+  }
+
+  .logo-image {
+    height: 34px;
+  }
+
+  .logo-text {
+    font-size: 0.95rem;
+  }
+
+  .nav-link {
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 

@@ -492,7 +492,8 @@ defineExpose({
 
 <style scoped>
 .changes-tab {
-  padding: 1rem 0;
+  padding: 0.75rem 0 calc(1rem + var(--safe-area-inset-bottom));
+  min-width: 0;
 }
 
 .loading-state {
@@ -526,7 +527,11 @@ defineExpose({
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+  background: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   flex-wrap: wrap;
 }
 
@@ -534,7 +539,7 @@ defineExpose({
   display: flex;
   gap: 0.25rem;
   background-color: var(--color-background-soft);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.25rem;
 }
 
@@ -542,7 +547,7 @@ defineExpose({
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 2.375rem;
+  min-height: var(--control-height);
   padding: 0.5rem 0.75rem;
   border: 1px solid transparent;
   background-color: transparent;
@@ -598,7 +603,8 @@ defineExpose({
 }
 
 .diff-section {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.75rem;
+  min-width: 0;
 }
 
 .diff-section h3 {
@@ -626,6 +632,15 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+@media (max-width: 640px) {
+  .changes-toolbar { align-items: stretch; gap: 0.5rem; }
+  .mode-toggle { width: 100%; }
+  .toggle-button { flex: 1 1 0; min-width: 0; white-space: normal; text-align: center; }
+  .toolbar-actions, .toolbar-actions .btn-link { width: 100%; }
+  .toolbar-actions .btn-link { justify-content: center; }
+  .diff-section h3 { padding-inline: 0.25rem; }
 }
 
 </style>

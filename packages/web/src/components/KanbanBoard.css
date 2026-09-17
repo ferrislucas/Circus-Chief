@@ -2,6 +2,7 @@
   height: 100%;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .kanban-loading,
@@ -78,6 +79,8 @@
   border: none;
   color: var(--color-text-soft);
   cursor: pointer;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0.375rem 0.625rem;
   display: flex;
   align-items: center;
@@ -105,6 +108,7 @@
   display: flex;
   flex: 1;
   min-height: 0;
+  min-width: 0;
 }
 
 /* ==================== Layout: horizontal (column view) ==================== */
@@ -113,6 +117,8 @@
   gap: 1rem;
   padding: 1rem;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
   align-items: flex-start;
 }
 
@@ -246,6 +252,8 @@
   border: none;
   color: var(--color-text-soft);
   cursor: pointer;
+  width: 44px;
+  height: 44px;
   padding: 0.25rem;
   border-radius: 4px;
   display: flex;
@@ -300,6 +308,7 @@
   border: 1px solid var(--color-border);
   border-radius: 6px;
   cursor: grab;
+  touch-action: manipulation;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
@@ -406,6 +415,8 @@
   color: var(--color-text-soft);
   cursor: pointer;
   opacity: 0;
+  width: 44px;
+  height: 44px;
   padding: 0.25rem;
   display: flex;
   align-items: center;
@@ -430,6 +441,8 @@
   color: var(--color-text-soft);
   cursor: pointer;
   opacity: 0;
+  width: 44px;
+  height: 44px;
   padding: 0.25rem;
   font-size: 1rem;
   line-height: 1;
@@ -463,6 +476,7 @@
 
 .add-session-btn {
   width: 100%;
+  min-height: 44px;
   padding: 0.5rem;
   background: transparent;
   border: 1px dashed var(--color-border);
@@ -491,6 +505,7 @@
 
 .add-lane-btn {
   width: 100%;
+  min-height: 44px;
   padding: 0.75rem 1rem;
   background: var(--color-bg-soft, rgba(255, 255, 255, 0.05));
   border: 2px dashed var(--color-border);
@@ -520,6 +535,7 @@
   border-radius: 4px;
   color: var(--color-text);
   font-size: 0.875rem;
+  min-height: 44px;
   margin-bottom: 0.5rem;
 }
 
@@ -536,6 +552,7 @@
 .add-lane-confirm,
 .add-lane-cancel {
   flex: 1;
+  min-height: 44px;
   padding: 0.375rem 0.75rem;
   border: none;
   border-radius: 4px;
@@ -586,6 +603,27 @@
 .card-reorder-btn:hover {
   color: var(--color-primary);
   background: var(--color-bg-soft);
+}
+
+@media (pointer: coarse), (max-width: 640px) {
+  .kanban-card .card-move-btn,
+  .kanban-card .card-remove-btn,
+  .kanban-card .card-reorder-arrows {
+    opacity: 1;
+  }
+
+  .layout-vertical .card-move-btn,
+  .layout-vertical .card-remove-btn,
+  .layout-vertical .card-reorder-btn,
+  .card-reorder-btn {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0.5rem;
+  }
+
+  .layout-horizontal .kanban-lane {
+    max-height: none;
+  }
 }
 
 /* ==================== Drag-and-drop indicators ==================== */
