@@ -175,6 +175,94 @@ test.describe('Model Tiers failover (scripted CLI, Phase 2)', () => {
     ws.close();
   });
 
+  // Regression for incident ec5b56d5: a real OpenAI Codex usage-limit error
+  // ("You've hit your usage limit. ... purchase more credits or try again at
+  // ...") contains none of the QUOTA_FAILOVER_PATTERNS wording, so the
+  // failover gates saw it as non-eligible while the broad reschedule matcher
+  // ('limit') saw it as a token-limit error — the session rescheduled itself
+  // on the same model (+60 min) and never attempted the next tier member.
+  // The reschedule interception branch must be armed here
+  // (autoRescheduleEnabled + rescheduleOnTokenLimit) exactly as in the
+  // incident; with it unarmed the session lands in terminal 'error' and the
+  // negative assertions below would be vacuous.
+  test('real OpenAI Codex usage-limit wording fails over to the next tier member (regression: incident ec5b56d5)', async ({ page }) => {
+    const providerA = await createProvider({ name: `${TEST_PREFIX}UsageLimit Provider A`, kind: 'openai' });
+    await addProviderModel(providerA.id, { modelId: 'ul-model-a', displayName: 'UsageLimit Model A' });
+    const providerB = await createProvider({
+      name: `${TEST_PREFIX}UsageLimit Provider B`,
+      kind: 'anthropic',
+      baseUrl: 'https://usagelimit-b.example.test/v1',
+      authToken: 'test-token',
+    });
+    await addProviderModel(providerB.id, { modelId: 'ul-model-b', displayName: 'UsageLimit Model B' });
+
+    const tier = await createTierViaApi({
+      name: `${TEST_PREFIX}UsageLimit Tier`,
+      members: [
+        { providerId: providerA.id, modelId: 'ul-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'ul-model-b', position: 1 },
+      ],
+    });
+    createdTierIds.push(tier.id);
+
+    // The EXACT production string from agent_call_logs (incident ec5b56d5).
+    writeScript({
+      queues: {
+        [`${providerA.id}::ul-model-a`]: [
+          {
+            type: 'quota_error',
+            delayMs: 8000,
+            message: "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 11:21 PM.",
+          },
+        ],
+        [`${providerB.id}::ul-model-b`]: ['success'],
+      },
+    });
+
+    const project = await seedProject('Tier UsageLimit Regression Project', process.cwd());
+    const session = await seedSession(project.id, {
+      prompt: 'Tier usage-limit regression e2e',
+      model: `tier::${tier.id}`,
+      startImmediately: true,
+      autoRescheduleEnabled: true,
+      rescheduleOnTokenLimit: true,
+    });
+
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
+
+    const ws = await connectWebSocket();
+    await subscribeToSessionAndVerify(ws, session.id);
+    const failoverPromise = waitForWSMessage(ws, 'tier:failover', 15000);
+
+    const failoverEvent = await failoverPromise;
+    expect(failoverEvent.tierRef).toBe(`tier::${tier.id}`);
+    expect(failoverEvent.fromModel).toBe('ul-model-a');
+    expect(failoverEvent.toModel).toBe('ul-model-b');
+
+    await waitForStatus(session.id, 'waiting', 15000);
+    const finalSession = await waitForResolvedModel(session.id);
+    expect(finalSession.model).toBe(`tier::${tier.id}`);
+    expect(finalSession.resolvedModel).toBe('ul-model-b');
+    expect(finalSession.resolvedProviderId).toBe(providerB.id);
+
+    // NOT the incident's outcome: no self-reschedule on the same model.
+    expect(finalSession.status).not.toBe('scheduled');
+    expect(finalSession.rescheduleCount ?? 0).toBe(0);
+    expect(finalSession.error ?? '').not.toContain('Rescheduled');
+
+    // The session completed on member B: assistant output present.
+    const messages = await getSessionMessages(session.id);
+    expect(messages.some((m: any) => m.role === 'assistant')).toBe(true);
+
+    // Both members were actually attempted, in order.
+    const records = await waitForCaptureRecords(2);
+    expect(records.map((r: any) => r.providerId)).toEqual([providerA.id, providerB.id]);
+    expect(records.map((r: any) => r.modelId)).toEqual(['ul-model-a', 'ul-model-b']);
+
+    ws.close();
+  });
+
   test('a second new session on the same tier skips the still-cooled member', async () => {
     test.skip(
       !process.env.E2E_TIER_COOLDOWN_MS,

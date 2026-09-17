@@ -687,4 +687,49 @@ describe('start-time failover trigger set — matchesStartFailoverEligibleError 
       expect(matchesStartFailoverEligibleError('invalid api key')).toBe(false);
     });
   });
+
+  // ── Incident ec5b56d5 conformance seeds: REAL provider error strings ────
+  //
+  // A string that should trigger tier failover must satisfy BOTH policies:
+  // the tight failover gate (matchesStartFailoverEligibleError) AND the broad
+  // reschedule trigger (matchesTokenLimitError) — otherwise the failover gate
+  // misses it while auto-reschedule silently swallows the error on the same
+  // model (the exact incident ec5b56d5 failure chain). Terminal rows
+  // (auth/bad-request) must miss the failover gate entirely.
+  describe('real provider error strings (incident ec5b56d5 conformance seeds)', () => {
+    // Harvested from agent_call_logs — the exact production Codex error that
+    // rescheduled instead of failing over (incident ec5b56d5).
+    const CODEX_USAGE_LIMIT =
+      "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 11:21 PM.";
+
+    // e2eSpawnOutcomes.js OUTCOME_MESSAGES (as of this suite's writing).
+    const failoverEligibleRows = [
+      ['codex usage limit (incident ec5b56d5)', CODEX_USAGE_LIMIT],
+      ['quota_error (E2E canned)', 'Quota exceeded: you have run out of tokens for this billing period'],
+      ['rate_limit (E2E canned)', '429 Too many requests: rate limit exceeded, please retry later'],
+      ['service_unavailable (E2E canned)', '503 Service Unavailable: the upstream service is temporarily unavailable'],
+      ['overloaded (E2E canned)', '529 Overloaded: the API is temporarily overloaded, please retry'],
+    ];
+
+    const terminalRows = [
+      ['auth_error (E2E canned)', '401 Unauthorized: invalid API key provided'],
+      ['bad_request (E2E canned)', '400 Bad Request: invalid request parameters'],
+    ];
+
+    describe.each(failoverEligibleRows)('%s', (_label, message) => {
+      it('is failover-eligible (tight gate)', () => {
+        expect(matchesStartFailoverEligibleError(message.toLowerCase())).toBe(true);
+      });
+
+      it('also triggers the broad reschedule matcher (BOTH-policies agreement)', () => {
+        expect(matchesTokenLimitError(message.toLowerCase()) || matchesServiceError(message.toLowerCase())).toBe(true);
+      });
+    });
+
+    describe.each(terminalRows)('%s', (_label, message) => {
+      it('is NOT failover-eligible', () => {
+        expect(matchesStartFailoverEligibleError(message.toLowerCase())).toBe(false);
+      });
+    });
+  });
 });
