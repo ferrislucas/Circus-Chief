@@ -251,11 +251,7 @@ describe('Settings API', { timeout: 30_000 }, () => {
       expect(res.body.error).toContain('at least one executable model');
     });
 
-    // Work Item 1: a summary tier must not resolve — now or via a later
-    // failover member — to a provider kind that summaryModelClient can't
-    // route (only 'anthropic' and 'openai' are supported). Reject at
-    // write-time so the bad config is never persisted.
-    it('rejects a tier ref whose member is an unsupported (Google) provider kind', async () => {
+    it('accepts a tier ref whose member is a Google provider kind', async () => {
       const googleProvider = modelProviders.create({ name: 'Settings Summary Google Provider', kind: 'google' });
       modelProviders.addModel(googleProvider.id, {
         modelId: 'settings-summary-gemini-model',
@@ -276,11 +272,11 @@ describe('Settings API', { timeout: 30_000 }, () => {
           summaryProviderId: null,
         });
 
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain('summaryModel tier must contain only Anthropic or OpenAI models');
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ summaryModel: tierRef, summaryProviderId: null });
     });
 
-    it('rejects a tier ref where only a later (non-active) member is an unsupported kind', async () => {
+    it('accepts a tier ref with a later Google failover member', async () => {
       const anthropicProvider = modelProviders.getById('anthropic-default');
       const anthropicModel = anthropicProvider.models[0].modelId;
       const googleProvider = modelProviders.create({ name: 'Settings Summary Google Provider 2', kind: 'google' });
@@ -306,8 +302,8 @@ describe('Settings API', { timeout: 30_000 }, () => {
           summaryProviderId: null,
         });
 
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain('summaryModel tier must contain only Anthropic or OpenAI models');
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ summaryModel: tierRef, summaryProviderId: null });
     });
 
     it('accepts a tier ref whose members are all Anthropic/OpenAI', async () => {

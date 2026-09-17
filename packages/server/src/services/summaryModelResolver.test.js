@@ -239,12 +239,7 @@ describe('summaryModelResolver', () => {
       expect(resolved.isDefault).toBe(false);
     });
 
-    // Work Item 1: resolve-time defense-in-depth. Even if a Google-kind tier
-    // ever slips past write-time validation (legacy row, cooldown-driven
-    // member change), resolveSummaryModel must never hand a Google model to
-    // callSummaryModel's Anthropic client — it should degrade the same way
-    // an exhausted tier does.
-    it('falls back to default summary model when the active tier member is an unsupported (Google) provider kind', async () => {
+    it('resolves the active Google tier member for Google summary dispatch', async () => {
       const { buildTierRef } = await import('@circuschief/shared');
       const googleProvider = modelProviders.create({ name: 'Summary Resolver Google Provider', kind: 'google' });
       modelProviders.addModel(googleProvider.id, {
@@ -258,9 +253,10 @@ describe('summaryModelResolver', () => {
 
       const resolved = resolveSummaryModel({ summaryModel: buildTierRef(tier.id), summaryProviderId: null });
 
-      expect(resolved.model).toBe(DEFAULT_ANTHROPIC_SUMMARY_MODEL);
-      expect(resolved.kind).toBe('anthropic');
-      expect(resolved.isDefault).toBe(true);
+      expect(resolved.model).toBe('summary-resolver-gemini-model');
+      expect(resolved.kind).toBe('google');
+      expect(resolved.providerId).toBe(googleProvider.id);
+      expect(resolved.isDefault).toBe(false);
 
       modelProviders.delete(googleProvider.id);
     });

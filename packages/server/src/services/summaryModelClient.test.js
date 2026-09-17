@@ -67,6 +67,7 @@ describe('summaryModelClient', () => {
     mocks.callCodexSummary.mockResolvedValue('{"short_summary":"codex"}');
     mocks.buildProviderEnv.mockReturnValue({ ANTHROPIC_API_KEY: 'custom-token' });
     mocks.agentCallLogger.startCall.mockReturnValue('call-1');
+    vi.stubGlobal('fetch', vi.fn());
   });
 
   it('calls built-in Anthropic through Claude with provider metadata', async () => {
@@ -334,8 +335,8 @@ describe('callSummaryModel tier failover (Work Item 2)', () => {
     expect(isUnhealthy(providerB.id, 'summary-model-b')).toBe(true);
   });
 
-  it('skips a member whose provider kind is unsupported for summaries (google), without attempting or cooling it down', async () => {
-    const googleProvider = modelProviders.create({ name: 'Summary Google Provider', kind: 'google' });
+  it('dispatches a Google tier member rather than skipping it', async () => {
+    const googleProvider = modelProviders.create({ name: 'Summary Google Provider', kind: 'google', authToken: 'google-summary-key' });
     modelProviders.addModel(googleProvider.id, { modelId: 'gemini-summary-model', displayName: 'Gemini' });
     const mixedTier = modelTiers.create({
       name: 'Mixed Summary Tier',
@@ -344,18 +345,20 @@ describe('callSummaryModel tier failover (Work Item 2)', () => {
         { providerId: providerA.id, modelId: 'summary-model-a', position: 1 },
       ],
     });
-    mocks.callClaude.mockResolvedValueOnce('{"short_summary":"from A"}');
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ candidates: [{ content: { parts: [{ text: '{"short_summary":"from Gemini"}' }] } }] }),
+    });
 
     const result = await callSummaryModel('prompt', [], 'completed', {
       summarySettings: tierSettings(mixedTier.id),
       logMeta: { sessionId: 'summary-session-4', callType: 'generateSessionSummary' },
     });
 
-    expect(result).toBe('{"short_summary":"from A"}');
-    expect(mocks.callClaude).toHaveBeenCalledTimes(1);
-    expect(mocks.callClaude.mock.calls[0][3]).toMatchObject({ model: 'summary-model-a' });
-    // The Google member was skipped — never attempted, never cooled down,
-    // and its skip must not be logged as a failover.
+    expect(result).toBe('{"short_summary":"from Gemini"}');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toContain('gemini-summary-model:generateContent');
+    expect(mocks.callClaude).not.toHaveBeenCalled();
     expect(isUnhealthy(googleProvider.id, 'gemini-summary-model')).toBe(false);
     expect(mocks.agentCallLogger._logFailoverEvent).not.toHaveBeenCalled();
   });

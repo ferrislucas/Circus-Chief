@@ -32,7 +32,6 @@
 import { sessions, messages } from '../database.js';
 import { schedulerService } from './schedulerService.js';
 import { isTierRef } from '@circuschief/shared';
-import { findNextHealthyTierMember } from './tierResolutionService.js';
 import { sessionHasNoObservableAgentActivity } from './sessionAgentGuard.js';
 
 /**
@@ -224,7 +223,7 @@ function logSkippedReschedule(setting) {
  * @param {object} session - Session object
  * @param {Error} error - Error that occurred
  * @param {string|null} sessionId - Session ID
- * @param {{ currentMemberId?: string, currentMemberProviderId?: string }|null} tierContext
+ * @param {{ currentMemberId?: string, currentMemberProviderId?: string, nextMember?: Object|null }|null} tierContext
  * @returns {boolean}
  */
 export function isTierFailoverEligibleError(session, error, sessionId = null, tierContext = null) {
@@ -240,14 +239,11 @@ export function isTierFailoverEligibleError(session, error, sessionId = null, ti
     return false;
   }
 
-  // Fix 5: use the SAME forward-only resolver the failover loop
-  // (sessionTierFailover.js) uses to decide whether to advance, so this
-  // suppression check can never disagree with it. The tier is exhausted
-  // before failure — there is no attempt cap to be aware of.
-  return findNextHealthyTierMember(session.model, {
-    modelId: tierContext.currentMemberId,
-    providerId: tierContext.currentMemberProviderId,
-  }) !== null;
+  // The failover loop supplies the successor from its immutable member
+  // snapshot. Never re-read live tier configuration here: an edit while a
+  // provider call is in flight must not make rescheduling disagree with the
+  // retry and notice for that same attempt.
+  return tierContext.nextMember != null;
 }
 
 /**
@@ -255,7 +251,7 @@ export function isTierFailoverEligibleError(session, error, sessionId = null, ti
  * @param {object} session - Session object
  * @param {Error} error - Error that occurred
  * @param {string} sessionId - Session ID
- * @param {{ currentMemberId?: string, currentMemberProviderId?: string }} [tierContext]
+ * @param {{ currentMemberId?: string, currentMemberProviderId?: string, nextMember?: Object|null }} [tierContext]
  *   - When provided and session is tier-bound, used to determine failover eligibility.
  * @returns {boolean} True if should reschedule
  */

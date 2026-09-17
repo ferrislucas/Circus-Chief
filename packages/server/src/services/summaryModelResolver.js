@@ -8,36 +8,10 @@ export const DEFAULT_OPENAI_SUMMARY_MODEL = 'gpt-5.4-mini';
 export const BUILT_IN_ANTHROPIC_PROVIDER_ID = 'anthropic-default';
 export const BUILT_IN_OPENAI_PROVIDER_ID = 'openai-default';
 
-// Single source of truth for which provider kinds `callSummaryModel` knows how
-// to route: 'openai' → OpenAI client, everything else → Anthropic client. A
-// summary model/tier resolving to any other kind (e.g. 'google') must never
-// reach that call — see the write-time check in api/settings.js and the
-// resolve-time guard below.
-export const SUPPORTED_SUMMARY_PROVIDER_KINDS = new Set(['anthropic', 'openai']);
-
 export const CHEAPEST_SUMMARY_MODEL_BY_BUILT_IN_PROVIDER = Object.freeze({
   [BUILT_IN_ANTHROPIC_PROVIDER_ID]: DEFAULT_ANTHROPIC_SUMMARY_MODEL,
   [BUILT_IN_OPENAI_PROVIDER_ID]: DEFAULT_OPENAI_SUMMARY_MODEL,
 });
-
-/**
- * Check whether any member of a tier member list resolves to a provider
- * kind that `callSummaryModel` can't route (i.e. outside
- * SUPPORTED_SUMMARY_PROVIDER_KINDS). Extracted (Work Item 3) so both
- * write-time guards can share one predicate:
- *   - api/settings.js — choosing a tier AS the summary model.
- *   - api/modelTiers.js — editing a tier that is ALREADY the configured
- *     summary tier (closing the bypass where a later tier edit could smuggle
- *     an unsupported-kind member past the settings-time check).
- * @param {Array<{providerId: string}>} members
- * @returns {boolean}
- */
-export function tierHasUnsupportedSummaryKindMember(members) {
-  return members.some((member) => {
-    const provider = modelProviders.getById(member.providerId);
-    return !SUPPORTED_SUMMARY_PROVIDER_KINDS.has(provider?.kind || 'anthropic');
-  });
-}
 
 const ANTHROPIC_TIER_NAMES = new Set(['sonnet', 'opus', 'haiku']);
 
@@ -57,12 +31,7 @@ export function isKnownBuiltInAnthropicModel(modelId) {
  * Resolve a summary tier ref to a concrete (model, providerId) suitable for
  * `resolveExplicitSummaryModel`, or `null` if the tier should fall through
  * to the default summary model selection (Fix 9 — graceful degradation).
- * Falls through when: the tier has no healthy members (cooldown/empty), or
- * the active member's provider kind is outside
- * SUPPORTED_SUMMARY_PROVIDER_KINDS (e.g. 'google') — write-time validation
- * (api/settings.js) should already block the latter, but a cooldown-driven
- * member change or a legacy row could still reach here, and this must never
- * silently mis-route a call (e.g. Google → Anthropic).
+ * Falls through when the tier has no healthy members (cooldown/empty).
  * @param {string} summaryModel - Tier ref sentinel string
  * @returns {{ model: string, providerId: string }|null}
  */
@@ -71,14 +40,6 @@ function resolveHealthyTierSummaryMember(summaryModel) {
   if (!resolved) {
     console.warn(
       `[summaryModelResolver] Summary tier "${summaryModel}" has no healthy members — falling back to default summary model`
-    );
-    return null;
-  }
-
-  const resolvedKind = modelProviders.getById(resolved.providerId)?.kind || 'anthropic';
-  if (!SUPPORTED_SUMMARY_PROVIDER_KINDS.has(resolvedKind)) {
-    console.warn(
-      `[summaryModelResolver] Summary tier "${summaryModel}" resolved to unsupported provider kind "${resolvedKind}" — falling back to default summary model`
     );
     return null;
   }

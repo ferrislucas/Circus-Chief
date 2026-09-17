@@ -6,7 +6,6 @@ import {
 } from '@circuschief/shared/contracts/modelTiers';
 import { isTierRef, parseTierRef } from '@circuschief/shared';
 import { validateTierMembers } from './model-validation.js';
-import { tierHasUnsupportedSummaryKindMember } from '../services/summaryModelResolver.js';
 import { getTierMemberAvailabilityMap, getTierMembersWithAvailability } from '../services/tierResolutionService.js';
 import { deleteTierAndDegradeReferences } from '../services/tierDeletionService.js';
 
@@ -19,11 +18,8 @@ function withManagementMembers(tier, availabilityByProvider) {
 const router = Router();
 
 /**
- * Work Item 3: when a tier being updated is the currently configured
- * summary tier, a member set change cannot smuggle in a provider kind
- * `callSummaryModel` can't route (e.g. 'google') — that guard is normally
- * enforced at summary-settings write time (api/settings.js), but a later
- * edit to the tier itself would otherwise bypass it entirely.
+ * A configured summary tier must retain at least one member. Provider kinds
+ * are unrestricted: summary dispatch supports every kind available in tiers.
  * @param {string} tierId
  * @param {Array<{providerId: string, modelId: string}>} members
  * @returns {string|null} An error message, or null if the edit is allowed.
@@ -36,9 +32,6 @@ function checkSummaryTierKindGuard(tierId, members) {
 
   if (members.length === 0) {
     return 'This tier is the configured summary model — it must contain at least one executable model (see Settings → Summary Settings)';
-  }
-  if (tierHasUnsupportedSummaryKindMember(members)) {
-    return 'This tier is the configured summary model — members must be Anthropic or OpenAI only (see Settings → Summary Settings)';
   }
   return null;
 }

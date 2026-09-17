@@ -532,7 +532,7 @@ describe('Model Tiers API', () => {
         }
       });
 
-      it('rejects introducing an unsupported-kind member when this tier is the configured summary tier', async () => {
+      it('allows introducing a Google member when this tier is the configured summary tier', async () => {
         const created = await request(app)
           .post('/api/tiers')
           .send({
@@ -547,7 +547,7 @@ describe('Model Tiers API', () => {
         modelProviders.addModel(googleProvider.id, { modelId: 'gemini-guard-model', displayName: 'Gemini' });
 
         try {
-          const response = await request(app)
+          await request(app)
             .patch(`/api/tiers/${created.body.id}`)
             .send({
               members: [
@@ -555,11 +555,10 @@ describe('Model Tiers API', () => {
                 { providerId: googleProvider.id, modelId: 'gemini-guard-model', position: 1 },
               ],
             })
-            .expect(400);
-          expect(response.body.error).toMatch(/summary/i);
+            .expect(200);
 
           const stillThere = await request(app).get(`/api/tiers/${created.body.id}`).expect(200);
-          expect(stillThere.body.members).toHaveLength(1);
+          expect(stillThere.body.members).toHaveLength(2);
         } finally {
           settings.setSummarySettings({ summaryModel: '', summaryProviderId: null });
         }

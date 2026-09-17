@@ -6,14 +6,12 @@ import {
   BUILT_IN_OPENAI_PROVIDER_ID,
   resolveSummaryModel,
   resolveExplicitSummaryModel,
-  SUPPORTED_SUMMARY_PROVIDER_KINDS,
 } from './summaryModelResolver.js';
 import { callCodexSummary } from './summaryCodexClient.js';
 import { getTierMembersResolved, markUnhealthy, isUnhealthy } from './tierResolutionService.js';
 import { matchesStartFailoverEligibleError } from './sessionErrors.js';
 import { sanitizeTierFailureReason } from './tierFailureReason.js';
 import { isTierRef, parseTierRef } from '@circuschief/shared';
-import { modelProviders } from '../database.js';
 
 export { SESSION_SUMMARY_SCHEMA };
 
@@ -57,6 +55,9 @@ function dispatchSummaryResolution(resolution, { prompt, recentMessages, session
   if (resolution.kind === 'openai') {
     return callOpenAISummaryModel(prompt, resolution, options);
   }
+  if (resolution.kind === 'google') {
+    return callGoogleSummaryModel(prompt, resolution, options);
+  }
   return callAnthropicSummaryModel({ prompt, recentMessages, sessionStatus, resolution, options });
 }
 
@@ -67,13 +68,8 @@ function dispatchSummaryResolution(resolution, { prompt, recentMessages, session
  * default summary model — Fix 9).
  *
  * Mirrors the session-start failover loop's shape (sessionTierFailover.js)
- * but keeps its own policy: members whose provider kind is outside
- * SUPPORTED_SUMMARY_PROVIDER_KINDS are skipped — never attempted, never
- * cooled down, never counted toward exhaustion — because callSummaryModel
- * has no adapter that can route them (see api/settings.js's write-time
- * guard, which this is defense-in-depth for). There is no session-style
- * pre-conversation boundary here: a summary call either succeeds or it
- * doesn't, so every retryable failure advances.
+ * There is no session-style pre-conversation boundary here: a summary call
+ * either succeeds or it doesn't, so every retryable failure advances.
  *
  * @param {string} tierRef
  * @param {{ prompt: string, recentMessages: Array, sessionStatus: string, options: Object }} ctx
@@ -89,9 +85,6 @@ async function callSummaryModelWithTierFailover(tierRef, { prompt, recentMessage
   for (let i = 0; i < members.length; i++) {
     const member = members[i];
     if (isUnhealthy(member.providerId, member.modelId)) continue;
-
-    const kind = modelProviders.getById(member.providerId)?.kind || 'anthropic';
-    if (!SUPPORTED_SUMMARY_PROVIDER_KINDS.has(kind)) continue;
 
     attempted = true;
     const resolution = resolveExplicitSummaryModel(member.modelId, member.providerId);
@@ -131,7 +124,7 @@ async function callSummaryModelWithTierFailover(tierRef, { prompt, recentMessage
 
 /**
  * Find the next member (after `currentIndex`) that would actually be
- * attempted — skipping cooldown and unsupported-kind members — purely for
+ * attempted — skipping cooldown — purely for
  * the failover notice/log payload's `toModel`/`toProviderId`. Does not
  * affect control flow; the main loop's own skip logic is authoritative.
  * @param {Array<{providerId: string, modelId: string}>} members
@@ -142,8 +135,6 @@ function findNextEligibleSummaryMember(members, currentIndex) {
   for (let i = currentIndex + 1; i < members.length; i++) {
     const candidate = members[i];
     if (isUnhealthy(candidate.providerId, candidate.modelId)) continue;
-    const kind = modelProviders.getById(candidate.providerId)?.kind || 'anthropic';
-    if (!SUPPORTED_SUMMARY_PROVIDER_KINDS.has(kind)) continue;
     return candidate;
   }
   return null;
@@ -247,6 +238,56 @@ async function callOpenAISummaryModel(prompt, resolution, options) {
     }
     throw error;
   }
+}
+
+async function callGoogleSummaryModel(prompt, resolution, options) {
+  const { logMeta = null, systemPrompt = null, jsonSchema = null } = options || {};
+  const schema = jsonSchema || SESSION_SUMMARY_SCHEMA;
+  const provider = resolution.provider;
+  const apiKey = provider?.authToken || process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error(`Google summary provider ${resolution.providerId} has no API key`);
+
+  const callId = startOpenAISummaryLog(logMeta, resolution, prompt.length, 'google-generate-content');
+  try {
+    const response = await fetch(googleSummaryEndpoint(resolution.model, apiKey), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(googleSummaryRequest(prompt, systemPrompt, schema)),
+      ...(provider?.apiTimeoutMs ? { signal: AbortSignal.timeout(provider.apiTimeoutMs) } : {}),
+    });
+    const content = await parseGoogleSummaryResponse(response);
+    if (callId) agentCallLogger.completeCall(callId, { success: true });
+    return content;
+  } catch (error) {
+    if (callId) agentCallLogger.completeCall(callId, { success: false, error });
+    throw error;
+  }
+}
+
+function googleSummaryEndpoint(model, apiKey) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+}
+
+function googleSummaryRequest(prompt, systemPrompt, schema) {
+  return {
+    ...(systemPrompt ? { systemInstruction: { parts: [{ text: systemPrompt }] } } : {}),
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: schema },
+  };
+}
+
+async function parseGoogleSummaryResponse(response) {
+  const payload = await response.json();
+  if (!response.ok) {
+    const error = new Error(payload?.error?.message || `Google summary request failed (${response.status})`);
+    error.status = response.status;
+    throw error;
+  }
+  const content = payload?.candidates?.[0]?.content?.parts
+    ?.map((part) => part?.text || '')
+    .join('') || '';
+  if (!content) throw new Error('Google summary response contained no text');
+  return content;
 }
 
 function startOpenAISummaryLog(logMeta, resolution, promptLength, route = 'direct-api') {

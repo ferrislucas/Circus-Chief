@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { modelProviders, modelTiers, settings } from '../db/index.js';
 import { DEFAULT_SESSION_TITLE_PROMPT } from '../services/summaryService.js';
-import { SUPPORTED_SUMMARY_PROVIDER_KINDS, tierHasUnsupportedSummaryKindMember } from '../services/summaryModelResolver.js';
 import { getTierMembersResolved } from '../services/tierResolutionService.js';
 import { isTierRef, parseTierRef } from '@circuschief/shared';
 
@@ -172,8 +171,8 @@ function validateSummaryTierSelection(summaryModel, summaryProviderId) {
     return 'summaryProviderId must be null when summaryModel is a tier reference';
   }
 
-  // Validate every resolvable member, not just the active one, so a later
-  // failover member cannot silently route to an unsupported provider kind.
+  // A summary tier may contain every configured provider kind. Its concrete
+  // member is resolved and dispatched when the summary runs.
   const tierId = parseTierRef(summaryModel);
   const tier = tierId ? modelTiers.getByIdWithMembers(tierId) : null;
   if (!tier) return 'Unknown summaryModel tier';
@@ -182,9 +181,7 @@ function validateSummaryTierSelection(summaryModel, summaryProviderId) {
   if (members.length === 0) {
     return 'summaryModel tier must contain at least one executable model';
   }
-  return tierHasUnsupportedSummaryKindMember(members)
-    ? 'summaryModel tier must contain only Anthropic or OpenAI models'
-    : null;
+  return null;
 }
 
 function validateConcreteSummaryModelSelection(summaryModel, summaryProviderId) {
@@ -194,9 +191,6 @@ function validateConcreteSummaryModelSelection(summaryModel, summaryProviderId) 
 
   const provider = modelProviders.getById(summaryProviderId);
   if (!provider) return `Unknown summary provider: ${summaryProviderId}`;
-  if (!SUPPORTED_SUMMARY_PROVIDER_KINDS.has(provider.kind || 'anthropic')) {
-    return `Unsupported summary provider kind: ${provider.kind}`;
-  }
   const ownsModel = provider.models?.some((model) => model.modelId === summaryModel);
   if (!ownsModel) {
     return `Provider ${summaryProviderId} does not own summary model ${summaryModel}`;

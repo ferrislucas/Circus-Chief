@@ -8,7 +8,6 @@ import { isTierRef, parseTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   getTierMembersResolved,
   markUnhealthy,
-  findNextHealthyTierMember,
   isUnhealthy,
   resolveTierRefForContinue,
 } from './tierResolutionService.js';
@@ -38,11 +37,12 @@ function throwTerminalStreamFailure(execution) {
 }
 
 function recordTierAttemptFailure(error, {
-  sessionId, member, tierRef, tierId, tierName, attempts, wasPreActivity,
+  sessionId, member, nextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
 }) {
-  const nextMember = classifyTierMemberFailure(error, {
+  const resolvedNextMember = classifyTierMemberFailure(error, {
     sessionId,
     member,
+    nextMember,
     tierRef,
     tierName,
     // Terminal stream handling records its visible error before returning
@@ -56,7 +56,7 @@ function recordTierAttemptFailure(error, {
   attempts.push({ providerId: member.providerId, modelId: member.modelId, reason: sanitizeTierFailureReason(error) });
   // No successor means this was the terminal real attempt. Do not emit a
   // fake from/to notice; report the complete ordered exhaustion instead.
-  if (!nextMember) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
+  if (!resolvedNextMember) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
 }
 
 /**
@@ -147,7 +147,7 @@ async function attemptRunWithModel(
  * @param {Error} error
  * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string }} ctx
  */
-function classifyTierMemberFailure(error, { sessionId, member, tierRef, tierName, preConversationOverride }) {
+function classifyTierMemberFailure(error, { sessionId, member, nextMember, tierRef, tierName, preConversationOverride }) {
   // Use the tighter failover-specific matcher (Fix 4) to avoid spurious failover
   // on non-quota errors (e.g. "Unexpected token in JSON" contains "token").
   const isEligible = matchesStartFailoverEligibleError(error);
@@ -157,13 +157,6 @@ function classifyTierMemberFailure(error, { sessionId, member, tierRef, tierName
   if (!isEligible || !isPreActivity) {
     throw error;
   }
-
-  // Find the member that will actually be attempted next (Fix 5): a single
-  // ordered scan that only considers members after this one's position and
-  // skips cooldown — so the notice never names a member the loop won't
-  // really try. The tier is exhausted, not capped: every eligible member
-  // beyond the one that just failed is attemptable.
-  const nextMember = findNextHealthyTierMember(tierRef, member);
 
   // Every retryable provider failure contributes to the shared cooldown,
   // including the terminal member. Otherwise a fully unavailable tier (and
@@ -289,7 +282,11 @@ export async function runSessionWithTierFailover(
     throw new Error(`Invalid tier ref: ${tierRef}`);
   }
 
-  const members = getTierMembersResolved(tierId);
+  // Freeze resolved, initially healthy members once per run. Configuration
+  // changes while an attempt is in flight cannot alter this run's retry,
+  // reschedule decision, or emitted successor.
+  const members = getTierMembersResolved(tierId)
+    .filter((member) => !isUnhealthy(member.providerId, member.modelId));
   const tierName = _getTierName(tierId);
 
   if (members.length === 0) {
@@ -302,13 +299,15 @@ export async function runSessionWithTierFailover(
   sessions.update(sessionId, { model: tierRef });
 
   const attempts = [];
-  for (const member of members) {
-    // Skip members already in cooldown
-    if (isUnhealthy(member.providerId, member.modelId)) continue;
+  for (let memberIndex = 0; memberIndex < members.length; memberIndex++) {
+    const member = members[memberIndex];
+    const nextMember = members[memberIndex + 1] || null;
 
     const tierContext = {
       currentMemberId: member.modelId,
       currentMemberProviderId: member.providerId,
+      currentMemberIndex: memberIndex,
+      nextMember,
     };
 
     // _executeSession's finally block removes sessionId from activeSessions after
@@ -348,7 +347,7 @@ export async function runSessionWithTierFailover(
       // Non-eligible and mid-conversation errors must retain their original
       // protocol. Eligible startup failures are recorded exactly once.
       recordTierAttemptFailure(error, {
-        sessionId, member, tierRef, tierId, tierName, attempts, wasPreActivity,
+        sessionId, member, nextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
       });
     }
   }

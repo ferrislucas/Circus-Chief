@@ -108,6 +108,8 @@ describe('runSessionCore tier failover (integration)', () => {
 
   it('fails over to the next member for a status-only SDK error at start', async () => {
     // eslint-disable-next-line require-yield -- always throws before yielding, matching agent.execute()'s async-iterable contract
+    // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+    // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
     mockQuery.mockImplementationOnce(async function* () {
       throw Object.assign(new Error('Request failed'), { status: 503 });
     });
@@ -135,6 +137,26 @@ describe('runSessionCore tier failover (integration)', () => {
     // model-tiers-e2e-coverage-plan.md Phase 2).
     const failoverBroadcast = broadcastToSession.mock.calls.find((call) => call[1] === 'tier:failover');
     expect(failoverBroadcast[2].sessionId).toBe(session.id);
+  });
+
+  it('uses one member snapshot when the tier is edited during a failed attempt', async () => {
+    // The failover loop has already resolved A → B at this point. Removing B
+    // from live configuration must not make stream policy, the notice, and
+    // the retry disagree about which successor this run chose.
+    // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      modelTiers.update(tier.id, {
+        members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+      });
+      throw Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 });
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    expect(mockQuery.mock.calls[1][0].options.model).toBe('model-b');
+    const failoverBroadcast = broadcastToSession.mock.calls.find((call) => call[1] === 'tier:failover');
+    expect(failoverBroadcast[2]).toMatchObject({ fromModel: 'model-a', toModel: 'model-b' });
   });
 
   it('fails over when a retryable provider failure arrives as result:error', async () => {
