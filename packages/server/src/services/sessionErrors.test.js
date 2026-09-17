@@ -702,18 +702,22 @@ describe('start-time failover trigger set — matchesStartFailoverEligibleError 
     const CODEX_USAGE_LIMIT =
       "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 11:21 PM.";
 
-    // e2eSpawnOutcomes.js OUTCOME_MESSAGES (as of this suite's writing).
+    // e2eSpawnOutcomes.js OUTCOME_MESSAGES wording. The quota/rate_limit rows
+    // use the original synthetic canned strings, kept here as historical
+    // regression rows — Phase 3 replaced the canned values with REAL
+    // harvested provider strings (pinned in sessionErrorFixtures.js and
+    // bound in e2eSpawnOutcomes.test.js).
     const failoverEligibleRows = [
       ['codex usage limit (incident ec5b56d5)', CODEX_USAGE_LIMIT],
-      ['quota_error (E2E canned)', 'Quota exceeded: you have run out of tokens for this billing period'],
-      ['rate_limit (E2E canned)', '429 Too many requests: rate limit exceeded, please retry later'],
+      ['quota_error (legacy E2E canned wording)', 'Quota exceeded: you have run out of tokens for this billing period'],
+      ['rate_limit (legacy E2E canned wording)', '429 Too many requests: rate limit exceeded, please retry later'],
       ['service_unavailable (E2E canned)', '503 Service Unavailable: the upstream service is temporarily unavailable'],
       ['overloaded (E2E canned)', '529 Overloaded: the API is temporarily overloaded, please retry'],
     ];
 
     const terminalRows = [
       ['auth_error (E2E canned)', '401 Unauthorized: invalid API key provided'],
-      ['bad_request (E2E canned)', '400 Bad Request: invalid request parameters'],
+      ['bad_request (legacy E2E canned wording)', '400 Bad Request: invalid request parameters'],
     ];
 
     describe.each(failoverEligibleRows)('%s', (_label, message) => {
