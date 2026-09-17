@@ -397,7 +397,16 @@ test.describe('Model Tiers failover (scripted CLI, Phase 2)', () => {
   // must still work — continuing on the last active concrete member (the
   // resolved_model snapshot) — for BOTH payload shapes that occur in practice:
   // no `model` field (API callers) and `model` echoing session.model (the web
-  // client, whose picker is initialized from the tier-bound session.model).
+  // client, whose picker is initialized from the session row it last loaded).
+  //
+  // Note on shipped semantics (deleteTierAndDegradeReferences, PRD D6): the
+  // DELETE /api/tiers/:id endpoint degrades referencing sessions EAGERLY —
+  // sessions.model becomes the last-resolved concrete member and the snapshot
+  // is cleared atomically in the same transaction. A follow-up therefore
+  // echoes the degraded concrete binding (a web client that reloaded the
+  // session), while a client that never refreshed still holds the old tier
+  // ref — that payload is now a NEW binding to a nonexistent tier and is
+  // rejected at write time (Work Item 1: a broken binding is never persisted).
   test('deleting a bound tier does not brick follow-up messages (PRD E3/D6)', async () => {
     const provider = await createProvider({ name: `${TEST_PREFIX}Stale Tier Provider`, kind: 'anthropic' });
     await addProviderModel(provider.id, { modelId: 'stale-model-a', displayName: 'Stale Model A' });
@@ -425,8 +434,15 @@ test.describe('Model Tiers failover (scripted CLI, Phase 2)', () => {
     // Delete the tier while the session is still bound to it.
     await deleteTierViaApi(tier.id);
 
-    // Web-client payload shape: `model` echoes the (now stale) tier ref.
-    const withModel = await sendFollowUp(session.id, tierRef);
+    // Deletion eagerly degrades the binding to the last-resolved concrete
+    // member and clears the snapshot (PRD D6, deleteTierAndDegradeReferences).
+    const afterDelete = await getSession(session.id);
+    expect(afterDelete.model).toBe('stale-model-a');
+    expect(afterDelete.resolvedModel).toBeNull();
+
+    // Web-client payload shape: `model` echoes the (degraded) session.model —
+    // exactly what a client that reloads the session after deletion sends.
+    const withModel = await sendFollowUp(session.id, afterDelete.model);
     expect(withModel.ok).toBe(true);
     await waitForStatus(session.id, 'waiting', 15000);
 
@@ -443,6 +459,15 @@ test.describe('Model Tiers failover (scripted CLI, Phase 2)', () => {
       'stale-model-a',
     ]);
     expect(JSON.stringify(records)).not.toContain('tier::');
+
+    // A client that never refreshed still holds the old tier ref. That payload
+    // is a NEW binding to a nonexistent tier — rejected at write time (400),
+    // never persisted, and it does not break the session.
+    const staleRefFollowUp = await sendFollowUp(session.id, tierRef);
+    expect(staleRefFollowUp.ok).toBe(false);
+    expect(staleRefFollowUp.status).toBe(400);
+    const afterStale = await getSession(session.id);
+    expect(afterStale.model).toBe('stale-model-a');
 
     // The binding degraded to the concrete snapshot model (matching the start
     // path's applyStaleTierFallback contract), and a notice was logged.
