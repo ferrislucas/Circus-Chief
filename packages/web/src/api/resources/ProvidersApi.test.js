@@ -2,6 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ApiClient } from '../ApiClient.js';
 
 describe('ProvidersApi', () => {
+  it('gets provider allowances from the static route', async () => {
+    mockFetch.mockReturnValue(mockResponse([]));
+
+    await client.getProviderAllowances();
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/providers/allowances', expect.objectContaining({ method: 'GET' }));
+  });
   let client;
   let mockFetch;
 

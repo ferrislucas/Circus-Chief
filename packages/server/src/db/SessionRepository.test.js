@@ -4,6 +4,7 @@ import { ProjectRepository } from './ProjectRepository.js';
 import { MessageRepository } from './MessageRepository.js';
 import { ConversationRepository } from './ConversationRepository.js';
 import { SessionTemplateRepository } from './SessionTemplateRepository.js';
+import { ProviderRepository } from './ProviderRepository.js';
 
 describe('SessionRepository', () => {
   // Uses global setup from test/setup.js
@@ -57,6 +58,33 @@ describe('SessionRepository', () => {
       expect(repo.getRecoverableSessions('running', updatedAt + 1)).toEqual([
         expect.objectContaining({ id: running.id }),
       ]);
+    });
+  });
+
+  describe('getExecutingProviderIds', () => {
+    it('returns each non-null provider ID once for nonarchived starting and running sessions only', () => {
+      const providerRepo = new ProviderRepository();
+      const openai = providerRepo.create({ name: 'OpenAI', kind: 'openai' });
+      const google = providerRepo.create({ name: 'Google', kind: 'google' });
+      const anthropic = providerRepo.create({ name: 'Anthropic', kind: 'anthropic' });
+      const starting = repo.create(projectId, 'Starting OpenAI', 'Prompt', { providerId: openai.id });
+      const running = repo.create(projectId, 'Running OpenAI', 'Prompt', { providerId: openai.id });
+      repo.update(running.id, { status: 'running' });
+      const runningGoogle = repo.create(projectId, 'Running Google', 'Prompt', { providerId: google.id });
+      repo.update(runningGoogle.id, { status: 'running' });
+
+      const waiting = repo.create(projectId, 'Waiting Anthropic', 'Prompt', { status: 'waiting', providerId: anthropic.id });
+      const stopped = repo.create(projectId, 'Stopped Anthropic', 'Prompt', { providerId: anthropic.id });
+      repo.update(stopped.id, { status: 'stopped' });
+      const errored = repo.create(projectId, 'Errored Anthropic', 'Prompt', { providerId: anthropic.id });
+      repo.update(errored.id, { status: 'error' });
+      const archived = repo.create(projectId, 'Archived Anthropic', 'Prompt', { providerId: anthropic.id });
+      repo.update(archived.id, { archived: true });
+      repo.create(projectId, 'No provider', 'Prompt');
+
+      expect(repo.getExecutingProviderIds()).toEqual([openai.id, google.id].sort());
+      expect(starting.providerId).toBe(openai.id);
+      expect(waiting.providerId).toBe(anthropic.id);
     });
   });
 

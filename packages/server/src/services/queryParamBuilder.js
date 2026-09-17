@@ -73,6 +73,9 @@ function buildCodexQueryParams({
       abortController: controller,
       env: sessionEnv,
       model: effectiveModel,
+      // The adapter must observe against the provider configured for this
+      // session, never a display name or process-wide default.
+      providerId: session?.providerId ?? null,
       effortLevel: session?.effortLevel ?? null,
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
       sandboxMode: getSandboxModeForSession(session?.mode),

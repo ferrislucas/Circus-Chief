@@ -10,6 +10,8 @@ import {
 } from '@circuschief/shared/contracts/providers';
 import { testProviderConnection } from '../services/providerTestService.js';
 import { assertValidReorder } from '../db/providerModelOperations.js';
+import { getProviderAllowanceService } from '../services/providerAllowanceServiceInstance.js';
+import { isProviderAllowancesEnabled } from '../config/providerAllowances.js';
 
 // Error message constants
 const ERR_PROVIDER_NOT_FOUND = 'Provider not found';
@@ -40,6 +42,17 @@ router.get('/', (_req, res) => {
     if (error.message === COMMIT_ATTRIBUTION_VALIDATION_MESSAGE) {
       return res.status(400).json({ error: error.message });
     }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Must precede /:id so "allowances" is never interpreted as a provider id.
+router.get('/allowances', (_req, res) => {
+  try {
+    res.json(isProviderAllowancesEnabled()
+      ? getProviderAllowanceService().getSnapshots()
+      : { snapshots: [], activeProviderIds: [] });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });

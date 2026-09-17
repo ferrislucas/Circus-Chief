@@ -18,6 +18,7 @@ import { schedulerService } from '../services/schedulerService.js';
 describe('GET /api/server-info', () => {
   let app;
   const originalVcr = process.env.VCR_MODE;
+  const originalAllowances = process.env.PROVIDER_ALLOWANCES_ENABLED;
 
   beforeEach(() => {
     app = express();
@@ -25,6 +26,8 @@ describe('GET /api/server-info', () => {
     app.use('/api', apiRouter);
     // Ensure scheduler is stopped for deterministic assertions
     schedulerService.stop();
+    if (originalAllowances === undefined) delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+    else process.env.PROVIDER_ALLOWANCES_ENABLED = originalAllowances;
   });
 
   afterEach(() => {
@@ -39,6 +42,7 @@ describe('GET /api/server-info', () => {
 
   it('returns all four fields with correct types', async () => {
     delete process.env.VCR_MODE;
+    delete process.env.PROVIDER_ALLOWANCES_ENABLED;
 
     const res = await request(app).get('/api/server-info');
     expect(res.status).toBe(200);
@@ -47,7 +51,15 @@ describe('GET /api/server-info', () => {
     expect(res.body.vcrMode).toBeNull();
     expect(typeof res.body.schedulerRunning).toBe('boolean');
     expect(typeof res.body.e2eSpawnCaptureEnabled).toBe('boolean');
+    expect(res.body.providerAllowancesEnabled).toBe(false);
     expect(res.body.automationStatus).toMatchObject({ http: 'available', scheduler: expect.any(String), kanban: expect.any(String) });
+  });
+
+  it('reports provider allowance capability only for the documented opt-in', async () => {
+    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
+    expect((await request(app).get('/api/server-info')).body.providerAllowancesEnabled).toBe(true);
+    process.env.PROVIDER_ALLOWANCES_ENABLED = 'true';
+    expect((await request(app).get('/api/server-info')).body.providerAllowancesEnabled).toBe(false);
   });
 
   it('dbPath matches the path the DB was initialized with', async () => {
