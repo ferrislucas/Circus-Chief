@@ -55,6 +55,7 @@ const QUOTA_FAILOVER_PATTERNS = [
   'quota',
   'rate limit',
   'out of tokens',
+  'usage limit',     // real provider wording (incident ec5b56d5): "You've hit your usage limit." — OpenAI Codex; also matches Anthropic's "reached your usage limit"
   'insufficient credit',
   'billing limit',
   'billing hard limit',
