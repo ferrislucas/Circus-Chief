@@ -22,7 +22,7 @@ import {
   TERMINAL_ERROR_OUTCOME_TYPES,
 } from './e2eSpawnOutcomes.js';
 import { matchesStartFailoverEligibleError } from './sessionErrors.js';
-import { SESSION_ERROR_FIXTURES, findFixtureByMessage } from './sessionErrorFixtures.js';
+import { findFixtureByMessage } from './sessionErrorFixtures.js';
 
 /**
  * Bindings between the E2E scripted-outcome vocabulary and the production

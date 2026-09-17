@@ -60,6 +60,7 @@ yarn build
   - `BaseRepository.js` - Abstract base with CRUD operations
   - Repository pattern: `ProjectRepository`, `SessionRepository`, `MessageRepository`, `CanvasItemRepository`, `SessionNoteRepository`, `ModelTierRepository`
 - `src/services/` - Business logic (sessionManager, canvasStore, gitService, diffService, tierResolutionService, sessionTierFailover)
+  - `sessionErrors.js` owns provider-error semantics: the broad reschedule matchers vs. the tight tier-failover gate. Real provider strings live in `sessionErrorFixtures.js` and are pinned by `sessionErrors.conformance.test.js`; add corpus rows alongside any pattern change.
 - `src/ws/` - WebSocket manager for real-time updates
 
 ### Web Package (`@circuschief/web`)

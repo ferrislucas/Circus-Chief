@@ -1,3 +1,34 @@
+/**
+ * sessionErrors.js — the SINGLE OWNER of provider-error wording semantics.
+ *
+ * Every capacity/outage detection gate funnels through the exported matchers
+ * defined here:
+ *   - matchesTokenLimitError / matchesServiceError — the intentionally BROAD
+ *     matchers feeding auto-reschedule decisions (false positives are cheap:
+ *     one retry an hour later) and, behind the completion-path shape guard,
+ *     the turn-hold decision.
+ *   - matchesStartFailoverEligibleError — the intentionally TIGHT gate for
+ *     tier-failover eligibility (a false positive silently switches a
+ *     session's model AND provider). Built from TRANSIENT_FAILOVER_PATTERNS
+ *     + QUOTA_FAILOVER_PATTERNS + transient status codes.
+ *
+ * Detection-vs-policy split: these matchers only ever classify ERROR
+ * evidence (an error message/type/code/reason from a provider or CLI) —
+ * never assistant prose. The completion path (turnEndedDueToLimitOrOutage)
+ * scans prose, so it layers its own terminal-pattern grammar + shape guard
+ * (TERMINAL_LIMIT_OR_OUTAGE_PATTERNS / looksLikeTerminalAssistantMessage)
+ * on top of the broad matchers.
+ *
+ * CONTRACT: real provider error strings live in sessionErrorFixtures.js and
+ * are pinned by the conformance suite (sessionErrors.conformance.test.js),
+ * which asserts every corpus row's expected verdict of BOTH policies against
+ * these matchers. When adding or tightening wording here, add/adjust a corpus
+ * row in the same change — and harvest real strings (agent_call_logs) rather
+ * than inventing synthetic ones. The E2E canned messages
+ * (e2eSpawnOutcomes.js OUTCOME_MESSAGES) are likewise bound to these
+ * semantics by e2eSpawnOutcomes.test.js.
+ */
+
 import { sessions, messages } from '../database.js';
 import { schedulerService } from './schedulerService.js';
 import { isTierRef } from '@circuschief/shared';
