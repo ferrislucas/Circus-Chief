@@ -53,11 +53,44 @@ export class ModelTierRepository extends BaseRepository {
    * @returns {Array<Object>}
    */
   getAllWithMembers() {
-    const rows = this.db.prepare('SELECT * FROM model_tiers ORDER BY name ASC').all();
-    return rows.map((row) => {
-      const tier = ModelTierRepository.#mapTier(row);
-      return { ...tier, members: this.getMembers(tier.id) };
-    });
+    const rows = this.db.prepare(
+      `SELECT
+        t.id AS tier_id, t.name AS tier_name, t.description AS tier_description,
+        t.created_at AS tier_created_at, t.updated_at AS tier_updated_at,
+        m.id AS member_id, m.tier_id AS member_tier_id, m.provider_id AS member_provider_id,
+        m.model_id AS member_model_id, m.position AS member_position,
+        m.created_at AS member_created_at
+       FROM model_tiers t
+       LEFT JOIN model_tier_members m ON m.tier_id = t.id
+       ORDER BY t.name ASC, m.position ASC, m.created_at ASC`
+    ).all();
+
+    const tiers = new Map();
+    for (const row of rows) {
+      let tier = tiers.get(row.tier_id);
+      if (!tier) {
+        tier = {
+          id: row.tier_id,
+          name: row.tier_name,
+          description: row.tier_description ?? null,
+          createdAt: row.tier_created_at,
+          updatedAt: row.tier_updated_at,
+          members: [],
+        };
+        tiers.set(tier.id, tier);
+      }
+      if (row.member_id) {
+        tier.members.push({
+          id: row.member_id,
+          tierId: row.member_tier_id,
+          providerId: row.member_provider_id,
+          modelId: row.member_model_id,
+          position: row.member_position,
+          createdAt: row.member_created_at,
+        });
+      }
+    }
+    return [...tiers.values()];
   }
 
   /**

@@ -118,19 +118,38 @@ export function getTierMembersResolved(tierId) {
  * @param {Array<Object>} members
  * @returns {Array<Object>}
  */
-export function getTierMembersWithAvailability(members) {
+export function getTierMemberAvailabilityMap() {
+  const rows = modelProviders.db.prepare(
+    `SELECT
+      p.id AS provider_id, p.enabled AS provider_enabled,
+      m.model_id, m.enabled AS model_enabled
+     FROM providers p
+     LEFT JOIN provider_models m ON m.provider_id = p.id AND m.removed_at IS NULL`
+  ).all();
+  const providers = new Map();
+  for (const row of rows) {
+    let provider = providers.get(row.provider_id);
+    if (!provider) {
+      provider = { enabled: row.provider_enabled === 1, models: new Map() };
+      providers.set(row.provider_id, provider);
+    }
+    if (row.model_id) provider.models.set(row.model_id, { enabled: row.model_enabled === 1 });
+  }
+  return providers;
+}
+
+export function getTierMembersWithAvailability(members, availabilityByProvider = getTierMemberAvailabilityMap()) {
   return members.map((member) => {
-    const provider = modelProviders.getById(member.providerId);
-    const providerEnabled = Boolean(provider) && provider.enabled !== false;
-    const model = provider?.models?.find((entry) => entry.modelId === member.modelId);
-    const modelEnabled = Boolean(model) && model.enabled !== false;
+    const provider = availabilityByProvider.get(member.providerId);
+    const providerEnabled = Boolean(provider) && provider.enabled;
+    const model = provider?.models.get(member.modelId);
+    const modelEnabled = Boolean(model) && model.enabled;
 
     let unavailabilityReason = null;
     if (!provider) unavailabilityReason = 'provider_missing';
     else if (!providerEnabled) unavailabilityReason = 'provider_disabled';
     else if (!model) unavailabilityReason = 'model_missing';
     else if (!modelEnabled) unavailabilityReason = 'model_disabled';
-    else if (model.unavailable === true) unavailabilityReason = 'model_unavailable';
 
     return {
       ...member,

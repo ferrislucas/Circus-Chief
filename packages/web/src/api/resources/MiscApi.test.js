@@ -204,6 +204,17 @@ describe('MiscApi', () => {
           expect.any(Object)
         );
       });
+
+      it('includes the session call type filter', async () => {
+        mockFetch.mockReturnValue(mockResponse([]));
+
+        await client.getSessionAgentCalls('sess-123', { callType: 'tierFailover' });
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/sessions/sess-123/agent-calls?callType=tierFailover',
+          expect.any(Object)
+        );
+      });
     });
 
     describe('getAgentCallLogs', () => {

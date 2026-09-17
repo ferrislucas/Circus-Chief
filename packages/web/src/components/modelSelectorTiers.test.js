@@ -19,24 +19,40 @@ describe('model selector tier helpers', () => {
   it('only exposes non-empty tiers whose members match the allowed provider kinds', () => {
     expect(tierSupportsProviderKinds({ members: [] }, providersStore)).toBe(false);
     expect(tierSupportsProviderKinds(
-      { members: [{ providerId: 'anthropic' }] },
+      { members: [{ providerId: 'anthropic', available: true }] },
       providersStore
     )).toBe(true);
     expect(tierSupportsProviderKinds(
-      { members: [{ providerId: 'anthropic' }, { providerId: 'legacy' }] },
+      { members: [{ providerId: 'anthropic', available: true }, { providerId: 'legacy', available: true }] },
       providersStore,
       ['anthropic']
     )).toBe(true);
     expect(tierSupportsProviderKinds(
-      { members: [{ providerId: 'anthropic' }, { providerId: 'codex' }] },
+      { members: [{ providerId: 'anthropic', available: true }, { providerId: 'codex', available: true }] },
       providersStore,
       ['anthropic']
     )).toBe(false);
     expect(tierSupportsProviderKinds(
-      { members: [{ providerId: 'missing' }] },
+      { members: [{ providerId: 'missing', available: true }] },
       providersStore,
       ['anthropic']
     )).toBe(false);
+  });
+
+  it('omits tiers whose persisted members are all unavailable', () => {
+    expect(tierSupportsProviderKinds(
+      { members: [{ providerId: 'anthropic', available: false }] },
+      providersStore
+    )).toBe(false);
+    expect(tierSupportsProviderKinds(
+      {
+        members: [
+          { providerId: 'anthropic', available: false },
+          { providerId: 'codex', available: true },
+        ],
+      },
+      providersStore
+    )).toBe(true);
   });
 
   it('uses the tier name when available and the id after deletion', () => {

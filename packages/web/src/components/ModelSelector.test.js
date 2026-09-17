@@ -106,10 +106,10 @@ describe('ModelSelector', () => {
       });
       const tiersStore = useTiersStore();
       tiersStore.tiers = [
-        { id: 'supported', name: 'Supported', members: [{ providerId: 'anthropic', modelId: sonnet.id }] },
+        { id: 'supported', name: 'Supported', members: [{ providerId: 'anthropic', modelId: sonnet.id, available: true }] },
         { id: 'mixed', name: 'Mixed', members: [
-          { providerId: 'anthropic', modelId: sonnet.id },
-          { providerId: 'google', modelId: 'gemini-pro' },
+          { providerId: 'anthropic', modelId: sonnet.id, available: true },
+          { providerId: 'google', modelId: 'gemini-pro', available: true },
         ] },
       ];
 
@@ -1127,7 +1127,7 @@ describe('ModelSelector', () => {
     }
 
     it('renders a "Model Tiers" optgroup when tiers with members exist', async () => {
-      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1', available: true }] }]);
 
       const wrapper = mountComponent({ modelValue: sonnet.id });
       await flushAll(wrapper);
@@ -1161,7 +1161,7 @@ describe('ModelSelector', () => {
     });
 
     it('shows the tier description alongside the name in the option label', async () => {
-      seedTiers([{ id: 'tier-1', name: 'High Priority', description: 'top models', members: [{ id: 'm1' }] }]);
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: 'top models', members: [{ id: 'm1', available: true }] }]);
 
       const wrapper = mountComponent({ modelValue: sonnet.id });
       await flushAll(wrapper);
@@ -1172,7 +1172,7 @@ describe('ModelSelector', () => {
     });
 
     it('selects the tier option value directly (no provider::model encoding)', async () => {
-      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1', available: true }] }]);
 
       const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
       await flushAll(wrapper);
@@ -1182,7 +1182,7 @@ describe('ModelSelector', () => {
     });
 
     it('emits update:modelValue with the tier ref and clears providerId when a tier is selected', async () => {
-      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1', available: true }] }]);
 
       const onUpdateModelValue = vi.fn();
       const onUpdateProviderId = vi.fn();
@@ -1207,7 +1207,7 @@ describe('ModelSelector', () => {
     });
 
     it('emits a concrete model selection when switching away from a tier', async () => {
-      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1', available: true }] }]);
 
       const onUpdateModelValue = vi.fn();
       const onUpdateProviderId = vi.fn();
@@ -1225,7 +1225,7 @@ describe('ModelSelector', () => {
     });
 
     it('does not emit again when re-selecting the same tier', async () => {
-      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1', available: true }] }]);
 
       const onUpdateModelValue = vi.fn();
       const wrapper = mountComponent(
@@ -1244,6 +1244,24 @@ describe('ModelSelector', () => {
     // stale tier binding rather than silently presenting as an unrelated
     // concrete default model in an editable form.
     describe('stale tier ref', () => {
+      it('keeps an unavailable bound tier as a disabled option while omitting it from new choices', async () => {
+        seedTiers([{
+          id: 'tier-1',
+          name: 'Unavailable tier',
+          description: null,
+          members: [{ id: 'm1', available: false }],
+        }]);
+
+        const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
+        await flushAll(wrapper);
+
+        const option = wrapper.find('option[value="tier::tier-1"]');
+        expect(option.exists()).toBe(true);
+        expect(option.attributes('disabled')).toBeDefined();
+        expect(wrapper.find('select').element.value).toBe('tier::tier-1');
+        expect(wrapper.find('.tier-chip').classes()).toContain('tier-chip--stale');
+      });
+
       it('keeps showing the tier chip when the bound tier no longer exists', async () => {
         seedTiers([]); // tier-1 was deleted
 
@@ -1282,7 +1300,7 @@ describe('ModelSelector', () => {
         // tiers store has genuinely loaded (as opposed to an empty array,
         // which is treated permissively as "not fetched yet") and tier-1 was
         // deleted.
-        seedTiers([{ id: 'other-tier', name: 'Other Tier', description: null, members: [{ id: 'm1' }] }]);
+        seedTiers([{ id: 'other-tier', name: 'Other Tier', description: null, members: [{ id: 'm1', available: true }] }]);
 
         const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
         await flushAll(wrapper);
@@ -1304,7 +1322,7 @@ describe('ModelSelector', () => {
       });
 
       it('does not mark a healthy, resolvable tier as stale', async () => {
-        seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+        seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1', available: true }] }]);
 
         const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
         await flushAll(wrapper);

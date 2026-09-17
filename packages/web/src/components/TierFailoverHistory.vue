@@ -31,8 +31,10 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { onUnmounted, ref, watch } from 'vue';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { api } from '../composables/useApi.js';
+import { useWebSocket } from '../composables/useWebSocket.js';
 
 const props = defineProps({
   sessionId: {
@@ -43,6 +45,7 @@ const props = defineProps({
 
 const failovers = ref([]);
 let requestVersion = 0;
+const { on, off } = useWebSocket();
 
 function modelLabel(providerId, modelId) {
   if (providerId && modelId) return `${providerId}/${modelId}`;
@@ -57,7 +60,7 @@ async function loadFailovers() {
   }
 
   try {
-    const calls = await api.getSessionAgentCalls(props.sessionId, { limit: 100 });
+    const calls = await api.getSessionAgentCalls(props.sessionId, { callType: 'tierFailover', limit: 100 });
     if (version !== requestVersion) return;
     failovers.value = calls.filter(call => call.callType === 'tierFailover');
   } catch (error) {
@@ -70,6 +73,13 @@ async function loadFailovers() {
 }
 
 watch(() => props.sessionId, loadFailovers, { immediate: true });
+
+function handleTierFailover(message) {
+  if (message.sessionId === props.sessionId) loadFailovers();
+}
+
+on(WS_MESSAGE_TYPES.TIER_FAILOVER, handleTierFailover);
+onUnmounted(() => off(WS_MESSAGE_TYPES.TIER_FAILOVER, handleTierFailover));
 </script>
 
 <style scoped>

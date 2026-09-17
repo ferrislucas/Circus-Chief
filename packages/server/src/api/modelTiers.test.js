@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import {
@@ -51,6 +51,22 @@ describe('Model Tiers API', () => {
       const response = await request(app).get('/api/tiers').expect(200);
       expect(response.body).toHaveLength(1);
       expect(response.body[0].members).toHaveLength(1);
+    });
+
+    it('preloads member availability instead of looking up each tier member', async () => {
+      await request(app).post('/api/tiers').send({
+        name: 'Preloaded availability',
+        members: [
+          { providerId: providerA.id, modelId: 'model-a', position: 0 },
+          { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        ],
+      }).expect(201);
+      const getById = vi.spyOn(modelProviders, 'getById');
+
+      const response = await request(app).get('/api/tiers').expect(200);
+
+      expect(getById).not.toHaveBeenCalled();
+      expect(response.body[0].members.every((member) => member.available)).toBe(true);
     });
 
     it('returns disabled-provider members with availability metadata', async () => {

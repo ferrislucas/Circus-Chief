@@ -32,11 +32,10 @@
       >
         {{ emptyLabel }}
       </option>
-      <!-- Tiers optgroup (shown only when tiers with ≥1 member exist) -->
-      <optgroup
-        v-if="tiersWithMembers.length > 0"
-        label="Model Tiers"
-      >
+      <!-- Tiers optgroup (shown only when selectable tiers exist, plus a
+           disabled stale binding so existing settings remain legible). -->
+      <optgroup v-if="tiersWithMembers.length > 0 || isStaleTierRef" label="Model Tiers">
+        <option v-if="isStaleTierRef" :value="props.modelValue" disabled>{{ tierChipName }} (unavailable — choose a replacement)</option>
         <option
           v-for="tier in tiersWithMembers"
           :key="`tier::${tier.id}`"
@@ -492,9 +491,11 @@ const isUnknownModel = computed(() => {
 // This ensures the select never shows empty, even before providers load
 const effectiveSelectedModel = computed(() => {
   // When allowEmpty is true and the value is empty/null, return empty string
-  if (props.allowEmpty && (!selectedModel.value || selectedModel.value === '')) {
-    return '';
-  }
+  if (props.allowEmpty && (!selectedModel.value || selectedModel.value === '')) return '';
+  // Keep a persisted but no-longer-resolvable tier selected in its disabled
+  // option. This documents the stale binding without offering it as a new
+  // selection or silently displaying an unrelated default model.
+  if (isTierRef(selectedModel.value) && isStaleTierRef.value) return selectedModel.value;
   // First, try the current selectedModel if it's valid
   if (selectedModel.value && isValidModelId(selectedModel.value)) {
     return selectedModel.value;

@@ -7,13 +7,13 @@ import {
 import { isTierRef, parseTierRef } from '@circuschief/shared';
 import { validateTierMembers } from './model-validation.js';
 import { tierHasUnsupportedSummaryKindMember } from '../services/summaryModelResolver.js';
-import { getTierMembersWithAvailability } from '../services/tierResolutionService.js';
+import { getTierMemberAvailabilityMap, getTierMembersWithAvailability } from '../services/tierResolutionService.js';
 import { deleteTierAndDegradeReferences } from '../services/tierDeletionService.js';
 
 const ERR_TIER_NOT_FOUND = 'Tier not found';
 
-function withManagementMembers(tier) {
-  return tier ? { ...tier, members: getTierMembersWithAvailability(tier.members) } : tier;
+function withManagementMembers(tier, availabilityByProvider) {
+  return tier ? { ...tier, members: getTierMembersWithAvailability(tier.members, availabilityByProvider) } : tier;
 }
 
 const router = Router();
@@ -46,7 +46,8 @@ function checkSummaryTierKindGuard(tierId, members) {
 // GET /api/tiers — list all tiers with members
 router.get('/', (_req, res) => {
   try {
-    const all = modelTiers.getAllWithMembers().map(withManagementMembers);
+    const availabilityByProvider = getTierMemberAvailabilityMap();
+    const all = modelTiers.getAllWithMembers().map((tier) => withManagementMembers(tier, availabilityByProvider));
     res.json(all);
   } catch (error) {
     res.status(500).json({ error: error.message });

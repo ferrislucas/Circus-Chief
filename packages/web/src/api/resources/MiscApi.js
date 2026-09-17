@@ -197,13 +197,14 @@ export function MiscApi(ApiClient) {
     /**
      * Get detailed agent-call entries for one session.
      * @param {string} sessionId
-     * @param {{limit?: number, offset?: number}} [options]
+     * @param {{limit?: number, offset?: number, callType?: string}} [options]
      * @returns {Promise<Array>}
      */
-    async getSessionAgentCalls(sessionId, { limit, offset } = {}) {
+    async getSessionAgentCalls(sessionId, { limit, offset, callType } = {}) {
       const params = {};
       if (limit != null) params.limit = limit;
       if (offset != null) params.offset = offset;
+      if (callType) params.callType = callType;
       return this._get(this._buildQueryPath(`/sessions/${encodeURIComponent(sessionId)}/agent-calls`, params));
     },
 

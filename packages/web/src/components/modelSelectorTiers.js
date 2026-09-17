@@ -4,7 +4,7 @@ function memberSupportsProviderKinds(member, providersStore, allowedProviderKind
 }
 
 export function tierSupportsProviderKinds(tier, providersStore, allowedProviderKinds) {
-  if (!tier.members?.length) return false;
+  if (!tier.members?.some((member) => member.available === true)) return false;
   if (!allowedProviderKinds) return true;
   return tier.members.every((member) =>
     memberSupportsProviderKinds(member, providersStore, allowedProviderKinds)

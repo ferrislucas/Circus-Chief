@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ModelTierRepository } from './ModelTierRepository.js';
 import { ProviderRepository } from './ProviderRepository.js';
 
@@ -55,6 +55,18 @@ describe('ModelTierRepository', () => {
       expect(all).toHaveLength(2);
       const tier1 = all.find((t) => t.name === 'Tier 1');
       expect(tier1.members).toHaveLength(1);
+    });
+
+    it('loads all tiers and ordered members with one query', () => {
+      repo.create({ name: 'Tier A', members: [{ providerId: providerA.id, modelId: 'a1', position: 1 }] });
+      repo.create({ name: 'Tier B', members: [{ providerId: providerB.id, modelId: 'b0', position: 0 }] });
+      const prepare = vi.spyOn(repo.db, 'prepare');
+
+      const all = repo.getAllWithMembers();
+
+      expect(prepare).toHaveBeenCalledTimes(1);
+      expect(all.map((tier) => tier.name)).toEqual(['Tier A', 'Tier B']);
+      expect(all.map((tier) => tier.members[0].modelId)).toEqual(['a1', 'b0']);
     });
 
     it('returns null for missing tier', () => {
