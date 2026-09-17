@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { allMigrations } from './migrations/index.js';
 import { seedBaselineData } from './seedBaselineData.js';
 import { bootstrapDefaultSessionTemplates } from './bootstrapDefaultSessionTemplates.js';
+import { logger } from '../logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -35,15 +36,27 @@ export class DatabaseManager {
     // no application tables yet; an existing one already has them.
     const isFirstRun = !this.#hasApplicationTables();
 
-    // Run schema
-    const schema = readFileSync(join(__dirname, '..', 'schema.sql'), 'utf-8');
-    this.#db.exec(schema);
-
-    // Seed required baseline data before future migrations run.
-    seedBaselineData(this.#db);
-
-    // Run post-baseline migrations for existing databases.
-    this.#runMigrations();
+    if (isFirstRun) {
+      // A fresh database needs its tables before its baseline data can be
+      // seeded. Migrations remain idempotent so the fresh shape and the
+      // upgraded shape converge.
+      this.#applySchema();
+      seedBaselineData(this.#db);
+      this.#runMigrations();
+    } else {
+      // Existing databases must migrate before applying current schema
+      // objects. Some schema indexes reference columns introduced by those
+      // migrations (for example sessions.lane_run_id).
+      logger.log(`[DatabaseManager] Initializing existing database before applying current schema: ${dbPath}`);
+      try {
+        seedBaselineData(this.#db);
+        this.#runMigrations();
+        this.#applySchema();
+      } catch (error) {
+        logger.error(`[DatabaseManager] Existing database initialization failed: ${dbPath}`, error);
+        throw error;
+      }
+    }
 
     // Bootstrap default session templates once on a fresh database only.
     bootstrapDefaultSessionTemplates(this.#db, { isFirstRun });
@@ -62,6 +75,16 @@ export class DatabaseManager {
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='projects' LIMIT 1")
       .get();
     return row !== undefined;
+  }
+
+  /**
+   * Apply the current schema after any required migration prerequisites have
+   * been satisfied.
+   * @private
+   */
+  #applySchema() {
+    const schema = readFileSync(join(__dirname, '..', 'schema.sql'), 'utf-8');
+    this.#db.exec(schema);
   }
 
   /**
