@@ -319,7 +319,9 @@ describe('e2eSpawnCapture', () => {
       const events = collectFailureEvents(processStub);
 
       const result = await events;
-      expect(result.error.message.toLowerCase()).toContain('quota');
+      // quota_error's canned message is the REAL OpenAI Codex usage-limit
+      // string (incident ec5b56d5) — see OUTCOME_MESSAGES / sessionErrorFixtures.
+      expect(result.error.message.toLowerCase()).toContain('usage limit');
       expect(result.exit).toEqual([null, null]);
     });
 

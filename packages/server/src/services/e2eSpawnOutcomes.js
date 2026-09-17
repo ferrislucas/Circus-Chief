@@ -27,13 +27,30 @@ const SCRIPT_ENV_KEY = 'E2E_AGENT_SPAWN_SCRIPT_FILE';
 
 export const DEFAULT_OUTCOME = Object.freeze({ type: 'success' });
 
+// Canned failure messages, one per outcome type. Values are REAL provider
+// error strings wherever one was harvested (agent_call_logs), so the E2E
+// suites exercise the exact wording production delivers — synthetic wording
+// once matched the pattern lists while real wording did not (incident
+// ec5b56d5). Every value is pinned twice: against the detection matchers and
+// against the sessionErrorFixtures.js corpus (see e2eSpawnOutcomes.test.js),
+// so canned strings and the corpus can never drift apart.
 export const OUTCOME_MESSAGES = {
-  quota_error: 'Quota exceeded: you have run out of tokens for this billing period',
-  rate_limit: '429 Too many requests: rate limit exceeded, please retry later',
+  // Real OpenAI Codex usage-limit error (agent_call_logs, incident ec5b56d5).
+  quota_error:
+    "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 11:21 PM.",
+  // Real OpenAI API 429 quota error (agent_call_logs, summary path).
+  rate_limit:
+    '429 You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.',
+  // Anthropic-style 503 outage wording (no real 503 harvested yet — provider-doc style).
   service_unavailable: '503 Service Unavailable: the upstream service is temporarily unavailable',
+  // Anthropic-style 529 overloaded wording (no real 529 harvested yet — provider-doc style).
   overloaded: '529 Overloaded: the API is temporarily overloaded, please retry',
+  // Auth failure wording (pre-existing corpus; unchanged — already realistic).
   auth_error: '401 Unauthorized: invalid API key provided',
-  bad_request: '400 Bad Request: invalid request parameters',
+  // Real 400 invalid_request_error (agent_call_logs: Codex CLI calling a
+  // Claude model via a ChatGPT account).
+  bad_request:
+    "The 'claude-sonnet-4-6' model is not supported when using Codex with a ChatGPT account.",
 };
 
 // Failover-eligible outcome types (must satisfy matchesStartFailoverEligibleError
