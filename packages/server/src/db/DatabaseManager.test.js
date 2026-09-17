@@ -1,13 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { DatabaseManager } from './DatabaseManager.js';
 import { repairMissingSessionParentsFromWorktree } from './migrations/index.js';
 import { providerMigrations } from './migrations/providerMigrations.js';
 import { bootstrapDefaultSessionTemplates } from './bootstrapDefaultSessionTemplates.js';
 import { DEFAULT_SESSION_TEMPLATES } from './defaultSessionTemplates.js';
+import { logger } from '../logger.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe('DatabaseManager', () => {
   let manager;
@@ -62,6 +66,15 @@ describe('DatabaseManager', () => {
       expect(tables).toContain('sessions');
       expect(tables).toContain('conversation_messages');
       expect(tables).toContain('canvas_items');
+    });
+
+    it('creates the lane-run column and index on a fresh database', () => {
+      const db = manager.get();
+
+      expect(db.prepare('PRAGMA table_info(sessions)').all().map(({ name }) => name))
+        .toContain('lane_run_id');
+      expect(db.prepare('PRAGMA index_list(sessions)').all().map(({ name }) => name))
+        .toContain('idx_sessions_lane_run');
     });
 
     it('repairs missing session parent links from inherited worktree paths', () => {
@@ -193,6 +206,97 @@ describe('DatabaseManager', () => {
   });
 
   describe('migrations', () => {
+    it('upgrades the pre-lane-run release schema before creating the lane-run index', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'circuschief-lane-run-migration-'));
+      const dbPath = join(dir, 'app.db');
+      const upgradedManager = new DatabaseManager();
+      const reopenedManager = new DatabaseManager();
+      const initializationLog = vi.spyOn(logger, 'log');
+
+      try {
+        // This fixture is schema.sql from the last release before lane-run
+        // persistence (1.17.0), rather than a current database with selected
+        // columns removed. It therefore exercises every intervening migration
+        // dependency against a database shape users could actually have.
+        const legacyDb = new Database(dbPath);
+        try {
+          const legacySchema = readFileSync(
+            join(__dirname, 'migrations', '__fixtures__', 'prior-lane-run-release-1.17.0.sql'),
+            'utf8'
+          );
+          legacyDb.exec(legacySchema);
+          legacyDb.prepare(
+            'INSERT INTO projects (id, name, working_directory) VALUES (?, ?, ?)'
+          ).run('project-before-upgrade', 'Existing project', '/existing-project');
+          legacyDb.prepare(
+            "INSERT INTO sessions (id, project_id, name, status) VALUES (?, ?, ?, 'waiting')"
+          ).run('session-before-upgrade', 'project-before-upgrade', 'Existing session');
+        } finally {
+          legacyDb.close();
+        }
+
+        upgradedManager.init(dbPath);
+        expect(initializationLog).toHaveBeenCalledWith(
+          expect.stringContaining('Initializing existing database before applying current schema')
+        );
+        const upgradedDb = upgradedManager.get();
+        expect(upgradedDb.prepare('PRAGMA table_info(sessions)').all().map(({ name }) => name))
+          .toContain('lane_run_id');
+        expect(upgradedDb.prepare('PRAGMA index_list(sessions)').all().map(({ name }) => name))
+          .toContain('idx_sessions_lane_run');
+        expect(upgradedDb.prepare('SELECT name FROM projects WHERE id = ?').get('project-before-upgrade'))
+          .toMatchObject({ name: 'Existing project' });
+        expect(upgradedDb.prepare('SELECT name FROM sessions WHERE id = ?').get('session-before-upgrade'))
+          .toMatchObject({ name: 'Existing session' });
+        upgradedManager.close();
+
+        expect(() => reopenedManager.init(dbPath)).not.toThrow();
+        expect(reopenedManager.get().prepare('PRAGMA index_list(sessions)').all().map(({ name }) => name))
+          .toContain('idx_sessions_lane_run');
+      } finally {
+        initializationLog.mockRestore();
+        upgradedManager.close();
+        reopenedManager.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('surfaces a malformed existing database instead of treating it as a compatible upgrade', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'circuschief-malformed-migration-'));
+      const dbPath = join(dir, 'app.db');
+      const initialManager = new DatabaseManager();
+      const upgradedManager = new DatabaseManager();
+      const logError = vi.spyOn(logger, 'error').mockImplementation(() => {});
+
+      try {
+        initialManager.init(dbPath);
+        initialManager.close();
+
+        const malformedDb = new Database(dbPath);
+        malformedDb.pragma('foreign_keys = OFF');
+        malformedDb.exec('DROP TABLE sessions; CREATE TABLE sessions (id TEXT PRIMARY KEY)');
+        malformedDb.close();
+
+        let error;
+        try {
+          upgradedManager.init(dbPath);
+        } catch (caughtError) {
+          error = caughtError;
+        }
+
+        expect(error).toMatchObject({ code: 'SQLITE_ERROR' });
+        expect(logError).toHaveBeenCalledWith(
+          expect.stringContaining('Existing database initialization failed'),
+          error
+        );
+      } finally {
+        logError.mockRestore();
+        initialManager.close();
+        upgradedManager.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     it('adds pending_agent_input when reopening an existing database created before that column', () => {
       const dir = mkdtempSync(join(tmpdir(), 'circuschief-migration-'));
       const dbPath = join(dir, 'app.db');

@@ -173,6 +173,17 @@ describe('Upload Middleware', () => {
     });
   });
 
+  describe('Field Array Index Limits', () => {
+    it('rejects numeric form-field indexes above zero', async () => {
+      const response = await request(app)
+        .post('/upload')
+        .field('metadata[999999999]', 'value')
+        .expect(400);
+
+      expect(response.body.error).toBe('Field name array index too large');
+    });
+  });
+
   describe('Memory Storage', () => {
     it('stores file content in memory buffer', async () => {
       const content = 'Hello, World!';

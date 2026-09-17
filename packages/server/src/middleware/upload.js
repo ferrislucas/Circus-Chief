@@ -122,12 +122,14 @@ const boundedMemoryStorage = {
  * - Uses memory storage (files are stored in memory as Buffer)
  * - 10MB max file size
  * - Max 10 files per request
+ * - Rejects numeric form-field array indexes above 0 to prevent sparse-array DoS
  */
 export const upload = multer({
   storage: boundedMemoryStorage,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB per file
     files: 10, // Max 10 files per request
+    fieldArrayIndexLimit: 0, // No request fields require indexed arrays
   },
   fileFilter,
 });
