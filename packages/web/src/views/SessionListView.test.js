@@ -717,6 +717,20 @@ describe('SessionListView', () => {
       expect(subscriptionIds()).toEqual(['root']);
     });
 
+    it('does not subscribe a blocked root when its authoritative running sessions are empty', async () => {
+      mockSessionsStore.sessions = [{
+        id: 'root',
+        name: 'Blocked root',
+        status: 'running',
+        pendingAgentInput: true,
+        runningSessionIds: [],
+      }];
+      mount(SessionListView);
+      await flushPromises();
+
+      expect(subscriptionIds()).toEqual([]);
+    });
+
     it('drops a workflow from streaming when its card reports that it is off-screen', async () => {
       mockSessionsStore.sessions = [{ id: 'root', name: 'Root', status: 'running' }];
       const wrapper = mount(SessionListView);
@@ -728,14 +742,20 @@ describe('SessionListView', () => {
       expect(subscriptionIds()).toEqual([]);
     });
 
-    it('drops collapsed workflows and clears subscriptions outside the sessions tab', async () => {
+    it('subscribes only expanded workflows and clears subscriptions outside the sessions tab', async () => {
       mockSessionsStore.sessions = [{ id: 'root', name: 'Root', status: 'running' }];
       mockStreamingStore.isSessionLogCollapsed.mockReturnValue(true);
-      mount(SessionListView);
+      const collapsedWrapper = mount(SessionListView);
       await flushPromises();
       expect(subscriptionIds()).toEqual([]);
+      expect(mockStreamingStore.isSessionLogCollapsed).toHaveBeenCalledWith('root', true);
+      collapsedWrapper.unmount();
 
       mockStreamingStore.isSessionLogCollapsed.mockReturnValue(false);
+      mount(SessionListView);
+      await flushPromises();
+      expect(subscriptionIds()).toEqual(['root']);
+
       mockRoute.name = 'ProjectCommands';
       await nextTick();
       expect(subscriptionIds()).toEqual([]);

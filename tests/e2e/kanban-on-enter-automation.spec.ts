@@ -56,16 +56,15 @@ async function addSessionToLane(projectId: string, sessionId: string, laneId: st
 
 async function moveCardViaAPI(
   projectId: string,
-  cardId: string,
-  targetLaneId: string,
-  options: { runOnEnterTemplate?: boolean; sortOrder?: number } = {}
+  workspaceId: string,
+  laneId: string
 ) {
   const response = await fetch(
-    `${API_URL}/api/projects/${projectId}/kanban/cards/${cardId}/move`,
+    `${API_URL}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/lane`,
     {
-      method: 'PATCH',
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetLaneId, ...options }),
+      body: JSON.stringify({ laneId }),
     }
   );
   if (!response.ok) {
@@ -116,7 +115,8 @@ test.describe('Kanban on-enter automation', () => {
     });
 
     // Move the card to "Done" via the API (with automation enabled)
-    await moveCardViaAPI(project.id, card.id, doneLane.id, { runOnEnterTemplate: true });
+    const result = await moveCardViaAPI(project.id, session.id, doneLane.id);
+    expect(result).toEqual({ status: 'moved', laneId: doneLane.id });
 
     // Wait for the child session to be created by the automation
     const childSession = await waitForChildSession(session.id, 15000);
@@ -128,30 +128,23 @@ test.describe('Kanban on-enter automation', () => {
   });
 
   // ----------------------------------------------------------------
-  // Test 2 (API): moving card with runOnEnterTemplate: false does NOT trigger automation
+  // Test 2 (API): the unified route always honors destination automation
   // ----------------------------------------------------------------
-  test('moving card with runOnEnterTemplate: false does NOT create a child session', async () => {
+  test('routing to an automated lane creates a child without an automation override', async () => {
     const board = await getKanbanBoard(project.id);
     const todoLane = board.lanes.find((l: any) => l.name === 'To Do');
     const doneLane = board.lanes.find((l: any) => l.name === 'Done');
 
     // Add session to "To Do" lane
-    const card = await addSessionToLane(project.id, session.id, todoLane.id);
+    await addSessionToLane(project.id, session.id, todoLane.id);
 
     // Configure "Done" lane with an onEnterPrompt
     await configureLaneAutomation(project.id, doneLane.id, {
       onEnterPrompt: 'Run the tests',
     });
 
-    // Move the card to "Done" with automation disabled
-    await moveCardViaAPI(project.id, card.id, doneLane.id, { runOnEnterTemplate: false });
-
-    // Wait a moment to allow any (unintended) async processing to occur
-    await new Promise((r) => setTimeout(r, 3000));
-
-    // Verify NO child session was created
-    const children = await getChildSessionsFor(session.id, project.id);
-    expect(children).toHaveLength(0);
+    await moveCardViaAPI(project.id, session.id, doneLane.id);
+    expect(await waitForChildSession(session.id, 15000)).toBeTruthy();
   });
 
   // ----------------------------------------------------------------
@@ -163,15 +156,13 @@ test.describe('Kanban on-enter automation', () => {
     const inProgressLane = board.lanes.find((l: any) => l.name === 'In Progress');
 
     // Add session to "To Do" lane (no automation configured on In Progress)
-    const card = await addSessionToLane(project.id, session.id, todoLane.id);
+    await addSessionToLane(project.id, session.id, todoLane.id);
 
     // Move the card to "In Progress" (no automation configured)
-    const movedCard = await moveCardViaAPI(project.id, card.id, inProgressLane.id, {
-      runOnEnterTemplate: true,
-    });
+    const movedCard = await moveCardViaAPI(project.id, session.id, inProgressLane.id);
 
     // Card should be in the target lane
-    expect(movedCard.laneId).toBe(inProgressLane.id);
+    expect(movedCard).toEqual({ status: 'moved', laneId: inProgressLane.id });
 
     // Wait a moment and verify no child session was created
     await new Promise((r) => setTimeout(r, 2000));
@@ -218,12 +209,7 @@ test.describe('Kanban on-enter automation', () => {
       .locator('input[type="radio"]');
     await doneLaneRadio.check();
 
-    // Confirm "Run automation" is checked (should be default) if the checkbox is visible
-    const automationCheckbox = page.locator('.automation-option input[type="checkbox"]');
-    const checkboxExists = (await automationCheckbox.count()) > 0;
-    if (checkboxExists) {
-      await expect(automationCheckbox).toBeChecked();
-    }
+    await expect(page.locator('.automation-option')).toHaveCount(0);
 
     // Click Move
     await page.click('.modal-footer .btn-primary');
@@ -238,9 +224,9 @@ test.describe('Kanban on-enter automation', () => {
   });
 
   // ----------------------------------------------------------------
-  // Test 5 (UI): unchecking automation in move modal suppresses child session creation
+  // Test 5 (UI): destination automation cannot be bypassed in the move modal
   // ----------------------------------------------------------------
-  test('unchecking automation in move modal does NOT create a child session', async ({ page }) => {
+  test('move modal does not offer an automation bypass', async ({ page }) => {
     const board = await getKanbanBoard(project.id);
     const doneLane = board.lanes.find((l: any) => l.name === 'Done');
 
@@ -275,21 +261,12 @@ test.describe('Kanban on-enter automation', () => {
       .locator('input[type="radio"]');
     await doneLaneRadio.check();
 
-    // Uncheck the "Run automation" checkbox — it's inside .automation-option
-    const automationCheckbox = page.locator('.automation-option input[type="checkbox"]');
-    // The checkbox should be visible because the selected lane ("Done") has automation
-    await expect(automationCheckbox).toBeVisible({ timeout: 5000 });
-    await expect(automationCheckbox).toBeChecked();
-    await automationCheckbox.uncheck();
-    await expect(automationCheckbox).not.toBeChecked();
+    await expect(page.locator('.automation-option')).toHaveCount(0);
 
     // Click Move
     await page.click('.modal-footer .btn-primary');
     await expect(page.locator('.modal-backdrop')).toBeHidden({ timeout: 5000 });
 
-    // Wait a moment and verify no child session was created
-    await page.waitForTimeout(3000);
-    const children = await getChildSessionsFor(session.id, project.id);
-    expect(children).toHaveLength(0);
+    expect(await waitForChildSession(session.id, 15000)).toBeTruthy();
   });
 });

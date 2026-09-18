@@ -42,6 +42,7 @@ describe('SchedulerService', () => {
   beforeEach(() => {
     scheduler = new SchedulerService();
     mockSessionManager = {
+      isSessionActive: vi.fn().mockReturnValue(false),
       runSession: vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' }),
       continueSession: vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' }),
       continueSessionWithExistingMessage: vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' }),
@@ -290,6 +291,22 @@ describe('SchedulerService', () => {
   });
 
   describe('startScheduledSession', () => {
+    it('does not claim a due schedule while its previous turn is still active', async () => {
+      scheduler.initialize(mockSessionManager);
+      mockSessionManager.isSessionActive.mockReturnValue(true);
+      const session = { id: 'session-1', projectId: 'project-1' };
+
+      const result = await scheduler.startScheduledSession(session);
+
+      expect(result).toEqual({
+        claimed: false,
+        started: false,
+        reason: 'session_still_active',
+        sessionId: 'session-1',
+      });
+      expect(sessions.claimScheduled).not.toHaveBeenCalled();
+    });
+
     // Helper: make sessions.claimScheduled behave like the real repository
     // method for a single-caller (non-racing) test — succeeds once, returns
     // the pre-claim snapshot (optionally with the prompt override applied).
@@ -307,6 +324,71 @@ describe('SchedulerService', () => {
       await expect(scheduler.startScheduledSession(session)).rejects.toThrow(
         'SchedulerService not initialized with sessionManager'
       );
+    });
+
+    describe('launch budget gate', () => {
+      it('refuses to claim a session that has exhausted its token budget', async () => {
+        scheduler.initialize(mockSessionManager);
+        const session = {
+          id: 'session-1',
+          name: 'Test Session',
+          projectId: 'project-1',
+          maxTotalTokens: 1000,
+          inputTokens: 600,
+          outputTokens: 500,
+        };
+        sessions.getById.mockReturnValue(session);
+
+        const result = await scheduler.startScheduledSession(session);
+
+        expect(result).toEqual({
+          claimed: false,
+          started: false,
+          reason: 'launch_budget_exhausted',
+          sessionId: 'session-1',
+        });
+        expect(sessions.claimScheduled).not.toHaveBeenCalled();
+        expect(sessions.update).toHaveBeenCalledWith('session-1', {
+          status: 'stopped',
+          scheduledAt: null,
+          pendingPrompt: null,
+          pendingConversationId: null,
+          pendingModel: null,
+          pendingInteractive: null,
+          error: 'Scheduled launch refused: max total tokens reached (1,000).',
+        });
+        expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
+          sessionId: 'session-1',
+          status: 'stopped',
+        });
+      });
+
+      it('still launches an under-budget session', async () => {
+        scheduler.initialize(mockSessionManager);
+        const session = {
+          id: 'session-1',
+          name: 'Test Session',
+          projectId: 'project-1',
+          maxTotalTokens: 1000,
+          inputTokens: 600,
+          outputTokens: 300,
+          pendingPrompt: 'Hello',
+          pendingModel: null,
+        };
+        sessions.getById.mockReturnValue(session);
+        sessions.claimScheduled.mockReturnValue(session);
+        projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+        messages.getBySessionId.mockReturnValue([]);
+        conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
+        messages.create.mockReturnValue({ id: 'msg-1', sessionId: 'session-1', role: 'user', content: 'Hello', conversationId: 'conv-1' });
+        attachments.getBySessionId.mockReturnValue([]);
+
+        const result = await scheduler.startScheduledSession(session);
+
+        expect(result).toEqual({ claimed: true });
+        expect(sessions.claimScheduled).toHaveBeenCalled();
+        expect(mockSessionManager.runSession).toHaveBeenCalled();
+      });
     });
 
     it('claims the session before doing any other work', async () => {
@@ -391,7 +473,7 @@ describe('SchedulerService', () => {
 
     it('updates session status and runs fresh session', async () => {
       scheduler.initialize(mockSessionManager);
-      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Hello', pendingModel: 'claude-sonnet-4-5' };
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Hello', pendingModel: 'claude-sonnet-4-5', pendingInteractive: true };
       stubSuccessfulClaim(session);
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp', systemPrompt: 'Be helpful' });
@@ -409,13 +491,46 @@ describe('SchedulerService', () => {
         scheduledAt: null,
         pendingPrompt: null,
         pendingConversationId: null,
+        pendingModel: null,
+        pendingInteractive: null,
       });
       expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
         sessionId: 'session-1',
         status: 'starting',
       });
-      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp', { systemPrompt: 'Be helpful', fileAttachments: [], model: 'claude-sonnet-4-5' });
+      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp', { systemPrompt: 'Be helpful', fileAttachments: [], model: 'claude-sonnet-4-5', interactive: true });
       expect(result).toEqual({ claimed: true });
+    });
+
+    it('project-broadcasts the `starting` transition so sibling dropdown rows update', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Hello', pendingModel: 'claude-sonnet-4-5' };
+      stubSuccessfulClaim(session);
+
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp', systemPrompt: 'Be helpful' });
+      messages.getBySessionId.mockReturnValue([]);
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
+      messages.create.mockReturnValue({ id: 'msg-1', sessionId: 'session-1', role: 'user', content: 'Hello', conversationId: 'conv-1' });
+      attachments.getBySessionId.mockReturnValue([]);
+
+      // Once claimed, the repository row already carries the 'starting' status;
+      // broadcastSessionStatus reads it back to build the SESSION_UPDATED payload.
+      sessions.getById.mockReturnValue({ ...session, id: 'session-1', status: 'starting' });
+
+      await scheduler.startScheduledSession(session);
+
+      // The session-scoped frame is still emitted (existing contract preserved)...
+      expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
+        sessionId: 'session-1',
+        status: 'starting',
+      });
+      // ...and now the project-scoped SESSION_UPDATED frame reaches project
+      // subscribers so a sibling row flips out of "⏰ Scheduled" immediately.
+      expect(broadcastToProject).toHaveBeenCalledWith('project-1', WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        session: expect.objectContaining({ id: 'session-1', status: 'starting' }),
+      });
     });
 
     it('uses gitWorktree for working directory when available', async () => {
@@ -431,7 +546,7 @@ describe('SchedulerService', () => {
 
       await scheduler.startScheduledSession(session);
 
-      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp/worktree', { systemPrompt: undefined, fileAttachments: [], model: null });
+      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp/worktree', { systemPrompt: undefined, fileAttachments: [], model: null, interactive: false });
     });
 
     it('continues session when there are existing assistant messages', async () => {
@@ -449,7 +564,7 @@ describe('SchedulerService', () => {
 
       await scheduler.startScheduledSession(session);
 
-      expect(mockSessionManager.continueSession).toHaveBeenCalledWith('session-1', 'Follow-up message', '/tmp', { systemPrompt: undefined, fileAttachments: [], model: 'claude-opus-4-5' });
+      expect(mockSessionManager.continueSession).toHaveBeenCalledWith('session-1', 'Follow-up message', '/tmp', { systemPrompt: undefined, fileAttachments: [], model: 'claude-opus-4-5', interactive: false });
       expect(mockSessionManager.runSession).not.toHaveBeenCalled();
     });
 
@@ -519,14 +634,14 @@ describe('SchedulerService', () => {
       expect(attachments.updateMessageIdForSession).not.toHaveBeenCalled();
     });
 
-    it('uses continueSessionWithExistingMessage when pendingConversationId is set', async () => {
+    it('uses continueSessionWithExistingMessage for a persisted autonomous-loop continuation', async () => {
       scheduler.initialize(mockSessionManager);
       mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue({ started: true, sessionId: 'session-1' });
       const session = {
         id: 'session-1',
         name: 'Test Session',
         projectId: 'project-1',
-        pendingPrompt: 'Initial prompt',
+        pendingPrompt: 'Continue',
         pendingConversationId: 'conv-99',
         pendingModel: 'claude-sonnet-4-5',
       };
@@ -542,7 +657,7 @@ describe('SchedulerService', () => {
         'session-1',
         'conv-99',
         '/tmp',
-        { systemPrompt: 'Be helpful', model: 'claude-sonnet-4-5' }
+        { systemPrompt: 'Be helpful', model: 'claude-sonnet-4-5', interactive: false }
       );
       expect(mockSessionManager.runSession).not.toHaveBeenCalled();
       expect(mockSessionManager.continueSession).not.toHaveBeenCalled();
@@ -570,6 +685,8 @@ describe('SchedulerService', () => {
         scheduledAt: null,
         pendingPrompt: null,
         pendingConversationId: null,
+        pendingModel: null,
+        pendingInteractive: null,
       });
     });
 
@@ -702,6 +819,7 @@ describe('SchedulerService', () => {
         rescheduleCount: 1,
         pendingPrompt: 'Continue',
         pendingConversationId: null,
+        pendingInteractive: false,
         error: expect.stringContaining('Rescheduled (1x)'),
       });
       expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
@@ -717,6 +835,24 @@ describe('SchedulerService', () => {
         sessionId: 'session-1',
         session: updatedSession,
       });
+    });
+
+    it('preserves claimed user provenance for a retry after the durable launch clear', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = {
+        id: 'session-1', projectId: 'project-1', laneRunId: 'terminal-run',
+        pendingInteractive: false, rescheduleDelayMinutes: 15, rescheduleCount: 0,
+        maxRescheduleCount: null, maxTotalTokens: null, inputTokens: 0, outputTokens: 0,
+      };
+      sessions.getById.mockReturnValue(session);
+      sessions.update.mockReturnValue({ ...session, status: 'scheduled', pendingInteractive: true });
+
+      const result = await scheduler.rescheduleSession('session-1', 'retryable failure', { interactive: true });
+
+      expect(result).toBe(true);
+      expect(sessions.update).toHaveBeenCalledWith('session-1', expect.objectContaining({
+        status: 'scheduled', pendingInteractive: true,
+      }));
     });
 
     it('with retryExistingMessage=true sets pendingPrompt to existing message and stores pendingConversationId', async () => {
@@ -939,6 +1075,23 @@ describe('SchedulerService', () => {
       const result = scheduler.hasReachedLimits(session);
 
       expect(result).toBe(true);
+    });
+  });
+
+  describe('hasReachedLaunchBudget', () => {
+    it('returns false when no maxTotalTokens is set', () => {
+      const session = { id: 'session-1', maxTotalTokens: null, inputTokens: 100, outputTokens: 100 };
+      expect(scheduler.hasReachedLaunchBudget(session)).toBe(false);
+    });
+
+    it('returns true when total tokens reach the cap', () => {
+      const session = { id: 'session-1', maxTotalTokens: 1000, inputTokens: 600, outputTokens: 400 };
+      expect(scheduler.hasReachedLaunchBudget(session)).toBe(true);
+    });
+
+    it('returns false when total tokens are below the cap', () => {
+      const session = { id: 'session-1', maxTotalTokens: 1000, inputTokens: 600, outputTokens: 300 };
+      expect(scheduler.hasReachedLaunchBudget(session)).toBe(false);
     });
   });
 

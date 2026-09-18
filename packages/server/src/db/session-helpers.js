@@ -112,6 +112,7 @@ export function mapScheduling(row) {
     rescheduleCount: row.reschedule_count || 0,
     rescheduleAtTokenCount: row.reschedule_at_token_count,
     pendingConversationId: row.pending_conversation_id || null,
+    pendingInteractive: Boolean(row.pending_interactive),
   };
 }
 
@@ -212,6 +213,8 @@ export const BOOLEAN_FIELD_MAP = {
   rescheduleOnTokenLimit: 'reschedule_on_token_limit',
   rescheduleOnServiceError: 'reschedule_on_service_error',
   autoSendPendingPrompt: 'auto_send_pending_prompt',
+  pendingAgentInput: 'pending_agent_input',
+  pendingInteractive: 'pending_interactive',
 };
 
 /**

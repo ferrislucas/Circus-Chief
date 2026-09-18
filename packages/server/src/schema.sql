@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS projects (
   pr_poll_interval INTEGER NOT NULL DEFAULT 60000,
   repo_url TEXT,
   worktree_path TEXT,
+  pinned INTEGER NOT NULL DEFAULT 0,
   kanban_enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
@@ -114,6 +115,15 @@ CREATE TABLE IF NOT EXISTS sessions (
   slash_commands TEXT,
   pending_model TEXT,
   auto_send_pending_prompt INTEGER DEFAULT 0,
+  -- True while the agent is blocked mid-turn on an AskUserQuestion or
+  -- permission tool call awaiting the user's answer. Mirrors the in-memory
+  -- promptStore.js queue (source of truth) so it can be aggregated in SQL
+  -- (see project-activity-queries.js). Written only by promptStore.js's
+  -- broadcastPendingInput(); do not set this from any other call site.
+  -- Distinct from status = 'waiting', which means "turn ended normally, idle,
+  -- ready for follow-up" — the two are unrelated and can be true/false in any
+  -- combination (a session blocked on a question is still status='running').
+  pending_agent_input INTEGER NOT NULL DEFAULT 0,
   agent_type TEXT DEFAULT 'claude-code',
   -- Orphaned column: the per-session "move to target lane on turn end"
   -- mechanism was removed. Kept in the schema so existing databases (which ran
@@ -298,11 +308,55 @@ CREATE TABLE IF NOT EXISTS command_runs (
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   button_id TEXT NOT NULL REFERENCES command_buttons(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'success', 'error', 'killed')),
-  output TEXT NOT NULL DEFAULT '',
   exit_code INTEGER,
   started_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   completed_at INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS command_run_output_cleanup (
+  run_id TEXT PRIMARY KEY,
+  working_directory TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  exhausted_at INTEGER,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
+CREATE INDEX IF NOT EXISTS idx_command_run_output_cleanup_eligible
+  ON command_run_output_cleanup (next_attempt_at, created_at)
+  WHERE exhausted_at IS NULL;
+
+CREATE TRIGGER IF NOT EXISTS trg_command_run_output_cleanup
+BEFORE DELETE ON command_runs
+FOR EACH ROW
+BEGIN
+  INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
+  SELECT OLD.id, COALESCE(s.git_worktree, p.working_directory)
+  FROM sessions s JOIN projects p ON p.id = s.project_id WHERE s.id = OLD.session_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_session_command_output_cleanup
+BEFORE DELETE ON sessions FOR EACH ROW BEGIN
+  INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
+  SELECT cr.id, COALESCE(OLD.git_worktree, p.working_directory)
+  FROM command_runs cr JOIN projects p ON p.id = OLD.project_id WHERE cr.session_id = OLD.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_button_command_output_cleanup
+BEFORE DELETE ON command_buttons FOR EACH ROW BEGIN
+  INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
+  SELECT cr.id, COALESCE(s.git_worktree, p.working_directory)
+  FROM command_runs cr JOIN sessions s ON s.id = cr.session_id
+  JOIN projects p ON p.id = s.project_id WHERE cr.button_id = OLD.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_project_command_output_cleanup
+BEFORE DELETE ON projects FOR EACH ROW BEGIN
+  INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
+  SELECT cr.id, COALESCE(s.git_worktree, OLD.working_directory)
+  FROM command_runs cr JOIN sessions s ON s.id = cr.session_id WHERE s.project_id = OLD.id;
+END;
 
 -- Keep sessions.last_activity_at current as activity happens, so the
 -- workspace-card list query can read it as a plain column. See the
@@ -375,6 +429,8 @@ CREATE TABLE IF NOT EXISTS command_run_output_chunks (
   sequence INTEGER NOT NULL,
   content TEXT NOT NULL,
   byte_length INTEGER NOT NULL,
+  raw_content BLOB,
+  raw_byte_length INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   PRIMARY KEY (run_id, sequence)
 );
@@ -513,6 +569,12 @@ CREATE TABLE IF NOT EXISTS kanban_lane_run_audit_events (
   event_type TEXT NOT NULL, details_json TEXT, created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_lane_run_audit_run ON kanban_lane_run_audit_events(lane_run_id, created_at);
+CREATE TABLE IF NOT EXISTS kanban_routing_audit_events (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
+  caller_session_id TEXT, source_lane_id TEXT NOT NULL, destination_lane_id TEXT NOT NULL,
+  outcome TEXT NOT NULL, lane_run_id TEXT, request_at INTEGER NOT NULL, committed_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kanban_routing_audit_workspace ON kanban_routing_audit_events(workspace_id, committed_at);
 
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);

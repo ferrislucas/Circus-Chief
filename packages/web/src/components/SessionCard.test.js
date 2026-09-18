@@ -114,7 +114,10 @@ vi.mock('./PrIndicators.vue', () => ({
 vi.mock('./SessionLogStream.vue', () => ({
   default: defineComponent({
     name: 'SessionLogStream',
-    props: ['sessionIds'],
+    props: {
+      sessionIds: Array,
+      defaultCollapsed: Boolean,
+    },
     setup(props) {
       return () => h('div', { class: 'session-log-stream-mock', 'data-session-ids': JSON.stringify(props.sessionIds) });
     },
@@ -206,6 +209,27 @@ describe('SessionCard', () => {
       // Status shows individual session status
       expect(badge.text()).toContain('running');
       expect(badge.classes()).toContain('status-running');
+    });
+
+    it('shows a question icon when an agent is waiting for input', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, pendingAgentInput: true },
+      });
+
+      const indicator = wrapper.get('[aria-label="Agent input required"]');
+      expect(indicator.text()).toContain('needs input');
+      expect(indicator.attributes('title')).toBe('The agent is waiting for your input');
+      expect(indicator.find('.agent-input-icon').exists()).toBe(true);
+      expect(wrapper.find('.status-running').exists()).toBe(false);
+    });
+
+    it('does not show needs input for legacy status="waiting" without pending input', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting', pendingAgentInput: false },
+      });
+
+      expect(wrapper.find('[aria-label="Agent input required"]').exists()).toBe(false);
+      expect(wrapper.find('.status-running').exists()).toBe(false);
     });
 
 
@@ -1098,6 +1122,13 @@ describe('SessionCard', () => {
         session: { ...baseSession, status: 'running' },
       });
       expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+    });
+
+    it('defaults the session-card live output to collapsed', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+      expect(wrapper.findComponent({ name: 'SessionLogStream' }).props('defaultCollapsed')).toBe(true);
     });
 
     it('renders SessionLogStream when workspace status is "starting"', () => {

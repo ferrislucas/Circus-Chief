@@ -27,9 +27,9 @@
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "http-proxy-middleware": "^3.0.7",
-    "liquidjs": "^10.27.1",
-    "multer": "^2.2.0",
-    "nanoid": "^3.3.0",
+    "liquidjs": "^10.27.2",
+    "multer": "^2.3.0",
+    "nanoid": "^3.3.18",
     "openai": "^4.104.0",
     "ws": "^8.21.0",
     "yaml": "^2.8.3",
@@ -37,6 +37,6 @@
   },
   "devDependencies": {
     "supertest": "^7.1.4",
-    "vitest": "^4.0.16"
+    "vitest": "^4.1.11"
   }
 }

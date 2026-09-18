@@ -51,6 +51,35 @@ test.describe('Status Filter', () => {
     await expect(idleBtn).toBeVisible();
   });
 
+  test('status filter row wraps instead of overflowing on mobile viewport', async ({ page }) => {
+    await seedSession(project.id, { prompt: 'Session', name: 'Session One', startImmediately: false });
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+
+    const statusFilters = page.locator('.status-filters');
+    await statusFilters.waitFor({ state: 'visible', timeout: 10000 });
+
+    // The filter row must wrap on narrow screens instead of clipping off the edges
+    const flexWrap = await statusFilters.evaluate(
+      (el) => window.getComputedStyle(el).flexWrap
+    );
+    expect(flexWrap).toBe('wrap');
+
+    // The row itself must not overflow its container
+    const overflow = await statusFilters.evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }));
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
+
+    // And the overflowing row must not push the whole page wider than the viewport
+    const pageOverflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth
+    );
+    expect(pageOverflows).toBe(false);
+  });
+
   test('clicking Running filter with no running sessions shows empty state', async ({ page }) => {
     await seedSession(project.id, { prompt: 'Idle 1', name: 'Idle One', startImmediately: false });
     await seedSession(project.id, { prompt: 'Idle 2', name: 'Idle Two', startImmediately: false });

@@ -3,6 +3,7 @@ import {
   CreateProjectRequest,
   UpdateProjectRequest,
   ProjectResponse,
+  RunningWorkspaceSummary,
   ProjectSessionDefaultsRequest,
   ProjectSessionDefaultsResponse,
 } from './projects.js';
@@ -58,6 +59,16 @@ describe('Projects Contracts', () => {
       expect(valid.data.systemPrompt).toBeNull();
     });
 
+    it('rejects caller-controlled pinned state', () => {
+      const result = CreateProjectRequest.safeParse({
+        name: 'Test Project',
+        workingDirectory: '/tmp/test',
+        pinned: true,
+      });
+
+      expect(result.success).toBe(false);
+    });
+
   });
 
   describe('UpdateProjectRequest', () => {
@@ -84,6 +95,14 @@ describe('Projects Contracts', () => {
       expect(invalid.success).toBe(false);
     });
 
+    it('accepts a boolean pinned preference and rejects non-booleans', () => {
+      expect(UpdateProjectRequest.safeParse({ pinned: true })).toMatchObject({
+        success: true,
+        data: { pinned: true },
+      });
+      expect(UpdateProjectRequest.safeParse({ pinned: 1 }).success).toBe(false);
+    });
+
   });
 
   describe('ProjectResponse', () => {
@@ -96,6 +115,11 @@ describe('Projects Contracts', () => {
       onSessionDeleted: null,
       prPollInterval: 60000,
       worktreePath: null,
+      pinned: false,
+      workspaceCount: 0,
+      runningWorkspaces: [],
+      runningSessionCount: 0,
+      waitingSessionCount: 0,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -103,6 +127,12 @@ describe('Projects Contracts', () => {
     it('validates complete project response', () => {
       const result = ProjectResponse.safeParse(validProject);
       expect(result.success).toBe(true);
+    });
+
+    it('requires pinned to be a boolean', () => {
+      const { pinned: _pinned, ...withoutPinned } = validProject;
+      expect(ProjectResponse.safeParse(withoutPinned).success).toBe(false);
+      expect(ProjectResponse.safeParse({ ...validProject, pinned: 1 }).success).toBe(false);
     });
 
     it('validates project with worktreePath as string', () => {
@@ -135,6 +165,66 @@ describe('Projects Contracts', () => {
       const { worktreePath: _worktreePath, ...withoutWorktreePath } = validProject;
       const result = ProjectResponse.safeParse(withoutWorktreePath);
       expect(result.success).toBe(false);
+    });
+
+    it('validates a project with populated runningWorkspaces', () => {
+      const result = ProjectResponse.safeParse({
+        ...validProject,
+        runningWorkspaces: [
+          { id: '550e8400-e29b-41d4-a716-446655440001', name: 'feature-x', activeCount: 3 },
+        ],
+        runningSessionCount: 3,
+        waitingSessionCount: 1,
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.runningWorkspaces[0].activeCount).toBe(3);
+    });
+
+    it('rejects an activeCount that is not a number', () => {
+      const result = ProjectResponse.safeParse({
+        ...validProject,
+        runningWorkspaces: [
+          { id: '550e8400-e29b-41d4-a716-446655440001', name: 'feature-x', activeCount: '3' },
+        ],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects a project missing runningWorkspaces', () => {
+      const { runningWorkspaces: _runningWorkspaces, ...withoutRunningWorkspaces } = validProject;
+      const result = ProjectResponse.safeParse(withoutRunningWorkspaces);
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects a negative runningSessionCount', () => {
+      const result = ProjectResponse.safeParse({ ...validProject, runningSessionCount: -1 });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects a negative waitingSessionCount', () => {
+      const result = ProjectResponse.safeParse({ ...validProject, waitingSessionCount: -1 });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('RunningWorkspaceSummary', () => {
+    const validSummary = {
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      name: 'feature-x',
+      activeCount: 2,
+    };
+
+    it('validates a complete summary', () => {
+      expect(RunningWorkspaceSummary.safeParse(validSummary).success).toBe(true);
+    });
+
+    it('rejects a null name', () => {
+      expect(RunningWorkspaceSummary.safeParse({ ...validSummary, name: null }).success).toBe(false);
+    });
+
+    it('rejects a missing activeCount', () => {
+      const { activeCount: _activeCount, ...withoutActiveCount } = validSummary;
+      expect(RunningWorkspaceSummary.safeParse(withoutActiveCount).success).toBe(false);
     });
   });
 

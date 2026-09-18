@@ -346,6 +346,20 @@ export const kanbanMigrations = [
     },
   },
   {
+    // A deferred card move belongs to one provider turn, not merely a reusable
+    // workflow session. These fields fence late completions after restart or
+    // supersession while retaining the existing shared exit-lane declaration.
+    name: 'kanban-deferred-card-move-turn-fence',
+    up(db) {
+      addColumnIfMissing(db, 'sessions', 'execution_turn_token', 'TEXT');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'deferred_move_session_id', 'TEXT');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'deferred_move_turn_token', 'TEXT');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'deferred_move_sort_order', 'REAL');
+      addColumnIfMissing(db, 'kanban_lane_runs', 'deferred_move_run_on_enter', 'INTEGER');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_lane_runs_deferred_move_session ON kanban_lane_runs(deferred_move_session_id, deferred_move_turn_token)');
+    },
+  },
+  {
     // Drop the dormant lane_trigger_depth recursion counter from sessions.
     // MAX_LANE_TRIGGER_DEPTH (the cap it fed) was removed; nothing reads or
     // writes the column. Uses ALTER TABLE DROP COLUMN (SQLite ≥ 3.35).
@@ -357,6 +371,32 @@ export const kanbanMigrations = [
         return; // Already dropped — idempotent guard
       }
       db.exec('ALTER TABLE sessions DROP COLUMN lane_trigger_depth');
+    },
+  },
+  {
+    // Unified workspace routing owns a destination at the lane-run level;
+    // provider-turn attribution is no longer part of card routing.
+    name: 'kanban-drop-deferred-card-move-turn-fence',
+    up(db) {
+      db.exec('DROP INDEX IF EXISTS idx_lane_runs_deferred_move_session');
+      const columns = getColumns(db, 'kanban_lane_runs');
+      for (const column of [
+        'deferred_move_session_id', 'deferred_move_turn_token',
+        'deferred_move_sort_order', 'deferred_move_run_on_enter',
+      ]) {
+        if (columns.includes(column)) db.exec(`ALTER TABLE kanban_lane_runs DROP COLUMN ${column}`);
+      }
+    },
+  },
+  {
+    name: 'kanban-routing-observability',
+    up(db) {
+      db.exec(`CREATE TABLE IF NOT EXISTS kanban_routing_audit_events (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
+        caller_session_id TEXT, source_lane_id TEXT NOT NULL, destination_lane_id TEXT NOT NULL,
+        outcome TEXT NOT NULL, lane_run_id TEXT, request_at INTEGER NOT NULL, committed_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_kanban_routing_audit_workspace ON kanban_routing_audit_events(workspace_id, committed_at);`);
     },
   },
 ];

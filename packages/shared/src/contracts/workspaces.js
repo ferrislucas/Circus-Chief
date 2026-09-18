@@ -115,6 +115,7 @@ export const WorkspaceCardListResponse = z.object({
   facets: z.object({
     running: z.number().int().nonnegative(),
     idle: z.number().int().nonnegative(),
+    waiting: z.number().int().nonnegative(),
   }),
   pagination: z.object({
     total: z.number().int().nonnegative(),

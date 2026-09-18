@@ -4,6 +4,7 @@ import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { createApp } from './app.js';
 import { initDatabase, commandRuns, sessions } from './database.js';
+import { processCommandRunOutputCleanup } from './services/commandRunOutputCleanup.js';
 import { initWebSocket, webSocketManager, setCommandRunOutputAuthorizer } from './websocket.js';
 import { parseCliOptions } from './cli.js';
 import { settings } from './db/index.js';
@@ -14,7 +15,7 @@ import * as sessionManager from './services/sessionManager.js';
 import { clearScheduledTimers } from './services/summaryService.js';
 import { commandRunner } from './services/commandRunner.js';
 import { getDefaultDbPath } from './config.js';
-import { recoverOrphanedStartingSessions, recoverOrphanedRunningSessions } from './services/sessionStartupRecovery.js';
+import { recoverOrphanedStartingSessions, recoverOrphanedRunningSessions, clearStalePendingAgentInput } from './services/sessionStartupRecovery.js';
 import { startLaneEntryRetryWorker, stopLaneEntryRetryWorker } from './services/kanbanService.js';
 import { formatKanbanInvariantReport } from './services/kanbanRecoveryService.js';
 import { runStartupPreflight } from './services/startupPreflight.js';
@@ -60,6 +61,10 @@ mkdirSync(dirname(dbPath), { recursive: true });
 
 // Initialize database
 initDatabase(dbPath);
+processCommandRunOutputCleanup().catch((error) => console.error('[Command output cleanup] startup pass failed', error));
+setInterval(() => {
+  processCommandRunOutputCleanup().catch((error) => console.error('[Command output cleanup] periodic pass failed', error));
+}, 30_000).unref();
 setCommandRunOutputAuthorizer((runId, requestedSessionId) => {
   const run = commandRuns.getById(runId);
   const rootSessionId = sessions.getRootSessionId(requestedSessionId);
@@ -79,6 +84,11 @@ recoverOrphanedStartingSessions();
 // therefore cannot move a card or create a successor run ahead of the audit —
 // see sessionStartupRecovery.js.
 recoverOrphanedRunningSessions();
+// promptStore.js's in-memory prompt queue is empty at this point in boot (no
+// session code has run yet to repopulate it), so any pending_agent_input=1
+// row left over from the previous process is unrecoverable and must be
+// cleared now, before preflight or any client can read the stale flag.
+clearStalePendingAgentInput();
 // The broadcasts queued by the two recovery calls above are no-ops here:
 // initWebSocket(server) has not run yet, so no clients exist to receive them.
 // Do not start workers or drain the entry outbox until durable ownership has

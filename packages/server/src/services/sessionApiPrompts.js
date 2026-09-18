@@ -23,6 +23,12 @@ Optional fields: same as creating a workspace. Add \`scheduledAt\` to schedule t
 
 **Note:** "workspace" here refers to a group of related sessions. This is distinct from the Codex \`workspace-write\` sandbox mode — those are separate concepts.
 
+### List Providers & Available Models
+\`\`\`bash
+curl ${apiUrl}/api/providers
+\`\`\`
+Returns configured providers, each with \`kind\` (\`anthropic\` | \`openai\` | \`google\`) and a \`models\` array of \`{modelId, displayName, tier, enabled, lifecycle}\`. Use a listed \`models[].modelId\` to discover the currently available model choices for new workspaces/sessions. This is a discoverability list, not an exhaustive validation contract: validation also accepts SDK tier aliases (such as \`fable\`, \`opus\`, \`sonnet\`, and \`haiku\`) and can retain historical model IDs that are not listed.
+
 ### Send a Follow-up Message
 \`\`\`bash
 curl -X POST ${apiUrl}/api/sessions/<session_id>/message \\
@@ -185,27 +191,12 @@ curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
   -d '{"workspaceId": "${workspaceId}", "laneId": "<lane_id>"}'
 \`\`\`
 
-### Move a Card to a Different Lane
+### Move this Workspace's Card
 \`\`\`bash
-curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/move \\
+curl -X PUT ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/lane \\
   -H "Content-Type: application/json" \\
-  -d '{"targetLaneId": "<lane_id>"}'
+  -d '{"laneId":"<lane_id>"}'
 \`\`\`
-### Choose the Pending Exit for an Automated Card
-When this workspace's card has an active automated lane run, any session in this
-project can choose the lane it lands in on successful completion instead of the
-lane's default target:
-\`\`\`bash
-curl -X PUT ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/exit-lane \\
-  -H "Content-Type: application/json" \\
-  -d '{"laneId": "<lane_id>"}'
-\`\`\`
-This does **not** move the card now or interrupt the active run. The card stays
-where it is until the run's work (and any child work) completes successfully; a
-failed or cancelled run discards the declaration. Declarations are shared
-workflow control: the last valid declaration replaces any earlier pending exit.
-Use the move endpoint above only when you want the card to move immediately.
-
 ### Remove a Card from the Board
 \`\`\`bash
 curl -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}

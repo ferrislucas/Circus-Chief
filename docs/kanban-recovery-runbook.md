@@ -111,17 +111,11 @@ Cleanup logs both the number deleted and the remaining eligible backlog; a
 non-zero backlog is expected to drain over subsequent hourly batches.
 ## Kanban recovery and trust boundary
 
-## Move attribution
+## Card routing
 
-Kanban's session caller header is **attribution, not authentication**. The
-local Circus Chief API currently has no authentication layer and may be exposed
-for remote-access workflows; session IDs and the caller header must therefore
-not be treated as secrets or as an authorization boundary.
-
-Moves are unconditional and always supersede a running worker. Exit-lane
-declarations use the separate non-destructive `PUT .../exit-lane` endpoint and
-are shared project workflow control: they require no caller identity and the
-last valid declaration becomes the run's pending exit. The card stays put until
-the run completes. The caller header is audit attribution only. Deployments that expose the API to
-untrusted networks need a reverse proxy or equivalent access control;
-capability-based session authentication is a separate security feature.
+Route a workspace card through the unified `PUT .../lane` endpoint with only a
+destination `laneId`. The server applies an immediate move when no automated
+lane run is active, or records the destination for successful completion when
+one is active. Deployments that expose the API to untrusted networks need a
+reverse proxy or equivalent access control; capability-based session
+authentication is a separate security feature.

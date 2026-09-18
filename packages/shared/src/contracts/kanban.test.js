@@ -4,8 +4,7 @@ import {
   UpdateKanbanLaneRequest,
   ReorderKanbanLanesRequest,
   CreateKanbanCardRequest,
-  MoveKanbanCardRequest,
-  DeclareExitLaneRequest,
+  RouteKanbanCardRequest,
   ReorderKanbanCardsRequest,
   KanbanLaneResponse,
   KanbanCardResponse,
@@ -19,11 +18,11 @@ const UUID2 = '550e8400-e29b-41d4-a716-446655440001';
 const UUID3 = '550e8400-e29b-41d4-a716-446655440002';
 
 describe('Kanban Contracts', () => {
-  describe('DeclareExitLaneRequest', () => {
+  describe('RouteKanbanCardRequest', () => {
     it('accepts a lane UUID and rejects missing or invalid lanes', () => {
-      expect(DeclareExitLaneRequest.safeParse({ laneId: UUID }).success).toBe(true);
-      expect(DeclareExitLaneRequest.safeParse({}).success).toBe(false);
-      expect(DeclareExitLaneRequest.safeParse({ laneId: 'not-a-uuid' }).success).toBe(false);
+      expect(RouteKanbanCardRequest.safeParse({ laneId: UUID }).success).toBe(true);
+      expect(RouteKanbanCardRequest.safeParse({}).success).toBe(false);
+      expect(RouteKanbanCardRequest.safeParse({ laneId: 'not-a-uuid' }).success).toBe(false);
     });
   });
 
@@ -273,42 +272,6 @@ describe('Kanban Contracts', () => {
         laneId: UUID2,
       });
       expect(result.success).toBe(false);
-    });
-  });
-
-  // ── MoveKanbanCardRequest ────────────────────────────────────────
-
-  describe('MoveKanbanCardRequest', () => {
-    it('validates with targetLaneId only', () => {
-      const result = MoveKanbanCardRequest.safeParse({
-        targetLaneId: UUID,
-      });
-      expect(result.success).toBe(true);
-      expect(result.data.runOnEnterTemplate).toBe(true); // default
-    });
-
-    it('validates with all fields', () => {
-      const result = MoveKanbanCardRequest.safeParse({
-        targetLaneId: UUID,
-        sortOrder: 3,
-        runOnEnterTemplate: false,
-      });
-      expect(result.success).toBe(true);
-      expect(result.data.sortOrder).toBe(3);
-      expect(result.data.runOnEnterTemplate).toBe(false);
-    });
-
-    it('requires targetLaneId', () => {
-      const result = MoveKanbanCardRequest.safeParse({});
-      expect(result.success).toBe(false);
-    });
-
-    it('defaults runOnEnterTemplate to true', () => {
-      const result = MoveKanbanCardRequest.safeParse({
-        targetLaneId: UUID,
-      });
-      expect(result.success).toBe(true);
-      expect(result.data.runOnEnterTemplate).toBe(true);
     });
   });
 

@@ -14,6 +14,7 @@ import { dirname, isAbsolute, join } from 'path';
 import { getRepositoryUrl } from '../services/gitService.js';
 import { validateAndPrepareSessionConfig, createSessionRow, startSessionOrFail } from './projects-session-create.js';
 import { hasPendingPrompt } from '../services/promptStore.js';
+import { removeBoardForProject } from '../services/kanbanService.js';
 
 // Error message constants
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
@@ -142,6 +143,10 @@ router.delete('/:id', (req, res) => {
   if (!project) {
     return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
+
+  // Retire the board's open lane runs before the project cascade deletes
+  // their cards; otherwise the runs are orphaned pointing at deleted cards.
+  removeBoardForProject(req.params.id);
 
   projects.delete(req.params.id);
   res.status(204).send();

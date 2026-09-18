@@ -59,7 +59,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
     query: {},
     cardsById: {},
     orderedIds: [],
-    facets: { running: 0, idle: 0 },
+    facets: { running: 0, waiting: 0, idle: 0 },
     total: 0,
     nextCursor: null,
     loading: false,
@@ -81,7 +81,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       const cards = result.workspaces || [];
       this.cardsById = Object.fromEntries(cards.map(card => [card.id, card]));
       this.orderedIds = cards.map(card => card.id);
-      this.facets = result.facets || { running: 0, idle: 0 };
+      this.facets = result.facets || { running: 0, waiting: 0, idle: 0 };
       this.total = result.pagination?.total || 0;
       this.nextCursor = result.pagination?.nextCursor || null;
       this.hasMore = Boolean(result.pagination?.hasMore);
@@ -99,7 +99,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
         ...cards.filter(card => !existingIds.has(card.id)).map(card => card.id),
       ];
       if (result.workspaces?.length > 0) {
-        this.facets = result.facets || { running: 0, idle: 0 };
+        this.facets = result.facets || { running: 0, waiting: 0, idle: 0 };
         this.total = result.pagination?.total || 0;
       }
       this.nextCursor = result.pagination?.nextCursor || null;
@@ -126,7 +126,7 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
       this.projectId = projectId;
       this.query = { ...query };
       Object.assign(this, snapshot || {
-        cardsById: {}, orderedIds: [], facets: { running: 0, idle: 0 }, total: 0,
+        cardsById: {}, orderedIds: [], facets: { running: 0, waiting: 0, idle: 0 }, total: 0,
         nextCursor: null, hasMore: false,
       });
       this.loadingMore = false;

@@ -36,6 +36,10 @@ function databaseSessionIndexNames(db) {
     .map(({ name }) => name);
 }
 
+function triggerExists(db, name) {
+  return db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?").get(name) !== undefined;
+}
+
 describe('sessions immutable-parentage upgrade', () => {
   it('preserves every sessions index while recreating a pre-release sessions table', () => {
     const db = preReleaseDb();
@@ -47,6 +51,7 @@ describe('sessions immutable-parentage upgrade', () => {
 
       expect(db.pragma('foreign_key_list(sessions)').find((fk) => fk.from === 'parent_session_id').on_delete).toBe('NO ACTION');
       expect(databaseSessionIndexNames(db)).toContain('idx_sessions_lane_run');
+      expect(triggerExists(db, 'trg_command_run_output_cleanup')).toBe(true);
     } finally {
       db.close();
     }

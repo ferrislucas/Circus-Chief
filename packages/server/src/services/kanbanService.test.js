@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Mock external dependencies
 vi.mock('../websocket.js', () => ({
@@ -46,14 +46,23 @@ import {
   getFullBoard,
   addSessionToBoard,
   moveCard,
+  routeWorkspaceCard,
+  removeCard,
+  removeLane,
+  removeBoard,
+  removeBoardForProject,
   removeSessionFromBoard,
   triggerStructuredTransitionAutomation,
   drainLaneEntryTrigger,
   reclaimExpiredLaneEntryClaims,
 } from './kanbanService.js';
-import { createLaneRunForEntry, attachRootSession, getRun } from './workflowSessionService.js';
+import {
+  beginWorkflowTurn, claimWorkflowSessionStart, createLaneRunForEntry, attachRootSession,
+  finalizeOwnWorkCompletion, getRun, attemptLaneRunTransition,
+} from './workflowSessionService.js';
 import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
 import { resolveProviderMetadataFromModel } from './sessionProvider.js';
+import { kanbanRoutingMetrics } from './kanbanRoutingObservability.js';
 
 describe('kanbanService', () => {
   let projectId;
@@ -62,6 +71,7 @@ describe('kanbanService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    kanbanRoutingMetrics.reset();
     process.env.USE_CODEX_DIRECT_API = '1';
     resolveProviderMetadataFromModel.mockReturnValue({
       kind: 'openai', authToken: 'test-key', commitAttributionOverride: null,
@@ -76,6 +86,10 @@ describe('kanbanService', () => {
     lanes = kanbanLanes.getByBoardId(boardId);
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   function createSession(name = 'Test Session') {
     return sessions.create(projectId, name, 'Prompt');
   }
@@ -86,6 +100,226 @@ describe('kanbanService', () => {
       parentSessionId: parentId,
     });
   }
+
+  /** Card in lanes[0] with an open lane run and an attached worker child. */
+  function setupActiveLaneRunCard() {
+    const root = createSession('Root');
+    const card = kanbanCards.create(lanes[0].id, root.id);
+    const lane = { ...kanbanLanes.getById(lanes[0].id), onEnterPrompt: 'Do the work' };
+    const run = createLaneRunForEntry({ projectId, workspaceId: root.id, cardId: card.id, lane });
+    const worker = createChildSession(root.id, 'Lane worker');
+    attachRootSession(run.id, worker.id);
+    return { root, card, run, worker, rootId: root.id };
+  }
+
+  describe('routeWorkspaceCard current-lane requests', () => {
+    it('is a no-op during an owning run and cannot restart the current structured lane on completion', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', completionTargetLaneId: lanes[1].id });
+      const { root, card, run } = setupActiveLaneRunCard();
+      const before = kanbanCards.getById(card.id);
+
+      await expect(routeWorkspaceCard(root.id, lanes[0].id)).resolves.toEqual({ status: 'noop', laneId: lanes[0].id });
+
+      expect(kanbanCards.getById(card.id)).toEqual(before);
+      expect(getRun(run.id).chosenExitLaneId).toBeNull();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+
+      attemptLaneRunTransition(run.id);
+
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[1].id);
+      expect(databaseManager.get().prepare("SELECT COUNT(*) count FROM kanban_lane_runs WHERE status='open'").get().count).toBe(0);
+    });
+
+    it('is a no-op without an active run', async () => {
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[0].id, workspace.id);
+      const before = kanbanCards.getById(card.id);
+
+      await expect(routeWorkspaceCard(workspace.id, lanes[0].id)).resolves.toEqual({ status: 'noop', laneId: lanes[0].id });
+
+      expect(kanbanCards.getById(card.id)).toEqual(before);
+      expect(broadcastToProject).not.toHaveBeenCalled();
+      expect(databaseManager.get().prepare('SELECT COUNT(*) count FROM kanban_lane_runs').get().count).toBe(0);
+    });
+  });
+
+  describe('routeWorkspaceCard manual moves with an open lane run', () => {
+    it('immediately moves, supersedes the source run, and never selects a deferred exit lane', async () => {
+      const { root, card, run } = setupActiveLaneRunCard();
+      databaseManager.get().prepare('UPDATE kanban_lane_runs SET chosen_exit_lane_id=? WHERE id=?')
+        .run(lanes[2].id, run.id);
+
+      await expect(routeWorkspaceCard(root.id, lanes[1].id, { manualMove: true }))
+        .resolves.toEqual({ status: 'moved', laneId: lanes[1].id });
+
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[1].id);
+      expect(getRun(run.id)).toMatchObject({ status: 'superseded', chosenExitLaneId: lanes[2].id });
+      expect(broadcastToProject).toHaveBeenCalledTimes(1);
+      expect(broadcastToProject).toHaveBeenCalledWith(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, expect.objectContaining({
+        cardId: card.id, fromLaneId: lanes[0].id, toLaneId: lanes[1].id,
+      }));
+    });
+
+    it('preserves a source worker\'s lifecycle and pending schedule while revoking its card authority', async () => {
+      const { root, card, run, worker } = setupActiveLaneRunCard();
+      const scheduledAt = Date.now() + 60_000;
+      databaseManager.get().prepare(`UPDATE sessions SET status='scheduled', scheduled_at=?, pending_prompt=?,
+        pending_interactive=1, auto_send_pending_prompt=1,
+        reschedule_count=2 WHERE id=?`)
+        .run(scheduledAt, 'Continue independently', worker.id);
+
+      await routeWorkspaceCard(root.id, lanes[1].id, { manualMove: true });
+
+      const preservedWorker = sessions.getById(worker.id);
+      expect(preservedWorker).toMatchObject({
+        laneRunId: null,
+        ownWorkState: 'open',
+        status: 'scheduled',
+        scheduledAt,
+        pendingPrompt: 'Continue independently',
+        pendingInteractive: true,
+        autoSendPendingPrompt: true,
+        rescheduleCount: 2,
+      });
+      expect(claimWorkflowSessionStart(worker.id)).toBe(true);
+
+      attemptLaneRunTransition(run.id);
+      expect(getRun(run.id).status).toBe('superseded');
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[1].id);
+    });
+  });
+
+  describe('routeWorkspaceCard observability', () => {
+    it('durably audits direct, manual, and no-op route decisions with routing context', async () => {
+      const direct = createSession('Direct workspace');
+      kanbanCards.create(lanes[0].id, direct.id);
+      const { root, run } = setupActiveLaneRunCard();
+
+      await routeWorkspaceCard(direct.id, lanes[1].id, { callerSessionId: 'caller-direct' });
+      await routeWorkspaceCard(root.id, lanes[1].id, { callerSessionId: 'caller-manual', manualMove: true });
+      await routeWorkspaceCard(root.id, lanes[2].id, { callerSessionId: 'caller-second-move', manualMove: true });
+      await routeWorkspaceCard(root.id, lanes[2].id, { callerSessionId: 'caller-noop' });
+
+      const records = databaseManager.get().prepare(`SELECT project_id, workspace_id, caller_session_id,
+        source_lane_id, destination_lane_id, outcome, lane_run_id, request_at, committed_at
+        FROM kanban_routing_audit_events ORDER BY request_at, rowid`).all();
+      expect(records).toEqual([
+        expect.objectContaining({ project_id: projectId, workspace_id: direct.id, caller_session_id: 'caller-direct',
+          source_lane_id: lanes[0].id, destination_lane_id: lanes[1].id, outcome: 'moved', lane_run_id: null,
+          request_at: expect.any(Number), committed_at: expect.any(Number) }),
+        expect.objectContaining({ project_id: projectId, workspace_id: root.id, caller_session_id: 'caller-manual',
+          source_lane_id: lanes[0].id, destination_lane_id: lanes[1].id, outcome: 'moved', lane_run_id: run.id,
+          request_at: expect.any(Number), committed_at: expect.any(Number) }),
+        expect.objectContaining({ project_id: projectId, workspace_id: root.id, caller_session_id: 'caller-second-move',
+          source_lane_id: lanes[1].id, destination_lane_id: lanes[2].id, outcome: 'moved', lane_run_id: null,
+          request_at: expect.any(Number), committed_at: expect.any(Number) }),
+        expect.objectContaining({ project_id: projectId, workspace_id: root.id, caller_session_id: 'caller-noop',
+          source_lane_id: lanes[2].id, destination_lane_id: lanes[2].id, outcome: 'noop', lane_run_id: null,
+          request_at: expect.any(Number), committed_at: expect.any(Number) }),
+      ]);
+    });
+
+    it('counts every accepted immediate move and no-op', async () => {
+      const { root } = setupActiveLaneRunCard();
+
+      await routeWorkspaceCard(root.id, lanes[1].id, { manualMove: true });
+      await routeWorkspaceCard(root.id, lanes[2].id, { manualMove: true });
+      await routeWorkspaceCard(root.id, lanes[2].id);
+
+      expect(kanbanRoutingMetrics.snapshot()).toMatchObject({
+        accepted: { moved: 2, noop: 1 },
+        overwritten: 0,
+      });
+    });
+  });
+
+  describe('routeWorkspaceCard stale lane-run pointers', () => {
+    it('supersedes the open run before entering a structured destination when the active pointer is stale', async () => {
+      const { root, card, run } = setupActiveLaneRunCard();
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Start destination work' });
+      databaseManager.get().prepare('UPDATE kanban_cards SET active_lane_run_id=? WHERE id=?')
+        .run('stale-run-pointer', card.id);
+
+      await expect(routeWorkspaceCard(root.id, lanes[1].id, { manualMove: true }))
+        .resolves.toEqual({ status: 'moved', laneId: lanes[1].id });
+
+      const movedCard = kanbanCards.getById(card.id);
+      const destinationRun = getRun(movedCard.activeLaneRunId);
+      expect(movedCard.laneId).toBe(lanes[1].id);
+      expect(getRun(run.id)).toMatchObject({ status: 'superseded' });
+      expect(destinationRun).toMatchObject({ status: 'open', sourceLaneId: lanes[1].id });
+      expect(databaseManager.get().prepare("SELECT COUNT(*) count FROM kanban_lane_runs WHERE card_id=? AND status='open'")
+        .get(card.id).count).toBe(1);
+      expect(databaseManager.get().prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?')
+        .get(destinationRun.laneEntryEventId)).toMatchObject({ lane_id: lanes[1].id });
+    });
+
+    it('rolls back the card move and run repair when destination run creation fails', async () => {
+      const { root, card, run } = setupActiveLaneRunCard();
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Start destination work' });
+      databaseManager.get().prepare('UPDATE kanban_cards SET active_lane_run_id=? WHERE id=?')
+        .run('stale-run-pointer', card.id);
+      databaseManager.get().exec(`CREATE TRIGGER fail_destination_lane_run
+        BEFORE INSERT ON kanban_lane_runs WHEN NEW.source_lane_id = '${lanes[1].id}'
+        BEGIN SELECT RAISE(ABORT, 'destination run creation failed'); END`);
+
+      await expect(routeWorkspaceCard(root.id, lanes[1].id, { manualMove: true })).rejects.toThrow('destination run creation failed');
+
+      expect(kanbanCards.getById(card.id)).toMatchObject({ laneId: lanes[0].id, activeLaneRunId: 'stale-run-pointer' });
+      expect(getRun(run.id)).toMatchObject({ status: 'open' });
+      expect(databaseManager.get().prepare('SELECT COUNT(*) count FROM kanban_lane_runs WHERE card_id=?').get(card.id).count).toBe(1);
+      expect(databaseManager.get().prepare('SELECT COUNT(*) count FROM kanban_lane_entry_events WHERE card_id=?').get(card.id).count).toBe(1);
+    });
+  });
+
+  describe('routeWorkspaceCard SQLite contention and conditional races', () => {
+    it.each(['SQLITE_BUSY', 'SQLITE_LOCKED'])('retries %s and succeeds once contention clears', async (code) => {
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[0].id, workspace.id);
+      const immediateTransaction = vi.spyOn(databaseManager, 'immediateTransaction')
+        .mockImplementationOnce(() => {
+          const error = new Error('database is locked');
+          error.code = code;
+          throw error;
+        });
+
+      await expect(routeWorkspaceCard(workspace.id, lanes[1].id))
+        .resolves.toEqual({ status: 'moved', laneId: lanes[1].id });
+
+      expect(immediateTransaction).toHaveBeenCalledTimes(2);
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[1].id);
+      immediateTransaction.mockRestore();
+    });
+
+    it('returns a retryable service error after bounded SQLite contention retries are exhausted', async () => {
+      const workspace = createSession('Workspace');
+      kanbanCards.create(lanes[0].id, workspace.id);
+      const immediateTransaction = vi.spyOn(databaseManager, 'immediateTransaction')
+        .mockImplementation(() => {
+          const error = new Error('database is busy');
+          error.code = 'SQLITE_BUSY';
+          throw error;
+        });
+
+      await expect(routeWorkspaceCard(workspace.id, lanes[1].id)).rejects.toMatchObject({
+        status: 503,
+        code: 'KANBAN_ROUTE_RETRYABLE',
+      });
+
+      expect(immediateTransaction.mock.calls.length).toBeGreaterThan(1);
+      immediateTransaction.mockRestore();
+    });
+
+    it('does not write a deferred exit lane for an active run', async () => {
+      const { root, run } = setupActiveLaneRunCard();
+
+      await expect(routeWorkspaceCard(root.id, lanes[1].id, { manualMove: true }))
+        .resolves.toEqual({ status: 'moved', laneId: lanes[1].id });
+
+      expect(getRun(run.id).chosenExitLaneId).toBeNull();
+      expect(getRun(run.id).status).toBe('superseded');
+    });
+  });
 
   // ── getFullBoard ───────────────────────────────────────────────────
 
@@ -343,7 +577,7 @@ describe('kanbanService', () => {
       await expect(moveCard('non-existent', lanes[0].id)).rejects.toThrow('Card not found');
     });
 
-    it('still cancels a lane worker when the move comes from outside (no actor)', async () => {
+    it('cancels a lane worker\'s workflow standing without aborting its in-flight turn', async () => {
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
       const run = createLaneRunForEntry({
@@ -356,11 +590,16 @@ describe('kanbanService', () => {
 
       await moveCard(card.id, lanes[1].id);
 
+      // The worker's own-work obligation is cancelled, but its turn is left
+      // running — supersession stops granting workflow authority, it does not
+      // terminate execution.
       expect(sessions.getById(worker.id).ownWorkState).toBe('cancelled');
       expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
-        status: 'running', executionState: 'aborting',
+        // This fixture has not started a provider turn, so its pre-existing
+        // idle lifecycle is preserved rather than falsely claiming stopped.
+        status: 'running', executionState: 'idle',
       }));
-      expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'superseded', failureReason: 'manual_move' }));
+      expect(getRun(run.id)).toEqual(expect.objectContaining({ status: 'superseded', failureReason: 'card_moved' }));
     });
 
     it('skips on-enter template when runOnEnterTemplate is false', async () => {
@@ -474,6 +713,128 @@ describe('kanbanService', () => {
         WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED,
         expect.objectContaining({ cardId: card.id })
       );
+    });
+
+    it('returns null when the workspace has no card', () => {
+      const session = createSession();
+      expect(removeSessionFromBoard(session.id)).toBeNull();
+    });
+
+    it('cannot find the card once the session row is gone — callers must retire first', () => {
+      // The join row cascades with the session, so the card is unreachable by
+      // session id after deletion. This pins the ordering contract the
+      // session-delete route relies on: removeSessionFromBoard BEFORE the
+      // session cascade, not after.
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      sessions.delete(session.id);
+      vi.clearAllMocks();
+
+      expect(removeSessionFromBoard(session.id)).toBeNull();
+      expect(kanbanCards.getById(card.id)).not.toBeNull();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── removeCard / removeLane / removeBoard ─────────────────────────
+
+  describe('removeCard', () => {
+    it('deletes a legacy card with no active run and broadcasts', () => {
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      vi.clearAllMocks();
+
+      const result = removeCard(card);
+
+      expect(kanbanCards.getById(card.id)).toBeNull();
+      expect(result).toEqual({ projectId, laneId: lanes[0].id });
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED,
+        expect.objectContaining({ cardId: card.id })
+      );
+    });
+
+    it('derives the project from the card when its sessions are already deleted', () => {
+      // Cards fetched by lane (bulk removal) outlive their session rows;
+      // the broadcast project must come from card → lane → board.
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+      sessions.delete(session.id);
+      const card = kanbanCards.getByLaneId(lanes[0].id)[0];
+      vi.clearAllMocks();
+
+      const result = removeCard(card);
+
+      expect(result).toEqual({ projectId, laneId: lanes[0].id });
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED,
+        expect.objectContaining({ cardId: card.id, projectId })
+      );
+    });
+
+    it('rolls back both the supersession and the delete when the transaction fails', () => {
+      const { card, run } = setupActiveLaneRunCard();
+      // Force the card delete itself to blow up mid-transaction.
+      const deleteSpy = vi.spyOn(kanbanCards, 'delete')
+        .mockImplementationOnce(() => { throw new Error('boom'); });
+      try {
+        expect(() => removeCard(kanbanCards.getById(card.id))).toThrow('boom');
+      } finally {
+        deleteSpy.mockRestore();
+      }
+
+      // Nothing committed: run still open, card still present and owned.
+      expect(getRun(run.id).status).toBe('open');
+      expect(kanbanCards.getById(card.id).activeLaneRunId).toBe(run.id);
+    });
+  });
+
+  describe('removeLane', () => {
+    it('deletes the lane, its cards, and supersedes their runs in one commit', () => {
+      const { card, run } = setupActiveLaneRunCard();
+      vi.clearAllMocks();
+
+      removeLane(lanes[0]);
+
+      expect(kanbanLanes.getById(lanes[0].id)).toBeNull();
+      expect(kanbanCards.getById(card.id)).toBeNull();
+      expect(getRun(run.id).status).toBe('superseded');
+      // Bulk removal is one board-level change; no per-card events.
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('removeBoard', () => {
+    it('deletes the board, its lanes, and its cards, superseding runs', () => {
+      const { card, run } = setupActiveLaneRunCard();
+      const board = kanbanBoards.getByProjectId(projectId);
+      vi.clearAllMocks();
+
+      removeBoard(board);
+
+      expect(kanbanBoards.getByProjectId(projectId)).toBeNull();
+      expect(kanbanCards.getById(card.id)).toBeNull();
+      expect(getRun(run.id).status).toBe('superseded');
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('removeBoardForProject', () => {
+    it('supersedes runs and removes the board when one exists', () => {
+      const { card, run } = setupActiveLaneRunCard();
+      vi.clearAllMocks();
+
+      removeBoardForProject(projectId);
+
+      expect(kanbanBoards.getByProjectId(projectId)).toBeNull();
+      expect(kanbanCards.getById(card.id)).toBeNull();
+      expect(getRun(run.id).status).toBe('superseded');
+    });
+
+    it('is a no-op when the project has no board', () => {
+      expect(() => removeBoardForProject('no-such-project')).not.toThrow();
     });
   });
 
@@ -728,6 +1089,30 @@ describe('kanbanService', () => {
   });
 
   describe('durable completion outbox', () => {
+    it('acknowledges lane entry after its delivered worker selects a deferred route and completes', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Process this card' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[0].id, workspace.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+      runSession.mockImplementationOnce(async (workerId) => {
+        const { turnToken } = beginWorkflowTurn(workerId);
+        const response = await routeWorkspaceCard(workspace.id, lanes[1].id);
+        expect(response).toMatchObject({ status: 'scheduled', laneId: lanes[1].id });
+        expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
+        finalizeOwnWorkCompletion(workerId, { turnToken });
+        return { started: true };
+      });
+
+      expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(true);
+
+      expect(kanbanCards.getById(card.id).laneId).toBe(lanes[1].id);
+      expect(getRun(run.id).status).toBe('succeeded');
+      expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+        .get(run.laneEntryEventId).status).toBe('completed');
+    });
+
     it('reclaims a claim at its exact expiry, not five minutes later', () => {
       const expiry = Date.now();
       databaseManager.get().prepare(`INSERT INTO kanban_lane_entry_events

@@ -14,7 +14,9 @@ import { broadcastSessionUpdate } from './sessions-patch.js';
 import { activeSessions } from '../services/streamEventHandler.js';
 import { schedulerService } from '../services/schedulerService.js';
 import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
+import { removeSessionFromBoard } from '../services/kanbanService.js';
 import { runNowFailureResponse } from '../services/sessionRunNowFailure.js';
+import { recordExplicitSchedule } from '../services/scheduleWakeupBridge.js';
 import {
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
@@ -77,21 +79,42 @@ router.put('/:id/summary', requireRootSessionAndProject, async (req, res) => {
   }
 });
 
-// Validate a /schedule request body and build the session update payload.
-// Returns either { status, error } for a 4xx response, or { updateData } on success.
-function buildScheduleUpdate(req) {
-  // Reject any field not in the explicit allow-list so callers migrating from the old
-  // configureSchedule contract get a clear signal rather than silent data loss.
-  const ALLOWED_FIELDS = new Set(['prompt', 'scheduledAt', 'model']);
-  const unexpectedFields = Object.keys(req.body || {}).filter((k) => !ALLOWED_FIELDS.has(k));
-  if (unexpectedFields.length > 0) {
-    return {
+function validateScheduleFields(body) {
+  // Schedule provenance is derived from the target's server-owned turn state;
+  // callers cannot supply an authority discriminator.
+  const allowedFields = new Set(['prompt', 'scheduledAt', 'model']);
+  const unexpectedFields = Object.keys(body || {}).filter((key) => !allowedFields.has(key));
+  return unexpectedFields.length === 0
+    ? null
+    : {
       status: 400,
       error: {
         error: `Unexpected field(s): ${unexpectedFields.join(', ')}. Only prompt, scheduledAt, and model are accepted; set reschedule policy via PATCH /api/sessions/:id.`,
       },
     };
-  }
+}
+
+/**
+ * Derive trusted schedule provenance from server-owned turn state exactly once
+ * per request. An agent can self-schedule only while its provider turn owns a
+ * controller; after that turn ends, it cannot issue a later request. Therefore
+ * an idle target is a user-originated schedule, while an active target remains
+ * system-originated regardless of JSON supplied by the caller.
+ */
+function deriveScheduleOrigin(sessionId) {
+  const controller = activeSessions.get(sessionId)?.controller;
+  return {
+    controller,
+    hasActiveProviderTurn: Boolean(controller),
+    isTrustedUserSchedule: !controller,
+  };
+}
+
+function buildScheduleUpdate(req) {
+  // Reject any field not in the explicit allow-list so callers migrating from the old
+  // configureSchedule contract get a clear signal rather than silent data loss.
+  const fieldsError = validateScheduleFields(req.body);
+  if (fieldsError) return fieldsError;
 
   const { prompt, scheduledAt: scheduledAtRaw, model } = req.body;
 
@@ -119,18 +142,20 @@ function buildScheduleUpdate(req) {
     return modelResult;
   }
 
+  const scheduleOrigin = deriveScheduleOrigin(req.params.id);
   const updateData = {
-    status: activeSessions.has(req.params.id) ? req.session_.status : 'scheduled',
+    status: scheduleOrigin.hasActiveProviderTurn ? req.session_.status : 'scheduled',
     scheduledAt,
     pendingPrompt: prompt,
     pendingConversationId: null,
+    pendingInteractive: scheduleOrigin.isTrustedUserSchedule,
     ...modelResult.agentTypeUpdate,
   };
   if (Object.prototype.hasOwnProperty.call(modelResult, 'pendingModel')) {
     updateData.pendingModel = modelResult.pendingModel;
   }
 
-  return { updateData };
+  return { updateData, scheduleOrigin };
 }
 
 // Validate the optional model field for /schedule and resolve the agentType update.
@@ -173,7 +198,7 @@ function resolveScheduleModel(req, model) {
 //   scheduledAt {ISO 8601 | epoch ms}  required — must be in the future
 //   model       {string}               optional — becomes pendingModel; cross-kind guarded
 //
-// Only prompt, scheduledAt, and model are honored here. Reschedule-policy fields
+// Only prompt, scheduledAt, and model are public inputs here. Reschedule-policy fields
 // must be set at session creation time or via PATCH /api/sessions/:id.
 router.post('/:id/schedule', requireSession, (req, res) => {
   const result = buildScheduleUpdate(req);
@@ -182,9 +207,17 @@ router.post('/:id/schedule', requireSession, (req, res) => {
   }
 
   const update = () => sessions.update(req.params.id, result.updateData);
-  const updated = req.session_.laneRunId ? withActiveLaneRunOwnership(req.params.id, update) : update();
+  const updated = req.session_.laneRunId && !result.scheduleOrigin.isTrustedUserSchedule
+    ? withActiveLaneRunOwnership(req.params.id, update) : update();
   if (!updated) {
     return res.status(409).json({ error: 'Session no longer owns an active lane run' });
+  }
+  // Mark this as an explicit-schedule write only when it happened mid-turn —
+  // that's the only case where it can race a ScheduleWakeup call from the same
+  // turn (see scheduleWakeupBridge.js). A write to an idle session has no
+  // wakeup to take precedence over.
+  if (result.scheduleOrigin.hasActiveProviderTurn) {
+    recordExplicitSchedule(req.params.id, result.scheduleOrigin.controller);
   }
   broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, result.updateData);
   res.json(updated);
@@ -210,6 +243,21 @@ router.post('/:id/schedule', requireSession, (req, res) => {
 // launches an agent. A caller that loses the race is not an error — the
 // session is already being started by the winner, so this responds 200
 // with the current session state (idempotent "already started" outcome).
+function launchBudgetFailure(session) {
+  return schedulerService.hasReachedLaunchBudget(session)
+    ? { error: 'Scheduled launch refused: session has reached its max total token budget', code: 'LAUNCH_BUDGET_EXHAUSTED' }
+    : null;
+}
+
+function pendingScheduleFailure(session) {
+  if (session.status === 'scheduled') {
+    return !session.scheduledAt || !session.pendingPrompt
+      ? { error: 'Session has no pending scheduled turn' }
+      : null;
+  }
+  return session.status === 'starting' ? null : { error: 'Session has no pending scheduled turn' };
+}
+
 router.post('/:id/run-scheduled-now', requireSession, async (req, res) => {
   const session = sessions.getById(req.params.id);
 
@@ -220,13 +268,11 @@ router.post('/:id/run-scheduled-now', requireSession, async (req, res) => {
   // "I already got what I wanted" outcome here, not an error, so it falls
   // through to the claim attempt below (which will cleanly lose and return
   // the current state) rather than 409ing.
-  if (session.status === 'scheduled') {
-    if (!session.scheduledAt || !session.pendingPrompt) {
-      return res.status(409).json({ error: 'Session has no pending scheduled turn' });
-    }
-  } else if (session.status !== 'starting') {
-    return res.status(409).json({ error: 'Session has no pending scheduled turn' });
-  }
+  const scheduleFailure = pendingScheduleFailure(session);
+  if (scheduleFailure) return res.status(409).json(scheduleFailure);
+
+  const budgetFailure = launchBudgetFailure(session);
+  if (budgetFailure) return res.status(409).json(budgetFailure);
 
   let promptOverride;
   if (req.body && req.body.prompt !== undefined) {
@@ -302,6 +348,13 @@ router.post('/:id/restart', requireSession, (req, res) => {
 
 // DELETE /api/sessions/:id - Delete session
 router.delete('/:id', requireSessionAndProject, async (req, res) => {
+  // If this is a workspace root, retire its board card and its open lane run
+  // BEFORE the session cascade deletes the kanban_card_sessions join row.
+  // Child sessions share the root's card; deleting one must keep the card.
+  if (!req.session_.parentSessionId) {
+    removeSessionFromBoard(req.params.id);
+  }
+
   // Collect all descendant session IDs before any deletions
   // (database ON DELETE SET NULL would orphan them otherwise)
   const descendantIds = sessions.getAllDescendantIds(req.params.id);

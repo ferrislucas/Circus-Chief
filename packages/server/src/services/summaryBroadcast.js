@@ -46,6 +46,13 @@ export function broadcastGeneratingStatus(sessionId, generating) {
  * @param {Object} session - The session object
  */
 export function broadcastSessionUpdate(sessionId, projectId, session) {
+  if (session?.status) {
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, {
+      sessionId,
+      status: session.status,
+    });
+  }
+
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
     sessionId,
     session,

@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useKanbanStore } from './kanban.js';
+import { api } from '../composables/useApi.js';
 
 describe('kanban session updates', () => {
   beforeEach(() => setActivePinia(createPinia()));
@@ -49,6 +50,27 @@ describe('kanban session updates', () => {
     store.handleExitLaneDeclared('card', activeLaneRun);
 
     expect(store.board.lanes[0].cards[0].activeLaneRun).toEqual(activeLaneRun);
+  });
+});
+
+describe('kanban card routing responses', () => {
+  beforeEach(() => setActivePinia(createPinia()));
+
+  it('reverts an optimistic move when the route is accepted as a no-op', async () => {
+    const store = useKanbanStore();
+    store.board = {
+      lanes: [
+        { id: 'source', cards: [{ id: 'card', laneId: 'source' }] },
+        { id: 'target', cards: [] },
+      ],
+    };
+    vi.spyOn(api, 'routeWorkspaceKanbanCard').mockResolvedValueOnce({ status: 'noop', laneId: 'target' });
+
+    await expect(store.routeWorkspaceCard('project', 'workspace', 'card', 'target'))
+      .resolves.toEqual({ status: 'noop', laneId: 'target' });
+
+    expect(store.board.lanes[0].cards).toEqual([{ id: 'card', laneId: 'source' }]);
+    expect(store.board.lanes[1].cards).toEqual([]);
   });
 });
 

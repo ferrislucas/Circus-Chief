@@ -1339,8 +1339,45 @@ describe('summary service integration', () => {
     });
   });
 
-  describe('stopSession workflow cancellation (W4, FR-9.4)', () => {
-    it('closes the own-work obligation as cancelled for a lane-run participant, without moving its card', async () => {
+  describe('stopSession clears a pending scheduled continuation', () => {
+    it('nulls the scheduling fields when a user-initiated stop cancels a pending schedule', async () => {
+      const { stopSession } = await import('./sessionManager.js');
+      const conversation = conversationRepo.create(session.id, 'Scheduled resume');
+
+      sessionRepo.update(session.id, {
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3_600_000,
+        pendingPrompt: 'Continue: scheduled work',
+        pendingConversationId: conversation.id,
+        pendingModel: 'claude-sonnet-4-5',
+      });
+
+      await stopSession(session.id);
+
+      const updated = sessionRepo.getById(session.id);
+      expect(updated.status).toBe('stopped');
+      expect(updated.scheduledAt).toBeNull();
+      expect(updated.pendingPrompt).toBeNull();
+      expect(updated.pendingConversationId).toBeNull();
+      expect(updated.pendingModel).toBeNull();
+    });
+
+    it('leaves scheduling fields null when there is no pending schedule', async () => {
+      const { stopSession } = await import('./sessionManager.js');
+
+      await stopSession(session.id);
+
+      const updated = sessionRepo.getById(session.id);
+      expect(updated.status).toBe('stopped');
+      expect(updated.scheduledAt).toBeNull();
+      expect(updated.pendingPrompt).toBeNull();
+      expect(updated.pendingConversationId).toBeNull();
+      expect(updated.pendingModel).toBeNull();
+    });
+  });
+
+  describe('stopSession workflow pause (FR-10)', () => {
+    it('pauses the open own-work obligation for a lane-run participant, without moving its card', async () => {
       const { stopSession } = await import('./sessionManager.js');
 
       const boardRepo = new KanbanBoardRepository();
@@ -1364,10 +1401,17 @@ describe('summary service integration', () => {
       await stopSession(root.id);
 
       const updated = sessionRepo.getById(root.id);
-      expect(updated.ownWorkState).toBe('cancelled');
+      expect(updated.status).toBe('stopped');
+      expect(updated.ownWorkState).toBe('open');
+      expect(updated.executionState).toBe('paused');
       expect(updated.workflowReason).toBe('Stopped by user');
-      expect(getRun(run.id).status).toBe('cancelled');
+      expect(getRun(run.id)).toEqual(expect.objectContaining({
+        status: 'open', blockingReason: 'Paused — stopped by user', blockerKind: 'user_stop_pause',
+      }));
       expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+      const events = databaseManager.get().prepare('SELECT event_type FROM kanban_lane_run_audit_events WHERE lane_run_id=?').all(run.id);
+      expect(events.map((event) => event.event_type)).toContain('own_work_paused_by_user');
+      expect(events.map((event) => event.event_type)).not.toEqual(expect.arrayContaining(['own_work_cancelled', 'run_cancelled']));
     });
 
     it('is a no-op for a session that does not participate in a lane run', async () => {

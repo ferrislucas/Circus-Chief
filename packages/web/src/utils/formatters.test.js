@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatDate } from './formatters.js';
+import { formatDate, formatDateTimeLocal } from './formatters.js';
 
 describe('formatters', () => {
   describe('formatDate', () => {
@@ -30,6 +30,23 @@ describe('formatters', () => {
       const result = formatDate('2024-01-15T10:30:00Z');
       // The exact time format depends on locale, but should include hours and minutes
       expect(result).toMatch(/\d{1,2}:\d{2}/);
+    });
+  });
+
+  describe('formatDateTimeLocal', () => {
+    it('uses local date fields instead of a UTC ISO string', () => {
+      const date = {
+        getFullYear: () => 2025,
+        getMonth: () => 0,
+        getDate: () => 15,
+        getHours: () => 6,
+        getMinutes: () => 34,
+        toISOString: () => {
+          throw new Error('datetime-local formatting must not use UTC');
+        },
+      };
+
+      expect(formatDateTimeLocal(date)).toBe('2025-01-15T06:34');
     });
   });
 });

@@ -70,6 +70,16 @@ describe('POST /api/sessions/:id/run-scheduled-now', () => {
       await request(app).post(`/api/sessions/${session.id}/run-scheduled-now`).expect(409);
     });
 
+    it('409s when scheduled but missing scheduledAt', async () => {
+      const session = sessions.create(project.id, 'No Fire Time', 'Prompt', 'standard', false, null, null, 'scheduled');
+      sessions.update(session.id, { scheduledAt: null, pendingPrompt: 'Prompt' });
+
+      const res = await request(app).post(`/api/sessions/${session.id}/run-scheduled-now`).expect(409);
+
+      expect(res.body.error).toMatch(/no pending scheduled turn/i);
+      expect(mockSessionManager.runSession).not.toHaveBeenCalled();
+    });
+
     it('rejects a blank prompt override with 400 and never claims the session', async () => {
       const session = createScheduledSession();
 

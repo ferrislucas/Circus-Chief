@@ -6,7 +6,8 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync } from 'child_process';
 import crypto from 'crypto';
-import { projects, sessions, sessionTemplates, commandButtons, commandRuns, modelProviders, projectDefaults } from '../database.js';
+import { projects, sessions, sessionTemplates, commandButtons, commandRuns, modelProviders, projectDefaults, kanbanBoards, kanbanLanes, kanbanCards } from '../database.js';
+import { createLaneRunForEntry, attachRootSession, getRun } from '../services/workflowSessionService.js';
 
 // Mock websocket and sessionManager before importing the router
 vi.mock('../websocket.js', () => ({
@@ -77,6 +78,26 @@ describe('Projects API', () => {
     if (tempDir && existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  describe('POST /api/projects', () => {
+    it('rejects caller-controlled pinned state and relies on the database default', async () => {
+      const rejected = await request(app).post('/api/projects').send({
+        name: 'Pinned Create Attempt',
+        workingDirectory: tempDir,
+        pinned: true,
+      });
+
+      expect(rejected.status).toBe(400);
+
+      const created = await request(app).post('/api/projects').send({
+        name: 'Default Pin State',
+        workingDirectory: tempDir,
+      });
+
+      expect(created.status).toBe(201);
+      expect(created.body.pinned).toBe(false);
+    });
   });
 
   describe('POST /api/projects/:id/sessions', () => {
@@ -990,6 +1011,64 @@ describe('Projects API', () => {
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
       expect(res.body.some((p) => p.id === projectId)).toBe(true);
+    });
+  });
+
+  describe('GET /api/projects enrichment (running-workspace links)', () => {
+    // Back-compat guard: the response stays a bare JSON array and only gains
+    // additive per-project fields. This protects tests/e2e/helpers.ts:getProjects()
+    // and the agent-facing Session Management API, both of which treat it as an array.
+    it('keeps the bare-array shape and adds the three enrichment fields', async () => {
+      const res = await request(app).get('/api/projects');
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      const project = res.body.find((p) => p.id === projectId);
+      expect(project).toBeDefined();
+      expect(Array.isArray(project.runningWorkspaces)).toBe(true);
+      expect(project.runningSessionCount).toBe(0);
+      expect(project.waitingSessionCount).toBe(0);
+    });
+
+    it('returns runningWorkspaces and split counts for a multi-workspace project', async () => {
+      const rootA = sessions.create(projectId, 'alpha', 'prompt', { status: 'running' });
+      // Blocked on AskUserQuestion: status stays 'running', pendingAgentInput is
+      // the "waiting" signal (persisted by promptStore.js; set directly here).
+      const alphaChild = sessions.create(projectId, 'alpha-child', 'prompt', { status: 'running', parentSessionId: rootA.id });
+      sessions.update(alphaChild.id, { pendingAgentInput: true });
+      const rootB = sessions.create(projectId, 'beta', 'prompt', { status: 'running' });
+
+      const res = await request(app).get('/api/projects');
+      const project = res.body.find((p) => p.id === projectId);
+
+      expect(project.runningSessionCount).toBe(2); // rootA + rootB; alpha-child is blocked on input
+      expect(project.waitingSessionCount).toBe(1); // alpha-child (pendingAgentInput)
+      expect(project.runningWorkspaces.map((w) => w.id)).toEqual(
+        expect.arrayContaining([rootA.id, rootB.id]),
+      );
+      expect(project.runningWorkspaces.find((w) => w.id === rootA.id))
+        .toMatchObject({ name: 'alpha', activeCount: 2 });
+      expect(project.runningWorkspaces.find((w) => w.id === rootB.id))
+        .toMatchObject({ name: 'beta', activeCount: 1 });
+    });
+
+    it('returns []/0/0 for a project with no sessions through the HTTP path', async () => {
+      const res = await request(app).get('/api/projects');
+      const project = res.body.find((p) => p.id === projectId);
+
+      expect(project.runningWorkspaces).toEqual([]);
+      expect(project.runningSessionCount).toBe(0);
+      expect(project.waitingSessionCount).toBe(0);
+    });
+
+    it('does not substitute an empty root name server-side', async () => {
+      sessions.create(projectId, '', 'prompt', { status: 'running' });
+
+      const res = await request(app).get('/api/projects');
+      const project = res.body.find((p) => p.id === projectId);
+
+      expect(project.runningWorkspaces).toHaveLength(1);
+      expect(project.runningWorkspaces[0].name).toBe('');
     });
   });
 
@@ -2190,5 +2269,55 @@ describe('Circus command ownership checks (cross-project isolation)', () => {
 
     // Verify button B was NOT deleted
     expect(commandButtons.getById(buttonB.id)).not.toBeNull();
+  });
+});
+
+describe('DELETE /api/projects/:id kanban run retirement', () => {
+  let app;
+  let tempDir;
+  let projectId;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    app = express();
+    app.use(express.json());
+    app.use('/api/projects', projectsRouter);
+
+    tempDir = mkdtempSync(join(tmpdir(), 'project-kanban-delete-'));
+    const project = projects.create('Kanban Delete Test', tempDir);
+    projectId = project.id;
+  });
+
+  afterEach(() => {
+    if (existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('supersedes open lane runs before the project cascade removes their cards', async () => {
+    const board = kanbanBoards.getOrCreateForProject(projectId);
+    const lane = kanbanLanes.getByBoardId(board.id)[0];
+    const root = sessions.create(projectId, 'Root', 'prompt');
+    const card = kanbanCards.create(lane.id, root.id);
+    const run = createLaneRunForEntry({
+      projectId,
+      workspaceId: root.id,
+      cardId: card.id,
+      lane: { ...lane, onEnterPrompt: 'Do the work' },
+    });
+    const worker = sessions.create(projectId, 'Worker', 'work', { parentSessionId: root.id });
+    attachRootSession(run.id, worker.id);
+
+    const res = await request(app).delete(`/api/projects/${projectId}`);
+
+    expect(res.status).toBe(204);
+    // Run retired rather than orphaned by the project's FK cascades.
+    expect(getRun(run.id).status).toBe('superseded');
+    expect(projects.getById(projectId)).toBeNull();
+  });
+
+  it('deletes a project with no board without error', async () => {
+    const res = await request(app).delete(`/api/projects/${projectId}`);
+    expect(res.status).toBe(204);
+    expect(projects.getById(projectId)).toBeNull();
   });
 });

@@ -18,12 +18,12 @@ function withDb(fn) {
 function addSession(db, id, options = {}) {
   const {
     parentId = null, status = 'stopped', starred = 0, activity = null,
-    createdAt = 1, updatedAt = createdAt,
+    createdAt = 1, updatedAt = createdAt, pendingAgentInput = false,
   } = options;
   db.prepare(`INSERT INTO sessions
-    (id, project_id, name, parent_session_id, status, starred, last_activity_at, created_at, updated_at)
-    VALUES (?, 'project', ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, id, parentId, status, starred, activity, createdAt, updatedAt);
+    (id, project_id, name, parent_session_id, status, starred, pending_agent_input, last_activity_at, created_at, updated_at)
+    VALUES (?, 'project', ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, id, parentId, status, starred, pendingAgentInput ? 1 : 0, activity, createdAt, updatedAt);
 }
 
 describe('getWorkspaceCardPage', () => {
@@ -53,8 +53,8 @@ describe('getWorkspaceCardPage', () => {
     const offsetPastEnd = getWorkspaceCardPage(db, 'project', { limit: 1, offset: 5 });
     const cursorPastEnd = getWorkspaceCardPage(db, 'project', { limit: 1, cursor: first.nextCursor });
 
-    expect(offsetPastEnd).toMatchObject({ cards: [], facets: { running: 1, idle: 1 } });
-    expect(cursorPastEnd.facets).toEqual({ running: 1, idle: 1 });
+    expect(offsetPastEnd).toMatchObject({ cards: [], facets: { running: 1, idle: 1, waiting: 0 } });
+    expect(cursorPastEnd.facets).toEqual({ running: 1, idle: 1, waiting: 0 });
   }));
 
   it('orders by session updates newer than denormalized external activity', () => withDb((db) => {
@@ -72,7 +72,46 @@ describe('getWorkspaceCardPage', () => {
     let prepares = 0;
     const countingDb = { prepare(...args) { prepares += 1; return db.prepare(...args); } };
 
-    expect(getWorkspaceCardPage(countingDb, 'project', { limit: 10 }).facets).toEqual({ running: 1, idle: 0 });
+    expect(getWorkspaceCardPage(countingDb, 'project', { limit: 10 }).facets).toEqual({ running: 1, idle: 0, waiting: 0 });
     expect(prepares).toBe(1);
+  }));
+
+  it('matches status="waiting" to pending_agent_input, not status="waiting" (regression)', () => withDb((db) => {
+    // Genuinely blocked on AskUserQuestion/permission: status stays 'running'
+    // for the whole time it's parked (promptStore.js never touches status).
+    // This is the session the "waiting" filter is supposed to surface.
+    addSession(db, 'blocked', { status: 'running', pendingAgentInput: true });
+    // A session merely resting in status='waiting' (turn ended, idle, ready
+    // for follow-up) must NOT match — see project-activity-queries.js for why
+    // that reading makes nearly every idle session match.
+    addSession(db, 'idle-waiting-status', { status: 'waiting' });
+
+    const page = getWorkspaceCardPage(db, 'project', { status: 'waiting', limit: 10 });
+
+    expect(page.cards.map((c) => c.id)).toEqual(['blocked']);
+    expect(page.cards[0]).toMatchObject({ runningCount: 0, waitingCount: 1 });
+    expect(page.cards[0].runningSessionIds).toEqual([]);
+    expect(page.facets).toEqual({ running: 0, idle: 1, waiting: 1 });
+
+    expect(getWorkspaceCardPage(db, 'project', { status: 'running', limit: 10 }).cards).toEqual([]);
+    expect(getWorkspaceCardPage(db, 'project', { status: 'idle', limit: 10 }).cards.map((c) => c.id))
+      .toEqual(['idle-waiting-status']);
+  }));
+
+  it('counts a workflow with active and blocked members in both facets', () => withDb((db) => {
+    addSession(db, 'root', { status: 'running' });
+    addSession(db, 'blocked-child', {
+      parentId: 'root', status: 'running', pendingAgentInput: true,
+    });
+
+    const all = getWorkspaceCardPage(db, 'project', { limit: 10 });
+
+    expect(all.cards[0]).toMatchObject({ runningCount: 1, waitingCount: 1 });
+    expect(all.facets).toEqual({ running: 1, idle: 0, waiting: 1 });
+    expect(all.total).toBe(1);
+    expect(getWorkspaceCardPage(db, 'project', { status: 'running', limit: 10 }).cards)
+      .toHaveLength(1);
+    expect(getWorkspaceCardPage(db, 'project', { status: 'waiting', limit: 10 }).cards)
+      .toHaveLength(1);
   }));
 });

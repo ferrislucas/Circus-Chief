@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { projects, sessions, messages, canvasItems } from '../database.js';
+import { projects, sessions, messages, canvasItems, kanbanBoards, kanbanLanes, kanbanCards } from '../database.js';
+import { createLaneRunForEntry, attachRootSession, getRun } from '../services/workflowSessionService.js';
 
 // Mock websocket before importing the router
 vi.mock('../websocket.js', () => ({
@@ -217,5 +218,37 @@ describe('Sessions API - DELETE cascade', () => {
     expect(deletedSessionIds).toContain(parent.id);
     expect(deletedSessionIds).toContain(child1.id);
     expect(deletedSessionIds).toContain(child2.id);
+  });
+
+  it('removes the board card and supersedes its lane run when a workspace root is deleted', async () => {
+    const board = kanbanBoards.getOrCreateForProject(projectId);
+    const lane = kanbanLanes.getByBoardId(board.id)[0];
+    const parent = sessions.create(projectId, 'Root', 'prompt');
+    const card = kanbanCards.create(lane.id, parent.id);
+    const structuredLane = { ...lane, onEnterPrompt: 'Do the work' };
+    const run = createLaneRunForEntry({ projectId, workspaceId: parent.id, cardId: card.id, lane: structuredLane });
+    const worker = sessions.create(projectId, 'Worker', 'work', { parentSessionId: parent.id });
+    attachRootSession(run.id, worker.id);
+
+    const res = await request(app).delete(`/api/sessions/${parent.id}`);
+
+    expect(res.status).toBe(204);
+    // Card gone (not a session-less ghost), run retired, worker cancelled.
+    expect(kanbanCards.getById(card.id)).toBeNull();
+    expect(getRun(run.id).status).toBe('superseded');
+    expect(sessions.getById(worker.id)).toBeNull(); // cascade still ran
+  });
+
+  it('keeps the board card when only a child session is deleted', async () => {
+    const board = kanbanBoards.getOrCreateForProject(projectId);
+    const lane = kanbanLanes.getByBoardId(board.id)[0];
+    const parent = sessions.create(projectId, 'Root', 'prompt');
+    const card = kanbanCards.create(lane.id, parent.id);
+    const child = sessions.create(projectId, 'Child', 'prompt', { parentSessionId: parent.id });
+
+    const res = await request(app).delete(`/api/sessions/${child.id}`);
+
+    expect(res.status).toBe(204);
+    expect(kanbanCards.getById(card.id)).not.toBeNull();
   });
 });

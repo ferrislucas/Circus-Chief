@@ -189,7 +189,7 @@ const onSendToCanvas = async (buttonLabel, output) => {
  * Setup WebSocket handlers for command events
  */
 const setupWebSocketHandlers = () => {
-  const { subscribe, unsubscribe, onCommandStarted, onCommandOutput, onCommandComplete, onCommandError, onCommandRunDeleted } =
+  const { subscribe, unsubscribe, onCommandStarted, onCommandComplete, onCommandError, onCommandRunDeleted } =
     useSessionSubscription(props.sessionId);
 
   // Subscribe to session updates
@@ -209,13 +209,6 @@ const setupWebSocketHandlers = () => {
           outputTruncated: false,
         };
       }
-    })
-  );
-
-  // Handle command output updates
-  cleanups.push(
-    onCommandOutput((runId, buttonId, text) => {
-      commandButtonsStore.appendOutput(runId, text);
     })
   );
 

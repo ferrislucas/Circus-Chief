@@ -6,6 +6,10 @@ import { sessionActions } from './sessions/sessionActions.js';
 import { conversationActions } from './sessions/conversationActions.js';
 import { perSessionActions } from './sessions/perSessionActions.js';
 import { perSessionGetters } from './sessions/perSessionGetters.js';
+import {
+  collectWorkflowSessions,
+  summarizeWorkflowSessions,
+} from '../utils/workflowStatus.js';
 
 export const useSessionsStore = defineStore('sessions', {
   state: () => ({
@@ -93,21 +97,9 @@ export const useSessionsStore = defineStore('sessions', {
       return (rootSessionId) => {
         const root = this._findSessionById(rootSessionId);
         if (!root) return 'idle';
-        const allSessions = [root];
-        const stack = [rootSessionId];
-        const visited = new Set();
-        while (stack.length > 0) {
-          const currentId = stack.pop();
-          if (visited.has(currentId)) continue;
-          visited.add(currentId);
-          const children = this._findChildren(currentId);
-          for (const child of children) {
-            allSessions.push(child);
-            stack.push(child.id);
-          }
-        }
-        const runningStatuses = ['running', 'starting'];
-        return allSessions.some((s) => runningStatuses.includes(s.status)) ? 'running' : 'idle';
+        return summarizeWorkflowSessions(
+          collectWorkflowSessions(root, this._findChildren),
+        ).effectiveStatus;
       };
     },
 
@@ -134,30 +126,10 @@ export const useSessionsStore = defineStore('sessions', {
             hasScheduledDescendant: false, rootIsScheduled: false,
           };
         }
-        const allSessions = [root];
-        const stack = [rootSessionId];
-        const visited = new Set();
-        while (stack.length > 0) {
-          const currentId = stack.pop();
-          if (visited.has(currentId)) continue;
-          visited.add(currentId);
-          const children = this._findChildren(currentId);
-          for (const child of children) { allSessions.push(child); stack.push(child.id); }
-        }
-        const runningStatuses = ['running', 'starting'];
-        let runningCount = 0, scheduledCount = 0, waitingCount = 0, completedCount = 0;
-        for (const session of allSessions) {
-          if (runningStatuses.includes(session.status)) runningCount++;
-          else if (session.status === 'scheduled') scheduledCount++;
-          else if (session.status === 'waiting') waitingCount++;
-          else if (session.status === 'completed' || session.status === 'stopped') completedCount++;
-        }
+        const allSessions = collectWorkflowSessions(root, this._findChildren);
+        const summary = summarizeWorkflowSessions(allSessions);
         return {
-          effectiveStatus: runningCount > 0 ? 'running' : 'idle',
-          runningCount,
-          scheduledCount,
-          waitingCount,
-          completedCount,
+          ...summary,
           totalCount: allSessions.length - 1,
           hasScheduledDescendant: allSessions.slice(1).some((s) => s.status === 'scheduled'),
           rootIsScheduled: root.status === 'scheduled',
@@ -169,17 +141,7 @@ export const useSessionsStore = defineStore('sessions', {
       return (rootSessionId) => {
         const root = this._findSessionById(rootSessionId);
         if (!root) return [];
-        const all = [root];
-        const stack = [rootSessionId];
-        const visited = new Set();
-        while (stack.length > 0) {
-          const currentId = stack.pop();
-          if (visited.has(currentId)) continue;
-          visited.add(currentId);
-          const children = this._findChildren(currentId);
-          for (const child of children) { all.push(child); stack.push(child.id); }
-        }
-        return all;
+        return collectWorkflowSessions(root, this._findChildren);
       };
     },
 

@@ -182,6 +182,16 @@ export const DEFAULT_MODEL = 'claude-opus-5';
 
 export const OPENAI_MODELS = [
   {
+    id: 'gpt-6-astra',
+    name: 'GPT-6 Astra',
+    description: 'Next-generation frontier model',
+    seedId: 'openai-gpt-6-astra',
+    lifecycle: 'current',
+    defaultEnabled: true,
+    evidence: CATALOG_EVIDENCE,
+    reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
     id: 'gpt-5.6-sol',
     name: 'GPT-5.6 Sol',
     description: 'Frontier model for complex professional work',
@@ -254,10 +264,10 @@ export const OPENAI_MODELS = [
 ];
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
 
-// This is deliberately separate from OPENAI_MODELS. The latter is the catalog
-// of models available to direct OpenAI-compatible providers; summaries run via
-// the Codex CLI and must only offer model IDs that its non-interactive runner
-// supports. Keep this list in sync with Codex CLI model support.
+// This is deliberately separate from OPENAI_MODELS. Catalog availability does
+// not imply Codex summary-runner compatibility: summaries run via the Codex
+// CLI and must only offer model IDs its non-interactive runner supports. Keep
+// this list in sync with that runner's supported model IDs.
 export const CODEX_SUMMARY_MODELS = [
   'gpt-5.6-sol',
   'gpt-5.6-terra',

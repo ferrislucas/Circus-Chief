@@ -4,10 +4,26 @@ import {
   UpdateCommandButtonRequest,
   CommandButtonResponse,
   CommandRunResponse,
+  CommandRunOutputResourceResponse,
   normalizeCommandOptionDashes,
 } from './commandButtons.js';
 
 describe('Command Buttons Contracts', () => {
+  describe('CommandRunOutputResourceResponse', () => {
+    const descriptor = {
+      runId: 'run_123', status: 'error', contentType: 'text/plain; charset=utf-8',
+      byteLength: 12, complete: true, updatedAt: 123, path: '.circus/runs/run_123/output.log',
+    };
+
+    it('accepts the exact workspace-relative descriptor shape', () => {
+      expect(CommandRunOutputResourceResponse.safeParse(descriptor).success).toBe(true);
+    });
+
+    it('rejects absolute paths and inline transcript fields', () => {
+      expect(CommandRunOutputResourceResponse.safeParse({ ...descriptor, path: '/private/output.log' }).success).toBe(false);
+      expect(CommandRunOutputResourceResponse.safeParse({ ...descriptor, output: 'do not return me' }).success).toBe(false);
+    });
+  });
   describe('normalizeCommandOptionDashes', () => {
     it('normalizes pasted Unicode dashes in command option tokens', () => {
       expect(normalizeCommandOptionDashes('scripts/start-server.sh —-force')).toBe(

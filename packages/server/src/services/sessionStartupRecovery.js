@@ -106,3 +106,34 @@ export function recoverOrphanedRunningSessions() {
 
   return { recovered: orphaned.length };
 }
+
+/**
+ * Clear the durable `pendingAgentInput` mirror on every session that still
+ * has it set.
+ *
+ * promptStore.js's parked-prompt queue (the actual source of truth for
+ * "is the agent blocked on AskUserQuestion/permission") is an in-process
+ * Map that is always empty immediately after boot — nothing repopulates it
+ * from durable storage. A row left with pendingAgentInput=1 from a previous
+ * process is therefore permanently stale: it can never be answered or
+ * cleared by the normal settle() path, since that path only fires for
+ * prompts the new process itself parked. Without this sweep, a project (or
+ * workspace) that had a genuinely blocked session at the moment of a crash
+ * or restart would show as "waiting" forever, even though every other
+ * pendingAgentInput read in the app (which all derive live from
+ * hasPendingPrompt()) correctly shows false the moment the process restarts.
+ *
+ * Call once during boot, after initDatabase() and before any services or
+ * clients can observe the stale flag.
+ *
+ * @returns {{ cleared: number }} Count of sessions cleared.
+ */
+export function clearStalePendingAgentInput() {
+  const cleared = sessions.clearStalePendingAgentInput();
+
+  if (cleared > 0) {
+    console.log(`[sessionStartupRecovery] Cleared stale pending_agent_input on ${cleared} session(s).`);
+  }
+
+  return { cleared };
+}

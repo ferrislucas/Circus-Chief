@@ -1,5 +1,6 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
+import { sessions } from './index.js';
 
 /**
  * Project repository class
@@ -20,8 +21,13 @@ export class ProjectRepository extends BaseRepository {
       prPollInterval: row.pr_poll_interval,
       repoUrl: row.repo_url,
       worktreePath: row.worktree_path,
+      pinned: Boolean(row.pinned),
       sessionCount: row.session_count ?? 0,
+      workspaceCount: row.workspace_count ?? 0,
       lastActivityAt: row.last_activity_at ?? null,
+      runningSessionCount: row.running_session_count ?? 0,
+      waitingSessionCount: row.waiting_session_count ?? 0,
+      runningWorkspaces: row.running_workspaces ?? [],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -62,13 +68,26 @@ export class ProjectRepository extends BaseRepository {
     const rows = this.db.prepare(`
       SELECT p.*,
         COUNT(CASE WHEN s.archived = 0 THEN s.id END) as session_count,
+        COUNT(CASE WHEN s.archived = 0 AND s.parent_session_id IS NULL THEN s.id END) as workspace_count,
         MAX(s.updated_at) as last_activity_at
       FROM projects p
       LEFT JOIN sessions s ON s.project_id = p.id
       GROUP BY p.id
       ORDER BY p.updated_at DESC
     `).all();
-    return this.mapAll(rows);
+    const projects = this.mapAll(rows);
+    // Join per-project active-workspace aggregates (one query per concern, so
+    // the session-count GROUP BY never multiplies by per-workspace rows).
+    const aggregates = sessions.getProjectActivityAggregates();
+    for (const project of projects) {
+      const aggregate = aggregates.get(project.id);
+      if (aggregate) {
+        project.runningSessionCount = aggregate.runningSessionCount;
+        project.waitingSessionCount = aggregate.waitingSessionCount;
+        project.runningWorkspaces = aggregate.runningWorkspaces;
+      }
+    }
+    return projects;
   }
 
   /**
@@ -84,6 +103,7 @@ export class ProjectRepository extends BaseRepository {
     prPollInterval: { column: 'pr_poll_interval' },
     repoUrl: { column: 'repo_url' },
     worktreePath: { column: 'worktree_path' },
+    pinned: { column: 'pinned', transform: (value) => value ? 1 : 0 },
   };
 
   update(id, data) {
@@ -99,8 +119,12 @@ export class ProjectRepository extends BaseRepository {
 
     if (updates.length === 0) return this.getById(id);
 
-    updates.push('updated_at = ?');
-    values.push(Date.now());
+    // The project list is activity ordered by updated_at. Pinning is a display
+    // preference, not activity, so a pin-only update must not reshuffle cards.
+    if (Object.keys(data).some((key) => key !== 'pinned' && data[key] !== undefined)) {
+      updates.push('updated_at = ?');
+      values.push(Date.now());
+    }
     values.push(id);
 
     this.db.prepare(`UPDATE projects SET ${updates.join(', ')} WHERE id = ?`).run(...values);

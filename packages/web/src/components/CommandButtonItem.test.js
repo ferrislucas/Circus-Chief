@@ -700,9 +700,15 @@ describe('CommandButtonItem', () => {
       };
     });
 
-    it('expand triggers fetchRunOutput when output is empty', async () => {
+    it('expand subscribes to live output and syncs when output is empty', async () => {
+      // Use a runId unique to this test: the per-run output subscription
+      // registry (useCommandRunOutputSubscription.js) is a module-level
+      // singleton that outlives individual tests in this file (components
+      // here are rarely unmounted), so reusing a shared runId like the
+      // top-level mockRun's 'run-1' risks a leaked subscription from an
+      // earlier test silently absorbing this expand and skipping the sync.
       const runWithoutOutput = {
-        runId: 'run-1',
+        runId: 'run-expand-empty-1',
         buttonId: 'btn-1',
         status: 'success',
         output: '',
@@ -719,16 +725,21 @@ describe('CommandButtonItem', () => {
       });
 
       const store = useCommandButtonsStore();
-      const fetchSpy = vi.spyOn(store, 'fetchRunOutput').mockResolvedValue(undefined);
+      // Expanding the output pane owns loading not-yet-fetched output via the
+      // live subscription's catch-up sync (not a standalone fetchRunOutput
+      // call - see the comment on the showOutput watch in
+      // CommandButtonItem.vue for why the two used to race and duplicate
+      // output).
+      const syncSpy = vi.spyOn(store, 'syncRunOutput').mockResolvedValue({ highWater: 0, hasMore: false });
 
       // Click to expand output
       const outputHeader = wrapper.find('.output-header');
       await outputHeader.trigger('click');
       await nextTick();
 
-      expect(fetchSpy).toHaveBeenCalledWith('session-1', 'run-1');
+      expect(syncSpy).toHaveBeenCalledWith('session-1', 'run-expand-empty-1', 0, expect.any(Function));
 
-      fetchSpy.mockRestore();
+      syncSpy.mockRestore();
     });
 
     it('handleCopyOutput fetches output if not loaded', async () => {

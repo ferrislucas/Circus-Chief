@@ -55,10 +55,30 @@
           <!-- Session status badges -->
           <p class="session-meta">
             <span
-              v-if="session.pendingAgentInput"
-              class="status-badge status-waiting"
+              v-if="workflowStatus.waitingCount > 0"
+              class="status-badge status-waiting agent-input-indicator"
               aria-label="Agent input required"
-            >needs input</span>
+              title="The agent is waiting for your input"
+            >
+              <svg
+                class="agent-input-icon"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 8.5 8.5 0 0 1-5.5-2.1L3 19l1.2-3.5A8.5 8.5 0 1 1 21 11.5Z" />
+                <path d="M9.1 9a3 3 0 1 1 5.6 1.5c-.9 1.2-2.2 1.4-2.2 3" />
+                <path d="M12 17h.01" />
+              </svg>
+              needs input
+            </span>
             <!-- Running status badge -->
             <span
               v-if="workflowStatus.runningCount > 0"
@@ -204,6 +224,7 @@
         v-if="hasRunningSession"
         :root-session-id="session.id"
         :session-ids="runningSessionIds"
+        default-collapsed
         data-testid="session-log-stream"
       />
     </router-link>
@@ -242,6 +263,7 @@ import { useKanbanStore } from '../stores/kanban.js';
 import { findNearestScheduledTime } from '../utils/scheduleInfo.js';
 import { getStatusIconSvg } from './statusIcons';
 import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
+import { isSessionActivelyRunning, summarizeWorkflowSessions } from '../utils/workflowStatus.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import MoveCardModal from './MoveCardModal.vue';
 import PrIndicators from './PrIndicators.vue';
@@ -344,39 +366,24 @@ const workflowStatus = computed(() => {
   if (props.workflowAggregate) {
     return {
       runningCount: props.workflowAggregate.runningCount || 0,
+      waitingCount: props.workflowAggregate.waitingCount || 0,
       scheduledCount: props.workflowAggregate.scheduledCount || 0,
       totalCount: (props.workflowAggregate.descendantCount || 0) + 1,
-      effectiveStatus: (props.workflowAggregate.runningCount || 0) > 0 ? 'running' : 'idle',
+      effectiveStatus: (props.workflowAggregate.runningCount || 0) > 0
+        ? 'running'
+        : (props.workflowAggregate.waitingCount || 0) > 0 ? 'waiting' : 'idle',
     };
   }
-  const allSessions = getWorkflowSessions();
-  const runningStatuses = ['running', 'starting'];
-
-  let runningCount = 0;
-  let scheduledCount = 0;
-  for (const s of allSessions) {
-    if (runningStatuses.includes(s.status)) runningCount++;
-    if (s.status === 'scheduled') scheduledCount++;
-  }
-
-  return {
-    runningCount,
-    scheduledCount,
-    totalCount: allSessions.length,
-    effectiveStatus: props.session.status,
-  };
+  return summarizeWorkflowSessions(getWorkflowSessions());
 });
 
 // Collect all running/starting session IDs in the workflow (full tree traversal)
 const runningSessionIds = computed(() => {
   if (props.workflowAggregate) {
-    return props.workflowAggregate.runningSessionIds?.length
-      ? props.workflowAggregate.runningSessionIds
-      : (props.workflowAggregate.runningCount > 0 ? [props.session.id] : []);
+    return props.workflowAggregate.runningSessionIds || [];
   }
-  const runningStatuses = ['running', 'starting'];
   return getWorkflowSessions()
-    .filter(s => runningStatuses.includes(s.status))
+    .filter(s => isSessionActivelyRunning(s))
     .map(s => s.id);
 });
 
@@ -507,6 +514,16 @@ const onStarClick = () => emit('star', {
   display: inline-block;
   vertical-align: middle;
   margin-right: 0.25rem;
+}
+
+.agent-input-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.agent-input-icon {
+  flex: 0 0 auto;
 }
 
 .scheduled-time {

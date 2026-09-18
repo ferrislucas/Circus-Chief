@@ -238,7 +238,7 @@ describe('WorkspaceCardListResponse', () => {
         runId: 'run-1', buttonId: 'button-1', status: 'running', exitCode: null, startedAt: 4,
       }],
     }],
-    facets: { running: 1, idle: 0 },
+    facets: { running: 1, idle: 0, waiting: 0 },
     pagination: { total: 1, limit: 50, offset: 0, hasMore: false },
   };
 

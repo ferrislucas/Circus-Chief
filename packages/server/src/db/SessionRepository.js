@@ -17,6 +17,7 @@ import {
   resolveAgentTypeFromModel,
 } from './session-helpers.js';
 import { getWorkspaceCardPage } from './workspace-queries.js';
+import { getProjectActivityAggregates } from './project-activity-queries.js';
 
 /**
  * Session repository class
@@ -52,6 +53,10 @@ export class SessionRepository extends BaseRepository {
       pendingModel: row.pending_model || null,
       effortLevel: row.effort_level || null,
       autoSendPendingPrompt: Boolean(row.auto_send_pending_prompt),
+      // Persisted mirror of promptStore.js's in-memory pending-prompt queue —
+      // true while the agent is blocked on AskUserQuestion/permission. Kept in
+      // sync by promptStore.js only; unrelated to `status`.
+      pendingAgentInput: Boolean(row.pending_agent_input),
       slashCommands: row.slash_commands || null,
       // Agent runtime driving this session (fallback to 'claude-code' for legacy rows).
       agentType: row.agent_type || DEFAULT_AGENT_TYPE,
@@ -171,6 +176,11 @@ export class SessionRepository extends BaseRepository {
    */
   getWorkspaceCardPage(projectId, options = {}) {
     return getWorkspaceCardPage(this.db, projectId, options);
+  }
+
+  /** Aggregate per-project active-workspace data across all projects (for the project list). */
+  getProjectActivityAggregates() {
+    return getProjectActivityAggregates(this.db);
   }
 
   getWorkspaceCard(projectId, rootId) {
@@ -392,6 +402,22 @@ export class SessionRepository extends BaseRepository {
    */
   getOrphanedRunningSessions() {
     return this.getRecoverableSessions('running');
+  }
+
+  /**
+   * Clear `pending_agent_input` on every session that still has it set.
+   * promptStore.js's parked-prompt queue lives only in process memory and
+   * always starts empty on boot, so any row where this flag is still 1 is
+   * describing an interactive prompt that died with the previous process —
+   * it can never be answered. Left uncleared, the project list's "waiting"
+   * aggregate (project-activity-queries.js) and the workspace-card "waiting"
+   * status filter would keep surfacing that session/project indefinitely,
+   * while every other pendingAgentInput read (which derives live from
+   * hasPendingPrompt()) would correctly show false — a permanent mismatch.
+   * @returns {number} Count of rows cleared.
+   */
+  clearStalePendingAgentInput() {
+    return this.db.prepare('UPDATE sessions SET pending_agent_input = 0 WHERE pending_agent_input = 1').run().changes;
   }
 
   /**

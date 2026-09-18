@@ -3,6 +3,7 @@ import { BaseRepository } from './BaseRepository.js';
 // Keep well below SQLite's historical 999-variable default while allowing
 // list endpoints to fan out across an arbitrary number of sessions.
 const SESSION_ID_CHUNK_SIZE = 500;
+export const COMMAND_RUN_OUTPUT_BYTE_WINDOW = 64 * 1024;
 
 /**
  * Command run repository class for persisting command execution history
@@ -18,9 +19,9 @@ export class CommandRunRepository extends BaseRepository {
       sessionId: row.session_id,
       buttonId: row.button_id,
       status: row.status,
-      // Kept for legacy rows only. New runs write append-only chunks.
-      output: row.output || '',
-      hasOutput: Boolean(row.has_output) || Boolean(row.output),
+      // Transcript content is stored exclusively as append-only chunks.
+      output: '',
+      hasOutput: Boolean(row.has_output),
       outputHighWater: row.output_high_water || 0,
       exitCode: row.exit_code,
       startedAt: row.started_at,
@@ -32,8 +33,8 @@ export class CommandRunRepository extends BaseRepository {
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO command_runs (id, session_id, button_id, status, output, started_at)
-         VALUES (?, ?, ?, 'running', '', ?)`
+        `INSERT INTO command_runs (id, session_id, button_id, status, started_at)
+         VALUES (?, ?, ?, 'running', ?)`
       )
       .run(id, sessionId, buttonId, now);
     return this.getById(id);
@@ -46,7 +47,7 @@ export class CommandRunRepository extends BaseRepository {
     return this.appendBatch(runId, text ? [text] : []);
   }
 
-  /** Persist bounded, append-only chunks and return their assigned cursors. */
+  /** Persist raw bytes separately from the rendered text used by existing clients. */
   appendBatch(runId, chunks) {
     const items = chunks.filter(Boolean);
     if (!items.length) return [];
@@ -55,13 +56,15 @@ export class CommandRunRepository extends BaseRepository {
         'SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence FROM command_run_output_chunks WHERE run_id = ?'
       ).get(runId).sequence;
       const insert = this.db.prepare(
-        `INSERT INTO command_run_output_chunks (run_id, sequence, content, byte_length, created_at)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO command_run_output_chunks (run_id, sequence, content, byte_length, raw_content, raw_byte_length, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
       );
-      return items.map((content, index) => {
+      return items.map((item, index) => {
+        const content = typeof item === 'string' ? item : item.rendered || '';
+        const rawContent = Buffer.from(typeof item === 'string' ? item : item.raw || content);
         const sequence = next + index;
-        insert.run(runId, sequence, content, Buffer.byteLength(content), Date.now());
-        return { sequence, content };
+        insert.run(runId, sequence, content, Buffer.byteLength(content), rawContent, rawContent.length, Date.now());
+        return { sequence, content, rawContent };
       });
     });
     return write();
@@ -71,6 +74,22 @@ export class CommandRunRepository extends BaseRepository {
     return this.db.prepare(
       'SELECT COALESCE(MAX(sequence), 0) AS sequence FROM command_run_output_chunks WHERE run_id = ?'
     ).get(runId).sequence;
+  }
+
+  /** Read descriptor metadata without mapping transcript content. */
+  getOutputResourceMetadata(id) {
+    const row = this.db.prepare(`SELECT cr.id, cr.session_id, cr.button_id, cr.status,
+      cr.exit_code, cr.started_at, cr.completed_at,
+      EXISTS(SELECT 1 FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS has_output,
+      (SELECT COALESCE(MAX(sequence), 0) FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS output_high_water
+      FROM command_runs cr WHERE cr.id = ?`).get(id);
+    if (!row) return null;
+    return {
+      id: row.id, sessionId: row.session_id, buttonId: row.button_id, status: row.status,
+      exitCode: row.exit_code, startedAt: row.started_at, completedAt: row.completed_at,
+      hasOutput: Boolean(row.has_output),
+      outputHighWater: row.output_high_water || 0,
+    };
   }
 
   /** Read an ordered, bounded page without materializing the full transcript. */
@@ -88,13 +107,50 @@ export class CommandRunRepository extends BaseRepository {
       bytes += row.byte_length;
       if (bytes >= limit) break;
     }
-    // Legacy rows predate chunks and remain readable as one bounded chunk.
-    if (!chunks.length && !after) {
-      const legacy = this.db.prepare('SELECT output FROM command_runs WHERE id = ?').get(runId)?.output;
-      if (legacy) return { chunks: [{ sequence: 1, content: legacy.slice(0, limit) }], highWater: 1, hasMore: Buffer.byteLength(legacy) > limit };
-    }
     const highWater = this.getHighWater(runId);
     return { chunks, highWater, hasMore: chunks.length ? chunks[chunks.length - 1].sequence < highWater : false };
+  }
+
+  /**
+   * Read a bounded number of persisted chunks for transcript materialization.
+   * Unlike readAfter this deliberately uses SQL LIMIT, so callers never fetch
+   * an unbounded number of chunk rows before applying their own byte budget.
+   */
+  readOutputPage(runId, after = 0, limit = 100) {
+    const pageSize = Math.max(1, Math.min(Number(limit) || 100, 1000));
+    const chunks = this.db.prepare(
+      `SELECT sequence, content, byte_length FROM command_run_output_chunks
+       WHERE run_id = ? AND sequence > ? ORDER BY sequence ASC LIMIT ?`
+    ).all(runId, Number(after) || 0, pageSize).map((row) => ({
+      sequence: row.sequence,
+      content: row.content,
+      byteLength: row.byte_length,
+    }));
+    return { chunks, highWater: this.getHighWater(runId) };
+  }
+
+  /**
+   * Read at most one byte window from the ordered chunk transcript. SQLite
+   * slices the BLOB before it crosses the database boundary, so this never
+   * materializes a whole oversized chunk in application memory.
+   */
+  readOutputByteWindow(runId, afterSequence = 0, offset = 0, limitBytes = COMMAND_RUN_OUTPUT_BYTE_WINDOW) {
+    const sequence = Math.max(0, Number(afterSequence) || 0);
+    const byteOffset = Math.max(0, Number(offset) || 0);
+    const limit = Math.max(1, Math.min(Number(limitBytes) || COMMAND_RUN_OUTPUT_BYTE_WINDOW, COMMAND_RUN_OUTPUT_BYTE_WINDOW));
+    const row = this.db.prepare(
+      `SELECT sequence, COALESCE(raw_byte_length, byte_length) AS byte_length,
+        substr(COALESCE(raw_content, CAST(content AS BLOB)), ?, ?) AS content
+       FROM command_run_output_chunks
+       WHERE run_id = ? AND (sequence > ? OR (sequence = ? AND ? > 0))
+       ORDER BY sequence ASC LIMIT 1`
+    ).get(byteOffset + 1, limit, runId, sequence, sequence, byteOffset);
+    if (!row) return null;
+    return {
+      sequence: row.sequence,
+      byteLength: row.byte_length,
+      content: row.content || Buffer.alloc(0),
+    };
   }
 
   /**
@@ -310,7 +366,7 @@ export class CommandRunRepository extends BaseRepository {
       .prepare(
         `SELECT *
          FROM (
-           SELECT cr.id, cr.session_id, cr.button_id, cr.status, cr.exit_code, cr.output, cr.started_at, cr.completed_at,
+           SELECT cr.id, cr.session_id, cr.button_id, cr.status, cr.exit_code, cr.started_at, cr.completed_at,
              EXISTS(SELECT 1 FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS has_output,
              (SELECT COALESCE(MAX(sequence), 0) FROM command_run_output_chunks c WHERE c.run_id = cr.id) AS output_high_water,
              ROW_NUMBER() OVER (PARTITION BY cr.button_id ORDER BY COALESCE(cr.completed_at, cr.started_at) DESC, cr.id DESC) as rn

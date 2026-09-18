@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
-import request from 'supertest';
 import { projects, sessions, messages, conversations } from '../database.js';
+import { createHttpTestServer } from '../../test/httpTestServer.js';
 
 // Mock websocket before importing the router
 vi.mock('../websocket.js', () => ({
@@ -31,24 +31,33 @@ import sessionsRouter from './sessions.js';
 
 describe('Sessions API - Conversation Routes (sessions-conversations.js)', () => {
   let app;
+  let client;
+  let closeServer;
   let project;
   let session;
+  // Keep the remaining request call sites on the explicitly owned listener.
+  const request = () => client;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
 
     app = express();
     app.use(express.json());
     app.use('/api/sessions', sessionsRouter);
+    ({ client, close: closeServer } = await createHttpTestServer(app));
 
     project = projects.create('Test Project', '/tmp/test');
     session = sessions.create(project.id, 'Test Session', 'Initial prompt', 'standard');
     sessions.update(session.id, { status: 'waiting' });
   });
 
+  afterEach(async () => {
+    await closeServer?.();
+  });
+
   describe('GET /api/sessions/:id/conversations', () => {
     it('returns conversations for the session', async () => {
-      const res = await request(app).get(`/api/sessions/${session.id}/conversations`);
+      const res = await client.get(`/api/sessions/${session.id}/conversations`);
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
       // Session auto-creates an initial conversation
@@ -56,14 +65,14 @@ describe('Sessions API - Conversation Routes (sessions-conversations.js)', () =>
     });
 
     it('returns 404 for non-existent session', async () => {
-      const res = await request(app).get('/api/sessions/non-existent/conversations');
+      const res = await client.get('/api/sessions/non-existent/conversations');
       expect(res.status).toBe(404);
     });
   });
 
   describe('POST /api/sessions/:id/conversations', () => {
     it('creates a new conversation', async () => {
-      const res = await request(app)
+      const res = await client
         .post(`/api/sessions/${session.id}/conversations`)
         .send({ name: 'New Conversation' });
 
@@ -74,7 +83,7 @@ describe('Sessions API - Conversation Routes (sessions-conversations.js)', () =>
     });
 
     it('creates conversation with null name when not provided', async () => {
-      const res = await request(app)
+      const res = await client
         .post(`/api/sessions/${session.id}/conversations`)
         .send({});
 
@@ -85,7 +94,7 @@ describe('Sessions API - Conversation Routes (sessions-conversations.js)', () =>
     it('returns 400 when session is running', async () => {
       sessions.update(session.id, { status: 'running' });
 
-      const res = await request(app)
+      const res = await client
         .post(`/api/sessions/${session.id}/conversations`)
         .send({ name: 'Test' });
 
@@ -99,7 +108,7 @@ describe('Sessions API - Conversation Routes (sessions-conversations.js)', () =>
       const conv = conversations.create(session.id, 'Test Conv', true);
       messages.create(session.id, 'user', 'Hello', { conversationId: conv.id });
 
-      const res = await request(app)
+      const res = await client
         .get(`/api/sessions/${session.id}/conversations/${conv.id}`);
 
       expect(res.status).toBe(200);
@@ -108,7 +117,7 @@ describe('Sessions API - Conversation Routes (sessions-conversations.js)', () =>
     });
 
     it('returns 404 for non-existent conversation', async () => {
-      const res = await request(app)
+      const res = await client
         .get(`/api/sessions/${session.id}/conversations/non-existent`);
 
       expect(res.status).toBe(404);
@@ -118,7 +127,7 @@ describe('Sessions API - Conversation Routes (sessions-conversations.js)', () =>
       const otherSession = sessions.create(project.id, 'Other', 'Prompt', 'standard');
       const conv = conversations.create(otherSession.id, 'Other Conv', true);
 
-      const res = await request(app)
+      const res = await client
         .get(`/api/sessions/${session.id}/conversations/${conv.id}`);
 
       expect(res.status).toBe(404);
@@ -129,7 +138,7 @@ describe('Sessions API - Conversation Routes (sessions-conversations.js)', () =>
     it('updates conversation name', async () => {
       const conv = conversations.create(session.id, 'Original', true);
 
-      const res = await request(app)
+      const res = await client
         .patch(`/api/sessions/${session.id}/conversations/${conv.id}`)
         .send({ name: 'Updated Name' });
 
@@ -141,7 +150,7 @@ describe('Sessions API - Conversation Routes (sessions-conversations.js)', () =>
       const conv = conversations.create(session.id, 'Test', false);
       sessions.update(session.id, { status: 'running' });
 
-      const res = await request(app)
+      const res = await client
         .patch(`/api/sessions/${session.id}/conversations/${conv.id}`)
         .send({ isActive: true });
 
@@ -181,11 +190,12 @@ describe('Sessions API - Conversation Routes (sessions-conversations.js)', () =>
       expect(res.body.error).toBe('Cannot delete conversation while session is running');
     });
 
-    it('returns 404 for non-existent conversation', async () => {
-      const res = await request(app)
-        .delete(`/api/sessions/${session.id}/conversations/non-existent`);
+    it('returns a routed 404 when the conversation does not exist', async () => {
+      const res = await client
+        .delete(`/api/sessions/${session.id}/conversations/non-existent`)
+        .expect(404);
 
-      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ error: 'Conversation not found' });
     });
   });
 
@@ -193,7 +203,7 @@ describe('Sessions API - Conversation Routes (sessions-conversations.js)', () =>
     it('returns 400 when messageId is missing', async () => {
       const conv = conversations.create(session.id, 'Test', true);
 
-      const res = await request(app)
+      const res = await client
         .post(`/api/sessions/${session.id}/conversations/${conv.id}/branch`)
         .send({ prompt: 'branch prompt' });
 
@@ -204,7 +214,7 @@ describe('Sessions API - Conversation Routes (sessions-conversations.js)', () =>
     it('returns 400 when prompt is missing', async () => {
       const conv = conversations.create(session.id, 'Test', true);
 
-      const res = await request(app)
+      const res = await client
         .post(`/api/sessions/${session.id}/conversations/${conv.id}/branch`)
         .send({ messageId: 'msg-1' });
 
@@ -216,7 +226,7 @@ describe('Sessions API - Conversation Routes (sessions-conversations.js)', () =>
       const conv = conversations.create(session.id, 'Test', true);
       sessions.update(session.id, { status: 'running' });
 
-      const res = await request(app)
+      const res = await client
         .post(`/api/sessions/${session.id}/conversations/${conv.id}/branch`)
         .send({ messageId: 'msg-1', prompt: 'branch' });
 
@@ -225,7 +235,7 @@ describe('Sessions API - Conversation Routes (sessions-conversations.js)', () =>
     });
 
     it('returns 404 for non-existent conversation', async () => {
-      const res = await request(app)
+      const res = await client
         .post(`/api/sessions/${session.id}/conversations/non-existent/branch`)
         .send({ messageId: 'msg-1', prompt: 'branch' });
 
