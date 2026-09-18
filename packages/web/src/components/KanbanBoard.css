@@ -148,9 +148,7 @@
 }
 
 .layout-vertical .lane-header-accordion {
-  cursor: pointer;
   min-height: 44px;
-  user-select: none;
 }
 
 .layout-vertical .lane-cards {
@@ -209,12 +207,37 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+/* Heading that wraps the accordion toggle button (WAI-ARIA accordion
+   pattern). Resets the h3 user-agent styles it inherited when the toggle
+   became a native button. */
 .lane-title-row {
   display: flex;
   align-items: center;
   gap: 0.375rem;
   flex: 1;
   min-width: 0;
+  margin: 0;
+  font: inherit;
+}
+
+/* Native accordion toggle filling the title row: Enter/Space activation is
+   provided by the platform, and the full row (chevron, title, automation
+   indicator) is one large hit target. */
+.lane-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
 }
 
 .lane-title {
@@ -409,7 +432,11 @@
 .card-move-btn {
   position: absolute;
   top: 0.25rem;
-  right: 1.75rem;
+  /* Sits clear of the 44px remove target (0.25rem inset + 44px + 4px gap) so
+     the two hit areas never overlap — they did before, and because Remove
+     comes later in the DOM the overlap silently triggered destructive
+     removal on part of the apparent Move target. */
+  right: 3.25rem;
   background: none;
   border: none;
   color: var(--color-text-soft);
@@ -610,6 +637,16 @@
   .kanban-card .card-remove-btn,
   .kanban-card .card-reorder-arrows {
     opacity: 1;
+  }
+
+  /* The card action strip is always visible here: 0.25rem inset + 44px
+     remove target + 4px gap + 44px move target = 96px of the card's top
+     right corner. Reserve that space (plus 4px of breathing room) so card
+     content (the title row) does not render beneath the controls. The
+     .card-link already contributes 0.75rem of right padding, so the header
+     needs the remaining 88px. */
+  .kanban-card .card-header {
+    padding-right: 88px;
   }
 
   .layout-vertical .card-move-btn,

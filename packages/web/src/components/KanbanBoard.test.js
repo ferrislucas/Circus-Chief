@@ -699,7 +699,7 @@ describe('KanbanBoard.vue', () => {
       expect(wrapper.find('.kanban-lanes-container').classes()).toContain('layout-vertical');
     });
 
-    it('4. clicking a lane header in vertical mode collapses its cards', async () => {
+    it('4. clicking the lane toggle in vertical mode collapses its cards', async () => {
       localStorage.setItem('kanbanLayoutMode', 'vertical');
       const wrapper = mountBoard();
       await wrapper.vm.$nextTick();
@@ -711,30 +711,30 @@ describe('KanbanBoard.vue', () => {
       // Note: isVisible() requires attachment to document.body; use style check instead.
       expect(laneCards.element.style.display).not.toBe('none');
 
-      // Collapse by clicking the header
-      const header = firstLane.find('.lane-header');
-      await header.trigger('click');
+      // Collapse by clicking the accordion toggle button
+      const toggle = firstLane.find('.lane-toggle-btn');
+      await toggle.trigger('click');
       await wrapper.vm.$nextTick();
 
       expect(laneCards.element.style.display).toBe('none');
     });
 
-    it('4. clicking the same lane header again re-expands it', async () => {
+    it('4. clicking the same lane toggle again re-expands it', async () => {
       localStorage.setItem('kanbanLayoutMode', 'vertical');
       const wrapper = mountBoard();
       await wrapper.vm.$nextTick();
 
       const firstLane = wrapper.findAll('.kanban-lane')[0];
       const laneCards = firstLane.find('.lane-cards');
-      const header = firstLane.find('.lane-header');
+      const toggle = firstLane.find('.lane-toggle-btn');
 
       // Collapse
-      await header.trigger('click');
+      await toggle.trigger('click');
       await wrapper.vm.$nextTick();
       expect(laneCards.element.style.display).toBe('none');
 
       // Re-expand
-      await header.trigger('click');
+      await toggle.trigger('click');
       await wrapper.vm.$nextTick();
       expect(laneCards.element.style.display).not.toBe('none');
     });
@@ -819,8 +819,8 @@ describe('KanbanBoard.vue', () => {
         const wrapper = mountBoard({ projectId: 'proj-1' });
         await wrapper.vm.$nextTick();
 
-        const laneHeaders = wrapper.findAll('.lane-header');
-        await laneHeaders[0].trigger('click');
+        const firstLane = wrapper.findAll('.kanban-lane')[0];
+        await firstLane.find('.lane-toggle-btn').trigger('click');
         await wrapper.vm.$nextTick();
 
         const stored = localStorage.getItem('kanbanExpandedLanes:proj-1');
@@ -904,6 +904,108 @@ describe('KanbanBoard.vue', () => {
         expect(laneCards[0].element.style.display).not.toBe('none');
         expect(laneCards[1].element.style.display).not.toBe('none');
       });
+    });
+  });
+
+  describe('Lane header semantics: accordion toggle vs settings', () => {
+    // Regression coverage: the lane header used to be a role="button" wrapper
+    // around the settings <button> with bubbling Enter/Space keydown handlers,
+    // so activating settings with the keyboard could also toggle (collapse)
+    // the lane, and the prevented Space keydown suppressed the settings
+    // button's native activation.
+
+    beforeEach(() => {
+      localStorage.setItem('kanbanLayoutMode', 'vertical');
+    });
+
+    const firstLaneOf = (wrapper) => wrapper.findAll('.kanban-lane')[0];
+
+    it('uses a native toggle button instead of a role="button" header wrapper', () => {
+      const wrapper = mountBoard();
+      const lane = firstLaneOf(wrapper);
+      const header = lane.find('.lane-header');
+
+      // The header itself must no longer be an interactive control.
+      expect(header.attributes('role')).toBeUndefined();
+      expect(header.attributes('tabindex')).toBeUndefined();
+
+      // The accordion toggle is a native button with proper accordion wiring.
+      const toggle = header.find('.lane-toggle-btn');
+      expect(toggle.exists()).toBe(true);
+      expect(toggle.element.tagName).toBe('BUTTON');
+      expect(toggle.attributes('type')).toBe('button');
+      expect(toggle.attributes('aria-expanded')).toBe('true');
+      expect(toggle.attributes('aria-controls')).toBe('lane-cards-lane-1');
+      expect(lane.find('.lane-cards').attributes('id')).toBe('lane-cards-lane-1');
+    });
+
+    it('renders a static title without a toggle button in horizontal mode', () => {
+      localStorage.setItem('kanbanLayoutMode', 'horizontal');
+      const wrapper = mountBoard();
+      const header = firstLaneOf(wrapper).find('.lane-header');
+
+      expect(header.find('.lane-toggle-btn').exists()).toBe(false);
+      expect(header.find('.lane-title').text()).toBe('To Do');
+    });
+
+    it('keeps aria-expanded in sync when the toggle is activated', async () => {
+      const wrapper = mountBoard();
+      const toggle = firstLaneOf(wrapper).find('.lane-toggle-btn');
+
+      await toggle.trigger('click');
+      await wrapper.vm.$nextTick();
+      expect(toggle.attributes('aria-expanded')).toBe('false');
+
+      await toggle.trigger('click');
+      await wrapper.vm.$nextTick();
+      expect(toggle.attributes('aria-expanded')).toBe('true');
+    });
+
+    it('does not toggle the lane when Enter is pressed on the settings button', async () => {
+      const wrapper = mountBoard();
+      const lane = firstLaneOf(wrapper);
+      const laneCards = lane.find('.lane-cards');
+      const settingsBtn = lane.find('.lane-settings-btn');
+
+      // Enter on the settings button used to bubble into the header's
+      // keydown.enter handler, collapsing the lane as a side effect.
+      const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+      settingsBtn.element.dispatchEvent(event);
+      await wrapper.vm.$nextTick();
+
+      expect(laneCards.element.style.display).not.toBe('none');
+      // The settings button's native activation must not be suppressed.
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('does not toggle the lane when Space is pressed on the settings button', async () => {
+      const wrapper = mountBoard();
+      const lane = firstLaneOf(wrapper);
+      const laneCards = lane.find('.lane-cards');
+      const settingsBtn = lane.find('.lane-settings-btn');
+
+      // Space on the settings button used to hit the header's
+      // keydown.space.prevent handler, which suppressed the button's native
+      // activation and collapsed the lane instead.
+      const event = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+      settingsBtn.element.dispatchEvent(event);
+      await wrapper.vm.$nextTick();
+
+      expect(laneCards.element.style.display).not.toBe('none');
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('does not swallow native keyboard activation on the toggle itself', () => {
+      const wrapper = mountBoard();
+      const toggle = firstLaneOf(wrapper).find('.lane-toggle-btn');
+
+      for (const key of ['Enter', ' ']) {
+        const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+        toggle.element.dispatchEvent(event);
+        // No custom preventDefault: the browser synthesizes the click itself
+        // (jsdom cannot simulate that part; the e2e suite presses real keys).
+        expect(event.defaultPrevented).toBe(false);
+      }
     });
   });
 
