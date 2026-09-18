@@ -866,6 +866,11 @@
     "@lezer/highlight" "^1.0.0"
     "@lezer/lr" "^1.4.0"
 
+"@lucide/vue@^1.16.0":
+  version "1.47.0"
+  resolved "https://registry.yarnpkg.com/@lucide/vue/-/vue-1.47.0.tgz#680b6d69961729b9d20209c1170fe7df86e1faf0"
+  integrity sha512-S0/UX9zra4Z8xmqrA1MH5GiSKA8daAPFwkmORt/u+gUHAkYZoeOcr+DH3scZeyE9bdLWScGK+MJoDYi8rIU5Jg==
+
 "@marijn/find-cluster-break@^1.0.0":
   version "1.0.2"
   resolved "https://registry.yarnpkg.com/@marijn/find-cluster-break/-/find-cluster-break-1.0.2.tgz#775374306116d51c0c500b8c4face0f9a04752d8"
@@ -1392,10 +1397,15 @@
   resolved "https://registry.yarnpkg.com/@vavt/copy2clipboard/-/copy2clipboard-1.0.3.tgz#eae77af8e83835cae5d932c3dc025e8838bb4c12"
   integrity sha512-HtG48r2FBYp9eRvGB3QGmtRBH1zzRRAVvFbGgFstOwz4/DDaNiX0uZc3YVKPydqgOav26pibr9MtoCaWxn7aeA==
 
-"@vavt/util@^2.1.0":
-  version "2.1.1"
-  resolved "https://registry.yarnpkg.com/@vavt/util/-/util-2.1.1.tgz#5e7b04d57e44d679cbaa37502d9e996176bed5a0"
-  integrity sha512-QYn/B2qiQhAGZVBoe5/6pPcA3NiGcxIm9htpVBjcdIOZQaWe+8kE/akEgLPrHxv5dbQQawnyHBokadW1d1z1tw==
+"@vavt/markdown-theme@^5.0.2":
+  version "5.0.2"
+  resolved "https://registry.yarnpkg.com/@vavt/markdown-theme/-/markdown-theme-5.0.2.tgz#622d12ec39188210a99d8fd485f85ac9cd06164f"
+  integrity sha512-cGYEV2VIUmhT9p8Wua9yXh7sKN1f3cbztTFHlkYyH9SzbpiKUnQrcbDts/0fP6cmvZPOe9SWWsDujmyuHepJdQ==
+
+"@vavt/util@^2.1.2":
+  version "2.1.2"
+  resolved "https://registry.yarnpkg.com/@vavt/util/-/util-2.1.2.tgz#e80a72627f9232aea825bc65230eaca260d3f722"
+  integrity sha512-L3UbSJthJwr3wq0x93O5TrCepimrmVZaIl2ciZbeL18G5++gBhJXNhcH7RcVk/6rr3SavWOvwhig0mqRLoR7dw==
 
 "@vitejs/plugin-vue@^6.0.3":
   version "6.0.5"
@@ -3195,15 +3205,10 @@ lru-cache@^10.2.0:
   resolved "https://registry.yarnpkg.com/lru-cache/-/lru-cache-10.4.3.tgz#410fc8a17b70e598013df257c2446b7f3383f119"
   integrity sha512-JNAzZcXrCt42VGLuYz0zfAzDfAvJWW6AfYlDBQyDV5DClI2m5sAmK+OIO7s59XfsRsWHp02jAJrRadPRGTt6SQ==
 
-lru-cache@^11.2.1, lru-cache@^11.2.4, lru-cache@^11.2.5, lru-cache@^11.2.6:
+lru-cache@^11.2.4, lru-cache@^11.2.5, lru-cache@^11.2.6:
   version "11.2.7"
   resolved "https://registry.yarnpkg.com/lru-cache/-/lru-cache-11.2.7.tgz#9127402617f34cd6767b96daee98c28e74458d35"
   integrity sha512-aY/R+aEsRelme17KGQa/1ZSIpLpNYYrhcrepKTZgE+W3WM16YMCaPwOHLHsmopZHELU0Ojin1lPVxKR0MihncA==
-
-lucide-vue-next@^0.543.0:
-  version "0.543.0"
-  resolved "https://registry.yarnpkg.com/lucide-vue-next/-/lucide-vue-next-0.543.0.tgz#3ac7f63ec60ed485730372513c7fe41e95250d4f"
-  integrity sha512-Az5kpNm/koKAwSNIKjsZ4uHV2tVfmlQlcHwFBygQ8gc5/jFg7An9OrxgDy/aE5m+HLx7VfLYqDxLr8gWecZbQA==
 
 magic-string@^0.30.21:
   version "0.30.21"
@@ -3260,10 +3265,10 @@ math-intrinsics@^1.1.0:
   resolved "https://registry.yarnpkg.com/math-intrinsics/-/math-intrinsics-1.1.0.tgz#a0dd74be81e2aa5c2f27e65ce283605ee4e2b7f9"
   integrity sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==
 
-md-editor-v3@^6.4.0:
-  version "6.4.0"
-  resolved "https://registry.yarnpkg.com/md-editor-v3/-/md-editor-v3-6.4.0.tgz#c341abd69a06667a1c7d9e4f906dbeb8d99870e8"
-  integrity sha512-gd2COD1cYsvC9KyKODxqC2fmWWCM1uamvPWQLl9fdcUieUyvP8BY9ANOIrxkjdJ5W6f7JcAuAsgiUyJmlMOyzQ==
+md-editor-v3@^6.5.4:
+  version "6.5.4"
+  resolved "https://registry.yarnpkg.com/md-editor-v3/-/md-editor-v3-6.5.4.tgz#20b8ac9ad2e19eac9809a1495a875d157f8b1f5d"
+  integrity sha512-oemxSjh4Da+rFseLYWBlknSfe60eHjHUybj548BZwQZysgtA1u9g+i1drQdbuvEStTN9qZv5rgyEQH71MH/PjA==
   dependencies:
     "@codemirror/autocomplete" "^6.18.7"
     "@codemirror/commands" "^6.8.1"
@@ -3274,12 +3279,12 @@ md-editor-v3@^6.4.0:
     "@codemirror/state" "^6.5.2"
     "@codemirror/view" "^6.38.2"
     "@lezer/highlight" "^1.2.1"
+    "@lucide/vue" "^1.16.0"
     "@types/markdown-it" "^14.0.1"
     "@vavt/copy2clipboard" "^1.0.1"
-    "@vavt/util" "^2.1.0"
+    "@vavt/markdown-theme" "^5.0.2"
+    "@vavt/util" "^2.1.2"
     codemirror "^6.0.2"
-    lru-cache "^11.2.1"
-    lucide-vue-next "^0.543.0"
     markdown-it "^14.0.0"
     markdown-it-image-figures "^2.1.1"
     markdown-it-sub "^2.0.0"
