@@ -2,6 +2,7 @@ import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { normalizeCommitAttributionOverride } from '@circuschief/shared/contracts/providers';
+import { degradeReferencesToEmptiedTiers } from '../services/tierDeletionService.js';
 import * as modelOps from './providerModelOperations.js';
 
 /**
@@ -216,7 +217,15 @@ export class ProviderRepository extends BaseRepository {
   }
 
   /**
-   * Delete a provider (prevents deletion of built-in providers)
+   * Delete a provider (prevents deletion of built-in providers).
+   *
+   * Atomic with tier repair: deleting a provider cascades its
+   * `model_tier_members` rows away, which can empty one or more model tiers.
+   * In the same transaction, every persisted consumer of a tier left with no
+   * executable member (project defaults, templates, lanes, summary settings,
+   * sessions) is degraded to its default — mirroring
+   * `deleteTierAndDegradeReferences` — so session creation and other tier
+   * consumers never fail validation on a dangling `tier::<id>` ref.
    * @param {string} id
    * @throws {Error} If attempting to delete a built-in provider or non-existent provider
    */
@@ -229,7 +238,10 @@ export class ProviderRepository extends BaseRepository {
       throw new Error('Cannot delete built-in provider');
     }
 
-    super.delete(id);
+    databaseManager.transaction(() => {
+      super.delete(id);
+      degradeReferencesToEmptiedTiers();
+    });
   }
 
   /**
@@ -283,7 +295,10 @@ export class ProviderRepository extends BaseRepository {
   }
 
   /**
-   * Update an existing model
+   * Update an existing model. Atomic with tier repair: renaming a model id
+   * removes the old id from the executable catalog, which can leave a tier
+   * whose members referenced the old id without any executable member — its
+   * persisted consumers are degraded in the same transaction.
    * @param {string} id - Model row ID
    * @returns {Object} Updated model
    */
@@ -291,18 +306,32 @@ export class ProviderRepository extends BaseRepository {
     const current = this.getModelById(id);
     if (!current) throw new Error('Model not found');
     const provider = this.getById(current.providerId);
-    return modelOps.updateModel(this.db, id, data, { current, provider });
+    const renamesModel = data.modelId !== undefined && data.modelId !== current.modelId;
+    return databaseManager.transaction(() => {
+      const updated = modelOps.updateModel(this.db, id, data, { current, provider });
+      if (renamesModel) degradeReferencesToEmptiedTiers();
+      return updated;
+    });
   }
 
   /**
    * Remove a model from a provider (soft-removal; see providerModelOperations.js).
+   *
+   * Atomic with tier repair: tombstoning the last executable member of a tier
+   * empties it, so every persisted consumer of that tier is degraded to its
+   * default in the same transaction (safe-deletion requirement; mirrors
+   * `deleteTierAndDegradeReferences`).
    * @param {string} modelId - Model row ID (not the model string like "claude-opus-4-6")
    * @returns {Object} The soft-removed model row
    */
   removeModel(modelId) {
     const model = this.getModelById(modelId);
     if (!model) throw new Error('Model not found');
-    return modelOps.removeModel(this.db, modelId, model);
+    return databaseManager.transaction(() => {
+      const removed = modelOps.removeModel(this.db, modelId, model);
+      degradeReferencesToEmptiedTiers();
+      return removed;
+    });
   }
 
   reorderModels(providerId, orderedRowIds) {

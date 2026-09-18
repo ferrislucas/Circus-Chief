@@ -12,8 +12,10 @@ import { getTierMembersResolved, markUnhealthy, isUnhealthy } from './tierResolu
 import { matchesStartFailoverEligibleError } from './sessionErrors.js';
 import { sanitizeTierFailureReason } from './tierFailureReason.js';
 import { isTierRef, parseTierRef } from '@circuschief/shared';
+import { modelTiers } from '../database.js';
+import { SummaryTierExhaustedError } from './summaryTierExhaustedError.js';
 
-export { SESSION_SUMMARY_SCHEMA };
+export { SummaryTierExhaustedError, SESSION_SUMMARY_SCHEMA };
 
 // Sentinel returned internally by the tier-traversal loop when nothing was
 // eligible to attempt (empty tier, every member cooled down, or every member
@@ -80,13 +82,12 @@ async function callSummaryModelWithTierFailover(tierRef, { prompt, recentMessage
   const members = tierId ? getTierMembersResolved(tierId) : [];
 
   let lastError = null;
-  let attempted = false;
+  const attempts = [];
 
   for (let i = 0; i < members.length; i++) {
     const member = members[i];
     if (isUnhealthy(member.providerId, member.modelId)) continue;
 
-    attempted = true;
     const resolution = resolveExplicitSummaryModel(member.modelId, member.providerId);
 
     try {
@@ -98,25 +99,34 @@ async function callSummaryModelWithTierFailover(tierRef, { prompt, recentMessage
         throw error;
       }
       lastError = error;
+      attempts.push({
+        providerId: member.providerId,
+        modelId: member.modelId,
+        reason: sanitizeTierFailureReason(error),
+      });
       const nextMember = findNextEligibleSummaryMember(members, i);
       // Cool every retryable provider failure, including the terminal member,
       // so subsequent summary jobs do not immediately hammer an unavailable tier.
       markUnhealthy(member.providerId, member.modelId);
-      logSummaryFailoverEvent({
-        options,
-        failedMember: member,
-        tierRef,
-        nextMember,
-        error,
-      });
+      // Emit a failover event ONLY when a successor exists. The terminal
+      // member's failure is tier exhaustion (the thrown SummaryTierExhaustedError
+      // below) — never a nominal failover to a null destination.
+      if (nextMember) {
+        logSummaryFailoverEvent({ options, failedMember: member, tierRef, nextMember, error });
+      }
     }
   }
 
-  if (attempted) {
+  if (attempts.length > 0) {
     // Every eligible member was tried and failed — terminal. Do NOT silently
     // degrade to the default model; that would mask a real capacity/outage
     // problem behind a summary that quietly used an unconfigured fallback.
-    throw lastError || new Error(`All summary tier members exhausted for tier "${tierRef}"`);
+    throw new SummaryTierExhaustedError({
+      tierRef,
+      tierName: modelTiers.getByIdWithMembers(tierId)?.name || tierRef,
+      attempts,
+      cause: lastError,
+    });
   }
 
   return TIER_FALLTHROUGH;

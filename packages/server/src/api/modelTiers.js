@@ -7,7 +7,8 @@ import {
 import { isTierRef, parseTierRef } from '@circuschief/shared';
 import { validateTierMembers } from './model-validation.js';
 import { getTierMemberAvailabilityMap, getTierMembersWithAvailability } from '../services/tierResolutionService.js';
-import { deleteTierAndDegradeReferences } from '../services/tierDeletionService.js';
+import { databaseManager } from '../db/DatabaseManager.js';
+import { deleteTierAndDegradeReferences, degradeReferencesToEmptiedTiers } from '../services/tierDeletionService.js';
 
 const ERR_TIER_NOT_FOUND = 'Tier not found';
 
@@ -106,8 +107,18 @@ router.patch('/:id', (req, res) => {
   }
 
   try {
-    const updated = modelTiers.update(req.params.id, result.data);
-    res.json(withManagementMembers(updated));
+    // Atomic with member replacement: a members update that leaves the tier
+    // with no executable member empties it, so its persisted consumers
+    // (defaults, templates, lanes, sessions, summary settings) are degraded in
+    // the same transaction instead of dangling on an unusable tier ref.
+    const updatedTier = databaseManager.transaction(() => {
+      const updated = modelTiers.update(req.params.id, result.data);
+      if (updated && result.data.members !== undefined) {
+        degradeReferencesToEmptiedTiers();
+      }
+      return updated;
+    });
+    res.json(withManagementMembers(updatedTier));
   } catch (error) {
     if (error.message?.includes('UNIQUE constraint failed')) {
       return res.status(409).json({ error: 'A tier with that name already exists' });

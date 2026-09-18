@@ -440,6 +440,35 @@ describe('Model Tiers API', () => {
       expect(response.body.name).toBe('Renamed Only');
     });
 
+    it('degrades persisted consumers when a members PATCH empties a referenced tier', async () => {
+      const created = await request(app)
+        .post('/api/tiers')
+        .send({
+          name: 'Patch Emptied Tier',
+          members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+        })
+        .expect(201);
+      const tierRef = buildTierRef(created.body.id);
+      const project = projects.create('Tier patch emptied', '/tmp/tier-patch-emptied');
+      projectDefaults.upsert(project.id, { model: tierRef, providerId: null });
+      const template = sessionTemplates.create({
+        projectId: project.id, name: 'Patch emptied template', prompt: 'Run', model: tierRef,
+      });
+
+      // members: [] empties the tier (not the configured summary tier, so the
+      // summary kind guard does not apply). Consumers must be degraded, and
+      // the tier row itself must survive for repopulation.
+      await request(app)
+        .patch(`/api/tiers/${created.body.id}`)
+        .send({ members: [] })
+        .expect(200);
+
+      expect(projectDefaults.getByProjectId(project.id)).toMatchObject({ model: null, providerId: null });
+      expect(sessionTemplates.getById(template.id).model).toBeNull();
+      const emptiedTier = await request(app).get(`/api/tiers/${created.body.id}`).expect(200);
+      expect(emptiedTier.body.members).toEqual([]);
+    });
+
     it('preserves a disabled member when a name-only UI edit submits the full member list', async () => {
       const created = await request(app)
         .post('/api/tiers')
