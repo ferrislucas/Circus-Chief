@@ -2,7 +2,6 @@ import { databaseManager } from '../db/DatabaseManager.js';
 import { buildTierRef } from '@circuschief/shared';
 
 const SUMMARY_SETTINGS_KEY = 'summary_settings';
-const SUMMARY_PROVIDER_KINDS = new Set(['anthropic', 'openai']);
 
 /**
  * Return the first member that remains executable at deletion time. This is
@@ -40,12 +39,11 @@ function rewriteSummarySettings(db, tierRef, fallback, now) {
   }
   if (!parsed || typeof parsed !== 'object' || parsed.summaryModel !== tierRef) return;
 
-  // Summary calls only support Anthropic and OpenAI. A valid summary tier is
-  // already constrained to those kinds, but clearing is safer for legacy/raw
-  // data than persisting a concrete model the summary client cannot route.
-  const canUseFallback = fallback && SUMMARY_PROVIDER_KINDS.has(fallback.providerKind);
-  parsed.summaryModel = canUseFallback ? fallback.modelId : '';
-  parsed.summaryProviderId = canUseFallback ? fallback.providerId : null;
+  // Summary dispatch supports every executable provider kind that can appear
+  // in a tier, so any active member is a routable fallback. Only clear when
+  // the tier has no active member at all.
+  parsed.summaryModel = fallback ? fallback.modelId : '';
+  parsed.summaryProviderId = fallback ? fallback.providerId : null;
   db.prepare('UPDATE app_settings SET value = ?, updated_at = ? WHERE key = ?')
     .run(JSON.stringify(parsed), now, SUMMARY_SETTINGS_KEY);
 }

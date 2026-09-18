@@ -648,6 +648,32 @@ describe('Model Tiers API', () => {
       });
     });
 
+    it('keeps summary settings pointed at the active Google member when deleting the configured summary tier', async () => {
+      const googleProvider = modelProviders.create({ name: 'Deletion Google Provider', kind: 'google' });
+      modelProviders.addModel(googleProvider.id, { modelId: 'gemini-deletion-model', displayName: 'Gemini' });
+      const created = await request(app)
+        .post('/api/tiers')
+        .send({
+          name: 'Deletion Google Summary Tier',
+          members: [{ providerId: googleProvider.id, modelId: 'gemini-deletion-model', position: 0 }],
+        })
+        .expect(201);
+      const tierRef = buildTierRef(created.body.id);
+      settings.setSummarySettings({
+        disableSessionSummaries: false,
+        sessionTitlePrompt: '',
+        summaryModel: tierRef,
+        summaryProviderId: null,
+      });
+
+      await request(app).delete(`/api/tiers/${created.body.id}`).expect(204);
+
+      expect(settings.getSummarySettings()).toMatchObject({
+        summaryModel: 'gemini-deletion-model',
+        summaryProviderId: googleProvider.id,
+      });
+    });
+
     it('pins a failed-over session to its own resolved member when deleting the tier', async () => {
       const created = await request(app)
         .post('/api/tiers')
