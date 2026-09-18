@@ -339,4 +339,15 @@ function getEffortLevelLabel(level) {
   color: #ef4444;
   border: 1px solid rgba(239, 68, 68, 0.4);
 }
+
+@media (max-width: 520px) {
+  .table-wrapper {
+    margin-inline: -0.25rem;
+    border-radius: var(--radius-sm);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .log-table { min-width: 48rem; }
+  .th, .td { padding-block: 0.75rem; }
+}
 </style>

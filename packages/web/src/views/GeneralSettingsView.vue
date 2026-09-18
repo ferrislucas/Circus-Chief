@@ -132,4 +132,20 @@ async function handleSave() {
   height: 1rem;
   cursor: pointer;
 }
+
+@media (max-width: 480px) {
+  .form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin: 0 -1rem -1rem;
+    padding: 0.75rem 1rem calc(0.75rem + var(--safe-area-inset-bottom));
+    background: var(--color-background-soft);
+    border-top: 1px solid var(--color-border);
+  }
+
+  .form-actions .btn { width: 100%; min-height: 44px; justify-content: center; }
+  .checkbox-label { align-items: flex-start; padding: 0.5rem 0; }
+  .checkbox-label input[type="checkbox"] { width: 1.25rem; height: 1.25rem; margin-top: 0.1rem; }
+}
 </style>

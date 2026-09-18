@@ -626,7 +626,7 @@ defineExpose({
   overflow: hidden;
   padding: 0;
   position: relative;
-  background: rgb(17, 24, 39);
+  background: var(--color-background-soft);
 }
 
 .session-chat-content--overlay {
@@ -646,7 +646,8 @@ defineExpose({
   display: flex;
   flex-direction: column;
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
 }
 
 .overlay-body {
@@ -664,7 +665,7 @@ defineExpose({
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   touch-action: pan-y;
-  background: rgb(17, 24, 39);
+  background: var(--color-background-soft);
 }
 
 .session-chat-content--embedded .overlay-body {
@@ -802,7 +803,7 @@ defineExpose({
   position: sticky;
   bottom: 0;
   z-index: 10;
-  background: rgb(17, 24, 39);
+  background: var(--color-background-soft);
   pointer-events: none;
 }
 
@@ -925,6 +926,12 @@ defineExpose({
     padding-right: 0.5rem;
     padding-bottom: 0.375rem;
     padding-left: 0.5rem;
+  }
+
+  .session-chat-content--embedded {
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
   }
 }
 </style>

@@ -69,6 +69,7 @@ function truncatePrompt(prompt, maxLength = 100) {
   color: inherit;
   display: block;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
+  overflow-wrap: anywhere;
 }
 
 .template-card:hover {
@@ -85,6 +86,7 @@ function truncatePrompt(prompt, maxLength = 100) {
   font-size: 1rem;
   font-weight: 600;
   color: var(--color-text);
+  overflow-wrap: anywhere;
 }
 
 .template-prompt {

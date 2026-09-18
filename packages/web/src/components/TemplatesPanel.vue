@@ -394,6 +394,7 @@ defineExpose({
 <style scoped>
 .templates-panel {
   padding: 1rem 0;
+  min-width: 0;
 }
 
 .templates-header {
@@ -410,6 +411,7 @@ defineExpose({
 
 .template-form {
   margin-bottom: 1.5rem;
+  box-shadow: var(--shadow-raised);
 }
 
 .template-form h3 {
@@ -515,6 +517,26 @@ defineExpose({
 
   .form-row {
     flex-direction: column;
+  }
+
+  .templates-header .btn {
+    min-height: 44px;
+    width: 100%;
+  }
+
+  .form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin: 1rem -0.25rem 0;
+    padding: 0.75rem 0.25rem calc(0.75rem + var(--safe-area-inset-bottom));
+    background: var(--color-background-soft);
+    border-top: 1px solid var(--color-border);
+  }
+
+  .form-actions .btn {
+    flex: 1;
+    min-height: 44px;
   }
 }
 </style>

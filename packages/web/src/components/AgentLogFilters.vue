@@ -221,4 +221,13 @@ const endDateValue = computed(() =>
   color: #fca5a5;
   font-weight: 600;
 }
+
+@media (max-width: 520px) {
+  .filter-bar { padding: 0.875rem; }
+  .filter-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+  .filter-group { min-width: 0; }
+  .filter-input, .filter-select { min-width: 0; width: 100%; min-height: 44px; font-size: 16px; }
+  .btn-clear, .btn-clear-all { min-height: 44px; padding-inline: 0.625rem; }
+  .btn-clear-all { grid-column: 1 / -1; }
+}
 </style>

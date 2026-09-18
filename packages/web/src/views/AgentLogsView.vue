@@ -323,4 +323,15 @@ onUnmounted(() => {
   color: var(--color-text-soft, #9ca3af);
   padding: 0 0.25rem;
 }
+
+@media (max-width: 520px) {
+  .error-banner { align-items: stretch; flex-direction: column; }
+  .btn-retry { min-height: 44px; }
+  .pagination-bar { align-items: stretch; gap: 0.75rem; }
+  .per-page-control { justify-content: space-between; }
+  .per-page-select { min-height: 44px; }
+  .page-info { flex: none; text-align: left; }
+  .page-buttons { overflow-x: auto; padding-bottom: 0.25rem; }
+  .page-btn { min-width: 44px; min-height: 44px; }
+}
 </style>

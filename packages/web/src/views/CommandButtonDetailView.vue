@@ -516,11 +516,24 @@ textarea.form-input {
   }
 
   .form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin: 0 -1rem -1rem;
+    padding: 0.75rem 1rem calc(0.75rem + var(--safe-area-inset-bottom));
+    background: var(--color-background-soft);
+    border-top: 1px solid var(--color-border);
     flex-direction: column-reverse;
   }
 
   .form-actions button {
     width: 100%;
+    min-height: 44px;
   }
+
+  .modal-overlay { align-items: flex-end; }
+  .modal-dialog { width: 100%; max-width: none; border-radius: var(--border-radius) var(--border-radius) 0 0; }
+  .modal-footer { padding-bottom: calc(1rem + var(--safe-area-inset-bottom)); }
+  .modal-footer .btn { min-height: 44px; }
 }
 </style>

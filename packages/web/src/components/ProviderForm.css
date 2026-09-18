@@ -339,7 +339,7 @@
   .modal {
     max-width: none;
     max-height: none;
-    min-height: 100vh;
+    min-height: 100dvh;
     border-radius: 0;
     border-left: 0;
     border-right: 0;
@@ -353,6 +353,7 @@
     align-items: stretch;
     flex-direction: column;
     gap: 0.75rem;
+    padding-bottom: calc(1rem + var(--safe-area-inset-bottom));
   }
 
   .footer-actions {
@@ -363,7 +364,13 @@
   .footer-actions .btn,
   .modal-footer > .btn {
     flex: 1;
+    min-height: 44px;
   }
+
+  .close-btn,
+  .toggle-visibility-btn,
+  .remove-env-btn,
+  .section-header { min-height: 44px; }
 
   .env-var-row,
   .token-input-wrapper {

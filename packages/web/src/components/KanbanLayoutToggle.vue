@@ -4,6 +4,7 @@
       class="layout-toggle-btn"
       :class="{ active: layout === 'horizontal' }"
       title="Column layout"
+      aria-label="Use column layout"
       @click="$emit('select', 'horizontal')"
     >
       <KanbanBoardIcon name="columns" />
@@ -12,6 +13,7 @@
       class="layout-toggle-btn"
       :class="{ active: layout === 'vertical' }"
       title="List layout"
+      aria-label="Use list layout"
       @click="$emit('select', 'vertical')"
     >
       <KanbanBoardIcon name="list" />

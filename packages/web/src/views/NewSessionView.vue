@@ -495,17 +495,18 @@ async function handleSubmit() {
   font-size: 0.875rem;
   color: var(--color-text-soft);
   display: inline-block;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.5rem;
   margin-top: 0;
 }
 
 h1 {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.875rem;
   margin-top: 0;
 }
 
 .form {
   width: 100%;
+  max-width: 900px;
 }
 
 .form-help {
@@ -525,7 +526,9 @@ h1 {
   display: flex;
   gap: 0.75rem;
   align-items: center;
-  margin-top: 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
 }
 
 .btn-submit {
@@ -574,7 +577,7 @@ h1 {
     border-radius: 0;
     border-left: none;
     border-right: none;
-    padding: 0.75rem;
+    padding: 1rem;
   }
 
   /* Compact header */
@@ -595,8 +598,8 @@ h1 {
     bottom: 0;
     background: var(--color-background-soft, var(--color-bg-soft, #1a1a2e));
     border-top: 1px solid var(--color-border);
-    padding: 0.75rem;
-    margin: 0 -0.75rem -0.75rem;
+    padding: 0.75rem 1rem;
+    margin: 0 -1rem -1rem;
     padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
     z-index: 10;
   }

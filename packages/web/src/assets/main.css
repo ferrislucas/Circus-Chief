@@ -8,20 +8,30 @@
   /* Visual viewport offset for iOS Safari browser chrome (URL bar, tab bar) */
   --viewport-offset-top: 0px;
 
-  --color-background: #0d1117;
-  --color-background-soft: #161b22;
-  --color-background-mute: #21262d;
-  --color-border: #30363d;
-  --color-text: #c9d1d9;
-  --color-text-soft: #8b949e;
-  --color-primary: #58a6ff;
-  --color-primary-soft: #388bfd;
+  /* Console surfaces: deliberately close in value so state and hierarchy,
+     rather than decoration, carry the interface. */
+  --color-background: #0b1016;
+  --color-background-soft: #131b24;
+  --color-background-mute: #1b2733;
+  --color-background-secondary: #16212c;
+  --color-border: #2b3947;
+  --color-border-hover: #46586b;
+  --color-text: #d5dee8;
+  --color-text-soft: #94a3b5;
+  --color-primary: #6cb6ff;
+  --color-primary-soft: #458fd8;
   --color-success: #3fb950;
   --color-warning: #d29922;
   --color-error: #f85149;
   --color-danger: #f85149;
   --color-info: #58a6ff;
-  --border-radius: 6px;
+  --border-radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+  --shadow-raised: 0 10px 28px rgba(0, 0, 0, 0.2);
+  --focus-ring: 0 0 0 3px rgba(108, 182, 255, 0.28);
+  --control-height: 40px;
+  --page-gutter: clamp(1rem, 3vw, 2rem);
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
   --header-height: 51px; /* 40px logo + 10px padding (5px top/bottom) + 1px border */
 
@@ -41,6 +51,13 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+}
+
+html,
+body,
+#app {
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 html.session-overlay-open,
@@ -86,7 +103,7 @@ input[type="number"],
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background-color: var(--color-background);
   color: var(--color-text);
   line-height: 1.6;
@@ -116,7 +133,8 @@ input, textarea, select {
 .container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 1rem;
+  padding: 1.5rem var(--page-gutter);
+  width: 100%;
 }
 
 /* Buttons */
@@ -125,18 +143,28 @@ input, textarea, select {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.5rem 1rem;
+  min-height: var(--control-height);
+  padding: 0.5rem 0.875rem;
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   background-color: var(--color-background-soft);
   color: var(--color-text);
   font-size: 0.875rem;
   font-weight: 500;
-  transition: all 0.2s;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
 }
 
 .btn:hover {
   background-color: var(--color-background-mute);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
 }
 
 .btn-primary {
@@ -190,8 +218,9 @@ input, textarea, select {
 .card {
   background-color: var(--color-background-soft);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
+  border-radius: var(--radius-lg);
   padding: 1rem;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025) inset;
 }
 
 /* Forms */
@@ -208,6 +237,7 @@ input, textarea, select {
 
 .form-input {
   width: 100%;
+  min-height: var(--control-height);
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
@@ -218,12 +248,26 @@ input, textarea, select {
 .form-input:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.3);
+  box-shadow: var(--focus-ring);
 }
 
 .form-textarea {
   min-height: 100px;
   resize: vertical;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 /* Status badges */
@@ -313,11 +357,12 @@ input, textarea, select {
   top: calc(var(--header-height-computed, 51px) + var(--viewport-offset-top, 0px));
   background-color: var(--color-background);
   z-index: 99;
-  padding: 0.5rem 0.5rem 0 0.5rem; /* Add horizontal padding to prevent cut-off */
+  padding: 0.5rem 0 0;
 }
 
 .tab {
-  padding: 0.75rem 1rem;
+  min-height: 42px;
+  padding: 0.65rem 0.875rem;
   border: none;
   background: none;
   color: var(--color-text-soft);
@@ -369,6 +414,7 @@ input, textarea, select {
 .tab-select {
   flex: 1;
   width: 100%;
+  min-height: var(--control-height);
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
@@ -508,5 +554,49 @@ pre {
   .form-label {
     margin-bottom: 0.25rem;
     font-size: 0.875rem;
+  }
+
+  .container {
+    padding-top: 1rem;
+    padding-bottom: calc(1.25rem + var(--safe-area-inset-bottom));
+  }
+
+  .btn:not(.btn-sm),
+  .tab-select,
+  .form-input {
+    min-height: 44px;
+  }
+
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  .toast-container {
+    top: calc(0.75rem + var(--safe-area-inset-top));
+    right: 0.75rem;
+    left: 0.75rem;
+  }
+
+  .toast {
+    min-width: 0;
+    max-width: none;
+  }
+
+  /* Dense session tools retain thumb-sized controls even when they use the
+     compact button variant for desktop density. */
+  .commands-tab .button-actions .btn,
+  .commands-tab .button-actions button {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }

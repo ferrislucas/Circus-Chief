@@ -62,32 +62,52 @@
         <div
           class="lane-header"
           :class="{ 'lane-header-accordion': effectiveLayout === 'vertical' }"
-          @click="handleLaneHeaderClick(lane.id)"
         >
-          <div class="lane-title-row">
-            <!-- Chevron: only shown in vertical/accordion mode -->
-            <KanbanBoardIcon
+          <!-- Heading wraps the accordion toggle button (WAI-ARIA accordion
+               pattern). The toggle and the settings action are separate
+               sibling controls so their keyboard behavior cannot interfere. -->
+          <h3 class="lane-title-row">
+            <button
               v-if="effectiveLayout === 'vertical'"
-              name="chevron"
-              class="lane-chevron"
-              :class="{ 'lane-chevron-expanded': expandedLanes[lane.id] }"
-            />
-            <h3 class="lane-title">
-              {{ lane.name }}
-            </h3>
+              type="button"
+              class="lane-toggle-btn"
+              :aria-expanded="expandedLanes[lane.id] ? 'true' : 'false'"
+              :aria-controls="`lane-cards-${lane.id}`"
+              @click="handleLaneHeaderClick(lane.id)"
+            >
+              <KanbanBoardIcon
+                name="chevron"
+                class="lane-chevron"
+                :class="{ 'lane-chevron-expanded': expandedLanes[lane.id] }"
+              />
+              <span class="lane-title">{{ lane.name }}</span>
+              <span
+                v-if="lane.onEnterTemplateId || lane.onEnterPrompt"
+                class="lane-automation-indicator"
+                title="Automation enabled"
+              >
+                <KanbanBoardIcon name="automation" />
+              </span>
+            </button>
             <span
-              v-if="lane.onEnterTemplateId || lane.onEnterPrompt"
+              v-else
+              class="lane-title"
+            >{{ lane.name }}</span>
+            <span
+              v-if="effectiveLayout !== 'vertical' && (lane.onEnterTemplateId || lane.onEnterPrompt)"
               class="lane-automation-indicator"
               title="Automation enabled"
             >
               <KanbanBoardIcon name="automation" />
             </span>
-          </div>
+          </h3>
           <div class="lane-header-actions">
             <span class="lane-count">{{ lane.cards?.length || 0 }}</span>
             <button
               class="lane-settings-btn"
+              type="button"
               title="Lane settings"
+              aria-label="Lane settings"
               @click.stop="openLaneSettings(lane)"
             >
               <KanbanBoardIcon name="settings" />
@@ -98,6 +118,7 @@
         <!-- Cards: always shown in horizontal; shown when expanded in vertical -->
         <div
           v-show="effectiveLayout === 'horizontal' || expandedLanes[lane.id]"
+          :id="`lane-cards-${lane.id}`"
           class="lane-cards"
         >
           <template
@@ -145,6 +166,7 @@
                   v-if="cardIndex > 0"
                   class="card-reorder-btn"
                   title="Move card up"
+                  aria-label="Move card up"
                   @click.prevent="moveCardInLane(lane.id, cardIndex, cardIndex - 1)"
                 >
                   <KanbanBoardIcon name="reorder-up" />
@@ -153,6 +175,7 @@
                   v-if="cardIndex < lane.cards.length - 1"
                   class="card-reorder-btn"
                   title="Move card down"
+                  aria-label="Move card down"
                   @click.prevent="moveCardInLane(lane.id, cardIndex, cardIndex + 1)"
                 >
                   <KanbanBoardIcon name="reorder-down" />
@@ -161,6 +184,7 @@
               <button
                 class="card-move-btn"
                 title="Move to lane"
+                aria-label="Move to lane"
                 @click.prevent="openMoveCardModal(card, lane.id)"
               >
                 <KanbanBoardIcon name="move" />
@@ -168,6 +192,7 @@
               <button
                 class="card-remove-btn"
                 title="Remove from board"
+                aria-label="Remove from board"
                 @click.prevent="handleRemoveCard(card.id)"
               >
                 &times;
@@ -449,7 +474,10 @@ const toggleLane = (laneId) => {
   writeExpandedLanes(props.projectId, { ...expandedLanes });
 };
 
-// Called when the lane header is clicked; only toggles in vertical mode.
+// Called from the accordion toggle button; only toggles in vertical mode.
+// Enter/Space need no custom handling: the toggle is a native <button>, so
+// the platform synthesizes the click and settings-button key events cannot
+// bubble into it.
 const handleLaneHeaderClick = (laneId) => {
   if (effectiveLayout.value === 'vertical') {
     toggleLane(laneId);

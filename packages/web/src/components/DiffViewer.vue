@@ -309,6 +309,7 @@ defineExpose({
   font-family: var(--font-mono);
   font-size: 0.75rem;
   line-height: 1.4;
+  min-width: 0;
 }
 
 .diff-empty {
@@ -328,7 +329,8 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  min-height: 48px;
+  padding: 0.375rem 0.5rem 0.375rem 0.75rem;
   background-color: var(--color-background-mute);
   cursor: pointer;
   user-select: none;
@@ -384,13 +386,20 @@ defineExpose({
   flex: 1;
   min-width: 0;
   color: var(--color-text);
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .diff-file-stats {
   display: flex;
   gap: 0.5rem;
   font-size: 0.75rem;
+}
+
+@media (max-width: 640px) {
+  .diff-file-header { gap: 0.35rem; }
+  .diff-file-stats { gap: 0.25rem; }
+  .copy-button { margin-inline: 0; }
+  .preview-toggle { min-height: 44px; padding-inline: 0.5rem; font-size: 0.75rem; }
 }
 
 .stat-additions {

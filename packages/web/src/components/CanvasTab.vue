@@ -417,8 +417,9 @@ function handleCancelSelection() {
 
 <style scoped>
 .canvas-tab {
-  padding: 1rem 0;
+  padding: 0.75rem 0 calc(1rem + var(--safe-area-inset-bottom));
   min-height: 200px;
+  min-width: 0;
   transition: background-color 0.2s, border-color 0.2s, opacity 0.3s ease;
 }
 
@@ -437,6 +438,10 @@ function handleCancelSelection() {
   align-items: center;
   gap: 1rem;
   margin-bottom: 1rem;
+  padding: 0.5rem;
+  background: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
 .canvas-header label.disabled {
@@ -449,6 +454,7 @@ function handleCancelSelection() {
   background: var(--color-background-mute);
   border: 1px solid var(--color-border);
   color: var(--color-text-soft);
+  min-height: var(--control-height);
   padding: 0.375rem 0.75rem;
   border-radius: var(--border-radius);
   cursor: pointer;
@@ -511,7 +517,7 @@ function handleCancelSelection() {
   padding: 0.75rem 1rem;
   background: rgba(59, 130, 246, 0.1);
   border: 1px solid rgba(59, 130, 246, 0.3);
-  border-radius: var(--border-radius);
+  border-radius: var(--radius-lg);
   margin-bottom: 1rem;
   flex-wrap: wrap;
 }
@@ -581,7 +587,7 @@ function handleCancelSelection() {
     gap: 0.5rem;
   }
 
-  .canvas-header .btn-primary {
+  .canvas-header .btn-primary, .canvas-header .trash-toggle {
     flex: 1;
     min-height: 44px;
   }
@@ -608,10 +614,6 @@ function handleCancelSelection() {
     min-height: 44px;
   }
 
-  .toolbar-checkbox {
-    width: 16px;
-    height: 16px;
-  }
 }
 
 /* Hide drag hint on touch devices */

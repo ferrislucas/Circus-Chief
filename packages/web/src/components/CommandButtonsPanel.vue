@@ -6,6 +6,7 @@
       <router-link
         :to="`/projects/${projectId}/circus-commands/new`"
         class="btn btn-primary btn-sm"
+        data-testid="new-command-btn"
       >
         + New Circus Command
       </router-link>
@@ -83,6 +84,7 @@
         >
           <button
             class="btn btn-sm btn-outline-danger"
+            :aria-label="`Delete ${button.label}`"
             @click="onDeleteClick(button)"
           >
             Delete
@@ -185,6 +187,7 @@ const confirmDelete = async () => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  min-width: 0;
 }
 
 .panel-header {
@@ -192,6 +195,7 @@ const confirmDelete = async () => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1rem;
+  gap: 0.75rem;
 }
 
 .panel-header h3 {
@@ -236,11 +240,12 @@ const confirmDelete = async () => {
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   overflow: hidden;
+  min-width: 0;
 }
 
 .table-header {
   display: grid;
-  grid-template-columns: 200px 1fr 100px 100px;
+  grid-template-columns: minmax(9rem, 200px) minmax(0, 1fr) 100px 100px;
   gap: 1rem;
   padding: 1rem;
   background-color: var(--color-background-mute);
@@ -253,7 +258,7 @@ const confirmDelete = async () => {
 
 .table-row {
   display: grid;
-  grid-template-columns: 200px 1fr 100px 100px;
+  grid-template-columns: minmax(9rem, 200px) minmax(0, 1fr) 100px 100px;
   gap: 1rem;
   padding: 1rem;
   border-bottom: 1px solid var(--color-border);
@@ -288,6 +293,7 @@ const confirmDelete = async () => {
   border-radius: 3px;
   font-family: var(--font-mono);
   font-size: 0.8rem;
+  overflow-wrap: anywhere;
 }
 
 .col-order {
@@ -320,7 +326,9 @@ const confirmDelete = async () => {
   border-radius: var(--border-radius);
   max-width: 400px;
   width: 90%;
-  overflow: hidden;
+  max-height: calc(100dvh - 2rem - var(--safe-area-inset-top) - var(--safe-area-inset-bottom));
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .modal-header {
@@ -348,6 +356,20 @@ const confirmDelete = async () => {
 
 /* Responsive Design */
 @media (max-width: 640px) {
+  .panel-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .panel-header .btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .table-header {
+    display: none;
+  }
+
   .table-header,
   .table-row {
     grid-template-columns: 1fr;
@@ -363,7 +385,17 @@ const confirmDelete = async () => {
   .col-command,
   .col-order,
   .col-actions {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    justify-content: space-between;
   }
+
+  .col-actions .btn { min-height: 44px; }
+
+  .modal-overlay { align-items: flex-end; padding: 1rem; padding-bottom: calc(1rem + var(--safe-area-inset-bottom)); }
+  .modal-dialog { width: 100%; }
+  .modal-footer { padding-bottom: calc(1rem + var(--safe-area-inset-bottom)); }
+  .modal-footer .btn { min-height: 44px; flex: 1; }
 }
 </style>

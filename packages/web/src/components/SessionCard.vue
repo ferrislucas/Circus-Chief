@@ -442,11 +442,12 @@ const onStarClick = () => emit('star', {
   gap: 0.75rem;
   color: var(--color-text);
   text-decoration: none;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, background-color 0.2s, transform 0.2s;
 }
 
 .session-card:hover {
   border-color: var(--color-primary);
+  background-color: var(--color-background-secondary);
   text-decoration: none;
 }
 
@@ -471,7 +472,7 @@ const onStarClick = () => emit('star', {
 .session-name {
   margin: 0 0 0.5rem;
   font-size: 1rem;
-  overflow: auto;
+  overflow-wrap: anywhere;
   word-break: break-word;
   line-height: 1.4;
 }
@@ -480,7 +481,8 @@ const onStarClick = () => emit('star', {
   margin: 0;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem 0.75rem;
+  flex-wrap: wrap;
 }
 
 .session-project {
