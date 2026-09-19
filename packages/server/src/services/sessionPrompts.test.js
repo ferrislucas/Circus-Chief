@@ -31,11 +31,58 @@ import {
   buildSystemPromptConfig,
 } from './sessionPrompts.js';
 import { getApiBaseUrl } from './apiBaseUrl.js';
+import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
 import {
-  DEFAULT_SERVER_PORT,
-  DEFAULT_SYSTEM_PROMPT,
-} from '@circuschief/shared';
+  CreateKanbanLaneRequest,
+  ReorderKanbanLanesRequest,
+  UpdateKanbanLaneRequest,
+} from '@circuschief/shared/contracts/kanban';
 import { readFileSync } from 'node:fs';
+
+const EXAMPLE_IDS = {
+  lane: '11111111-1111-4111-8111-111111111111',
+  target: '22222222-2222-4222-8222-222222222222',
+  first: '33333333-3333-4333-8333-333333333333',
+  second: '44444444-4444-4444-8444-444444444444',
+};
+
+function extractKanbanExample(prompt, heading) {
+  const match = prompt.match(new RegExp(`### ${heading}\\n[\\s\\S]*?` + '```bash\\n([\\s\\S]*?)\\n```'));
+  expect(match, `missing ${heading} example`).not.toBeNull();
+  const command = match[1];
+  const body = command.match(/-d '([^']+)'/);
+  expect(body, `${heading} needs a JSON request body`).not.toBeNull();
+  return { command, body: body[1] };
+}
+
+function parseExampleBody(body) {
+  return JSON.parse(body
+    .replaceAll('<lane_id>', EXAMPLE_IDS.lane)
+    .replaceAll('<target_lane_id>', EXAMPLE_IDS.target)
+    .replaceAll('<lane_id_1>', EXAMPLE_IDS.first)
+    .replaceAll('<lane_id_2>', EXAMPLE_IDS.second));
+}
+
+/**
+ * Parse a documented request body and assert the contract accepts it WITHOUT
+ * silently discarding any submitted key. Zod objects strip unknown keys by
+ * default, so `safeParse(...).success` alone proves nothing about whether the
+ * documented fields are actually accepted.
+ */
+function expectDocumentedBodyAccepted(body, schema, label) {
+  const input = parseExampleBody(body);
+  const parsed = schema.safeParse(input);
+  expect(
+    parsed.success,
+    `${label} example must satisfy the request contract: ${JSON.stringify(parsed.error?.issues ?? [])}`
+  ).toBe(true);
+  const stripped = Object.keys(input).filter((key) => !(key in (parsed.data ?? {})));
+  expect(
+    stripped,
+    `${label} example submits fields the contract does not accept (silently stripped): ${stripped.join(', ')}`
+  ).toEqual([]);
+  return parsed.data;
+}
 
 describe('sessionPrompts', () => {
   beforeEach(() => {
@@ -651,6 +698,118 @@ describe('sessionPrompts', () => {
       expect(result).toContain('Create a New Lane');
       expect(result).toContain('Update a Lane');
       expect(result).toContain('Delete a Lane');
+    });
+
+    it('documents every contract lane field for create and update', () => {
+      projects.getById.mockReturnValue({});
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+      const laneFields = result.slice(
+        result.indexOf('### Lane Request Fields'),
+        result.indexOf('### Add Current Workspace to the Board')
+      );
+
+      const updateFields = Object.keys(UpdateKanbanLaneRequest.shape);
+
+      // Unwrap optional/nullable wrappers to reach the inner schema (e.g. ZodEnum).
+      const unwrapAll = (schema) => {
+        let current = schema;
+        while (typeof current?.unwrap === 'function') current = current.unwrap();
+        return current;
+      };
+
+      for (const [field, fieldSchema] of Object.entries(CreateKanbanLaneRequest.shape)) {
+        expect(laneFields, `missing create field ${field}`).toContain(`\`${field}\``);
+        expect(updateFields, `update contract dropped create field ${field}`).toContain(field);
+        // Documented enum values are derived from the contract, not hand-maintained.
+        const enumValues = unwrapAll(fieldSchema)?.options;
+        if (Array.isArray(enumValues)) {
+          for (const value of enumValues) {
+            expect(laneFields, `missing enum value \`${value}\` for ${field}`).toContain(`\`${value}\``);
+          }
+        }
+      }
+      expect(updateFields).toContain('completionTargetLaneId');
+      expect(laneFields).toContain('`completionTargetLaneId`');
+      // completionTargetLaneId is accepted on lane creation too; "update-only" is stale.
+      expect(laneFields).toContain('accepted on both create and update');
+      expect(laneFields).not.toContain('update-only');
+      expect(laneFields).toContain('omitted fields preserve their current values');
+      expect(laneFields).toContain('explicit `null` clears nullable settings');
+      expect(laneFields).toContain('mutually exclusive');
+      expect(laneFields).toContain('different lane on the same board');
+      expect(laneFields).toContain('`null` clears the destination');
+      // Prose requirements the schemas cannot express: the runtime automation
+      // prerequisite for completion routing and its failure code.
+      expect(laneFields).toContain('requires on-entry automation');
+      expect(laneFields).toContain('KANBAN_LANE_AUTOMATION_REQUIRED');
+    });
+
+    it('does not advertise the removed completionMode field or obsolete completion modes', () => {
+      projects.getById.mockReturnValue({});
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+      const kanbanSection = result.slice(result.indexOf('## Kanban Board API'));
+
+      expect(kanbanSection).not.toContain('completionMode');
+      expect(kanbanSection).not.toContain('legacy');
+      expect(kanbanSection).not.toContain('shadow');
+      expect(kanbanSection).not.toContain('structured');
+    });
+
+    it('documents board discovery before ID-dependent lane changes and executable request examples', () => {
+      projects.getById.mockReturnValue({});
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+      const boardRead = result.indexOf(`curl http://localhost:${DEFAULT_SERVER_PORT}/api/projects/${projectId}/kanban`);
+      const completionUpdate = result.indexOf('### Set Completion Routing');
+      const reorder = result.indexOf('### Reorder Lanes');
+
+      expect(boardRead).toBeGreaterThanOrEqual(0);
+      expect(result).toContain('authoritative source for current settings and lane IDs');
+      expect(result).toContain('use those returned IDs rather than guessing');
+      expect(boardRead).toBeLessThan(completionUpdate);
+      expect(boardRead).toBeLessThan(reorder);
+
+      const minimalCreate = extractKanbanExample(result, 'Create a New Lane');
+      const automatedCreate = extractKanbanExample(result, 'Create a Lane with Prompt Automation');
+      const rename = extractKanbanExample(result, 'Update a Lane');
+      const completion = extractKanbanExample(result, 'Set Completion Routing');
+      const clear = extractKanbanExample(result, 'Clear Lane Automation and Completion Routing');
+      const reorderExample = extractKanbanExample(result, 'Reorder Lanes');
+
+      expect(minimalCreate.command).toContain(`-X POST http://localhost:${DEFAULT_SERVER_PORT}/api/projects/${projectId}/kanban/lanes`);
+      expect(automatedCreate.command).toContain(`-X POST http://localhost:${DEFAULT_SERVER_PORT}/api/projects/${projectId}/kanban/lanes`);
+      expect(rename.command).toContain(`/api/projects/${projectId}/kanban/lanes/<lane_id>`);
+      expect(completion.command).toContain(`/api/projects/${projectId}/kanban/lanes/<lane_id>`);
+      expect(clear.command).toContain(`/api/projects/${projectId}/kanban/lanes/<lane_id>`);
+      expect(reorderExample.command).toContain(`-X PUT http://localhost:${DEFAULT_SERVER_PORT}/api/projects/${projectId}/kanban/lanes/reorder`);
+
+      expectDocumentedBodyAccepted(minimalCreate.body, CreateKanbanLaneRequest, 'minimal create');
+      expectDocumentedBodyAccepted(automatedCreate.body, CreateKanbanLaneRequest, 'automated create');
+      expectDocumentedBodyAccepted(rename.body, UpdateKanbanLaneRequest, 'rename');
+      expectDocumentedBodyAccepted(completion.body, UpdateKanbanLaneRequest, 'completion routing');
+      expectDocumentedBodyAccepted(clear.body, UpdateKanbanLaneRequest, 'clear');
+      expectDocumentedBodyAccepted(reorderExample.body, ReorderKanbanLanesRequest, 'reorder');
+
+      // The routing example must be executable on its own: a completion target
+      // requires on-entry automation, so the example must configure it in the
+      // same request instead of assuming the lane already has it.
+      const completionBody = parseExampleBody(completion.body);
+      expect(completionBody.completionTargetLaneId).toBe(EXAMPLE_IDS.target);
+      expect(
+        completionBody.onEnterPrompt?.trim(),
+        'routing example must configure on-entry automation itself'
+      ).toBeTruthy();
+
+      const routingSection = result.slice(completionUpdate, result.indexOf('### Clear Lane Automation and Completion Routing'));
+      expect(routingSection).toContain('on-entry automation');
+    });
+
+    it('explains how to replace or disable lane-entry automation', () => {
+      projects.getById.mockReturnValue({});
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).toContain('set `onEnterPrompt` and `onEnterTemplateId: null`');
+      expect(result).toContain('set `onEnterTemplateId` and `onEnterPrompt: null`');
+      expect(result).toContain('"onEnterTemplateId":null,"onEnterPrompt":null');
     });
 
     it('uses workspaceId (not sessionId) and by-workspace routes in kanban instructions', () => {
