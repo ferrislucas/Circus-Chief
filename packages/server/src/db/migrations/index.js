@@ -333,6 +333,9 @@ export const allMigrations = validateMigrations([
   mt.get('model-tiers-provider-pair-columns'),
   mt.get('model-tiers-repair-members-and-unique-indexes'),
 
+  // --- Reserve the Model Tier reference prefix from concrete provider ids ---
+  mt.get('provider-models-reserve-tier-reference-prefix'),
+
   // --- Normalize retired Claude model ids in CONFIG columns only ---
   // (lanes/templates/defaults. Record columns like sessions.model are preserved.)
   m.get('normalize-stale-claude-model-ids'),

@@ -1,4 +1,143 @@
-import { addColumnIfMissing, tableExists } from './migrationUtils.js';
+import { addColumnIfMissing, getColumns, tableExists } from './migrationUtils.js';
+
+const TIER_REF_PREFIX = 'tier::';
+const RESERVED_TIER_REF_MODEL_ID_SQL_MESSAGE = 'Provider model IDs cannot use the reserved tier:: prefix';
+
+function hasColumns(db, table, columns) {
+  return tableExists(db, table) && columns.every((column) => getColumns(db, table).includes(column));
+}
+
+function clearLegacyConcreteModelBindings(db) {
+  const bindings = [
+    ['session_templates', 'model', 'provider_id'],
+    ['kanban_lanes', 'on_enter_model', 'on_enter_provider_id'],
+    ['project_session_defaults', 'model', 'provider_id'],
+    ['sessions', 'model', 'provider_id'],
+    ['sessions', 'pending_model', 'pending_provider_id'],
+    ['sessions', 'resolved_model', 'resolved_provider_id'],
+  ];
+
+  for (const [table, modelColumn, providerColumn] of bindings) {
+    if (!hasColumns(db, table, [modelColumn, providerColumn])) continue;
+    db.prepare(`
+      UPDATE ${table}
+      SET ${modelColumn} = NULL, ${providerColumn} = NULL
+      WHERE substr(${modelColumn}, 1, ?) = ?
+        AND ${providerColumn} IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM provider_models pm
+          WHERE pm.provider_id = ${table}.${providerColumn}
+            AND pm.model_id = ${table}.${modelColumn}
+            AND substr(pm.model_id, 1, ?) = ?
+        )
+    `).run(TIER_REF_PREFIX.length, TIER_REF_PREFIX, TIER_REF_PREFIX.length, TIER_REF_PREFIX);
+  }
+
+  if (!hasColumns(db, 'app_settings', ['key', 'value'])) return;
+  const summary = db.prepare('SELECT value FROM app_settings WHERE key = ?').get('summary_settings');
+  if (!summary) return;
+  try {
+    const value = JSON.parse(summary.value);
+    if (
+      value &&
+      typeof value === 'object' &&
+      typeof value.summaryModel === 'string' &&
+      value.summaryModel.startsWith(TIER_REF_PREFIX) &&
+      typeof value.summaryProviderId === 'string' &&
+      db.prepare('SELECT 1 FROM provider_models WHERE provider_id = ? AND model_id = ? AND substr(model_id, 1, ?) = ?')
+        .get(value.summaryProviderId, value.summaryModel, TIER_REF_PREFIX.length, TIER_REF_PREFIX)
+    ) {
+      value.summaryModel = '';
+      value.summaryProviderId = null;
+      db.prepare('UPDATE app_settings SET value = ?, updated_at = ? WHERE key = ?')
+        .run(JSON.stringify(value), Date.now(), 'summary_settings');
+    }
+  } catch {
+    // Malformed settings are handled by SettingsRepository's existing fallback.
+  }
+}
+
+function tierHasExecutableMember(db, tierId) {
+  if (!hasColumns(db, 'model_tier_members', ['tier_id', 'provider_id', 'model_id'])) return false;
+  return Boolean(db.prepare(`
+    SELECT 1
+    FROM model_tier_members member
+    JOIN providers provider ON provider.id = member.provider_id
+    JOIN provider_models model
+      ON model.provider_id = member.provider_id AND model.model_id = member.model_id
+    WHERE member.tier_id = ?
+      AND provider.enabled = 1
+      AND model.enabled = 1
+      AND model.removed_at IS NULL
+    LIMIT 1
+  `).get(tierId));
+}
+
+function clearTierReferenceBindings(db, table, modelColumn, providerColumn) {
+  if (!hasColumns(db, table, [modelColumn, providerColumn])) return;
+  const refs = db.prepare(`SELECT DISTINCT ${modelColumn} AS model FROM ${table} WHERE substr(${modelColumn}, 1, ?) = ?`)
+    .all(TIER_REF_PREFIX.length, TIER_REF_PREFIX)
+    .map(({ model }) => model)
+    .filter((model) => !tierHasExecutableMember(db, model.slice(TIER_REF_PREFIX.length)));
+  const clearSnapshots = table === 'sessions' && modelColumn === 'model'
+    ? ', resolved_model = NULL, resolved_provider_id = NULL'
+    : '';
+  for (const ref of refs) {
+    db.prepare(`UPDATE ${table}
+      SET ${modelColumn} = NULL, ${providerColumn} = NULL${clearSnapshots}
+      WHERE ${modelColumn} = ?`).run(ref);
+  }
+}
+
+function clearUnresolvableSummaryTierReference(db) {
+  if (!hasColumns(db, 'app_settings', ['key', 'value'])) return;
+  const summary = db.prepare('SELECT value FROM app_settings WHERE key = ?').get('summary_settings');
+  if (!summary) return;
+  try {
+    const value = JSON.parse(summary.value);
+    if (
+      value &&
+      typeof value === 'object' &&
+      typeof value.summaryModel === 'string' &&
+      value.summaryModel.startsWith(TIER_REF_PREFIX) &&
+      !tierHasExecutableMember(db, value.summaryModel.slice(TIER_REF_PREFIX.length))
+    ) {
+      value.summaryModel = '';
+      value.summaryProviderId = null;
+      db.prepare('UPDATE app_settings SET value = ?, updated_at = ? WHERE key = ?')
+        .run(JSON.stringify(value), Date.now(), 'summary_settings');
+    }
+  } catch {
+    // Malformed settings are handled by SettingsRepository's existing fallback.
+  }
+}
+
+function clearUnresolvableTierReferences(db) {
+  for (const binding of [
+    ['session_templates', 'model', 'provider_id'],
+    ['kanban_lanes', 'on_enter_model', 'on_enter_provider_id'],
+    ['project_session_defaults', 'model', 'provider_id'],
+    ['sessions', 'model', 'provider_id'],
+    ['sessions', 'pending_model', 'pending_provider_id'],
+  ]) {
+    clearTierReferenceBindings(db, ...binding);
+  }
+  clearUnresolvableSummaryTierReference(db);
+}
+
+function createReservedModelIdTriggers(db) {
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_provider_models_reject_tier_ref_model_id_insert
+    BEFORE INSERT ON provider_models
+    FOR EACH ROW WHEN substr(NEW.model_id, 1, ${TIER_REF_PREFIX.length}) = '${TIER_REF_PREFIX}'
+    BEGIN SELECT RAISE(ABORT, '${RESERVED_TIER_REF_MODEL_ID_SQL_MESSAGE}'); END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_provider_models_reject_tier_ref_model_id_update
+    BEFORE UPDATE OF model_id ON provider_models
+    FOR EACH ROW WHEN substr(NEW.model_id, 1, ${TIER_REF_PREFIX.length}) = '${TIER_REF_PREFIX}'
+    BEGIN SELECT RAISE(ABORT, '${RESERVED_TIER_REF_MODEL_ID_SQL_MESSAGE}'); END;
+  `);
+}
 
 export const modelTiersMigrations = [
   {
@@ -95,6 +234,30 @@ export const modelTiersMigrations = [
         }
         db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_mtm_tier_provider_model ON model_tier_members(tier_id, provider_id, model_id)');
         db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_mtm_tier_position ON model_tier_members(tier_id, position)');
+      })();
+    },
+  },
+  {
+    name: 'provider-models-reserve-tier-reference-prefix',
+    up(db) {
+      if (!hasColumns(db, 'provider_models', ['model_id', 'removed_at', 'enabled'])) return;
+
+      db.transaction(() => {
+        // Earlier builds could register these ambiguous ids. Retire the rows
+        // (rather than silently interpreting them as tiers), clear only
+        // unambiguous provider-paired bindings, and remove invalid tier
+        // members before enforcing the invariant for every future write.
+        clearLegacyConcreteModelBindings(db);
+        if (hasColumns(db, 'model_tier_members', ['model_id'])) {
+          db.prepare('DELETE FROM model_tier_members WHERE substr(model_id, 1, ?) = ?')
+            .run(TIER_REF_PREFIX.length, TIER_REF_PREFIX);
+        }
+        db.prepare(`UPDATE provider_models
+          SET enabled = 0, removed_at = COALESCE(removed_at, ?)
+          WHERE substr(model_id, 1, ?) = ?`)
+          .run(Date.now(), TIER_REF_PREFIX.length, TIER_REF_PREFIX);
+        clearUnresolvableTierReferences(db);
+        createReservedModelIdTriggers(db);
       })();
     },
   },

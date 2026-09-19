@@ -4,6 +4,12 @@ import { z } from 'zod';
 
 export const TIER_REF_PREFIX = 'tier::';
 
+// A model field stores either a concrete provider model id or a Model Tier
+// reference. Concrete ids beginning with this prefix are therefore ambiguous
+// and must never be registered in provider_models.
+export const RESERVED_TIER_REF_MODEL_ID_MESSAGE =
+  `Provider model IDs cannot start with the reserved "${TIER_REF_PREFIX}" prefix`;
+
 /**
  * Check whether a string is a tier reference sentinel.
  * @param {string|null|undefined} v

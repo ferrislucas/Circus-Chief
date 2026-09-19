@@ -120,6 +120,25 @@ describe('ModelSelector', () => {
       expect(text).not.toContain('Mixed');
       expect(text).not.toContain('Gemini Pro');
     });
+
+    it('does not surface a legacy provider model that uses the reserved tier reference prefix', async () => {
+      providersStore.providers.push({
+        id: 'legacy-catalog',
+        name: 'Legacy catalog',
+        isBuiltIn: false,
+        models: [
+          { id: 'safe', modelId: 'safe-concrete-model', displayName: 'Safe model' },
+          { id: 'ambiguous', modelId: 'tier::legacy-tier', displayName: 'Ambiguous model' },
+        ],
+      });
+
+      const wrapper = mountComponent({ modelValue: 'safe-concrete-model' });
+      await flushAll(wrapper);
+
+      expect(wrapper.findAll('[data-model-id="tier::legacy-tier"]')).toHaveLength(0);
+      expect(wrapper.text()).not.toContain('Ambiguous model');
+      expect(wrapper.text()).toContain('safe-concrete-model');
+    });
   });
 
   describe('selected state', () => {

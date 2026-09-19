@@ -67,6 +67,24 @@ CREATE TABLE IF NOT EXISTS provider_models (
   removed_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
+-- `tier::<id>` is reserved for serialized Model Tier references in model
+-- selection fields. A concrete provider model with that prefix is ambiguous
+-- at every selector and execution boundary, so enforce the invariant even
+-- for callers that bypass repository/API validation.
+CREATE TRIGGER IF NOT EXISTS trg_provider_models_reject_tier_ref_model_id_insert
+BEFORE INSERT ON provider_models
+FOR EACH ROW
+WHEN substr(NEW.model_id, 1, 6) = 'tier::'
+BEGIN
+  SELECT RAISE(ABORT, 'Provider model IDs cannot use the reserved tier:: prefix');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_provider_models_reject_tier_ref_model_id_update
+BEFORE UPDATE OF model_id ON provider_models
+FOR EACH ROW
+WHEN substr(NEW.model_id, 1, 6) = 'tier::'
+BEGIN
+  SELECT RAISE(ABORT, 'Provider model IDs cannot use the reserved tier:: prefix');
+END;
 -- NOTE: the (provider_id, model_id) uniqueness index for active rows is
 -- created by the `provider-models-unique-active-identity-index` migration
 -- (not here), since it must run after existing databases have gained the

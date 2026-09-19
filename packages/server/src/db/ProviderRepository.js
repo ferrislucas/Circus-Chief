@@ -422,7 +422,7 @@ export class ProviderRepository extends BaseRepository {
    */
   getAllModelIds() {
     const rows = this.db
-      .prepare('SELECT DISTINCT model_id FROM provider_models')
+      .prepare("SELECT DISTINCT model_id FROM provider_models WHERE substr(model_id, 1, 6) <> 'tier::'")
       .all();
     const ids = new Set(rows.map((row) => row.model_id));
     for (const alias of MODEL_TIER_ALIASES) {

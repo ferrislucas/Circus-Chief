@@ -1,4 +1,5 @@
 import { databaseManager } from './DatabaseManager.js';
+import { isTierRef, RESERVED_TIER_REF_MODEL_ID_MESSAGE } from '@circuschief/shared';
 
 /**
  * Pure, `db`-first operations backing `ProviderRepository`'s model-management
@@ -17,6 +18,16 @@ const MODEL_UPDATE_COLUMN_BUILDERS = Object.freeze({
   enabled: (value) => ['enabled = ?', value ? 1 : 0],
   sortOrder: (value) => ['sort_order = ?', value],
 });
+
+/**
+ * `tier::<id>` is a serialized Model Tier reference, not a concrete model
+ * identifier. Keep this repository guard in addition to the API contract so
+ * internal callers and imports cannot create values the runtime will later
+ * resolve as a tier.
+ */
+function assertConcreteModelId(modelId) {
+  if (isTierRef(modelId)) throw new Error(RESERVED_TIER_REF_MODEL_ID_MESSAGE);
+}
 
 export function buildModelUpdateColumns(data = {}) {
   return Object.entries(MODEL_UPDATE_COLUMN_BUILDERS).reduce(
@@ -59,7 +70,7 @@ export function getModels(db, providerId, { includeRemoved = false } = {}) {
   const removedClause = includeRemoved ? '' : 'AND removed_at IS NULL';
   const rows = db
     .prepare(
-      `SELECT * FROM provider_models WHERE provider_id = ? ${removedClause}
+      `SELECT * FROM provider_models WHERE provider_id = ? AND substr(model_id, 1, 6) <> 'tier::' ${removedClause}
        ORDER BY (sort_order IS NULL), sort_order ASC, created_at ASC, rowid ASC`
     )
     .all(providerId);
@@ -85,7 +96,7 @@ export function getModelById(db, id) {
  * @param {string} modelId - The model string (e.g. 'claude-opus-4-7'), not a row id.
  */
 export function getHistoricalModel(db, providerId, modelId) {
-  if (!providerId || !modelId) return null;
+  if (!providerId || !modelId || isTierRef(modelId)) return null;
   const row = db
     .prepare(
       `SELECT * FROM provider_models WHERE provider_id = ? AND model_id = ?
@@ -107,6 +118,7 @@ export function getHistoricalModel(db, providerId, modelId) {
  */
 export function addModel(db, providerId, data) {
   const { modelId, displayName, description = null, tier = 'custom', enabled = true } = data;
+  assertConcreteModelId(modelId);
 
   const active = db
     .prepare('SELECT id FROM provider_models WHERE provider_id = ? AND model_id = ? AND removed_at IS NULL')
@@ -149,6 +161,7 @@ export function addModel(db, providerId, data) {
  *   and its owning provider (both already fetched by the caller).
  */
 export function updateModel(db, id, data, { current, provider }) {
+  if (data.modelId !== undefined) assertConcreteModelId(data.modelId);
   if (provider?.isBuiltIn && data.modelId !== undefined && data.modelId !== current.modelId) {
     throw new Error('Cannot change the model id of a built-in provider model');
   }

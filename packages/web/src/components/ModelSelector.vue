@@ -390,6 +390,9 @@ function withDisabledModelsHidden(provider, keepModelIds, markPreservedUnavailab
   return {
     ...provider,
     models: (provider.models || [])
+      // Defense in depth for an old/corrupt provider catalog: this value is a
+      // serialized tier binding, never a selectable concrete model id.
+      .filter((model) => !isTierRef(model.modelId))
       .filter((model) => model.enabled !== false || keepModelIds.has(model.modelId))
       .map((model) => (
         markPreservedUnavailable && model.enabled === false && keepModelIds.has(model.modelId)
