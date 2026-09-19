@@ -133,6 +133,54 @@ function buildLaneContext(projectId) {
   return `\n### Available Lanes\n${laneList}\n`;
 }
 
+/** Build the lane request-field documentation shared by create and update */
+function buildLaneFieldDocs() {
+  return `### Lane Request Fields
+For \`POST /lanes\`, \`name\` is the only required field (a non-empty string). All other shared fields below are optional and accepted on both create and update. \`PATCH /lanes/:laneId\` is a partial update: omitted fields preserve their current values, while explicit \`null\` clears nullable settings.
+
+- \`name\` — non-empty string; lane display name.
+- \`sortOrder\` — number; requested lane position (not card ordering).
+- \`onEnterTemplateId\` — UUID string or null; template used for entry automation.
+- \`onEnterPrompt\` — string or null; prompt used for entry automation.
+- \`onEnterMode\` — \`plan\`, \`standard\`, or \`yolo\`, or null; entry session mode.
+- \`onEnterModel\` — string or null; entry session model identifier.
+- \`onEnterEffortLevel\` — \`low\`, \`medium\`, \`high\`, \`max\`, or \`auto\`, or null; entry session reasoning effort.
+- \`onEnterThinkingEnabled\` — boolean or null; entry session thinking setting.
+- \`onEnterAutoRescheduleEnabled\` — boolean; enables automatic rescheduling.
+- \`onEnterRescheduleDelayMinutes\` — number; delay before automatic rescheduling.
+- \`onEnterRescheduleOnTokenLimit\` — boolean; reschedule after a token-limit failure.
+- \`onEnterRescheduleOnServiceError\` — boolean; reschedule after a service failure.
+- \`onEnterMaxRescheduleCount\` — number or null; maximum automatic reschedules.
+- \`onEnterMaxTotalTokens\` — number or null; total token cap for the entry workflow.
+- \`onEnterRescheduleAtTokenCount\` — number or null; token count that triggers a continuation reschedule.
+- \`completionTargetLaneId\` — UUID string or null; destination lane after successful completion. It must be a different lane on the same board; \`null\` clears the destination.
+
+\`onEnterTemplateId\` and a non-blank \`onEnterPrompt\` are mutually exclusive: never send both. To replace template automation with prompt automation, set \`onEnterPrompt\` and \`onEnterTemplateId: null\`; to replace prompt automation with template automation, set \`onEnterTemplateId\` and \`onEnterPrompt: null\`. Omitting either property preserves its existing value.
+
+Completion routing requires on-entry automation: a create or update that sets \`completionTargetLaneId\` must also give the lane on-entry automation via \`onEnterTemplateId\` or a non-blank \`onEnterPrompt\` — in the same request, or through an earlier update. Otherwise the request fails with \`KANBAN_LANE_AUTOMATION_REQUIRED\`.`;
+}
+
+/** Build workspace card operations section */
+function buildKanbanCardOps(apiUrl, projectId, workspaceId) {
+  return `### Add Current Workspace to the Board
+\`\`\`bash
+curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
+  -H "Content-Type: application/json" \\
+  -d '{"workspaceId": "${workspaceId}", "laneId": "<lane_id>"}'
+\`\`\`
+
+### Move this Workspace's Card
+\`\`\`bash
+curl -X PUT ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/lane \\
+  -H "Content-Type: application/json" \\
+  -d '{"laneId":"<lane_id>"}'
+\`\`\`
+### Remove a Card from the Board
+\`\`\`bash
+curl -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}
+\`\`\``;
+}
+
 /**
  * Build Kanban API instructions for system prompt.
  * @param {string} sessionId - Current session ID
@@ -161,46 +209,9 @@ curl ${apiUrl}/api/projects/${projectId}/kanban
 \`\`\`
 Read the board before changing settings that depend on existing lanes (completion routing or reordering). Its response is the authoritative source for current settings and lane IDs; use those returned IDs rather than guessing. The displayed lane list, when present, is convenience context only.
 
-### Lane Request Fields
-For \`POST /lanes\`, \`name\` is the only required field (a non-empty string). All other shared fields are optional. \`PATCH /lanes/:laneId\` is a partial update: it accepts every shared field below plus update-only \`completionTargetLaneId\`; omitted fields preserve their current values, while explicit \`null\` clears nullable settings.
+${buildLaneFieldDocs()}
 
-- \`name\` — non-empty string; lane display name.
-- \`sortOrder\` — number; requested lane position (not card ordering).
-- \`onEnterTemplateId\` — UUID string or null; template used for entry automation.
-- \`onEnterPrompt\` — string or null; prompt used for entry automation.
-- \`onEnterMode\` — \`plan\`, \`standard\`, or \`yolo\`, or null; entry session mode.
-- \`onEnterModel\` — string or null; entry session model identifier.
-- \`onEnterEffortLevel\` — \`low\`, \`medium\`, \`high\`, \`max\`, or \`auto\`, or null; entry session reasoning effort.
-- \`onEnterThinkingEnabled\` — boolean or null; entry session thinking setting.
-- \`onEnterAutoRescheduleEnabled\` — boolean; enables automatic rescheduling.
-- \`onEnterRescheduleDelayMinutes\` — number; delay before automatic rescheduling.
-- \`onEnterRescheduleOnTokenLimit\` — boolean; reschedule after a token-limit failure.
-- \`onEnterRescheduleOnServiceError\` — boolean; reschedule after a service failure.
-- \`onEnterMaxRescheduleCount\` — number or null; maximum automatic reschedules.
-- \`onEnterMaxTotalTokens\` — number or null; total token cap for the entry workflow.
-- \`onEnterRescheduleAtTokenCount\` — number or null; token count that triggers a continuation reschedule.
-- \`completionMode\` — \`legacy\`, \`shadow\`, or \`structured\`; completion behavior. \`legacy\` uses the existing single-session completion path; \`shadow\` tracks durable structured completion without moving the card; \`structured\` uses durable lane-run completion and, on success, moves to a configured valid target.
-- \`completionTargetLaneId\` — UUID string or null; **update-only** destination after successful completion. It must be a different lane on the same board; \`null\` clears the destination.
-
-\`onEnterTemplateId\` and a non-blank \`onEnterPrompt\` are mutually exclusive: never send both. To replace template automation with prompt automation, set \`onEnterPrompt\` and \`onEnterTemplateId: null\`; to replace prompt automation with template automation, set \`onEnterTemplateId\` and \`onEnterPrompt: null\`. Omitting either property preserves its existing value.
-
-### Add Current Workspace to the Board
-\`\`\`bash
-curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
-  -H "Content-Type: application/json" \\
-  -d '{"workspaceId": "${workspaceId}", "laneId": "<lane_id>"}'
-\`\`\`
-
-### Move this Workspace's Card
-\`\`\`bash
-curl -X PUT ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/lane \\
-  -H "Content-Type: application/json" \\
-  -d '{"laneId":"<lane_id>"}'
-\`\`\`
-### Remove a Card from the Board
-\`\`\`bash
-curl -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}
-\`\`\`
+${buildKanbanCardOps(apiUrl, projectId, workspaceId)}
 
 ### Create a New Lane
 \`\`\`bash
@@ -213,7 +224,7 @@ curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/lanes \\
 \`\`\`bash
 curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/lanes \\
   -H "Content-Type: application/json" \\
-  -d '{"name":"Testing","onEnterPrompt":"Run the test suite and report failures.","onEnterMode":"standard","onEnterModel":"gpt-5.6","onEnterEffortLevel":"high","onEnterThinkingEnabled":true,"onEnterAutoRescheduleEnabled":true,"onEnterRescheduleDelayMinutes":15,"onEnterRescheduleOnTokenLimit":true,"onEnterRescheduleOnServiceError":true,"onEnterMaxRescheduleCount":2,"onEnterMaxTotalTokens":500000,"onEnterRescheduleAtTokenCount":400000,"completionMode":"structured"}'
+  -d '{"name":"Testing","onEnterPrompt":"Run the test suite and report failures.","onEnterMode":"standard","onEnterModel":"gpt-5.6","onEnterEffortLevel":"high","onEnterThinkingEnabled":true,"onEnterAutoRescheduleEnabled":true,"onEnterRescheduleDelayMinutes":15,"onEnterRescheduleOnTokenLimit":true,"onEnterRescheduleOnServiceError":true,"onEnterMaxRescheduleCount":2,"onEnterMaxTotalTokens":500000,"onEnterRescheduleAtTokenCount":400000}'
 \`\`\`
 
 ### Update a Lane
@@ -224,11 +235,11 @@ curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id> \\
 \`\`\`
 
 ### Set Completion Routing
-After reading the board and using its returned IDs, configure structured completion with a different lane on the same board:
+After reading the board and using its returned IDs, route successful completion to a different lane on the same board. The source lane must have on-entry automation, so this example configures it in the same request (omit \`onEnterPrompt\` when the lane already has automation):
 \`\`\`bash
 curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id> \\
   -H "Content-Type: application/json" \\
-  -d '{"completionMode":"structured","completionTargetLaneId":"<target_lane_id>"}'
+  -d '{"onEnterPrompt":"Continue with the next workflow stage.","completionTargetLaneId":"<target_lane_id>"}'
 \`\`\`
 
 ### Clear Lane Automation and Completion Routing
