@@ -395,6 +395,10 @@ onBeforeUnmount(() => {
 <style scoped>
 .page-header {
   display: flex;
+  /* Declared explicitly so a leaked global .page-header rule (e.g. a mobile
+     flex-direction: column) can never restack this header. */
+  flex-direction: row;
+  flex-wrap: nowrap;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1rem;
