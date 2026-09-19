@@ -23,6 +23,7 @@ import {
 import { agentCallLogger } from './agentCallLogger.js';
 import { resolveAgentTypeFromModel } from './sessionProvider.js';
 import { sanitizeTierFailureReason } from './tierFailureReason.js';
+import { createTierCooldownUnavailableError } from './tierCooldownUnavailableError.js';
 
 export { sanitizeTierFailureReason } from './tierFailureReason.js';
 
@@ -180,18 +181,13 @@ export class ModelTierExhaustedError extends Error {
   }
 }
 
-function cooldownUnavailableError(tierId, tierName) {
-  const error = new Error(`No healthy member is currently available for tier "${tierName}" (all members are cooling down)`);
-  Object.assign(error, { code: 'MODEL_TIER_COOLDOWN_UNAVAILABLE', tierId, tierName });
-  return error;
-}
 function resolveAttemptableTierMembers(tierId, tierName) {
   const configuredMembers = getTierMembersResolved(tierId);
   if (configuredMembers.length === 0) throw new Error(`No members configured for tier "${tierName}" — cannot start session`);
 
   const attemptableMembers = configuredMembers.filter((member) => !isUnhealthy(member.providerId, member.modelId));
   if (attemptableMembers.length === 0) {
-    throw cooldownUnavailableError(tierId, tierName);
+    throw createTierCooldownUnavailableError(tierId, tierName);
   }
   return attemptableMembers;
 }

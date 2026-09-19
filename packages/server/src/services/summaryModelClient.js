@@ -14,14 +14,15 @@ import { sanitizeTierFailureReason } from './tierFailureReason.js';
 import { isTierRef, parseTierRef } from '@circuschief/shared';
 import { modelTiers } from '../database.js';
 import { SummaryTierExhaustedError } from './summaryTierExhaustedError.js';
+import { createTierCooldownUnavailableError } from './tierCooldownUnavailableError.js';
 
 export { SummaryTierExhaustedError, SESSION_SUMMARY_SCHEMA };
 
-// Sentinel returned internally by the tier-traversal loop when nothing was
-// eligible to attempt (empty tier, every member cooled down, or every member
-// an unsupported provider kind) — the caller falls through to the default
-// summary-model selection (Fix 9 graceful degradation). Never observable
-// outside this module.
+// Sentinel returned internally by the tier-traversal loop when the tier has no
+// resolvable members (missing, empty, or stale configuration). The caller then
+// falls through to the default summary-model selection. A valid tier with only
+// cooled-down members throws MODEL_TIER_COOLDOWN_UNAVAILABLE instead. Never
+// observable outside this module.
 const TIER_FALLTHROUGH = Symbol('summary-tier-fallthrough');
 
 export async function callSummaryModel(prompt, recentMessages, sessionStatus, options = {}) {
@@ -66,8 +67,8 @@ function dispatchSummaryResolution(resolution, { prompt, recentMessages, session
 /**
  * Walk a summary-bound tier's ordered members, advancing past retryable
  * failures until one succeeds, every eligible member is exhausted (terminal
- * error), or nothing was eligible to attempt at all (fallthrough to the
- * default summary model — Fix 9).
+ * error), or its configuration has no resolvable members (fallthrough to the
+ * default summary model).
  *
  * Mirrors the session-start failover loop's shape (sessionTierFailover.js)
  * There is no session-style pre-conversation boundary here: a summary call
@@ -80,6 +81,15 @@ function dispatchSummaryResolution(resolution, { prompt, recentMessages, session
 async function callSummaryModelWithTierFailover(tierRef, { prompt, recentMessages, sessionStatus, options }) {
   const tierId = parseTierRef(tierRef);
   const members = tierId ? getTierMembersResolved(tierId) : [];
+
+  // A missing, empty, or stale tier still uses the documented safe default
+  // degradation. Do this before cooldown filtering so a valid configured tier
+  // with no currently healthy member is distinguishable from bad configuration.
+  if (members.length === 0) return TIER_FALLTHROUGH;
+  if (members.every((member) => isUnhealthy(member.providerId, member.modelId))) {
+    const tierName = modelTiers.getByIdWithMembers(tierId)?.name || tierRef;
+    throw createTierCooldownUnavailableError(tierId, tierName);
+  }
 
   let lastError = null;
   const attempts = [];

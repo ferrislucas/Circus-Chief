@@ -1,6 +1,7 @@
-import { modelProviders, sessions } from '../database.js';
-import { isTierRef } from '@circuschief/shared';
-import { resolveActiveModel } from './tierResolutionService.js';
+import { modelProviders, modelTiers, sessions } from '../database.js';
+import { isTierRef, parseTierRef } from '@circuschief/shared';
+import { getTierMembersResolved, isUnhealthy } from './tierResolutionService.js';
+import { createTierCooldownUnavailableError } from './tierCooldownUnavailableError.js';
 import { ACTIVITY_FIELDS_SQL } from '../db/session-helpers.js';
 
 export const DEFAULT_ANTHROPIC_SUMMARY_MODEL = 'claude-haiku-4-5-20251001';
@@ -29,22 +30,30 @@ export function isKnownBuiltInAnthropicModel(modelId) {
 
 /**
  * Resolve a summary tier ref to a concrete (model, providerId) suitable for
- * `resolveExplicitSummaryModel`, or `null` if the tier should fall through
- * to the default summary model selection (Fix 9 — graceful degradation).
- * Falls through when the tier has no healthy members (cooldown/empty).
+ * `resolveExplicitSummaryModel`, or `null` if a missing, empty, or stale tier
+ * should fall through to the default summary model selection. A valid tier
+ * whose members are all cooling down throws instead, preserving the selected
+ * tier policy rather than silently substituting a system default.
  * @param {string} summaryModel - Tier ref sentinel string
  * @returns {{ model: string, providerId: string }|null}
  */
 function resolveHealthyTierSummaryMember(summaryModel) {
-  const resolved = resolveActiveModel(summaryModel, {});
-  if (!resolved) {
+  const tierId = parseTierRef(summaryModel);
+  const members = tierId ? getTierMembersResolved(tierId) : [];
+  if (members.length === 0) {
     console.warn(
-      `[summaryModelResolver] Summary tier "${summaryModel}" has no healthy members — falling back to default summary model`
+      `[summaryModelResolver] Summary tier "${summaryModel}" has no resolvable members — falling back to default summary model`
     );
     return null;
   }
 
-  return resolved;
+  const resolved = members.find((member) => !isUnhealthy(member.providerId, member.modelId));
+  if (!resolved) {
+    const tierName = modelTiers.getByIdWithMembers(tierId)?.name || summaryModel;
+    throw createTierCooldownUnavailableError(tierId, tierName);
+  }
+
+  return { model: resolved.modelId, providerId: resolved.providerId };
 }
 
 export function resolveSummaryModel(summarySettings = {}) {

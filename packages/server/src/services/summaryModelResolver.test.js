@@ -182,7 +182,8 @@ describe('summaryModelResolver', () => {
     expect(resolved.provider).toMatchObject({ id: BUILT_IN_ANTHROPIC_PROVIDER_ID, isBuiltIn: true });
   });
 
-  // Fix 9: graceful degradation when a tier-bound summary model has all members in cooldown
+  // A configured summary tier must remain authoritative during cooldown. Only
+  // missing, empty, or stale tier configuration may degrade to the default.
   describe('tier summary model degradation (Fix 9)', () => {
     let tierProvider;
 
@@ -201,20 +202,26 @@ describe('summaryModelResolver', () => {
     // Use a plain object as a shared context for this nested describe block
     const suite = {};
 
-    it('falls back to default summary model when all tier members are cooled down', async () => {
+    it('reports cooldown exhaustion when all configured tier members are cooled down', async () => {
       const { buildTierRef } = await import('@circuschief/shared');
+      modelProviders.addModel(suite.tierProvider.id, {
+        modelId: 'model-cooled',
+        displayName: 'Cooled model',
+      });
       const tier = suite.modelTiers.create({
         name: 'Summary Tier',
         members: [{ providerId: suite.tierProvider.id, modelId: 'model-cooled', position: 0 }],
       });
       suite.markUnhealthy(suite.tierProvider.id, 'model-cooled', 60_000);
 
-      const resolved = resolveSummaryModel({ summaryModel: buildTierRef(tier.id), summaryProviderId: null });
-
-      // Must NOT throw, must fall back to the default Anthropic model
-      expect(resolved).toBeDefined();
-      expect(resolved.model).toBe(DEFAULT_ANTHROPIC_SUMMARY_MODEL);
-      expect(resolved.isDefault).toBe(true);
+      expect(() => resolveSummaryModel({
+        summaryModel: buildTierRef(tier.id),
+        summaryProviderId: null,
+      })).toThrow(expect.objectContaining({
+        code: 'MODEL_TIER_COOLDOWN_UNAVAILABLE',
+        tierId: tier.id,
+        tierName: 'Summary Tier',
+      }));
 
       // Cleanup
       suite.clearUnhealthy(suite.tierProvider.id, 'model-cooled');

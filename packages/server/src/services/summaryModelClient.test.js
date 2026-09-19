@@ -50,7 +50,7 @@ vi.mock('./summaryCodexClient.js', () => ({
 
 import { SESSION_SUMMARY_SCHEMA, callSummaryModel, SummaryTierExhaustedError } from './summaryModelClient.js';
 import { modelProviders, modelTiers } from '../database.js';
-import { isUnhealthy } from './tierResolutionService.js';
+import { isUnhealthy, markUnhealthy, clearUnhealthy } from './tierResolutionService.js';
 import { DEFAULT_ANTHROPIC_SUMMARY_MODEL } from './summaryModelResolver.js';
 import { buildTierRef } from '@circuschief/shared';
 
@@ -442,6 +442,23 @@ describe('callSummaryModel tier failover (Work Item 2)', () => {
     expect(mocks.callClaude.mock.calls[0][3]).toMatchObject({ model: DEFAULT_ANTHROPIC_SUMMARY_MODEL });
   });
 
+  it('falls through to the default summary model when every configured member is stale', async () => {
+    const staleTier = modelTiers.create({
+      name: 'Stale Summary Tier',
+      members: [{ providerId: providerA.id, modelId: 'removed-summary-model', position: 0 }],
+    });
+    mocks.callClaude.mockResolvedValueOnce('{"short_summary":"default"}');
+
+    const result = await callSummaryModel('prompt', [], 'completed', {
+      summarySettings: tierSettings(staleTier.id),
+      logMeta: { sessionId: 'summary-session-stale', callType: 'generateSessionSummary' },
+    });
+
+    expect(result).toBe('{"short_summary":"default"}');
+    expect(mocks.callClaude).toHaveBeenCalledTimes(1);
+    expect(mocks.callClaude.mock.calls[0][3]).toMatchObject({ model: DEFAULT_ANTHROPIC_SUMMARY_MODEL });
+  });
+
   it('falls through to the default summary model when the tier ref no longer resolves (deleted)', async () => {
     mocks.callClaude.mockResolvedValueOnce('{"short_summary":"default"}');
 
@@ -452,5 +469,25 @@ describe('callSummaryModel tier failover (Work Item 2)', () => {
 
     expect(result).toBe('{"short_summary":"default"}');
     expect(mocks.callClaude.mock.calls[0][3]).toMatchObject({ model: DEFAULT_ANTHROPIC_SUMMARY_MODEL });
+  });
+
+  it('reports cooldown exhaustion instead of dispatching the default summary model', async () => {
+    markUnhealthy(providerA.id, 'summary-model-a');
+    markUnhealthy(providerB.id, 'summary-model-b');
+
+    const error = await callSummaryModel('prompt', [], 'completed', {
+      summarySettings: tierSettings(tier.id),
+      logMeta: { sessionId: 'summary-session-cooldown', callType: 'generateSessionSummary' },
+    }).catch((failure) => failure);
+
+    expect(error).toMatchObject({
+      code: 'MODEL_TIER_COOLDOWN_UNAVAILABLE',
+      tierId: tier.id,
+      tierName: 'Summary Tier',
+    });
+    expect(mocks.callClaude).not.toHaveBeenCalled();
+
+    clearUnhealthy(providerA.id, 'summary-model-a');
+    clearUnhealthy(providerB.id, 'summary-model-b');
   });
 });
