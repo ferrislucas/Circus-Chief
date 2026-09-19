@@ -3,6 +3,17 @@ import { buildTierRef, isTierRef, parseTierRef } from '@circuschief/shared';
 
 const SUMMARY_SETTINGS_KEY = 'summary_settings';
 
+// A historical session snapshot stays runnable when its exact model row is
+// retained (including a soft-removed row), but not after the model is renamed
+// or the provider is deleted. This matches getHistoricalModel's lookup shape.
+const ADDRESSABLE_SESSION_SNAPSHOT_PREDICATE = `
+  resolved_model IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM provider_models pm
+    WHERE pm.provider_id = sessions.resolved_provider_id
+      AND pm.model_id = sessions.resolved_model
+  )`;
+
 /**
  * Return the first member that remains executable at deletion time. This is
  * deliberately cooldown-blind: a cooldown is a transient retry hint, whereas
@@ -78,11 +89,10 @@ function rewriteSummarySettings(db, tierRef, fallback, now) {
  * reader can observe the tier gone while any configuration still points at
  * its sentinel.
  *
- * Existing sessions keep their own last-resolved concrete member when they
- * have one AND that member's provider still exists — a snapshot naming a
- * provider that no longer exists is unusable and is cleared along with the
- * rest. (A snapshot whose model row was merely soft-removed is retained:
- * historical continuity keeps such sessions runnable.)
+ * Existing sessions keep their own last-resolved concrete member only when
+ * that exact provider/model pair remains addressable. This deliberately
+ * includes soft-removed model rows for historical continuity, but excludes a
+ * renamed/nonexistent model even when its former provider still exists.
  *
  * @param {import('better-sqlite3').Database} db
  * @param {string} tierRef
@@ -117,21 +127,19 @@ function degradeTierReferences(db, tierRef, fallback, now) {
   // A session may have failed over beyond the tier's first active member.
   // Pin it to its own last-resolved concrete model so losing the tier does
   // not silently move an established conversation back to another provider —
-  // but only while that member's provider still exists (see docstring).
+  // but only while that exact member remains addressable (see docstring).
   // SQLite evaluates every RHS against the pre-update row, so the snapshot
   // can be consumed and then cleared atomically as the tier ref becomes a
   // concrete binding.
   db.prepare(
     `UPDATE sessions
      SET model = CASE
-           WHEN resolved_model IS NOT NULL
-            AND resolved_provider_id IN (SELECT id FROM providers)
+           WHEN ${ADDRESSABLE_SESSION_SNAPSHOT_PREDICATE}
            THEN resolved_model
            ELSE ?
          END,
          provider_id = CASE
-           WHEN resolved_model IS NOT NULL
-            AND resolved_provider_id IN (SELECT id FROM providers)
+           WHEN ${ADDRESSABLE_SESSION_SNAPSHOT_PREDICATE}
            THEN resolved_provider_id
            ELSE ?
          END,

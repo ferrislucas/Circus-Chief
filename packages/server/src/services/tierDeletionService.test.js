@@ -11,6 +11,8 @@ import {
   kanbanLanes,
 } from '../database.js';
 import { buildTierRef } from '@circuschief/shared';
+import { validateModelAndProvider } from '../api/model-validation.js';
+import { resolveProviderFromModel } from './sessionProvider.js';
 
 // Regression coverage for the review finding: deleting a provider (or removing
 // its last executable model / renaming a model id) can empty a tier, and every
@@ -141,6 +143,31 @@ describe('tier consumer repair on provider/model loss (tierDeletionService)', ()
   });
 
   describe('model removal (soft tombstone)', () => {
+    it('retains a historical session snapshot for a soft-removed tier member', () => {
+      const tier = modelTiers.create({
+        name: 'Tombstoned Snapshot Tier',
+        members: [{ providerId: providerA.id, modelId: 'loss-model-a', position: 0 }],
+      });
+      const project = projects.create('Tombstoned snapshot session', '/tmp/tombstoned-snapshot-session');
+      const session = sessions.create(project.id, 'Tombstoned snapshot', 'Later', {
+        status: 'waiting', model: buildTierRef(tier.id),
+      });
+      sessions.update(session.id, {
+        resolvedModel: 'loss-model-a',
+        resolvedProviderId: providerA.id,
+      });
+      const modelRow = modelProviders
+        .getById(providerA.id).models
+        .find((entry) => entry.modelId === 'loss-model-a');
+
+      modelProviders.removeModel(modelRow.id);
+
+      expect(sessions.getById(session.id)).toMatchObject({
+        model: 'loss-model-a', providerId: providerA.id,
+        resolvedModel: null, resolvedProviderId: null,
+      });
+    });
+
     it('degrades consumers when removing the last executable model of a tier', () => {
       const tier = modelTiers.create({
         name: 'Tombstoned Member Tier',
@@ -180,6 +207,36 @@ describe('tier consumer repair on provider/model loss (tierDeletionService)', ()
   });
 
   describe('model id rename (updateModel)', () => {
+    it('clears a stale session snapshot when a provider renames its only tier member', () => {
+      const tier = modelTiers.create({
+        name: 'Renamed Snapshot Tier',
+        members: [{ providerId: providerA.id, modelId: 'loss-model-a', position: 0 }],
+      });
+      const tierRef = buildTierRef(tier.id);
+      const project = projects.create('Renamed snapshot session', '/tmp/renamed-snapshot-session');
+      const session = sessions.create(project.id, 'Renamed snapshot', 'Later', {
+        status: 'waiting', model: tierRef,
+      });
+      sessions.update(session.id, {
+        resolvedModel: 'loss-model-a',
+        resolvedProviderId: providerA.id,
+      });
+      const modelRow = modelProviders
+        .getById(providerA.id).models
+        .find((entry) => entry.modelId === 'loss-model-a');
+
+      modelProviders.updateModel(modelRow.id, { modelId: 'loss-model-a-renamed' });
+
+      const repaired = sessions.getById(session.id);
+      // A live provider alone does not make a renamed/nonexistent snapshot
+      // addressable. The repair must clear it to normal default resolution.
+      expect(repaired).toMatchObject({
+        model: null, providerId: null, resolvedModel: null, resolvedProviderId: null,
+      });
+      expect(validateModelAndProvider(repaired.model, repaired.providerId)).not.toHaveProperty('error');
+      expect(resolveProviderFromModel(repaired.model, repaired.providerId)).toBeNull();
+    });
+
     it('degrades consumers when renaming the only executable member model id', () => {
       const tier = modelTiers.create({
         name: 'Renamed Member Tier',
