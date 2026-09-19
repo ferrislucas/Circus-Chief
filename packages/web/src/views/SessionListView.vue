@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="container session-list-view">
     <div class="page-header">
       <div>
         <div class="project-title">
