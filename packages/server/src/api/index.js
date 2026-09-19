@@ -12,6 +12,7 @@ import metricsRouter from './metrics.js';
 import kanbanRouter from './kanban.js';
 import agentsRouter from './agents.js';
 import { projectWorkspacesRouter, workspacesRouter } from './workspaces.js';
+import modelTiersRouter from './modelTiers.js';
 import { getDbPath } from '../database.js';
 import { schedulerService } from '../services/schedulerService.js';
 import { isE2ESpawnCaptureEnabled } from '../services/e2eSpawnCapture.js';
@@ -46,6 +47,7 @@ router.use('/git', gitRouter);
 router.use('/filesystem', filesystemRouter);
 router.use('/settings', settingsRouter);
 router.use('/providers', providersRouter);
+router.use('/tiers', modelTiersRouter);
 router.use('/agents', agentsRouter);
 router.use('/commands', commandsRouter)
 

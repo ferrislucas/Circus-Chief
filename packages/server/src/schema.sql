@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS session_templates (
   git_branch TEXT,
   git_mode TEXT,
   model TEXT,
+  provider_id TEXT REFERENCES providers(id),
   mode TEXT DEFAULT 'yolo' CHECK(mode IN ('plan', 'standard', 'yolo')),
   effort_level TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto')),
   -- Orphaned column: the per-template "target lane" mechanism was removed.
@@ -66,6 +67,24 @@ CREATE TABLE IF NOT EXISTS provider_models (
   removed_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
+-- `tier::<id>` is reserved for serialized Model Tier references in model
+-- selection fields. A concrete provider model with that prefix is ambiguous
+-- at every selector and execution boundary, so enforce the invariant even
+-- for callers that bypass repository/API validation.
+CREATE TRIGGER IF NOT EXISTS trg_provider_models_reject_tier_ref_model_id_insert
+BEFORE INSERT ON provider_models
+FOR EACH ROW
+WHEN substr(NEW.model_id, 1, 6) = 'tier::'
+BEGIN
+  SELECT RAISE(ABORT, 'Provider model IDs cannot use the reserved tier:: prefix');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_provider_models_reject_tier_ref_model_id_update
+BEFORE UPDATE OF model_id ON provider_models
+FOR EACH ROW
+WHEN substr(NEW.model_id, 1, 6) = 'tier::'
+BEGIN
+  SELECT RAISE(ABORT, 'Provider model IDs cannot use the reserved tier:: prefix');
+END;
 -- NOTE: the (provider_id, model_id) uniqueness index for active rows is
 -- created by the `provider-models-unique-active-identity-index` migration
 -- (not here), since it must run after existing databases have gained the
@@ -91,6 +110,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   claude_session_id TEXT,
   model TEXT,
   provider_id TEXT REFERENCES providers(id),
+  resolved_model TEXT,
+  resolved_provider_id TEXT,
   next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
   parent_session_id TEXT REFERENCES sessions(id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
   input_tokens INTEGER DEFAULT 0,
@@ -114,6 +135,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   pending_prompt TEXT,
   slash_commands TEXT,
   pending_model TEXT,
+  pending_provider_id TEXT REFERENCES providers(id),
   auto_send_pending_prompt INTEGER DEFAULT 0,
   -- True while the agent is blocked mid-turn on an AskUserQuestion or
   -- permission tool call awaiting the user's answer. Mirrors the in-memory
@@ -498,6 +520,7 @@ CREATE TABLE IF NOT EXISTS kanban_lanes (
   on_enter_prompt TEXT,
   on_enter_mode TEXT,
   on_enter_model TEXT,
+  on_enter_provider_id TEXT REFERENCES providers(id),
   on_enter_effort_level TEXT,
   on_enter_thinking_enabled INTEGER,
   on_enter_auto_reschedule_enabled INTEGER DEFAULT 0,

@@ -28,13 +28,14 @@ router.get('/sessions/:sessionId/agent-stats', (req, res) => {
   res.json(stats);
 });
 
-// GET /api/sessions/:sessionId/agent-calls?limit=100&offset=0
+// GET /api/sessions/:sessionId/agent-calls?limit=100&offset=0&callType=...
 // Returns detailed call log entries for a session
 router.get('/sessions/:sessionId/agent-calls', (req, res) => {
   const { limit = 100, offset = 0 } = req.query;
   const calls = agentCallLogs.getBySessionId(req.params.sessionId, {
     limit: parseInt(limit),
     offset: parseInt(offset),
+    callType: req.query.callType,
   });
   res.json(calls);
 });

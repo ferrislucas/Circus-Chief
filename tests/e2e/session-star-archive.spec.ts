@@ -403,15 +403,14 @@ test.describe('Archive / Unarchive Sessions', () => {
     // Wait for menu items to be visible (the menu uses Vue <Transition>)
     await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
 
-    // Click Unarchive menu item (button.menu-item with Unarchive text)
-    await page.locator('button.menu-item').filter({ hasText: 'Unarchive' }).click({ timeout: 10000 });
+    const unarchiveItem = page.locator('button.menu-item').filter({ hasText: 'Unarchive' });
+    await expect(unarchiveItem).toBeVisible({ timeout: 10000 });
+    await unarchiveItem.click();
 
-    // Wait for unarchive to complete
-    await page.waitForTimeout(2000);
-
-    // Verify unarchived via API
-    const archivedSessions = await getArchivedSessions(project.id);
-    expect(archivedSessions.some((s: any) => s.id === session.id)).toBe(false);
+    await expect.poll(async () => {
+      const archivedSessions = await getArchivedSessions(project.id);
+      return archivedSessions.some((s: any) => s.id === session.id);
+    }, { timeout: 5000 }).toBe(false);
   });
 });
 

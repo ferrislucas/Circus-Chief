@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     startCall: vi.fn(),
     updateUsage: vi.fn(),
     completeCall: vi.fn(),
+    _logFailoverEvent: vi.fn(),
   },
 }));
 
@@ -47,7 +48,11 @@ vi.mock('./summaryCodexClient.js', () => ({
   callCodexSummary: mocks.callCodexSummary,
 }));
 
-import { SESSION_SUMMARY_SCHEMA, callSummaryModel } from './summaryModelClient.js';
+import { SESSION_SUMMARY_SCHEMA, callSummaryModel, SummaryTierExhaustedError } from './summaryModelClient.js';
+import { modelProviders, modelTiers } from '../database.js';
+import { isUnhealthy, markUnhealthy, clearUnhealthy } from './tierResolutionService.js';
+import { DEFAULT_ANTHROPIC_SUMMARY_MODEL } from './summaryModelResolver.js';
+import { buildTierRef } from '@circuschief/shared';
 
 describe('summaryModelClient', () => {
   beforeEach(() => {
@@ -62,6 +67,7 @@ describe('summaryModelClient', () => {
     mocks.callCodexSummary.mockResolvedValue('{"short_summary":"codex"}');
     mocks.buildProviderEnv.mockReturnValue({ ANTHROPIC_API_KEY: 'custom-token' });
     mocks.agentCallLogger.startCall.mockReturnValue('call-1');
+    vi.stubGlobal('fetch', vi.fn());
   });
 
   it('calls built-in Anthropic through Claude with provider metadata', async () => {
@@ -218,5 +224,270 @@ describe('summaryModelClient', () => {
     })).rejects.toThrow('OpenAI failed');
 
     expect(mocks.agentCallLogger.completeCall).toHaveBeenCalledWith('call-1', { success: false, error });
+  });
+});
+
+// ── Work Item 2: failure-driven failover for a tier-bound summary model ────
+
+describe('callSummaryModel tier failover (Work Item 2)', () => {
+  let providerA;
+  let providerB;
+  let tier;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.openAIInstances.length = 0;
+    mocks.agentCallLogger.startCall.mockReturnValue('call-1');
+
+    providerA = modelProviders.create({ name: 'Summary Tier Provider A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Summary Tier Provider B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'summary-model-a', displayName: 'A' });
+    modelProviders.addModel(providerB.id, { modelId: 'summary-model-b', displayName: 'B' });
+
+    tier = modelTiers.create({
+      name: 'Summary Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'summary-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'summary-model-b', position: 1 },
+      ],
+    });
+  });
+
+  function tierSettings(tierId) {
+    return { summaryModel: buildTierRef(tierId), summaryProviderId: null };
+  }
+
+  it('advances to the next member in order on a retryable failure, cools the failed member, and logs a failover event', async () => {
+    mocks.callClaude
+      .mockRejectedValueOnce(Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 }))
+      .mockResolvedValueOnce('{"short_summary":"from B"}');
+
+    const result = await callSummaryModel('prompt', [], 'completed', {
+      summarySettings: tierSettings(tier.id),
+      logMeta: { sessionId: 'summary-session-1', callType: 'generateSessionSummary' },
+    });
+
+    expect(result).toBe('{"short_summary":"from B"}');
+    expect(mocks.callClaude).toHaveBeenCalledTimes(2);
+    expect(mocks.callClaude.mock.calls[0][3]).toMatchObject({ model: 'summary-model-a', providerId: providerA.id });
+    expect(mocks.callClaude.mock.calls[1][3]).toMatchObject({ model: 'summary-model-b', providerId: providerB.id });
+
+    expect(isUnhealthy(providerA.id, 'summary-model-a')).toBe(true);
+    expect(isUnhealthy(providerB.id, 'summary-model-b')).toBe(false);
+
+    expect(mocks.agentCallLogger._logFailoverEvent).toHaveBeenCalledWith(
+      'summary-session-1',
+      expect.objectContaining({
+        fromModel: 'summary-model-a',
+        fromProviderId: providerA.id,
+        toModel: 'summary-model-b',
+        toProviderId: providerB.id,
+        agentType: 'summary',
+      })
+    );
+  });
+
+  it('redacts and bounds provider errors in summary failover logs', async () => {
+    const secret = 'sk-summary-secret';
+    mocks.callClaude
+      .mockRejectedValueOnce(Object.assign(new Error(`token=${secret} ${'x'.repeat(400)}`), { status: 529 }))
+      .mockResolvedValueOnce('{"short_summary":"from B"}');
+
+    await callSummaryModel('prompt', [], 'completed', {
+      summarySettings: tierSettings(tier.id),
+      logMeta: { sessionId: 'summary-session-redaction', callType: 'generateSessionSummary' },
+    });
+
+    const [, event] = mocks.agentCallLogger._logFailoverEvent.mock.calls[0];
+    expect(event.reason).not.toContain(secret);
+    expect(event.reason).toContain('[redacted]');
+    expect(event.reason.length).toBeLessThanOrEqual(240);
+  });
+
+  it('does not advance past a non-retryable error (e.g. auth failure)', async () => {
+    const authError = new Error('Invalid API key provided');
+    mocks.callClaude.mockRejectedValueOnce(authError);
+
+    await expect(
+      callSummaryModel('prompt', [], 'completed', {
+        summarySettings: tierSettings(tier.id),
+        logMeta: { sessionId: 'summary-session-2', callType: 'generateSessionSummary' },
+      })
+    ).rejects.toThrow('Invalid API key provided');
+
+    expect(mocks.callClaude).toHaveBeenCalledTimes(1);
+    expect(isUnhealthy(providerA.id, 'summary-model-a')).toBe(false);
+    expect(mocks.agentCallLogger._logFailoverEvent).not.toHaveBeenCalled();
+  });
+
+  it('exhausts every eligible member before throwing a terminal error', async () => {
+    mocks.callClaude.mockRejectedValue(Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 }));
+
+    await expect(
+      callSummaryModel('prompt', [], 'completed', {
+        summarySettings: tierSettings(tier.id),
+        logMeta: { sessionId: 'summary-session-3', callType: 'generateSessionSummary' },
+      })
+    ).rejects.toThrow(/529/);
+
+    expect(mocks.callClaude).toHaveBeenCalledTimes(2);
+    expect(isUnhealthy(providerA.id, 'summary-model-a')).toBe(true);
+    expect(isUnhealthy(providerB.id, 'summary-model-b')).toBe(true);
+  });
+
+  it('does not record the terminal failure as a failover to a null successor', async () => {
+    // Review finding 2: every failure with a successor logs A→B, but the LAST
+    // member's failure is tier exhaustion, not a failover — it must never be
+    // logged as a nominal failover with a null destination.
+    mocks.callClaude.mockRejectedValue(Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 }));
+
+    await expect(
+      callSummaryModel('prompt', [], 'completed', {
+        summarySettings: tierSettings(tier.id),
+        logMeta: { sessionId: 'summary-session-exhaust-no-event', callType: 'generateSessionSummary' },
+      })
+    ).rejects.toThrow(SummaryTierExhaustedError);
+
+    // Exactly one failover event: the first member's advance to the second.
+    expect(mocks.agentCallLogger._logFailoverEvent).toHaveBeenCalledTimes(1);
+    const [, event] = mocks.agentCallLogger._logFailoverEvent.mock.calls[0];
+    expect(event).toMatchObject({
+      fromModel: 'summary-model-a',
+      fromProviderId: providerA.id,
+      toModel: 'summary-model-b',
+      toProviderId: providerB.id,
+    });
+    expect(event.toModel).not.toBeNull();
+  });
+
+  it('represents exhaustion with the ordered attempts and preserves the final provider error', async () => {
+    const finalError = Object.assign(new Error('Error: 529 overloaded for good'), { status: 529 });
+    mocks.callClaude
+      .mockRejectedValueOnce(Object.assign(new Error('Error: 429 first member rate limited'), { status: 429 }))
+      .mockRejectedValueOnce(finalError);
+
+    const error = await callSummaryModel('prompt', [], 'completed', {
+      summarySettings: tierSettings(tier.id),
+      logMeta: { sessionId: 'summary-session-exhaust-shape', callType: 'generateSessionSummary' },
+    }).catch((err) => err);
+
+    expect(error).toBeInstanceOf(SummaryTierExhaustedError);
+    expect(error.code).toBe('MODEL_TIER_EXHAUSTED');
+    expect(error.tierRef).toBe(buildTierRef(tier.id));
+    expect(error.attempts).toEqual([
+      { providerId: providerA.id, modelId: 'summary-model-a', reason: expect.stringContaining('429') },
+      { providerId: providerB.id, modelId: 'summary-model-b', reason: expect.stringContaining('529') },
+    ]);
+    expect(error.message).toContain('Summary tier');
+    expect(error.cause).toBe(finalError);
+  });
+
+  it('treats a single-member tier failure as exhaustion, not a failover', async () => {
+    const singleTier = modelTiers.create({
+      name: 'Single Summary Member Tier',
+      members: [{ providerId: providerA.id, modelId: 'summary-model-a', position: 0 }],
+    });
+    mocks.callClaude.mockRejectedValue(Object.assign(new Error('Error: 529 overloaded'), { status: 529 }));
+
+    await expect(
+      callSummaryModel('prompt', [], 'completed', {
+        summarySettings: tierSettings(singleTier.id),
+        logMeta: { sessionId: 'summary-session-single', callType: 'generateSessionSummary' },
+      })
+    ).rejects.toThrow(SummaryTierExhaustedError);
+
+    expect(mocks.agentCallLogger._logFailoverEvent).not.toHaveBeenCalled();
+    expect(mocks.callClaude).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispatches a Google tier member rather than skipping it', async () => {
+    const googleProvider = modelProviders.create({ name: 'Summary Google Provider', kind: 'google', authToken: 'google-summary-key' });
+    modelProviders.addModel(googleProvider.id, { modelId: 'gemini-summary-model', displayName: 'Gemini' });
+    const mixedTier = modelTiers.create({
+      name: 'Mixed Summary Tier',
+      members: [
+        { providerId: googleProvider.id, modelId: 'gemini-summary-model', position: 0 },
+        { providerId: providerA.id, modelId: 'summary-model-a', position: 1 },
+      ],
+    });
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ candidates: [{ content: { parts: [{ text: '{"short_summary":"from Gemini"}' }] } }] }),
+    });
+
+    const result = await callSummaryModel('prompt', [], 'completed', {
+      summarySettings: tierSettings(mixedTier.id),
+      logMeta: { sessionId: 'summary-session-4', callType: 'generateSessionSummary' },
+    });
+
+    expect(result).toBe('{"short_summary":"from Gemini"}');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toContain('gemini-summary-model:generateContent');
+    expect(mocks.callClaude).not.toHaveBeenCalled();
+    expect(isUnhealthy(googleProvider.id, 'gemini-summary-model')).toBe(false);
+    expect(mocks.agentCallLogger._logFailoverEvent).not.toHaveBeenCalled();
+  });
+
+  it('falls through to the default summary model when the tier has no resolvable members', async () => {
+    const emptyTier = modelTiers.create({ name: 'Empty Summary Tier' });
+    mocks.callClaude.mockResolvedValueOnce('{"short_summary":"default"}');
+
+    const result = await callSummaryModel('prompt', [], 'completed', {
+      summarySettings: tierSettings(emptyTier.id),
+      logMeta: { sessionId: 'summary-session-5', callType: 'generateSessionSummary' },
+    });
+
+    expect(result).toBe('{"short_summary":"default"}');
+    expect(mocks.callClaude).toHaveBeenCalledTimes(1);
+    expect(mocks.callClaude.mock.calls[0][3]).toMatchObject({ model: DEFAULT_ANTHROPIC_SUMMARY_MODEL });
+  });
+
+  it('falls through to the default summary model when every configured member is stale', async () => {
+    const staleTier = modelTiers.create({
+      name: 'Stale Summary Tier',
+      members: [{ providerId: providerA.id, modelId: 'removed-summary-model', position: 0 }],
+    });
+    mocks.callClaude.mockResolvedValueOnce('{"short_summary":"default"}');
+
+    const result = await callSummaryModel('prompt', [], 'completed', {
+      summarySettings: tierSettings(staleTier.id),
+      logMeta: { sessionId: 'summary-session-stale', callType: 'generateSessionSummary' },
+    });
+
+    expect(result).toBe('{"short_summary":"default"}');
+    expect(mocks.callClaude).toHaveBeenCalledTimes(1);
+    expect(mocks.callClaude.mock.calls[0][3]).toMatchObject({ model: DEFAULT_ANTHROPIC_SUMMARY_MODEL });
+  });
+
+  it('falls through to the default summary model when the tier ref no longer resolves (deleted)', async () => {
+    mocks.callClaude.mockResolvedValueOnce('{"short_summary":"default"}');
+
+    const result = await callSummaryModel('prompt', [], 'completed', {
+      summarySettings: tierSettings('deleted-tier-id'),
+      logMeta: { sessionId: 'summary-session-6', callType: 'generateSessionSummary' },
+    });
+
+    expect(result).toBe('{"short_summary":"default"}');
+    expect(mocks.callClaude.mock.calls[0][3]).toMatchObject({ model: DEFAULT_ANTHROPIC_SUMMARY_MODEL });
+  });
+
+  it('reports cooldown exhaustion instead of dispatching the default summary model', async () => {
+    markUnhealthy(providerA.id, 'summary-model-a');
+    markUnhealthy(providerB.id, 'summary-model-b');
+
+    const error = await callSummaryModel('prompt', [], 'completed', {
+      summarySettings: tierSettings(tier.id),
+      logMeta: { sessionId: 'summary-session-cooldown', callType: 'generateSessionSummary' },
+    }).catch((failure) => failure);
+
+    expect(error).toMatchObject({
+      code: 'MODEL_TIER_COOLDOWN_UNAVAILABLE',
+      tierId: tier.id,
+      tierName: 'Summary Tier',
+    });
+    expect(mocks.callClaude).not.toHaveBeenCalled();
+
+    clearUnhealthy(providerA.id, 'summary-model-a');
+    clearUnhealthy(providerB.id, 'summary-model-b');
   });
 });

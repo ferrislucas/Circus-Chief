@@ -300,6 +300,15 @@ describe('Providers API', () => {
       expect(response.body.error).toBeDefined();
     });
 
+    it('400: rejects renaming a model to the Model Tier reference prefix', async () => {
+      const response = await request(app)
+        .patch(`/api/providers/${testProviderId}/models/${testModelId}`)
+        .send({ modelId: 'tier::high' })
+        .expect(400);
+
+      expect(response.body.error).toMatch(/reserved "tier::" prefix/);
+    });
+
     it('200: valid request with displayName update only', async () => {
       const response = await request(app)
         .patch(`/api/providers/${testProviderId}/models/${testModelId}`)
@@ -366,6 +375,18 @@ describe('Providers API', () => {
         .expect(400);
 
       expect(response.body.error).toBeDefined();
+    });
+
+    it('400: rejects the Model Tier reference prefix as a concrete model ID', async () => {
+      const response = await request(app)
+        .post(`/api/providers/${testProviderId}/models`)
+        .send({
+          modelId: 'tier::high',
+          displayName: 'Ambiguous model',
+        })
+        .expect(400);
+
+      expect(response.body.error).toMatch(/reserved "tier::" prefix/);
     });
   });
 

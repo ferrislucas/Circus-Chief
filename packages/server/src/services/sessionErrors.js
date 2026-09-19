@@ -1,9 +1,53 @@
+/**
+ * sessionErrors.js — the SINGLE OWNER of provider-error wording semantics.
+ *
+ * Every capacity/outage detection gate funnels through the exported matchers
+ * defined here:
+ *   - matchesTokenLimitError / matchesServiceError — the intentionally BROAD
+ *     matchers feeding auto-reschedule decisions (false positives are cheap:
+ *     one retry an hour later) and, behind the completion-path shape guard,
+ *     the turn-hold decision.
+ *   - matchesStartFailoverEligibleError — the intentionally TIGHT gate for
+ *     tier-failover eligibility (a false positive silently switches a
+ *     session's model AND provider). Built from TRANSIENT_FAILOVER_PATTERNS
+ *     + QUOTA_FAILOVER_PATTERNS + transient status codes.
+ *
+ * Detection-vs-policy split: these matchers only ever classify ERROR
+ * evidence (an error message/type/code/reason from a provider or CLI) —
+ * never assistant prose. The completion path (turnEndedDueToLimitOrOutage)
+ * scans prose, so it layers its own terminal-pattern grammar + shape guard
+ * (TERMINAL_LIMIT_OR_OUTAGE_PATTERNS / looksLikeTerminalAssistantMessage)
+ * on top of the broad matchers.
+ *
+ * CONTRACT: real provider error strings live in sessionErrorFixtures.js and
+ * are pinned by the conformance suite (sessionErrors.conformance.test.js),
+ * which asserts every corpus row's expected verdict of BOTH policies against
+ * these matchers. When adding or tightening wording here, add/adjust a corpus
+ * row in the same change — and harvest real strings (agent_call_logs) rather
+ * than inventing synthetic ones. The E2E canned messages
+ * (e2eSpawnOutcomes.js OUTCOME_MESSAGES) are likewise bound to these
+ * semantics by e2eSpawnOutcomes.test.js.
+ */
+
 import { sessions, messages } from '../database.js';
 import { schedulerService } from './schedulerService.js';
+import { isTierRef } from '@circuschief/shared';
+import { sessionHasNoObservableAgentActivity } from './sessionAgentGuard.js';
 
 /**
- * Check if error message matches token limit patterns
- * @param {string} message - Error message to check
+ * Check if error message matches token limit patterns.
+ *
+ * Intentionally broad: the patterns below also catch generic non-quota phrases
+ * such as "limit", "cap", and "exceeded". This breadth is a deliberate choice
+ * for auto-reschedule decisions — we prefer false-positive reschedules (retrying
+ * a session that could have continued) over false-negative ones (not retrying
+ * when we should).
+ *
+ * Note: do NOT use this function for start-time tier failover eligibility — it
+ * is too broad and can match non-quota errors like "Unexpected token in JSON".
+ * Use matchesStartFailoverEligibleError instead (Fix 4 / F16).
+ *
+ * @param {string} message - Error message to check (should be lowercased by caller)
  * @returns {boolean} True if matches token limit error
  */
 export function matchesTokenLimitError(message) {
@@ -22,23 +66,97 @@ export function matchesTokenLimitError(message) {
   return patterns.some(pattern => message.includes(pattern));
 }
 
+// Statuses that reliably identify a transient provider-availability failure
+// without needing message text. A generic 500 is deliberately absent: only
+// normalized transient evidence (below) may make a 500 eligible.
+const TRANSIENT_FAILOVER_STATUS_CODES = new Set([429, 503, 529]);
+
+const TRANSIENT_FAILOVER_PATTERNS = [
+  'overloaded',
+  'rate limit',
+  '503',
+  '529',
+  'unavailable',
+  'service unavailable',
+  'too many requests',
+];
+
+const QUOTA_FAILOVER_PATTERNS = [
+  'quota',
+  'rate limit',
+  'out of tokens',
+  'usage limit',     // real provider wording (incident ec5b56d5): "You've hit your usage limit." — OpenAI Codex; also matches Anthropic's "reached your usage limit"
+  'insufficient credit',
+  'billing limit',
+  'billing hard limit',
+];
+
+function normalizeFailoverErrorEvidence(messageOrError) {
+  const error = typeof messageOrError === 'object' && messageOrError !== null
+    ? messageOrError
+    : { message: messageOrError };
+  return [error.message, error.type, error.code, error.reason]
+    .filter(value => typeof value === 'string')
+    .join(' ')
+    .toLowerCase();
+}
+
+/**
+ * Check if an error qualifies for start-time tier failover (Fix 4 / F16).
+ *
+ * Uses a tighter pattern set than matchesTokenLimitError to avoid spurious
+ * cross-provider failover on non-quota errors (e.g. "Unexpected token in JSON"
+ * contains "token" but is a JSON parse error, not a capacity error).
+ *
+ * Covers the PRD-specified triggers: overload / 503 / 529 / rate limit / quota /
+ * out of tokens / insufficient credit / billing — plus the matchesServiceError
+ * patterns (service unavailability) which are already tight.
+ *
+ * Prompt-size errors (context length / context window / max_tokens) are
+ * intentionally excluded: an oversized prompt is not an outage or quota
+ * exhaustion, so failing over to another provider won't fix it and can mask
+ * a real prompt-size bug by silently bouncing across providers. These stay
+ * covered by matchesTokenLimitError for the broader auto-reschedule decision.
+ *
+ * Accepts either a plain (already-lowercased) message string — the session
+ * path's existing, unchanged usage — or an Error-like object with a
+ * `message` and optionally a numeric `status` (Work Item 2 — the summary
+ * path throws SDK errors whose status code may not be reflected in the
+ * message text at all).
+ *
+ * @param {string|{message?: string, status?: number}} messageOrError
+ * @returns {boolean} True if the error should trigger start-time tier failover
+ */
+export function matchesStartFailoverEligibleError(messageOrError) {
+  const isErrorLike = typeof messageOrError === 'object' && messageOrError !== null;
+  const message = normalizeFailoverErrorEvidence(messageOrError);
+
+  // Delegate to matchesServiceError for service-level outage patterns
+  if (matchesServiceError(message)) return true;
+
+  // Quota / billing patterns (tighter than matchesTokenLimitError). 'billing'
+  // alone is intentionally excluded — too broad and can trigger a spurious
+  // cross-provider failover on unrelated text (e.g. a work-summary sentence
+  // that happens to mention "billing"). Use specific phrases that match real
+  // provider wording instead (still covers PRD F16's "spending/billing limit
+  // reached").
+  if (QUOTA_FAILOVER_PATTERNS.some(pattern => message.includes(pattern))) return true;
+
+  // Status-code check (SDK errors). Never applied to prompt-size errors —
+  // those don't carry these status codes, so this can't accidentally
+  // override the exclusion above.
+  if (isErrorLike && TRANSIENT_FAILOVER_STATUS_CODES.has(messageOrError.status)) return true;
+
+  return false;
+}
+
 /**
  * Check if error message matches service error patterns
  * @param {string} message - Error message to check
  * @returns {boolean} True if matches service error
  */
 export function matchesServiceError(message) {
-  const patterns = [
-    'overloaded',
-    'rate limit',
-    '503',
-    '529',
-    'unavailable',
-    'service unavailable',
-    'too many requests',
-  ];
-
-  return patterns.some(pattern => message.includes(pattern));
+  return TRANSIENT_FAILOVER_PATTERNS.some(pattern => message.includes(pattern));
 }
 
 /**
@@ -91,13 +209,64 @@ function logSkippedReschedule(setting) {
 }
 
 /**
+ * Determine whether an error occurring on a tier-bound session's start attempt
+ * should trigger failover to the next tier member, rather than the normal
+ * error/auto-reschedule handling.
+ *
+ * All of the following must hold:
+ *  - `session.model` is a tier ref (`tier::<id>`)
+ *  - `tierContext` was supplied (i.e. this attempt is part of the tier failover loop)
+ *  - the error matches a failover-eligible pattern (service error or token/limit error)
+ *  - the session has produced no observable agent activity yet (start-only boundary)
+ *  - there is another healthy member to advance to
+ *
+ * @param {object} session - Session object
+ * @param {Error} error - Error that occurred
+ * @param {string|null} sessionId - Session ID
+ * @param {{ currentMemberId?: string, currentMemberProviderId?: string, nextMember?: Object|null }|null} tierContext
+ * @returns {boolean}
+ */
+export function isTierFailoverEligibleError(session, error, sessionId = null, tierContext = null) {
+  if (!isTierRef(session.model) || !tierContext || tierContext.currentMemberId === undefined) {
+    return false;
+  }
+
+  // Use the tighter failover-specific matcher (Fix 4) rather than the broad
+  // matchesTokenLimitError to avoid spurious cross-provider failover on
+  // non-quota errors such as JSON parse errors containing "token".
+  const isEligible = matchesStartFailoverEligibleError(error);
+  if (!isEligible || !sessionId || !sessionHasNoObservableAgentActivity(sessionId)) {
+    return false;
+  }
+
+  // The failover loop supplies the successor from its immutable member
+  // snapshot. Never re-read live tier configuration here: an edit while a
+  // provider call is in flight must not make rescheduling disagree with the
+  // retry and notice for that same attempt.
+  return tierContext.nextMember != null;
+}
+
+/**
  * Check if an error should trigger automatic rescheduling
  * @param {object} session - Session object
  * @param {Error} error - Error that occurred
  * @param {string} sessionId - Session ID
+ * @param {{ currentMemberId?: string, currentMemberProviderId?: string, nextMember?: Object|null }} [tierContext]
+ *   - When provided and session is tier-bound, used to determine failover eligibility.
  * @returns {boolean} True if should reschedule
  */
-export function shouldRescheduleOnError(session, error, sessionId = null) {
+export function shouldRescheduleOnError(session, error, sessionId = null, tierContext = null) {
+  // Tier failover interception:
+  // If the session is bound to a tier AND the error is failover-eligible AND
+  // the conversation has not started yet AND there's a next healthy member,
+  // suppress auto-reschedule so the failover loop can throw and advance.
+  if (isTierFailoverEligibleError(session, error, sessionId, tierContext)) {
+    console.log(
+      '[SessionManager] Tier failover eligible: suppressing auto-reschedule to advance to next member'
+    );
+    return false;
+  }
+
   // Check if auto-reschedule is enabled first (master switch)
   if (!session.autoRescheduleEnabled) {
     console.log('[SessionManager] autoRescheduleEnabled is false, skipping all rescheduling');

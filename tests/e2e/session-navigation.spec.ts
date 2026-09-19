@@ -42,6 +42,9 @@ test.describe('Session List Icon Navigation', () => {
     // Find and verify back icon link
     const backLink = page.locator('.tab-back');
     await expect(backLink).toBeVisible();
+    // Session detail can replace the tab row once while its session data settles.
+    // Resolve the locator again after that render before checking hit testing.
+    await expect(backLink).toHaveAttribute('title', 'Back to Workspaces');
     await expectHitTestable(backLink);
     await expect(backLink.locator('.back-icon')).toBeVisible();
     await expect(backLink.locator('svg')).toHaveCount(2);

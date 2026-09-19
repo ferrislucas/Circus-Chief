@@ -310,6 +310,17 @@ describe('ProviderRepository', () => {
   });
 
   describe('addModel / getModels', () => {
+    it('rejects model IDs that would be parsed as Model Tier references', () => {
+      const provider = repo.create({ name: 'Reserved Prefix', kind: 'openai' });
+
+      expect(() => repo.addModel(provider.id, {
+        modelId: 'tier::high',
+        displayName: 'Ambiguous model',
+      })).toThrow(/reserved "tier::" prefix/);
+
+      repo.delete(provider.id);
+    });
+
     it('adds a model to a provider and retrieves it', () => {
       const provider = repo.create({
         name: 'Add Model Test',
@@ -472,6 +483,20 @@ describe('ProviderRepository', () => {
   });
 
   describe('updateModel', () => {
+    it('rejects renaming a concrete model to a Model Tier reference', () => {
+      const provider = repo.create({ name: 'Reserved Prefix Rename', kind: 'openai' });
+      const model = repo.addModel(provider.id, {
+        modelId: 'safe-concrete-model',
+        displayName: 'Safe concrete model',
+      });
+
+      expect(() => repo.updateModel(model.id, { modelId: 'tier::high' }))
+        .toThrow(/reserved "tier::" prefix/);
+      expect(repo.getModelById(model.id).modelId).toBe('safe-concrete-model');
+
+      repo.delete(provider.id);
+    });
+
     it('updates modelId field', () => {
       const provider = repo.create({
         name: 'Update Model Test',

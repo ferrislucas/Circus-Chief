@@ -123,6 +123,9 @@ describe('Metrics API', () => {
           promptLength: 100,
         });
       }
+      agentCallLogs.db.prepare(
+        'UPDATE agent_call_logs SET started_at = ? WHERE id = ?'
+      ).run(Date.now() - 1000, 'tier-failover');
 
       const res = await request(app).get(
         `/api/sessions/${sessionId}/agent-calls?limit=2&offset=1`
@@ -130,6 +133,27 @@ describe('Metrics API', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(2);
+    });
+
+    it('filters a session call history by call type before applying the limit', async () => {
+      agentCallLogs.create({
+        id: 'tier-failover', sessionId, conversationId: null, agentType: 'claude-code',
+        model: null, callType: 'tierFailover', promptLength: 0,
+      });
+      for (let i = 0; i < 3; i++) {
+        agentCallLogs.create({
+          id: `ordinary-${i}`, sessionId, conversationId: null, agentType: 'claude-code',
+          model: null, callType: 'runSession', promptLength: 0,
+        });
+      }
+
+      const res = await request(app).get(
+        `/api/sessions/${sessionId}/agent-calls?callType=tierFailover&limit=1`
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].id).toBe('tier-failover');
     });
   });
 
