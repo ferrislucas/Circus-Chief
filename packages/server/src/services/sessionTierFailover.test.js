@@ -35,7 +35,11 @@ import { agentGateway } from '../agents/AgentGateway.js';
 import { BaseAgent } from '../agents/BaseAgent.js';
 import { CodexAdapter } from '../agents/adapters/CodexAdapter.js';
 import { broadcastToSession } from '../websocket.js';
-import { resolveTierRefForContinueWithStaleFallback, sanitizeTierFailureReason } from './sessionTierFailover.js';
+import {
+  resolveTierRefForContinueWithStaleFallback,
+  runSessionWithTierFailover,
+  sanitizeTierFailureReason,
+} from './sessionTierFailover.js';
 
 describe('sanitizeTierFailureReason', () => {
   it('bounds and redacts credential-like values before outward reporting', () => {
@@ -488,6 +492,33 @@ describe('runSessionCore tier failover (integration)', () => {
     const updated = sessionRepo.getById(session.id);
     expect(updated.resolvedModel).toBe('model-b');
     expect(updated.resolvedProviderId).toBe(providerB.id);
+  });
+
+  it('reports cooldown exhaustion without attempting configured members', async () => {
+    markUnhealthy(providerA.id, 'model-a');
+    markUnhealthy(providerB.id, 'model-b');
+
+    const failure = await runSession(session.id, 'Initial prompt', tempDir, { model: null })
+      .then(() => null, (error) => error);
+
+    expect(failure).toMatchObject({
+      code: 'MODEL_TIER_COOLDOWN_UNAVAILABLE',
+      tierId: tier.id,
+      tierName: 'Test Tier',
+    });
+    expect(failure.message).toMatch(/all members are cooling down/);
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('keeps a genuinely empty tier distinct from cooldown exhaustion', async () => {
+    const emptyTier = modelTiers.create({ name: 'Empty Tier' });
+
+    await expect(runSessionWithTierFailover(
+      session.id,
+      'Initial prompt',
+      tempDir,
+      { tierRef: buildTierRef(emptyTier.id) }
+    )).rejects.toThrow('No members configured for tier "Empty Tier"');
   });
 });
 

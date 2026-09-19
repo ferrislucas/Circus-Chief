@@ -185,7 +185,16 @@ function cooldownUnavailableError(tierId, tierName) {
   Object.assign(error, { code: 'MODEL_TIER_COOLDOWN_UNAVAILABLE', tierId, tierName });
   return error;
 }
+function resolveAttemptableTierMembers(tierId, tierName) {
+  const configuredMembers = getTierMembersResolved(tierId);
+  if (configuredMembers.length === 0) throw new Error(`No members configured for tier "${tierName}" — cannot start session`);
 
+  const attemptableMembers = configuredMembers.filter((member) => !isUnhealthy(member.providerId, member.modelId));
+  if (attemptableMembers.length === 0) {
+    throw cooldownUnavailableError(tierId, tierName);
+  }
+  return attemptableMembers;
+}
 /**
  * Emit the tier-failover side effects (WebSocket broadcast + agent-call log entry)
  * once a member has been confirmed as an eligible failure with a healthy successor.
@@ -282,26 +291,21 @@ export async function runSessionWithTierFailover(
     throw new Error(`Invalid tier ref: ${tierRef}`);
   }
 
-  // Freeze resolved, initially healthy members once per run. Configuration
-  // changes while an attempt is in flight cannot alter this run's retry,
-  // reschedule decision, or emitted successor.
-  const members = getTierMembersResolved(tierId)
-    .filter((member) => !isUnhealthy(member.providerId, member.modelId));
+  // Freeze configured members once per run. Configuration changes while an
+  // attempt is in flight cannot alter this run's retry, reschedule decision,
+  // or emitted successor. Cooldown is deliberately applied afterwards: an
+  // empty configuration and a temporarily exhausted configuration are
+  // different user-visible conditions.
   const tierName = _getTierName(tierId);
-
-  if (members.length === 0) {
-    throw new Error(
-      `No members configured for tier "${tierName}" — cannot start session`
-    );
-  }
+  const attemptableMembers = resolveAttemptableTierMembers(tierId, tierName);
 
   // Ensure the model stored on the session is the tier ref
   sessions.update(sessionId, { model: tierRef });
 
   const attempts = [];
-  for (let memberIndex = 0; memberIndex < members.length; memberIndex++) {
-    const member = members[memberIndex];
-    const nextMember = members[memberIndex + 1] || null;
+  for (let memberIndex = 0; memberIndex < attemptableMembers.length; memberIndex++) {
+    const member = attemptableMembers[memberIndex];
+    const nextMember = attemptableMembers[memberIndex + 1] || null;
 
     const tierContext = {
       currentMemberId: member.modelId,
@@ -353,9 +357,6 @@ export async function runSessionWithTierFailover(
   }
 
   if (attempts.length) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
-  // Every resolved member was skipped due to cooldown. This is deliberately
-  // distinct from exhaustion: no provider call happened during this run.
-  throw cooldownUnavailableError(tierId, tierName);
 }
 
 function _getTierName(tierId) {
