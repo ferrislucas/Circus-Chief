@@ -99,6 +99,20 @@ describe('sessions immutable-parentage upgrade', () => {
         .run('session-1', 'project-1', 'Tier-bound session', 'starting', 'tier::high', now, now);
 
       runMigrationsThrough(db, 'model-tiers-provider-pair-columns');
+      db.prepare(`INSERT INTO providers (id, name, kind, enabled, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)`)
+        .run('openai', 'OpenAI', 'openai', 1, now, now);
+      db.prepare(`INSERT INTO provider_models
+        (id, provider_id, model_id, display_name, tier, enabled, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run('openai-gpt-5.5', 'openai', 'gpt-5.5', 'GPT-5.5', 'custom', 1, now);
+      db.prepare(`INSERT INTO model_tiers (id, name, created_at, updated_at)
+        VALUES (?, ?, ?, ?)`)
+        .run('high', 'High', now, now);
+      db.prepare(`INSERT INTO model_tier_members
+        (id, tier_id, provider_id, model_id, position, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)`)
+        .run('high-openai-gpt-5.5', 'high', 'openai', 'gpt-5.5', 0, now);
       db.prepare(`UPDATE sessions SET resolved_model = ?, resolved_provider_id = ? WHERE id = ?`)
         .run('gpt-5.5', 'openai', 'session-1');
 

@@ -2,11 +2,7 @@ import OpenAI from 'openai';
 import { callClaude, SESSION_SUMMARY_SCHEMA } from './summaryClaudeClient.js';
 import { agentCallLogger } from './agentCallLogger.js';
 import { buildProviderEnv } from './sessionProvider.js';
-import {
-  BUILT_IN_OPENAI_PROVIDER_ID,
-  resolveSummaryModel,
-  resolveExplicitSummaryModel,
-} from './summaryModelResolver.js';
+import { BUILT_IN_OPENAI_PROVIDER_ID, resolveSummaryModel, resolveExplicitSummaryModel } from './summaryModelResolver.js';
 import { callCodexSummary } from './summaryCodexClient.js';
 import { getTierMembersResolved, markUnhealthy, isUnhealthy } from './tierResolutionService.js';
 import { matchesStartFailoverEligibleError } from './sessionErrors.js';
@@ -339,9 +335,7 @@ function logOpenAIUsage(callId, usage) {
 }
 
 function createOpenAIClient(provider) {
-  const options = {
-    apiKey: provider?.authToken || process.env.OPENAI_API_KEY || 'missing',
-  };
+  const options = { apiKey: provider?.authToken || process.env.OPENAI_API_KEY || 'missing' };
   if (provider?.baseUrl) options.baseURL = provider.baseUrl;
   if (provider?.apiTimeoutMs) options.timeout = provider.apiTimeoutMs;
   return new OpenAI(options);
