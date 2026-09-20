@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { CodexAdapter } from './CodexAdapter.js';
 import { ProviderAllowanceService } from '../../services/ProviderAllowanceService.js';
+import { _setActiveCodexAppServerMeterForTests } from '../../services/codexAppServerMeter.js';
 
 const fixturePath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -85,5 +86,89 @@ describe('CodexAdapter OpenAI allowance observation', () => {
 
     expect(service.getSnapshots().snapshots.every((snapshot) => snapshot.status === 'unknown')).toBe(true);
     expect(broadcaster).not.toHaveBeenCalled();
+  });
+});
+
+describe('CodexAdapter rollout-tail gating', () => {
+  const observer = () => {};
+  let savedEnv;
+
+  function setEnv(enabled, codexFlag) {
+    if (enabled === undefined) delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+    else process.env.PROVIDER_ALLOWANCES_ENABLED = enabled;
+    if (codexFlag === undefined) delete process.env.PROVIDER_ALLOWANCES_CODEX;
+    else process.env.PROVIDER_ALLOWANCES_CODEX = codexFlag;
+  }
+
+  function adapterWith(observerFn = observer) {
+    return new CodexAdapter({ allowanceObserver: observerFn, clock: { now: () => 1 } });
+  }
+
+  it('creates a rollout watcher for ChatGPT-plan CLI sessions while the source gate is on', () => {
+    savedEnv = { enabled: process.env.PROVIDER_ALLOWANCES_ENABLED, codex: process.env.PROVIDER_ALLOWANCES_CODEX };
+    setEnv('1', '1');
+    try {
+      const watcher = adapterWith()._maybeCreateRolloutWatcher({ providerId: 'openai-default', env: {} });
+      expect(watcher).not.toBeNull();
+    } finally {
+      setEnv(savedEnv.enabled, savedEnv.codex);
+    }
+  });
+
+  it('skips the rollout tail when there is no observer (master gate off)', () => {
+    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
+    process.env.PROVIDER_ALLOWANCES_CODEX = '1';
+    try {
+      expect(adapterWith(null)._maybeCreateRolloutWatcher({ providerId: 'openai-default', env: {} })).toBeNull();
+    } finally {
+      delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+      delete process.env.PROVIDER_ALLOWANCES_CODEX;
+    }
+  });
+
+  it('skips the rollout tail while the Codex source gate is off', () => {
+    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
+    delete process.env.PROVIDER_ALLOWANCES_CODEX;
+    try {
+      expect(adapterWith()._maybeCreateRolloutWatcher({ providerId: 'openai-default', env: {} })).toBeNull();
+    } finally {
+      delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+      delete process.env.PROVIDER_ALLOWANCES_CODEX;
+    }
+  });
+
+  it('skips the rollout tail without a providerId', () => {
+    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
+    process.env.PROVIDER_ALLOWANCES_CODEX = '1';
+    try {
+      expect(adapterWith()._maybeCreateRolloutWatcher({ env: {} })).toBeNull();
+    } finally {
+      delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+      delete process.env.PROVIDER_ALLOWANCES_CODEX;
+    }
+  });
+
+  it('skips the rollout tail for API-key spawns: documented headers remain the source (AC 21)', () => {
+    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
+    process.env.PROVIDER_ALLOWANCES_CODEX = '1';
+    try {
+      expect(adapterWith()._maybeCreateRolloutWatcher({ providerId: 'openai-default', env: { OPENAI_API_KEY: 'sk-test' } })).toBeNull();
+    } finally {
+      delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+      delete process.env.PROVIDER_ALLOWANCES_CODEX;
+    }
+  });
+
+  it('defers to a healthy app-server meter as the single writer', () => {
+    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
+    process.env.PROVIDER_ALLOWANCES_CODEX = '1';
+    _setActiveCodexAppServerMeterForTests({ healthy: true, stop: vi.fn() });
+    try {
+      expect(adapterWith()._maybeCreateRolloutWatcher({ providerId: 'openai-default', env: {} })).toBeNull();
+    } finally {
+      _setActiveCodexAppServerMeterForTests(null);
+      delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+      delete process.env.PROVIDER_ALLOWANCES_CODEX;
+    }
   });
 });

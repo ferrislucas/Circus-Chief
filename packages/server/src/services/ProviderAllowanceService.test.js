@@ -63,7 +63,7 @@ describe('ProviderAllowanceService', () => {
     expect(broadcaster).toHaveBeenCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, { snapshot: expected });
   });
 
-  it('uses unknown state when an adapter cannot supply an authoritative positive limit', () => {
+  it('does not trust unusable measurements but honors an authoritative status hint', () => {
     const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled] } });
 
     expect(service.observe({
@@ -74,7 +74,7 @@ describe('ProviderAllowanceService', () => {
         { key: 'missing', label: 'Missing', remaining: 5, limit: null, remainingPercent: 150, unit: 'requests', resetsAt: null },
       ],
     })).toMatchObject({
-      status: 'unknown',
+      status: 'exhausted',
       allowances: [
         { key: 'zero', remaining: 0, limit: null, remainingPercent: null, resetsAt: null },
         { key: 'missing', remaining: 5, limit: null, remainingPercent: null, resetsAt: null },
@@ -159,5 +159,90 @@ describe('ProviderAllowanceService', () => {
     expect(broadcaster).toHaveBeenCalledTimes(1);
     service.observe({ ...valid, allowances: [{ ...valid.allowances[0], remaining: 5, remainingPercent: 5 }] });
     expect(broadcaster).toHaveBeenCalledTimes(2);
+  });
+
+  it('accepts a percentage-only subscription allowance and derives status from it', () => {
+    const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled] } });
+
+    // Subscription sources report utilization percent only (no absolute
+    // counts). The server converts consumed → remaining (AC 14 is the
+    // adapter's job); the service accepts the clamped result as authoritative.
+    expect(service.observe({
+      providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
+      status: 'unknown', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
+      allowances: [{ key: 'five_hour', label: '5-hour window', remaining: null, limit: null, remainingPercent: 18, unit: 'tokens', resetsAt: 2 }],
+    })).toMatchObject({ status: 'warning', allowances: [{ remaining: null, limit: null, remainingPercent: 18 }] });
+  });
+
+  it.each([-5, 140, Number.NaN, '62', null])('rejects the out-of-range adapter percentage %p as untrusted input', (untrusted) => {
+    const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled] } });
+
+    expect(service.observe({
+      providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
+      status: 'unknown', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
+      allowances: [{ key: 'five_hour', label: '5-hour window', remaining: null, limit: null, remainingPercent: untrusted, unit: 'tokens', resetsAt: null }],
+    })).toMatchObject({ status: 'unknown', allowances: [{ remainingPercent: null }] });
+  });
+
+  it('prefers the percentage derived from absolutes over an adapter-supplied one', () => {
+    const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled] } });
+
+    expect(service.observe({
+      providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
+      status: 'unknown', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
+      allowances: [{ key: 'tokens', label: 'Tokens', remaining: 25, limit: 100, remainingPercent: 90, unit: 'tokens', resetsAt: null }],
+    })).toMatchObject({ status: 'warning', allowances: [{ remainingPercent: 25 }] });
+  });
+
+  it.each([
+    ['exhausted', 'exhausted'],
+    ['warning', 'warning'],
+    ['available', 'available'],
+  ])('keeps a status-only snapshot (%s) with its reset time and no fabricated percentage', (hint, expected) => {
+    const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled] } });
+
+    expect(service.observe({
+      providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
+      status: hint, source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
+      allowances: [{ key: 'five_hour', label: '5-hour window', remaining: null, limit: null, remainingPercent: null, unit: 'tokens', resetsAt: 1_800_000_000_000 }],
+    })).toMatchObject({
+      status: expected,
+      allowances: [{ remaining: null, limit: null, remainingPercent: null, resetsAt: 1_800_000_000_000 }],
+    });
+  });
+
+  it('collapses a status-only snapshot with an invalid status hint to unknown', () => {
+    const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled] } });
+
+    expect(service.observe({
+      providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
+      status: 'kaboom', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
+      allowances: [{ key: 'five_hour', label: '5-hour window', remaining: null, limit: null, remainingPercent: null, unit: 'tokens', resetsAt: null }],
+    })).toMatchObject({ status: 'unknown' });
+  });
+
+  it('lets authoritative percentages win over a status hint', () => {
+    const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled] } });
+
+    expect(service.observe({
+      providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
+      status: 'rejected', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
+      allowances: [{ key: 'five_hour', label: '5-hour window', remaining: null, limit: null, remainingPercent: 50, unit: 'tokens', resetsAt: null }],
+    })).toMatchObject({ status: 'available' });
+  });
+
+  it('applies freshness to status-only snapshots', () => {
+    const service = new ProviderAllowanceService({
+      providerRepository: { getAll: () => [enabled] },
+      clock: { now: () => 10 },
+    });
+
+    service.observe({
+      providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
+      status: 'exhausted', source: 'provider', updatedAt: 1, staleAfterMs: 5, unavailableReason: null,
+      allowances: [{ key: 'five_hour', label: '5-hour window', remaining: null, limit: null, remainingPercent: null, unit: 'tokens', resetsAt: null }],
+    });
+
+    expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'stale', staleAt: 6 });
   });
 });

@@ -54,7 +54,11 @@ async function resolveInitialSessionModelEnv(session, model) {
  * @returns {{ execute: (queryParams: any, meta?: any) => AsyncGenerator }}
  */
 export function createAgentForSession(agentType = 'claude-code', config = {}) {
-  const mergedConfig = { ...buildAgentConfig(agentType), ...(agentType === 'codex' ? { allowanceObserver: getProviderAllowanceObserver() } : {}), ...config };
+  // Session-bound allowance sources tap their adapter's stream (Codex headers/
+  // rollout tails, Claude rate-limit events); the factory returns null while
+  // the master rollout flag is off.
+  const allowance = ['codex', 'claude-code'].includes(agentType) ? { allowanceObserver: getProviderAllowanceObserver() } : {};
+  const mergedConfig = { ...buildAgentConfig(agentType), ...allowance, ...config };
   const baseAgent = agentGateway.createAgent(agentType, mergedConfig);
 
   // Wrap with VCR adapter if in VCR mode

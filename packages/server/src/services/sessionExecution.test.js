@@ -732,11 +732,23 @@ describe('buildQueryParams agent-aware', () => {
 // ── createAgentForSession config forwarding ────────────────────────────────
 
 describe('createAgentForSession config forwarding', () => {
-  it('claude-code → calls agentGateway.createAgent("claude-code", {})', () => {
+  it('claude-code → calls agentGateway.createAgent with an inert allowance observer while disabled', () => {
+    delete process.env.PROVIDER_ALLOWANCES_ENABLED;
     const spy = vi.spyOn(agentGateway, 'createAgent');
     createAgentForSession('claude-code');
-    expect(spy).toHaveBeenCalledWith('claude-code', {});
+    expect(spy).toHaveBeenCalledWith('claude-code', { allowanceObserver: null });
     spy.mockRestore();
+  });
+
+  it('claude-code → binds the real allowance observer when the Claude source is enabled', () => {
+    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
+    process.env.PROVIDER_ALLOWANCES_CLAUDE = '1';
+    const spy = vi.spyOn(agentGateway, 'createAgent');
+    createAgentForSession('claude-code');
+    expect(spy).toHaveBeenCalledWith('claude-code', expect.objectContaining({ allowanceObserver: expect.any(Function) }));
+    spy.mockRestore();
+    delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+    delete process.env.PROVIDER_ALLOWANCES_CLAUDE;
   });
 
   it('does not start allowance observation for Codex while the rollout is disabled', () => {

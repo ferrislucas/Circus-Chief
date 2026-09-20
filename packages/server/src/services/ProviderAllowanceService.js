@@ -1,4 +1,4 @@
-import { ProviderAllowanceListResponse, ProviderAllowanceSnapshot } from '@circuschief/shared/contracts/providers';
+import { ProviderAllowanceListResponse, ProviderAllowanceSnapshot, ProviderAllowanceStatus } from '@circuschief/shared/contracts/providers';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -70,11 +70,18 @@ export class ProviderAllowanceService {
     const hasAuthoritativePercentage = authoritativePercentages.length > 0;
 
     const updatedAt = finiteNumberOrNull(snapshot.updatedAt);
+    // Percentages are strictly more informative than a status hint, so they
+    // always win. Status-only sources (a rate-limit event without utilization)
+    // keep their mapped state instead of collapsing to unknown; anything else
+    // stays honestly unknown.
+    const status = hasAuthoritativePercentage
+      ? deriveStatus(Math.min(...authoritativePercentages))
+      : (isProviderAllowanceStatus(snapshot.status) ? snapshot.status : 'unknown');
     return ProviderAllowanceSnapshot.parse({
       providerId: provider.id,
       providerName: provider.name,
       providerKind: provider.kind,
-      status: hasAuthoritativePercentage ? deriveStatus(Math.min(...authoritativePercentages)) : 'unknown',
+      status,
       allowances,
       source: isSource(snapshot.source) ? snapshot.source : null,
       updatedAt,
@@ -95,8 +102,10 @@ function calculateStaleAt(snapshot, updatedAt) {
   return finiteNumberOrNull(snapshot.staleAt);
 }
 
-// Adapter values are untrusted. A percentage exists only when it can be
-// derived from a non-negative remaining amount and a positive limit.
+// Adapter values are untrusted. A percentage exists when it can be derived
+// from a non-negative remaining amount and a positive limit; percentage-only
+// sources (subscription plans report utilization without absolute counts)
+// may supply one directly, which is accepted only when finite and in range.
 export function normalizeAllowance(allowance) {
   if (!hasDisplayIdentity(allowance)) return null;
 
@@ -104,9 +113,10 @@ export function normalizeAllowance(allowance) {
   const limit = finiteNumberOrNull(allowance.limit);
   const normalizedRemaining = remaining === null ? null : Math.max(0, remaining);
   const normalizedLimit = limit !== null && limit > 0 ? limit : null;
-  const remainingPercent = normalizedRemaining !== null && normalizedLimit !== null
+  const derived = normalizedRemaining !== null && normalizedLimit !== null
     ? percentage(normalizedRemaining, normalizedLimit)
     : null;
+  const remainingPercent = derived ?? clampPercent(allowance.remainingPercent);
 
   return {
     key: allowance.key,
@@ -117,6 +127,16 @@ export function normalizeAllowance(allowance) {
     unit: allowance.unit,
     resetsAt: finiteNumberOrNull(allowance.resetsAt),
   };
+}
+
+export function clampPercent(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100
+    ? value
+    : null;
+}
+
+function isProviderAllowanceStatus(value) {
+  return ProviderAllowanceStatus.safeParse(value).success;
 }
 
 function hasDisplayIdentity(allowance) {

@@ -557,6 +557,12 @@ cmd_test() {
     # Explicit test-only dependency injection for the OpenAI direct-SDK
     # allowance path. This never mounts an HTTP mutation route.
     export E2E_OPENAI_ALLOWANCE_FIXTURE=${E2E_OPENAI_ALLOWANCE_FIXTURE:-"$PROJECT_ROOT/packages/server/tests/fixtures/openai/allowance-headers.json"}
+    # Rollout gates for the live-server allowance tests, which replay a
+    # sanitized Claude rate_limit_event through the real adapter tap via VCR.
+    # Other subscription sources stay off so no real provider traffic is
+    # generated.
+    export PROVIDER_ALLOWANCES_ENABLED=${PROVIDER_ALLOWANCES_ENABLED:-1}
+    export PROVIDER_ALLOWANCES_CLAUDE=${PROVIDER_ALLOWANCES_CLAUDE:-1}
 
     # Ensure DB isolation *before* the server starts so seed scripts and
     # Playwright helpers running in the current shell use the same DB the

@@ -11,6 +11,7 @@ const snapshots = [
 ];
 const LIVE_SERVER_TESTS = new Set([
   'renders an adapter-observed OpenAI allowance update without source metadata',
+  'renders a Claude rate-limit allowance update without source metadata',
 ]);
 
 function allowanceSnapshot(providerId: string, providerName: string, status: string, percent: number) {
@@ -104,6 +105,43 @@ test.describe('Provider allowance indicators', () => {
     expect(responseText).not.toContain('req_sanitized');
     expect(receivedFrames.join('\n')).not.toContain('authorization');
     expect(receivedFrames.join('\n')).not.toContain('req_sanitized');
+  });
+
+  test('renders a Claude rate-limit allowance update without source metadata', async ({ page }) => {
+    const project = await seedProject('Claude allowance adapter E2E', process.cwd());
+    const provider = await getProvider('anthropic-default');
+    const receivedFrames: string[] = [];
+    page.on('websocket', (socket) => socket.on('framereceived', (frame) => receivedFrames.push(frame.payload)));
+
+    await page.goto('/');
+    // The E2E Claude fixture replaces the SDK query() boundary on the test
+    // server, so this session streams a sanitized rate_limit_event through the
+    // production adapter tap (57.5% remaining → 58% displayed).
+    const session = await seedSession(project.id, {
+      prompt: 'Return a brief Claude allowance fixture response.',
+      model: 'claude-haiku-4-5-20251001', providerId: provider.id, startImmediately: true,
+    });
+    await waitForStatus(session.id, 'waiting');
+
+    await page.setViewportSize({ width: 375, height: 720 });
+
+    const indicators = page.getByTestId('provider-allowance-indicators');
+    await expect(indicators).toContainText('58%');
+    await expect.poll(() => receivedFrames.some((frame) => frame.includes('provider_allowance_updated'))).toBe(true);
+    await indicators.getByRole('button', { name: 'Show provider usage' }).click();
+    const detailTexts = await page.getByRole('dialog').locator('.provider-detail').allTextContents();
+    expect(detailTexts.some((text) => text.includes(provider.name))).toBe(true);
+    await expect(page.getByRole('dialog')).toContainText('58%');
+
+    // The raw SDK event identity fields and stream metadata never reach the
+    // browser — only normalized allowance fields do (FR-8 / AC 20).
+    const response = await fetch(`${API_URL}/api/providers/allowances`);
+    const responseText = await response.text();
+    await expect(response.ok).toBe(true);
+    expect(responseText).not.toContain('redacted');
+    expect(responseText).not.toContain('rate_limit_event');
+    expect(receivedFrames.join('\n')).not.toContain('redacted');
+    expect(receivedFrames.join('\n')).not.toContain('rate_limit_event');
   });
 
   test('supports complete keyboard dialog operation and restores the exact opener on desktop and mobile', async ({ page }) => {
