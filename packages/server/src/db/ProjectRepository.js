@@ -21,6 +21,7 @@ export class ProjectRepository extends BaseRepository {
       prPollInterval: row.pr_poll_interval,
       repoUrl: row.repo_url,
       worktreePath: row.worktree_path,
+      pinned: Boolean(row.pinned),
       sessionCount: row.session_count ?? 0,
       workspaceCount: row.workspace_count ?? 0,
       lastActivityAt: row.last_activity_at ?? null,
@@ -102,6 +103,7 @@ export class ProjectRepository extends BaseRepository {
     prPollInterval: { column: 'pr_poll_interval' },
     repoUrl: { column: 'repo_url' },
     worktreePath: { column: 'worktree_path' },
+    pinned: { column: 'pinned', transform: (value) => value ? 1 : 0 },
   };
 
   update(id, data) {
@@ -117,8 +119,12 @@ export class ProjectRepository extends BaseRepository {
 
     if (updates.length === 0) return this.getById(id);
 
-    updates.push('updated_at = ?');
-    values.push(Date.now());
+    // The project list is activity ordered by updated_at. Pinning is a display
+    // preference, not activity, so a pin-only update must not reshuffle cards.
+    if (Object.keys(data).some((key) => key !== 'pinned' && data[key] !== undefined)) {
+      updates.push('updated_at = ?');
+      values.push(Date.now());
+    }
     values.push(id);
 
     this.db.prepare(`UPDATE projects SET ${updates.join(', ')} WHERE id = ?`).run(...values);

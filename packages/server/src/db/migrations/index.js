@@ -106,6 +106,7 @@ export const allMigrations = validateMigrations([
   p.get('projects-add-on_session_deleted'),
   p.get('projects-add-repo_url'),
   p.get('projects-add-worktree_path'),
+  p.get('projects-add-pinned'),
   p.get('projects-drop-summary-columns'),
 
   // --- Sessions scheduling columns ---
@@ -182,6 +183,9 @@ export const allMigrations = validateMigrations([
   // --- Command buttons ---
   m.get('command_buttons-add-show_on_list'),
   m.get('command_runs-create-output-chunks'),
+  m.get('command-runs-preserve-raw-output-chunks'),
+  m.get('command-runs-create-output-cleanup'),
+  m.get('command-runs-add-output-cleanup-exhaustion'),
 
   // --- Session todos ---
   c.get('session_todos-add-conversation_id'),

@@ -408,6 +408,15 @@ describe('sessionPrompts', () => {
       expect(result).toContain('**Current Workspace ID:** workspace-root-id');
     });
 
+    it('describes provider models as discoverable choices, not the complete validation contract', () => {
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).toContain('currently available model choices');
+      expect(result).toContain('not an exhaustive validation contract');
+      expect(result).toContain('SDK tier aliases');
+      expect(result).toContain('historical model IDs');
+    });
+
     it('documents workspace creation and add-session verbs (not bare parentSessionId)', () => {
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 

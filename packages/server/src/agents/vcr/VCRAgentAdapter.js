@@ -145,11 +145,18 @@ export class VCRAgentAdapter {
         'Re-record this cassette with the agent-prompt cassette generator.'
       );
     }
-    if (JSON.stringify(observed) === JSON.stringify(call.result)) return;
+    const recorded = call.result;
+    const mismatch = findPermissionResultMismatch(call, observed, recorded);
+    // AskUserQuestion changes the tool input to carry the user's answer. A
+    // permission allow only echoes its input to satisfy the CLI, so it is
+    // host-owned formatting rather than decision semantics.
+    if (!mismatch) return;
     throw new Error(
       `VCR replay: cassette "${cassetteKey}" canUseTool("${call.toolName}") returned a result that diverges from the recording.\n` +
+      `  ${mismatch}\n` +
       `  Recorded: ${JSON.stringify(call.result)}\n` +
       `  Observed: ${JSON.stringify(observed)}\n` +
+      '  Comparison: deny results compare behavior, message, and interrupt; allow results compare behavior and updatedPermissions. AskUserQuestion updatedInput is compared.\n' +
       '  Remedy: re-record this cassette with the agent-prompt cassette generator.'
     );
   }
@@ -279,4 +286,46 @@ export class VCRAgentAdapter {
   getCapabilities() {
     return this.innerAgent.getCapabilities?.() ?? {};
   }
+}
+
+function findPermissionResultMismatch(call, observed, recorded) {
+  const comparisons = [
+    ['behavior', observed?.behavior, recorded.behavior, Object.is],
+    ...(recorded.behavior === 'deny'
+      ? [
+        ['message', observed?.message, recorded.message, Object.is],
+        ['interrupt', observed?.interrupt, recorded.interrupt, Object.is],
+      ]
+      : []),
+    ...(recorded.behavior === 'allow'
+      ? [['updatedPermissions', observed?.updatedPermissions, recorded.updatedPermissions, deepEqualIgnoringObjectKeyOrder]]
+      : []),
+    ...(call.toolName === 'AskUserQuestion'
+      ? [['updatedInput', observed?.updatedInput, recorded.updatedInput, deepEqualIgnoringObjectKeyOrder]]
+      : []),
+  ];
+  const mismatch = comparisons.find(([, observedValue, recordedValue, compare]) => !compare(observedValue, recordedValue));
+  if (!mismatch) return undefined;
+
+  const [field, observedValue, recordedValue] = mismatch;
+  return `${field} mismatch — Recorded: ${formatResultValue(recordedValue)}; Observed: ${formatResultValue(observedValue)}`;
+}
+
+function formatResultValue(value) {
+  return value === undefined ? 'absent' : JSON.stringify(value);
+}
+
+function deepEqualIgnoringObjectKeyOrder(left, right) {
+  if (Object.is(left, right)) return true;
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return false;
+
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    return left.every((item, index) => deepEqualIgnoringObjectKeyOrder(item, right[index]));
+  }
+
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key) => Object.hasOwn(right, key) && deepEqualIgnoringObjectKeyOrder(left[key], right[key]));
 }

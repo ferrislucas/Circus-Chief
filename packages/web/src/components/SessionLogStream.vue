@@ -1,6 +1,6 @@
 <template>
   <div
-    v-if="hasContent && !isCollapsed"
+    v-if="!isCollapsed && (hasContent || defaultCollapsed)"
     class="session-log-stream"
   >
     <!-- Collapse toggle bar -->
@@ -38,6 +38,12 @@
       <!-- Use flexbox column-reverse to anchor to bottom -->
       <div class="log-content-inner">
         <div>
+          <div
+            v-if="!hasContent"
+            class="log-empty-state"
+          >
+            Waiting for output…
+          </div>
           <!-- Work log entries -->
           <div
             v-for="log in recentLogs"
@@ -250,6 +256,12 @@ function toggleCollapse() {
 
 .log-entry {
   margin-bottom: 0.125rem;
+}
+
+.log-empty-state {
+  color: var(--color-text-soft, #9ca3af);
+  font-style: italic;
+  opacity: 0.7;
 }
 
 .log-tool {

@@ -13,6 +13,7 @@ const persistence = createFilterPersistence(
 export const useProjectFiltersStore = defineStore('projectFilters', {
   state: () => ({
     statusFilter: null, // 'running' | 'waiting' | 'idle' | null
+    pinnedOnly: false,
   }),
 
   actions: {
@@ -28,6 +29,28 @@ export const useProjectFiltersStore = defineStore('projectFilters', {
     },
     restoreStatusFilter() {
       this.restore();
+    },
+    setPinnedOnly(pinnedOnly) {
+      this.pinnedOnly = Boolean(pinnedOnly);
+      this.savePinnedOnly();
+    },
+    togglePinnedOnly() {
+      this.setPinnedOnly(!this.pinnedOnly);
+    },
+    savePinnedOnly() {
+      try {
+        if (this.pinnedOnly) localStorage.setItem('projectPinnedOnly', 'true');
+        else localStorage.removeItem('projectPinnedOnly');
+      } catch {
+        // Filtering remains available when browser storage is unavailable.
+      }
+    },
+    restorePinnedOnly() {
+      try {
+        this.pinnedOnly = localStorage.getItem('projectPinnedOnly') === 'true';
+      } catch {
+        this.pinnedOnly = false;
+      }
     },
   },
 });

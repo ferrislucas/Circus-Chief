@@ -535,6 +535,7 @@ router.put('/cards/by-workspace/:workspaceId/lane', async (req, res) => {
 
   try {
     const response = await routeWorkspaceCard(workspaceId, laneId, {
+      manualMove: true,
       finalizeMutation: ({ response: routeResponse, eventId }) => completeOperation(operation, routeResponse, {
         eventId, includeMetadata: false,
       }),

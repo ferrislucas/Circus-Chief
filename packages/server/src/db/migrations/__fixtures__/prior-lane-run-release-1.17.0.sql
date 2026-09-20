@@ -8,7 +8,6 @@ CREATE TABLE IF NOT EXISTS projects (
   pr_poll_interval INTEGER NOT NULL DEFAULT 60000,
   repo_url TEXT,
   worktree_path TEXT,
-  pinned INTEGER NOT NULL DEFAULT 0,
   kanban_enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
@@ -59,19 +58,8 @@ CREATE TABLE IF NOT EXISTS provider_models (
   display_name TEXT NOT NULL,
   description TEXT,
   tier TEXT CHECK(tier IN ('fable', 'opus', 'sonnet', 'haiku', 'custom')),
-  enabled INTEGER NOT NULL DEFAULT 1,
-  sort_order INTEGER,
-  lifecycle TEXT NOT NULL DEFAULT 'current',
-  catalog_managed INTEGER NOT NULL DEFAULT 0,
-  removed_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
--- NOTE: the (provider_id, model_id) uniqueness index for active rows is
--- created by the `provider-models-unique-active-identity-index` migration
--- (not here), since it must run after existing databases have gained the
--- `removed_at` column and had any legacy duplicates deterministically
--- resolved. Migrations always run after this file on every startup, so a
--- fresh database ends up with the identical index either way.
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
@@ -92,7 +80,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   model TEXT,
   provider_id TEXT REFERENCES providers(id),
   next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
-  parent_session_id TEXT REFERENCES sessions(id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
+  parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
   input_tokens INTEGER DEFAULT 0,
   output_tokens INTEGER DEFAULT 0,
   thinking_tokens INTEGER DEFAULT 0,
@@ -115,15 +103,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   slash_commands TEXT,
   pending_model TEXT,
   auto_send_pending_prompt INTEGER DEFAULT 0,
-  -- True while the agent is blocked mid-turn on an AskUserQuestion or
-  -- permission tool call awaiting the user's answer. Mirrors the in-memory
-  -- promptStore.js queue (source of truth) so it can be aggregated in SQL
-  -- (see project-activity-queries.js). Written only by promptStore.js's
-  -- broadcastPendingInput(); do not set this from any other call site.
-  -- Distinct from status = 'waiting', which means "turn ended normally, idle,
-  -- ready for follow-up" — the two are unrelated and can be true/false in any
-  -- combination (a session blocked on a question is still status='running').
-  pending_agent_input INTEGER NOT NULL DEFAULT 0,
   agent_type TEXT DEFAULT 'claude-code',
   -- Orphaned column: the per-session "move to target lane on turn end"
   -- mechanism was removed. Kept in the schema so existing databases (which ran
@@ -131,40 +110,10 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- No code reads or writes it; completion_target_lane_id is the single source
   -- of truth for kanban auto-advancement.
   target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
-  lane_run_id TEXT,
-  own_work_state TEXT NOT NULL DEFAULT 'open',
-  own_work_closed_at INTEGER,
-  workflow_updated_at INTEGER,
-  workflow_reason TEXT,
-  -- FR-5 lifecycle dimensions, independent of own_work_state:
-  --   execution_state: what the process is doing right now (queued/starting/
-  --     running/scheduled/retrying/paused/idle/stopped).
-  --   subtree_outcome: the aggregate outcome of this session's own work and
-  --     every blocking descendant (open/succeeded/failed/cancelled).
-  execution_state TEXT NOT NULL DEFAULT 'idle',
-  subtree_outcome TEXT NOT NULL DEFAULT 'open',
-  -- Denormalized "last time anything happened in this session" (message sent,
-  -- command run started/completed, summary generated/updated). Maintained by
-  -- the trg_sessions_activity_on_* triggers below so the workspace-card list
-  -- query can read it as a plain column instead of a per-request correlated
-  -- subquery. It is deliberately not indexed: current readers aggregate or
-  -- COALESCE the value across every workspace tree.
-  last_activity_at INTEGER,
+  lane_trigger_depth INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
-
--- Session parentage is set once at creation and is immutable thereafter.
--- Reject any UPDATE that changes a non-null parent_session_id (a one-time
--- NULL -> value backfill is still allowed for historical repair migrations).
-CREATE TRIGGER IF NOT EXISTS trg_sessions_parent_session_id_immutable
-BEFORE UPDATE OF parent_session_id ON sessions
-FOR EACH ROW
-WHEN OLD.parent_session_id IS NOT NULL
-  AND (NEW.parent_session_id IS NULL OR NEW.parent_session_id <> OLD.parent_session_id)
-BEGIN
-  SELECT RAISE(ABORT, 'parent_session_id is immutable once set');
-END;
 
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY,
@@ -308,134 +257,11 @@ CREATE TABLE IF NOT EXISTS command_runs (
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   button_id TEXT NOT NULL REFERENCES command_buttons(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'success', 'error', 'killed')),
+  output TEXT NOT NULL DEFAULT '',
   exit_code INTEGER,
   started_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   completed_at INTEGER
 );
-
-CREATE TABLE IF NOT EXISTS command_run_output_cleanup (
-  run_id TEXT PRIMARY KEY,
-  working_directory TEXT NOT NULL,
-  attempts INTEGER NOT NULL DEFAULT 0,
-  next_attempt_at INTEGER NOT NULL DEFAULT 0,
-  last_error TEXT,
-  exhausted_at INTEGER,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-);
-
-CREATE INDEX IF NOT EXISTS idx_command_run_output_cleanup_eligible
-  ON command_run_output_cleanup (next_attempt_at, created_at)
-  WHERE exhausted_at IS NULL;
-
-CREATE TRIGGER IF NOT EXISTS trg_command_run_output_cleanup
-BEFORE DELETE ON command_runs
-FOR EACH ROW
-BEGIN
-  INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
-  SELECT OLD.id, COALESCE(s.git_worktree, p.working_directory)
-  FROM sessions s JOIN projects p ON p.id = s.project_id WHERE s.id = OLD.session_id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_session_command_output_cleanup
-BEFORE DELETE ON sessions FOR EACH ROW BEGIN
-  INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
-  SELECT cr.id, COALESCE(OLD.git_worktree, p.working_directory)
-  FROM command_runs cr JOIN projects p ON p.id = OLD.project_id WHERE cr.session_id = OLD.id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_button_command_output_cleanup
-BEFORE DELETE ON command_buttons FOR EACH ROW BEGIN
-  INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
-  SELECT cr.id, COALESCE(s.git_worktree, p.working_directory)
-  FROM command_runs cr JOIN sessions s ON s.id = cr.session_id
-  JOIN projects p ON p.id = s.project_id WHERE cr.button_id = OLD.id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_project_command_output_cleanup
-BEFORE DELETE ON projects FOR EACH ROW BEGIN
-  INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
-  SELECT cr.id, COALESCE(s.git_worktree, OLD.working_directory)
-  FROM command_runs cr JOIN sessions s ON s.id = cr.session_id WHERE s.project_id = OLD.id;
-END;
-
--- Keep sessions.last_activity_at current as activity happens, so the
--- workspace-card list query can read it as a plain column. See the
--- last_activity_at column comment on the sessions table above.
---
--- These are high-water-mark triggers: they only ever raise last_activity_at,
--- never lower it. Production code never updates an existing message's
--- timestamp (conversation_messages rows are append-only in practice; see
--- MessageRepository), so this is not a real limitation there. The UPDATE
--- variant exists only so a caller that does retroactively touch a
--- timestamp (e.g. test fixtures simulating "this session got a newer
--- message") still moves the session's activity forward correctly.
-CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_message
-AFTER INSERT ON conversation_messages
-BEGIN
-  UPDATE sessions SET last_activity_at = NEW.timestamp
-  WHERE id = NEW.session_id
-    AND (last_activity_at IS NULL OR last_activity_at < NEW.timestamp);
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_message_update
-AFTER UPDATE OF timestamp ON conversation_messages
-BEGIN
-  UPDATE sessions SET last_activity_at = NEW.timestamp
-  WHERE id = NEW.session_id
-    AND (last_activity_at IS NULL OR last_activity_at < NEW.timestamp);
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_command_run_insert
-AFTER INSERT ON command_runs
-BEGIN
-  -- COALESCE(completed_at, started_at): production always inserts with only
-  -- started_at set (completion is a later UPDATE, handled by the _complete
-  -- trigger below), but a row inserted with completed_at already populated
-  -- must still count as activity at completion time, not start time.
-  UPDATE sessions SET last_activity_at = COALESCE(NEW.completed_at, NEW.started_at)
-  WHERE id = NEW.session_id
-    AND (last_activity_at IS NULL OR last_activity_at < COALESCE(NEW.completed_at, NEW.started_at));
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_command_run_complete
-AFTER UPDATE OF completed_at ON command_runs
-WHEN NEW.completed_at IS NOT NULL
-BEGIN
-  UPDATE sessions SET last_activity_at = NEW.completed_at
-  WHERE id = NEW.session_id
-    AND (last_activity_at IS NULL OR last_activity_at < NEW.completed_at);
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_summary_insert
-AFTER INSERT ON session_summaries
-BEGIN
-  UPDATE sessions SET last_activity_at = max(COALESCE(NEW.generated_at, 0), COALESCE(NEW.updated_at, 0))
-  WHERE id = NEW.session_id
-    AND (last_activity_at IS NULL OR last_activity_at < max(COALESCE(NEW.generated_at, 0), COALESCE(NEW.updated_at, 0)));
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_sessions_activity_on_summary_update
-AFTER UPDATE OF generated_at, updated_at ON session_summaries
-BEGIN
-  UPDATE sessions SET last_activity_at = max(COALESCE(NEW.generated_at, 0), COALESCE(NEW.updated_at, 0))
-  WHERE id = NEW.session_id
-    AND (last_activity_at IS NULL OR last_activity_at < max(COALESCE(NEW.generated_at, 0), COALESCE(NEW.updated_at, 0)));
-END;
-
--- Command output is deliberately kept out of command_runs.  Updating a large
--- TEXT field for every flush copies the entire transcript in SQLite.
-CREATE TABLE IF NOT EXISTS command_run_output_chunks (
-  run_id TEXT NOT NULL REFERENCES command_runs(id) ON DELETE CASCADE,
-  sequence INTEGER NOT NULL,
-  content TEXT NOT NULL,
-  byte_length INTEGER NOT NULL,
-  raw_content BLOB,
-  raw_byte_length INTEGER,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-  PRIMARY KEY (run_id, sequence)
-);
-CREATE INDEX IF NOT EXISTS idx_command_run_output_chunks_run_sequence
-  ON command_run_output_chunks(run_id, sequence);
 
 CREATE TABLE IF NOT EXISTS project_session_defaults (
   id TEXT PRIMARY KEY,
@@ -516,8 +342,6 @@ CREATE TABLE IF NOT EXISTS kanban_cards (
   id TEXT PRIMARY KEY,
   lane_id TEXT NOT NULL REFERENCES kanban_lanes(id) ON DELETE CASCADE,
   sort_order INTEGER NOT NULL DEFAULT 0,
-  active_lane_run_id TEXT,
-  lane_entry_event_id TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -529,53 +353,6 @@ CREATE TABLE IF NOT EXISTS kanban_card_sessions (
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
-CREATE TABLE IF NOT EXISTS kanban_lane_entry_events (
-  id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL UNIQUE, project_id TEXT NOT NULL,
-  workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, lane_id TEXT NOT NULL, cause TEXT NOT NULL,
-  caused_by_run_id TEXT, status TEXT NOT NULL DEFAULT 'pending', claim_token TEXT, claimed_at INTEGER,
-  claim_expires_at INTEGER, next_attempt_at INTEGER, attempt_count INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL, completed_at INTEGER, delivery_phase TEXT NOT NULL DEFAULT 'pending',
-  dispatch_key TEXT, dispatch_acknowledged_at INTEGER
-);
--- Allocation and provider acknowledgement are intentionally separate.  A
--- root_session_id only proves child ownership; it must never be treated as a
--- provider dispatch acknowledgement.
-CREATE TABLE IF NOT EXISTS kanban_api_operations (
-  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, operation_key TEXT NOT NULL,
-  endpoint TEXT NOT NULL, payload_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'processing',
-  owner_token TEXT, lease_expires_at INTEGER, attempt_count INTEGER NOT NULL DEFAULT 0,
-  response_status INTEGER, result_json TEXT, terminal_error TEXT, lane_entry_event_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-  UNIQUE(project_id, endpoint, operation_key)
-);
-CREATE INDEX IF NOT EXISTS idx_kanban_api_operations_updated ON kanban_api_operations(updated_at);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_lane_entry_completion_cause ON kanban_lane_entry_events(caused_by_run_id) WHERE caused_by_run_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_lane_entry_recovery ON kanban_lane_entry_events(status, next_attempt_at, created_at);
-CREATE INDEX IF NOT EXISTS idx_lane_entry_health_status_created ON kanban_lane_entry_events(status, created_at);
-CREATE TABLE IF NOT EXISTS kanban_lane_runs (
-  id TEXT PRIMARY KEY, lane_entry_event_id TEXT NOT NULL UNIQUE, prior_lane_run_id TEXT,
-  project_id TEXT NOT NULL, workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, source_lane_id TEXT NOT NULL,
-  completion_target_lane_id TEXT, root_session_id TEXT UNIQUE,
-  chosen_exit_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
-  chosen_exit_declared_at INTEGER,
-  status TEXT NOT NULL DEFAULT 'open', failure_reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-  succeeded_at INTEGER, failed_at INTEGER, cancelled_at INTEGER, superseded_at INTEGER, transition_applied_at INTEGER
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_lane_runs_one_open_card ON kanban_lane_runs(card_id) WHERE status = 'open';
-CREATE INDEX IF NOT EXISTS idx_lane_runs_card_status ON kanban_lane_runs(card_id, status);
-CREATE INDEX IF NOT EXISTS idx_lane_runs_workspace ON kanban_lane_runs(workspace_id);
-CREATE INDEX IF NOT EXISTS idx_lane_runs_root ON kanban_lane_runs(root_session_id);
-CREATE TABLE IF NOT EXISTS kanban_lane_run_audit_events (
-  id TEXT PRIMARY KEY, operation_key TEXT UNIQUE, lane_run_id TEXT NOT NULL, session_id TEXT,
-  event_type TEXT NOT NULL, details_json TEXT, created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_lane_run_audit_run ON kanban_lane_run_audit_events(lane_run_id, created_at);
-CREATE TABLE IF NOT EXISTS kanban_routing_audit_events (
-  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
-  caller_session_id TEXT, source_lane_id TEXT NOT NULL, destination_lane_id TEXT NOT NULL,
-  outcome TEXT NOT NULL, lane_run_id TEXT, request_at INTEGER NOT NULL, committed_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_kanban_routing_audit_workspace ON kanban_routing_audit_events(workspace_id, committed_at);
-
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived);
@@ -583,7 +360,6 @@ CREATE INDEX IF NOT EXISTS idx_sessions_starred ON sessions(archived, starred);
 CREATE INDEX IF NOT EXISTS idx_sessions_next_template ON sessions(next_template_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_scheduled ON sessions(scheduled_at) WHERE scheduled_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sessions_lane_run ON sessions(lane_run_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_parent ON conversations(parent_conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON conversation_messages(session_id);

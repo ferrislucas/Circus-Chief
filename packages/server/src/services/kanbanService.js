@@ -11,7 +11,10 @@ import {
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
-import { createLaneRunForEntry, supersedeLaneRun, supersedeRunForCard, isStructured, getRun } from './workflowSessionService.js';
+import {
+  createLaneRunForEntry, supersedeLaneRun, supersedeLaneRunAuthorityOnly,
+  supersedeRunForCard, isStructured, getRun,
+} from './workflowSessionService.js';
 import { ApiError } from '../errors/ApiError.js';
 import { retrySqliteContention } from './sqliteContention.js';
 import { kanbanRoutingMetrics, recordRouteDecision } from './kanbanRoutingObservability.js';
@@ -63,9 +66,16 @@ function createRouteOutcome(status, laneId, finalizeMutation, { eventId = null, 
  * validated `targetLane`. Postconditions: every pre-existing open run for the
  * card is superseded, and a structured destination has a durable successor.
  */
-function repairStaleRunAndMoveCard(db, { card, targetLane, workspace }) {
+function repairStaleRunAndMoveCard(db, {
+  card, targetLane, workspace, supersessionReason = 'workspace_routed', preserveMemberSessions = false,
+}) {
   const openRun = db.prepare("SELECT id FROM kanban_lane_runs WHERE card_id=? AND status='open'").get(card.id);
-  if (openRun) supersedeLaneRun(openRun.id, 'workspace_routed');
+  // Manual routes revoke only source automation authority; automatic repair
+  // retains the existing full-cancellation behavior.
+  if (openRun) {
+    const supersede = preserveMemberSessions ? supersedeLaneRunAuthorityOnly : supersedeLaneRun;
+    supersede(openRun.id, supersessionReason);
+  }
 
   const moved = kanbanCards.moveToLane(card.id, targetLane.id);
   const laneRun = isStructured(targetLane)
@@ -76,7 +86,7 @@ function repairStaleRunAndMoveCard(db, { card, targetLane, workspace }) {
   if (isStructured(targetLane) && !laneRun) throw new Error('Structured lane entry run was not created');
   if (!laneRun) db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE id=?')
     .run(Date.now(), card.id);
-  return { moved, laneRun };
+  return { moved, laneRun, supersededRunId: openRun?.id || null };
 }
 
 function getOwningOpenRun(db, card) {
@@ -101,10 +111,14 @@ function recordScheduledDestination(db, runId, laneId, time) {
     .run(crypto.randomUUID(), `${runId}:route_selected:${laneId}:${time}`, runId, JSON.stringify({ targetLaneId: laneId }), time);
 }
 
-function movedRouteOutcome(db, { card, targetLane, workspace, laneId, finalizeMutation }) {
-  const { moved, laneRun } = repairStaleRunAndMoveCard(db, { card, targetLane, workspace });
+function movedRouteOutcome(db, { card, targetLane, workspace, laneId, finalizeMutation, manualMove = false }) {
+  const { moved, laneRun, supersededRunId } = repairStaleRunAndMoveCard(db, {
+    card, targetLane, workspace, supersessionReason: manualMove ? 'manual_card_move' : 'workspace_routed',
+    preserveMemberSessions: manualMove,
+  });
   return createRouteOutcome('moved', laneId, finalizeMutation, {
     eventId: laneRun?.laneEntryEventId || null, moved: { card, moved, laneRun }, projectId: workspace.projectId,
+    auditRunId: supersededRunId,
   });
 }
 
@@ -278,11 +292,15 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
 
 /**
  * Route a workspace card.  The immediate transaction owns the decision about
- * whether a request is applied now or selected for an open lane run.
+ * whether a request is applied now. Public manual routes are authoritative:
+ * an open lane run is superseded as part of the same committed move. Internal
+ * automation-owned callers retain deferred exit selection.
  *
  * @returns {Promise<{status: 'noop'|'moved'|'scheduled', laneId: string}>}
  */
-export async function routeWorkspaceCard(workspaceId, laneId, { finalizeMutation, callerSessionId = null } = {}) {
+export async function routeWorkspaceCard(workspaceId, laneId, {
+  finalizeMutation, callerSessionId = null, manualMove = false,
+} = {}) {
   const requestAt = Date.now();
   // eslint-disable-next-line max-statements, complexity -- the transactional state decision is intentionally co-located.
   const outcome = await retrySqliteContention(() => databaseManager.immediateTransaction(() => {
@@ -303,9 +321,9 @@ export async function routeWorkspaceCard(workspaceId, laneId, { finalizeMutation
       ? createRouteOutcome('noop', laneId, finalizeMutation, {
         moved: null, projectId: workspace.projectId, auditRunId: run?.id || null,
       })
-      : run
-        ? scheduleRouteOrRecover(db, { workspaceId, card, run, targetLane, workspace, laneId, finalizeMutation })
-        : movedRouteOutcome(db, { card, targetLane, workspace, laneId, finalizeMutation });
+      : manualMove || !run
+        ? movedRouteOutcome(db, { card, targetLane, workspace, laneId, finalizeMutation, manualMove })
+        : scheduleRouteOrRecover(db, { workspaceId, card, run, targetLane, workspace, laneId, finalizeMutation });
     const auditOutcome = decision.auditOutcome || decision.response.status;
     recordRouteDecision(db, {
       projectId: workspace.projectId, workspaceId, callerSessionId, sourceLaneId: card.laneId,
