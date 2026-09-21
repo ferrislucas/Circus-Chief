@@ -32,6 +32,7 @@ export function startZaiQuotaPoller({ intervalMs = DEFAULT_POLL_INTERVAL_MS } = 
     pollOnce().catch(() => { /* never throws (FR-7) */ });
   }, intervalMs);
   pollTimer.unref?.();
+  pollOnce().catch(() => { /* never throws (FR-7) */ });
 }
 
 export function stopZaiQuotaPoller() {

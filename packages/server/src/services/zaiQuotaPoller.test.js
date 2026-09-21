@@ -6,7 +6,15 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 // The observer and the HTTP client are mocked at their module boundaries so
 // the poller's per-status policies are exercised against the real wiring.
 const observer = vi.fn();
+const fetchZaiQuotaLimit = vi.fn();
 let fetchOutcome = { outcome: 'ok', payload: null };
+let enabledProviders = [];
+
+vi.mock('../database.js', () => ({
+  modelProviders: {
+    getEnabledForAllowances: () => enabledProviders,
+  },
+}));
 
 vi.mock('./providerAllowanceServiceInstance.js', () => ({
   getProviderAllowanceObserver: () => observer,
@@ -15,11 +23,17 @@ vi.mock('./zaiQuotaClient.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    fetchZaiQuotaLimit: () => Promise.resolve(fetchOutcome),
+    fetchZaiQuotaLimit,
   };
 });
 
-const { pollOnce, zaiQuotaProviders, _resetZaiQuotaPollerStateForTests } = await import('./zaiQuotaPoller.js');
+const {
+  pollOnce,
+  startZaiQuotaPoller,
+  stopZaiQuotaPoller,
+  zaiQuotaProviders,
+  _resetZaiQuotaPollerStateForTests,
+} = await import('./zaiQuotaPoller.js');
 const { mapZaiQuota } = await import('../agents/adapters/zaiAllowanceMapper.js');
 
 const fixturePath = path.resolve(
@@ -52,11 +66,16 @@ describe('zaiQuotaPoller', () => {
     process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
     process.env.PROVIDER_ALLOWANCES_ZAI = '1';
     fetchOutcome = { outcome: 'ok', payload: fixture.payload };
+    fetchZaiQuotaLimit.mockImplementation(() => Promise.resolve(fetchOutcome));
+    fetchZaiQuotaLimit.mockClear();
+    enabledProviders = [];
     observer.mockClear();
     _resetZaiQuotaPollerStateForTests();
   });
 
   afterEach(() => {
+    stopZaiQuotaPoller();
+    vi.useRealTimers();
     Object.assign(process.env, {
       PROVIDER_ALLOWANCES_ENABLED: originalEnv.PROVIDER_ALLOWANCES_ENABLED,
       PROVIDER_ALLOWANCES_ZAI: originalEnv.PROVIDER_ALLOWANCES_ZAI,
@@ -116,5 +135,13 @@ describe('zaiQuotaPoller', () => {
     await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
 
     expect(observer).not.toHaveBeenCalled();
+  });
+
+  it('polls immediately when started, without waiting for the interval', async () => {
+    vi.useFakeTimers();
+    enabledProviders = [zaiProvider];
+
+    startZaiQuotaPoller();
+    await vi.waitFor(() => expect(fetchZaiQuotaLimit).toHaveBeenCalledOnce());
   });
 });
