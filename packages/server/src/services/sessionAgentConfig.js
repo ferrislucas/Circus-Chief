@@ -2,10 +2,15 @@ import { createCodexSpawner } from './codexSpawnHelper.js';
 import { createGeminiSpawner } from './geminiSpawnHelper.js';
 import { createE2EOpenAIAllowanceClientFactory } from './e2eOpenAIAllowanceFixture.js';
 
-/** Build adapter-specific defaults before the agent is created. */
-export function buildAgentConfig(agentType) {
+/**
+ * Build adapter-specific defaults before the agent is created.
+ *
+ * `session` (when provided) scopes test-only dependency injection to the
+ * sessions it targets — see createE2EOpenAIAllowanceClientFactory.
+ */
+export function buildAgentConfig(agentType, session = null) {
   if (agentType === 'codex') {
-    const openaiClientFactory = createE2EOpenAIAllowanceClientFactory();
+    const openaiClientFactory = createE2EOpenAIAllowanceClientFactory(session?.providerId);
     if (openaiClientFactory) return { spawnCodexProcess: null, openaiClientFactory };
     return { spawnCodexProcess: createCodexSpawner() };
   }

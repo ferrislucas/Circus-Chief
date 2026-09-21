@@ -53,16 +53,18 @@ async function resolveInitialSessionModelEnv(session, model) {
  * @param {Object} [config] - Optional adapter config forwarded to the gateway.
  * @returns {{ execute: (queryParams: any, meta?: any) => AsyncGenerator }}
  */
-export function createAgentForSession(agentType = 'claude-code', config = {}) {
+export function createAgentForSession(agentType = 'claude-code', config = {}, session = null) {
   // Session-bound allowance sources tap their adapter's stream (Codex headers/
   // rollout tails, Claude rate-limit events); the factory returns null while
   // the master rollout flag is off.
   const allowance = ['codex', 'claude-code'].includes(agentType) ? { allowanceObserver: getProviderAllowanceObserver() } : {};
-  const mergedConfig = { ...buildAgentConfig(agentType), ...allowance, ...config };
+  const mergedConfig = { ...buildAgentConfig(agentType, session), ...allowance, ...config };
   const baseAgent = agentGateway.createAgent(agentType, mergedConfig);
 
-  // Wrap with VCR adapter if in VCR mode
-  const agent = process.env.VCR_MODE && !isE2ESpawnCaptureEnabled() && !isE2EOpenAIAllowanceFixtureEnabled()
+  // Wrap with VCR adapter if in VCR mode — except the sessions that exist to
+  // execute the production adapter against the injected OpenAI allowance
+  // fixture: VCR replay would bypass that adapter boundary entirely.
+  const agent = process.env.VCR_MODE && !isE2ESpawnCaptureEnabled() && !isE2EOpenAIAllowanceFixtureEnabled(mergedConfig)
     ? new VCRAgentAdapter(baseAgent, { cassetteDir: 'tests/e2e/cassettes' })
     : baseAgent;
 
@@ -406,7 +408,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
 
   // Create agent via gateway (or mock agent in mock mode)
   const agentType = session.agentType || 'claude-code';
-  const agent = createAgentForSession(agentType);
+  const agent = createAgentForSession(agentType, {}, session);
 
   // Resolve model/provider and detect model changes
   const modelEnv = buildContinueModelAndEnv(session, sessionId, model);
@@ -489,7 +491,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
 
   // Create agent via gateway (or mock agent in mock mode)
   const agentType = session.agentType || 'claude-code';
-  const agent = createAgentForSession(agentType);
+  const agent = createAgentForSession(agentType, {}, session);
 
   const { effectiveModel, sessionEnv, commitAttributionOverride } =
     await resolveInitialSessionModelEnv(session, model);

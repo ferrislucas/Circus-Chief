@@ -309,4 +309,18 @@ describe('ClaudeCodeAdapter rate-limit allowance tap', () => {
       ],
     });
   });
+
+  it('exposes the tap to VCR replay via handleAllowanceTelemetry', async () => {
+    const observer = vi.fn();
+    const adapter = new ClaudeCodeAdapter({ allowanceObserver: observer, clock: { now: () => now } });
+    const queryParams = { prompt: 'hello', options: { providerId: 'anthropic-default' } };
+    const normalFrame = { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } };
+
+    expect(adapter.handleAllowanceTelemetry(FIXTURE.fiveHourWithUtilization, queryParams)).toBe(true);
+    expect(adapter.handleAllowanceTelemetry(normalFrame, queryParams)).toBe(false);
+    expect(observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      providerId: 'anthropic-default',
+      allowances: [expect.objectContaining({ key: 'five_hour', remainingPercent: 57.5 })],
+    }));
+  });
 });

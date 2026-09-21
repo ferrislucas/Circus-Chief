@@ -36,7 +36,12 @@ test.describe('Provider allowance indicators', () => {
 
   test.beforeEach(async ({ page }, testInfo) => {
     if (LIVE_SERVER_TESTS.has(testInfo.title)) return;
-    await page.route('**/api/providers/allowances', (route) => route.fulfill({ json: snapshots }));
+    // The REST contract is the full ProviderAllowanceListResponse envelope —
+    // a bare snapshot array fails the client-side contract parse and would
+    // strand the indicators in the fetch-error state.
+    await page.route('**/api/providers/allowances', (route) => route.fulfill({
+      json: { snapshots, activeProviderIds: [] },
+    }));
   });
 
   test('renders independent provider values without credential leakage', async ({ page }) => {
@@ -52,7 +57,11 @@ test.describe('Provider allowance indicators', () => {
   });
 
   test('keeps complete items behind overflow', async ({ page }) => {
-    await page.setViewportSize({ width: 768, height: 720 });
+    // The container is min(34rem, 40vw) ≈ 256px here. That leaves the
+    // 2-vs-3 visible-item boundary far from the fixtures' actual rendered
+    // widths, so the count does not flip on font-metric noise (at 768px the
+    // third item sits within a few pixels of the cutoff).
+    await page.setViewportSize({ width: 640, height: 720 });
     await page.goto('/');
 
     const indicators = page.getByTestId('provider-allowance-indicators');

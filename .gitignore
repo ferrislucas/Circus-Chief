@@ -29,6 +29,7 @@ test-results/
 
 # Screenshots from Playwright
 screenshots/
+.screenshots-tmp/
 !docs/screenshots/
 !docs/screenshots/**
 

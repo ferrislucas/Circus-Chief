@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { fileURLToPath } from 'url';
 
 // Mock the SDK to prevent real API calls — capture queryParams for assertions
 // vi.hoisted ensures the variable is available when vi.mock factory runs (hoisted to top)
@@ -772,6 +773,63 @@ describe('createAgentForSession config forwarding', () => {
     expect(spy).toHaveBeenCalledWith('codex', expect.objectContaining({ allowanceObserver: expect.any(Function) }));
     spy.mockRestore();
     delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+  });
+});
+
+// ── createAgentForSession E2E OpenAI allowance fixture scoping ─────────────
+
+describe('createAgentForSession E2E OpenAI allowance fixture scoping', () => {
+  const FIXTURE_PATH = fileURLToPath(new URL('../../tests/fixtures/openai/allowance-headers.json', import.meta.url));
+  let savedEnv;
+
+  beforeEach(() => {
+    savedEnv = {
+      VCR_MODE: process.env.VCR_MODE,
+      FIXTURE: process.env.E2E_OPENAI_ALLOWANCE_FIXTURE,
+      ENABLED: process.env.PROVIDER_ALLOWANCES_ENABLED,
+    };
+    process.env.VCR_MODE = 'replay';
+    process.env.E2E_OPENAI_ALLOWANCE_FIXTURE = FIXTURE_PATH;
+    delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+  });
+
+  afterEach(() => {
+    if (savedEnv.VCR_MODE !== undefined) process.env.VCR_MODE = savedEnv.VCR_MODE;
+    else delete process.env.VCR_MODE;
+    if (savedEnv.FIXTURE !== undefined) process.env.E2E_OPENAI_ALLOWANCE_FIXTURE = savedEnv.FIXTURE;
+    else delete process.env.E2E_OPENAI_ALLOWANCE_FIXTURE;
+    if (savedEnv.ENABLED !== undefined) process.env.PROVIDER_ALLOWANCES_ENABLED = savedEnv.ENABLED;
+    else delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+  });
+
+  it('reroutes built-in default OpenAI codex sessions to the fixture client and skips VCR for them', () => {
+    const spy = vi.spyOn(agentGateway, 'createAgent');
+    const agent = createAgentForSession('codex', {}, { providerId: 'openai-default' });
+    expect(spy).toHaveBeenCalledWith('codex', expect.objectContaining({
+      spawnCodexProcess: null,
+      openaiClientFactory: expect.any(Function),
+      allowanceObserver: null,
+    }));
+    spy.mockRestore();
+    // No VCR wrapper: the fixture exists to execute the production adapter.
+    expect(agent.agent.mode).toBeUndefined();
+  });
+
+  it('keeps custom-provider codex sessions on the spawner and VCR replay', () => {
+    const spy = vi.spyOn(agentGateway, 'createAgent');
+    const agent = createAgentForSession('codex', {}, { providerId: 'custom-e2e-provider' });
+    expect(spy).toHaveBeenCalledWith('codex', expect.objectContaining({
+      spawnCodexProcess: expect.any(Function),
+      allowanceObserver: null,
+    }));
+    expect(spy.mock.calls[0][1].openaiClientFactory).toBeUndefined();
+    spy.mockRestore();
+    expect(agent.agent.mode).toBe('replay');
+  });
+
+  it('keeps claude-code sessions on VCR replay even with the fixture env exported', () => {
+    const agent = createAgentForSession('claude-code');
+    expect(agent.agent.mode).toBe('replay');
   });
 });
 

@@ -46,16 +46,29 @@ export class ClaudeCodeAdapter extends BaseAgent {
    * @yields {Object} Raw SDK events (system, assistant, tool_result, stream_event, result)
    */
   async *execute(queryParams, _meta) {
-    const allowanceEnabled = isClaudeAllowanceSourceEnabled();
     this._observedWindows.clear();
 
     for await (const message of query(queryParams)) {
-      if (message?.type === 'rate_limit_event') {
-        if (allowanceEnabled) this.#observeRateLimit(message.rate_limit_info, queryParams);
-        continue; // never forwarded to the conversation UI
-      }
+      if (this.handleAllowanceTelemetry(message, queryParams)) continue;
       yield message;
     }
+  }
+
+  /**
+   * Run the production allowance tap over one SDK frame. Returns true when
+   * the frame is allowance telemetry consumed by the tap — those frames are
+   * never forwarded to the conversation UI (FR-7).
+   *
+   * VCR replay invokes this on the inner adapter so a recorded stream
+   * exercises the exact tap a live stream would; see VCRAgentAdapter.replay.
+   * @param {Object} message - Raw SDK frame
+   * @param {import('../types.js').AgentQueryParams} queryParams
+   * @returns {boolean} True when the frame was consumed as allowance telemetry
+   */
+  handleAllowanceTelemetry(message, queryParams) {
+    if (message?.type !== 'rate_limit_event') return false;
+    if (isClaudeAllowanceSourceEnabled()) this.#observeRateLimit(message.rate_limit_info, queryParams);
+    return true;
   }
 
   #observeRateLimit(info, queryParams) {
