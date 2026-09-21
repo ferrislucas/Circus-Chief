@@ -16,13 +16,12 @@ const RATE_LIMIT_SNAPSHOT = {
 };
 
 function createFakeChild() {
-  return {
+  return Object.assign(new EventEmitter(), {
     stdin: { write: vi.fn(() => true) },
     stdout: Object.assign(new EventEmitter(), { resume: vi.fn() }),
     stderr: { resume: vi.fn() },
     kill: vi.fn(),
-    on: vi.fn(),
-  };
+  });
 }
 
 function respondToLastRead(child, result) {
@@ -153,6 +152,23 @@ describe('CodexAppServerMeter', () => {
       await vi.advanceTimersByTimeAsync(16_000);
       expect(meter.state).toBe('disabled');
       expect(spawnProcess).toHaveBeenCalledTimes(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('handles error and exit from one child only once before restarting', async () => {
+    vi.useFakeTimers();
+    try {
+      const { meter, child, spawnProcess } = makeMeter({});
+      await meter.start();
+
+      child.emit('exit', 1);
+      child.emit('error', new Error('app-server unavailable'));
+
+      expect(meter.consecutiveFailures).toBe(1);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(spawnProcess).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }

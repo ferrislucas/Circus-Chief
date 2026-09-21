@@ -119,10 +119,16 @@ export class CodexAppServerMeter {
       return;
     }
     this.process = child;
-    child.on('error', () => this.onProcessFailure());
+    let failed = false;
+    const failOnce = () => {
+      if (failed) return;
+      failed = true;
+      this.onProcessFailure();
+    };
+    child.on('error', failOnce);
     child.on('exit', () => {
       const wasCurrent = this.process === child;
-      if (wasCurrent) this.onProcessFailure();
+      if (wasCurrent) failOnce();
     });
 
     this.rl = readline.createInterface({ input: child.stdout });
@@ -250,13 +256,18 @@ export class CodexAppServerMeter {
       return;
     }
     this.state = 'starting';
+    this.#scheduleRestart();
+    logOutcome({ source: LOG_SOURCE, outcome: 'restart-scheduled', attempt: this.consecutiveFailures });
+  }
+
+  #scheduleRestart() {
+    if (this.restartTimer) clearTimeout(this.restartTimer);
     const backoff = Math.min(BASE_BACKOFF_MS * 2 ** (this.consecutiveFailures - 1), MAX_BACKOFF_MS);
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null;
       this.spawnMeter();
     }, backoff);
     this.restartTimer.unref?.();
-    logOutcome({ source: LOG_SOURCE, outcome: 'restart-scheduled', attempt: this.consecutiveFailures });
   }
 }
 
