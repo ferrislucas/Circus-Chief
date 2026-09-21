@@ -727,13 +727,12 @@ describe('sessionPrompts', () => {
           expect(laneFields, `missing ${contractName} field ${field}`).toContain(`\`${field}\``);
           // Documented enum values are derived from the contract, not hand-maintained.
           const enumValues = unwrapAll(fieldSchema)?.options;
-          if (Array.isArray(enumValues)) {
-            for (const value of enumValues) {
-              expect(
-                laneFields,
-                `missing ${contractName} enum value \`${value}\` for ${field}`
-              ).toContain(`\`${value}\``);
-            }
+          if (!Array.isArray(enumValues)) continue;
+          for (const value of enumValues) {
+            expect(
+              laneFields,
+              `missing ${contractName} enum value \`${value}\` for ${field}`
+            ).toContain(`\`${value}\``);
           }
         }
       }
