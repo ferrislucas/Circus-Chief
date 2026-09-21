@@ -717,16 +717,29 @@ describe('sessionPrompts', () => {
         return current;
       };
 
-      for (const [field, fieldSchema] of Object.entries(CreateKanbanLaneRequest.shape)) {
-        expect(laneFields, `missing create field ${field}`).toContain(`\`${field}\``);
-        expect(updateFields, `update contract dropped create field ${field}`).toContain(field);
-        // Documented enum values are derived from the contract, not hand-maintained.
-        const enumValues = unwrapAll(fieldSchema)?.options;
-        if (Array.isArray(enumValues)) {
-          for (const value of enumValues) {
-            expect(laneFields, `missing enum value \`${value}\` for ${field}`).toContain(`\`${value}\``);
+      const laneContracts = [
+        ['create', CreateKanbanLaneRequest],
+        ['update', UpdateKanbanLaneRequest],
+      ];
+
+      for (const [contractName, contract] of laneContracts) {
+        for (const [field, fieldSchema] of Object.entries(contract.shape)) {
+          expect(laneFields, `missing ${contractName} field ${field}`).toContain(`\`${field}\``);
+          // Documented enum values are derived from the contract, not hand-maintained.
+          const enumValues = unwrapAll(fieldSchema)?.options;
+          if (Array.isArray(enumValues)) {
+            for (const value of enumValues) {
+              expect(
+                laneFields,
+                `missing ${contractName} enum value \`${value}\` for ${field}`
+              ).toContain(`\`${value}\``);
+            }
           }
         }
+      }
+
+      for (const field of Object.keys(CreateKanbanLaneRequest.shape)) {
+        expect(updateFields, `update contract dropped create field ${field}`).toContain(field);
       }
       expect(updateFields).toContain('completionTargetLaneId');
       expect(laneFields).toContain('`completionTargetLaneId`');
