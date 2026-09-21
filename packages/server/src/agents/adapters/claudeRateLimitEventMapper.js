@@ -1,4 +1,5 @@
 import { normalizeEpochMs } from '../../services/allowanceTime.js';
+import { clampPercent, finiteNumber } from '../../services/allowanceNumbers.js';
 
 /**
  * Map an SDK `rate_limit_event`'s `rate_limit_info` payload into an
@@ -57,14 +58,4 @@ export function mapClaudeRateLimitEvent(info, { observedAt = Date.now(), streamS
       resetsAt: normalizeEpochMs(info.resetsAt),
     }],
   };
-}
-
-export function clampPercent(value) {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100
-    ? value
-    : null;
-}
-
-function finiteNumber(value) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }

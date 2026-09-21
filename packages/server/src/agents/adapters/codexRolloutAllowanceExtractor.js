@@ -1,4 +1,5 @@
 import { normalizeEpochMs } from '../../services/allowanceTime.js';
+import { clampPercent, finiteNumber } from '../../services/allowanceNumbers.js';
 
 /**
  * Map a Codex `RateLimitSnapshot` (delivered on `token_count` rollout events
@@ -43,14 +44,4 @@ export function mapCodexRateLimits(rateLimits, { observedAt = Date.now(), stream
     staleAfterMs: streamStaleMs,
     allowances,
   };
-}
-
-export function clampPercent(value) {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100
-    ? value
-    : null;
-}
-
-function finiteNumber(value) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }

@@ -1,4 +1,5 @@
 import { normalizeEpochMs } from '../../services/allowanceTime.js';
+import { clampPercent, finiteNumber } from '../../services/allowanceNumbers.js';
 
 /**
  * Map a z.ai GLM Coding Plan quota payload into an allowance candidate.
@@ -59,14 +60,4 @@ export function mapZaiQuota(payload, { observedAt = Date.now(), staleAfterMs = Z
     staleAfterMs,
     allowances,
   };
-}
-
-export function clampPercent(value) {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100
-    ? value
-    : null;
-}
-
-function finiteNumber(value) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
