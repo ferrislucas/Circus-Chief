@@ -35,4 +35,14 @@ describe('extractOpenAIAllowance', () => {
     expect(JSON.stringify(candidate)).not.toContain('redacted');
     expect(JSON.stringify(candidate)).not.toContain('req_sanitized');
   });
+
+  it('preserves a zero-second reset as an immediate freshness boundary', () => {
+    const candidate = extractOpenAIAllowance({
+      'x-ratelimit-limit-requests': '100',
+      'x-ratelimit-remaining-requests': '75',
+      'x-ratelimit-reset-requests': '0s',
+    }, { observedAt });
+
+    expect(candidate).toMatchObject({ staleAfterMs: 0, allowances: [{ resetsAt: observedAt }] });
+  });
 });

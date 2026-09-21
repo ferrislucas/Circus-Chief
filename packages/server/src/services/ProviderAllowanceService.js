@@ -101,7 +101,7 @@ export class ProviderAllowanceService {
 
 function calculateStaleAt(snapshot, updatedAt) {
   const staleAfterMs = finiteNumber(snapshot.staleAfterMs);
-  if (updatedAt !== null && staleAfterMs !== null && staleAfterMs >= 0) return updatedAt + staleAfterMs;
+  if (updatedAt !== null && staleAfterMs !== null) return updatedAt + staleAfterMs;
   return finiteNumber(snapshot.staleAt);
 }
 

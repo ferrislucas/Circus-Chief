@@ -245,4 +245,19 @@ describe('ProviderAllowanceService', () => {
 
     expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'stale', staleAt: 6 });
   });
+
+  it('marks an observation with an already-past reset stale immediately', () => {
+    const service = new ProviderAllowanceService({
+      providerRepository: { getAll: () => [enabled] },
+      clock: { now: () => 10 },
+    });
+
+    service.observe({
+      providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
+      status: 'available', source: 'observed-header', updatedAt: 1, staleAfterMs: -5_000, unavailableReason: null,
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 75, limit: 100, remainingPercent: 75, unit: 'requests', resetsAt: -4_999 }],
+    });
+
+    expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'stale', staleAt: -4_999 });
+  });
 });
