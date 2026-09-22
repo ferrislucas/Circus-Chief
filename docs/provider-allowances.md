@@ -28,3 +28,13 @@ OpenAI observations with incomplete, malformed, unsupported, disabled, or
 unknown provider data are ignored. Those providers remain unknown (or retain a
 previous valid snapshot); unsupported provider kinds display the existing
 honest unknown state.
+
+### Claude in-stream capture status
+
+On 2026-09-21, the planned live OAuth capture of Claude
+`rate_limit_event` telemetry could not run because the local Claude Code OAuth
+token was revoked (401). The checked-in Claude fixture therefore remains
+derived from the SDK type contract, and the Claude source is shelved pending
+refreshed OAuth access or an SDK bump. `PROVIDER_ALLOWANCES_CLAUDE` remains
+default-off; affected indicators remain `unknown` rather than presenting
+unverified allowance data.

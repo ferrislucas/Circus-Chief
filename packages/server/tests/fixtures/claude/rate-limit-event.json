@@ -1,5 +1,5 @@
 {
-  "comment": "Sanitized SDK rate_limit_event payloads for claude.ai subscription users. Shape derived from @anthropic-ai/claude-agent-sdk@0.3.163 SDKRateLimitEvent/SDKRateLimitInfo type contract; uuid/session_id are redacted pending a live OAuth capture (plan Phase 0). resetsAt values are unix seconds on the wire.",
+  "comment": "Sanitized SDK rate_limit_event payloads for claude.ai subscription users. Shape derived from @anthropic-ai/claude-agent-sdk@0.3.163 SDKRateLimitEvent/SDKRateLimitInfo type contract; uuid/session_id are redacted. Live OAuth capture attempted 2026-09-21 but blocked: local Claude Code OAuth token was revoked (401), so this source is shelved pending refreshed OAuth access or an SDK bump. PROVIDER_ALLOWANCES_CLAUDE remains default-off. resetsAt values are unix seconds on the wire.",
   "fiveHourWithUtilization": {
     "type": "rate_limit_event",
     "rate_limit_info": {
