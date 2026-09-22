@@ -119,7 +119,10 @@ export class CodexAdapter extends BaseAgent {
     }
     try {
       rolloutWatcher.start();
-      yield* executeCodexCli(child, queryParams, options, markCodexCliUnavailable);
+      for await (const event of executeCodexCli(child, queryParams, options, markCodexCliUnavailable)) {
+        if (typeof event?.session_id === 'string') rolloutWatcher.pin(event.session_id);
+        yield event;
+      }
     } finally {
       await rolloutWatcher.stop();
     }

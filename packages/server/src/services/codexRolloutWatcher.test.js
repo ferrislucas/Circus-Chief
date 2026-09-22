@@ -23,6 +23,25 @@ function seedRolloutFile(home, content, { mtimeMs } = {}) {
   return file;
 }
 
+function seedSessionRolloutFile(home, sessionId, content, { mtimeMs, day = '19' } = {}) {
+  const dayRoot = path.join(home, '.codex', 'sessions', '2026', '09', day);
+  fs.mkdirSync(dayRoot, { recursive: true });
+  const file = path.join(dayRoot, `rollout-${sessionId}.jsonl`);
+  fs.writeFileSync(file, content);
+  if (mtimeMs !== undefined) fs.utimesSync(file, new Date(mtimeMs), new Date(mtimeMs));
+  return file;
+}
+
+function tokenCountLine(usedPercent) {
+  return `${JSON.stringify({
+    type: 'event_msg',
+    payload: {
+      type: 'token_count',
+      rate_limits: { primary: { used_percent: usedPercent, resets_at: 1_789_959_005 } },
+    },
+  })}\n`;
+}
+
 function syncPoll(watcher, times = 1) {
   for (let i = 0; i < times; i += 1) watcher.poll();
 }
@@ -157,6 +176,64 @@ describe('CodexRolloutWatcher', () => {
 
     expect(observer).toHaveBeenCalledTimes(2);
     expect(observer.mock.calls[1][0].allowances[0]).toMatchObject({ key: 'five_hour', remainingPercent: 75 });
+  });
+
+  it('pins before locating so a newer rollout belonging to another session is never observed', () => {
+    const observer = vi.fn();
+    const watcher = makeWatcher(observer, { startedAfterMs: clock.now() - 5_000 });
+    const sessionA = 'a0a0a0a0-a0a0-4a0a-8a0a-a0a0a0a0a0a0';
+    const sessionB = 'b0b0b0b0-b0b0-4b0b-8b0b-b0b0b0b0b0b0';
+    seedSessionRolloutFile(home, sessionA, tokenCountLine(20), { mtimeMs: clock.now() + 1 });
+    seedSessionRolloutFile(home, sessionB, tokenCountLine(70), { mtimeMs: clock.now() + 2 });
+
+    watcher.pin(sessionA);
+    syncPoll(watcher, 2);
+
+    expect(observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      allowances: [expect.objectContaining({ remainingPercent: 80 })],
+    }));
+  });
+
+  it('resets its cursor and rescans the pinned session file after initially tailing a newer rollout', () => {
+    const observer = vi.fn();
+    const watcher = makeWatcher(observer, { startedAfterMs: clock.now() - 5_000 });
+    const sessionA = 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1';
+    const sessionB = 'b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1';
+    seedSessionRolloutFile(home, sessionA, tokenCountLine(20), { mtimeMs: clock.now() + 1 });
+    seedSessionRolloutFile(home, sessionB, tokenCountLine(70), { mtimeMs: clock.now() + 2 });
+
+    syncPoll(watcher, 2);
+    watcher.pin(sessionA);
+    syncPoll(watcher, 2);
+
+    expect(observer.mock.calls.map(([candidate]) => candidate.allowances[0].remainingPercent)).toEqual([30, 80]);
+  });
+
+  it('keeps the newest-file heuristic when no session pin arrives', () => {
+    const observer = vi.fn();
+    const watcher = makeWatcher(observer, { startedAfterMs: clock.now() - 5_000 });
+    seedSessionRolloutFile(home, 'a2a2a2a2-a2a2-4a2a-8a2a-a2a2a2a2a2a2', tokenCountLine(20), { mtimeMs: clock.now() + 1 });
+    seedSessionRolloutFile(home, 'b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2', tokenCountLine(70), { mtimeMs: clock.now() + 2 });
+
+    syncPoll(watcher, 2);
+
+    expect(observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      allowances: [expect.objectContaining({ remainingPercent: 30 })],
+    }));
+  });
+
+  it('finds a pinned rollout in the adjacent day directory across midnight', () => {
+    const observer = vi.fn();
+    const watcher = makeWatcher(observer, { startedAfterMs: clock.now() - 5_000 });
+    const sessionId = 'c2c2c2c2-c2c2-4c2c-8c2c-c2c2c2c2c2c2';
+    seedSessionRolloutFile(home, sessionId, tokenCountLine(20), { day: '20' });
+
+    watcher.pin(sessionId);
+    syncPoll(watcher, 2);
+
+    expect(observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      allowances: [expect.objectContaining({ remainingPercent: 80 })],
+    }));
   });
 
   it('stops quietly and clears its timer', async () => {

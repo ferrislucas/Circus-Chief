@@ -33,6 +33,39 @@ export function findActiveRolloutFile({ sessionsRoot, startedAfterMs } = {}) {
   return newest.file;
 }
 
+function findPinnedRolloutFile({ sessionsRoot, startedAfterMs, sessionId } = {}) {
+  let match = null;
+  for (const dayRoot of rolloutDayRoots(sessionsRoot, startedAfterMs)) {
+    match ??= findSessionRolloutFile(dayRoot, sessionId);
+  }
+  return match;
+}
+
+function findSessionRolloutFile(directory, sessionId) {
+  let entries;
+  try {
+    entries = fs.readdirSync(directory, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      const nested = findSessionRolloutFile(full, sessionId);
+      if (nested) return nested;
+      continue;
+    }
+    if (entry.isFile() && isSessionRolloutFileName(entry.name, sessionId)) return full;
+  }
+  return null;
+}
+
+// Keep the UUID-to-filename contract isolated: a watcher may start near
+// midnight, so pin lookup checks the start day and its immediate neighbours.
+function isSessionRolloutFileName(fileName, sessionId) {
+  return fileName.startsWith(`rollout-${sessionId}`) && fileName.endsWith('.jsonl');
+}
+
 function scanDirectoryForNewestRollout(directory, current) {
   let entries;
   let newest = current;
@@ -96,6 +129,7 @@ export class CodexRolloutWatcher {
     this.fileGraceMs = fileGraceMs;
     this.streamStaleMsProvider = streamStaleMsProvider;
     this.rolloutFile = null;
+    this.sessionId = null;
     this.offset = 0;
     this.partialLine = '';
     this.timer = null;
@@ -118,13 +152,20 @@ export class CodexRolloutWatcher {
     }
   }
 
+  pin(sessionId) {
+    if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId === this.sessionId) return;
+    this.sessionId = sessionId;
+    this.rolloutFile = null;
+    this.resetCursor();
+  }
+
   locate() {
     if (this.rolloutFile) return;
     const sessionsRoot = path.join(this.homeDirectory, '.codex', 'sessions');
-    this.rolloutFile = findActiveRolloutFile({
-      sessionsRoot,
-      startedAfterMs: this.startedAfterMs,
-    });
+    this.rolloutFile = this.sessionId
+      ? findPinnedRolloutFile({ sessionsRoot, startedAfterMs: this.startedAfterMs, sessionId: this.sessionId })
+      // Until the CLI emits a session_id, retain the legacy newest-file heuristic.
+      : findActiveRolloutFile({ sessionsRoot, startedAfterMs: this.startedAfterMs });
     if (!this.rolloutFile && this.clock.now() - this.startedAfterMs > this.fileGraceMs) {
       // No rollout file appeared within the grace window; give up quietly.
       this.stopped = true;
@@ -149,8 +190,7 @@ export class CodexRolloutWatcher {
       logOutcome({ providerId: this.providerId, source: 'codex-rollout', outcome: 'read-error' });
       if (error?.code === 'ENOENT') {
         this.rolloutFile = null;
-        this.offset = 0;
-        this.partialLine = '';
+        this.resetCursor();
       }
     }
   }
@@ -160,8 +200,7 @@ export class CodexRolloutWatcher {
     if (size < this.offset) {
       // The file shrank below our cursor: it was truncated or replaced, so
       // restart the scan from the beginning.
-      this.offset = 0;
-      this.partialLine = '';
+      this.resetCursor();
     }
     if (size === this.offset) return '';
     const buffer = Buffer.alloc(size - this.offset);
@@ -182,6 +221,11 @@ export class CodexRolloutWatcher {
     // decoded, and the remainder stays buffered for the next poll.
     this.partialLine = lines.pop() ?? '';
     for (const line of lines) this.handleLine(line);
+  }
+
+  resetCursor() {
+    this.offset = 0;
+    this.partialLine = '';
   }
 
   handleLine(line) {
@@ -241,6 +285,15 @@ function rolloutDateParts(nowMs) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return [String(date.getFullYear()), month, day];
+}
+
+function rolloutDayRoots(sessionsRoot, startedAfterMs) {
+  const start = new Date(startedAfterMs);
+  return [-1, 0, 1].map((offset) => {
+    const date = new Date(start);
+    date.setDate(date.getDate() + offset);
+    return path.join(sessionsRoot, ...rolloutDateParts(date.getTime()));
+  });
 }
 
 function isDirectory(candidate) {
