@@ -55,6 +55,17 @@ describe('zaiAllowanceMapper', () => {
     });
   });
 
+  it('keeps a percentage-only row with out-of-range utilization by clamping to exhausted zero', () => {
+    const candidate = mapZaiQuota(
+      { data: { limits: [{ type: 'TOKENS_LIMIT', unit: 3, percentage: 104 }] } },
+      { observedAt },
+    );
+
+    expect(candidate.allowances).toEqual([
+      expect.objectContaining({ key: 'five_hour', remaining: null, limit: null, remainingPercent: 0 }),
+    ]);
+  });
+
   it('returns null for payloads without usable rows', () => {
     expect(mapZaiQuota(null, { observedAt })).toBeNull();
     expect(mapZaiQuota({}, { observedAt })).toBeNull();

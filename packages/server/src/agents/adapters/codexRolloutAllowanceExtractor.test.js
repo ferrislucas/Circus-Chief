@@ -64,14 +64,14 @@ describe('codexRolloutAllowanceExtractor', () => {
     ]);
   });
 
-  it('rejects out-of-range used_percent as untrusted and honors a caller freshness window', () => {
+  it('clamps out-of-range used_percent into the contract range and honors a caller freshness window', () => {
     const candidate = mapCodexRateLimits(
       { primary: { used_percent: 140, resets_at: 1_789_856_117 } },
       { observedAt, streamStaleMs: 60_000 },
     );
 
     expect(candidate.staleAfterMs).toBe(60_000);
-    expect(candidate.allowances[0]).toMatchObject({ remainingPercent: null });
+    expect(candidate.allowances[0]).toMatchObject({ remainingPercent: 0 });
   });
 
   it('drops plan_type and credits account metadata', () => {

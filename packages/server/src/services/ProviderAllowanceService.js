@@ -1,9 +1,9 @@
 import { ProviderAllowanceListResponse, ProviderAllowanceSnapshot, ProviderAllowanceStatus } from '@circuschief/shared/contracts/providers';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { isDeepStrictEqual } from 'node:util';
-import { clampPercent, finiteNumber, percentage } from './allowanceNumbers.js';
+import { finiteNumber, percentage, requirePercent } from './allowanceNumbers.js';
 
-export { clampPercent, percentage } from './allowanceNumbers.js';
+export { percentage, requirePercent } from './allowanceNumbers.js';
 
 /**
  * Keeps the provider-usage boundary intentionally honest. Providers without a
@@ -119,7 +119,7 @@ export function normalizeAllowance(allowance) {
   const derived = normalizedRemaining !== null && normalizedLimit !== null
     ? percentage(normalizedRemaining, normalizedLimit)
     : null;
-  const remainingPercent = derived ?? clampPercent(allowance.remainingPercent);
+  const remainingPercent = derived ?? requirePercent(allowance.remainingPercent);
 
   return {
     key: allowance.key,

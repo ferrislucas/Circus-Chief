@@ -1,5 +1,5 @@
 import { normalizeEpochMs } from '../../services/allowanceTime.js';
-import { clampPercent, finiteNumber } from '../../services/allowanceNumbers.js';
+import { clampRemainingPercent, finiteNumber } from '../../services/allowanceNumbers.js';
 
 /**
  * Map a Codex `RateLimitSnapshot` (delivered on `token_count` rollout events
@@ -30,7 +30,7 @@ export function mapCodexRateLimits(rateLimits, { observedAt = Date.now(), stream
       label,
       remaining: null,
       limit: null,
-      remainingPercent: clampPercent(100 - used),
+      remainingPercent: clampRemainingPercent(100 - used),
       unit: 'tokens',
       resetsAt: normalizeEpochMs(window.resets_at), // unix seconds on the wire
     });

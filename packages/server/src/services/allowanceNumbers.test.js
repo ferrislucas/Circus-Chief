@@ -1,4 +1,4 @@
-import { clampPercent, finiteNumber, percentage } from './allowanceNumbers.js';
+import { clampRemainingPercent, finiteNumber, percentage, requirePercent } from './allowanceNumbers.js';
 import { describe, expect, it } from 'vitest';
 
 describe('allowanceNumbers', () => {
@@ -11,8 +11,22 @@ describe('allowanceNumbers', () => {
     [Number.POSITIVE_INFINITY, null],
     ['50', null],
     [null, null],
-  ])('clamps percentage input %p to %p', (value, expected) => {
-    expect(clampPercent(value)).toBe(expected);
+  ])('requires an in-range percentage, rejecting %p as %p', (value, expected) => {
+    expect(requirePercent(value)).toBe(expected);
+  });
+
+  it.each([
+    [-5, 0],
+    [0, 0],
+    [57.5, 57.5],
+    [100, 100],
+    [140, 100],
+    [Number.NaN, null],
+    [Number.POSITIVE_INFINITY, null],
+    ['50', null],
+    [null, null],
+  ])('clamps a utilization-derived percentage %p into range as %p', (value, expected) => {
+    expect(clampRemainingPercent(value)).toBe(expected);
   });
 
   it.each([

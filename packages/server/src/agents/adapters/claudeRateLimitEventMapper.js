@@ -1,5 +1,5 @@
 import { normalizeEpochMs } from '../../services/allowanceTime.js';
-import { clampPercent, finiteNumber } from '../../services/allowanceNumbers.js';
+import { clampRemainingPercent, finiteNumber } from '../../services/allowanceNumbers.js';
 
 /**
  * Map an SDK `rate_limit_event`'s `rate_limit_info` payload into an
@@ -53,7 +53,7 @@ export function mapClaudeRateLimitEvent(info, { observedAt = Date.now(), streamS
       label: WINDOW_LABELS[rateLimitType],
       remaining: null,
       limit: null,
-      remainingPercent: utilization === null ? null : clampPercent(100 - utilization),
+      remainingPercent: utilization === null ? null : clampRemainingPercent(100 - utilization),
       unit: 'tokens',
       resetsAt: normalizeEpochMs(info.resetsAt),
     }],

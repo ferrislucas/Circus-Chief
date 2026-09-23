@@ -1,5 +1,5 @@
 import { normalizeEpochMs } from '../../services/allowanceTime.js';
-import { clampPercent, finiteNumber } from '../../services/allowanceNumbers.js';
+import { clampRemainingPercent, finiteNumber } from '../../services/allowanceNumbers.js';
 
 /**
  * Map a z.ai GLM Coding Plan quota payload into an allowance candidate.
@@ -38,7 +38,7 @@ export function mapZaiQuota(payload, { observedAt = Date.now(), staleAfterMs = Z
     // Tolerated future shape: percentage without absolutes still feeds the
     // indicator through the percentage-only normalization path; the service
     // derives its percentage from absolutes when they exist (§4.1).
-    const fallbackPercent = remaining === null ? clampPercent(100 - limit.percentage) : null;
+    const fallbackPercent = remaining === null ? clampRemainingPercent(100 - limit.percentage) : null;
     if (remaining === null && fallbackPercent === null) continue; // no usable measurement
 
     allowances.push({

@@ -71,8 +71,8 @@ describe('claudeRateLimitEventMapper', () => {
   });
 
   it.each([
-    ['out-of-range utilization above 100', { status: 'allowed', utilization: 140, resetsAt: 1_789_900_000 }, { status: 'available', allowances: [expect.objectContaining({ remainingPercent: null, resetsAt: 1_789_900_000_000 })] }],
-    ['out-of-range utilization below 0', { status: 'allowed', utilization: -5 }, { status: 'available', allowances: [expect.objectContaining({ remainingPercent: null })] }],
+    ['out-of-range utilization above 100', { status: 'allowed', utilization: 105, resetsAt: 1_789_900_000 }, { status: 'available', allowances: [expect.objectContaining({ remainingPercent: 0, resetsAt: 1_789_900_000_000 })] }],
+    ['out-of-range utilization below 0', { status: 'allowed', utilization: -10 }, { status: 'available', allowances: [expect.objectContaining({ remainingPercent: 100 })] }],
     ['NaN utilization with a status', { status: 'allowed', utilization: Number.NaN }, { status: 'available', allowances: [expect.objectContaining({ remainingPercent: null })] }],
     ['unknown status without utilization', { status: 'mystery' }, null],
     ['empty payload', {}, null],
