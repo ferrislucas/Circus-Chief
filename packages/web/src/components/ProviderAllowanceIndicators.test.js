@@ -192,6 +192,44 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
+  it('refetches on session updates only when the priority-relevant fields change', async () => {
+    api.getProviderAllowances.mockResolvedValue({ snapshots: [], activeProviderIds: [] });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
+
+    websocketListeners.get('session:updated')({ session: { id: 'session-1', providerId: 'openai', status: 'waiting' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
+
+    // Field changes that cannot reorder priority (title, summary, …) must not
+    // generate a refetch per broadcast.
+    websocketListeners.get('session:updated')({ session: { id: 'session-1', providerId: 'openai', status: 'waiting', title: 'renamed' } });
+    websocketListeners.get('session:updated')({ session: { id: 'session-1', providerId: 'openai', status: 'waiting' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
+
+    websocketListeners.get('session:updated')({ session: { id: 'session-1', providerId: 'openai', status: 'running' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(3);
+
+    websocketListeners.get('session:updated')({ session: { id: 'session-1', providerId: 'openai', status: 'running' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(3);
+
+    // Unknown payload shapes fall back to fetching — never silently skip.
+    websocketListeners.get('session:updated')({});
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(4);
+    wrapper.unmount();
+  });
+
   it('formats percentage-only allowance data without pretending null values are quantities', async () => {
     const store = useProviderAllowancesStore();
     store.snapshots = [{

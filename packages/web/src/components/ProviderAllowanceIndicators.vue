@@ -177,6 +177,9 @@ const observedLayoutElements = new Set();
 let announcementTimer = null;
 let hasObservedSnapshots = false;
 let previousStatuses = new Map();
+// Last seen { status, providerId } per session id, so SESSION_UPDATED frames
+// that cannot change allowance priority skip the refetch.
+const sessionPriorityMemo = new Map();
 
 function measureVisibleItems() {
   const availableWidth = desktopItemsRef.value?.getBoundingClientRect().width ?? 0;
@@ -290,10 +293,26 @@ function onUpdate(message) {
   }
   store.replace(parsed.data.snapshot);
 }
-function reconcileSessionPriority() {
+function reconcileSessionPriority(message) {
   // The REST response has the complete, authoritative active-session order.
-  // A single session event cannot safely reconstruct it client-side.
-  store.fetch();
+  // A single session event cannot safely reconstruct it client-side, so any
+  // priority-relevant change refetches.
+  const session = message?.session;
+  if (!session || typeof session !== 'object') {
+    // Unknown payload shape: fetch rather than silently skip.
+    store.fetch();
+    return;
+  }
+  // Priority depends only on which providers have sessions in
+  // starting/running — i.e. on status and providerId. Field-only changes
+  // (title, model, summary, …) cannot reorder the indicators.
+  const priority = { status: session.status, providerId: session.providerId };
+  const previous = sessionPriorityMemo.get(session.id);
+  sessionPriorityMemo.set(session.id, priority);
+  const priorityChanged = !previous
+    || previous.status !== priority.status
+    || previous.providerId !== priority.providerId;
+  if (priorityChanged) store.fetch();
 }
 onMounted(() => {
   store.fetch();
@@ -309,6 +328,7 @@ onMounted(() => {
 onUnmounted(() => {
   off(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, onUpdate);
   off(WS_MESSAGE_TYPES.SESSION_UPDATED, reconcileSessionPriority);
+  sessionPriorityMemo.clear();
   removeReconnect?.();
   resizeObserver?.disconnect();
   observedLayoutElements.clear();
