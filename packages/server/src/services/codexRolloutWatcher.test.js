@@ -130,17 +130,17 @@ describe('CodexRolloutWatcher', () => {
     const observer = vi.fn();
     const watcher = makeWatcher(observer);
     const complete = fs.readFileSync(fixturePath, 'utf8');
-    const tokenCountLine = complete.split('\n').find((line) => line.includes('"rate_limits"'));
+    const rateLimitsLine = complete.split('\n').find((line) => line.includes('"rate_limits"'));
     const file = seedRolloutFile(home, '');
 
     watcher.rolloutFile = file;
     // First poll sees a truncated line: nothing decoded yet.
-    fs.appendFileSync(file, tokenCountLine.slice(0, Math.floor(tokenCountLine.length / 2)));
+    fs.appendFileSync(file, rateLimitsLine.slice(0, Math.floor(rateLimitsLine.length / 2)));
     syncPoll(watcher);
     expect(observer).not.toHaveBeenCalled();
 
     // The appended remainder completes the line, which is decoded exactly once.
-    fs.appendFileSync(file, `${tokenCountLine.slice(Math.floor(tokenCountLine.length / 2))}\n`);
+    fs.appendFileSync(file, `${rateLimitsLine.slice(Math.floor(rateLimitsLine.length / 2))}\n`);
     syncPoll(watcher);
     expect(observer).toHaveBeenCalledTimes(1);
   });
