@@ -3,6 +3,8 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { createWorkLog } from './workLogService.js';
 import { sessions } from '../database.js';
+import { getPermissionModeForSession } from './sessionPrompts.js';
+import { setAgentPermissionMode } from './agentPlanModeService.js';
 import { PROMPT_ACTIONS_BY_KIND } from '@circuschief/shared/contracts/prompts';
 import { buildSafeToolInputSummary, buildSafeHeadline, buildSafeBlockedPath } from './promptDurableSummary.js';
 import logger from '../logger.js';
@@ -69,6 +71,7 @@ function settle(record, outcome, result) {
   // observable operational errors, but cannot strand the blocked agent or
   // prevent the next queued interaction from being surfaced.
   persistPromptOutcome(record, outcome, result);
+  safelyBroadcast(record, 'apply plan mode transition', () => applyPlanModeTransition(record, outcome));
   broadcastPromptResolution(record, outcome);
   if (removal.queue.length === 0) {
     // Queue drained: only now does the "needs attention" badge clear. One
@@ -92,6 +95,24 @@ function persistPromptOutcome(record, outcome, result) {
   } catch (error) {
     reportPromptSideEffectFailure(record, 'persist prompt decision', error);
   }
+}
+
+// Default deny message for a plan-kind prompt. The CLI's ExitPlanMode
+// protocol tells the model to revise and re-present; a bare "denied" gives it
+// nothing to act on, so even without user feedback the message names the
+// expected next step.
+const PLAN_CHANGES_MESSAGE = 'The user requested changes to the plan. Revise the plan based on this feedback and present it again with ExitPlanMode.';
+
+// A plan approval (allow) completes the CLI's plan-exit protocol: the CLI
+// itself switches the permission mode back to the pre-plan mode. Mirror that
+// transition on the session so the UI "Planning" state clears. A deny keeps
+// the session in plan mode — the model is expected to revise and re-present.
+function applyPlanModeTransition(record, outcome) {
+  if (record.kind !== 'plan') return;
+  // The pre-plan baseline is whatever permission mode the session was
+  // configured with (mode-based mapping in sessionPrompts.js).
+  const baseline = getPermissionModeForSession(sessions.getById(record.sessionId)?.mode);
+  setAgentPermissionMode(record.sessionId, outcome === 'allow' ? baseline : 'plan');
 }
 
 // Requests rejected before entering the queue still change the agent's
@@ -144,6 +165,21 @@ function describePromptOutcome(record, outcome, result) {
       return { toolName: 'AskUserQuestion', content: `User answered\nQuestions answered: ${answerCount}\nSelections recorded: ${answerCount}` };
     }
     return { toolName: 'AskUserQuestion', content: 'User did not answer' };
+  }
+
+  if (record.kind === 'plan') {
+    // Plan content never enters durable history (the plan itself lives on
+    // disk at the planFilePath the CLI manages). Structural facts only.
+    const feedback = typeof result?.message === 'string' && result.message !== PLAN_CHANGES_MESSAGE;
+    return {
+      toolName: 'ExitPlanMode',
+      content: [
+        'Plan decision',
+        `Outcome: ${outcome === 'allow' ? 'approved' : 'changes requested'}`,
+        'Tool: ExitPlanMode',
+        `Feedback provided: ${outcome !== 'allow' && feedback ? 'yes' : 'no'}`,
+      ].join('\n'),
+    };
   }
 
   const toolName = record.payload.toolName || 'Unknown tool';
@@ -334,6 +370,12 @@ function permissionResult(record, response) {
   }
   if (response.action === 'always_allow') {
     return { behavior: 'deny', message: 'Always allow is unavailable for this permission request.' };
+  }
+  // Plan-kind deny: the CLI's ExitPlanMode protocol expects revision feedback,
+  // so the default message names the next step instead of a flat denial.
+  if (record.kind === 'plan') {
+    const feedback = typeof response.reason === 'string' && response.reason.trim() ? response.reason.trim() : null;
+    return { behavior: 'deny', message: feedback ? `The user requested changes to the plan. Feedback: ${feedback}` : PLAN_CHANGES_MESSAGE };
   }
   return { behavior: 'deny', message: response.reason || 'Permission denied by user.' };
 }

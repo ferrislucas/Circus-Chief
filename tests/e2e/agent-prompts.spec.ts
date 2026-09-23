@@ -47,14 +47,14 @@ async function waitForPendingPrompt(sessionId: string, timeout = 30000) {
   throw new Error(`Session ${sessionId} never surfaced a pending prompt within ${timeout}ms`);
 }
 
-async function seedAndStartSession(projectId: string, name: string, prompt: string) {
+async function seedAndStartSession(projectId: string, name: string, prompt: string, mode = 'standard') {
   // startImmediately (the default) is what triggers the `runSession` call
   // type these cassettes were recorded against.
   const session = await seedSession(projectId, {
     prompt,
     name,
     model: 'claude-haiku-4-5-20251001',
-    mode: 'standard',
+    mode,
   });
   return session;
 }
@@ -185,5 +185,77 @@ test.describe('Interactive Agent Prompts', () => {
     await expect(card).not.toBeVisible({ timeout: 15000 });
     const stopped = await getSession(session.id);
     expect(stopped.pendingAgentInput).toBe(false);
+  });
+});
+
+// Native (agent-initiated) plan mode: the model called EnterPlanMode itself,
+// so ExitPlanMode must surface as a plan-approval card (rendered markdown,
+// not a JSON permission dump), and approving must restore the session's
+// baseline permission mode — the exact chain that stalled session 8f15e5e1.
+const PLAN_APPROVAL_PROMPT = 'E2E demo: enter plan mode and present a plan for approval.';
+const PLAN_REVISION_PROMPT = 'E2E demo: enter plan mode, then send the plan back for revision.';
+
+test.describe('Native plan mode prompts', () => {
+  test.describe.configure({ timeout: 120000 });
+
+  let project: any;
+
+  test.beforeEach(async () => {
+    await cleanupCreatedResources();
+    project = await seedProject('Native Plan Mode Prompts', process.cwd());
+  });
+
+  test.afterEach(async () => {
+    await cleanupCreatedResources();
+  });
+
+  test('plan approval: yolo session shows markdown plan, approve restores bypassPermissions baseline', async ({ page }) => {
+    // mode 'yolo' mirrors the reported bug: native plan mode inside a yolo session.
+    const session = await seedAndStartSession(project.id, 'Plan Approval Prompt', PLAN_APPROVAL_PROMPT, 'yolo');
+    const card = await openChatAndSurfacePrompt(page, session.id);
+
+    // EnterPlanMode (tool_use, main thread) mirrored the session into native
+    // plan mode before the approval parked.
+    expect((await getSession(session.id)).agentPermissionMode).toBe('plan');
+
+    // The plan renders as markdown content with its file path — not a raw
+    // JSON permission dump. (Backticks become inline <code>, so assert on
+    // the rendered text, not the source.)
+    await expect(card.locator('.permission-intro h3')).toContainText('Plan ready for review');
+    await expect(card.locator('.plan-body')).toContainText('Demo plan');
+    await expect(card.locator('.plan-body code', { hasText: 'greeting' })).toHaveCount(1);
+    await expect(card.locator('.plan-file-path')).toContainText('/tmp/e2e-plans/demo-greeting.md');
+    await expect(card.locator('.permission-evidence pre')).not.toBeVisible();
+    await expect(card.getByRole('button', { name: 'Always allow' })).toHaveCount(0);
+
+    await card.locator('button.prompt-primary-action').click(); // Approve plan
+
+    await expect(card).not.toBeVisible({ timeout: 10000 });
+    await waitForStatus(session.id, 'waiting', 60000);
+    // Approval completed the CLI plan-exit: the mirror returns to the yolo
+    // baseline (bypassPermissions), clearing the Planning badge.
+    expect((await getSession(session.id)).agentPermissionMode).toBe('bypassPermissions');
+    const logs = flattenWorkLogs(await getSessionWorkLogs(session.id));
+    expect(logs.some((log: any) => log.content.includes('Outcome: approved') && !log.content.includes('Demo plan'))).toBe(true);
+  });
+
+  test('request changes: deny carries feedback to the agent and keeps native plan mode', async ({ page }) => {
+    const session = await seedAndStartSession(project.id, 'Plan Revision Prompt', PLAN_REVISION_PROMPT);
+    const card = await openChatAndSurfacePrompt(page, session.id);
+
+    expect((await getSession(session.id)).agentPermissionMode).toBe('plan');
+
+    await card.locator('.deny-action').click(); // Request changes
+    await card.locator('.deny-reason input').fill('Only export the constant; do not rewire callers.');
+    await card.getByRole('button', { name: 'Send feedback' }).click();
+
+    await expect(card).not.toBeVisible({ timeout: 10000 });
+    // The VCR fixture recorded the deny result with this exact feedback
+    // message; replay rejects a different one before yielding the result.
+    await waitForStatus(session.id, 'waiting', 60000);
+    // A revision request does not exit plan mode: the agent will re-present.
+    expect((await getSession(session.id)).agentPermissionMode).toBe('plan');
+    const messages = await getSessionMessages(session.id);
+    expect(messages.some((message: any) => message.role === 'assistant' && message.content.includes('revise the plan'))).toBe(true);
   });
 });

@@ -345,4 +345,12 @@ export const sessionsMigrations = [
     up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'pending_interactive', COL_INTEGER_DEFAULT_NULL); },
   },
 
+  // --- Agent-initiated (native) plan mode: mirrors the CLI permission mode
+  // the agent switched itself into via EnterPlanMode. Distinct from the
+  // product `mode` column; written by promptStore/streamEventHandler only. ---
+  {
+    name: 'sessions-add-agent_permission_mode',
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'agent_permission_mode', 'TEXT'); },
+  },
+
 ];

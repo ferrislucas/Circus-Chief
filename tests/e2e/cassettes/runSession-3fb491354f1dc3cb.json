@@ -1,0 +1,74 @@
+{
+  "prompt": "E2E demo: enter plan mode, then send the plan back for revision.",
+  "model": "claude-haiku-4-5-20251001",
+  "gatedToolCalls": [
+    {
+      "toolName": "ExitPlanMode",
+      "afterEventIndex": 3,
+      "input": {
+        "plan": "# Demo plan (v1)\n\n1. Add a `greeting` constant\n2. Rewire every caller",
+        "planFilePath": "/tmp/e2e-plans/demo-revision.md"
+      },
+      "opts": {
+        "toolUseID": "toolu_demo_exit_plan_rev_1",
+        "agentID": null,
+        "title": "Exit plan mode?",
+        "displayName": "ExitPlanMode",
+        "description": "Present the plan and start implementing.",
+        "suggestions": []
+      },
+      "result": {
+        "behavior": "deny",
+        "message": "The user requested changes to the plan. Feedback: Only export the constant; do not rewire callers."
+      }
+    }
+  ],
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "e2e-demo-plan-revision",
+      "model": "claude-haiku-4-5-20251001"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          { "type": "tool_use", "id": "toolu_demo_enter_plan_2", "name": "EnterPlanMode", "input": {} }
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_demo_exit_plan_rev_1",
+            "name": "ExitPlanMode",
+            "input": {
+              "plan": "# Demo plan (v1)\n\n1. Add a `greeting` constant\n2. Rewire every caller",
+              "planFilePath": "/tmp/e2e-plans/demo-revision.md"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          { "type": "text", "text": "Understood - I will revise the plan to only export the constant." }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "result": "Understood - I will revise the plan to only export the constant."
+    }
+  ],
+  "key": "runSession-3fb491354f1dc3cb",
+  "recordedAt": "2026-09-11T00:00:00.000Z"
+}

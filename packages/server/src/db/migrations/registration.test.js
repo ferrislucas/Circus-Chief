@@ -44,4 +44,9 @@ describe('migration registration', () => {
 
     expect(pendingInteractiveIndex).toBeGreaterThan(pendingAgentInputIndex);
   });
+
+  it('registers the agent-initiated plan mode mirror migration', () => {
+    const names = allMigrations.map(({ name }) => name);
+    expect(names).toContain('sessions-add-agent_permission_mode');
+  });
 });

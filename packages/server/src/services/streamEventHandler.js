@@ -18,6 +18,7 @@ import {
 export { createWorkLog } from './workLogService.js';
 import { createWorkLog } from './workLogService.js';
 import { cancelPrompt } from './promptStore.js';
+import { setAgentPermissionMode } from './agentPlanModeService.js';
 import { buildSafeDenialSummary } from './promptDurableSummary.js';
 import { captureScheduleWakeup, clearPendingWakeup } from './scheduleWakeupBridge.js';
 
@@ -174,6 +175,12 @@ function handleSystemEvent(sessionId, event) {
     }), toolName);
     return;
   }
+  // SDKStatusMessage.permissionMode is the CLI's authoritative word on
+  // agent-initiated mode transitions (it overrides tool-call inference).
+  // Falls through to the init guard below for status events.
+  if (event.subtype === 'status' && typeof event.permissionMode === 'string' && event.permissionMode) {
+    setAgentPermissionMode(sessionId, event.permissionMode);
+  }
   // Store Claude's session info
   if (event.subtype !== 'init') return;
 
@@ -233,6 +240,12 @@ function handleAssistantEvent(sessionId, event, controller) {
 
   // Log tool use inputs (dedup by tool_use ID to prevent duplicates from partial assistant events)
   logToolUseInputs(sessionId, toolUseBlocks);
+
+  // Mirror agent-initiated native plan mode; main-thread only (a subagent's
+  // EnterPlanMode is scoped to that subagent — `parent_tool_use_id` marks
+  // forwarded messages). ExitPlanMode is deliberately not tracked: the exit
+  // completes only when the user approves (promptStore settles it).
+  if (event.message?.parent_tool_use_id == null && toolUseBlocks.some((t) => t.name === 'EnterPlanMode')) setAgentPermissionMode(sessionId, 'plan');
 }
 
 /**

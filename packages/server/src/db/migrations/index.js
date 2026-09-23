@@ -368,4 +368,7 @@ export const allMigrations = validateMigrations([
 
   // --- Server-derived origin of user-created scheduled follow-ups ---
   s.get('sessions-add-pending_interactive'),
+
+  // --- Agent-initiated (native) plan mode mirror ---
+  s.get('sessions-add-agent_permission_mode'),
 ]);

@@ -1,5 +1,14 @@
 <template>
   <div class="mode-selector">
+    <!-- Native (agent-initiated) plan mode: the agent switched the CLI into
+         plan mode itself via EnterPlanMode, independent of the product mode
+         above. Clears when the plan is approved or the CLI reports another
+         permission mode. -->
+    <span
+      v-if="isNativePlanning"
+      class="planning-badge"
+      title="The agent entered plan mode on its own. It will present a plan for your approval before implementing."
+    >Planning</span>
     <select
       id="mode-select"
       :value="selectedMode"
@@ -59,6 +68,12 @@ const currentMode = computed(() => {
   return props.modelValue;
 });
 
+// Server-mirrored CLI permission mode — 'plan' here means the agent entered
+// native plan mode on its own (EnterPlanMode), which is orthogonal to the
+// product mode in the select.
+const isNativePlanning = computed(() => Boolean(props.sessionId)
+  && sessionsStore.currentSession?.agentPermissionMode === 'plan');
+
 // Local state for optimistic UI updates - provides immediate visual feedback
 const selectedMode = ref(currentMode.value);
 const currentModeDescription = computed(() => modes.find((mode) => mode.value === selectedMode.value)?.description || '');
@@ -103,6 +118,20 @@ async function handleModeChange(value) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.planning-badge {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid rgba(210, 153, 34, 0.46);
+  border-radius: 999px;
+  background: rgba(210, 153, 34, 0.13);
+  color: #f2c462;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: help;
 }
 
 .mode-select {

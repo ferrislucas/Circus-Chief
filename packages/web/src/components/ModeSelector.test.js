@@ -406,3 +406,32 @@ describe('ModeSelector', () => {
     });
   });
 });
+
+describe('native planning badge', () => {
+  // Mirrors the mount helper inside the outer describe (which is not in scope here).
+  const mountBadge = (props = {}) => mount(ModeSelector, { props: { modelValue: 'yolo', ...props } });
+
+  it('shows the badge when the session mirrors agent-initiated plan mode', async () => {
+    const sessionsStore = useSessionsStore();
+    sessionsStore.currentSession = { id: 'sess-1', mode: 'yolo', agentPermissionMode: 'plan' };
+
+    const wrapper = mountBadge({ sessionId: 'sess-1' });
+    await flushAll(wrapper);
+
+    expect(wrapper.find('.planning-badge').exists()).toBe(true);
+    expect(wrapper.text()).toContain('Planning');
+  });
+
+  it('hides the badge without a session context or when the agent is not planning', async () => {
+    const sessionsStore = useSessionsStore();
+    sessionsStore.currentSession = { id: 'sess-2', mode: 'plan', agentPermissionMode: null };
+
+    const formContext = mountBadge();
+    await flushAll(formContext);
+    expect(formContext.find('.planning-badge').exists()).toBe(false);
+
+    const notPlanning = mountBadge({ sessionId: 'sess-2' });
+    await flushAll(notPlanning);
+    expect(notPlanning.find('.planning-badge').exists()).toBe(false);
+  });
+});
