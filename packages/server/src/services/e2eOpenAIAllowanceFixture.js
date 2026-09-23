@@ -1,6 +1,11 @@
 import { readFileSync } from 'fs';
 import { BUILT_IN_OPENAI_PROVIDER } from '../db/seedBaselineData.js';
 
+// Logged at most once per process: the fixture is injected per session, but
+// one activation line at first use is enough to flag that production code is
+// running a test-surface path.
+let fixtureActivationLogged = false;
+
 /**
  * Test-server-only OpenAI SDK dependency injection. The fixture has the same
  * `withResponse()` shape as the SDK request, so allowance parsing still
@@ -17,6 +22,15 @@ export function createE2EOpenAIAllowanceClientFactory(providerId = null) {
   if (providerId !== BUILT_IN_OPENAI_PROVIDER.id) return null;
   const fixturePath = process.env.VCR_MODE && process.env.E2E_OPENAI_ALLOWANCE_FIXTURE;
   if (!fixturePath) return null;
+
+  if (!fixtureActivationLogged) {
+    fixtureActivationLogged = true;
+    console.log('[E2EOpenAIAllowanceFixture]', JSON.stringify({
+      outcome: 'fixture-active',
+      providerId,
+      fixturePath,
+    }));
+  }
 
   const fixture = JSON.parse(readFileSync(fixturePath, 'utf8'));
   const headers = fixture.complete;
