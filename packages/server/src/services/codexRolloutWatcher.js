@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { mapCodexRateLimits } from '../agents/adapters/codexRolloutAllowanceExtractor.js';
@@ -8,12 +8,14 @@ import { mapCodexRateLimits } from '../agents/adapters/codexRolloutAllowanceExtr
  * rollout-*.jsonl`) for `token_count` events carrying ChatGPT-plan rate
  * limits, and feeds them to the provider allowance observer.
  *
- * Only `type === 'token_count'` events are decoded; conversation content in
- * the file is never read into memory beyond line scanning and never logged
- * (FR-8). All failures are contained: a broken watcher can only leave its
- * provider's allowance unknown or stale (FR-7).
+ * All filesystem work uses the async fs APIs so the 1s-per-session polling
+ * never blocks the event loop. Only `type === 'token_count'` events are
+ * decoded; conversation content in the file is never read into memory beyond
+ * line scanning and never logged (FR-8). All failures are contained: a broken
+ * watcher can only leave its provider's allowance unknown or stale (FR-7).
  */
 
+const LOG_SOURCE = 'codex-rollout';
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 // The CLI creates the rollout file shortly after spawn; stop trying after
 // this window so a mis-detected session cannot leave timers behind.
@@ -21,37 +23,37 @@ const DEFAULT_FILE_GRACE_MS = 30_000;
 // Polling by byte offset is more robust than fs.watch across platforms and
 // survives appends of partial (in-flight) JSONL lines.
 
-export function findActiveRolloutFile({ sessionsRoot, startedAfterMs } = {}) {
+export async function findActiveRolloutFile({ sessionsRoot, startedAfterMs } = {}) {
   // The CLI files a session under the day it started, so the search root is
   // derived from the session start, not the current wall clock (a watcher
   // spanning midnight must still find the file it was born to tail).
   const dayRoot = path.join(sessionsRoot, ...rolloutDateParts(startedAfterMs));
-  if (!isDirectory(dayRoot)) return null;
+  if (!await isDirectory(dayRoot)) return null;
 
   let newest = { file: null, mtimeMs: startedAfterMs };
-  newest = scanDirectoryForNewestRollout(dayRoot, newest);
+  newest = await scanDirectoryForNewestRollout(dayRoot, newest);
   return newest.file;
 }
 
-function findPinnedRolloutFile({ sessionsRoot, startedAfterMs, sessionId } = {}) {
+async function findPinnedRolloutFile({ sessionsRoot, startedAfterMs, sessionId } = {}) {
   let match = null;
   for (const dayRoot of rolloutDayRoots(sessionsRoot, startedAfterMs)) {
-    match ??= findSessionRolloutFile(dayRoot, sessionId);
+    match ??= await findSessionRolloutFile(dayRoot, sessionId);
   }
   return match;
 }
 
-function findSessionRolloutFile(directory, sessionId) {
+async function findSessionRolloutFile(directory, sessionId) {
   let entries;
   try {
-    entries = fs.readdirSync(directory, { withFileTypes: true });
+    entries = await fs.readdir(directory, { withFileTypes: true });
   } catch {
     return null;
   }
   for (const entry of entries) {
     const full = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      const nested = findSessionRolloutFile(full, sessionId);
+      const nested = await findSessionRolloutFile(full, sessionId);
       if (nested) return nested;
       continue;
     }
@@ -66,30 +68,30 @@ function isSessionRolloutFileName(fileName, sessionId) {
   return fileName.startsWith(`rollout-${sessionId}`) && fileName.endsWith('.jsonl');
 }
 
-function scanDirectoryForNewestRollout(directory, current) {
+async function scanDirectoryForNewestRollout(directory, current) {
   let entries;
   let newest = current;
   try {
-    entries = fs.readdirSync(directory, { withFileTypes: true });
+    entries = await fs.readdir(directory, { withFileTypes: true });
   } catch {
     return newest;
   }
   for (const entry of entries) {
     const full = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      newest = scanDirectoryForNewestRollout(full, newest);
+      newest = await scanDirectoryForNewestRollout(full, newest);
       continue;
     }
-    newest = considerRolloutFile(full, entry, newest);
+    newest = await considerRolloutFile(full, entry, newest);
   }
   return newest;
 }
 
-function considerRolloutFile(full, entry, current) {
+async function considerRolloutFile(full, entry, current) {
   if (!entry.isFile() || !entry.name.startsWith('rollout-') || !entry.name.endsWith('.jsonl')) return current;
   let stat;
   try {
-    stat = fs.statSync(full);
+    stat = await fs.stat(full);
   } catch {
     return current;
   }
@@ -134,12 +136,16 @@ export class CodexRolloutWatcher {
     this.partialLine = '';
     this.timer = null;
     this.stopped = false;
+    this.pollInFlight = false;
     this.homeDirectory = homeDirectory ?? resolveCodexHomeDirectory(env);
   }
 
   start() {
     if (this.stopped) return;
-    this.locate();
+    // Fire-and-forget: the poll loop re-runs locate until the file appears,
+    // and locate's failure paths are contained, so a rejection here would
+    // only ever be a bug we do not want crashing the session.
+    this.locate().catch(() => {});
     this.timer = setInterval(() => this.poll(), this.pollIntervalMs);
     this.timer.unref?.();
   }
@@ -159,13 +165,13 @@ export class CodexRolloutWatcher {
     this.resetCursor();
   }
 
-  locate() {
+  async locate() {
     if (this.rolloutFile) return;
     const sessionsRoot = path.join(this.homeDirectory, '.codex', 'sessions');
     this.rolloutFile = this.sessionId
-      ? findPinnedRolloutFile({ sessionsRoot, startedAfterMs: this.startedAfterMs, sessionId: this.sessionId })
+      ? await findPinnedRolloutFile({ sessionsRoot, startedAfterMs: this.startedAfterMs, sessionId: this.sessionId })
       // Until the CLI emits a session_id, retain the legacy newest-file heuristic.
-      : findActiveRolloutFile({ sessionsRoot, startedAfterMs: this.startedAfterMs });
+      : await findActiveRolloutFile({ sessionsRoot, startedAfterMs: this.startedAfterMs });
     if (!this.rolloutFile && this.clock.now() - this.startedAfterMs > this.fileGraceMs) {
       // No rollout file appeared within the grace window; give up quietly.
       this.stopped = true;
@@ -173,30 +179,35 @@ export class CodexRolloutWatcher {
         clearInterval(this.timer);
         this.timer = null;
       }
-      logOutcome({ providerId: this.providerId, source: 'codex-rollout', outcome: 'no-rollout-file' });
+      logOutcome({ providerId: this.providerId, source: LOG_SOURCE, outcome: 'no-rollout-file' });
     }
   }
 
-  poll() {
-    if (this.stopped) return;
+  async poll() {
+    // Async I/O means a slow poll can still be in flight when the next tick
+    // fires; skipping the overlap keeps every byte range consumed exactly once.
+    if (this.stopped || this.pollInFlight) return;
+    this.pollInFlight = true;
     try {
       if (!this.rolloutFile) {
-        this.locate();
+        await this.locate();
         return;
       }
-      const bytes = this.readNewBytes();
+      const bytes = await this.readNewBytes();
       if (bytes) this.consume(bytes);
     } catch (error) {
-      logOutcome({ providerId: this.providerId, source: 'codex-rollout', outcome: 'read-error' });
+      logOutcome({ providerId: this.providerId, source: LOG_SOURCE, outcome: 'read-error' });
       if (error?.code === 'ENOENT') {
         this.rolloutFile = null;
         this.resetCursor();
       }
+    } finally {
+      this.pollInFlight = false;
     }
   }
 
-  readNewBytes() {
-    const size = fs.statSync(this.rolloutFile).size;
+  async readNewBytes() {
+    const { size } = await fs.stat(this.rolloutFile);
     if (size < this.offset) {
       // The file shrank below our cursor: it was truncated or replaced, so
       // restart the scan from the beginning.
@@ -204,11 +215,11 @@ export class CodexRolloutWatcher {
     }
     if (size === this.offset) return '';
     const buffer = Buffer.alloc(size - this.offset);
-    const fd = fs.openSync(this.rolloutFile, 'r');
+    const handle = await fs.open(this.rolloutFile, 'r');
     try {
-      fs.readSync(fd, buffer, 0, buffer.length, this.offset);
+      await handle.read(buffer, 0, buffer.length, this.offset);
     } finally {
-      fs.closeSync(fd);
+      await handle.close();
     }
     this.offset = size;
     return buffer.toString('utf8');
@@ -247,7 +258,7 @@ export class CodexRolloutWatcher {
       ...(this.streamStaleMsProvider ? { streamStaleMs: this.streamStaleMsProvider() } : {}),
     });
     if (!candidate) {
-      logOutcome({ providerId: this.providerId, source: 'codex-rollout', outcome: 'no-data' });
+      logOutcome({ providerId: this.providerId, source: LOG_SOURCE, outcome: 'no-data' });
       return;
     }
     try {
@@ -256,10 +267,10 @@ export class CodexRolloutWatcher {
       // A broken observer is a telemetry failure, not a read failure: label
       // it distinctly and keep polling (FR-7), same containment pattern as
       // codexAppServerMeter.readRateLimits and zaiQuotaPoller.pollProvider.
-      logOutcome({ providerId: this.providerId, source: 'codex-rollout', outcome: 'observer-error' });
+      logOutcome({ providerId: this.providerId, source: LOG_SOURCE, outcome: 'observer-error' });
       return;
     }
-    logOutcome({ providerId: this.providerId, source: 'codex-rollout', outcome: 'ok' });
+    logOutcome({ providerId: this.providerId, source: LOG_SOURCE, outcome: 'ok' });
   }
 }
 
@@ -304,9 +315,9 @@ function rolloutDayRoots(sessionsRoot, startedAfterMs) {
   });
 }
 
-function isDirectory(candidate) {
+async function isDirectory(candidate) {
   try {
-    return fs.statSync(candidate).isDirectory();
+    return (await fs.stat(candidate)).isDirectory();
   } catch {
     return false;
   }

@@ -42,8 +42,8 @@ function tokenCountLine(usedPercent) {
   })}\n`;
 }
 
-function syncPoll(watcher, times = 1) {
-  for (let i = 0; i < times; i += 1) watcher.poll();
+async function pollTimes(watcher, times = 1) {
+  for (let i = 0; i < times; i += 1) await watcher.poll();
 }
 
 describe('findActiveRolloutFile', () => {
@@ -57,28 +57,28 @@ describe('findActiveRolloutFile', () => {
     fs.rmSync(home, { recursive: true, force: true });
   });
 
-  it('selects the newest rollout file modified after the session start', () => {
+  it('selects the newest rollout file modified after the session start', async () => {
     const startedAfterMs = 1_789_850_000_000;
     seedRolloutFile(home, '{}\n', { mtimeMs: startedAfterMs - 1_000 });
     const newest = seedRolloutFile(home, '{}\n', { mtimeMs: startedAfterMs + 5_000 });
 
-    expect(findActiveRolloutFile({
+    await expect(findActiveRolloutFile({
       sessionsRoot: path.join(home, '.codex', 'sessions'),
       startedAfterMs,
-    })).toBe(newest);
+    })).resolves.toBe(newest);
   });
 
-  it('returns null when no file is newer than the session start or the day root is missing', () => {
+  it('returns null when no file is newer than the session start or the day root is missing', async () => {
     seedRolloutFile(home, '{}\n', { mtimeMs: 1 });
 
-    expect(findActiveRolloutFile({
+    await expect(findActiveRolloutFile({
       sessionsRoot: path.join(home, '.codex', 'sessions'),
       startedAfterMs: Date.now(),
-    })).toBeNull();
-    expect(findActiveRolloutFile({
+    })).resolves.toBeNull();
+    await expect(findActiveRolloutFile({
       sessionsRoot: path.join(home, '.codex', 'sessions', '1999'),
       startedAfterMs: 0,
-    })).toBeNull();
+    })).resolves.toBeNull();
   });
 });
 
@@ -106,12 +106,12 @@ describe('CodexRolloutWatcher', () => {
     });
   }
 
-  it('extracts token_count rate limits from the fixture rollout and observes the candidate', () => {
+  it('extracts token_count rate limits from the fixture rollout and observes the candidate', async () => {
     const observer = vi.fn();
     const watcher = makeWatcher(observer);
     watcher.rolloutFile = seedRolloutFile(home, fs.readFileSync(fixturePath, 'utf8'));
 
-    syncPoll(watcher);
+    await pollTimes(watcher);
 
     expect(observer).toHaveBeenCalledExactlyOnceWith({
       providerKind: 'openai',
@@ -126,7 +126,7 @@ describe('CodexRolloutWatcher', () => {
     });
   });
 
-  it('buffers partial trailing lines until they complete across polls', () => {
+  it('buffers partial trailing lines until they complete across polls', async () => {
     const observer = vi.fn();
     const watcher = makeWatcher(observer);
     const complete = fs.readFileSync(fixturePath, 'utf8');
@@ -136,16 +136,16 @@ describe('CodexRolloutWatcher', () => {
     watcher.rolloutFile = file;
     // First poll sees a truncated line: nothing decoded yet.
     fs.appendFileSync(file, rateLimitsLine.slice(0, Math.floor(rateLimitsLine.length / 2)));
-    syncPoll(watcher);
+    await pollTimes(watcher);
     expect(observer).not.toHaveBeenCalled();
 
     // The appended remainder completes the line, which is decoded exactly once.
     fs.appendFileSync(file, `${rateLimitsLine.slice(Math.floor(rateLimitsLine.length / 2))}\n`);
-    syncPoll(watcher);
+    await pollTimes(watcher);
     expect(observer).toHaveBeenCalledTimes(1);
   });
 
-  it('resumes from the byte offset without re-reading old content', () => {
+  it('resumes from the byte offset without re-reading old content', async () => {
     const observer = vi.fn();
     const watcher = makeWatcher(observer);
     // The fixture ends with a truncated line; complete it the way the CLI
@@ -154,31 +154,31 @@ describe('CodexRolloutWatcher', () => {
     const fixtureContent = fs.readFileSync(fixturePath, 'utf8');
     const file = seedRolloutFile(home, fixtureContent);
     watcher.rolloutFile = file;
-    syncPoll(watcher);
+    await pollTimes(watcher);
 
     fs.appendFileSync(file, 'o":null}\n');
     fs.appendFileSync(file, '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":50,"resets_at":1789959005}}}}\n');
-    syncPoll(watcher);
+    await pollTimes(watcher);
 
     expect(observer).toHaveBeenCalledTimes(2);
     expect(observer.mock.calls[1][0].allowances.map((row) => row.key)).toEqual(['five_hour']);
   });
 
-  it('restarts scanning when the file is truncated below the offset', () => {
+  it('restarts scanning when the file is truncated below the offset', async () => {
     const observer = vi.fn();
     const watcher = makeWatcher(observer);
     const file = seedRolloutFile(home, fs.readFileSync(fixturePath, 'utf8'));
     watcher.rolloutFile = file;
-    syncPoll(watcher);
+    await pollTimes(watcher);
 
     fs.writeFileSync(file, '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":25,"resets_at":1789959005}}}}\n');
-    syncPoll(watcher);
+    await pollTimes(watcher);
 
     expect(observer).toHaveBeenCalledTimes(2);
     expect(observer.mock.calls[1][0].allowances[0]).toMatchObject({ key: 'five_hour', remainingPercent: 75 });
   });
 
-  it('pins before locating so a newer rollout belonging to another session is never observed', () => {
+  it('pins before locating so a newer rollout belonging to another session is never observed', async () => {
     const observer = vi.fn();
     const watcher = makeWatcher(observer, { startedAfterMs: clock.now() - 5_000 });
     const sessionA = 'a0a0a0a0-a0a0-4a0a-8a0a-a0a0a0a0a0a0';
@@ -187,14 +187,14 @@ describe('CodexRolloutWatcher', () => {
     seedSessionRolloutFile(home, sessionB, tokenCountLine(70), { mtimeMs: clock.now() + 2 });
 
     watcher.pin(sessionA);
-    syncPoll(watcher, 2);
+    await pollTimes(watcher, 2);
 
     expect(observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       allowances: [expect.objectContaining({ remainingPercent: 80 })],
     }));
   });
 
-  it('resets its cursor and rescans the pinned session file after initially tailing a newer rollout', () => {
+  it('resets its cursor and rescans the pinned session file after initially tailing a newer rollout', async () => {
     const observer = vi.fn();
     const watcher = makeWatcher(observer, { startedAfterMs: clock.now() - 5_000 });
     const sessionA = 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1';
@@ -202,41 +202,41 @@ describe('CodexRolloutWatcher', () => {
     seedSessionRolloutFile(home, sessionA, tokenCountLine(20), { mtimeMs: clock.now() + 1 });
     seedSessionRolloutFile(home, sessionB, tokenCountLine(70), { mtimeMs: clock.now() + 2 });
 
-    syncPoll(watcher, 2);
+    await pollTimes(watcher, 2);
     watcher.pin(sessionA);
-    syncPoll(watcher, 2);
+    await pollTimes(watcher, 2);
 
     expect(observer.mock.calls.map(([candidate]) => candidate.allowances[0].remainingPercent)).toEqual([30, 80]);
   });
 
-  it('keeps the newest-file heuristic when no session pin arrives', () => {
+  it('keeps the newest-file heuristic when no session pin arrives', async () => {
     const observer = vi.fn();
     const watcher = makeWatcher(observer, { startedAfterMs: clock.now() - 5_000 });
     seedSessionRolloutFile(home, 'a2a2a2a2-a2a2-4a2a-8a2a-a2a2a2a2a2a2', tokenCountLine(20), { mtimeMs: clock.now() + 1 });
     seedSessionRolloutFile(home, 'b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2', tokenCountLine(70), { mtimeMs: clock.now() + 2 });
 
-    syncPoll(watcher, 2);
+    await pollTimes(watcher, 2);
 
     expect(observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       allowances: [expect.objectContaining({ remainingPercent: 30 })],
     }));
   });
 
-  it('finds a pinned rollout in the adjacent day directory across midnight', () => {
+  it('finds a pinned rollout in the adjacent day directory across midnight', async () => {
     const observer = vi.fn();
     const watcher = makeWatcher(observer, { startedAfterMs: clock.now() - 5_000 });
     const sessionId = 'c2c2c2c2-c2c2-4c2c-8c2c-c2c2c2c2c2c2';
     seedSessionRolloutFile(home, sessionId, tokenCountLine(20), { day: '20' });
 
     watcher.pin(sessionId);
-    syncPoll(watcher, 2);
+    await pollTimes(watcher, 2);
 
     expect(observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       allowances: [expect.objectContaining({ remainingPercent: 80 })],
     }));
   });
 
-  it('logs observer failures as observer-error, not as read errors, and keeps polling', () => {
+  it('logs observer failures as observer-error, not as read errors, and keeps polling', async () => {
     const observer = vi.fn(() => { throw new Error('observer exploded'); });
     const watcher = makeWatcher(observer);
     const file = seedRolloutFile(home, tokenCountLine(20));
@@ -246,13 +246,25 @@ describe('CodexRolloutWatcher', () => {
       if (tag === '[CodexRolloutWatcher]') outcomes.push(JSON.parse(entry).outcome);
     });
 
-    syncPoll(watcher);
+    await pollTimes(watcher);
     fs.appendFileSync(file, tokenCountLine(40));
-    syncPoll(watcher);
+    await pollTimes(watcher);
 
     expect(observer).toHaveBeenCalledTimes(2);
     expect(outcomes).toEqual(['observer-error', 'observer-error']);
     logSpy.mockRestore();
+  });
+
+  it('skips polls that overlap an in-flight poll instead of double-reading bytes', async () => {
+    const observer = vi.fn();
+    const watcher = makeWatcher(observer);
+    watcher.rolloutFile = seedRolloutFile(home, tokenCountLine(20));
+
+    // Two polls racing on the same appended bytes: whichever interleaving
+    // wins, each byte range must be consumed exactly once.
+    await Promise.all([watcher.poll(), watcher.poll()]);
+
+    expect(observer).toHaveBeenCalledTimes(1);
   });
 
   it('stops quietly and clears its timer', async () => {
@@ -265,7 +277,7 @@ describe('CodexRolloutWatcher', () => {
     watcher.poll(); // no-op after stop
   });
 
-  it('stops locating after the grace window expires without a rollout file', () => {
+  it('stops locating after the grace window expires without a rollout file', async () => {
     const observer = vi.fn();
     let now = 1_000_000;
     const watcher = makeWatcher(observer, {
@@ -276,7 +288,7 @@ describe('CodexRolloutWatcher', () => {
     watcher.start();
 
     now += 6_000;
-    watcher.poll();
+    await watcher.poll();
 
     expect(watcher.stopped).toBe(true);
   });
