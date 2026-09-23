@@ -89,8 +89,10 @@ async function pollProvider(provider, { observer, clock }) {
   if (result.outcome !== 'ok') {
     if (result.outcome === 'http') {
       if (result.status === 401 || result.status === 403) {
-        // Bad key: stop polling this provider until the credential changes;
-        // the snapshot returns to unknown with its explanation.
+        // Bad key: stop polling this provider until the stored credential
+        // changes. The last good snapshot persists and ages into `stale` on
+        // its own freshness policy (2× the poll interval); the UI presents
+        // it with its last-updated time — nothing resets it to unknown.
         authFailedProviders.set(provider.id, provider.authToken);
       } else if (result.status === 429) {
         rateLimitedUntil.set(provider.id, clock.now() + (result.retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS));
