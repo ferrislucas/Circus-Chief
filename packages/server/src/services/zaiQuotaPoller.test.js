@@ -113,6 +113,36 @@ describe('zaiQuotaPoller', () => {
     expect(zaiQuotaProviders(repository, { clock: { now: () => 61_000 } })).toEqual([zaiProvider]);
   });
 
+  it('forgets a rejected credential once the provider is deleted, so a re-created provider with the same key gets a fresh chance', async () => {
+    fetchOutcome = { outcome: 'http', status: 401, retryAfterMs: null };
+    await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
+    expect(fetchZaiQuotaLimit).toHaveBeenCalledTimes(1);
+
+    // The provider is deleted; the next tick prunes its auth-failure memory…
+    fetchOutcome = { outcome: 'ok', payload: fixture.payload };
+    await pollOnce({ clock: { now: () => 2_000 }, providerRepository: repositoryWith([]) });
+
+    // …so re-creating it with the very same key polls again instead of
+    // staying skipped until a server restart.
+    await pollOnce({ clock: { now: () => 3_000 }, providerRepository: repositoryWith([zaiProvider]) });
+    expect(fetchZaiQuotaLimit).toHaveBeenCalledTimes(2);
+    expect(observer).toHaveBeenCalledExactlyOnceWith({
+      ...mapZaiQuota(fixture.payload, { observedAt: 3_000 }),
+      providerId: zaiProvider.id,
+    });
+  });
+
+  it('drops a 429 backoff on the next tick after the provider is deleted', async () => {
+    fetchOutcome = { outcome: 'http', status: 429, retryAfterMs: 600_000 };
+    await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
+
+    // Provider absent for one tick: backoff state must not outlive it.
+    await pollOnce({ clock: { now: () => 2_000 }, providerRepository: repositoryWith([]) });
+
+    const repository = repositoryWith([zaiProvider]);
+    expect(zaiQuotaProviders(repository, { clock: { now: () => 3_000 } })).toEqual([zaiProvider]);
+  });
+
   it('keeps the last snapshot on server errors and network failures without crashing', async () => {
     fetchOutcome = { outcome: 'http', status: 500, retryAfterMs: null };
     await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });

@@ -48,7 +48,13 @@ export async function pollOnce({ clock = Date, providerRepository = modelProvide
   try {
     const observer = getProviderAllowanceObserver();
     if (!observer) return;
-    await Promise.all(zaiQuotaProviders(providerRepository, { clock }).map(async (provider) => {
+    const enabled = providerRepository.getEnabledForAllowances?.() ?? [];
+    // Failure and backoff memory must not outlive the provider it belongs
+    // to — otherwise a deleted provider's entry (including its rejected
+    // credential string) is retained until restart, and a re-created
+    // provider with the same key stays wrongly skipped.
+    pruneProviderState(enabled);
+    await Promise.all(zaiQuotaCandidates(enabled, clock.now()).map(async (provider) => {
       await pollProvider(provider, { observer, clock });
     }));
   } finally {
@@ -68,13 +74,32 @@ function isZaiQuotaPollerEnabled() {
  * 429 backoff are skipped until retry-after elapses.
  */
 export function zaiQuotaProviders(providerRepository = modelProviders, { clock = Date } = {}) {
-  const now = clock.now();
-  return (providerRepository.getEnabledForAllowances?.() ?? [])
+  const enabled = providerRepository.getEnabledForAllowances?.() ?? [];
+  return zaiQuotaCandidates(enabled, clock.now());
+}
+
+function zaiQuotaCandidates(enabledProviders, now) {
+  return enabledProviders
     .filter((provider) => provider.kind === 'anthropic'
       && isZaiQuotaHost(provider.baseUrl)
       && typeof provider.authToken === 'string' && provider.authToken.length > 0
       && authFailedProviders.get(provider.id) !== provider.authToken
       && (rateLimitedUntil.get(provider.id) ?? 0) <= now);
+}
+
+/**
+ * Drop failure/backoff entries for provider ids that no longer exist among
+ * the enabled providers, so per-provider state (including rejected
+ * credential strings) never outlives its provider until a restart.
+ */
+function pruneProviderState(enabledProviders) {
+  const enabledIds = new Set(enabledProviders.map((provider) => provider.id));
+  for (const providerId of [...authFailedProviders.keys()]) {
+    if (!enabledIds.has(providerId)) authFailedProviders.delete(providerId);
+  }
+  for (const providerId of [...rateLimitedUntil.keys()]) {
+    if (!enabledIds.has(providerId)) rateLimitedUntil.delete(providerId);
+  }
 }
 
 async function pollProvider(provider, { observer, clock }) {

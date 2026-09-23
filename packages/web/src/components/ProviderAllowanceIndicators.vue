@@ -178,7 +178,10 @@ let announcementTimer = null;
 let hasObservedSnapshots = false;
 let previousStatuses = new Map();
 // Last seen { status, providerId } per session id, so SESSION_UPDATED frames
-// that cannot change allowance priority skip the refetch.
+// that cannot change allowance priority skip the refetch. FIFO-capped so a
+// long-lived page cannot grow it without bound: an evicted session simply
+// looks unknown again and falls back to a refetch, which is always safe.
+const SESSION_PRIORITY_MEMO_MAX = 500;
 const sessionPriorityMemo = new Map();
 
 function measureVisibleItems() {
@@ -309,6 +312,10 @@ function reconcileSessionPriority(message) {
   const priority = { status: session.status, providerId: session.providerId };
   const previous = sessionPriorityMemo.get(session.id);
   sessionPriorityMemo.set(session.id, priority);
+  if (sessionPriorityMemo.size > SESSION_PRIORITY_MEMO_MAX) {
+    // Map iterates in insertion order, so this evicts the oldest entry.
+    sessionPriorityMemo.delete(sessionPriorityMemo.keys().next().value);
+  }
   const priorityChanged = !previous
     || previous.status !== priority.status
     || previous.providerId !== priority.providerId;

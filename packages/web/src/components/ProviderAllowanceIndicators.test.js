@@ -230,6 +230,39 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
+  it('caps the session priority memo so long-lived pages cannot grow it without bound', async () => {
+    api.getProviderAllowances.mockResolvedValue({ snapshots: [], activeProviderIds: [] });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
+
+    const handler = websocketListeners.get('session:updated');
+    const total = 501; // one beyond the memo cap
+    for (let i = 0; i < total; i += 1) {
+      handler({ session: { id: `session-${i}`, providerId: 'openai', status: 'running' } });
+    }
+    await Promise.resolve();
+    await nextTick();
+    // Initial fetch + one first-seen refetch per distinct session.
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1 + total);
+
+    // The most recent session stays memoized: an unchanged update is free.
+    handler({ session: { id: `session-${total - 1}`, providerId: 'openai', status: 'running' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1 + total);
+
+    // The oldest entry was FIFO-evicted: its next unchanged update looks
+    // unknown again and safely refetches instead of retaining every session
+    // id for the page lifetime.
+    handler({ session: { id: 'session-0', providerId: 'openai', status: 'running' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2 + total);
+    wrapper.unmount();
+  });
+
   it('formats percentage-only allowance data without pretending null values are quantities', async () => {
     const store = useProviderAllowancesStore();
     store.snapshots = [{
