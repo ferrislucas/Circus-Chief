@@ -236,6 +236,25 @@ describe('CodexRolloutWatcher', () => {
     }));
   });
 
+  it('logs observer failures as observer-error, not as read errors, and keeps polling', () => {
+    const observer = vi.fn(() => { throw new Error('observer exploded'); });
+    const watcher = makeWatcher(observer);
+    const file = seedRolloutFile(home, tokenCountLine(20));
+    watcher.rolloutFile = file;
+    const outcomes = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((tag, entry) => {
+      if (tag === '[CodexRolloutWatcher]') outcomes.push(JSON.parse(entry).outcome);
+    });
+
+    syncPoll(watcher);
+    fs.appendFileSync(file, tokenCountLine(40));
+    syncPoll(watcher);
+
+    expect(observer).toHaveBeenCalledTimes(2);
+    expect(outcomes).toEqual(['observer-error', 'observer-error']);
+    logSpy.mockRestore();
+  });
+
   it('stops quietly and clears its timer', async () => {
     const watcher = makeWatcher(vi.fn());
     watcher.start();

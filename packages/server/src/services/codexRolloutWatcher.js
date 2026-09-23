@@ -250,7 +250,15 @@ export class CodexRolloutWatcher {
       logOutcome({ providerId: this.providerId, source: 'codex-rollout', outcome: 'no-data' });
       return;
     }
-    this.allowanceObserver({ ...candidate, providerId: this.providerId });
+    try {
+      this.allowanceObserver({ ...candidate, providerId: this.providerId });
+    } catch {
+      // A broken observer is a telemetry failure, not a read failure: label
+      // it distinctly and keep polling (FR-7), same containment pattern as
+      // codexAppServerMeter.readRateLimits and zaiQuotaPoller.pollProvider.
+      logOutcome({ providerId: this.providerId, source: 'codex-rollout', outcome: 'observer-error' });
+      return;
+    }
     logOutcome({ providerId: this.providerId, source: 'codex-rollout', outcome: 'ok' });
   }
 }
