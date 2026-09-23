@@ -44,7 +44,7 @@ describe('ProviderAllowanceService', () => {
     });
 
     const received = service.observe({
-      providerId: enabled.id, providerName: 'Adapter supplied name', providerKind: 'google',
+      providerId: enabled.id, providerName: 'Adapter supplied name', providerKind: enabled.kind,
       status: 'available', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
       allowances: [{
         key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 90,
@@ -61,6 +61,29 @@ describe('ProviderAllowanceService', () => {
     expect(received).toEqual(expected);
     expect(service.getSnapshots()).toEqual({ snapshots: [expected], activeProviderIds: [] });
     expect(broadcaster).toHaveBeenCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, { snapshot: expected });
+  });
+
+  it('rejects any candidate whose providerKind contradicts the target provider', () => {
+    const broadcaster = vi.fn();
+    const anthropic = { id: 'anthropic-default', name: 'Claude', kind: 'anthropic', enabled: true };
+    const service = new ProviderAllowanceService({
+      providerRepository: { getAll: () => [anthropic] }, broadcaster,
+    });
+    const candidate = {
+      providerId: anthropic.id, providerName: anthropic.name, providerKind: 'openai',
+      status: 'available', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
+      allowances: [{ key: 'five_hour', label: '5-hour window', remaining: 25, limit: 100, remainingPercent: 25, unit: 'tokens', resetsAt: null }],
+    };
+
+    expect(service.observe(candidate)).toBeNull();
+    expect(broadcaster).not.toHaveBeenCalled();
+    expect(service.getSnapshots().snapshots[0]).toMatchObject({ providerKind: 'anthropic', status: 'unknown' });
+
+    // A matching kind stores, and a kind-less candidate (a future
+    // configured-budget source) is accepted, not penalized for omitting it.
+    expect(service.observe({ ...candidate, providerKind: anthropic.kind })).toMatchObject({ providerKind: 'anthropic', status: 'warning' });
+    expect(broadcaster).toHaveBeenCalledTimes(1);
+    expect(service.observe({ ...candidate, providerKind: undefined, source: 'configured' })).toMatchObject({ providerKind: 'anthropic', status: 'warning' });
   });
 
   it('does not trust unusable measurements but honors an authoritative status hint', () => {

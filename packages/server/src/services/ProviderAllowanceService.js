@@ -39,7 +39,7 @@ export class ProviderAllowanceService {
   observe(snapshot) {
     const provider = this.#enabledProviders().find((candidate) => candidate.id === snapshot?.providerId);
     if (!provider) return null;
-    if (snapshot?.source === 'observed-header' && snapshot.providerKind !== provider.kind) return null;
+    if (!this.#candidateTargetsProvider(snapshot, provider)) return null;
     const normalized = this.#normalizeSnapshot(snapshot, provider);
     const previous = this.snapshots.get(normalized.providerId);
     this.snapshots.set(normalized.providerId, normalized);
@@ -47,6 +47,15 @@ export class ProviderAllowanceService {
       this.broadcaster?.(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, { snapshot: normalized });
     }
     return normalized;
+  }
+
+  // A candidate that declares a provider kind must agree with the provider it
+  // is attached to — a mismatch means a wiring mistake, and storing it would
+  // broadcast one provider's allowance data as another's. Candidates without
+  // a kind (future configured-budget sources) are accepted; normalization
+  // re-stamps the provider's own kind.
+  #candidateTargetsProvider(candidate, provider) {
+    return candidate?.providerKind === undefined || candidate.providerKind === provider.kind;
   }
 
   #unknownSnapshot(provider) {
