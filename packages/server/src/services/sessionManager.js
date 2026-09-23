@@ -5,6 +5,7 @@ import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
 import { resolveTierRefForContinueWithStaleFallback } from './sessionTierFailover.js';
+import { buildTierHealthContext } from './tierResolutionService.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
 import { activeLaneRunOwnsSession, pauseForUserStop } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
@@ -384,6 +385,12 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   const modelEnv = buildModelAndProvider(session, sessionId, model);
   session = modelEnv.session;
 
+  // Health attribution for tier-bound continuations (mid-conversation
+  // cooldown). Built AFTER resolution so a backfilled snapshot is visible.
+  // This context can report member health on an eligible failure but can
+  // never authorize failover — the continuation stays pinned to this member.
+  const tierContext = buildTierHealthContext(session);
+
   // Create agent via gateway (or mock agent in mock mode), using the
   // reconciled agentType.
   const agentType = session.agentType || 'claude-code';
@@ -407,6 +414,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
     interactive,
     errorLabel: 'Continue session with existing message error',
+    tierContext,
   });
   return execution || startedSessionExecution(sessionId);
 }

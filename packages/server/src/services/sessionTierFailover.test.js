@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { buildTierRef } from '@circuschief/shared';
+import { buildTierRef, DEFAULT_TIER_COOLDOWN_MS } from '@circuschief/shared';
 
 // Mock the SDK to prevent real API calls — capture queryParams for assertions
 const { mockQuery } = vi.hoisted(() => ({
@@ -26,7 +26,20 @@ vi.mock('../websocket.js', () => ({
   broadcastToProject: vi.fn(),
 }));
 
-import { runSession } from './sessionManager.js';
+// Summary generation runs on the terminal-error path (finalizeSessionError →
+// onSessionComplete) and dispatches its own model call through the SAME mocked
+// SDK, which would pollute mockQuery call counts. No test in this file asserts
+// summary behavior, so swap in no-op stubs.
+vi.mock('./summaryService.js', () => ({
+  onSessionActivity: vi.fn(),
+  onSessionComplete: vi.fn(),
+  extractPrUrlIfNeeded: vi.fn(),
+  generateSummaryNow: vi.fn(),
+  generateSummaryIfNeeded: vi.fn(),
+  cleanupSession: vi.fn(),
+}));
+
+import { continueSession, runSession } from './sessionManager.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
 import { modelProviders, modelTiers, agentCallLogs, workLogs } from '../database.js';
@@ -1122,5 +1135,261 @@ describe('resolveTierRefForContinueWithStaleFallback (continuation-path degradat
       persist: {},
     });
     expect(broadcastToSession).not.toHaveBeenCalled();
+  });
+});
+
+// ── Mid-conversation cooldown attribution (continuation path) ────────────────
+//
+// A tier-bound conversation that has already started stays PINNED to its
+// concrete member — it never fails over in place (PRD F17/F20). But an
+// eligible rate-limit/quota/availability failure during a continuation must
+// still feed the shared tier health state (F21/E7), so the NEXT new session
+// bound to the same tier skips the failed member while its cooldown is
+// active. Health attribution and failover authorization are separate
+// concerns: a pinned continuation may report member health but may never
+// advance to another member.
+
+describe('mid-conversation cooldown attribution (continuation path)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let tier;
+  let session;
+  let tierRef;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+    mockQuery.mockImplementation(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'mc-success', model: 'mc-model-a', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'mc-cooldown-test-'));
+    const project = projectRepo.create('MC Cooldown Project', tempDir);
+
+    providerA = modelProviders.create({ name: 'MC Provider A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'MC Provider B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'mc-model-a', displayName: 'MC Model A' });
+    modelProviders.addModel(providerB.id, { modelId: 'mc-model-b', displayName: 'MC Model B' });
+
+    tier = modelTiers.create({
+      name: 'MC Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'mc-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'mc-model-b', position: 1 },
+      ],
+    });
+    tierRef = buildTierRef(tier.id);
+
+    session = sessionRepo.create(project.id, 'MC Session', 'Initial prompt', 'standard');
+    sessionRepo.update(session.id, { model: tierRef });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  function failOnceWithEligibleError() {
+    // eslint-disable-next-line require-yield -- simulates a provider failure before any event
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+  }
+
+  async function startOnMemberA() {
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    expect(sessionRepo.getById(session.id).resolvedModel).toBe('mc-model-a');
+    mockQuery.mockClear();
+  }
+
+  it('records tier health for the pinned member when a continuation fails with an eligible error', async () => {
+    await startOnMemberA();
+    failOnceWithEligibleError();
+
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529 Service overloaded/);
+
+    // Pinned: exactly ONE member was invoked — the continuation never
+    // advanced to member B (no in-place failover).
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('mc-model-a');
+
+    // Health: the exact originating member entered cooldown; no other member
+    // was touched.
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(true);
+    expect(isUnhealthy(providerB.id, 'mc-model-b')).toBe(false);
+
+    // Binding intact: still tier-bound with the same concrete snapshot —
+    // a health update must not mutate the binding.
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe(tierRef);
+    expect(updated.resolvedModel).toBe('mc-model-a');
+    expect(updated.resolvedProviderId).toBe(providerA.id);
+
+    // Logs/telemetry must distinguish a health update from a failover
+    // attempt: no tier:failover notice may fire for a pinned continuation.
+    expect(broadcastToSession.mock.calls.some((call) => call[1] === 'tier:failover')).toBe(false);
+  });
+
+  it('makes the next new session skip a member cooled down mid-conversation', async () => {
+    await startOnMemberA();
+    failOnceWithEligibleError();
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+
+    mockQuery.mockClear();
+    // A brand-new session on the same tier must skip the cooled member A.
+    const session2 = sessionRepo.create(session.projectId, 'MC Session 2', 'Second prompt', 'standard');
+    sessionRepo.update(session2.id, { model: tierRef });
+
+    await runSession(session2.id, 'Second prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('mc-model-b');
+    const updated = sessionRepo.getById(session2.id);
+    expect(updated.resolvedModel).toBe('mc-model-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+  });
+
+  it('also records health when the eligible continuation failure arrives as a streamed result:error', async () => {
+    await startOnMemberA();
+    mockQuery.mockImplementationOnce(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'mc-result-error', model: 'mc-model-a', slash_commands: [] };
+      yield { type: 'result', subtype: 'error', error: 'Rate limit exceeded' };
+    });
+
+    // A streamed result:error terminates without throwing on the continuation
+    // path — the member must cool down all the same.
+    await continueSession(session.id, 'Follow-up turn', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(true);
+  });
+
+  it('records health for a legacy snapshot-less row via the live-resolved member', async () => {
+    // Legacy row: tier-bound but never resolved, so the continuation resolves
+    // live (and backfills the snapshot). The backfilled member is the member
+    // that served the attempt — health must be attributed to it.
+    sessionRepo.update(session.id, { resolvedModel: null, resolvedProviderId: null });
+    failOnceWithEligibleError();
+
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('mc-model-a');
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(true);
+  });
+
+  it('returns the cooled member to service once its cooldown expires', async () => {
+    await startOnMemberA();
+    failOnceWithEligibleError();
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(true);
+
+    // Existing cooldown-expiry behavior: once past the default cooldown
+    // window, the member is healthy again.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.now() + DEFAULT_TIER_COOLDOWN_MS + 1_000);
+      expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // And the next new session bound to the tier resolves it again.
+    mockQuery.mockClear();
+    const session3 = sessionRepo.create(session.projectId, 'MC Session 3', 'Third prompt', 'standard');
+    sessionRepo.update(session3.id, { model: tierRef });
+
+    await runSession(session3.id, 'Third prompt', tempDir, { model: null });
+
+    expect(sessionRepo.getById(session3.id).resolvedModel).toBe('mc-model-a');
+  });
+
+  // ── Boundaries: health must NOT change ──────────────────────────────────
+
+  it('does not record tier health for a non-tier continuation failure', async () => {
+    // The session is bound CONCRETELY to mc-model-a (which also happens to be
+    // a member of the tier) — member identity must never be inferred from the
+    // tier definition for a non-tier session.
+    sessionRepo.update(session.id, {
+      model: 'mc-model-a',
+      providerId: providerA.id,
+      resolvedModel: null,
+      resolvedProviderId: null,
+    });
+    failOnceWithEligibleError();
+
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(false);
+    expect(isUnhealthy(providerB.id, 'mc-model-b')).toBe(false);
+  });
+
+  it('does not record tier health when the continuation failure is not cooldown-eligible', async () => {
+    await startOnMemberA();
+    // eslint-disable-next-line require-yield -- simulates a non-capacity provider failure
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Invalid API key provided');
+    });
+
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/Invalid API key/);
+
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(false);
+  });
+
+  it('does not record tier health when the bound tier was deleted before the continuation', async () => {
+    await startOnMemberA();
+    modelTiers.delete(tier.id);
+    failOnceWithEligibleError();
+
+    // The stale-binding degradation continues on the snapshot; the eligible
+    // failure must NOT mark any member — the tier reference is gone.
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(false);
+    expect(isUnhealthy(providerB.id, 'mc-model-b')).toBe(false);
+  });
+
+  it('does not record tier health when the snapshot is no longer a current tier member', async () => {
+    await startOnMemberA();
+
+    // Remove member A from the tier — the persisted snapshot can no longer be
+    // mapped to a current member of the bound tier.
+    modelTiers.update(tier.id, {
+      members: [{ providerId: providerB.id, modelId: 'mc-model-b', position: 0 }],
+    });
+    failOnceWithEligibleError();
+
+    // The continuation still runs on its pinned snapshot (existing behavior)…
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('mc-model-a');
+
+    // …but health must not be attributed to an unmappable member.
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(false);
+    expect(isUnhealthy(providerB.id, 'mc-model-b')).toBe(false);
   });
 });

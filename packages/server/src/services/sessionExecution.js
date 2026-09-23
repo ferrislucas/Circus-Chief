@@ -155,6 +155,30 @@ function shouldRethrowForTierFailover(sessionId, error, tierContext) {
 }
 
 /**
+ * Health attribution ONLY — never a failover decision. Report an eligible
+ * (rate-limit/quota/availability) failure against the exact concrete member
+ * that served this attempt, so subsequent new-session resolutions skip it
+ * during cooldown (F21/E7). Works for BOTH kinds of tier context:
+ *   - the start loop's failover-authorized context (terminal member / mid-
+ *     conversation failures that stay on the normal error path), and
+ *   - a pinned continuation's health-reporting-only context
+ *     (`allowFailover: false` — see buildTierHealthContext).
+ * A health update must never be mistaken for a failover attempt: no successor
+ * is advanced, no failover notice is emitted here.
+ *
+ * @param {Error} error
+ * @param {Object|null} tierContext
+ */
+function reportTierMemberFailureHealth(error, tierContext) {
+  if (!tierContext || tierContext.currentMemberId === undefined) return;
+  if (!matchesStartFailoverEligibleError(error)) return;
+  console.log(
+    `[SessionManager] Tier health: member ${tierContext.currentMemberId} (provider ${tierContext.currentMemberProviderId}) marked unhealthy for cooldown — no failover from this attempt`
+  );
+  markUnhealthy(tierContext.currentMemberProviderId, tierContext.currentMemberId);
+}
+
+/**
  * Inject the durable workflow turn token into the agent's environment so the
  * agent's card-move API can attribute a deferred move to this exact execution
  * (not merely the reusable session row). Non-workflow turns pass through
@@ -201,9 +225,9 @@ async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbac
 
   // Terminal tier failures stay on the normal auto-reschedule path, but the
   // failed member must still cool down so unrelated starts do not hammer it.
-  if (tierContext && matchesStartFailoverEligibleError(error)) {
-    markUnhealthy(tierContext.currentMemberProviderId, tierContext.currentMemberId);
-  }
+  // For a pinned continuation's health-only context this is the sole health
+  // side effect — the attempt never advances to another member.
+  reportTierMemberFailureHealth(error, tierContext);
 
   const rescheduled = await handleSessionError(sessionId, error, {
     controller,
@@ -352,6 +376,14 @@ async function handleTerminalStreamError({
   sessionId, terminalError, controller, tierContext, broadcastConversationStateOnError,
   errorLabel, handleTemplateTriggerIfNeeded, workflowTurn, observableActivityBeforeTerminalError, interactive,
 }) {
+  // A streamed terminal failure still attributes health to the exact member
+  // that served the attempt — including a pinned continuation's health-only
+  // context and a start-loop member whose failure merely reschedules the
+  // session. (Failover-authorized attempts with a healthy successor never
+  // reach this function: the stream layer rethrows them so the failover loop
+  // can classify and advance.)
+  reportTierMemberFailureHealth(terminalError, tierContext);
+
   const rescheduled = await handleSessionError(sessionId, terminalError, {
     controller,
     shouldRescheduleOnError: (session, error, sid) =>

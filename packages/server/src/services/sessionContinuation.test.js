@@ -21,6 +21,9 @@ vi.mock('../websocket.js', () => ({
 // ── Agent execution mock ─────────────────────────────────────────────────────
 // Capture the queryParams that continueSessionCore passes to _executeSession.
 let capturedQueryParams = [];
+// Capture the tierContext (health attribution vs failover authorization) that
+// continueSessionCore hands to _executeSession.
+let capturedTierContexts = [];
 // Capture the agentType each call to createAgentForSession was made with, so
 // tests can assert the agent adapter is created from the RECONCILED agentType
 // (Work Item 4), not a stale pre-reconciliation value.
@@ -31,8 +34,9 @@ vi.mock('./sessionExecution.js', async (importOriginal) => {
   const original = await importOriginal();
   return {
     ...original,
-    _executeSession: vi.fn(async ({ queryParams }) => {
+    _executeSession: vi.fn(async ({ queryParams, tierContext }) => {
       capturedQueryParams.push(queryParams);
+      capturedTierContexts.push(tierContext ?? null);
     }),
     createAgentForSession: vi.fn((agentType) => {
       capturedAgentTypes.push(agentType);
@@ -111,6 +115,7 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
 
   beforeEach(() => {
     capturedQueryParams = [];
+    capturedTierContexts = [];
     capturedAgentTypes = [];
     workflowMock.laneRunOwnsSession = true;
     vi.clearAllMocks();
@@ -461,5 +466,121 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
 
     // And the persisted session row must reflect the reconciled kind.
     expect(sessions.getById(session.id).agentType).toBe('codex');
+  });
+});
+
+// ── Health attribution context on the continuation path ─────────────────────
+//
+// A tier-bound continuation stays PINNED to its concrete member (never fails
+// over in place), but it must hand _executeSession a health-reporting tier
+// context so an eligible failure during the continuation can cool that exact
+// member down. The context carries health attribution ONLY — it must never
+// authorize failover (that is start-path-only).
+describe('sessionContinuation — tier health context (mid-conversation cooldown)', () => {
+  let project;
+  let providerA;
+  let providerB;
+
+  beforeEach(() => {
+    capturedQueryParams = [];
+    capturedTierContexts = [];
+    capturedAgentTypes = [];
+    vi.clearAllMocks();
+    project = projects.create('Tier Health Project', '/tmp/tier-health-test');
+    providerA = modelProviders.create({ name: 'Health Provider A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Health Provider B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'health-model-a', displayName: 'Health A' });
+    modelProviders.addModel(providerB.id, { modelId: 'health-model-b', displayName: 'Health B' });
+  });
+
+  it('passes a health-reporting, non-failover tier context for a tier-bound continuation', async () => {
+    const tier = modelTiers.create({
+      name: 'Health Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'health-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'health-model-b', position: 1 },
+      ],
+    });
+    const tierRef = buildTierRef(tier.id);
+    const session = createTestSession(project, {
+      model: tierRef,
+      resolvedModel: 'health-model-a',
+      resolvedProviderId: providerA.id,
+    });
+    conversations.ensureActiveConversation(session.id);
+
+    await continueSessionCore(session.id, 'Follow-up', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    });
+
+    expect(capturedTierContexts).toHaveLength(1);
+    expect(capturedTierContexts[0]).toEqual({
+      currentMemberId: 'health-model-a',
+      currentMemberProviderId: providerA.id,
+      allowFailover: false,
+    });
+  });
+
+  it('passes NO tier context for a non-tier continuation', async () => {
+    const session = createTestSession(project, {
+      model: 'health-model-a',
+      providerId: providerA.id,
+    });
+    conversations.ensureActiveConversation(session.id);
+
+    await continueSessionCore(session.id, 'Follow-up', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    });
+
+    expect(capturedTierContexts).toEqual([null]);
+  });
+
+  it('passes NO tier context when the snapshot no longer maps to a current tier member', async () => {
+    const tier = modelTiers.create({
+      name: 'Shrinking Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'health-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'health-model-b', position: 1 },
+      ],
+    });
+    const tierRef = buildTierRef(tier.id);
+    const session = createTestSession(project, {
+      model: tierRef,
+      resolvedModel: 'health-model-a',
+      resolvedProviderId: providerA.id,
+    });
+    conversations.ensureActiveConversation(session.id);
+
+    // Member A was removed from the tier after the snapshot was taken — the
+    // snapshot cannot safely be attributed to the current tier membership.
+    modelTiers.update(tier.id, {
+      members: [{ providerId: providerB.id, modelId: 'health-model-b', position: 0 }],
+    });
+
+    await continueSessionCore(session.id, 'Follow-up', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    });
+
+    expect(capturedTierContexts).toEqual([null]);
+  });
+
+  it('passes NO tier context when the tier-bound row has no concrete snapshot and none can be backfilled', async () => {
+    // An unresolvable-but-not-degenerate binding cannot establish member
+    // identity — fail safe (no guess, no attribution) rather than marking an
+    // unrelated member.
+    const tier = modelTiers.create({ name: 'Empty Health Tier' });
+    const tierRef = buildTierRef(tier.id);
+    const session = createTestSession(project, {
+      model: tierRef,
+      resolvedModel: null,
+      resolvedProviderId: null,
+    });
+    conversations.ensureActiveConversation(session.id);
+
+    await continueSessionCore(session.id, 'Follow-up', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    });
+
+    expect(capturedTierContexts).toEqual([null]);
   });
 });

@@ -308,6 +308,11 @@ export async function runSessionWithTierFailover(
       currentMemberProviderId: member.providerId,
       currentMemberIndex: memberIndex,
       nextMember,
+      // Explicit failover authorization: ONLY the startup loop may advance to
+      // another member. A context without this flag (see
+      // buildTierHealthContext) reports member health but can never trigger
+      // in-place failover, no matter what else it contains.
+      allowFailover: true,
     };
 
     // _executeSession's finally block removes sessionId from activeSessions after

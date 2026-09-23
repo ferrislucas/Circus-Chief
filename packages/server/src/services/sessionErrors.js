@@ -209,25 +209,33 @@ function logSkippedReschedule(setting) {
 }
 
 /**
- * Determine whether an error occurring on a tier-bound session's start attempt
+ * Determine whether an error occurring on a tier-bound session's attempt
  * should trigger failover to the next tier member, rather than the normal
  * error/auto-reschedule handling.
  *
  * All of the following must hold:
  *  - `session.model` is a tier ref (`tier::<id>`)
- *  - `tierContext` was supplied (i.e. this attempt is part of the tier failover loop)
- *  - the error matches a failover-eligible pattern (service error or token/limit error)
+ *  - `tierContext` EXPLICITLY authorizes failover (`allowFailover: true`, set
+ *    only by the startup failover loop). A health-reporting-only context
+ *    (`allowFailover: false`, see `buildTierHealthContext`) can never enable
+ *    failover — pinned conversations may report member health but may not
+ *    advance to another member, no matter what else the context contains.
+ *  - the error matches a failover-eligible pattern (service error or quota
+ *    error — see {@link matchesStartFailoverEligibleError})
  *  - the session has produced no observable agent activity yet (start-only boundary)
  *  - there is another healthy member to advance to
  *
  * @param {object} session - Session object
  * @param {Error} error - Error that occurred
  * @param {string|null} sessionId - Session ID
- * @param {{ currentMemberId?: string, currentMemberProviderId?: string, nextMember?: Object|null }|null} tierContext
+ * @param {{ allowFailover?: boolean, currentMemberId?: string, currentMemberProviderId?: string, nextMember?: Object|null }|null} tierContext
  * @returns {boolean}
  */
 export function isTierFailoverEligibleError(session, error, sessionId = null, tierContext = null) {
-  if (!isTierRef(session.model) || !tierContext || tierContext.currentMemberId === undefined) {
+  // Explicit authorization gate — mere presence of a tier context (e.g. a
+  // continuation's health-attribution context) must NOT imply that another
+  // member may be attempted.
+  if (!isTierRef(session.model) || tierContext?.allowFailover !== true) {
     return false;
   }
 
@@ -251,8 +259,11 @@ export function isTierFailoverEligibleError(session, error, sessionId = null, ti
  * @param {object} session - Session object
  * @param {Error} error - Error that occurred
  * @param {string} sessionId - Session ID
- * @param {{ currentMemberId?: string, currentMemberProviderId?: string, nextMember?: Object|null }} [tierContext]
+ * @param {{ allowFailover?: boolean, currentMemberId?: string, currentMemberProviderId?: string, nextMember?: Object|null }} [tierContext]
  *   - When provided and session is tier-bound, used to determine failover eligibility.
+ *     Only a failover-AUTHORIZED context (`allowFailover: true` — the startup
+ *     loop) can suppress rescheduling for failover; a pinned continuation's
+ *     health-only context (`allowFailover: false`) still reschedules normally.
  * @returns {boolean} True if should reschedule
  */
 export function shouldRescheduleOnError(session, error, sessionId = null, tierContext = null) {

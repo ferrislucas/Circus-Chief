@@ -16,12 +16,20 @@ vi.mock('./schedulerService.js', () => ({
   },
 }));
 
+// Controlled pre/post-activity state for the failover-eligibility gate tests.
+const agentGuardMock = vi.hoisted(() => ({ noObservableActivity: true }));
+
+vi.mock('./sessionAgentGuard.js', () => ({
+  sessionHasNoObservableAgentActivity: vi.fn(() => agentGuardMock.noObservableActivity),
+}));
+
 import { sessions, messages } from '../database.js';
 import { schedulerService } from './schedulerService.js';
 import {
   matchesTokenLimitError,
   matchesServiceError,
   matchesStartFailoverEligibleError,
+  isTierFailoverEligibleError,
   shouldRescheduleOnError,
   _checkProactiveReschedule,
   turnEndedDueToLimitOrOutage,
@@ -735,5 +743,81 @@ describe('start-time failover trigger set — matchesStartFailoverEligibleError 
         expect(matchesStartFailoverEligibleError(message.toLowerCase())).toBe(false);
       });
     });
+  });
+});
+
+// ── Failover authorization gate (allowFailover) ──────────────────────────────
+//
+// tierContext bundles two distinct concepts that must never be conflated:
+//   - health attribution (which member to cool down on an eligible failure), and
+//   - permission to perform startup failover (advance to another member).
+// Only an EXPLICIT `allowFailover: true` context — set solely by the startup
+// failover loop — may fail over. A pinned continuation's health-reporting
+// context (`allowFailover: false`) must never enable mid-conversation
+// failover, even if it carries a nextMember. Invariant: pinned conversations
+// may report member health but may not fail over.
+describe('isTierFailoverEligibleError — explicit failover authorization gate', () => {
+  const tierRef = 'tier::abc123';
+  const tierBoundSession = { model: tierRef };
+  const eligibleError = new Error('Error: 529 Service overloaded');
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    agentGuardMock.noObservableActivity = true;
+  });
+
+  it('authorizes failover only for an explicitly failover-authorized context', () => {
+    const startLoopContext = {
+      allowFailover: true,
+      currentMemberId: 'model-a',
+      currentMemberProviderId: 'prov-a',
+      nextMember: { providerId: 'prov-b', modelId: 'model-b' },
+    };
+
+    expect(isTierFailoverEligibleError(tierBoundSession, eligibleError, 'sess-1', startLoopContext)).toBe(true);
+  });
+
+  it('denies failover for a health-reporting context even when it carries a nextMember', () => {
+    const continuationHealthContext = {
+      allowFailover: false,
+      currentMemberId: 'model-a',
+      currentMemberProviderId: 'prov-a',
+      // Even a leaked successor must not authorize mid-conversation failover.
+      nextMember: { providerId: 'prov-b', modelId: 'model-b' },
+    };
+
+    expect(isTierFailoverEligibleError(tierBoundSession, eligibleError, 'sess-1', continuationHealthContext)).toBe(false);
+  });
+
+  it('denies failover for a legacy-shaped context without the authorization flag', () => {
+    // A context that predates (or omits) the explicit flag cannot opt in by
+    // accident — failover requires deliberate authorization.
+    const legacyContext = {
+      currentMemberId: 'model-a',
+      currentMemberProviderId: 'prov-a',
+      nextMember: { providerId: 'prov-b', modelId: 'model-b' },
+    };
+
+    expect(isTierFailoverEligibleError(tierBoundSession, eligibleError, 'sess-1', legacyContext)).toBe(false);
+  });
+
+  it('does not suppress auto-reschedule based on a health-only context', () => {
+    // shouldRescheduleOnError must treat a pinned continuation's failure like
+    // any other session's: normal auto-reschedule policy applies.
+    const continuationHealthContext = {
+      allowFailover: false,
+      currentMemberId: 'model-a',
+      currentMemberProviderId: 'prov-a',
+    };
+    const reschedulableSession = {
+      model: tierRef,
+      autoRescheduleEnabled: true,
+      rescheduleOnServiceError: true,
+      rescheduleOnTokenLimit: false,
+    };
+
+    expect(
+      shouldRescheduleOnError(reschedulableSession, eligibleError, 'sess-1', continuationHealthContext)
+    ).toBe(true);
   });
 });

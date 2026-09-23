@@ -10,6 +10,7 @@ import { activeSessions, activeConversationIds, broadcastSessionStatus } from '.
 import { buildPromptWithAttachments } from './sessionPrompts.js';
 import { createAgentForSession, buildAgentEnv, _executeSession } from './sessionExecution.js';
 import { resolveTierRefForContinueWithStaleFallback } from './sessionTierFailover.js';
+import { buildTierHealthContext } from './tierResolutionService.js';
 import { activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 
@@ -227,6 +228,13 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   // dispatch the wrong adapter for the resolved model.
   const modelEnv = buildContinueModelAndEnv(session, sessionId, model);
   session = modelEnv.session;
+
+  // Health attribution for tier-bound continuations (mid-conversation
+  // cooldown). Built AFTER resolution so a backfilled snapshot is visible.
+  // This context can report member health on an eligible failure but can
+  // never authorize failover — the continuation stays pinned to this member.
+  const tierContext = buildTierHealthContext(session);
+
   if (session.gitWorktree && modelEnv.commitAttributionOverride) {
     await ensureWorktreeCommitAttributionHook(session.gitWorktree);
   }
@@ -257,6 +265,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     cleanupConversationId: true,
     interactive,
     errorLabel: 'Continue session error',
+    tierContext,
   });
   // _executeSession only returns a result when it rejected the dispatch before
   // the provider call; otherwise the handoff was accepted.

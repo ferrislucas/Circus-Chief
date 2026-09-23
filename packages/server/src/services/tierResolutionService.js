@@ -252,6 +252,56 @@ export function findNextHealthyTierMember(tierRef, failedMember) {
 }
 
 /**
+ * Build a HEALTH-REPORTING-ONLY tier context for a continuation attempt on a
+ * tier-bound session (mid-conversation cooldown attribution).
+ *
+ * A continuation is pinned: it must never fail over in place (PRD F17/F20).
+ * But an eligible rate-limit/quota/availability failure during it must still
+ * feed the shared tier health state (F21/E7), so the NEXT new session bound to
+ * the same tier skips the failed member while its cooldown is active. This
+ * context carries health attribution ONLY — `allowFailover: false` — so mere
+ * presence of tier context can never imply that another member may be
+ * attempted (unlike the start loop's context in sessionTierFailover.js, which
+ * sets `allowFailover: true` and supplies `nextMember`).
+ *
+ * Identity is reconstructed from the persisted binding + concrete snapshot and
+ * validated against the CURRENT tier membership. It fails safe — returning
+ * `null` (no attribution, existing behavior) — whenever identity cannot be
+ * established: a non-tier session, an unresolvable tier ref, a missing or
+ * unmappable snapshot (removed member / deleted provider or model). It never
+ * guesses and never attributes health to an unrelated member.
+ *
+ * Callers must invoke this AFTER continuation model resolution has persisted
+ * (or backfilled) the concrete snapshot on the session row.
+ *
+ * @param {Object|null} session - Refreshed session row after continuation
+ *   model resolution (model, resolvedModel, resolvedProviderId).
+ * @returns {{ currentMemberId: string, currentMemberProviderId: string, allowFailover: false }|null}
+ */
+export function buildTierHealthContext(session) {
+  if (!session || !isTierRef(session.model)) return null;
+  const tierId = parseTierRef(session.model);
+  if (!tierId) return null;
+
+  const { resolvedModel, resolvedProviderId } = session;
+  if (!resolvedModel || !resolvedProviderId) return null;
+
+  // Only attribute health to a member that is still a current, resolvable
+  // member of the bound tier — never to a stale snapshot.
+  const mapsToCurrentMember = getTierMembersResolved(tierId).some(
+    (member) => member.providerId === resolvedProviderId && member.modelId === resolvedModel
+  );
+  if (!mapsToCurrentMember) return null;
+
+  return {
+    currentMemberId: resolvedModel,
+    currentMemberProviderId: resolvedProviderId,
+    // Pinned conversation: may report member health, may not fail over.
+    allowFailover: false,
+  };
+}
+
+/**
  * Snapshot-reuse result for a tier-bound session (PRD E3/D6): the concrete
  * member pair captured for THIS same binding. Used both when no explicit model
  * is requested and when the explicit request re-selects the already-bound tier
