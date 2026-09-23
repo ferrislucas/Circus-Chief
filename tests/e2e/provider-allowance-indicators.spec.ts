@@ -101,7 +101,7 @@ test.describe('Provider allowance indicators', () => {
 
     const indicators = page.getByTestId('provider-allowance-indicators');
     await expect(indicators).toContainText('75%');
-    await expect.poll(() => receivedFrames.some((frame) => frame.includes('provider_allowance_updated'))).toBe(true);
+    await expect.poll(() => receivedFrames.some((frame) => frame.includes('provider:allowance_updated'))).toBe(true);
     await indicators.getByRole('button', { name: 'Show provider usage' }).click();
     const detailTexts = await page.getByRole('dialog').locator('.provider-detail').allTextContents();
     expect(detailTexts.some((text) => text.includes(provider.name))).toBe(true);
@@ -136,7 +136,7 @@ test.describe('Provider allowance indicators', () => {
 
     const indicators = page.getByTestId('provider-allowance-indicators');
     await expect(indicators).toContainText('58%');
-    await expect.poll(() => receivedFrames.some((frame) => frame.includes('provider_allowance_updated'))).toBe(true);
+    await expect.poll(() => receivedFrames.some((frame) => frame.includes('provider:allowance_updated'))).toBe(true);
     await indicators.getByRole('button', { name: 'Show provider usage' }).click();
     const detailTexts = await page.getByRole('dialog').locator('.provider-detail').allTextContents();
     expect(detailTexts.some((text) => text.includes(provider.name))).toBe(true);

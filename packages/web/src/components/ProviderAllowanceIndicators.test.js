@@ -93,9 +93,9 @@ describe('ProviderAllowanceIndicators', () => {
     await nextTick();
     api.getProviderAllowances.mockClear();
 
-    const onAllowanceUpdate = websocketListeners.get('provider_allowance_updated');
+    const onAllowanceUpdate = websocketListeners.get('provider:allowance_updated');
     onAllowanceUpdate({
-      type: 'provider_allowance_updated',
+      type: 'provider:allowance_updated',
       snapshot: snapshot({
         status: 'critical',
         allowances: [{ key: 'requests', label: 'Requests', remaining: 5, limit: 100, remainingPercent: 5, unit: 'requests', resetsAt: null }],
@@ -107,8 +107,8 @@ describe('ProviderAllowanceIndicators', () => {
     expect(store.snapshots[0].allowances[0].remainingPercent).toBe(5);
     expect(wrapper.get('[data-testid="provider-allowance-item"]').text()).toContain('5%');
 
-    onAllowanceUpdate({ type: 'provider_allowance_updated', snapshot: { providerId: 'invalid' } });
-    onAllowanceUpdate({ type: 'provider_allowance_updated', snapshot: snapshot(), rawProviderHeader: 'secret' });
+    onAllowanceUpdate({ type: 'provider:allowance_updated', snapshot: { providerId: 'invalid' } });
+    onAllowanceUpdate({ type: 'provider:allowance_updated', snapshot: snapshot(), rawProviderHeader: 'secret' });
     expect(store.snapshots[0].allowances[0].remainingPercent).toBe(5);
     expect(warning).toHaveBeenCalledTimes(2);
     wrapper.unmount();
@@ -126,8 +126,8 @@ describe('ProviderAllowanceIndicators', () => {
     await Promise.resolve();
     await nextTick();
 
-    websocketListeners.get('provider_allowance_updated')({
-      type: 'provider_allowance_updated',
+    websocketListeners.get('provider:allowance_updated')({
+      type: 'provider:allowance_updated',
       snapshot: snapshot({ providerId: 'attention', status: 'critical' }),
     });
     await nextTick();
@@ -160,8 +160,8 @@ describe('ProviderAllowanceIndicators', () => {
     expect(wrapper.findAll('.desktop-items .allowance-item .provider-name').map((item) => item.text())).toEqual(['active', 'healthy', 'constrained']);
     expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
 
-    websocketListeners.get('provider_allowance_updated')({
-      type: 'provider_allowance_updated',
+    websocketListeners.get('provider:allowance_updated')({
+      type: 'provider:allowance_updated',
       snapshot: snapshot({ providerId: 'constrained', status: 'critical' }),
     });
     await nextTick();

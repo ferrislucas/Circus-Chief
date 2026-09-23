@@ -62,10 +62,10 @@ describe('Provider Contracts', () => {
     });
 
     it('validates complete websocket update envelopes', () => {
-      expect(ProviderAllowanceUpdatedPayload.safeParse({ type: 'provider_allowance_updated', snapshot }).success).toBe(true);
-      expect(ProviderAllowanceUpdatedPayload.safeParse({ type: 'provider_allowance_updated', snapshot, authToken: 'secret' }).success).toBe(false);
+      expect(ProviderAllowanceUpdatedPayload.safeParse({ type: 'provider:allowance_updated', snapshot }).success).toBe(true);
+      expect(ProviderAllowanceUpdatedPayload.safeParse({ type: 'provider:allowance_updated', snapshot, authToken: 'secret' }).success).toBe(false);
       expect(ProviderAllowanceUpdatedPayload.safeParse({ type: 'wrong_event', snapshot }).success).toBe(false);
-      expect(ProviderAllowanceUpdatedPayload.safeParse({ type: 'provider_allowance_updated', snapshot: { providerId: 'invalid' } }).success).toBe(false);
+      expect(ProviderAllowanceUpdatedPayload.safeParse({ type: 'provider:allowance_updated', snapshot: { providerId: 'invalid' } }).success).toBe(false);
     });
   });
   describe('ProviderKind', () => {
