@@ -2,6 +2,11 @@ import { defineStore } from 'pinia';
 import { ProviderAllowanceListResponse } from '@circuschief/shared/contracts/providers';
 import { api } from '../composables/useApi.js';
 
+// "Requires attention" includes critical deliberately. FRD §7.3 spells the
+// badge out as "warning or exhausted", but AC-3 defines the badge as the
+// number requiring attention and the state table renders Critical with the
+// same error red as Exhausted — a red provider that the badge ignored would
+// undercount exactly the worst cases. (Round-3 review, item 6: intentional.)
 function isAttention(snapshot) {
   return ['warning', 'critical', 'exhausted'].includes(snapshot.status);
 }

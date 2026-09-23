@@ -41,6 +41,14 @@ For example, a controlled Codex rollout-tail validation needs both
 `PROVIDER_ALLOWANCES_ENABLED=1` and `PROVIDER_ALLOWANCES_CODEX=1`. Enabling a
 sub-flag alone has no effect.
 
+One stream-filtering behavior is independent of every flag: the Claude Code
+adapter consumes `rate_limit_event` frames from the SDK stream even when
+Claude allowance collection is disabled (including the default all-off
+configuration). The flags decide whether a frame is *read* into the allowance
+service; the frame is never forwarded to the conversation UI either way, so
+plan telemetry cannot leak into conversation history in any configuration.
+This is deliberate, not a gate bug (round-3 review, item 5).
+
 ## Freshness and failure policy
 
 Claude in-stream and Codex rollout-tail observations become stale after
