@@ -8,6 +8,7 @@ import {
   startCodexAppServerMeter,
   stopCodexAppServerMeter,
 } from './codexAppServerMeter.js';
+import { getStreamStaleAfterMs } from '../config/providerAllowances.js';
 
 const RATE_LIMIT_SNAPSHOT = {
   limit_id: 'codex',
@@ -184,18 +185,106 @@ describe('CodexAppServerMeter', () => {
     expect(spawnProcess).not.toHaveBeenCalled();
   });
 
-  it('clears timed-out reads without crashing the meter', async () => {
+  it('treats a timed-out read as a process failure: kills the child and schedules one restart', async () => {
     vi.useFakeTimers();
     try {
-      const { meter } = makeMeter({ meterOptions: { requestTimeoutMs: 10 } });
+      const { meter, child, spawnProcess } = makeMeter({ meterOptions: { requestTimeoutMs: 10 } });
       await meter.start();
+      expect(spawnProcess).toHaveBeenCalledTimes(1);
 
       await vi.advanceTimersByTimeAsync(11);
 
       expect(meter.pendingReads.size).toBe(0);
-      expect(meter.healthy).toBe(true);
+      expect(meter.consecutiveFailures).toBe(1);
+      expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(meter.state).toBe('starting');
+      expect(spawnProcess).toHaveBeenCalledTimes(1); // scheduled, not yet fired
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(spawnProcess).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('keeps the re-entry guard when the timed-out child exits after the read failure', async () => {
+    vi.useFakeTimers();
+    try {
+      const { meter, child } = makeMeter({ meterOptions: { requestTimeoutMs: 10 } });
+      await meter.start();
+
+      await vi.advanceTimersByTimeAsync(11);
+      expect(meter.consecutiveFailures).toBe(1);
+
+      child.emit('exit', 1);
+      expect(meter.consecutiveFailures).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('disables itself after five consecutive read timeouts and spawns no further processes', async () => {
+    vi.useFakeTimers();
+    try {
+      const { meter, spawnProcess } = makeMeter({ meterOptions: { requestTimeoutMs: 10 } });
+      await meter.start();
+
+      for (let attempt = 1; attempt <= 5; attempt += 1) {
+        await vi.advanceTimersByTimeAsync(11); // the in-flight read times out
+        if (attempt < 5) await vi.advanceTimersByTimeAsync(1_000 * 2 ** (attempt - 1)); // backoff → respawn
+      }
+
+      expect(meter.state).toBe('disabled');
+      expect(spawnProcess).toHaveBeenCalledTimes(5);
+
+      await vi.advanceTimersByTimeAsync(300_000);
+      expect(spawnProcess).toHaveBeenCalledTimes(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('resets the failure streak and records delivery when a read maps', async () => {
+    const { meter, child } = makeMeter({ meterOptions: { requestTimeoutMs: 10 } });
+    await meter.start();
+    expect(meter.lastDeliveredAt).toBeNull();
+
+    await respondToLastRead(child, { rateLimits: RATE_LIMIT_SNAPSHOT });
+
+    expect(meter.consecutiveFailures).toBe(0);
+    expect(meter.lastDeliveredAt).toBe(1_789_855_000_000);
+    expect(meter.healthy).toBe(true);
+  });
+
+  it('reports healthy only while mapped deliveries stay inside the stream freshness window', async () => {
+    let now = 1_789_855_000_000;
+    const meter = new CodexAppServerMeter({
+      getObserver: () => null,
+      modelProviders: { getEnabledForAllowances: () => [] },
+      clock: { now: () => now },
+      spawnProcess: vi.fn(() => createFakeChild()),
+      execFileAsync: vi.fn((_cmd, _args, _opts, cb) => cb(null, 'codex-cli 0.145.0')),
+    });
+    _setActiveCodexAppServerMeterForTests(meter);
+    try {
+      await meter.start();
+      // Alive but never delivered: not yet a trusted single writer.
+      expect(isCodexAppServerMeterHealthy()).toBe(false);
+
+      await respondToLastRead(meter.process, { rateLimits: RATE_LIMIT_SNAPSHOT });
+      expect(isCodexAppServerMeterHealthy()).toBe(true);
+
+      now += getStreamStaleAfterMs() + 1;
+      expect(isCodexAppServerMeterHealthy()).toBe(false);
+
+      // The meter is still alive, so a push notification can prove it
+      // responsive again and restore the precedence signal.
+      meter.process.stdout.emit('data', Buffer.from(`${JSON.stringify({ jsonrpc: '2.0', method: 'account/rateLimits/updated', params: {} })}\n`));
+      await respondToLastRead(meter.process, { rateLimits: RATE_LIMIT_SNAPSHOT });
+      expect(isCodexAppServerMeterHealthy()).toBe(true);
+    } finally {
+      _setActiveCodexAppServerMeterForTests(null);
+      await meter.stop();
     }
   });
 });

@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { CodexAdapter } from './CodexAdapter.js';
 import { ProviderAllowanceService } from '../../services/ProviderAllowanceService.js';
-import { _setActiveCodexAppServerMeterForTests } from '../../services/codexAppServerMeter.js';
+import { CodexAppServerMeter, _setActiveCodexAppServerMeterForTests } from '../../services/codexAppServerMeter.js';
 
 const fixturePath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -169,6 +170,37 @@ describe('CodexAdapter rollout-tail gating', () => {
       _setActiveCodexAppServerMeterForTests(null);
       delete process.env.PROVIDER_ALLOWANCES_ENABLED;
       delete process.env.PROVIDER_ALLOWANCES_CODEX;
+    }
+  });
+
+  it('runs the rollout tail while the active meter is alive but has never delivered', async () => {
+    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
+    process.env.PROVIDER_ALLOWANCES_CODEX = '1';
+    process.env.PROVIDER_ALLOWANCES_CODEX_APPSERVER = '1';
+    const meter = new CodexAppServerMeter({
+      getObserver: () => null,
+      modelProviders: { getEnabledForAllowances: () => [] },
+      clock: { now: () => 1_789_855_000_000 },
+      spawnProcess: vi.fn(() => Object.assign(new EventEmitter(), {
+        stdin: { write: vi.fn(() => true) },
+        stdout: Object.assign(new EventEmitter(), { resume: vi.fn() }),
+        stderr: { resume: vi.fn() },
+        kill: vi.fn(),
+      })),
+      execFileAsync: vi.fn((_cmd, _args, _opts, cb) => cb(null, 'codex-cli 0.145.0')),
+    });
+    await meter.start();
+    _setActiveCodexAppServerMeterForTests(meter);
+    try {
+      expect(meter.state).toBe('running');
+      expect(meter.healthy).toBe(false);
+      expect(adapterWith()._maybeCreateRolloutWatcher({ providerId: 'openai-default', env: {} })).not.toBeNull();
+    } finally {
+      _setActiveCodexAppServerMeterForTests(null);
+      await meter.stop();
+      delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+      delete process.env.PROVIDER_ALLOWANCES_CODEX;
+      delete process.env.PROVIDER_ALLOWANCES_CODEX_APPSERVER;
     }
   });
 });

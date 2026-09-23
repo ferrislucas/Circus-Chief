@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import readline from 'node:readline';
 import { mapCodexRateLimits } from '../agents/adapters/codexRolloutAllowanceExtractor.js';
-import { isCodexAppServerAllowanceSourceEnabled } from '../config/providerAllowances.js';
+import { getStreamStaleAfterMs, isCodexAppServerAllowanceSourceEnabled } from '../config/providerAllowances.js';
 
 /**
  * Global ChatGPT-plan usage meter backed by `codex app-server`.
@@ -12,6 +12,11 @@ import { isCodexAppServerAllowanceSourceEnabled } from '../config/providerAllowa
  * On start it issues `account/rateLimits/read`; `account/rateLimits/updated`
  * push notifications trigger a fresh read so only the documented response
  * shape is depended on.
+ *
+ * Health means delivering, not merely alive: `healthy` requires a mapped
+ * delivery inside the stream freshness window. An unresponsive read is
+ * treated as a process failure (kill + backoff + breaker), so a hung
+ * app-server can never silently starve the indicators.
  *
  * Raw JSON-RPC frames are never logged — only parsed, mapped fields and
  * outcome counters (plan §9.3). Repeated failures disable the meter; the
@@ -62,10 +67,29 @@ export class CodexAppServerMeter {
     this.consecutiveFailures = 0;
     this.restartTimer = null;
     this.lastSnapshot = null;
+    this.lastDeliveredAt = null;
   }
 
-  get healthy() {
+  // Aliveness only: guards issuing reads. Distinct from `healthy`, which
+  // additionally requires proof of delivery — a process that is alive but
+  // quiet must still be able to issue reads so a push notification can prove
+  // it responsive again.
+  #isAlive() {
     return this.state === 'running' && this.process !== null;
+  }
+
+  /**
+   * Healthy means the meter is not merely alive but *delivering*: it has
+   * mapped at least one account read from the current process inside the
+   * stream freshness window. Before first delivery — and after the window
+   * lapses — the per-session rollout tail runs as well; redundant
+   * last-write-wins writes of the same account data are harmless and
+   * per-provider independence (FR-2) is preserved.
+   */
+  get healthy() {
+    return this.#isAlive()
+      && this.lastDeliveredAt !== null
+      && this.clock.now() - this.lastDeliveredAt <= getStreamStaleAfterMs();
   }
 
   async start() {
@@ -119,6 +143,9 @@ export class CodexAppServerMeter {
       return;
     }
     this.process = child;
+    // A fresh process starts undelivered: the rollout tail stays active as
+    // the fallback until this process proves it can map an account read.
+    this.lastDeliveredAt = null;
     let failed = false;
     const failOnce = () => {
       if (failed) return;
@@ -158,22 +185,31 @@ export class CodexAppServerMeter {
       const { resolve, timer } = this.pendingReads.get(frame.id);
       clearTimeout(timer);
       this.pendingReads.delete(frame.id);
-      resolve(frame.result ?? null);
+      resolve({ delivered: true, result: frame.result ?? null });
     }
   }
 
   async readRateLimits() {
-    if (!this.healthy) return;
-    const result = await this.request(READ_METHOD);
-    if (!result) return;
-    const candidate = mapCodexRateLimits(result.rateLimits, { observedAt: this.clock.now() });
+    if (!this.#isAlive()) return;
+    const { delivered, result } = await this.request(READ_METHOD);
+    if (!delivered) {
+      // The app-server never answered: route the unresponsive process through
+      // the same kill + backoff + breaker path as a crash instead of waiting
+      // indefinitely for an unsolicited push.
+      logOutcome({ source: LOG_SOURCE, outcome: 'read-timeout' });
+      if (this.state === 'running') this.onProcessFailure();
+      return;
+    }
+    const candidate = mapCodexRateLimits(result?.rateLimits, { observedAt: this.clock.now() });
     if (!candidate) {
       logOutcome({ source: LOG_SOURCE, outcome: 'no-data' });
       return;
     }
     // A mapped snapshot proves the meter is delivering, so the failure
-    // streak that guards the disable circuit breaker ends here.
+    // streak that guards the disable circuit breaker ends here and the
+    // delivery-recency window that gates `healthy` restarts.
     this.consecutiveFailures = 0;
+    this.lastDeliveredAt = this.clock.now();
     this.lastSnapshot = candidate;
     const observer = this.getObserver?.();
     if (!observer) return;
@@ -201,14 +237,21 @@ export class CodexAppServerMeter {
       .map((provider) => provider.id);
   }
 
+  /**
+   * Issues one JSON-RPC read and resolves a discriminated outcome:
+   * `{ delivered: true, result }` when the app-server answered, and
+   * `{ delivered: false, result: null }` on timeout, stdin-write failure,
+   * or a pending read aborted by stop/shutdown — so callers can distinguish
+   * "no data" from "no answer".
+   */
   request(method) {
-    if (!this.healthy) return Promise.resolve(null);
+    if (!this.#isAlive()) return Promise.resolve({ delivered: false, result: null });
     const id = this.nextRequestId++;
     const frame = JSON.stringify({ jsonrpc: '2.0', id, method, params: {} });
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pendingReads.delete(id);
-        resolve(null);
+        resolve({ delivered: false, result: null });
       }, this.requestTimeoutMs);
       timer.unref?.();
       this.pendingReads.set(id, { resolve, timer });
@@ -217,7 +260,7 @@ export class CodexAppServerMeter {
       } catch {
         clearTimeout(timer);
         this.pendingReads.delete(id);
-        resolve(null);
+        resolve({ delivered: false, result: null });
       }
     });
   }
@@ -225,7 +268,7 @@ export class CodexAppServerMeter {
   rejectPendingReads() {
     for (const { resolve, timer } of this.pendingReads.values()) {
       clearTimeout(timer);
-      resolve(null);
+      resolve({ delivered: false, result: null });
     }
     this.pendingReads.clear();
   }
