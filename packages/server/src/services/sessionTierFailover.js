@@ -24,6 +24,11 @@ import { agentCallLogger } from './agentCallLogger.js';
 import { resolveAgentTypeFromModel } from './sessionProvider.js';
 import { sanitizeTierFailureReason } from './tierFailureReason.js';
 import { createTierCooldownUnavailableError } from './tierCooldownUnavailableError.js';
+import {
+  clearTierAttemptMember,
+  pinSessionToTierMember,
+  registerTierAttemptMember,
+} from './tierMemberPin.js';
 
 export { sanitizeTierFailureReason } from './tierFailureReason.js';
 
@@ -242,7 +247,12 @@ function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, ne
 }
 
 /**
- * Snapshot the member that successfully ran (Fix 5 / Fix 3).
+ * Snapshot the member whose turn succeeded (Fix 5 / Fix 3).
+ *
+ * First-durable-activity pinning happens earlier — at persist time, via
+ * {@link tierMemberPin.pinTierMemberOnDurableActivity} — so a member whose
+ * turn later ends in a terminal error is still recorded. This success-time
+ * path covers the remaining states an activity-time pin cannot distinguish:
  *
  * Snapshot when EITHER:
  *   a) The session completed normally (status is not 'scheduled'), OR
@@ -255,6 +265,10 @@ function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, ne
  * output (i.e. failed at start and rescheduled by _executeSession) — that
  * would record the failing member as the "active" model.
  *
+ * Delegates the actual write to the shared idempotent
+ * {@link pinSessionToTierMember}, so success-time and activity-time pinning
+ * cannot drift.
+ *
  * @param {string} sessionId
  * @param {string} tierRef
  * @param {{ modelId: string, providerId: string }} member
@@ -264,11 +278,7 @@ function snapshotSuccessfulMember(sessionId, tierRef, member) {
   const wasRescheduled = currentSession?.status === 'scheduled';
   const didRun = !sessionHasNoAssistantMessages(sessionId);
   if (!wasRescheduled || didRun) {
-    sessions.update(sessionId, {
-      model: tierRef,
-      resolvedModel: member.modelId,
-      resolvedProviderId: member.providerId,
-    });
+    pinSessionToTierMember(sessionId, member);
   }
 }
 
@@ -299,65 +309,77 @@ export async function runSessionWithTierFailover(
   sessions.update(sessionId, { model: tierRef });
 
   const attempts = [];
-  for (let memberIndex = 0; memberIndex < attemptableMembers.length; memberIndex++) {
-    const member = attemptableMembers[memberIndex];
-    const nextMember = attemptableMembers[memberIndex + 1] || null;
+  try {
+    for (let memberIndex = 0; memberIndex < attemptableMembers.length; memberIndex++) {
+      const member = attemptableMembers[memberIndex];
+      const nextMember = attemptableMembers[memberIndex + 1] || null;
 
-    const tierContext = {
-      currentMemberId: member.modelId,
-      currentMemberProviderId: member.providerId,
-      currentMemberIndex: memberIndex,
-      nextMember,
-      // Explicit failover authorization: ONLY the startup loop may advance to
-      // another member. A context without this flag (see
-      // buildTierHealthContext) reports member health but can never trigger
-      // in-place failover, no matter what else it contains.
-      allowFailover: true,
-    };
+      const tierContext = {
+        currentMemberId: member.modelId,
+        currentMemberProviderId: member.providerId,
+        currentMemberIndex: memberIndex,
+        nextMember,
+        // Explicit failover authorization: ONLY the startup loop may advance to
+        // another member. A context without this flag (see
+        // buildTierHealthContext) reports member health but can never trigger
+        // in-place failover, no matter what else it contains.
+        allowFailover: true,
+      };
 
-    // _executeSession's finally block removes sessionId from activeSessions after
-    // every attempt (success or failure). Re-register it before each retry so
-    // concurrency guards (e.g. continueSessionCore's "already processing" check)
-    // and abort-signal plumbing stay consistent across the failover loop.
-    // Each attempt is a fresh turn for watchdog purposes, so re-stamp the
-    // liveness timestamps rather than carrying the previous member's clock.
-    activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
+      // _executeSession's finally block removes sessionId from activeSessions after
+      // every attempt (success or failure). Re-register it before each retry so
+      // concurrency guards (e.g. continueSessionCore's "already processing" check)
+      // and abort-signal plumbing stay consistent across the failover loop.
+      // Each attempt is a fresh turn for watchdog purposes, so re-stamp the
+      // liveness timestamps rather than carrying the previous member's clock.
+      activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
 
-    const wasPreActivity = sessionHasNoObservableAgentActivity(sessionId);
-    try {
-      const execution = await attemptRunWithModel(sessionId, promptWithAttachments, workingDirectory, {
-        systemPrompt,
-        activeConversation,
-        controller,
-        callbacks,
-        tierContext,
-      });
+      // Attribute this attempt's stream activity to the exact member producing
+      // it: the first durable activity persisted during the attempt pins the
+      // session to `member`, even if the turn later ends in a terminal error.
+      // Overwritten per attempt so only the running member can pin.
+      registerTierAttemptMember(sessionId, member);
 
-      // A rejected dispatch (e.g. lane-run ownership lost before the provider
-      // call) never reached this member's provider, so it is neither a success
-      // to snapshot nor a failure to fail over from — surface it verbatim.
-      if (execution && !execution.started) return execution;
+      const wasPreActivity = sessionHasNoObservableAgentActivity(sessionId);
+      try {
+        const execution = await attemptRunWithModel(sessionId, promptWithAttachments, workingDirectory, {
+          systemPrompt,
+          activeConversation,
+          controller,
+          callbacks,
+          tierContext,
+        });
 
-      // A provider may close its iterator normally after emitting result:error,
-      // and automatic retry scheduling also intentionally returns normally.
-      // Neither outcome is a successful member resolution. A reschedule ends
-      // this start without a snapshot; a terminal stream failure enters the
-      // same classification/exhaustion path as an iterator rejection.
-      if (execution?.outcome === 'rescheduled') return execution;
-      throwTerminalStreamFailure(execution);
+        // A rejected dispatch (e.g. lane-run ownership lost before the provider
+        // call) never reached this member's provider, so it is neither a success
+        // to snapshot nor a failure to fail over from — surface it verbatim.
+        if (execution && !execution.started) return execution;
 
-      snapshotSuccessfulMember(sessionId, tierRef, member);
-      return execution; // done
-    } catch (error) {
-      // Non-eligible and mid-conversation errors must retain their original
-      // protocol. Eligible startup failures are recorded exactly once.
-      recordTierAttemptFailure(error, {
-        sessionId, member, nextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
-      });
+        // A provider may close its iterator normally after emitting result:error,
+        // and automatic retry scheduling also intentionally returns normally.
+        // Neither outcome is a successful member resolution. A reschedule ends
+        // this start without a snapshot; a terminal stream failure enters the
+        // same classification/exhaustion path as an iterator rejection.
+        if (execution?.outcome === 'rescheduled') return execution;
+        throwTerminalStreamFailure(execution);
+
+        snapshotSuccessfulMember(sessionId, tierRef, member);
+        return execution; // done
+      } catch (error) {
+        // Non-eligible and mid-conversation errors must retain their original
+        // protocol. Eligible startup failures are recorded exactly once.
+        recordTierAttemptFailure(error, {
+          sessionId, member, nextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
+        });
+      }
     }
-  }
 
-  if (attempts.length) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
+    if (attempts.length) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
+  } finally {
+    // Late events from an unwinding stream must never pin the session to a
+    // member that is no longer running.
+    clearTierAttemptMember(sessionId);
+  }
 }
 
 function _getTierName(tierId) {

@@ -15,6 +15,7 @@ import { createWorkLog } from './workLogService.js';
 import { cancelPrompt } from './promptStore.js';
 import { buildSafeDenialSummary } from './promptDurableSummary.js';
 import { captureScheduleWakeup, clearPendingWakeup } from './scheduleWakeupBridge.js';
+import { pinTierMemberOnDurableActivity } from './tierMemberPin.js';
 
 // ── Shared module-level state ──────────────────────────────────────────────
 
@@ -242,6 +243,11 @@ function handleAssistantTextContent(sessionId, textContent, toolUseBlocks) {
   const conversationId = activeConversation?.id || null;
   const currentModel = currentModels.get(sessionId) || null;
   const message = messages.create(sessionId, 'assistant', textContent, { toolUse, conversationId, model: currentModel });
+
+  // The persisted assistant message is durable observable activity: a
+  // tier-backed attempt that has produced it owns the conversation from this
+  // instant, even if the turn later ends in a terminal error. Idempotent.
+  pinTierMemberOnDurableActivity(sessionId);
 
   // Touch the session to update its updated_at timestamp so it sorts to the top
   sessions.touch(sessionId);
