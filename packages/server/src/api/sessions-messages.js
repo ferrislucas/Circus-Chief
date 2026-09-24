@@ -5,6 +5,8 @@ import { upload as _upload, handleUploadError } from '../middleware/upload.js';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import * as slashCommandService from '../services/slashCommandService.js';
 import { checkCrossKindSwitch } from '../services/sessionAgentGuard.js';
+import { isTierRef } from '@circuschief/shared';
+import { consumeStaleTierEcho } from '../services/tierDegradationNotifier.js';
 import { getRootSession, renderTemplatePrompt } from '../services/templateTriggerService.js';
 import { validateModelId } from './model-validation.js';
 import { clearedPendingSchedule } from '../services/pendingSchedule.js';
@@ -26,7 +28,8 @@ async function renderLiquidForSession(content, session) {
 }
 
 // Validate a follow-up message request. Returns an error descriptor
-// { status, body } when the request is invalid, otherwise null.
+// { status, body } when the request is invalid, otherwise
+// { model: normalizedModel } with the model the continuation should use.
 function validateMessageRequest(session, content, model) {
   if (!content) {
     return { status: 400, body: { error: 'Content is required' } };
@@ -41,7 +44,22 @@ function validateMessageRequest(session, content, model) {
   // follow-up). Normalize it away so a binding that went stale after creation
   // (e.g. its tier was deleted) skips the write-time validation meant for NEW
   // bindings and degrades per PRD E3/D6 instead of a 400.
-  const effectiveRequestedModel = model === session.model ? null : model;
+  let effectiveRequestedModel = model === session.model ? null : model;
+  let normalizedModel = model;
+
+  // Stale deleted-tier echo (review remediation §2): a follow-up that was in
+  // flight while the session's tier was deleted still carries the old
+  // `tier::<id>` selection. Accept it ONLY for the session that was just
+  // degraded from that exact tier and normalize it to the server-side
+  // concrete binding; unknown-tier validation is otherwise unchanged.
+  if (
+    effectiveRequestedModel &&
+    isTierRef(effectiveRequestedModel) &&
+    consumeStaleTierEcho(session.id, effectiveRequestedModel)
+  ) {
+    effectiveRequestedModel = null;
+    normalizedModel = null;
+  }
 
   const modelResult = validateModelId(effectiveRequestedModel);
   if (modelResult.error) {
@@ -53,7 +71,7 @@ function validateMessageRequest(session, content, model) {
     return { status: 400, body: crossKindError };
   }
 
-  return null;
+  return { model: normalizedModel };
 }
 
 // GET /api/sessions/:id/messages - Get session messages
@@ -103,10 +121,12 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
   const renderLiquid = shouldRenderLiquid(req.body.renderLiquid);
   const files = req.files || [];
 
-  const validationError = validateMessageRequest(req.session_, content, model);
-  if (validationError) {
-    return res.status(validationError.status).json(validationError.body);
+  const validation = validateMessageRequest(req.session_, content, model);
+  if (validation.status) {
+    return res.status(validation.status).json(validation.body);
   }
+  // The validated (possibly stale-echo-normalized) model for the continuation.
+  const continuationModel = validation.model;
 
   try {
     // Store file attachments if any - saves to disk in workingDirectory/.attachments
@@ -130,14 +150,14 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
     }
 
     if (resolved) {
-      continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, { systemPrompt: resolved.systemPrompt, fileAttachments: messageAttachments, model, interactive: true }).catch((error) => {
+      continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, { systemPrompt: resolved.systemPrompt, fileAttachments: messageAttachments, model: continuationModel, interactive: true }).catch((error) => {
         console.error(`Continue session error (${resolved.type}):`, error);
       });
       return res.json({ success: true });
     }
 
     // Standard plain text message
-    continueSession(req.session_.id, renderedContent, req.workingDirectory, { systemPrompt: req.project.systemPrompt, fileAttachments: messageAttachments, model, interactive: true }).catch((error) => {
+    continueSession(req.session_.id, renderedContent, req.workingDirectory, { systemPrompt: req.project.systemPrompt, fileAttachments: messageAttachments, model: continuationModel, interactive: true }).catch((error) => {
       console.error('Continue session error:', error);
     });
     res.json({ success: true });

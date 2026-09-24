@@ -60,7 +60,7 @@ function hasExecutableMember(db, tierId) {
 
 function rewriteSummarySettings(db, tierRef, fallback, now) {
   const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(SUMMARY_SETTINGS_KEY);
-  if (!row) return;
+  if (!row) return false;
 
   let parsed;
   try {
@@ -68,9 +68,9 @@ function rewriteSummarySettings(db, tierRef, fallback, now) {
   } catch {
     // A malformed value cannot reliably contain a usable tier reference; keep
     // the repository's normal safe-default read behavior intact.
-    return;
+    return false;
   }
-  if (!parsed || typeof parsed !== 'object' || parsed.summaryModel !== tierRef) return;
+  if (!parsed || typeof parsed !== 'object' || parsed.summaryModel !== tierRef) return false;
 
   // Summary dispatch supports every executable provider kind that can appear
   // in a tier, so any active member is a routable fallback. Only clear when
@@ -79,6 +79,7 @@ function rewriteSummarySettings(db, tierRef, fallback, now) {
   parsed.summaryProviderId = fallback ? fallback.providerId : null;
   db.prepare('UPDATE app_settings SET value = ?, updated_at = ? WHERE key = ?')
     .run(JSON.stringify(parsed), now, SUMMARY_SETTINGS_KEY);
+  return true;
 }
 
 /**
@@ -94,14 +95,37 @@ function rewriteSummarySettings(db, tierRef, fallback, now) {
  * includes soft-removed model rows for historical continuity, but excludes a
  * renamed/nonexistent model even when its former provider still exists.
  *
+ * Returns a structured change set describing every client-visible mutation so
+ * callers can publish canonical post-degradation state to connected clients
+ * AFTER the transaction commits. The service itself stays transport-free.
+ *
  * @param {import('better-sqlite3').Database} db
  * @param {string} tierRef
  * @param {{ providerId: string, modelId: string } | null} fallback
  * @param {number} now
+ * @returns {{
+ *   degradedFrom: string,
+ *   affectedSessions: Array<{ id: string, projectId: string }>,
+ *   laneProjectIds: string[],
+ *   summarySettingsChanged: boolean,
+ * }}
  */
 function degradeTierReferences(db, tierRef, fallback, now) {
   const fallbackModel = fallback?.modelId ?? null;
   const fallbackProviderId = fallback?.providerId ?? null;
+
+  // Collect the rows that are about to change (same transaction, so this is
+  // race-free) BEFORE the blanket UPDATEs — the rows are the change set.
+  const affectedSessions = dedupeSessionsById([
+    ...db.prepare('SELECT id, project_id AS projectId FROM sessions WHERE model = ?').all(tierRef),
+    ...db.prepare('SELECT id, project_id AS projectId FROM sessions WHERE pending_model = ?').all(tierRef),
+  ]);
+  const laneProjectIds = db.prepare(
+    `SELECT DISTINCT b.project_id AS projectId
+     FROM kanban_lanes l
+     JOIN kanban_boards b ON b.id = l.board_id
+     WHERE l.on_enter_model = ?`
+  ).all(tierRef).map((row) => row.projectId);
 
   db.prepare(
     `UPDATE session_templates
@@ -155,7 +179,20 @@ function degradeTierReferences(db, tierRef, fallback, now) {
      WHERE pending_model = ?`
   ).run(fallbackModel, fallbackProviderId, now, tierRef);
 
-  rewriteSummarySettings(db, tierRef, fallback, now);
+  const summarySettingsChanged = rewriteSummarySettings(db, tierRef, fallback, now);
+
+  return {
+    degradedFrom: tierRef,
+    affectedSessions,
+    laneProjectIds,
+    summarySettingsChanged,
+  };
+}
+
+function dedupeSessionsById(rows) {
+  const byId = new Map();
+  for (const row of rows) byId.set(row.id, { id: row.id, projectId: row.projectId });
+  return [...byId.values()];
 }
 
 /**
@@ -208,7 +245,14 @@ function findReferencedTierIds(db) {
  * savepoints, so embedding this in an outer transaction keeps the whole
  * removal + repair atomic.
  *
- * @returns {string[]} Ids of the tiers whose references were degraded.
+ * @returns {Array<{
+ *   tierId: string,
+ *   degradedFrom: string,
+ *   affectedSessions: Array<{ id: string, projectId: string }>,
+ *   laneProjectIds: string[],
+ *   summarySettingsChanged: boolean,
+ * }>} One change set per tier whose references were degraded, for post-commit
+ *   client notification.
  */
 export function degradeReferencesToEmptiedTiers() {
   return databaseManager.transaction(() => {
@@ -220,8 +264,8 @@ export function degradeReferencesToEmptiedTiers() {
       if (hasExecutableMember(db, tierId)) continue;
       // A tier with no executable member can never contribute an active
       // fallback, so the references are cleared to the per-surface defaults.
-      degradeTierReferences(db, buildTierRef(tierId), null, now);
-      degraded.push(tierId);
+      const changeSet = degradeTierReferences(db, buildTierRef(tierId), null, now);
+      degraded.push({ tierId, ...changeSet });
     }
 
     return degraded;
@@ -241,8 +285,16 @@ export function degradeReferencesToEmptiedTiers() {
  * existing "use the configured/default model" behavior for each surface.
  *
  * @param {string} tierId
- * @returns {{ fallback: { providerId: string, modelId: string } | null } | null}
- *   null when the tier was already absent.
+ * @returns {{
+ *   fallback: { providerId: string, modelId: string } | null,
+ *   degradation: {
+ *     degradedFrom: string,
+ *     affectedSessions: Array<{ id: string, projectId: string }>,
+ *     laneProjectIds: string[],
+ *     summarySettingsChanged: boolean,
+ *   },
+ * } | null} null when the tier was already absent. `degradation` is the
+ *   structured change set for post-commit client notification.
  */
 export function deleteTierAndDegradeReferences(tierId) {
   return databaseManager.transaction(() => {
@@ -252,13 +304,14 @@ export function deleteTierAndDegradeReferences(tierId) {
 
     const tierRef = buildTierRef(tierId);
     const fallback = getActiveFallbackMember(db, tierId);
-    degradeTierReferences(db, tierRef, fallback, Date.now());
+    const degradation = degradeTierReferences(db, tierRef, fallback, Date.now());
     db.prepare('DELETE FROM model_tiers WHERE id = ?').run(tierId);
 
     return {
       fallback: fallback
         ? { providerId: fallback.providerId, modelId: fallback.modelId }
         : null,
+      degradation,
     };
   });
 }

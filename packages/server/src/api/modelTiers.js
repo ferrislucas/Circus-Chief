@@ -9,6 +9,7 @@ import { validateTierMembers } from './model-validation.js';
 import { getTierMemberAvailabilityMap, getTierMembersWithAvailability } from '../services/tierResolutionService.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { deleteTierAndDegradeReferences, degradeReferencesToEmptiedTiers } from '../services/tierDeletionService.js';
+import { publishEmptiedTierDegradations, publishTierDegradation } from '../services/tierDegradationNotifier.js';
 
 const ERR_TIER_NOT_FOUND = 'Tier not found';
 
@@ -111,13 +112,17 @@ router.patch('/:id', (req, res) => {
     // with no executable member empties it, so its persisted consumers
     // (defaults, templates, lanes, sessions, summary settings) are degraded in
     // the same transaction instead of dangling on an unusable tier ref.
+    // Degradation change sets are collected inside the transaction and
+    // published to connected clients only AFTER it commits.
+    let degradationChangeSets = [];
     const updatedTier = databaseManager.transaction(() => {
       const updated = modelTiers.update(req.params.id, result.data);
       if (updated && result.data.members !== undefined) {
-        degradeReferencesToEmptiedTiers();
+        degradationChangeSets = degradeReferencesToEmptiedTiers();
       }
       return updated;
     });
+    publishEmptiedTierDegradations(degradationChangeSets);
     res.json(withManagementMembers(updatedTier));
   } catch (error) {
     if (error.message?.includes('UNIQUE constraint failed')) {
@@ -132,6 +137,8 @@ router.delete('/:id', (req, res) => {
   try {
     const result = deleteTierAndDegradeReferences(req.params.id);
     if (!result) return res.status(404).json({ error: ERR_TIER_NOT_FOUND });
+    // Post-commit: reconcile connected clients with the degraded state.
+    publishTierDegradation(result.degradation);
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: error.message });
