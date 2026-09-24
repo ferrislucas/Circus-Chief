@@ -353,6 +353,9 @@ describe('Upload Middleware', () => {
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
       it('responds 400 to a finite rejected upload whose remaining body exceeds the old 2 MiB ceiling', { timeout: 10000 }, async () => {
+        // Declared length within policy marks the request finite, so the byte
+        // ceiling is not what ends this request — EOF is.
+        process.env.REJECTED_UPLOAD_DRAIN_MAX_TOTAL_BYTES = String(8 * 1024 * 1024);
         const { server, port } = await listen();
         const socket = await connect(port);
         const boundary = 'drain-finite-boundary';
@@ -410,7 +413,7 @@ describe('Upload Middleware', () => {
           writeChunk('x'.repeat(64 * 1024));
           await sleep(100);
         }
-        socket.write(`\r\n--${boundary}--\r\n`);
+        writeChunk(`\r\n--${boundary}--\r\n`);
         socket.write('0\r\n\r\n');
 
         try {
@@ -423,6 +426,9 @@ describe('Upload Middleware', () => {
       });
 
       it('responds 400 for a rejected over-limit file whose body is still progressing', { timeout: 10000 }, async () => {
+        // Ceiling above the declared body: this request is finite by
+        // declaration, so it drains to EOF and receives its 400.
+        process.env.REJECTED_UPLOAD_DRAIN_MAX_TOTAL_BYTES = String(16 * 1024 * 1024);
         const { server, port } = await listen();
         const socket = await connect(port);
         const boundary = 'drain-size-boundary';

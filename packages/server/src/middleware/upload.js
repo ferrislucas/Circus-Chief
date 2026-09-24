@@ -1,11 +1,46 @@
 import multer from 'multer';
 
-// These limits apply only after an upload has already been rejected. They are
-// deliberately much smaller than the accepted upload limit: they allow a
-// client that is nearly finished to receive its normal 4xx response without
-// letting an abusive client keep a request open indefinitely.
-export const REJECTED_UPLOAD_DRAIN_MAX_BYTES = 2 * 1024 * 1024;
-export const REJECTED_UPLOAD_DRAIN_TIMEOUT_MS = 250;
+// ── Rejected-upload drain policy ────────────────────────────────────────────
+//
+// These bounds apply only AFTER an upload has already been rejected. They are
+// deliberately distinct from the accepted-upload limit (10MB below):
+//
+// - IDLE TIMEOUT — how long the drain may sit without consuming a single
+//   byte. Every consumed chunk resets it, so a finite, actively progressing
+//   rejected request always reaches EOF and receives its 4xx; a stalled one
+//   is terminated promptly.
+//
+// - HARD LIFETIME — the absolute ceiling on one rejected request's drain,
+//   however fast it progresses. Bounds a deliberately abusive client that
+//   streams forever just to hold the connection open.
+//
+// - TOTAL BYTES — the discard ceiling for requests whose length is not
+//   declared (chunked) or declared beyond the policy. A declared
+//   Content-Length within policy marks the request as finite, so the byte
+//   ceiling is not applied to it (the declared length itself bounds the
+//   body). It is never the only safeguard — idle and lifetime always apply.
+const DEFAULT_DRAIN_POLICY = Object.freeze({
+  idleTimeoutMs: 2000,
+  maxLifetimeMs: 30 * 1000,
+  maxTotalBytes: 64 * 1024 * 1024,
+});
+
+function readPolicyNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/** Resolve the drain policy, allowing ops to tune the bounds via environment. */
+export function getRejectedUploadDrainPolicy() {
+  return {
+    idleTimeoutMs: readPolicyNumber(
+      process.env.REJECTED_UPLOAD_DRAIN_IDLE_TIMEOUT_MS, DEFAULT_DRAIN_POLICY.idleTimeoutMs),
+    maxLifetimeMs: readPolicyNumber(
+      process.env.REJECTED_UPLOAD_DRAIN_MAX_LIFETIME_MS, DEFAULT_DRAIN_POLICY.maxLifetimeMs),
+    maxTotalBytes: readPolicyNumber(
+      process.env.REJECTED_UPLOAD_DRAIN_MAX_TOTAL_BYTES, DEFAULT_DRAIN_POLICY.maxTotalBytes),
+  };
+}
 
 const rejectedUploadDrains = new WeakSet();
 
@@ -50,24 +85,50 @@ function fileFilter(_req, file, cb) {
 }
 
 /**
- * Allow only a small, time-bounded tail of a request after rejecting its file.
+ * Bound the tail of a request after rejecting its file, with progress-aware
+ * limits.
  *
- * Multer waits for the request to end before it forwards a file-filter error to
- * Express. Starting the bound here prevents a client that never sends EOF from
- * keeping Multer (and its socket) alive forever. Every path removes its own
- * listeners and the termination path destroys the request so no further bytes
- * are consumed.
+ * Multer waits for the request to end before it forwards a file-filter error
+ * to Express. Draining that tail lets a legitimate rejected upload — even a
+ * large or slow one — reach EOF so the client deterministically receives its
+ * 4xx response, while three bounds keep the drain from being exploited:
+ *
+ *   - idle timeout: resets on every consumed chunk; a stalled request is
+ *     terminated after the idle window, not held open forever;
+ *   - hard lifetime: the whole drain ends at this ceiling no matter how fast
+ *     the client streams;
+ *   - total-byte ceiling: applies only when the request's length is undeclared
+ *     (chunked) or declared beyond the policy — a declared Content-Length
+ *     within policy marks the request finite, and the declared length itself
+ *     bounds it.
+ *
+ * Exactly one terminal action wins: a normal EOF settles the drain and lets
+ * the error handler respond; any limit terminates the request/socket. Every
+ * exit path removes its own listeners and timers, and no rejected payload is
+ * buffered — bytes are counted and discarded.
  */
 export function beginBoundedRejectedUploadDrain(req) {
   if (rejectedUploadDrains.has(req)) return;
   rejectedUploadDrains.add(req);
 
+  const policy = getRejectedUploadDrainPolicy();
+  const declaredContentLength = Number(req.headers?.['content-length']);
+  const hasFiniteDeclaredLength =
+    Number.isFinite(declaredContentLength) && declaredContentLength >= 0;
+  // A declared length beyond the ceiling is declared abuse: treat the request
+  // like an unbounded stream (byte ceiling applies).
+  const isFiniteByDeclaration =
+    hasFiniteDeclaredLength && declaredContentLength <= policy.maxTotalBytes;
+
   let settled = false;
   let drainedBytes = 0;
+  let idleTimer = null;
+  let lifetimeTimer = null;
 
   const cleanup = () => {
     rejectedUploadDrains.delete(req);
-    clearTimeout(timeout);
+    clearTimeout(idleTimer);
+    clearTimeout(lifetimeTimer);
     req.removeListener('data', onData);
     req.removeListener('end', settle);
     req.removeListener('aborted', settle);
@@ -88,13 +149,23 @@ export function beginBoundedRejectedUploadDrain(req) {
     if (req.socket && !req.socket.destroyed) req.socket.destroy();
   };
 
-  const onData = (chunk) => {
-    drainedBytes += chunk.length;
-    if (drainedBytes > REJECTED_UPLOAD_DRAIN_MAX_BYTES) terminate();
+  const armIdleTimer = () => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(terminate, policy.idleTimeoutMs);
+    idleTimer.unref?.();
   };
 
-  const timeout = setTimeout(terminate, REJECTED_UPLOAD_DRAIN_TIMEOUT_MS);
-  timeout.unref?.();
+  const onData = (chunk) => {
+    drainedBytes += chunk.length;
+    // Progress: reset the idle window, then apply the byte ceiling for
+    // streams whose length was not declared within policy.
+    armIdleTimer();
+    if (!isFiniteByDeclaration && drainedBytes > policy.maxTotalBytes) terminate();
+  };
+
+  lifetimeTimer = setTimeout(terminate, policy.maxLifetimeMs);
+  lifetimeTimer.unref?.();
+  armIdleTimer();
 
   req.on('data', onData);
   req.once('end', settle);
