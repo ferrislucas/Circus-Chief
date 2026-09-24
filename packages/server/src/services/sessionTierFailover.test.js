@@ -53,6 +53,7 @@ import {
   runSessionWithTierFailover,
   sanitizeTierFailureReason,
 } from './sessionTierFailover.js';
+import { checkCrossKindSwitch } from './sessionAgentGuard.js';
 
 describe('sanitizeTierFailureReason', () => {
   it('bounds and redacts credential-like values before outward reporting', () => {
@@ -1391,5 +1392,154 @@ describe('mid-conversation cooldown attribution (continuation path)', () => {
     // …but health must not be attributed to an unmappable member.
     expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(false);
     expect(isUnhealthy(providerB.id, 'mc-model-b')).toBe(false);
+  });
+});
+
+// ── Pin on first durable activity (review remediation §1) ───────────────────
+//
+// A tier member that has produced durable, user-observable activity owns the
+// conversation even if its turn later ends in a terminal error. The session
+// must be pinned to that concrete member the moment the activity is persisted
+// — not only after an entirely successful turn — so the next continuation
+// dispatches to the member that already did the work instead of re-resolving
+// the tier (which would replay on a different member and, across agent kinds,
+// trip the CROSS_KIND_MODEL_SWITCH guard).
+
+describe('pins the first member that produces durable activity', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerClaude;
+  let providerCodex;
+  let tier;
+  let tierRef;
+  let originalCodexAdapter;
+  let codexAttempts;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+    // Member A (Claude) fails at start BEFORE any provider event — the classic
+    // transparent startup failover — advancing the loop to member B.
+    // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+    mockQuery.mockImplementation(async function* () {
+      throw Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 });
+    });
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'pin-on-activity-test-'));
+    const project = projectRepo.create('Pin On Activity Project', tempDir);
+
+    // Cross-provider tier: member A is an Anthropic (claude-code) model,
+    // member B is an OpenAI (codex) model.
+    providerClaude = modelProviders.create({ name: 'Pin Claude Provider', kind: 'anthropic' });
+    providerCodex = modelProviders.create({ name: 'Pin Codex Provider', kind: 'openai' });
+    modelProviders.addModel(providerClaude.id, { modelId: 'pin-model-a', displayName: 'Pin Model A' });
+    modelProviders.addModel(providerCodex.id, { modelId: 'pin-model-b', displayName: 'Pin Model B' });
+
+    tier = modelTiers.create({
+      name: 'Pin Tier',
+      members: [
+        { providerId: providerClaude.id, modelId: 'pin-model-a', position: 0 },
+        { providerId: providerCodex.id, modelId: 'pin-model-b', position: 1 },
+      ],
+    });
+    tierRef = buildTierRef(tier.id);
+
+    session = sessionRepo.create(project.id, 'Pin Session', 'Initial prompt', 'standard');
+    sessionRepo.update(session.id, { model: tierRef });
+
+    codexAttempts = 0;
+    originalCodexAdapter = agentGateway.adapters.get('codex');
+    // Member B produces durable assistant activity, then dies with a terminal
+    // provider error — the exact post-activity failure the plan targets.
+    class ActivityThenErrorCodexAdapter extends BaseAgent {
+      static capabilities = CodexAdapter.capabilities;
+      async *execute() {
+        codexAttempts++;
+        yield { type: 'system', subtype: 'init', session_id: 'pin-codex-init', model: 'pin-model-b', slash_commands: [] };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Member B produced durable output.' }] } };
+        throw Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 });
+      }
+    }
+    agentGateway.registerAdapter('codex', ActivityThenErrorCodexAdapter);
+  });
+
+  afterEach(() => {
+    agentGateway.registerAdapter('codex', originalCodexAdapter);
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('pins the session to member B the moment its durable activity is persisted, before its terminal error', async () => {
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529 Service overloaded/);
+
+    // Member A failed once (pre-activity) and member B ran once.
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(codexAttempts).toBe(1);
+
+    const updated = sessionRepo.getById(session.id);
+    // The tier binding stays in `model`; the concrete snapshot records the
+    // member that actually produced the conversation's durable activity.
+    expect(updated.model).toBe(tierRef);
+    expect(updated.resolvedModel).toBe('pin-model-b');
+    expect(updated.resolvedProviderId).toBe(providerCodex.id);
+    expect(updated.agentType).toBe('codex');
+  });
+
+  it('continues on the pinned member without re-resolving the tier or raising a cross-kind switch', async () => {
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529 Service overloaded/);
+
+    // The cross-kind guard must accept the session's own tier binding now
+    // that the snapshot identifies member B (codex) as the established member.
+    const fresh = sessionRepo.getById(session.id);
+    expect(checkCrossKindSwitch(fresh, null)).toBeNull();
+
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529 Service overloaded/);
+
+    // The continuation dispatched DIRECTLY to member B: the codex adapter ran
+    // again, and the Claude SDK (member A) was never re-consulted.
+    expect(codexAttempts).toBe(2);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    const after = sessionRepo.getById(session.id);
+    expect(after.model).toBe(tierRef);
+    expect(after.resolvedModel).toBe('pin-model-b');
+    expect(after.resolvedProviderId).toBe(providerCodex.id);
+  });
+
+  it('does not pin a member whose failure precedes any durable activity', async () => {
+    // Member B also fails pre-activity: the whole tier exhausts without any
+    // member producing observable activity, so nothing may be snapshotted and
+    // the members stay eligible for normal startup failover.
+    class SilentFailureCodexAdapter extends BaseAgent {
+      static capabilities = CodexAdapter.capabilities;
+      // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+      async *execute() {
+        codexAttempts++;
+        throw Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 });
+      }
+    }
+    agentGateway.registerAdapter('codex', SilentFailureCodexAdapter);
+
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(codexAttempts).toBe(1);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBeFalsy();
+    expect(updated.resolvedProviderId).toBeFalsy();
   });
 });
