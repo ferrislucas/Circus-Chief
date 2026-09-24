@@ -283,3 +283,85 @@ describe('tier consumer repair on provider/model loss (tierDeletionService)', ()
     });
   });
 });
+
+// ── Structured degradation change sets (review remediation §2) ──────────────
+//
+// The degradation service must return a structured change set — affected
+// session ids (with their projects), lane-affected projects, and whether the
+// global summary settings were rewritten — from the same transaction that
+// performs the repair, so the API layer can publish canonical post-degradation
+// state to connected websocket clients AFTER commit.
+
+describe('structured degradation change sets (client sync)', () => {
+  let providerA;
+
+  beforeEach(() => {
+    providerA = modelProviders.create({ name: 'ChangeSet Provider A', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'changeset-model-a', displayName: 'A' });
+  });
+
+  it('deleteTierAndDegradeReferences returns the affected sessions, lane projects, and summary change', async () => {
+    const { deleteTierAndDegradeReferences } = await import('./tierDeletionService.js');
+    const created = modelTiers.create({
+      name: 'ChangeSet Tier',
+      members: [{ providerId: providerA.id, modelId: 'changeset-model-a', position: 0 }],
+    });
+    const tierRef = buildTierRef(created.id);
+    const project = projects.create('ChangeSet Project', '/tmp/changeset-project');
+    const board = kanbanBoards.create(project.id);
+    kanbanLanes.create(board.id, { name: 'ChangeSet lane', onEnterModel: tierRef });
+    const session = sessions.create(project.id, 'ChangeSet session', 'Later', {
+      status: 'waiting', model: tierRef,
+    });
+    settings.setSummarySettings({
+      disableSessionSummaries: false,
+      sessionTitlePrompt: '',
+      summaryModel: tierRef,
+      summaryProviderId: null,
+    });
+
+    const result = deleteTierAndDegradeReferences(created.id);
+
+    expect(result).not.toBeNull();
+    expect(result.degradation).toMatchObject({
+      degradedFrom: tierRef,
+      affectedSessions: [{ id: session.id, projectId: project.id }],
+      laneProjectIds: [project.id],
+      summarySettingsChanged: true,
+    });
+  });
+
+  it('deleteTierAndDegradeReferences reports no changes when nothing referenced the tier', async () => {
+    const { deleteTierAndDegradeReferences } = await import('./tierDeletionService.js');
+    const created = modelTiers.create({
+      name: 'ChangeSet Lonely Tier',
+      members: [{ providerId: providerA.id, modelId: 'changeset-model-a', position: 0 }],
+    });
+
+    const result = deleteTierAndDegradeReferences(created.id);
+
+    expect(result.degradation).toMatchObject({
+      affectedSessions: [],
+      laneProjectIds: [],
+      summarySettingsChanged: false,
+    });
+  });
+
+  it('degradeReferencesToEmptiedTiers returns one change set per degraded tier', async () => {
+    const { degradeReferencesToEmptiedTiers } = await import('./tierDeletionService.js');
+    // A tier created with no members is referenced but not executable — the
+    // stale self-healing path this sweep owns.
+    const created = modelTiers.create({ name: 'ChangeSet Emptied Tier' });
+    const tierRef = buildTierRef(created.id);
+    const project = projects.create('ChangeSet Empty Project', '/tmp/changeset-empty');
+    const session = sessions.create(project.id, 'ChangeSet empty session', 'Later', {
+      status: 'waiting', model: tierRef,
+    });
+
+    const changeSets = degradeReferencesToEmptiedTiers();
+    const own = changeSets.find((c) => c.tierId === created.id);
+    expect(own).toBeTruthy();
+    expect(own.degradedFrom).toBe(tierRef);
+    expect(own.affectedSessions).toEqual([{ id: session.id, projectId: project.id }]);
+  });
+});

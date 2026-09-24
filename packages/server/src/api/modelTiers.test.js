@@ -11,8 +11,37 @@ import {
   kanbanBoards,
   kanbanLanes,
 } from '../database.js';
-import { buildTierRef } from '@circuschief/shared';
+import { buildTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import modelTiersRouter from './modelTiers.js';
+
+// Degradation broadcasts are asserted against this mock; the real layer owns
+// live sockets. sessions-messages.js is mounted only in the stale-echo suite,
+// where its continueSession side effect is stubbed out.
+vi.mock('../websocket.js', () => ({
+  broadcastToSession: vi.fn(),
+  broadcastToProject: vi.fn(),
+  broadcast: vi.fn(),
+  broadcastToSessionAndProject: vi.fn(),
+  broadcastCommandRunOutput: vi.fn(),
+  setCommandRunOutputAuthorizer: vi.fn(),
+  getWebSocketServer: vi.fn(),
+  initWebSocket: vi.fn(),
+  webSocketManager: {
+    registerClient: vi.fn(),
+    broadcastToSession: vi.fn(),
+    broadcastToProject: vi.fn(),
+    broadcast: vi.fn(),
+  },
+}));
+
+vi.mock('../services/sessionManager.js', () => ({
+  continueSession: vi.fn(async () => ({ started: true })),
+  runSession: vi.fn(async () => ({ started: true })),
+}));
+
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
+import { continueSession } from '../services/sessionManager.js';
+import sessionsMessagesRouter from './sessions-messages.js';
 
 describe('Model Tiers API', () => {
   let app;
@@ -770,5 +799,213 @@ describe('Model Tiers API', () => {
       expect(sessions.getById(session.id)).toMatchObject({ model: null, pendingModel: null, providerId: null });
       expect(settings.getSummarySettings()).toMatchObject({ summaryModel: '', summaryProviderId: null });
     });
+  });
+});
+
+// ── Tier degradation client synchronization (review remediation §2) ─────────
+//
+// Deleting a tier (or emptying it via PATCH) must publish the canonical
+// post-degradation state to connected websocket clients in the same request,
+// so a client holding the old `tier::<id>` selection is reconciled instead of
+// discovering the repair on its next full refetch (or worse, failing its next
+// request against a server row that no longer matches what it displays).
+
+describe('tier degradation client synchronization (websocket broadcasts)', () => {
+  let app;
+  let providerA;
+
+  beforeEach(() => {
+    broadcastToSession.mockClear();
+    broadcastToProject.mockClear();
+
+    app = express();
+    app.use(express.json());
+    app.use('/api/tiers', modelTiersRouter);
+
+    providerA = modelProviders.create({ name: 'Sync Provider A', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'sync-model-a', displayName: 'Sync Model A' });
+  });
+
+  it('broadcasts the degraded concrete binding to session and project subscribers when a tier is deleted', async () => {
+    const created = await request(app)
+      .post('/api/tiers')
+      .send({ name: 'Sync Delete Tier', members: [{ providerId: providerA.id, modelId: 'sync-model-a', position: 0 }] })
+      .expect(201);
+    const tierRef = buildTierRef(created.body.id);
+    const project = projects.create('Sync Delete Project', '/tmp/sync-delete');
+    const session = sessions.create(project.id, 'Sync Delete Session', 'Later', {
+      status: 'waiting', model: tierRef,
+    });
+    const bystanderProject = projects.create('Sync Bystander Project', '/tmp/sync-bystander');
+    const bystander = sessions.create(bystanderProject.id, 'Sync Bystander Session', 'Later', {
+      status: 'waiting', model: null,
+    });
+
+    await request(app).delete(`/api/tiers/${created.body.id}`).expect(204);
+
+    // Session subscribers receive the canonical degraded row.
+    const sessionUpdate = broadcastToSession.mock.calls
+      .find((c) => c[0] === session.id && c[1] === WS_MESSAGE_TYPES.SESSION_UPDATED);
+    expect(sessionUpdate).toBeTruthy();
+    expect(sessionUpdate[2]).toMatchObject({
+      sessionId: session.id,
+      session: expect.objectContaining({
+        id: session.id,
+        model: 'sync-model-a',
+        providerId: providerA.id,
+        resolvedModel: null,
+        resolvedProviderId: null,
+      }),
+    });
+
+    // Project subscribers receive the same canonical update.
+    const projectUpdate = broadcastToProject.mock.calls
+      .find((c) => c[0] === project.id && c[1] === WS_MESSAGE_TYPES.SESSION_UPDATED);
+    expect(projectUpdate).toBeTruthy();
+    expect(projectUpdate[2]).toMatchObject({
+      projectId: project.id,
+      sessionId: session.id,
+      session: expect.objectContaining({ model: 'sync-model-a' }),
+    });
+
+    // Unrelated sessions are not broadcast.
+    expect(broadcastToSession.mock.calls.some((c) => c[0] === bystander.id)).toBe(false);
+    expect(broadcastToProject.mock.calls.some((c) => c[0] === bystanderProject.id)).toBe(false);
+  });
+
+  it('broadcasts the updated kanban board when a deleted tier rewrites a lane', async () => {
+    const created = await request(app)
+      .post('/api/tiers')
+      .send({ name: 'Sync Lane Tier', members: [{ providerId: providerA.id, modelId: 'sync-model-a', position: 0 }] })
+      .expect(201);
+    const tierRef = buildTierRef(created.body.id);
+    const project = projects.create('Sync Lane Project', '/tmp/sync-lane');
+    const board = kanbanBoards.create(project.id);
+    kanbanLanes.create(board.id, { name: 'Sync lane', onEnterModel: tierRef });
+
+    await request(app).delete(`/api/tiers/${created.body.id}`).expect(204);
+
+    const boardUpdate = broadcastToProject.mock.calls
+      .find((c) => c[0] === project.id && c[1] === WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED);
+    expect(boardUpdate).toBeTruthy();
+    expect(boardUpdate[2]).toMatchObject({ projectId: project.id });
+    expect(boardUpdate[2].board).toBeTruthy();
+  });
+
+  it('broadcasts degraded sessions when a members PATCH empties a referenced tier', async () => {
+    const created = await request(app)
+      .post('/api/tiers')
+      .send({ name: 'Sync Patch Tier', members: [{ providerId: providerA.id, modelId: 'sync-model-a', position: 0 }] })
+      .expect(201);
+    const tierRef = buildTierRef(created.body.id);
+    const project = projects.create('Sync Patch Project', '/tmp/sync-patch');
+    const session = sessions.create(project.id, 'Sync Patch Session', 'Later', {
+      status: 'waiting', model: tierRef,
+    });
+
+    broadcastToSession.mockClear();
+    await request(app)
+      .patch(`/api/tiers/${created.body.id}`)
+      .send({ members: [] })
+      .expect(200);
+
+    const sessionUpdate = broadcastToSession.mock.calls
+      .find((c) => c[0] === session.id && c[1] === WS_MESSAGE_TYPES.SESSION_UPDATED);
+    expect(sessionUpdate).toBeTruthy();
+    // No active member exists, so the degraded binding is the per-surface
+    // default (cleared selection).
+    expect(sessionUpdate[2].session).toMatchObject({ id: session.id, model: null, providerId: null });
+  });
+
+  it('does not broadcast when a tier mutation degrades nothing', async () => {
+    const created = await request(app)
+      .post('/api/tiers')
+      .send({ name: 'Sync Quiet Tier', members: [{ providerId: providerA.id, modelId: 'sync-model-a', position: 0 }] })
+      .expect(201);
+
+    broadcastToSession.mockClear();
+    broadcastToProject.mockClear();
+    await request(app).patch(`/api/tiers/${created.body.id}`).send({ name: 'Renamed, still populated' }).expect(200);
+
+    expect(broadcastToSession).not.toHaveBeenCalled();
+    expect(broadcastToProject).not.toHaveBeenCalled();
+  });
+});
+
+// ── Stale deleted-tier echo tolerance (review remediation §2) ───────────────
+//
+// An open client that submits its next follow-up with the old `tier::<id>`
+// selection must not fail merely because the deletion repaired the server row
+// while the request was in flight (the race between deletion and event
+// delivery). The echo is accepted ONLY for the session that was just degraded
+// from that exact tier and is normalized to the server-side concrete
+// selection; unknown-tier validation is otherwise unchanged.
+
+describe('stale deleted-tier echo tolerance', () => {
+  let combinedApp;
+  let providerA;
+
+  beforeEach(() => {
+    broadcastToSession.mockClear();
+    broadcastToProject.mockClear();
+    continueSession.mockClear();
+
+    combinedApp = express();
+    combinedApp.use(express.json());
+    combinedApp.use('/api/tiers', modelTiersRouter);
+    combinedApp.use('/api/sessions', sessionsMessagesRouter);
+
+    providerA = modelProviders.create({ name: 'Echo Provider A', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'echo-model-a', displayName: 'Echo Model A' });
+  });
+
+  it('accepts the deleted tier echo for the just-degraded session and normalizes it to the concrete binding', async () => {
+    const created = await request(combinedApp)
+      .post('/api/tiers')
+      .send({ name: 'Echo Tier', members: [{ providerId: providerA.id, modelId: 'echo-model-a', position: 0 }] })
+      .expect(201);
+    const tierRef = buildTierRef(created.body.id);
+    const project = projects.create('Echo Project', '/tmp/echo-project');
+    const session = sessions.create(project.id, 'Echo Session', 'Later', {
+      status: 'waiting', model: tierRef,
+    });
+
+    // The deletion races with the client's in-flight follow-up that still
+    // carries the old tier ref.
+    await request(combinedApp).delete(`/api/tiers/${created.body.id}`).expect(204);
+
+    const response = await request(combinedApp)
+      .post(`/api/sessions/${session.id}/message`)
+      .send({ content: 'hello', model: tierRef })
+      .expect(200);
+
+    expect(response.body).toMatchObject({ success: true });
+    // The stale echo was normalized away: the continuation runs on the
+    // session's own (server-canonical, degraded) binding.
+    expect(continueSession).toHaveBeenCalledWith(
+      session.id, 'hello', expect.anything(),
+      expect.objectContaining({ model: null }),
+    );
+  });
+
+  it('still rejects an unknown tier ref the session was never degraded from', async () => {
+    const created = await request(combinedApp)
+      .post('/api/tiers')
+      .send({ name: 'Echo Control Tier', members: [{ providerId: providerA.id, modelId: 'echo-model-a', position: 0 }] })
+      .expect(201);
+    const project = projects.create('Echo Control Project', '/tmp/echo-control');
+    const session = sessions.create(project.id, 'Echo Control Session', 'Later', {
+      status: 'waiting', model: buildTierRef(created.body.id),
+    });
+
+    await request(combinedApp).delete(`/api/tiers/${created.body.id}`).expect(204);
+
+    const otherTierRef = buildTierRef('00000000-0000-0000-0000-000000000000');
+    await request(combinedApp)
+      .post(`/api/sessions/${session.id}/message`)
+      .send({ content: 'hello', model: otherTierRef })
+      .expect(400);
+
+    expect(continueSession).not.toHaveBeenCalled();
   });
 });
