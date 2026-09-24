@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import http from 'http';
 import net from 'net';
@@ -252,17 +252,54 @@ describe('Upload Middleware', () => {
     });
 
     describe('Rejected request draining', () => {
-      async function openIncompleteRejectedUpload() {
+      // Policy overrides so the abuse bounds are testable without waiting for
+      // the production-size values. Read by the drain at request time.
+      const IDLE_MS = '300';
+      const LIFETIME_MS = '1500';
+      const TOTAL_BYTES = String(1024 * 1024);
+
+      beforeEach(() => {
+        process.env.REJECTED_UPLOAD_DRAIN_IDLE_TIMEOUT_MS = IDLE_MS;
+        process.env.REJECTED_UPLOAD_DRAIN_MAX_LIFETIME_MS = LIFETIME_MS;
+        process.env.REJECTED_UPLOAD_DRAIN_MAX_TOTAL_BYTES = TOTAL_BYTES;
+      });
+
+      afterEach(() => {
+        delete process.env.REJECTED_UPLOAD_DRAIN_IDLE_TIMEOUT_MS;
+        delete process.env.REJECTED_UPLOAD_DRAIN_MAX_LIFETIME_MS;
+        delete process.env.REJECTED_UPLOAD_DRAIN_MAX_TOTAL_BYTES;
+      });
+
+      async function listen() {
         const server = http.createServer(app);
         await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
         const { port } = server.address();
-        const socket = net.connect(port, '127.0.0.1');
-        const boundary = 'upload-drain-boundary';
+        return { server, port };
+      }
 
+      async function connect(port) {
+        const socket = net.connect(port, '127.0.0.1');
         await new Promise((resolve, reject) => {
           socket.once('connect', resolve);
           socket.once('error', reject);
         });
+        return socket;
+      }
+
+      function rejectedPartHeader(boundary) {
+        return [
+          `--${boundary}`,
+          'Content-Disposition: form-data; name="files"; filename="malware.exe"',
+          'Content-Type: application/x-msdownload',
+          '',
+          '',
+        ].join('\r\n');
+      }
+
+      async function openIncompleteRejectedUpload() {
+        const { server, port } = await listen();
+        const socket = await connect(port);
+        const boundary = 'upload-drain-boundary';
 
         socket.write([
           'POST /upload HTTP/1.1',
@@ -277,13 +314,7 @@ describe('Upload Middleware', () => {
           socket.write(`${Buffer.byteLength(body).toString(16)}\r\n${body}\r\n`);
         };
 
-        writeChunk([
-          `--${boundary}`,
-          'Content-Disposition: form-data; name="files"; filename="malware.exe"',
-          'Content-Type: application/x-msdownload',
-          '',
-          '',
-        ].join('\r\n'));
+        writeChunk(rejectedPartHeader(boundary));
         // Busboy emits the file event only after the first body byte.
         writeChunk('x');
 
@@ -300,27 +331,189 @@ describe('Upload Middleware', () => {
         });
       }
 
+      /** Collect everything the server sends until the socket closes. */
+      async function readUntilClose(socket, timeoutMs = 8000) {
+        const chunks = [];
+        const result = await new Promise((resolve) => {
+          const timer = setTimeout(() => resolve({ timedOut: true, text: Buffer.concat(chunks).toString() }), timeoutMs);
+          socket.on('data', (chunk) => chunks.push(chunk));
+          socket.once('close', () => {
+            clearTimeout(timer);
+            resolve({ timedOut: false, text: Buffer.concat(chunks).toString() });
+          });
+        });
+        return result;
+      }
+
       async function closeServer(server, socket) {
         socket.destroy();
         await new Promise((resolve) => server.close(resolve));
       }
 
-      it('terminates an incomplete rejected upload within the drain timeout', async () => {
-        const { server, socket } = await openIncompleteRejectedUpload();
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      it('responds 400 to a finite rejected upload whose remaining body exceeds the old 2 MiB ceiling', { timeout: 10000 }, async () => {
+        const { server, port } = await listen();
+        const socket = await connect(port);
+        const boundary = 'drain-finite-boundary';
+        // A 3 MiB executable: rejected by MIME filter, but a legitimate finite
+        // request — the client must receive its 400, not a reset.
+        const body = Buffer.concat([
+          Buffer.from(`${rejectedPartHeader(boundary)}\r\n`),
+          Buffer.alloc(3 * 1024 * 1024, 0x78),
+          Buffer.from(`\r\n--${boundary}--\r\n`),
+        ]);
+
+        socket.write([
+          'POST /upload HTTP/1.1',
+          'Host: 127.0.0.1',
+          `Content-Type: multipart/form-data; boundary=${boundary}`,
+          `Content-Length: ${body.length}`,
+          'Connection: close',
+          '',
+          '',
+        ].join('\r\n'));
+        socket.write(body);
 
         try {
-          expect(await closeWithin(socket, 750)).toBe(true);
+          const { text } = await readUntilClose(socket);
+          expect(text).toContain('HTTP/1.1 400');
+          expect(text).toContain('not allowed');
         } finally {
           await closeServer(server, socket);
         }
       });
 
-      it('stops consuming a rejected upload after its drain byte ceiling', async () => {
+      it('responds 400 to a slowly progressing rejected upload that outlasts the old fixed drain window', { timeout: 10000 }, async () => {
+        const { server, port } = await listen();
+        const socket = await connect(port);
+        const boundary = 'drain-slow-boundary';
+
+        socket.write([
+          'POST /upload HTTP/1.1',
+          'Host: 127.0.0.1',
+          `Content-Type: multipart/form-data; boundary=${boundary}`,
+          'Transfer-Encoding: chunked',
+          'Connection: close',
+          '',
+          '',
+        ].join('\r\n'));
+
+        const writeChunk = (body) => {
+          socket.write(`${Buffer.byteLength(body).toString(16)}\r\n${body}\r\n`);
+        };
+        writeChunk(rejectedPartHeader(boundary));
+
+        // Drip body bytes for ~900ms total — far beyond the old 250 ms
+        // cutoff, but continuously progressing.
+        for (let i = 0; i < 9; i++) {
+          writeChunk('x'.repeat(64 * 1024));
+          await sleep(100);
+        }
+        socket.write(`\r\n--${boundary}--\r\n`);
+        socket.write('0\r\n\r\n');
+
+        try {
+          const { text } = await readUntilClose(socket);
+          expect(text).toContain('HTTP/1.1 400');
+          expect(text).toContain('not allowed');
+        } finally {
+          await closeServer(server, socket);
+        }
+      });
+
+      it('responds 400 for a rejected over-limit file whose body is still progressing', { timeout: 10000 }, async () => {
+        const { server, port } = await listen();
+        const socket = await connect(port);
+        const boundary = 'drain-size-boundary';
+        // text/plain passes the MIME filter but exceeds the 10MB file limit —
+        // the size-rejection drain entry point.
+        const bigContent = Buffer.alloc(11 * 1024 * 1024, 0x78);
+        const body = Buffer.concat([
+          Buffer.from([
+            `--${boundary}`,
+            'Content-Disposition: form-data; name="files"; filename="big.txt"',
+            'Content-Type: text/plain',
+            '',
+            '',
+          ].join('\r\n')),
+          bigContent,
+          Buffer.from(`\r\n--${boundary}--\r\n`),
+        ]);
+
+        socket.write([
+          'POST /upload HTTP/1.1',
+          'Host: 127.0.0.1',
+          `Content-Type: multipart/form-data; boundary=${boundary}`,
+          `Content-Length: ${body.length}`,
+          'Connection: close',
+          '',
+          '',
+        ].join('\r\n'));
+        socket.write(body);
+
+        try {
+          const { text } = await readUntilClose(socket);
+          expect(text).toContain('HTTP/1.1 400');
+          expect(text).toContain('File too large');
+        } finally {
+          await closeServer(server, socket);
+        }
+      });
+
+      it('terminates a rejected upload that stops making progress within the idle window', { timeout: 10000 }, async () => {
+        const { server, socket } = await openIncompleteRejectedUpload();
+
+        try {
+          // The client stalls after the first body byte: the idle-progress
+          // timeout (300ms under test) must bound the connection well within
+          // the hard lifetime.
+          expect(await closeWithin(socket, 2000)).toBe(true);
+        } finally {
+          await closeServer(server, socket);
+        }
+      });
+
+      it('terminates a continuously progressing never-ending rejected upload at the hard lifetime bound', { timeout: 10000 }, async () => {
+        const { server, port } = await listen();
+        const socket = await connect(port);
+        const boundary = 'drain-unbounded-boundary';
+
+        socket.write([
+          'POST /upload HTTP/1.1',
+          'Host: 127.0.0.1',
+          `Content-Type: multipart/form-data; boundary=${boundary}`,
+          'Transfer-Encoding: chunked',
+          '',
+          '',
+        ].join('\r\n'));
+
+        const writeChunk = (body) => {
+          socket.write(`${Buffer.byteLength(body).toString(16)}\r\n${body}\r\n`);
+        };
+        writeChunk(rejectedPartHeader(boundary));
+        writeChunk('x');
+
+        // Keep bytes flowing so only the hard lifetime (1.5s under test) can
+        // end this — progress alone must never keep an abusive request open.
+        const drip = setInterval(() => writeChunk('x'.repeat(64 * 1024)), 100);
+
+        try {
+          expect(await closeWithin(socket, 5000)).toBe(true);
+        } finally {
+          clearInterval(drip);
+          await closeServer(server, socket);
+        }
+      });
+
+      it('stops consuming a rejected upload after its total-byte safety ceiling', { timeout: 10000 }, async () => {
         const { server, socket, writeChunk } = await openIncompleteRejectedUpload();
 
         try {
+          // The 1 MiB test ceiling is exceeded by a single large chunk on a
+          // chunked (undeclared-length) request.
           writeChunk('x'.repeat(3 * 1024 * 1024));
-          expect(await closeWithin(socket, 750)).toBe(true);
+          expect(await closeWithin(socket, 2000)).toBe(true);
         } finally {
           await closeServer(server, socket);
         }
