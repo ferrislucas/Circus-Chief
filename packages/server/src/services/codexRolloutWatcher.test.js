@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { CodexRolloutWatcher, findActiveRolloutFile, createCodexRolloutWatcher } from './codexRolloutWatcher.js';
+import { CodexRolloutWatcher, findActiveRolloutFile, createCodexRolloutWatcher, resolveCodexSessionsRoot } from './codexRolloutWatcher.js';
 
 const fixturePath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -15,7 +15,11 @@ function makeTempHome() {
 }
 
 function seedRolloutFile(home, content, { mtimeMs } = {}) {
-  const dayRoot = path.join(home, '.codex', 'sessions', '2026', '09', '19');
+  return seedRolloutFileAt(home, path.join('.codex', 'sessions'), content, { mtimeMs });
+}
+
+function seedRolloutFileAt(home, sessionsSubpath, content, { mtimeMs } = {}) {
+  const dayRoot = path.join(home, sessionsSubpath, '2026', '09', '19');
   fs.mkdirSync(dayRoot, { recursive: true });
   const file = path.join(dayRoot, 'rollout-2026-09-19T21-00-00-redacted.jsonl');
   fs.writeFileSync(file, content);
@@ -99,7 +103,7 @@ describe('CodexRolloutWatcher', () => {
     return new CodexRolloutWatcher({
       providerId: 'openai-default',
       allowanceObserver: observer,
-      homeDirectory: home,
+      sessionsRoot: path.join(home, '.codex', 'sessions'),
       clock,
       pollIntervalMs: 1,
       ...overrides,
@@ -291,6 +295,48 @@ describe('CodexRolloutWatcher', () => {
     await watcher.poll();
 
     expect(watcher.stopped).toBe(true);
+  });
+});
+
+describe('resolveCodexSessionsRoot', () => {
+  const defaultRoot = path.join(os.homedir(), '.codex', 'sessions');
+
+  // CODEX_HOME replaces ~/.codex wholesale — `.codex` is part of the default,
+  // never a suffix appended to an explicit home.
+  it.each([
+    ['unset CODEX_HOME falls back to the default ~/.codex/sessions', null, defaultRoot],
+    ['empty CODEX_HOME falls back to the default', { CODEX_HOME: '' }, defaultRoot],
+    ['an explicit CODEX_HOME is the codex home itself', { CODEX_HOME: '/data/codex' }, '/data/codex/sessions'],
+    ['trailing separators are normalized', { CODEX_HOME: '/data/codex/' }, '/data/codex/sessions'],
+  ])('%s', (_name, env, expected) => {
+    expect(resolveCodexSessionsRoot(env)).toBe(expected);
+  });
+});
+
+describe('CodexRolloutWatcher with a custom CODEX_HOME', () => {
+  it('discovers the rollout under $CODEX_HOME/sessions without appending .codex', async () => {
+    const customHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-'));
+    try {
+      const startedAfterMs = 1_789_850_000_000;
+      const observer = vi.fn();
+      // Seeded under $CODEX_HOME/sessions — the current behavior would look
+      // in $CODEX_HOME/.codex/sessions and find nothing.
+      const file = seedRolloutFileAt(customHome, 'sessions', '{}\n', { mtimeMs: startedAfterMs + 5_000 });
+      const watcher = new CodexRolloutWatcher({
+        providerId: 'openai-default',
+        allowanceObserver: observer,
+        env: { CODEX_HOME: customHome },
+        startedAfterMs,
+        clock: { now: () => startedAfterMs + 6_000 },
+        pollIntervalMs: 1,
+      });
+
+      await watcher.locate();
+
+      expect(watcher.rolloutFile).toBe(file);
+    } finally {
+      fs.rmSync(customHome, { recursive: true, force: true });
+    }
   });
 });
 

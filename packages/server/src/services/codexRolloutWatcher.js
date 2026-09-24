@@ -109,7 +109,8 @@ export class CodexRolloutWatcher {
    * @param {Object} [options.clock] - Clock DI ({ now }).
    * @param {number} [options.pollIntervalMs]
    * @param {number} [options.fileGraceMs]
-   * @param {string} [options.homeDirectory] - Home DI for tests.
+   * @param {string} [options.sessionsRoot] - Sessions-root DI for tests
+   *   (defaults to resolveCodexSessionsRoot(env)).
    * @param {Function} [options.streamStaleMsProvider] - Freshness window provider.
    */
   constructor({
@@ -120,7 +121,7 @@ export class CodexRolloutWatcher {
     clock = Date,
     pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
     fileGraceMs = DEFAULT_FILE_GRACE_MS,
-    homeDirectory = null,
+    sessionsRoot = null,
     streamStaleMsProvider = null,
   }) {
     this.providerId = providerId;
@@ -137,7 +138,7 @@ export class CodexRolloutWatcher {
     this.timer = null;
     this.stopped = false;
     this.pollInFlight = false;
-    this.homeDirectory = homeDirectory ?? resolveCodexHomeDirectory(env);
+    this.sessionsRoot = sessionsRoot ?? resolveCodexSessionsRoot(env);
   }
 
   start() {
@@ -167,7 +168,7 @@ export class CodexRolloutWatcher {
 
   async locate() {
     if (this.rolloutFile) return;
-    const sessionsRoot = path.join(this.homeDirectory, '.codex', 'sessions');
+    const sessionsRoot = this.sessionsRoot;
     this.rolloutFile = this.sessionId
       ? await findPinnedRolloutFile({ sessionsRoot, startedAfterMs: this.startedAfterMs, sessionId: this.sessionId })
       // Until the CLI emits a session_id, retain the legacy newest-file heuristic.
@@ -293,10 +294,20 @@ export function createCodexRolloutWatcher({
   });
 }
 
-function resolveCodexHomeDirectory(env) {
+/**
+ * The Codex CLI stores session rollouts under `$CODEX_HOME/sessions`, where
+ * `CODEX_HOME` replaces the default `~/.codex` wholesale — `.codex` is part
+ * of the *default*, never a suffix appended to an explicit home (so
+ * CODEX_HOME=/data/codex means /data/codex/sessions, never
+ * /data/codex/.codex/sessions). Centralized here so future Codex state
+ * readers cannot reproduce the ambiguity.
+ */
+export function resolveCodexSessionsRoot(env) {
   const codeHome = env?.CODEX_HOME;
-  if (typeof codeHome === 'string' && codeHome.length > 0) return codeHome;
-  return os.homedir();
+  if (typeof codeHome === 'string' && codeHome.trim().length > 0) {
+    return path.join(codeHome, 'sessions'); // path.join normalizes separators
+  }
+  return path.join(os.homedir(), '.codex', 'sessions');
 }
 
 function rolloutDateParts(nowMs) {
