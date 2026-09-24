@@ -9,14 +9,17 @@ import { getStreamStaleAfterMs, isCodexAppServerAllowanceSourceEnabled } from '.
  * A single app-server process speaks line-delimited JSON-RPC over stdio and
  * reports account-level rate limits for ChatGPT-plan auth — the only Codex
  * mechanism that keeps indicators current with no active session (FRD AC 18).
- * On start it issues `account/rateLimits/read`; `account/rateLimits/updated`
- * push notifications trigger a fresh read so only the documented response
- * shape is depended on.
+ * Each spawned process first completes the required initialize handshake
+ * (initialize → initialization response → `initialized` notification) before
+ * issuing `account/rateLimits/read`; codex-cli 0.145.0 silently drops
+ * requests sent before initialization. `account/rateLimits/updated` push
+ * notifications trigger a fresh read, and a JSON-RPC error object resolves
+ * as a protocol failure — never as a successful null read.
  *
  * Health means delivering, not merely alive: `healthy` requires a mapped
- * delivery inside the stream freshness window. An unresponsive read is
- * treated as a process failure (kill + backoff + breaker), so a hung
- * app-server can never silently starve the indicators.
+ * delivery inside the stream freshness window. An unresponsive read or
+ * failed handshake is treated as a process failure (kill + backoff +
+ * breaker), so a hung app-server can never silently starve the indicators.
  *
  * Raw JSON-RPC frames are never logged — only parsed, mapped fields and
  * outcome counters (plan §9.3). Repeated failures disable the meter; the
@@ -24,9 +27,19 @@ import { getStreamStaleAfterMs, isCodexAppServerAllowanceSourceEnabled } from '.
  * unaffected (FR-7).
  */
 
+const INITIALIZE_METHOD = 'initialize';
+const INITIALIZED_NOTIFICATION = 'initialized';
 const READ_METHOD = 'account/rateLimits/read';
 const UPDATED_NOTIFICATION = 'account/rateLimits/updated';
 const LOG_SOURCE = 'codex-app-server';
+// Client metadata for the app-server handshake: a stable, credential-free
+// identifier (the protocol requires initialization before any other request;
+// codex-cli 0.145.0 silently drops requests sent before it).
+const CLIENT_INFO = Object.freeze({
+  name: 'circuschief-allowance-meter',
+  title: 'Circus Chief',
+  version: '1.0.0',
+});
 // app-server (and the account rate-limit API) ships in codex-cli 0.145.0+.
 const MIN_SUPPORTED_MINOR = 145;
 const MAX_CONSECUTIVE_FAILURES = 5;
@@ -165,7 +178,29 @@ export class CodexAppServerMeter {
     child.stderr?.resume?.();
 
     this.state = 'running';
-    this.readRateLimits();
+    this.#runSession();
+  }
+
+  /**
+   * One process generation: complete the initialize handshake — the
+   * app-server answers no request sent before it — then issue the first
+   * account read. Handshake timeout or a JSON-RPC error routes through the
+   * same kill + backoff + breaker path as a crash, and no read is issued on
+   * a session the server never accepted.
+   */
+  async #runSession() {
+    const child = this.process;
+    const { delivered, reason } = await this.request(INITIALIZE_METHOD, { clientInfo: CLIENT_INFO });
+    if (!delivered) {
+      if (this.state === 'running') {
+        logOutcome({ source: LOG_SOURCE, outcome: reason === 'rpc-error' ? 'initialize-error' : 'initialize-timeout' });
+        this.onProcessFailure();
+      }
+      return;
+    }
+    if (this.process !== child) return; // stop() or a failure retired this generation
+    this.notify(INITIALIZED_NOTIFICATION);
+    await this.readRateLimits();
   }
 
   handleFrame(line) {
@@ -185,19 +220,29 @@ export class CodexAppServerMeter {
       const { resolve, timer } = this.pendingReads.get(frame.id);
       clearTimeout(timer);
       this.pendingReads.delete(frame.id);
-      resolve({ delivered: true, result: frame.result ?? null });
+      // A JSON-RPC error object is an answer, but never a successful one:
+      // it resolves undelivered so callers treat it as a protocol failure
+      // instead of a null-success read.
+      if (frame.error !== undefined && frame.error !== null) {
+        resolve({ delivered: false, result: null, reason: 'rpc-error' });
+        return;
+      }
+      resolve({ delivered: true, result: frame.result ?? null, reason: null });
     }
   }
 
   async readRateLimits() {
     if (!this.#isAlive()) return;
-    const { delivered, result } = await this.request(READ_METHOD);
+    const { delivered, result, reason } = await this.request(READ_METHOD);
     if (!delivered) {
-      // The app-server never answered: route the unresponsive process through
-      // the same kill + backoff + breaker path as a crash instead of waiting
-      // indefinitely for an unsolicited push.
-      logOutcome({ source: LOG_SOURCE, outcome: 'read-timeout' });
-      if (this.state === 'running') this.onProcessFailure();
+      // The app-server never answered, or answered with a JSON-RPC error:
+      // route the failed process through the same kill + backoff + breaker
+      // path as a crash instead of waiting indefinitely or publishing a
+      // false "no data" success.
+      if (this.state === 'running') {
+        logOutcome({ source: LOG_SOURCE, outcome: reason === 'rpc-error' ? 'read-error' : 'read-timeout' });
+        this.onProcessFailure();
+      }
       return;
     }
     const candidate = mapCodexRateLimits(result?.rateLimits, { observedAt: this.clock.now() });
@@ -238,20 +283,21 @@ export class CodexAppServerMeter {
   }
 
   /**
-   * Issues one JSON-RPC read and resolves a discriminated outcome:
-   * `{ delivered: true, result }` when the app-server answered, and
-   * `{ delivered: false, result: null }` on timeout, stdin-write failure,
-   * or a pending read aborted by stop/shutdown — so callers can distinguish
-   * "no data" from "no answer".
+   * Issues one JSON-RPC request and resolves a discriminated outcome:
+   * `{ delivered: true, result, reason: null }` when the app-server answered
+   * successfully, and `{ delivered: false, result: null, reason }` with
+   * reason `'timeout'`, `'write-failed'`, `'aborted'` (stop/shutdown), or
+   * `'rpc-error'` (the server answered with a JSON-RPC error object) — so
+   * callers can distinguish "no data" from "no answer".
    */
-  request(method) {
-    if (!this.#isAlive()) return Promise.resolve({ delivered: false, result: null });
+  request(method, params = {}) {
+    if (!this.#isAlive()) return Promise.resolve({ delivered: false, result: null, reason: 'aborted' });
     const id = this.nextRequestId++;
-    const frame = JSON.stringify({ jsonrpc: '2.0', id, method, params: {} });
+    const frame = JSON.stringify({ jsonrpc: '2.0', id, method, params });
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pendingReads.delete(id);
-        resolve({ delivered: false, result: null });
+        resolve({ delivered: false, result: null, reason: 'timeout' });
       }, this.requestTimeoutMs);
       timer.unref?.();
       this.pendingReads.set(id, { resolve, timer });
@@ -260,15 +306,27 @@ export class CodexAppServerMeter {
       } catch {
         clearTimeout(timer);
         this.pendingReads.delete(id);
-        resolve({ delivered: false, result: null });
+        resolve({ delivered: false, result: null, reason: 'write-failed' });
       }
     });
+  }
+
+  /**
+   * Sends one JSON-RPC notification (no id, no response expected). Write
+   * failures are ignored here — a dead stdin surfaces through the child's
+   * error/exit handlers.
+   */
+  notify(method, params = {}) {
+    if (!this.#isAlive()) return;
+    try {
+      this.process.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`);
+    } catch { /* handled by the failure path */ }
   }
 
   rejectPendingReads() {
     for (const { resolve, timer } of this.pendingReads.values()) {
       clearTimeout(timer);
-      resolve({ delivered: false, result: null });
+      resolve({ delivered: false, result: null, reason: 'aborted' });
     }
     this.pendingReads.clear();
   }

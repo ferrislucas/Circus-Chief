@@ -74,6 +74,25 @@ describe('codexRolloutAllowanceExtractor', () => {
     expect(candidate.allowances[0]).toMatchObject({ remainingPercent: 0 });
   });
 
+  it('maps the camelCase app-server account/rateLimits/read shape identically', () => {
+    // Sanitized from a real `codex app-server` result (codex-cli 0.145.0):
+    // camelCase windows, seconds-precision resetsAt, extra account metadata.
+    const candidate = mapCodexRateLimits({
+      limitId: 'codex',
+      primary: { usedPercent: 17, windowDurationMins: 300, resetsAt: 1_789_856_117 },
+      secondary: { usedPercent: 83, windowDurationMins: 10080, resetsAt: 1_789_959_005 },
+      planType: 'plus',
+      spendControlReached: false,
+    }, { observedAt });
+
+    expect(candidate.allowances.map((row) => row.remainingPercent)).toEqual([83, 17]);
+    expect(candidate.allowances.map((row) => row.resetsAt)).toEqual([1_789_856_117_000, 1_789_959_005_000]);
+    const serialized = JSON.stringify(candidate);
+    expect(serialized).not.toContain('planType');
+    expect(serialized).not.toContain('plus');
+    expect(serialized).not.toContain('spendControlReached');
+  });
+
   it('drops plan_type and credits account metadata', () => {
     const snapshot = { ...rateLimitsFromFixture(), plan_type: 'plus', credits: { balance: '0' } };
     const serialized = JSON.stringify(mapCodexRateLimits(snapshot, { observedAt }));

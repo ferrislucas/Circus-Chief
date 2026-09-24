@@ -3,13 +3,16 @@ import { clampRemainingPercent, finiteNumber } from '../../services/allowanceNum
 
 /**
  * Map a Codex `RateLimitSnapshot` (delivered on `token_count` rollout events
- * under ChatGPT-plan auth) into an allowance candidate for the provider
- * allowance service.
+ * and on the app-server `account/rateLimits/read` RPC under ChatGPT-plan
+ * auth) into an allowance candidate for the provider allowance service.
  *
- * Codex subscription sources report `used_percent` only — absolute token
- * counts do not exist on the wire. Percentages arrive consumed, so they are
- * converted to remaining here (FRD AC 14) and clamped; `plan_type` and
- * `credits` are account/billing metadata that deliberately stays server-side.
+ * Codex subscription sources report utilization only — absolute token counts
+ * do not exist on the wire. Percentages arrive consumed, so they are
+ * converted to remaining here (FRD AC 14) and clamped; `planType`/`plan_type`
+ * and `credits` are account/billing metadata that deliberately stays
+ * server-side. Both wire spellings are accepted: rollout events use
+ * snake_case (`used_percent`, `resets_at`) while the app-server RPC reports
+ * camelCase (`usedPercent`, `resetsAt`).
  */
 
 const WINDOWS = [
@@ -23,7 +26,7 @@ export function mapCodexRateLimits(rateLimits, { observedAt = Date.now(), stream
   const allowances = [];
   for (const [field, key, label] of WINDOWS) {
     const window = rateLimits[field];
-    const used = finiteNumber(window?.used_percent);
+    const used = finiteNumber(window?.used_percent ?? window?.usedPercent);
     if (used === null) continue;
     allowances.push({
       key,
@@ -32,7 +35,7 @@ export function mapCodexRateLimits(rateLimits, { observedAt = Date.now(), stream
       limit: null,
       remainingPercent: clampRemainingPercent(100 - used),
       unit: 'tokens',
-      resetsAt: normalizeEpochMs(window.resets_at), // unix seconds on the wire
+      resetsAt: normalizeEpochMs(window.resets_at ?? window.resetsAt), // unix seconds on the wire
     });
   }
   if (allowances.length === 0) return null;
