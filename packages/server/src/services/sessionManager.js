@@ -4,7 +4,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
-import { resolveTierRefForContinueWithStaleFallback } from './sessionTierFailover.js';
+import { resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
 import { buildTierHealthContext } from './tierResolutionService.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
 import { activeLaneRunOwnsSession, pauseForUserStop } from './workflowSessionService.js';

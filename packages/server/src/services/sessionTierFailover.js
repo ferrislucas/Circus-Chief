@@ -4,12 +4,11 @@ import {
   sessionHasNoAssistantMessages,
   sessionHasNoObservableAgentActivity,
 } from './sessionAgentGuard.js';
-import { isTierRef, parseTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { parseTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   getTierMembersResolved,
   markUnhealthy,
   isUnhealthy,
-  resolveTierRefForContinue,
 } from './tierResolutionService.js';
 import { matchesStartFailoverEligibleError } from './sessionErrors.js';
 import { broadcastToSession } from '../websocket.js';
@@ -283,6 +282,79 @@ function snapshotSuccessfulMember(sessionId, tierRef, member) {
 }
 
 /**
+ * Run ONE failover-loop attempt and classify its outcome. Returns
+ * `{ settled: true, execution }` when this member settles the run (success,
+ * rejected dispatch, reschedule, or abort — the execution is returned
+ * verbatim, undefined included), and `{ settled: false }` when the attempt
+ * failed failover-eligibly and the loop should advance. Terminal failures
+ * propagate.
+ */
+async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDirectory, {
+  member, nextMember, memberIndex, controller, tierRef, tierId, tierName, attempts,
+  systemPrompt, activeConversation, callbacks,
+}) {
+  const tierContext = {
+    currentMemberId: member.modelId,
+    currentMemberProviderId: member.providerId,
+    currentMemberIndex: memberIndex,
+    nextMember,
+    // Explicit failover authorization: ONLY the startup loop may advance to
+    // another member. A context without this flag (see
+    // buildTierHealthContext) reports member health but can never trigger
+    // in-place failover, no matter what else it contains.
+    allowFailover: true,
+  };
+
+  // _executeSession's finally block removes sessionId from activeSessions after
+  // every attempt (success or failure). Re-register it before each retry so
+  // concurrency guards (e.g. continueSessionCore's "already processing" check)
+  // and abort-signal plumbing stay consistent across the failover loop.
+  // Each attempt is a fresh turn for watchdog purposes, so re-stamp the
+  // liveness timestamps rather than carrying the previous member's clock.
+  activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
+
+  // Attribute this attempt's stream activity to the exact member producing
+  // it: the first durable activity persisted during the attempt pins the
+  // session to `member`, even if the turn later ends in a terminal error.
+  // Overwritten per attempt so only the running member can pin.
+  registerTierAttemptMember(sessionId, member);
+
+  const wasPreActivity = sessionHasNoObservableAgentActivity(sessionId);
+  try {
+    const execution = await attemptRunWithModel(sessionId, promptWithAttachments, workingDirectory, {
+      systemPrompt,
+      activeConversation,
+      controller,
+      callbacks,
+      tierContext,
+    });
+
+    // A rejected dispatch (e.g. lane-run ownership lost before the provider
+    // call) never reached this member's provider, so it is neither a success
+    // to snapshot nor a failure to fail over from — surface it verbatim.
+    if (execution && !execution.started) return { settled: true, execution };
+
+    // A provider may close its iterator normally after emitting result:error,
+    // and automatic retry scheduling also intentionally returns normally.
+    // Neither outcome is a successful member resolution. A reschedule ends
+    // this start without a snapshot; a terminal stream failure enters the
+    // same classification/exhaustion path as an iterator rejection.
+    if (execution?.outcome === 'rescheduled') return { settled: true, execution };
+    throwTerminalStreamFailure(execution);
+
+    snapshotSuccessfulMember(sessionId, tierRef, member);
+    return { settled: true, execution }; // done
+  } catch (error) {
+    // Non-eligible and mid-conversation errors must retain their original
+    // protocol. Eligible startup failures are recorded exactly once.
+    recordTierAttemptFailure(error, {
+      sessionId, member, nextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
+    });
+  }
+  return { settled: false }; // advance to the next member
+}
+
+/**
  * Tier failover loop for `runSessionCore`.
  * Iterates healthy tier members in position order, retrying on eligible start failures.
  */
@@ -314,64 +386,20 @@ export async function runSessionWithTierFailover(
       const member = attemptableMembers[memberIndex];
       const nextMember = attemptableMembers[memberIndex + 1] || null;
 
-      const tierContext = {
-        currentMemberId: member.modelId,
-        currentMemberProviderId: member.providerId,
-        currentMemberIndex: memberIndex,
+      const result = await runSingleTierAttempt(sessionId, promptWithAttachments, workingDirectory, {
+        member,
         nextMember,
-        // Explicit failover authorization: ONLY the startup loop may advance to
-        // another member. A context without this flag (see
-        // buildTierHealthContext) reports member health but can never trigger
-        // in-place failover, no matter what else it contains.
-        allowFailover: true,
-      };
-
-      // _executeSession's finally block removes sessionId from activeSessions after
-      // every attempt (success or failure). Re-register it before each retry so
-      // concurrency guards (e.g. continueSessionCore's "already processing" check)
-      // and abort-signal plumbing stay consistent across the failover loop.
-      // Each attempt is a fresh turn for watchdog purposes, so re-stamp the
-      // liveness timestamps rather than carrying the previous member's clock.
-      activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
-
-      // Attribute this attempt's stream activity to the exact member producing
-      // it: the first durable activity persisted during the attempt pins the
-      // session to `member`, even if the turn later ends in a terminal error.
-      // Overwritten per attempt so only the running member can pin.
-      registerTierAttemptMember(sessionId, member);
-
-      const wasPreActivity = sessionHasNoObservableAgentActivity(sessionId);
-      try {
-        const execution = await attemptRunWithModel(sessionId, promptWithAttachments, workingDirectory, {
-          systemPrompt,
-          activeConversation,
-          controller,
-          callbacks,
-          tierContext,
-        });
-
-        // A rejected dispatch (e.g. lane-run ownership lost before the provider
-        // call) never reached this member's provider, so it is neither a success
-        // to snapshot nor a failure to fail over from — surface it verbatim.
-        if (execution && !execution.started) return execution;
-
-        // A provider may close its iterator normally after emitting result:error,
-        // and automatic retry scheduling also intentionally returns normally.
-        // Neither outcome is a successful member resolution. A reschedule ends
-        // this start without a snapshot; a terminal stream failure enters the
-        // same classification/exhaustion path as an iterator rejection.
-        if (execution?.outcome === 'rescheduled') return execution;
-        throwTerminalStreamFailure(execution);
-
-        snapshotSuccessfulMember(sessionId, tierRef, member);
-        return execution; // done
-      } catch (error) {
-        // Non-eligible and mid-conversation errors must retain their original
-        // protocol. Eligible startup failures are recorded exactly once.
-        recordTierAttemptFailure(error, {
-          sessionId, member, nextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
-        });
-      }
+        memberIndex,
+        controller,
+        tierRef,
+        tierId,
+        tierName,
+        attempts,
+        systemPrompt,
+        activeConversation,
+        callbacks,
+      });
+      if (result.settled) return result.execution;
     }
 
     if (attempts.length) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
@@ -391,6 +419,9 @@ function _getTierName(tierId) {
   }
 }
 
+/** Exposed tier-name lookup shared with the stale-fallback degradation module. */
+export { _getTierName as getTierName };
+
 /**
  * Check whether a tier ref currently resolves to at least one attemptable
  * member (tier exists, has ≥1 member whose provider/model is still enabled).
@@ -404,123 +435,4 @@ export function hasResolvableTierMembers(tierRef) {
   const tierId = parseTierRef(tierRef);
   if (!tierId) return false;
   return getTierMembersResolved(tierId).length > 0;
-}
-
-/**
- * Fix 6 — safe degradation for a tier ref that no longer resolves to any
- * member (the tier was deleted, emptied, or every member's provider/model was
- * removed) at new/scheduled session start.
- *
- * Falls back to:
- *   1. The session's last-resolved concrete snapshot (`resolvedModel` /
- *      `resolvedProviderId`), when present — a session that has run before on
- *      this tier keeps using the model it last succeeded on.
- *   2. Otherwise, the same server default used elsewhere (a null model /
- *      provider, i.e. whatever the agent adapter's own SDK default resolves
- *      to — there is always a resolvable Anthropic default, so this branch
- *      never itself fails to "resolve").
- *
- * Persists the concrete fallback onto the session — clearing the tier
- * binding entirely, since there is nothing left to fail over to — so future
- * turns are unambiguous, and surfaces a visible notice + log entry naming the
- * stale tier ref and the concrete fallback that was used.
- *
- * @param {string} sessionId
- * @param {Object} session
- * @param {string} staleTierRef
- * @returns {{ model: string|null, session: Object }}
- */
-export function applyStaleTierFallback(sessionId, session, staleTierRef) {
-  const hasSnapshot = Boolean(session.resolvedModel);
-  const fallbackModel = hasSnapshot ? session.resolvedModel : null;
-  const fallbackProviderId = hasSnapshot ? session.resolvedProviderId || null : null;
-  const tierName = _getTierName(parseTierRef(staleTierRef) || staleTierRef);
-
-  sessions.update(sessionId, {
-    model: fallbackModel,
-    providerId: fallbackProviderId,
-    resolvedModel: null,
-    resolvedProviderId: null,
-  });
-  const updatedSession = sessions.getById(sessionId);
-
-  const reason = `Model tier "${tierName}" is no longer resolvable (deleted or has no enabled members)`;
-  console.warn(
-    `[SessionManager] ${reason} — falling back to ${fallbackModel || 'the server default'} model for session ${sessionId}`
-  );
-
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.TIER_FAILOVER, {
-    sessionId,
-    tierRef: staleTierRef,
-    tierName,
-    fromModel: staleTierRef,
-    fromProviderId: null,
-    toModel: fallbackModel,
-    toProviderId: fallbackProviderId,
-    reason,
-    timestamp: Date.now(),
-  });
-
-  try {
-    agentCallLogger._logFailoverEvent(sessionId, {
-      fromModel: staleTierRef,
-      fromProviderId: null,
-      toModel: fallbackModel,
-      toProviderId: fallbackProviderId,
-      tierRef: staleTierRef,
-      tierName,
-      reason,
-      agentType: updatedSession.agentType || 'claude-code',
-    });
-  } catch (_logErr) {
-    // Non-fatal — the fallback proceeds even if logging fails
-  }
-
-  return { model: fallbackModel, session: updatedSession };
-}
-
-/**
- * `resolveTierRefForContinue` + stale-binding degradation for the continuation
- * paths (PRD E3 / D6). The start path (`_runTierBoundSession`) already
- * degrades a truly-stale tier binding via `applyStaleTierFallback`; this
- * wrapper gives `buildContinueModelAndEnv` / `buildModelAndProvider` the same
- * behavior so a follow-up message never throws or strands the session.
- *
- * Semantics:
- * - A TRULY stale binding — the session's own tier ref with no resolvable
- *   members left (deleted / emptied, per `hasResolvableTierMembers`, which is
- *   deliberately cooldown-blind) — degrades exactly like the start path,
- *   INCLUDING when a snapshot would have made resolution succeed anyway: a
- *   session must not keep a binding to a tier that no longer exists.
- *   `applyStaleTierFallback` clears the binding (preferring the snapshot) and
- *   broadcasts the `tier:failover` notice.
- * - A TRANSIENT state (every member merely in cooldown) continues on the
- *   snapshot, or on the first configured member for a legacy row. Cooldown
- *   must neither clear nor block an existing binding.
- * - A request for a DIFFERENT unresolvable tier still throws — that is a
- *   genuine bad selection, not the session's own binding.
- *
- * @param {string} sessionId
- * @param {Object} session - Current session row.
- * @param {string|null} requestedModel - Explicit model override, or null.
- * @returns {{ effectiveModel: string|null, providerIdHint: string|null, persist: Object }}
- * @throws {Error} from `resolveTierRefForContinue` for the non-stale-binding
- *   cases described above.
- */
-export function resolveTierRefForContinueWithStaleFallback(sessionId, session, requestedModel) {
-  const ownBindingRequested =
-    isTierRef(session.model) && (!requestedModel || requestedModel === session.model);
-  if (ownBindingRequested && !hasResolvableTierMembers(session.model)) {
-    // Stale binding — degrade exactly like the start path. `applyStaleTierFallback`
-    // persists the concrete fallback (snapshot or null/server-default) and clears
-    // the tier binding, so nothing further needs persisting here; the persisted
-    // providerId doubles as the disambiguation hint for duplicate model ids.
-    const fallback = applyStaleTierFallback(sessionId, session, session.model);
-    return {
-      effectiveModel: fallback.model,
-      providerIdHint: fallback.session?.providerId ?? null,
-      persist: {},
-    };
-  }
-  return resolveTierRefForContinue(session, requestedModel);
 }

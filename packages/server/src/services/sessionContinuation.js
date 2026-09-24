@@ -9,7 +9,7 @@ import { buildQueryParams } from './queryParamBuilder.js';
 import { activeSessions, activeConversationIds, broadcastSessionStatus } from './streamEventHandler.js';
 import { buildPromptWithAttachments } from './sessionPrompts.js';
 import { createAgentForSession, buildAgentEnv, _executeSession } from './sessionExecution.js';
-import { resolveTierRefForContinueWithStaleFallback } from './sessionTierFailover.js';
+import { resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
 import { buildTierHealthContext } from './tierResolutionService.js';
 import { activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';

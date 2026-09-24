@@ -16,7 +16,8 @@ import {
 import { shouldRescheduleOnError, isTierFailoverEligibleError, matchesStartFailoverEligibleError, _checkProactiveReschedule } from './sessionErrors.js';
 import { markUnhealthy } from './tierResolutionService.js';
 import { isTierRef } from '@circuschief/shared';
-import { runSessionWithTierFailover, hasResolvableTierMembers, applyStaleTierFallback } from './sessionTierFailover.js';
+import { runSessionWithTierFailover, hasResolvableTierMembers } from './sessionTierFailover.js';
+import { applyStaleTierFallback } from './sessionStaleTierFallback.js';
 import { schedulerService } from './schedulerService.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { beginWorkflowTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, pauseForUserStop, activeLaneRunOwnsSession } from './workflowSessionService.js';

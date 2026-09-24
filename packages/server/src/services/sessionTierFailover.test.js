@@ -49,10 +49,10 @@ import { BaseAgent } from '../agents/BaseAgent.js';
 import { CodexAdapter } from '../agents/adapters/CodexAdapter.js';
 import { broadcastToSession } from '../websocket.js';
 import {
-  resolveTierRefForContinueWithStaleFallback,
   runSessionWithTierFailover,
   sanitizeTierFailureReason,
 } from './sessionTierFailover.js';
+import { resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
 import { checkCrossKindSwitch } from './sessionAgentGuard.js';
 
 describe('sanitizeTierFailureReason', () => {
