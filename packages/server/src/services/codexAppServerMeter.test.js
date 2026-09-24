@@ -9,6 +9,7 @@ import {
   stopCodexAppServerMeter,
 } from './codexAppServerMeter.js';
 import { getStreamStaleAfterMs } from '../config/providerAllowances.js';
+import { ProviderAllowanceService } from './ProviderAllowanceService.js';
 
 // Sanitized from a real `codex app-server` account/rateLimits/read result
 // (codex-cli 0.145.0): camelCase window fields, seconds-precision resetsAt,
@@ -468,5 +469,82 @@ describe('meter server lifecycle singleton', () => {
 
     expect(stop).toHaveBeenCalledOnce();
     expect(isCodexAppServerMeterHealthy()).toBe(false);
+  });
+});
+
+describe('Codex app-server → allowance boundary (integration)', () => {
+  let originalEnv;
+
+  beforeEach(() => {
+    originalEnv = {
+      PROVIDER_ALLOWANCES_ENABLED: process.env.PROVIDER_ALLOWANCES_ENABLED,
+      PROVIDER_ALLOWANCES_CODEX_APPSERVER: process.env.PROVIDER_ALLOWANCES_CODEX_APPSERVER,
+    };
+    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
+    process.env.PROVIDER_ALLOWANCES_CODEX_APPSERVER = '1';
+  });
+
+  afterEach(async () => {
+    Object.assign(process.env, {
+      PROVIDER_ALLOWANCES_ENABLED: originalEnv.PROVIDER_ALLOWANCES_ENABLED,
+      PROVIDER_ALLOWANCES_CODEX_APPSERVER: originalEnv.PROVIDER_ALLOWANCES_CODEX_APPSERVER,
+    });
+  });
+
+  // The production wiring under test (index.js): the meter's getObserver is
+  // the allowance service, so an initialized, session-independent snapshot
+  // must land in the REST state (getSnapshots, served by
+  // GET /api/providers/allowances) and on the WebSocket (broadcaster) for
+  // only the ChatGPT-plan provider.
+  it('delivers an initialized session-free snapshot to REST state and WS for only the ChatGPT-plan provider', async () => {
+    const broadcaster = vi.fn();
+    const chatgpt = { id: 'openai-chatgpt', name: 'Codex (ChatGPT)', kind: 'openai', enabled: true };
+    const apikey = { id: 'openai-apikey', name: 'OpenAI API key', kind: 'openai', enabled: true, additionalEnvVars: { OPENAI_API_KEY: 'sk-integration-fixture' } };
+    const anthropic = { id: 'anthropic-x', name: 'Claude', kind: 'anthropic', enabled: true };
+    const service = new ProviderAllowanceService({
+      providerRepository: { getAll: () => [chatgpt, apikey, anthropic] },
+      broadcaster,
+      clock: { now: () => 1_789_855_000_000 },
+    });
+    const { meter, child } = makeMeter({
+      observer: (candidate) => service.observe(candidate),
+      modelProviders: { getEnabledForAllowances: () => [chatgpt, apikey, anthropic] },
+    });
+
+    try {
+      await meter.start();
+      await respondToLastRead(child, { rateLimits: RATE_LIMIT_SNAPSHOT });
+
+      // REST boundary: the snapshot belongs to the ChatGPT-plan provider only.
+      // Status is warning, not available: the weekly window's 17% remaining
+      // is the most constrained allowance and crosses the warning threshold.
+      const { snapshots } = service.getSnapshots();
+      expect(snapshots).toHaveLength(3);
+      expect(snapshots.find((row) => row.providerId === chatgpt.id)).toEqual(expect.objectContaining({
+        status: 'warning',
+        source: 'provider',
+        allowances: [
+          expect.objectContaining({ key: 'five_hour', remainingPercent: 83 }),
+          expect.objectContaining({ key: 'weekly', remainingPercent: 17 }),
+        ],
+      }));
+      for (const other of [apikey, anthropic]) {
+        expect(snapshots.find((row) => row.providerId === other.id)).toEqual(expect.objectContaining({
+          status: 'unknown',
+          allowances: [],
+        }));
+      }
+
+      // WebSocket boundary: one normalized update payload, credential-free
+      // (the provider's display name may legitimately contain "API key";
+      // the credential material itself must not).
+      expect(broadcaster).toHaveBeenCalledTimes(1);
+      const [, payload] = broadcaster.mock.calls[0];
+      expect(payload.snapshot.providerId).toBe(chatgpt.id);
+      const serialized = JSON.stringify([payload, service.getSnapshots()]);
+      expect(serialized).not.toMatch(/sk-[A-Za-z0-9]|authToken|OPENAI_API_KEY/);
+    } finally {
+      await meter.stop();
+    }
   });
 });
