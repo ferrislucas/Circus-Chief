@@ -81,6 +81,7 @@ export class CodexAppServerMeter {
     this.restartTimer = null;
     this.lastSnapshot = null;
     this.lastDeliveredAt = null;
+    this.provider = null;
   }
 
   // Aliveness only: guards issuing reads. Distinct from `healthy`, which
@@ -108,6 +109,8 @@ export class CodexAppServerMeter {
   async start() {
     if (this.state !== 'stopped') return;
     if (!isCodexAppServerAllowanceSourceEnabled()) return;
+    this.provider = resolveCodexAllowanceProvider(this.modelProviders);
+    if (!this.provider) return;
     this.state = 'starting';
     const supported = await this.isCodexVersionSupported();
     if (!supported) {
@@ -150,7 +153,10 @@ export class CodexAppServerMeter {
     if (this.state === 'stopped' || this.state === 'disabled') return;
     let child;
     try {
-      child = this.spawnProcess('codex', ['app-server'], { stdio: ['pipe', 'pipe', 'pipe'] });
+      child = this.spawnProcess('codex', ['app-server'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: buildCodexMeterEnv(this.provider),
+      });
     } catch {
       this.onSpawnFailure();
       return;
@@ -258,28 +264,12 @@ export class CodexAppServerMeter {
     this.lastSnapshot = candidate;
     const observer = this.getObserver?.();
     if (!observer) return;
-    for (const providerId of this.eligibleProviderIds()) {
-      try {
-        observer({ ...candidate, providerId });
-      } catch {
-        // Allowance telemetry is non-critical (FR-7).
-      }
+    try {
+      observer({ ...candidate, providerId: this.provider.id });
+    } catch {
+      // Allowance telemetry is non-critical (FR-7).
     }
     logOutcome({ source: LOG_SOURCE, outcome: 'ok' });
-  }
-
-  /**
-   * The app-server meter reads the CLI account's limits (~/.codex auth), so
-   * its observations apply to every enabled openai-kind provider that relies
-   * on ChatGPT-plan auth: no stored authToken and no API key override.
-   */
-  eligibleProviderIds() {
-    const providers = this.modelProviders?.getEnabledForAllowances?.() ?? [];
-    return providers
-      .filter((provider) => provider.kind === 'openai'
-        && !provider.authToken
-        && !provider.additionalEnvVars?.OPENAI_API_KEY)
-      .map((provider) => provider.id);
   }
 
   /**
@@ -376,6 +366,32 @@ export function parseCodexMinorVersion(versionOutput) {
   const match = String(versionOutput).match(/(\d+)\.(\d+)\.(\d+)/);
   if (!match) return -1;
   return Number(match[1]) * 1000 + Number(match[2]);
+}
+
+/**
+ * An app-server account read belongs to exactly one configured Codex auth
+ * context. Custom OpenAI-compatible endpoints never qualify, even when they
+ * have no API key, because their account cannot be inferred from the host
+ * Codex login.
+ */
+export function resolveCodexAllowanceProvider(modelProviders) {
+  const providers = modelProviders?.getEnabledForAllowances?.() ?? [];
+  return providers.find((provider) => provider?.isBuiltIn === true && provider.kind === 'openai') ?? null;
+}
+
+/**
+ * Mirror the relevant provider execution context while retaining the process
+ * environment needed to locate the Codex executable. This environment is
+ * process-local only; it is never normalized, logged, or sent to the client.
+ */
+export function buildCodexMeterEnv(provider, inheritedEnv = process.env) {
+  const env = { ...inheritedEnv };
+  if (provider?.baseUrl) env.OPENAI_BASE_URL = provider.baseUrl;
+  if (provider?.authToken) env.OPENAI_API_KEY = provider.authToken;
+  if (provider?.additionalEnvVars && typeof provider.additionalEnvVars === 'object') {
+    Object.assign(env, provider.additionalEnvVars);
+  }
+  return env;
 }
 
 // --- Server lifecycle singleton ---------------------------------------------

@@ -26,30 +26,8 @@ export function mapZaiQuota(payload, { observedAt = Date.now(), staleAfterMs = Z
 
   const allowances = [];
   for (const limit of limits) {
-    if (limit?.type !== 'TOKENS_LIMIT') continue; // TIME_LIMIT rows filtered
-    const window = UNITS.get(limit.unit);
-    if (!window) continue;
-
-    const limitValue = finiteNumber(limit.usage);
-    const usedValue = finiteNumber(limit.currentValue);
-    const remaining = limitValue !== null && usedValue !== null
-      ? Math.max(0, limitValue - usedValue)
-      : null;
-    // Tolerated future shape: percentage without absolutes still feeds the
-    // indicator through the percentage-only normalization path; the service
-    // derives its percentage from absolutes when they exist (§4.1).
-    const fallbackPercent = remaining === null ? clampRemainingPercent(100 - limit.percentage) : null;
-    if (remaining === null && fallbackPercent === null) continue; // no usable measurement
-
-    allowances.push({
-      key: window.key,
-      label: window.label,
-      remaining,
-      limit: limitValue,
-      remainingPercent: fallbackPercent,
-      unit: 'tokens',
-      resetsAt: normalizeEpochMs(limit.nextResetTime), // unix ms on the wire
-    });
+    const allowance = mapTokenLimit(limit);
+    if (allowance) allowances.push(allowance);
   }
   if (allowances.length === 0) return null;
 
@@ -59,5 +37,31 @@ export function mapZaiQuota(payload, { observedAt = Date.now(), staleAfterMs = Z
     updatedAt: observedAt,
     staleAfterMs,
     allowances,
+  };
+}
+
+function mapTokenLimit(limit) {
+  if (limit?.type !== 'TOKENS_LIMIT') return null; // TIME_LIMIT rows filtered
+  const window = UNITS.get(limit.unit);
+  if (!window) return null;
+
+  const limitValue = finiteNumber(limit.usage);
+  const usedValue = finiteNumber(limit.currentValue);
+  // Tolerated future shape: percentage without absolutes still feeds the
+  // indicator through the percentage-only normalization path; the service
+  // derives its percentage from absolutes when they exist (§4.1).
+  const fallbackPercent = usedValue === null || limitValue === null ? clampRemainingPercent(100 - limit.percentage) : null;
+  if (usedValue === null && fallbackPercent === null) return null;
+
+  return {
+    key: window.key,
+    label: window.label,
+    remaining: null,
+    value: usedValue === null ? null : Math.max(0, usedValue),
+    valueKind: usedValue === null ? null : 'used',
+    limit: limitValue,
+    remainingPercent: fallbackPercent,
+    unit: 'tokens',
+    resetsAt: normalizeEpochMs(limit.nextResetTime), // unix ms on the wire
   };
 }

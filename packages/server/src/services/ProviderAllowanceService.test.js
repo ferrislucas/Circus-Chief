@@ -29,7 +29,7 @@ describe('ProviderAllowanceService', () => {
     const snapshot = {
       providerId: enabled.id, providerName: enabled.name, providerKind: 'openai',
       status: 'warning', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
-      allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: 3 }],
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 25, value: 25, valueKind: 'remaining', limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: 3 }],
     };
 
     service.observe(snapshot);
@@ -56,7 +56,7 @@ describe('ProviderAllowanceService', () => {
     const expected = {
       providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
       status: 'warning', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
-      allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: 3 }],
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 25, value: 25, valueKind: 'remaining', limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: 3 }],
     };
     expect(received).toEqual(expected);
     expect(service.getSnapshots()).toEqual({ snapshots: [expected], activeProviderIds: [] });

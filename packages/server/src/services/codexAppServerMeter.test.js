@@ -94,7 +94,7 @@ function makeMeter(overrides = {}) {
   const meter = new CodexAppServerMeter({
     getObserver: () => overrides.observer ?? null,
     modelProviders: overrides.modelProviders ?? {
-      getEnabledForAllowances: () => [{ id: 'openai-chatgpt', kind: 'openai', authToken: null, additionalEnvVars: null }],
+      getEnabledForAllowances: () => [{ id: 'openai-chatgpt', kind: 'openai', isBuiltIn: true, authToken: null, additionalEnvVars: null }],
     },
     clock: { now: () => 1_789_855_000_000 },
     spawnProcess,
@@ -144,14 +144,15 @@ describe('CodexAppServerMeter', () => {
     });
   });
 
-  it('reads account rate limits on start and observes every eligible ChatGPT-plan provider', async () => {
+  it('reads account rate limits on start and observes the authoritative built-in Codex provider only', async () => {
     const observer = vi.fn();
     const modelProviders = {
       getEnabledForAllowances: () => [
-        { id: 'openai-chatgpt', kind: 'openai', authToken: null, additionalEnvVars: null },
-        { id: 'openai-apikey', kind: 'openai', authToken: null, additionalEnvVars: { OPENAI_API_KEY: 'sk' } },
-        { id: 'openai-token', kind: 'openai', authToken: 'stored', additionalEnvVars: null },
-        { id: 'anthropic-x', kind: 'anthropic', authToken: null, additionalEnvVars: null },
+        { id: 'openai-chatgpt', kind: 'openai', isBuiltIn: true, authToken: null, additionalEnvVars: null },
+        { id: 'custom-openai-no-key', kind: 'openai', isBuiltIn: false, baseUrl: 'https://custom.example/v1', authToken: null, additionalEnvVars: null },
+        { id: 'openai-apikey', kind: 'openai', isBuiltIn: false, authToken: null, additionalEnvVars: { OPENAI_API_KEY: 'sk' } },
+        { id: 'openai-token', kind: 'openai', isBuiltIn: false, authToken: 'stored', additionalEnvVars: null },
+        { id: 'anthropic-x', kind: 'anthropic', isBuiltIn: true, authToken: null, additionalEnvVars: null },
       ],
     };
     const { meter, child } = makeMeter({ observer, modelProviders });
@@ -162,6 +163,41 @@ describe('CodexAppServerMeter', () => {
     expect(observer).toHaveBeenCalledTimes(1);
     expect(observer.mock.calls[0][0].providerId).toBe('openai-chatgpt');
     expect(observer.mock.calls[0][0].allowances.map((row) => row.key)).toEqual(['five_hour', 'weekly']);
+  });
+
+  it('uses only the built-in provider auth context when spawning and never attributes host data to custom OpenAI providers', async () => {
+    const observer = vi.fn();
+    const inheritedPath = process.env.PATH;
+    const builtIn = { id: 'openai-default', kind: 'openai', isBuiltIn: true, additionalEnvVars: { CODEX_HOME: '/tmp/provider-codex-home' } };
+    const custom = { id: 'custom-openai', kind: 'openai', isBuiltIn: false, baseUrl: 'https://custom.example/v1', additionalEnvVars: { CODEX_HOME: '/tmp/custom-codex-home' } };
+    const { meter, child, spawnProcess } = makeMeter({
+      observer,
+      modelProviders: { getEnabledForAllowances: () => [custom, builtIn] },
+    });
+
+    await meter.start();
+    await respondToLastRead(child, { rateLimits: RATE_LIMIT_SNAPSHOT });
+
+    expect(spawnProcess).toHaveBeenCalledWith('codex', ['app-server'], expect.objectContaining({
+      env: expect.objectContaining({ CODEX_HOME: '/tmp/provider-codex-home', PATH: inheritedPath }),
+    }));
+    expect(observer).toHaveBeenCalledTimes(1);
+    expect(observer.mock.calls[0][0].providerId).toBe(builtIn.id);
+    expect(JSON.stringify(observer.mock.calls[0][0])).not.toContain('CODEX_HOME');
+    expect(JSON.stringify(observer.mock.calls[0][0])).not.toContain('custom.example');
+  });
+
+  it('does not start or emit a host-account snapshot when no enabled built-in OpenAI provider exists', async () => {
+    const observer = vi.fn();
+    const { meter, spawnProcess } = makeMeter({
+      observer,
+      modelProviders: { getEnabledForAllowances: () => [{ id: 'custom-openai', kind: 'openai', isBuiltIn: false, baseUrl: 'https://custom.example/v1' }] },
+    });
+
+    await meter.start();
+
+    expect(spawnProcess).not.toHaveBeenCalled();
+    expect(observer).not.toHaveBeenCalled();
   });
 
   it('performs the initialize handshake before reading account rate limits', async () => {
@@ -412,7 +448,7 @@ describe('CodexAppServerMeter', () => {
     let now = 1_789_855_000_000;
     const meter = new CodexAppServerMeter({
       getObserver: () => null,
-      modelProviders: { getEnabledForAllowances: () => [] },
+      modelProviders: { getEnabledForAllowances: () => [{ id: 'openai-default', kind: 'openai', isBuiltIn: true }] },
       clock: { now: () => now },
       spawnProcess: vi.fn(() => createFakeAppServer()),
       execFileAsync: vi.fn((_cmd, _args, _opts, cb) => cb(null, 'codex-cli 0.145.0')),
@@ -498,7 +534,7 @@ describe('Codex app-server → allowance boundary (integration)', () => {
   // only the ChatGPT-plan provider.
   it('delivers an initialized session-free snapshot to REST state and WS for only the ChatGPT-plan provider', async () => {
     const broadcaster = vi.fn();
-    const chatgpt = { id: 'openai-chatgpt', name: 'Codex (ChatGPT)', kind: 'openai', enabled: true };
+    const chatgpt = { id: 'openai-chatgpt', name: 'Codex (ChatGPT)', kind: 'openai', isBuiltIn: true, enabled: true };
     const apikey = { id: 'openai-apikey', name: 'OpenAI API key', kind: 'openai', enabled: true, additionalEnvVars: { OPENAI_API_KEY: 'sk-integration-fixture' } };
     const anthropic = { id: 'anthropic-x', name: 'Claude', kind: 'anthropic', enabled: true };
     const service = new ProviderAllowanceService({

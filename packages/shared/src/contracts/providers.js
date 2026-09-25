@@ -144,11 +144,18 @@ export const ProviderAllowance = z.object({
   key: z.string().min(1),
   label: z.string().min(1),
   remaining: z.number().finite().nonnegative().nullable(),
+  // `value` is the source-reported absolute measurement. Its meaning is
+  // explicit so a used quantity can never be presented as remaining.
+  value: z.number().finite().nonnegative().nullable().default(null),
+  valueKind: z.enum(['used', 'remaining']).nullable().default(null),
   limit: z.number().finite().positive().nullable(),
   remainingPercent: z.number().finite().min(0).max(100).nullable(),
   unit: ProviderAllowanceUnit,
   resetsAt: z.number().finite().nullable(),
-}).strict();
+}).strict().refine(
+  (allowance) => (allowance.value === null) === (allowance.valueKind === null),
+  { message: 'Absolute allowance values require explicit semantics.' },
+);
 export const ProviderAllowanceSnapshot = z.object({
   providerId: PROVIDER_ROW_ID,
   providerName: z.string().min(1),

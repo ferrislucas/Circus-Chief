@@ -7,6 +7,11 @@ describe('provider allowance formatting', () => {
     expect(formatAllowance({ remainingPercent: null })).toBe('Unknown');
   });
 
+  it('formats used values as used of limit without provider-specific inference', () => {
+    expect(formatAllowance({ value: 54_000_000, valueKind: 'used', limit: 120_000_000, unit: 'tokens', remainingPercent: 55 })).toBe('54M tokens used of 120M');
+    expect(formatAllowance({ value: 66_000_000, valueKind: 'remaining', limit: 120_000_000, unit: 'tokens', remainingPercent: 55 })).toBe('66M tokens remaining of 120M');
+  });
+
   it('maps provenance and expresses timestamps relative to the supplied clock', () => {
     vi.setSystemTime(new Date('2026-01-02T10:00:00Z'));
     expect(sourceLabel('observed-header')).toBe('Observed from provider response headers');

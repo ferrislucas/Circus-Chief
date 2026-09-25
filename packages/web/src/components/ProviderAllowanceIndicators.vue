@@ -296,6 +296,28 @@ function onUpdate(message) {
   }
   store.replace(parsed.data.snapshot);
 }
+function requestPriorityRefresh() {
+  // The server owns the complete active-session ordering. Event payloads only
+  // tell us that it may have changed, never enough to reconstruct it safely.
+  store.fetch();
+}
+function rememberSessionPriority(session) {
+  const priority = { status: session.status, providerId: session.providerId };
+  const previous = sessionPriorityMemo.get(session.id);
+  sessionPriorityMemo.set(session.id, priority);
+  if (sessionPriorityMemo.size > SESSION_PRIORITY_MEMO_MAX) {
+    sessionPriorityMemo.delete(sessionPriorityMemo.keys().next().value);
+  }
+  return previous;
+}
+function hasSessionPriorityShape(session) {
+  return session && typeof session === 'object'
+    && typeof session.id === 'string' && typeof session.providerId === 'string'
+    && typeof session.status === 'string';
+}
+function isActiveSessionStatus(status) {
+  return status === 'starting' || status === 'running';
+}
 function reconcileSessionPriority(message) {
   // The REST response has the complete, authoritative active-session order.
   // A single session event cannot safely reconstruct it client-side, so any
@@ -303,28 +325,49 @@ function reconcileSessionPriority(message) {
   const session = message?.session;
   if (!session || typeof session !== 'object') {
     // Unknown payload shape: fetch rather than silently skip.
-    store.fetch();
+    requestPriorityRefresh();
     return;
   }
   // Priority depends only on which providers have sessions in
   // starting/running — i.e. on status and providerId. Field-only changes
   // (title, model, summary, …) cannot reorder the indicators.
   const priority = { status: session.status, providerId: session.providerId };
-  const previous = sessionPriorityMemo.get(session.id);
-  sessionPriorityMemo.set(session.id, priority);
-  if (sessionPriorityMemo.size > SESSION_PRIORITY_MEMO_MAX) {
-    // Map iterates in insertion order, so this evicts the oldest entry.
-    sessionPriorityMemo.delete(sessionPriorityMemo.keys().next().value);
-  }
+  const previous = rememberSessionPriority(session);
   const priorityChanged = !previous
     || previous.status !== priority.status
     || previous.providerId !== priority.providerId;
-  if (priorityChanged) store.fetch();
+  if (priorityChanged) requestPriorityRefresh();
+}
+function reconcileSessionCreated(message) {
+  const session = message?.session;
+  if (!hasSessionPriorityShape(session)) {
+    requestPriorityRefresh();
+    return;
+  }
+  rememberSessionPriority(session);
+  // A newly created waiting session cannot be active yet, so it cannot
+  // reorder the indicator. All active starts reconcile immediately.
+  if (isActiveSessionStatus(session.status)) requestPriorityRefresh();
+}
+function reconcileSessionDeleted(message) {
+  const sessionId = typeof message?.sessionId === 'string'
+    ? message.sessionId
+    : typeof message?.session?.id === 'string' ? message.session.id : null;
+  if (!sessionId) {
+    requestPriorityRefresh();
+    return;
+  }
+  // A session id can be reused by later lifecycle traffic; never let its old
+  // status/provider pairing suppress the next authoritative reconciliation.
+  sessionPriorityMemo.delete(sessionId);
+  requestPriorityRefresh();
 }
 onMounted(() => {
   store.fetch();
   on(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, onUpdate);
   on(WS_MESSAGE_TYPES.SESSION_UPDATED, reconcileSessionPriority);
+  on(WS_MESSAGE_TYPES.SESSION_CREATED, reconcileSessionCreated);
+  on(WS_MESSAGE_TYPES.SESSION_DELETED, reconcileSessionDeleted);
   removeReconnect = onReconnect(() => store.fetch());
   resizeObserver = new ResizeObserver(measureVisibleItems);
   nextTick(() => {
@@ -335,6 +378,8 @@ onMounted(() => {
 onUnmounted(() => {
   off(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, onUpdate);
   off(WS_MESSAGE_TYPES.SESSION_UPDATED, reconcileSessionPriority);
+  off(WS_MESSAGE_TYPES.SESSION_CREATED, reconcileSessionCreated);
+  off(WS_MESSAGE_TYPES.SESSION_DELETED, reconcileSessionDeleted);
   sessionPriorityMemo.clear();
   removeReconnect?.();
   resizeObserver?.disconnect();

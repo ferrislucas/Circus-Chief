@@ -20,8 +20,21 @@ function formatExactTime(value) {
 
 function formatAllowance(allowance) {
   if (allowance.remainingPercent === null) return 'Unknown';
+  if (allowance.value !== null && allowance.value !== undefined && allowance.valueKind && allowance.limit !== null) {
+    return `${formatCompactNumber(allowance.value)} ${allowance.unit} ${allowance.valueKind} of ${formatCompactNumber(allowance.limit)}`;
+  }
   if (allowance.remaining === null || allowance.limit === null) return `${Math.round(allowance.remainingPercent)}% remaining`;
   return `${allowance.remaining} / ${allowance.limit} ${allowance.unit} remaining (${Math.round(allowance.remainingPercent)}%)`;
+}
+
+function formatCompactNumber(value) {
+  if (Math.abs(value) >= 1_000_000) return `${trimmed(value / 1_000_000)}M`;
+  if (Math.abs(value) >= 1_000) return `${trimmed(value / 1_000)}K`;
+  return String(value);
+}
+
+function trimmed(value) {
+  return Number(value.toFixed(1)).toString();
 }
 
 function sourceLabel(source) {

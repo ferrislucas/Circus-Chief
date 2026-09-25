@@ -121,24 +121,42 @@ function calculateStaleAt(snapshot, updatedAt) {
 export function normalizeAllowance(allowance) {
   if (!hasDisplayIdentity(allowance)) return null;
 
-  const remaining = finiteNumber(allowance.remaining);
+  const { remaining, value, valueKind } = normalizeAbsoluteValue(allowance);
   const limit = finiteNumber(allowance.limit);
-  const normalizedRemaining = remaining === null ? null : Math.max(0, remaining);
   const normalizedLimit = limit !== null && limit > 0 ? limit : null;
-  const derived = normalizedRemaining !== null && normalizedLimit !== null
-    ? percentage(normalizedRemaining, normalizedLimit)
+  const remainingForPercent = remainingForPercentage(value, valueKind, normalizedLimit, remaining);
+  const derived = remainingForPercent !== null && normalizedLimit !== null
+    ? percentage(remainingForPercent, normalizedLimit)
     : null;
   const remainingPercent = derived ?? requirePercent(allowance.remainingPercent);
 
   return {
     key: allowance.key,
     label: allowance.label,
-    remaining: normalizedRemaining,
+    remaining,
+    value,
+    valueKind,
     limit: normalizedLimit,
     remainingPercent,
     unit: allowance.unit,
     resetsAt: finiteNumber(allowance.resetsAt),
   };
+}
+
+function normalizeAbsoluteValue(allowance) {
+  const legacyRemaining = finiteNumber(allowance.remaining);
+  const explicitValue = finiteNumber(allowance.value);
+  const normalizedLegacyRemaining = legacyRemaining === null ? null : Math.max(0, legacyRemaining);
+  const value = explicitValue === null ? normalizedLegacyRemaining : Math.max(0, explicitValue);
+  const valueKind = value === null ? null
+    : allowance.valueKind === 'used' || allowance.valueKind === 'remaining'
+      ? allowance.valueKind : 'remaining';
+  return { remaining: normalizedLegacyRemaining, value, valueKind };
+}
+
+function remainingForPercentage(value, valueKind, limit, remaining) {
+  if (valueKind === 'used' && value !== null && limit !== null) return Math.max(0, limit - value);
+  return remaining;
 }
 
 function isProviderAllowanceStatus(value) {

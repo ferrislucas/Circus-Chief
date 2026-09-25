@@ -12,7 +12,7 @@ const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
 const observedAt = 1_789_855_000_000;
 
 describe('zaiAllowanceMapper', () => {
-  it('maps TOKENS_LIMIT unit 3/6 rows to absolute token allowances', () => {
+  it('maps TOKENS_LIMIT unit 3/6 rows as honest used-of-limit token allowances', () => {
     expect(mapZaiQuota(fixture.payload, { observedAt })).toEqual({
       providerKind: 'anthropic',
       source: 'provider',
@@ -22,7 +22,9 @@ describe('zaiAllowanceMapper', () => {
         {
           key: 'five_hour',
           label: '5-hour token window',
-          remaining: 66_000_000,
+          remaining: null,
+          value: 54_000_000,
+          valueKind: 'used',
           limit: 120_000_000,
           remainingPercent: null, // derived by the service from absolutes
           unit: 'tokens',
@@ -31,7 +33,9 @@ describe('zaiAllowanceMapper', () => {
         {
           key: 'weekly',
           label: 'Weekly token window',
-          remaining: 480_000_000,
+          remaining: null,
+          value: 120_000_000,
+          valueKind: 'used',
           limit: 600_000_000,
           remainingPercent: null,
           unit: 'tokens',
@@ -51,7 +55,7 @@ describe('zaiAllowanceMapper', () => {
 
   it('falls back to the percentage-only path when absolutes are absent', () => {
     expect(mapZaiQuota(fixture.percentageOnlyPayload, { observedAt })).toMatchObject({
-      allowances: [{ remaining: null, limit: null, remainingPercent: 30 }],
+      allowances: [{ value: null, valueKind: null, limit: null, remainingPercent: 30 }],
     });
   });
 
@@ -62,7 +66,7 @@ describe('zaiAllowanceMapper', () => {
     );
 
     expect(candidate.allowances).toEqual([
-      expect.objectContaining({ key: 'five_hour', remaining: null, limit: null, remainingPercent: 0 }),
+      expect.objectContaining({ key: 'five_hour', value: null, valueKind: null, limit: null, remainingPercent: 0 }),
     ]);
   });
 

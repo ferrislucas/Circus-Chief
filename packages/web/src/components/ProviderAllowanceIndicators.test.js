@@ -192,6 +192,50 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
+  it('reconciles authoritative priority on session creation and deletion without waiting for an update', async () => {
+    api.getProviderAllowances
+      .mockResolvedValueOnce({ snapshots: [snapshot({ providerId: 'idle', status: 'available' })], activeProviderIds: [] })
+      .mockResolvedValueOnce({
+        snapshots: [snapshot({ providerId: 'active', status: 'available' }), snapshot({ providerId: 'idle', status: 'available' })],
+        activeProviderIds: ['active'],
+      })
+      .mockResolvedValueOnce({ snapshots: [snapshot({ providerId: 'idle', status: 'available' })], activeProviderIds: [] });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await Promise.resolve();
+    await nextTick();
+
+    websocketListeners.get('session:created')({ session: { id: 'session-1', providerId: 'active', status: 'starting' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(useProviderAllowancesStore().snapshots.map(({ providerId }) => providerId)).toEqual(['active', 'idle']);
+
+    websocketListeners.get('session:deleted')({ sessionId: 'session-1' });
+    await Promise.resolve();
+    await nextTick();
+    expect(useProviderAllowancesStore().activeProviderIds).toEqual([]);
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(3);
+    wrapper.unmount();
+    expect(websocketListeners.has('session:created')).toBe(false);
+    expect(websocketListeners.has('session:deleted')).toBe(false);
+  });
+
+  it('skips known non-active session creation but refetches unfamiliar lifecycle payloads', async () => {
+    api.getProviderAllowances.mockResolvedValue({ snapshots: [], activeProviderIds: [] });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await Promise.resolve();
+    await nextTick();
+
+    websocketListeners.get('session:created')({ session: { id: 'waiting-1', providerId: 'openai', status: 'waiting' } });
+    await Promise.resolve();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
+    websocketListeners.get('session:created')({});
+    websocketListeners.get('session:deleted')({});
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(3);
+    wrapper.unmount();
+  });
+
   it('refetches on session updates only when the priority-relevant fields change', async () => {
     api.getProviderAllowances.mockResolvedValue({ snapshots: [], activeProviderIds: [] });
     const wrapper = mount(ProviderAllowanceIndicators);
@@ -278,6 +322,21 @@ describe('ProviderAllowanceIndicators', () => {
 
     expect(wrapper.text()).toContain('25% remaining');
     expect(wrapper.text()).not.toContain('null / null');
+  });
+
+  it('displays z.ai absolute usage as used of limit in detail text', async () => {
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot({
+      allowances: [{ key: 'five_hour', label: '5-hour token window', remaining: null, value: 54_000_000, valueKind: 'used', limit: 120_000_000, remainingPercent: 55, unit: 'tokens', resetsAt: null }],
+    })];
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await nextTick();
+
+    expect(wrapper.find('.provider-detail').text()).toContain('54M tokens used of 120M');
   });
 
   it('uses the container width to show complete items and reserves overflow control space', async () => {

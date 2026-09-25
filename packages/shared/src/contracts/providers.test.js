@@ -30,7 +30,7 @@ describe('Provider Contracts', () => {
       providerId: 'openai-default', providerName: 'OpenAI', providerKind: 'openai',
       status: 'warning', source: 'provider', updatedAt: 1, staleAt: 2,
       unavailableReason: null,
-      allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: null }],
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 25, value: 25, valueKind: 'remaining', limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: null }],
     };
 
     it('accepts every allowance enum and nullable measurement field', () => {
@@ -39,7 +39,7 @@ describe('Provider Contracts', () => {
           for (const unit of ['tokens', 'requests', 'credits', 'other']) {
             expect(ProviderAllowanceSnapshot.safeParse({
               ...snapshot, status, source,
-              allowances: [{ ...snapshot.allowances[0], unit, remaining: null, limit: null, remainingPercent: null, resetsAt: null }],
+              allowances: [{ ...snapshot.allowances[0], unit, remaining: null, value: null, valueKind: null, limit: null, remainingPercent: null, resetsAt: null }],
             }).success).toBe(true);
           }
         }
@@ -51,6 +51,13 @@ describe('Provider Contracts', () => {
       expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], remainingPercent: 101 }] }).success).toBe(false);
       expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], remaining: -1 }] }).success).toBe(false);
       expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], authToken: 'secret' }] }).success).toBe(false);
+    });
+
+    it('requires explicit semantics for absolute allowance values', () => {
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], value: 54, valueKind: 'used', limit: 120 }] }).success).toBe(true);
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], value: 54, valueKind: 'remaining', limit: 120 }] }).success).toBe(true);
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], value: 54, valueKind: null }] }).success).toBe(false);
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], value: null, valueKind: 'used' }] }).success).toBe(false);
     });
 
     it('validates a redacted allowance response with snapshots and active provider IDs', () => {
