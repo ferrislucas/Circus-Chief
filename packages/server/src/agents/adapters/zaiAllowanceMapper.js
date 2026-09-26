@@ -40,28 +40,39 @@ export function mapZaiQuota(payload, { observedAt = Date.now(), staleAfterMs = Z
   };
 }
 
+// Validation is deliberately explicit here: each provider field is untrusted.
+// eslint-disable-next-line complexity
 function mapTokenLimit(limit) {
   if (limit?.type !== 'TOKENS_LIMIT') return null; // TIME_LIMIT rows filtered
   const window = UNITS.get(limit.unit);
   if (!window) return null;
 
-  const limitValue = finiteNumber(limit.usage);
-  const usedValue = finiteNumber(limit.currentValue);
+  const limitValue = nonNegativeFiniteNumber(limit.usage);
+  const usedValue = nonNegativeFiniteNumber(limit.currentValue);
+  const hasAbsoluteInput = limit.currentValue !== undefined || limit.usage !== undefined;
+  if (hasAbsoluteInput && (limitValue === null || usedValue === null || limitValue === 0 || usedValue > limitValue)) return null;
   // Tolerated future shape: percentage without absolutes still feeds the
   // indicator through the percentage-only normalization path; the service
   // derives its percentage from absolutes when they exist (§4.1).
-  const fallbackPercent = usedValue === null || limitValue === null ? clampRemainingPercent(100 - limit.percentage) : null;
+  const percentage = finiteNumber(limit.percentage);
+  const fallbackPercent = usedValue === null || limitValue === null ? percentage === null ? null : clampRemainingPercent(100 - percentage) : null;
+  if (usedValue !== null && percentage !== null && Math.abs((usedValue / limitValue) * 100 - percentage) > 0.001) return null;
   if (usedValue === null && fallbackPercent === null) return null;
 
   return {
     key: window.key,
     label: window.label,
     remaining: null,
-    value: usedValue === null ? null : Math.max(0, usedValue),
+    value: usedValue,
     valueKind: usedValue === null ? null : 'used',
     limit: limitValue,
     remainingPercent: fallbackPercent,
     unit: 'tokens',
     resetsAt: normalizeEpochMs(limit.nextResetTime), // unix ms on the wire
   };
+}
+
+function nonNegativeFiniteNumber(value) {
+  const number = finiteNumber(value);
+  return number !== null && number >= 0 ? number : null;
 }

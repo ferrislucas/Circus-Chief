@@ -14,13 +14,16 @@ export const DEFAULT_ZAI_TIMEOUT_MS = 10_000;
 
 export function isZaiQuotaHost(baseUrl) {
   try {
-    return ZAI_QUOTA_HOSTS.has(new URL(baseUrl).hostname);
+    const url = new URL(baseUrl);
+    return url.protocol === 'https:' && ZAI_QUOTA_HOSTS.has(url.hostname)
+      && (url.port === '' || url.port === '443') && url.username === '' && url.password === '';
   } catch {
     return false;
   }
 }
 
 export function buildZaiQuotaUrl(baseUrl) {
+  if (!isZaiQuotaHost(baseUrl)) return null;
   return new URL(ZAI_QUOTA_PATH, new URL(baseUrl).origin).toString();
 }
 
@@ -30,12 +33,16 @@ export function buildZaiQuotaUrl(baseUrl) {
  * @returns {Promise<{ outcome: 'ok', payload: Object } | { outcome: 'http', status: number, retryAfterMs: number | null } | { outcome: 'network' }>}
  */
 export async function fetchZaiQuotaLimit({ baseUrl, authToken, timeoutMs = DEFAULT_ZAI_TIMEOUT_MS, fetchImpl = fetch }) {
+  const url = buildZaiQuotaUrl(baseUrl);
+  if (!url) return { outcome: 'network' };
+  const controller = new AbortController();
   let response;
   try {
-    response = await withTimeout(fetchImpl(buildZaiQuotaUrl(baseUrl), {
+    response = await withTimeout(fetchImpl(url, {
       method: 'GET',
       headers: { Authorization: authToken },
-    }), timeoutMs);
+      signal: controller.signal,
+    }), timeoutMs, controller);
   } catch {
     return { outcome: 'network' };
   }
@@ -51,12 +58,15 @@ export async function fetchZaiQuotaLimit({ baseUrl, authToken, timeoutMs = DEFAU
   }
 }
 
-function withTimeout(promise, timeoutMs) {
+function withTimeout(promise, timeoutMs, controller) {
   let timer;
   return Promise.race([
     promise,
     new Promise((_resolve, reject) => {
-      timer = setTimeout(() => reject(new Error('z.ai quota request timed out')), timeoutMs);
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error('z.ai quota request timed out'));
+      }, timeoutMs);
       timer.unref?.();
     }),
   ]).finally(() => clearTimeout(timer));

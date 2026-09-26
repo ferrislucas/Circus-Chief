@@ -3,12 +3,9 @@ import readline from 'node:readline';
 import { mapCodexRateLimits } from '../agents/adapters/codexRolloutAllowanceExtractor.js';
 import { getStreamStaleAfterMs, isCodexAppServerAllowanceSourceEnabled } from '../config/providerAllowances.js';
 
-/**
- * Global ChatGPT-plan usage meter backed by `codex app-server`.
- *
+/** Global ChatGPT-plan usage meter backed by `codex app-server`.
  * A single app-server process speaks line-delimited JSON-RPC over stdio and
- * reports account-level rate limits for ChatGPT-plan auth — the only Codex
- * mechanism that keeps indicators current with no active session (FRD AC 18).
+ * reports account-level rate limits for ChatGPT-plan auth — the only Codex mechanism that keeps indicators current with no active session (FRD AC 18).
  * Each spawned process first completes the required initialize handshake
  * (initialize → initialization response → `initialized` notification) before
  * issuing `account/rateLimits/read`; codex-cli 0.145.0 silently drops
@@ -251,7 +248,7 @@ export class CodexAppServerMeter {
       }
       return;
     }
-    const candidate = mapCodexRateLimits(result?.rateLimits, { observedAt: this.clock.now() });
+    const candidate = mapCodexRateLimits(result?.rateLimits, { observedAt: this.clock.now(), streamStaleMs: getStreamStaleAfterMs() });
     if (!candidate) {
       logOutcome({ source: LOG_SOURCE, outcome: 'no-data' });
       return;

@@ -152,10 +152,15 @@ export const ProviderAllowance = z.object({
   remainingPercent: z.number().finite().min(0).max(100).nullable(),
   unit: ProviderAllowanceUnit,
   resetsAt: z.number().finite().nullable(),
-}).strict().refine(
-  (allowance) => (allowance.value === null) === (allowance.valueKind === null),
-  { message: 'Absolute allowance values require explicit semantics.' },
-);
+}).strict().superRefine((allowance, context) => {
+  if ((allowance.value === null) !== (allowance.valueKind === null)) {
+    context.addIssue({ code: 'custom', message: 'Absolute allowance values require explicit semantics.' });
+  }
+  if (allowance.valueKind === 'used' && allowance.value !== null && allowance.limit !== null
+    && allowance.remaining !== null && allowance.remaining !== allowance.limit - allowance.value) {
+    context.addIssue({ code: 'custom', message: 'Legacy remaining must agree with canonical used value.' });
+  }
+});
 export const ProviderAllowanceSnapshot = z.object({
   providerId: PROVIDER_ROW_ID,
   providerName: z.string().min(1),

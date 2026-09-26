@@ -91,6 +91,23 @@ describe('zaiQuotaPoller', () => {
     });
   });
 
+  it('bounds simultaneous provider requests', async () => {
+    let active = 0;
+    let peak = 0;
+    const releases = [];
+    fetchZaiQuotaLimit.mockImplementation(() => new Promise((resolve) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      releases.push(() => { active -= 1; resolve(fetchOutcome); });
+    }));
+    const providers = Array.from({ length: 5 }, (_, index) => ({ ...zaiProvider, id: `zai-${index}` }));
+    const pending = pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith(providers) });
+    await Promise.resolve();
+    expect(peak).toBeLessThanOrEqual(3);
+    while (releases.length) { releases.shift()(); await Promise.resolve(); }
+    await pending;
+  });
+
   it('stops polling a provider whose credential was rejected until the key is rotated', async () => {
     fetchOutcome = { outcome: 'http', status: 401, retryAfterMs: null };
     await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });

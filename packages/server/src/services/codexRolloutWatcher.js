@@ -65,7 +65,7 @@ async function findSessionRolloutFile(directory, sessionId) {
 // Keep the UUID-to-filename contract isolated: a watcher may start near
 // midnight, so pin lookup checks the start day and its immediate neighbours.
 function isSessionRolloutFileName(fileName, sessionId) {
-  return fileName.startsWith(`rollout-${sessionId}`) && fileName.endsWith('.jsonl');
+  return fileName.endsWith(`-${sessionId}.jsonl`);
 }
 
 async function scanDirectoryForNewestRollout(directory, current) {

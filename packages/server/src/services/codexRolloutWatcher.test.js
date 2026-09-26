@@ -36,6 +36,15 @@ function seedSessionRolloutFile(home, sessionId, content, { mtimeMs, day = '19' 
   return file;
 }
 
+function seedCanonicalSessionRolloutFile(home, sessionId, content, { mtimeMs, day = '19' } = {}) {
+  const dayRoot = path.join(home, '.codex', 'sessions', '2026', '09', day);
+  fs.mkdirSync(dayRoot, { recursive: true });
+  const file = path.join(dayRoot, `rollout-2026-09-19T21-00-00-${sessionId}.jsonl`);
+  fs.writeFileSync(file, content);
+  if (mtimeMs !== undefined) fs.utimesSync(file, new Date(mtimeMs), new Date(mtimeMs));
+  return file;
+}
+
 function tokenCountLine(usedPercent) {
   return `${JSON.stringify({
     type: 'event_msg',
@@ -191,6 +200,21 @@ describe('CodexRolloutWatcher', () => {
     seedSessionRolloutFile(home, sessionB, tokenCountLine(70), { mtimeMs: clock.now() + 2 });
 
     watcher.pin(sessionA);
+    await pollTimes(watcher, 2);
+
+    expect(observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      allowances: [expect.objectContaining({ remainingPercent: 80 })],
+    }));
+  });
+
+  it('pins the canonical timestamp-session rollout identity and rejects a loose substring match', async () => {
+    const observer = vi.fn();
+    const watcher = makeWatcher(observer, { startedAfterMs: clock.now() - 5_000 });
+    const sessionId = 'a0a0a0a0-a0a0-4a0a-8a0a-a0a0a0a0a0a0';
+    seedCanonicalSessionRolloutFile(home, `${sessionId}-other`, tokenCountLine(70));
+    seedCanonicalSessionRolloutFile(home, sessionId, tokenCountLine(20));
+
+    watcher.pin(sessionId);
     await pollTimes(watcher, 2);
 
     expect(observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({

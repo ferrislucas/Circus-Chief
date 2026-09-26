@@ -232,7 +232,7 @@ describe('ProviderAllowanceIndicators', () => {
     websocketListeners.get('session:deleted')({});
     await Promise.resolve();
     await nextTick();
-    expect(api.getProviderAllowances).toHaveBeenCalledTimes(3);
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 
@@ -274,7 +274,7 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
-  it('caps the session priority memo so long-lived pages cannot grow it without bound', async () => {
+  it('caps lifecycle reconciliation work as well as the session priority memo', async () => {
     api.getProviderAllowances.mockResolvedValue({ snapshots: [], activeProviderIds: [] });
     const wrapper = mount(ProviderAllowanceIndicators);
     await Promise.resolve();
@@ -288,14 +288,15 @@ describe('ProviderAllowanceIndicators', () => {
     }
     await Promise.resolve();
     await nextTick();
-    // Initial fetch + one first-seen refetch per distinct session.
-    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1 + total);
+    // A burst is coalesced into one reconciliation instead of creating an
+    // unbounded number of REST calls.
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
 
     // The most recent session stays memoized: an unchanged update is free.
     handler({ session: { id: `session-${total - 1}`, providerId: 'openai', status: 'running' } });
     await Promise.resolve();
     await nextTick();
-    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1 + total);
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
 
     // The oldest entry was FIFO-evicted: its next unchanged update looks
     // unknown again and safely refetches instead of retaining every session
@@ -303,7 +304,7 @@ describe('ProviderAllowanceIndicators', () => {
     handler({ session: { id: 'session-0', providerId: 'openai', status: 'running' } });
     await Promise.resolve();
     await nextTick();
-    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2 + total);
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(3);
     wrapper.unmount();
   });
 

@@ -54,10 +54,16 @@ describe('Provider Contracts', () => {
     });
 
     it('requires explicit semantics for absolute allowance values', () => {
-      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], value: 54, valueKind: 'used', limit: 120 }] }).success).toBe(true);
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], remaining: null, value: 54, valueKind: 'used', limit: 120 }] }).success).toBe(true);
       expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], value: 54, valueKind: 'remaining', limit: 120 }] }).success).toBe(true);
       expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], value: 54, valueKind: null }] }).success).toBe(false);
       expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], value: null, valueKind: 'used' }] }).success).toBe(false);
+    });
+
+    it('rejects contradictory legacy remaining and canonical used values while accepting equivalent legacy remaining', () => {
+      const used = { ...snapshot.allowances[0], value: 54, valueKind: 'used', limit: 120, remaining: 66 };
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [used] }).success).toBe(true);
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...used, remaining: 65 }] }).success).toBe(false);
     });
 
     it('validates a redacted allowance response with snapshots and active provider IDs', () => {

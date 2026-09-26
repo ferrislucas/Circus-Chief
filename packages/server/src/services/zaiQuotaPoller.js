@@ -18,6 +18,7 @@ import { mapZaiQuota } from '../agents/adapters/zaiAllowanceMapper.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 5 * 60_000;
 const DEFAULT_RATE_LIMIT_BACKOFF_MS = 5 * 60_000;
+const MAX_CONCURRENT_POLLS = 3;
 
 // In-memory state; reset on server restart by design.
 const authFailedProviders = new Map(); // providerId → authToken that failed
@@ -54,12 +55,19 @@ export async function pollOnce({ clock = Date, providerRepository = modelProvide
     // credential string) is retained until restart, and a re-created
     // provider with the same key stays wrongly skipped.
     pruneProviderState(enabled);
-    await Promise.all(zaiQuotaCandidates(enabled, clock.now()).map(async (provider) => {
-      await pollProvider(provider, { observer, clock });
-    }));
+    await runWithConcurrency(zaiQuotaCandidates(enabled, clock.now()), MAX_CONCURRENT_POLLS,
+      (provider) => pollProvider(provider, { observer, clock }));
   } finally {
     pollInFlight = false;
   }
+}
+
+async function runWithConcurrency(items, limit, worker) {
+  const queue = [...items];
+  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length) await worker(queue.shift());
+  });
+  await Promise.all(workers);
 }
 
 function isZaiQuotaPollerEnabled() {

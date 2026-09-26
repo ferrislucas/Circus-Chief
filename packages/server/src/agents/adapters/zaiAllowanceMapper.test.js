@@ -70,6 +70,22 @@ describe('zaiAllowanceMapper', () => {
     ]);
   });
 
+  it.each([
+    ['negative used', { currentValue: -5, usage: 100 }],
+    ['negative limit', { currentValue: 5, usage: -100 }],
+    ['zero limit', { currentValue: 5, usage: 0 }],
+    ['non-finite used', { currentValue: Infinity, usage: 100 }],
+    ['contradictory absolutes and percent', { currentValue: 5, usage: 100, percentage: 90 }],
+  ])('rejects malformed absolute data without manufacturing healthy remaining allowance: %s', (_name, fields) => {
+    const candidate = mapZaiQuota({ data: { limits: [{ type: 'TOKENS_LIMIT', unit: 3, ...fields }] } }, { observedAt });
+    expect(candidate).toBeNull();
+  });
+
+  it('uses a valid percentage-only fallback', () => {
+    expect(mapZaiQuota({ data: { limits: [{ type: 'TOKENS_LIMIT', unit: 3, percentage: 70 }] } }, { observedAt }))
+      .toMatchObject({ allowances: [{ remainingPercent: 30, value: null, valueKind: null }] });
+  });
+
   it('returns null for payloads without usable rows', () => {
     expect(mapZaiQuota(null, { observedAt })).toBeNull();
     expect(mapZaiQuota({}, { observedAt })).toBeNull();

@@ -177,6 +177,7 @@ const observedLayoutElements = new Set();
 let announcementTimer = null;
 let hasObservedSnapshots = false;
 let previousStatuses = new Map();
+let priorityRefreshQueued = false;
 // Last seen { status, providerId } per session id, so SESSION_UPDATED frames
 // that cannot change allowance priority skip the refetch. FIFO-capped so a
 // long-lived page cannot grow it without bound: an evicted session simply
@@ -299,7 +300,12 @@ function onUpdate(message) {
 function requestPriorityRefresh() {
   // The server owns the complete active-session ordering. Event payloads only
   // tell us that it may have changed, never enough to reconstruct it safely.
-  store.fetch();
+  if (priorityRefreshQueued) return;
+  priorityRefreshQueued = true;
+  queueMicrotask(() => {
+    priorityRefreshQueued = false;
+    store.fetch();
+  });
 }
 function rememberSessionPriority(session) {
   const priority = { status: session.status, providerId: session.providerId };
@@ -365,6 +371,7 @@ function reconcileSessionDeleted(message) {
 onMounted(() => {
   store.fetch();
   on(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, onUpdate);
+  on(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_PRIORITY_INVALIDATED, requestPriorityRefresh);
   on(WS_MESSAGE_TYPES.SESSION_UPDATED, reconcileSessionPriority);
   on(WS_MESSAGE_TYPES.SESSION_CREATED, reconcileSessionCreated);
   on(WS_MESSAGE_TYPES.SESSION_DELETED, reconcileSessionDeleted);
@@ -377,6 +384,7 @@ onMounted(() => {
 });
 onUnmounted(() => {
   off(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, onUpdate);
+  off(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_PRIORITY_INVALIDATED, requestPriorityRefresh);
   off(WS_MESSAGE_TYPES.SESSION_UPDATED, reconcileSessionPriority);
   off(WS_MESSAGE_TYPES.SESSION_CREATED, reconcileSessionCreated);
   off(WS_MESSAGE_TYPES.SESSION_DELETED, reconcileSessionDeleted);
@@ -385,6 +393,7 @@ onUnmounted(() => {
   resizeObserver?.disconnect();
   observedLayoutElements.clear();
   clearTimeout(announcementTimer);
+  priorityRefreshQueued = false;
   document.removeEventListener('keydown', handleDocumentKeydown);
   document.removeEventListener('focusin', containFocus);
 });
