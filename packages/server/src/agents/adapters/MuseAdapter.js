@@ -72,7 +72,22 @@ export class MuseAdapter extends BaseAgent {
   async *execute(queryParams, _meta) {
     const options = queryParams.options || {};
     const mapper = createMuseEventMapper({ model: options.model });
+    const host = await this._openHost(options);
+    try {
+      yield* this._runTurn(host.client, queryParams, options, mapper);
+    } finally {
+      host.detach();
+      await host.close();
+      yield* mapper.finalize();
+    }
+  }
 
+  /**
+   * Spawn the `muse serve` host. Returns the client plus lifecycle helpers:
+   * idempotent `close()` (also triggered by abort, to unblock iterators)
+   * and `detach()` to remove the abort listener once the turn settles.
+   */
+  async _openHost(options) {
     const factory = this._museClientFactory ?? spawnMuseClient;
     let client;
     try {
@@ -86,7 +101,7 @@ export class MuseAdapter extends BaseAgent {
     }
 
     let closed = false;
-    const closeClient = async () => {
+    const close = async () => {
       if (closed) return;
       closed = true;
       try {
@@ -96,38 +111,42 @@ export class MuseAdapter extends BaseAgent {
       }
     };
     const abortSignal = options.abortController?.signal;
-    const onAbort = () => { void closeClient(); };
+    const onAbort = () => { void close(); };
     abortSignal?.addEventListener('abort', onAbort, { once: true });
+    return {
+      client,
+      close,
+      detach: () => abortSignal?.removeEventListener('abort', onAbort),
+    };
+  }
 
-    try {
-      const session = await openMspSession(client, options);
-      yield mapper.buildSystemInit(session.sessionId);
+  async *_runTurn(client, queryParams, options, mapper) {
+    const session = await openMspSession(client, options);
+    yield mapper.buildSystemInit(session.sessionId);
+    registerApprovalHandlers(session);
 
-      session.onApproval(async (request) => approveFirstChoice(request));
-      if (typeof session.onApprovalError === 'function') {
-        session.onApprovalError((failure) => {
-          console.warn(`[MuseAdapter] Approval round trip did not complete: ${failure?.kind} (${failure?.approvalId || 'unknown'})`);
-        });
-      }
+    const turn = await session.sendUserTurn({
+      input: [{ type: 'text', text: queryParams.prompt }],
+      ...(options.displayText ? { displayText: options.displayText } : {}),
+      ...museReasoningEffortParam(options.effortLevel),
+    });
 
-      const turn = await session.sendUserTurn({
-        input: [{ type: 'text', text: queryParams.prompt }],
-        ...(options.displayText ? { displayText: options.displayText } : {}),
-        ...museReasoningEffortParam(options.effortLevel),
-      });
-
-      for await (const item of turn.items()) {
-        if (abortSignal?.aborted) break;
-        yield* mapper.mapItem(item);
-      }
-
-      const outcome = await turn.completed;
-      yield* mapper.mapOutcome(outcome);
-    } finally {
-      abortSignal?.removeEventListener('abort', onAbort);
-      await closeClient();
-      yield* mapper.finalize();
+    const abortSignal = options.abortController?.signal;
+    for await (const item of turn.items()) {
+      if (abortSignal?.aborted) break;
+      yield* mapper.mapItem(item);
     }
+
+    yield* mapper.mapOutcome(await turn.completed);
+  }
+}
+
+function registerApprovalHandlers(session) {
+  session.onApproval(async (request) => approveFirstChoice(request));
+  if (typeof session.onApprovalError === 'function') {
+    session.onApprovalError((failure) => {
+      console.warn(`[MuseAdapter] Approval round trip did not complete: ${failure?.kind} (${failure?.approvalId || 'unknown'})`);
+    });
   }
 }
 

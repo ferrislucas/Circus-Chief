@@ -63,7 +63,10 @@ export function createMuseEventMapper({ model } = {}) {
     if (!item || typeof item !== 'object') return [];
     // Retracted user messages carry no durable content.
     if (item.retracted) return [];
+    return mapByKind(item);
+  }
 
+  function mapByKind(item) {
     switch (item.kind) {
       case 'userMessage':
         return [];
