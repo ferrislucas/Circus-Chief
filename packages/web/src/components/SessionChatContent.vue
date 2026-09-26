@@ -526,6 +526,13 @@ function setupSubscription(sessionId) {
   }));
   wsCleanups.push(currentSubscription.onConversationCreated((conversation) => sessionsStore.addConversation(conversation)));
   wsCleanups.push(currentSubscription.onConversationUpdated((conversation) => sessionsStore.updateConversation(conversation)));
+  wsCleanups.push(currentSubscription.onTierFailover((payload) => {
+    const from = payload.fromModel || 'previous model';
+    const to = payload.toModel || payload.toProviderId || 'next member';
+    const tier = payload.tierName || 'tier';
+    const reason = payload.reason ? ` (${payload.reason})` : '';
+    uiStore.info(`${from} unavailable${reason} — starting on ${to} (tier: ${tier})`);
+  }));
   wsCleanups.push(currentSubscription.onPrompt((prompt) => promptsStore.show(prompt)));
   wsCleanups.push(currentSubscription.onPromptResolved((promptId, promptSessionId) => promptsStore.resolved(promptId, promptSessionId)));
   promptsStore.hydrate(sessionId).catch((error) => console.debug('Failed to load pending agent prompt:', error));

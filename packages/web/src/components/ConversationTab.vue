@@ -13,6 +13,15 @@
       :hide-new-conversation="hideNewConversation"
     />
 
+    <div
+      v-if="tierActiveMemberDisplay"
+      class="tier-active-member"
+      :title="tierActiveMemberDisplay"
+      data-testid="tier-active-member"
+    >
+      Active member: {{ tierActiveMemberDisplay }}
+    </div>
+
     <ConversationMessages
       ref="conversationMessagesRef"
       :session-id="sessionId"
@@ -129,6 +138,8 @@ import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
 import { useDraftSaving } from '../composables/useDraftSaving.js';
 import { useSessionControl } from '../composables/useSessionControl.js';
+import { createQuickResponseInsert } from '../composables/useQuickResponseInsert.js';
+import './ConversationTab.css';
 import { useScheduleStartNow } from '../composables/useScheduleStartNow.js';
 import { useConnectionStatus } from '../composables/useConnectionStatus.js';
 import { appendTemplatePromptValue, buildTemplateSettingsFields } from '../utils/templateApply.js';
@@ -145,6 +156,8 @@ import StaleBadge from './StaleBadge.vue';
 import AgentPromptCard from './AgentPromptCard.vue';
 import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 import { useProjectsStore } from '../stores/projects.js';
+import { useProvidersStore } from '../stores/providers.js';
+import { isTierRef, useTiersStore } from '../stores/tiers.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -170,6 +183,8 @@ const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const defaultsStore = useProjectDefaultsStore();
 const projectsStore = useProjectsStore();
+const providersStore = useProvidersStore();
+const tiersStore = useTiersStore();
 const { getModelDisplayName } = useModelInfo();
 const { isStale } = useConnectionStatus();
 const route = useRoute();
@@ -229,9 +244,39 @@ const isScheduledDraft = computed(() => {
 });
 
 const activeModelDisplayName = computed(() => {
-  const model = sessionsStore.currentSession?.model;
+  const session = sessionsStore.currentSession;
+  if (!session) return null;
+  const model = session.model;
   if (!model) return null;
+
+  // When the session is bound to a tier, display the resolved concrete model
+  // (the one actually running) with a tier annotation (F24).
+  if (isTierRef(model)) {
+    const tierId = model.slice('tier::'.length);
+    const tier = tiersStore.getById(tierId);
+    const tierLabel = tier ? `Tier: ${tier.name}` : 'Tier';
+
+    // Prefer the stored resolved model — it's what the agent is actually using
+    const resolvedModel = session.resolvedModel;
+    if (resolvedModel) {
+      return `${getModelDisplayName(resolvedModel)} (${tierLabel})`;
+    }
+    // Fallback: tier name only when no resolved model is available yet
+    return tierLabel;
+  }
+
   return getModelDisplayName(model);
+});
+
+const tierActiveMemberDisplay = computed(() => {
+  const session = sessionsStore.currentSession;
+  if (!session || !isTierRef(session.model) || !session.resolvedModel) return null;
+  const provider = session.resolvedProviderId
+    ? providersStore.providers.find((item) => item.id === session.resolvedProviderId)
+    : null;
+  const providerLabel = provider?.name || session.resolvedProviderId;
+  const modelLabel = getModelDisplayName(session.resolvedModel);
+  return providerLabel ? `${providerLabel} · ${modelLabel}` : modelLabel;
 });
 
 const unassociatedWorkLogs = computed(() => sessionsStore.getUnassociatedWorkLogs);
@@ -597,7 +642,12 @@ async function handleFormSubmit(options = {}) {
       inputFormRef.value?.clearFiles();
     }
   } else {
-    const success = await handleSend(currentValue, attachedFiles.value, selectedModel.value, options);
+    const success = await handleSend(
+      currentValue,
+      attachedFiles.value,
+      { model: selectedModel.value, providerId: selectedProviderId.value },
+      options
+    );
     if (success) {
       clearSubmittedInput(textareaRef);
       attachedFiles.value = [];
@@ -606,32 +656,12 @@ async function handleFormSubmit(options = {}) {
   }
 }
 
-function handleQuickResponseInsert({ content, autoSubmit }) {
-  const currentValue = input.value.trim();
-  const newValue = currentValue ? `${currentValue  }\n\n${  content}` : content;
-  input.value = newValue;
-
-  if (autoSubmit) {
-    // Auto-submit path: cancel any pending debounced save, then submit.
-    // This mirrors the regular Send invariant (see handleFormSubmit).
-    cancelDraft();
-    nextTick(() => {
-      handleFormSubmit({ renderLiquid: true });
-    });
-  } else {
-    // Non-submit path: blur the textarea and persist the inserted text.
-    // DOM value syncs automatically via ResizableTextarea's watch(modelValue).
-    nextTick(() => {
-      const textareaRef = inputFormRef.value?.textareaRef;
-      if (textareaRef) {
-        textareaRef.blur();
-      }
-      if (canSendMessage.value && newValue.trim()) {
-        savePendingPrompt(newValue);
-      }
-    });
-  }
-}
+const handleQuickResponseInsert = createQuickResponseInsert({
+  getInput: () => input.value,
+  setInput: (value) => { input.value = value; },
+  cancelDraft, nextTick, inputFormRef, canSendMessage, savePendingPrompt,
+  submit: handleFormSubmit,
+});
 
 async function handleApplyTemplate(templateId) {
   const template = templatesStore.getTemplateById(templateId);
@@ -740,15 +770,3 @@ function handleSlashCommandInsert({ text }) {
 // force-save pending drafts before switching sessions.
 defineExpose({ flushDraft });
 </script>
-
-<style scoped>
-.conversation-tab {
-  display: flex;
-  flex-direction: column;
-  transition: opacity 0.3s ease;
-}
-
-.conversation-tab.connection-stale {
-  opacity: 0.5;
-}
-</style>

@@ -163,6 +163,68 @@ describe('subscribeCommandRunOutput', () => {
     expect(store.syncRunOutput).toHaveBeenLastCalledWith(SESSION_ID, RUN_ID, 5, expect.any(Function));
   });
 
+  it('skips the catch-up sync for a finished run that already holds output but no cursor', () => {
+    // A run that completed while its pane was collapsed can hold output
+    // delivered by the completion payload, which records no cursor. A fresh
+    // subscribe over cursor 0 would re-append the whole persisted stream on
+    // top of that text, so the terminal-run guard must prevent the
+    // fetch-and-append path entirely.
+    store.runs[RUN_ID] = { runId: RUN_ID, status: 'success', output: 'Persist output' };
+
+    const unsubscribe = subscribeCommandRunOutput(SESSION_ID, RUN_ID);
+
+    expect(store.syncRunOutput).not.toHaveBeenCalled();
+    expect(store.appendOutput).not.toHaveBeenCalled();
+
+    // Late persisted frames for the finished run are stale, not new output.
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { runId: RUN_ID, sequence: 1, content: 'Persist output' });
+    receive(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT_SUBSCRIBED, { runId: RUN_ID });
+    expect(store.syncRunOutput).not.toHaveBeenCalled();
+    expect(store.appendOutput).not.toHaveBeenCalled();
+
+    unsubscribe();
+  });
+
+  it('still syncs a finished run whose output has not been loaded yet', async () => {
+    // A completed run whose output was never rendered must keep the normal
+    // fetch-and-append path so expanding the pane shows the content.
+    store.runs[RUN_ID] = { runId: RUN_ID, status: 'success', output: '' };
+    store.syncRunOutput.mockResolvedValueOnce({ highWater: 2, hasMore: false });
+
+    const unsubscribe = subscribeCommandRunOutput(SESSION_ID, RUN_ID);
+
+    await vi.waitFor(() => expect(store.syncRunOutput).toHaveBeenCalledTimes(1));
+
+    unsubscribe();
+  });
+
+  it('keeps the catch-up sync for a running run that already buffers output', async () => {
+    // A live run still needs sync (gap repair + live chunks); the guard only
+    // applies to terminal runs.
+    store.runs[RUN_ID] = { runId: RUN_ID, status: 'running', output: 'partial' };
+    store.syncRunOutput.mockResolvedValueOnce({ highWater: 5, hasMore: false });
+
+    const unsubscribe = subscribeCommandRunOutput(SESSION_ID, RUN_ID);
+
+    await vi.waitFor(() => expect(store.syncRunOutput).toHaveBeenCalledTimes(1));
+
+    unsubscribe();
+  });
+
+  it('subscribes with the cursor a finished run entry already carries', async () => {
+    // A re-subscribe (e.g. tab switch) must hand the stored cursor to the sync
+    // rather than restarting from 0.
+    store.runs[RUN_ID] = { runId: RUN_ID, status: 'success', output: 'Persist output', outputHighWater: 7 };
+    store.syncRunOutput.mockResolvedValueOnce({ highWater: 7, hasMore: false });
+
+    const unsubscribe = subscribeCommandRunOutput(SESSION_ID, RUN_ID);
+
+    await vi.waitFor(() => expect(store.syncRunOutput).toHaveBeenCalledTimes(1));
+    expect(store.syncRunOutput).toHaveBeenCalledWith(SESSION_ID, RUN_ID, 7, expect.any(Function));
+
+    unsubscribe();
+  });
+
   it('shares one socket subscription across viewers and releases it on the last unsubscribe', async () => {
     const unsubscribeA = await subscribeAndSettleInitialSync();
     const unsubscribeB = subscribeCommandRunOutput(SESSION_ID, RUN_ID);

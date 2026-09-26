@@ -163,10 +163,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useUiStore } from '../stores/ui.js';
 import ModelSelector from './ModelSelector.vue';
+import { useWebSocket } from '../composables/useWebSocket.js';
+import { api } from '../composables/useApi.js';
+import { createReconnectRefetch } from '../composables/reconnectRefetch.js';
+import { reconcileModelSelection } from '../composables/modelSelectionReconciliation.js';
 
 const props = defineProps({
   projectId: { type: String, required: true },
@@ -174,6 +179,7 @@ const props = defineProps({
 
 const defaultsStore = useProjectDefaultsStore();
 const uiStore = useUiStore();
+const { on, off, onReconnect } = useWebSocket();
 
 const defaultMode = ref('');
 const defaultThinkingEnabled = ref(false);
@@ -184,21 +190,55 @@ const defaultGitBranch = ref('');
 const defaultModel = ref('');
 const defaultProviderId = ref(null);
 const savingDefaults = ref(false);
+let hasLoadedDefaults = false;
+let lastCanonicalSelection = { model: null, providerId: null };
+let reconnectReconciliation;
+
+function applyInitialDefaults(defaults) {
+  defaultMode.value = defaults.mode || '';
+  defaultThinkingEnabled.value = defaults.thinkingEnabled || false;
+  defaultEffortLevel.value = defaults.effortLevel ?? '';
+  defaultStartImmediately.value = defaults.startImmediately !== false;
+  defaultGitMode.value = defaults.gitMode || '';
+  defaultGitBranch.value = defaults.gitBranch || '';
+}
 
 onMounted(() => {
-  defaultsStore.fetchDefaults(props.projectId);
+  defaultsStore.fetchDefaults(props.projectId).finally(() => {
+    hasLoadedDefaults = true;
+  });
+  on(WS_MESSAGE_TYPES.PROJECT_DEFAULTS_UPDATED, handleDefaultsUpdated);
+  reconnectReconciliation = createReconnectRefetch({
+    onReconnect,
+    fetchCanonical: () => api.getProjectSessionDefaults(props.projectId),
+    apply: (defaults) => defaultsStore.setDefaults(props.projectId, defaults),
+  });
 });
+
+onUnmounted(() => {
+  off(WS_MESSAGE_TYPES.PROJECT_DEFAULTS_UPDATED, handleDefaultsUpdated);
+  reconnectReconciliation?.dispose();
+});
+
+function handleDefaultsUpdated(message) {
+  if (message?.projectId === props.projectId && message.defaults) {
+    defaultsStore.setDefaults(props.projectId, message.defaults);
+  }
+}
 
 watch(() => defaultsStore.getDefaultsForProject(props.projectId), (defaults) => {
   if (defaults) {
-    defaultMode.value = defaults.mode || '';
-    defaultThinkingEnabled.value = defaults.thinkingEnabled || false;
-    defaultEffortLevel.value = defaults.effortLevel ?? '';
-    defaultStartImmediately.value = defaults.startImmediately !== false;
-    defaultGitMode.value = defaults.gitMode || '';
-    defaultGitBranch.value = defaults.gitBranch || '';
-    defaultModel.value = defaults.model || '';
-    defaultProviderId.value = defaults.providerId || null;
+    if (!hasLoadedDefaults) {
+      applyInitialDefaults(defaults);
+    }
+    const selection = reconcileModelSelection({
+      current: { model: defaultModel.value, providerId: defaultProviderId.value },
+      previousCanonical: lastCanonicalSelection,
+      canonical: { model: defaults.model || '', providerId: defaults.providerId || null },
+    });
+    defaultModel.value = selection.model || '';
+    defaultProviderId.value = selection.providerId;
+    lastCanonicalSelection = { model: defaults.model || '', providerId: defaults.providerId || null };
   }
 }, { immediate: true });
 

@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { modelProviders } from '../database.js';
+import { modelProviders, modelTiers, projects, sessions } from '../database.js';
 import { testProviderConnection } from '../services/providerTestService.js';
-import { OPENAI_MODELS, CLAUDE_MODELS } from '@circuschief/shared';
+import { OPENAI_MODELS, CLAUDE_MODELS, buildTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 // Mock providerTestService so we can spy on kind forwarding without hitting
 // external APIs.
@@ -11,8 +11,15 @@ vi.mock('../services/providerTestService.js', () => ({
   testProviderConnection: vi.fn(),
 }));
 
+vi.mock('../websocket.js', () => ({
+  broadcastToSession: vi.fn(),
+  broadcastToProject: vi.fn(),
+  broadcast: vi.fn(),
+}));
+
 // Import the router
 import providersRouter from './providers.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 
 describe('Providers API', () => {
   let app;
@@ -25,6 +32,35 @@ describe('Providers API', () => {
     app = express();
     app.use(express.json());
     app.use('/api/providers', providersRouter);
+  });
+
+  describe('tier degradation reconciliation', () => {
+    it('publishes canonical session updates after deleting a provider that empties a tier', async () => {
+      const provider = modelProviders.create({ name: 'Tier deletion API provider', kind: 'anthropic' });
+      testProviderId = provider.id;
+      modelProviders.addModel(provider.id, { modelId: 'tier-delete-api-model', displayName: 'Tier model' });
+      const tier = modelTiers.create({
+        name: 'Tier deletion API tier',
+        members: [{ providerId: provider.id, modelId: 'tier-delete-api-model', position: 0 }],
+      });
+      const project = projects.create('Tier deletion API project', '/tmp/tier-deletion-api');
+      const session = sessions.create(project.id, 'Tier deletion API session', 'Prompt', {
+        status: 'waiting', model: buildTierRef(tier.id),
+      });
+
+      await request(app).delete(`/api/providers/${provider.id}`).expect(204);
+
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        session.id,
+        WS_MESSAGE_TYPES.SESSION_UPDATED,
+        expect.objectContaining({ session: expect.objectContaining({ model: null, providerId: null }) })
+      );
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        project.id,
+        WS_MESSAGE_TYPES.SESSION_UPDATED,
+        expect.any(Object)
+      );
+    });
   });
 
   afterEach(() => {
@@ -300,6 +336,15 @@ describe('Providers API', () => {
       expect(response.body.error).toBeDefined();
     });
 
+    it('400: rejects renaming a model to the Model Tier reference prefix', async () => {
+      const response = await request(app)
+        .patch(`/api/providers/${testProviderId}/models/${testModelId}`)
+        .send({ modelId: 'tier::high' })
+        .expect(400);
+
+      expect(response.body.error).toMatch(/reserved "tier::" prefix/);
+    });
+
     it('200: valid request with displayName update only', async () => {
       const response = await request(app)
         .patch(`/api/providers/${testProviderId}/models/${testModelId}`)
@@ -366,6 +411,18 @@ describe('Providers API', () => {
         .expect(400);
 
       expect(response.body.error).toBeDefined();
+    });
+
+    it('400: rejects the Model Tier reference prefix as a concrete model ID', async () => {
+      const response = await request(app)
+        .post(`/api/providers/${testProviderId}/models`)
+        .send({
+          modelId: 'tier::high',
+          displayName: 'Ambiguous model',
+        })
+        .expect(400);
+
+      expect(response.body.error).toMatch(/reserved "tier::" prefix/);
     });
   });
 

@@ -1,5 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+vi.mock('../database.js', () => ({
+  modelProviders: {
+    getProviderByModelId: vi.fn(),
+    getAgentTypeForProvider: vi.fn(),
+    getById: vi.fn(),
+  },
+}));
+
+vi.mock('./nodeSpawnHelper.js', () => ({
+  createRobustEnv: vi.fn((env) => ({ ...env, PATH: `/mock-node-bin:${env.PATH || ''}` })),
+}));
+
 import { modelProviders } from '../database.js';
 import {
   resolveProviderFromModel,
@@ -13,8 +25,6 @@ describe('sessionProvider', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(modelProviders, 'getProviderByModelId');
-    vi.spyOn(modelProviders, 'getAgentTypeForProvider');
     delete process.env.MAX_THINKING_TOKENS;
     delete process.env.VCR_MODE;
   });
@@ -160,7 +170,8 @@ describe('sessionProvider', () => {
   describe('buildSessionEnv', () => {
     it('returns env from createRobustEnv when no provider', () => {
       const env = buildSessionEnv(null, false);
-      expect(env.PATH).toBeTruthy();
+      // Should have PATH from the mock createRobustEnv
+      expect(env.PATH).toContain('/mock-node-bin');
       // Should delete ANTHROPIC_ vars when no provider
       expect(env.ANTHROPIC_API_KEY).toBeUndefined();
       expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
@@ -285,6 +296,68 @@ describe('sessionProvider', () => {
       modelProviders.getProviderByModelId.mockReturnValue({ id: 'p3', kind: 'anthropic' });
       modelProviders.getAgentTypeForProvider.mockReturnValue(null);
       expect(resolveAgentTypeFromModel('weird-model')).toBe('claude-code');
+    });
+  });
+
+  // ── Provider-aware resolution (Fix 1) ─────────────────────────────────
+  // Duplicate modelId values registered under two different providers must
+  // resolve to the EXPLICITLY requested provider (e.g. a tier member's own
+  // providerId) rather than whichever one the plain model-id lookup happens
+  // to prefer.
+  describe('provider-aware resolution (duplicate modelId across providers)', () => {
+    const sharedModelId = 'shared-model-v1';
+    const anthropicProvider = {
+      id: 'anthropic-provider',
+      kind: 'anthropic',
+      models: [{ modelId: sharedModelId }],
+    };
+    const openaiProvider = {
+      id: 'openai-provider',
+      kind: 'openai',
+      models: [{ modelId: sharedModelId }],
+    };
+
+    beforeEach(() => {
+      modelProviders.getById.mockImplementation((id) => {
+        if (id === anthropicProvider.id) return anthropicProvider;
+        if (id === openaiProvider.id) return openaiProvider;
+        return null;
+      });
+      // Plain model-id lookup arbitrarily prefers the Anthropic provider —
+      // the point of these tests is that an explicit providerId hint
+      // overrides this default when the ids collide.
+      modelProviders.getProviderByModelId.mockReturnValue(anthropicProvider);
+      modelProviders.getAgentTypeForProvider.mockImplementation((id) => {
+        if (id === anthropicProvider.id) return 'claude-code';
+        if (id === openaiProvider.id) return 'codex';
+        return null;
+      });
+    });
+
+    it('resolveProviderFromModel resolves the explicitly selected provider, not the plain-lookup default', () => {
+      expect(resolveProviderFromModel(sharedModelId, openaiProvider.id)).toBe(openaiProvider);
+      expect(resolveProviderFromModel(sharedModelId, anthropicProvider.id)).toBe(anthropicProvider);
+    });
+
+    it('resolveAgentTypeFromModel derives the agent type from the explicit provider when ids span agent kinds', () => {
+      expect(resolveAgentTypeFromModel(sharedModelId, openaiProvider.id)).toBe('codex');
+      expect(resolveAgentTypeFromModel(sharedModelId, anthropicProvider.id)).toBe('claude-code');
+    });
+
+    it('falls back to the plain model-id lookup when no providerId hint is given', () => {
+      expect(resolveProviderFromModel(sharedModelId)).toBe(anthropicProvider);
+      expect(resolveAgentTypeFromModel(sharedModelId)).toBe('claude-code');
+    });
+
+    it('falls back to the plain model-id lookup when the hinted provider does not own the model', () => {
+      modelProviders.getById.mockReturnValue({ id: 'unrelated-provider', kind: 'openai', models: [] });
+      expect(resolveProviderFromModel(sharedModelId, 'unrelated-provider')).toBe(anthropicProvider);
+      expect(resolveAgentTypeFromModel(sharedModelId, 'unrelated-provider')).toBe('claude-code');
+    });
+
+    it('falls back to the plain model-id lookup when the hinted providerId is unknown', () => {
+      modelProviders.getById.mockReturnValue(null);
+      expect(resolveProviderFromModel(sharedModelId, 'does-not-exist')).toBe(anthropicProvider);
     });
   });
 
@@ -525,7 +598,7 @@ describe('sessionProvider', () => {
         const env = buildSessionEnv(provider, false, null);
         expect(env.HOME).toBeDefined();
         expect(env.PATH).toBeDefined();
-        expect(env.PATH).toBeTruthy();
+        expect(env.PATH).toContain('/mock-node-bin');
         expect(env.GITHUB_TOKEN).toBe('github-token-for-mcp');
         expect(env.FIRECRAWL_API_KEY).toBe('firecrawl-token-for-mcp');
       } finally {

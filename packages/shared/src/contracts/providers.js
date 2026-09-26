@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isTierRef, RESERVED_TIER_REF_MODEL_ID_MESSAGE } from './modelTiers.js';
 
 export const COMMIT_ATTRIBUTION_VALIDATION_MESSAGE =
   'Commit attribution must be in the format "Name <email@example.com>" or "Co-authored-by: Name <email@example.com>".';
@@ -133,7 +134,9 @@ export const ProviderResponse = z.object({
 export const ProviderListResponse = z.array(ProviderResponse);
 
 export const CreateProviderModelRequest = z.object({
-  modelId: z.string().min(1),
+  modelId: z.string().min(1).refine((value) => !isTierRef(value), {
+    message: RESERVED_TIER_REF_MODEL_ID_MESSAGE,
+  }),
   displayName: z.string().min(1).max(100),
   description: z.string().nullable().optional(),
   tier: z.enum(['fable', 'opus', 'sonnet', 'haiku', 'custom']).nullable().optional(),

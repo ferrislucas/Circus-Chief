@@ -2,20 +2,181 @@ import OpenAI from 'openai';
 import { callClaude, SESSION_SUMMARY_SCHEMA } from './summaryClaudeClient.js';
 import { agentCallLogger } from './agentCallLogger.js';
 import { buildProviderEnv } from './sessionProvider.js';
-import { BUILT_IN_OPENAI_PROVIDER_ID, resolveSummaryModel } from './summaryModelResolver.js';
+import { BUILT_IN_OPENAI_PROVIDER_ID, resolveSummaryModel, resolveExplicitSummaryModel } from './summaryModelResolver.js';
 import { callCodexSummary } from './summaryCodexClient.js';
+import { getTierMembersResolved, markUnhealthy, isUnhealthy } from './tierResolutionService.js';
+import { matchesStartFailoverEligibleError } from './sessionErrors.js';
+import { sanitizeTierFailureReason } from './tierFailureReason.js';
+import { isTierRef, parseTierRef } from '@circuschief/shared';
+import { modelTiers } from '../database.js';
+import { SummaryTierExhaustedError } from './summaryTierExhaustedError.js';
+import { createTierCooldownUnavailableError } from './tierCooldownUnavailableError.js';
 
-export { SESSION_SUMMARY_SCHEMA };
+export { SummaryTierExhaustedError, SESSION_SUMMARY_SCHEMA };
+
+// Sentinel returned internally by the tier-traversal loop when the tier has no
+// resolvable members (missing, empty, or stale configuration). The caller then
+// falls through to the default summary-model selection. A valid tier with only
+// cooled-down members throws MODEL_TIER_COOLDOWN_UNAVAILABLE instead. Never
+// observable outside this module.
+const TIER_FALLTHROUGH = Symbol('summary-tier-fallthrough');
 
 export async function callSummaryModel(prompt, recentMessages, sessionStatus, options = {}) {
-  const resolution = options.resolvedModel || resolveSummaryModel(options.summarySettings || {});
+  // An explicit pre-resolved model is always an override — bypass tier
+  // traversal entirely, unchanged from the prior single-shot behavior.
+  if (options.resolvedModel) {
+    return dispatchSummaryResolution(options.resolvedModel, { prompt, recentMessages, sessionStatus, options });
+  }
+
+  const summarySettings = options.summarySettings || {};
+  const summaryModelField = summarySettings.summaryModel || '';
+
+  if (isTierRef(summaryModelField)) {
+    const result = await callSummaryModelWithTierFailover(summaryModelField, {
+      prompt,
+      recentMessages,
+      sessionStatus,
+      options,
+    });
+    if (result !== TIER_FALLTHROUGH) return result;
+    // Nothing was eligible to attempt — fall through to the default
+    // summary-model selection below, same as the pre-Work-Item-2 contract.
+  }
+
+  const resolution = resolveSummaryModel(summarySettings);
+  return dispatchSummaryResolution(resolution, { prompt, recentMessages, sessionStatus, options });
+}
+
+function dispatchSummaryResolution(resolution, { prompt, recentMessages, sessionStatus, options }) {
   if (isBuiltInCodexResolution(resolution)) {
     return callBuiltInCodexSummary(prompt, resolution, options);
   }
   if (resolution.kind === 'openai') {
     return callOpenAISummaryModel(prompt, resolution, options);
   }
+  if (resolution.kind === 'google') {
+    return callGoogleSummaryModel(prompt, resolution, options);
+  }
   return callAnthropicSummaryModel({ prompt, recentMessages, sessionStatus, resolution, options });
+}
+
+/**
+ * Walk a summary-bound tier's ordered members, advancing past retryable
+ * failures until one succeeds, every eligible member is exhausted (terminal
+ * error), or its configuration has no resolvable members (fallthrough to the
+ * default summary model).
+ *
+ * Mirrors the session-start failover loop's shape (sessionTierFailover.js)
+ * There is no session-style pre-conversation boundary here: a summary call
+ * either succeeds or it doesn't, so every retryable failure advances.
+ *
+ * @param {string} tierRef
+ * @param {{ prompt: string, recentMessages: Array, sessionStatus: string, options: Object }} ctx
+ * @returns {Promise<string|symbol>} The summary response text, or TIER_FALLTHROUGH.
+ */
+async function callSummaryModelWithTierFailover(tierRef, { prompt, recentMessages, sessionStatus, options }) {
+  const tierId = parseTierRef(tierRef);
+  const members = tierId ? getTierMembersResolved(tierId) : [];
+
+  // A missing, empty, or stale tier still uses the documented safe default
+  // degradation. Do this before cooldown filtering so a valid configured tier
+  // with no currently healthy member is distinguishable from bad configuration.
+  if (members.length === 0) return TIER_FALLTHROUGH;
+  if (members.every((member) => isUnhealthy(member.providerId, member.modelId))) {
+    const tierName = modelTiers.getByIdWithMembers(tierId)?.name || tierRef;
+    throw createTierCooldownUnavailableError(tierId, tierName);
+  }
+
+  let lastError = null;
+  const attempts = [];
+
+  for (let i = 0; i < members.length; i++) {
+    const member = members[i];
+    if (isUnhealthy(member.providerId, member.modelId)) continue;
+
+    const resolution = resolveExplicitSummaryModel(member.modelId, member.providerId);
+
+    try {
+      // eslint-disable-next-line no-await-in-loop -- ordered failover requires sequential attempts
+      return await dispatchSummaryResolution(resolution, { prompt, recentMessages, sessionStatus, options });
+    } catch (error) {
+      if (!matchesStartFailoverEligibleError(error)) {
+        // Non-retryable (auth, malformed request, ...) — do not advance.
+        throw error;
+      }
+      lastError = error;
+      attempts.push({
+        providerId: member.providerId,
+        modelId: member.modelId,
+        reason: sanitizeTierFailureReason(error),
+      });
+      const nextMember = findNextEligibleSummaryMember(members, i);
+      // Cool every retryable provider failure, including the terminal member,
+      // so subsequent summary jobs do not immediately hammer an unavailable tier.
+      markUnhealthy(member.providerId, member.modelId);
+      // Emit a failover event ONLY when a successor exists. The terminal
+      // member's failure is tier exhaustion (the thrown SummaryTierExhaustedError
+      // below) — never a nominal failover to a null destination.
+      if (nextMember) {
+        logSummaryFailoverEvent({ options, failedMember: member, tierRef, nextMember, error });
+      }
+    }
+  }
+
+  if (attempts.length > 0) {
+    // Every eligible member was tried and failed — terminal. Do NOT silently
+    // degrade to the default model; that would mask a real capacity/outage
+    // problem behind a summary that quietly used an unconfigured fallback.
+    throw new SummaryTierExhaustedError({
+      tierRef,
+      tierName: modelTiers.getByIdWithMembers(tierId)?.name || tierRef,
+      attempts,
+      cause: lastError,
+    });
+  }
+
+  return TIER_FALLTHROUGH;
+}
+
+/**
+ * Find the next member (after `currentIndex`) that would actually be
+ * attempted — skipping cooldown — purely for
+ * the failover notice/log payload's `toModel`/`toProviderId`. Does not
+ * affect control flow; the main loop's own skip logic is authoritative.
+ * @param {Array<{providerId: string, modelId: string}>} members
+ * @param {number} currentIndex
+ * @returns {{providerId: string, modelId: string}|null}
+ */
+function findNextEligibleSummaryMember(members, currentIndex) {
+  for (let i = currentIndex + 1; i < members.length; i++) {
+    const candidate = members[i];
+    if (isUnhealthy(candidate.providerId, candidate.modelId)) continue;
+    return candidate;
+  }
+  return null;
+}
+
+/**
+ * Emit the summary tier-failover side effect (agent-call log entry only —
+ * there is no session WebSocket to notify for a background summary call).
+ * Non-fatal: a logging failure must never abort the failover itself.
+ */
+function logSummaryFailoverEvent({ options, failedMember, tierRef, nextMember, error }) {
+  const sessionId = options?.logMeta?.sessionId;
+  if (!sessionId) return;
+  try {
+    agentCallLogger._logFailoverEvent(sessionId, {
+      fromModel: failedMember.modelId,
+      fromProviderId: failedMember.providerId,
+      toModel: nextMember?.modelId ?? null,
+      toProviderId: nextMember?.providerId ?? null,
+      tierRef,
+      reason: sanitizeTierFailureReason(error),
+      agentType: 'summary',
+    });
+  } catch (_logErr) {
+    // Non-fatal — failover proceeds even if logging fails.
+  }
 }
 
 async function callBuiltInCodexSummary(prompt, resolution, options) {
@@ -95,6 +256,56 @@ async function callOpenAISummaryModel(prompt, resolution, options) {
   }
 }
 
+async function callGoogleSummaryModel(prompt, resolution, options) {
+  const { logMeta = null, systemPrompt = null, jsonSchema = null } = options || {};
+  const schema = jsonSchema || SESSION_SUMMARY_SCHEMA;
+  const provider = resolution.provider;
+  const apiKey = provider?.authToken || process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error(`Google summary provider ${resolution.providerId} has no API key`);
+
+  const callId = startOpenAISummaryLog(logMeta, resolution, prompt.length, 'google-generate-content');
+  try {
+    const response = await fetch(googleSummaryEndpoint(resolution.model, apiKey), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(googleSummaryRequest(prompt, systemPrompt, schema)),
+      ...(provider?.apiTimeoutMs ? { signal: AbortSignal.timeout(provider.apiTimeoutMs) } : {}),
+    });
+    const content = await parseGoogleSummaryResponse(response);
+    if (callId) agentCallLogger.completeCall(callId, { success: true });
+    return content;
+  } catch (error) {
+    if (callId) agentCallLogger.completeCall(callId, { success: false, error });
+    throw error;
+  }
+}
+
+function googleSummaryEndpoint(model, apiKey) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+}
+
+function googleSummaryRequest(prompt, systemPrompt, schema) {
+  return {
+    ...(systemPrompt ? { systemInstruction: { parts: [{ text: systemPrompt }] } } : {}),
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: schema },
+  };
+}
+
+async function parseGoogleSummaryResponse(response) {
+  const payload = await response.json();
+  if (!response.ok) {
+    const error = new Error(payload?.error?.message || `Google summary request failed (${response.status})`);
+    error.status = response.status;
+    throw error;
+  }
+  const content = payload?.candidates?.[0]?.content?.parts
+    ?.map((part) => part?.text || '')
+    .join('') || '';
+  if (!content) throw new Error('Google summary response contained no text');
+  return content;
+}
+
 function startOpenAISummaryLog(logMeta, resolution, promptLength, route = 'direct-api') {
   if (!logMeta) return null;
   return agentCallLogger.startCall({
@@ -124,9 +335,7 @@ function logOpenAIUsage(callId, usage) {
 }
 
 function createOpenAIClient(provider) {
-  const options = {
-    apiKey: provider?.authToken || process.env.OPENAI_API_KEY || 'missing',
-  };
+  const options = { apiKey: provider?.authToken || process.env.OPENAI_API_KEY || 'missing' };
   if (provider?.baseUrl) options.baseURL = provider.baseUrl;
   if (provider?.apiTimeoutMs) options.timeout = provider.apiTimeoutMs;
   return new OpenAI(options);

@@ -49,7 +49,7 @@ export function createClaudeCodeSpawner() {
     const { command, args, cwd, env, signal } = options;
     if (isE2ESpawnCaptureEnabled()) {
       captureSpawnAttempt('claude-code', options);
-      return createCapturedSpawnProcess('claude-code');
+      return createCapturedSpawnProcess('claude-code', options);
     }
 
     // Replace 'node' with the absolute path to the current Node executable

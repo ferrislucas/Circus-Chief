@@ -61,6 +61,15 @@ export const WS_MESSAGE_TYPES = {
   // A lane worker selected a destination, but its card stays put until the
   // worker's run completes and the handoff can be performed safely.
   KANBAN_EXIT_LANE_DECLARED: 'kanban:exit_lane_declared',
+
+  // Configuration reconciliation events. These carry canonical records after
+  // a tier deletion or member loss rewrites a persisted tier reference.
+  TEMPLATE_UPDATED: 'template:updated',
+  PROJECT_DEFAULTS_UPDATED: 'project:defaults_updated',
+  SUMMARY_SETTINGS_UPDATED: 'settings:summary_updated',
+
+  // Tier failover events
+  TIER_FAILOVER: 'tier:failover',
 };
 
 /**

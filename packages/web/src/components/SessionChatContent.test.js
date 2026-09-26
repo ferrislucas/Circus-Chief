@@ -42,22 +42,12 @@ const mockUiStore = {
   error: vi.fn(),
 };
 
-const mockSessionPromptsStore = {
-  show: vi.fn(),
-  resolved: vi.fn(),
-  hydrate: vi.fn().mockResolvedValue(undefined),
-};
-
 vi.mock('../stores/sessions.js', () => ({
   useSessionsStore: () => mockSessionsStore,
 }));
 
 vi.mock('../stores/ui.js', () => ({
   useUiStore: () => mockUiStore,
-}));
-
-vi.mock('../stores/sessionPrompts.js', () => ({
-  useSessionPromptsStore: () => mockSessionPromptsStore,
 }));
 
 vi.mock('../stores/createOverlaySessionsStore.js', () => ({
@@ -103,6 +93,7 @@ vi.mock('../composables/useSessionSubscription.js', () => ({
     onSessionUpdate: vi.fn(() => vi.fn()),
     onConversationCreated: vi.fn(() => vi.fn()),
     onConversationUpdated: vi.fn(() => vi.fn()),
+    onTierFailover: vi.fn(() => vi.fn()),
     onPrompt: vi.fn(() => vi.fn()),
     onPromptResolved: vi.fn(() => vi.fn()),
   }),

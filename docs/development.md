@@ -189,3 +189,33 @@ Authentication is configured via `GEMINI_API_KEY`. Additional Google Cloud varia
 | Resume | ❌ |
 
 Supported Google models: Gemini 2.5 Pro, Gemini 2.5 Flash (default), Gemini 2.5 Flash Lite.
+
+## Model Tiers
+
+A **model tier** is a named, ordered list of models — possibly spanning multiple providers/agent types — that can be bound anywhere a single model can be selected: sessions, templates, kanban lane automation, project defaults, and the summary generator. Tiers are managed under **Settings → Model Tiers** (`/settings/tiers`).
+
+**Failover scope (v1):** failover only happens **at new-session start**. When a session bound to a tier starts, the system tries the first member; if that model fails to start (provider outage, rate limit, or a quota/"out of tokens" error), it advances to the next tier member — potentially crossing providers — until one starts successfully or the tier is exhausted. Once a session has produced its first assistant message, its agent type is locked (`sessionAgentGuard.checkCrossKindSwitch`) and no further failover occurs; a model that fails mid-conversation follows the existing error / auto-reschedule behavior unchanged.
+
+**Member pinning:** the first *durable observable activity* (a persisted assistant message or work log) pins the session to the concrete member that produced it (`resolvedModel`/`resolvedProviderId`, via `services/tierMemberPin.js`), even if that member's turn later ends in a terminal error. The tier reference stays in `sessions.model`; continuations dispatch to the pinned member instead of re-resolving the tier — so a member that did the work is never silently replaced by another, and re-resolution cannot provoke a cross-kind switch. Failures that occur *before* any durable activity pin nothing and stay eligible for normal startup failover.
+
+A tier member that fails is marked unhealthy for a short cooldown window so subsequent new-session resolutions skip it until it recovers.
+
+**Tier deletion / emptying:** deleting a tier (`DELETE /api/tiers/:id`) or emptying it via a members `PATCH` atomically degrades every persisted consumer to a concrete fallback (or the per-surface default) and — after the repair transaction commits — broadcasts the canonical post-degradation state over websocket: `session:updated` with the degraded binding to affected session and project subscribers, and `kanban:board_updated` for projects whose lanes were rewritten (`services/tierDegradationNotifier.js`). A follow-up message that was already in flight carrying the just-deleted `tier::<id>` ref is accepted once for the session that was degraded from it and normalized to the server-side binding; unknown-tier validation is otherwise unchanged.
+
+**Storage convention:** existing model-bearing fields (`sessions.model`, `session_templates.model`, `kanban_lanes.on_enter_model`, project defaults, summary settings) hold either a concrete model or a tier reference, using a `tier::<tierId>` sentinel. The sentinel is resolved exactly once, at execution time, into a concrete `(modelId, providerId)` pair — it never appears in agent adapter calls.
+
+**Key files:**
+
+| Area | File |
+|------|------|
+| Schema | `packages/server/src/db/migrations/modelTiersMigrations.js` (`model_tiers`, `model_tier_members`) |
+| Repository | `packages/server/src/db/ModelTierRepository.js` |
+| REST API | `packages/server/src/api/modelTiers.js` (`/api/tiers`) |
+| Resolution | `packages/server/src/services/tierResolutionService.js` (resolves a tier reference to the first healthy member) |
+| Failover | `packages/server/src/services/sessionTierFailover.js` (walks the tier at session start on a triggering error) |
+| Member pinning | `packages/server/src/services/tierMemberPin.js` (idempotent pin on first durable activity + success-time snapshot) |
+| Degradation sync | `packages/server/src/services/tierDeletionService.js` (atomic consumer repair → change set) + `tierDegradationNotifier.js` (post-commit websocket publication) |
+| Web UI | `packages/web/src/views/ModelTiersView.vue`, plus a "Tiers" group added to `components/ModelSelector.vue` (and therefore every consumer of it) |
+| Shared contracts | `packages/shared/src/contracts/modelTiers.js` |
+
+Failover events are logged to the existing agent log stream (**Settings → Logs**) and surfaced as a non-blocking notice in the session UI, naming the from/to models and the reason. The summary-generation surface only accepts tiers whose members resolve to Anthropic or OpenAI models (Google models aren't supported for summaries, same as for a concrete model selection).

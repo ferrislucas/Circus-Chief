@@ -102,8 +102,12 @@ export function useSessionControl({ getSessionId }) {
    * @param {Object} options - Additional send options
    * @returns {boolean} Whether the send was successful
    */
-  async function handleSend(message, attachedFiles, selectedModel, options = {}) {
+  async function handleSend(message, attachedFiles, selection, options = {}) {
     if (!message?.trim() || sending.value) return false;
+
+    const { model: selectedModel, providerId: selectedProviderId = null } = typeof selection === 'string'
+      ? { model: selection }
+      : (selection || {});
 
     console.log(`[MODEL AUDIT - Frontend] Sending message with model: "${selectedModel}"`);
 
@@ -114,9 +118,14 @@ export function useSessionControl({ getSessionId }) {
     try {
       await api.updateSessionPendingPrompt(sessionId, null);
       pendingPromptCleared = true;
+      // Preserve the existing no-provider request shape, while carrying an
+      // explicit provider alongside a concrete model when the picker has one.
+      const sendOptions = selectedProviderId
+        ? { ...options, providerId: selectedProviderId }
+        : options;
       const sendArgs = [sessionId, message, attachedFiles, selectedModel];
-      if (Object.keys(options).length > 0) {
-        sendArgs.push(options);
+      if (Object.keys(sendOptions).length > 0) {
+        sendArgs.push(sendOptions);
       }
       await sessionsStore.sendMessage(...sendArgs);
       sessionsStore.markRecentSend?.(sessionId);

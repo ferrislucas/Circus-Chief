@@ -324,6 +324,7 @@ export const sessionActions = {
         || (this.currentSession?.id === sessionId ? this.currentSession : null);
       if (session && session.status === 'waiting') {
         updateData.pendingModel = model;
+        if (providerId !== undefined) updateData.pendingProviderId = providerId;
       }
 
       const updated = await api.updateSession(sessionId, updateData);

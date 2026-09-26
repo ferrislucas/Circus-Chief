@@ -85,9 +85,11 @@
           <label class="form-label">Model</label>
           <ModelSelector
             v-model="formData.model"
+            :provider-id="formData.providerId"
             preserve-current-value
             :allow-empty="true"
             empty-label="Inherit from root workspace"
+            @update:provider-id="formData.providerId = $event"
           />
         </div>
 
@@ -284,6 +286,7 @@ const formData = ref({
   thinkingEnabled: null,
   gitBranch: '',
   model: null,
+  providerId: null,
   mode: null,
   showInQuickResponses: false,
 });
@@ -337,6 +340,7 @@ function resetForm() {
     thinkingEnabled: null,
     gitBranch: '',
     model: null,
+    providerId: null,
     mode: null,
     showInQuickResponses: false,
   };
@@ -363,6 +367,7 @@ async function handleSubmit() {
       thinkingEnabled: formData.value.thinkingEnabled,  // null = inherit, true/false = explicit
       gitBranch: formData.value.gitBranch || undefined,
       model: formData.value.model,                      // null = inherit
+      providerId: formData.value.providerId,
       mode: formData.value.mode,                        // null = inherit
       showInQuickResponses: formData.value.showInQuickResponses,
     };

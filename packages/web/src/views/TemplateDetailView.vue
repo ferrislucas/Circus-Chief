@@ -104,9 +104,11 @@
           <label for="model">Model</label>
           <ModelSelector
             v-model="formData.model"
+            :provider-id="formData.providerId"
             preserve-current-value
             :allow-empty="true"
             empty-label="Inherit from root session"
+            @update:provider-id="formData.providerId = $event"
           />
         </div>
 
@@ -234,7 +236,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { useRouter, useRoute } from 'vue-router';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
@@ -243,17 +246,24 @@ import ModelSelector from '../components/ModelSelector.vue';
 import EffortLevelSelector from '../components/EffortLevelSelector.vue';
 import InterpolationHelp from '../components/InterpolationHelp.vue';
 import ResizableTextarea from '../components/ResizableTextarea.vue';
+import { useWebSocket } from '../composables/useWebSocket.js';
+import { createReconnectRefetch } from '../composables/reconnectRefetch.js';
+import { reconcileModelSelection } from '../composables/modelSelectionReconciliation.js';
 
 const route = useRoute();
 const router = useRouter();
 const templatesStore = useTemplatesStore();
 const uiStore = useUiStore();
+const { on, off, onReconnect } = useWebSocket();
 
 const isLoading = ref(false);
 const isSaving = ref(false);
 const isDeleting = ref(false);
 const showDeleteConfirm = ref(false);
 const error = ref(null);
+const modelSelectionConflict = ref(false);
+let lastCanonicalSelection = { model: null, providerId: null };
+let reconnectReconciliation;
 
 const formData = ref({
   name: '',
@@ -263,6 +273,7 @@ const formData = ref({
   thinkingEnabled: null,
   gitBranch: '',
   model: null,
+  providerId: null,
   mode: null,
   effortLevel: null,
   showInQuickResponses: false,
@@ -273,26 +284,47 @@ const templateId = computed(() => route.params.templateId);
 
 const availableNextTemplates = computed(() => [...templatesStore.projectTemplates, ...templatesStore.globalTemplates]);
 
-const loadTemplate = async () => {
+function toFormData(template) {
+  return {
+    name: template.name,
+    prompt: template.prompt,
+    isGlobal: !template.projectId,
+    nextTemplateId: template.nextTemplateId ?? null,
+    thinkingEnabled: template.thinkingEnabled,
+    gitBranch: template.gitBranch || '',
+    model: template.model,
+    providerId: template.providerId ?? null,
+    mode: template.mode,
+    effortLevel: template.effortLevel ?? null,
+    showInQuickResponses: template.showInQuickResponses,
+  };
+}
+
+function applyCanonicalTemplate(template, { preserveEdits = false } = {}) {
+  if (!template) return;
+  const canonical = toFormData(template);
+  if (!preserveEdits) {
+    formData.value = canonical;
+  } else {
+    const selection = reconcileModelSelection({
+      current: formData.value,
+      previousCanonical: lastCanonicalSelection,
+      canonical,
+    });
+    formData.value.model = selection.model;
+    formData.value.providerId = selection.providerId;
+    modelSelectionConflict.value = selection.conflict;
+  }
+  lastCanonicalSelection = { model: canonical.model, providerId: canonical.providerId };
+}
+
+const loadTemplate = async ({ preserveEdits = false } = {}) => {
   isLoading.value = true;
   error.value = null;
   try {
     const template = await api.getTemplate(templateId.value);
 
-    if (template) {
-      formData.value = {
-        name: template.name,
-        prompt: template.prompt,
-        isGlobal: !template.projectId,
-        nextTemplateId: template.nextTemplateId ?? null,
-        thinkingEnabled: template.thinkingEnabled,  // Preserve null (inherit), true, or false
-        gitBranch: template.gitBranch || '',
-        model: template.model,                      // Preserve null (inherit) or model ID
-        mode: template.mode,                        // Preserve null (inherit), 'plan', 'standard', or 'yolo'
-        effortLevel: template.effortLevel ?? null,
-        showInQuickResponses: template.showInQuickResponses,
-      };
-    }
+    applyCanonicalTemplate(template, { preserveEdits });
   } catch (err) {
     error.value = `Failed to load template: ${err.message}`;
     uiStore.error(err.message);
@@ -300,6 +332,10 @@ const loadTemplate = async () => {
     isLoading.value = false;
   }
 };
+
+function handleTemplateUpdated(message) {
+  if (message?.templateId === templateId.value) loadTemplate({ preserveEdits: true });
+}
 
 const onSubmit = async () => {
   error.value = null;
@@ -312,6 +348,7 @@ const onSubmit = async () => {
       thinkingEnabled: formData.value.thinkingEnabled,  // null = inherit, true/false = explicit
       gitBranch: formData.value.gitBranch || undefined,
       model: formData.value.model,                      // null = inherit
+      providerId: formData.value.providerId,
       mode: formData.value.mode,                        // null = inherit
       effortLevel: formData.value.effortLevel,          // null = inherit
       showInQuickResponses: formData.value.showInQuickResponses,
@@ -355,6 +392,12 @@ const confirmDelete = async () => {
 };
 
 onMounted(async () => {
+  on(WS_MESSAGE_TYPES.TEMPLATE_UPDATED, handleTemplateUpdated);
+  reconnectReconciliation = createReconnectRefetch({
+    onReconnect,
+    fetchCanonical: () => api.getTemplate(templateId.value),
+    apply: (template) => applyCanonicalTemplate(template, { preserveEdits: true }),
+  });
   await Promise.all([
     loadTemplate(),
     templatesStore.fetchProjectTemplates(projectId.value).catch((err) => {
@@ -362,6 +405,11 @@ onMounted(async () => {
       uiStore.error(err.message);
     }),
   ]);
+});
+
+onUnmounted(() => {
+  off(WS_MESSAGE_TYPES.TEMPLATE_UPDATED, handleTemplateUpdated);
+  reconnectReconciliation?.dispose();
 });
 </script>
 

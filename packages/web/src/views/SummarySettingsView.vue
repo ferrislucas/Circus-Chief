@@ -93,11 +93,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { useWebSocket } from '../composables/useWebSocket.js';
 import { useSettingsStore } from '../stores/settings.js';
 import { useUiStore } from '../stores/ui.js';
 import ResizableTextarea from '../components/ResizableTextarea.vue';
 import ModelSelector from '../components/ModelSelector.vue';
+import { api } from '../composables/useApi.js';
+import { createReconnectRefetch } from '../composables/reconnectRefetch.js';
+import { reconcileModelSelection } from '../composables/modelSelectionReconciliation.js';
 
 const settingsStore = useSettingsStore();
 const uiStore = useUiStore();
@@ -108,19 +113,47 @@ const summaryModel = ref('');
 const summaryProviderId = ref(null);
 const saving = ref(false);
 const error = ref(null);
+const { on, off, onReconnect } = useWebSocket();
+let lastCanonicalSelection = { model: null, providerId: null };
+let reconnectReconciliation;
+let hasLoadedCanonicalSettings = false;
+
+function handleSummarySettingsUpdated(message) {
+  if (message?.settings) settingsStore.summarySettings = message.settings;
+}
 
 onMounted(() => {
-  settingsStore.fetchSummarySettings();
+  settingsStore.fetchSummarySettings().finally(() => {
+    hasLoadedCanonicalSettings = true;
+  });
+  on(WS_MESSAGE_TYPES.SUMMARY_SETTINGS_UPDATED, handleSummarySettingsUpdated);
+  reconnectReconciliation = createReconnectRefetch({
+    onReconnect,
+    fetchCanonical: () => api.getSummarySettings(),
+    apply: (settings) => { settingsStore.summarySettings = settings; },
+  });
+});
+
+onUnmounted(() => {
+  off(WS_MESSAGE_TYPES.SUMMARY_SETTINGS_UPDATED, handleSummarySettingsUpdated);
+  reconnectReconciliation?.dispose();
 });
 
 // Watch for changes to the store and update local refs
 watch(() => settingsStore.summarySettings, (settings) => {
   if (settings) {
-    disableSessionSummaries.value = settings.disableSessionSummaries;
-    summaryModel.value = settings.summaryModel || '';
-    summaryProviderId.value = settings.summaryProviderId || null;
-    // Use saved prompt, or fall back to default for editing
-    sessionTitlePrompt.value = settings.sessionTitlePrompt || settings.defaultSessionTitlePrompt || '';
+    if (!hasLoadedCanonicalSettings) {
+      disableSessionSummaries.value = settings.disableSessionSummaries;
+      sessionTitlePrompt.value = settings.sessionTitlePrompt || settings.defaultSessionTitlePrompt || '';
+    }
+    const selection = reconcileModelSelection({
+      current: { model: summaryModel.value, providerId: summaryProviderId.value },
+      previousCanonical: lastCanonicalSelection,
+      canonical: { model: settings.summaryModel || '', providerId: settings.summaryProviderId || null },
+    });
+    summaryModel.value = selection.model || '';
+    summaryProviderId.value = selection.providerId;
+    lastCanonicalSelection = { model: settings.summaryModel || '', providerId: settings.summaryProviderId || null };
   }
 }, { immediate: true });
 

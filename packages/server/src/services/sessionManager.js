@@ -4,6 +4,8 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
+import { resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
+import { buildTierHealthContext } from './tierResolutionService.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
 import { activeLaneRunOwnsSession, pauseForUserStop } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
@@ -239,27 +241,55 @@ function validateAndFetchContinueContext(sessionId, conversationId) {
  * one assistant message we MUST NOT mutate agent_type — that would corrupt
  * resume/context state across kinds.
  *
+ * Tier-ref handling (Fix 2): delegates to the shared `resolveTierRefForContinue`
+ * helper (also used by `sessionContinuation.buildContinueModelAndEnv`) so both
+ * continuation paths share ONE tier-ref resolution/persistence contract.
+ * Switching from one bound tier to a different one always resolves the NEW
+ * tier live rather than reusing a snapshot captured for the old one, and an
+ * explicit concrete-model override always clears any stored tier snapshot.
+ *
  * @param {Object} session - Current session object
  * @param {string} sessionId - Session ID
  * @param {string|null} model - Requested model (null to keep current)
  * @returns {{ effectiveModel: string|null, sessionEnv: Object, modelChanged: boolean, session: Object }}
  */
-function buildModelAndProvider(session, sessionId, model) {
-  const effectiveModel = model || session.model;
-  const provider = resolveProviderFromModel(effectiveModel);
+function buildModelAndProvider(session, sessionId, model, providerId = null) {
+  // Stale-binding tolerance (PRD E3/D6): a truly-stale tier binding degrades
+  // (snapshot or server default, tier:failover notice) instead of throwing —
+  // matching the start path's `_runTierBoundSession` behavior.
+  const { effectiveModel, providerIdHint, persist } = resolveTierRefForContinueWithStaleFallback(
+    sessionId, session, model, providerId
+  );
+
+  const provider = resolveProviderFromModel(effectiveModel, providerIdHint);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
-  const modelChanged = Boolean(model && session.model && model !== session.model);
+
+  // Model changed = the caller explicitly requested a different binding
+  // (concrete or tier) than what's currently stored on the session.
+  const modelChanged = Boolean(model) && model !== session.model;
 
   let updatedSession = session;
-  if (model) {
-    // Defense in depth: if this is still a draft (no assistant messages),
-    // re-derive agentType so it stays in sync with the chosen model.
-    // After the first assistant turn this is locked.
-    // Only reconcile agentType here — providerId is managed by PATCH and
-    // SessionRepository.create. Suppress providerId auto-set by passing the
-    // current value as the explicit override (mirrors sessionExecution.js).
-    const agentTypeUpdate = deriveAgentTypeUpdate(session, sessionId, model, { providerId: session.providerId });
-    sessions.update(sessionId, { model, ...agentTypeUpdate });
+  // Defense in depth: if this is still a draft (no assistant messages),
+  // re-derive agentType so it stays in sync with the effective model. After
+  // the first assistant turn this is locked. Only reconcile agentType here —
+  // providerId is managed by PATCH and SessionRepository.create for non-tier
+  // sessions. Suppress providerId auto-set by passing the resolved hint (or
+  // the current value) as the explicit override (mirrors sessionExecution.js).
+  //
+  // Work Item 4: gate on `effectiveModel`, not the raw `model` override param.
+  // A tier-bound draft session may have been created with a wrong initial
+  // agentType (e.g. a template/lane/draft path that resolved the tier's kind
+  // incorrectly before Work Item 2 closed that gap) — that must still be
+  // corrected on its very first continuation, even when the caller passes no
+  // explicit model override and is simply continuing on the existing
+  // binding. This mirrors `sessionContinuation.buildContinueModelAndEnv`,
+  // which already reconciles unconditionally on `effectiveModel`.
+  const agentTypeUpdate = effectiveModel
+    ? deriveAgentTypeUpdate(session, sessionId, effectiveModel, { providerId: providerIdHint ?? session.providerId })
+    : {};
+  const updatePayload = { ...persist, ...agentTypeUpdate };
+  if (Object.keys(updatePayload).length > 0) {
+    sessions.update(sessionId, updatePayload);
     updatedSession = sessions.getById(sessionId);
   }
 
@@ -323,7 +353,7 @@ function buildExistingMessageQueryParams({
 }
 
 export async function continueSessionWithExistingMessage(sessionId, conversationId, workingDirectory, options = {}) {
-  const { systemPrompt = null, model = null, interactive = false } = options;
+  const { systemPrompt = null, model = null, providerId = null, interactive = false } = options;
   const context = validateAndFetchContinueContext(sessionId, conversationId);
   let session = context.session;
   const { conversation, lastUserMessage } = context;
@@ -346,13 +376,25 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   sessions.update(sessionId, { status: 'running' });
   broadcastSessionStatus(sessionId, 'running');
 
-  // Create agent via gateway (or mock agent in mock mode)
+  // Resolve model/provider and detect model changes BEFORE creating the
+  // agent (Work Item 4): for a tier-bound draft, `buildModelAndProvider` may
+  // reconcile and persist a new `session.agentType` (e.g. a tier's first
+  // member resolves to Codex although the row still says 'claude-code').
+  // Creating the agent from the stale pre-reconciliation agentType would
+  // dispatch the wrong adapter for the resolved model.
+  const modelEnv = buildModelAndProvider(session, sessionId, model, providerId);
+  session = modelEnv.session;
+
+  // Health attribution for tier-bound continuations (mid-conversation
+  // cooldown). Built AFTER resolution so a backfilled snapshot is visible.
+  // This context can report member health on an eligible failure but can
+  // never authorize failover — the continuation stays pinned to this member.
+  const tierContext = buildTierHealthContext(session);
+
+  // Create agent via gateway (or mock agent in mock mode), using the
+  // reconciled agentType.
   const agentType = session.agentType || 'claude-code';
   const agent = createAgentForSession(agentType);
-
-  // Resolve model/provider and detect model changes
-  const modelEnv = buildModelAndProvider(session, sessionId, model);
-  session = modelEnv.session;
 
   // Build query params and agent call meta
   const { queryParams, agentCallMeta } = buildExistingMessageQueryParams({
@@ -372,6 +414,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
     interactive,
     errorLabel: 'Continue session with existing message error',
+    tierContext,
   });
   return execution || startedSessionExecution(sessionId);
 }

@@ -5,14 +5,34 @@ import { upload as _upload, handleUploadError } from '../middleware/upload.js';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import * as slashCommandService from '../services/slashCommandService.js';
 import { checkCrossKindSwitch } from '../services/sessionAgentGuard.js';
+import { isTierRef } from '@circuschief/shared';
+import { consumeStaleTierEcho } from '../services/tierDegradationNotifier.js';
 import { getRootSession, renderTemplatePrompt } from '../services/templateTriggerService.js';
-import { validateModelId } from './model-validation.js';
+import { validateModelAndProvider } from './model-validation.js';
 import { clearedPendingSchedule } from '../services/pendingSchedule.js';
 
 const router = Router();
 
 function shouldRenderLiquid(value) {
   return value === true || value === 'true';
+}
+
+function validateSessionStatus(session) {
+  return ['waiting', 'stopped', 'error'].includes(session.status)
+    ? null
+    : { status: 400, body: { error: 'Session is not waiting for input' } };
+}
+
+function normalizeRequestedSelection(session, model, providerId) {
+  const isSameBinding = model === session.model
+    && (isTierRef(model) || providerId === null || providerId === session.providerId);
+  let normalizedModel = isSameBinding ? null : model;
+  let normalizedProviderId = isSameBinding ? null : providerId;
+  if (isTierRef(normalizedModel) && consumeStaleTierEcho(session.id, normalizedModel)) {
+    normalizedModel = null;
+    normalizedProviderId = null;
+  }
+  return { model: normalizedModel, providerId: normalizedProviderId };
 }
 
 async function renderLiquidForSession(content, session) {
@@ -26,27 +46,36 @@ async function renderLiquidForSession(content, session) {
 }
 
 // Validate a follow-up message request. Returns an error descriptor
-// { status, body } when the request is invalid, otherwise null.
-function validateMessageRequest(session, content, model) {
+// { status, body } when the request is invalid, otherwise
+// { model: normalizedModel } with the model the continuation should use.
+function validateMessageRequest(session, content, model, providerId) {
   if (!content) {
     return { status: 400, body: { error: 'Content is required' } };
   }
 
-  if (session.status !== 'waiting' && session.status !== 'stopped' && session.status !== 'error') {
-    return { status: 400, body: { error: 'Session is not waiting for input' } };
-  }
+  const statusError = validateSessionStatus(session);
+  if (statusError) return statusError;
 
-  const modelResult = validateModelId(model);
+  // Re-selecting the model the session is already bound to is a no-op, not a
+  // new selection (the web client always echoes session.model on a plain
+  // follow-up). Normalize it away so a binding that went stale after creation
+  // (e.g. its tier was deleted) skips the write-time validation meant for NEW
+  // bindings and degrades per PRD E3/D6 instead of a 400.
+  const selection = normalizeRequestedSelection(session, model, providerId);
+  const effectiveRequestedModel = selection.model;
+  const effectiveRequestedProviderId = selection.providerId;
+
+  const modelResult = validateModelAndProvider(effectiveRequestedModel, effectiveRequestedProviderId);
   if (modelResult.error) {
     return { status: 400, body: { error: modelResult.error } };
   }
 
-  const crossKindError = checkCrossKindSwitch(session, model);
+  const crossKindError = checkCrossKindSwitch(session, effectiveRequestedModel, effectiveRequestedProviderId);
   if (crossKindError) {
     return { status: 400, body: crossKindError };
   }
 
-  return null;
+  return selection;
 }
 
 // GET /api/sessions/:id/messages - Get session messages
@@ -93,13 +122,17 @@ router.get('/:id/messages', requireSession, (req, res) => {
 router.post('/:id/message', _upload.array('files', 10), handleUploadError, requireSessionAndProject, async (req, res) => {
   const content = req.body.content;
   const model = req.body.model || null; // Model to use for this message
+  const providerId = req.body.providerId || null;
   const renderLiquid = shouldRenderLiquid(req.body.renderLiquid);
   const files = req.files || [];
 
-  const validationError = validateMessageRequest(req.session_, content, model);
-  if (validationError) {
-    return res.status(validationError.status).json(validationError.body);
+  const validation = validateMessageRequest(req.session_, content, model, providerId);
+  if (validation.status) {
+    return res.status(validation.status).json(validation.body);
   }
+  // The validated (possibly stale-echo-normalized) model for the continuation.
+  const continuationModel = validation.model;
+  const continuationProviderId = validation.providerId;
 
   try {
     // Store file attachments if any - saves to disk in workingDirectory/.attachments
@@ -123,14 +156,14 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
     }
 
     if (resolved) {
-      continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, { systemPrompt: resolved.systemPrompt, fileAttachments: messageAttachments, model, interactive: true }).catch((error) => {
+      continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, { systemPrompt: resolved.systemPrompt, fileAttachments: messageAttachments, model: continuationModel, providerId: continuationProviderId, interactive: true }).catch((error) => {
         console.error(`Continue session error (${resolved.type}):`, error);
       });
       return res.json({ success: true });
     }
 
     // Standard plain text message
-    continueSession(req.session_.id, renderedContent, req.workingDirectory, { systemPrompt: req.project.systemPrompt, fileAttachments: messageAttachments, model, interactive: true }).catch((error) => {
+    continueSession(req.session_.id, renderedContent, req.workingDirectory, { systemPrompt: req.project.systemPrompt, fileAttachments: messageAttachments, model: continuationModel, providerId: continuationProviderId, interactive: true }).catch((error) => {
       console.error('Continue session error:', error);
     });
     res.json({ success: true });
