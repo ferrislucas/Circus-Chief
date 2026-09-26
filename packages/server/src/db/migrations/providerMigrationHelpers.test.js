@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { describe, it, expect } from 'vitest';
 import { CLAUDE_MODELS, MUSE_MODELS } from '@circuschief/shared';
-import { seedBuiltInAnthropicProvider, seedBuiltInMetaProvider } from './providerMigrationHelpers.js';
+import { seedBuiltInAnthropicProvider, seedBuiltInMetaProvider, widenProvidersKindCheck } from './providerMigrationHelpers.js';
 import { allMigrations } from './index.js';
 import { seedBaselineData } from '../seedBaselineData.js';
 import { getModels } from '../providerModelOperations.js';
@@ -201,6 +201,136 @@ describe('seedBuiltInMetaProvider (single source of truth: MUSE_MODELS)', () => 
       expect(rows.map((r) => r.model_id).sort()).toEqual(
         MUSE_MODELS.map((m) => m.id).sort()
       );
+    } finally {
+      db.close();
+    }
+  });
+});
+
+const META_KINDS = ['anthropic', 'openai', 'google', 'meta'];
+
+/**
+ * A 12-column providers table mirroring a live install that already ran
+ * 'providers-add-enabled': built-ins plus a user-disabled custom provider,
+ * child model rows (CASCADE guard), and a stale empty providers_new left
+ * behind by a previously crashed swap. This is the exact state that crashed
+ * boot with "table providers_new has 11 columns but 12 values were
+ * supplied" under the first hardcoded version of this migration.
+ */
+function liveDbWithEnabled() {
+  const db = new Database(':memory:');
+  db.exec(`
+    CREATE TABLE providers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      base_url TEXT,
+      auth_token TEXT,
+      api_timeout_ms INTEGER,
+      additional_env_vars TEXT,
+      commit_attribution_override TEXT,
+      is_built_in INTEGER NOT NULL DEFAULT 0,
+      kind TEXT NOT NULL DEFAULT 'anthropic' CHECK(kind IN ('anthropic','openai','google')),
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      enabled INTEGER NOT NULL DEFAULT 1
+    );
+
+    CREATE TABLE provider_models (
+      id TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+      model_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      description TEXT,
+      tier TEXT CHECK(tier IN ('fable', 'opus', 'sonnet', 'haiku', 'custom')),
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE providers_new (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL
+    );
+  `);
+  db.prepare(
+    `INSERT INTO providers (id, name, kind, is_built_in, enabled) VALUES
+       ('anthropic-default', 'Anthropic (Official)', 'anthropic', 1, 1),
+       ('openai-default', 'OpenAI (Official)', 'openai', 1, 1),
+       ('custom-1', 'Custom', 'anthropic', 0, 0)`
+  ).run();
+  db.prepare(
+    `INSERT INTO provider_models (id, provider_id, model_id, display_name) VALUES
+       ('m1', 'anthropic-default', 'claude-opus-5', 'Opus 5'),
+       ('m2', 'custom-1', 'my-model', 'Mine')`
+  ).run();
+  return db;
+}
+
+describe('widenProvidersKindCheck', () => {
+  it('widens the CHECK on a 12-column live-shaped table without losing rows, enabled flags, or models', () => {
+    const db = liveDbWithEnabled();
+    try {
+      widenProvidersKindCheck(db, META_KINDS);
+
+      // Stale swap copy is gone; CHECK permits meta.
+      expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'providers_new'").get())
+        .toBeUndefined();
+      const sql = db.prepare("SELECT sql FROM sqlite_master WHERE name = 'providers'").get().sql;
+      expect(sql).toContain("'meta'");
+
+      // Column count and every row (including enabled=0) preserved.
+      expect(db.prepare('PRAGMA table_info(providers)').all()).toHaveLength(12);
+      expect(db.prepare('SELECT id, kind, enabled FROM providers ORDER BY id').all()).toEqual([
+        { id: 'anthropic-default', kind: 'anthropic', enabled: 1 },
+        { id: 'custom-1', kind: 'anthropic', enabled: 0 },
+        { id: 'openai-default', kind: 'openai', enabled: 1 },
+      ]);
+
+      // Child model rows survived (no CASCADE wipe during the swap).
+      expect(db.prepare('SELECT COUNT(*) c FROM provider_models').get().c).toBe(2);
+
+      // A meta-kind provider can now be stored.
+      db.prepare(
+        "INSERT INTO providers (id, name, kind, is_built_in) VALUES ('meta-default', 'Meta (Official)', 'meta', 1)"
+      ).run();
+      expect(db.prepare("SELECT kind FROM providers WHERE id = 'meta-default'").get().kind)
+        .toBe('meta');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('also works on the 11-column pre-enabled shape', () => {
+    const db = freshDb();
+    try {
+      db.prepare(
+        "INSERT INTO providers (id, name, kind) VALUES ('anthropic-default', 'A', 'anthropic')"
+      ).run();
+      widenProvidersKindCheck(db, META_KINDS);
+
+      expect(db.prepare('PRAGMA table_info(providers)').all()).toHaveLength(11);
+      expect(db.prepare('SELECT COUNT(*) c FROM providers').get().c).toBe(1);
+      db.prepare("INSERT INTO providers (id, name, kind) VALUES ('m', 'M', 'meta')").run();
+      expect(db.prepare("SELECT kind FROM providers WHERE id = 'm'").get().kind).toBe('meta');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('is safe to run twice (mimics ledger-less re-runs on every startup)', () => {
+    const db = liveDbWithEnabled();
+    try {
+      widenProvidersKindCheck(db, META_KINDS);
+      widenProvidersKindCheck(db, META_KINDS);
+      expect(db.prepare('SELECT COUNT(*) c FROM providers').get().c).toBe(3);
+      expect(db.prepare('SELECT COUNT(*) c FROM provider_models').get().c).toBe(2);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('does nothing when providers does not exist', () => {
+    const db = new Database(':memory:');
+    try {
+      expect(() => widenProvidersKindCheck(db, META_KINDS)).not.toThrow();
     } finally {
       db.close();
     }

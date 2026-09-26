@@ -13,6 +13,7 @@ import {
   updateBuiltInModels,
   updateBuiltInSonnet5,
   widenProviderModelsTierCheckForFable,
+  widenProvidersKindCheck,
 } from './providerMigrationHelpers.js';
 
 export const providerMigrations = [
@@ -164,45 +165,18 @@ export const providerMigrations = [
   {
     name: 'providers-widen-kind-check-meta',
     up(db) {
-      // Same table-swap technique and idempotency guard as
-      // 'providers-widen-kind-check-google': skip the recreation when the
-      // table's CHECK already permits 'meta'. Fresh DBs are created with the
-      // wide CHECK already, so this is effectively a no-op there too.
+      // Idempotency guard (same as 'providers-widen-kind-check-google'):
+      // skip the recreation when the table's CHECK already permits 'meta'.
+      // Migrations re-run on every startup with no ledger, so this must
+      // also be a safe no-op on databases that already migrated.
       const existingSql = getTableSql(db, 'providers') || '';
       if (existingSql.includes("'meta'")) {
         return;
       }
-
-      // NOTE: this migration runs before 'providers-add-enabled', so the
-      // recreated table has the same 11 columns as the google swap.
-      db.pragma('foreign_keys = OFF');
-      try {
-        db.exec(`
-          CREATE TABLE IF NOT EXISTS providers_new (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            base_url TEXT,
-            auth_token TEXT,
-            api_timeout_ms INTEGER,
-            additional_env_vars TEXT,
-            commit_attribution_override TEXT,
-            is_built_in INTEGER NOT NULL DEFAULT 0,
-            kind TEXT NOT NULL DEFAULT 'anthropic' CHECK(kind IN ('anthropic','openai','google','meta')),
-            created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-            updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-          );
-
-          INSERT OR IGNORE INTO providers_new SELECT * FROM providers;
-
-          DROP TABLE providers;
-
-          ALTER TABLE providers_new RENAME TO providers;
-
-          CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
-        `);
-      } finally {
-        db.pragma('foreign_keys = ON');
-      }
+      // Shape-aware swap: preserves whatever columns the table currently
+      // has (11 pre-'providers-add-enabled', 12 after) instead of assuming
+      // a fixed column list.
+      widenProvidersKindCheck(db, ['anthropic', 'openai', 'google', 'meta']);
     },
   },
   {
