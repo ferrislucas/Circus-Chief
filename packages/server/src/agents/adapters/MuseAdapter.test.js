@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MuseAdapter, resolveMuseReasoningEffort } from './MuseAdapter.js';
+import { MuseAdapter, MUSE_CLIENT_INFO, resolveMuseReasoningEffort } from './MuseAdapter.js';
 
 /**
  * Minimal fake of the `@muse-code/sdk` client surface the adapter uses:
@@ -159,6 +159,14 @@ describe('MuseAdapter', () => {
     const boom = new Error('handshake exploded');
     const adapter = new MuseAdapter({ museClientFactory: async () => { throw boom; } });
     await expect(collect(adapter, { prompt: 'p', options: {} })).rejects.toBe(boom);
+  });
+});
+
+describe('MUSE_CLIENT_INFO', () => {
+  it('satisfies the MSP handshake name constraint (^[a-z0-9_]+$)', () => {
+    // Live-verified: the host rejects anything else at initialize,
+    // which would break every Muse session before it starts.
+    expect(MUSE_CLIENT_INFO.name).toMatch(/^[a-z0-9_]+$/);
   });
 });
 

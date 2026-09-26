@@ -27,6 +27,13 @@ import { createMuseEventMapper } from './museEventMapper.js';
  *   - toolUse:     true  — `muse serve` hosts shell/file/web tools
  *   - resume:      true  — `client.resumeSession()` on the stored MSP id
  */
+/**
+ * MSP handshake identity. `name` must match ^[a-z0-9_]+$ (SS1.4.1) — the
+ * host rejects anything else (including 'circus-chief' with a hyphen) at
+ * `initialize`, which would break every Muse session.
+ */
+export const MUSE_CLIENT_INFO = Object.freeze({ name: 'circus_chief', version: '1.0.0' });
+
 export class MuseAdapter extends BaseAgent {
   static capabilities = Object.freeze({
     streaming: true,
@@ -147,7 +154,7 @@ async function spawnMuseClient({ museBin, env, onStderr }) {
     // The SDK REPLACES the child env: extend the session env (which already
     // carries the robust PATH plus provider vars) instead of inheriting raw.
     env: { ...process.env, ...(env || {}) },
-    clientInfo: { name: 'circus-chief', version: '1.0.0' },
+    clientInfo: { ...MUSE_CLIENT_INFO },
     ...(onStderr ? { onStderr } : {}),
   });
 }
