@@ -1,0 +1,527 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mount } from '@vue/test-utils';
+import { nextTick } from 'vue';
+import { createPinia, setActivePinia } from 'pinia';
+import { useProviderAllowancesStore } from '../stores/providerAllowances.js';
+import { api } from '../composables/useApi.js';
+
+const { websocketListeners } = vi.hoisted(() => ({ websocketListeners: new Map() }));
+vi.mock('../composables/useApi.js', () => ({
+  api: { getProviderAllowances: vi.fn().mockResolvedValue({ snapshots: [], activeProviderIds: [] }) },
+}));
+vi.mock('../composables/useWebSocket.js', () => ({
+  useWebSocket: () => ({
+    on: vi.fn((event, handler) => websocketListeners.set(event, handler)),
+    off: vi.fn((event) => websocketListeners.delete(event)),
+    onReconnect: vi.fn(() => vi.fn()),
+  }),
+}));
+
+import ProviderAllowanceIndicators from './ProviderAllowanceIndicators.vue';
+
+describe('ProviderAllowanceIndicators', () => {
+  let resizeObservers;
+  let rectSpy;
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    websocketListeners.clear();
+    api.getProviderAllowances.mockImplementation(() => new Promise(() => {}));
+    resizeObservers = [];
+    globalThis.ResizeObserver = class {
+      constructor(callback) {
+        this.callback = callback;
+        this.disconnect = vi.fn();
+        resizeObservers.push(this);
+      }
+
+      observe = vi.fn();
+      trigger = () => this.callback();
+    };
+    rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function getBoundingClientRect() {
+      const width = this.classList.contains('desktop-items') ? 190
+        : this.classList.contains('allowance-item') ? 70
+          : this.classList.contains('overflow-button') ? 30 : 0;
+      return { width, height: 0, top: 0, left: 0, right: width, bottom: 0, x: 0, y: 0, toJSON: () => ({}) };
+    });
+  });
+
+  afterEach(() => {
+    rectSpy.mockRestore();
+    vi.useRealTimers();
+    document.body.replaceChildren();
+  });
+
+  function seedSnapshots(count) {
+    const store = useProviderAllowancesStore();
+    store.snapshots = Array.from({ length: count }, (_, index) => ({
+      providerId: `provider-${index}`,
+      providerName: `Provider ${index + 1}`,
+      status: 'ok',
+      allowances: [],
+    }));
+  }
+
+  function snapshot({ providerId = 'openai', status = 'ok', resetsAt = null, source = 'provider', updatedAt = null, unavailableReason = null, allowances } = {}) {
+    return {
+      providerId,
+      providerName: providerId === 'openai' ? 'OpenAI' : providerId,
+      providerKind: 'openai',
+      status,
+      source,
+      updatedAt,
+      staleAt: null,
+      unavailableReason,
+      allowances: allowances ?? [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt }],
+    };
+  }
+
+  it('renders nothing when the disabled allowance response is empty', async () => {
+    api.getProviderAllowances.mockResolvedValueOnce({ snapshots: [], activeProviderIds: [] });
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await Promise.resolve();
+    expect(wrapper.find('[data-testid="provider-allowance-indicators"]').exists()).toBe(false);
+  });
+
+  it('applies a real provider allowance WebSocket envelope without a REST refresh', async () => {
+    const store = useProviderAllowancesStore();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    store.snapshots = [snapshot({
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 90, limit: 100, remainingPercent: 90, unit: 'requests', resetsAt: null }],
+    })];
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    api.getProviderAllowances.mockClear();
+
+    const onAllowanceUpdate = websocketListeners.get('provider:allowance_updated');
+    onAllowanceUpdate({
+      type: 'provider:allowance_updated',
+      snapshot: snapshot({
+        status: 'critical',
+        allowances: [{ key: 'requests', label: 'Requests', remaining: 5, limit: 100, remainingPercent: 5, unit: 'requests', resetsAt: null }],
+      }),
+    });
+    await nextTick();
+
+    expect(api.getProviderAllowances).not.toHaveBeenCalled();
+    expect(store.snapshots[0].allowances[0].remainingPercent).toBe(5);
+    expect(wrapper.get('[data-testid="provider-allowance-item"]').text()).toContain('5%');
+
+    onAllowanceUpdate({ type: 'provider:allowance_updated', snapshot: { providerId: 'invalid' } });
+    onAllowanceUpdate({ type: 'provider:allowance_updated', snapshot: snapshot(), rawProviderHeader: 'secret' });
+    expect(store.snapshots[0].allowances[0].remainingPercent).toBe(5);
+    expect(warning).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it('preserves the server active-first order after a live allowance update when active providers are unknown', async () => {
+    api.getProviderAllowances.mockResolvedValueOnce({
+      snapshots: [
+        snapshot({ providerId: 'active', status: 'available' }),
+        snapshot({ providerId: 'attention', status: 'warning' }),
+      ],
+      activeProviderIds: ['active'],
+    });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await Promise.resolve();
+    await nextTick();
+
+    websocketListeners.get('provider:allowance_updated')({
+      type: 'provider:allowance_updated',
+      snapshot: snapshot({ providerId: 'attention', status: 'critical' }),
+    });
+    await nextTick();
+
+    expect(useProviderAllowancesStore().snapshots.map(({ providerId }) => providerId)).toEqual(['active', 'attention']);
+    wrapper.unmount();
+  });
+
+  it('reorders hydrated visible providers after a WebSocket status transition without refetching', async () => {
+    api.getProviderAllowances.mockResolvedValueOnce({
+      snapshots: [
+        snapshot({ providerId: 'active', status: 'available' }),
+        snapshot({ providerId: 'healthy', status: 'available' }),
+        snapshot({ providerId: 'constrained', status: 'available' }),
+      ],
+      activeProviderIds: ['active'],
+    });
+    rectSpy.mockImplementation(function getBoundingClientRect() {
+      const width = this.classList.contains('desktop-items') ? 400
+        : this.classList.contains('allowance-item') ? 70
+          : this.classList.contains('overflow-button') ? 30 : 0;
+      return { width, height: 0, top: 0, left: 0, right: width, bottom: 0, x: 0, y: 0, toJSON: () => ({}) };
+    });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await Promise.resolve();
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+
+    expect(wrapper.findAll('.desktop-items .allowance-item .provider-name').map((item) => item.text())).toEqual(['active', 'healthy', 'constrained']);
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
+
+    websocketListeners.get('provider:allowance_updated')({
+      type: 'provider:allowance_updated',
+      snapshot: snapshot({ providerId: 'constrained', status: 'critical' }),
+    });
+    await nextTick();
+
+    expect(wrapper.findAll('.desktop-items .allowance-item .provider-name').map((item) => item.text())).toEqual(['active', 'constrained', 'healthy']);
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('reconciles the authoritative order after an active-session lifecycle update', async () => {
+    api.getProviderAllowances
+      .mockResolvedValueOnce({ snapshots: [], activeProviderIds: [] })
+      .mockResolvedValueOnce({
+        snapshots: [
+          snapshot({ providerId: 'active', status: 'available' }),
+          snapshot({ providerId: 'attention', status: 'warning' }),
+        ],
+        activeProviderIds: ['active'],
+      });
+    const wrapper = mount(ProviderAllowanceIndicators);
+
+    websocketListeners.get('session:updated')({ session: { id: 'session-1', providerId: 'active', status: 'running' } });
+    await Promise.resolve();
+    await nextTick();
+
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
+    expect(useProviderAllowancesStore().snapshots.map(({ providerId }) => providerId)).toEqual(['active', 'attention']);
+    wrapper.unmount();
+  });
+
+  it('reconciles authoritative priority on session creation and deletion without waiting for an update', async () => {
+    api.getProviderAllowances
+      .mockResolvedValueOnce({ snapshots: [snapshot({ providerId: 'idle', status: 'available' })], activeProviderIds: [] })
+      .mockResolvedValueOnce({
+        snapshots: [snapshot({ providerId: 'active', status: 'available' }), snapshot({ providerId: 'idle', status: 'available' })],
+        activeProviderIds: ['active'],
+      })
+      .mockResolvedValueOnce({ snapshots: [snapshot({ providerId: 'idle', status: 'available' })], activeProviderIds: [] });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await Promise.resolve();
+    await nextTick();
+
+    websocketListeners.get('session:created')({ session: { id: 'session-1', providerId: 'active', status: 'starting' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(useProviderAllowancesStore().snapshots.map(({ providerId }) => providerId)).toEqual(['active', 'idle']);
+
+    websocketListeners.get('session:deleted')({ sessionId: 'session-1' });
+    await Promise.resolve();
+    await nextTick();
+    expect(useProviderAllowancesStore().activeProviderIds).toEqual([]);
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(3);
+    wrapper.unmount();
+    expect(websocketListeners.has('session:created')).toBe(false);
+    expect(websocketListeners.has('session:deleted')).toBe(false);
+  });
+
+  it('skips known non-active session creation but refetches unfamiliar lifecycle payloads', async () => {
+    api.getProviderAllowances.mockResolvedValue({ snapshots: [], activeProviderIds: [] });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await Promise.resolve();
+    await nextTick();
+
+    websocketListeners.get('session:created')({ session: { id: 'waiting-1', providerId: 'openai', status: 'waiting' } });
+    await Promise.resolve();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
+    websocketListeners.get('session:created')({});
+    websocketListeners.get('session:deleted')({});
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it('refetches on session updates only when the priority-relevant fields change', async () => {
+    api.getProviderAllowances.mockResolvedValue({ snapshots: [], activeProviderIds: [] });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
+
+    websocketListeners.get('session:updated')({ session: { id: 'session-1', providerId: 'openai', status: 'waiting' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
+
+    // Field changes that cannot reorder priority (title, summary, …) must not
+    // generate a refetch per broadcast.
+    websocketListeners.get('session:updated')({ session: { id: 'session-1', providerId: 'openai', status: 'waiting', title: 'renamed' } });
+    websocketListeners.get('session:updated')({ session: { id: 'session-1', providerId: 'openai', status: 'waiting' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
+
+    websocketListeners.get('session:updated')({ session: { id: 'session-1', providerId: 'openai', status: 'running' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(3);
+
+    websocketListeners.get('session:updated')({ session: { id: 'session-1', providerId: 'openai', status: 'running' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(3);
+
+    // Unknown payload shapes fall back to fetching — never silently skip.
+    websocketListeners.get('session:updated')({});
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(4);
+    wrapper.unmount();
+  });
+
+  it('caps lifecycle reconciliation work as well as the session priority memo', async () => {
+    api.getProviderAllowances.mockResolvedValue({ snapshots: [], activeProviderIds: [] });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
+
+    const handler = websocketListeners.get('session:updated');
+    const total = 501; // one beyond the memo cap
+    for (let i = 0; i < total; i += 1) {
+      handler({ session: { id: `session-${i}`, providerId: 'openai', status: 'running' } });
+    }
+    await Promise.resolve();
+    await nextTick();
+    // A burst is coalesced into one reconciliation instead of creating an
+    // unbounded number of REST calls.
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
+
+    // The most recent session stays memoized: an unchanged update is free.
+    handler({ session: { id: `session-${total - 1}`, providerId: 'openai', status: 'running' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
+
+    // The oldest entry was FIFO-evicted: its next unchanged update looks
+    // unknown again and safely refetches instead of retaining every session
+    // id for the page lifetime.
+    handler({ session: { id: 'session-0', providerId: 'openai', status: 'running' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(3);
+    wrapper.unmount();
+  });
+
+  it('formats percentage-only allowance data without pretending null values are quantities', async () => {
+    const store = useProviderAllowancesStore();
+    store.snapshots = [{
+      providerId: 'openai', providerName: 'OpenAI', providerKind: 'openai', status: 'available', source: 'provider', updatedAt: null, staleAt: null, unavailableReason: null,
+      allowances: [{ key: 'requests', label: 'Requests', remaining: null, limit: null, remainingPercent: 25, unit: 'requests', resetsAt: null }],
+    }];
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await nextTick();
+
+    expect(wrapper.text()).toContain('25% remaining');
+    expect(wrapper.text()).not.toContain('null / null');
+  });
+
+  it('displays z.ai absolute usage as used of limit in detail text', async () => {
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot({
+      allowances: [{ key: 'five_hour', label: '5-hour token window', remaining: null, value: 54_000_000, valueKind: 'used', limit: 120_000_000, remainingPercent: 55, unit: 'tokens', resetsAt: null }],
+    })];
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await nextTick();
+
+    expect(wrapper.find('.provider-detail').text()).toContain('54M tokens used of 120M');
+  });
+
+  it('uses the container width to show complete items and reserves overflow control space', async () => {
+    seedSnapshots(4);
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+
+    expect(wrapper.findAll('.desktop-items .allowance-item')).toHaveLength(2);
+    expect(wrapper.find('.overflow-button').text()).toBe('+2');
+  });
+
+  it('uses the rendered flex gap when deciding how many desktop items fit', async () => {
+    seedSnapshots(3);
+    rectSpy.mockImplementation(function getBoundingClientRect() {
+      const width = this.classList.contains('desktop-items') ? 189
+        : this.classList.contains('allowance-item') ? 70
+          : this.classList.contains('overflow-button') ? 30 : 0;
+      return { width, height: 0, top: 0, left: 0, right: width, bottom: 0, x: 0, y: 0, toJSON: () => ({}) };
+    });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    wrapper.find('.desktop-items').element.style.gap = '10px';
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+
+    expect(wrapper.findAll('.desktop-items .allowance-item')).toHaveLength(1);
+    expect(wrapper.find('.desktop-items .overflow-button').text()).toBe('+2');
+  });
+
+  it('re-measures when the container changes size and disconnects on unmount', async () => {
+    seedSnapshots(4);
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+    expect(wrapper.findAll('.desktop-items .allowance-item')).toHaveLength(2);
+
+    rectSpy.mockImplementation(function getBoundingClientRect() {
+      const width = this.classList.contains('desktop-items') ? 310
+        : this.classList.contains('allowance-item') ? 70
+          : this.classList.contains('overflow-button') ? 30 : 0;
+      return { width, height: 0, top: 0, left: 0, right: width, bottom: 0, x: 0, y: 0, toJSON: () => ({}) };
+    });
+    resizeObservers[0].trigger();
+    await nextTick();
+
+    expect(wrapper.findAll('.desktop-items .allowance-item')).toHaveLength(4);
+    expect(wrapper.find('.desktop-items .overflow-button').exists()).toBe(false);
+    wrapper.unmount();
+    expect(resizeObservers[0].disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('contains keyboard focus, closes on Escape, and restores the exact invoking trigger', async () => {
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot()];
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+    const trigger = wrapper.find('.desktop-items .allowance-item');
+    trigger.element.focus();
+    await trigger.trigger('click');
+    await nextTick();
+
+    const dialog = wrapper.find('[role="dialog"]').element;
+    const closeButton = wrapper.find('.close-button').element;
+    expect(document.activeElement).toBe(dialog);
+
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(closeButton);
+
+    closeButton.focus();
+    closeButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(dialog);
+
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    outside.focus();
+    expect(document.activeElement).toBe(dialog);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await nextTick();
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    expect(document.activeElement).toBe(trigger.element);
+
+    const closedEscape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    document.dispatchEvent(closedEscape);
+    expect(closedEscape.defaultPrevented).toBe(false);
+  });
+
+  it('opens from the overflow trigger and keeps the dialog focused when it has no focusable children', async () => {
+    seedSnapshots(4);
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+
+    const trigger = wrapper.find('[data-testid="provider-allowance-overflow"]');
+    trigger.element.focus();
+    await trigger.trigger('click');
+    await nextTick();
+
+    const dialog = wrapper.find('[role="dialog"]').element;
+    const closeButton = wrapper.find('.close-button').element;
+    closeButton.disabled = true;
+    dialog.focus();
+    const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    dialog.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(dialog);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await nextTick();
+    expect(document.activeElement).toBe(trigger.element);
+  });
+
+  it('includes reset time in compact item labels and politely announces only critical/exhausted transitions', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T03:04:05Z'));
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot({ resetsAt: Date.parse('2026-01-03T03:04:05Z') })];
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+
+    expect(wrapper.find('.desktop-items .allowance-item').attributes('aria-label')).toContain('resets');
+    expect(wrapper.find('[aria-live="polite"]').text()).toBe('');
+
+    store.replace(snapshot({ status: 'warning' }));
+    await nextTick();
+    expect(wrapper.find('[aria-live="polite"]').text()).toBe('');
+
+    store.replace(snapshot({ status: 'critical' }));
+    store.replace(snapshot({ status: 'exhausted' }));
+    await nextTick();
+    await vi.runAllTimersAsync();
+    expect(wrapper.find('[aria-live="polite"]').text()).toBe('OpenAI usage is exhausted.');
+  });
+
+  it('shows provenance, relative and exact reset times, and stale last-known metadata in details', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T10:00:00Z'));
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot({
+      status: 'stale',
+      source: 'observed-header',
+      updatedAt: Date.parse('2026-01-02T09:30:00Z'),
+      resetsAt: Date.parse('2026-01-02T12:00:00Z'),
+    })];
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await nextTick();
+
+    const detail = wrapper.find('.provider-detail');
+    expect(detail.text()).toContain('Source: Observed from provider response headers');
+    expect(detail.text()).toContain('resets in 2 hours');
+    expect(detail.find('time[datetime="2026-01-02T12:00:00.000Z"]').exists()).toBe(true);
+    expect(detail.text()).toContain('Last updated 30 minutes ago');
+    expect(detail.find('time[datetime="2026-01-02T09:30:00.000Z"]').exists()).toBe(true);
+    expect(detail.text()).toContain('Last value may be out of date.');
+  });
+
+  it('uses the unavailable fallback and exposes fetch errors without any snapshots', async () => {
+    api.getProviderAllowances.mockRejectedValueOnce(new Error('network down'));
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await Promise.resolve();
+    await nextTick();
+
+    expect(wrapper.find('[data-testid="provider-allowance-fetch-error"]').text()).toContain('Unable to load provider usage');
+
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot({ allowances: [], unavailableReason: null })];
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await nextTick();
+    expect(wrapper.find('.unavailable').text()).toBe('Usage data is unavailable.');
+  });
+});

@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock the SDK before importing the adapter
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
@@ -7,6 +10,12 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 
 import { ClaudeCodeAdapter } from './ClaudeCodeAdapter.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { ProviderAllowanceService } from '../../services/ProviderAllowanceService.js';
+
+const fixturePath = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..', '..', '..', 'tests', 'fixtures', 'claude', 'rate-limit-event.json',
+);
 
 function permissionKey(toolName, input) {
   return `${toolName}:${JSON.stringify(input)}`;
@@ -170,5 +179,148 @@ describe('ClaudeCodeAdapter', () => {
     expect((await operation(new ClaudeCodeAdapter(), 'project-b-1', 'project-b')).canUseTool).toHaveBeenCalledOnce();
     expect((await operation(new ClaudeCodeAdapter(), 'project-a-3', 'project-a', { command: 'git status --short' })).canUseTool).toHaveBeenCalledOnce();
     expect((await operation(new ClaudeCodeAdapter(), 'project-a-4', 'project-a', command, 'Write')).canUseTool).toHaveBeenCalledOnce();
+  });
+});
+
+describe('ClaudeCodeAdapter rate-limit allowance tap', () => {
+  const FIXTURE = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+  const now = 1_789_895_000_000;
+  let originalEnv;
+
+  beforeEach(() => {
+    originalEnv = { ...process.env };
+    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
+    process.env.PROVIDER_ALLOWANCES_CLAUDE = '1';
+  });
+
+  afterEach(() => {
+    process.env.PROVIDER_ALLOWANCES_ENABLED = originalEnv.PROVIDER_ALLOWANCES_ENABLED;
+    process.env.PROVIDER_ALLOWANCES_CLAUDE = originalEnv.PROVIDER_ALLOWANCES_CLAUDE;
+  });
+
+  function sdkStream(...messages) {
+    query.mockImplementation(async function* () {
+      for (const message of messages) yield message;
+    });
+  }
+
+  async function collect(adapter, queryParams = { prompt: 'hello', options: { providerId: 'anthropic-default' } }) {
+    const events = [];
+    for await (const event of adapter.execute(queryParams)) events.push(event);
+    return events;
+  }
+
+  it('diverts rate-limit events to the allowance observer and forwards every other message unchanged', async () => {
+    const observer = vi.fn();
+    const stream = [
+      FIXTURE.fiveHourWithUtilization,
+      { type: 'system', subtype: 'init', session_id: 'redacted' },
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } },
+    ];
+    sdkStream(...stream);
+    const adapter = new ClaudeCodeAdapter({ allowanceObserver: observer, clock: { now: () => now } });
+
+    const events = await collect(adapter);
+
+    expect(events).toEqual(stream.filter((message) => message.type !== 'rate_limit_event'));
+    expect(observer).toHaveBeenCalledExactlyOnceWith({
+      providerKind: 'anthropic',
+      source: 'provider',
+      updatedAt: now,
+      staleAfterMs: 15 * 60_000,
+      status: 'available',
+      providerId: 'anthropic-default',
+      allowances: [expect.objectContaining({ key: 'five_hour', remainingPercent: 57.5 })],
+    });
+  });
+
+  it('merges per-model windows across events into full row sets and drops expired windows', async () => {
+    const observer = vi.fn();
+    const expiredFiveHour = {
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'allowed', rateLimitType: 'five_hour', utilization: 10, resetsAt: 1_789_894_000 },
+    };
+    sdkStream(
+      FIXTURE.fiveHourWithUtilization,
+      FIXTURE.weeklyOpusCap,
+      expiredFiveHour,
+    );
+    const adapter = new ClaudeCodeAdapter({ allowanceObserver: observer, clock: { now: () => now } });
+
+    await collect(adapter);
+
+    expect(observer).toHaveBeenCalledTimes(3);
+    const observedKeySets = observer.mock.calls.map(([candidate]) => candidate.allowances.map((row) => row.key));
+    expect(observedKeySets[0]).toEqual(['five_hour']);
+    // The second observation re-emits the merged window set: the still-current
+    // five-hour row plus the newly seen per-model weekly cap.
+    expect(observedKeySets[1]).toEqual(['five_hour', 'seven_day_opus']);
+    // The final event's five-hour window has already passed its reset time, so
+    // it is dropped rather than carried forward under a stale value.
+    expect(observedKeySets[2]).toEqual(['seven_day_opus']);
+  });
+
+  it('swallows observer errors so the conversation stream is unaffected', async () => {
+    const stream = [
+      FIXTURE.fiveHourWithUtilization,
+      { type: 'system', subtype: 'init' },
+    ];
+    sdkStream(...stream);
+    const adapter = new ClaudeCodeAdapter({ allowanceObserver: () => { throw new Error('observer exploded'); }, clock: { now: () => now } });
+
+    const events = await collect(adapter);
+
+    expect(events).toEqual([{ type: 'system', subtype: 'init' }]);
+  });
+
+  it('does not observe without a providerId, without an observer, or while the source gate is off', async () => {
+    const observer = vi.fn();
+    sdkStream(FIXTURE.fiveHourWithUtilization);
+
+    await collect(new ClaudeCodeAdapter({ allowanceObserver: observer, clock: { now: () => now } }), { prompt: 'x', options: {} });
+    await collect(new ClaudeCodeAdapter({ clock: { now: () => now } }), { prompt: 'x', options: { providerId: 'anthropic-default' } });
+    delete process.env.PROVIDER_ALLOWANCES_CLAUDE;
+    await collect(new ClaudeCodeAdapter({ allowanceObserver: observer, clock: { now: () => now } }));
+
+    expect(observer).not.toHaveBeenCalled();
+  });
+
+  it('drives the real provider allowance service end to end from the fixture payload', async () => {
+    const service = new ProviderAllowanceService({
+      providerRepository: { getAll: () => [{ id: 'anthropic-default', name: 'Anthropic', kind: 'anthropic', enabled: true }] },
+      clock: { now: () => now },
+    });
+    sdkStream(FIXTURE.statusOnlyRejected, FIXTURE.weeklyOpusCap);
+    const adapter = new ClaudeCodeAdapter({
+      allowanceObserver: service.observe.bind(service),
+      clock: { now: () => now },
+    });
+
+    await collect(adapter);
+
+    // The status-only event has no utilization, so the merged snapshot shows
+    // the mapped exhausted hint while the weekly cap keeps its percentage.
+    expect(service.getSnapshots().snapshots[0]).toMatchObject({
+      providerId: 'anthropic-default',
+      source: 'provider',
+      allowances: [
+        expect.objectContaining({ key: 'five_hour', remainingPercent: null, resetsAt: 1_789_900_000_000 }),
+        expect.objectContaining({ key: 'seven_day_opus', remainingPercent: 12 }),
+      ],
+    });
+  });
+
+  it('exposes the tap to VCR replay via handleAllowanceTelemetry', async () => {
+    const observer = vi.fn();
+    const adapter = new ClaudeCodeAdapter({ allowanceObserver: observer, clock: { now: () => now } });
+    const queryParams = { prompt: 'hello', options: { providerId: 'anthropic-default' } };
+    const normalFrame = { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } };
+
+    expect(adapter.handleAllowanceTelemetry(FIXTURE.fiveHourWithUtilization, queryParams)).toBe(true);
+    expect(adapter.handleAllowanceTelemetry(normalFrame, queryParams)).toBe(false);
+    expect(observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      providerId: 'anthropic-default',
+      allowances: [expect.objectContaining({ key: 'five_hour', remainingPercent: 57.5 })],
+    }));
   });
 });

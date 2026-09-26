@@ -31,6 +31,9 @@ function buildClaudeCodeQueryParams({
       abortController: controller,
       includePartialMessages: true,
       permissionMode: getPermissionModeForSession(session.mode),
+      // The provider allowance observer attributes in-stream rate-limit
+      // events to the provider configured for this session.
+      providerId: session?.providerId ?? null,
       // Match normal Claude Code CLI behavior: load user-level settings
       // such as configured MCP servers, then project/local overrides.
       settingSources: ['user', 'project', 'local'],
@@ -73,6 +76,9 @@ function buildCodexQueryParams({
       abortController: controller,
       env: sessionEnv,
       model: effectiveModel,
+      // The adapter must observe against the provider configured for this
+      // session, never a display name or process-wide default.
+      providerId: session?.providerId ?? null,
       effortLevel: session?.effortLevel ?? null,
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
       sandboxMode: getSandboxModeForSession(session?.mode),

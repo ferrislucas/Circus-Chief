@@ -247,15 +247,16 @@ export class WebSocketManager {
   broadcastToProject(projectId, type, payload) {
     this.#recordLifecycleEvent(type);
     const subscribers = this.#projectSubscriptions.get(projectId);
-    if (!subscribers || subscribers.size === 0) return;
-
-    const message = createMessage(type, payload);
-    for (const client of subscribers) {
-      if (client.readyState === 1) {
-        // WebSocket.OPEN
-        client.send(message);
+    if (subscribers?.size) {
+      const message = createMessage(type, payload);
+      for (const client of subscribers) {
+        if (client.readyState === 1) {
+          // WebSocket.OPEN
+          client.send(message);
+        }
       }
     }
+    this.#broadcastProviderPriorityInvalidation(type);
   }
 
   /** Broadcast one serialized frame to the union of session and project subscribers. */
@@ -265,14 +266,15 @@ export class WebSocketManager {
       ...(this.#sessionSubscriptions.get(sessionId) || []),
       ...(this.#projectSubscriptions.get(projectId) || []),
     ]);
-    if (subscribers.size === 0) return;
-
-    // Scope identifiers are authoritative; a caller payload must not be able
-    // to redirect a frame to a different session or project.
-    const message = createMessage(type, { ...payload, sessionId, projectId });
-    for (const client of subscribers) {
-      if (client.readyState === 1) client.send(message);
+    if (subscribers.size) {
+      // Scope identifiers are authoritative; a caller payload must not be able
+      // to redirect a frame to a different session or project.
+      const message = createMessage(type, { ...payload, sessionId, projectId });
+      for (const client of subscribers) {
+        if (client.readyState === 1) client.send(message);
+      }
     }
+    this.#broadcastProviderPriorityInvalidation(type);
   }
 
   /**
@@ -291,6 +293,14 @@ export class WebSocketManager {
       WS_MESSAGE_TYPES.COMMAND_RUN_KILLED,
       WS_MESSAGE_TYPES.COMMAND_RUN_DELETED,
     ].includes(type)) commandOutputMetrics.increment(COMMAND_OUTPUT_METRICS.LIFECYCLE_EVENTS);
+  }
+
+  #broadcastProviderPriorityInvalidation(type) {
+    if (![WS_MESSAGE_TYPES.SESSION_CREATED, WS_MESSAGE_TYPES.SESSION_UPDATED, WS_MESSAGE_TYPES.SESSION_DELETED].includes(type)) return;
+    const message = createMessage(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_PRIORITY_INVALIDATED, {});
+    for (const client of this.#clients) {
+      if (client.readyState === 1) client.send(message);
+    }
   }
 
   /**

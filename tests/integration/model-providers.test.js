@@ -27,7 +27,9 @@ const TEST_PREFIX = '[TEST]';
 async function createProvider(provider) {
   const response = await apiFetch('/api/providers', {
     method: 'POST',
-    body: JSON.stringify(provider),
+    // Provider kind is a required, immutable part of the creation contract.
+    // Keep these generic CRUD fixtures on the established Anthropic path.
+    body: JSON.stringify({ kind: 'anthropic', ...provider }),
   });
   if (!response.ok) {
     const err = await response.text();

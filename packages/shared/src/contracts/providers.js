@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { WS_MESSAGE_TYPES } from '../protocol.js';
 
 export const COMMIT_ATTRIBUTION_VALIDATION_MESSAGE =
   'Commit attribution must be in the format "Name <email@example.com>" or "Co-authored-by: Name <email@example.com>".';
@@ -131,6 +132,54 @@ export const ProviderResponse = z.object({
 });
 
 export const ProviderListResponse = z.array(ProviderResponse);
+
+// Allowances deliberately contain only normalized, display-safe values. Raw
+// provider headers and account metadata must remain server-side.
+export const ProviderAllowanceStatus = z.enum([
+  'available', 'warning', 'critical', 'exhausted', 'unknown', 'stale',
+]);
+export const ProviderAllowanceUnit = z.enum(['tokens', 'requests', 'credits', 'other']);
+export const ProviderAllowanceSource = z.enum(['provider', 'observed-header', 'configured']);
+export const ProviderAllowance = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  remaining: z.number().finite().nonnegative().nullable(),
+  // `value` is the source-reported absolute measurement. Its meaning is
+  // explicit so a used quantity can never be presented as remaining.
+  value: z.number().finite().nonnegative().nullable().default(null),
+  valueKind: z.enum(['used', 'remaining']).nullable().default(null),
+  limit: z.number().finite().positive().nullable(),
+  remainingPercent: z.number().finite().min(0).max(100).nullable(),
+  unit: ProviderAllowanceUnit,
+  resetsAt: z.number().finite().nullable(),
+}).strict().superRefine((allowance, context) => {
+  if ((allowance.value === null) !== (allowance.valueKind === null)) {
+    context.addIssue({ code: 'custom', message: 'Absolute allowance values require explicit semantics.' });
+  }
+  if (allowance.valueKind === 'used' && allowance.value !== null && allowance.limit !== null
+    && allowance.remaining !== null && allowance.remaining !== allowance.limit - allowance.value) {
+    context.addIssue({ code: 'custom', message: 'Legacy remaining must agree with canonical used value.' });
+  }
+});
+export const ProviderAllowanceSnapshot = z.object({
+  providerId: PROVIDER_ROW_ID,
+  providerName: z.string().min(1),
+  providerKind: ProviderKind,
+  status: ProviderAllowanceStatus,
+  allowances: z.array(ProviderAllowance),
+  source: ProviderAllowanceSource.nullable(),
+  updatedAt: z.number().finite().nullable(),
+  staleAt: z.number().finite().nullable(),
+  unavailableReason: z.string().nullable(),
+}).strict();
+export const ProviderAllowanceListResponse = z.object({
+  snapshots: z.array(ProviderAllowanceSnapshot),
+  activeProviderIds: z.array(PROVIDER_ROW_ID),
+}).strict();
+export const ProviderAllowanceUpdatedPayload = z.object({
+  type: z.literal(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED),
+  snapshot: ProviderAllowanceSnapshot,
+}).strict();
 
 export const CreateProviderModelRequest = z.object({
   modelId: z.string().min(1),

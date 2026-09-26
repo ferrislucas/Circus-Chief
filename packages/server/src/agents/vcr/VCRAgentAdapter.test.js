@@ -714,4 +714,61 @@ describe('VCRAgentAdapter', () => {
       expect(key).toBe(CassetteStore.buildKey('unknown', 'test'));
     });
   });
+
+  describe('allowance telemetry during replay', () => {
+    const TELEMETRY_PROMPT = 'telemetry replay';
+    const TELEMETRY_EVENTS = [
+      { type: 'system', subtype: 'init', session_id: 'redacted' },
+      { type: 'rate_limit_event', rate_limit_info: { utilization: 42.5 } },
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } },
+    ];
+
+    function saveTelemetryCassette() {
+      const key = CassetteStore.buildKey('runSession', TELEMETRY_PROMPT);
+      CassetteStore.save(testCassetteDir, key, { prompt: TELEMETRY_PROMPT, events: TELEMETRY_EVENTS });
+    }
+
+    it('lets the inner agent consume telemetry frames so replay exercises the production tap', async () => {
+      saveTelemetryCassette();
+      process.env.VCR_MODE = 'replay';
+      try {
+        // The hook sees every replayed frame and reports which ones are
+        // allowance telemetry consumed by the production tap.
+        const tap = vi.fn((event) => event.type === 'rate_limit_event');
+        const innerAgent = { ...createMockAgent([]), handleAllowanceTelemetry: tap };
+        const adapter = new VCRAgentAdapter(innerAgent, { cassetteDir: testCassetteDir });
+
+        const queryParams = { prompt: TELEMETRY_PROMPT, options: { providerId: 'anthropic-default' } };
+        const replayed = [];
+        for await (const event of adapter.execute(queryParams, { callType: 'runSession' })) {
+          replayed.push(event);
+        }
+
+        expect(tap).toHaveBeenCalledTimes(TELEMETRY_EVENTS.length);
+        expect(tap).toHaveBeenCalledWith(TELEMETRY_EVENTS[1], queryParams);
+        expect(tap.mock.results.map((result) => result.value)).toEqual([false, true, false]);
+        // The consumed telemetry frame never reaches the conversation UI.
+        expect(replayed).toEqual([TELEMETRY_EVENTS[0], TELEMETRY_EVENTS[2]]);
+      } finally {
+        delete process.env.VCR_MODE;
+      }
+    });
+
+    it('yields every event unchanged when the inner agent has no telemetry hook', async () => {
+      saveTelemetryCassette();
+      process.env.VCR_MODE = 'replay';
+      try {
+        const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+        const replayed = [];
+        for await (const event of adapter.execute({ prompt: TELEMETRY_PROMPT }, { callType: 'runSession' })) {
+          replayed.push(event);
+        }
+
+        expect(replayed).toEqual(TELEMETRY_EVENTS);
+      } finally {
+        delete process.env.VCR_MODE;
+      }
+    });
+  });
 });

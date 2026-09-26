@@ -1,0 +1,55 @@
+{
+  "comment": "Sanitized z.ai GLM Coding Plan quota payload, shape per the official glm-plan-usage plugin (research §4). Tokens quotas carry absolute numbers; TIME_LIMIT rows (MCP tool calls) are filtered by the mapper. usageDetails account breakdowns are not forwarded (FR-8).",
+  "payload": {
+    "success": true,
+    "data": {
+      "limits": [
+        {
+          "type": "TOKENS_LIMIT",
+          "unit": 3,
+          "usage": 120000000,
+          "currentValue": 54000000,
+          "percentage": 45,
+          "nextResetTime": 1737285600000,
+          "usageDetails": [{ "model": "redacted", "tokens": 54000000 }]
+        },
+        {
+          "type": "TOKENS_LIMIT",
+          "unit": 6,
+          "usage": 600000000,
+          "currentValue": 120000000,
+          "percentage": 20,
+          "nextResetTime": 1737372000000
+        },
+        {
+          "type": "TIME_LIMIT",
+          "unit": null,
+          "percentage": 12,
+          "currentValue": 340,
+          "usage": 3000
+        },
+        {
+          "type": "TOKENS_LIMIT",
+          "unit": 9,
+          "usage": 1000,
+          "currentValue": 10,
+          "percentage": 1,
+          "nextResetTime": 1737285600000
+        }
+      ]
+    }
+  },
+  "percentageOnlyPayload": {
+    "success": true,
+    "data": {
+      "limits": [
+        {
+          "type": "TOKENS_LIMIT",
+          "unit": 3,
+          "percentage": 70,
+          "nextResetTime": 1737285600000
+        }
+      ]
+    }
+  }
+}

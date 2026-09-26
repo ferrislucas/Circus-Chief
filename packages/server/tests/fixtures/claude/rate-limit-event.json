@@ -1,0 +1,65 @@
+{
+  "comment": "Sanitized SDK rate_limit_event payloads for claude.ai subscription users. Shape derived from @anthropic-ai/claude-agent-sdk@0.3.163 SDKRateLimitEvent/SDKRateLimitInfo type contract; uuid/session_id are redacted. Live OAuth capture attempted 2026-09-21 but blocked: local Claude Code OAuth token was revoked (401), so this source is shelved pending refreshed OAuth access or an SDK bump. PROVIDER_ALLOWANCES_CLAUDE remains default-off. resetsAt values are unix seconds on the wire.",
+  "fiveHourWithUtilization": {
+    "type": "rate_limit_event",
+    "rate_limit_info": {
+      "status": "allowed",
+      "rateLimitType": "five_hour",
+      "utilization": 42.5,
+      "resetsAt": 1789900000,
+      "surpassedThreshold": null,
+      "isUsingOverage": false
+    },
+    "uuid": "redacted",
+    "session_id": "redacted"
+  },
+  "weeklyOpusCap": {
+    "type": "rate_limit_event",
+    "rate_limit_info": {
+      "status": "allowed_warning",
+      "rateLimitType": "seven_day_opus",
+      "utilization": 88,
+      "resetsAt": 1790418400,
+      "surpassedThreshold": 80,
+      "isUsingOverage": false
+    },
+    "uuid": "redacted",
+    "session_id": "redacted"
+  },
+  "weeklySonnetCap": {
+    "type": "rate_limit_event",
+    "rate_limit_info": {
+      "status": "allowed",
+      "rateLimitType": "seven_day_sonnet",
+      "utilization": 12.25,
+      "resetsAt": 1790418400,
+      "surpassedThreshold": null,
+      "isUsingOverage": false
+    },
+    "uuid": "redacted",
+    "session_id": "redacted"
+  },
+  "statusOnlyRejected": {
+    "type": "rate_limit_event",
+    "rate_limit_info": {
+      "status": "rejected",
+      "rateLimitType": "five_hour",
+      "resetsAt": 1789900000
+    },
+    "uuid": "redacted",
+    "session_id": "redacted"
+  },
+  "overageDeferred": {
+    "type": "rate_limit_event",
+    "rate_limit_info": {
+      "status": "allowed",
+      "rateLimitType": "overage",
+      "utilization": 55,
+      "resetsAt": 1789900000,
+      "isUsingOverage": true,
+      "overageStatus": "allowed"
+    },
+    "uuid": "redacted",
+    "session_id": "redacted"
+  }
+}

@@ -166,6 +166,26 @@ describe('CodexAdapter', () => {
     expect(spawnArgs.args).toContain('gpt-4o');
   });
 
+  it('CLI path: pins the rollout watcher to the first emitted session id', async () => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: [
+        '{"type":"thread.started","thread_id":"550e8400-e29b-41d4-a716-446655440000"}',
+        '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
+      ],
+    }));
+    const watcher = { start: vi.fn(), stop: vi.fn(), pin: vi.fn() };
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+    adapter._maybeCreateRolloutWatcher = vi.fn(() => watcher);
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: { model: 'gpt-4o', cwd: process.cwd(), env: {}, abortController: new AbortController() },
+    }));
+
+    expect(watcher.pin).toHaveBeenCalledExactlyOnceWith('550e8400-e29b-41d4-a716-446655440000');
+    expect(watcher.stop).toHaveBeenCalledExactlyOnceWith();
+  });
+
   it('CLI path: honors sandboxMode option', async () => {
     const fakeSpawn = vi.fn(() => createFakeChild({
       stdoutLines: ['{"type":"thread.started","thread_id":"codex-a"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],

@@ -13,6 +13,11 @@ export function ProvidersApi(ApiClient) {
       return this._get('/providers');
     },
 
+    /** Get normalized, credential-free allowance snapshots for enabled providers. */
+    async getProviderAllowances() {
+      return this._get('/providers/allowances');
+    },
+
     /**
      * Get a provider by ID
      * @param {string} id - Provider ID
