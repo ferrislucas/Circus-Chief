@@ -8,7 +8,7 @@ import { checkCrossKindSwitch } from '../services/sessionAgentGuard.js';
 import { isTierRef } from '@circuschief/shared';
 import { consumeStaleTierEcho } from '../services/tierDegradationNotifier.js';
 import { getRootSession, renderTemplatePrompt } from '../services/templateTriggerService.js';
-import { validateModelId } from './model-validation.js';
+import { validateModelAndProvider } from './model-validation.js';
 import { clearedPendingSchedule } from '../services/pendingSchedule.js';
 
 const router = Router();
@@ -30,7 +30,7 @@ async function renderLiquidForSession(content, session) {
 // Validate a follow-up message request. Returns an error descriptor
 // { status, body } when the request is invalid, otherwise
 // { model: normalizedModel } with the model the continuation should use.
-function validateMessageRequest(session, content, model) {
+function validateMessageRequest(session, content, model, providerId) {
   if (!content) {
     return { status: 400, body: { error: 'Content is required' } };
   }
@@ -44,8 +44,12 @@ function validateMessageRequest(session, content, model) {
   // follow-up). Normalize it away so a binding that went stale after creation
   // (e.g. its tier was deleted) skips the write-time validation meant for NEW
   // bindings and degrades per PRD E3/D6 instead of a 400.
-  let effectiveRequestedModel = model === session.model ? null : model;
-  let normalizedModel = model;
+  const isSameBinding = model === session.model &&
+    (isTierRef(model) || providerId === null || providerId === session.providerId);
+  let effectiveRequestedModel = isSameBinding ? null : model;
+  let effectiveRequestedProviderId = isSameBinding ? null : providerId;
+  let normalizedModel = effectiveRequestedModel;
+  let normalizedProviderId = effectiveRequestedProviderId;
 
   // Stale deleted-tier echo (review remediation §2): a follow-up that was in
   // flight while the session's tier was deleted still carries the old
@@ -58,20 +62,22 @@ function validateMessageRequest(session, content, model) {
     consumeStaleTierEcho(session.id, effectiveRequestedModel)
   ) {
     effectiveRequestedModel = null;
+    effectiveRequestedProviderId = null;
     normalizedModel = null;
+    normalizedProviderId = null;
   }
 
-  const modelResult = validateModelId(effectiveRequestedModel);
+  const modelResult = validateModelAndProvider(effectiveRequestedModel, effectiveRequestedProviderId);
   if (modelResult.error) {
     return { status: 400, body: { error: modelResult.error } };
   }
 
-  const crossKindError = checkCrossKindSwitch(session, effectiveRequestedModel);
+  const crossKindError = checkCrossKindSwitch(session, effectiveRequestedModel, effectiveRequestedProviderId);
   if (crossKindError) {
     return { status: 400, body: crossKindError };
   }
 
-  return { model: normalizedModel };
+  return { model: normalizedModel, providerId: normalizedProviderId };
 }
 
 // GET /api/sessions/:id/messages - Get session messages
@@ -118,15 +124,17 @@ router.get('/:id/messages', requireSession, (req, res) => {
 router.post('/:id/message', _upload.array('files', 10), handleUploadError, requireSessionAndProject, async (req, res) => {
   const content = req.body.content;
   const model = req.body.model || null; // Model to use for this message
+  const providerId = req.body.providerId || null;
   const renderLiquid = shouldRenderLiquid(req.body.renderLiquid);
   const files = req.files || [];
 
-  const validation = validateMessageRequest(req.session_, content, model);
+  const validation = validateMessageRequest(req.session_, content, model, providerId);
   if (validation.status) {
     return res.status(validation.status).json(validation.body);
   }
   // The validated (possibly stale-echo-normalized) model for the continuation.
   const continuationModel = validation.model;
+  const continuationProviderId = validation.providerId;
 
   try {
     // Store file attachments if any - saves to disk in workingDirectory/.attachments
@@ -150,14 +158,14 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
     }
 
     if (resolved) {
-      continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, { systemPrompt: resolved.systemPrompt, fileAttachments: messageAttachments, model: continuationModel, interactive: true }).catch((error) => {
+      continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, { systemPrompt: resolved.systemPrompt, fileAttachments: messageAttachments, model: continuationModel, providerId: continuationProviderId, interactive: true }).catch((error) => {
         console.error(`Continue session error (${resolved.type}):`, error);
       });
       return res.json({ success: true });
     }
 
     // Standard plain text message
-    continueSession(req.session_.id, renderedContent, req.workingDirectory, { systemPrompt: req.project.systemPrompt, fileAttachments: messageAttachments, model: continuationModel, interactive: true }).catch((error) => {
+    continueSession(req.session_.id, renderedContent, req.workingDirectory, { systemPrompt: req.project.systemPrompt, fileAttachments: messageAttachments, model: continuationModel, providerId: continuationProviderId, interactive: true }).catch((error) => {
       console.error('Continue session error:', error);
     });
     res.json({ success: true });

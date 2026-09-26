@@ -308,6 +308,10 @@ describe('structured degradation change sets (client sync)', () => {
     });
     const tierRef = buildTierRef(created.id);
     const project = projects.create('ChangeSet Project', '/tmp/changeset-project');
+    const template = sessionTemplates.create({
+      projectId: project.id, name: 'ChangeSet template', prompt: 'Run', model: tierRef,
+    });
+    projectDefaults.upsert(project.id, { model: tierRef, providerId: null });
     const board = kanbanBoards.create(project.id);
     kanbanLanes.create(board.id, { name: 'ChangeSet lane', onEnterModel: tierRef });
     const session = sessions.create(project.id, 'ChangeSet session', 'Later', {
@@ -326,6 +330,8 @@ describe('structured degradation change sets (client sync)', () => {
     expect(result.degradation).toMatchObject({
       degradedFrom: tierRef,
       affectedSessions: [{ id: session.id, projectId: project.id }],
+      affectedTemplateIds: [template.id],
+      projectDefaultProjectIds: [project.id],
       laneProjectIds: [project.id],
       summarySettingsChanged: true,
     });

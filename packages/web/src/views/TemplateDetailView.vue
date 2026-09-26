@@ -236,7 +236,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { useRouter, useRoute } from 'vue-router';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
@@ -245,11 +246,13 @@ import ModelSelector from '../components/ModelSelector.vue';
 import EffortLevelSelector from '../components/EffortLevelSelector.vue';
 import InterpolationHelp from '../components/InterpolationHelp.vue';
 import ResizableTextarea from '../components/ResizableTextarea.vue';
+import { useWebSocket } from '../composables/useWebSocket.js';
 
 const route = useRoute();
 const router = useRouter();
 const templatesStore = useTemplatesStore();
 const uiStore = useUiStore();
+const { on, off } = useWebSocket();
 
 const isLoading = ref(false);
 const isSaving = ref(false);
@@ -304,6 +307,10 @@ const loadTemplate = async () => {
     isLoading.value = false;
   }
 };
+
+function handleTemplateUpdated(message) {
+  if (message?.templateId === templateId.value) loadTemplate();
+}
 
 const onSubmit = async () => {
   error.value = null;
@@ -360,6 +367,7 @@ const confirmDelete = async () => {
 };
 
 onMounted(async () => {
+  on(WS_MESSAGE_TYPES.TEMPLATE_UPDATED, handleTemplateUpdated);
   await Promise.all([
     loadTemplate(),
     templatesStore.fetchProjectTemplates(projectId.value).catch((err) => {
@@ -368,6 +376,8 @@ onMounted(async () => {
     }),
   ]);
 });
+
+onUnmounted(() => off(WS_MESSAGE_TYPES.TEMPLATE_UPDATED, handleTemplateUpdated));
 </script>
 
 <style scoped>

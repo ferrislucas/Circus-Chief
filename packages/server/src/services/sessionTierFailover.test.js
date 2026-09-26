@@ -1490,6 +1490,11 @@ describe('pins the first member that produces durable activity', () => {
     expect(updated.resolvedModel).toBe('pin-model-b');
     expect(updated.resolvedProviderId).toBe(providerCodex.id);
     expect(updated.agentType).toBe('codex');
+    expect(broadcastToSession).toHaveBeenCalledWith(
+      session.id,
+      'session:updated',
+      expect.objectContaining({ session: expect.objectContaining({ model: tierRef, resolvedModel: 'pin-model-b', resolvedProviderId: providerCodex.id }) })
+    );
   });
 
   it('continues on the pinned member without re-resolving the tier or raising a cross-kind switch', async () => {

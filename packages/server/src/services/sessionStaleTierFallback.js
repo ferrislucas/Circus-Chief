@@ -106,7 +106,7 @@ export function applyStaleTierFallback(sessionId, session, staleTierRef) {
  * @throws {Error} from `resolveTierRefForContinue` for the non-stale-binding
  *   cases described above.
  */
-export function resolveTierRefForContinueWithStaleFallback(sessionId, session, requestedModel) {
+export function resolveTierRefForContinueWithStaleFallback(sessionId, session, requestedModel, requestedProviderId = null) {
   const ownBindingRequested =
     isTierRef(session.model) && (!requestedModel || requestedModel === session.model);
   if (ownBindingRequested && !hasResolvableTierMembers(session.model)) {
@@ -121,5 +121,5 @@ export function resolveTierRefForContinueWithStaleFallback(sessionId, session, r
       persist: {},
     };
   }
-  return resolveTierRefForContinue(session, requestedModel);
+  return resolveTierRefForContinue(session, requestedModel, requestedProviderId);
 }

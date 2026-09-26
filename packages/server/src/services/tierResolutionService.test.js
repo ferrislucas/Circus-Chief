@@ -119,6 +119,29 @@ describe('tierResolutionService', () => {
     });
   });
 
+  describe('manual tier selection', () => {
+    it('uses the first healthy member instead of a member in cooldown', () => {
+      const tier = modelTiers.create({
+        name: 'Manual selection cooldown tier',
+        members: [
+          { providerId: providerA.id, modelId: 'model-a', position: 0 },
+          { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        ],
+      });
+      markUnhealthy(providerA.id, 'model-a');
+
+      const selection = resolveTierRefForContinue(
+        { model: 'model-a', resolvedModel: null, resolvedProviderId: null },
+        buildTierRef(tier.id)
+      );
+
+      expect(selection).toMatchObject({
+        effectiveModel: 'model-b',
+        providerIdHint: providerB.id,
+      });
+    });
+  });
+
   describe('findNextHealthyTierMember (Fix 5)', () => {
     let providerC;
 
@@ -361,6 +384,7 @@ describe('tierResolutionService', () => {
       expect(result.providerIdHint).toBeNull();
       expect(result.persist).toEqual({
         model: 'claude-opus-5',
+        providerId: null,
         resolvedModel: null,
         resolvedProviderId: null,
       });
@@ -425,7 +449,7 @@ describe('tierResolutionService', () => {
       });
     });
 
-    it('ignores cooldown when switching to a configured tier', () => {
+    it('rejects a newly selected tier when every member is in cooldown', () => {
       const tier = modelTiers.create({
         name: 'Tier',
         members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
@@ -434,11 +458,7 @@ describe('tierResolutionService', () => {
       const tierRef = buildTierRef(tier.id);
       const session = { model: 'claude-sonnet-5', resolvedModel: null, resolvedProviderId: null };
 
-      expect(resolveTierRefForContinue(session, tierRef)).toEqual({
-        effectiveModel: 'model-a',
-        providerIdHint: providerA.id,
-        persist: { model: tierRef, resolvedModel: 'model-a', resolvedProviderId: providerA.id },
-      });
+      expect(() => resolveTierRefForContinue(session, tierRef)).toThrow('currently healthy');
     });
 
     it('ignores cooldown when continuing a tier-bound session without a snapshot', () => {

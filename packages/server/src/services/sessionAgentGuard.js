@@ -110,10 +110,10 @@ export function deriveAgentTypeForModelOrTier(modelOrRef) {
  * @param {string|null} requestedModel - Model ID from req.body.model, or null.
  * @returns {{ error: string, message: string }|null} 400-body on block, or null to allow.
  */
-export function checkCrossKindSwitch(session, requestedModel) {
+export function checkCrossKindSwitch(session, requestedModel, requestedProviderId = null) {
   const sessionAgentType = session.agentType || 'claude-code';
   const effectiveModel = requestedModel || session.model;
-  const resolved = resolveModelForAgentKind(effectiveModel, null, session);
+  const resolved = resolveModelForAgentKind(effectiveModel, requestedProviderId, session);
   if (resolved.unresolved) {
     // The session's own binding went stale (tier deleted/emptied) — allow it
     // through; the continuation/execution path degrades per PRD E3/D6.

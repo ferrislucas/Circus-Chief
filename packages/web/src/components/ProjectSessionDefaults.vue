@@ -163,10 +163,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useUiStore } from '../stores/ui.js';
 import ModelSelector from './ModelSelector.vue';
+import { useWebSocket } from '../composables/useWebSocket.js';
 
 const props = defineProps({
   projectId: { type: String, required: true },
@@ -174,6 +176,7 @@ const props = defineProps({
 
 const defaultsStore = useProjectDefaultsStore();
 const uiStore = useUiStore();
+const { on, off } = useWebSocket();
 
 const defaultMode = ref('');
 const defaultThinkingEnabled = ref(false);
@@ -187,7 +190,16 @@ const savingDefaults = ref(false);
 
 onMounted(() => {
   defaultsStore.fetchDefaults(props.projectId);
+  on(WS_MESSAGE_TYPES.PROJECT_DEFAULTS_UPDATED, handleDefaultsUpdated);
 });
+
+onUnmounted(() => off(WS_MESSAGE_TYPES.PROJECT_DEFAULTS_UPDATED, handleDefaultsUpdated));
+
+function handleDefaultsUpdated(message) {
+  if (message?.projectId === props.projectId && message.defaults) {
+    defaultsStore.setDefaults(props.projectId, message.defaults);
+  }
+}
 
 watch(() => defaultsStore.getDefaultsForProject(props.projectId), (defaults) => {
   if (defaults) {

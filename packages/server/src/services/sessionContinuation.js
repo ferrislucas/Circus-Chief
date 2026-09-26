@@ -54,12 +54,12 @@ async function buildPromptForContinue({ modelChanged, agent, conversationId, pro
  * @param {string|null} model - Requested model override (null to keep current binding)
  * @returns {{ effectiveModel: string|null, sessionEnv: Object, modelChanged: boolean, session: Object }}
  */
-function buildContinueModelAndEnv(session, sessionId, model) {
+function buildContinueModelAndEnv(session, sessionId, model, providerId = null) {
   // Stale-binding tolerance (PRD E3/D6): a truly-stale tier binding degrades
   // (snapshot or server default, tier:failover notice) instead of throwing —
   // matching the start path's `_runTierBoundSession` behavior.
   const { effectiveModel, providerIdHint, persist } = resolveTierRefForContinueWithStaleFallback(
-    sessionId, session, model
+    sessionId, session, model, providerId
   );
 
   // Derive provider from the effective model ID + hint (Fix 1 — disambiguates
@@ -187,7 +187,7 @@ async function setupConversationAndMessage(sessionId, content, fileAttachments) 
  */
 export async function continueSessionCore(sessionId, content, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
-  const { systemPrompt = null, fileAttachments = [], model = null, interactive = false } = options;
+  const { systemPrompt = null, fileAttachments = [], model = null, providerId = null, interactive = false } = options;
   // Check if session is already running
   if (activeSessions.has(sessionId)) {
     throw new Error('Session is already processing');
@@ -226,7 +226,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   // member resolves to Codex although the row still says 'claude-code').
   // Creating the agent from the stale pre-reconciliation agentType would
   // dispatch the wrong adapter for the resolved model.
-  const modelEnv = buildContinueModelAndEnv(session, sessionId, model);
+  const modelEnv = buildContinueModelAndEnv(session, sessionId, model, providerId);
   session = modelEnv.session;
 
   // Health attribution for tier-bound continuations (mid-conversation

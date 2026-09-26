@@ -106,6 +106,8 @@ function rewriteSummarySettings(db, tierRef, fallback, now) {
  * @returns {{
  *   degradedFrom: string,
  *   affectedSessions: Array<{ id: string, projectId: string }>,
+ *   affectedTemplateIds: string[],
+ *   projectDefaultProjectIds: string[],
  *   laneProjectIds: string[],
  *   summarySettingsChanged: boolean,
  * }}
@@ -120,6 +122,12 @@ function degradeTierReferences(db, tierRef, fallback, now) {
     ...db.prepare('SELECT id, project_id AS projectId FROM sessions WHERE model = ?').all(tierRef),
     ...db.prepare('SELECT id, project_id AS projectId FROM sessions WHERE pending_model = ?').all(tierRef),
   ]);
+  const affectedTemplateIds = db.prepare(
+    'SELECT id FROM session_templates WHERE model = ?'
+  ).all(tierRef).map((row) => row.id);
+  const projectDefaultProjectIds = db.prepare(
+    'SELECT project_id AS projectId FROM project_session_defaults WHERE model = ?'
+  ).all(tierRef).map((row) => row.projectId);
   const laneProjectIds = db.prepare(
     `SELECT DISTINCT b.project_id AS projectId
      FROM kanban_lanes l
@@ -184,6 +192,8 @@ function degradeTierReferences(db, tierRef, fallback, now) {
   return {
     degradedFrom: tierRef,
     affectedSessions,
+    affectedTemplateIds,
+    projectDefaultProjectIds,
     laneProjectIds,
     summarySettingsChanged,
   };
@@ -249,6 +259,8 @@ function findReferencedTierIds(db) {
  *   tierId: string,
  *   degradedFrom: string,
  *   affectedSessions: Array<{ id: string, projectId: string }>,
+ *   affectedTemplateIds: string[],
+ *   projectDefaultProjectIds: string[],
  *   laneProjectIds: string[],
  *   summarySettingsChanged: boolean,
  * }>} One change set per tier whose references were degraded, for post-commit
@@ -290,6 +302,8 @@ export function degradeReferencesToEmptiedTiers() {
  *   degradation: {
  *     degradedFrom: string,
  *     affectedSessions: Array<{ id: string, projectId: string }>,
+ *     affectedTemplateIds: string[],
+ *     projectDefaultProjectIds: string[],
  *     laneProjectIds: string[],
  *     summarySettingsChanged: boolean,
  *   },

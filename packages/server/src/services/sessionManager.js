@@ -253,12 +253,12 @@ function validateAndFetchContinueContext(sessionId, conversationId) {
  * @param {string|null} model - Requested model (null to keep current)
  * @returns {{ effectiveModel: string|null, sessionEnv: Object, modelChanged: boolean, session: Object }}
  */
-function buildModelAndProvider(session, sessionId, model) {
+function buildModelAndProvider(session, sessionId, model, providerId = null) {
   // Stale-binding tolerance (PRD E3/D6): a truly-stale tier binding degrades
   // (snapshot or server default, tier:failover notice) instead of throwing —
   // matching the start path's `_runTierBoundSession` behavior.
   const { effectiveModel, providerIdHint, persist } = resolveTierRefForContinueWithStaleFallback(
-    sessionId, session, model
+    sessionId, session, model, providerId
   );
 
   const provider = resolveProviderFromModel(effectiveModel, providerIdHint);
@@ -353,7 +353,7 @@ function buildExistingMessageQueryParams({
 }
 
 export async function continueSessionWithExistingMessage(sessionId, conversationId, workingDirectory, options = {}) {
-  const { systemPrompt = null, model = null, interactive = false } = options;
+  const { systemPrompt = null, model = null, providerId = null, interactive = false } = options;
   const context = validateAndFetchContinueContext(sessionId, conversationId);
   let session = context.session;
   const { conversation, lastUserMessage } = context;
@@ -382,7 +382,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   // member resolves to Codex although the row still says 'claude-code').
   // Creating the agent from the stale pre-reconciliation agentType would
   // dispatch the wrong adapter for the resolved model.
-  const modelEnv = buildModelAndProvider(session, sessionId, model);
+  const modelEnv = buildModelAndProvider(session, sessionId, model, providerId);
   session = modelEnv.session;
 
   // Health attribution for tier-bound continuations (mid-conversation

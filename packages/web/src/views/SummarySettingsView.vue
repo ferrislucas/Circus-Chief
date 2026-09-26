@@ -93,7 +93,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { useWebSocket } from '../composables/useWebSocket.js';
 import { useSettingsStore } from '../stores/settings.js';
 import { useUiStore } from '../stores/ui.js';
 import ResizableTextarea from '../components/ResizableTextarea.vue';
@@ -108,10 +110,18 @@ const summaryModel = ref('');
 const summaryProviderId = ref(null);
 const saving = ref(false);
 const error = ref(null);
+const { on, off } = useWebSocket();
+
+function handleSummarySettingsUpdated(message) {
+  if (message?.settings) settingsStore.summarySettings = message.settings;
+}
 
 onMounted(() => {
   settingsStore.fetchSummarySettings();
+  on(WS_MESSAGE_TYPES.SUMMARY_SETTINGS_UPDATED, handleSummarySettingsUpdated);
 });
+
+onUnmounted(() => off(WS_MESSAGE_TYPES.SUMMARY_SETTINGS_UPDATED, handleSummarySettingsUpdated));
 
 // Watch for changes to the store and update local refs
 watch(() => settingsStore.summarySettings, (settings) => {

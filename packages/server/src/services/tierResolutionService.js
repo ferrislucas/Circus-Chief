@@ -340,10 +340,14 @@ function resolveRequestedTierRef(session, requestedModel) {
     if (snapshot) return snapshot;
   }
 
-  const resolved = resolveAnyMember(requestedModel, {});
+  // A newly selected tier is a start-style selection decision: honor the
+  // configured order, but skip members in active cooldown. Continuations of
+  // an already-pinned tier return above and deliberately remain cooldown
+  // independent (no mid-conversation failover).
+  const resolved = resolveActiveModel(requestedModel, {});
   if (!resolved) {
     throw new Error(
-      `Tier "${requestedModel}" has no enabled configured members — cannot continue session`
+      `Tier "${requestedModel}" has no enabled configured members that are currently healthy — cannot continue session`
     );
   }
   return {
@@ -379,13 +383,18 @@ function resolveRequestedTierRef(session, requestedModel) {
  *   persist: { model?: string|null, resolvedModel?: string|null, resolvedProviderId?: string|null }
  * }}
  */
-export function resolveTierRefForContinue(session, requestedModel) {
+export function resolveTierRefForContinue(session, requestedModel, requestedProviderId = null) {
   // Explicit concrete-model override: always wins, always clears any tier snapshot.
   if (requestedModel && !isTierRef(requestedModel)) {
     return {
       effectiveModel: requestedModel,
-      providerIdHint: null,
-      persist: { model: requestedModel, resolvedModel: null, resolvedProviderId: null },
+      providerIdHint: requestedProviderId,
+      persist: {
+        model: requestedModel,
+        providerId: requestedProviderId,
+        resolvedModel: null,
+        resolvedProviderId: null,
+      },
     };
   }
 
@@ -417,5 +426,5 @@ export function resolveTierRefForContinue(session, requestedModel) {
   }
 
   // Plain concrete session, nothing requested — passthrough, no persistence.
-  return { effectiveModel: session.model, providerIdHint: null, persist: {} };
+  return { effectiveModel: session.model, providerIdHint: session.providerId || null, persist: {} };
 }

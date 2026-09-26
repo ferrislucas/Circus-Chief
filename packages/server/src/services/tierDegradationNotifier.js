@@ -1,5 +1,5 @@
-import { sessions, kanbanBoards } from '../database.js';
-import { broadcastToProject } from '../websocket.js';
+import { sessions, kanbanBoards, sessionTemplates, projectDefaults, settings } from '../database.js';
+import { broadcast, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { broadcastSessionUpdate } from './summaryBroadcast.js';
 import { buildFullBoardResponse } from './kanbanBoardResponse.js';
@@ -19,10 +19,10 @@ import { buildFullBoardResponse } from './kanbanBoardResponse.js';
  *   deletion; websocket delivery is fire-and-forget and clients can always
  *   recover through normal refetch/reconnect behavior.
  * - Only the mutated client-visible scopes are broadcast: affected sessions
- *   (SESSION_UPDATED to their session AND project subscribers) and projects
- *   whose kanban lanes were rewritten (KANBAN_BOARD_UPDATED). Global summary
- *   settings have no push channel in the protocol, so that change is picked
- *   up on the settings view's normal fetch.
+ *   (SESSION_UPDATED to their session AND project subscribers), templates
+ *   (TEMPLATE_UPDATED), project defaults (PROJECT_DEFAULTS_UPDATED), kanban
+ *   boards (KANBAN_BOARD_UPDATED), and summary settings
+ *   (SUMMARY_SETTINGS_UPDATED).
  */
 
 // ── Stale deleted-tier echo tolerance ───────────────────────────────────────
@@ -65,6 +65,8 @@ export function consumeStaleTierEcho(sessionId, tierRef) {
  * @param {{
  *   degradedFrom: string,
  *   affectedSessions: Array<{ id: string, projectId: string }>,
+ *   affectedTemplateIds?: string[],
+ *   projectDefaultProjectIds?: string[],
  *   laneProjectIds: string[],
  *   summarySettingsChanged: boolean,
  * } | null} changeSet
@@ -79,12 +81,33 @@ export function publishTierDegradation(changeSet) {
     broadcastSessionUpdate(id, session.projectId, session);
   }
 
+  for (const templateId of changeSet.affectedTemplateIds ?? []) {
+    const template = sessionTemplates.getById(templateId);
+    if (template) broadcast(WS_MESSAGE_TYPES.TEMPLATE_UPDATED, { templateId, template });
+  }
+
+  for (const projectId of changeSet.projectDefaultProjectIds ?? []) {
+    const defaults = projectDefaults.getByProjectId(projectId);
+    if (defaults) {
+      broadcastToProject(projectId, WS_MESSAGE_TYPES.PROJECT_DEFAULTS_UPDATED, {
+        projectId,
+        defaults,
+      });
+    }
+  }
+
   for (const projectId of changeSet.laneProjectIds ?? []) {
     const board = kanbanBoards.getByProjectId(projectId);
     if (!board) continue;
     broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, {
       projectId,
       board: buildFullBoardResponse(board),
+    });
+  }
+
+  if (changeSet.summarySettingsChanged) {
+    broadcast(WS_MESSAGE_TYPES.SUMMARY_SETTINGS_UPDATED, {
+      settings: settings.getSummarySettings(),
     });
   }
 }

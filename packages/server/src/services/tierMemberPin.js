@@ -1,5 +1,6 @@
 import { sessions } from '../database.js';
 import { isTierRef } from '@circuschief/shared';
+import { broadcastSessionUpdate } from './summaryBroadcast.js';
 
 // sessionId → { modelId, providerId } for the tier-member attempt currently in
 // flight. Registered by the start-time failover loop before each attempt and
@@ -66,6 +67,8 @@ export function pinSessionToTierMember(sessionId, member) {
     resolvedModel: member.modelId,
     resolvedProviderId: member.providerId,
   });
+  const updatedSession = sessions.getById(sessionId);
+  broadcastSessionUpdate(sessionId, updatedSession.projectId, updatedSession);
   return true;
 }
 

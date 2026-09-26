@@ -13,6 +13,15 @@
       :hide-new-conversation="hideNewConversation"
     />
 
+    <div
+      v-if="tierActiveMemberDisplay"
+      class="tier-active-member"
+      :title="tierActiveMemberDisplay"
+      data-testid="tier-active-member"
+    >
+      Active member: {{ tierActiveMemberDisplay }}
+    </div>
+
     <ConversationMessages
       ref="conversationMessagesRef"
       :session-id="sessionId"
@@ -145,6 +154,7 @@ import StaleBadge from './StaleBadge.vue';
 import AgentPromptCard from './AgentPromptCard.vue';
 import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 import { useProjectsStore } from '../stores/projects.js';
+import { useProvidersStore } from '../stores/providers.js';
 import { isTierRef, useTiersStore } from '../stores/tiers.js';
 
 const props = defineProps({
@@ -171,6 +181,7 @@ const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const defaultsStore = useProjectDefaultsStore();
 const projectsStore = useProjectsStore();
+const providersStore = useProvidersStore();
 const tiersStore = useTiersStore();
 const { getModelDisplayName } = useModelInfo();
 const { isStale } = useConnectionStatus();
@@ -253,6 +264,17 @@ const activeModelDisplayName = computed(() => {
   }
 
   return getModelDisplayName(model);
+});
+
+const tierActiveMemberDisplay = computed(() => {
+  const session = sessionsStore.currentSession;
+  if (!session || !isTierRef(session.model) || !session.resolvedModel) return null;
+  const provider = session.resolvedProviderId
+    ? providersStore.providers.find((item) => item.id === session.resolvedProviderId)
+    : null;
+  const providerLabel = provider?.name || session.resolvedProviderId;
+  const modelLabel = getModelDisplayName(session.resolvedModel);
+  return providerLabel ? `${providerLabel} · ${modelLabel}` : modelLabel;
 });
 
 const unassociatedWorkLogs = computed(() => sessionsStore.getUnassociatedWorkLogs);
@@ -618,7 +640,9 @@ async function handleFormSubmit(options = {}) {
       inputFormRef.value?.clearFiles();
     }
   } else {
-    const success = await handleSend(currentValue, attachedFiles.value, selectedModel.value, options);
+    const success = await handleSend(
+      currentValue, attachedFiles.value, selectedModel.value, selectedProviderId.value, options
+    );
     if (success) {
       clearSubmittedInput(textareaRef);
       attachedFiles.value = [];
@@ -771,5 +795,17 @@ defineExpose({ flushDraft });
 
 .conversation-tab.connection-stale {
   opacity: 0.5;
+}
+
+.tier-active-member {
+  align-self: flex-start;
+  max-width: 100%;
+  margin: 0.25rem 0;
+  padding: 0.25rem 0.5rem;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

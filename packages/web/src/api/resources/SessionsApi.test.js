@@ -416,6 +416,16 @@ describe('SessionsApi', () => {
       }));
     });
 
+    it('includes the concrete provider with a model selection', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+
+      await client.sendMessage('sess-123', 'Hello', [], 'shared-model', { providerId: 'provider-b' });
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/message', expect.objectContaining({
+        body: JSON.stringify({ content: 'Hello', model: 'shared-model', providerId: 'provider-b' }),
+      }));
+    });
+
     it('includes renderLiquid in JSON body when requested', async () => {
       mockFetch.mockReturnValue(mockResponse({ id: '1' }));
 

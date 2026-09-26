@@ -245,6 +245,21 @@ export class ProviderRepository extends BaseRepository {
   }
 
   /**
+   * Delete a provider and return the committed tier-reference repair facts for
+   * the API layer to publish. Kept separate from `delete` so internal cleanup
+   * callers remain transport-agnostic.
+   */
+  deleteWithDegradation(id) {
+    const provider = this.getById(id);
+    if (!provider) throw new Error('Provider not found');
+    if (provider.isBuiltIn) throw new Error('Cannot delete built-in provider');
+    return databaseManager.transaction(() => {
+      super.delete(id);
+      return degradeReferencesToEmptiedTiers();
+    });
+  }
+
+  /**
    * Get all models for a provider.
    * @param {string} providerId
    * @param {{ includeRemoved?: boolean }} [options] - Pass `includeRemoved: true`
@@ -314,6 +329,19 @@ export class ProviderRepository extends BaseRepository {
     });
   }
 
+  /** Update a model and retain any tier degradation change sets for delivery. */
+  updateModelWithDegradation(id, data) {
+    const current = this.getModelById(id);
+    if (!current) throw new Error('Model not found');
+    const provider = this.getById(current.providerId);
+    const renamesModel = data.modelId !== undefined && data.modelId !== current.modelId;
+    return databaseManager.transaction(() => {
+      const model = modelOps.updateModel(this.db, id, data, { current, provider });
+      const degradation = renamesModel ? degradeReferencesToEmptiedTiers() : [];
+      return { model, degradation };
+    });
+  }
+
   /**
    * Remove a model from a provider (soft-removal; see providerModelOperations.js).
    *
@@ -331,6 +359,16 @@ export class ProviderRepository extends BaseRepository {
       const removed = modelOps.removeModel(this.db, modelId, model);
       degradeReferencesToEmptiedTiers();
       return removed;
+    });
+  }
+
+  /** Soft-remove a model and retain tier repair facts for post-commit delivery. */
+  removeModelWithDegradation(modelId) {
+    const model = this.getModelById(modelId);
+    if (!model) throw new Error('Model not found');
+    return databaseManager.transaction(() => {
+      const removed = modelOps.removeModel(this.db, modelId, model);
+      return { model: removed, degradation: degradeReferencesToEmptiedTiers() };
     });
   }
 
