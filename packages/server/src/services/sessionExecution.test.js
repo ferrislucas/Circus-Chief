@@ -164,6 +164,43 @@ describe('buildQueryParams', () => {
     expect(result.options.effortLevel).toBeNull();
   });
 
+  it('builds Muse query options with model, effort, approval mode, and resume', () => {
+    const args = {
+      ...baseArgs(),
+      agentType: 'muse',
+      model: 'muse-spark-1.3',
+      session: { mode: 'yolo', projectId: 'proj-1', effortLevel: 'max' },
+      resumeSessionId: 'msp-session-9',
+    };
+
+    const result = buildQueryParams(args);
+
+    expect(result.prompt).toBe('Hello');
+    expect(result.options.cwd).toBe('/tmp/test');
+    expect(result.options.model).toBe('muse-spark-1.3');
+    expect(result.options.effortLevel).toBe('max');
+    expect(result.options.approvalMode).toBe('allowAll');
+    expect(result.options.resume).toBe('msp-session-9');
+    expect(result.options.permissionMode).toBeUndefined();
+    expect(result.options.settingSources).toBeUndefined();
+    expect(result.options.sandboxMode).toBeUndefined();
+    expect(result.options.spawnClaudeCodeProcess).toBeUndefined();
+  });
+
+  it('omits resume from Muse query options when resumeSessionId is null', () => {
+    const args = {
+      ...baseArgs(),
+      agentType: 'muse',
+      model: 'muse-spark-1.3',
+      resumeSessionId: null,
+    };
+
+    const result = buildQueryParams(args);
+
+    expect(result.options.resume).toBeUndefined();
+    expect(result.options.approvalMode).toBe('onRequest');
+  });
+
   it('omits Claude attribution settings when override is null', () => {
     const result = buildQueryParams({ ...baseArgs(), commitAttributionOverride: null });
     expect(result.options.extraArgs).toBeUndefined();

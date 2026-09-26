@@ -19,6 +19,10 @@ describe('Provider Contracts', () => {
       expect(ProviderKind.safeParse('openai').success).toBe(true);
     });
 
+    it('accepts "meta"', () => {
+      expect(ProviderKind.safeParse('meta').success).toBe(true);
+    });
+
     it('rejects unknown values', () => {
       expect(ProviderKind.safeParse('gemini').success).toBe(false);
       expect(ProviderKind.safeParse('').success).toBe(false);

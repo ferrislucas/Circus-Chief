@@ -3,6 +3,7 @@ import { resolveClaudeMcpServers, resolveCodexMcpServers } from './claudeMcpConf
 import {
   buildSystemPromptConfig,
   getGeminiApprovalModeForSession,
+  getMuseApprovalModeForSession,
   getPermissionModeForSession,
   getSandboxModeForSession,
 } from './sessionPrompts.js';
@@ -110,6 +111,40 @@ function buildGeminiQueryParams({
 }
 
 /**
+ * Build query parameters for the Muse adapter.
+ *
+ * Muse sessions open over MSP (`muse serve`), so the adapter needs the
+ * workspace root, model, approval posture, and optional resume handle —
+ * not Claude-specific options (permissionMode, settingSources) or
+ * Codex-specific ones (sandboxMode). NOTE: MSP has no system-prompt field;
+ * workspace instructions belong in `AGENTS.md`. The composed system prompt
+ * is still forwarded for future use and logging parity.
+ *
+ * @returns {Object}
+ */
+function buildMuseQueryParams({
+  prompt, workingDirectory, controller, session, systemPrompt, model, sessionEnv,
+  resumeSessionId = null,
+}) {
+  const isVCR = Boolean(process.env.VCR_MODE);
+  const effectiveModel = isVCR ? 'muse-spark-1.3' : model;
+
+  return {
+    prompt,
+    options: {
+      cwd: workingDirectory,
+      abortController: controller,
+      env: sessionEnv,
+      model: effectiveModel,
+      effortLevel: session?.effortLevel ?? null,
+      approvalMode: getMuseApprovalModeForSession(session?.mode),
+      systemPrompt,
+      ...(resumeSessionId ? { resume: resumeSessionId } : {}),
+    },
+  };
+}
+
+/**
  * Build query parameters for executing a session via the configured agent.
  * Shared by runSession, continueSession, and continueSessionWithExistingMessage.
  *
@@ -123,7 +158,7 @@ function buildGeminiQueryParams({
  * @param {string|null} options.model - Model to use
  * @param {Object} options.sessionEnv - Environment variables for the session
  * @param {string|null} [options.resumeSessionId] - Session ID to resume (null for new session)
- * @param {string} [options.agentType] - 'claude-code' (default) | 'codex' | 'gemini'
+ * @param {string} [options.agentType] - 'claude-code' (default) | 'codex' | 'gemini' | 'muse'
  * @returns {Object} Query parameters for agent.execute()
  */
 export function buildQueryParams(options) {
@@ -133,6 +168,9 @@ export function buildQueryParams(options) {
   }
   if (agentType === 'gemini') {
     return buildGeminiQueryParams(options);
+  }
+  if (agentType === 'muse') {
+    return buildMuseQueryParams(options);
   }
   return buildClaudeCodeQueryParams(options);
 }

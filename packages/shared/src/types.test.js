@@ -3,13 +3,14 @@ import {
   CLAUDE_MODELS,
   OPENAI_MODELS,
   GEMINI_MODELS,
+  MUSE_MODELS,
   DEFAULT_MODEL,
   DEFAULT_OPENAI_MODEL,
   CODEX_SUMMARY_MODELS,
 } from './types.js';
 
 describe('catalog matrix completeness (FRD §0 / Phase 1 gate)', () => {
-  const catalogs = { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS };
+  const catalogs = { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS, MUSE_MODELS };
 
   for (const [name, models] of Object.entries(catalogs)) {
     describe(name, () => {

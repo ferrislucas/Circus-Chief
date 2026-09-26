@@ -1,6 +1,22 @@
+import { spawn } from 'child_process';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { createGeminiSpawner } from './geminiSpawnHelper.js';
+import { createRobustEnv } from './nodeSpawnHelper.js';
+
+/**
+ * Default spawn for the Meta connection test. Plain `spawn` with a robust
+ * env (Node on PATH) — no E2E capture hook: E2E Muse coverage is out of
+ * scope until the adapter has E2E fixtures.
+ */
+function defaultMuseTestSpawn({ command, args, cwd, env }) {
+  return spawn(command, args, {
+    cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: createRobustEnv(env),
+    windowsHide: true,
+  });
+}
 
 /**
  * Test a provider configuration by making a minimal API call.
@@ -30,6 +46,9 @@ export async function testProviderConnection(config, deps = {}) {
   }
   if (kind === 'google') {
     return testGoogleConnection(config, deps);
+  }
+  if (kind === 'meta') {
+    return testMetaConnection(config, deps);
   }
   return testAnthropicConnection(config);
 }
@@ -177,6 +196,59 @@ async function testGoogleConnection(config, deps = {}) {
           resolve(connectionSuccess({ model: 'gemini-2.5-flash' }));
         } else {
           resolve(failureResponse(new Error(stderr.trim() || `Gemini CLI exited with code ${code}`)));
+        }
+      });
+    });
+  } catch (error) {
+    return failureResponse(error);
+  }
+}
+
+/**
+ * Meta-kind connection test: run a minimal headless `muse exec` turn.
+ * The `muse serve` host authenticates with the host's own `muse auth`
+ * credentials, so this exercises binary presence, auth, and model access
+ * in one call. Sandbox stays ON (default); no session log is written.
+ */
+async function testMetaConnection(config, deps = {}) {
+  try {
+    const timeoutMs = config.apiTimeoutMs || 30000;
+    const spawnMuseProcess = deps.spawnMuseProcess || defaultMuseTestSpawn;
+    const child = spawnMuseProcess({
+      command: process.env.MUSE_BIN || 'muse',
+      args: ['exec', '--json', '--no-session-log', '-p', 'Hi', '-m', 'muse-spark-1.3'],
+      cwd: config.workingDirectory,
+      env: process.env,
+    });
+
+    return await new Promise((resolve) => {
+      let stderr = '';
+      let killed = false;
+
+      const timer = setTimeout(() => {
+        killed = true;
+        try { child.kill('SIGTERM'); } catch { /* ignore */ }
+        resolve(failureResponse(new Error(`Muse CLI timed out after ${timeoutMs}ms`)));
+      }, timeoutMs);
+
+      child.stdout?.on('data', () => { /* drain */ });
+      child.stderr?.on('data', (d) => { stderr += d; });
+      child.on('error', (error) => {
+        clearTimeout(timer);
+        if (killed) return;
+        if (error.code === 'ENOENT') {
+          resolve(failureResponse(new Error('Muse CLI not found. Install Muse Code and ensure `muse` is on PATH (or set MUSE_BIN).')));
+        } else {
+          resolve(failureResponse(error));
+        }
+      });
+      child.on('exit', (code) => {
+        clearTimeout(timer);
+        if (killed) return;
+        if (code === 0) {
+          resolve(connectionSuccess({ model: 'muse-spark-1.3' }));
+        } else {
+          resolve(failureResponse(new Error(stderr.trim() || `Muse CLI exited with code ${code}`)));
         }
       });
     });

@@ -3,8 +3,8 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { describe, it, expect } from 'vitest';
-import { CLAUDE_MODELS } from '@circuschief/shared';
-import { seedBuiltInAnthropicProvider } from './providerMigrationHelpers.js';
+import { CLAUDE_MODELS, MUSE_MODELS } from '@circuschief/shared';
+import { seedBuiltInAnthropicProvider, seedBuiltInMetaProvider } from './providerMigrationHelpers.js';
 import { allMigrations } from './index.js';
 import { seedBaselineData } from '../seedBaselineData.js';
 import { getModels } from '../providerModelOperations.js';
@@ -99,6 +99,107 @@ describe('seedBuiltInAnthropicProvider (single source of truth: CLAUDE_MODELS)',
 
       expect(rows.map((r) => r.model_id).sort()).toEqual(
         CLAUDE_MODELS.map((m) => m.id).sort()
+      );
+    } finally {
+      db.close();
+    }
+  });
+});
+
+/**
+ * Same table shape as freshDb() but with the post-'providers-widen-kind-
+ * check-meta' CHECK, so seedBuiltInMetaProvider() can insert kind='meta'.
+ */
+function freshDbWithMetaKind() {
+  const db = new Database(':memory:');
+  db.exec(`
+    CREATE TABLE providers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      base_url TEXT,
+      auth_token TEXT,
+      api_timeout_ms INTEGER,
+      additional_env_vars TEXT,
+      commit_attribution_override TEXT,
+      is_built_in INTEGER NOT NULL DEFAULT 0,
+      kind TEXT NOT NULL DEFAULT 'anthropic' CHECK(kind IN ('anthropic','openai','google','meta')),
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE provider_models (
+      id TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+      model_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      description TEXT,
+      tier TEXT CHECK(tier IN ('fable', 'opus', 'sonnet', 'haiku', 'custom')),
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+  `);
+  return db;
+}
+
+describe('seedBuiltInMetaProvider (single source of truth: MUSE_MODELS)', () => {
+  it('seeds the meta-default provider row plus exactly the model ids in MUSE_MODELS', () => {
+    const db = freshDbWithMetaKind();
+    try {
+      seedBuiltInMetaProvider(db);
+
+      const provider = db
+        .prepare('SELECT id, name, kind, is_built_in FROM providers WHERE id = ?')
+        .get('meta-default');
+      expect(provider).toMatchObject({
+        id: 'meta-default',
+        name: 'Meta (Official)',
+        kind: 'meta',
+        is_built_in: 1,
+      });
+
+      const rows = db
+        .prepare('SELECT model_id FROM provider_models WHERE provider_id = ?')
+        .all('meta-default');
+      expect(rows.map((r) => r.model_id).sort()).toEqual(
+        MUSE_MODELS.map((m) => m.id).sort()
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it('derives display name/description from MUSE_MODELS with fixed custom tier', () => {
+    const db = freshDbWithMetaKind();
+    try {
+      seedBuiltInMetaProvider(db);
+
+      const rows = db
+        .prepare('SELECT model_id, display_name, description, tier FROM provider_models WHERE provider_id = ?')
+        .all('meta-default');
+      const byModelId = new Map(rows.map((r) => [r.model_id, r]));
+
+      for (const model of MUSE_MODELS) {
+        const row = byModelId.get(model.id);
+        expect(row).toBeDefined();
+        expect(row.display_name).toBe(model.name);
+        expect(row.description).toBe(model.description);
+        expect(row.tier).toBe('custom');
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  it('is idempotent: running it twice does not duplicate or error', () => {
+    const db = freshDbWithMetaKind();
+    try {
+      seedBuiltInMetaProvider(db);
+      seedBuiltInMetaProvider(db);
+
+      const rows = db
+        .prepare('SELECT model_id FROM provider_models WHERE provider_id = ?')
+        .all('meta-default');
+      expect(rows.map((r) => r.model_id).sort()).toEqual(
+        MUSE_MODELS.map((m) => m.id).sort()
       );
     } finally {
       db.close();

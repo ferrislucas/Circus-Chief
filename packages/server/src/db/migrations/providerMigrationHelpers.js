@@ -1,10 +1,11 @@
-import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
+import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS, MUSE_MODELS } from '@circuschief/shared';
 import { getTableSql } from './migrationUtils.js';
 import { BUILT_IN_OPENAI_COMMIT_ATTRIBUTION } from '../seedBaselineData.js';
 
 const ANTHROPIC_PROVIDER_ID = 'anthropic-default';
 const OPENAI_PROVIDER_ID = 'openai-default';
 const GOOGLE_PROVIDER_ID = 'google-default';
+const META_PROVIDER_ID = 'meta-default';
 const FABLE_MODEL = {
   id: 'anthropic-fable',
   modelId: 'claude-fable-5',
@@ -106,6 +107,26 @@ export function seedBuiltInGoogleProvider(db) {
   ).run(GOOGLE_PROVIDER_ID, 'Google (Official)', now, now);
 
   seedCatalogModels(db, GOOGLE_PROVIDER_ID, GEMINI_MODELS, () => 'custom');
+}
+
+/**
+ * Seed (and backfill) the built-in Meta provider and its Muse model rows.
+ *
+ * Mirrors {@link seedBuiltInGoogleProvider}: `INSERT OR IGNORE` over the
+ * current `MUSE_MODELS` catalog, so re-runs on every startup pick up newly
+ * added built-in Muse models without a dedicated migration.
+ */
+export function seedBuiltInMetaProvider(db) {
+  const now = Date.now();
+
+  db.prepare(
+    `INSERT OR IGNORE INTO providers (
+       id, name, base_url, auth_token, kind, is_built_in, created_at, updated_at
+     )
+     VALUES (?, ?, NULL, NULL, 'meta', 1, ?, ?)`
+  ).run(META_PROVIDER_ID, 'Meta (Official)', now, now);
+
+  seedCatalogModels(db, META_PROVIDER_ID, MUSE_MODELS, () => 'custom');
 }
 
 export function seedBuiltInProviders(db) {
@@ -222,6 +243,7 @@ const CATALOGS_BY_PROVIDER = [
   [ANTHROPIC_PROVIDER_ID, CLAUDE_MODELS, (model) => model.tier],
   [OPENAI_PROVIDER_ID, OPENAI_MODELS, () => 'custom'],
   [GOOGLE_PROVIDER_ID, GEMINI_MODELS, () => 'custom'],
+  [META_PROVIDER_ID, MUSE_MODELS, () => 'custom'],
 ];
 
 /** Seed current catalogs after enabled/sort_order columns have been added. */

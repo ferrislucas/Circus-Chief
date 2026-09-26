@@ -281,6 +281,13 @@ describe('sessionProvider', () => {
       expect(modelProviders.getAgentTypeForProvider).toHaveBeenCalledWith('openai-default');
     });
 
+    it("returns 'muse' for a model owned by a meta-kind provider", () => {
+      modelProviders.getProviderByModelId.mockReturnValue({ id: 'meta-default', kind: 'meta' });
+      modelProviders.getAgentTypeForProvider.mockReturnValue('muse');
+      expect(resolveAgentTypeFromModel('muse-spark-1.3')).toBe('muse');
+      expect(modelProviders.getAgentTypeForProvider).toHaveBeenCalledWith('meta-default');
+    });
+
     it("falls back to 'claude-code' when getAgentTypeForProvider returns null", () => {
       modelProviders.getProviderByModelId.mockReturnValue({ id: 'p3', kind: 'anthropic' });
       modelProviders.getAgentTypeForProvider.mockReturnValue(null);
@@ -584,6 +591,38 @@ describe('sessionProvider', () => {
       const provider = { name: 'O', kind: 'openai' };
       const env = buildSessionEnv(provider, false, null);
       expect(env.OPENAI_API_BASE).toBeUndefined();
+    });
+
+    // ── Meta / Muse kind ──
+
+    it('meta provider: does not set Claude-only env vars', () => {
+      delete process.env.VCR_MODE;
+      const provider = { name: 'M', kind: 'meta', authToken: 'unused-in-v1' };
+      const env = buildSessionEnv(provider, true, 'high');
+      expect(env.MAX_THINKING_TOKENS).toBeUndefined();
+      expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
+    });
+
+    it('meta provider: strips ANTHROPIC_*, OPENAI_*, and GEMINI_* host env', () => {
+      process.env.ANTHROPIC_API_KEY = 'host-a';
+      process.env.OPENAI_API_KEY = 'host-o';
+      const provider = { name: 'M', kind: 'meta' };
+      const env = buildSessionEnv(provider, false, null);
+      expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(env.OPENAI_API_KEY).toBeUndefined();
+      expect(env.GEMINI_API_KEY).toBeUndefined();
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+    });
+
+    it('meta provider: additionalEnvVars are preserved as the escape hatch', () => {
+      const provider = {
+        name: 'M',
+        kind: 'meta',
+        additionalEnvVars: { CUSTOM_MUSE_VAR: 'custom-value' },
+      };
+      const env = buildSessionEnv(provider, false, null);
+      expect(env.CUSTOM_MUSE_VAR).toBe('custom-value');
     });
   });
 });
