@@ -81,6 +81,22 @@ function buildUpdateColumns(data = {}) {
 }
 
 /**
+ * A mutation can make a previously executable tier member ineligible. Keep
+ * this decision next to the repository boundary so delete, rename, and
+ * disable all use the same transactional degradation pipeline.
+ */
+function removesProviderEligibility(provider, data) {
+  return data.enabled === false && provider.enabled !== false;
+}
+
+function removesModelEligibility(model, data) {
+  return (
+    (data.modelId !== undefined && data.modelId !== model.modelId) ||
+    (data.enabled === false && model.enabled !== false)
+  );
+}
+
+/**
  * Provider repository class (replaces ModelProviderRepository).
  *
  * Key differences from the old ModelProviderRepository:
@@ -203,17 +219,42 @@ export class ProviderRepository extends BaseRepository {
     validateBuiltInUpdate(provider, data);
     validateKindImmutable(data);
 
-    const { updates, values } = buildUpdateColumns(data);
+    return databaseManager.transaction(() => {
+      const { updates, values } = buildUpdateColumns(data);
 
-    if (updates.length > 0) {
-      updates.push('updated_at = ?');
-      values.push(Date.now());
-      values.push(id);
+      if (updates.length > 0) {
+        updates.push('updated_at = ?');
+        values.push(Date.now());
+        values.push(id);
 
-      this.db.prepare(`UPDATE providers SET ${updates.join(', ')} WHERE id = ?`).run(...values);
-    }
+        this.db.prepare(`UPDATE providers SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+      }
 
-    return this.getById(id);
+      if (removesProviderEligibility(provider, data)) degradeReferencesToEmptiedTiers();
+      return this.getById(id);
+    });
+  }
+
+  /** Update a provider and return post-commit degradation facts for delivery. */
+  updateWithDegradation(id, data) {
+    const provider = this.getById(id);
+    if (!provider) return null;
+
+    validateBuiltInUpdate(provider, data);
+    validateKindImmutable(data);
+
+    return databaseManager.transaction(() => {
+      const { updates, values } = buildUpdateColumns(data);
+      if (updates.length > 0) {
+        updates.push('updated_at = ?');
+        values.push(Date.now(), id);
+        this.db.prepare(`UPDATE providers SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+      }
+      const degradation = removesProviderEligibility(provider, data)
+        ? degradeReferencesToEmptiedTiers()
+        : [];
+      return { provider: this.getById(id), degradation };
+    });
   }
 
   /**
@@ -321,10 +362,10 @@ export class ProviderRepository extends BaseRepository {
     const current = this.getModelById(id);
     if (!current) throw new Error('Model not found');
     const provider = this.getById(current.providerId);
-    const renamesModel = data.modelId !== undefined && data.modelId !== current.modelId;
+    const removesEligibility = removesModelEligibility(current, data);
     return databaseManager.transaction(() => {
       const updated = modelOps.updateModel(this.db, id, data, { current, provider });
-      if (renamesModel) degradeReferencesToEmptiedTiers();
+      if (removesEligibility) degradeReferencesToEmptiedTiers();
       return updated;
     });
   }
@@ -334,10 +375,10 @@ export class ProviderRepository extends BaseRepository {
     const current = this.getModelById(id);
     if (!current) throw new Error('Model not found');
     const provider = this.getById(current.providerId);
-    const renamesModel = data.modelId !== undefined && data.modelId !== current.modelId;
+    const removesEligibility = removesModelEligibility(current, data);
     return databaseManager.transaction(() => {
       const model = modelOps.updateModel(this.db, id, data, { current, provider });
-      const degradation = renamesModel ? degradeReferencesToEmptiedTiers() : [];
+      const degradation = removesEligibility ? degradeReferencesToEmptiedTiers() : [];
       return { model, degradation };
     });
   }

@@ -102,8 +102,12 @@ export function useSessionControl({ getSessionId }) {
    * @param {Object} options - Additional send options
    * @returns {boolean} Whether the send was successful
    */
-  async function handleSend(message, attachedFiles, selectedModel, selectedProviderId = null, options = {}) {
+  async function handleSend(message, attachedFiles, selection, options = {}) {
     if (!message?.trim() || sending.value) return false;
+
+    const { model: selectedModel, providerId: selectedProviderId = null } = typeof selection === 'string'
+      ? { model: selection }
+      : (selection || {});
 
     console.log(`[MODEL AUDIT - Frontend] Sending message with model: "${selectedModel}"`);
 

@@ -206,6 +206,72 @@ describe('tier consumer repair on provider/model loss (tierDeletionService)', ()
     });
   });
 
+  describe('disabled tier members', () => {
+    it('atomically degrades every consumer when disabling a tier\'s final eligible model', () => {
+      const tier = modelTiers.create({
+        name: 'Disabled final model tier',
+        members: [{ providerId: providerA.id, modelId: 'loss-model-a', position: 0 }],
+      });
+      const consumers = createConsumers(buildTierRef(tier.id));
+      const model = modelProviders.getById(providerA.id).models.find(
+        (entry) => entry.modelId === 'loss-model-a'
+      );
+
+      modelProviders.updateModel(model.id, { enabled: false });
+
+      expectConsumersDegraded(consumers);
+    });
+
+    it('atomically degrades every consumer when disabling the provider holding the final eligible member', () => {
+      const tier = modelTiers.create({
+        name: 'Disabled final provider tier',
+        members: [{ providerId: providerA.id, modelId: 'loss-model-a', position: 0 }],
+      });
+      const consumers = createConsumers(buildTierRef(tier.id));
+
+      modelProviders.update(providerA.id, { enabled: false });
+
+      expectConsumersDegraded(consumers);
+    });
+
+    it('keeps a tier reference when disabling one member leaves another executable member', () => {
+      const tier = modelTiers.create({
+        name: 'Disabled surviving member tier',
+        members: [
+          { providerId: providerA.id, modelId: 'loss-model-a', position: 0 },
+          { providerId: providerB.id, modelId: 'loss-model-b', position: 1 },
+        ],
+      });
+      const tierRef = buildTierRef(tier.id);
+      const consumers = createConsumers(tierRef);
+      const model = modelProviders.getById(providerA.id).models.find(
+        (entry) => entry.modelId === 'loss-model-a'
+      );
+
+      modelProviders.updateModel(model.id, { enabled: false });
+
+      expect(sessionTemplates.getById(consumers.template.id).model).toBe(tierRef);
+      expect(projectDefaults.getByProjectId(consumers.project.id).model).toBe(tierRef);
+      expect(sessions.getById(consumers.session.id).model).toBe(tierRef);
+    });
+
+    it('does not resurrect degraded tier references when a member is re-enabled', () => {
+      const tier = modelTiers.create({
+        name: 'Disabled and restored tier',
+        members: [{ providerId: providerA.id, modelId: 'loss-model-a', position: 0 }],
+      });
+      const consumers = createConsumers(buildTierRef(tier.id));
+      const model = modelProviders.getById(providerA.id).models.find(
+        (entry) => entry.modelId === 'loss-model-a'
+      );
+
+      modelProviders.updateModel(model.id, { enabled: false });
+      modelProviders.updateModel(model.id, { enabled: true });
+
+      expectConsumersDegraded(consumers);
+    });
+  });
+
   describe('model id rename (updateModel)', () => {
     it('clears a stale session snapshot when a provider renames its only tier member', () => {
       const tier = modelTiers.create({

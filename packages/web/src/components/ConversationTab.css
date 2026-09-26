@@ -1,0 +1,13 @@
+.conversation-tab { display: flex; flex-direction: column; transition: opacity 0.3s ease; }
+.conversation-tab.connection-stale { opacity: 0.5; }
+.tier-active-member {
+  align-self: flex-start;
+  max-width: 100%;
+  margin: 0.25rem 0;
+  padding: 0.25rem 0.5rem;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

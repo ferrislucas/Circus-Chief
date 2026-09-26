@@ -86,7 +86,8 @@ router.patch('/:id', (req, res) => {
       return res.status(400).json({ error: result.error.issues[0].message });
     }
 
-    const updated = modelProviders.update(req.params.id, result.data);
+    const { provider: updated, degradation } = modelProviders.updateWithDegradation(req.params.id, result.data);
+    publishEmptiedTierDegradations(degradation);
     res.json(redactAuthToken(updated));
   } catch (error) {
     if (

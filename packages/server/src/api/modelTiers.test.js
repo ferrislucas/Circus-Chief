@@ -39,7 +39,7 @@ vi.mock('../services/sessionManager.js', () => ({
   runSession: vi.fn(async () => ({ started: true })),
 }));
 
-import { broadcastToSession, broadcastToProject } from '../websocket.js';
+import { broadcast, broadcastToSession, broadcastToProject } from '../websocket.js';
 import { continueSession } from '../services/sessionManager.js';
 import sessionsMessagesRouter from './sessions-messages.js';
 
@@ -929,6 +929,39 @@ describe('tier degradation client synchronization (websocket broadcasts)', () =>
 
     expect(broadcastToSession).not.toHaveBeenCalled();
     expect(broadcastToProject).not.toHaveBeenCalled();
+  });
+
+  it('scopes project templates and emits only invalidation metadata', async () => {
+    const created = await request(app)
+      .post('/api/tiers')
+      .send({ name: 'Scoped template tier', members: [{ providerId: providerA.id, modelId: 'sync-model-a', position: 0 }] })
+      .expect(201);
+    const tierRef = buildTierRef(created.body.id);
+    const project = projects.create('Scoped template project', '/tmp/scoped-template');
+    const projectTemplate = sessionTemplates.create({
+      projectId: project.id, name: 'Private template', prompt: 'Do not disclose me', model: tierRef,
+    });
+    const globalTemplate = sessionTemplates.create({
+      projectId: null, name: 'Global template', prompt: 'Do not disclose me either', model: tierRef,
+    });
+
+    broadcast.mockClear();
+    broadcastToProject.mockClear();
+    await request(app).delete(`/api/tiers/${created.body.id}`).expect(204);
+
+    expect(broadcastToProject).toHaveBeenCalledWith(
+      project.id,
+      WS_MESSAGE_TYPES.TEMPLATE_UPDATED,
+      { resourceType: 'template', templateId: projectTemplate.id, projectId: project.id, reason: 'tier_degraded' }
+    );
+    expect(broadcast).toHaveBeenCalledWith(
+      WS_MESSAGE_TYPES.TEMPLATE_UPDATED,
+      { resourceType: 'template', templateId: globalTemplate.id, projectId: null, reason: 'tier_degraded' }
+    );
+    for (const [, , payload] of broadcastToProject.mock.calls) {
+      expect(payload).not.toHaveProperty('template');
+      expect(JSON.stringify(payload)).not.toContain('Do not disclose');
+    }
   });
 });
 

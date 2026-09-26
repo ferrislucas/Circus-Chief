@@ -37,10 +37,87 @@ import { buildFullBoardResponse } from './kanbanBoardResponse.js';
 // ever matters within the deletion→delivery race window.
 
 const STALE_ECHO_TTL_MS = 5 * 60 * 1000;
-const recentlyDegradedBindings = new Map();
+const STALE_ECHO_MAX_ENTRIES = 1_000;
+
+function buildTemplateInvalidation(template) {
+  return {
+    resourceType: 'template',
+    templateId: template.id,
+    projectId: template.projectId ?? null,
+    reason: 'tier_degraded',
+  };
+}
+
+export class StaleTierEchoRegistry {
+  constructor({
+    ttlMs = STALE_ECHO_TTL_MS,
+    maxSize = STALE_ECHO_MAX_ENTRIES,
+    now = () => Date.now(),
+    setTimer = setTimeout,
+    clearTimer = clearTimeout,
+  } = {}) {
+    this.ttlMs = ttlMs;
+    this.maxSize = maxSize;
+    this.now = now;
+    this.setTimer = setTimer;
+    this.clearTimer = clearTimer;
+    this.entries = new Map();
+    this.cleanupTimer = null;
+  }
+
+  get size() {
+    return this.entries.size;
+  }
+
+  record(sessionId, tierRef) {
+    this.sweep();
+    this.entries.delete(sessionId);
+    this.entries.set(sessionId, { tierRef, expiresAt: this.now() + this.ttlMs });
+    while (this.entries.size > this.maxSize) this.entries.delete(this.entries.keys().next().value);
+    this.scheduleSweep();
+  }
+
+  consume(sessionId, tierRef) {
+    this.sweep();
+    const entry = this.entries.get(sessionId);
+    if (!entry || entry.tierRef !== tierRef) return false;
+    this.entries.delete(sessionId);
+    this.scheduleSweep();
+    return true;
+  }
+
+  sweep() {
+    const now = this.now();
+    for (const [sessionId, entry] of this.entries) {
+      if (entry.expiresAt <= now) this.entries.delete(sessionId);
+    }
+    this.scheduleSweep();
+  }
+
+  dispose() {
+    if (this.cleanupTimer) this.clearTimer(this.cleanupTimer);
+    this.cleanupTimer = null;
+    this.entries.clear();
+  }
+
+  scheduleSweep() {
+    if (this.cleanupTimer) {
+      this.clearTimer(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
+    const nextExpiry = this.entries.values().next().value?.expiresAt;
+    if (nextExpiry === undefined) return;
+    this.cleanupTimer = this.setTimer(() => {
+      this.cleanupTimer = null;
+      this.sweep();
+    }, Math.max(0, nextExpiry - this.now()));
+  }
+}
+
+const recentlyDegradedBindings = new StaleTierEchoRegistry();
 
 function rememberDegradedBinding(sessionId, tierRef) {
-  recentlyDegradedBindings.set(sessionId, { tierRef, at: Date.now() });
+  recentlyDegradedBindings.record(sessionId, tierRef);
 }
 
 /**
@@ -52,10 +129,33 @@ function rememberDegradedBinding(sessionId, tierRef) {
  * @returns {boolean}
  */
 export function consumeStaleTierEcho(sessionId, tierRef) {
-  const entry = recentlyDegradedBindings.get(sessionId);
-  if (!entry) return false;
-  recentlyDegradedBindings.delete(sessionId);
-  return entry.tierRef === tierRef && (Date.now() - entry.at) <= STALE_ECHO_TTL_MS;
+  return recentlyDegradedBindings.consume(sessionId, tierRef);
+}
+
+function publishTemplateInvalidations(templateIds) {
+  for (const templateId of templateIds ?? []) {
+    const template = sessionTemplates.getById(templateId);
+    if (!template) continue;
+    const invalidation = buildTemplateInvalidation(template);
+    if (template.projectId) broadcastToProject(template.projectId, WS_MESSAGE_TYPES.TEMPLATE_UPDATED, invalidation);
+    else broadcast(WS_MESSAGE_TYPES.TEMPLATE_UPDATED, invalidation);
+  }
+}
+
+function publishProjectDefaultsInvalidations(projectIds) {
+  for (const projectId of projectIds ?? []) {
+    const defaults = projectDefaults.getByProjectId(projectId);
+    if (defaults) broadcastToProject(projectId, WS_MESSAGE_TYPES.PROJECT_DEFAULTS_UPDATED, { projectId, defaults });
+  }
+}
+
+function publishBoardInvalidations(projectIds) {
+  for (const projectId of projectIds ?? []) {
+    const board = kanbanBoards.getByProjectId(projectId);
+    if (board) broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, {
+      projectId, board: buildFullBoardResponse(board),
+    });
+  }
 }
 
 /**
@@ -81,29 +181,9 @@ export function publishTierDegradation(changeSet) {
     broadcastSessionUpdate(id, session.projectId, session);
   }
 
-  for (const templateId of changeSet.affectedTemplateIds ?? []) {
-    const template = sessionTemplates.getById(templateId);
-    if (template) broadcast(WS_MESSAGE_TYPES.TEMPLATE_UPDATED, { templateId, template });
-  }
-
-  for (const projectId of changeSet.projectDefaultProjectIds ?? []) {
-    const defaults = projectDefaults.getByProjectId(projectId);
-    if (defaults) {
-      broadcastToProject(projectId, WS_MESSAGE_TYPES.PROJECT_DEFAULTS_UPDATED, {
-        projectId,
-        defaults,
-      });
-    }
-  }
-
-  for (const projectId of changeSet.laneProjectIds ?? []) {
-    const board = kanbanBoards.getByProjectId(projectId);
-    if (!board) continue;
-    broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, {
-      projectId,
-      board: buildFullBoardResponse(board),
-    });
-  }
+  publishTemplateInvalidations(changeSet.affectedTemplateIds);
+  publishProjectDefaultsInvalidations(changeSet.projectDefaultProjectIds);
+  publishBoardInvalidations(changeSet.laneProjectIds);
 
   if (changeSet.summarySettingsChanged) {
     broadcast(WS_MESSAGE_TYPES.SUMMARY_SETTINGS_UPDATED, {

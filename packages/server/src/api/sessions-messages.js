@@ -17,6 +17,24 @@ function shouldRenderLiquid(value) {
   return value === true || value === 'true';
 }
 
+function validateSessionStatus(session) {
+  return ['waiting', 'stopped', 'error'].includes(session.status)
+    ? null
+    : { status: 400, body: { error: 'Session is not waiting for input' } };
+}
+
+function normalizeRequestedSelection(session, model, providerId) {
+  const isSameBinding = model === session.model
+    && (isTierRef(model) || providerId === null || providerId === session.providerId);
+  let normalizedModel = isSameBinding ? null : model;
+  let normalizedProviderId = isSameBinding ? null : providerId;
+  if (isTierRef(normalizedModel) && consumeStaleTierEcho(session.id, normalizedModel)) {
+    normalizedModel = null;
+    normalizedProviderId = null;
+  }
+  return { model: normalizedModel, providerId: normalizedProviderId };
+}
+
 async function renderLiquidForSession(content, session) {
   const rootSession = getRootSession(session);
   const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
@@ -35,37 +53,17 @@ function validateMessageRequest(session, content, model, providerId) {
     return { status: 400, body: { error: 'Content is required' } };
   }
 
-  if (session.status !== 'waiting' && session.status !== 'stopped' && session.status !== 'error') {
-    return { status: 400, body: { error: 'Session is not waiting for input' } };
-  }
+  const statusError = validateSessionStatus(session);
+  if (statusError) return statusError;
 
   // Re-selecting the model the session is already bound to is a no-op, not a
   // new selection (the web client always echoes session.model on a plain
   // follow-up). Normalize it away so a binding that went stale after creation
   // (e.g. its tier was deleted) skips the write-time validation meant for NEW
   // bindings and degrades per PRD E3/D6 instead of a 400.
-  const isSameBinding = model === session.model &&
-    (isTierRef(model) || providerId === null || providerId === session.providerId);
-  let effectiveRequestedModel = isSameBinding ? null : model;
-  let effectiveRequestedProviderId = isSameBinding ? null : providerId;
-  let normalizedModel = effectiveRequestedModel;
-  let normalizedProviderId = effectiveRequestedProviderId;
-
-  // Stale deleted-tier echo (review remediation §2): a follow-up that was in
-  // flight while the session's tier was deleted still carries the old
-  // `tier::<id>` selection. Accept it ONLY for the session that was just
-  // degraded from that exact tier and normalize it to the server-side
-  // concrete binding; unknown-tier validation is otherwise unchanged.
-  if (
-    effectiveRequestedModel &&
-    isTierRef(effectiveRequestedModel) &&
-    consumeStaleTierEcho(session.id, effectiveRequestedModel)
-  ) {
-    effectiveRequestedModel = null;
-    effectiveRequestedProviderId = null;
-    normalizedModel = null;
-    normalizedProviderId = null;
-  }
+  const selection = normalizeRequestedSelection(session, model, providerId);
+  const effectiveRequestedModel = selection.model;
+  const effectiveRequestedProviderId = selection.providerId;
 
   const modelResult = validateModelAndProvider(effectiveRequestedModel, effectiveRequestedProviderId);
   if (modelResult.error) {
@@ -77,7 +75,7 @@ function validateMessageRequest(session, content, model, providerId) {
     return { status: 400, body: crossKindError };
   }
 
-  return { model: normalizedModel, providerId: normalizedProviderId };
+  return selection;
 }
 
 // GET /api/sessions/:id/messages - Get session messages

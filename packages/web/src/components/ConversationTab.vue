@@ -138,6 +138,8 @@ import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
 import { useDraftSaving } from '../composables/useDraftSaving.js';
 import { useSessionControl } from '../composables/useSessionControl.js';
+import { createQuickResponseInsert } from '../composables/useQuickResponseInsert.js';
+import './ConversationTab.css';
 import { useScheduleStartNow } from '../composables/useScheduleStartNow.js';
 import { useConnectionStatus } from '../composables/useConnectionStatus.js';
 import { appendTemplatePromptValue, buildTemplateSettingsFields } from '../utils/templateApply.js';
@@ -641,7 +643,10 @@ async function handleFormSubmit(options = {}) {
     }
   } else {
     const success = await handleSend(
-      currentValue, attachedFiles.value, selectedModel.value, selectedProviderId.value, options
+      currentValue,
+      attachedFiles.value,
+      { model: selectedModel.value, providerId: selectedProviderId.value },
+      options
     );
     if (success) {
       clearSubmittedInput(textareaRef);
@@ -651,32 +656,12 @@ async function handleFormSubmit(options = {}) {
   }
 }
 
-function handleQuickResponseInsert({ content, autoSubmit }) {
-  const currentValue = input.value.trim();
-  const newValue = currentValue ? `${currentValue  }\n\n${  content}` : content;
-  input.value = newValue;
-
-  if (autoSubmit) {
-    // Auto-submit path: cancel any pending debounced save, then submit.
-    // This mirrors the regular Send invariant (see handleFormSubmit).
-    cancelDraft();
-    nextTick(() => {
-      handleFormSubmit({ renderLiquid: true });
-    });
-  } else {
-    // Non-submit path: blur the textarea and persist the inserted text.
-    // DOM value syncs automatically via ResizableTextarea's watch(modelValue).
-    nextTick(() => {
-      const textareaRef = inputFormRef.value?.textareaRef;
-      if (textareaRef) {
-        textareaRef.blur();
-      }
-      if (canSendMessage.value && newValue.trim()) {
-        savePendingPrompt(newValue);
-      }
-    });
-  }
-}
+const handleQuickResponseInsert = createQuickResponseInsert({
+  getInput: () => input.value,
+  setInput: (value) => { input.value = value; },
+  cancelDraft, nextTick, inputFormRef, canSendMessage, savePendingPrompt,
+  submit: handleFormSubmit,
+});
 
 async function handleApplyTemplate(templateId) {
   const template = templatesStore.getTemplateById(templateId);
@@ -785,27 +770,3 @@ function handleSlashCommandInsert({ text }) {
 // force-save pending drafts before switching sessions.
 defineExpose({ flushDraft });
 </script>
-
-<style scoped>
-.conversation-tab {
-  display: flex;
-  flex-direction: column;
-  transition: opacity 0.3s ease;
-}
-
-.conversation-tab.connection-stale {
-  opacity: 0.5;
-}
-
-.tier-active-member {
-  align-self: flex-start;
-  max-width: 100%;
-  margin: 0.25rem 0;
-  padding: 0.25rem 0.5rem;
-  overflow: hidden;
-  color: var(--color-text-muted);
-  font-size: 0.8125rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-</style>

@@ -247,18 +247,23 @@ import EffortLevelSelector from '../components/EffortLevelSelector.vue';
 import InterpolationHelp from '../components/InterpolationHelp.vue';
 import ResizableTextarea from '../components/ResizableTextarea.vue';
 import { useWebSocket } from '../composables/useWebSocket.js';
+import { createReconnectRefetch } from '../composables/reconnectRefetch.js';
+import { reconcileModelSelection } from '../composables/modelSelectionReconciliation.js';
 
 const route = useRoute();
 const router = useRouter();
 const templatesStore = useTemplatesStore();
 const uiStore = useUiStore();
-const { on, off } = useWebSocket();
+const { on, off, onReconnect } = useWebSocket();
 
 const isLoading = ref(false);
 const isSaving = ref(false);
 const isDeleting = ref(false);
 const showDeleteConfirm = ref(false);
 const error = ref(null);
+const modelSelectionConflict = ref(false);
+let lastCanonicalSelection = { model: null, providerId: null };
+let reconnectReconciliation;
 
 const formData = ref({
   name: '',
@@ -279,27 +284,47 @@ const templateId = computed(() => route.params.templateId);
 
 const availableNextTemplates = computed(() => [...templatesStore.projectTemplates, ...templatesStore.globalTemplates]);
 
-const loadTemplate = async () => {
+function toFormData(template) {
+  return {
+    name: template.name,
+    prompt: template.prompt,
+    isGlobal: !template.projectId,
+    nextTemplateId: template.nextTemplateId ?? null,
+    thinkingEnabled: template.thinkingEnabled,
+    gitBranch: template.gitBranch || '',
+    model: template.model,
+    providerId: template.providerId ?? null,
+    mode: template.mode,
+    effortLevel: template.effortLevel ?? null,
+    showInQuickResponses: template.showInQuickResponses,
+  };
+}
+
+function applyCanonicalTemplate(template, { preserveEdits = false } = {}) {
+  if (!template) return;
+  const canonical = toFormData(template);
+  if (!preserveEdits) {
+    formData.value = canonical;
+  } else {
+    const selection = reconcileModelSelection({
+      current: formData.value,
+      previousCanonical: lastCanonicalSelection,
+      canonical,
+    });
+    formData.value.model = selection.model;
+    formData.value.providerId = selection.providerId;
+    modelSelectionConflict.value = selection.conflict;
+  }
+  lastCanonicalSelection = { model: canonical.model, providerId: canonical.providerId };
+}
+
+const loadTemplate = async ({ preserveEdits = false } = {}) => {
   isLoading.value = true;
   error.value = null;
   try {
     const template = await api.getTemplate(templateId.value);
 
-    if (template) {
-      formData.value = {
-        name: template.name,
-        prompt: template.prompt,
-        isGlobal: !template.projectId,
-        nextTemplateId: template.nextTemplateId ?? null,
-        thinkingEnabled: template.thinkingEnabled,  // Preserve null (inherit), true, or false
-        gitBranch: template.gitBranch || '',
-        model: template.model,                      // Preserve null (inherit) or model ID
-        providerId: template.providerId ?? null,
-        mode: template.mode,                        // Preserve null (inherit), 'plan', 'standard', or 'yolo'
-        effortLevel: template.effortLevel ?? null,
-        showInQuickResponses: template.showInQuickResponses,
-      };
-    }
+    applyCanonicalTemplate(template, { preserveEdits });
   } catch (err) {
     error.value = `Failed to load template: ${err.message}`;
     uiStore.error(err.message);
@@ -309,7 +334,7 @@ const loadTemplate = async () => {
 };
 
 function handleTemplateUpdated(message) {
-  if (message?.templateId === templateId.value) loadTemplate();
+  if (message?.templateId === templateId.value) loadTemplate({ preserveEdits: true });
 }
 
 const onSubmit = async () => {
@@ -368,6 +393,11 @@ const confirmDelete = async () => {
 
 onMounted(async () => {
   on(WS_MESSAGE_TYPES.TEMPLATE_UPDATED, handleTemplateUpdated);
+  reconnectReconciliation = createReconnectRefetch({
+    onReconnect,
+    fetchCanonical: () => api.getTemplate(templateId.value),
+    apply: (template) => applyCanonicalTemplate(template, { preserveEdits: true }),
+  });
   await Promise.all([
     loadTemplate(),
     templatesStore.fetchProjectTemplates(projectId.value).catch((err) => {
@@ -377,7 +407,10 @@ onMounted(async () => {
   ]);
 });
 
-onUnmounted(() => off(WS_MESSAGE_TYPES.TEMPLATE_UPDATED, handleTemplateUpdated));
+onUnmounted(() => {
+  off(WS_MESSAGE_TYPES.TEMPLATE_UPDATED, handleTemplateUpdated);
+  reconnectReconciliation?.dispose();
+});
 </script>
 
 <style scoped>
