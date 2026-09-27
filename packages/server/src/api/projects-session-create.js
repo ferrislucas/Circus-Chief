@@ -161,6 +161,11 @@ function buildStartupErrorBody(error, isTimeout, startupTimeoutMs, structuredErr
       ? `Session startup timed out after ${startupTimeoutMs}ms`
       : `Git setup failed: ${error.message}`,
     ...(structuredError ? { gitError: structuredError } : {}),
+    // Structured failure codes (e.g. MODEL_TIER_EXHAUSTED from tier failover)
+    // ride along so clients can render actionable errors instead of a bare
+    // message. ApiClient forwards `code` onto the thrown error.
+    ...(error?.code ? { code: error.code } : {}),
+    ...(error?.tierName ? { tierName: error.tierName } : {}),
   };
 }
 

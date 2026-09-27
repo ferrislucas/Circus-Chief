@@ -1729,4 +1729,28 @@ describe('ApiClient', () => {
       });
     });
   });
+
+  describe('error forwarding', () => {
+    it('forwards code and tierName onto the thrown error', async () => {
+      mockFetch.mockReturnValue(mockResponse(
+        { error: 'Tier failed', code: 'MODEL_TIER_EXHAUSTED', tierName: 'Gold' },
+        { ok: false, status: 500 },
+      ));
+
+      const err = await client.getProjects().catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).toBe('Tier failed');
+      expect(err.code).toBe('MODEL_TIER_EXHAUSTED');
+      expect(err.tierName).toBe('Gold');
+    });
+
+    it('omits code and tierName when the body has none', async () => {
+      mockFetch.mockReturnValue(mockResponse({ error: 'boom' }, { ok: false, status: 500 }));
+
+      const err = await client.getProjects().catch((e) => e);
+      expect(err.message).toBe('boom');
+      expect(err.code).toBeUndefined();
+      expect(err.tierName).toBeUndefined();
+    });
+  });
 });
