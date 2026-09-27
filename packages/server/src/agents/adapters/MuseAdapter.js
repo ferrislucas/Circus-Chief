@@ -1,4 +1,5 @@
 import { BaseAgent } from '../BaseAgent.js';
+import { composeCliPrompt } from './cliUtils.js';
 import { createRobustEnv } from '../../services/nodeSpawnHelper.js';
 import { filterDeadSshSocket } from '../../services/loginShellEnv.js';
 import { createMuseEventMapper } from './museEventMapper.js';
@@ -128,7 +129,7 @@ export class MuseAdapter extends BaseAgent {
     registerApprovalHandlers(session);
 
     const turn = await session.sendUserTurn({
-      input: [{ type: 'text', text: queryParams.prompt }],
+      input: [{ type: 'text', text: composeCliPrompt(options.systemPrompt, queryParams.prompt) }],
       ...(options.displayText ? { displayText: options.displayText } : {}),
       ...museReasoningEffortParam(options.effortLevel),
     });

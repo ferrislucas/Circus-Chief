@@ -101,6 +101,25 @@ describe('MuseAdapter', () => {
     expect(client.calls.close).toBe(1);
   });
 
+  it('composes options.systemPrompt into the user turn like the Codex/Gemini adapters', async () => {
+    const client = createFakeClient();
+    const adapter = new MuseAdapter({ museClientFactory: async () => client });
+    await collect(adapter, {
+      prompt: 'Say hi',
+      options: { cwd: '/tmp/work', model: 'muse-spark-1.3', systemPrompt: 'POST /api/workspaces/sess-1/canvas', env: {} },
+    });
+    const sent = client.calls.sendUserTurn[0].input[0].text;
+    expect(sent).toContain('POST /api/workspaces/sess-1/canvas');
+    expect(sent).toContain('Say hi');
+  });
+
+  it('sends the bare user prompt when no system prompt is provided', async () => {
+    const client = createFakeClient();
+    const adapter = new MuseAdapter({ museClientFactory: async () => client });
+    await collect(adapter, { prompt: 'Say hi', options: { env: {} } });
+    expect(client.calls.sendUserTurn[0].input).toEqual([{ type: 'text', text: 'Say hi' }]);
+  });
+
   it('passes reasoning effort tiers through to the turn', async () => {
     const client = createFakeClient();
     const adapter = new MuseAdapter({ museClientFactory: async () => client });

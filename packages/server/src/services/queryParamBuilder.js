@@ -116,14 +116,15 @@ function buildGeminiQueryParams({
  * Muse sessions open over MSP (`muse serve`), so the adapter needs the
  * workspace root, model, approval posture, and optional resume handle —
  * not Claude-specific options (permissionMode, settingSources) or
- * Codex-specific ones (sandboxMode). NOTE: MSP has no system-prompt field;
- * workspace instructions belong in `AGENTS.md`. The composed system prompt
- * is still forwarded for future use and logging parity.
+ * Codex-specific ones (sandboxMode). MSP has no dedicated system-prompt
+ * field, so the composed system prompt is forwarded in `options.systemPrompt`
+ * and the adapter prepends it to the user turn (same `composeCliPrompt`
+ * parity as the Codex/Gemini CLI adapters).
  *
  * @returns {Object}
  */
 function buildMuseQueryParams({
-  prompt, workingDirectory, controller, session, systemPrompt, model, sessionEnv,
+  prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
   resumeSessionId = null,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
@@ -138,7 +139,7 @@ function buildMuseQueryParams({
       model: effectiveModel,
       effortLevel: session?.effortLevel ?? null,
       approvalMode: getMuseApprovalModeForSession(session?.mode),
-      systemPrompt,
+      systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
       ...(resumeSessionId ? { resume: resumeSessionId } : {}),
     },
   };
