@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MuseAdapter, MUSE_CLIENT_INFO, resolveMuseReasoningEffort } from './MuseAdapter.js';
+import { MuseAdapter, MUSE_CLIENT_INFO, resolveMuseReasoningEffort, buildMuseHostEnv } from './MuseAdapter.js';
 import { getNodeBinDir } from '../../services/nodeSpawnHelper.js';
 
 /**
@@ -167,6 +167,17 @@ describe('MuseAdapter', () => {
     if (process.platform !== 'win32') {
       expect(capturedArgs.env.PATH).toContain('/opt/homebrew/bin');
     }
+  });
+
+  it('carries a login-shell-derived SSH_AUTH_SOCK even when the host env lacks it', () => {
+    const env = buildMuseHostEnv({}, { PATH: '/usr/bin:/bin' }, {
+      shellEnv: { SSH_AUTH_SOCK: '/tmp/login-shell-agent.sock' },
+      // Fixture socket is not a live socket file; liveness is covered
+      // separately — here we prove the derivation reaches the host env.
+      isSshAgentAlive: () => ({ alive: true }),
+    });
+
+    expect(env.SSH_AUTH_SOCK).toBe('/tmp/login-shell-agent.sock');
   });
 
   it('session env values win over the host env in the muse host env', async () => {

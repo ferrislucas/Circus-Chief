@@ -191,10 +191,16 @@ function logProviderEnv(provider, kind, env) {
  * @param {Object|null} provider - Provider object or null for agent defaults
  * @param {boolean} thinkingEnabled - Whether thinking mode is enabled
  * @param {string|null} effortLevel - Optional effort level
+ * @param {Object} [opts] - Optional `{ shellEnv }` forwarded to createRobustEnv
+ *   (fixture injection for tests; undefined runs the cached live probe).
  * @returns {Object}
  */
-export function buildSessionEnv(provider, thinkingEnabled = false, effortLevel = null) {
-  const baseEnv = createRobustEnv(process.env);
+function shellProbeOpts(opts) {
+  return opts.shellEnv !== undefined ? { shellEnv: opts.shellEnv } : {};
+}
+
+export function buildSessionEnv(provider, thinkingEnabled = false, effortLevel = null, opts = {}) {
+  const baseEnv = createRobustEnv(process.env, shellProbeOpts(opts));
   const providerEnv = buildProviderEnv(provider);
 
   // Combine all env vars

@@ -153,6 +153,14 @@ describe('nodeSpawnHelper', () => {
       expect(env.USER).toBe(expected);
       expect(env.LOGNAME).toBe(expected);
     });
+
+    it('resolves login-shell PATH entries (e.g. ~/.local/bin) absent from the server snapshot', () => {
+      const env = createRobustEnv({ PATH: '/usr/bin:/bin' }, {
+        shellEnv: { PATH: '/home/user/.local/bin:/usr/bin' },
+      });
+
+      expect(env.PATH.split(':')).toContain('/home/user/.local/bin');
+    });
   });
 
   describe('createClaudeCodeSpawner', () => {

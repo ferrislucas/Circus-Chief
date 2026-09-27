@@ -6,6 +6,7 @@ import {
   createCapturedSpawnProcess,
   isE2ESpawnCaptureEnabled,
 } from './e2eSpawnCapture.js';
+import { getLoginShellEnv, mergeShellEnv } from './loginShellEnv.js';
 
 /**
  * Get the directory containing the current Node.js executable.
@@ -77,13 +78,23 @@ export function buildUserCredentialEnv(baseEnv = process.env) {
  * git/gh resolve the same binaries the user runs) and fills HOME/USER/LOGNAME
  * fallbacks (so those tools find the user's config and credentials).
  *
+ * Login-shell derivation (FR-2/FR-9/FR-10): the cached login-shell env is
+ * merged UNDER the explicit baseEnv, so dotfile-configured PATH entries,
+ * SSH_AUTH_SOCK, and user-exported vars flow through while explicit values
+ * (and their PATH order) are never rewritten. Pass `opts.shellEnv` to inject
+ * a fixture (tests) or skip the live probe; pass
+ * `{ shellEnv: {} }` to disable derivation for one call.
+ *
  * @param {Object} [baseEnv=process.env] - Base environment to extend
+ * @param {Object} [opts] - Optional `{ shellEnv }` override (fixture or {}).
  * @returns {Object} Environment object with robust PATH
  */
-export function createRobustEnv(baseEnv = process.env) {
+export function createRobustEnv(baseEnv = process.env, opts = {}) {
+  const shellEnv = opts.shellEnv !== undefined ? opts.shellEnv : probeShellEnvOrEmpty();
+  const withShell = mergeShellEnv({ shellEnv, baseEnv });
   const nodeBinDir = getNodeBinDir();
   const pathSeparator = process.platform === 'win32' ? ';' : ':';
-  const currentPath = baseEnv.PATH || baseEnv.Path || '';
+  const currentPath = withShell.PATH || withShell.Path || '';
   // The user's existing entries are never reordered or removed, so the
   // original PATH stays intact as a substring. User bin dirs are appended
   // only when missing, so re-applying never duplicates them.
@@ -99,9 +110,20 @@ export function createRobustEnv(baseEnv = process.env) {
   }
 
   return buildUserCredentialEnv({
-    ...baseEnv,
+    ...withShell,
     PATH: mergedPath,
   });
+}
+
+/**
+ * Cached login-shell env for the merge path. Failures (or a disabled probe)
+ * yield an empty derivation so startup falls back to snapshot behavior
+ * (FR-13); the probe itself logs the cause once.
+ * @returns {Object} Raw login-shell env or {}.
+ */
+function probeShellEnvOrEmpty() {
+  const probed = getLoginShellEnv();
+  return probed.ok ? probed.env : {};
 }
 
 /**

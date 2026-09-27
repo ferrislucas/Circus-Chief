@@ -650,5 +650,19 @@ describe('sessionProvider', () => {
       const env = buildSessionEnv(provider, false, null);
       expect(env.CUSTOM_MUSE_VAR).toBe('custom-value');
     });
+
+    it('provider additionalEnvVars override login-shell-derived values', () => {
+      const shellEnv = { GIT_TEST_SENTINEL_VAR: 'shell-value' };
+      const withoutOverride = buildSessionEnv({ name: 'M', kind: 'meta' }, false, null, { shellEnv });
+      expect(withoutOverride.GIT_TEST_SENTINEL_VAR).toBe('shell-value');
+
+      const provider = {
+        name: 'M',
+        kind: 'meta',
+        additionalEnvVars: { GIT_TEST_SENTINEL_VAR: 'provider-wins' },
+      };
+      const env = buildSessionEnv(provider, false, null, { shellEnv });
+      expect(env.GIT_TEST_SENTINEL_VAR).toBe('provider-wins');
+    });
   });
 });
