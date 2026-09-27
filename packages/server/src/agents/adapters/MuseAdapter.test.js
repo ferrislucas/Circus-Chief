@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MuseAdapter, MUSE_CLIENT_INFO, resolveMuseReasoningEffort, buildMuseHostEnv } from './MuseAdapter.js';
+import { MuseAdapter, MUSE_CLIENT_INFO, MUSE_SDK_VERSION, MuseTurnTimeoutError, resolveMuseReasoningEffort, buildMuseHostEnv } from './MuseAdapter.js';
 import { getNodeBinDir } from '../../services/nodeSpawnHelper.js';
 
 /**
@@ -41,6 +41,7 @@ function createFakeClient({ items = [], outcome = { kind: 'completed', params: {
       calls.close += 1;
     },
   };
+  client.session = session;
   return client;
 }
 
@@ -230,6 +231,67 @@ describe('MuseAdapter', () => {
     const boom = new Error('handshake exploded');
     const adapter = new MuseAdapter({ museClientFactory: async () => { throw boom; } });
     await expect(collect(adapter, { prompt: 'p', options: {} })).rejects.toBe(boom);
+  });
+
+  it('fails compatibility preflight before it opens an MSP session', async () => {
+    const client = createFakeClient();
+    const factory = vi.fn(async () => client);
+    const adapter = new MuseAdapter({
+      museClientFactory: factory,
+      museVersionResolver: async () => '1.4.0',
+    });
+
+    await expect(collect(adapter, { prompt: 'p', options: {} }))
+      .rejects.toMatchObject({ code: 'MUSE_VERSION_MISMATCH', cliVersion: '1.4.0', sdkVersion: MUSE_SDK_VERSION });
+    expect(factory).not.toHaveBeenCalled();
+    expect(client.calls.startSession).toHaveLength(0);
+  });
+
+  it('times out a never-resolving sendUserTurn, closes the host, and returns a typed error', async () => {
+    const client = createFakeClient();
+    client.session.sendUserTurn = async () => new Promise(() => {});
+    const adapter = new MuseAdapter({
+      museClientFactory: async () => client,
+      timeouts: { startupMs: 15, turnMs: 100, idleMs: 100 },
+    });
+
+    await expect(collect(adapter, { prompt: 'p', options: {} }))
+      .rejects.toBeInstanceOf(MuseTurnTimeoutError);
+    expect(client.calls.close).toBe(1);
+  });
+
+  it('times out a silent stream and closes the owned host', async () => {
+    const client = createFakeClient();
+    client.session.sendUserTurn = async () => ({
+      async *items() { await new Promise(() => {}); yield undefined; },
+      completed: new Promise(() => {}),
+    });
+    const adapter = new MuseAdapter({
+      museClientFactory: async () => client,
+      timeouts: { startupMs: 100, turnMs: 100, idleMs: 15 },
+    });
+
+    await expect(collect(adapter, { prompt: 'p', options: {} }))
+      .rejects.toMatchObject({ code: 'MUSE_TURN_TIMEOUT', phase: 'stream_idle' });
+    expect(client.calls.close).toBe(1);
+  });
+
+  it('can start a valid continuation after a timed-out turn', async () => {
+    const hung = createFakeClient();
+    hung.session.sendUserTurn = async () => new Promise(() => {});
+    const recovered = createFakeClient({ sessionId: 'msp-recovered' });
+    const clients = [hung, recovered];
+    const adapter = new MuseAdapter({
+      museClientFactory: async () => clients.shift(),
+      timeouts: { startupMs: 15, turnMs: 100, idleMs: 100 },
+    });
+
+    await expect(collect(adapter, { prompt: 'first', options: {} })).rejects.toMatchObject({ code: 'MUSE_TURN_TIMEOUT' });
+    const events = await collect(adapter, { prompt: 'continue', options: { resume: 'msp-old' } });
+    expect(recovered.calls.resumeSession).toHaveLength(1);
+    expect(events[0]).toMatchObject({ subtype: 'init', session_id: 'msp-recovered' });
+    expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
+    expect(recovered.calls.close).toBe(1);
   });
 });
 
