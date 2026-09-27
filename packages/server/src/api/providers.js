@@ -10,7 +10,7 @@ import {
 } from '@circuschief/shared/contracts/providers';
 import { testProviderConnection } from '../services/providerTestService.js';
 import { assertValidReorder } from '../db/providerModelOperations.js';
-import { getProviderAllowanceService } from '../services/providerAllowanceServiceInstance.js';
+import { getProviderAllowanceService, notifyAllowanceListChangedAfterMutation } from '../services/providerAllowanceServiceInstance.js';
 import { isProviderAllowancesEnabled } from '../config/providerAllowances.js';
 
 // Error message constants
@@ -58,7 +58,7 @@ router.get('/allowances', (_req, res) => {
 });
 
 // POST /api/providers - Create provider
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const result = CreateProviderRequest.safeParse(req.body);
   if (!result.success) {
     return res.status(400).json({ error: result.error.issues[0].message });
@@ -66,6 +66,7 @@ router.post('/', (req, res) => {
 
   try {
     const provider = modelProviders.create(result.data);
+    await notifyAllowanceListChangedAfterMutation();
     res.status(201).json(redactAuthToken(provider));
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -86,7 +87,7 @@ router.get('/:id', (req, res) => {
 });
 
 // PATCH /api/providers/:id - Update provider
-router.patch('/:id', (req, res) => {
+router.patch('/:id', async (req, res) => {
   try {
     const provider = modelProviders.getById(req.params.id);
     if (!provider) {
@@ -99,6 +100,7 @@ router.patch('/:id', (req, res) => {
     }
 
     const updated = modelProviders.update(req.params.id, result.data);
+    await notifyAllowanceListChangedAfterMutation();
     res.json(redactAuthToken(updated));
   } catch (error) {
     if (
@@ -115,7 +117,7 @@ router.patch('/:id', (req, res) => {
 });
 
 // DELETE /api/providers/:id - Delete provider
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     const provider = modelProviders.getById(req.params.id);
     if (!provider) {
@@ -123,6 +125,7 @@ router.delete('/:id', (req, res) => {
     }
 
     modelProviders.delete(req.params.id);
+    await notifyAllowanceListChangedAfterMutation();
     res.status(204).send();
   } catch (error) {
     if (error.message === 'Cannot delete built-in provider') {

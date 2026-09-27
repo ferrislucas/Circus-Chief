@@ -3,7 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { modelProviders } from '../database.js';
 import { testProviderConnection } from '../services/providerTestService.js';
-import { OPENAI_MODELS, CLAUDE_MODELS } from '@circuschief/shared';
+import { OPENAI_MODELS, CLAUDE_MODELS, WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 const { mockAllowanceService } = vi.hoisted(() => ({
   mockAllowanceService: {
@@ -18,12 +18,25 @@ vi.mock('../services/providerTestService.js', () => ({
   testProviderConnection: vi.fn(),
 }));
 
-vi.mock('../services/providerAllowanceServiceInstance.js', () => ({
-  getProviderAllowanceService: vi.fn(() => mockAllowanceService),
+vi.mock('../services/providerAllowanceServiceInstance.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    getProviderAllowanceService: vi.fn(() => mockAllowanceService),
+  };
+});
+
+// Boundary mock: the routes call the real notify helper, which calls the
+// real invalidator, which dynamically imports this broadcast. Asserting here
+// observes the full production chain; mocking the intermediate invalidator
+// would bypass it (its reference is closed over inside the real helper).
+vi.mock('../websocket.js', () => ({
+  broadcast: vi.fn(() => Promise.resolve()),
 }));
 
 // Import the router
 import providersRouter from './providers.js';
+import { broadcast } from '../websocket.js';
 
 describe('Providers API', () => {
   let app;
@@ -87,6 +100,71 @@ describe('Providers API', () => {
         if (previousVcrMode === undefined) delete process.env.VCR_MODE;
         else process.env.VCR_MODE = previousVcrMode;
       }
+    });
+  });
+
+  describe('provider mutation allowance invalidation', () => {
+    it('invalidates exactly once after a successful create', async () => {
+      const response = await request(app)
+        .post('/api/providers')
+        .send({ name: 'Invalidation Probe', kind: 'openai' })
+        .expect(201);
+
+      testProviderId = response.body.id;
+      expect(broadcast).toHaveBeenCalledTimes(1);
+      expect(broadcast).toHaveBeenLastCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_LIST_INVALIDATED, {});
+    });
+
+    it('invalidates exactly once after a successful update', async () => {
+      const provider = modelProviders.create({ name: 'Update Probe', kind: 'anthropic' });
+      testProviderId = provider.id;
+
+      await request(app)
+        .patch(`/api/providers/${provider.id}`)
+        .send({ name: 'Update Probe Renamed' })
+        .expect(200);
+
+      expect(broadcast).toHaveBeenCalledTimes(1);
+      expect(broadcast).toHaveBeenLastCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_LIST_INVALIDATED, {});
+    });
+
+    it('invalidates exactly once after a successful delete', async () => {
+      const provider = modelProviders.create({ name: 'Delete Probe', kind: 'anthropic' });
+
+      await request(app).delete(`/api/providers/${provider.id}`).expect(204);
+
+      expect(broadcast).toHaveBeenCalledTimes(1);
+      expect(broadcast).toHaveBeenLastCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_LIST_INVALIDATED, {});
+    });
+
+    it('still succeeds with a logged diagnostic when the broadcast layer fails', async () => {
+      broadcast.mockRejectedValueOnce(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }));
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const response = await request(app)
+          .post('/api/providers')
+          .send({ name: 'Failing Broadcast Probe', kind: 'openai' })
+          .expect(201);
+
+        testProviderId = response.body.id;
+        expect(broadcast).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn.mock.calls[0].join(' ')).toContain('list-invalidation-failed');
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it.each([
+      ['create with an invalid body', 'post', '/api/providers', { name: '', kind: 'openai' }, 400],
+      ['update of an unknown id', 'patch', '/api/providers/no-such-provider', { name: 'Nope' }, 404],
+      ['delete of an unknown id', 'delete', '/api/providers/no-such-provider', undefined, 404],
+    ])('emits no invalidation on failed mutation: %s', async (_caseName, method, url, body, status) => {
+      const pending = request(app)[method](url);
+      if (body !== undefined) pending.send(body);
+      await pending.expect(status);
+
+      expect(broadcast).not.toHaveBeenCalled();
     });
   });
 

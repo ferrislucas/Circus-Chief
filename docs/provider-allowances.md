@@ -21,6 +21,13 @@ only a normalized allowance candidate is emitted. Missing, malformed, or
 unsupported headers leave the indicator `unknown` (or preserve the most recent
 valid observation).
 
+The Codex app-server meter re-resolves the built-in provider's auth context
+on every (re)spawn and every account read, so rotating or disabling that
+credential applies without a server restart: rotation takes effect on the
+next respawn or refresh, and while no eligible provider remains the meter
+stands down (logging `no-provider`) and rechecks on a bounded cadence
+instead of spawning. Flag changes still require a server restart.
+
 ## Rollout configuration
 
 Every gate is default-off: only the literal value `1` opts in. Any other value,
@@ -35,11 +42,15 @@ the master gate is enabled. Remove a value or set it to any value other than
 | `PROVIDER_ALLOWANCES_CODEX` | off | Enables the Codex rollout tail fallback when the master gate is on and the app-server meter is not healthy. |
 | `PROVIDER_ALLOWANCES_CODEX_APPSERVER` | off | Enables the Codex app-server meter when the master gate is on. |
 | `PROVIDER_ALLOWANCES_ZAI` | off | Enables the z.ai poller for eligible GLM Coding Plan providers when the master gate is on. |
+| `PROVIDER_ALLOWANCES_OPENAI` | off | Enables OpenAI direct-API header observation when the master gate is on. |
 | `PROVIDER_ALLOWANCE_STREAM_STALE_MS` | `900000` (15 minutes) | Freshness duration for Claude in-stream and Codex rollout-tail observations. A finite non-negative value overrides the default. |
 
 For example, a controlled Codex rollout-tail validation needs both
 `PROVIDER_ALLOWANCES_ENABLED=1` and `PROVIDER_ALLOWANCES_CODEX=1`. Enabling a
-sub-flag alone has no effect.
+sub-flag alone has no effect. Likewise, OpenAI header observation needs both
+`PROVIDER_ALLOWANCES_ENABLED=1` and `PROVIDER_ALLOWANCES_OPENAI=1`; with the
+master flag on but the OpenAI sub-flag off, direct-API responses stream
+normally and no header observation occurs.
 
 One stream-filtering behavior is independent of every flag: the Claude Code
 adapter consumes `rate_limit_event` frames from the SDK stream even when
@@ -48,6 +59,22 @@ configuration). The flags decide whether a frame is *read* into the allowance
 service; the frame is never forwarded to the conversation UI either way, so
 plan telemetry cannot leak into conversation history in any configuration.
 This is deliberate, not a gate bug (round-3 review, item 5).
+
+## Codex rollout-tail discovery
+
+The tail discovers its file in two stages. Until the CLI emits its session
+id, the watcher follows a newest-file heuristic as a discovery fallback only:
+observations decoded during this provisional window are held back, never
+emitted against the session's provider, so a busy host with concurrent Codex
+sessions cannot attribute one session's limits to another provider. Once the
+session id arrives (`pin`), the held provisional data is discarded and the
+watcher's own rollout file is located and re-read authoritatively.
+
+On first discovery of a large existing rollout, only the trailing 256KB is
+read (earlier history is skipped, including any partial leading line); all
+later appends are consumed in full. A provider whose session ends before its
+next turn therefore stays `unknown` until that turn appends new token-count
+frames — unknown-until-next-turn is the honest state, not a gap.
 
 ## Freshness and failure policy
 

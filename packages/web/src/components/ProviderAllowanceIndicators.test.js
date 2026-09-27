@@ -76,6 +76,34 @@ describe('ProviderAllowanceIndicators', () => {
     };
   }
 
+  it('renders an undefined status as Unknown instead of crashing', async () => {
+    const store = useProviderAllowancesStore();
+    store.snapshots = [{
+      providerId: 'openai',
+      providerName: 'OpenAI',
+      providerKind: 'openai',
+      status: undefined,
+      source: 'provider',
+      updatedAt: null,
+      staleAt: null,
+      unavailableReason: null,
+      allowances: [],
+    }];
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+
+    const item = wrapper.get('[data-testid="provider-allowance-item"]');
+    expect(item.attributes('aria-label')).toContain('Unknown');
+
+    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await nextTick();
+
+    expect(wrapper.find('.provider-detail').text()).toContain('Unknown');
+    wrapper.unmount();
+  });
+
   it('renders nothing when the disabled allowance response is empty', async () => {
     api.getProviderAllowances.mockResolvedValueOnce({ snapshots: [], activeProviderIds: [] });
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
@@ -210,10 +238,10 @@ describe('ProviderAllowanceIndicators', () => {
     expect(useProviderAllowancesStore().snapshots.map(({ providerId }) => providerId)).toEqual(['active', 'idle']);
 
     websocketListeners.get('session:deleted')({ sessionId: 'session-1' });
-    await Promise.resolve();
-    await nextTick();
-    expect(useProviderAllowancesStore().activeProviderIds).toEqual([]);
-    expect(api.getProviderAllowances).toHaveBeenCalledTimes(3);
+    await vi.waitFor(() => {
+      expect(useProviderAllowancesStore().activeProviderIds).toEqual([]);
+      expect(api.getProviderAllowances).toHaveBeenCalledTimes(3);
+    });
     wrapper.unmount();
     expect(websocketListeners.has('session:created')).toBe(false);
     expect(websocketListeners.has('session:deleted')).toBe(false);
@@ -268,10 +296,50 @@ describe('ProviderAllowanceIndicators', () => {
 
     // Unknown payload shapes fall back to fetching — never silently skip.
     websocketListeners.get('session:updated')({});
+    await vi.waitFor(() => expect(api.getProviderAllowances).toHaveBeenCalledTimes(4));
+    wrapper.unmount();
+  });
+
+  it('never memoizes id-less session updates, so each one safely refetches', async () => {
+    api.getProviderAllowances.mockResolvedValue({ snapshots: [], activeProviderIds: [] });
+    const wrapper = mount(ProviderAllowanceIndicators);
     await Promise.resolve();
     await nextTick();
-    expect(api.getProviderAllowances).toHaveBeenCalledTimes(4);
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
+
+    // An id-less payload cannot establish priority identity: it refetches
+    // fail-safe and memoizes nothing, so a repeat still refetches instead of
+    // being suppressed by an `undefined`-keyed memo entry.
+    websocketListeners.get('session:updated')({ session: { providerId: 'openai', status: 'running' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
+
+    websocketListeners.get('session:updated')({ session: { providerId: 'openai', status: 'running' } });
+    // The second payload arrives while the first reconciliation is still in
+    // flight, so it is served by the single trailing refresh.
+    await vi.waitFor(() => expect(api.getProviderAllowances).toHaveBeenCalledTimes(3));
     wrapper.unmount();
+  });
+
+  it('trailing-debounces allowance invalidations and removes both listeners on unmount', async () => {
+    vi.useFakeTimers();
+    api.getProviderAllowances.mockResolvedValue({ snapshots: [], activeProviderIds: [] });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await vi.runAllTicks();
+    await vi.runAllTimersAsync();
+    api.getProviderAllowances.mockClear();
+
+    websocketListeners.get('provider:allowance_priority_invalidated')({});
+    websocketListeners.get('provider:allowance_list_invalidated')({});
+    await vi.advanceTimersByTimeAsync(74);
+    expect(api.getProviderAllowances).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(api.getProviderAllowances).toHaveBeenCalledOnce();
+
+    wrapper.unmount();
+    expect(websocketListeners.has('provider:allowance_priority_invalidated')).toBe(false);
+    expect(websocketListeners.has('provider:allowance_list_invalidated')).toBe(false);
   });
 
   it('caps lifecycle reconciliation work as well as the session priority memo', async () => {

@@ -1,7 +1,10 @@
 import { execFile, spawn } from 'node:child_process';
 import readline from 'node:readline';
 import { mapCodexRateLimits } from '../agents/adapters/codexRolloutAllowanceExtractor.js';
-import { getStreamStaleAfterMs, isCodexAppServerAllowanceSourceEnabled } from '../config/providerAllowances.js';
+import { getAccountRefreshMs, getStreamStaleAfterMs, isCodexAppServerAllowanceSourceEnabled } from '../config/providerAllowances.js';
+import { buildCodexMeterEnv, checkCodexVersionSupported, CLIENT_INFO, logCodexMeterOutcome, resolveCodexAllowanceProvider } from './codexAppServerMeterSupport.js';
+
+export { buildCodexMeterEnv, parseCodexMinorVersion, resolveCodexAllowanceProvider } from './codexAppServerMeterSupport.js';
 
 /** Global ChatGPT-plan usage meter backed by `codex app-server`.
  * A single app-server process speaks line-delimited JSON-RPC over stdio and
@@ -29,20 +32,12 @@ const INITIALIZED_NOTIFICATION = 'initialized';
 const READ_METHOD = 'account/rateLimits/read';
 const UPDATED_NOTIFICATION = 'account/rateLimits/updated';
 const LOG_SOURCE = 'codex-app-server';
-// Client metadata for the app-server handshake: a stable, credential-free
-// identifier (the protocol requires initialization before any other request;
-// codex-cli 0.145.0 silently drops requests sent before it).
-const CLIENT_INFO = Object.freeze({
-  name: 'circuschief-allowance-meter',
-  title: 'Circus Chief',
-  version: '1.0.0',
-});
-// app-server (and the account rate-limit API) ships in codex-cli 0.145.0+.
-const MIN_SUPPORTED_MINOR = 145;
 const MAX_CONSECUTIVE_FAILURES = 5;
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 60_000;
-const VERSION_CHECK_TIMEOUT_MS = 5_000;
+// Independent account snapshots have no session traffic to keep them fresh.
+// The refresh cadence derives from the source freshness window (see
+// getAccountRefreshMs) while retaining one timer.
 
 export class CodexAppServerMeter {
   /**
@@ -76,6 +71,8 @@ export class CodexAppServerMeter {
     this.pendingReads = new Map();
     this.consecutiveFailures = 0;
     this.restartTimer = null;
+    this.refreshTimer = null;
+    this.readPromise = null;
     this.lastSnapshot = null;
     this.lastDeliveredAt = null;
     this.provider = null;
@@ -112,7 +109,7 @@ export class CodexAppServerMeter {
     const supported = await this.isCodexVersionSupported();
     if (!supported) {
       this.state = 'stopped';
-      logOutcome({ source: LOG_SOURCE, outcome: 'version-unsupported' });
+      logCodexMeterOutcome({ source: LOG_SOURCE, outcome: 'version-unsupported' });
       return;
     }
     this.spawnMeter();
@@ -124,30 +121,24 @@ export class CodexAppServerMeter {
       clearTimeout(this.restartTimer);
       this.restartTimer = null;
     }
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
     this.rejectPendingReads();
     this.killProcess();
   }
 
   async isCodexVersionSupported() {
-    try {
-      const stdout = await this.exec(this.execFileAsync, 'codex', ['--version']);
-      return parseCodexMinorVersion(stdout) >= MIN_SUPPORTED_MINOR;
-    } catch {
-      return false;
-    }
-  }
-
-  exec(execFn, ...args) {
-    return new Promise((resolve, reject) => {
-      execFn(...args, { timeout: VERSION_CHECK_TIMEOUT_MS }, (error, stdout) => {
-        if (error) reject(error);
-        else resolve(String(stdout));
-      });
-    });
+    return checkCodexVersionSupported(this.execFileAsync);
   }
 
   spawnMeter() {
     if (this.state === 'stopped' || this.state === 'disabled') return;
+    if (!this.#resolveProvider()) {
+      this.#scheduleProviderRecheck();
+      return;
+    }
     let child;
     try {
       child = this.spawnProcess('codex', ['app-server'], {
@@ -196,7 +187,7 @@ export class CodexAppServerMeter {
     const { delivered, reason } = await this.request(INITIALIZE_METHOD, { clientInfo: CLIENT_INFO });
     if (!delivered) {
       if (this.state === 'running') {
-        logOutcome({ source: LOG_SOURCE, outcome: reason === 'rpc-error' ? 'initialize-error' : 'initialize-timeout' });
+        logCodexMeterOutcome({ source: LOG_SOURCE, outcome: reason === 'rpc-error' ? 'initialize-error' : 'initialize-timeout' });
         this.onProcessFailure();
       }
       return;
@@ -235,7 +226,22 @@ export class CodexAppServerMeter {
   }
 
   async readRateLimits() {
+    if (this.readPromise) return this.readPromise;
+    this.readPromise = this.#readRateLimits();
+    try {
+      return await this.readPromise;
+    } finally {
+      this.readPromise = null;
+    }
+  }
+
+  async #readRateLimits() {
     if (!this.#isAlive()) return;
+    const provider = this.#resolveProvider();
+    if (!provider) {
+      this.#scheduleRefresh();
+      return;
+    }
     const { delivered, result, reason } = await this.request(READ_METHOD);
     if (!delivered) {
       // The app-server never answered, or answered with a JSON-RPC error:
@@ -243,14 +249,14 @@ export class CodexAppServerMeter {
       // path as a crash instead of waiting indefinitely or publishing a
       // false "no data" success.
       if (this.state === 'running') {
-        logOutcome({ source: LOG_SOURCE, outcome: reason === 'rpc-error' ? 'read-error' : 'read-timeout' });
+        logCodexMeterOutcome({ source: LOG_SOURCE, outcome: reason === 'rpc-error' ? 'read-error' : 'read-timeout' });
         this.onProcessFailure();
       }
       return;
     }
     const candidate = mapCodexRateLimits(result?.rateLimits, { observedAt: this.clock.now(), streamStaleMs: getStreamStaleAfterMs() });
     if (!candidate) {
-      logOutcome({ source: LOG_SOURCE, outcome: 'no-data' });
+      logCodexMeterOutcome({ source: LOG_SOURCE, outcome: 'no-data' });
       return;
     }
     // A mapped snapshot proves the meter is delivering, so the failure
@@ -266,7 +272,8 @@ export class CodexAppServerMeter {
     } catch {
       // Allowance telemetry is non-critical (FR-7).
     }
-    logOutcome({ source: LOG_SOURCE, outcome: 'ok' });
+    logCodexMeterOutcome({ source: LOG_SOURCE, outcome: 'ok' });
+    this.#scheduleRefresh();
   }
 
   /**
@@ -336,16 +343,20 @@ export class CodexAppServerMeter {
   onProcessFailure() {
     if (this.state === 'stopped' || this.state === 'disabled') return;
     this.rejectPendingReads();
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
     this.killProcess();
     this.consecutiveFailures += 1;
     if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
       this.state = 'disabled';
-      logOutcome({ source: LOG_SOURCE, outcome: 'disabled-after-repeated-failures' });
+      logCodexMeterOutcome({ source: LOG_SOURCE, outcome: 'disabled-after-repeated-failures' });
       return;
     }
     this.state = 'starting';
     this.#scheduleRestart();
-    logOutcome({ source: LOG_SOURCE, outcome: 'restart-scheduled', attempt: this.consecutiveFailures });
+    logCodexMeterOutcome({ source: LOG_SOURCE, outcome: 'restart-scheduled', attempt: this.consecutiveFailures });
   }
 
   #scheduleRestart() {
@@ -357,81 +368,49 @@ export class CodexAppServerMeter {
     }, backoff);
     this.restartTimer.unref?.();
   }
-}
 
-export function parseCodexMinorVersion(versionOutput) {
-  const match = String(versionOutput).match(/(\d+)\.(\d+)\.(\d+)/);
-  if (!match) return -1;
-  return Number(match[1]) * 1000 + Number(match[2]);
-}
-
-/**
- * An app-server account read belongs to exactly one configured Codex auth
- * context. Custom OpenAI-compatible endpoints never qualify, even when they
- * have no API key, because their account cannot be inferred from the host
- * Codex login.
- */
-export function resolveCodexAllowanceProvider(modelProviders) {
-  const providers = modelProviders?.getEnabledForAllowances?.() ?? [];
-  return providers.find((provider) => provider?.isBuiltIn === true && provider.kind === 'openai') ?? null;
-}
-
-/**
- * Mirror the relevant provider execution context while retaining the process
- * environment needed to locate the Codex executable. This environment is
- * process-local only; it is never normalized, logged, or sent to the client.
- */
-export function buildCodexMeterEnv(provider, inheritedEnv = process.env) {
-  const env = { ...inheritedEnv };
-  if (provider?.baseUrl) env.OPENAI_BASE_URL = provider.baseUrl;
-  if (provider?.authToken) env.OPENAI_API_KEY = provider.authToken;
-  if (provider?.additionalEnvVars && typeof provider.additionalEnvVars === 'object') {
-    Object.assign(env, provider.additionalEnvVars);
+  #scheduleRefresh() {
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      this.readRateLimits().catch(() => {});
+    }, getAccountRefreshMs());
+    this.refreshTimer.unref?.();
   }
-  return env;
+
+  /**
+   * Re-resolve the eligible provider on every use so rotations, disables,
+   * and removals apply without a restart. Null (logged) when none is
+   * eligible: callers stand down instead of running with stale credentials.
+   */
+  #resolveProvider() {
+    const provider = resolveCodexAllowanceProvider(this.modelProviders);
+    if (!provider) {
+      logCodexMeterOutcome({ source: LOG_SOURCE, outcome: 'no-provider' });
+      return null;
+    }
+    this.provider = provider;
+    return provider;
+  }
+
+  /**
+   * Recheck for a returned provider after standing down. Shares the restart
+   * timer slot and never touches the breaker, at the slowest backoff so an
+   * idle disabled state costs one lookup a minute and zero spawns.
+   */
+  #scheduleProviderRecheck() {
+    if (this.restartTimer) clearTimeout(this.restartTimer);
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null;
+      this.spawnMeter();
+    }, MAX_BACKOFF_MS);
+    this.restartTimer.unref?.();
+  }
 }
 
-// --- Server lifecycle singleton ---------------------------------------------
-
-let activeMeter = null;
-
-/**
- * Start the global meter. No-ops unless the app-server source gate is on
- * (which includes the master gate). While a healthy meter is active it takes
- * precedence over the per-session rollout tail (plan §7.2).
- */
-export async function startCodexAppServerMeter({ modelProviders, getObserver } = {}) {
-  stopCodexAppServerMeter();
-  if (!isCodexAppServerAllowanceSourceEnabled()) return null;
-  activeMeter = new CodexAppServerMeter({ modelProviders, getObserver });
-  await activeMeter.start();
-  return activeMeter;
-}
-
-export function stopCodexAppServerMeter() {
-  if (!activeMeter) return;
-  const meter = activeMeter;
-  activeMeter = null;
-  meter.stop();
-}
-
-/**
- * Precedence signal for the per-session rollout tail: while the meter is
- * running it is the single writer for ChatGPT-plan providers.
- */
-export function isCodexAppServerMeterHealthy() {
-  return activeMeter?.healthy === true;
-}
-
-/**
- * Test-only: install a meter instance as the active singleton.
- * @private
- */
-export function _setActiveCodexAppServerMeterForTests(meter) {
-  activeMeter = meter;
-}
-
-// Structured, credential-free diagnostics (plan §9.4).
-function logOutcome(entry) {
-  console.log('[CodexAppServerMeter]', JSON.stringify(entry));
-}
+export {
+  startCodexAppServerMeter,
+  stopCodexAppServerMeter,
+  isCodexAppServerMeterHealthy,
+  _setActiveCodexAppServerMeterForTests,
+} from './codexAppServerMeterInstance.js';

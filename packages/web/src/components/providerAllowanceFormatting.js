@@ -5,7 +5,9 @@ const SOURCE_LABELS = {
 };
 
 function formatRelativeTime(value, now = Date.now()) {
-  const difference = new Date(value).getTime() - now;
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return 'Unknown';
+  const difference = timestamp - now;
   const minutes = Math.round(Math.abs(difference) / 60_000);
   if (minutes < 1) return 'just now';
   const unit = minutes < 60 ? ['minute', minutes] : minutes < 1_440 ? ['hour', Math.round(minutes / 60)] : ['day', Math.round(minutes / 1_440)];
@@ -15,7 +17,13 @@ function formatRelativeTime(value, now = Date.now()) {
 }
 
 function formatExactTime(value) {
-  return new Date(value).toLocaleString();
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toLocaleString() : 'Unknown';
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
 function formatAllowance(allowance) {
@@ -41,4 +49,4 @@ function sourceLabel(source) {
   return SOURCE_LABELS[source] || 'Usage data source unavailable';
 }
 
-export { formatAllowance, formatExactTime, formatRelativeTime, sourceLabel };
+export { formatAllowance, formatDateTime, formatExactTime, formatRelativeTime, sourceLabel };

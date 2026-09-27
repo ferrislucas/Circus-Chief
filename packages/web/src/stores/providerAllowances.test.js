@@ -56,6 +56,25 @@ describe('provider allowances store', () => {
     });
   });
 
+  it('pins the attention badge set to warning, critical, and exhausted only', () => {
+    // FRD §7.3 / AC-3 reconciliation: the badge counts exactly these three
+    // states (code wins, FRD follows). Critical is deliberately included —
+    // a provider at ≤10% needs attention as much as an exhausted one.
+    expect(['warning', 'critical', 'exhausted'].map((status) => isAttention({ status }))).toEqual([true, true, true]);
+    expect(['available', 'unknown', 'stale'].map((status) => isAttention({ status }))).toEqual([false, false, false]);
+
+    const store = useProviderAllowancesStore();
+    store.snapshots = [
+      snapshot('a', 'warning'),
+      snapshot('b', 'critical'),
+      snapshot('c', 'exhausted'),
+      snapshot('d', 'available'),
+      snapshot('e', 'unknown'),
+      snapshot('f', 'stale'),
+    ];
+    expect(store.attentionCount).toBe(3);
+  });
+
   it('moves a recovered provider out of attention while preserving configured order within equal-priority groups', () => {
     const store = useProviderAllowancesStore();
     store.setActiveProviderIds([]);

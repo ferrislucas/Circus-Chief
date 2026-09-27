@@ -432,6 +432,35 @@ describe('CodexAppServerMeter', () => {
     }
   });
 
+  it('schedules its account refresh well inside a short configured freshness window', async () => {
+    vi.useFakeTimers();
+    const savedStaleMs = process.env.PROVIDER_ALLOWANCE_STREAM_STALE_MS;
+    try {
+      // A 30s freshness window with the fixed 60s refresh would let every
+      // snapshot flap stale between reads; the refresh must derive from the
+      // window (min(60s, staleMs / 2) = 15s here).
+      process.env.PROVIDER_ALLOWANCE_STREAM_STALE_MS = '30000';
+      const observer = vi.fn();
+      const { meter, child } = makeMeter({ observer, meterOptions: { requestTimeoutMs: 60_000 } });
+
+      await meter.start();
+      await vi.advanceTimersByTimeAsync(0); // handshake completes; first read is on the wire
+      child.fake.respondToLastRead({ rateLimits: RATE_LIMIT_SNAPSHOT });
+      await vi.advanceTimersByTimeAsync(0); // read continuation maps, observes, schedules the refresh
+      expect(observer).toHaveBeenCalledTimes(1);
+
+      const readsBefore = child.fake.sent.filter((frame) => frame.method === 'account/rateLimits/read').length;
+      // Half the freshness window elapses: a derived refresh has fired again.
+      await vi.advanceTimersByTimeAsync(15_000);
+      const readsAfter = child.fake.sent.filter((frame) => frame.method === 'account/rateLimits/read').length;
+      expect(readsAfter).toBeGreaterThan(readsBefore);
+    } finally {
+      if (savedStaleMs === undefined) delete process.env.PROVIDER_ALLOWANCE_STREAM_STALE_MS;
+      else process.env.PROVIDER_ALLOWANCE_STREAM_STALE_MS = savedStaleMs;
+      vi.useRealTimers();
+    }
+  });
+
   it('resets the failure streak and records delivery when a read maps', async () => {
     const { meter, child } = makeMeter({ meterOptions: { requestTimeoutMs: 10 } });
     await meter.start();
@@ -442,6 +471,66 @@ describe('CodexAppServerMeter', () => {
     expect(meter.consecutiveFailures).toBe(0);
     expect(meter.lastDeliveredAt).toBe(1_789_855_000_000);
     expect(meter.healthy).toBe(true);
+  });
+
+  it('re-resolves the provider on respawn so rotated credentials apply without a restart', async () => {
+    // A stale meter env must never outlive a credential rotation: every
+    // (re)spawn resolves the auth context fresh from the provider repository.
+    const providers = [{
+      id: 'openai-chatgpt', kind: 'openai', isBuiltIn: true, authToken: 'first-token', additionalEnvVars: null,
+    }];
+    const { meter, child, spawnProcess } = makeMeter({
+      observer: vi.fn(),
+      modelProviders: { getEnabledForAllowances: () => providers },
+    });
+
+    await meter.start();
+    await respondToLastRead(child, { rateLimits: RATE_LIMIT_SNAPSHOT });
+    expect(spawnProcess).toHaveBeenCalledTimes(1);
+    expect(spawnProcess.mock.calls[0][2].env.OPENAI_API_KEY).toBe('first-token');
+
+    providers[0] = { ...providers[0], authToken: 'rotated-token' };
+    child.emit('exit', 1);
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+
+    expect(spawnProcess).toHaveBeenCalledTimes(2);
+    expect(spawnProcess.mock.calls[1][2].env.OPENAI_API_KEY).toBe('rotated-token');
+    await meter.stop();
+  });
+
+  it('stands down without spawning while the built-in provider is disabled, and recovers when it returns', async () => {
+    // Disabling must never leave a respawn running with revoked credentials.
+    // The meter rechecks on a bounded cadence and resumes by itself.
+    vi.useFakeTimers();
+    try {
+      let enabled = true;
+      const provider = {
+        id: 'openai-chatgpt', kind: 'openai', isBuiltIn: true, authToken: 'live-token', additionalEnvVars: null,
+      };
+      const { meter, spawnProcess } = makeMeter({
+        observer: vi.fn(),
+        modelProviders: { getEnabledForAllowances: () => (enabled ? [provider] : []) },
+      });
+
+      await meter.start();
+      expect(spawnProcess).toHaveBeenCalledTimes(1);
+
+      enabled = false;
+      meter.onProcessFailure();
+      await vi.advanceTimersByTimeAsync(1_000); // backoff fires: no provider, so no spawn
+      expect(spawnProcess).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(60_000); // recheck: still disabled
+      expect(spawnProcess).toHaveBeenCalledTimes(1);
+      expect(meter.consecutiveFailures).toBe(1); // standing down is not a failure
+
+      enabled = true;
+      await vi.advanceTimersByTimeAsync(60_000); // recheck: provider back, respawn
+      expect(spawnProcess).toHaveBeenCalledTimes(2);
+      expect(spawnProcess.mock.calls[1][2].env.OPENAI_API_KEY).toBe('live-token');
+      await meter.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reports healthy only while mapped deliveries stay inside the stream freshness window', async () => {

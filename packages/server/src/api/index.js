@@ -16,7 +16,7 @@ import { getDbPath } from '../database.js';
 import { schedulerService } from '../services/schedulerService.js';
 import { isE2ESpawnCaptureEnabled } from '../services/e2eSpawnCapture.js';
 import { getAutomationStatus } from '../services/automationStatusService.js';
-import { isProviderAllowancesEnabled } from '../config/providerAllowances.js';
+import { getProviderAllowanceSources, isProviderAllowancesEnabled } from '../config/providerAllowances.js';
 
 const router = Router();
 
@@ -34,6 +34,7 @@ router.get('/server-info', (_req, res) => {
     schedulerRunning: schedulerService.isRunning(),
     e2eSpawnCaptureEnabled: isE2ESpawnCaptureEnabled(),
     providerAllowancesEnabled: isProviderAllowancesEnabled(),
+    providerAllowanceSources: getProviderAllowanceSources(),
     automationStatus: getAutomationStatus(),
   });
 });

@@ -99,7 +99,7 @@ describe('ProviderAllowanceService', () => {
     })).toMatchObject({
       status: 'exhausted',
       allowances: [
-        { key: 'zero', remaining: 0, limit: null, remainingPercent: null, resetsAt: null },
+        { key: 'zero', remaining: null, limit: null, remainingPercent: null, resetsAt: null },
         { key: 'missing', remaining: 5, limit: null, remainingPercent: null, resetsAt: null },
       ],
     });

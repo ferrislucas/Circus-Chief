@@ -11,5 +11,11 @@
 // values are untrusted input and normalize to null.
 export function normalizeEpochMs(value) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null;
-  return value < 1e11 ? value * 1000 : value;
+  const epochMs = value < 1e11 ? value * 1000 : value;
+  return Number.isFinite(new Date(epochMs).getTime()) ? epochMs : null;
+}
+
+export function validEpochMs(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    && Number.isFinite(new Date(value).getTime()) ? value : null;
 }

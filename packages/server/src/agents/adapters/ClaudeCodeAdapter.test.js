@@ -273,6 +273,38 @@ describe('ClaudeCodeAdapter rate-limit allowance tap', () => {
     expect(events).toEqual([{ type: 'system', subtype: 'init' }]);
   });
 
+  it.each([
+    ['1', '1', true],
+    ['1', undefined, false],
+    [undefined, '1', false],
+    [undefined, undefined, false],
+  ])('passes non-telemetry frames through byte-identical with master=%j claude=%j while swallowing rate_limit_event frames (observes=%j)', async (master, claude, observes) => {
+    // The one intentional gate escape: telemetry frames never reach the
+    // conversation consumer in any flag combination; only the observation
+    // is gated. Non-telemetry frames must be yielded as the identical
+    // objects the SDK produced (same re-yield semantics as `yield* query()`).
+    if (master === undefined) delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+    else process.env.PROVIDER_ALLOWANCES_ENABLED = master;
+    if (claude === undefined) delete process.env.PROVIDER_ALLOWANCES_CLAUDE;
+    else process.env.PROVIDER_ALLOWANCES_CLAUDE = claude;
+    const observer = vi.fn();
+    const systemFrame = { type: 'system', subtype: 'init', session_id: 'redacted' };
+    const assistantFrame = { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } };
+    const streamEventFrame = { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'hi' } } };
+    sdkStream(FIXTURE.fiveHourWithUtilization, systemFrame, assistantFrame, streamEventFrame);
+    const adapter = new ClaudeCodeAdapter({ allowanceObserver: observer, clock: { now: () => now } });
+
+    const events = await collect(adapter);
+
+    expect(events).toHaveLength(3);
+    expect(events[0]).toBe(systemFrame);
+    expect(events[1]).toBe(assistantFrame);
+    expect(events[2]).toBe(streamEventFrame);
+    expect(events.some((event) => event?.type === 'rate_limit_event')).toBe(false);
+    if (observes) expect(observer).toHaveBeenCalledTimes(1);
+    else expect(observer).not.toHaveBeenCalled();
+  });
+
   it('does not observe without a providerId, without an observer, or while the source gate is off', async () => {
     const observer = vi.fn();
     sdkStream(FIXTURE.fiveHourWithUtilization);

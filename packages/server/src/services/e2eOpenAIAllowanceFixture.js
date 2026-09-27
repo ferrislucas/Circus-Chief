@@ -6,6 +6,54 @@ import { BUILT_IN_OPENAI_PROVIDER } from '../db/seedBaselineData.js';
 // running a test-surface path.
 let fixtureActivationLogged = false;
 
+// Validated headers, keyed by fixture path: the file is read and parsed
+// once at first use and reused for every later session, so a bad fixture
+// fails fast with one descriptive error instead of crashing per-session
+// inside buildAgentConfig.
+let cachedFixtureHeaders = null;
+
+/**
+ * Test-only: drop the cached headers so each case validates from scratch.
+ * @private
+ */
+export function _resetE2EOpenAIAllowanceFixtureForTests() {
+  cachedFixtureHeaders = null;
+  fixtureActivationLogged = false;
+}
+
+/**
+ * Read, parse, and validate the fixture once per process. Throws a
+ * descriptive error naming the path and the E2E_OPENAI_ALLOWANCE_FIXTURE
+ * variable when the file is missing, unparseable, or incomplete.
+ */
+function getValidatedFixtureHeaders(fixturePath) {
+  if (cachedFixtureHeaders && cachedFixtureHeaders.path === fixturePath) {
+    return cachedFixtureHeaders.headers;
+  }
+  let raw;
+  try {
+    raw = readFileSync(fixturePath, 'utf8');
+  } catch {
+    throw new Error(
+      `E2E OpenAI allowance fixture not found at ${fixturePath} (E2E_OPENAI_ALLOWANCE_FIXTURE).`,
+    );
+  }
+  let fixture;
+  try {
+    fixture = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `E2E OpenAI allowance fixture at ${fixturePath} is not valid JSON: ${error.message}.`,
+    );
+  }
+  const headers = fixture.complete;
+  if (!headers || typeof headers !== 'object' || Array.isArray(headers)) {
+    throw new Error('E2E OpenAI allowance fixture requires a complete header object.');
+  }
+  cachedFixtureHeaders = { path: fixturePath, headers };
+  return headers;
+}
+
 /**
  * Test-server-only OpenAI SDK dependency injection. The fixture has the same
  * `withResponse()` shape as the SDK request, so allowance parsing still
@@ -32,11 +80,9 @@ export function createE2EOpenAIAllowanceClientFactory(providerId = null) {
     }));
   }
 
-  const fixture = JSON.parse(readFileSync(fixturePath, 'utf8'));
-  const headers = fixture.complete;
-  if (!headers || typeof headers !== 'object' || Array.isArray(headers)) {
-    throw new Error('E2E OpenAI allowance fixture requires a complete header object.');
-  }
+  // Validated once and reused: a bad fixture throws its descriptive error
+  // here, at first use, instead of per-session inside buildAgentConfig.
+  const headers = getValidatedFixtureHeaders(fixturePath);
 
   return () => ({
     chat: {

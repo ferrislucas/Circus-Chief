@@ -151,7 +151,7 @@ import { ProviderAllowanceUpdatedPayload } from '@circuschief/shared/contracts/p
 import { useWebSocket } from '../composables/useWebSocket.js';
 import { useProviderAllowancesStore, lowestAllowance } from '../stores/providerAllowances.js';
 import { selectVisibleItems } from './providerAllowanceOverflow.js';
-import { formatAllowance, formatExactTime, formatRelativeTime, sourceLabel } from './providerAllowanceFormatting.js';
+import { formatAllowance, formatDateTime, formatExactTime, formatRelativeTime, sourceLabel } from './providerAllowanceFormatting.js';
 
 const DIALOG_FOCUSABLE_SELECTOR = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -177,7 +177,10 @@ const observedLayoutElements = new Set();
 let announcementTimer = null;
 let hasObservedSnapshots = false;
 let previousStatuses = new Map();
-let priorityRefreshQueued = false;
+const PRIORITY_REFRESH_DEBOUNCE_MS = 75;
+let priorityRefreshTimer = null;
+let priorityRefreshInFlight = false;
+let priorityRefreshPending = false;
 // Last seen { status, providerId } per session id, so SESSION_UPDATED frames
 // that cannot change allowance priority skip the refetch. FIFO-capped so a
 // long-lived page cannot grow it without bound: an evicted session simply
@@ -210,7 +213,10 @@ watch(snapshots, () => nextTick(() => {
   measureVisibleItems();
 }), { flush: 'post' });
 
-function statusText(status) { return status[0].toUpperCase() + status.slice(1); }
+function statusText(status) {
+  const text = status ?? 'unknown';
+  return text[0].toUpperCase() + text.slice(1);
+}
 function compactValue(snapshot) {
   const allowance = lowestAllowance(snapshot);
   return allowance ? `${Math.round(allowance.remainingPercent)}%` : '—';
@@ -222,7 +228,6 @@ function ariaLabel(snapshot) {
   return `${snapshot.providerName}: ${statusText(snapshot.status)}, ${value}${reset}`;
 }
 function formatReset(value) { return new Date(value).toLocaleString(); }
-function formatDateTime(value) { return new Date(value).toISOString(); }
 function open(providerId = null) {
   previousFocus = document.activeElement;
   focusedProviderId.value = providerId;
@@ -297,15 +302,43 @@ function onUpdate(message) {
   }
   store.replace(parsed.data.snapshot);
 }
-function requestPriorityRefresh() {
+function requestPriorityRefresh(immediate = false) {
   // The server owns the complete active-session ordering. Event payloads only
   // tell us that it may have changed, never enough to reconstruct it safely.
-  if (priorityRefreshQueued) return;
-  priorityRefreshQueued = true;
-  queueMicrotask(() => {
-    priorityRefreshQueued = false;
-    store.fetch();
-  });
+  if (immediate) {
+    if (priorityRefreshTimer) {
+      clearTimeout(priorityRefreshTimer);
+      priorityRefreshTimer = null;
+    }
+    priorityRefreshPending = true;
+    if (priorityRefreshInFlight) {
+      return;
+    }
+    priorityRefreshInFlight = true;
+    queueMicrotask(async () => {
+      // Coalesce the current burst before the fetch begins. Events received
+      // while it is in flight request exactly one trailing reconciliation.
+      priorityRefreshPending = false;
+      try { await store.fetch(); } finally {
+        priorityRefreshInFlight = false;
+        if (priorityRefreshPending) requestPriorityRefresh(true);
+      }
+    });
+    return;
+  }
+  priorityRefreshPending = true;
+  if (priorityRefreshTimer || priorityRefreshInFlight) return;
+  priorityRefreshTimer = setTimeout(async () => {
+    priorityRefreshTimer = null;
+    if (!priorityRefreshPending) return;
+    priorityRefreshPending = false;
+    priorityRefreshInFlight = true;
+    try { await store.fetch(); } finally {
+      priorityRefreshInFlight = false;
+      // Any event arriving during a request receives one trailing refresh.
+      if (priorityRefreshPending) requestPriorityRefresh();
+    }
+  }, PRIORITY_REFRESH_DEBOUNCE_MS);
 }
 function rememberSessionPriority(session) {
   const priority = { status: session.status, providerId: session.providerId };
@@ -331,7 +364,14 @@ function reconcileSessionPriority(message) {
   const session = message?.session;
   if (!session || typeof session !== 'object') {
     // Unknown payload shape: fetch rather than silently skip.
-    requestPriorityRefresh();
+    requestPriorityRefresh(true);
+    return;
+  }
+  // Without a stable session identity nothing may be memoized: an id-less
+  // payload refetches fail-safe and must never suppress a later
+  // authoritative update via an `undefined`-keyed memo entry.
+  if (!hasSessionPriorityShape(session)) {
+    requestPriorityRefresh(true);
     return;
   }
   // Priority depends only on which providers have sessions in
@@ -342,36 +382,39 @@ function reconcileSessionPriority(message) {
   const priorityChanged = !previous
     || previous.status !== priority.status
     || previous.providerId !== priority.providerId;
-  if (priorityChanged) requestPriorityRefresh();
+  if (priorityChanged) requestPriorityRefresh(true);
 }
 function reconcileSessionCreated(message) {
   const session = message?.session;
   if (!hasSessionPriorityShape(session)) {
-    requestPriorityRefresh();
+    requestPriorityRefresh(true);
     return;
   }
   rememberSessionPriority(session);
   // A newly created waiting session cannot be active yet, so it cannot
   // reorder the indicator. All active starts reconcile immediately.
-  if (isActiveSessionStatus(session.status)) requestPriorityRefresh();
+  if (isActiveSessionStatus(session.status)) requestPriorityRefresh(true);
 }
 function reconcileSessionDeleted(message) {
   const sessionId = typeof message?.sessionId === 'string'
     ? message.sessionId
     : typeof message?.session?.id === 'string' ? message.session.id : null;
   if (!sessionId) {
-    requestPriorityRefresh();
+    requestPriorityRefresh(true);
     return;
   }
   // A session id can be reused by later lifecycle traffic; never let its old
   // status/provider pairing suppress the next authoritative reconciliation.
   sessionPriorityMemo.delete(sessionId);
-  requestPriorityRefresh();
+  requestPriorityRefresh(true);
 }
+const onPriorityInvalidated = () => requestPriorityRefresh();
+const onListInvalidated = () => requestPriorityRefresh();
 onMounted(() => {
   store.fetch();
   on(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, onUpdate);
-  on(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_PRIORITY_INVALIDATED, requestPriorityRefresh);
+  on(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_PRIORITY_INVALIDATED, onPriorityInvalidated);
+  on(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_LIST_INVALIDATED, onListInvalidated);
   on(WS_MESSAGE_TYPES.SESSION_UPDATED, reconcileSessionPriority);
   on(WS_MESSAGE_TYPES.SESSION_CREATED, reconcileSessionCreated);
   on(WS_MESSAGE_TYPES.SESSION_DELETED, reconcileSessionDeleted);
@@ -384,7 +427,8 @@ onMounted(() => {
 });
 onUnmounted(() => {
   off(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, onUpdate);
-  off(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_PRIORITY_INVALIDATED, requestPriorityRefresh);
+  off(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_PRIORITY_INVALIDATED, onPriorityInvalidated);
+  off(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_LIST_INVALIDATED, onListInvalidated);
   off(WS_MESSAGE_TYPES.SESSION_UPDATED, reconcileSessionPriority);
   off(WS_MESSAGE_TYPES.SESSION_CREATED, reconcileSessionCreated);
   off(WS_MESSAGE_TYPES.SESSION_DELETED, reconcileSessionDeleted);
@@ -393,7 +437,9 @@ onUnmounted(() => {
   resizeObserver?.disconnect();
   observedLayoutElements.clear();
   clearTimeout(announcementTimer);
-  priorityRefreshQueued = false;
+  clearTimeout(priorityRefreshTimer);
+  priorityRefreshTimer = null;
+  priorityRefreshPending = false;
   document.removeEventListener('keydown', handleDocumentKeydown);
   document.removeEventListener('focusin', containFocus);
 });

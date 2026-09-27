@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { extractOpenAIAllowance } from './openaiAllowanceExtractor.js';
+import { extractOpenAIAllowance, parseResetDuration } from './openaiAllowanceExtractor.js';
 
 const fixturePath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -34,6 +34,19 @@ describe('extractOpenAIAllowance', () => {
 
     expect(JSON.stringify(candidate)).not.toContain('redacted');
     expect(JSON.stringify(candidate)).not.toContain('req_sanitized');
+  });
+
+  it('drops fractional reset durations instead of guessing their meaning', () => {
+    // OpenAI documents integer compact durations (`12s`, `2m0s`); a value
+    // like `1.5s` is undocumented, so the row is dropped and the indicator
+    // stays honest (unknown / last valid) rather than converting a guess.
+    expect(parseResetDuration('1.5s')).toBeNull();
+    expect(parseResetDuration('0.5m')).toBeNull();
+    expect(extractOpenAIAllowance({
+      'x-ratelimit-limit-requests': '100',
+      'x-ratelimit-remaining-requests': '75',
+      'x-ratelimit-reset-requests': '1.5s',
+    }, { observedAt })).toBeNull();
   });
 
   it('preserves a zero-second reset as an immediate freshness boundary', () => {

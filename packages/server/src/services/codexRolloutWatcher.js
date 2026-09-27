@@ -20,6 +20,8 @@ const DEFAULT_POLL_INTERVAL_MS = 1_000;
 // The CLI creates the rollout file shortly after spawn; stop trying after
 // this window so a mis-detected session cannot leave timers behind.
 const DEFAULT_FILE_GRACE_MS = 30_000;
+const READ_CHUNK_BYTES = 64 * 1024;
+const INITIAL_TAIL_BYTES = 256 * 1024;
 // Polling by byte offset is more robust than fs.watch across platforms and
 // survives appends of partial (in-flight) JSONL lines.
 
@@ -134,11 +136,18 @@ export class CodexRolloutWatcher {
     this.rolloutFile = null;
     this.sessionId = null;
     this.offset = 0;
+    this.hasReadFile = false;
     this.partialLine = '';
     this.timer = null;
     this.stopped = false;
     this.pollInFlight = false;
     this.sessionsRoot = sessionsRoot ?? resolveCodexSessionsRoot(env);
+    // Pre-pin observations are provisional: until pin() binds this watcher
+    // to its own CLI session, the newest-file heuristic may be tailing
+    // another session's rollout. Held candidates are never emitted; pin()
+    // discards them and the pinned file is re-read authoritatively.
+    this.provisionalCandidate = null;
+    this.provisionalHeld = 0;
   }
 
   start() {
@@ -164,6 +173,14 @@ export class CodexRolloutWatcher {
     this.sessionId = sessionId;
     this.rolloutFile = null;
     this.resetCursor();
+    // Discard, never flush: the held candidates came from the heuristic
+    // file (possibly another session's), and the pinned file is re-read
+    // from the start below, so flushing would misattribute foreign limits
+    // to this provider while adding nothing authoritative.
+    const discarded = this.provisionalHeld;
+    this.provisionalCandidate = null;
+    this.provisionalHeld = 0;
+    logOutcome({ providerId: this.providerId, source: LOG_SOURCE, outcome: 'pinned', provisionalDiscarded: discarded });
   }
 
   async locate() {
@@ -194,8 +211,7 @@ export class CodexRolloutWatcher {
         await this.locate();
         return;
       }
-      const bytes = await this.readNewBytes();
-      if (bytes) this.consume(bytes);
+      await this.readNewBytes();
     } catch (error) {
       logOutcome({ providerId: this.providerId, source: LOG_SOURCE, outcome: 'read-error' });
       if (error?.code === 'ENOENT') {
@@ -214,20 +230,39 @@ export class CodexRolloutWatcher {
       // restart the scan from the beginning.
       this.resetCursor();
     }
-    if (size === this.offset) return '';
-    const buffer = Buffer.alloc(size - this.offset);
+    if (size === this.offset) return;
+    // Existing rollout files can be very large before we discover them. Tail
+    // only a bounded window on first discovery, then consume all later data.
+    if (!this.hasReadFile && this.offset === 0 && size > INITIAL_TAIL_BYTES) {
+      this.offset = size - INITIAL_TAIL_BYTES;
+      this.partialLine = null; // discard the line started before the tail
+    }
     const handle = await fs.open(this.rolloutFile, 'r');
     try {
-      await handle.read(buffer, 0, buffer.length, this.offset);
+      const endOffset = size;
+      while (this.offset < endOffset) {
+        const length = Math.min(READ_CHUNK_BYTES, endOffset - this.offset);
+        const buffer = Buffer.alloc(length);
+        const { bytesRead } = await handle.read(buffer, 0, length, this.offset);
+        if (!bytesRead) break;
+        this.offset += bytesRead;
+        this.consume(buffer.subarray(0, bytesRead).toString('utf8'));
+      }
     } finally {
       await handle.close();
     }
-    this.offset = size;
-    return buffer.toString('utf8');
+    this.hasReadFile = true;
   }
 
   consume(bytes) {
-    this.partialLine += bytes;
+    let remainingBytes = bytes;
+    if (this.partialLine === null) {
+      const firstNewline = remainingBytes.indexOf('\n');
+      if (firstNewline === -1) return;
+      this.partialLine = '';
+      remainingBytes = remainingBytes.slice(firstNewline + 1);
+    }
+    this.partialLine += remainingBytes;
     const lines = this.partialLine.split('\n');
     // The final chunk may be an in-flight JSONL line; only complete lines are
     // decoded, and the remainder stays buffered for the next poll.
@@ -238,6 +273,7 @@ export class CodexRolloutWatcher {
   resetCursor() {
     this.offset = 0;
     this.partialLine = '';
+    this.hasReadFile = false;
   }
 
   handleLine(line) {
@@ -260,6 +296,16 @@ export class CodexRolloutWatcher {
     });
     if (!candidate) {
       logOutcome({ providerId: this.providerId, source: LOG_SOURCE, outcome: 'no-data' });
+      return;
+    }
+    if (!this.sessionId) {
+      // Provisional: the newest-file discovery fallback may be tailing a
+      // different session's rollout on a busy host. Hold the latest
+      // candidate back rather than attributing foreign limits to this
+      // provider; pin() discards it once the own session file is known.
+      this.provisionalCandidate = candidate;
+      this.provisionalHeld += 1;
+      logOutcome({ providerId: this.providerId, source: LOG_SOURCE, outcome: 'pre-pin-held' });
       return;
     }
     try {

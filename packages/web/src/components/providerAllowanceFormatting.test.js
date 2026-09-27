@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { formatAllowance, formatRelativeTime, sourceLabel } from './providerAllowanceFormatting.js';
+import { formatAllowance, formatDateTime, formatExactTime, formatRelativeTime, sourceLabel } from './providerAllowanceFormatting.js';
 
 describe('provider allowance formatting', () => {
   it('formats honest quantity and percentage values', () => {
@@ -17,5 +17,11 @@ describe('provider allowance formatting', () => {
     expect(sourceLabel('observed-header')).toBe('Observed from provider response headers');
     expect(formatRelativeTime('2026-01-02T12:00:00Z')).toBe('in 2 hours');
     expect(formatRelativeTime('2026-01-02T09:30:00Z')).toBe('30 minutes ago');
+  });
+
+  it('formats malformed timestamps safely', () => {
+    expect(formatRelativeTime('not-a-date')).toBe('Unknown');
+    expect(formatExactTime('not-a-date')).toBe('Unknown');
+    expect(formatDateTime('not-a-date')).toBeNull();
   });
 });

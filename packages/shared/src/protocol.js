@@ -55,6 +55,9 @@ export const WS_MESSAGE_TYPES = {
   PROVIDER_ALLOWANCE_UPDATED: 'provider:allowance_updated',
   // Global, credential-free hint that active-provider ordering may have changed.
   PROVIDER_ALLOWANCE_PRIORITY_INVALIDATED: 'provider:allowance_priority_invalidated',
+  // Provider create/update/delete changed the enabled allowance list. This
+  // deliberately carries no provider configuration or credential data.
+  PROVIDER_ALLOWANCE_LIST_INVALIDATED: 'provider:allowance_list_invalidated',
 
   // Kanban events
   KANBAN_BOARD_UPDATED: 'kanban:board_updated',

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeEpochMs } from './allowanceTime.js';
+import { normalizeEpochMs, validEpochMs } from './allowanceTime.js';
 
 describe('normalizeEpochMs', () => {
   it.each([
@@ -12,5 +12,15 @@ describe('normalizeEpochMs', () => {
     ['null is untrusted', null, null],
   ])('%s', (_name, value, expected) => {
     expect(normalizeEpochMs(value)).toBe(expected);
+  });
+});
+
+describe('validEpochMs', () => {
+  it('rejects invalid Date-range timestamps without altering valid milliseconds', () => {
+    expect(validEpochMs(Number.NaN)).toBeNull();
+    expect(validEpochMs(Infinity)).toBeNull();
+    expect(validEpochMs(-1)).toBeNull();
+    expect(validEpochMs(8.64e15 + 1)).toBeNull();
+    expect(validEpochMs(1_789_900_000_000)).toBe(1_789_900_000_000);
   });
 });

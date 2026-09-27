@@ -109,19 +109,24 @@ describe('CodexRolloutWatcher', () => {
   });
 
   function makeWatcher(observer, overrides = {}) {
-    return new CodexRolloutWatcher({
+    const { sessionId, ...watcherOptions } = overrides;
+    const watcher = new CodexRolloutWatcher({
       providerId: 'openai-default',
       allowanceObserver: observer,
       sessionsRoot: path.join(home, '.codex', 'sessions'),
       clock,
       pollIntervalMs: 1,
-      ...overrides,
+      ...watcherOptions,
     });
+    // Tests that assign rolloutFile directly bypass discovery; pinning first
+    // simulates the CLI session already being known, as in production.
+    if (sessionId) watcher.pin(sessionId);
+    return watcher;
   }
 
   it('extracts token_count rate limits from the fixture rollout and observes the candidate', async () => {
     const observer = vi.fn();
-    const watcher = makeWatcher(observer);
+    const watcher = makeWatcher(observer, { sessionId: 'test-session' });
     watcher.rolloutFile = seedRolloutFile(home, fs.readFileSync(fixturePath, 'utf8'));
 
     await pollTimes(watcher);
@@ -141,7 +146,7 @@ describe('CodexRolloutWatcher', () => {
 
   it('buffers partial trailing lines until they complete across polls', async () => {
     const observer = vi.fn();
-    const watcher = makeWatcher(observer);
+    const watcher = makeWatcher(observer, { sessionId: 'test-session' });
     const complete = fs.readFileSync(fixturePath, 'utf8');
     const rateLimitsLine = complete.split('\n').find((line) => line.includes('"rate_limits"'));
     const file = seedRolloutFile(home, '');
@@ -160,7 +165,7 @@ describe('CodexRolloutWatcher', () => {
 
   it('resumes from the byte offset without re-reading old content', async () => {
     const observer = vi.fn();
-    const watcher = makeWatcher(observer);
+    const watcher = makeWatcher(observer, { sessionId: 'test-session' });
     // The fixture ends with a truncated line; complete it the way the CLI
     // would (appending the remainder), so the buffered partial is decoded
     // exactly once across the two polls.
@@ -179,7 +184,7 @@ describe('CodexRolloutWatcher', () => {
 
   it('restarts scanning when the file is truncated below the offset', async () => {
     const observer = vi.fn();
-    const watcher = makeWatcher(observer);
+    const watcher = makeWatcher(observer, { sessionId: 'test-session' });
     const file = seedRolloutFile(home, fs.readFileSync(fixturePath, 'utf8'));
     watcher.rolloutFile = file;
     await pollTimes(watcher);
@@ -222,6 +227,31 @@ describe('CodexRolloutWatcher', () => {
     }));
   });
 
+  it('holds back pre-pin observations so one session limits are never attributed to another provider', async () => {
+    const observer = vi.fn();
+    const watcher = makeWatcher(observer, { startedAfterMs: clock.now() - 5_000 });
+    const sessionA = 'c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3';
+    const sessionB = 'd4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4';
+    seedSessionRolloutFile(home, sessionA, tokenCountLine(20), { mtimeMs: clock.now() + 1 });
+    // Session B is newer, so the pre-pin newest-file heuristic tails it.
+    seedSessionRolloutFile(home, sessionB, tokenCountLine(70), { mtimeMs: clock.now() + 2 });
+
+    await pollTimes(watcher, 2);
+
+    // Held back, never emitted against this watcher's provider.
+    expect(observer).not.toHaveBeenCalled();
+
+    watcher.pin(sessionA);
+    await pollTimes(watcher, 2);
+
+    // Only session A's own limits are ever attributed to this provider;
+    // the pre-pin heuristic data is discarded, not flushed.
+    expect(observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      providerId: 'openai-default',
+      allowances: [expect.objectContaining({ remainingPercent: 80 })],
+    }));
+  });
+
   it('resets its cursor and rescans the pinned session file after initially tailing a newer rollout', async () => {
     const observer = vi.fn();
     const watcher = makeWatcher(observer, { startedAfterMs: clock.now() - 5_000 });
@@ -234,10 +264,12 @@ describe('CodexRolloutWatcher', () => {
     watcher.pin(sessionA);
     await pollTimes(watcher, 2);
 
-    expect(observer.mock.calls.map(([candidate]) => candidate.allowances[0].remainingPercent)).toEqual([30, 80]);
+    // Pre-pin data from the newer foreign rollout is held back and
+    // discarded on pin — only the pinned session's own limits are emitted.
+    expect(observer.mock.calls.map(([candidate]) => candidate.allowances[0].remainingPercent)).toEqual([80]);
   });
 
-  it('keeps the newest-file heuristic when no session pin arrives', async () => {
+  it('holds the newest-file heuristic back while no session pin arrives', async () => {
     const observer = vi.fn();
     const watcher = makeWatcher(observer, { startedAfterMs: clock.now() - 5_000 });
     seedSessionRolloutFile(home, 'a2a2a2a2-a2a2-4a2a-8a2a-a2a2a2a2a2a2', tokenCountLine(20), { mtimeMs: clock.now() + 1 });
@@ -245,9 +277,11 @@ describe('CodexRolloutWatcher', () => {
 
     await pollTimes(watcher, 2);
 
-    expect(observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      allowances: [expect.objectContaining({ remainingPercent: 30 })],
-    }));
+    // The heuristic still discovers and tails the newest file, but nothing
+    // is attributed to this provider until pin() binds the own session.
+    expect(watcher.rolloutFile).toContain('b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2');
+    expect(observer).not.toHaveBeenCalled();
+    expect(watcher.provisionalHeld).toBeGreaterThan(0);
   });
 
   it('finds a pinned rollout in the adjacent day directory across midnight', async () => {
@@ -266,7 +300,7 @@ describe('CodexRolloutWatcher', () => {
 
   it('logs observer failures as observer-error, not as read errors, and keeps polling', async () => {
     const observer = vi.fn(() => { throw new Error('observer exploded'); });
-    const watcher = makeWatcher(observer);
+    const watcher = makeWatcher(observer, { sessionId: 'test-session' });
     const file = seedRolloutFile(home, tokenCountLine(20));
     watcher.rolloutFile = file;
     const outcomes = [];
@@ -285,7 +319,7 @@ describe('CodexRolloutWatcher', () => {
 
   it('skips polls that overlap an in-flight poll instead of double-reading bytes', async () => {
     const observer = vi.fn();
-    const watcher = makeWatcher(observer);
+    const watcher = makeWatcher(observer, { sessionId: 'test-session' });
     watcher.rolloutFile = seedRolloutFile(home, tokenCountLine(20));
 
     // Two polls racing on the same appended bytes: whichever interleaving

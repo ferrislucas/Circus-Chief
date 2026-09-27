@@ -62,6 +62,27 @@ describe('GET /api/server-info', () => {
     expect((await request(app).get('/api/server-info')).body.providerAllowancesEnabled).toBe(false);
   });
 
+  it('advertises per-source allowance gates that honor the master-plus-sub-flag contract', async () => {
+    delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+    delete process.env.PROVIDER_ALLOWANCES_OPENAI;
+    delete process.env.PROVIDER_ALLOWANCES_CLAUDE;
+    expect((await request(app).get('/api/server-info')).body.providerAllowanceSources).toEqual({
+      claude: false, codex: false, codexAppServer: false, zai: false, openai: false,
+    });
+
+    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
+    process.env.PROVIDER_ALLOWANCES_OPENAI = '1';
+    expect((await request(app).get('/api/server-info')).body.providerAllowanceSources).toMatchObject({
+      openai: true, claude: false,
+    });
+
+    // A sub-flag alone never advertises an enabled source.
+    delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+    expect((await request(app).get('/api/server-info')).body.providerAllowanceSources.openai).toBe(false);
+
+    delete process.env.PROVIDER_ALLOWANCES_OPENAI;
+  });
+
   it('dbPath matches the path the DB was initialized with', async () => {
     const res = await request(app).get('/api/server-info');
     // test/setup.js inits with ":memory:"

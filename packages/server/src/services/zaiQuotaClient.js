@@ -36,23 +36,20 @@ export async function fetchZaiQuotaLimit({ baseUrl, authToken, timeoutMs = DEFAU
   const url = buildZaiQuotaUrl(baseUrl);
   if (!url) return { outcome: 'network' };
   const controller = new AbortController();
-  let response;
   try {
-    response = await withTimeout(fetchImpl(url, {
-      method: 'GET',
-      headers: { Authorization: authToken },
-      signal: controller.signal,
-    }), timeoutMs, controller);
-  } catch {
-    return { outcome: 'network' };
-  }
-
-  if (!response.ok) {
-    return { outcome: 'http', status: response.status, retryAfterMs: parseRetryAfter(response.headers?.get?.('retry-after')) };
-  }
-
-  try {
-    return { outcome: 'ok', payload: await response.json() };
+    // Header arrival is not request completion: retain the deadline while
+    // consuming JSON so a stalled response body cannot wedge a poll worker.
+    return await withTimeout((async () => {
+      const response = await fetchImpl(url, {
+        method: 'GET',
+        headers: { Authorization: authToken },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        return { outcome: 'http', status: response.status, retryAfterMs: parseRetryAfter(response.headers?.get?.('retry-after')) };
+      }
+      return { outcome: 'ok', payload: await response.json() };
+    })(), timeoutMs, controller);
   } catch {
     return { outcome: 'network' };
   }
@@ -72,8 +69,13 @@ function withTimeout(promise, timeoutMs, controller) {
   ]).finally(() => clearTimeout(timer));
 }
 
+// `retry-after` arrives either as delay seconds or as an HTTP date.
+// A date in the past (or an unparseable value) yields no backoff rather
+// than a negative one.
 function parseRetryAfter(headerValue) {
   if (typeof headerValue !== 'string') return null;
   const seconds = Number(headerValue.trim());
-  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : null;
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const atMs = Date.parse(headerValue.trim());
+  return Number.isFinite(atMs) && atMs > Date.now() ? atMs - Date.now() : null;
 }

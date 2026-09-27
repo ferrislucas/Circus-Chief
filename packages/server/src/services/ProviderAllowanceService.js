@@ -2,6 +2,7 @@ import { ProviderAllowanceListResponse, ProviderAllowanceSnapshot, ProviderAllow
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { isDeepStrictEqual } from 'node:util';
 import { finiteNumber, percentage, requirePercent } from './allowanceNumbers.js';
+import { validEpochMs } from './allowanceTime.js';
 
 export { percentage, requirePercent } from './allowanceNumbers.js';
 
@@ -139,15 +140,17 @@ export function normalizeAllowance(allowance) {
     limit: normalizedLimit,
     remainingPercent,
     unit: allowance.unit,
-    resetsAt: finiteNumber(allowance.resetsAt),
+    resetsAt: validEpochMs(allowance.resetsAt),
   };
 }
 
 function normalizeAbsoluteValue(allowance) {
   const legacyRemaining = finiteNumber(allowance.remaining);
   const explicitValue = finiteNumber(allowance.value);
-  const normalizedLegacyRemaining = legacyRemaining === null ? null : Math.max(0, legacyRemaining);
-  const value = explicitValue === null ? normalizedLegacyRemaining : Math.max(0, explicitValue);
+  // Negative absolutes are malformed, not zero capacity. Dropping them
+  // prevents a bogus negative `used` value becoming a healthy snapshot.
+  const normalizedLegacyRemaining = legacyRemaining === null || legacyRemaining < 0 ? null : legacyRemaining;
+  const value = explicitValue === null || explicitValue < 0 ? normalizedLegacyRemaining : explicitValue;
   const valueKind = value === null ? null
     : allowance.valueKind === 'used' || allowance.valueKind === 'remaining'
       ? allowance.valueKind : 'remaining';

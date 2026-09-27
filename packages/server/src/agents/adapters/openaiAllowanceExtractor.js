@@ -71,7 +71,10 @@ function parseStrictInteger(value) {
 }
 
 // OpenAI documents reset headers as compact duration strings such as `12s`,
-// `2m0s`, or `1h15m0s`. Rejecting other values keeps time conversion honest.
+// `2m0s`, or `1h15m0s`. Rejecting other values keeps time conversion honest:
+// fractional durations like `1.5s` are undocumented, so they are dropped
+// (the row is omitted and the indicator keeps its last valid state) rather
+// than converted from a guessed unit.
 export function parseResetDuration(value) {
   if (typeof value !== 'string' || value.length === 0) return null;
   const matches = [...value.matchAll(/(\d+)(ms|h|m|s)/g)];
