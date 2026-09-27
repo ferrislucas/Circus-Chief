@@ -1,5 +1,14 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { StaleTierEchoRegistry } from './tierDegradationNotifier.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { StaleTierEchoRegistry, publishTierDegradation } from './tierDegradationNotifier.js';
+import { modelTiers, projects, sessions } from '../database.js';
+import { broadcastToSession } from '../websocket.js';
+import { buildTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
+
+vi.mock('../websocket.js', () => ({
+  broadcast: vi.fn(),
+  broadcastToSession: vi.fn(),
+  broadcastToProject: vi.fn(),
+}));
 
 describe('StaleTierEchoRegistry', () => {
   afterEach(() => vi.useRealTimers());
@@ -49,5 +58,49 @@ describe('StaleTierEchoRegistry', () => {
 
     registry.dispose();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('publishTierDegradation session notice', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function publishForSession() {
+    const tier = modelTiers.create({ name: 'Gold', members: [] });
+    const project = projects.create('Degraded notice project', '/tmp/degraded-notice');
+    const session = sessions.create(project.id, 'Degraded session', 'Later', {
+      status: 'scheduled',
+      model: buildTierRef(tier.id),
+    });
+    publishTierDegradation({
+      degradedFrom: buildTierRef(tier.id),
+      affectedSessions: [{ id: session.id, projectId: project.id }],
+      affectedTemplateIds: [],
+      projectDefaultProjectIds: [],
+      laneProjectIds: [],
+      summarySettingsChanged: false,
+    });
+    return { tier, session };
+  }
+
+  it('broadcasts a tier:degraded notice with the tier name to each affected session', () => {
+    const { tier, session } = publishForSession();
+
+    const degradedCalls = broadcastToSession.mock.calls.filter(
+      ([, type]) => type === WS_MESSAGE_TYPES.TIER_DEGRADED
+    );
+    expect(degradedCalls).toHaveLength(1);
+    expect(degradedCalls[0][0]).toBe(session.id);
+    expect(degradedCalls[0][2]).toMatchObject({
+      sessionId: session.id,
+      degradedFrom: buildTierRef(tier.id),
+      tierName: 'Gold',
+    });
+  });
+
+  it('sends no notice when the change set is null', () => {
+    publishTierDegradation(null);
+    expect(broadcastToSession).not.toHaveBeenCalled();
   });
 });

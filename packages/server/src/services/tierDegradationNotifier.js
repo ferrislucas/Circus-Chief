@@ -1,6 +1,6 @@
-import { sessions, kanbanBoards, sessionTemplates, projectDefaults, settings } from '../database.js';
-import { broadcast, broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { sessions, kanbanBoards, modelTiers, sessionTemplates, projectDefaults, settings } from '../database.js';
+import { broadcast, broadcastToProject, broadcastToSession } from '../websocket.js';
+import { WS_MESSAGE_TYPES, parseTierRef } from '@circuschief/shared';
 import { broadcastSessionUpdate } from './summaryBroadcast.js';
 import { buildFullBoardResponse } from './kanbanBoardResponse.js';
 
@@ -174,11 +174,21 @@ function publishBoardInvalidations(projectIds) {
 export function publishTierDegradation(changeSet) {
   if (!changeSet) return;
 
+  const tierId = parseTierRef(changeSet.degradedFrom);
+  const tierName = tierId ? modelTiers.getById(tierId)?.name ?? null : null;
+
   for (const { id } of changeSet.affectedSessions) {
     const session = sessions.getById(id);
     if (!session) continue;
     rememberDegradedBinding(id, changeSet.degradedFrom);
     broadcastSessionUpdate(id, session.projectId, session);
+    // User-visible signal: without this the repaired (model, providerId)
+    // pair changes silently under an open session.
+    broadcastToSession(id, WS_MESSAGE_TYPES.TIER_DEGRADED, {
+      sessionId: id,
+      degradedFrom: changeSet.degradedFrom,
+      tierName,
+    });
   }
 
   publishTemplateInvalidations(changeSet.affectedTemplateIds);

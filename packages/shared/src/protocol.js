@@ -70,6 +70,10 @@ export const WS_MESSAGE_TYPES = {
 
   // Tier failover events
   TIER_FAILOVER: 'tier:failover',
+  // Fires for each session whose tier binding was repaired server-side
+  // (tier deleted/emptied) so the open session can notify instead of
+  // silently changing its model.
+  TIER_DEGRADED: 'tier:degraded',
 };
 
 /**

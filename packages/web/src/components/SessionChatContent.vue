@@ -193,6 +193,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 import { useSessionSubscription } from '../composables/useSessionSubscription.js';
+import { formatTierDegradedNotice } from '../utils/tierDegradedNotice.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { api } from '../composables/useApi.js';
 import { createOverlaySessionsStore } from '../stores/createOverlaySessionsStore.js';
@@ -532,6 +533,9 @@ function setupSubscription(sessionId) {
     const tier = payload.tierName || 'tier';
     const reason = payload.reason ? ` (${payload.reason})` : '';
     uiStore.info(`${from} unavailable${reason} — starting on ${to} (tier: ${tier})`);
+  }));
+  wsCleanups.push(currentSubscription.onTierDegraded((payload) => {
+    uiStore.info(formatTierDegradedNotice(payload));
   }));
   wsCleanups.push(currentSubscription.onPrompt((prompt) => promptsStore.show(prompt)));
   wsCleanups.push(currentSubscription.onPromptResolved((promptId, promptSessionId) => promptsStore.resolved(promptId, promptSessionId)));

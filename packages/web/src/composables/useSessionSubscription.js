@@ -89,6 +89,8 @@ function registerEventHandlers(on, off, sessionId) {
       { filter: bySession, args: (msg) => [msg.changeCount, msg.hasChanges] }),
     onTierFailover: handler(WS_MESSAGE_TYPES.TIER_FAILOVER,
       { filter: bySession, args: (msg) => [msg] }),
+    onTierDegraded: handler(WS_MESSAGE_TYPES.TIER_DEGRADED,
+      { filter: bySession, args: (msg) => [msg] }),
     onPrompt: handler(WS_MESSAGE_TYPES.SESSION_PROMPT,
       { filter: bySession, args: (msg) => [msg.prompt] }),
     onPromptResolved: handler(WS_MESSAGE_TYPES.SESSION_PROMPT_RESOLVED,
