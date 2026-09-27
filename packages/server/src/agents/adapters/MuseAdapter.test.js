@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MuseAdapter, MUSE_CLIENT_INFO, resolveMuseReasoningEffort } from './MuseAdapter.js';
+import { getNodeBinDir } from '../../services/nodeSpawnHelper.js';
 
 /**
  * Minimal fake of the `@muse-code/sdk` client surface the adapter uses:
@@ -145,6 +146,46 @@ describe('MuseAdapter', () => {
     const events = await collect(adapter, { prompt: 'p', options: { env: {} } });
     expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'error', error: 'login first' });
     expect(client.calls.close).toBe(1);
+  });
+
+  it('forwards a user-credential env to the muse host even when options.env is empty', async () => {
+    let capturedArgs = null;
+    const client = createFakeClient();
+    const adapter = new MuseAdapter({
+      museClientFactory: async (spawnArgs) => {
+        capturedArgs = spawnArgs;
+        return client;
+      },
+    });
+
+    await collect(adapter, { prompt: 'run git status', options: { cwd: '/tmp/work', env: {} } });
+
+    expect(capturedArgs).not.toBeNull();
+    expect(capturedArgs.env.HOME).toBeDefined();
+    expect(capturedArgs.env.PATH).toBeDefined();
+    expect(capturedArgs.env.PATH).toContain(getNodeBinDir());
+    if (process.platform !== 'win32') {
+      expect(capturedArgs.env.PATH).toContain('/opt/homebrew/bin');
+    }
+  });
+
+  it('session env values win over the host env in the muse host env', async () => {
+    let capturedArgs = null;
+    const client = createFakeClient();
+    const adapter = new MuseAdapter({
+      museClientFactory: async (spawnArgs) => {
+        capturedArgs = spawnArgs;
+        return client;
+      },
+    });
+
+    await collect(adapter, {
+      prompt: 'p',
+      options: { cwd: '/tmp/work', env: { FOO: 'session-wins', GH_TOKEN: 'session-token' } },
+    });
+
+    expect(capturedArgs.env.FOO).toBe('session-wins');
+    expect(capturedArgs.env.GH_TOKEN).toBe('session-token');
   });
 
   it('throws MUSE_CLI_NOT_FOUND when the muse binary is missing', async () => {

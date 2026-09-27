@@ -90,6 +90,69 @@ describe('nodeSpawnHelper', () => {
 
       expect(env.PATH).toContain(expectedSeparator);
     });
+
+    it('falls back to os.homedir() when HOME is missing so gh/git find user config', async () => {
+      const { homedir } = await import('os');
+      const env = createRobustEnv({ PATH: '/usr/bin:/bin' });
+
+      expect(env.HOME).toBe(homedir());
+    });
+
+    it('preserves an explicit HOME instead of overwriting it', () => {
+      const env = createRobustEnv({ PATH: '/usr/bin:/bin', HOME: '/custom/home' });
+
+      expect(env.HOME).toBe('/custom/home');
+    });
+
+    it('forwards user credential vars so git/gh run with user auth', () => {
+      const baseEnv = {
+        PATH: '/usr/bin:/bin',
+        SSH_AUTH_SOCK: '/tmp/ssh-agent.sock',
+        SSH_AGENT_PID: '1234',
+        GIT_SSH_COMMAND: 'ssh -i ~/.ssh/id_ed25519',
+        GIT_ASKPASS: '/usr/local/bin/askpass.sh',
+        GH_TOKEN: 'gh-secret',
+        GITHUB_TOKEN: 'github-secret',
+      };
+      const env = createRobustEnv(baseEnv);
+
+      expect(env.SSH_AUTH_SOCK).toBe('/tmp/ssh-agent.sock');
+      expect(env.SSH_AGENT_PID).toBe('1234');
+      expect(env.GIT_SSH_COMMAND).toBe('ssh -i ~/.ssh/id_ed25519');
+      expect(env.GIT_ASKPASS).toBe('/usr/local/bin/askpass.sh');
+      expect(env.GH_TOKEN).toBe('gh-secret');
+      expect(env.GITHUB_TOKEN).toBe('github-secret');
+    });
+
+    it('ensures well-known user bin dirs are on PATH without duplicating entries', () => {
+      if (process.platform === 'win32') return;
+      const nodeBinDir = getNodeBinDir();
+      const env = createRobustEnv({ PATH: '/usr/bin:/bin' });
+      const parts = env.PATH.split(':');
+
+      expect(parts[0]).toBe(nodeBinDir);
+      expect(parts).toContain('/opt/homebrew/bin');
+      expect(parts).toContain('/usr/local/bin');
+
+      const again = createRobustEnv({ PATH: env.PATH });
+      const dupes = again.PATH.split(':').filter((p) => p === '/opt/homebrew/bin');
+      expect(dupes).toHaveLength(1);
+    });
+
+    it('fills USER/LOGNAME when missing so tools see a consistent identity', async () => {
+      const { userInfo } = await import('os');
+      let expected = null;
+      try {
+        expected = userInfo().username;
+      } catch {
+        expected = null;
+      }
+      if (!expected) return;
+      const env = createRobustEnv({ PATH: '/usr/bin:/bin' });
+
+      expect(env.USER).toBe(expected);
+      expect(env.LOGNAME).toBe(expected);
+    });
   });
 
   describe('createClaudeCodeSpawner', () => {

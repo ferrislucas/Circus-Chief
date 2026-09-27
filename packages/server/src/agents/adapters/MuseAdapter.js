@@ -1,4 +1,5 @@
 import { BaseAgent } from '../BaseAgent.js';
+import { createRobustEnv } from '../../services/nodeSpawnHelper.js';
 import { createMuseEventMapper } from './museEventMapper.js';
 
 /**
@@ -93,7 +94,7 @@ export class MuseAdapter extends BaseAgent {
     try {
       client = await factory({
         museBin: process.env.MUSE_BIN || 'muse',
-        env: options.env,
+        env: buildMuseHostEnv(options.env),
         onStderr: (chunk) => logMuseStderr(chunk),
       });
     } catch (err) {
@@ -151,6 +152,22 @@ function registerApprovalHandlers(session) {
 }
 
 /**
+ * Build the env for the owned `muse serve` host so shell tools (git, gh and
+ * friends) resolve the same binaries, config, and credentials as when the
+ * user runs them directly. Session env wins over the host process env;
+ * HOME/USER/LOGNAME fallbacks and well-known bin dirs fill the gaps left by
+ * sparse server launch contexts. Safe to apply at both the adapter boundary
+ * and the live spawn (user entries are never reordered or dropped).
+ *
+ * @param {Object} [sessionEnv] - Session env from buildSessionEnv (wins)
+ * @param {Object} [baseEnv] - Host env filling the gaps (defaults to process.env)
+ * @returns {Object}
+ */
+export function buildMuseHostEnv(sessionEnv = {}, baseEnv = process.env) {
+  return createRobustEnv({ ...baseEnv, ...(sessionEnv || {}) });
+}
+
+/**
  * Default client factory: lazy-import the SDK so the server stays bootable
  * in environments where the optional dependency is not installed, and spawn
  * an owned `muse serve` host.
@@ -172,7 +189,9 @@ async function spawnMuseClient({ museBin, env, onStderr }) {
     args: ['serve', '--trust-workspace'],
     // The SDK REPLACES the child env: extend the session env (which already
     // carries the robust PATH plus provider vars) instead of inheriting raw.
-    env: { ...process.env, ...(env || {}) },
+    // Hardened again here so the live spawn never depends on the caller
+    // having gone through _openHost (idempotent with it).
+    env: buildMuseHostEnv(env),
     clientInfo: { ...MUSE_CLIENT_INFO },
     ...(onStderr ? { onStderr } : {}),
   });
