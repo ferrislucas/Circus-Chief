@@ -6,6 +6,8 @@
  * tested without mounting ConversationTab.
  */
 
+import { isTierRef } from '@circuschief/shared';
+
 /**
  * Append a template prompt to the current input value.
  *
@@ -44,4 +46,36 @@ export function buildTemplateSettingsFields(template) {
   if (template.thinkingEnabled != null) fields.thinkingEnabled = template.thinkingEnabled;
   if (template.effortLevel != null) fields.effortLevel = template.effortLevel;
   return fields;
+}
+
+/**
+ * Resolve which provider id a template model should persist with.
+ *
+ * Keeps the (model, providerId) pair atomic: tier refs are provider-less,
+ * an explicit providerId key (including null) is honored, and a missing key
+ * resolves the owning provider from the catalog — never the session's
+ * current selection, which may belong to a different provider.
+ * Returns null when no owner can be determined.
+ *
+ * @param {Object} template - The template object.
+ * @param {Array} providers - Provider catalog entries ({ id, isBuiltIn, kind, models: [{ modelId }] }).
+ * @returns {string|null} The provider id to persist, or null.
+ */
+export function resolveTemplateProviderId(template, providers = []) {
+  if (!template || !template.model) return null;
+  if (isTierRef(template.model)) return null;
+  if (Object.prototype.hasOwnProperty.call(template, 'providerId')) {
+    return template.providerId ?? null;
+  }
+  const owner = (providers || []).find((provider) =>
+    (provider.models || []).some((model) => model.modelId === template.model)
+  );
+  if (owner) return owner.id;
+  const kind = template.model.startsWith('gpt-') ? 'openai'
+    : template.model.startsWith('gemini-') ? 'google'
+      : template.model.startsWith('claude-') ? 'anthropic'
+        : null;
+  return (providers || []).find(
+    (provider) => provider.isBuiltIn && provider.kind === kind
+  )?.id || null;
 }

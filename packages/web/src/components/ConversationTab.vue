@@ -142,7 +142,7 @@ import { createQuickResponseInsert } from '../composables/useQuickResponseInsert
 import './ConversationTab.css';
 import { useScheduleStartNow } from '../composables/useScheduleStartNow.js';
 import { useConnectionStatus } from '../composables/useConnectionStatus.js';
-import { appendTemplatePromptValue, buildTemplateSettingsFields } from '../utils/templateApply.js';
+import { appendTemplatePromptValue, buildTemplateSettingsFields, resolveTemplateProviderId } from '../utils/templateApply.js';
 import TodoDrawer from './TodoDrawer.vue';
 import ConversationPanel from './ConversationPanel.vue';
 import ConversationMessages from './ConversationMessages.vue';
@@ -694,9 +694,10 @@ async function applyTemplateSettings(template) {
     }
 
     if (template.model) {
-      const providerId = Object.prototype.hasOwnProperty.call(template, 'providerId')
-        ? (template.providerId ?? null)
-        : selectedProviderId.value;
+      // Never reuse the current selection: a missing key resolves the owning
+      // provider from the catalog (or null), so a template model from
+      // provider B can't persist bound to provider A.
+      const providerId = resolveTemplateProviderId(template, providersStore.providers);
       await applyTemplateModel(template.model, providerId);
     }
   } catch (err) {
