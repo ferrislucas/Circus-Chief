@@ -6,7 +6,9 @@ function memberSupportsProviderKinds(member, providersStore, allowedProviderKind
 export function tierSupportsProviderKinds(tier, providersStore, allowedProviderKinds) {
   if (!tier.members?.some((member) => member.available === true)) return false;
   if (!allowedProviderKinds) return true;
-  return tier.members.every((member) =>
+  // A tier is selectable when ANY member fits the restricted picker — every()
+  // would hide mixed-kind tiers whose other members belong elsewhere.
+  return tier.members.some((member) =>
     memberSupportsProviderKinds(member, providersStore, allowedProviderKinds)
   );
 }

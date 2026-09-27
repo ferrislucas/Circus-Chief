@@ -40,7 +40,10 @@ const mockTodosStore = {
 const mockUiStore = {
   success: vi.fn(),
   error: vi.fn(),
+  info: vi.fn(),
 };
+
+const tierDegradedHandlers = [];
 
 vi.mock('../stores/sessions.js', () => ({
   useSessionsStore: () => mockSessionsStore,
@@ -94,6 +97,10 @@ vi.mock('../composables/useSessionSubscription.js', () => ({
     onConversationCreated: vi.fn(() => vi.fn()),
     onConversationUpdated: vi.fn(() => vi.fn()),
     onTierFailover: vi.fn(() => vi.fn()),
+    onTierDegraded: vi.fn((cb) => {
+      tierDegradedHandlers.push(cb);
+      return vi.fn();
+    }),
     onPrompt: vi.fn(() => vi.fn()),
     onPromptResolved: vi.fn(() => vi.fn()),
   }),
@@ -212,6 +219,19 @@ describe('SessionChatContent', () => {
     expect(mockSessionsStore.fetchMessages).toHaveBeenCalledWith('sess-root', false, 'conv-1');
     expect(mockTodosStore.fetchTodos).toHaveBeenCalledWith('sess-root', 'conv-1');
     expect(activeSessionChange).toHaveBeenCalledWith({ id: 'sess-root', status: 'waiting' });
+  });
+
+  it('toasts when the session tier binding is degraded server-side', async () => {
+    tierDegradedHandlers.length = 0;
+    mountContent();
+    await flushPromises();
+
+    expect(tierDegradedHandlers.length).toBeGreaterThan(0);
+    tierDegradedHandlers.at(-1)({ sessionId: 'sess-root', degradedFrom: 'tier::abc', tierName: 'Gold' });
+
+    expect(mockUiStore.info).toHaveBeenCalledWith(
+      expect.stringContaining('"Gold"')
+    );
   });
 
   it('passes overlay conversation configuration to ConversationTab', async () => {

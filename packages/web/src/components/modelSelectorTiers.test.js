@@ -31,7 +31,7 @@ describe('model selector tier helpers', () => {
       { members: [{ providerId: 'anthropic', available: true }, { providerId: 'codex', available: true }] },
       providersStore,
       ['anthropic']
-    )).toBe(false);
+    )).toBe(true);
     expect(tierSupportsProviderKinds(
       { members: [{ providerId: 'missing', available: true }] },
       providersStore,

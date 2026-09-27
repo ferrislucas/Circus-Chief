@@ -61,21 +61,34 @@ export function buildTemplateSettingsFields(template) {
  * @param {Array} providers - Provider catalog entries ({ id, isBuiltIn, kind, models: [{ modelId }] }).
  * @returns {string|null} The provider id to persist, or null.
  */
+/**
+ * Infer a built-in provider for a model id by its stable prefix. Covers
+ * legacy templates whose catalog row was soft-removed.
+ *
+ * @param {string} modelId
+ * @param {Array} providers
+ * @returns {string|null} The built-in provider id, or null.
+ */
+function inferBuiltInProviderId(modelId, providers) {
+  const kind = modelId.startsWith('gpt-') ? 'openai'
+    : modelId.startsWith('gemini-') ? 'google'
+      : modelId.startsWith('claude-') ? 'anthropic'
+        : null;
+  return providers.find(
+    (provider) => provider.isBuiltIn && provider.kind === kind
+  )?.id || null;
+}
+
 export function resolveTemplateProviderId(template, providers = []) {
   if (!template || !template.model) return null;
   if (isTierRef(template.model)) return null;
   if (Object.prototype.hasOwnProperty.call(template, 'providerId')) {
     return template.providerId ?? null;
   }
-  const owner = (providers || []).find((provider) =>
+  const catalog = providers || [];
+  const owner = catalog.find((provider) =>
     (provider.models || []).some((model) => model.modelId === template.model)
   );
   if (owner) return owner.id;
-  const kind = template.model.startsWith('gpt-') ? 'openai'
-    : template.model.startsWith('gemini-') ? 'google'
-      : template.model.startsWith('claude-') ? 'anthropic'
-        : null;
-  return (providers || []).find(
-    (provider) => provider.isBuiltIn && provider.kind === kind
-  )?.id || null;
+  return inferBuiltInProviderId(template.model, catalog);
 }

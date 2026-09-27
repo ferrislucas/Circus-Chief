@@ -13,15 +13,6 @@
       :hide-new-conversation="hideNewConversation"
     />
 
-    <div
-      v-if="tierActiveMemberDisplay"
-      class="tier-active-member"
-      :title="tierActiveMemberDisplay"
-      data-testid="tier-active-member"
-    >
-      Active member: {{ tierActiveMemberDisplay }}
-    </div>
-
     <ConversationMessages
       ref="conversationMessagesRef"
       :session-id="sessionId"
@@ -268,17 +259,6 @@ const activeModelDisplayName = computed(() => {
   return getModelDisplayName(model);
 });
 
-const tierActiveMemberDisplay = computed(() => {
-  const session = sessionsStore.currentSession;
-  if (!session || !isTierRef(session.model) || !session.resolvedModel) return null;
-  const provider = session.resolvedProviderId
-    ? providersStore.providers.find((item) => item.id === session.resolvedProviderId)
-    : null;
-  const providerLabel = provider?.name || session.resolvedProviderId;
-  const modelLabel = getModelDisplayName(session.resolvedModel);
-  return providerLabel ? `${providerLabel} · ${modelLabel}` : modelLabel;
-});
-
 const unassociatedWorkLogs = computed(() => sessionsStore.getUnassociatedWorkLogs);
 
 const inputHasContent = computed(() => input.value.trim().length > 0);
@@ -329,22 +309,22 @@ const nextTemplate = computed(() => {
 const workingDirectory = computed(() => {
   const session = sessionsStore.currentSession;
   if (!session) {
-    console.log('[workingDirectory] No current workspace');
+    console.debug('[workingDirectory] No current workspace');
     return null;
   }
 
   if (session.gitWorktree) {
-    console.log('[workingDirectory] Using workspace.gitWorktree:', session.gitWorktree);
+    console.debug('[workingDirectory] Using workspace.gitWorktree:', session.gitWorktree);
     return session.gitWorktree;
   }
 
   let project = projectsStore.currentProject;
   if ((!project || project.id !== session.projectId) && session.projectId) {
-    console.log('[workingDirectory] currentProject mismatch or null, falling back to getProjectById');
+    console.debug('[workingDirectory] currentProject mismatch or null, falling back to getProjectById');
     project = projectsStore.getProjectById(session.projectId);
   }
   const result = project?.workingDirectory || null;
-  console.log('[workingDirectory] Using project.workingDirectory:', result, 'from project:', project?.id);
+  console.debug('[workingDirectory] Using project.workingDirectory:', result, 'from project:', project?.id);
   return result;
 });
 
@@ -467,7 +447,7 @@ watch(
     if (sessionsStore.currentSession?.id !== props.sessionId) return;
 
     if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
-      console.log(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
+      console.debug(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
       sessionsStore.clearPartialText();
       await sessionsStore.fetchMessages(props.sessionId, false, sessionsStore.activeConversationId);
       await sessionsStore.fetchWorkLogs(props.sessionId);
@@ -526,7 +506,7 @@ watch(
     if (newConvId && newConvId !== oldConvId) {
       sessionsStore.clearPartialText();
       await nextTick();
-      console.log(`[CONV] activeConversationId changed to ${newConvId}, refetching messages`);
+      console.debug(`[CONV] activeConversationId changed to ${newConvId}, refetching messages`);
       await sessionsStore.fetchMessages(props.sessionId, false, newConvId);
     }
   }

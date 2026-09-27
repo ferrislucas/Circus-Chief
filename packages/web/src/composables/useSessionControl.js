@@ -109,7 +109,7 @@ export function useSessionControl({ getSessionId }) {
       ? { model: selection }
       : (selection || {});
 
-    console.log(`[MODEL AUDIT - Frontend] Sending message with model: "${selectedModel}"`);
+    console.debug(`[MODEL AUDIT - Frontend] Sending message with model: "${selectedModel}"`);
 
     const sessionId = getSessionId();
     sending.value = true;

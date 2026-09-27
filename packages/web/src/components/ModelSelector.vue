@@ -164,12 +164,9 @@ const tierChipTitle = computed(() => {
   return tierDisplayTitle(props.modelValue, tiersStore, isStaleTierRef.value);
 });
 
-const unknownModelTitle = computed(() => {
-  if (isTierRef(props.modelValue)) {
-    return `Model tier "${tierChipName.value || props.modelValue}" is no longer available. Choose a replacement to update it.`;
-  }
-  return `Stored model '${props.modelValue}' is no longer available. Choose a replacement to update it.`;
-});
+const unknownModelTitle = computed(
+  () => `Stored model '${props.modelValue}' is no longer available. Choose a replacement to update it.`
+);
 
 const providersHaveModels = computed(() => providersStore.providers.length > 0 &&
     providersStore.providers.some(p => p.models && p.models.length > 0));
@@ -487,6 +484,9 @@ const selectedProviderId = ref(props.providerId);
 const isUnknownModel = computed(() => {
   if (!providersHaveModels.value) return false;
   if (!props.modelValue) return false;
+  // Tier refs get the tier chip plus a disabled select option instead — the
+  // unknown-model badge would be a third redundant signal for one state.
+  if (isTierRef(resolveModelId(props.modelValue))) return false;
   return !isValidModelId(resolveModelId(props.modelValue));
 });
 

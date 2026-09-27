@@ -331,6 +331,28 @@ router.post('/lanes', (req, res) => {
 });
 
 /**
+ * Resolve the lane's (onEnterModel, onEnterProviderId) pair for an update.
+ * Only validates when the request touches the pair — an unrelated lane edit
+ * must not be blocked by a binding that became unresolvable after it was
+ * stored.
+ *
+ * @param {Object} data - Validated request body
+ * @param {Object} lane - Stored lane row
+ * @returns {{ model: string|null, providerId: string|null }|{ error: string }}
+ */
+function resolveLaneBinding(data, lane) {
+  if (data.onEnterModel === undefined && data.onEnterProviderId === undefined) {
+    return { model: lane.onEnterModel, providerId: lane.onEnterProviderId ?? null };
+  }
+  const model = data.onEnterModel === undefined ? lane.onEnterModel : data.onEnterModel;
+  const providerId = data.onEnterProviderId === undefined
+    ? lane.onEnterProviderId : data.onEnterProviderId;
+  const modelResult = validateModelAndProvider(model, providerId, { fieldName: 'onEnterModel' });
+  if (modelResult.error) return { error: modelResult.error };
+  return { model: modelResult.model, providerId: modelResult.providerId };
+}
+
+/**
  * PATCH /api/projects/:projectId/kanban/lanes/:laneId
  * Update a lane
  */
@@ -354,11 +376,8 @@ router.patch('/lanes/:laneId', (req, res) => {
     return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
   }
 
-  const model = result.data.onEnterModel === undefined ? lane.onEnterModel : result.data.onEnterModel;
-  const providerId = result.data.onEnterProviderId === undefined
-    ? lane.onEnterProviderId : result.data.onEnterProviderId;
-  const modelResult = validateModelAndProvider(model, providerId, { fieldName: 'onEnterModel' });
-  if (modelResult.error) return res.status(400).json({ error: modelResult.error });
+  const binding = resolveLaneBinding(result.data, lane);
+  if (binding.error) return res.status(400).json({ error: binding.error });
 
   const targetError = completionTargetError(lane.boardId, result.data.completionTargetLaneId, laneId);
   if (targetError) return res.status(targetError.status).json({ error: targetError.error });
@@ -366,7 +385,7 @@ router.patch('/lanes/:laneId', (req, res) => {
   let updated;
   try {
     updated = kanbanLanes.update(laneId, {
-      ...result.data, onEnterModel: modelResult.model, onEnterProviderId: modelResult.providerId,
+      ...result.data, onEnterModel: binding.model, onEnterProviderId: binding.providerId,
     });
   } catch (error) {
     if (isApiError(error)) return res.status(error.status).json({ error: error.message, code: error.code, field: error.field });

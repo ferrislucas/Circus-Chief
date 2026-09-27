@@ -107,10 +107,14 @@ export class StaleTierEchoRegistry {
     }
     const nextExpiry = this.entries.values().next().value?.expiresAt;
     if (nextExpiry === undefined) return;
-    this.cleanupTimer = this.setTimer(() => {
+    const timer = this.setTimer(() => {
       this.cleanupTimer = null;
       this.sweep();
     }, Math.max(0, nextExpiry - this.now()));
+    // Don't keep the process alive for a best-effort cache sweep. Fake
+    // timers and browser-style setTimeout lack unref — hence the guard.
+    if (timer && typeof timer.unref === 'function') timer.unref();
+    this.cleanupTimer = timer;
   }
 }
 

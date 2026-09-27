@@ -59,6 +59,31 @@ describe('StaleTierEchoRegistry', () => {
     registry.dispose();
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it('unrefs the sweep timer so it never keeps the process alive', () => {
+    const unref = vi.fn();
+    const registry = new StaleTierEchoRegistry({
+      ttlMs: 100,
+      setTimer: () => ({ unref }),
+      clearTimer: vi.fn(),
+    });
+
+    registry.record('session-a', 'tier::a');
+    expect(unref).toHaveBeenCalledTimes(1);
+    registry.dispose();
+  });
+
+  it('schedules sweeps without unref when the timer lacks it', () => {
+    const registry = new StaleTierEchoRegistry({
+      ttlMs: 100,
+      setTimer: () => 42,
+      clearTimer: vi.fn(),
+    });
+
+    expect(() => registry.record('session-a', 'tier::a')).not.toThrow();
+    expect(registry.size).toBe(1);
+    registry.dispose();
+  });
 });
 
 describe('publishTierDegradation session notice', () => {

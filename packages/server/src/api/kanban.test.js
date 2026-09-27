@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import express from 'express';
+import express, { Router } from 'express';
 import request from 'supertest';
+import { callRouter } from '../../test/callRouter.js';
 import {
   projects,
   sessions,
@@ -526,6 +527,40 @@ describe('Kanban API', () => {
         .send({ onEnterModel: buildTierRef(emptyTier.id) });
 
       expect(res.status).toBe(400);
+    });
+
+    // Network-free coverage (same handlers as the supertest cases above, via
+    // test/callRouter.js) for environments where supertest cannot bind a port.
+    describe('untouched model bindings (direct router calls)', () => {
+      function callLanePatch(laneId, body) {
+        const parent = Router({ mergeParams: true });
+        parent.use('/:projectId/kanban', kanbanRouter);
+        return callRouter(parent, {
+          method: 'PATCH',
+          url: `/${projectId}/kanban/lanes/${laneId}`,
+          body,
+        });
+      }
+
+      it('allows an unrelated edit when the stored binding is stale', async () => {
+        setupBoard();
+        kanbanLanes.update(lanes[0].id, { onEnterModel: 'ghost-model', onEnterProviderId: null });
+
+        const res = await callLanePatch(lanes[0].id, { name: 'Renamed' });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.name).toBe('Renamed');
+        expect(res.body.onEnterModel).toBe('ghost-model');
+      });
+
+      it('still validates the binding when the request touches it', async () => {
+        setupBoard();
+        kanbanLanes.update(lanes[0].id, { onEnterModel: 'ghost-model', onEnterProviderId: null });
+
+        const res = await callLanePatch(lanes[0].id, { onEnterModel: 'also-ghost' });
+
+        expect(res.statusCode).toBe(400);
+      });
     });
 
     it('accepts completionTargetLaneId null', async () => {

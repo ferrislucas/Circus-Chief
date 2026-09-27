@@ -117,7 +117,8 @@ describe('ModelSelector', () => {
       await flushAll(wrapper);
       const text = wrapper.text();
       expect(text).toContain('Supported');
-      expect(text).not.toContain('Mixed');
+      // Mixed-kind tiers stay visible when any member fits the picker.
+      expect(text).toContain('Mixed');
       expect(text).not.toContain('Gemini Pro');
     });
 
@@ -1304,17 +1305,17 @@ describe('ModelSelector', () => {
         expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
       });
 
-      it('warns when the tier catalog has loaded empty after the last tier was deleted', async () => {
+      it('shows only the stale chip (no unknown-model badge) when the catalog loaded empty', async () => {
         seedTiers([]);
 
         const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
         await flushAll(wrapper);
 
         expect(wrapper.find('.tier-chip').classes()).toContain('tier-chip--stale');
-        expect(wrapper.find('.unknown-model-badge').exists()).toBe(true);
+        expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
       });
 
-      it('marks the chip as stale and surfaces the unknown-model badge for a deleted tier', async () => {
+      it('marks the chip as stale without the unknown-model badge for a deleted tier', async () => {
         // A non-empty tiers list that does NOT include tier-1 signals the
         // tiers store has genuinely loaded (as opposed to an empty array,
         // which is treated permissively as "not fetched yet") and tier-1 was
@@ -1325,7 +1326,7 @@ describe('ModelSelector', () => {
         await flushAll(wrapper);
 
         expect(wrapper.find('.tier-chip').classes()).toContain('tier-chip--stale');
-        expect(wrapper.find('.unknown-model-badge').exists()).toBe(true);
+        expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
       });
 
       it('keeps showing the tier chip when the bound tier still exists but was emptied of members', async () => {
