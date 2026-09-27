@@ -110,6 +110,29 @@
             empty-label="Inherit from root session"
             @update:provider-id="formData.providerId = $event"
           />
+          <div
+            v-if="modelSelectionConflict"
+            class="conflict-banner"
+            role="alert"
+          >
+            <p>The model selection changed elsewhere while you were editing. Your edit is preserved.</p>
+            <div class="conflict-actions">
+              <button
+                type="button"
+                class="btn btn-outline-secondary"
+                @click="useCanonicalModelSelection"
+              >
+                Use latest
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline-secondary"
+                @click="modelSelectionConflict = false"
+              >
+                Keep mine
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Mode Field -->
@@ -305,6 +328,7 @@ function applyCanonicalTemplate(template, { preserveEdits = false } = {}) {
   const canonical = toFormData(template);
   if (!preserveEdits) {
     formData.value = canonical;
+    modelSelectionConflict.value = false;
   } else {
     const selection = reconcileModelSelection({
       current: formData.value,
@@ -316,6 +340,12 @@ function applyCanonicalTemplate(template, { preserveEdits = false } = {}) {
     modelSelectionConflict.value = selection.conflict;
   }
   lastCanonicalSelection = { model: canonical.model, providerId: canonical.providerId };
+}
+
+function useCanonicalModelSelection() {
+  formData.value.model = lastCanonicalSelection.model;
+  formData.value.providerId = lastCanonicalSelection.providerId;
+  modelSelectionConflict.value = false;
 }
 
 const loadTemplate = async ({ preserveEdits = false } = {}) => {
@@ -558,6 +588,24 @@ onUnmounted(() => {
   border-radius: var(--border-radius);
   color: var(--color-error);
   font-size: 0.9rem;
+}
+
+.conflict-banner {
+  padding: 0.75rem;
+  background-color: rgba(234, 179, 8, 0.1);
+  border: 1px solid var(--color-warning, #eab308);
+  border-radius: var(--border-radius);
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.conflict-banner p {
+  margin: 0 0 0.5rem;
+}
+
+.conflict-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 
 .form-actions {

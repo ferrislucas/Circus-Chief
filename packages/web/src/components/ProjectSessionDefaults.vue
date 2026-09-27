@@ -142,6 +142,29 @@
         empty-label="Use system default"
         select-class="form-input"
       />
+      <div
+        v-if="modelSelectionConflict"
+        class="conflict-banner"
+        role="alert"
+      >
+        <p>The default model changed elsewhere while you were editing. Your edit is preserved.</p>
+        <div class="conflict-actions">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            @click="useCanonicalModelSelection"
+          >
+            Use latest
+          </button>
+          <button
+            type="button"
+            class="btn btn-secondary"
+            @click="modelSelectionConflict = false"
+          >
+            Keep mine
+          </button>
+        </div>
+      </div>
       <p class="form-help">
         Choose the default model for new workspaces in this project.
       </p>
@@ -189,6 +212,7 @@ const defaultGitMode = ref('');
 const defaultGitBranch = ref('');
 const defaultModel = ref('');
 const defaultProviderId = ref(null);
+const modelSelectionConflict = ref(false);
 const savingDefaults = ref(false);
 let hasLoadedDefaults = false;
 let lastCanonicalSelection = { model: null, providerId: null };
@@ -238,9 +262,16 @@ watch(() => defaultsStore.getDefaultsForProject(props.projectId), (defaults) => 
     });
     defaultModel.value = selection.model || '';
     defaultProviderId.value = selection.providerId;
+    modelSelectionConflict.value = selection.conflict;
     lastCanonicalSelection = { model: defaults.model || '', providerId: defaults.providerId || null };
   }
 }, { immediate: true });
+
+function useCanonicalModelSelection() {
+  defaultModel.value = lastCanonicalSelection.model || '';
+  defaultProviderId.value = lastCanonicalSelection.providerId;
+  modelSelectionConflict.value = false;
+}
 
 function collectNonDefaultValues() {
   return {
@@ -315,6 +346,25 @@ defineExpose({ collectNonDefaultValues });
   width: 1rem;
   height: 1rem;
   cursor: pointer;
+}
+
+.conflict-banner {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background-color: rgba(234, 179, 8, 0.1);
+  border: 1px solid var(--color-warning, #eab308);
+  border-radius: var(--border-radius);
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.conflict-banner p {
+  margin: 0 0 0.5rem;
+}
+
+.conflict-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 
 .form-input[type="select"],
