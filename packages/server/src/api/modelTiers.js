@@ -5,7 +5,7 @@ import {
   UpdateTierRequest,
 } from '@circuschief/shared/contracts/modelTiers';
 import { isTierRef, parseTierRef } from '@circuschief/shared';
-import { validateTierMembers } from './model-validation.js';
+import { resolveTierWriteError, validateTierMembers } from './model-validation.js';
 import { getTierMemberAvailabilityMap, getTierMembersWithAvailability } from '../services/tierResolutionService.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { deleteTierAndDegradeReferences, degradeReferencesToEmptiedTiers } from '../services/tierDeletionService.js';
@@ -76,10 +76,8 @@ router.post('/', (req, res) => {
     const tier = modelTiers.create(result.data);
     res.status(201).json(withManagementMembers(tier));
   } catch (error) {
-    if (error.message?.includes('UNIQUE constraint failed')) {
-      return res.status(409).json({ error: 'A tier with that name already exists' });
-    }
-    res.status(500).json({ error: error.message });
+    const { status, message } = resolveTierWriteError(error);
+    return res.status(status).json({ error: message });
   }
 });
 
@@ -125,10 +123,8 @@ router.patch('/:id', (req, res) => {
     publishEmptiedTierDegradations(degradationChangeSets);
     res.json(withManagementMembers(updatedTier));
   } catch (error) {
-    if (error.message?.includes('UNIQUE constraint failed')) {
-      return res.status(409).json({ error: 'A tier with that name already exists' });
-    }
-    res.status(500).json({ error: error.message });
+    const { status, message } = resolveTierWriteError(error);
+    return res.status(status).json({ error: message });
   }
 });
 

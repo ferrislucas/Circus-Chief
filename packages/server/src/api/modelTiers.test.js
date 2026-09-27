@@ -3,6 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import {
   modelProviders,
+  modelTiers,
   settings,
   projects,
   projectDefaults,
@@ -201,6 +202,26 @@ describe('Model Tiers API', () => {
       expect(response.body.error).toMatch(/already exists/i);
     });
 
+    it('maps repository validation errors to 400 instead of 500', async () => {
+      const validationError = new Error('Duplicate tier member provider/model pair');
+      validationError.statusCode = 400;
+      const spy = vi.spyOn(modelTiers, 'create').mockImplementationOnce(() => {
+        throw validationError;
+      });
+      try {
+        const response = await request(app)
+          .post('/api/tiers')
+          .send({
+            name: 'Repo Rejected',
+            members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+          })
+          .expect(400);
+        expect(response.body.error).toBe('Duplicate tier member provider/model pair');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it('allows an empty tier (no members)', async () => {
       const response = await request(app)
         .post('/api/tiers')
@@ -396,6 +417,33 @@ describe('Model Tiers API', () => {
 
     it('returns 404 for missing tier', async () => {
       await request(app).patch('/api/tiers/nonexistent').send({ name: 'x' }).expect(404);
+    });
+
+    it('maps repository validation errors to 400 instead of 500', async () => {
+      const created = await request(app)
+        .post('/api/tiers')
+        .send({
+          name: 'Patch Repo Rejected',
+          members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+        })
+        .expect(201);
+
+      const validationError = new Error('Duplicate tier member position 0');
+      validationError.statusCode = 400;
+      const spy = vi.spyOn(modelTiers, 'update').mockImplementationOnce(() => {
+        throw validationError;
+      });
+      try {
+        const response = await request(app)
+          .patch(`/api/tiers/${created.body.id}`)
+          .send({
+            members: [{ providerId: providerB.id, modelId: 'model-b', position: 0 }],
+          })
+          .expect(400);
+        expect(response.body.error).toBe('Duplicate tier member position 0');
+      } finally {
+        spy.mockRestore();
+      }
     });
 
     // ── Work Item 3: catalog/ownership validation on update ───────────────

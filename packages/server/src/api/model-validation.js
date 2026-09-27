@@ -150,6 +150,23 @@ function validateTierMemberAvailability(member) {
     return null;
 }
 
+/**
+ * Map a tier write failure to an HTTP response. Repository boundary
+ * validation throws 400-coded errors (`statusCode`); anything else keeps the
+ * existing mapping (409 for duplicate names, 500 otherwise) so callers never
+ * see a raw SQLite constraint error as a 500.
+ *
+ * @param {Error} error
+ * @returns {{ status: number, message: string }}
+ */
+export function resolveTierWriteError(error) {
+  if (error?.statusCode) return { status: error.statusCode, message: error.message };
+  if (error?.message?.includes('UNIQUE constraint failed')) {
+    return { status: 409, message: 'A tier with that name already exists' };
+  }
+  return { status: 500, message: error?.message };
+}
+
 export function validateTierMembers(members, { existingMembers = [] } = {}) {
   if (!Array.isArray(members)) return { error: 'members must be an array' };
   const pairs = new Set();

@@ -1,5 +1,19 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
+import { TIER_REF_PREFIX } from '@circuschief/shared';
+
+/**
+ * Build a 400-coded error for invalid tier member sets. The tiers API maps
+ * `statusCode` to the response status so repository callers get a 400
+ * instead of a raw SQLite constraint error (500).
+ * @param {string} message
+ * @returns {Error}
+ */
+function tierMemberError(message) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  return error;
+}
 
 /**
  * Repository for model tiers (cross-model failover).
@@ -211,18 +225,57 @@ export class ModelTierRepository extends BaseRepository {
 
   // ── Private helpers ────────────────────────────────────────────────────────
 
+  /**
+   * Validate a member set before insert. Guards the UNIQUE(tier_id, position)
+   * and UNIQUE(tier_id, provider_id, model_id) indexes plus NOT NULL columns
+   * so bad input throws a 400-coded error instead of a raw SQLite error.
+   * A missing position defaults to array order (not 0, which would collide).
+   * Gaps are allowed — callers such as single-member tiers may persist
+   * non-zero positions.
+   * @param {Array} members
+   * @returns {Array} Members with normalized positions
+   */
+  #validateMembers(members) {
+    if (!Array.isArray(members)) throw tierMemberError('Tier members must be an array');
+    const pairs = new Set();
+    const positions = new Set();
+    return members.map((member, index) => {
+      if (!member || typeof member.providerId !== 'string' || member.providerId.length === 0) {
+        throw tierMemberError(`Tier member at index ${index} must have a non-empty providerId`);
+      }
+      if (typeof member.modelId !== 'string' || member.modelId.length === 0) {
+        throw tierMemberError(`Tier member at index ${index} must have a non-empty modelId`);
+      }
+      if (member.modelId.startsWith(TIER_REF_PREFIX)) {
+        throw tierMemberError(
+          `Tier member modelIds cannot use the reserved "${TIER_REF_PREFIX}" prefix`
+        );
+      }
+      const position = member.position ?? index;
+      if (!Number.isInteger(position) || position < 0) {
+        throw tierMemberError(`Tier member at index ${index} must have a non-negative integer position`);
+      }
+      const pair = `${member.providerId}\0${member.modelId}`;
+      if (pairs.has(pair)) throw tierMemberError('Duplicate tier member provider/model pair');
+      pairs.add(pair);
+      if (positions.has(position)) throw tierMemberError(`Duplicate tier member position ${position}`);
+      positions.add(position);
+      return { ...member, position };
+    });
+  }
+
   #insertMembers(tierId, members, now) {
     const stmt = this.db.prepare(
       `INSERT INTO model_tier_members (id, tier_id, provider_id, model_id, position, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`
     );
-    for (const member of members) {
+    for (const member of this.#validateMembers(members)) {
       stmt.run(
         databaseManager.generateId(),
         tierId,
         member.providerId,
         member.modelId,
-        member.position ?? 0,
+        member.position,
         now
       );
     }

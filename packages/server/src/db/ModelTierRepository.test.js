@@ -129,6 +129,88 @@ describe('ModelTierRepository', () => {
     });
   });
 
+  describe('member validation', () => {
+    function expectMemberError(fn, messagePart) {
+      try {
+        fn();
+      } catch (error) {
+        expect(error.statusCode).toBe(400);
+        if (messagePart) expect(error.message).toContain(messagePart);
+        return;
+      }
+      throw new Error('Expected member validation to throw');
+    }
+
+    it('rejects duplicate provider/model pairs instead of a raw UNIQUE error', () => {
+      expectMemberError(() => repo.create({
+        name: 'Dup Pair',
+        members: [
+          { providerId: providerA.id, modelId: 'm1', position: 0 },
+          { providerId: providerA.id, modelId: 'm1', position: 1 },
+        ],
+      }), 'Duplicate tier member');
+    });
+
+    it('rejects duplicate positions instead of a raw UNIQUE error', () => {
+      expectMemberError(() => repo.create({
+        name: 'Dup Position',
+        members: [
+          { providerId: providerA.id, modelId: 'm1', position: 0 },
+          { providerId: providerB.id, modelId: 'm2', position: 0 },
+        ],
+      }), 'Duplicate tier member position');
+    });
+
+    it('rejects empty providerId and modelId', () => {
+      expectMemberError(() => repo.create({
+        name: 'Empty Provider',
+        members: [{ providerId: '', modelId: 'm1', position: 0 }],
+      }), 'providerId');
+      expectMemberError(() => repo.create({
+        name: 'Empty Model',
+        members: [{ providerId: providerA.id, modelId: '', position: 0 }],
+      }), 'modelId');
+    });
+
+    it('rejects tier-ref modelIds', () => {
+      expectMemberError(() => repo.create({
+        name: 'Tier Ref Member',
+        members: [{ providerId: providerA.id, modelId: 'tier::other', position: 0 }],
+      }), 'tier::');
+    });
+
+    it('rejects negative positions', () => {
+      expectMemberError(() => repo.create({
+        name: 'Negative Position',
+        members: [{ providerId: providerA.id, modelId: 'm1', position: -1 }],
+      }), 'position');
+    });
+
+    it('defaults a missing position to array order instead of colliding on 0', () => {
+      const tier = repo.create({
+        name: 'Missing Positions',
+        members: [
+          { providerId: providerA.id, modelId: 'm1' },
+          { providerId: providerB.id, modelId: 'm2' },
+        ],
+      });
+      expect(tier.members.map((m) => m.position)).toEqual([0, 1]);
+    });
+
+    it('validates replacement members on update', () => {
+      const tier = repo.create({
+        name: 'Tier',
+        members: [{ providerId: providerA.id, modelId: 'm1', position: 0 }],
+      });
+      expectMemberError(() => repo.update(tier.id, {
+        members: [
+          { providerId: providerB.id, modelId: 'm2', position: 0 },
+          { providerId: providerB.id, modelId: 'm2', position: 1 },
+        ],
+      }), 'Duplicate tier member');
+    });
+  });
+
   describe('delete', () => {
     it('cascades to members', () => {
       const tier = repo.create({

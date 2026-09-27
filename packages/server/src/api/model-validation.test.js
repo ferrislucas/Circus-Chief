@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { modelProviders, modelTiers } from '../database.js';
-import { validateModelId, validateModelAndProvider, validateTierMembers } from './model-validation.js';
+import { resolveTierWriteError, validateModelId, validateModelAndProvider, validateTierMembers } from './model-validation.js';
 import { buildTierRef } from '@circuschief/shared';
 
 describe('validateModelId', () => {
@@ -310,5 +310,27 @@ describe('validateTierMembers', () => {
     ]);
     expect(result.error).toContain(provider.id);
     expect(result.error).toContain('disabled');
+  });
+});
+
+describe('resolveTierWriteError', () => {
+  it('maps repository validation errors to their statusCode instead of 500', () => {
+    const error = new Error('Duplicate tier member provider/model pair');
+    error.statusCode = 400;
+    expect(resolveTierWriteError(error)).toEqual({
+      status: 400,
+      message: 'Duplicate tier member provider/model pair',
+    });
+  });
+
+  it('maps duplicate names to 409', () => {
+    expect(resolveTierWriteError(new Error('UNIQUE constraint failed: model_tiers.name'))).toEqual({
+      status: 409,
+      message: 'A tier with that name already exists',
+    });
+  });
+
+  it('maps unknown errors to 500', () => {
+    expect(resolveTierWriteError(new Error('boom'))).toEqual({ status: 500, message: 'boom' });
   });
 });
