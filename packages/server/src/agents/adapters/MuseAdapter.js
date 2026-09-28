@@ -72,7 +72,7 @@ export class MuseAdapter extends BaseAgent {
   /**
    * @param {Object} [opts]
    * @param {Function} [opts.museClientFactory] - Optional DI for testing.
-   *   Shape: `async ({ museBin, env, onStderr }) => client` where client has
+   *   Shape: `async ({ museBin, args, env, onStderr }) => client` where client has
    *   `startSession()`, `resumeSession()`, and `close()`.
    * @param {Object} [opts.rest] - Passed to {@link BaseAgent}.
    */
@@ -134,6 +134,7 @@ export class MuseAdapter extends BaseAgent {
     try {
       client = await deadline(factory({
         museBin,
+        args: resolveMuseServeArgs(options),
         env: buildMuseHostEnv(options.env),
         onStderr: (chunk) => logMuseStderr(chunk),
       }), this._timeouts.startupMs, 'spawn', context, null, async (lateClient) => lateClient?.close?.());
@@ -252,6 +253,27 @@ function completionAfterBacklog(completed) {
   });
 }
 
+/**
+ * Resolve the `muse serve` argv for one host lifetime.
+ *
+ * Sandbox posture is fixed at spawn and not negotiable over the wire, while
+ * the approval mode travels per-session — so the host's sandbox flag is
+ * derived from the session's approval mode: `allowAll` (yolo) runs
+ * unsandboxed, like Codex `danger-full-access` / Claude `bypassPermissions`,
+ * and every gated mode keeps the default sandbox. Fail-closed: anything that
+ * is not `allowAll` keeps sandboxing enabled.
+ *
+ * `--trust-workspace` is orthogonal (loads workspace skills/rules) and always kept.
+ *
+ * @param {Object} [options] - Turn options carrying `approvalMode`
+ * @returns {string[]}
+ */
+export function resolveMuseServeArgs({ approvalMode } = {}) {
+  const args = ['serve', '--trust-workspace'];
+  if (approvalMode === 'allowAll') args.push('--disable-sandbox');
+  return args;
+}
+
 export function resolveMuseBin(env = process.env) {
   // MUSE_BIN remains the escape hatch for an explicitly pinned executable.
   // In the common case, use the PATH launcher and validate its resolved
@@ -348,7 +370,7 @@ export function buildMuseHostEnv(sessionEnv = {}, baseEnv = process.env, opts = 
  * in environments where the optional dependency is not installed, and spawn
  * an owned `muse serve` host.
  */
-async function spawnMuseClient({ museBin, env, onStderr }) {
+async function spawnMuseClient({ museBin, args, env, onStderr }) {
   let MuseClient;
   try {
     ({ MuseClient } = await import('@muse-code/sdk'));
@@ -362,7 +384,7 @@ async function spawnMuseClient({ museBin, env, onStderr }) {
   }
   return MuseClient.spawn({
     museBin,
-    args: ['serve', '--trust-workspace'],
+    args: args ?? resolveMuseServeArgs(),
     // The SDK REPLACES the child env: extend the session env (which already
     // carries the robust PATH plus provider vars) instead of inheriting raw.
     // Hardened again here so the live spawn never depends on the caller

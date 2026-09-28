@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MuseAdapter, MUSE_CLIENT_INFO, MUSE_SDK_VERSION, MuseTurnTimeoutError, resolveMuseBin, resolveMuseReasoningEffort, buildMuseHostEnv } from './MuseAdapter.js';
+import { MuseAdapter, MUSE_CLIENT_INFO, MUSE_SDK_VERSION, MuseTurnTimeoutError, resolveMuseBin, resolveMuseReasoningEffort, resolveMuseServeArgs, buildMuseHostEnv } from './MuseAdapter.js';
 import { getNodeBinDir } from '../../services/nodeSpawnHelper.js';
 
 /**
@@ -276,6 +276,40 @@ describe('MuseAdapter', () => {
     expect(client.calls.close).toBe(1);
   });
 
+  it('passes --disable-sandbox to the host for allowAll (yolo) turns', async () => {
+    let capturedArgs = null;
+    const client = createFakeClient();
+    const adapter = new MuseAdapter({
+      museClientFactory: async (spawnArgs) => {
+        capturedArgs = spawnArgs;
+        return client;
+      },
+    });
+
+    await collect(adapter, { prompt: 'p', options: { approvalMode: 'allowAll', env: {} } });
+
+    expect(capturedArgs).not.toBeNull();
+    expect(capturedArgs.args).toContain('--disable-sandbox');
+    expect(capturedArgs.args).toContain('--trust-workspace');
+  });
+
+  it('keeps sandbox enabled for gated turns', async () => {
+    let capturedArgs = null;
+    const client = createFakeClient();
+    const adapter = new MuseAdapter({
+      museClientFactory: async (spawnArgs) => {
+        capturedArgs = spawnArgs;
+        return client;
+      },
+    });
+
+    await collect(adapter, { prompt: 'p', options: { approvalMode: 'onRequest', env: {} } });
+
+    expect(capturedArgs).not.toBeNull();
+    expect(capturedArgs.args).toContain('--trust-workspace');
+    expect(capturedArgs.args).not.toContain('--disable-sandbox');
+  });
+
   it('can start a valid continuation after a timed-out turn', async () => {
     const hung = createFakeClient();
     hung.session.sendUserTurn = async () => new Promise(() => {});
@@ -293,6 +327,22 @@ describe('MuseAdapter', () => {
     expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
     expect(recovered.calls.close).toBe(1);
   });
+});
+
+describe('resolveMuseServeArgs', () => {
+  it('disables sandbox for allowAll (yolo) sessions', () => {
+    expect(resolveMuseServeArgs({ approvalMode: 'allowAll' }))
+      .toEqual(['serve', '--trust-workspace', '--disable-sandbox']);
+  });
+
+  it('keeps sandbox enabled for gated approval modes', () => {
+    expect(resolveMuseServeArgs({ approvalMode: 'onRequest' }))
+      .toEqual(['serve', '--trust-workspace']);
+    expect(resolveMuseServeArgs({ approvalMode: 'promptUnmatched' }))
+      .toEqual(['serve', '--trust-workspace']);
+    expect(resolveMuseServeArgs({})).toEqual(['serve', '--trust-workspace']);
+  });
+
 });
 
 describe('MUSE_CLIENT_INFO', () => {
