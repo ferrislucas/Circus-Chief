@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MuseAdapter, MUSE_CLIENT_INFO, MUSE_SDK_VERSION, MuseTurnTimeoutError, resolveMuseReasoningEffort, buildMuseHostEnv } from './MuseAdapter.js';
+import { MuseAdapter, MUSE_CLIENT_INFO, MUSE_SDK_VERSION, MuseTurnTimeoutError, resolveMuseBin, resolveMuseReasoningEffort, buildMuseHostEnv } from './MuseAdapter.js';
 import { getNodeBinDir } from '../../services/nodeSpawnHelper.js';
 
 /**
@@ -300,6 +300,16 @@ describe('MUSE_CLIENT_INFO', () => {
     // Live-verified: the host rejects anything else at initialize,
     // which would break every Muse session before it starts.
     expect(MUSE_CLIENT_INFO.name).toMatch(/^[a-z0-9_]+$/);
+  });
+});
+
+describe('resolveMuseBin', () => {
+  it('uses the PATH launcher when no explicit binary is configured', () => {
+    expect(resolveMuseBin({})).toBe('muse');
+  });
+
+  it('honors an explicitly configured Muse executable', () => {
+    expect(resolveMuseBin({ MUSE_BIN: '/opt/muse-1.3.0/bin/muse' })).toBe('/opt/muse-1.3.0/bin/muse');
   });
 });
 

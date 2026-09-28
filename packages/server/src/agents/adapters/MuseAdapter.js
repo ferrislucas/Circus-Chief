@@ -125,8 +125,10 @@ export class MuseAdapter extends BaseAgent {
   async _openHost(options, context) {
     const factory = this._museClientFactory ?? spawnMuseClient;
     const museBin = this._museClientFactory ? (process.env.MUSE_BIN || 'test-muse') : resolveMuseBin();
-    // A test factory is already a pinned in-memory host. Production always
-    // probes the configured executable before it may open an MSP session.
+    // A test factory is already a pinned in-memory host. Production probes
+    // the selected executable before it may open an MSP session. This makes
+    // the normal PATH-resolved launcher safe while still catching an update
+    // that no longer matches our pinned SDK.
     const cliVersion = await this._preflightMuseCompatibility(museBin, Boolean(this._museClientFactory));
     let client;
     try {
@@ -250,12 +252,12 @@ function completionAfterBacklog(completed) {
   });
 }
 
-function resolveMuseBin() {
-  const museBin = process.env.MUSE_BIN;
-  if (museBin) return museBin;
-  const error = new Error(`Muse requires MUSE_BIN to point to the exact Muse Code ${MUSE_SDK_VERSION} executable; refusing the auto-updating global \`muse\` launcher.`);
-  error.code = 'MUSE_BIN_NOT_CONFIGURED';
-  throw error;
+export function resolveMuseBin(env = process.env) {
+  // MUSE_BIN remains the escape hatch for an explicitly pinned executable.
+  // In the common case, use the PATH launcher and validate its resolved
+  // version immediately before starting the host. Requiring a manually-set
+  // path makes a correctly installed matching CLI unusable after restarts.
+  return env.MUSE_BIN || 'muse';
 }
 
 export async function readMuseCliVersion(museBin) {
