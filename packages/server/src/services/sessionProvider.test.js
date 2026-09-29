@@ -615,6 +615,32 @@ describe('sessionProvider', () => {
       delete process.env.OPENAI_API_KEY;
     });
 
+    it('meta provider: preserves user git/gh credential vars for the Muse host', () => {
+      let savedSshSock;
+      let savedGhToken;
+      let hadSshSock = false;
+      let hadGhToken = false;
+      try {
+        hadSshSock = Object.hasOwn(process.env, 'SSH_AUTH_SOCK');
+        savedSshSock = process.env.SSH_AUTH_SOCK;
+        hadGhToken = Object.hasOwn(process.env, 'GH_TOKEN');
+        savedGhToken = process.env.GH_TOKEN;
+        process.env.SSH_AUTH_SOCK = '/tmp/test-ssh-agent.sock';
+        process.env.GH_TOKEN = 'gh-token-for-muse';
+        const provider = { name: 'M', kind: 'meta' };
+        const env = buildSessionEnv(provider, false, null);
+        expect(env.SSH_AUTH_SOCK).toBe('/tmp/test-ssh-agent.sock');
+        expect(env.GH_TOKEN).toBe('gh-token-for-muse');
+        expect(env.HOME).toBeDefined();
+        expect(env.PATH).toBeTruthy();
+      } finally {
+        if (hadSshSock) process.env.SSH_AUTH_SOCK = savedSshSock;
+        else delete process.env.SSH_AUTH_SOCK;
+        if (hadGhToken) process.env.GH_TOKEN = savedGhToken;
+        else delete process.env.GH_TOKEN;
+      }
+    });
+
     it('meta provider: additionalEnvVars are preserved as the escape hatch', () => {
       const provider = {
         name: 'M',
@@ -623,6 +649,20 @@ describe('sessionProvider', () => {
       };
       const env = buildSessionEnv(provider, false, null);
       expect(env.CUSTOM_MUSE_VAR).toBe('custom-value');
+    });
+
+    it('provider additionalEnvVars override login-shell-derived values', () => {
+      const shellEnv = { GIT_TEST_SENTINEL_VAR: 'shell-value' };
+      const withoutOverride = buildSessionEnv({ name: 'M', kind: 'meta' }, false, null, { shellEnv });
+      expect(withoutOverride.GIT_TEST_SENTINEL_VAR).toBe('shell-value');
+
+      const provider = {
+        name: 'M',
+        kind: 'meta',
+        additionalEnvVars: { GIT_TEST_SENTINEL_VAR: 'provider-wins' },
+      };
+      const env = buildSessionEnv(provider, false, null, { shellEnv });
+      expect(env.GIT_TEST_SENTINEL_VAR).toBe('provider-wins');
     });
   });
 });

@@ -753,6 +753,33 @@ describe('buildQueryParams agent-aware', () => {
     const result = buildQueryParams(args);
     expect(result.options.model).toBe('gemini-2.5-flash');
   });
+
+  it('muse: systemPrompt is a composed prompt with canvas and session API instructions', () => {
+    const args = { ...baseArgs(), agentType: 'muse', model: 'muse-spark-1.3', systemPrompt: null };
+    const result = buildQueryParams(args);
+    expect(typeof result.options.systemPrompt).toBe('string');
+    expect(result.options.systemPrompt).toContain('AI coding assistant');
+    expect(result.options.systemPrompt).toContain('/api/workspaces/sess-1/canvas');
+    expect(result.options.systemPrompt).toContain('Session Management API');
+  });
+
+  it('muse: systemPrompt is composed with custom prompt as base', () => {
+    const args = { ...baseArgs(), agentType: 'muse', model: 'muse-spark-1.3', systemPrompt: 'be helpful' };
+    const result = buildQueryParams(args);
+    expect(result.options.systemPrompt).toContain('be helpful');
+    expect(result.options.systemPrompt).toContain('/api/workspaces/sess-1/canvas');
+  });
+
+  it('muse: composed systemPrompt includes plan mode when session.mode is plan', () => {
+    const args = {
+      ...baseArgs(),
+      agentType: 'muse',
+      model: 'muse-spark-1.3',
+      session: { mode: 'plan', projectId: 'proj-1' },
+    };
+    const result = buildQueryParams(args);
+    expect(result.options.systemPrompt).toContain('Plan Mode Active');
+  });
 });
 
 // ── createAgentForSession config forwarding ────────────────────────────────

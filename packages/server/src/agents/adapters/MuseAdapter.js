@@ -1,5 +1,14 @@
 import { BaseAgent } from '../BaseAgent.js';
+import { execFile as execFileCallback } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { promisify } from 'node:util';
+import { composeCliPrompt } from './cliUtils.js';
+import { createRobustEnv } from '../../services/nodeSpawnHelper.js';
+import { filterDeadSshSocket } from '../../services/loginShellEnv.js';
 import { createMuseEventMapper } from './museEventMapper.js';
+
+/* The timeout coordinator keeps the host/session/turn ownership together. */
+/* eslint-disable max-lines, max-params, max-statements, no-param-reassign */
 
 /**
  * Adapter for Muse via the official `@muse-code/sdk` (MSP facade over a
@@ -34,6 +43,23 @@ import { createMuseEventMapper } from './museEventMapper.js';
  */
 export const MUSE_CLIENT_INFO = Object.freeze({ name: 'circus_chief', version: '1.0.0' });
 
+const require = createRequire(import.meta.url);
+export const MUSE_SDK_VERSION = require('@muse-code/sdk/package.json').version;
+const execFile = promisify(execFileCallback);
+const DEFAULT_TIMEOUTS = Object.freeze({ startupMs: 30_000, turnMs: 15 * 60_000, idleMs: 60_000 });
+
+/** A typed, actionable failure that the session error path can safely surface. */
+export class MuseTurnTimeoutError extends Error {
+  constructor(phase, timeoutMs, details = {}) {
+    super(`Muse turn timed out during ${phase} after ${timeoutMs}ms. The Muse host was closed; retry the turn. If this persists, verify the pinned Muse CLI and SDK versions.`);
+    this.name = 'MuseTurnTimeoutError';
+    this.code = 'MUSE_TURN_TIMEOUT';
+    this.phase = phase;
+    this.timeoutMs = timeoutMs;
+    Object.assign(this, details);
+  }
+}
+
 export class MuseAdapter extends BaseAgent {
   static capabilities = Object.freeze({
     streaming: true,
@@ -46,13 +72,16 @@ export class MuseAdapter extends BaseAgent {
   /**
    * @param {Object} [opts]
    * @param {Function} [opts.museClientFactory] - Optional DI for testing.
-   *   Shape: `async ({ museBin, env, onStderr }) => client` where client has
+   *   Shape: `async ({ museBin, args, env, onStderr }) => client` where client has
    *   `startSession()`, `resumeSession()`, and `close()`.
    * @param {Object} [opts.rest] - Passed to {@link BaseAgent}.
    */
-  constructor({ museClientFactory, ...rest } = {}) {
+  constructor({ museClientFactory, museVersionResolver, timeouts, correlationIdFactory, ...rest } = {}) {
     super(rest);
     this._museClientFactory = museClientFactory;
+    this._museVersionResolver = museVersionResolver;
+    this._timeouts = { ...DEFAULT_TIMEOUTS, ...(timeouts || {}) };
+    this._correlationIdFactory = correlationIdFactory || (() => `muse-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
   }
 
   getCapabilities() {
@@ -72,13 +101,19 @@ export class MuseAdapter extends BaseAgent {
   async *execute(queryParams, _meta) {
     const options = queryParams.options || {};
     const mapper = createMuseEventMapper({ model: options.model });
-    const host = await this._openHost(options);
+    const correlationId = this._correlationIdFactory();
+    const timings = { startedAt: Date.now() };
+    const host = await this._openHost(options, { correlationId, timings });
+    let settled = false;
     try {
-      yield* this._runTurn(host.client, queryParams, options, mapper);
+      yield* this._runTurn(host, queryParams, options, mapper, { correlationId, timings });
+      settled = true;
     } finally {
       host.detach();
       await host.close();
-      yield* mapper.finalize();
+      timings.closeMs = Date.now() - timings.startedAt;
+      logMuseLifecycle({ correlationId, hostPid: host.pid, sdkVersion: MUSE_SDK_VERSION, cliVersion: host.cliVersion, timings, phase: 'close' });
+      if (settled) yield* mapper.finalize();
     }
   }
 
@@ -87,58 +122,208 @@ export class MuseAdapter extends BaseAgent {
    * idempotent `close()` (also triggered by abort, to unblock iterators)
    * and `detach()` to remove the abort listener once the turn settles.
    */
-  async _openHost(options) {
+  async _openHost(options, context) {
     const factory = this._museClientFactory ?? spawnMuseClient;
+    const museBin = this._museClientFactory ? (process.env.MUSE_BIN || 'test-muse') : resolveMuseBin();
+    // A test factory is already a pinned in-memory host. Production probes
+    // the selected executable before it may open an MSP session. This makes
+    // the normal PATH-resolved launcher safe while still catching an update
+    // that no longer matches our pinned SDK.
+    const cliVersion = await this._preflightMuseCompatibility(museBin, Boolean(this._museClientFactory));
     let client;
     try {
-      client = await factory({
-        museBin: process.env.MUSE_BIN || 'muse',
-        env: options.env,
+      client = await deadline(factory({
+        museBin,
+        args: resolveMuseServeArgs(options),
+        env: buildMuseHostEnv(options.env),
         onStderr: (chunk) => logMuseStderr(chunk),
-      });
+      }), this._timeouts.startupMs, 'spawn', context, null, async (lateClient) => lateClient?.close?.());
     } catch (err) {
       throw toMuseNotFoundError(err);
     }
 
-    let closed = false;
-    const close = async () => {
-      if (closed) return;
-      closed = true;
-      try {
-        await client.close();
-      } catch (err) {
-        console.warn(`[MuseAdapter] Error closing Muse host: ${err?.message || err}`);
-      }
+    context.timings.spawnMs = Date.now() - context.timings.startedAt;
+    const pid = client.hostPid ?? client.pid ?? 'unavailable';
+    logMuseLifecycle({ correlationId: context.correlationId, hostPid: pid, sdkVersion: MUSE_SDK_VERSION, cliVersion, timings: context.timings, phase: 'spawn' });
+
+    let closePromise = null;
+    const close = () => {
+      if (closePromise) return closePromise;
+      closePromise = (async () => {
+        try {
+          await client.close();
+        } catch (err) {
+          console.warn(`[MuseAdapter] Error closing Muse host: ${err?.message || err}`);
+        }
+      })();
+      return closePromise;
     };
     const abortSignal = options.abortController?.signal;
     const onAbort = () => { void close(); };
     abortSignal?.addEventListener('abort', onAbort, { once: true });
     return {
       client,
+      pid,
+      cliVersion,
       close,
       detach: () => abortSignal?.removeEventListener('abort', onAbort),
     };
   }
 
-  async *_runTurn(client, queryParams, options, mapper) {
-    const session = await openMspSession(client, options);
+  async _preflightMuseCompatibility(museBin, skipProbe) {
+    if (skipProbe && !this._museVersionResolver) return MUSE_SDK_VERSION;
+    const resolver = this._museVersionResolver || readMuseCliVersion;
+    const cliVersion = await resolver(museBin);
+    if (cliVersion !== MUSE_SDK_VERSION) {
+      const error = new Error(`Muse CLI/SDK version mismatch: CLI ${cliVersion || 'unknown'} does not match @muse-code/sdk ${MUSE_SDK_VERSION}. Install Muse Code ${MUSE_SDK_VERSION} and set MUSE_BIN to that exact executable.`);
+      error.code = 'MUSE_VERSION_MISMATCH';
+      error.cliVersion = cliVersion || null;
+      error.sdkVersion = MUSE_SDK_VERSION;
+      throw error;
+    }
+    return cliVersion;
+  }
+
+  async *_runTurn(host, queryParams, options, mapper, context) {
+    const { client } = host;
+    const session = await deadline(openMspSession(client, options), this._timeouts.startupMs, options.resume ? 'resume' : 'startSession', context, () => host.close());
+    context.timings.resumeOrStartMs = Date.now() - context.timings.startedAt;
+    context.sessionId = session.sessionId;
+    logMuseLifecycle({ correlationId: context.correlationId, hostPid: host.pid, museSessionId: session.sessionId, sdkVersion: MUSE_SDK_VERSION, cliVersion: host.cliVersion, timings: context.timings, phase: options.resume ? 'resume' : 'startSession' });
     yield mapper.buildSystemInit(session.sessionId);
     registerApprovalHandlers(session);
 
-    const turn = await session.sendUserTurn({
-      input: [{ type: 'text', text: queryParams.prompt }],
+    const turn = await deadline(session.sendUserTurn({
+      input: [{ type: 'text', text: composeCliPrompt(options.systemPrompt, queryParams.prompt) }],
       ...(options.displayText ? { displayText: options.displayText } : {}),
       ...museReasoningEffortParam(options.effortLevel),
-    });
+    }), this._timeouts.startupMs, 'sendUserTurn', context, () => host.close());
+    context.timings.sendUserTurnMs = Date.now() - context.timings.startedAt;
+    logMuseLifecycle({ correlationId: context.correlationId, hostPid: host.pid, museSessionId: session.sessionId, sdkVersion: MUSE_SDK_VERSION, cliVersion: host.cliVersion, timings: context.timings, phase: 'sendUserTurn' });
 
     const abortSignal = options.abortController?.signal;
-    for await (const item of turn.items()) {
+    const iterator = turn.items()[Symbol.asyncIterator]();
+    let sawFirstItem = false;
+    let outcome = null;
+    while (true) {
       if (abortSignal?.aborted) break;
+      const remainingTurnMs = this._timeouts.turnMs - (Date.now() - context.timings.startedAt);
+      if (remainingTurnMs <= 0) await timeoutAndClose('turn', this._timeouts.turnMs, context, host, options.abortController);
+      // Completion is raced with each tail read: a host that has terminally
+      // completed must not remain "running" merely because its item iterator
+      // failed to wake. The deadline still catches the 1.3/1.4 mismatch case
+      // where neither side ever settles.
+      const next = await deadline(Promise.race([
+        iterator.next().then((itemResult) => ({ kind: 'item', itemResult })),
+        completionAfterBacklog(turn.completed),
+      ]), Math.min(this._timeouts.idleMs, remainingTurnMs), 'stream_idle', context, () => host.close());
+      if (next.kind === 'completed') {
+        outcome = next.completed;
+        break;
+      }
+      const { itemResult } = next;
+      if (itemResult.done) break;
+      const item = itemResult.value;
+      if (!sawFirstItem) {
+        sawFirstItem = true;
+        context.timings.firstItemMs = Date.now() - context.timings.startedAt;
+        logMuseLifecycle({ correlationId: context.correlationId, hostPid: host.pid, museSessionId: session.sessionId, sdkVersion: MUSE_SDK_VERSION, cliVersion: host.cliVersion, timings: context.timings, phase: 'firstItem' });
+      }
       yield* mapper.mapItem(item);
     }
 
-    yield* mapper.mapOutcome(await turn.completed);
+    const remainingTurnMs = this._timeouts.turnMs - (Date.now() - context.timings.startedAt);
+    if (remainingTurnMs <= 0) await timeoutAndClose('turn', this._timeouts.turnMs, context, host, options.abortController);
+    yield* mapper.mapOutcome(outcome || await deadline(turn.completed, remainingTurnMs, 'completion', context, () => host.close()));
+    context.timings.completionMs = Date.now() - context.timings.startedAt;
+    logMuseLifecycle({ correlationId: context.correlationId, hostPid: host.pid, museSessionId: session.sessionId, sdkVersion: MUSE_SDK_VERSION, cliVersion: host.cliVersion, timings: context.timings, phase: 'completion' });
   }
+}
+
+function completionAfterBacklog(completed) {
+  // `items()` must replay its already-folded backlog before a terminal
+  // completion is emitted. Give an immediately available iterator item the
+  // current event-loop turn; after that, a settled completion reconciles a
+  // stuck live tail without waiting for idle timeout.
+  return new Promise((resolve, reject) => {
+    setTimeout(() => completed.then(
+      (value) => resolve({ kind: 'completed', completed: value }),
+      reject,
+    ), 0);
+  });
+}
+
+/**
+ * Resolve the `muse serve` argv for one host lifetime.
+ *
+ * Sandbox posture is fixed at spawn and not negotiable over the wire, while
+ * the approval mode travels per-session — so the host's sandbox flag is
+ * derived from the session's approval mode: `allowAll` (yolo) runs
+ * unsandboxed, like Codex `danger-full-access` / Claude `bypassPermissions`,
+ * and every gated mode keeps the default sandbox. Fail-closed: anything that
+ * is not `allowAll` keeps sandboxing enabled.
+ *
+ * `--trust-workspace` is orthogonal (loads workspace skills/rules) and always kept.
+ *
+ * @param {Object} [options] - Turn options carrying `approvalMode`
+ * @returns {string[]}
+ */
+export function resolveMuseServeArgs({ approvalMode } = {}) {
+  const args = ['serve', '--trust-workspace'];
+  if (approvalMode === 'allowAll') args.push('--disable-sandbox');
+  return args;
+}
+
+export function resolveMuseBin(env = process.env) {
+  // MUSE_BIN remains the escape hatch for an explicitly pinned executable.
+  // In the common case, use the PATH launcher and validate its resolved
+  // version immediately before starting the host. Requiring a manually-set
+  // path makes a correctly installed matching CLI unusable after restarts.
+  return env.MUSE_BIN || 'muse';
+}
+
+export async function readMuseCliVersion(museBin) {
+  const { stdout } = await execFile(museBin, ['--version'], { timeout: DEFAULT_TIMEOUTS.startupMs, windowsHide: true });
+  const match = String(stdout).match(/\b(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\b/);
+  if (!match) {
+    const error = new Error(`Could not determine Muse CLI version from ${museBin} --version output.`);
+    error.code = 'MUSE_CLI_VERSION_UNKNOWN';
+    throw error;
+  }
+  return match[1];
+}
+
+async function deadline(promise, timeoutMs, phase, context, onTimeout, onLateResolve) {
+  let timer;
+  let timedOut = false;
+  const guarded = Promise.resolve(promise);
+  // If a timed-out spawn later resolves, close it so an owned process cannot leak.
+  guarded.then((value) => (timedOut ? onLateResolve?.(value) : undefined)).catch(() => undefined);
+  try {
+    return await Promise.race([
+      guarded,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          Promise.resolve(onTimeout?.()).catch(() => undefined);
+          reject(new MuseTurnTimeoutError(phase, timeoutMs, { correlationId: context.correlationId }));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function timeoutAndClose(phase, timeoutMs, context, host, controller) {
+  const error = new MuseTurnTimeoutError(phase, timeoutMs, { correlationId: context.correlationId, museSessionId: context.sessionId });
+  controller?.abort(error);
+  await host.close();
+  throw error;
+}
+
+function logMuseLifecycle({ correlationId, hostPid, museSessionId, sdkVersion, cliVersion, timings, phase }) {
+  console.info(`[MuseAdapter] correlationId=${correlationId} phase=${phase} hostPid=${hostPid ?? 'unavailable'} museSessionId=${museSessionId ?? 'pending'} sdkVersion=${sdkVersion} cliVersion=${cliVersion ?? 'unknown'} timings=${JSON.stringify(timings)}`);
 }
 
 function registerApprovalHandlers(session) {
@@ -151,11 +336,41 @@ function registerApprovalHandlers(session) {
 }
 
 /**
+ * Build the env for the owned `muse serve` host so shell tools (git, gh and
+ * friends) resolve the same binaries, config, and credentials as when the
+ * user runs them directly. Session env wins over the host process env;
+ * HOME/USER/LOGNAME fallbacks and well-known bin dirs fill the gaps left by
+ * sparse server launch contexts. Safe to apply at both the adapter boundary
+ * and the live spawn (user entries are never reordered or dropped).
+ *
+ * @param {Object} [sessionEnv] - Session env from buildSessionEnv (wins)
+ * @param {Object} [baseEnv] - Host env filling the gaps (defaults to process.env)
+ * @param {Object} [opts] - Optional `{ shellEnv }` forwarded to createRobustEnv
+ *   (fixture injection for tests; undefined runs the cached live probe) and
+ *   `{ isSshAgentAlive }` liveness predicate override (tests; default stats
+ *   the socket path).
+ * @returns {Object}
+ */
+export function buildMuseHostEnv(sessionEnv = {}, baseEnv = process.env, opts = {}) {
+  const robust = createRobustEnv({ ...baseEnv, ...(sessionEnv || {}) }, opts);
+  // FR-5: a stale agent socket must never be passed through silently — SSH
+  // remotes/signing would fail opaquely inside the turn. Drop it and say why.
+  const { env, droppedReason } = filterDeadSshSocket(
+    robust,
+    opts.isSshAgentAlive ? (sockPath) => opts.isSshAgentAlive(sockPath) : undefined,
+  );
+  if (droppedReason) {
+    console.warn(`[MuseAdapter] ${droppedReason}. SSH git remotes and SSH commit signing will fail; run \`ssh-add -l\` in your terminal and relaunch the server from there.`);
+  }
+  return env;
+}
+
+/**
  * Default client factory: lazy-import the SDK so the server stays bootable
  * in environments where the optional dependency is not installed, and spawn
  * an owned `muse serve` host.
  */
-async function spawnMuseClient({ museBin, env, onStderr }) {
+async function spawnMuseClient({ museBin, args, env, onStderr }) {
   let MuseClient;
   try {
     ({ MuseClient } = await import('@muse-code/sdk'));
@@ -169,10 +384,12 @@ async function spawnMuseClient({ museBin, env, onStderr }) {
   }
   return MuseClient.spawn({
     museBin,
-    args: ['serve', '--trust-workspace'],
+    args: args ?? resolveMuseServeArgs(),
     // The SDK REPLACES the child env: extend the session env (which already
     // carries the robust PATH plus provider vars) instead of inheriting raw.
-    env: { ...process.env, ...(env || {}) },
+    // Hardened again here so the live spawn never depends on the caller
+    // having gone through _openHost (idempotent with it).
+    env: buildMuseHostEnv(env),
     clientInfo: { ...MUSE_CLIENT_INFO },
     ...(onStderr ? { onStderr } : {}),
   });
