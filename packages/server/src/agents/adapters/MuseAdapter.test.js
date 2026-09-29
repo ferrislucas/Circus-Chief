@@ -260,20 +260,96 @@ describe('MuseAdapter', () => {
     expect(client.calls.close).toBe(1);
   });
 
-  it('times out a silent stream and closes the owned host', async () => {
+  it('does not cancel a quiet stream merely because no item has arrived', async () => {
+    const client = createFakeClient();
+    let resolveCompleted;
+    client.session.sendUserTurn = async () => ({
+      async *items() {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        yield { kind: 'agentMessage', text: 'tool finished' };
+        resolveCompleted({ kind: 'completed', params: { terminal: 'completed' } });
+      },
+      completed: new Promise((resolve) => { resolveCompleted = resolve; }),
+    });
+    const adapter = new MuseAdapter({
+      museClientFactory: async () => client,
+      // `idleMs` is deliberately ignored. A value below the quiet interval
+      // proves an inter-event watchdog no longer exists.
+      timeouts: { startupMs: 100, turnMs: 100, idleMs: 5 },
+    });
+
+    const events = await collect(adapter, { prompt: 'p', options: {} });
+    expect(events).toContainEqual({ type: 'assistant', message: { content: [{ type: 'text', text: 'tool finished' }] } });
+    expect(client.calls.close).toBe(1);
+  });
+
+  it('keeps a long-running quiet tool interval active until the turn completes', async () => {
+    const client = createFakeClient();
+    let resolveCompleted;
+    client.session.sendUserTurn = async () => ({
+      async *items() {
+        yield { kind: 'agentMessage', text: 'starting command' };
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        yield { kind: 'agentMessage', text: 'command complete' };
+        resolveCompleted({ kind: 'completed', params: { terminal: 'completed' } });
+      },
+      completed: new Promise((resolve) => { resolveCompleted = resolve; }),
+    });
+    const adapter = new MuseAdapter({
+      museClientFactory: async () => client,
+      timeouts: { startupMs: 100, turnMs: 100, idleMs: 5 },
+    });
+
+    const events = await collect(adapter, { prompt: 'p', options: {} });
+    expect(events).toContainEqual({ type: 'assistant', message: { content: [{ type: 'text', text: 'command complete' }] } });
+    expect(client.calls.close).toBe(1);
+  });
+
+  it('responds promptly to explicit cancellation while the stream is quiet', async () => {
     const client = createFakeClient();
     client.session.sendUserTurn = async () => ({
       async *items() { await new Promise(() => {}); yield undefined; },
       completed: new Promise(() => {}),
     });
+    const controller = new AbortController();
+    const adapter = new MuseAdapter({ museClientFactory: async () => client, timeouts: { turnMs: 1_000 } });
+    const pending = collect(adapter, { prompt: 'p', options: { abortController: controller } });
+    setTimeout(() => controller.abort(), 10);
+
+    await expect(pending).resolves.toHaveLength(1);
+    expect(client.calls.close).toBe(1);
+  });
+
+  it('includes host exit state and recent stderr when the host disconnects', async () => {
+    const client = createFakeClient();
+    client.exit = Promise.resolve({ kind: 'crash', exitCode: 1 });
+    client.session.sendUserTurn = async () => ({
+      async *items() { yield* []; throw new Error('MSP connection closed'); },
+      completed: new Promise(() => {}),
+    });
     const adapter = new MuseAdapter({
-      museClientFactory: async () => client,
-      timeouts: { startupMs: 100, turnMs: 100, idleMs: 15 },
+      museClientFactory: async ({ onStderr }) => {
+        onStderr('fatal: transport lost');
+        return client;
+      },
     });
 
     await expect(collect(adapter, { prompt: 'p', options: {} }))
-      .rejects.toMatchObject({ code: 'MUSE_TURN_TIMEOUT', phase: 'stream_idle' });
-    expect(client.calls.close).toBe(1);
+      .rejects.toThrow(/Muse host state=exited:crash.*Recent host stderr: fatal: transport lost/);
+  });
+
+  it('forces a stuck host shutdown after the configured grace period', async () => {
+    const client = createFakeClient();
+    client.close = async () => new Promise(() => {});
+    const forceTerminateHost = vi.fn();
+    const adapter = new MuseAdapter({
+      museClientFactory: async () => client,
+      forceTerminateHost,
+      timeouts: { shutdownGraceMs: 10 },
+    });
+
+    await collect(adapter, { prompt: 'p', options: {} });
+    expect(forceTerminateHost).toHaveBeenCalledWith(client, 'unavailable');
   });
 
   it('passes --disable-sandbox to the host for allowAll (yolo) turns', async () => {

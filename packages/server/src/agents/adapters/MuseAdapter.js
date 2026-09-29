@@ -46,12 +46,12 @@ export const MUSE_CLIENT_INFO = Object.freeze({ name: 'circus_chief', version: '
 const require = createRequire(import.meta.url);
 export const MUSE_SDK_VERSION = require('@muse-code/sdk/package.json').version;
 const execFile = promisify(execFileCallback);
-const DEFAULT_TIMEOUTS = Object.freeze({ startupMs: 30_000, turnMs: 15 * 60_000, idleMs: 60_000 });
+const DEFAULT_TIMEOUTS = Object.freeze({ startupMs: 30_000, turnMs: 15 * 60_000, shutdownGraceMs: 2_000 });
 
 /** A typed, actionable failure that the session error path can safely surface. */
 export class MuseTurnTimeoutError extends Error {
   constructor(phase, timeoutMs, details = {}) {
-    super(`Muse turn timed out during ${phase} after ${timeoutMs}ms. The Muse host was closed; retry the turn. If this persists, verify the pinned Muse CLI and SDK versions.`);
+    super(`Muse turn timed out during ${phase} after ${timeoutMs}ms. The Muse host was closed; retry the turn or cancel it explicitly.`);
     this.name = 'MuseTurnTimeoutError';
     this.code = 'MUSE_TURN_TIMEOUT';
     this.phase = phase;
@@ -76,12 +76,13 @@ export class MuseAdapter extends BaseAgent {
    *   `startSession()`, `resumeSession()`, and `close()`.
    * @param {Object} [opts.rest] - Passed to {@link BaseAgent}.
    */
-  constructor({ museClientFactory, museVersionResolver, timeouts, correlationIdFactory, ...rest } = {}) {
+  constructor({ museClientFactory, museVersionResolver, timeouts, correlationIdFactory, forceTerminateHost, ...rest } = {}) {
     super(rest);
     this._museClientFactory = museClientFactory;
     this._museVersionResolver = museVersionResolver;
     this._timeouts = { ...DEFAULT_TIMEOUTS, ...(timeouts || {}) };
     this._correlationIdFactory = correlationIdFactory || (() => `muse-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+    this._forceTerminateHost = forceTerminateHost || forceTerminateMuseHost;
   }
 
   getCapabilities() {
@@ -103,11 +104,14 @@ export class MuseAdapter extends BaseAgent {
     const mapper = createMuseEventMapper({ model: options.model });
     const correlationId = this._correlationIdFactory();
     const timings = { startedAt: Date.now() };
-    const host = await this._openHost(options, { correlationId, timings });
+    const context = { correlationId, timings, stderrTail: [], hostState: 'connecting' };
+    const host = await this._openHost(options, context);
     let settled = false;
     try {
-      yield* this._runTurn(host, queryParams, options, mapper, { correlationId, timings });
-      settled = true;
+      yield* this._runTurn(host, queryParams, options, mapper, context);
+      settled = !context.cancelled;
+    } catch (err) {
+      throw addMuseHostDiagnostics(err, host);
     } finally {
       host.detach();
       await host.close();
@@ -136,7 +140,8 @@ export class MuseAdapter extends BaseAgent {
         museBin,
         args: resolveMuseServeArgs(options),
         env: buildMuseHostEnv(options.env),
-        onStderr: (chunk) => logMuseStderr(chunk),
+        onStderr: (chunk) => captureMuseStderr(context, chunk),
+        shutdownTimeoutMs: this._timeouts.shutdownGraceMs,
       }), this._timeouts.startupMs, 'spawn', context, null, async (lateClient) => lateClient?.close?.());
     } catch (err) {
       throw toMuseNotFoundError(err);
@@ -144,18 +149,24 @@ export class MuseAdapter extends BaseAgent {
 
     context.timings.spawnMs = Date.now() - context.timings.startedAt;
     const pid = client.hostPid ?? client.pid ?? 'unavailable';
+    context.cliVersion = cliVersion;
     logMuseLifecycle({ correlationId: context.correlationId, hostPid: pid, sdkVersion: MUSE_SDK_VERSION, cliVersion, timings: context.timings, phase: 'spawn' });
+
+    context.hostState = 'connected';
+    // The SDK exposes its host-exit classification as a promise. Observe it
+    // without awaiting it so a disconnected host is diagnosable at the call
+    // site that failed, rather than being reported as a generic stream error.
+    client.exit?.then((exit) => {
+      context.hostState = `exited:${exit?.kind || 'unknown'}`;
+      context.hostExit = exit;
+    }, (err) => {
+      context.hostState = `exit-error:${err?.message || 'unknown'}`;
+    });
 
     let closePromise = null;
     const close = () => {
       if (closePromise) return closePromise;
-      closePromise = (async () => {
-        try {
-          await client.close();
-        } catch (err) {
-          console.warn(`[MuseAdapter] Error closing Muse host: ${err?.message || err}`);
-        }
-      })();
+      closePromise = closeMuseHost({ client, pid, context, shutdownGraceMs: this._timeouts.shutdownGraceMs, forceTerminateHost: this._forceTerminateHost });
       return closePromise;
     };
     const abortSignal = options.abortController?.signal;
@@ -165,6 +176,7 @@ export class MuseAdapter extends BaseAgent {
       client,
       pid,
       cliVersion,
+      context,
       close,
       detach: () => abortSignal?.removeEventListener('abort', onAbort),
     };
@@ -206,17 +218,24 @@ export class MuseAdapter extends BaseAgent {
     let sawFirstItem = false;
     let outcome = null;
     while (true) {
-      if (abortSignal?.aborted) break;
-      const remainingTurnMs = this._timeouts.turnMs - (Date.now() - context.timings.startedAt);
-      if (remainingTurnMs <= 0) await timeoutAndClose('turn', this._timeouts.turnMs, context, host, options.abortController);
+      if (abortSignal?.aborted) {
+        context.cancelled = true;
+        return;
+      }
+      const remainingTurnMs = await remainingMuseTurnMs(this._timeouts.turnMs, context, host, options.abortController);
       // Completion is raced with each tail read: a host that has terminally
       // completed must not remain "running" merely because its item iterator
-      // failed to wake. The deadline still catches the 1.3/1.4 mismatch case
-      // where neither side ever settles.
+      // failed to wake. There is deliberately no per-item silence deadline:
+      // Muse may legitimately be quiet while planning or running a tool.
       const next = await deadline(Promise.race([
         iterator.next().then((itemResult) => ({ kind: 'item', itemResult })),
         completionAfterBacklog(turn.completed),
-      ]), Math.min(this._timeouts.idleMs, remainingTurnMs), 'stream_idle', context, () => host.close());
+        waitForAbort(abortSignal),
+      ]), remainingTurnMs, 'turn', context, () => host.close());
+      if (next.kind === 'aborted') {
+        context.cancelled = true;
+        return;
+      }
       if (next.kind === 'completed') {
         outcome = next.completed;
         break;
@@ -232,8 +251,7 @@ export class MuseAdapter extends BaseAgent {
       yield* mapper.mapItem(item);
     }
 
-    const remainingTurnMs = this._timeouts.turnMs - (Date.now() - context.timings.startedAt);
-    if (remainingTurnMs <= 0) await timeoutAndClose('turn', this._timeouts.turnMs, context, host, options.abortController);
+    const remainingTurnMs = await remainingMuseTurnMs(this._timeouts.turnMs, context, host, options.abortController);
     yield* mapper.mapOutcome(outcome || await deadline(turn.completed, remainingTurnMs, 'completion', context, () => host.close()));
     context.timings.completionMs = Date.now() - context.timings.startedAt;
     logMuseLifecycle({ correlationId: context.correlationId, hostPid: host.pid, museSessionId: session.sessionId, sdkVersion: MUSE_SDK_VERSION, cliVersion: host.cliVersion, timings: context.timings, phase: 'completion' });
@@ -244,7 +262,7 @@ function completionAfterBacklog(completed) {
   // `items()` must replay its already-folded backlog before a terminal
   // completion is emitted. Give an immediately available iterator item the
   // current event-loop turn; after that, a settled completion reconciles a
-  // stuck live tail without waiting for idle timeout.
+  // stuck live tail without waiting for another item.
   return new Promise((resolve, reject) => {
     setTimeout(() => completed.then(
       (value) => resolve({ kind: 'completed', completed: value }),
@@ -322,6 +340,12 @@ async function timeoutAndClose(phase, timeoutMs, context, host, controller) {
   throw error;
 }
 
+async function remainingMuseTurnMs(turnMs, context, host, controller) {
+  const remainingMs = turnMs - (Date.now() - context.timings.startedAt);
+  if (remainingMs <= 0) await timeoutAndClose('turn', turnMs, context, host, controller);
+  return remainingMs;
+}
+
 function logMuseLifecycle({ correlationId, hostPid, museSessionId, sdkVersion, cliVersion, timings, phase }) {
   console.info(`[MuseAdapter] correlationId=${correlationId} phase=${phase} hostPid=${hostPid ?? 'unavailable'} museSessionId=${museSessionId ?? 'pending'} sdkVersion=${sdkVersion} cliVersion=${cliVersion ?? 'unknown'} timings=${JSON.stringify(timings)}`);
 }
@@ -370,7 +394,7 @@ export function buildMuseHostEnv(sessionEnv = {}, baseEnv = process.env, opts = 
  * in environments where the optional dependency is not installed, and spawn
  * an owned `muse serve` host.
  */
-async function spawnMuseClient({ museBin, args, env, onStderr }) {
+async function spawnMuseClient({ museBin, args, env, onStderr, shutdownTimeoutMs }) {
   let MuseClient;
   try {
     ({ MuseClient } = await import('@muse-code/sdk'));
@@ -392,6 +416,7 @@ async function spawnMuseClient({ museBin, args, env, onStderr }) {
     env: buildMuseHostEnv(env),
     clientInfo: { ...MUSE_CLIENT_INFO },
     ...(onStderr ? { onStderr } : {}),
+    shutdownTimeoutMs: shutdownTimeoutMs ?? DEFAULT_TIMEOUTS.shutdownGraceMs,
   });
 }
 
@@ -419,9 +444,81 @@ function approveFirstChoice(request) {
   return { choiceId: choice.choiceId };
 }
 
-function logMuseStderr(chunk) {
+function captureMuseStderr(context, chunk) {
   const text = String(chunk || '').trim();
-  if (text) console.warn(`[muse serve] ${text}`);
+  if (!text) return;
+  context.stderrTail.push(text);
+  // Keep diagnostics useful but bounded. Stderr can include a noisy tool's
+  // output, so retain only the last few chunks and a modest character budget.
+  while (context.stderrTail.length > 8) context.stderrTail.shift();
+  while (context.stderrTail.join('\n').length > 2_000) context.stderrTail.shift();
+  console.warn(`[muse serve] ${text}`);
+}
+
+function waitForAbort(signal) {
+  if (!signal) return new Promise(() => {});
+  if (signal.aborted) return Promise.resolve({ kind: 'aborted' });
+  return new Promise((resolve) => signal.addEventListener('abort', () => resolve({ kind: 'aborted' }), { once: true }));
+}
+
+async function closeMuseHost({ client, pid, context, shutdownGraceMs, forceTerminateHost }) {
+  let graceTimer;
+  let graceful = true;
+  const closePromise = Promise.resolve().then(() => client.close());
+  // A client implementation is allowed to hang during its graceful close.
+  // Never let that make the failed-turn path hang indefinitely.
+  closePromise.catch(() => undefined);
+  try {
+    await Promise.race([
+      closePromise,
+      new Promise((resolve) => {
+        graceTimer = setTimeout(() => {
+          graceful = false;
+          resolve();
+        }, shutdownGraceMs);
+      }),
+    ]);
+    if (!graceful) {
+      context.shutdown = 'forced';
+      await Promise.resolve(forceTerminateHost(client, pid)).catch((err) => {
+        console.warn(`[MuseAdapter] Failed to force-terminate Muse host ${pid}: ${err?.message || err}`);
+      });
+    } else {
+      context.shutdown = 'graceful';
+    }
+  } catch (err) {
+    context.shutdown = 'close-error';
+    console.warn(`[MuseAdapter] Error closing Muse host: ${err?.message || err}`);
+  } finally {
+    clearTimeout(graceTimer);
+    logMuseLifecycle({ correlationId: context.correlationId, hostPid: pid, museSessionId: context.sessionId, sdkVersion: MUSE_SDK_VERSION, cliVersion: context.cliVersion, timings: context.timings, phase: `shutdown-${context.shutdown || 'unknown'}` });
+  }
+}
+
+function forceTerminateMuseHost(client, pid) {
+  if (typeof client.forceTerminate === 'function') return client.forceTerminate();
+  if (typeof client.kill === 'function') return client.kill('SIGKILL');
+  if (typeof pid === 'number' && Number.isInteger(pid) && pid > 0) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch (err) {
+      if (err?.code !== 'ESRCH') throw err;
+    }
+  }
+}
+
+function addMuseHostDiagnostics(err, host) {
+  if (err?.code === 'MUSE_VERSION_MISMATCH' || err?.museHostDiagnostics) return err;
+  const context = host.context;
+  const stderr = context?.stderrTail?.join('\n');
+  const state = context?.hostState || 'unknown';
+  const exit = context?.hostExit?.kind ? `, exit=${context.hostExit.kind}` : '';
+  const suffix = ` Muse host state=${state}, pid=${host.pid}${exit}.${stderr ? ` Recent host stderr: ${stderr}` : ''}`;
+  // Preserve the error class and compatibility fields (notably the timeout
+  // class used by callers) while adding diagnostics for the operator.
+  err.message = `${err?.message || err}${suffix}`;
+  err.museHostDiagnostics = { state, pid: host.pid, exit: context?.hostExit || null, stderrTail: context?.stderrTail || [] };
+  return err;
 }
 
 function toMuseNotFoundError(err) {
