@@ -11,6 +11,7 @@ import {
   resetLoginShellEnvCache,
   LOGIN_SHELL_TIMEOUT_MS,
   isSshAgentSocketAlive,
+  isSshAgentSocketAliveAsync,
 } from './loginShellEnv.js';
 import {
   checkParitySignals,
@@ -243,6 +244,29 @@ describe('loginShellEnv', () => {
       const git = signals.find((s) => s.signal === 'git-identity');
       expect(git.ok).toBe(true);
     });
+
+    it('ignores comment lines when reading git identity', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'git-home-'));
+      try {
+        writeFileSync(join(dir, '.gitconfig'), '[user]\n# name = Comment Only\n; email = comment@example.com\n');
+        const signals = checkParitySignals({ HOME: dir, PATH: '/usr/bin:/bin' }, { skipBinaries: true });
+        expect(signals.find((s) => s.signal === 'git-identity').ok).toBe(false);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('follows include.path when reading git identity', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'git-home-'));
+      try {
+        writeFileSync(join(dir, '.gitconfig'), '[user]\n[include]\npath = ~/identity.inc\n');
+        writeFileSync(join(dir, 'identity.inc'), '[user]\nname = Included User\nemail = included@example.com\n');
+        const signals = checkParitySignals({ HOME: dir, PATH: '/usr/bin:/bin' }, { skipBinaries: true });
+        expect(signals.find((s) => s.signal === 'git-identity').ok).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('redaction (FR-11)', () => {
@@ -277,6 +301,48 @@ describe('loginShellEnv', () => {
       expect(err.message).toMatch(/ssh-add|ssh-agent/i);
       expect(err.message).not.toContain('TEST_SENTINEL_SECRET_XYZ');
       expect(err.code).toBeTruthy();
+    });
+  });
+
+  describe('SSH agent socket connect-test (FR-5)', () => {
+    it('reports a dead-but-present socket file as not alive', async () => {
+      const { EventEmitter } = await import('events');
+      const connect = () => {
+        const socket = new EventEmitter();
+        socket.destroy = () => {};
+        queueMicrotask(() => socket.emit('error', Object.assign(new Error('connect ECONNREFUSED /tmp/stale-agent.sock'), { code: 'ECONNREFUSED' })));
+        return socket;
+      };
+      const probe = await isSshAgentSocketAliveAsync('/tmp/stale-agent.sock', {
+        statSync: () => ({ isSocket: () => true }),
+        connect,
+        timeoutMs: 50,
+      });
+      expect(probe.alive).toBe(false);
+      expect(probe.reason).toMatch(/not accept|refused|reachable/i);
+    });
+
+    it('reports a listening socket as alive (real bind)', async () => {
+      const { default: net } = await import('net');
+      const dir = mkdtempSync(join(tmpdir(), 'ssh-live-'));
+      const sockPath = join(dir, 'agent.sock');
+      const server = net.createServer(() => {});
+      await new Promise((resolve) => server.listen(sockPath, resolve));
+      try {
+        const probe = await isSshAgentSocketAliveAsync(sockPath, { timeoutMs: 500 });
+        expect(probe).toMatchObject({ alive: true });
+      } finally {
+        await new Promise((resolve) => server.close(resolve));
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('falls back to stat when no connect implementation is available', async () => {
+      const probe = await isSshAgentSocketAliveAsync('/tmp/agent.sock', {
+        statSync: () => ({ isSocket: () => true }),
+        connect: null,
+      });
+      expect(probe.alive).toBe(true);
     });
   });
 });

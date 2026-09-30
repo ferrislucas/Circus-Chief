@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- migration helpers share provider constants and preserve ordered upgrade operations. */
 import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS, MUSE_MODELS } from '@circuschief/shared';
 import { getTableSql } from './migrationUtils.js';
 import { BUILT_IN_OPENAI_COMMIT_ATTRIBUTION } from '../seedBaselineData.js';
@@ -174,9 +175,37 @@ function formatColumnDefault(dfltValue) {
   return ` DEFAULT (${dfltValue})`;
 }
 
+/**
+ * Self-guard: the table swap below only preserves plain columns (type, PK,
+ * NOT NULL, defaults) plus the widened kind CHECK. Anything fancier on a
+ * future `providers` shape — UNIQUE constraints/indexes, triggers — would
+ * be silently dropped, so fail loudly instead. Asserts column/UNIQUE/
+ * trigger counts before and after the swap.
+ */
+function assertProvidersSwapSafe(db, columns) {
+  const indexRows = db.prepare('PRAGMA index_list(providers)').all();
+  const kept = indexRows.filter((index) => index.origin === 'pk');
+  const dropped = indexRows.filter((index) => index.origin !== 'pk');
+  if (dropped.length > 0) {
+    throw new Error(
+      `widenProvidersKindCheck would silently drop indexes on providers: ${dropped.map((i) => i.name).join(', ')}. ` +
+      'Teach the swap to preserve them instead of widening the kind CHECK.',
+    );
+  }
+  const triggers = db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'providers'").all();
+  if (triggers.length > 0) {
+    throw new Error(
+      `widenProvidersKindCheck would silently drop triggers on providers: ${triggers.map((t) => t.name).join(', ')}. ` +
+      'Teach the swap to preserve them instead of widening the kind CHECK.',
+    );
+  }
+  return { columnNames: columns.map((c) => c.name), indexNames: kept.map((i) => i.name) };
+}
+
 export function widenProvidersKindCheck(db, kinds) {
   const columns = db.prepare('PRAGMA table_info(providers)').all();
   if (columns.length === 0) return;
+  const preSwap = assertProvidersSwapSafe(db, columns);
 
   const kindList = kinds.map((kind) => `'${kind}'`).join(',');
   const definitions = columns.map((column) => {
@@ -216,6 +245,21 @@ export function widenProvidersKindCheck(db, kinds) {
 
       CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
     `);
+
+    // Post-swap assertion (defense in depth): column and PK-index counts
+    // must match the pre-swap fingerprint.
+    const postColumns = db.prepare('PRAGMA table_info(providers)').all().map((c) => c.name);
+    const postIndexes = db.prepare('PRAGMA index_list(providers)').all()
+      .filter((index) => index.origin === 'pk')
+      .map((i) => i.name);
+    if (postColumns.join(',') !== preSwap.columnNames.join(',')) {
+      throw new Error(
+        `widenProvidersKindCheck changed the providers columns (before: ${preSwap.columnNames.join(',')}; after: ${postColumns.join(',')}).`,
+      );
+    }
+    if (postIndexes.join(',') !== preSwap.indexNames.join(',')) {
+      throw new Error('widenProvidersKindCheck changed the providers indexes; refusing to continue silently.');
+    }
   } finally {
     db.pragma('foreign_keys = ON');
   }

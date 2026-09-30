@@ -1,5 +1,6 @@
 import { spawnSync as defaultSpawnSync } from 'child_process';
 import { statSync } from 'fs';
+import { connect as defaultConnect } from 'net';
 
 /**
  * Login-shell environment derivation (Muse agent user-shell parity).
@@ -267,4 +268,74 @@ export function filterDeadSshSocket(env, isAlive = isSshAgentSocketAlive) {
   const next = { ...env };
   delete next.SSH_AUTH_SOCK;
   return { env: next, droppedReason: probe.reason };
+}
+
+/**
+ * Check whether an SSH agent socket path accepts connections (FR-5).
+ * A stat-only check passes dead-but-present socket files; this connects
+ * with a short timeout so a stale path is detected instead of failing
+ * opaquely inside the turn. Falls back to the stat check where no
+ * connect implementation is available. Never throws.
+ *
+ * @param {string} sockPath
+ * @param {Object} [deps] - `{ statSync, connect, timeoutMs }` (tests).
+ * @returns {Promise<{ alive: boolean, reason?: string }>}
+ */
+export function isSshAgentSocketAliveAsync(sockPath, deps = {}) {
+  const stat = deps.statSync ?? statSync;
+  const connectImpl = deps.connect === undefined ? defaultConnect : deps.connect;
+  const timeoutMs = deps.timeoutMs ?? 500;
+  if (!sockPath) {
+    return Promise.resolve({ alive: false, reason: 'SSH_AUTH_SOCK is not set' });
+  }
+  let stats;
+  try {
+    stats = stat(sockPath);
+  } catch (err) {
+    return Promise.resolve({ alive: false, reason: `SSH agent socket not reachable at ${sockPath} (${err?.code || err?.message || 'unknown'})` });
+  }
+  if (!stats.isSocket()) {
+    return Promise.resolve({ alive: false, reason: `SSH_AUTH_SOCK path exists but is not a socket: ${sockPath}` });
+  }
+  if (typeof connectImpl !== 'function') {
+    return Promise.resolve({ alive: true });
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { socket.destroy(); } catch { /* ignore */ }
+      resolve(result);
+    };
+    const socket = connectImpl(sockPath);
+    const timer = setTimeout(() => {
+      done({ alive: false, reason: `SSH agent socket did not accept a connection at ${sockPath} within ${timeoutMs}ms` });
+    }, timeoutMs);
+    timer.unref?.();
+    socket.once('connect', () => done({ alive: true }));
+    socket.once('error', (err) => done({
+      alive: false,
+      reason: `SSH agent socket does not accept connections at ${sockPath} (${err?.code || err?.message || 'unknown'})`,
+    }));
+  });
+}
+
+/**
+ * Async variant of filterDeadSshSocket using the connect-test so a
+ * dead-but-present socket file is dropped instead of passed through.
+ * Never throws; live sockets and unset values pass through untouched.
+ * @param {Object} env
+ * @param {Function} [probe] - Async liveness probe (tests).
+ * @returns {Promise<{ env: Object, droppedReason: string|null }>}
+ */
+export async function filterDeadSshSocketAsync(env, probe = isSshAgentSocketAliveAsync) {
+  const sockPath = env?.SSH_AUTH_SOCK;
+  if (!sockPath) return { env, droppedReason: null };
+  const result = await probe(sockPath);
+  if (result.alive) return { env, droppedReason: null };
+  const next = { ...env };
+  delete next.SSH_AUTH_SOCK;
+  return { env: next, droppedReason: result.reason };
 }

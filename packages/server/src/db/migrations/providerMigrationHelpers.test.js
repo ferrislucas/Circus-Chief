@@ -335,6 +335,22 @@ describe('widenProvidersKindCheck', () => {
       db.close();
     }
   });
+
+  it('fails loudly instead of silently dropping a future UNIQUE constraint', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(`
+        CREATE TABLE providers (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          kind TEXT NOT NULL DEFAULT 'anthropic' CHECK(kind IN ('anthropic','openai','google'))
+        );
+      `);
+      expect(() => widenProvidersKindCheck(db, META_KINDS)).toThrow(/UNIQUE|constraint|drop/i);
+    } finally {
+      db.close();
+    }
+  });
 });
 
 /**

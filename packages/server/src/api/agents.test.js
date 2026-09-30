@@ -103,19 +103,19 @@ describe('Agents API', () => {
   // exported handler directly with a mock response. The route registration
   // above (`router.get('/muse/env-diagnostics', ...)`) keeps the HTTP shape.
   describe('GET /api/agents/muse/env-diagnostics', () => {
-    function callHandler() {
+    async function callHandler(query) {
       const res = {
         statusCode: 200,
         body: null,
         status(code) { this.statusCode = code; return this; },
         json(payload) { this.body = payload; return this; },
       };
-      handleMuseEnvDiagnostics({}, res);
+      await handleMuseEnvDiagnostics({ query: query || {} }, res);
       return res;
     }
 
-    it('returns per-signal pass/fail with remediation hints', () => {
-      const res = callHandler();
+    it('returns per-signal pass/fail with remediation hints', async () => {
+      const res = await callHandler();
 
       expect(res.statusCode).toBe(200);
       expect(Array.isArray(res.body.signals)).toBe(true);
@@ -133,13 +133,13 @@ describe('Agents API', () => {
       expect(typeof res.body.probe.ok).toBe('boolean');
     });
 
-    it('never leaks secret values in diagnostics output', () => {
+    it('never leaks secret values in diagnostics output', async () => {
       const sentinel = 'TEST_SENTINEL_DIAG_LEAK_42';
       const hadToken = Object.hasOwn(process.env, 'GH_TOKEN');
       const saved = process.env.GH_TOKEN;
       process.env.GH_TOKEN = sentinel;
       try {
-        const res = callHandler();
+        const res = await callHandler();
         expect(res.statusCode).toBe(200);
         expect(JSON.stringify(res.body)).not.toContain(sentinel);
         const gh = res.body.signals.find((s) => s.signal === 'gh-auth');
@@ -149,6 +149,18 @@ describe('Agents API', () => {
         if (hadToken) process.env.GH_TOKEN = saved;
         else delete process.env.GH_TOKEN;
       }
+    });
+
+    it('re-probes the login shell when ?reprobe=1 (fresh values, repopulated cache)', async () => {
+      const { getLoginShellEnv } = await import('../services/loginShellEnv.js');
+      const res = await callHandler({ reprobe: '1' });
+
+      expect(res.statusCode).toBe(200);
+      expect(Array.isArray(res.body.signals)).toBe(true);
+      expect(res.body.signals.map((s) => s.signal)).toContain('ssh-agent');
+      // The re-probe repopulates the process-lifetime cache.
+      expect(getLoginShellEnv()).toBeDefined();
+      expect(typeof getLoginShellEnv().ok).toBe('boolean');
     });
   });
 });

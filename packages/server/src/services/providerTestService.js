@@ -205,19 +205,52 @@ async function testGoogleConnection(config, deps = {}) {
 }
 
 /**
+ * Build the headless `muse exec` argv for the Meta connection test (pure).
+ *
+ * No no-cost probe exists: `muse auth` only stores keys (verified against
+ * `muse --help` — there is no `auth status` equivalent), so the test stays
+ * one minimal billed `exec` turn. Sandbox stays ON (default); no session
+ * log is written. Throws when no working directory is set — falling back
+ * to the server cwd would test the wrong directory.
+ *
+ * @param {Object} config - `{ workingDirectory, defaultSonnetModel }`.
+ * @returns {{ command: string, args: string[], cwd: string, model: string }}
+ */
+export function buildMuseTestArgs(config) {
+  if (!config?.workingDirectory) {
+    const error = new Error('A working directory is required to test the Muse connection.');
+    error.code = 'MISSING_WORKING_DIRECTORY';
+    throw error;
+  }
+  const model = config.defaultSonnetModel || 'muse-spark-1.3';
+  return {
+    command: process.env.MUSE_BIN || 'muse',
+    args: ['exec', '--json', '--no-session-log', '-p', 'Hi', '-m', model],
+    cwd: config.workingDirectory,
+    model,
+  };
+}
+
+/**
  * Meta-kind connection test: run a minimal headless `muse exec` turn.
  * The `muse serve` host authenticates with the host's own `muse auth`
  * credentials, so this exercises binary presence, auth, and model access
- * in one call. Sandbox stays ON (default); no session log is written.
+ * in one call (see buildMuseTestArgs for the cost note).
  */
 async function testMetaConnection(config, deps = {}) {
+  let spec;
+  try {
+    spec = buildMuseTestArgs(config);
+  } catch (error) {
+    return failureResponse(error);
+  }
   try {
     const timeoutMs = config.apiTimeoutMs || 30000;
     const spawnMuseProcess = deps.spawnMuseProcess || defaultMuseTestSpawn;
     const child = spawnMuseProcess({
-      command: process.env.MUSE_BIN || 'muse',
-      args: ['exec', '--json', '--no-session-log', '-p', 'Hi', '-m', 'muse-spark-1.3'],
-      cwd: config.workingDirectory,
+      command: spec.command,
+      args: spec.args,
+      cwd: spec.cwd,
       env: process.env,
     });
 
@@ -246,7 +279,7 @@ async function testMetaConnection(config, deps = {}) {
         clearTimeout(timer);
         if (killed) return;
         if (code === 0) {
-          resolve(connectionSuccess({ model: 'muse-spark-1.3' }));
+          resolve(connectionSuccess({ model: spec.model }));
         } else {
           resolve(failureResponse(new Error(stderr.trim() || `Muse CLI exited with code ${code}`)));
         }

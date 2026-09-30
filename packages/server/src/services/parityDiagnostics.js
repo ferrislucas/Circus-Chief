@@ -10,9 +10,12 @@ import { isSshAgentSocketAlive } from './loginShellEnv.js';
 
 /**
  * Keys whose VALUES are secrets: matched by name pattern so future keys are
- * covered by default (FR-11).
+ * covered by default (FR-11). Includes `_PAT` (e.g. GITHUB_PAT) and `_KEY`
+ * (e.g. ENCRYPTION_KEY) suffixes from provider `additionalEnvVars`. The
+ * underscore anchor matters: a bare `PAT` alternative would also match
+ * `PATH` and scrub directory listings.
  */
-export const SECRET_KEY_PATTERN = /TOKEN|SECRET|PASSWORD|PRIVATE|API_KEY/i;
+export const SECRET_KEY_PATTERN = /TOKEN|SECRET|PASSWORD|PRIVATE|API_KEY|_PAT|_KEY/i;
 
 /**
  * Resolve a binary against an env PATH (no shell-out). Returns the absolute
@@ -67,6 +70,32 @@ function ghHostsFileExists(home) {
   return fileExists(join(home, '.config', 'gh', 'hosts.yml'));
 }
 
+function stripGitconfigComments(content) {
+  return String(content)
+    .split('\n')
+    .filter((line) => !/^\s*[#;]/.test(line))
+    .join('\n');
+}
+
+function gitconfigSectionHasIdentity(content, section = 'user') {
+  const cleaned = stripGitconfigComments(content);
+  const match = cleaned.match(new RegExp(`\\[${section}\\][^[]*`, 'i'))?.[0] || '';
+  return /name\s*=/i.test(match) && /email\s*=/i.test(match);
+}
+
+function gitconfigIncludePaths(content, home) {
+  const cleaned = stripGitconfigComments(content);
+  const includeSection = cleaned.match(/\[include\][^[]*/i)?.[0] || '';
+  const paths = [];
+  for (const line of includeSection.split('\n')) {
+    const match = line.match(/^\s*path\s*=\s*(.+?)\s*$/i);
+    if (!match) continue;
+    const raw = match[1];
+    paths.push(raw.startsWith('~/') ? join(home, raw.slice(2)) : raw);
+  }
+  return paths;
+}
+
 function gitconfigHasIdentity(home) {
   if (!home) return false;
   let content;
@@ -75,8 +104,16 @@ function gitconfigHasIdentity(home) {
   } catch {
     return false;
   }
-  const userSection = content.match(/\[user\][^[]*/i)?.[0] || '';
-  return /name\s*=/i.test(userSection) && /email\s*=/i.test(userSection);
+  if (gitconfigSectionHasIdentity(content)) return true;
+  // Identity may live in an included file (e.g. dotfile-managed splits).
+  for (const includePath of gitconfigIncludePaths(content, home)) {
+    try {
+      if (gitconfigSectionHasIdentity(readFileSync(includePath, 'utf8'))) return true;
+    } catch {
+      /* unreadable include: keep looking */
+    }
+  }
+  return false;
 }
 
 function binarySignals(env) {

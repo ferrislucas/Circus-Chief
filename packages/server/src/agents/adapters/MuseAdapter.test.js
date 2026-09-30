@@ -146,16 +146,36 @@ describe('MuseAdapter', () => {
     expect(client.calls.startSession).toHaveLength(1);
   });
 
-  it('auto-approves the first server-offered choice', async () => {
+  it('auto-approves the first server-offered choice in allowAll (yolo) mode', async () => {
     const client = createFakeClient();
     const adapter = new MuseAdapter({ museClientFactory: async () => client });
-    await collect(adapter, { prompt: 'p', options: { env: {} } });
+    await collect(adapter, { prompt: 'p', options: { approvalMode: 'allowAll', env: {} } });
 
     const handler = client.__approvalHandler();
     expect(typeof handler).toBe('function');
     await expect(handler({ availableChoices: [{ choiceId: 'allow' }, { choiceId: 'deny' }] }))
       .resolves.toEqual({ choiceId: 'allow' });
     await expect(handler({ availableChoices: [] })).rejects.toThrow(/no choices/);
+  });
+
+  it('denies approval requests in standard mode instead of auto-approving', async () => {
+    const client = createFakeClient();
+    const adapter = new MuseAdapter({ museClientFactory: async () => client });
+    await collect(adapter, { prompt: 'p', options: { approvalMode: 'onRequest', env: {} } });
+
+    const handler = client.__approvalHandler();
+    await expect(handler({ availableChoices: [{ choiceId: 'allow' }] }))
+      .rejects.toThrow(/not auto-approve.*standard|standard.*approval/i);
+  });
+
+  it('denies approval requests when no approval mode is set (fail-closed)', async () => {
+    const client = createFakeClient();
+    const adapter = new MuseAdapter({ museClientFactory: async () => client });
+    await collect(adapter, { prompt: 'p', options: { env: {} } });
+
+    const handler = client.__approvalHandler();
+    await expect(handler({ availableChoices: [{ choiceId: 'allow' }] }))
+      .rejects.toThrow();
   });
 
   it('maps failed turn outcomes to error results and still closes the host', async () => {
@@ -316,7 +336,9 @@ describe('MuseAdapter', () => {
     const pending = collect(adapter, { prompt: 'p', options: { abortController: controller } });
     setTimeout(() => controller.abort(), 10);
 
-    await expect(pending).resolves.toHaveLength(1);
+    const events = await pending;
+    expect(events[0]).toMatchObject({ type: 'system', subtype: 'init' });
+    expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'cancelled' });
     expect(client.calls.close).toBe(1);
   });
 
@@ -403,6 +425,107 @@ describe('MuseAdapter', () => {
     expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
     expect(recovered.calls.close).toBe(1);
   });
+
+  it('gives sendUserTurn its own budget instead of reusing the startup allowance', async () => {
+    const client = createFakeClient();
+    client.session.sendUserTurn = async (options) => {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      return createFakeClient().session.sendUserTurn(options);
+    };
+    const adapter = new MuseAdapter({
+      museClientFactory: async () => client,
+      timeouts: { startupMs: 20, sendTurnMs: 500, turnMs: 5_000 },
+    });
+
+    const events = await collect(adapter, { prompt: 'p', options: { env: {} } });
+    expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
+  });
+
+  it('defaults the send-turn budget above 45s', () => {
+    expect(new MuseAdapter()._timeouts.sendTurnMs).toBeGreaterThan(45_000);
+  });
+
+  it('attaches actionable ssh-agent remediation when the socket is dead', async () => {
+    const secret = 'TEST_SENTINEL_GH_SECRET_ZZ9';
+    const client = createFakeClient();
+    client.session.sendUserTurn = async () => { throw new Error('turn exploded'); };
+    const adapter = new MuseAdapter({ museClientFactory: async () => client });
+
+    const error = await collect(adapter, {
+      prompt: 'p',
+      options: { env: { SSH_AUTH_SOCK: '/nonexistent-dir-xyz/agent.sock', GH_TOKEN: secret } },
+    }).then(() => { throw new Error('should have thrown'); }, (err) => err);
+
+    expect(error.message).toMatch(/ssh-add/);
+    expect(error.message).not.toContain(secret);
+    expect(error.message).not.toContain('TEST_SENTINEL');
+    const warnings = error.museHostDiagnostics?.parityWarnings || [];
+    expect(warnings.some((w) => w.signal === 'ssh-agent')).toBe(true);
+  });
+
+  it('never surfaces a secret planted in host stderr through turn diagnostics', async () => {
+    const secret = 'TEST_SENTINEL_TOK_REDACT_ME';
+    const client = createFakeClient();
+    client.session.sendUserTurn = async () => { throw new Error('boom'); };
+    const adapter = new MuseAdapter({
+      museClientFactory: async ({ onStderr }) => {
+        onStderr(`request failed with token ${secret} embedded`);
+        return client;
+      },
+    });
+
+    const error = await collect(adapter, { prompt: 'p', options: { env: { GH_TOKEN: secret } } })
+      .then(() => { throw new Error('should have thrown'); }, (err) => err);
+
+    expect(error.message).not.toContain(secret);
+    expect(error.message).toContain('[REDACTED]');
+    const tail = (error.museHostDiagnostics?.stderrTail || []).join('\n');
+    expect(tail).not.toContain(secret);
+  });
+
+  it('fails fast with MUSE_CLI_NOT_FOUND when the muse binary is off PATH', async () => {
+    const { assertMuseHostParity } = await import('./MuseAdapter.js');
+    expect(() => assertMuseHostParity({ PATH: '/nonexistent-bin-dir-xyz', HOME: '/tmp' }, {
+      museBin: 'muse',
+      skipBinaries: false,
+    })).toThrow(expect.objectContaining({ code: 'MUSE_CLI_NOT_FOUND' }));
+  });
+
+  it('caches the muse --version preflight per binary mtime instead of per turn', async () => {
+    const { readMuseCliVersion, clearMuseCliVersionCache } = await import('./museCliVersion.js');
+    clearMuseCliVersionCache();
+    let execCalls = 0;
+    const deps = {
+      statSync: () => ({ mtimeMs: 111 }),
+      execFile: async () => {
+        execCalls += 1;
+        return { stdout: 'Muse Code 1.3.0 (1.3.0-R3401.1)\n' };
+      },
+    };
+
+    await expect(readMuseCliVersion('/tmp/fake-muse', deps)).resolves.toBe('1.3.0');
+    await expect(readMuseCliVersion('/tmp/fake-muse', deps)).resolves.toBe('1.3.0');
+    expect(execCalls).toBe(1);
+  });
+
+  it('re-probes muse --version after the binary changes on disk', async () => {
+    const { readMuseCliVersion, clearMuseCliVersionCache } = await import('./museCliVersion.js');
+    clearMuseCliVersionCache();
+    let execCalls = 0;
+    let mtimeMs = 111;
+    const deps = {
+      statSync: () => ({ mtimeMs }),
+      execFile: async () => {
+        execCalls += 1;
+        return { stdout: 'Muse Code 1.3.0\n' };
+      },
+    };
+
+    await readMuseCliVersion('/tmp/fake-muse', deps);
+    mtimeMs = 222;
+    await readMuseCliVersion('/tmp/fake-muse', deps);
+    expect(execCalls).toBe(2);
+  });
 });
 
 describe('resolveMuseServeArgs', () => {
@@ -426,6 +549,10 @@ describe('MUSE_CLIENT_INFO', () => {
     // Live-verified: the host rejects anything else at initialize,
     // which would break every Muse session before it starts.
     expect(MUSE_CLIENT_INFO.name).toMatch(/^[a-z0-9_]+$/);
+  });
+
+  it('derives the handshake version from the installed SDK', () => {
+    expect(MUSE_CLIENT_INFO.version).toBe(MUSE_SDK_VERSION);
   });
 });
 

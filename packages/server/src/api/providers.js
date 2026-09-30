@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { tmpdir } from 'node:os';
 import { modelProviders } from '../database.js';
 import {
   COMMIT_ATTRIBUTION_VALIDATION_MESSAGE,
@@ -148,14 +149,22 @@ router.post('/:id/test', async (req, res) => {
       return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
     }
 
-    // Pick the sonnet-tiered model (if any) as the test model, falling back to any first model
+    // Pick the sonnet-tiered model (if any) as the test model, falling back
+    // to the provider's first enabled model (this is what the Muse
+    // connection test runs — never a hardcoded model id).
     const sonnetModel = provider.models?.find((m) => m.tier === 'sonnet');
+    const firstEnabled = provider.models?.find((m) => m.enabled !== false && m.lifecycle !== 'retired')
+      || provider.models?.[0];
     const testConfig = {
       kind: provider.kind || 'anthropic',
       baseUrl: provider.baseUrl,
       authToken: provider.authToken,
-      defaultSonnetModel: sonnetModel?.modelId,
+      defaultSonnetModel: sonnetModel?.modelId || firstEnabled?.modelId,
       apiTimeoutMs: provider.apiTimeoutMs,
+      // The Muse test needs an explicit cwd (it errors when unset); the
+      // provider record carries none, so use the OS temp dir explicitly
+      // rather than leaking the server cwd into the probe.
+      ...(provider.kind === 'meta' ? { workingDirectory: tmpdir() } : {}),
     };
 
     const testResult = await testProviderConnection(testConfig);

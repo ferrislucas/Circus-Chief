@@ -46,6 +46,7 @@
  * @returns {{
  *   mapItem: (item: Object) => Array<Object>,
  *   mapOutcome: (outcome: Object) => Array<Object>,
+ *   mapCancellation: () => Array<Object>,
  *   reset: () => void,
  *   finalize: () => Array<Object>
  * }}
@@ -107,9 +108,20 @@ export function createMuseEventMapper({ model } = {}) {
     return [buildErrorResult(label)];
   }
 
+  /**
+   * Terminal event for an aborted turn. Marks the mapper terminated so the
+   * stream never ends after `system(init)` with no outcome and `finalize()`
+   * cannot emit a second terminal afterwards.
+   */
+  function mapCancellation() {
+    state.markTerminated();
+    return [{ type: 'result', subtype: 'cancelled' }];
+  }
+
   return {
     mapItem,
     mapOutcome,
+    mapCancellation,
     reset: () => state.reset(),
     finalize: () => state.finalize(),
     // Exposed for the adapter: the MSP session id becomes the resume

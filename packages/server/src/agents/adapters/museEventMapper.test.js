@@ -158,6 +158,15 @@ describe('createMuseEventMapper', () => {
     });
   });
 
+  describe('mapCancellation', () => {
+    it('emits a cancelled terminal and suppresses a later finalize', () => {
+      const mapper = createMuseEventMapper();
+      const [cancelled] = mapper.mapCancellation();
+      expect(cancelled).toEqual({ type: 'result', subtype: 'cancelled' });
+      expect(mapper.finalize()).toEqual([]);
+    });
+  });
+
   describe('finalize/reset', () => {
     it('emits a terminal success when the turn ends without an outcome', () => {
       const mapper = createMuseEventMapper();
