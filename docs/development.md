@@ -97,6 +97,7 @@ yarn workspace @circuschief/web test         # Web tests only
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `5000` | Server port |
+| `HOST` | `127.0.0.1` | Server bind address |
 | `NODE_ENV` | `development` | Environment mode |
 | `DB_PATH` | `~/.circuschief/circuschief.db` | SQLite database path. `./scripts/pw.sh test`/`debug` overrides this to a worktree-local `$PROJECT_ROOT/.circuschief-test.db` so E2E tests never touch the real user DB; `pw.sh test-package` lets `start-package-server.sh` pick a per-run mktemp path instead. See [E2E testing — DB isolation](./e2e-testing.md#db-isolation-and-server-info). |
 | `VCR_MODE` | *(unset)* | When set (e.g. `replay`, `record`, `auto`), disables the scheduler service at server boot so E2E test servers never pick up real scheduled sessions. See [E2E testing — VCR modes](./e2e-testing.md#vcr-modes). |

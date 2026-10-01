@@ -105,6 +105,7 @@ Dark mode only using Tailwind CSS. Key colors:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `5000` | Server port |
+| `HOST` | `127.0.0.1` | Server bind address |
 | `DB_PATH` | `~/.circuschief/circuschief.db` | SQLite database path |
 | `VITE_API_URL` | `http://localhost:5000` | Backend API URL (frontend) |
 

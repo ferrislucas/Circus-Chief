@@ -52,6 +52,7 @@ npx circuschief
 | Flag | Description |
 |------|-------------|
 | `-p, --port <number>` | Port to listen on (default: `5000`) |
+| `-H, --host <address>` | Network address to bind to (default: `127.0.0.1`). For LAN, Docker, or remote access, use `--host 0.0.0.0`. |
 | `--no-analytics` | Disable anonymous usage analytics |
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version number |
