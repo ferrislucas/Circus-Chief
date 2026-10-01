@@ -1,4 +1,5 @@
 import { api } from '../../composables/useApi.js';
+import { debugSessionStatus } from './statusOrdering.js';
 
 // AbortControllers are intentionally kept outside Pinia state: they are
 // request-lifecycle objects, not application state. A WeakMap also lets each
@@ -109,6 +110,10 @@ export const sessionActions = {
     if (showLoading) this.loading = true;
     this.error = null;
     try {
+      // Capture the ordering generation before the request so a lifecycle
+      // status applied while the fetch is in flight cannot be overwritten
+      // by this snapshot's (older) status. See statusOrdering.js.
+      const generationAtRequest = this._statusGeneration(id);
       const fetchedSession = await api.getSession(id, { signal: controller.signal });
       // Guard: only set currentSession if the user is still viewing this session.
       // This prevents stale in-flight requests (e.g., from polling that was active
@@ -117,17 +122,25 @@ export const sessionActions = {
         // Session changed while we were fetching — discard this result for currentSession
         // but still update the session in list arrays below.
         const sessionIndex = this.sessions.findIndex((s) => s.id === id);
-        if (sessionIndex !== -1) this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...fetchedSession };
+        if (sessionIndex !== -1) {
+          this.sessions[sessionIndex] = {
+            ...this.sessions[sessionIndex],
+            ...this._reconcileSnapshotWithStatusOrdering(id, fetchedSession, generationAtRequest),
+          };
+        }
         return;
       }
-      this.currentSession = fetchedSession;
+      // FR-5 ordering rule: if a lifecycle status superseded this snapshot
+      // while it was in flight, the reconciled payload carries the newer
+      // locally-known status instead of the snapshot's stale one.
+      this.currentSession = this._reconcileSnapshotWithStatusOrdering(id, fetchedSession, generationAtRequest);
       // Add the fetched session to the sessions array if not already present
       // This ensures getSessionById() can find it for computed properties like activeSessionName
       const existingIndex = this.sessions.findIndex((s) => s.id === id);
       if (existingIndex !== -1) {
-        this.sessions[existingIndex] = fetchedSession;
+        this.sessions[existingIndex] = this.currentSession;
       } else {
-        this.sessions.push(fetchedSession);
+        this.sessions.push(this.currentSession);
       }
     } catch (err) {
       if (err?.name !== 'AbortError' && controllers.get(id) === controller) this.error = err.message;
@@ -199,6 +212,7 @@ export const sessionActions = {
         sendArgs.push(options);
       }
       await api.sendMessage(...sendArgs);
+      debugSessionStatus('optimistic', sessionId, 'running', this._statusGeneration(sessionId) + 1);
       this._updateSessionInAllLists(sessionId, { status: 'running' });
     } catch (err) { this.error = err.message; throw err; }
   },
@@ -224,6 +238,7 @@ export const sessionActions = {
         startArgs.push(options);
       }
       const result = await api.startSession(...startArgs);
+      debugSessionStatus('optimistic', id, 'starting', this._statusGeneration(id) + 1);
       this._updateSessionInAllLists(id, { status: 'starting' });
       return result;
     } catch (err) { this.error = err.message; throw err; }
@@ -240,6 +255,9 @@ export const sessionActions = {
     this.error = null;
     try {
       const updated = await api.runScheduledNow(id, prompt !== undefined ? { prompt } : undefined);
+      if (updated?.status !== undefined) {
+        debugSessionStatus('optimistic', id, updated.status, this._statusGeneration(id) + 1);
+      }
       this._updateSessionInAllLists(id, updated);
       return updated;
     } catch (err) { this.error = err.message; throw err; }
@@ -353,6 +371,14 @@ export const sessionActions = {
 
   updateSession(sessionData) {
     if (!sessionData?.id) return;
+
+    // Status-bearing updates (e.g. `session:updated` socket frames) advance
+    // the ordering generation so an older in-flight snapshot cannot regress
+    // them. See statusOrdering.js.
+    if (sessionData.status !== undefined) {
+      debugSessionStatus('socket', sessionData.id, sessionData.status, this._statusGeneration(sessionData.id) + 1);
+      this._bumpStatusGeneration(sessionData.id);
+    }
 
     // Handle archive state changes
     if (sessionData.archived === true) {

@@ -20,7 +20,14 @@ vi.mock('./useApi.js', () => ({
 }));
 
 // Mock useWebSocket
-const mockHandlerFactory = () => vi.fn(() => () => {});
+// Each handler factory returns a tracked unsubscribe function so tests can
+// verify the cleanup contract for handlers registered before subscription.
+const mockHandlerUnsubscribes = [];
+const mockHandlerFactory = () => vi.fn(() => {
+  const unsubscribe = vi.fn();
+  mockHandlerUnsubscribes.push(unsubscribe);
+  return unsubscribe;
+});
 let mockSubscription;
 
 vi.mock('./useWebSocket.js', () => ({
@@ -454,6 +461,168 @@ describe('useSessionInitializer', () => {
       expect(firstSubscription.unsubscribe).toHaveBeenCalled();
       // Second subscription should be created
       expect(useSessionSubscription).toHaveBeenCalledWith('session-2');
+    });
+  });
+
+  // ==================== FR-3: event delivery during initialization ====================
+
+  describe('initialization ordering (FR-3)', () => {
+    beforeEach(() => {
+      mockHandlerUnsubscribes.length = 0;
+      // Restore the module-mock defaults: tests below override these with
+      // pending/rejected implementations that would otherwise leak.
+      ensureSubscribed.mockImplementation(() => Promise.resolve());
+      useWebSocket.mockImplementation(() => ({
+        isConnected: { value: true },
+        onReconnect: vi.fn(() => () => {}),
+      }));
+    });
+
+    it('registers all scoped handlers before subscribing', async () => {
+      const { initializeSession } = createInitializer();
+      sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
+
+      await initializeSession('session-1');
+
+      // Every lifecycle handler factory ran before subscribe() was invoked.
+      const handlerFns = [
+        mockSubscription.onStatus, mockSubscription.onMessage, mockSubscription.onPartial,
+        mockSubscription.onUsageUpdate, mockSubscription.onSessionUpdate, mockSubscription.onWorkLog,
+      ];
+      const firstHandlerOrder = Math.min(...handlerFns.map((fn) => fn.mock.invocationCallOrder[0]));
+      const subscribeOrder = mockSubscription.subscribe.mock.invocationCallOrder[0];
+      expect(firstHandlerOrder).toBeLessThan(subscribeOrder);
+    });
+
+    it('applies a status frame delivered between subscription and the initial snapshot', async () => {
+      // Hold the subscription acknowledgement and the snapshot fetch pending.
+      let resolveEnsure;
+      ensureSubscribed.mockImplementation(() => new Promise((resolve) => { resolveEnsure = resolve; }));
+      let resolveFetch;
+      sessionsStore.fetchSession.mockImplementation(() => new Promise((resolve) => { resolveFetch = resolve; }));
+
+      const { initializeSession, cleanup } = createInitializer();
+      sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
+
+      const initPromise = initializeSession('session-1');
+
+      // Handlers are registered synchronously, so the captured onStatus
+      // callback exists before the subscription is even confirmed.
+      const statusHandler = mockSubscription.onStatus.mock.calls[0][0];
+      statusHandler('running');
+
+      // The UI goes active and polling begins without waiting for the fetch.
+      expect(sessionsStore.currentSession.status).toBe('running');
+      expect(startPolling).toHaveBeenCalled();
+
+      // The subscription confirms and the snapshot resolves afterwards; the
+      // ordering guard keeps the active display.
+      resolveEnsure();
+      await vi.waitFor(() => expect(sessionsStore.fetchSession).toHaveBeenCalledTimes(1));
+      resolveFetch();
+      await initPromise;
+
+      expect(sessionsStore.currentSession.status).toBe('running');
+
+      cleanup();
+    });
+
+    it('adds a message delivered after that status frame without a second status event', async () => {
+      // Hold the subscription acknowledgement pending for the whole interval.
+      ensureSubscribed.mockImplementation(() => new Promise(() => {}));
+
+      const { initializeSession, cleanup } = createInitializer();
+      sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
+      initializeSession('session-1');
+
+      const statusHandler = mockSubscription.onStatus.mock.calls[0][0];
+      const messageHandler = mockSubscription.onMessage.mock.calls[0][0];
+
+      statusHandler('running');
+      messageHandler({ id: 'msg-1', sessionId: 'session-1', role: 'assistant', content: 'Working...' });
+
+      // The running state is retained and the message lands with it — the
+      // message never depends on a second status event.
+      expect(sessionsStore.currentSession.status).toBe('running');
+      expect(sessionsStore.messages).toHaveLength(1);
+      expect(sessionsStore.messages[0].id).toBe('msg-1');
+
+      cleanup();
+    });
+
+    it('removes early-registered handlers when cleanup runs before the snapshot completes', async () => {
+      // Subscription never confirms (setup "fails") — handlers were still
+      // registered first and must be removable.
+      ensureSubscribed.mockImplementation(() => new Promise(() => {}));
+
+      const { initializeSession, cleanup } = createInitializer();
+      sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
+      initializeSession('session-1');
+
+      expect(mockSubscription.onStatus).toHaveBeenCalled();
+      expect(mockHandlerUnsubscribes.length).toBeGreaterThan(0);
+
+      cleanup();
+
+      expect(mockSubscription.unsubscribe).toHaveBeenCalled();
+      for (const unsubscribe of mockHandlerUnsubscribes) {
+        expect(unsubscribe).toHaveBeenCalled();
+      }
+      // Polling is reset by cleanup even though initialization never finished.
+      expect(resetPolling).toHaveBeenCalled();
+    });
+
+    it('reconciles the authoritative snapshot after reconnect and restores polling', async () => {
+      let reconnectCallback;
+      useWebSocket.mockReturnValue({
+        isConnected: { value: true },
+        onReconnect: vi.fn((callback) => { reconnectCallback = callback; return () => {}; }),
+      });
+      const promptsStore = useSessionPromptsStore();
+      vi.spyOn(promptsStore, 'hydrate').mockResolvedValue();
+
+      const { initializeSession } = createInitializer();
+      sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
+
+      // While disconnected the session started running; the reconnect
+      // snapshot is the first thing that reports it.
+      sessionsStore.fetchSession.mockImplementation(async () => {
+        sessionsStore.currentSession = { id: 'session-1', status: 'running' };
+      });
+
+      await initializeSession('session-1');
+      startPolling.mockClear();
+
+      await reconnectCallback();
+
+      // The reconnect handler reconciles via fetchSession first...
+      expect(sessionsStore.fetchSession).toHaveBeenCalledWith('session-1');
+      // ...and polling is restored for the now-active session.
+      expect(startPolling).toHaveBeenCalled();
+    });
+
+    it('ignores a late snapshot for a session that is no longer selected', async () => {
+      const { initializeSession, cleanup } = createInitializer();
+      sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
+
+      let resolveFetch;
+      sessionsStore.fetchSession.mockImplementation(() => new Promise((resolve) => { resolveFetch = resolve; }));
+
+      const initPromise = initializeSession('session-1');
+
+      // Wait until initialization has reached the snapshot fetch, then
+      // simulate the user navigating to another session.
+      await vi.waitFor(() => expect(sessionsStore.fetchSession).toHaveBeenCalledTimes(1));
+      cleanup();
+
+      // The stale snapshot resolves afterwards — it must not touch the
+      // newly selected session's state.
+      sessionsStore.currentSession = { id: 'session-2', status: 'waiting' };
+      resolveFetch();
+      await initPromise;
+
+      expect(sessionsStore.currentSession.id).toBe('session-2');
+      expect(sessionsStore.currentSession.status).toBe('waiting');
     });
   });
 });

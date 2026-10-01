@@ -35,6 +35,112 @@ vi.mock('../composables/useApi.js', () => ({
 import { api } from '../composables/useApi.js';
 
 describe('Sessions Store', () => {
+  // ==================== FR-5: stale snapshot ordering ====================
+
+  describe('stale snapshot ordering (FR-5)', () => {
+    it('a snapshot fetched before a lifecycle status cannot regress it', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'sess-1';
+      store.currentSession = { id: 'sess-1', name: 'Test', status: 'waiting' };
+      store.sessions.push({ id: 'sess-1', name: 'Test', status: 'waiting' });
+
+      let resolveFetch;
+      api.getSession.mockImplementation(() => new Promise((resolve) => { resolveFetch = resolve; }));
+
+      const fetchPromise = store.fetchSession('sess-1');
+
+      // A `running` lifecycle frame arrives while the snapshot is in flight.
+      store.updateSessionStatus('sess-1', 'running');
+      expect(store.currentSession.status).toBe('running');
+
+      // The older snapshot resolves as `waiting` — it must not regress.
+      resolveFetch({ id: 'sess-1', name: 'Test (refreshed)', status: 'waiting' });
+      await fetchPromise;
+
+      expect(store.currentSession.status).toBe('running');
+      // Non-status fields from the snapshot still apply.
+      expect(store.currentSession.name).toBe('Test (refreshed)');
+      // The list entry carries the newer status too.
+      expect(store.sessions[0].status).toBe('running');
+    });
+
+    it('a snapshot fetched after a lifecycle status applies normally', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'sess-1';
+      store.currentSession = { id: 'sess-1', status: 'running' };
+
+      // The lifecycle frame is applied BEFORE the fetch is issued, so the
+      // snapshot is the newer, authoritative reconciliation.
+      store.updateSessionStatus('sess-1', 'running');
+      api.getSession.mockResolvedValue({ id: 'sess-1', status: 'waiting' });
+
+      await store.fetchSession('sess-1');
+
+      expect(store.currentSession.status).toBe('waiting');
+    });
+
+    it('an optimistic send supersedes an in-flight snapshot the same way', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'sess-1';
+      store.currentSession = { id: 'sess-1', status: 'waiting' };
+
+      let resolveFetch;
+      api.getSession.mockImplementation(() => new Promise((resolve) => { resolveFetch = resolve; }));
+      api.sendMessage.mockResolvedValue({ id: 'msg-1' });
+
+      const fetchPromise = store.fetchSession('sess-1');
+      await store.sendMessage('sess-1', 'Continue');
+
+      expect(store.currentSession.status).toBe('running');
+
+      resolveFetch({ id: 'sess-1', status: 'waiting' });
+      await fetchPromise;
+
+      expect(store.currentSession.status).toBe('running');
+    });
+
+    it('a status-bearing session:update frame supersedes an in-flight snapshot', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'sess-1';
+      store.currentSession = { id: 'sess-1', status: 'waiting' };
+
+      let resolveFetch;
+      api.getSession.mockImplementation(() => new Promise((resolve) => { resolveFetch = resolve; }));
+
+      const fetchPromise = store.fetchSession('sess-1');
+      store.updateSession({ id: 'sess-1', status: 'starting' });
+
+      resolveFetch({ id: 'sess-1', status: 'waiting' });
+      await fetchPromise;
+
+      expect(store.currentSession.status).toBe('starting');
+    });
+
+    it('a terminal status received after the guard still ends the active display', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'sess-1';
+      store.currentSession = { id: 'sess-1', status: 'waiting' };
+
+      let resolveFetch;
+      api.getSession.mockImplementation(() => new Promise((resolve) => { resolveFetch = resolve; }));
+
+      const fetchPromise = store.fetchSession('sess-1');
+      store.updateSessionStatus('sess-1', 'running');
+
+      resolveFetch({ id: 'sess-1', status: 'waiting' });
+      await fetchPromise;
+
+      // The guarded snapshot kept `running`; a LATER authoritative
+      // reconciliation (a fetch issued after the events) re-establishes the
+      // terminal state.
+      expect(store.currentSession.status).toBe('running');
+      api.getSession.mockResolvedValue({ id: 'sess-1', status: 'waiting' });
+      await store.fetchSession('sess-1');
+      expect(store.currentSession.status).toBe('waiting');
+    });
+  });
+
+
   beforeEach(() => {
     // Create a fresh Pinia instance for each test
     setActivePinia(createPinia());

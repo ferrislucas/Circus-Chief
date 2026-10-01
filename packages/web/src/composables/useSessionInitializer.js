@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import { useSessionSubscription, ensureSubscribed, useWebSocket } from './useWebSocket.js';
+import { registerCommandHandlers } from './sessionCommandHandlers.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCanvasStore } from '../stores/canvas.js';
 import { useTodosStore } from '../stores/todos.js';
@@ -7,90 +8,8 @@ import { useUiStore } from '../stores/ui.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
+import { debugSessionStatus } from '../stores/sessions/statusOrdering.js';
 import { api } from './useApi.js';
-
-/**
- * Register command button WebSocket handlers (output, complete, error, deleted)
- * @param {Object} subscription - The session subscription object
- * @param {string} sessionId - Current session ID
- * @param {Object} stores - Object containing sessionsStore and commandButtonsStore
- * @returns {Function[]} Array of cleanup functions
- */
-function registerCommandHandlers(subscription, sessionId, stores) {
-  const { sessionsStore, commandButtonsStore } = stores;
-  const { onCommandStarted, onCommandOutput, onCommandComplete, onCommandError, onCommandRunDeleted } = subscription;
-  const handlers = [];
-
-  if (onCommandStarted) handlers.push(
-    onCommandStarted((runId, buttonId) => {
-      const startedAt = Date.now();
-      if (!commandButtonsStore.runs[runId]) {
-        commandButtonsStore.runs[runId] = {
-          runId, buttonId, sessionId, status: 'running', output: '', exitCode: null,
-          startedAt, outputTruncated: false,
-        };
-      }
-      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-        buttonId, status: 'running', runId, startedAt,
-      });
-    })
-  );
-
-  handlers.push(
-    onCommandOutput((runId, buttonId, output) => {
-      const existingRun = commandButtonsStore.runs[runId];
-      const existingSessionRun = sessionsStore.currentSession?.latestCommandRuns?.find(r => r.runId === runId);
-      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-        buttonId,
-        status: 'running',
-        runId,
-        startedAt: existingRun?.startedAt || existingSessionRun?.startedAt || Date.now(),
-      });
-    })
-  );
-
-  handlers.push(
-    onCommandComplete((runId, buttonId, exitCode, output) => {
-      const status = exitCode === 0 ? 'success' : 'error';
-      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-        buttonId,
-        status,
-        exitCode,
-        runId,
-        completedAt: Date.now(),
-      });
-    })
-  );
-
-  handlers.push(
-    onCommandError((runId, buttonId, error) => {
-      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-        buttonId,
-        status: 'error',
-        runId,
-        completedAt: Date.now(),
-      });
-    })
-  );
-
-  handlers.push(
-    onCommandRunDeleted(async (runId, buttonId) => {
-      console.log('[onCommandRunDeleted] Run deleted:', runId, 'for button:', buttonId);
-      commandButtonsStore.clearRun(runId);
-      try {
-        await sessionsStore.fetchSession(sessionId, false);
-        console.log('[onCommandRunDeleted] Session refetched, latestCommandRuns:', sessionsStore.currentSession?.latestCommandRuns);
-        sessionsStore.commandRunVersion++;
-        console.log('[onCommandRunDeleted] commandRunVersion incremented to:', sessionsStore.commandRunVersion);
-      } catch (error) {
-        console.error('Failed to fetch session after run deletion:', error);
-        sessionsStore.removeSessionCommandRun(sessionId, buttonId);
-      }
-    })
-  );
-
-  return handlers;
-}
 
 /**
  * Composable for initializing and managing WebSocket subscriptions and data
@@ -182,20 +101,59 @@ export function useSessionInitializer({
   }
 
   /**
-   * Fetch critical initial data for the session (session info, conversations, command buttons).
+   * Sync polling with the authoritative snapshot's status. Idempotent:
+   * `startPolling`/`stopPolling` in useSessionPolling are both no-ops when
+   * already in the requested state.
    * @param {string} sessionId - The session ID
    */
-  async function fetchCriticalSessionData(sessionId) {
-    await sessionsStore.fetchSession(sessionId);
-    await sessionsStore.fetchConversations(sessionId);
+  function syncPollingWithSessionStatus(sessionId) {
+    const session = sessionsStore.currentSession?.id === sessionId ? sessionsStore.currentSession : null;
+    const status = session?.status;
+    if (status === 'running' || status === 'starting') {
+      startPolling();
+    } else {
+      stopPolling();
+    }
+  }
 
+  /**
+   * Reconcile the selected session with an authoritative snapshot (FR-4).
+   * Fetches the session and its conversations for the still-current session
+   * ID, guarding after every await so a late response can never mutate a
+   * newly selected session's state. Restores an active display (and polling)
+   * when realtime frames were missed while disconnected or not yet
+   * subscribed, and ends it when the snapshot reports terminal/idle.
+   *
+   * @param {string} sessionId - The session ID to reconcile
+   */
+  async function reconcileSessionSnapshot(sessionId) {
+    if (currentSessionId !== sessionId) return;
+    try {
+      await sessionsStore.fetchSession(sessionId);
+      if (currentSessionId !== sessionId) return;
+      await sessionsStore.fetchConversations(sessionId);
+      if (currentSessionId !== sessionId) return;
+      // Development diagnostic: the authoritative snapshot's status for the
+      // selected session, with the store's client ordering generation.
+      const session = sessionsStore.currentSession?.id === sessionId ? sessionsStore.currentSession : null;
+      debugSessionStatus('snapshot', sessionId, session?.status ?? 'unknown', sessionsStore._statusGeneration?.(sessionId) ?? 0);
+      syncPollingWithSessionStatus(sessionId);
+    } catch (error) {
+      console.debug(`[session-status] snapshot reconciliation failed for session=${sessionId}:`, error);
+    }
+  }
+
+  /**
+   * Fetch command buttons for the session's project once the snapshot has
+   * provided a projectId.
+   */
+  async function fetchCommandButtonsForSession() {
     const projectId = sessionsStore.currentSession?.projectId;
-    if (projectId) {
-      try {
-        await commandButtonsStore.fetchButtons(projectId);
-      } catch (error) {
-        console.debug('Failed to fetch command buttons:', error);
-      }
+    if (!projectId) return;
+    try {
+      await commandButtonsStore.fetchButtons(projectId);
+    } catch (error) {
+      console.debug('Failed to fetch command buttons:', error);
     }
   }
 
@@ -330,8 +288,10 @@ export function useSessionInitializer({
     const { onReconnect } = useWebSocket();
     reconnectCleanups.push(
       onReconnect(async () => {
-        await sessionsStore.fetchSession(sessionId);
-        await sessionsStore.fetchConversations(sessionId);
+        // Reconcile with the authoritative snapshot first: realtime frames
+        // emitted while disconnected were dropped by the server, so this
+        // fetch restores the true status (and polling) after a reconnect.
+        await reconcileSessionSnapshot(sessionId);
         await sessionsStore.fetchMessages(sessionId, false, sessionsStore.activeConversationId);
         await sessionsStore.fetchWorkLogs(sessionId);
         await canvasStore.fetchItems(sessionId);
@@ -362,6 +322,13 @@ export function useSessionInitializer({
    * Initialize session - called on mount AND on route change (session navigation).
    * Sets up WebSocket subscription and handlers for the given session.
    *
+   * Ordering (FR-3): all session-scoped handlers are registered BEFORE the
+   * subscription is opened, so a status/message frame delivered immediately
+   * after subscription has a consumer and cannot be lost. The authoritative
+   * snapshot is fetched after subscription (FR-4) — it reconciles anything
+   * missed before the client was listening, and cannot regress a lifecycle
+   * event the client already processed (see statusOrdering.js).
+   *
    * @param {string} sessionId - The session ID to initialize
    */
   async function initializeSession(sessionId) {
@@ -369,23 +336,25 @@ export function useSessionInitializer({
     currentSessionId = sessionId;
     currentSubscription = useSessionSubscription(sessionId);
 
-    // STEP 2: Subscribe via the subscription object AND await connection
-    await setupSessionSubscription(currentSubscription, sessionId);
-
-    // STEP 3: Fetch critical data BEFORE registering handlers
-    await fetchCriticalSessionData(sessionId);
-
-    // STEP 4: Register all handlers
+    // STEP 2: Register all handlers BEFORE subscribing. Every handler cleanup
+    // is pushed onto `cleanups` here, before any event can possibly be
+    // received; `cleanup()` removes them on navigation/unmount.
     cleanups.push(...registerSessionHandlers(currentSubscription, sessionId));
 
-    // STEP 5: Fetch remaining data and set up reconnect
-    cleanups.push(...fetchRemainingDataAndSetupReconnect(sessionId));
+    // STEP 3: Subscribe via the subscription object AND await connection
+    await setupSessionSubscription(currentSubscription, sessionId);
 
-    // STEP 6: Start polling if session is actively processing
-    const status = sessionsStore.currentSession?.status;
-    if (status === 'running' || status === 'starting') {
-      startPolling();
-    }
+    // STEP 4: Reconcile with the authoritative snapshot (FR-4). If the route
+    // changed while subscribing, bail without touching the new session.
+    await reconcileSessionSnapshot(sessionId);
+    if (currentSessionId !== sessionId) return;
+
+    // STEP 5: Fetch remaining critical data (command buttons — needs the
+    // projectId the snapshot just provided).
+    await fetchCommandButtonsForSession();
+
+    // STEP 6: Fetch remaining data and set up reconnect
+    cleanups.push(...fetchRemainingDataAndSetupReconnect(sessionId));
   }
 
   return {

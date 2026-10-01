@@ -5,6 +5,11 @@ import { tokenGetters } from './sessions/tokenGetters.js';
 import { conversationActions } from './sessions/conversationActions.js';
 import { perSessionActions } from './sessions/perSessionActions.js';
 import { perSessionGetters } from './sessions/perSessionGetters.js';
+import {
+  statusOrderingState,
+  statusOrderingActions,
+  debugSessionStatus,
+} from './sessions/statusOrdering.js';
 
 /**
  * Counter for generating unique store IDs across multiple overlay instances.
@@ -39,6 +44,10 @@ function overlayState() {
     // instance for the same reason as `recentSends`. See
     // `scheduleMutationInFlight` in perSessionGetters.js.
     scheduleMutationsInFlight: {},
+    // Per-session status ordering generations (see statusOrdering.js). Kept
+    // per overlay instance so each overlay guards its own currentSession
+    // against stale snapshots independently of the main store.
+    ...statusOrderingState(),
   };
 }
 
@@ -88,6 +97,10 @@ const sessionSyncActions = {
     if (this.currentSession?.id === sessionId) {
       this.currentSession = { ...this.currentSession, ...updates };
     }
+    // Bump this store's ordering generation for status-bearing updates so a
+    // snapshot fetched before the update cannot regress currentSession
+    // afterwards (see statusOrdering.js).
+    if (updates?.status !== undefined) this._bumpStatusGeneration(sessionId);
     useSessionsStore()._updateSessionInAllLists(sessionId, updates);
   },
 
@@ -95,16 +108,21 @@ const sessionSyncActions = {
     if (showLoading) this.loading = true;
     this.error = null;
     try {
+      // Capture the ordering generation before the request so a lifecycle
+      // status applied while the fetch is in flight cannot be overwritten
+      // by this snapshot's (older) status. See statusOrdering.js.
+      const generationAtRequest = this._statusGeneration(id);
       const fetchedSession = await api.getSession(id);
       if (this.viewedSessionId && this.viewedSessionId !== id) return;
-      this.currentSession = fetchedSession;
+      const snapshot = this._reconcileSnapshotWithStatusOrdering(id, fetchedSession, generationAtRequest);
+      this.currentSession = snapshot;
 
       const mainStore = useSessionsStore();
       const existingIndex = mainStore.sessions.findIndex((s) => s.id === id);
       if (existingIndex !== -1) {
-        mainStore.sessions[existingIndex] = fetchedSession;
+        mainStore.sessions[existingIndex] = snapshot;
       } else {
-        mainStore.sessions.push(fetchedSession);
+        mainStore.sessions.push(snapshot);
       }
     } catch (err) {
       this.error = err.message;
@@ -118,9 +136,14 @@ const sessionSyncActions = {
     const wasRunning = session?.status === 'running';
     const updates = { status };
     if (wasRunning && (status === 'waiting' || status === 'completed')) updates.hasResponses = true;
+    debugSessionStatus('socket', sessionId, status, this._statusGeneration(sessionId) + 1);
     if (this.currentSession?.id === sessionId) {
       this.currentSession = { ...this.currentSession, ...updates };
     }
+    // Bump this store's ordering generation (lifecycle frames are newer than
+    // any snapshot issued before them). The main store bumps its own
+    // generation inside its updateSessionStatus.
+    this._bumpStatusGeneration(sessionId);
     useSessionsStore().updateSessionStatus(sessionId, status);
   },
 
@@ -129,23 +152,42 @@ const sessionSyncActions = {
     if (this.currentSession?.id === sessionData.id) {
       this.currentSession = { ...this.currentSession, ...sessionData };
     }
+    if (sessionData.status !== undefined) this._bumpStatusGeneration(sessionData.id);
     useSessionsStore().updateSession(sessionData);
   },
 };
 
 /**
- * Actions that are pure delegates to the main store.
+ * Command wrappers around the main store's lifecycle actions.
+ *
+ * The delegated main-store action only updates the MAIN store's lists; the
+ * overlay's canonical `currentSession` would otherwise stay in its prior
+ * state until a `session:status` WebSocket frame happened to arrive (the
+ * missed-frame failure path this store exists to prevent). After the API
+ * ACCEPTS the operation, these wrappers immediately transition the overlay's
+ * own session to the active state (FR-1). On a rejected request nothing is
+ * mutated locally — the error propagates to the caller's existing error path.
  */
 const delegatedSessionActions = {
   async stopSession(id) { return useSessionsStore().stopSession(id); },
   async restartSession(id) { return useSessionsStore().restartSession(id); },
   // eslint-disable-next-line max-params -- delegates the existing positional start signature plus optional `options` bag
   async startSession(id, prompt = undefined, model = undefined, providerId = undefined, options = {}) {
-    return useSessionsStore().startSession(id, prompt, model, providerId, options);
+    const result = await useSessionsStore().startSession(id, prompt, model, providerId, options);
+    // API accepted the start: the overlay's session is now `starting` (FR-1).
+    // Runs through updateSessionStatus so the ordering generation advances.
+    debugSessionStatus('optimistic', id, 'starting', this._statusGeneration(id) + 1);
+    this.updateSessionStatus(id, 'starting');
+    return result;
   },
   // eslint-disable-next-line max-params -- delegates the existing positional send signature plus optional `options` bag
   async sendMessage(sessionId, content, files = [], model = null, options = {}) {
-    return useSessionsStore().sendMessage(sessionId, content, files, model, options);
+    const result = await useSessionsStore().sendMessage(sessionId, content, files, model, options);
+    // API accepted the send: the overlay's session is now `running` (FR-1).
+    // Runs through updateSessionStatus so the ordering generation advances.
+    debugSessionStatus('optimistic', sessionId, 'running', this._statusGeneration(sessionId) + 1);
+    this.updateSessionStatus(sessionId, 'running');
+    return result;
   },
 
   async updateSessionModel(sessionId, model, providerId = undefined) {
@@ -169,8 +211,13 @@ const delegatedSessionActions = {
 
   async runScheduledNow(sessionId, prompt) {
     const result = await useSessionsStore().runScheduledNow(sessionId, prompt);
-    if (this.currentSession?.id === sessionId) {
-      this.currentSession = { ...this.currentSession, ...result };
+    // Merge the authoritative response into the overlay's canonical session
+    // (and the shared lists), reflecting the returned active status locally.
+    // Goes through _updateSessionInAllLists so the ordering generation
+    // advances ahead of any snapshot already in flight.
+    if (result) {
+      debugSessionStatus('optimistic', sessionId, result.status, this._statusGeneration(sessionId) + 1);
+      this._updateSessionInAllLists(sessionId, result);
     }
     return result;
   },
@@ -215,6 +262,7 @@ const commandRunActions = {
  */
 const overlayActions = {
   ...sessionSyncActions,
+  ...statusOrderingActions,
   ...perSessionActions,
   ...delegatedSessionActions,
   ...commandRunActions,
@@ -239,6 +287,11 @@ const overlayActions = {
  *   updateSessionStatus, updateSession, stopSession, restartSession, startSession,
  *   sendMessage, updateSessionModel, updateSessionThinking, updateSessionMode,
  *   updateSessionFields, updateNextTemplate, updateAutoSendPendingPrompt, runScheduledNow
+ *
+ * Lifecycle wrappers (sendMessage / startSession / runScheduledNow) also sync
+ * the overlay's own `currentSession` to the active state once the API accepts
+ * the operation, so the overlay never renders an idle composer for a session
+ * it just started (FR-1 of the running-state FRD).
  */
 export function createOverlaySessionsStore() {
   const storeId = `overlay-sessions-${++overlayCounter}`;
