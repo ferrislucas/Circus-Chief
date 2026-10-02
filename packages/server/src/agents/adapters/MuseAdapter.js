@@ -1,11 +1,11 @@
 import { BaseAgent } from '../BaseAgent.js';
 import { composeCliPrompt } from './cliUtils.js';
-import { filterDeadSshSocketAsync } from '../../services/loginShellEnv.js';
+import { filterDeadSshSocketAsync, staleSshSocketMessage } from '../../services/loginShellEnv.js';
 import { redactSecretsFromText } from '../../services/parityDiagnostics.js';
 import { createMuseEventMapper } from './museEventMapper.js';
 import { DEFAULT_TIMEOUTS, MuseTurnTimeoutError, deadline, remainingMuseTurnMs } from './museTimeouts.js';
 import { logMuseLifecycle } from './museLifecycle.js';
-import { readMuseCliVersion } from './museCliVersion.js';
+import { preflightMuseCompatibility } from './museCliVersion.js';
 import { buildMuseHostEnv } from './museHostEnv.js';
 import { assertMuseHostParity, scrubAndAttachDiagnostics } from './museParity.js';
 import { closeMuseHost, forceTerminateMuseHost } from './museHostClose.js';
@@ -74,12 +74,15 @@ export class MuseAdapter extends BaseAgent {
    * @param {Function} [opts.museClientFactory] - Optional DI for testing.
    *   Shape: `async ({ museBin, args, env, onStderr }) => client` where client has
    *   `startSession()`, `resumeSession()`, and `close()`.
+   * @param {Function} [opts.sshLivenessProbe] - Optional DI for the cached
+   *   async SSH-agent connect-test (finding #8).
    * @param {Object} [opts.rest] - Passed to {@link BaseAgent}.
    */
-  constructor({ museClientFactory, museVersionResolver, timeouts, correlationIdFactory, forceTerminateHost, ...rest } = {}) {
+  constructor({ museClientFactory, museVersionResolver, sshLivenessProbe, timeouts, correlationIdFactory, forceTerminateHost, ...rest } = {}) {
     super(rest);
     this._museClientFactory = museClientFactory;
     this._museVersionResolver = museVersionResolver;
+    this._sshLivenessProbe = sshLivenessProbe;
     this._timeouts = { ...DEFAULT_TIMEOUTS, ...(timeouts || {}) };
     this._correlationIdFactory = correlationIdFactory || (() => `muse-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
     this._forceTerminateHost = forceTerminateHost || forceTerminateMuseHost;
@@ -132,22 +135,23 @@ export class MuseAdapter extends BaseAgent {
    */
   async _prepareHostEnv(options, context) {
     const museBin = this._museClientFactory ? (process.env.MUSE_BIN || 'test-muse') : resolveMuseBin();
-    let hostEnv = buildMuseHostEnv(options.env);
-    // Connect-test the agent socket: a dead-but-present file passes the
-    // stat filter inside buildMuseHostEnv, so re-check liveness here and
-    // drop it before the host (and its tools) can fail opaquely on it.
-    const liveSocket = await filterDeadSshSocketAsync(hostEnv);
+    // The sync-stat socket filter inside buildMuseHostEnv is skipped here:
+    // the cached async connect-test below is the single liveness probe per
+    // turn (finding #8) — a dead-but-present file passes a stat check, so
+    // only the connect-test can be trusted anyway.
+    let hostEnv = buildMuseHostEnv(options.env, undefined, { skipSshFilter: true });
+    const liveSocket = await filterDeadSshSocketAsync(hostEnv, this._sshLivenessProbe);
     if (liveSocket.env !== hostEnv) {
       hostEnv = liveSocket.env;
       if (liveSocket.droppedReason) {
-        console.warn(`[MuseAdapter] ${liveSocket.droppedReason}. SSH git remotes and SSH commit signing will fail; run \`ssh-add -l\` in your terminal and relaunch the server from there.`);
+        console.warn(`[MuseAdapter] ${staleSshSocketMessage(liveSocket.droppedReason)}`);
       }
     }
     context.setHostEnv(hostEnv);
     // Pre-turn parity gate (FR-8): hard-fail only on the signal that always
     // breaks the turn (missing muse binary). Soft credential failures
-    // (ssh-agent, gh-auth, git-identity) attach actionable remediation to
-    // the turn error path instead of failing startup. A pinned in-memory
+    // (ssh-agent, gh-auth, git-identity, home, identity) attach actionable
+    // remediation to the turn error path instead of failing startup. A pinned in-memory
     // test factory involves no real binary, so the binary check is skipped.
     assertMuseHostParity(hostEnv, { museBin, skipBinaries: Boolean(this._museClientFactory), context });
     return { museBin, hostEnv };
@@ -160,7 +164,7 @@ export class MuseAdapter extends BaseAgent {
     // the selected executable before it may open an MSP session. This makes
     // the normal PATH-resolved launcher safe while still catching an update
     // that no longer matches our pinned SDK.
-    const cliVersion = await this._preflightMuseCompatibility(museBin, Boolean(this._museClientFactory));
+    const cliVersion = await this._preflightMuseCompatibility(museBin, Boolean(this._museClientFactory), context);
     let client;
     try {
       client = await deadline(factory({
@@ -220,23 +224,24 @@ export class MuseAdapter extends BaseAgent {
     };
   }
 
-  async _preflightMuseCompatibility(museBin, skipProbe) {
-    if (skipProbe && !this._museVersionResolver) return MUSE_SDK_VERSION;
-    const resolver = this._museVersionResolver || readMuseCliVersion;
-    const cliVersion = await resolver(museBin);
-    if (cliVersion !== MUSE_SDK_VERSION) {
-      const error = new Error(`Muse CLI/SDK version mismatch: CLI ${cliVersion || 'unknown'} does not match @muse-code/sdk ${MUSE_SDK_VERSION}. Install Muse Code ${MUSE_SDK_VERSION} and set MUSE_BIN to that exact executable.`);
-      error.code = 'MUSE_VERSION_MISMATCH';
-      error.cliVersion = cliVersion || null;
-      error.sdkVersion = MUSE_SDK_VERSION;
-      throw error;
-    }
-    return cliVersion;
+  async _preflightMuseCompatibility(museBin, skipProbe, context = null) {
+    return preflightMuseCompatibility({
+      museBin,
+      skipProbe,
+      versionResolver: this._museVersionResolver,
+      context,
+      sdkVersion: MUSE_SDK_VERSION,
+    });
   }
 
   async *_runTurn({ host, queryParams, options, mapper, context }) {
     const { client } = host;
-    const session = await deadline(openMspSession(client, options), {
+    // Finding #10: a resume fork (stale stored MSP id) must surface in the
+    // transcript, not just the server logs — capture it and yield a notice.
+    let resumeFallback = null;
+    const session = await deadline(openMspSession(client, options, {
+      onResumeFallback: (err) => { resumeFallback = err; },
+    }), {
       timeoutMs: this._timeouts.startupMs,
       phase: options.resume ? 'resume' : 'startSession',
       context,
@@ -246,6 +251,14 @@ export class MuseAdapter extends BaseAgent {
     context.setSessionId(session.sessionId);
     logMuseLifecycle({ correlationId: context.correlationId, hostPid: host.pid, museSessionId: session.sessionId, sdkVersion: MUSE_SDK_VERSION, cliVersion: host.cliVersion, timings: context.timings, phase: options.resume ? 'resume' : 'startSession' });
     yield mapper.buildSystemInit(session.sessionId);
+    if (resumeFallback) {
+      // FR-11: scrub before yielding — resume errors can echo host output.
+      const notice = redactSecretsFromText(
+        `Muse could not resume the previous session (${resumeFallback?.message || resumeFallback}); started a fresh session instead, so earlier turns are not in context.`,
+        context.hostEnv || {},
+      );
+      yield mapper.buildNotice(notice);
+    }
     registerApprovalHandlers(session, options.approvalMode);
 
     // sendUserTurn has its own budget (larger than the startup allowance),

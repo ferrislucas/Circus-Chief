@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { buildMuseHostEnv } from '../agents/adapters/MuseAdapter.js';
-import { getLoginShellEnv, resetLoginShellEnvCache, isSshAgentSocketAliveAsync } from '../services/loginShellEnv.js';
+import { getLoginShellEnv, refreshLoginShellEnvAsync, isSshAgentSocketAliveAsync } from '../services/loginShellEnv.js';
 import { buildParityCredentialError, checkParitySignals, redactEnvForDiagnostics } from '../services/parityDiagnostics.js';
 import { buildSessionEnv } from '../services/sessionProvider.js';
 
@@ -42,35 +42,63 @@ router.get('/', (_req, res) => {
  */
 router.get('/muse/env-diagnostics', handleMuseEnvDiagnostics);
 
-export async function handleMuseEnvDiagnostics(req, res) {
+/**
+ * Optional DI for diagnostics tests: Express passes its `next` callback as
+ * the handler's third argument, which is a function — only a plain object
+ * with a `refreshLoginShellEnvAsync` function counts as deps.
+ */
+function selectDiagnosticsRefresher(deps) {
+  if (deps && typeof deps === 'object' && typeof deps.refreshLoginShellEnvAsync === 'function') {
+    return deps.refreshLoginShellEnvAsync;
+  }
+  return refreshLoginShellEnvAsync;
+}
+
+/**
+ * Upgrade the ssh-agent signal from stat-only to the connect-test: a
+ * dead-but-present socket file passes stat yet refuses connections.
+ * Pure — returns the (possibly new) signal list instead of mutating it.
+ */
+async function upgradeSshAgentSignal(signals, hostEnv) {
+  const sshIdx = signals.findIndex((s) => s.signal === 'ssh-agent');
+  if (sshIdx < 0) return signals;
+  const live = await isSshAgentSocketAliveAsync(hostEnv.SSH_AUTH_SOCK);
+  const ssh = signals[sshIdx];
+  if (ssh.ok && !live.alive) {
+    const next = signals.slice();
+    next[sshIdx] = {
+      signal: 'ssh-agent',
+      ok: false,
+      origin: ssh.origin,
+      remediation: buildParityCredentialError('ssh-agent').message,
+    };
+    return next;
+  }
+  if (!ssh.ok && live.alive) {
+    const next = signals.slice();
+    next[sshIdx] = {
+      signal: 'ssh-agent',
+      ok: true,
+      origin: hostEnv.SSH_AUTH_SOCK ? 'socket path' : 'unset',
+      remediation: null,
+    };
+    return next;
+  }
+  return signals;
+}
+
+export async function handleMuseEnvDiagnostics(req, res, deps) {
+  const refresher = selectDiagnosticsRefresher(deps);
   try {
-    if (req?.query?.reprobe) resetLoginShellEnvCache();
+    // Finding #6: the re-probe runs off the event loop (async execFile with
+    // a tight budget) and repopulates the cache, so a slow shell no longer
+    // stalls concurrent requests. The non-reprobe path keeps reading the
+    // cached sync probe used by startup/turn code.
+    if (req?.query?.reprobe) await refresher();
     const probe = getLoginShellEnv();
     const sessionEnv = buildSessionEnv(null, false, null);
     const hostEnv = buildMuseHostEnv(sessionEnv);
-    const signals = checkParitySignals(hostEnv);
-    // Upgrade the ssh-agent signal from stat-only to the connect-test: a
-    // dead-but-present socket file passes stat yet refuses connections.
-    const sshIdx = signals.findIndex((s) => s.signal === 'ssh-agent');
-    if (sshIdx >= 0) {
-      const live = await isSshAgentSocketAliveAsync(hostEnv.SSH_AUTH_SOCK);
-      const ssh = signals[sshIdx];
-      if (ssh.ok && !live.alive) {
-        signals[sshIdx] = {
-          signal: 'ssh-agent',
-          ok: false,
-          origin: ssh.origin,
-          remediation: buildParityCredentialError('ssh-agent').message,
-        };
-      } else if (!ssh.ok && live.alive) {
-        signals[sshIdx] = {
-          signal: 'ssh-agent',
-          ok: true,
-          origin: hostEnv.SSH_AUTH_SOCK ? 'socket path' : 'unset',
-          remediation: null,
-        };
-      }
-    }
+    const signals = await upgradeSshAgentSignal(checkParitySignals(hostEnv), hostEnv);
     res.json({
       probe: probe.ok ? { ok: true } : { ok: false, reason: probe.reason },
       signals,

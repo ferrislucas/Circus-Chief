@@ -1,5 +1,5 @@
 import { sessions, attachments } from '../database.js';
-import { DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
+import { DEFAULT_SYSTEM_PROMPT, museApprovalModeForSessionMode } from '@circuschief/shared';
 import { buildCommandButtonApiInstructions } from './commandButtonPrompts.js';
 import {
   buildSessionApiInstructions,
@@ -156,22 +156,16 @@ export function getGeminiApprovalModeForSession(mode) {
 /**
  * Map session mode to the Muse MSP session approval mode.
  *
- * MSP modes are closed (select-never-create): allowAll | promptUnmatched |
- * onRequest | denyUnmatched. The `muse serve` default is on-request; yolo
- * lifts enforcement, plan selects the most conservative interactive mode.
+ * Delegates to the shared `museApprovalPolicy.js` table so the server
+ * mapping and the UI copy cannot drift. MSP modes are closed
+ * (select-never-create): allowAll | promptUnmatched | onRequest |
+ * denyUnmatched. The `muse serve` default is on-request; yolo lifts
+ * enforcement, plan selects the most conservative interactive mode.
  * Tool calls still resolve through the adapter's headless `onApproval`
  * handler (see MuseAdapter) — this selects the server-side posture.
  */
 export function getMuseApprovalModeForSession(mode) {
-  switch (mode) {
-    case 'yolo':
-      return 'allowAll';
-    case 'plan':
-      return 'promptUnmatched';
-    case 'standard':
-    default:
-      return 'onRequest';
-  }
+  return museApprovalModeForSessionMode(mode);
 }
 
 /** Plan mode system prompt instructions */

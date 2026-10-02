@@ -103,14 +103,14 @@ describe('Agents API', () => {
   // exported handler directly with a mock response. The route registration
   // above (`router.get('/muse/env-diagnostics', ...)`) keeps the HTTP shape.
   describe('GET /api/agents/muse/env-diagnostics', () => {
-    async function callHandler(query) {
+    async function callHandler(query, deps) {
       const res = {
         statusCode: 200,
         body: null,
         status(code) { this.statusCode = code; return this; },
         json(payload) { this.body = payload; return this; },
       };
-      await handleMuseEnvDiagnostics({ query: query || {} }, res);
+      await handleMuseEnvDiagnostics({ query: query || {} }, res, deps);
       return res;
     }
 
@@ -161,6 +161,44 @@ describe('Agents API', () => {
       // The re-probe repopulates the process-lifetime cache.
       expect(getLoginShellEnv()).toBeDefined();
       expect(typeof getLoginShellEnv().ok).toBe('boolean');
+    });
+
+    // Finding #6: ?reprobe=1 must not block the event loop on the sync
+    // shell probe — a concurrent fast request must win the race while the
+    // re-probe is still gated, and the handler must use the injected async
+    // refresher (not the blocking sync spawner).
+    it('re-probes via the async refresher without blocking concurrent requests (finding #6)', async () => {
+      const { getLoginShellEnv, resetLoginShellEnvCache } = await import('../services/loginShellEnv.js');
+      // Prime the sync cache with a stubbed probe so the real blocking
+      // spawner is never hit during this test.
+      resetLoginShellEnvCache();
+      getLoginShellEnv({}, {
+        spawnSync: () => ({ status: 0, stdout: Buffer.from('PATH=/usr/bin:/bin\0'), stderr: Buffer.alloc(0) }),
+      });
+
+      let resolveProbe;
+      const gate = new Promise((resolve) => { resolveProbe = resolve; });
+      let refresherCalls = 0;
+      const deps = {
+        refreshLoginShellEnvAsync: async () => {
+          refresherCalls += 1;
+          await gate;
+          return { ok: true, env: {} };
+        },
+      };
+
+      const slow = callHandler({ reprobe: '1' }, deps);
+      const fast = callHandler({}, deps);
+      const winner = await Promise.race([slow.then(() => 'slow'), fast.then(() => 'fast')]);
+      try {
+        expect(winner).toBe('fast');
+        expect(refresherCalls).toBe(1);
+      } finally {
+        resolveProbe();
+      }
+      const slowRes = await slow;
+      expect(slowRes.statusCode).toBe(200);
+      expect(Array.isArray(slowRes.body.signals)).toBe(true);
     });
   });
 });

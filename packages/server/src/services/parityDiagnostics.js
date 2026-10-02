@@ -226,6 +226,18 @@ const PARITY_ERRORS = {
       + 'user.name/user.email in ~/.gitconfig). Run `git config --global user.name "You"` and '
       + '`git config --global user.email "you@example.com"` in your terminal.',
   },
+  'home': {
+    code: 'MUSE_HOME_MISSING',
+    message: 'Muse couldn\'t resolve your HOME directory, so tools that read ~/.config, '
+      + '~/.gitconfig, and gh hosts will misbehave. Relaunch Circus Chief from your terminal '
+      + 'so the agent inherits HOME.',
+  },
+  'identity': {
+    code: 'MUSE_IDENTITY_MISSING',
+    message: 'Muse couldn\'t determine your user identity (USER/LOGNAME are not set), so tools '
+      + 'fall back to inconsistent defaults. Relaunch Circus Chief from your terminal so the '
+      + 'agent inherits your login identity.',
+  },
   'muse-bin': {
     code: 'MUSE_CLI_NOT_FOUND',
     message: 'Muse CLI not found. Install Muse Code and ensure `muse` is on PATH (or set MUSE_BIN).',
@@ -235,7 +247,7 @@ const PARITY_ERRORS = {
 /**
  * Actionable, secret-free error for an unsatisfiable parity signal (FR-8).
  * Caller-provided values are never interpolated into the message (FR-11).
- * @param {'ssh-agent'|'gh-auth'|'git-identity'|'muse-bin'} kind
+ * @param {'ssh-agent'|'gh-auth'|'git-identity'|'home'|'identity'|'muse-bin'} kind
  * @returns {Error} With `.code` set.
  */
 export function buildParityCredentialError(kind) {
@@ -305,4 +317,25 @@ export function redactSecretsFromText(text, env) {
     out = out.split(value).join('[REDACTED]');
   }
   return out;
+}
+
+/**
+ * Scrub secret values out of text bound for work logs (finding #1, FR-11).
+ * Single choke point for the transcript path: tool inputs and tool outputs
+ * are redacted here before reaching work logs (and from there transcripts
+ * and canvas payloads). `env` is the turn's session env — provider-supplied
+ * tokens live there, not in the server process env — merged over
+ * `process.env` so both are covered. Only secret *values* are scrubbed;
+ * key names and presence labels survive.
+ *
+ * The Muse event mapper is intentionally NOT a scrub point: it is pure
+ * (no env access), so mapped `tool_result` content passes through verbatim
+ * and is scrubbed here.
+ *
+ * @param {*} text - Text (or value stringified by the caller) to scrub.
+ * @param {Object} [env] - Session env carrying secret values.
+ * @returns {string} Scrubbed text with secret values replaced by `[REDACTED]`.
+ */
+export function scrubEventForLogging(text, env) {
+  return redactSecretsFromText(text, { ...process.env, ...(env || {}) });
 }

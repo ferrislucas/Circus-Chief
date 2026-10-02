@@ -228,37 +228,57 @@ export function widenProvidersKindCheck(db, kinds) {
   // fires that cascade when DROP TABLE deletes parent rows, which would
   // wipe all provider_models data. Disabling FK enforcement prevents the
   // cascade. It is re-enabled immediately after the rename.
+  //
+  // The FK pragma is toggled OUTSIDE the transaction below: SQLite ignores
+  // `PRAGMA foreign_keys` changes made inside a transaction.
   db.pragma('foreign_keys = OFF');
   try {
-    db.exec(`
-      DROP TABLE IF EXISTS providers_new;
+    // Atomic swap (finding #4): every statement between BEGIN IMMEDIATE and
+    // COMMIT applies together or not at all, so a crash or error mid-swap
+    // can no longer leave a half-renamed providers table behind.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec(`
+        DROP TABLE IF EXISTS providers_new;
 
-      CREATE TABLE providers_new (
-        ${definitions.join(',\n        ')}
-      );
+        CREATE TABLE providers_new (
+          ${definitions.join(',\n        ')}
+        );
 
-      INSERT INTO providers_new (${columnNames}) SELECT ${columnNames} FROM providers;
+        INSERT INTO providers_new (${columnNames}) SELECT ${columnNames} FROM providers;
 
-      DROP TABLE providers;
+        DROP TABLE providers;
 
-      ALTER TABLE providers_new RENAME TO providers;
+        ALTER TABLE providers_new RENAME TO providers;
 
-      CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
-    `);
+        CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
+      `);
 
-    // Post-swap assertion (defense in depth): column and PK-index counts
-    // must match the pre-swap fingerprint.
-    const postColumns = db.prepare('PRAGMA table_info(providers)').all().map((c) => c.name);
-    const postIndexes = db.prepare('PRAGMA index_list(providers)').all()
-      .filter((index) => index.origin === 'pk')
-      .map((i) => i.name);
-    if (postColumns.join(',') !== preSwap.columnNames.join(',')) {
-      throw new Error(
-        `widenProvidersKindCheck changed the providers columns (before: ${preSwap.columnNames.join(',')}; after: ${postColumns.join(',')}).`,
-      );
-    }
-    if (postIndexes.join(',') !== preSwap.indexNames.join(',')) {
-      throw new Error('widenProvidersKindCheck changed the providers indexes; refusing to continue silently.');
+      // Post-swap assertion (defense in depth): column and PK-index counts
+      // must match the pre-swap fingerprint. These reads run inside the
+      // transaction, so a mismatch rolls the whole swap back instead of
+      // leaving it applied.
+      const postColumns = db.prepare('PRAGMA table_info(providers)').all().map((c) => c.name);
+      const postIndexes = db.prepare('PRAGMA index_list(providers)').all()
+        .filter((index) => index.origin === 'pk')
+        .map((i) => i.name);
+      if (postColumns.join(',') !== preSwap.columnNames.join(',')) {
+        throw new Error(
+          `widenProvidersKindCheck changed the providers columns (before: ${preSwap.columnNames.join(',')}; after: ${postColumns.join(',')}).`,
+        );
+      }
+      if (postIndexes.join(',') !== preSwap.indexNames.join(',')) {
+        throw new Error('widenProvidersKindCheck changed the providers indexes; refusing to continue silently.');
+      }
+
+      db.exec('COMMIT');
+    } catch (swapError) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        /* already rolled back or never began: the original error wins */
+      }
+      throw swapError;
     }
   } finally {
     db.pragma('foreign_keys = ON');

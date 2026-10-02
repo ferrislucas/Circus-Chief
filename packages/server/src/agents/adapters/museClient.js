@@ -65,7 +65,7 @@ export async function spawnMuseClient({ museBin, args, env, onStderr, shutdownTi
   });
 }
 
-export async function openMspSession(client, options) {
+export async function openMspSession(client, options, opts = {}) {
   const startOptions = {
     ...(options.cwd ? { workspaceRoot: options.cwd } : {}),
     ...(options.model ? { modelId: options.model } : {}),
@@ -75,7 +75,11 @@ export async function openMspSession(client, options) {
     try {
       return await client.resumeSession({ sessionId: options.resume, ...startOptions });
     } catch (err) {
+      // Finding #10: the resume fork must be user-visible, not
+      // console-only — the adapter turns this into a transcript notice via
+      // onResumeFallback. The console line stays for operators tailing logs.
       console.warn(`[MuseAdapter] MSP resume failed (${err?.message || err}); starting a fresh session.`);
+      opts.onResumeFallback?.(err);
     }
   }
   return client.startSession(startOptions);

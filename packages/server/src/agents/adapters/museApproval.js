@@ -1,9 +1,14 @@
+import { museApprovalModeAutoApproves } from '@circuschief/shared';
+
 /**
  * Headless approval policy and reasoning-effort mapping for the Muse
  * adapter. Only `allowAll` (yolo) auto-approves the server-offered first
- * choice; every gated mode denies with an actionable error so the mode
- * selector never promises gating it does not enforce. Fail-closed: an
- * unset mode denies.
+ * choice; every gated mode denies with an actionable error — including
+ * read-class requests, because a shell-kind approval is code execution no
+ * matter how read-only its command looks — so the mode selector never
+ * promises gating it does not enforce. Fail-closed: an unset mode denies.
+ * The allow/deny rule itself lives in `@circuschief/shared`
+ * (`museApprovalPolicy.js`) so the adapter and the UI copy cannot drift.
  */
 export function registerApprovalHandlers(session, approvalMode) {
   session.onApproval(async (request) => approveFirstChoice(request, approvalMode));
@@ -15,10 +20,11 @@ export function registerApprovalHandlers(session, approvalMode) {
 }
 
 function approveFirstChoice(request, approvalMode) {
-  if (approvalMode !== 'allowAll') {
+  if (!museApprovalModeAutoApproves(approvalMode)) {
     throw new Error(
-      'Muse did not auto-approve this tool call: standard/plan sessions require explicit approval, '
-      + 'and this server cannot prompt yet. Re-run the session in yolo mode to allow tool execution.',
+      'Muse did not auto-approve this tool call: only yolo sessions auto-approve tools — '
+      + 'plan and standard sessions deny tool execution (including reads) because '
+      + 'this server cannot prompt yet. Re-run the session in yolo mode to allow tool execution.',
     );
   }
   const choice = request?.availableChoices?.[0];

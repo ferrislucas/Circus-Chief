@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MuseAdapter, MUSE_CLIENT_INFO, MUSE_SDK_VERSION, MuseTurnTimeoutError, resolveMuseBin, resolveMuseReasoningEffort, resolveMuseServeArgs, buildMuseHostEnv } from './MuseAdapter.js';
+import { clearSshLivenessCache } from '../../services/loginShellEnv.js';
 import { getNodeBinDir } from '../../services/nodeSpawnHelper.js';
 
 /**
@@ -49,6 +50,7 @@ describe('MuseAdapter', () => {
   let warnSpy;
   beforeEach(() => {
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    clearSshLivenessCache();
   });
   afterEach(() => {
     warnSpy.mockRestore();
@@ -146,6 +148,27 @@ describe('MuseAdapter', () => {
     expect(client.calls.startSession).toHaveLength(1);
   });
 
+  // Finding #10: the resume fork must surface as a user-visible warning
+  // event in the turn stream — not console-only — so the transcript shows
+  // the fresh session lost prior context.
+  it('emits a user-visible notice when resume falls back to a fresh session (finding #10)', async () => {
+    const client = createFakeClient();
+    client.resumeSession = async (options) => {
+      client.calls.resumeSession.push(options);
+      throw new Error('no such session');
+    };
+    const adapter = new MuseAdapter({ museClientFactory: async () => client });
+
+    const events = await collect(adapter, { prompt: 'again', options: { resume: 'msp-old', env: {} } });
+    expect(client.calls.startSession).toHaveLength(1);
+    const notice = events.find((e) => e.type === 'assistant'
+      && JSON.stringify(e.message?.content || []).match(/could not resume/i));
+    expect(notice).toBeDefined();
+    expect(JSON.stringify(notice)).toMatch(/fresh session/);
+    // The notice follows system(init), ahead of any turn items.
+    expect(events.indexOf(notice)).toBeGreaterThan(0);
+  });
+
   it('auto-approves the first server-offered choice in allowAll (yolo) mode', async () => {
     const client = createFakeClient();
     const adapter = new MuseAdapter({ museClientFactory: async () => client });
@@ -176,6 +199,62 @@ describe('MuseAdapter', () => {
     const handler = client.__approvalHandler();
     await expect(handler({ availableChoices: [{ choiceId: 'allow' }] }))
       .rejects.toThrow();
+  });
+
+  // Finding #2: gated modes deny EVERYTHING — including read-class
+  // approvals. A shell-kind request is code execution no matter how
+  // read-only its command looks, so "approve reads, deny writes" would be
+  // dishonest gating. These SDK-shaped requests lock the deny-all posture
+  // (and the honest mode-selector copy) in.
+  it.each(['onRequest', 'promptUnmatched', undefined])(
+    'denies read-class approval requests in gated mode %s (finding #2)',
+    async (approvalMode) => {
+      const client = createFakeClient();
+      const adapter = new MuseAdapter({ museClientFactory: async () => client });
+      await collect(adapter, { prompt: 'p', options: { ...(approvalMode ? { approvalMode } : {}), env: {} } });
+
+      const handler = client.__approvalHandler();
+      await expect(handler({
+        approvalId: 'appr-read-1',
+        toolName: 'read',
+        subject: { kind: 'fileAccess', access: 'read', path: '/tmp/notes.txt' },
+        protectedWrite: false,
+        availableChoices: [{ choiceId: 'allow' }, { choiceId: 'deny' }],
+      })).rejects.toThrow(/yolo/i);
+    },
+  );
+
+  it.each(['onRequest', 'promptUnmatched', undefined])(
+    'denies write-class approval requests in gated mode %s (finding #2)',
+    async (approvalMode) => {
+      const client = createFakeClient();
+      const adapter = new MuseAdapter({ museClientFactory: async () => client });
+      await collect(adapter, { prompt: 'p', options: { ...(approvalMode ? { approvalMode } : {}), env: {} } });
+
+      const handler = client.__approvalHandler();
+      await expect(handler({
+        approvalId: 'appr-write-1',
+        toolName: 'bash',
+        subject: { kind: 'shell', command: 'rm -rf /tmp/scratch' },
+        protectedWrite: true,
+        availableChoices: [{ choiceId: 'allow' }, { choiceId: 'deny' }],
+      })).rejects.toThrow(/yolo/i);
+    },
+  );
+
+  it('auto-approves read-class requests in allowAll (yolo) mode (finding #2)', async () => {
+    const client = createFakeClient();
+    const adapter = new MuseAdapter({ museClientFactory: async () => client });
+    await collect(adapter, { prompt: 'p', options: { approvalMode: 'allowAll', env: {} } });
+
+    const handler = client.__approvalHandler();
+    await expect(handler({
+      approvalId: 'appr-read-2',
+      toolName: 'read',
+      subject: { kind: 'fileAccess', access: 'read', path: '/tmp/notes.txt' },
+      protectedWrite: false,
+      availableChoices: [{ choiceId: 'allow' }, { choiceId: 'deny' }],
+    })).resolves.toEqual({ choiceId: 'allow' });
   });
 
   it('maps failed turn outcomes to error results and still closes the host', async () => {
@@ -253,18 +332,68 @@ describe('MuseAdapter', () => {
     await expect(collect(adapter, { prompt: 'p', options: {} })).rejects.toBe(boom);
   });
 
-  it('fails compatibility preflight before it opens an MSP session', async () => {
+  it('fails compatibility preflight on a major mismatch before it opens an MSP session', async () => {
     const client = createFakeClient();
     const factory = vi.fn(async () => client);
     const adapter = new MuseAdapter({
       museClientFactory: factory,
-      museVersionResolver: async () => '1.4.0',
+      museVersionResolver: async () => '2.0.0',
     });
 
     await expect(collect(adapter, { prompt: 'p', options: {} }))
-      .rejects.toMatchObject({ code: 'MUSE_VERSION_MISMATCH', cliVersion: '1.4.0', sdkVersion: MUSE_SDK_VERSION });
+      .rejects.toMatchObject({ code: 'MUSE_VERSION_MISMATCH', cliVersion: '2.0.0', sdkVersion: MUSE_SDK_VERSION });
     expect(factory).not.toHaveBeenCalled();
     expect(client.calls.startSession).toHaveLength(0);
+  });
+
+  it('fails compatibility preflight on an unknown CLI version', async () => {
+    const client = createFakeClient();
+    const factory = vi.fn(async () => client);
+    const adapter = new MuseAdapter({
+      museClientFactory: factory,
+      museVersionResolver: async () => null,
+    });
+
+    await expect(collect(adapter, { prompt: 'p', options: {} }))
+      .rejects.toMatchObject({ code: 'MUSE_VERSION_MISMATCH', cliVersion: null });
+    expect(factory).not.toHaveBeenCalled();
+  });
+
+  // Finding #3: a CLI that auto-updated within the same major warns and
+  // proceeds instead of bricking the turn.
+  it.each(['1.4.0', '1.3.1', '1.2.9'])(
+    'warns but proceeds on same-major CLI drift %s (finding #3)',
+    async (cliVersion) => {
+      const client = createFakeClient();
+      const factory = vi.fn(async () => client);
+      const adapter = new MuseAdapter({
+        museClientFactory: factory,
+        museVersionResolver: async () => cliVersion,
+      });
+
+      const events = await collect(adapter, { prompt: 'p', options: {} });
+      expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
+      expect(factory).toHaveBeenCalled();
+      expect(client.calls.startSession).toHaveLength(1);
+    },
+  );
+
+  it('proceeds on a major mismatch only under MUSE_ALLOW_VERSION_DRIFT=1 (finding #3)', async () => {
+    const previous = process.env.MUSE_ALLOW_VERSION_DRIFT;
+    process.env.MUSE_ALLOW_VERSION_DRIFT = '1';
+    try {
+      const client = createFakeClient();
+      const adapter = new MuseAdapter({
+        museClientFactory: async () => client,
+        museVersionResolver: async () => '2.0.0',
+      });
+
+      const events = await collect(adapter, { prompt: 'p', options: {} });
+      expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
+    } finally {
+      if (previous === undefined) delete process.env.MUSE_ALLOW_VERSION_DRIFT;
+      else process.env.MUSE_ALLOW_VERSION_DRIFT = previous;
+    }
   });
 
   it('times out a never-resolving sendUserTurn, closes the host, and returns a typed error', async () => {
@@ -461,6 +590,41 @@ describe('MuseAdapter', () => {
     expect(error.message).not.toContain('TEST_SENTINEL');
     const warnings = error.museHostDiagnostics?.parityWarnings || [];
     expect(warnings.some((w) => w.signal === 'ssh-agent')).toBe(true);
+  });
+
+  // Finding #8: two consecutive turns with an unchanged SSH_AUTH_SOCK
+  // perform the async connect-test once — the second turn reuses the
+  // cached liveness instead of paying the penalty again.
+  // Finding #13: the stale-socket warning must say a session retry is
+  // insufficient — the server has to be re-spawned from a live shell.
+  it('warns that a session retry is insufficient when dropping a stale socket (finding #13)', async () => {
+    const client = createFakeClient();
+    const adapter = new MuseAdapter({ museClientFactory: async () => client });
+    await collect(adapter, { prompt: 'p', options: { env: { SSH_AUTH_SOCK: '/nonexistent-dir-xyz/agent.sock' } } });
+
+    const warned = warnSpy.mock.calls.map((call) => String(call[0]).toLowerCase()).join('\n');
+    expect(warned).toMatch(/retrying the session is not enough/);
+    expect(warned).toMatch(/relaunch the server/);
+  });
+
+  // Finding #8: two consecutive turns with an unchanged SSH_AUTH_SOCK
+  // perform the async connect-test once — the second turn reuses the
+  // cached liveness instead of paying the penalty again.
+  it('connect-tests an unchanged SSH_AUTH_SOCK once across consecutive turns (finding #8)', async () => {
+    let probeCalls = 0;
+    const sshLivenessProbe = async () => {
+      probeCalls += 1;
+      return { alive: true };
+    };
+    const client = createFakeClient();
+    const adapter = new MuseAdapter({ museClientFactory: async () => client, sshLivenessProbe });
+
+    const env = { SSH_AUTH_SOCK: '/tmp/fake-agent.sock' };
+    await collect(adapter, { prompt: 'one', options: { env } });
+    await collect(adapter, { prompt: 'two', options: { env } });
+
+    expect(probeCalls).toBe(1);
+    expect(client.calls.startSession).toHaveLength(2);
   });
 
   it('never surfaces a secret planted in host stderr through turn diagnostics', async () => {

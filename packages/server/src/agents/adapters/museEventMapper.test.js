@@ -67,6 +67,17 @@ describe('createMuseEventMapper', () => {
       ).toEqual([{ type: 'tool_result', tool_name: 'bash', content: '{"cmd":"ls"}' }]);
     });
 
+    it('passes toolCall output through verbatim: scrubbing is the stream handler\u2019s job (finding #1)', () => {
+      // The mapper is pure (no env access) and MUST NOT redact: secret
+      // scrubbing happens at the single choke point in streamEventHandler
+      // (scrubEventForLogging), which sees the turn's session env.
+      const mapper = createMuseEventMapper();
+      const [event] = mapper.mapItem({
+        kind: 'toolCall', tool: 'bash', visibleOutput: 'token GH_TOKEN_SENTINEL_VALUE echoed back',
+      });
+      expect(event.content).toBe('token GH_TOKEN_SENTINEL_VALUE echoed back');
+    });
+
     it('appends failure details to toolCall content', () => {
       const mapper = createMuseEventMapper();
       const [event] = mapper.mapItem({
@@ -102,14 +113,18 @@ describe('createMuseEventMapper', () => {
       });
     });
 
-    it('renders unknown kinds generically when fallbackText exists, else ignores', () => {
+    it('renders unknown kinds generically when fallbackText exists, else a transcript notice (finding #11)', () => {
       const mapper = createMuseEventMapper();
       const [generic] = mapper.mapItem({ kind: 'futureKind', status: 'completed', fallbackText: 'did stuff' });
       expect(generic).toEqual({
         type: 'tool_result', tool_name: 'futureKind', content: 'did stuff',
       });
-      expect(mapper.mapItem({ kind: 'futureKind', status: 'completed' })).toEqual([]);
-      // Warn-once per kind
+      // No renderable text: a generic notice lands in the transcript so the
+      // dropped item is visible (not console-only).
+      const [notice] = mapper.mapItem({ kind: 'futureKind', status: 'completed' });
+      expect(notice).toMatchObject({ type: 'tool_result', tool_name: 'futureKind' });
+      expect(notice.content).toMatch(/futureKind.*no display text/);
+      // Warn-once per kind on the console
       mapper.mapItem({ kind: 'futureKind' });
       expect(warnSpy).toHaveBeenCalledTimes(1);
     });

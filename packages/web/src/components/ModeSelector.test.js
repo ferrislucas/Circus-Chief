@@ -358,6 +358,45 @@ describe('ModeSelector', () => {
     });
   });
 
+  describe('muse agent copy (finding #2)', () => {
+    it('says gated modes run no Muse tools when agentType is muse', () => {
+      const wrapper = mountComponent({ modelValue: 'standard', agentType: 'muse' });
+      expect(wrapper.get('select').attributes('title')).toMatch(/no tools.*YOLO/i);
+    });
+
+    it('says plan mode runs no Muse tools when agentType is muse', () => {
+      const wrapper = mountComponent({ modelValue: 'plan', agentType: 'muse' });
+      expect(wrapper.get('select').attributes('title')).toMatch(/no tools.*YOLO/i);
+    });
+
+    it('keeps the auto-approve copy for muse yolo mode', () => {
+      const wrapper = mountComponent({ modelValue: 'yolo', agentType: 'muse' });
+      expect(wrapper.get('select').attributes('title')).toBe('Automatically approves tool use');
+    });
+
+    it('keeps generic copy for non-muse agents', () => {
+      const wrapper = mountComponent({ modelValue: 'standard', agentType: 'codex' });
+      expect(wrapper.get('select').attributes('title')).toBe('Requests approval for each gated tool');
+    });
+
+    it('reads muse agentType from the session store in session context', async () => {
+      const sessionsStore = useSessionsStore();
+      sessionsStore.currentSession = {
+        id: 'muse-session',
+        mode: 'standard',
+        agentType: 'muse',
+      };
+
+      const wrapper = mountComponent({
+        sessionId: 'muse-session',
+        modelValue: undefined,
+      });
+      await flushAll(wrapper);
+
+      expect(wrapper.get('select').attributes('title')).toMatch(/no tools.*YOLO/i);
+    });
+  });
+
   describe('form context (v-model binding)', () => {
     it('works correctly with v-model in form context', async () => {
       const onUpdateModelValue = vi.fn();

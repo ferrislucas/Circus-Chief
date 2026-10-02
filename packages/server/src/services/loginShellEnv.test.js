@@ -6,12 +6,18 @@ import {
   parseEnvZero,
   parseEnvLines,
   probeLoginShellEnv,
+  probeLoginShellEnvAsync,
+  refreshLoginShellEnvAsync,
   mergeShellEnv,
   getLoginShellEnv,
   resetLoginShellEnvCache,
   LOGIN_SHELL_TIMEOUT_MS,
+  LOGIN_SHELL_ASYNC_TIMEOUT_MS,
   isSshAgentSocketAlive,
   isSshAgentSocketAliveAsync,
+  filterDeadSshSocketAsync,
+  clearSshLivenessCache,
+  staleSshSocketMessage,
 } from './loginShellEnv.js';
 import {
   checkParitySignals,
@@ -32,6 +38,7 @@ function okSpawn(stdout) {
 describe('loginShellEnv', () => {
   afterEach(() => {
     resetLoginShellEnvCache();
+    clearSshLivenessCache();
     vi.restoreAllMocks();
   });
 
@@ -108,6 +115,60 @@ describe('loginShellEnv', () => {
       const result = probeLoginShellEnv({ shell: '/bin/zsh' }, { spawnSync, platform: 'win32' });
       expect(result.ok).toBe(false);
       expect(spawnSync).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('probeLoginShellEnvAsync (finding #6)', () => {
+    it('uses a tighter per-dump budget than the sync probe', () => {
+      expect(LOGIN_SHELL_ASYNC_TIMEOUT_MS).toBeLessThan(LOGIN_SHELL_TIMEOUT_MS);
+    });
+
+    it('returns ok with the parsed env from env -0 via execFile', async () => {
+      const execFile = vi.fn(async () => ({ stdout: 'PATH=/shell/bin\0SSH_AUTH_SOCK=/tmp/s\0' }));
+      const result = await probeLoginShellEnvAsync({ shell: '/bin/zsh' }, { execFile });
+      expect(result.ok).toBe(true);
+      expect(result.env.PATH).toBe('/shell/bin');
+      expect(execFile).toHaveBeenCalledTimes(1);
+      expect(execFile.mock.calls[0][0]).toBe('/bin/zsh');
+      expect(execFile.mock.calls[0][1]).toContain('-lic');
+    });
+
+    it('falls back to plain printenv when env -0 yields nothing usable', async () => {
+      const execFile = vi.fn()
+        .mockResolvedValueOnce({ stdout: '' })
+        .mockResolvedValueOnce({ stdout: 'PATH=/fallback/bin\n' });
+      const result = await probeLoginShellEnvAsync({ shell: '/bin/zsh' }, { execFile });
+      expect(result.ok).toBe(true);
+      expect(result.env.PATH).toBe('/fallback/bin');
+      expect(execFile).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns { ok: false } without throwing on timeout', async () => {
+      const timeoutErr = new Error('Command timed out');
+      timeoutErr.killed = true;
+      const execFile = vi.fn(async () => { throw timeoutErr; });
+      const result = await probeLoginShellEnvAsync({ shell: '/bin/zsh', timeoutMs: 50 }, { execFile });
+      expect(result.ok).toBe(false);
+      expect(result.reason).toMatch(/timed out|timeout/i);
+    });
+
+    it('declines on win32 instead of probing', async () => {
+      const execFile = vi.fn(async () => ({ stdout: 'PATH=/x\0' }));
+      const result = await probeLoginShellEnvAsync({ shell: '/bin/zsh' }, { execFile, platform: 'win32' });
+      expect(result.ok).toBe(false);
+      expect(execFile).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('refreshLoginShellEnvAsync (finding #6)', () => {
+    it('repopulates the process-lifetime cache without blocking spawns', async () => {
+      const execFile = vi.fn(async () => ({ stdout: 'PATH=/fresh/bin\0' }));
+      await refreshLoginShellEnvAsync({}, { execFile });
+      // The sync reader now serves the refreshed value with no new spawn.
+      const spawnSync = vi.fn(() => { throw new Error('must not probe'); });
+      const cached = getLoginShellEnv({}, { spawnSync });
+      expect(cached.ok).toBe(true);
+      expect(cached.env.PATH).toBe('/fresh/bin');
     });
   });
 
@@ -343,6 +404,71 @@ describe('loginShellEnv', () => {
         connect: null,
       });
       expect(probe.alive).toBe(true);
+    });
+  });
+
+  describe('async liveness cache (finding #8)', () => {
+    const SOCK = '/tmp/test-agent.sock';
+
+    it('probes once for consecutive calls with an unchanged socket', async () => {
+      const probe = vi.fn(async () => ({ alive: true }));
+      const env = { SSH_AUTH_SOCK: SOCK };
+      const statSync = () => ({ mtimeMs: 111 });
+      const first = await filterDeadSshSocketAsync(env, probe, { statSync });
+      const second = await filterDeadSshSocketAsync(env, probe, { statSync });
+      expect(probe).toHaveBeenCalledTimes(1);
+      expect(first.env).toBe(env);
+      expect(second.env).toBe(env);
+      expect(second.droppedReason).toBeNull();
+    });
+
+    it('re-probes when the socket mtime changes (state change)', async () => {
+      let mtimeMs = 111;
+      const probe = vi.fn(async () => ({ alive: true }));
+      const env = { SSH_AUTH_SOCK: SOCK };
+      const statSync = () => ({ mtimeMs });
+      await filterDeadSshSocketAsync(env, probe, { statSync });
+      mtimeMs = 222;
+      await filterDeadSshSocketAsync(env, probe, { statSync });
+      expect(probe).toHaveBeenCalledTimes(2);
+    });
+
+    it('re-probes after the TTL expires', async () => {
+      const probe = vi.fn(async () => ({ alive: true }));
+      const env = { SSH_AUTH_SOCK: SOCK };
+      const statSync = () => ({ mtimeMs: 111 });
+      await filterDeadSshSocketAsync(env, probe, { statSync });
+      await filterDeadSshSocketAsync(env, probe, { statSync, ttlMs: 0 });
+      expect(probe).toHaveBeenCalledTimes(2);
+    });
+
+    it('caches dead results but still drops with the reason on repeat turns', async () => {
+      const probe = vi.fn(async () => ({ alive: false, reason: 'socket dead' }));
+      const env = { SSH_AUTH_SOCK: SOCK };
+      const statSync = () => ({ mtimeMs: 111 });
+      const first = await filterDeadSshSocketAsync(env, probe, { statSync });
+      const second = await filterDeadSshSocketAsync(env, probe, { statSync });
+      expect(probe).toHaveBeenCalledTimes(1);
+      for (const result of [first, second]) {
+        expect(result.env).not.toHaveProperty('SSH_AUTH_SOCK');
+        expect(result.droppedReason).toBe('socket dead');
+      }
+    });
+
+    it('passes through without probing when SSH_AUTH_SOCK is unset', async () => {
+      const probe = vi.fn(async () => ({ alive: true }));
+      const result = await filterDeadSshSocketAsync({ PATH: 'x' }, probe);
+      expect(probe).not.toHaveBeenCalled();
+      expect(result).toEqual({ env: { PATH: 'x' }, droppedReason: null });
+    });
+  });
+
+  describe('staleSshSocketMessage (finding #13)', () => {
+    it('says a session retry is insufficient and a server re-spawn is needed', () => {
+      const message = staleSshSocketMessage('socket dead');
+      expect(message).toContain('socket dead');
+      expect(message).toMatch(/retrying the session is not enough/i);
+      expect(message).toMatch(/relaunch the server/i);
     });
   });
 });

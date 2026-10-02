@@ -222,6 +222,9 @@ export function buildMuseTestArgs(config) {
     error.code = 'MISSING_WORKING_DIRECTORY';
     throw error;
   }
+  // Last-resort-only fallback (finding #9): always prefer the configured
+  // model — this test turn is billed — the literal exists solely so a
+  // model-less provider can still probe binary presence + auth.
   const model = config.defaultSonnetModel || 'muse-spark-1.3';
   return {
     command: process.env.MUSE_BIN || 'muse',

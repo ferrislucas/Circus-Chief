@@ -159,6 +159,51 @@ describe('streamEventHandler', () => {
     });
   });
 
+  // ── secret scrubbing (finding #1) ────────────────────────────────────
+  // Tool outputs and tool inputs can echo secret values (tokens printed by
+  // `printenv`, `gh` errors, exported credentials). The handler is the
+  // single scrub point: it redacts session-env secret values before the
+  // content reaches work logs (and from there transcripts/canvas).
+
+  describe('secret scrubbing (finding #1)', () => {
+    const SENTINEL = 'sentinel-gh-token-abc123';
+
+    it('redacts secret values from tool_result work logs', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.create.mockReturnValue({ id: 'wl-1' });
+
+      await handleStreamEvent('sess-1', {
+        type: 'tool_result',
+        content: `gh push failed with token ${SENTINEL}`,
+        tool_name: 'Bash',
+      }, { env: { GH_TOKEN: SENTINEL } });
+
+      expect(workLogs.create).toHaveBeenCalled();
+      const logged = workLogs.create.mock.calls[0][2];
+      expect(logged).toContain('[REDACTED]');
+      expect(logged).not.toContain(SENTINEL);
+    });
+
+    it('redacts secret values from tool_input work logs', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.create.mockReturnValue({ id: 'wl-2' });
+
+      await handleStreamEvent('sess-1', {
+        type: 'assistant',
+        message: {
+          content: [{
+            type: 'tool_use', id: 'tu-1', name: 'Bash', input: { command: `export GH_TOKEN=${SENTINEL}` },
+          }],
+        },
+      }, { env: { GH_TOKEN: SENTINEL } });
+
+      const toolInputCall = workLogs.create.mock.calls.find((call) => call[1] === 'tool_input');
+      expect(toolInputCall).toBeDefined();
+      expect(toolInputCall[2]).toContain('[REDACTED]');
+      expect(toolInputCall[2]).not.toContain(SENTINEL);
+    });
+  });
+
   // ── associateAndBroadcastWorkLogs ─────────────────────────────────────
 
   describe('associateAndBroadcastWorkLogs', () => {

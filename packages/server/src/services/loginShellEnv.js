@@ -1,6 +1,7 @@
-import { spawnSync as defaultSpawnSync } from 'child_process';
-import { statSync } from 'fs';
-import { connect as defaultConnect } from 'net';
+import { execFile as execFileCallback, spawnSync as defaultSpawnSync } from 'child_process';
+import { promisify } from 'util';
+
+const defaultExecFile = promisify(execFileCallback);
 
 /**
  * Login-shell environment derivation (Muse agent user-shell parity).
@@ -191,6 +192,98 @@ export function resetLoginShellEnvCache() {
   cacheLogged = false;
 }
 
+/**
+ * Async budget for one `execFile` login-shell dump. Tighter than the sync
+ * 2s-per-dump budget: the diagnostics endpoint re-probe must stay well
+ * under the 2s×2 sync cost AND off the event loop (finding #6).
+ */
+export const LOGIN_SHELL_ASYNC_TIMEOUT_MS = 1000;
+
+function describeExecFailure(err, shell) {
+  const message = err?.message || String(err);
+  if (err?.killed || /timed out/i.test(message)) {
+    return `login-shell probe timed out after budget (${shell} -lic)`;
+  }
+  if (typeof err?.code === 'number') {
+    const stderr = String(err?.stderr || '').slice(0, 200).trim();
+    return `login-shell probe exited with status ${err.code}${stderr ? `: ${stderr}` : ''}`;
+  }
+  return `login-shell probe failed: ${message}`;
+}
+
+async function attemptDumpAsync({ shell, dumpCommand, timeoutMs, exec, parse }) {
+  try {
+    const { stdout } = await exec(shell, ['-lic', dumpCommand], {
+      timeout: timeoutMs,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+    });
+    const parsed = parse(stdout);
+    if (Object.keys(parsed).length === 0) return { env: null, failure: null };
+    return { env: parsed, failure: null };
+  } catch (err) {
+    return { env: null, failure: describeExecFailure(err, shell) };
+  }
+}
+
+/**
+ * Async variant of {@link probeLoginShellEnv} for the diagnostics endpoint
+ * re-probe (finding #6): same `env -0` → `printenv` fallback and the same
+ * parsers, but spawned with `execFile` so a slow shell never blocks the
+ * event loop, and with a tighter per-dump budget. Never throws: failures
+ * resolve to `{ ok: false, reason }`, same as the sync probe.
+ *
+ * The cached sync probe stays the path for startup/turn code; this is only
+ * for on-demand (re-)probes that must not stall concurrent requests.
+ *
+ * @param {Object} [opts]
+ * @param {string} [opts.shell] - Defaults to $SHELL, then /bin/sh.
+ * @param {number} [opts.timeoutMs] - Per-dump budget (default 1000ms).
+ * @param {Object} [deps] - Test seam: { execFile, platform }.
+ * @returns {Promise<{ ok: true, env: Object } | { ok: false, reason: string }>}
+ */
+export async function probeLoginShellEnvAsync({ shell, timeoutMs = LOGIN_SHELL_ASYNC_TIMEOUT_MS } = {}, deps = {}) {
+  const exec = deps.execFile ?? defaultExecFile;
+  const platform = deps.platform ?? process.platform;
+  if (platform === 'win32') {
+    return { ok: false, reason: 'login-shell probe is POSIX-only; using snapshot behavior' };
+  }
+  const loginShell = shell || process.env.SHELL || '/bin/sh';
+  try {
+    const nul = await attemptDumpAsync({ shell: loginShell, dumpCommand: 'env -0', timeoutMs, exec, parse: parseEnvZero });
+    if (nul.env) return { ok: true, env: nul.env };
+    const lines = await attemptDumpAsync({ shell: loginShell, dumpCommand: 'printenv', timeoutMs, exec, parse: parseEnvLines });
+    if (lines.env) return { ok: true, env: lines.env };
+    return { ok: false, reason: lines.failure || nul.failure || `login-shell probe produced no parsable entries (${loginShell} -lic)` };
+  } catch (err) {
+    return { ok: false, reason: `login-shell probe failed: ${err?.message || err}` };
+  }
+}
+
+/**
+ * Re-probe the login shell off the event loop and repopulate the
+ * process-lifetime cache (finding #6). Concurrent readers keep seeing the
+ * previous cached value until the refresh lands. Respects the
+ * CIRCUS_CHIEF_NO_LOGIN_SHELL=1 escape hatch like the sync path.
+ *
+ * @param {Object} [opts] - Forwarded to probeLoginShellEnvAsync on refresh.
+ * @param {Object} [deps] - Test seam forwarded to probeLoginShellEnvAsync.
+ * @returns {Promise<{ ok: true, env: Object } | { ok: false, reason: string }>}
+ */
+export async function refreshLoginShellEnvAsync(opts = {}, deps = {}) {
+  if (process.env[LOGIN_SHELL_DISABLE_ENV_VAR] === '1') {
+    cachedProbe = { ok: false, reason: 'login-shell probe disabled via CIRCUS_CHIEF_NO_LOGIN_SHELL=1' };
+    return cachedProbe;
+  }
+  const result = await probeLoginShellEnvAsync(opts, deps);
+  cachedProbe = result;
+  if (!result.ok && !cacheLogged) {
+    cacheLogged = true;
+    console.warn(`[loginShellEnv] ${result.reason}; falling back to server snapshot env.`);
+  }
+  return result;
+}
+
 function mergePath(explicitPath, shellPath, separator) {
   const explicitParts = String(explicitPath || '').split(separator).filter(Boolean);
   const seen = new Set(explicitParts);
@@ -231,111 +324,15 @@ function mergeShellPath(explicitPath, shellPath, separator) {
   return mergePath(explicitPath, shellPath, separator);
 }
 
-/**
- * Check whether an SSH agent socket path is live (FR-5). Sync stat test:
- * the path must exist and be a socket. Never throws.
- * @param {string} sockPath
- * @returns {{ alive: boolean, reason?: string }}
- */
-export function isSshAgentSocketAlive(sockPath, deps = {}) {
-  const stat = deps.statSync ?? statSync;
-  if (!sockPath) {
-    return { alive: false, reason: 'SSH_AUTH_SOCK is not set' };
-  }
-  try {
-    const stats = stat(sockPath);
-    if (!stats.isSocket()) {
-      return { alive: false, reason: `SSH_AUTH_SOCK path exists but is not a socket: ${sockPath}` };
-    }
-    return { alive: true };
-  } catch (err) {
-    return { alive: false, reason: `SSH agent socket not reachable at ${sockPath} (${err?.code || err?.message || 'unknown'})` };
-  }
-}
-
-/**
- * Drop a stale SSH_AUTH_SOCK from a host env instead of passing it through
- * silently (FR-5). Returns the (possibly new) env plus the drop reason.
- * Never throws; live sockets and unset values pass through untouched.
- * @param {Object} env
- * @returns {{ env: Object, droppedReason: string|null }}
- */
-export function filterDeadSshSocket(env, isAlive = isSshAgentSocketAlive) {
-  const sockPath = env?.SSH_AUTH_SOCK;
-  if (!sockPath) return { env, droppedReason: null };
-  const probe = isAlive(sockPath);
-  if (probe.alive) return { env, droppedReason: null };
-  const next = { ...env };
-  delete next.SSH_AUTH_SOCK;
-  return { env: next, droppedReason: probe.reason };
-}
-
-/**
- * Check whether an SSH agent socket path accepts connections (FR-5).
- * A stat-only check passes dead-but-present socket files; this connects
- * with a short timeout so a stale path is detected instead of failing
- * opaquely inside the turn. Falls back to the stat check where no
- * connect implementation is available. Never throws.
- *
- * @param {string} sockPath
- * @param {Object} [deps] - `{ statSync, connect, timeoutMs }` (tests).
- * @returns {Promise<{ alive: boolean, reason?: string }>}
- */
-export function isSshAgentSocketAliveAsync(sockPath, deps = {}) {
-  const stat = deps.statSync ?? statSync;
-  const connectImpl = deps.connect === undefined ? defaultConnect : deps.connect;
-  const timeoutMs = deps.timeoutMs ?? 500;
-  if (!sockPath) {
-    return Promise.resolve({ alive: false, reason: 'SSH_AUTH_SOCK is not set' });
-  }
-  let stats;
-  try {
-    stats = stat(sockPath);
-  } catch (err) {
-    return Promise.resolve({ alive: false, reason: `SSH agent socket not reachable at ${sockPath} (${err?.code || err?.message || 'unknown'})` });
-  }
-  if (!stats.isSocket()) {
-    return Promise.resolve({ alive: false, reason: `SSH_AUTH_SOCK path exists but is not a socket: ${sockPath}` });
-  }
-  if (typeof connectImpl !== 'function') {
-    return Promise.resolve({ alive: true });
-  }
-  return new Promise((resolve) => {
-    let settled = false;
-    const done = (result) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      try { socket.destroy(); } catch { /* ignore */ }
-      resolve(result);
-    };
-    const socket = connectImpl(sockPath);
-    const timer = setTimeout(() => {
-      done({ alive: false, reason: `SSH agent socket did not accept a connection at ${sockPath} within ${timeoutMs}ms` });
-    }, timeoutMs);
-    timer.unref?.();
-    socket.once('connect', () => done({ alive: true }));
-    socket.once('error', (err) => done({
-      alive: false,
-      reason: `SSH agent socket does not accept connections at ${sockPath} (${err?.code || err?.message || 'unknown'})`,
-    }));
-  });
-}
-
-/**
- * Async variant of filterDeadSshSocket using the connect-test so a
- * dead-but-present socket file is dropped instead of passed through.
- * Never throws; live sockets and unset values pass through untouched.
- * @param {Object} env
- * @param {Function} [probe] - Async liveness probe (tests).
- * @returns {Promise<{ env: Object, droppedReason: string|null }>}
- */
-export async function filterDeadSshSocketAsync(env, probe = isSshAgentSocketAliveAsync) {
-  const sockPath = env?.SSH_AUTH_SOCK;
-  if (!sockPath) return { env, droppedReason: null };
-  const result = await probe(sockPath);
-  if (result.alive) return { env, droppedReason: null };
-  const next = { ...env };
-  delete next.SSH_AUTH_SOCK;
-  return { env: next, droppedReason: result.reason };
-}
+// SSH-agent socket liveness lives in sshAgentSocket.js (split out so this
+// file stays under the repo's size gate); re-exported here so existing
+// import paths keep working.
+export {
+  isSshAgentSocketAlive,
+  filterDeadSshSocket,
+  isSshAgentSocketAliveAsync,
+  SSH_LIVENESS_CACHE_TTL_MS,
+  clearSshLivenessCache,
+  staleSshSocketMessage,
+  filterDeadSshSocketAsync,
+} from './sshAgentSocket.js';

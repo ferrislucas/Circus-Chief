@@ -387,6 +387,18 @@ describe('providerTestService', () => {
         .toThrow(expect.objectContaining({ code: 'MISSING_WORKING_DIRECTORY' }));
     });
 
+    // Finding #9: the 'muse-spark-1.3' fallback is last-resort-only for a
+    // model-less provider. The connection test is one minimal BILLED exec
+    // turn, so an explicitly configured model is always preferred.
+    it('buildMuseTestArgs falls back to muse-spark-1.3 only when no model is configured', () => {
+      expect(buildMuseTestArgs({ workingDirectory: '/tmp/w' })).toEqual({
+        command: 'muse',
+        args: ['exec', '--json', '--no-session-log', '-p', 'Hi', '-m', 'muse-spark-1.3'],
+        cwd: '/tmp/w',
+        model: 'muse-spark-1.3',
+      });
+    });
+
     it('non-zero exit maps stderr into failure shape', async () => {
       const child = createMockGeminiChild();
       const spawnMuseProcess = vi.fn(() => child);

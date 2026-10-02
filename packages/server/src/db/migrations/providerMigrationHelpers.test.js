@@ -327,6 +327,66 @@ describe('widenProvidersKindCheck', () => {
     }
   });
 
+  // Finding #4: the DROP/COPY/RENAME swap must run inside a single
+  // transaction — a crash or error mid-swap must leave the original table
+  // (and its child rows) intact instead of a half-renamed database.
+  it('rolls back to the intact original table when the swap fails mid-way (finding #4)', () => {
+    const db = liveDbWithEnabled();
+    try {
+      const before = db.prepare('SELECT id, kind, enabled FROM providers ORDER BY id').all();
+      const originalExec = db.exec.bind(db);
+      let calls = 0;
+      db.exec = (...args) => {
+        calls += 1;
+        // Call 1 is BEGIN IMMEDIATE; call 2 is the swap block itself.
+        if (calls === 2) throw new Error('injected mid-swap failure');
+        return originalExec(...args);
+      };
+      try {
+        expect(() => widenProvidersKindCheck(db, META_KINDS)).toThrow(/injected mid-swap failure/);
+      } finally {
+        db.exec = originalExec;
+      }
+
+      // Original table intact with every row; the stale swap copy was never
+      // touched (the swap block never ran), so it is still the stale shape.
+      expect(db.prepare('SELECT id, kind, enabled FROM providers ORDER BY id').all()).toEqual(before);
+      expect(db.prepare("SELECT sql FROM sqlite_master WHERE name = 'providers_new'").get().sql)
+        .toContain('name TEXT NOT NULL');
+      expect(db.prepare('SELECT COUNT(*) c FROM provider_models').get().c).toBe(2);
+      // FK enforcement restored after the failed swap.
+      expect(db.pragma('foreign_keys', { simple: true })).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('runs the swap statements inside a single transaction (finding #4)', () => {
+    const db = liveDbWithEnabled();
+    try {
+      const originalExec = db.exec.bind(db);
+      const statements = [];
+      db.exec = (...args) => {
+        statements.push(String(args[0] || ''));
+        return originalExec(...args);
+      };
+      try {
+        widenProvidersKindCheck(db, META_KINDS);
+      } finally {
+        db.exec = originalExec;
+      }
+
+      expect(statements[0]).toMatch(/BEGIN IMMEDIATE/i);
+      expect(statements[statements.length - 1]).toMatch(/COMMIT/i);
+      const swapBlock = statements.find((sql) => sql.includes('ALTER TABLE providers_new RENAME TO providers'));
+      expect(swapBlock).toBeDefined();
+      expect(statements.indexOf(swapBlock)).toBeGreaterThan(0);
+      expect(statements.indexOf(swapBlock)).toBeLessThan(statements.length - 1);
+    } finally {
+      db.close();
+    }
+  });
+
   it('does nothing when providers does not exist', () => {
     const db = new Database(':memory:');
     try {

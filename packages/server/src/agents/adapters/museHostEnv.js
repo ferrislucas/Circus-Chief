@@ -1,5 +1,5 @@
 import { createRobustEnv } from '../../services/nodeSpawnHelper.js';
-import { filterDeadSshSocket } from '../../services/loginShellEnv.js';
+import { filterDeadSshSocket, staleSshSocketMessage } from '../../services/loginShellEnv.js';
 
 /**
  * Build the env for the owned `muse serve` host so shell tools (git, gh and
@@ -12,13 +12,17 @@ import { filterDeadSshSocket } from '../../services/loginShellEnv.js';
  * @param {Object} [sessionEnv] - Session env from buildSessionEnv (wins)
  * @param {Object} [baseEnv] - Host env filling the gaps (defaults to process.env)
  * @param {Object} [opts] - Optional `{ shellEnv }` forwarded to createRobustEnv
- *   (fixture injection for tests; undefined runs the cached live probe) and
+ *   (fixture injection for tests; undefined runs the cached live probe),
  *   `{ isSshAgentAlive }` liveness predicate override (tests; default stats
- *   the socket path).
+ *   the socket path), and `{ skipSshFilter }` — when true the sync-stat
+ *   socket filter is skipped because the caller runs the cached async
+ *   connect-test instead, so only one liveness probe exists per turn
+ *   (finding #8; used by the adapter's `_prepareHostEnv`).
  * @returns {Object}
  */
 export function buildMuseHostEnv(sessionEnv = {}, baseEnv = process.env, opts = {}) {
   const robust = createRobustEnv({ ...baseEnv, ...(sessionEnv || {}) }, opts);
+  if (opts.skipSshFilter) return robust;
   // FR-5: a stale agent socket must never be passed through silently — SSH
   // remotes/signing would fail opaquely inside the turn. Drop it and say why.
   const { env, droppedReason } = filterDeadSshSocket(
@@ -26,7 +30,7 @@ export function buildMuseHostEnv(sessionEnv = {}, baseEnv = process.env, opts = 
     opts.isSshAgentAlive ? (sockPath) => opts.isSshAgentAlive(sockPath) : undefined,
   );
   if (droppedReason) {
-    console.warn(`[MuseAdapter] ${droppedReason}. SSH git remotes and SSH commit signing will fail; run \`ssh-add -l\` in your terminal and relaunch the server from there.`);
+    console.warn(`[MuseAdapter] ${staleSshSocketMessage(droppedReason)}`);
   }
   return env;
 }

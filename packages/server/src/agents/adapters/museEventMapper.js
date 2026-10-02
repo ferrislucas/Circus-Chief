@@ -19,7 +19,8 @@
  * render unknown kinds generically (kind name + status + `fallbackText`).
  * The mapper follows that rule: known kinds map precisely, unknown kinds
  * with `fallbackText` degrade to a generic `tool_result`, and unknown
- * kinds without any renderable text are ignored (warn-once).
+ * kinds without any renderable text emit a generic transcript notice
+ * (warn-once on the console) so the dropped item stays visible.
  *
  * MSP kinds handled in v1:
  *   - {@code userMessage}  — prompt echo (or steered injection); ignored.
@@ -48,7 +49,9 @@
  *   mapOutcome: (outcome: Object) => Array<Object>,
  *   mapCancellation: () => Array<Object>,
  *   reset: () => void,
- *   finalize: () => Array<Object>
+ *   finalize: () => Array<Object>,
+ *   buildSystemInit: (sessionId: string) => Object,
+ *   buildNotice: (text: string) => Object
  * }}
  */
 export function createMuseEventMapper({ model } = {}) {
@@ -127,6 +130,7 @@ export function createMuseEventMapper({ model } = {}) {
     // Exposed for the adapter: the MSP session id becomes the resume
     // handle stored on the conversation (same column Claude uses).
     buildSystemInit: (sessionId) => buildSystemInit(sessionId, model),
+    buildNotice,
   };
 }
 
@@ -201,6 +205,19 @@ function buildSystemInit(sessionId, model) {
   };
   if (model) init.model = model;
   return init;
+}
+
+/**
+ * User-visible notice event (finding #10): an `assistant` text event so the
+ * stream handler saves and broadcasts it as a transcript message — not a
+ * console-only warning.
+ * @param {string} text - Already-scrubbed notice text.
+ */
+function buildNotice(text) {
+  return {
+    type: 'assistant',
+    message: { content: [{ type: 'text', text }] },
+  };
 }
 
 // --- Item handlers ---------------------------------------------------------
@@ -292,14 +309,21 @@ function mapSummaryKind(item) {
 }
 
 function mapUnknownKind(item, warnedKinds) {
-  // Wire-open evolution: render generically when the server gave us text,
-  // ignore (warn-once) when there is nothing renderable.
+  // Wire-open evolution: render generically when the server gave us text.
+  // Finding #11: when there is nothing renderable, still leave a generic
+  // notice in the transcript (console-only would hide the dropped item).
   if (item.kind && !warnedKinds.has(item.kind)) {
     warnedKinds.add(item.kind);
-    console.warn(`[museEventMapper] Ignoring unsupported item.kind "${item.kind}"`);
+    console.warn(`[museEventMapper] Received unsupported item.kind "${item.kind}"`);
   }
   const generic = item.fallbackText || item.text || '';
-  if (!generic) return [];
+  if (!generic) {
+    return [{
+      type: 'tool_result',
+      tool_name: item.kind || 'unknown',
+      content: `Muse sent an unsupported item (kind "${item.kind || 'unknown'}") with no display text; nothing was rendered for it.`,
+    }];
+  }
   return [{
     type: 'tool_result',
     tool_name: item.kind || 'unknown',
