@@ -11,6 +11,7 @@ import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
 import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
 import { attachRootSession } from './workflowSessionService.js';
+import { activeSessions } from './streamEventHandler.js';
 
 function throwIfAborted(controller) {
   if (controller?.signal.aborted) throw controller.signal.reason || new Error('Lane-entry delivery was aborted');
@@ -76,6 +77,48 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
   }
 
   return { workingDirectory: project.workingDirectory, gitWorktree: null };
+}
+
+/**
+ * Attach a newly created lane-entry child as its run's root. When the attach
+ * fails after the child row was created (e.g. a concurrent delivery attached
+ * a different root), reconcile the orphan first: without this it stays parked
+ * in 'starting' with no dispatch and no controls.
+ * @param {string|null} laneRunId
+ * @param {string|null} childSessionId - Set when reusing an existing child
+ * @param {string} newSessionId
+ */
+function attachLaneRunRoot(laneRunId, childSessionId, newSessionId) {
+  if (!laneRunId || childSessionId) return;
+  try {
+    attachRootSession(laneRunId, newSessionId);
+  } catch (error) {
+    reconcileUndeliveredChild(newSessionId);
+    throw error;
+  }
+}
+
+/**
+ * Land a recoverable status for a lane-entry child whose delivery failed
+ * before (or without) provider dispatch. A child left in 'starting' with an
+ * idle execution and no active process exposes no stop or prompt control;
+ * move it to 'stopped' so it stays recoverable for retry or follow-up. Never
+ * touches children that already left 'starting' or that have a live turn
+ * (a retry may be dispatching concurrently).
+ * @param {string|null} newSessionId
+ * @returns {boolean} Whether the child was reconciled
+ */
+export function reconcileUndeliveredChild(newSessionId) {
+  if (!newSessionId || activeSessions.has(newSessionId)) return false;
+  const child = sessions.getById(newSessionId);
+  if (!child || child.status !== 'starting') return false;
+  const updated = sessions.update(newSessionId, { status: 'stopped', executionState: 'stopped' });
+  broadcastToProject(child.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    projectId: child.projectId,
+    sessionId: newSessionId,
+    session: updated,
+  });
+  return true;
 }
 
 /**
@@ -165,7 +208,7 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
     parentSessionId: session.id,
   });
   if (!newSession) throw new Error('attached lane-entry child session is missing');
-  if (laneRunId && !childSessionId) attachRootSession(laneRunId, newSession.id);
+  attachLaneRunRoot(laneRunId, childSessionId, newSession.id);
 
   // Configure remaining fields not supported by create()
   sessions.update(newSession.id, {
@@ -192,10 +235,12 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
 
   console.log(`Kanban: Triggering on-enter template "${template.name}" for session "${session.name}" entering lane "${lane.name}"`);
 
+  let newSessionId = null;
   try {
     const { newSession, renderedPrompt, settings } = await buildChildSessionFromTemplate(
       template, session, lane, { laneRunId, childSessionId }
     );
+    newSessionId = newSession.id;
 
     // Determine working directory
     const existingChild = childSessionId ? sessions.getById(childSessionId) : null;
@@ -234,6 +279,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
     return { delivered: true, rootSessionId: newSession.id };
   } catch (error) {
     console.error(`Kanban: Failed to trigger on-enter template for session ${sessionId}:`, error);
+    reconcileUndeliveredChild(newSessionId);
     return undelivered(error instanceof Error ? error.message : 'template delivery failed');
   }
 }
@@ -264,7 +310,7 @@ async function buildChildSessionFromPrompt(lane, session, options = {}) {
     parentSessionId: session.id,
   });
   if (!newSession) throw new Error('attached lane-entry child session is missing');
-  if (laneRunId && !childSessionId) attachRootSession(laneRunId, newSession.id);
+  attachLaneRunRoot(laneRunId, childSessionId, newSession.id);
 
   // Configure remaining fields not supported by create()
   const sessionUpdates = {};
@@ -294,10 +340,12 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
 
   console.log(`Kanban: Triggering on-enter prompt for session "${session.name}" entering lane "${lane.name}"`);
 
+  let newSessionId = null;
   try {
     const { newSession, renderedPrompt, settings } = await buildChildSessionFromPrompt(
       lane, session, { laneRunId, childSessionId }
     );
+    newSessionId = newSession.id;
 
     // Determine working directory
     const existingChild = childSessionId ? sessions.getById(childSessionId) : null;
@@ -327,6 +375,7 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
     return { delivered: true, rootSessionId: newSession.id };
   } catch (error) {
     console.error(`Kanban: Failed to trigger on-enter prompt for session ${sessionId}:`, error);
+    reconcileUndeliveredChild(newSessionId);
     return undelivered(error instanceof Error ? error.message : 'prompt delivery failed');
   }
 }
