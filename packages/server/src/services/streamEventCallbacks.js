@@ -14,6 +14,7 @@ import {
   broadcastChangesUpdate,
   getResultEvent,
 } from './streamEventHandler.js';
+import { markTurnContinuedExternally } from './turnGuard.js';
 import { applyPendingWakeup, clearPendingWakeup } from './scheduleWakeupBridge.js';
 import { withActiveLaneRunOwnership } from './workflowSessionService.js';
 import { broadcastSessionUpdate } from './summaryBroadcast.js';
@@ -186,19 +187,13 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   // remains open instead of being treated as a completed turn.
   const shouldHoldKanbanCompletion = turnEndedDueToLimitOrOutage(sessionId, getResultEvent(sessionId));
 
-  // Auto-send queued prompt if enabled (runs BEFORE template trigger)
-  const { handleAutoSendIfNeeded, handleTemplateTriggerIfNeeded } = callbacks;
-  let autoSendFired = false;
-  if (!wasScheduledMidTurn) {
-    autoSendFired = await autoSendQueuedPrompt(sessionId, handleAutoSendIfNeeded);
-    if (!isTurnActive(sessionId, controller)) return inactiveCompletion();
-  }
-
-  // Only trigger next template if auto-send did NOT fire
-  // (if auto-send fired, template will trigger after that turn completes)
-  if (!wasScheduledMidTurn && !autoSendFired && handleTemplateTriggerIfNeeded) {
-    await handleTemplateTriggerIfNeeded(sessionId);
-  }
+  // Auto-send and template triggers run after the limit hold is recorded so
+  // they belong to the continued turn, not this one. A false (stale-turn)
+  // result means this completion must not write anything further.
+  const continuationsActive = await dispatchExternalContinuations(
+    sessionId, callbacks, wasScheduledMidTurn, controller,
+  );
+  if (!continuationsActive) return inactiveCompletion();
 
   // Both a deliberate mid-turn schedule and a proactive token reschedule leave
   // a continuation obligation open. Propagate either outcome to the execution
@@ -207,6 +202,36 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
     wasRescheduled: wasScheduledMidTurn || wasProactivelyRescheduled,
     heldForLimit: shouldHoldKanbanCompletion,
   };
+}
+
+/**
+ * Dispatch post-turn external continuations: an auto-send follow-up prompt
+ * (which runs BEFORE the template trigger) and the next-template trigger.
+ * Records turn state when either fires, so an otherwise output-free turn
+ * with a verifiable artifact is not mistaken for an empty turn.
+ * @param {string} sessionId
+ * @param {{ handleAutoSendIfNeeded?: Function, handleTemplateTriggerIfNeeded?: Function }} callbacks
+ * @param {boolean} wasScheduledMidTurn
+ * @param {AbortController} controller
+ * @returns {Promise<boolean>} False when the turn went stale mid-dispatch
+ */
+async function dispatchExternalContinuations(sessionId, callbacks, wasScheduledMidTurn, controller) {
+  const { handleAutoSendIfNeeded, handleTemplateTriggerIfNeeded } = callbacks;
+  const hadNextTemplate = Boolean(sessions.getById(sessionId)?.nextTemplateId);
+  let autoSendFired = false;
+  if (!wasScheduledMidTurn) {
+    autoSendFired = await autoSendQueuedPrompt(sessionId, handleAutoSendIfNeeded);
+    if (!isTurnActive(sessionId, controller)) return false;
+  }
+
+  // Only trigger next template if auto-send did NOT fire
+  // (if auto-send fired, template will trigger after that turn completes)
+  if (!wasScheduledMidTurn && !autoSendFired && handleTemplateTriggerIfNeeded) {
+    await handleTemplateTriggerIfNeeded(sessionId);
+  }
+  const templateFired = hadNextTemplate && !sessions.getById(sessionId)?.nextTemplateId;
+  if (autoSendFired || templateFired) markTurnContinuedExternally(sessionId);
+  return true;
 }
 
 /**

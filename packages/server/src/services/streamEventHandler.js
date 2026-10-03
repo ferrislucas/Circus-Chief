@@ -20,6 +20,7 @@ import { createWorkLog } from './workLogService.js';
 import { cancelPrompt } from './promptStore.js';
 import { buildSafeDenialSummary } from './promptDurableSummary.js';
 import { captureScheduleWakeup, clearPendingWakeup } from './scheduleWakeupBridge.js';
+import { isSubstantiveTurnEvent, turnsWithSubstantiveOutput, clearTurnGuardState } from './turnGuard.js';
 
 // ── Shared module-level state ──────────────────────────────────────────────
 
@@ -526,6 +527,12 @@ export async function handleStreamEvent(sessionId, event, { controller } = {}) {
   if (controller && activeSession?.controller !== controller) return;
   if (activeSession) activeSession.lastEventAt = Date.now();
 
+  // Track substantive output for the empty-turn guard (owning turn only;
+  // stale turns returned at the fence above).
+  if (isSubstantiveTurnEvent(event)) {
+    turnsWithSubstantiveOutput.add(sessionId);
+  }
+
   const handler = eventHandlers[event.type];
   if (handler) {
     handler(sessionId, event, controller || activeSession?.controller);
@@ -573,6 +580,7 @@ export function cleanupSessionState(sessionId, includeConversationId = false, ex
   loggedToolUseIds.delete(sessionId);
   finalErrorSessionIds.delete(sessionId);
   finalResultEvents.delete(sessionId);
+  clearTurnGuardState(sessionId);
   // Any wakeup not consumed by the completion/error paths (aborted turn, hard
   // result.error) is intentionally discarded rather than carried into the next turn.
   clearPendingWakeup(sessionId, expectedController || current?.controller);

@@ -14,6 +14,7 @@ import {
   activeSessions, activeConversationIds, handleStreamEvent, handleTurnCompletion,
   handleSessionError, cleanupSessionState, broadcastSessionStatus,
 } from './streamEventHandler.js';
+import { reconcileRejectedDispatch, isEmptyAutomatedTurn, failCleanTurn } from './turnRecovery.js';
 import { shouldRescheduleOnError, _checkProactiveReschedule } from './sessionErrors.js';
 import { schedulerService } from './schedulerService.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
@@ -95,6 +96,7 @@ export async function _executeSession({
   // Last ownership fence before the irreversible provider call.
   if (!interactive && !workflowTurn && !activeLaneRunOwnsSession(sessionId)) {
     cleanupSessionState(sessionId, cleanupConversationId, controller);
+    reconcileRejectedDispatch(sessionId);
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
   // The provider is about to start. The token is generated durably by
@@ -144,24 +146,9 @@ export async function _executeSession({
     // close their generator normally. Route that outcome through the same retry
     // policy as a rejected execute() call; otherwise the normal completion path
     // would incorrectly close the workflow obligation as successful.
+    const cleanTurnFailure = { controller, broadcastConversationState: broadcastConversationStateOnError, errorLabel, handleTemplateTriggerIfNeeded, interactive };
     if (terminalError) {
-      const rescheduled = await handleSessionError(sessionId, terminalError, {
-        controller,
-        shouldRescheduleOnError,
-        schedulerService,
-        broadcastConversationState: broadcastConversationStateOnError,
-        errorLabel,
-        handleTemplateTriggerIfNeeded,
-        errorAlreadyRecorded: true,
-        interactive,
-      });
-      if (rescheduled) {
-        markExecutionState(sessionId, 'retrying');
-        return;
-      }
-      closeOwnWork(sessionId, 'closed_failed', terminalError.message, {
-        turnToken: workflowTurn?.turnToken,
-      });
+      await failCleanTurn(sessionId, terminalError, { ...cleanTurnFailure, errorAlreadyRecorded: true, turnToken: workflowTurn?.turnToken });
       return;
     }
     // FR-4/FR-5: a self-scheduled continuation is an open obligation, not success.
@@ -172,6 +159,16 @@ export async function _executeSession({
     // FR-9.8: a graceful provider limit/outage leaves the lane obligation open.
     if (heldForLimit) {
       markHeldForLimit(sessionId);
+      return;
+    }
+    // An automated lane-run turn whose provider stream closed cleanly without
+    // producing any substantive assistant result or verifiable completion
+    // artifact is a failed turn, not a successful one: finalizing it would
+    // advance the card on no evidence. Route it through the shared error path
+    // (which records a visible error and leaves the session recoverable)
+    // and fail its lane obligation instead.
+    if (isEmptyAutomatedTurn(sessionId, { interactive })) {
+      await failCleanTurn(sessionId, new Error('Automated provider turn ended with no assistant output or verifiable continuation'), { ...cleanTurnFailure, turnToken: workflowTurn?.turnToken });
       return;
     }
     // W6/FR-8: finish target-lane automation after a successful, non-continuing turn.
@@ -383,6 +380,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   // A closed lane run only blocks system-owned work. Human follow-ups must
   // remain available after a workflow completes or a card is manually moved.
   if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
+    reconcileRejectedDispatch(sessionId);
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
 
@@ -451,10 +449,14 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
   let session = sessions.getById(sessionId);
   if (!session) throw new Error('Session not found');
   if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
+    reconcileRejectedDispatch(sessionId);
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
   const controller = abortController || new AbortController();
-  if (controller.signal.aborted) return rejectedSessionExecution(sessionId, 'dispatch_aborted');
+  if (controller.signal.aborted) {
+    reconcileRejectedDispatch(sessionId);
+    return rejectedSessionExecution(sessionId, 'dispatch_aborted');
+  }
   activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
 
   // Get the active conversation for this session (created in SessionRepository.create)

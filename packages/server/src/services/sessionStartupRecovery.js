@@ -24,6 +24,7 @@ export function recoverOrphanedStartingSessions() {
     const errorMessage = 'Recovered orphaned starting session after server restart. Startup likely failed before the agent launched.';
     sessions.update(session.id, {
       status: 'error',
+      executionState: 'stopped',
       error: errorMessage,
     });
 

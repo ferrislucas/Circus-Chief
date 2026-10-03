@@ -32,7 +32,7 @@
     />
 
     <RunningState
-      v-if="sessionsStore.currentSession?.status === 'running'"
+      v-if="sessionsStore.currentSession?.status === 'running' || sessionsStore.currentSession?.status === 'starting'"
       :active-model-display-name="activeModelDisplayName"
       :stopping="stopping"
       :work-logs="unassociatedWorkLogs"

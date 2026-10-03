@@ -40,6 +40,7 @@ import {
   runSessionCore,
   continueSessionCore,
 } from './sessionExecution.js';
+import { reconcileRejectedDispatch } from './turnRecovery.js';
 
 // Re-export prompt-related functions for backward compatibility
 export { buildSystemPromptConfig, PLAN_MODE_PROMPT, getPermissionModeForSession, getSessionAttachmentsContext, buildPromptWithAttachments, getApiBaseUrl };
@@ -329,6 +330,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   const { conversation, lastUserMessage } = context;
 
   if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
+    reconcileRejectedDispatch(sessionId);
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
 
