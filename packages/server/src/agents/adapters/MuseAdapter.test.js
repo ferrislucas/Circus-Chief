@@ -538,7 +538,7 @@ describe('MuseAdapter', () => {
 
   // Finding #3: a CLI that auto-updated within the same major warns and
   // proceeds instead of bricking the turn.
-  it.each(['1.4.0', '1.3.1', '1.2.9'])(
+  it.each(['1.5.0', '1.4.1', '1.3.9'])(
     'warns but proceeds on same-major CLI drift %s (finding #3)',
     async (cliVersion) => {
       const client = createFakeClient();
@@ -840,12 +840,12 @@ describe('MuseAdapter', () => {
       statSync: () => ({ mtimeMs: 111 }),
       execFile: async () => {
         execCalls += 1;
-        return { stdout: 'Muse Code 1.3.0 (1.3.0-R3401.1)\n' };
+        return { stdout: 'Muse Code 1.4.2 (1.4.2-R4684.1)\n' };
       },
     };
 
-    await expect(readMuseCliVersion('/tmp/fake-muse', deps)).resolves.toBe('1.3.0');
-    await expect(readMuseCliVersion('/tmp/fake-muse', deps)).resolves.toBe('1.3.0');
+    await expect(readMuseCliVersion('/tmp/fake-muse', deps)).resolves.toBe('1.4.2');
+    await expect(readMuseCliVersion('/tmp/fake-muse', deps)).resolves.toBe('1.4.2');
     expect(execCalls).toBe(1);
   });
 
@@ -858,7 +858,7 @@ describe('MuseAdapter', () => {
       statSync: () => ({ mtimeMs }),
       execFile: async () => {
         execCalls += 1;
-        return { stdout: 'Muse Code 1.3.0\n' };
+        return { stdout: 'Muse Code 1.4.2\n' };
       },
     };
 
@@ -886,6 +886,10 @@ describe('resolveMuseServeArgs', () => {
 });
 
 describe('MUSE_CLIENT_INFO', () => {
+  it('uses the pinned Muse SDK 1.4.2 version', () => {
+    expect(MUSE_SDK_VERSION).toBe('1.4.2');
+  });
+
   it('satisfies the MSP handshake name constraint (^[a-z0-9_]+$)', () => {
     // Live-verified: the host rejects anything else at initialize,
     // which would break every Muse session before it starts.
@@ -903,7 +907,7 @@ describe('resolveMuseBin', () => {
   });
 
   it('honors an explicitly configured Muse executable', () => {
-    expect(resolveMuseBin({ MUSE_BIN: '/opt/muse-1.3.0/bin/muse' })).toBe('/opt/muse-1.3.0/bin/muse');
+    expect(resolveMuseBin({ MUSE_BIN: '/opt/muse-1.4.2/bin/muse' })).toBe('/opt/muse-1.4.2/bin/muse');
   });
 });
 

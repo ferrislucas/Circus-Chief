@@ -156,6 +156,26 @@ describe('createMuseEventMapper', () => {
       });
     });
 
+    it('ignores additive 1.4 cache and cost usage fields', () => {
+      const mapper = createMuseEventMapper();
+      const [result] = mapper.mapOutcome({
+        kind: 'completed',
+        params: {
+          terminal: 'completed',
+          usage: {
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadTokens: 7,
+            cacheWriteTokens: 2,
+            cost: { usd: 0.0042, partial: false },
+          },
+        },
+      });
+      expect(result).toEqual({
+        type: 'result', subtype: 'success', usage: { input_tokens: 10, output_tokens: 5 },
+      });
+    });
+
     it('maps failed terminals and turn errors to error results', () => {
       const mapper = createMuseEventMapper();
       const [failed] = mapper.mapOutcome({

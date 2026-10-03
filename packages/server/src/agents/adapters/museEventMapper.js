@@ -12,7 +12,7 @@
  *   - {@code tool_result}
  *   - {@code result(success, usage)}
  *
- * MSP item shapes below are grounded in `@muse-code/sdk@1.3.0`
+ * MSP item shapes below are grounded in `@muse-code/sdk@1.4.2`
  * (`dist/src/msp.d.ts`, itself generated from the `muse schema`
  * JSON-Schema bundle) and in the wire-open evolution rule from the
  * schema: `ItemKind` is OPEN — new kinds are additive, and clients MUST

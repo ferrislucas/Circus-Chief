@@ -7,7 +7,7 @@ import { clearMuseCliVersionCache, isMuseCliCompatible, parseMuseSemver, readMus
 
 describe('parseMuseSemver', () => {
   it('parses plain and suffixed versions', () => {
-    expect(parseMuseSemver('1.3.0')).toEqual({ major: 1, minor: 3, patch: 0 });
+    expect(parseMuseSemver('1.4.2')).toEqual({ major: 1, minor: 4, patch: 2 });
     expect(parseMuseSemver('1.4.0-R3401.1')).toEqual({ major: 1, minor: 4, patch: 0 });
     expect(parseMuseSemver('2.0.0-beta.1')).toEqual({ major: 2, minor: 0, patch: 0 });
   });
@@ -21,23 +21,23 @@ describe('parseMuseSemver', () => {
 
 describe('isMuseCliCompatible (finding #3)', () => {
   it('accepts an exact match', () => {
-    expect(isMuseCliCompatible('1.3.0', '1.3.0')).toEqual({ compatible: true, drift: 'match' });
+    expect(isMuseCliCompatible('1.4.2', '1.4.2')).toEqual({ compatible: true, drift: 'match' });
   });
 
   it('accepts minor and patch drift under the same major', () => {
-    expect(isMuseCliCompatible('1.4.0', '1.3.0')).toEqual({ compatible: true, drift: 'minor-drift' });
-    expect(isMuseCliCompatible('1.3.1', '1.3.0')).toEqual({ compatible: true, drift: 'minor-drift' });
-    expect(isMuseCliCompatible('1.2.9', '1.3.0')).toEqual({ compatible: true, drift: 'minor-drift' });
+    expect(isMuseCliCompatible('1.5.0', '1.4.2')).toEqual({ compatible: true, drift: 'minor-drift' });
+    expect(isMuseCliCompatible('1.4.1', '1.4.2')).toEqual({ compatible: true, drift: 'minor-drift' });
+    expect(isMuseCliCompatible('1.3.9', '1.4.2')).toEqual({ compatible: true, drift: 'minor-drift' });
   });
 
   it('rejects major jumps', () => {
-    expect(isMuseCliCompatible('2.0.0', '1.3.0')).toEqual({ compatible: false, drift: 'major-mismatch' });
-    expect(isMuseCliCompatible('0.9.9', '1.3.0')).toEqual({ compatible: false, drift: 'major-mismatch' });
+    expect(isMuseCliCompatible('2.0.0', '1.4.2')).toEqual({ compatible: false, drift: 'major-mismatch' });
+    expect(isMuseCliCompatible('0.9.9', '1.4.2')).toEqual({ compatible: false, drift: 'major-mismatch' });
   });
 
   it('rejects unknown versions', () => {
-    expect(isMuseCliCompatible(null, '1.3.0')).toEqual({ compatible: false, drift: 'unknown' });
-    expect(isMuseCliCompatible('bogus', '1.3.0')).toEqual({ compatible: false, drift: 'unknown' });
+    expect(isMuseCliCompatible(null, '1.4.2')).toEqual({ compatible: false, drift: 'unknown' });
+    expect(isMuseCliCompatible('bogus', '1.4.2')).toEqual({ compatible: false, drift: 'unknown' });
   });
 });
 
@@ -57,7 +57,7 @@ describe('readMuseCliVersion (finding #1)', () => {
     clearMuseCliVersionCache();
     binDir = await mkdtemp(join(tmpdir(), 'muse-cli-version-'));
     musePath = join(binDir, 'muse');
-    await writeFile(musePath, '#!/bin/sh\necho "muse 1.3.0"\n');
+    await writeFile(musePath, '#!/bin/sh\necho "muse 1.4.2"\n');
     await chmod(musePath, 0o755);
     accessSync(musePath, constants.X_OK); // sanity: resolvable on this host
     execCalls = [];
@@ -66,14 +66,14 @@ describe('readMuseCliVersion (finding #1)', () => {
   function fakeExec() {
     return async (file, args, options) => {
       execCalls.push({ file, args, options });
-      return { stdout: 'muse 1.3.0\n' };
+      return { stdout: 'muse 1.4.2\n' };
     };
   }
 
   it('forwards the supplied env to the version exec', async () => {
     const env = { PATH: '/usr/bin:/bin', HOME: '/Users/dev' };
     const version = await readMuseCliVersion(musePath, { execFile: fakeExec(), env });
-    expect(version).toBe('1.3.0');
+    expect(version).toBe('1.4.2');
     expect(execCalls).toHaveLength(1);
     expect(execCalls[0].options.env).toBe(env);
   });
@@ -81,7 +81,7 @@ describe('readMuseCliVersion (finding #1)', () => {
   it('resolves a bare launcher to an absolute path via findExecutableOnPath(env, museBin)', async () => {
     const env = { PATH: `${binDir}:/usr/bin:/bin` };
     const version = await readMuseCliVersion('muse', { execFile: fakeExec(), env });
-    expect(version).toBe('1.3.0');
+    expect(version).toBe('1.4.2');
     expect(execCalls).toHaveLength(1);
     expect(execCalls[0].file).toBe(musePath);
   });
