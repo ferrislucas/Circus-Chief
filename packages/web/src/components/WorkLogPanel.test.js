@@ -60,6 +60,13 @@ describe('WorkLogPanel', () => {
     };
   }
 
+  async function expandDetails(wrapper) {
+    const details = wrapper.find('details');
+    details.element.open = true;
+    await details.trigger('toggle');
+    await flushAll(wrapper);
+  }
+
   describe('rendering', () => {
     it('does not render when workLogs is empty', () => {
       const wrapper = mountComponent({ workLogs: [] });
@@ -80,20 +87,22 @@ describe('WorkLogPanel', () => {
       expect(wrapper.find('.work-log-count').text()).toBe('(3)');
     });
 
-    it('renders ThinkingBlock for thinking logs', () => {
+    it('renders ThinkingBlock for thinking logs', async () => {
       const wrapper = mountComponent({
         workLogs: [{ id: 1, type: 'thinking', content: 'Thinking content', timestamp: Date.now() }],
       });
+      await expandDetails(wrapper);
 
       const thinkingBlock = wrapper.findComponent({ name: 'ThinkingBlock' });
       expect(thinkingBlock.exists()).toBe(true);
       expect(thinkingBlock.props('content')).toBe('Thinking content');
     });
 
-    it('renders CommandBlock for non-thinking logs', () => {
+    it('renders CommandBlock for non-thinking logs', async () => {
       const wrapper = mountComponent({
         workLogs: [createWorkLog(1)],
       });
+      await expandDetails(wrapper);
 
       const commandBlock = wrapper.findComponent({ name: 'CommandBlock' });
       expect(commandBlock.exists()).toBe(true);
@@ -175,7 +184,7 @@ describe('WorkLogPanel', () => {
   });
 
   describe('multiple work logs', () => {
-    it('renders all work logs', () => {
+    it('renders all work logs', async () => {
       const wrapper = mountComponent({
         workLogs: [
           createWorkLog(1),
@@ -183,12 +192,13 @@ describe('WorkLogPanel', () => {
           { id: 3, type: 'thinking', content: 'A thought', timestamp: Date.now() },
         ],
       });
+      await expandDetails(wrapper);
 
       const items = wrapper.findAll('.work-log-item');
       expect(items.length).toBe(3);
     });
 
-    it('renders mixed thinking and command blocks correctly', () => {
+    it('renders mixed thinking and command blocks correctly', async () => {
       const wrapper = mountComponent({
         workLogs: [
           { id: 1, type: 'thinking', content: 'Thought 1', timestamp: Date.now() },
@@ -196,12 +206,51 @@ describe('WorkLogPanel', () => {
           { id: 3, type: 'thinking', content: 'Thought 2', timestamp: Date.now() },
         ],
       });
+      await expandDetails(wrapper);
 
       const thinkingBlocks = wrapper.findAllComponents({ name: 'ThinkingBlock' });
       const commandBlocks = wrapper.findAllComponents({ name: 'CommandBlock' });
 
       expect(thinkingBlocks.length).toBe(2);
       expect(commandBlocks.length).toBe(1);
+    });
+  });
+
+  describe('lazy mounting while collapsed', () => {
+    it('mounts zero log bodies while collapsed', () => {
+      const wrapper = mountComponent({
+        workLogs: [createWorkLog(1), createWorkLog(2), createWorkLog(3)],
+      });
+
+      expect(wrapper.find('.work-log-content').exists()).toBe(false);
+      expect(wrapper.findAll('.work-log-item').length).toBe(0);
+      expect(wrapper.findComponent({ name: 'CommandBlock' }).exists()).toBe(false);
+    });
+
+    it('mounts log bodies after expanding', async () => {
+      const wrapper = mountComponent({
+        workLogs: [createWorkLog(1), createWorkLog(2)],
+      });
+      await expandDetails(wrapper);
+
+      expect(wrapper.find('.work-log-content').exists()).toBe(true);
+      expect(wrapper.findAll('.work-log-item').length).toBe(2);
+    });
+
+    it('unmounts log bodies after collapsing again', async () => {
+      const wrapper = mountComponent({
+        workLogs: [createWorkLog(1)],
+      });
+      await expandDetails(wrapper);
+      expect(wrapper.findAll('.work-log-item').length).toBe(1);
+
+      const details = wrapper.find('details');
+      details.element.open = false;
+      await details.trigger('toggle');
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.work-log-content').exists()).toBe(false);
+      expect(wrapper.findAll('.work-log-item').length).toBe(0);
     });
   });
 

@@ -74,7 +74,7 @@
           class="show-more-btn"
           @click="toggleExpanded"
         >
-          Show more ({{ lineCount }} lines)
+          Show more ({{ truncatedBy }})
         </button>
         <button
           v-if="isExpanded && shouldTruncate"
@@ -95,22 +95,39 @@ const props = defineProps({
   log: { type: Object, required: true },
 });
 
+// Bounds for the collapsed preview. Line truncation alone cannot bound
+// single-line megabyte blobs (e.g. minified tool output), which freeze the
+// tab during layout, so the preview is additionally capped by characters.
 const MAX_LINES = 10;
+const MAX_CHARS = 2000;
 const isExpanded = ref(false);
 
 const toggleExpanded = () => {
   isExpanded.value = !isExpanded.value;
 };
 
-const lines = computed(() => props.log.content.split('\n'));
+const content = computed(() => props.log.content || '');
+const lines = computed(() => content.value.split('\n'));
 const lineCount = computed(() => lines.value.length);
-const shouldTruncate = computed(() => lineCount.value > MAX_LINES);
+const isCharTruncated = computed(() => content.value.length > MAX_CHARS);
+const shouldTruncate = computed(() => lineCount.value > MAX_LINES || isCharTruncated.value);
+
+// Human-readable truncation reason for the "Show more" button. Keeps the
+// historical "<N> lines" label when line truncation applies.
+const truncatedBy = computed(() => {
+  if (lineCount.value > MAX_LINES) return `${lineCount.value} lines`;
+  return `${content.value.length} chars`;
+});
 
 const displayContent = computed(() => {
   if (isExpanded.value || !shouldTruncate.value) {
-    return props.log.content;
+    return content.value;
   }
-  return `${lines.value.slice(0, MAX_LINES).join('\n')  }\n...`;
+  let preview = lines.value.slice(0, MAX_LINES).join('\n');
+  if (preview.length > MAX_CHARS) {
+    preview = preview.slice(0, MAX_CHARS);
+  }
+  return `${preview}\n...`;
 });
 
 /**

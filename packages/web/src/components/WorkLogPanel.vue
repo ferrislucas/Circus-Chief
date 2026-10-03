@@ -45,7 +45,13 @@
           </svg>
         </span>
       </summary>
-      <div class="work-log-content">
+      <!-- Log bodies mount only once expanded: mounting every log body
+        while collapsed puts megabytes of hidden tool output into the DOM
+        and freezes the tab on sessions with large work logs. -->
+      <div
+        v-if="isExpanded"
+        class="work-log-content"
+      >
         <div
           v-for="log in workLogs"
           :key="log.id"

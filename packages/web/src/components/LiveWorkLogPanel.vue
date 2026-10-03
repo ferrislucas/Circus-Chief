@@ -17,7 +17,13 @@
       @scroll="handleScroll"
     >
       <div
-        v-for="log in workLogs"
+        v-if="isTruncated"
+        class="live-logs-truncated"
+      >
+        Showing latest {{ MAX_VISIBLE_LOGS }} of {{ workLogs.length }} logs
+      </div>
+      <div
+        v-for="log in visibleWorkLogs"
         :key="log.id"
         class="live-log-item"
       >
@@ -63,6 +69,17 @@ const isNearBottom = ref(true);
 const totalCount = computed(() => (props.workLogs?.length || 0) + (props.partialThinking ? 1 : 0));
 
 const hasContent = computed(() => props.workLogs?.length > 0 || props.partialThinking);
+
+// Rendering every accumulated log mounts unbounded DOM (hundreds of entries
+// with large tool outputs freeze the tab), so only the most recent window is
+// mounted. The header count still reflects the true total.
+const MAX_VISIBLE_LOGS = 100;
+const visibleWorkLogs = computed(() => {
+  const logs = props.workLogs || [];
+  if (logs.length <= MAX_VISIBLE_LOGS) return logs;
+  return logs.slice(-MAX_VISIBLE_LOGS);
+});
+const isTruncated = computed(() => (props.workLogs?.length || 0) > MAX_VISIBLE_LOGS);
 
 // Detect when user manually scrolls away from bottom
 function handleScroll(event) {
@@ -149,6 +166,12 @@ defineExpose({
 
 .live-log-item {
   animation: slideIn 0.2s ease;
+}
+
+.live-logs-truncated {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+  padding: 0.25rem 0;
 }
 
 @keyframes slideIn {
