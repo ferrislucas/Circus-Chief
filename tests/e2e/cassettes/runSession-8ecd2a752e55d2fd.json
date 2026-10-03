@@ -1,0 +1,59 @@
+{
+  "prompt": "Return a brief Claude allowance fixture response.",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/sanitized/e2e-workdir",
+      "session_id": "00000000-0000-4000-8000-000000000000",
+      "tools": ["Bash", "Read", "Edit", "Write"],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "acceptEdits"
+    },
+    {
+      "type": "rate_limit_event",
+      "rate_limit_info": {
+        "status": "allowed",
+        "rateLimitType": "five_hour",
+        "utilization": 42.5,
+        "resetsAt": 4102444800,
+        "surpassedThreshold": null,
+        "isUsingOverage": false
+      },
+      "uuid": "redacted",
+      "session_id": "00000000-0000-4000-8000-000000000000"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_sanitized_claude_allowance_fixture",
+        "type": "message",
+        "role": "assistant",
+        "content": [{ "type": "text", "text": "E2E Claude allowance fixture response." }],
+        "stop_reason": "end_turn",
+        "usage": { "input_tokens": 1, "output_tokens": 1 }
+      },
+      "session_id": "00000000-0000-4000-8000-000000000000"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "duration_ms": 5,
+      "duration_api_ms": 5,
+      "num_turns": 1,
+      "result": "E2E Claude allowance fixture response.",
+      "usage": { "input_tokens": 1, "output_tokens": 1 },
+      "modelUsage": {},
+      "permission_denials": [],
+      "uuid": "redacted",
+      "session_id": "00000000-0000-4000-8000-000000000000"
+    }
+  ],
+  "key": "runSession-8ecd2a752e55d2fd",
+  "recordedAt": 1789870436344,
+  "sanitized": true
+}

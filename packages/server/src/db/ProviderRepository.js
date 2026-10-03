@@ -179,6 +179,18 @@ export class ProviderRepository extends BaseRepository {
   }
 
   /**
+   * Return the small provider shape needed by allowance snapshots.
+   * Unlike getAll(), this deliberately avoids one model query per provider.
+   * @returns {Array<Object>}
+   */
+  getEnabledForAllowances() {
+    const rows = this.db
+      .prepare('SELECT * FROM providers WHERE enabled = 1 ORDER BY is_built_in DESC, name ASC')
+      .all();
+    return this.mapAll(rows);
+  }
+
+  /**
    * Get a provider by ID (always includes models)
    * @param {string} id
    * @returns {Object|null}

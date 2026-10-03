@@ -348,7 +348,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
 
   // Create agent via gateway (or mock agent in mock mode)
   const agentType = session.agentType || 'claude-code';
-  const agent = createAgentForSession(agentType);
+  const agent = createAgentForSession(agentType, {}, session);
 
   // Resolve model/provider and detect model changes
   const modelEnv = buildModelAndProvider(session, sessionId, model);

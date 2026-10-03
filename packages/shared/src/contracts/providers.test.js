@@ -7,9 +7,80 @@ import {
   COMMIT_ATTRIBUTION_VALIDATION_MESSAGE,
   parseCommitAttributionOverride,
   normalizeCommitAttributionOverride,
+  ProviderAllowanceSnapshot,
+  ProviderAllowanceListResponse,
+  ProviderAllowanceUpdatedPayload,
 } from './providers.js';
 
 describe('Provider Contracts', () => {
+  describe('ProviderAllowanceSnapshot', () => {
+    it('accepts a redacted unknown snapshot and rejects unexpected fields', () => {
+      const snapshot = {
+        providerId: 'openai-default', providerName: 'OpenAI', providerKind: 'openai',
+        status: 'unknown', allowances: [], source: null, updatedAt: null, staleAt: null,
+        unavailableReason: 'No verified data',
+      };
+      expect(ProviderAllowanceSnapshot.safeParse(snapshot).success).toBe(true);
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, authToken: 'secret' }).success).toBe(false);
+    });
+  });
+
+  describe('provider allowance wire contracts', () => {
+    const snapshot = {
+      providerId: 'openai-default', providerName: 'OpenAI', providerKind: 'openai',
+      status: 'warning', source: 'provider', updatedAt: 1, staleAt: 2,
+      unavailableReason: null,
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 25, value: 25, valueKind: 'remaining', limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: null }],
+    };
+
+    it('accepts every allowance enum and nullable measurement field', () => {
+      for (const status of ['available', 'warning', 'critical', 'exhausted', 'unknown', 'stale']) {
+        for (const source of ['provider', 'observed-header', 'configured']) {
+          for (const unit of ['tokens', 'requests', 'credits', 'other']) {
+            expect(ProviderAllowanceSnapshot.safeParse({
+              ...snapshot, status, source,
+              allowances: [{ ...snapshot.allowances[0], unit, remaining: null, value: null, valueKind: null, limit: null, remainingPercent: null, resetsAt: null }],
+            }).success).toBe(true);
+          }
+        }
+      }
+    });
+
+    it('strictly rejects invalid or secret-shaped values at every allowance level', () => {
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, status: 'bad' }).success).toBe(false);
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], remainingPercent: 101 }] }).success).toBe(false);
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], remaining: -1 }] }).success).toBe(false);
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], authToken: 'secret' }] }).success).toBe(false);
+    });
+
+    it('requires explicit semantics for absolute allowance values', () => {
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], remaining: null, value: 54, valueKind: 'used', limit: 120 }] }).success).toBe(true);
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], value: 54, valueKind: 'remaining', limit: 120 }] }).success).toBe(true);
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], value: 54, valueKind: null }] }).success).toBe(false);
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...snapshot.allowances[0], value: null, valueKind: 'used' }] }).success).toBe(false);
+    });
+
+    it('rejects contradictory legacy remaining and canonical used values while accepting equivalent legacy remaining', () => {
+      const used = { ...snapshot.allowances[0], value: 54, valueKind: 'used', limit: 120, remaining: 66 };
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [used] }).success).toBe(true);
+      expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, allowances: [{ ...used, remaining: 65 }] }).success).toBe(false);
+    });
+
+    it('validates a redacted allowance response with snapshots and active provider IDs', () => {
+      const response = { snapshots: [snapshot], activeProviderIds: ['openai-default'] };
+      expect(ProviderAllowanceListResponse.safeParse(response).success).toBe(true);
+      expect(ProviderAllowanceListResponse.safeParse({ ...response, activeProviderIds: ['openai-default', { id: 'session-id' }] }).success).toBe(false);
+      expect(ProviderAllowanceListResponse.safeParse({ ...response, sessions: [{ id: 'session-id' }] }).success).toBe(false);
+      expect(ProviderAllowanceListResponse.safeParse({ ...response, authToken: 'secret' }).success).toBe(false);
+    });
+
+    it('validates complete websocket update envelopes', () => {
+      expect(ProviderAllowanceUpdatedPayload.safeParse({ type: 'provider:allowance_updated', snapshot }).success).toBe(true);
+      expect(ProviderAllowanceUpdatedPayload.safeParse({ type: 'provider:allowance_updated', snapshot, authToken: 'secret' }).success).toBe(false);
+      expect(ProviderAllowanceUpdatedPayload.safeParse({ type: 'wrong_event', snapshot }).success).toBe(false);
+      expect(ProviderAllowanceUpdatedPayload.safeParse({ type: 'provider:allowance_updated', snapshot: { providerId: 'invalid' } }).success).toBe(false);
+    });
+  });
   describe('ProviderKind', () => {
     it('accepts "anthropic"', () => {
       expect(ProviderKind.safeParse('anthropic').success).toBe(true);

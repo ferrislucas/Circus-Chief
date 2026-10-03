@@ -29,6 +29,8 @@ test-results/
 
 # Screenshots from Playwright
 screenshots/
+# Ephemeral Playwright screenshot dir created by scripts/pw.sh runs (not the checked-in docs/screenshots/ set below).
+.screenshots-tmp/
 !docs/screenshots/
 !docs/screenshots/**
 
