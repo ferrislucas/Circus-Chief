@@ -10,6 +10,7 @@ import { buildMuseExecArgs, MUSE_EXEC_PROMPT_FILE_THRESHOLD } from './museExecAr
 import { createMuseExecProtocol } from './museExecProtocol.js';
 import { createMuseExecEventMapper } from './museExecEventMapper.js';
 import { scrubEventForLogging } from '../../services/parityDiagnostics.js';
+import logger from '../../logger.js';
 
 /** Process-owned Muse CLI transport. A terminal JSON record and clean exit are both required. */
 export class MuseExecAdapter extends BaseAgent {
@@ -63,7 +64,9 @@ export class MuseExecAdapter extends BaseAgent {
     // eslint-disable-next-line max-statements
     return new Promise((resolve, reject) => {
       let child; let terminal = null; let stdoutClosed = false; let stderrClosed = false; let exited = false; let exitCode = null; let stopped = Boolean(signal?.aborted); let stderr = ''; const events = [];
-      const parser = createMuseExecProtocol();
+      const parser = createMuseExecProtocol({
+        onDiagnostic: (diagnostics, message) => logger.error('[MuseExecAdapter] Muse protocol error', { message, diagnostics }),
+      });
       const finish = () => {
         if (!exited || !stdoutClosed || !stderrClosed) return;
         clearTimeout(totalTimer); clearTimeout(killTimer); signal?.removeEventListener('abort', stop);
