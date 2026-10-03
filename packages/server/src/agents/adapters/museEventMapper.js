@@ -65,32 +65,7 @@ export function createMuseEventMapper({ model } = {}) {
    * @returns {Array<Object>} Normalized SDK events.
    */
   function mapItem(item) {
-    if (!item || typeof item !== 'object') return [];
-    // Retracted user messages carry no durable content.
-    if (item.retracted) return [];
-    return mapByKind(item);
-  }
-
-  function mapByKind(item) {
-    switch (item.kind) {
-      case 'userMessage':
-        return [];
-      case 'agentMessage':
-        return mapAgentMessage(item);
-      case 'reasoning':
-        return [mapReasoning(item)];
-      case 'toolCall':
-        return [mapToolCall(item)];
-      case 'userShell':
-        return [mapUserShell(item)];
-      case 'subagent':
-      case 'workflow':
-      case 'reminderChild':
-      case 'compaction':
-        return [mapSummaryKind(item)];
-      default:
-        return mapUnknownKind(item, warnedUnknownKinds);
-    }
+    return mapMapperItem(item, warnedUnknownKinds);
   }
 
   /**
@@ -239,6 +214,40 @@ function buildNotice(text) {
 }
 
 // --- Item handlers ---------------------------------------------------------
+
+/**
+ * Module-scope item dispatch, hoisted out of `createMuseEventMapper` so the
+ * factory stays under the `max-lines-per-function` budget. Takes the
+ * warn-once set explicitly since it is the only closure state these need.
+ */
+function mapMapperItem(item, warnedKinds) {
+  if (!item || typeof item !== 'object') return [];
+  // Retracted user messages carry no durable content.
+  if (item.retracted) return [];
+  return mapMapperItemByKind(item, warnedKinds);
+}
+
+function mapMapperItemByKind(item, warnedKinds) {
+  switch (item.kind) {
+    case 'userMessage':
+      return [];
+    case 'agentMessage':
+      return mapAgentMessage(item);
+    case 'reasoning':
+      return [mapReasoning(item)];
+    case 'toolCall':
+      return [mapToolCall(item)];
+    case 'userShell':
+      return [mapUserShell(item)];
+    case 'subagent':
+    case 'workflow':
+    case 'reminderChild':
+    case 'compaction':
+      return [mapSummaryKind(item)];
+    default:
+      return mapUnknownKind(item, warnedKinds);
+  }
+}
 
 function mapAgentMessage(item) {
   const text = typeof item.text === 'string' ? item.text : '';

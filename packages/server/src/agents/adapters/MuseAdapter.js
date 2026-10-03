@@ -11,7 +11,7 @@ import { assertMuseHostParity, scrubAndAttachDiagnostics, toMuseNotFoundError } 
 import { closeMuseHost, forceTerminateMuseHost } from './museHostClose.js';
 import { createMuseTurnContext } from './museTurnContext.js';
 import { registerApprovalHandlers, resolveMuseReasoningEffort, museReasoningEffortParam } from './museApproval.js';
-import { isWorkflowTerminal, sessionItems, workflowIdentity } from './museWorkflow.js';
+import { drainTurnItems } from './museTurnDrain.js';
 import {
   MUSE_CLIENT_INFO,
   MUSE_SDK_VERSION,
@@ -310,151 +310,8 @@ export class MuseAdapter extends BaseAgent {
     context.markTime('sendUserTurnMs');
     logMuseLifecycle({ correlationId: context.correlationId, hostPid: host.pid, museSessionId: session.sessionId, sdkVersion: MUSE_SDK_VERSION, cliVersion: host.cliVersion, timings: context.timings, phase: 'sendUserTurn' });
 
-    yield* this._drainTurnItems({ host, session, turn, options, mapper, context });
+    yield* drainTurnItems({ host, session, turn, options, mapper, context, timeouts: this._timeouts });
   }
-
-  async *_drainTurnItems({ host, session, turn, options, mapper, context }) {
-    const abortSignal = options.abortController?.signal;
-    const iterator = turn.items()[Symbol.asyncIterator]();
-    let sawFirstItem = false;
-    let outcome = null;
-    let workflow = null;
-    while (true) {
-      if (abortSignal?.aborted) {
-        // Terminal cancelled result so the stream never ends after
-        // system(init) with no outcome.
-        yield* this._cancelTurnDrain(mapper, context);
-        return;
-      }
-      const next = await this._readNextTurnEvent({ iterator, turn, abortSignal, host, options, context });
-      if (next.kind === 'aborted') {
-        yield* this._cancelTurnDrain(mapper, context);
-        return;
-      }
-      if (next.kind === 'completed') {
-        outcome = next.completed;
-        break;
-      }
-      const { itemResult } = next;
-      if (itemResult.done) break;
-      const item = itemResult.value;
-      const identity = workflowIdentity(item);
-      if (identity && (!workflow || workflow.workflowRunId === identity.workflowRunId)) {
-        workflow = { ...identity, item };
-      } else if (identity) {
-        throw new Error('Muse admitted more than one workflow for one turn; concurrent workflow runs are not supported.');
-      }
-      if (!sawFirstItem) {
-        sawFirstItem = true;
-        context.markTime('firstItemMs');
-        logMuseLifecycle({ correlationId: context.correlationId, hostPid: host.pid, museSessionId: session.sessionId, sdkVersion: MUSE_SDK_VERSION, cliVersion: host.cliVersion, timings: context.timings, phase: 'firstItem' });
-      }
-      yield* mapper.mapItem(item);
-    }
-
-    if (workflow) {
-      // The parent outcome only means the workflow was admitted. Keep this
-      // generator (and therefore Circus session ownership) open until it ends.
-      await deadline(outcome || turn.completed, {
-        timeoutMs: await remainingMuseTurnMs(this._timeouts.turnMs, context, host, options.abortController),
-        phase: 'parentCompletion', context, onTimeout: () => host.close(),
-      });
-      yield* this._observeWorkflow({ host, session, workflow, options, mapper, context });
-      return;
-    }
-    yield* this._finishTurnItems({ host, session, turn, options, mapper, context, outcome });
-  }
-
-  async *_observeWorkflow({ host, session, workflow, options, mapper, context }) {
-    let cancellationRequested = false;
-    host.setAbortHandler(async () => {
-      cancellationRequested = true;
-      if (typeof session.cancelWorkflow !== 'function') {
-        await host.close();
-        return;
-      }
-      await session.cancelWorkflow({ workflowRunId: workflow.workflowRunId });
-    });
-    const iterator = sessionItems(session)[Symbol.asyncIterator]();
-    let revision = workflow.revision;
-    try {
-      // A replay may already contain the terminal revision that replaced the
-      // launch item before the parent turn's completion was observed.
-      if (isWorkflowTerminal(workflow.item)) {
-        yield* mapper.mapWorkflowTerminal(workflow.item);
-        return;
-      }
-      while (true) {
-        const remainingMs = await remainingMuseTurnMs(this._timeouts.turnMs, context, host, options.abortController);
-        const next = await deadline(iterator.next(), {
-          timeoutMs: remainingMs, phase: 'workflow', context, onTimeout: () => host.close(),
-        });
-        if (next.done) throw new Error('Muse session item stream ended before the workflow reached a terminal state.');
-        const item = next.value;
-        const identity = workflowIdentity(item);
-        if (!identity || identity.workflowRunId !== workflow.workflowRunId) continue;
-        if (identity.revision <= revision) continue;
-        revision = identity.revision;
-        if (isWorkflowTerminal(item)) {
-          yield* mapper.mapWorkflowTerminal(item);
-          return;
-        }
-        yield* mapper.mapItem(item);
-      }
-    } finally {
-      host.setAbortHandler(null);
-      await iterator.return?.();
-      if (cancellationRequested) context.markCancelled();
-    }
-  }
-
-  *_cancelTurnDrain(mapper, context) {
-    context.markCancelled();
-    yield* mapper.mapCancellation();
-  }
-
-  async _readNextTurnEvent({ iterator, turn, abortSignal, host, options, context }) {
-    const remainingTurnMs = await remainingMuseTurnMs(this._timeouts.turnMs, context, host, options.abortController);
-    // Completion is raced with each tail read: a host that has terminally
-    // completed must not remain "running" merely because its item iterator
-    // failed to wake. There is deliberately no per-item silence deadline:
-    // Muse may legitimately be quiet while planning or running a tool.
-    return deadline(Promise.race([
-      iterator.next().then((itemResult) => ({ kind: 'item', itemResult })),
-      completionAfterBacklog(turn.completed),
-      waitForAbort(abortSignal),
-    ]), {
-      timeoutMs: remainingTurnMs,
-      phase: 'turn',
-      context,
-      onTimeout: () => host.close(),
-    });
-  }
-
-  async *_finishTurnItems({ host, session, turn, options, mapper, context, outcome }) {
-    const remainingTurnMs = await remainingMuseTurnMs(this._timeouts.turnMs, context, host, options.abortController);
-    yield* mapper.mapOutcome(outcome || await deadline(turn.completed, {
-      timeoutMs: remainingTurnMs,
-      phase: 'completion',
-      context,
-      onTimeout: () => host.close(),
-    }));
-    context.markTime('completionMs');
-    logMuseLifecycle({ correlationId: context.correlationId, hostPid: host.pid, museSessionId: session.sessionId, sdkVersion: MUSE_SDK_VERSION, cliVersion: host.cliVersion, timings: context.timings, phase: 'completion' });
-  }
-}
-
-function completionAfterBacklog(completed) {
-  // `items()` must replay its already-folded backlog before a terminal
-  // completion is emitted. Give an immediately available iterator item the
-  // current event-loop turn; after that, a settled completion reconciles a
-  // stuck live tail without waiting for another item.
-  return new Promise((resolve, reject) => {
-    setTimeout(() => completed.then(
-      (value) => resolve({ kind: 'completed', completed: value }),
-      reject,
-    ), 0);
-  });
 }
 
 export function resolveMuseBin(env = process.env) {
@@ -476,8 +333,4 @@ function captureMuseStderr(context, chunk) {
   console.warn(`[muse serve] ${text}`);
 }
 
-function waitForAbort(signal) {
-  if (!signal) return new Promise(() => {});
-  if (signal.aborted) return Promise.resolve({ kind: 'aborted' });
-  return new Promise((resolve) => signal.addEventListener('abort', () => resolve({ kind: 'aborted' }), { once: true }));
-}
+
