@@ -356,6 +356,52 @@ describe('CommandBlock', () => {
     });
   });
 
+  describe('character truncation for single-line megabyte blobs', () => {
+    it('caps the preview of a huge single-line output', () => {
+      const hugeLine = 'x'.repeat(5000);
+      const wrapper = mountComponent({
+        type: 'tool_output',
+        toolName: 'Bash',
+        content: hugeLine,
+        timestamp: Date.now(),
+      });
+
+      const displayed = wrapper.find('.command-pre').text();
+      // 2000-char cap plus the trailing "\n..." marker
+      expect(displayed.length).toBeLessThanOrEqual(2000 + '\n...'.length);
+      expect(displayed.endsWith('...')).toBe(true);
+      expect(wrapper.find('.show-more-btn').text()).toContain('chars');
+    });
+
+    it('does not char-truncate short content', () => {
+      const wrapper = mountComponent({
+        type: 'tool_output',
+        toolName: 'Bash',
+        content: 'short output',
+        timestamp: Date.now(),
+      });
+
+      expect(wrapper.find('.command-pre').text()).toBe('short output');
+      expect(wrapper.find('.show-more-btn').exists()).toBe(false);
+    });
+
+    it('expands a char-truncated blob to full content on demand', async () => {
+      const hugeLine = 'y'.repeat(3000);
+      const wrapper = mountComponent({
+        type: 'tool_output',
+        toolName: 'Bash',
+        content: hugeLine,
+        timestamp: Date.now(),
+      });
+
+      await wrapper.find('.show-more-btn').trigger('click');
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.command-pre').text()).toBe(hugeLine);
+      expect(wrapper.find('.show-more-btn').text()).toBe('Show less');
+    });
+  });
+
   describe('styling classes', () => {
     it('applies tool_input class for input logs', () => {
       const wrapper = mountComponent({

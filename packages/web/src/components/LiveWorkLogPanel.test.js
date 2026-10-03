@@ -293,6 +293,31 @@ describe('LiveWorkLogPanel', () => {
     });
   });
 
+  describe('visible log window', () => {
+    function createManyLogs(count) {
+      return Array.from({ length: count }, (_, i) => createWorkLog(`log-${i}`));
+    }
+
+    it('renders all logs when at or under the visible limit', () => {
+      const wrapper = mountComponent({ workLogs: createManyLogs(100) });
+      expect(wrapper.findAll('.live-log-item').length).toBe(100);
+      expect(wrapper.find('.live-logs-truncated').exists()).toBe(false);
+    });
+
+    it('renders only the latest 100 logs when over the limit', () => {
+      const wrapper = mountComponent({ workLogs: createManyLogs(150) });
+      const items = wrapper.findAll('.live-log-item');
+      expect(items.length).toBe(100);
+      expect(wrapper.find('.live-logs-truncated').text()).toContain('100');
+      expect(wrapper.find('.live-logs-truncated').text()).toContain('150');
+    });
+
+    it('still reports the true total in the header count', () => {
+      const wrapper = mountComponent({ workLogs: createManyLogs(150) });
+      expect(wrapper.find('.live-count').text()).toBe('(150 items)');
+    });
+  });
+
   describe('log rendering', () => {
     it('renders ThinkingBlock for thinking logs', () => {
       const wrapper = mountComponent({
