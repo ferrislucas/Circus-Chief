@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import {
   buildMuseSummaryArgs, buildMuseSummaryPrompt, callMuseSummary, MUSE_SUMMARY_TIMEOUT_MS,
+  normalizeMuseOutputSchema,
 } from './summaryMuseClient.js';
 
 const record = (sequence, payload_type, payload) => JSON.stringify({
@@ -38,9 +39,32 @@ describe('summaryMuseClient', () => {
   it('builds a headless muse exec invocation with schema shaping', () => {
     const args = buildMuseSummaryArgs({ model: 'muse-spark-1.3', schemaPath: '/tmp/schema', cwd: '/tmp/work', prompt: 'text' });
     expect(args).toEqual([
-      'exec', '--json', '--no-session-log', '--workspace', '/tmp/work',
+      'exec', '--json', '--workspace', '/tmp/work',
       '--model', 'muse-spark-1.3', '--output-schema', '/tmp/schema', 'text',
     ]);
+    // `muse exec` requires session logging for its local messaging transport.
+    expect(args).not.toContain('--no-session-log');
+  });
+
+  it('normalizes object schemas with additionalProperties false for the Meta API', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        short_summary: { type: 'string' },
+        key_actions: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['short_summary'],
+    };
+    const normalized = normalizeMuseOutputSchema(schema);
+    expect(normalized).toMatchObject({ type: 'object', additionalProperties: false });
+    expect(normalized.properties.key_actions).toMatchObject({ type: 'array' });
+    // Input is not mutated.
+    expect(schema).not.toHaveProperty('additionalProperties');
+  });
+
+  it('preserves explicit additionalProperties values', () => {
+    expect(normalizeMuseOutputSchema({ type: 'object', additionalProperties: true }))
+      .toMatchObject({ additionalProperties: true });
   });
 
   it('routes large prompts through a prompt file', () => {
@@ -57,11 +81,16 @@ describe('summaryMuseClient', () => {
     const fs = testFs();
     const spawn = vi.fn(() => childWith({ stdout: completedStdout('{"short_summary":"ok"}') }));
     const result = await callMuseSummary(
-      { prompt: 'conversation', systemPrompt: 'system', model: 'muse-spark-1.3', jsonSchema: {} },
+      { prompt: 'conversation', systemPrompt: 'system', model: 'muse-spark-1.3', jsonSchema: { type: 'object', properties: {} } },
       { fs, spawn },
     );
     expect(result).toBe('{"short_summary":"ok"}');
-    expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ command: 'muse' }));
+    expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ command: 'muse', cwd: process.cwd() }));
+    expect(fs.writeFile).toHaveBeenCalledWith(
+      '/tmp/muse-isolated/summary-schema.json',
+      JSON.stringify({ type: 'object', properties: {}, additionalProperties: false }),
+      'utf8',
+    );
     expect(fs.rm).toHaveBeenCalledWith('/tmp/muse-isolated', { recursive: true, force: true });
   });
 

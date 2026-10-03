@@ -30,13 +30,69 @@ export function isSupportedMuseSummaryModel(model) {
 }
 
 export function buildMuseSummaryArgs({ model, schemaPath, cwd, promptFile, prompt }) {
+  // No --no-session-log: `muse exec` requires session logging for its local
+  // messaging transport. Session logs for one-off summaries are accepted,
+  // matching the session MuseExecAdapter invocation.
   const args = [
-    'exec', '--json', '--no-session-log', '--workspace', cwd,
+    'exec', '--json', '--workspace', cwd,
     '--model', model, '--output-schema', schemaPath,
   ];
   if (promptFile) args.push('--prompt-file', promptFile);
   else args.push(prompt);
   return args;
+}
+
+/**
+ * Normalize a JSON schema for the Meta API via `muse exec --output-schema`.
+ * The API rejects object schemas without an explicit `additionalProperties`
+ * (400: "'additionalProperties' is required to be supplied and to be
+ * false"), which the shared summary schemas omit. Deep-clone and set
+ * `additionalProperties: false` on every object schema missing the key;
+ * explicit values (including true) are preserved.
+ */
+export function normalizeMuseOutputSchema(schema) {
+  if (!schema || typeof schema !== 'object') return schema;
+  if (Array.isArray(schema)) return schema.map(normalizeMuseOutputSchema);
+  return {
+    ...schema,
+    ...(isObjectSchemaWithoutAdditionalProperties(schema) ? { additionalProperties: false } : {}),
+    ...normalizeSchemaMapEntries(schema),
+    ...normalizeSingleSchemaEntries(schema),
+    ...normalizeSchemaArrayEntries(schema),
+  };
+}
+
+function isObjectSchemaWithoutAdditionalProperties(schema) {
+  return (schema.type === 'object' || schema.properties)
+    && !Object.prototype.hasOwnProperty.call(schema, 'additionalProperties');
+}
+
+function normalizeSchemaMapEntries(schema) {
+  const normalized = {};
+  for (const key of ['properties', 'patternProperties', '$defs', 'definitions']) {
+    const group = schema[key];
+    if (!group || typeof group !== 'object' || Array.isArray(group)) continue;
+    const entries = {};
+    for (const [name, subSchema] of Object.entries(group)) entries[name] = normalizeMuseOutputSchema(subSchema);
+    normalized[key] = entries;
+  }
+  return normalized;
+}
+
+function normalizeSingleSchemaEntries(schema) {
+  const normalized = {};
+  for (const key of ['items', 'additionalProperties', 'contains', 'not']) {
+    if (schema[key] && typeof schema[key] === 'object') normalized[key] = normalizeMuseOutputSchema(schema[key]);
+  }
+  return normalized;
+}
+
+function normalizeSchemaArrayEntries(schema) {
+  const normalized = {};
+  for (const key of ['allOf', 'anyOf', 'oneOf', 'prefixItems']) {
+    if (Array.isArray(schema[key])) normalized[key] = schema[key].map(normalizeMuseOutputSchema);
+  }
+  return normalized;
 }
 
 export function buildMuseSummaryPrompt(systemPrompt, prompt) {
@@ -65,14 +121,18 @@ export async function callMuseSummary({ prompt, systemPrompt, model, jsonSchema,
 
   const fs = dependencies.fs || { mkdtemp, rm, writeFile };
   const spawn = dependencies.spawn || defaultMuseSpawn;
-  const workspaceDir = cwd || workingDirectory || dependencies.cwd || os.tmpdir();
+  // The workspace must be a real directory: `muse exec` rejects a workspace
+  // that contains its process-lifetime temp root, so os.tmpdir() itself is
+  // unusable here. Default to the server cwd (a real checkout, matching the
+  // Claude summary client); callers may override per session/project.
+  const workspaceDir = cwd || workingDirectory || dependencies.cwd || process.cwd();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'circuschief-muse-summary-'));
   const schemaPath = path.join(tempDir, 'summary-schema.json');
   const abortController = new AbortController();
   let timer;
 
   try {
-    await fs.writeFile(schemaPath, JSON.stringify(jsonSchema), 'utf8');
+    await fs.writeFile(schemaPath, JSON.stringify(normalizeMuseOutputSchema(jsonSchema)), 'utf8');
     const args = await buildSummaryInvocation({ fs, systemPrompt, prompt, model, schemaPath, workspaceDir, tempDir });
     return await executeMuseChild({
       spawn, command: dependencies.command || MUSE_BIN, args, workspaceDir,

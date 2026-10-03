@@ -244,11 +244,12 @@ export async function _doGenerateSummary(sessionId, retryCount = 0, force = fals
     if (session.parentSessionId && hasSemanticSummaryChanged(existingSummary, summary)) _propagateToParent(sessionId);
     return summary;
   } catch (error) {
+    const isUserFacingSummaryError = Boolean(error?.isCodexSummaryError || error?.isMuseSummaryError);
     console.error(`[SummaryService] Failed to generate summary for session ${sessionId}:`, {
-      error: error.isCodexSummaryError ? error.publicMessage : error.message,
+      error: isUserFacingSummaryError ? error.publicMessage : error.message,
       category: error.code || 'unknown', sessionId,
     });
-    if (userInitiated && error.isCodexSummaryError) throw error;
+    if (userInitiated && isUserFacingSummaryError) throw error;
     return null;
   } finally {
     broadcastGeneratingStatus(sessionId, false);
