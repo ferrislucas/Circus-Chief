@@ -56,9 +56,11 @@ const DEFAULT_MODES = [
   { value: 'yolo', label: 'YOLO', description: 'Automatically approves tool use' },
 ];
 
-// Muse sessions deny tool execution in every gated mode (headless servers
-// cannot prompt), so the copy must not promise per-tool approvals there —
-// it shares the server's policy table via museSessionModeCopy (finding #2).
+// Muse sessions in gated modes park tool approvals as interactive prompts
+// through the shared permission-prompt pipeline (promptStore + WS prompt
+// events, via the adapter's canUseTool channel) — only yolo auto-approves.
+// The copy shares the server's policy table via museSessionModeCopy so the
+// UI wording cannot drift from the enforced posture.
 const effectiveAgentType = computed(() => (
   props.agentType ?? sessionsStore.currentSession?.agentType ?? null
 ));

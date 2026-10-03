@@ -266,7 +266,7 @@ the underlying error instead of swallowing it.
 
 - **R-1 (secrets in process env):** Propagating tokens into the host env puts
   more secrets in more processes. Mitigation: allowlist-only propagation,
-  FR-11 redaction, and never persisting derived env to disk/DB/canvas. Residual risk (recorded, review round 2 finding #2): SSH-agent-resident keys are out of scope for value harvesting — the agent can *use* them via the socket, but the redaction set cannot contain what it cannot read; the scrub set covers secret-keyed env values plus `oauth_token` values harvested from `~/.config/gh/hosts.yml` (read once per change, held in memory only, never logged or persisted).
+  FR-11 redaction, and never persisting derived env to disk/DB/canvas. Residual risk (recorded, review round 2 finding #2): SSH-agent-resident keys are out of scope for value harvesting — the agent can *use* them via the socket, but the redaction set cannot contain what it cannot read; the scrub set covers secret-keyed env values plus `oauth_token` values harvested from `~/.config/gh/hosts.yml` (read once per change, held in memory only, never logged or persisted). Values shorter than 4 characters are excluded from every scrub set — a 1–3 character "secret" would otherwise replace every occurrence of that character in transcripts (round-3 finding #4).
 - **R-2 (probe cost/fragility):** Sourcing dotfiles can be slow or
   side-effectful (nvm/rbenv init). Mitigation: cache aggressively, bound the
   timeout (suggested ≤2s), run once per server lifetime, FR-13 fallback.

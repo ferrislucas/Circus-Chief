@@ -36,6 +36,9 @@ describe('parityDiagnostics (FR-8, FR-11)', () => {
       'MONKEY_PATH',
       'SECRETS_DOC_DIR',
       'KEYS_INDEX_ROOT',
+      // Round-3 finding #3: the unanchored API_KEY alternative matched these.
+      'API_KEYS_PATH',
+      'MY_API_KEY_BACKUP',
     ])('does not treat benign mid-name key %s as a secret key (finding #10)', (key) => {
       expect(SECRET_KEY_PATTERN.test(key)).toBe(false);
     });
@@ -52,6 +55,7 @@ describe('parityDiagnostics (FR-8, FR-11)', () => {
       'DB_PASSWORD',
       'TOKEN',
       'ENCRYPTION_KEY',
+      'API_KEY',
     ])('still treats %s as a secret key (finding #10)', (key) => {
       expect(SECRET_KEY_PATTERN.test(key)).toBe(true);
     });
@@ -78,6 +82,24 @@ describe('parityDiagnostics (FR-8, FR-11)', () => {
       expect(out).not.toContain(secret);
       expect(out).toContain('[REDACTED]');
       expect(out).toContain('gh auth status');
+    });
+
+    // Round-3 finding #4: a 1–2 character "secret" must not nuke every
+    // occurrence of that character in transcripts.
+    it.each([
+      ['redactSecretsFromText', (text, env) => redactSecretsFromText(text, env)],
+      ['scrubEventForLogging', (text, env) => scrubEventForLogging(text, env)],
+    ])('%s leaves sub-floor secret values untouched', (_name, scrub) => {
+      const out = scrub('abacus ab ba', { GH_TOKEN: 'ab', GITHUB_PAT: 'x' });
+      expect(out).toBe('abacus ab ba');
+      expect(out).not.toContain('[REDACTED]');
+    });
+
+    it('still scrubs normal-length values after the floor lands', () => {
+      const secret = 'SENTINEL_LONG_ENOUGH_1';
+      for (const scrub of [(t, e) => redactSecretsFromText(t, e), (t, e) => scrubEventForLogging(t, e)]) {
+        expect(scrub(`leaked ${secret} here`, { GH_TOKEN: secret })).toBe('leaked [REDACTED] here');
+      }
     });
 
     it('scrubs a custom additionalEnvVars secret (GITHUB_PAT) when its value appears', () => {
@@ -163,6 +185,25 @@ describe('parityDiagnostics (FR-8, FR-11)', () => {
       try {
         const out = scrubEventForLogging('fatal: bad credentials for ghp_fixture_leaked_token', { HOME: home });
         expect(out).toBe('fatal: bad credentials for [REDACTED]');
+      } finally {
+        __resetGhHostsTokenCacheForTest();
+      }
+    });
+
+    // Round-3 finding #6: quoted oauth_token values must harvest bare —
+    // otherwise a raw unquoted echo never matches the scrub set.
+    it.each([
+      ['double-quoted', 'oauth_token: "QUOTED_DQ_TOKEN_R3"'],
+      ['single-quoted', "oauth_token: 'QUOTED_SQ_TOKEN_R3'"],
+      ['unquoted', 'oauth_token: BARE_TOKEN_R3'],
+    ])('harvests the bare token from a %s hosts.yml line', async (_label, line) => {
+      const home = await writeFixtureHostsYml(`github.com:\n    ${line}\n`);
+      __resetGhHostsTokenCacheForTest();
+      try {
+        const tokens = harvestGhHostsTokens({ HOME: home });
+        expect(tokens).toHaveLength(1);
+        expect(tokens[0]).not.toMatch(/['"]/);
+        expect(`echoed ${tokens[0]} here`).toContain(tokens[0]);
       } finally {
         __resetGhHostsTokenCacheForTest();
       }

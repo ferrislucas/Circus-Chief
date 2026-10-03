@@ -1,7 +1,7 @@
 import { BaseAgent } from '../BaseAgent.js';
 import { composeCliPrompt } from './cliUtils.js';
 import { filterDeadSshSocketAsync, staleSshSocketMessage } from '../../services/loginShellEnv.js';
-import { redactSecretsFromText } from '../../services/parityDiagnostics.js';
+import { scrubEventForLogging } from '../../services/parityDiagnostics.js';
 import { createMuseEventMapper } from './museEventMapper.js';
 import { DEFAULT_TIMEOUTS, MuseTurnTimeoutError, deadline, remainingMuseTurnMs } from './museTimeouts.js';
 import { logMuseLifecycle } from './museLifecycle.js';
@@ -267,7 +267,9 @@ export class MuseAdapter extends BaseAgent {
     yield mapper.buildSystemInit(session.sessionId);
     if (resumeFallback) {
       // FR-11: scrub before yielding — resume errors can echo host output.
-      const notice = redactSecretsFromText(
+      // Uses the full session value set (env values plus harvested hosts.yml
+      // tokens), matching the transcript choke point.
+      const notice = scrubEventForLogging(
         `Muse could not resume the previous session (${resumeFallback?.message || resumeFallback}); started a fresh session instead, so earlier turns are not in context.`,
         context.hostEnv || {},
       );
@@ -404,8 +406,9 @@ function captureMuseStderr(context, chunk) {
   const raw = String(chunk || '').trim();
   if (!raw) return;
   // FR-11: scrub before logging and before retaining for diagnostics —
-  // tool output echoed on stderr may carry secret values.
-  const text = redactSecretsFromText(raw, context.hostEnv || {});
+  // tool output echoed on stderr may carry secret values, including
+  // hosts.yml-only tokens invisible to the env-pattern scrub.
+  const text = scrubEventForLogging(raw, context.hostEnv || {});
   context.pushStderr(text);
   console.warn(`[muse serve] ${text}`);
 }

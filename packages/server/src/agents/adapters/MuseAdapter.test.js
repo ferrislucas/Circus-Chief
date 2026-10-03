@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { MuseAdapter, MUSE_CLIENT_INFO, MUSE_SDK_VERSION, MuseTurnTimeoutError, resolveMuseBin, resolveMuseReasoningEffort, resolveMuseServeArgs, buildMuseHostEnv } from './MuseAdapter.js';
 import { clearSshLivenessCache } from '../../services/loginShellEnv.js';
+import { __resetGhHostsTokenCacheForTest } from '../../services/parityDiagnostics.js';
 import { getNodeBinDir } from '../../services/nodeSpawnHelper.js';
 
 /**
@@ -912,5 +916,72 @@ describe('resolveMuseReasoningEffort', () => {
     expect(resolveMuseReasoningEffort('auto')).toBeNull();
     expect(resolveMuseReasoningEffort(null)).toBeNull();
     expect(resolveMuseReasoningEffort('turbo')).toBeNull();
+  });
+});
+
+// Round-3 finding #1: stderr capture and the resume-fallback notice must scrub
+// against the FULL session value set (env values plus harvested hosts.yml
+// tokens) — not just the env-pattern subset `redactSecretsFromText` covers.
+describe('MuseAdapter hosts-token scrub coverage', () => {
+  let warnSpy;
+  let fixtureHome;
+  const hostsToken = 'HOSTS_ONLY_TOKEN_R3F1';
+
+  beforeEach(async () => {
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    __resetGhHostsTokenCacheForTest();
+    fixtureHome = await mkdtemp(join(tmpdir(), 'muse-hosts-scrub-'));
+    await mkdir(join(fixtureHome, '.config', 'gh'), { recursive: true });
+    await writeFile(
+      join(fixtureHome, '.config', 'gh', 'hosts.yml'),
+      `github.com:\n    oauth_token: ${hostsToken}\n`,
+    );
+  });
+
+  afterEach(async () => {
+    warnSpy.mockRestore();
+    __resetGhHostsTokenCacheForTest();
+    await rm(fixtureHome, { recursive: true, force: true });
+  });
+
+  async function collect(adapter, queryParams) {
+    const events = [];
+    for await (const event of adapter.execute(queryParams)) events.push(event);
+    return events;
+  }
+
+  it('redacts a hosts.yml-only token echoed on host stderr', async () => {
+    const client = createFakeClient();
+    const adapter = new MuseAdapter({
+      museClientFactory: async ({ onStderr }) => {
+        onStderr(`gh failed with token ${hostsToken}`);
+        return client;
+      },
+    });
+
+    await collect(adapter, { prompt: 'p', options: { env: { HOME: fixtureHome } } });
+
+    const warned = warnSpy.mock.calls.map((args) => String(args[0])).join('\n');
+    expect(warned).toContain('[REDACTED]');
+    expect(warned).not.toContain(hostsToken);
+  });
+
+  it('redacts a hosts.yml-only token carried by a resume-failure message', async () => {
+    const client = createFakeClient();
+    client.resumeSession = async () => {
+      throw new Error(`stale handle ${hostsToken}`);
+    };
+    const adapter = new MuseAdapter({ museClientFactory: async () => client });
+
+    const events = await collect(adapter, {
+      prompt: 'again',
+      options: { resume: 'msp-old', env: { HOME: fixtureHome } },
+    });
+
+    const notice = events.find((e) => e.type === 'assistant'
+      && JSON.stringify(e.message?.content || []).match(/could not resume/i));
+    expect(notice).toBeDefined();
+    expect(JSON.stringify(notice)).toContain('[REDACTED]');
+    expect(JSON.stringify(notice)).not.toContain(hostsToken);
   });
 });

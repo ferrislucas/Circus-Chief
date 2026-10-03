@@ -10,14 +10,23 @@ import { isSshAgentSocketAlive } from './loginShellEnv.js';
 
 /**
  * Keys whose VALUES are secrets: matched by name pattern so future keys are
- * covered by default (FR-11). Boundary-anchored (finding #10): a key must
- * END with a secret suffix (`_TOKEN`, `_SECRET`, `_PASSWORD`, `_PRIVATE`,
- * `_PAT`, `_KEY`, or the exact API_KEY shape / bare noun) to count — keys
- * that merely CONTAIN these mid-name (PATH_TO_TOKENS_DIR, TOKENIZER_HOME)
- * are benign, and scrubbing their values corrupted every agent's tool logs.
- * The `^` anchor still covers exact bare names (TOKEN, PAT, API_KEY).
+ * covered by default (FR-11). Boundary-anchored (finding #10, round-3
+ * finding #3): a key must END with a secret suffix (`_TOKEN`, `_SECRET`,
+ * `_PASSWORD`, `_PRIVATE`, `_PAT`, `_KEY`) or be an exact bare noun (TOKEN,
+ * PAT, KEY, API_KEY — the latter matches via the `_KEY` suffix rule) to
+ * count. Keys that merely CONTAIN these mid-name (PATH_TO_TOKENS_DIR,
+ * TOKENIZER_HOME, API_KEYS_PATH, MY_API_KEY_BACKUP) are benign, and scrubbing
+ * their values corrupted every agent's tool logs — so there is deliberately
+ * no unanchored alternative.
  */
-export const SECRET_KEY_PATTERN = /(^|_)(TOKEN|SECRET|PASSWORD|PRIVATE|PAT|KEY)$|API_KEY/i;
+export const SECRET_KEY_PATTERN = /(^|_)(TOKEN|SECRET|PASSWORD|PRIVATE|PAT|KEY)$/i;
+
+/**
+ * Minimum secret-value length admitted into a scrub set (round-3 finding #4).
+ * A 1–3 character "secret" (e.g. `GH_TOKEN=x` in additionalEnvVars) would
+ * otherwise replace every occurrence of that character in transcripts.
+ */
+export const MIN_SECRET_VALUE_LENGTH = 4;
 
 /**
  * Resolve a binary against an env PATH (no shell-out). Returns the absolute
@@ -330,7 +339,7 @@ export function redactEnvForDiagnostics(env, opts = {}) {
 export function redactSecretsFromText(text, env) {
   const values = new Set();
   for (const [key, value] of Object.entries(env || {})) {
-    if (typeof value === 'string' && value && SECRET_KEY_PATTERN.test(key)) {
+    if (typeof value === 'string' && value.length >= MIN_SECRET_VALUE_LENGTH && SECRET_KEY_PATTERN.test(key)) {
       values.add(value);
     }
   }
@@ -377,8 +386,10 @@ export function harvestGhHostsTokens(env = process.env) {
     if (ghHostsTokenCache.key === key) return ghHostsTokenCache.tokens;
     const content = readFileSync(hostsPath, 'utf8');
     const tokens = [];
-    for (const match of content.matchAll(/^\s*oauth_token:\s*(\S+)\s*$/gm)) {
-      tokens.push(match[1]);
+    // Accept one optional matching quote pair: `oauth_token: "ghp_…"`.
+    // Harvest the BARE token so a raw unquoted echo still matches the set.
+    for (const match of content.matchAll(/^\s*oauth_token:\s*(?:"([^"]+)"|'([^']+)'|(\S+))\s*$/gm)) {
+      tokens.push(match[1] ?? match[2] ?? match[3]);
     }
     ghHostsTokenCache = { key, tokens };
     return tokens;
@@ -400,12 +411,14 @@ export function scrubValuesForSession(env) {
   const merged = { ...process.env, ...(env || {}) };
   const values = new Set();
   for (const [key, value] of Object.entries(merged)) {
-    if (typeof value === 'string' && value && SECRET_KEY_PATTERN.test(key)) {
+    if (typeof value === 'string' && value.length >= MIN_SECRET_VALUE_LENGTH && SECRET_KEY_PATTERN.test(key)) {
       values.add(value);
     }
   }
   for (const token of harvestGhHostsTokens(merged)) {
-    values.add(token);
+    if (typeof token === 'string' && token.length >= MIN_SECRET_VALUE_LENGTH) {
+      values.add(token);
+    }
   }
   return values;
 }

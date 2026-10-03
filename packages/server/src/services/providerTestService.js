@@ -41,7 +41,8 @@ export function buildProviderTestConfig(provider) {
 /**
  * Default spawn for the Meta connection test. Plain `spawn` with a robust
  * env (Node on PATH) — no E2E capture hook: E2E Muse coverage is out of
- * scope until the adapter has E2E fixtures.
+ * scope until the adapter has E2E fixtures. Detached on POSIX so a timeout
+ * can signal the whole process group (round-3 finding #10).
  */
 function defaultMuseTestSpawn({ command, args, cwd, env }) {
   return spawn(command, args, {
@@ -49,7 +50,28 @@ function defaultMuseTestSpawn({ command, args, cwd, env }) {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: createRobustEnv(env),
     windowsHide: true,
+    detached: process.platform !== 'win32',
   });
+}
+
+/**
+ * Kill a timed-out meta probe, group first (round-3 finding #10): `muse
+ * exec` can leave grandchildren behind a direct `child.kill`, so signal the
+ * process group the detached spawn created. Falls back to `child.kill` when
+ * there is no group to signal (no pid, Windows, already reaped). The group
+ * kill is injectable via `deps.killProcessGroup` for tests.
+ */
+function killMuseTestProcess(child, killProcessGroup) {
+  const killGroup = killProcessGroup || ((pid, signal) => process.kill(pid, signal));
+  if (child?.pid && process.platform !== 'win32') {
+    try {
+      killGroup(-child.pid, 'SIGTERM');
+      return;
+    } catch {
+      // No group to signal — fall through to the direct kill.
+    }
+  }
+  try { child.kill('SIGTERM'); } catch { /* ignore */ }
 }
 
 /**
@@ -297,7 +319,7 @@ async function testMetaConnection(config, deps = {}) {
 
       const timer = setTimeout(() => {
         killed = true;
-        try { child.kill('SIGTERM'); } catch { /* ignore */ }
+        killMuseTestProcess(child, deps.killProcessGroup);
         resolve(failureResponse(new Error(`Muse CLI timed out after ${timeoutMs}ms`)));
       }, timeoutMs);
 

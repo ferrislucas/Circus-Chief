@@ -542,6 +542,9 @@ export async function handleStreamEvent(sessionId, event, { controller, env } = 
   // unwinding. Never let that event be attributed to a replacement turn.
   if (controller && activeSession?.controller !== controller) return;
   if (activeSession) activeSession.lastEventAt = Date.now();
+  // Round-3 finding #11: retention across turns is intentional. A later event
+  // that omits `env` keeps scrubbing against the last turn's set (fail-safe
+  // over-scrubbing); values live in memory only and die with session cleanup.
   if (env && activeSession) activeSession.scrubEnv = env;
 
   const handler = eventHandlers[event.type];

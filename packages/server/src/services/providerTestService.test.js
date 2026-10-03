@@ -429,5 +429,40 @@ describe('providerTestService', () => {
       expect(result.success).toBe(false);
       expect(result.message).toContain('Muse CLI not found');
     });
+
+    // Round-3 finding #10: a timed-out `muse exec` must die as a group —
+    // killing only the direct child can strand grandchildren.
+    it('kills a timed-out probe as a process group when a pid is available', async () => {
+      const child = createMockGeminiChild();
+      child.pid = 424242;
+      const spawnMuseProcess = vi.fn(() => child);
+      const killProcessGroup = vi.fn();
+
+      const result = await testProviderConnection(
+        { kind: 'meta', workingDirectory: '/tmp/muse-workdir', apiTimeoutMs: 25 },
+        { spawnMuseProcess, killProcessGroup },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.message).toMatch(/timed out/);
+      expect(killProcessGroup).toHaveBeenCalledWith(-424242, 'SIGTERM');
+      expect(child.kill).not.toHaveBeenCalled();
+    });
+
+    it('falls back to child.kill when the group kill throws', async () => {
+      const child = createMockGeminiChild();
+      child.pid = 424243;
+      const spawnMuseProcess = vi.fn(() => child);
+      const killProcessGroup = vi.fn(() => { throw new Error('ESRCH'); });
+
+      const result = await testProviderConnection(
+        { kind: 'meta', workingDirectory: '/tmp/muse-workdir', apiTimeoutMs: 25 },
+        { spawnMuseProcess, killProcessGroup },
+      );
+
+      expect(result.success).toBe(false);
+      expect(killProcessGroup).toHaveBeenCalledWith(-424243, 'SIGTERM');
+      expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    });
   });
 });
