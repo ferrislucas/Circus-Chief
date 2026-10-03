@@ -111,22 +111,26 @@ function buildGeminiQueryParams({
 }
 
 /**
- * Build query parameters for the Muse adapter.
+ * Build query parameters for the Muse adapter (`muse exec` transport).
  *
- * Muse transports use a provider-native session handle (MSP for `muse serve`
- * and a UUID for `muse exec`), so the adapter needs the workspace root,
- * model, approval posture, and optional resume handle —
- * not Claude-specific options (permissionMode, settingSources) or
- * Codex-specific ones (sandboxMode). MSP has no dedicated system-prompt
- * field, so the composed system prompt is forwarded in `options.systemPrompt`
- * and the adapter prepends it to the user turn (same `composeCliPrompt`
- * parity as the Codex/Gemini CLI adapters).
+ * Exec persists its native history under a caller-supplied UUID, so the
+ * adapter needs the workspace root, model, approval posture, and optional
+ * resume handle — not Claude-specific options (permissionMode,
+ * settingSources) or Codex-specific ones (sandboxMode). The CLI has no
+ * dedicated system-prompt field, so the composed system prompt is forwarded
+ * in `options.systemPrompt` and the adapter prepends it to the user turn
+ * (same `composeCliPrompt` parity as the Codex/Gemini CLI adapters).
+ *
+ * Exec is headless: there is deliberately no `canUseTool` interaction
+ * callback (unlike the Claude path) — gated modes enforce policy via CLI
+ * flags (`--approval-mode`, `--disable-write`) and denials surface as run
+ * failures, never as interactive prompts.
  *
  * @returns {Object}
  */
 function buildMuseQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
-  resumeSessionId = null, conversationId = null,
+  resumeSessionId = null,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   const effectiveModel = isVCR ? 'muse-spark-1.3' : model;
@@ -141,10 +145,6 @@ function buildMuseQueryParams({
       effortLevel: session?.effortLevel ?? null,
       approvalMode: getMuseApprovalModeForSession(session?.mode),
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
-      // Finding #3: gated Muse modes park MSP approval requests as
-      // interactive prompts through the same promptStore + WS pipeline the
-      // Claude path uses (`canUseTool` → parkPrompt).
-      ...buildInteractionCallbacks({ sessionId, conversationId }),
       ...(resumeSessionId ? { resume: resumeSessionId } : {}),
     },
   };

@@ -8,7 +8,7 @@ import {
 } from './museApprovalPolicy.js';
 
 describe('museApprovalPolicy', () => {
-  it('maps session modes to closed MSP approval modes', () => {
+  it('maps session modes to closed approval postures', () => {
     expect(MUSE_APPROVAL_MODE_FOR_SESSION_MODE).toEqual({
       yolo: 'allowAll',
       plan: 'promptUnmatched',
@@ -29,14 +29,14 @@ describe('museApprovalPolicy', () => {
     expect(museApprovalModeAutoApproves(undefined)).toBe(false);
   });
 
-  // Finding #3: gated Muse modes now run a real interactive approval
-  // round-trip (promptStore + WS prompt events), so the copy reverts to
-  // honest per-mode wording instead of the interim "runs no tools" denial.
-  it('says gated Muse modes request approval for each tool now that prompting is real', () => {
-    expect(museSessionModeCopy('plan').description).toMatch(/approval for each tool/i);
-    expect(museSessionModeCopy('plan').description).not.toMatch(/no tools/i);
-    expect(museSessionModeCopy('standard').description).toMatch(/approval for each tool/i);
-    expect(museSessionModeCopy('standard').description).not.toMatch(/no tools/i);
+  // Exec is headless: gated Muse modes enforce approvals via CLI flags and
+  // deny restricted tools without ever prompting, so the copy must not
+  // promise interactive approval.
+  it('says gated Muse modes deny without prompting (exec is headless)', () => {
+    expect(museSessionModeCopy('plan').description).toMatch(/denied without prompting/i);
+    expect(museSessionModeCopy('plan').description).not.toMatch(/requests approval/i);
+    expect(museSessionModeCopy('standard').description).toMatch(/denied without prompting/i);
+    expect(museSessionModeCopy('standard').description).not.toMatch(/requests approval/i);
     expect(museSessionModeCopy('yolo').description).toMatch(/automatically approves/i);
     expect(museSessionModeCopy('turbo')).toBe(MUSE_SESSION_MODE_COPY.standard);
   });

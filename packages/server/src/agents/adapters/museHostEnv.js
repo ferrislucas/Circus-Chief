@@ -2,19 +2,19 @@ import { createRobustEnv } from '../../services/nodeSpawnHelper.js';
 import { filterDeadSshSocket, staleSshSocketMessage } from '../../services/loginShellEnv.js';
 
 /**
- * Build the env for the owned `muse serve` host so shell tools (git, gh and
+ * Build the env for the owned `muse exec` child so shell tools (git, gh and
  * friends) resolve the same binaries, config, and credentials as when the
  * user runs them directly. Session env wins over the host process env;
  * HOME/USER/LOGNAME fallbacks and well-known bin dirs fill the gaps left by
  * sparse server launch contexts.
  *
  * Finding #6 (single construction point per turn): the env is built exactly
- * once — the adapter's `_prepareHostEnv` (sessionProvider → adapter) — and
- * passed verbatim through spawnMuseClient to the SDK spawn. This builder is
- * idempotent (re-applying never duplicates the node bin dir or user bin
- * dirs; explicit PATH order is never rewritten), but callers must not
- * re-apply it defensively: the SSH-socket liveness filter is the async
- * cached connect-test in `_prepareHostEnv`, one probe per turn.
+ * once per turn (sessionProvider → adapter) and passed verbatim to the
+ * exec spawn. This builder is idempotent (re-applying never duplicates the
+ * node bin dir or user bin dirs; explicit PATH order is never rewritten),
+ * but callers must not re-apply it defensively: the SSH-socket liveness
+ * filter is the async cached connect-test in the adapter, one probe per
+ * turn.
  *
  * @param {Object} [sessionEnv] - Session env from buildSessionEnv (wins)
  * @param {Object} [baseEnv] - Host env filling the gaps (defaults to process.env)
@@ -37,7 +37,7 @@ export function buildMuseHostEnv(sessionEnv = {}, baseEnv = process.env, opts = 
     opts.isSshAgentAlive ? (sockPath) => opts.isSshAgentAlive(sockPath) : undefined,
   );
   if (droppedReason) {
-    console.warn(`[MuseAdapter] ${staleSshSocketMessage(droppedReason)}`);
+    console.warn(`[MuseExecAdapter] ${staleSshSocketMessage(droppedReason)}`);
   }
   return env;
 }

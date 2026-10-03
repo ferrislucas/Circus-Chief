@@ -292,7 +292,7 @@ export function buildMuseTestArgs(config) {
 
 /**
  * Meta-kind connection test: run a minimal headless `muse exec` turn.
- * The `muse serve` host authenticates with the host's own `muse auth`
+ * The exec child authenticates with the host's own `muse auth`
  * credentials, so this exercises binary presence, auth, and model access
  * in one call (see buildMuseTestArgs for the cost note).
  */

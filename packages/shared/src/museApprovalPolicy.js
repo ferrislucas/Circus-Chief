@@ -1,21 +1,20 @@
 /**
- * Single source of truth for the Muse (`muse serve`) approval posture,
+ * Single source of truth for the Muse (`muse exec`) approval posture,
  * shared by the server adapter and the web mode selector.
  *
- * Decision (review finding #3): gated modes run a real interactive approval
- * round-trip — MSP `onApproval` requests park as prompts through the shared
- * permission-prompt pipeline (promptStore + WS prompt events, the same
- * channel the Claude path uses), and the user's decision resolves the
- * callback. Auto-approval stays exclusive to `allowAll` (yolo); denial
- * remains the fail-closed default when no prompt channel exists, the prompt
- * times out, or the mode is unknown. The mode-selector copy below matches
- * this posture so the UI never promises gating the adapter does not enforce.
+ * Exec is headless: there is no interactive approval round-trip. Gated
+ * modes enforce policy via CLI flags (`--approval-mode`, `--disable-write`
+ * — see `museExecArgs.js`) and denied tools fail the run instead of asking
+ * the user. Auto-approval stays exclusive to `allowAll` (yolo); anything
+ * else (including unknown modes) fails closed to a gated posture. The
+ * mode-selector copy below matches this posture so the UI never promises
+ * prompting the adapter cannot do.
  *
- * MSP approval modes are closed (select-never-create):
+ * Approval postures are closed (select-never-create):
  * `allowAll | promptUnmatched | onRequest | denyUnmatched`.
  */
 
-/** Session mode → MSP approval mode (mirrors getMuseApprovalModeForSession). */
+/** Session mode → Muse approval posture (mirrors getMuseApprovalModeForSession). */
 export const MUSE_APPROVAL_MODE_FOR_SESSION_MODE = Object.freeze({
   yolo: 'allowAll',
   plan: 'promptUnmatched',
@@ -24,16 +23,16 @@ export const MUSE_APPROVAL_MODE_FOR_SESSION_MODE = Object.freeze({
 
 /**
  * @param {string} mode - Session mode ('plan', 'standard', 'yolo').
- * @returns {string} MSP approval mode; unknown modes fail closed to 'onRequest'.
+ * @returns {string} Muse approval posture; unknown modes fail closed to 'onRequest'.
  */
 export function museApprovalModeForSessionMode(mode) {
   return MUSE_APPROVAL_MODE_FOR_SESSION_MODE[mode] ?? 'onRequest';
 }
 
 /**
- * Whether the adapter auto-approves the server-offered first choice under
- * the given MSP approval mode. Only `allowAll` (yolo) does.
- * @param {string} approvalMode - MSP approval mode (may be unset).
+ * Whether the adapter auto-approves tool use under the given approval
+ * posture. Only `allowAll` (yolo) does.
+ * @param {string} approvalMode - Muse approval posture (may be unset).
  * @returns {boolean}
  */
 export function museApprovalModeAutoApproves(approvalMode) {
@@ -41,18 +40,18 @@ export function museApprovalModeAutoApproves(approvalMode) {
 }
 
 /**
- * Honest mode-selector copy for Muse sessions (finding #3): gated modes
- * request approval for each tool through the interactive prompt pipeline;
- * yolo auto-approves.
+ * Honest mode-selector copy for Muse sessions: exec is headless, so gated
+ * modes enforce approvals via CLI flags and denied tools fail the run —
+ * nothing ever prompts the user; yolo auto-approves.
  */
 export const MUSE_SESSION_MODE_COPY = Object.freeze({
   plan: Object.freeze({
     label: 'Plan',
-    description: 'Plans first; Muse requests approval for each tool',
+    description: 'Plans first; restricted tools are denied without prompting',
   }),
   standard: Object.freeze({
     label: 'Standard',
-    description: 'Muse requests approval for each tool',
+    description: 'Restricted tools are denied without prompting',
   }),
   yolo: Object.freeze({
     label: 'YOLO',

@@ -95,7 +95,7 @@ function buildGoogleProviderEnv(provider) {
 /**
  * Meta-kind provider env (v1).
  *
- * Deliberately empty: the `muse serve` host authenticates with the host's
+ * Deliberately empty: the `muse exec` child authenticates with the host's
  * own `muse auth` credentials — there is no documented `META_*` wire env
  * convention to set, and inventing one would silently do nothing. Provider
  * `additionalEnvVars` (merged by the caller) remain the escape hatch.

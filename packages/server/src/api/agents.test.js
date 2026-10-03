@@ -6,7 +6,7 @@ import apiRouter from './index.js';
 import { AgentGateway } from '../agents/AgentGateway.js';
 import { ClaudeCodeAdapter } from '../agents/adapters/ClaudeCodeAdapter.js';
 import { CodexAdapter } from '../agents/adapters/CodexAdapter.js';
-import { MuseAdapter } from '../agents/adapters/MuseAdapter.js';
+import { MuseExecAdapter } from '../agents/adapters/MuseExecAdapter.js';
 
 describe('Agents API', () => {
   let app;
@@ -60,7 +60,7 @@ describe('Agents API', () => {
       // Spy on adapter constructors; the handler should NOT call them.
       const claudeSpy = vi.spyOn(ClaudeCodeAdapter.prototype, 'getCapabilities');
       const codexSpy = vi.spyOn(CodexAdapter.prototype, 'getCapabilities');
-      const museSpy = vi.spyOn(MuseAdapter.prototype, 'getCapabilities');
+      const museSpy = vi.spyOn(MuseExecAdapter.prototype, 'getCapabilities');
 
       // Force a fresh gateway so any cached capabilities from earlier tests
       // do not mask instantiation. We wire in a fresh router backed by a

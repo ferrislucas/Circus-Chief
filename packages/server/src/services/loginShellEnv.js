@@ -10,7 +10,7 @@ const defaultExecFile = promisify(execFileCallback);
  * runs in a sparse launch context (GUI app, launchd daemon, container), that
  * snapshot lacks entries that only exist in the user's interactive login
  * shell: dotfile-configured PATH entries, SSH_AUTH_SOCK, user-exported
- * tokens, version-manager shims. The owned `muse serve` host replaces (not
+ * tokens, version-manager shims. The owned `muse exec` child replaces (not
  * inherits) its environment, so whatever is missing here is invisible to
  * every tool the agent shells out to.
  *

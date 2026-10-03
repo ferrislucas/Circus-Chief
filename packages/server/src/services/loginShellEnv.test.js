@@ -34,7 +34,7 @@ import {
   redactEnvForDiagnostics,
   redactSecretsFromText,
 } from './parityDiagnostics.js';
-import { buildMuseHostEnv } from '../agents/adapters/MuseAdapter.js';
+import { buildMuseHostEnv } from '../agents/adapters/museHostEnv.js';
 
 function nulEntries(obj) {
   return Buffer.from(`${Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('\0')}\0`);

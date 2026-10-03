@@ -154,15 +154,16 @@ export function getGeminiApprovalModeForSession(mode) {
 }
 
 /**
- * Map session mode to the Muse MSP session approval mode.
+ * Map session mode to the Muse approval posture.
  *
  * Delegates to the shared `museApprovalPolicy.js` table so the server
- * mapping and the UI copy cannot drift. MSP modes are closed
+ * mapping and the UI copy cannot drift. Postures are closed
  * (select-never-create): allowAll | promptUnmatched | onRequest |
- * denyUnmatched. The `muse serve` default is on-request; yolo lifts
- * enforcement, plan selects the most conservative interactive mode.
- * Tool calls still resolve through the adapter's headless `onApproval`
- * handler (see MuseAdapter) — this selects the server-side posture.
+ * denyUnmatched. The `muse exec` default is on-request; yolo lifts
+ * enforcement, plan selects the most conservative posture. Because exec is
+ * headless, the posture is enforced via CLI flags (`--approval-mode`,
+ * `--disable-write` — see `museExecArgs.js`), never via interactive
+ * prompting: denied tools fail the run instead of asking the user.
  */
 export function getMuseApprovalModeForSession(mode) {
   return museApprovalModeForSessionMode(mode);

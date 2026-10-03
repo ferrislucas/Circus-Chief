@@ -14,15 +14,27 @@ export function buildMuseExecArgs({ prompt, options = {}, workingDirectory, sess
     if (!['low', 'medium', 'high', 'max'].includes(options.effortLevel)) throw new Error(`Unsupported Muse reasoning effort: ${options.effortLevel}`);
     args.push('--reasoning-effort', options.effortLevel);
   }
-  // CLI exec has no verified interactive approval protocol. Only the Circus
-  // yolo posture is eligible; all other modes fail before spawning.
-  if (options.approvalMode !== 'allowAll') {
-    throw new Error('Muse exec currently supports only yolo/allowAll approval mode; interactive approvals are unavailable.');
-  }
-  args.push('--yolo');
+  args.push(...museExecApprovalFlags(options.approvalMode));
   if (options.trustWorkspace) args.push('--trust-workspace');
   const text = composeCliPrompt(options.systemPrompt, prompt);
   if (promptFile) args.push('--prompt-file', promptFile);
   else args.push(text);
   return { command: museBin, args, cwd: workingDirectory, prompt: text };
+}
+
+/**
+ * Map the internal approval posture to `muse exec` CLI flags.
+ *
+ * Exec is headless: there is no interactive approval round-trip, so gated
+ * modes enforce policy via CLI flags and denials surface as run failures /
+ * denial text in the transcript. Only the yolo posture (`allowAll`)
+ * disables enforcement. Unset fails closed to the standard posture.
+ * Posture vocabulary comes from `getMuseApprovalModeForSession`
+ * (`allowAll | onRequest | promptUnmatched`).
+ */
+function museExecApprovalFlags(approvalMode) {
+  if (approvalMode === 'allowAll') return ['--yolo'];
+  if (!approvalMode || approvalMode === 'onRequest') return ['--approval-mode', 'on-request'];
+  if (approvalMode === 'promptUnmatched') return ['--approval-mode', 'untrusted', '--disable-write'];
+  throw new Error(`Unsupported Muse approval mode: ${approvalMode}`);
 }

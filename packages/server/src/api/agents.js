@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { agentGateway } from '../agents/AgentGateway.js';
-import { buildMuseHostEnv } from '../agents/adapters/MuseAdapter.js';
+import { buildMuseHostEnv } from '../agents/adapters/museHostEnv.js';
 import { getLoginShellEnv, refreshLoginShellEnvAsync, isSshAgentSocketAliveAsync } from '../services/loginShellEnv.js';
 import { buildParityCredentialError, checkParitySignals, redactEnvForDiagnostics } from '../services/parityDiagnostics.js';
 import { buildSessionEnv } from '../services/sessionProvider.js';
