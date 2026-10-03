@@ -202,6 +202,35 @@ describe('streamEventHandler', () => {
       expect(toolInputCall[2]).toContain('[REDACTED]');
       expect(toolInputCall[2]).not.toContain(SENTINEL);
     });
+
+    // Finding #2(a): assistant prose can echo a secret (the model repeating
+    // a token it read via a tool). It must be scrubbed at the same choke
+    // point before it is persisted to the conversation AND before it is
+    // broadcast to the UI.
+    it('redacts secret values from persisted and broadcast assistant text (finding #2)', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      conversations.getActiveBySessionId.mockReturnValue(null);
+
+      await handleStreamEvent('sess-1', {
+        type: 'assistant',
+        message: {
+          content: [{ type: 'text', text: `The failing credential was ${SENTINEL}, please rotate it.` }],
+        },
+      }, { env: { GH_TOKEN: SENTINEL } });
+
+      expect(messages.create).toHaveBeenCalled();
+      const persisted = messages.create.mock.calls[0][2];
+      expect(persisted).toContain('[REDACTED]');
+      expect(persisted).not.toContain(SENTINEL);
+
+      const messageBroadcast = broadcastToSession.mock.calls.find(
+        ([, type]) => type === WS_MESSAGE_TYPES.SESSION_MESSAGE,
+      );
+      expect(messageBroadcast).toBeDefined();
+      const broadcastContent = messageBroadcast[2].message.content;
+      expect(broadcastContent).toContain('[REDACTED]');
+      expect(broadcastContent).not.toContain(SENTINEL);
+    });
   });
 
   // ── associateAndBroadcastWorkLogs ─────────────────────────────────────

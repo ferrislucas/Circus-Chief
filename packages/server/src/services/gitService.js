@@ -1,4 +1,4 @@
-/* eslint-disable max-lines */
+/* eslint-disable max-lines -- git status/diff/commit/push/publish flows share one cache and one error-classification surface; splitting them is a dedicated refactor (tracked separately) and a partial split would fan the cache invalidation rules across files. */
 import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import { classifyGitError } from './gitErrorClassify.js';

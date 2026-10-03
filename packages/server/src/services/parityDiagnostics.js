@@ -10,12 +10,14 @@ import { isSshAgentSocketAlive } from './loginShellEnv.js';
 
 /**
  * Keys whose VALUES are secrets: matched by name pattern so future keys are
- * covered by default (FR-11). Includes `_PAT` (e.g. GITHUB_PAT) and `_KEY`
- * (e.g. ENCRYPTION_KEY) suffixes from provider `additionalEnvVars`. The
- * underscore anchor matters: a bare `PAT` alternative would also match
- * `PATH` and scrub directory listings.
+ * covered by default (FR-11). Boundary-anchored (finding #10): a key must
+ * END with a secret suffix (`_TOKEN`, `_SECRET`, `_PASSWORD`, `_PRIVATE`,
+ * `_PAT`, `_KEY`, or the exact API_KEY shape / bare noun) to count — keys
+ * that merely CONTAIN these mid-name (PATH_TO_TOKENS_DIR, TOKENIZER_HOME)
+ * are benign, and scrubbing their values corrupted every agent's tool logs.
+ * The `^` anchor still covers exact bare names (TOKEN, PAT, API_KEY).
  */
-export const SECRET_KEY_PATTERN = /TOKEN|SECRET|PASSWORD|PRIVATE|API_KEY|_PAT|_KEY/i;
+export const SECRET_KEY_PATTERN = /(^|_)(TOKEN|SECRET|PASSWORD|PRIVATE|PAT|KEY)$|API_KEY/i;
 
 /**
  * Resolve a binary against an env PATH (no shell-out). Returns the absolute
@@ -46,6 +48,26 @@ export function findExecutableOnPath(env, name) {
     /* fall through to null */
   }
   return null;
+}
+
+/**
+ * Resolve a launcher (bare name like `muse`, or an explicit path) to the
+ * absolute executable path it would run as under `env`. Explicit paths are
+ * returned unchanged; an unresolvable bare name is returned unchanged too,
+ * so the caller's own stat/exec surfaces the familiar ENOENT.
+ *
+ * Finding #1: Node resolves child-process executables against the *server
+ * process* PATH, not `options.env` — so anything that execs a bare launcher
+ * must resolve it through the derived host env first (the same env the
+ * parity gate validated and the real spawn receives).
+ *
+ * @param {Object} env - The env whose PATH governs resolution.
+ * @param {string} name - Launcher name or explicit path.
+ * @returns {string|null}
+ */
+export function resolveLauncherAbsolutePath(env, name) {
+  if (!name || name.includes('/')) return name;
+  return findExecutableOnPath(env, name) || name;
 }
 
 function dirExists(dir) {
@@ -306,13 +328,17 @@ export function redactEnvForDiagnostics(env, opts = {}) {
  * @returns {string}
  */
 export function redactSecretsFromText(text, env) {
-  let out = String(text ?? '');
   const values = new Set();
   for (const [key, value] of Object.entries(env || {})) {
     if (typeof value === 'string' && value && SECRET_KEY_PATTERN.test(key)) {
       values.add(value);
     }
   }
+  return replaceSecretValuesWithRedacted(text, values);
+}
+
+function replaceSecretValuesWithRedacted(text, values) {
+  let out = String(text ?? '');
   for (const value of [...values].sort((a, b) => b.length - a.length)) {
     out = out.split(value).join('[REDACTED]');
   }
@@ -320,13 +346,79 @@ export function redactSecretsFromText(text, env) {
 }
 
 /**
+ * Cache of tokens harvested from the gh hosts file, keyed by path + mtime so
+ * the file is read once per change (≈ once per turn) rather than per scrubbed
+ * event. Tokens live in memory only — never logged or persisted.
+ */
+let ghHostsTokenCache = { key: null, tokens: [] };
+
+/** Reset the harvested-token cache (tests). */
+export function __resetGhHostsTokenCacheForTest() {
+  ghHostsTokenCache = { key: null, tokens: [] };
+}
+
+/**
+ * Harvest `oauth_token` values from the gh CLI's `hosts.yml` (FR-6) for the
+ * per-turn scrub value set (finding #2). gh credentials often live only in
+ * that file — no env var — so a tool output echoing them would otherwise
+ * bypass the env-keyed scrub. Guarded: a missing/unreadable file yields no
+ * extra values. Values are held in memory only and never disclosed.
+ *
+ * @param {Object} [env] - Env providing HOME (defaults to process.env).
+ * @returns {string[]}
+ */
+export function harvestGhHostsTokens(env = process.env) {
+  const home = env?.HOME;
+  if (!home) return [];
+  const hostsPath = join(home, '.config', 'gh', 'hosts.yml');
+  try {
+    const mtimeMs = statSync(hostsPath).mtimeMs;
+    const key = `${hostsPath}:${mtimeMs}`;
+    if (ghHostsTokenCache.key === key) return ghHostsTokenCache.tokens;
+    const content = readFileSync(hostsPath, 'utf8');
+    const tokens = [];
+    for (const match of content.matchAll(/^\s*oauth_token:\s*(\S+)\s*$/gm)) {
+      tokens.push(match[1]);
+    }
+    ghHostsTokenCache = { key, tokens };
+    return tokens;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The per-session scrub value set (finding #2): secret-keyed values from the
+ * turn env merged over `process.env`, plus gh-hosts oauth tokens. Single
+ * source for the transcript path — tool inputs, tool outputs, and assistant
+ * text all scrub against this exact set.
+ *
+ * @param {Object} [env] - Turn session env carrying secret values.
+ * @returns {Set<string>}
+ */
+export function scrubValuesForSession(env) {
+  const merged = { ...process.env, ...(env || {}) };
+  const values = new Set();
+  for (const [key, value] of Object.entries(merged)) {
+    if (typeof value === 'string' && value && SECRET_KEY_PATTERN.test(key)) {
+      values.add(value);
+    }
+  }
+  for (const token of harvestGhHostsTokens(merged)) {
+    values.add(token);
+  }
+  return values;
+}
+
+/**
  * Scrub secret values out of text bound for work logs (finding #1, FR-11).
- * Single choke point for the transcript path: tool inputs and tool outputs
- * are redacted here before reaching work logs (and from there transcripts
- * and canvas payloads). `env` is the turn's session env — provider-supplied
- * tokens live there, not in the server process env — merged over
- * `process.env` so both are covered. Only secret *values* are scrubbed;
- * key names and presence labels survive.
+ * Single choke point for the transcript path: tool inputs, tool outputs,
+ * and assistant text are redacted here before reaching work logs (and from
+ * there transcripts and canvas payloads). `env` is the turn's session env —
+ * provider-supplied tokens live there, not in the server process env — merged
+ * over `process.env` so both are covered, plus gh-hosts harvested tokens
+ * (finding #2). Only secret *values* are scrubbed; key names and presence
+ * labels survive.
  *
  * The Muse event mapper is intentionally NOT a scrub point: it is pure
  * (no env access), so mapped `tool_result` content passes through verbatim
@@ -337,5 +429,5 @@ export function redactSecretsFromText(text, env) {
  * @returns {string} Scrubbed text with secret values replaced by `[REDACTED]`.
  */
 export function scrubEventForLogging(text, env) {
-  return redactSecretsFromText(text, { ...process.env, ...(env || {}) });
+  return replaceSecretValuesWithRedacted(text, scrubValuesForSession(env));
 }

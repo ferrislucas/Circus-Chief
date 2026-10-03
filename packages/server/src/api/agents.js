@@ -55,6 +55,18 @@ function selectDiagnosticsRefresher(deps) {
 }
 
 /**
+ * Strict reprobe-flag parsing (finding #8): only '1'/'true' re-probe.
+ * Anything else — including '0' and 'false', which are truthy strings —
+ * reads the cached probe, matching what a caller asking "do NOT reprobe"
+ * means.
+ * @param {*} value - Raw query-string value.
+ * @returns {boolean}
+ */
+export function parseReprobeFlag(value) {
+  return value === '1' || value === 'true';
+}
+
+/**
  * Upgrade the ssh-agent signal from stat-only to the connect-test: a
  * dead-but-present socket file passes stat yet refuses connections.
  * Pure — returns the (possibly new) signal list instead of mutating it.
@@ -94,7 +106,7 @@ export async function handleMuseEnvDiagnostics(req, res, deps) {
     // a tight budget) and repopulates the cache, so a slow shell no longer
     // stalls concurrent requests. The non-reprobe path keeps reading the
     // cached sync probe used by startup/turn code.
-    if (req?.query?.reprobe) await refresher();
+    if (parseReprobeFlag(req?.query?.reprobe)) await refresher();
     const probe = getLoginShellEnv();
     const sessionEnv = buildSessionEnv(null, false, null);
     const hostEnv = buildMuseHostEnv(sessionEnv);
@@ -104,7 +116,10 @@ export async function handleMuseEnvDiagnostics(req, res, deps) {
       signals,
       env: redactEnvForDiagnostics(hostEnv, probe.ok ? { shellEnv: probe.env } : {}),
     });
-  } catch {
+  } catch (err) {
+    // Finding #8: never swallow the underlying error silently — operators
+    // need the cause, not just the generic JSON message.
+    console.error(`[agents] Failed to build Muse environment diagnostics: ${err?.message || err}`);
     res.status(500).json({ error: 'Failed to build environment diagnostics.' });
   }
 }

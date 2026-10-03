@@ -24,6 +24,10 @@ export const DEFAULT_TIMEOUTS = Object.freeze({
   sendTurnMs: 120_000,
   turnMs: 15 * 60_000,
   shutdownGraceMs: 2_000,
+  // Budget for a user to answer an interactive approval prompt (finding #3).
+  // Unanswered prompts deny fail-closed; the parked prompt card is cancelled
+  // on the same deadline so the UI never shows a prompt that already denied.
+  approvalPromptMs: 300_000,
 });
 
 /**
@@ -45,7 +49,10 @@ export async function deadline(promise, { timeoutMs, phase, context, onTimeout, 
         timer = setTimeout(() => {
           timedOut = true;
           Promise.resolve(onTimeout?.()).catch(() => undefined);
-          reject(new MuseTurnTimeoutError(phase, timeoutMs, { correlationId: context.correlationId }));
+          // Finding #12a: `context` is optional — a raw deref inside this
+          // timer callback threw synchronously, so the deadline never
+          // rejected and the caller hung instead of timing out.
+          reject(new MuseTurnTimeoutError(phase, timeoutMs, { correlationId: context?.correlationId }));
         }, timeoutMs);
       }),
     ]);

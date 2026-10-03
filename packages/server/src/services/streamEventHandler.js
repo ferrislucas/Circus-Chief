@@ -250,7 +250,11 @@ function handleAssistantEvent(sessionId, event, controller) {
  * @param {string} textContent
  * @param {Array} toolUseBlocks
  */
-function handleAssistantTextContent(sessionId, textContent, toolUseBlocks) {
+function handleAssistantTextContent(sessionId, rawTextContent, toolUseBlocks) {
+  // Finding #2: assistant prose can echo a secret the model read via a tool
+  // (env tokens, gh-hosts credentials). Scrub at the same choke point as
+  // tool inputs/outputs, before the text is persisted OR broadcast.
+  const textContent = scrubForSession(sessionId, rawTextContent);
   const toolUse = toolUseBlocks.length > 0 ? toolUseBlocks : null;
   const activeConversation = conversations.getActiveBySessionId(sessionId);
   const conversationId = activeConversation?.id || null;

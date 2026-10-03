@@ -359,14 +359,14 @@ describe('ModeSelector', () => {
   });
 
   describe('muse agent copy (finding #2)', () => {
-    it('says gated modes run no Muse tools when agentType is muse', () => {
+    it('says gated modes request approval for each Muse tool when agentType is muse', () => {
       const wrapper = mountComponent({ modelValue: 'standard', agentType: 'muse' });
-      expect(wrapper.get('select').attributes('title')).toMatch(/no tools.*YOLO/i);
+      expect(wrapper.get('select').attributes('title')).toMatch(/approval for each tool/i);
     });
 
-    it('says plan mode runs no Muse tools when agentType is muse', () => {
+    it('says plan mode requests approval for each Muse tool when agentType is muse', () => {
       const wrapper = mountComponent({ modelValue: 'plan', agentType: 'muse' });
-      expect(wrapper.get('select').attributes('title')).toMatch(/no tools.*YOLO/i);
+      expect(wrapper.get('select').attributes('title')).toMatch(/approval for each tool/i);
     });
 
     it('keeps the auto-approve copy for muse yolo mode', () => {
@@ -393,7 +393,7 @@ describe('ModeSelector', () => {
       });
       await flushAll(wrapper);
 
-      expect(wrapper.get('select').attributes('title')).toMatch(/no tools.*YOLO/i);
+      expect(wrapper.get('select').attributes('title')).toMatch(/approval for each tool/i);
     });
   });
 

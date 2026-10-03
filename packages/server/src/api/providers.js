@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { tmpdir } from 'node:os';
 import { modelProviders } from '../database.js';
 import {
   COMMIT_ATTRIBUTION_VALIDATION_MESSAGE,
@@ -9,7 +8,7 @@ import {
   ReorderProviderModelsRequest,
   TestConnectionRequest,
 } from '@circuschief/shared/contracts/providers';
-import { testProviderConnection } from '../services/providerTestService.js';
+import { testProviderConnection, buildProviderTestConfig } from '../services/providerTestService.js';
 import { assertValidReorder } from '../db/providerModelOperations.js';
 
 // Error message constants
@@ -128,7 +127,9 @@ router.post('/test', async (req, res) => {
   }
 
   try {
-    const testResult = await testProviderConnection(result.data);
+    // Finding #9: both test routes share one config builder — same model
+    // fallback, same meta-kind cwd rule (tmpdir when the caller omits it).
+    const testResult = await testProviderConnection(buildProviderTestConfig(result.data));
     res.json(testResult);
   } catch (error) {
     res.status(500).json({
@@ -149,25 +150,7 @@ router.post('/:id/test', async (req, res) => {
       return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
     }
 
-    // Pick the sonnet-tiered model (if any) as the test model, falling back
-    // to the provider's first enabled model (this is what the Muse
-    // connection test runs — never a hardcoded model id).
-    const sonnetModel = provider.models?.find((m) => m.tier === 'sonnet');
-    const firstEnabled = provider.models?.find((m) => m.enabled !== false && m.lifecycle !== 'retired')
-      || provider.models?.[0];
-    const testConfig = {
-      kind: provider.kind || 'anthropic',
-      baseUrl: provider.baseUrl,
-      authToken: provider.authToken,
-      defaultSonnetModel: sonnetModel?.modelId || firstEnabled?.modelId,
-      apiTimeoutMs: provider.apiTimeoutMs,
-      // The Muse test needs an explicit cwd (it errors when unset); the
-      // provider record carries none, so use the OS temp dir explicitly
-      // rather than leaking the server cwd into the probe.
-      ...(provider.kind === 'meta' ? { workingDirectory: tmpdir() } : {}),
-    };
-
-    const testResult = await testProviderConnection(testConfig);
+    const testResult = await testProviderConnection(buildProviderTestConfig(provider));
     res.json(testResult);
   } catch (error) {
     res.status(500).json({

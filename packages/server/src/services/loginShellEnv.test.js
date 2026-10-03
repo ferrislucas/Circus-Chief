@@ -2,6 +2,15 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { createRobustEnv } from './nodeSpawnHelper.js';
+
+// Finding #5 (test hermeticity): wrap child_process.spawnSync in a recording
+// spy that delegates to the real implementation, so the hermeticity test can
+// prove the login-shell probe never spawns in the vitest environment.
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, spawnSync: vi.fn(actual.spawnSync) };
+});
 import {
   parseEnvZero,
   parseEnvLines,
@@ -35,12 +44,34 @@ function okSpawn(stdout) {
   return { status: 0, stdout, stderr: Buffer.alloc(0), error: undefined };
 }
 
+function busySleep(ms) {
+  const end = Date.now() + Math.max(0, ms);
+  while (Date.now() < end) { /* spin: simulate a hanging dump */ }
+}
+
 describe('loginShellEnv', () => {
   afterEach(() => {
     resetLoginShellEnvCache();
     clearSshLivenessCache();
     vi.restoreAllMocks();
   });
+
+  // Finding #5: the vitest environment disables the login-shell probe
+  // (hermeticity). These probe/cache machinery tests exercise the probe
+  // itself with injected spawnSync/execFile doubles, so they re-enable it
+  // for their own scope only — no real shell is ever spawned.
+  async function withProbeEnabled(run) {
+    const previous = process.env.CIRCUS_CHIEF_NO_LOGIN_SHELL;
+    delete process.env.CIRCUS_CHIEF_NO_LOGIN_SHELL;
+    resetLoginShellEnvCache();
+    try {
+      await run();
+    } finally {
+      if (previous === undefined) delete process.env.CIRCUS_CHIEF_NO_LOGIN_SHELL;
+      else process.env.CIRCUS_CHIEF_NO_LOGIN_SHELL = previous;
+      resetLoginShellEnvCache();
+    }
+  }
 
   describe('parseEnvZero', () => {
     it('parses NUL-delimited KEY=VALUE output', () => {
@@ -118,6 +149,32 @@ describe('loginShellEnv', () => {
     });
   });
 
+  describe('shared probe budget (finding #7)', () => {
+    it('gives the printenv retry only the remaining budget, not a fresh one', () => {
+      const budgets = [];
+      const spawnSync = vi.fn((_shell, _args, options) => {
+        budgets.push(options.timeout);
+        busySleep(options.timeout); // both dumps hang for their whole budget
+        return { status: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+      });
+      const startedAt = Date.now();
+      const result = probeLoginShellEnv({ shell: '/bin/zsh', timeoutMs: 300 }, { spawnSync });
+      const elapsed = Date.now() - startedAt;
+
+      expect(result.ok).toBe(false);
+      expect(budgets).toHaveLength(2);
+      expect(budgets[0]).toBe(300);
+      // The retry is bounded by what is left of the ONE overall budget —
+      // never a fresh full budget (FRD R-2: probe cost stays ≤2s).
+      expect(budgets[1]).toBeLessThan(300);
+      expect(elapsed).toBeLessThan(560);
+    });
+
+    it('keeps the default overall budget within the 2s FRD bound', () => {
+      expect(LOGIN_SHELL_TIMEOUT_MS).toBeLessThanOrEqual(2000);
+    });
+  });
+
   describe('probeLoginShellEnvAsync (finding #6)', () => {
     it('uses a tighter per-dump budget than the sync probe', () => {
       expect(LOGIN_SHELL_ASYNC_TIMEOUT_MS).toBeLessThan(LOGIN_SHELL_TIMEOUT_MS);
@@ -162,30 +219,36 @@ describe('loginShellEnv', () => {
 
   describe('refreshLoginShellEnvAsync (finding #6)', () => {
     it('repopulates the process-lifetime cache without blocking spawns', async () => {
-      const execFile = vi.fn(async () => ({ stdout: 'PATH=/fresh/bin\0' }));
-      await refreshLoginShellEnvAsync({}, { execFile });
-      // The sync reader now serves the refreshed value with no new spawn.
-      const spawnSync = vi.fn(() => { throw new Error('must not probe'); });
-      const cached = getLoginShellEnv({}, { spawnSync });
-      expect(cached.ok).toBe(true);
-      expect(cached.env.PATH).toBe('/fresh/bin');
+      await withProbeEnabled(async () => {
+        const execFile = vi.fn(async () => ({ stdout: 'PATH=/fresh/bin\0' }));
+        await refreshLoginShellEnvAsync({}, { execFile });
+        // The sync reader now serves the refreshed value with no new spawn.
+        const spawnSync = vi.fn(() => { throw new Error('must not probe'); });
+        const cached = getLoginShellEnv({}, { spawnSync });
+        expect(cached.ok).toBe(true);
+        expect(cached.env.PATH).toBe('/fresh/bin');
+      });
     });
   });
 
   describe('getLoginShellEnv cache', () => {
-    it('probes once per process lifetime (single-flight cache)', () => {
-      const spawnSync = vi.fn(() => okSpawn(nulEntries({ PATH: '/cached' })));
-      const first = getLoginShellEnv({}, { spawnSync });
-      const second = getLoginShellEnv({}, { spawnSync });
-      expect(first).toBe(second);
-      expect(spawnSync).toHaveBeenCalledTimes(1);
+    it('probes once per process lifetime (single-flight cache)', async () => {
+      await withProbeEnabled(async () => {
+        const spawnSync = vi.fn(() => okSpawn(nulEntries({ PATH: '/cached' })));
+        const first = getLoginShellEnv({}, { spawnSync });
+        const second = getLoginShellEnv({}, { spawnSync });
+        expect(first).toBe(second);
+        expect(spawnSync).toHaveBeenCalledTimes(1);
+      });
     });
 
-    it('caches failures too (no repeated slow probes)', () => {
-      const spawnSync = vi.fn(() => { throw new Error('nope'); });
-      getLoginShellEnv({}, { spawnSync });
-      getLoginShellEnv({}, { spawnSync });
-      expect(spawnSync).toHaveBeenCalledTimes(1);
+    it('caches failures too (no repeated slow probes)', async () => {
+      await withProbeEnabled(async () => {
+        const spawnSync = vi.fn(() => { throw new Error('nope'); });
+        getLoginShellEnv({}, { spawnSync });
+        getLoginShellEnv({}, { spawnSync });
+        expect(spawnSync).toHaveBeenCalledTimes(1);
+      });
     });
   });
 
@@ -228,6 +291,27 @@ describe('loginShellEnv', () => {
 
     it('default timeout budget is bounded', () => {
       expect(LOGIN_SHELL_TIMEOUT_MS).toBeLessThanOrEqual(2000);
+    });
+
+    // Finding #11 (FR-3/FR-10): an explicit empty string is a *set* value —
+    // the user cleared it on purpose — so the login-shell baseline must not
+    // refill it. PATH stays special: an empty PATH is still filled.
+    it('keeps an explicit empty string for non-PATH keys (explicit clear wins, finding #11)', () => {
+      const merged = mergeShellEnv({
+        shellEnv: { GH_TOKEN: 'x', EDITOR: 'vim', HOME: '/shell/home' },
+        baseEnv: { GH_TOKEN: '', EDITOR: '' },
+      });
+      expect(merged.GH_TOKEN).toBe('');
+      expect(merged.EDITOR).toBe('');
+      expect(merged.HOME).toBe('/shell/home'); // unset → still filled
+    });
+
+    it('still fills an empty PATH from the shell (PATH stays special, finding #11)', () => {
+      const merged = mergeShellEnv({
+        shellEnv: { PATH: '/shell/bin' },
+        baseEnv: { PATH: '' },
+      });
+      expect(merged.PATH).toBe('/shell/bin');
     });
   });
 
@@ -469,6 +553,46 @@ describe('loginShellEnv', () => {
       expect(message).toContain('socket dead');
       expect(message).toMatch(/retrying the session is not enough/i);
       expect(message).toMatch(/relaunch the server/i);
+    });
+  });
+
+  // Finding #5 (test hermeticity): unit tests must never spawn the user's
+  // real login shell. The vitest environment runs with the probe disabled
+  // (CIRCUS_CHIEF_NO_LOGIN_SHELL=1 set by the test setup, before any module
+  // can probe), so env derivation tests exercise fixtures — never `$SHELL -lic`.
+  describe('test hermeticity (finding #5)', () => {
+    it('runs the vitest environment with the login-shell probe disabled', () => {
+      expect(process.env.CIRCUS_CHIEF_NO_LOGIN_SHELL).toBe('1');
+    });
+
+    it('short-circuits the probe before any spawn attempt while disabled', () => {
+      resetLoginShellEnvCache();
+      try {
+        const boobyTrapped = vi.fn(() => {
+          throw new Error('real login shell spawned inside a unit test');
+        });
+        const result = getLoginShellEnv({}, { spawnSync: boobyTrapped });
+        expect(result.ok).toBe(false);
+        expect(result.reason).toMatch(/disabled via CIRCUS_CHIEF_NO_LOGIN_SHELL=1/);
+        expect(boobyTrapped).not.toHaveBeenCalled();
+      } finally {
+        resetLoginShellEnvCache();
+      }
+    });
+
+    it('records zero login-shell spawns during createRobustEnv(process.env) in the test env', async () => {
+      const { spawnSync } = await import('child_process');
+      const spawnSyncSpy = vi.mocked(spawnSync);
+      resetLoginShellEnvCache();
+      spawnSyncSpy.mockClear();
+      try {
+        const env = createRobustEnv(process.env);
+        expect(env.PATH).toBeDefined();
+        expect(spawnSyncSpy).not.toHaveBeenCalled();
+      } finally {
+        resetLoginShellEnvCache();
+        spawnSyncSpy.mockClear();
+      }
     });
   });
 });

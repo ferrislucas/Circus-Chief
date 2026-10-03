@@ -257,6 +257,98 @@ describe('MuseAdapter', () => {
     })).resolves.toEqual({ choiceId: 'allow' });
   });
 
+  // Finding #3: gated modes now run an interactive approval round-trip
+  // through the shared permission-prompt pipeline (promptStore + WS prompt
+  // events, via options.canUseTool — same channel the Claude path uses).
+  // Deny stays the fail-closed default when no prompt channel exists.
+  describe('interactive approval round-trip (finding #3)', () => {
+    const GATED_REQUEST = {
+      approvalId: 'appr-prompt-1',
+      toolName: 'bash',
+      subject: { kind: 'shell', command: 'npm test' },
+      protectedWrite: false,
+      availableChoices: [{ choiceId: 'allow' }, { choiceId: 'deny' }],
+    };
+
+    async function adapterWithChannel(client, canUseTool, adapterOpts = {}) {
+      const adapter = new MuseAdapter({
+        museClientFactory: async () => client,
+        ...adapterOpts,
+      });
+      await collect(adapter, {
+        prompt: 'p',
+        options: { approvalMode: 'onRequest', env: {}, canUseTool },
+      });
+      return adapter;
+    }
+
+    it('surfaces a prompt carrying the tool name and subject summary in a gated mode', async () => {
+      const client = createFakeClient();
+      const canUseTool = vi.fn(async () => ({ behavior: 'allow' }));
+      await adapterWithChannel(client, canUseTool);
+
+      const handler = client.__approvalHandler();
+      await handler({ ...GATED_REQUEST });
+
+      expect(canUseTool).toHaveBeenCalledTimes(1);
+      const [toolName, input, opts] = canUseTool.mock.calls[0];
+      expect(toolName).toBe('bash');
+      const summary = JSON.stringify(input);
+      expect(summary).toMatch(/shell/);
+      expect(summary).toMatch(/npm test/);
+      expect(opts.toolUseID).toBe('appr-prompt-1');
+    });
+
+    it('resolves the server-offered first choice when the user approves', async () => {
+      const client = createFakeClient();
+      const canUseTool = vi.fn(async () => ({ behavior: 'allow' }));
+      await adapterWithChannel(client, canUseTool);
+
+      const handler = client.__approvalHandler();
+      await expect(handler({ ...GATED_REQUEST })).resolves.toEqual({ choiceId: 'allow' });
+    });
+
+    it('surfaces an actionable denial error when the user denies', async () => {
+      const client = createFakeClient();
+      const canUseTool = vi.fn(async () => ({ behavior: 'deny', message: 'Not while I am reviewing.' }));
+      await adapterWithChannel(client, canUseTool);
+
+      const handler = client.__approvalHandler();
+      await expect(handler({ ...GATED_REQUEST }))
+        .rejects.toThrow(/denied.*Not while I am reviewing\./s);
+    });
+
+    it('denies and warns when no response arrives within the prompt timeout', async () => {
+      const client = createFakeClient();
+      const canUseTool = vi.fn(() => new Promise(() => {})); // never settles
+      await adapterWithChannel(client, canUseTool, { timeouts: { approvalPromptMs: 25 } });
+
+      const handler = client.__approvalHandler();
+      await expect(handler({ ...GATED_REQUEST })).rejects.toThrow(/timed out.*denied/s);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/timed out.*denying|denying.*timed out/i));
+    });
+
+    it('never prompts in allowAll (yolo) mode', async () => {
+      const client = createFakeClient();
+      const canUseTool = vi.fn(async () => ({ behavior: 'allow' }));
+      const adapter = new MuseAdapter({ museClientFactory: async () => client });
+      await collect(adapter, { prompt: 'p', options: { approvalMode: 'allowAll', env: {}, canUseTool } });
+
+      const handler = client.__approvalHandler();
+      await expect(handler({ ...GATED_REQUEST })).resolves.toEqual({ choiceId: 'allow' });
+      expect(canUseTool).not.toHaveBeenCalled();
+    });
+
+    it('still denies fail-closed when no prompt channel is available', async () => {
+      const client = createFakeClient();
+      const adapter = new MuseAdapter({ museClientFactory: async () => client });
+      await collect(adapter, { prompt: 'p', options: { approvalMode: 'onRequest', env: {} } });
+
+      const handler = client.__approvalHandler();
+      await expect(handler({ ...GATED_REQUEST })).rejects.toThrow(/yolo/i);
+    });
+  });
+
   it('maps failed turn outcomes to error results and still closes the host', async () => {
     const client = createFakeClient({
       outcome: { kind: 'completed', params: { terminal: 'failed', error: { kind: 'authRequired', message: 'login first', retryable: false } } },
@@ -318,6 +410,32 @@ describe('MuseAdapter', () => {
     expect(capturedArgs.env.GH_TOKEN).toBe('session-token');
   });
 
+  // Finding #12d: one stale-socket warning per execute(), exactly once —
+  // the single warn site is the adapter's async liveness check in
+  // _prepareHostEnv (the live spawn path no longer re-runs a sync filter).
+  it('logs the stale-socket warning exactly once during a full execute (finding #12d)', async () => {
+    const client = createFakeClient();
+    const adapter = new MuseAdapter({
+      museClientFactory: async () => client,
+      sshLivenessProbe: async () => ({
+        alive: false,
+        reason: 'SSH agent socket does not accept connections at /tmp/dead.sock (ECONNREFUSED)',
+      }),
+    });
+
+    await collect(adapter, {
+      prompt: 'p',
+      options: { env: { SSH_AUTH_SOCK: '/tmp/dead.sock' } },
+    });
+
+    const staleWarnings = warnSpy.mock.calls.filter(
+      ([message]) => typeof message === 'string' && /retrying the session is not enough/.test(message),
+    );
+    expect(staleWarnings).toHaveLength(1);
+    // The dead socket is dropped, not passed through.
+    expect(client.calls.startSession).toHaveLength(1);
+  });
+
   it('throws MUSE_CLI_NOT_FOUND when the muse binary is missing', async () => {
     const enoent = new Error('spawn muse ENOENT');
     enoent.code = 'ENOENT';
@@ -357,6 +475,61 @@ describe('MuseAdapter', () => {
     await expect(collect(adapter, { prompt: 'p', options: {} }))
       .rejects.toMatchObject({ code: 'MUSE_VERSION_MISMATCH', cliVersion: null });
     expect(factory).not.toHaveBeenCalled();
+  });
+
+  // Finding #1: the preflight sits outside the spawn try/catch in
+  // _openHost, so a missing binary surfaced as a raw `spawn muse ENOENT`
+  // instead of the actionable MUSE_CLI_NOT_FOUND error.
+  it('maps a preflight ENOENT to an actionable MUSE_CLI_NOT_FOUND error (finding #1)', async () => {
+    const enoent = new Error('spawn muse ENOENT');
+    enoent.code = 'ENOENT';
+    const client = createFakeClient();
+    const factory = vi.fn(async () => client);
+    const adapter = new MuseAdapter({
+      museClientFactory: factory,
+      museVersionResolver: async () => { throw enoent; },
+    });
+
+    await expect(collect(adapter, { prompt: 'p', options: {} }))
+      .rejects.toMatchObject({
+        code: 'MUSE_CLI_NOT_FOUND',
+        message: /Install Muse Code.*MUSE_BIN/i,
+      });
+    expect(factory).not.toHaveBeenCalled();
+  });
+
+  it('passes preflight MUSE_VERSION_MISMATCH and MUSE_CLI_VERSION_UNKNOWN errors through untouched (finding #1)', async () => {
+    const mismatch = new Error('Muse CLI/SDK version mismatch (major-mismatch).');
+    mismatch.code = 'MUSE_VERSION_MISMATCH';
+    const adapter1 = new MuseAdapter({
+      museClientFactory: async () => createFakeClient(),
+      museVersionResolver: async () => { throw mismatch; },
+    });
+    await expect(collect(adapter1, { prompt: 'p', options: {} })).rejects.toBe(mismatch);
+
+    const unknown = new Error('Could not determine Muse CLI version from muse --version output.');
+    unknown.code = 'MUSE_CLI_VERSION_UNKNOWN';
+    const adapter2 = new MuseAdapter({
+      museClientFactory: async () => createFakeClient(),
+      museVersionResolver: async () => { throw unknown; },
+    });
+    await expect(collect(adapter2, { prompt: 'p', options: {} })).rejects.toBe(unknown);
+  });
+
+  it('forwards the derived host env into the version preflight (finding #1)', async () => {
+    const client = createFakeClient();
+    const versionResolver = vi.fn(async () => MUSE_SDK_VERSION);
+    const adapter = new MuseAdapter({
+      museClientFactory: async () => client,
+      museVersionResolver: versionResolver,
+    });
+
+    await collect(adapter, { prompt: 'p', options: { env: {} } });
+    expect(versionResolver).toHaveBeenCalledTimes(1);
+    const [, preflightArgs] = versionResolver.mock.calls[0];
+    expect(preflightArgs?.env).toBeDefined();
+    expect(preflightArgs.env.PATH).toBeDefined();
+    expect(preflightArgs.env.HOME).toBeDefined();
   });
 
   // Finding #3: a CLI that auto-updated within the same major warns and

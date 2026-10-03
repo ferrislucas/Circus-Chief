@@ -125,7 +125,7 @@ function buildGeminiQueryParams({
  */
 function buildMuseQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
-  resumeSessionId = null,
+  resumeSessionId = null, conversationId = null,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   const effectiveModel = isVCR ? 'muse-spark-1.3' : model;
@@ -140,6 +140,10 @@ function buildMuseQueryParams({
       effortLevel: session?.effortLevel ?? null,
       approvalMode: getMuseApprovalModeForSession(session?.mode),
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
+      // Finding #3: gated Muse modes park MSP approval requests as
+      // interactive prompts through the same promptStore + WS pipeline the
+      // Claude path uses (`canUseTool` → parkPrompt).
+      ...buildInteractionCallbacks({ sessionId, conversationId }),
       ...(resumeSessionId ? { resume: resumeSessionId } : {}),
     },
   };

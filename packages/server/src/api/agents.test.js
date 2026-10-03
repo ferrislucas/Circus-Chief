@@ -200,5 +200,37 @@ describe('Agents API', () => {
       expect(slowRes.statusCode).toBe(200);
       expect(Array.isArray(slowRes.body.signals)).toBe(true);
     });
+
+    // Finding #8: the reprobe flag is parsed strictly — only '1'/'true'
+    // re-probe. Truthy strings like '0' and 'false' must read the cache.
+    it.each(['0', 'false'])('does not re-probe for ?reprobe=%s (strict parsing, finding #8)', async (value) => {
+      let refresherCalls = 0;
+      const deps = {
+        refreshLoginShellEnvAsync: async () => {
+          refresherCalls += 1;
+          return { ok: true, env: {} };
+        },
+      };
+      const res = await callHandler({ reprobe: value }, deps);
+      expect(res.statusCode).toBe(200);
+      expect(refresherCalls).toBe(0);
+    });
+
+    // Finding #8: the 500 path must log the underlying error — no silent
+    // swallow that leaves operators with only the generic JSON message.
+    it('logs the underlying error when diagnostics build fails (finding #8)', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const deps = {
+          refreshLoginShellEnvAsync: async () => { throw new Error('reprobe exploded'); },
+        };
+        const res = await callHandler({ reprobe: '1' }, deps);
+        expect(res.statusCode).toBe(500);
+        expect(res.body.error).toBe('Failed to build environment diagnostics.');
+        expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('reprobe exploded'));
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
   });
 });

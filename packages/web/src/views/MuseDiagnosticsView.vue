@@ -74,18 +74,64 @@
           </div>
         </div>
       </div>
+
+      <!-- Finding #8: per-key env summary (SET/UNSET + origin labels).
+           Values are never included by the API; only structured summaries
+           are rendered, so a malformed string value renders nothing. -->
+      <div
+        v-if="envSummaryRows.length > 0"
+        class="env-summary card"
+        data-testid="muse-diag-env-summary"
+      >
+        <h3>Environment summary</h3>
+        <p class="env-summary-note">
+          Presence and origin per key — never values.
+        </p>
+        <div class="env-rows">
+          <div
+            v-for="entry in envSummaryRows"
+            :key="entry.key"
+            class="env-row"
+          >
+            <span class="env-key">{{ entry.key }}</span>
+            <span
+              class="status-badge"
+              :class="entry.state === 'SET' ? 'status-pass' : 'status-unset'"
+            >
+              {{ entry.state }}
+            </span>
+            <span class="env-origin">{{ entry.origin }}</span>
+            <span
+              v-if="entry.entries"
+              class="env-entries"
+            >{{ entry.entries }} entries</span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { api } from '../composables/useApi.js';
 
 const loading = ref(true);
 const error = ref(null);
 const signals = ref([]);
 const probe = ref(null);
+const envSummary = ref(null);
+
+// Only well-formed { state, origin, entries? } summaries render; a raw
+// string value (or any malformed entry) is skipped entirely.
+const envSummaryRows = computed(() => Object.entries(envSummary.value || {})
+  .filter(([, summary]) => summary && typeof summary === 'object')
+  .map(([key, summary]) => ({
+    key,
+    state: summary.state || 'UNKNOWN',
+    origin: summary.origin || 'unknown',
+    entries: Number.isFinite(summary.entries) ? summary.entries : null,
+  })));
 
 async function fetchDiagnostics(reprobe) {
   loading.value = true;
@@ -94,6 +140,7 @@ async function fetchDiagnostics(reprobe) {
     const report = await api.getMuseEnvDiagnostics(reprobe);
     signals.value = Array.isArray(report?.signals) ? report.signals : [];
     probe.value = report?.probe || null;
+    envSummary.value = report?.env && typeof report.env === 'object' ? report.env : null;
   } catch (err) {
     error.value = err?.message || 'Failed to load Muse environment diagnostics.';
   } finally {
@@ -167,5 +214,49 @@ onMounted(() => fetchDiagnostics(false));
 
 .warning-message {
   margin-bottom: 1rem;
+}
+
+.env-summary {
+  margin-top: 1.25rem;
+  padding: 0.9rem 1rem;
+}
+
+.env-summary h3 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1rem;
+}
+
+.env-summary-note {
+  margin: 0 0 0.6rem 0;
+  color: var(--color-text-secondary, #9ca3af);
+  font-size: 0.85rem;
+}
+
+.env-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.env-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+}
+
+.env-key {
+  min-width: 10rem;
+  font-family: var(--font-mono, monospace);
+}
+
+.status-unset {
+  color: var(--color-text-secondary, #9ca3af);
+  background: rgba(156, 163, 175, 0.12);
+}
+
+.env-origin,
+.env-entries {
+  color: var(--color-text-secondary, #9ca3af);
 }
 </style>

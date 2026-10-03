@@ -67,6 +67,18 @@ describe('createMuseEventMapper', () => {
       ).toEqual([{ type: 'tool_result', tool_name: 'bash', content: '{"cmd":"ls"}' }]);
     });
 
+    // Finding #12b: an args-only toolCall carrying a structured (object)
+    // `args` must render parseable JSON, not the String()-collapsed
+    // `[object Object]`.
+    it('renders an args-only toolCall object as parseable JSON (finding #12b)', () => {
+      const mapper = createMuseEventMapper();
+      const [event] = mapper.mapItem({
+        kind: 'toolCall', tool: 'bash', args: { command: ['echo', 'hi'], cwd: '/tmp' },
+      });
+      expect(event.content).not.toContain('[object Object]');
+      expect(JSON.parse(event.content)).toEqual({ command: ['echo', 'hi'], cwd: '/tmp' });
+    });
+
     it('passes toolCall output through verbatim: scrubbing is the stream handler\u2019s job (finding #1)', () => {
       // The mapper is pure (no env access) and MUST NOT redact: secret
       // scrubbing happens at the single choke point in streamEventHandler

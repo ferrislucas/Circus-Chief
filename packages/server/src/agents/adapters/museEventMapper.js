@@ -268,7 +268,9 @@ function mapToolCall(item) {
   }
   if (item.failureReason) parts.push(`failure: ${item.failureReason}`);
   else if (item.failureKind) parts.push(`failureKind: ${item.failureKind}`);
-  if (parts.length === 0 && item.args) parts.push(item.args);
+  // Finding #12b: structured args render as parseable JSON, never the
+  // String()-collapsed `[object Object]`.
+  if (parts.length === 0 && item.args) parts.push(formatToolResult(item.args));
   return {
     type: 'tool_result',
     tool_name: item.tool || 'tool_call',

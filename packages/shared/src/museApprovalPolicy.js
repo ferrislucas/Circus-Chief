@@ -1,17 +1,15 @@
 /**
- * Single source of truth for the Muse (`muse serve`) headless approval
- * posture, shared by the server adapter and the web mode selector.
+ * Single source of truth for the Muse (`muse serve`) approval posture,
+ * shared by the server adapter and the web mode selector.
  *
- * Decision (review finding #2): in headless operation there is no user to
- * prompt, so every gated mode DENIES tool execution — including read-class
- * requests. The SDK approval request does carry tool-class signals
- * (`toolName`, `subject.kind`/`access`, `protectedWrite`), but a
- * `shell`-kind approval is code execution no matter how read-only its
- * command looks, so auto-approving "reads" would be dishonest gating.
- * Only `allowAll` (yolo) auto-approves the server-offered first choice.
- * The mode selector copy below says exactly that for Muse sessions, so
- * the UI never promises gating it does not enforce. Fail-closed: unknown
- * modes map to the deny posture.
+ * Decision (review finding #3): gated modes run a real interactive approval
+ * round-trip — MSP `onApproval` requests park as prompts through the shared
+ * permission-prompt pipeline (promptStore + WS prompt events, the same
+ * channel the Claude path uses), and the user's decision resolves the
+ * callback. Auto-approval stays exclusive to `allowAll` (yolo); denial
+ * remains the fail-closed default when no prompt channel exists, the prompt
+ * times out, or the mode is unknown. The mode-selector copy below matches
+ * this posture so the UI never promises gating the adapter does not enforce.
  *
  * MSP approval modes are closed (select-never-create):
  * `allowAll | promptUnmatched | onRequest | denyUnmatched`.
@@ -43,17 +41,18 @@ export function museApprovalModeAutoApproves(approvalMode) {
 }
 
 /**
- * Honest mode-selector copy for Muse sessions: gated modes deny tool
- * execution (the server cannot prompt), so tools require yolo.
+ * Honest mode-selector copy for Muse sessions (finding #3): gated modes
+ * request approval for each tool through the interactive prompt pipeline;
+ * yolo auto-approves.
  */
 export const MUSE_SESSION_MODE_COPY = Object.freeze({
   plan: Object.freeze({
     label: 'Plan',
-    description: 'Plans first; Muse runs no tools in this mode — switch to YOLO to allow tool execution',
+    description: 'Plans first; Muse requests approval for each tool',
   }),
   standard: Object.freeze({
     label: 'Standard',
-    description: 'Muse runs no tools in this mode — switch to YOLO to allow tool execution',
+    description: 'Muse requests approval for each tool',
   }),
   yolo: Object.freeze({
     label: 'YOLO',

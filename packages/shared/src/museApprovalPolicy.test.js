@@ -29,9 +29,14 @@ describe('museApprovalPolicy', () => {
     expect(museApprovalModeAutoApproves(undefined)).toBe(false);
   });
 
-  it('says gated Muse modes run no tools so copy matches the deny-all policy', () => {
-    expect(museSessionModeCopy('plan').description).toMatch(/no tools.*YOLO/i);
-    expect(museSessionModeCopy('standard').description).toMatch(/no tools.*YOLO/i);
+  // Finding #3: gated Muse modes now run a real interactive approval
+  // round-trip (promptStore + WS prompt events), so the copy reverts to
+  // honest per-mode wording instead of the interim "runs no tools" denial.
+  it('says gated Muse modes request approval for each tool now that prompting is real', () => {
+    expect(museSessionModeCopy('plan').description).toMatch(/approval for each tool/i);
+    expect(museSessionModeCopy('plan').description).not.toMatch(/no tools/i);
+    expect(museSessionModeCopy('standard').description).toMatch(/approval for each tool/i);
+    expect(museSessionModeCopy('standard').description).not.toMatch(/no tools/i);
     expect(museSessionModeCopy('yolo').description).toMatch(/automatically approves/i);
     expect(museSessionModeCopy('turbo')).toBe(MUSE_SESSION_MODE_COPY.standard);
   });

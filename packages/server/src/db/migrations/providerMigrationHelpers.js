@@ -136,27 +136,6 @@ export function seedBuiltInProviders(db) {
 }
 
 /**
- * Widen the `providers.kind` CHECK constraint to the given kinds by
- * recreating the table — SQLite CHECKs are baked into the table definition
- * and cannot be altered in place.
- *
- * Unlike the one-shot 'providers-widen-kind-check-google' swap, this is
- * SHAPE-AWARE: it rebuilds `providers_new` from the live
- * `PRAGMA table_info(providers)` (preserving every existing column
- * verbatim — including later additions like `enabled`) instead of a
- * hardcoded column list. A hardcoded list breaks on any database whose
- * column count differs (e.g. an existing install that already ran
- * 'providers-add-enabled' yields 12 values into an 11-column copy and the
- * boot crashes). Explicit column lists are used for the copy so column
- * ORDER differences are harmless too.
- *
- * Also drops a stale `providers_new` left behind by a previously crashed
- * swap attempt before rebuilding it.
- *
- * @param {import('better-sqlite3').Database} db
- * @param {string[]} kinds - Allowed kind values, e.g. ['anthropic','openai','google','meta']
- */
-/**
  * Re-emit a `PRAGMA table_info` default verbatim when it is a plain
  * literal, or parenthesized when it is an expression. PRAGMA strips the
  * outer parens SQLite requires around expression defaults (e.g. it reports
@@ -202,6 +181,27 @@ function assertProvidersSwapSafe(db, columns) {
   return { columnNames: columns.map((c) => c.name), indexNames: kept.map((i) => i.name) };
 }
 
+/**
+ * Widen the `providers.kind` CHECK constraint to the given kinds by
+ * recreating the table — SQLite CHECKs are baked into the table definition
+ * and cannot be altered in place.
+ *
+ * Unlike the one-shot 'providers-widen-kind-check-google' swap, this is
+ * SHAPE-AWARE: it rebuilds `providers_new` from the live
+ * `PRAGMA table_info(providers)` (preserving every existing column
+ * verbatim — including later additions like `enabled`) instead of a
+ * hardcoded column list. A hardcoded list breaks on any database whose
+ * column count differs (e.g. an existing install that already ran
+ * 'providers-add-enabled' yields 12 values into an 11-column copy and the
+ * boot crashes). Explicit column lists are used for the copy so column
+ * ORDER differences are harmless too.
+ *
+ * Also drops a stale `providers_new` left behind by a previously crashed
+ * swap attempt before rebuilding it.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {string[]} kinds - Allowed kind values, e.g. ['anthropic','openai','google','meta']
+ */
 export function widenProvidersKindCheck(db, kinds) {
   const columns = db.prepare('PRAGMA table_info(providers)').all();
   if (columns.length === 0) return;

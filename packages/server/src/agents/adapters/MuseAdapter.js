@@ -7,7 +7,7 @@ import { DEFAULT_TIMEOUTS, MuseTurnTimeoutError, deadline, remainingMuseTurnMs }
 import { logMuseLifecycle } from './museLifecycle.js';
 import { preflightMuseCompatibility } from './museCliVersion.js';
 import { buildMuseHostEnv } from './museHostEnv.js';
-import { assertMuseHostParity, scrubAndAttachDiagnostics } from './museParity.js';
+import { assertMuseHostParity, scrubAndAttachDiagnostics, toMuseNotFoundError } from './museParity.js';
 import { closeMuseHost, forceTerminateMuseHost } from './museHostClose.js';
 import { createMuseTurnContext } from './museTurnContext.js';
 import { registerApprovalHandlers, resolveMuseReasoningEffort, museReasoningEffortParam } from './museApproval.js';
@@ -46,12 +46,13 @@ export {
  * stores on the conversation (same column Claude uses), and a later call
  * passes it back as `options.resume` → `client.resumeSession()`.
  *
- * Headless approval posture: the server-side approval mode is derived
- * from the Circus Chief session mode (see `getMuseApprovalModeForSession`).
- * Only `allowAll` (yolo) auto-approves the server-offered first choice —
- * every gated mode denies with an actionable error instead of silently
- * approving, so the mode selector never promises gating it does not
- * enforce. An interactive approval round-trip is a follow-up.
+ * Approval posture: the server-side approval mode is derived from the
+ * Circus Chief session mode (see `getMuseApprovalModeForSession`). Only
+ * `allowAll` (yolo) auto-approves the server-offered first choice — every
+ * gated mode parks the request as an interactive prompt via the shared
+ * permission-prompt pipeline (finding #3) and denies fail-closed when no
+ * prompt channel exists or the prompt times out, so the mode selector never
+ * promises gating it does not enforce.
  *
  * Capabilities in v1:
  *   - streaming:   true  — `turn.items()` replays the backlog then tails live
@@ -164,7 +165,16 @@ export class MuseAdapter extends BaseAgent {
     // the selected executable before it may open an MSP session. This makes
     // the normal PATH-resolved launcher safe while still catching an update
     // that no longer matches our pinned SDK.
-    const cliVersion = await this._preflightMuseCompatibility(museBin, Boolean(this._museClientFactory), context);
+    // Finding #1: the preflight sits outside the spawn try/catch below, so
+    // its failures need the same ENOENT → actionable-error mapping; a raw
+    // `spawn muse ENOENT` from the version probe is the exact sparse-launch
+    // symptom this unwrapped call used to produce.
+    let cliVersion;
+    try {
+      cliVersion = await this._preflightMuseCompatibility(museBin, Boolean(this._museClientFactory), context);
+    } catch (err) {
+      throw toMuseNotFoundError(err);
+    }
     let client;
     try {
       client = await deadline(factory({
@@ -230,6 +240,10 @@ export class MuseAdapter extends BaseAgent {
       skipProbe,
       versionResolver: this._museVersionResolver,
       context,
+      // Finding #1: resolve bare launchers against the derived host env (set
+      // by _prepareHostEnv just before this runs) — not the server process
+      // env the parity gate has just proven insufficient.
+      env: context?.hostEnv || null,
       sdkVersion: MUSE_SDK_VERSION,
     });
   }
@@ -259,7 +273,18 @@ export class MuseAdapter extends BaseAgent {
       );
       yield mapper.buildNotice(notice);
     }
-    registerApprovalHandlers(session, options.approvalMode);
+    // Finding #3: gated modes park MSP approval requests as interactive
+    // prompts via the shared permission-prompt pipeline (options.canUseTool,
+    // provided by queryParamBuilder like the Claude path). No channel →
+    // fail-closed denial; yolo never prompts.
+    registerApprovalHandlers(session, options.approvalMode, {
+      promptChannel: typeof options.canUseTool === 'function' ? options.canUseTool : null,
+      promptTimeoutMs: this._timeouts.approvalPromptMs,
+      signal: options.abortController?.signal || null,
+      onPromptTimeout: (request, timeoutMs) => {
+        console.warn(`[MuseAdapter] Approval prompt for ${request?.toolName || 'tool'} timed out after ${timeoutMs}ms; denying (approvalId ${request?.approvalId || 'unknown'}).`);
+      },
+    });
 
     // sendUserTurn has its own budget (larger than the startup allowance),
     // still capped by the remaining overall turn budget.
@@ -389,17 +414,4 @@ function waitForAbort(signal) {
   if (!signal) return new Promise(() => {});
   if (signal.aborted) return Promise.resolve({ kind: 'aborted' });
   return new Promise((resolve) => signal.addEventListener('abort', () => resolve({ kind: 'aborted' }), { once: true }));
-}
-function toMuseNotFoundError(err) {
-  if (err?.code === 'MUSE_SDK_NOT_INSTALLED') return err;
-  const message = `${err?.message || ''} ${err?.cause?.message || ''}`;
-  if (err?.code === 'ENOENT' || err?.cause?.code === 'ENOENT' || /ENOENT|not found/i.test(message)) {
-    const notFound = new Error(
-      'Muse CLI not found. Install Muse Code and ensure `muse` is on PATH (or set MUSE_BIN).'
-    );
-    notFound.code = 'MUSE_CLI_NOT_FOUND';
-    notFound.cause = err;
-    return notFound;
-  }
-  return err;
 }

@@ -6,8 +6,15 @@ import { filterDeadSshSocket, staleSshSocketMessage } from '../../services/login
  * friends) resolve the same binaries, config, and credentials as when the
  * user runs them directly. Session env wins over the host process env;
  * HOME/USER/LOGNAME fallbacks and well-known bin dirs fill the gaps left by
- * sparse server launch contexts. Safe to apply at both the adapter boundary
- * and the live spawn (user entries are never reordered or dropped).
+ * sparse server launch contexts.
+ *
+ * Finding #6 (single construction point per turn): the env is built exactly
+ * once — the adapter's `_prepareHostEnv` (sessionProvider → adapter) — and
+ * passed verbatim through spawnMuseClient to the SDK spawn. This builder is
+ * idempotent (re-applying never duplicates the node bin dir or user bin
+ * dirs; explicit PATH order is never rewritten), but callers must not
+ * re-apply it defensively: the SSH-socket liveness filter is the async
+ * cached connect-test in `_prepareHostEnv`, one probe per turn.
  *
  * @param {Object} [sessionEnv] - Session env from buildSessionEnv (wins)
  * @param {Object} [baseEnv] - Host env filling the gaps (defaults to process.env)

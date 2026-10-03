@@ -1,8 +1,42 @@
 import { spawn } from 'child_process';
+import { tmpdir } from 'node:os';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { createGeminiSpawner } from './geminiSpawnHelper.js';
 import { createRobustEnv } from './nodeSpawnHelper.js';
+
+/**
+ * Build the probe config shared by BOTH provider test routes (finding #9):
+ * `POST /api/providers/test` (transient) and `POST /api/providers/:id/test`
+ * (saved). One model fallback (`sonnet` tier, else the request's explicit
+ * `defaultSonnetModel`, else the first enabled non-retired model) and one
+ * meta-kind cwd rule: the Muse probe errors when `workingDirectory` is
+ * unset, and a provider record / transient request carries none, so the OS
+ * temp dir is used explicitly rather than leaking the server cwd into the
+ * probe. An explicit `workingDirectory` always wins.
+ *
+ * @param {Object} provider - Saved provider record or validated transient
+ *   request body (`kind`, `baseUrl`, `authToken`, `models`?, `defaultSonnetModel`?,
+ *   `apiTimeoutMs`?, `workingDirectory`?).
+ * @returns {Object} Config accepted by {@link testProviderConnection}.
+ */
+export function buildProviderTestConfig(provider) {
+  const sonnetModel = provider.models?.find((m) => m.tier === 'sonnet');
+  const explicitModel = provider.defaultSonnetModel || null;
+  const firstEnabled = provider.models?.find((m) => m.enabled !== false && m.lifecycle !== 'retired')
+    || provider.models?.[0]
+    || null;
+  return {
+    kind: provider.kind || 'anthropic',
+    baseUrl: provider.baseUrl,
+    authToken: provider.authToken,
+    defaultSonnetModel: sonnetModel?.modelId || explicitModel || firstEnabled?.modelId || null,
+    apiTimeoutMs: provider.apiTimeoutMs,
+    ...(provider.workingDirectory
+      ? { workingDirectory: provider.workingDirectory }
+      : (provider.kind === 'meta' ? { workingDirectory: tmpdir() } : {})),
+  };
+}
 
 /**
  * Default spawn for the Meta connection test. Plain `spawn` with a robust

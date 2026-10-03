@@ -117,3 +117,26 @@ export function scrubAndAttachDiagnostics(err, host) {
   });
   return err;
 }
+
+/**
+ * Map a missing-binary failure onto the actionable MUSE_CLI_NOT_FOUND error
+ * (FR-1/FR-8). Applies to both the spawn and the CLI-version preflight
+ * (finding #1): a raw `spawn muse ENOENT` from either tells the user
+ * nothing. Known Muse error codes and anything that does not look like a
+ * lookup failure pass through untouched.
+ * @param {Error} err
+ * @returns {Error}
+ */
+export function toMuseNotFoundError(err) {
+  if (err?.code === 'MUSE_SDK_NOT_INSTALLED') return err;
+  const message = `${err?.message || ''} ${err?.cause?.message || ''}`;
+  if (err?.code === 'ENOENT' || err?.cause?.code === 'ENOENT' || /ENOENT|not found/i.test(message)) {
+    const notFound = new Error(
+      'Muse CLI not found. Install Muse Code and ensure `muse` is on PATH (or set MUSE_BIN).'
+    );
+    notFound.code = 'MUSE_CLI_NOT_FOUND';
+    notFound.cause = err;
+    return notFound;
+  }
+  return err;
+}

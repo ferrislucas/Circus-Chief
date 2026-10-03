@@ -3,6 +3,7 @@ import { statSync as defaultStatSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { DEFAULT_TIMEOUTS } from './museTimeouts.js';
 import { logMuseLifecycle } from './museLifecycle.js';
+import { resolveLauncherAbsolutePath } from '../../services/parityDiagnostics.js';
 
 const execFile = promisify(execFileCallback);
 
@@ -83,15 +84,16 @@ function buildVersionMismatchError(cliVersion, sdkVersion, drift) {
  * @param {Object} args
  * @param {string} args.museBin - Binary path (or PATH launcher name).
  * @param {boolean} args.skipProbe - Skip probing (pinned in-memory hosts).
- * @param {Function} [args.versionResolver] - `(museBin) => version` (tests).
+ * @param {Function} [args.versionResolver] - `(museBin, { env }) => version` (tests).
  * @param {Object} [args.context] - Turn context for drift logging.
+ * @param {Object} [args.env] - Derived host env whose PATH governs launcher resolution (finding #1).
  * @param {string} args.sdkVersion - Pinned `@muse-code/sdk` version.
  * @returns {Promise<string>} Accepted CLI version.
  */
-export async function preflightMuseCompatibility({ museBin, skipProbe, versionResolver, context = null, sdkVersion }) {
+export async function preflightMuseCompatibility({ museBin, skipProbe, versionResolver, context = null, env = null, sdkVersion }) {
   if (skipProbe && !versionResolver) return sdkVersion;
   const resolver = versionResolver || readMuseCliVersion;
-  const cliVersion = await resolver(museBin);
+  const cliVersion = await resolver(museBin, { env });
   const { compatible, drift } = isMuseCliCompatible(cliVersion, sdkVersion);
   if (compatible) {
     if (drift === 'minor-drift') {
@@ -112,27 +114,39 @@ export async function preflightMuseCompatibility({ museBin, skipProbe, versionRe
  * Resolve the Muse CLI version for one binary path, re-probing only when
  * the binary changed on disk since the last probe.
  *
+ * Finding #1: bare launchers (`muse`) are resolved to an absolute executable
+ * path against the supplied env before stat/exec/cache — Node resolves child
+ * executables against the server process PATH, not `options.env`, so without
+ * this the preflight probes a different binary universe than the parity gate
+ * and the real `muse serve` spawn. The cache is keyed by the resolved path,
+ * so an unchanged binary under the default launcher config is exec'ed once.
+ *
  * @param {string} museBin - Binary path (or PATH launcher name).
- * @param {Object} [deps] - `{ statSync, execFile }` (fixture injection for tests).
+ * @param {Object} [deps] - `{ statSync, execFile, env }` (fixture injection for tests; `env` is the derived host env).
  */
 export async function readMuseCliVersion(museBin, deps = {}) {
   const stat = deps.statSync ?? defaultStatSync;
   const exec = deps.execFile ?? execFile;
+  const resolvedBin = resolveLauncherAbsolutePath(deps.env || null, museBin);
   let mtimeMs = null;
   try {
-    mtimeMs = stat(museBin).mtimeMs;
+    mtimeMs = stat(resolvedBin).mtimeMs;
   } catch {
-    /* Unresolvable path (e.g. a PATH launcher): probe without caching. */
+    /* Unresolvable path (e.g. a PATH launcher that is missing): probe without caching. */
   }
-  const cached = cliVersionCache.get(museBin);
+  const cached = cliVersionCache.get(resolvedBin);
   if (cached && cached.mtimeMs !== null && cached.mtimeMs === mtimeMs) return cached.version;
-  const { stdout } = await exec(museBin, ['--version'], { timeout: DEFAULT_TIMEOUTS.startupMs, windowsHide: true });
+  const { stdout } = await exec(resolvedBin, ['--version'], {
+    timeout: DEFAULT_TIMEOUTS.startupMs,
+    windowsHide: true,
+    ...(deps.env ? { env: deps.env } : {}),
+  });
   const match = String(stdout).match(/\b(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\b/);
   if (!match) {
     const error = new Error(`Could not determine Muse CLI version from ${museBin} --version output.`);
     error.code = 'MUSE_CLI_VERSION_UNKNOWN';
     throw error;
   }
-  cliVersionCache.set(museBin, { mtimeMs, version: match[1] });
+  cliVersionCache.set(resolvedBin, { mtimeMs, version: match[1] });
   return match[1];
 }

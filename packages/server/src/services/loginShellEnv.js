@@ -135,9 +135,14 @@ function describeSpawnFailure(result, shell) {
  * Never throws: failures resolve to `{ ok: false, reason }` (FR-13 — the
  * caller falls back to today's hardened snapshot behavior).
  *
+ * Finding #7 (R-2): the `env -0` attempt and the `printenv` retry share ONE
+ * overall budget — the retry gets only the time the first attempt left,
+ * never a fresh full budget, so a hanging shell costs at most `timeoutMs`
+ * (default ≤2s), not twice that.
+ *
  * @param {Object} [opts]
  * @param {string} [opts.shell] - Defaults to $SHELL, then /bin/sh.
- * @param {number} [opts.timeoutMs] - Per-dump budget (default 2000ms).
+ * @param {number} [opts.timeoutMs] - Overall budget across both dumps (default 2000ms).
  * @param {Object} [deps] - Test seam: { spawnSync, platform }.
  * @returns {{ ok: true, env: Object } | { ok: false, reason: string }}
  */
@@ -149,9 +154,11 @@ export function probeLoginShellEnv({ shell, timeoutMs = LOGIN_SHELL_TIMEOUT_MS }
   }
   const loginShell = shell || process.env.SHELL || '/bin/sh';
   try {
+    const startedAt = Date.now();
     const nul = attemptDump({ shell: loginShell, dumpCommand: 'env -0', timeoutMs, spawnSync, parse: parseEnvZero });
     if (nul.env) return { ok: true, env: nul.env };
-    const lines = attemptDump({ shell: loginShell, dumpCommand: 'printenv', timeoutMs, spawnSync, parse: parseEnvLines });
+    const remaining = Math.max(1, timeoutMs - (Date.now() - startedAt));
+    const lines = attemptDump({ shell: loginShell, dumpCommand: 'printenv', timeoutMs: remaining, spawnSync, parse: parseEnvLines });
     if (lines.env) return { ok: true, env: lines.env };
     return { ok: false, reason: lines.failure || nul.failure || `login-shell probe produced no parsable entries (${loginShell} -lic)` };
   } catch (err) {
@@ -297,6 +304,12 @@ function mergePath(explicitPath, shellPath, separator) {
  * PATH entries are appended after the explicit entries without duplication,
  * so re-merging is idempotent. Only allowlisted keys propagate (R-1).
  *
+ * Finding #11 (FR-3/FR-10): an explicit empty string IS a set value — the
+ * user cleared the variable on purpose — so only `undefined`/`null` count
+ * as gaps for non-PATH keys. PATH stays special: an empty PATH is a launch
+ * artifact, not a choice, and is still filled from the shell (and
+ * `buildUserCredentialEnv` continues to backfill HOME).
+ *
  * @param {Object} args
  * @param {Object} [args.shellEnv] - Raw login-shell env (probe output or fixture).
  * @param {Object} [args.baseEnv] - Explicit env (wins over shellEnv).
@@ -309,7 +322,7 @@ export function mergeShellEnv({ shellEnv = {}, baseEnv = {} } = {}) {
     if (value === undefined || value === null) continue;
     if (!isPropagatedKey(key)) continue;
     if (key === 'PATH') continue;
-    if (merged[key] === undefined || merged[key] === null || merged[key] === '') {
+    if (merged[key] === undefined || merged[key] === null) {
       merged[key] = String(value);
     }
   }

@@ -1,6 +1,5 @@
 import { createRequire } from 'node:module';
 import { DEFAULT_TIMEOUTS } from './museTimeouts.js';
-import { buildMuseHostEnv } from './museHostEnv.js';
 
 const require = createRequire(import.meta.url);
 export const MUSE_SDK_VERSION = require('@muse-code/sdk/package.json').version;
@@ -38,6 +37,13 @@ export function resolveMuseServeArgs({ approvalMode } = {}) {
  * Default client factory: lazy-import the SDK so the server stays bootable
  * in environments where the optional dependency is not installed, and spawn
  * an owned `muse serve` host.
+ *
+ * Finding #6 (one env construction per turn): the env is built exactly once
+ * per turn — sessionProvider → adapter `_prepareHostEnv` (build + SSH
+ * filter) — and passed through here verbatim. The SDK REPLACES the child
+ * env rather than inheriting, which is why the caller must hand us the
+ * fully derived env; re-building it here would re-run the sync SSH filter
+ * and duplicate PATH hardening the caller already applied.
  */
 export async function spawnMuseClient({ museBin, args, env, onStderr, shutdownTimeoutMs }) {
   let MuseClient;
@@ -54,11 +60,7 @@ export async function spawnMuseClient({ museBin, args, env, onStderr, shutdownTi
   return MuseClient.spawn({
     museBin,
     args: args ?? resolveMuseServeArgs(),
-    // The SDK REPLACES the child env: extend the session env (which already
-    // carries the robust PATH plus provider vars) instead of inheriting raw.
-    // Hardened again here so the live spawn never depends on the caller
-    // having gone through _openHost (idempotent with it).
-    env: buildMuseHostEnv(env),
+    env,
     clientInfo: { ...MUSE_CLIENT_INFO },
     ...(onStderr ? { onStderr } : {}),
     shutdownTimeoutMs: shutdownTimeoutMs ?? DEFAULT_TIMEOUTS.shutdownGraceMs,
