@@ -284,7 +284,7 @@ export function buildMuseTestArgs(config) {
   const model = config.defaultSonnetModel || 'muse-spark-1.3';
   return {
     command: process.env.MUSE_BIN || 'muse',
-    args: ['exec', '--json', '--no-session-log', '-p', 'Hi', '-m', model],
+    args: ['exec', '--json', '--no-session-log', '--workspace', config.workingDirectory, '--model', model, 'Hi'],
     cwd: config.workingDirectory,
     model,
   };

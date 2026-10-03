@@ -113,8 +113,9 @@ function buildGeminiQueryParams({
 /**
  * Build query parameters for the Muse adapter.
  *
- * Muse sessions open over MSP (`muse serve`), so the adapter needs the
- * workspace root, model, approval posture, and optional resume handle —
+ * Muse transports use a provider-native session handle (MSP for `muse serve`
+ * and a UUID for `muse exec`), so the adapter needs the workspace root,
+ * model, approval posture, and optional resume handle —
  * not Claude-specific options (permissionMode, settingSources) or
  * Codex-specific ones (sandboxMode). MSP has no dedicated system-prompt
  * field, so the composed system prompt is forwarded in `options.systemPrompt`

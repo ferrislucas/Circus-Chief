@@ -348,7 +348,7 @@ describe('providerTestService', () => {
       });
       expect(spawnMuseProcess).toHaveBeenCalledWith({
         command: 'muse',
-        args: ['exec', '--json', '--no-session-log', '-p', 'Hi', '-m', 'muse-spark-1.3-contributor'],
+        args: ['exec', '--json', '--no-session-log', '--workspace', '/tmp/muse-workdir', '--model', 'muse-spark-1.3-contributor', 'Hi'],
         cwd: '/tmp/muse-workdir',
         env: process.env,
       });
@@ -376,7 +376,7 @@ describe('providerTestService', () => {
         defaultSonnetModel: 'muse-spark-1.3-contributor',
       })).toEqual({
         command: 'muse',
-        args: ['exec', '--json', '--no-session-log', '-p', 'Hi', '-m', 'muse-spark-1.3-contributor'],
+        args: ['exec', '--json', '--no-session-log', '--workspace', '/tmp/w', '--model', 'muse-spark-1.3-contributor', 'Hi'],
         cwd: '/tmp/w',
         model: 'muse-spark-1.3-contributor',
       });
@@ -393,7 +393,7 @@ describe('providerTestService', () => {
     it('buildMuseTestArgs falls back to muse-spark-1.3 only when no model is configured', () => {
       expect(buildMuseTestArgs({ workingDirectory: '/tmp/w' })).toEqual({
         command: 'muse',
-        args: ['exec', '--json', '--no-session-log', '-p', 'Hi', '-m', 'muse-spark-1.3'],
+        args: ['exec', '--json', '--no-session-log', '--workspace', '/tmp/w', '--model', 'muse-spark-1.3', 'Hi'],
         cwd: '/tmp/w',
         model: 'muse-spark-1.3',
       });

@@ -2,6 +2,7 @@ import { ClaudeCodeAdapter } from './adapters/ClaudeCodeAdapter.js';
 import { CodexAdapter } from './adapters/CodexAdapter.js';
 import { GeminiAdapter } from './adapters/GeminiAdapter.js';
 import { MuseAdapter } from './adapters/MuseAdapter.js';
+import { MuseExecAdapter } from './adapters/MuseExecAdapter.js';
 
 /**
  * Factory/registry for agent adapters.
@@ -20,7 +21,9 @@ export class AgentGateway {
     this.registerAdapter('claude-code', ClaudeCodeAdapter);
     this.registerAdapter('codex', CodexAdapter);
     this.registerAdapter('gemini', GeminiAdapter);
-    this.registerAdapter('muse', MuseAdapter);
+    // Kept behind an explicit rollout flag so an execution never switches
+    // transport partway through a Muse turn.
+    this.registerAdapter('muse', process.env.MUSE_EXEC_JSON_TRANSPORT === '1' ? MuseExecAdapter : MuseAdapter);
   }
 
   /**
