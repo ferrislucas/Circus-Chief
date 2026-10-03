@@ -48,6 +48,7 @@
  *   mapItem: (item: Object) => Array<Object>,
  *   mapOutcome: (outcome: Object) => Array<Object>,
  *   mapCancellation: () => Array<Object>,
+ *   mapWorkflowTerminal: (item: Object) => Array<Object>,
  *   reset: () => void,
  *   finalize: () => Array<Object>,
  *   buildSystemInit: (sessionId: string) => Object,
@@ -121,10 +122,27 @@ export function createMuseEventMapper({ model } = {}) {
     return [{ type: 'result', subtype: 'cancelled' }];
   }
 
+  function mapWorkflowTerminal(item) {
+    state.markTerminated();
+    const status = String(item?.status || '').toLowerCase();
+    if (status === 'cancelled' || status === 'canceled') return [{ type: 'result', subtype: 'cancelled' }];
+    if (status === 'completed' || status === 'succeeded' || status === 'success') {
+      const text = typeof item?.message === 'string' ? item.message.trim() : '';
+      if (!text) return [buildErrorResult('Muse workflow completed without a final message.')];
+      return [
+        { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } },
+        { type: 'assistant', message: { content: [{ type: 'text', text }] } },
+        buildSuccessResult(item.usage),
+      ];
+    }
+    return [buildErrorResult(item?.failureReason || item?.reason || `Muse workflow ${item?.status || 'failed'}`)];
+  }
+
   return {
     mapItem,
     mapOutcome,
     mapCancellation,
+    mapWorkflowTerminal,
     reset: () => state.reset(),
     finalize: () => state.finalize(),
     // Exposed for the adapter: the MSP session id becomes the resume
@@ -157,7 +175,7 @@ class MuseMapperState {
   finalize() {
     if (this.terminated) return [];
     this.terminated = true;
-    return [buildSuccessResult(null)];
+    return [buildErrorResult('Muse execution ended without a terminal result.')];
   }
 }
 

@@ -11,6 +11,7 @@ import { assertMuseHostParity, scrubAndAttachDiagnostics, toMuseNotFoundError } 
 import { closeMuseHost, forceTerminateMuseHost } from './museHostClose.js';
 import { createMuseTurnContext } from './museTurnContext.js';
 import { registerApprovalHandlers, resolveMuseReasoningEffort, museReasoningEffortParam } from './museApproval.js';
+import { isWorkflowTerminal, sessionItems, workflowIdentity } from './museWorkflow.js';
 import {
   MUSE_CLIENT_INFO,
   MUSE_SDK_VERSION,
@@ -222,7 +223,8 @@ export class MuseAdapter extends BaseAgent {
       return closePromise;
     };
     const abortSignal = options.abortController?.signal;
-    const onAbort = () => { void close(); };
+    let abortHandler = () => close();
+    const onAbort = () => { void abortHandler(); };
     abortSignal?.addEventListener('abort', onAbort, { once: true });
     return {
       client,
@@ -230,6 +232,7 @@ export class MuseAdapter extends BaseAgent {
       cliVersion,
       context,
       close,
+      setAbortHandler: (handler) => { abortHandler = handler || close; },
       detach: () => abortSignal?.removeEventListener('abort', onAbort),
     };
   }
@@ -315,6 +318,7 @@ export class MuseAdapter extends BaseAgent {
     const iterator = turn.items()[Symbol.asyncIterator]();
     let sawFirstItem = false;
     let outcome = null;
+    let workflow = null;
     while (true) {
       if (abortSignal?.aborted) {
         // Terminal cancelled result so the stream never ends after
@@ -334,6 +338,12 @@ export class MuseAdapter extends BaseAgent {
       const { itemResult } = next;
       if (itemResult.done) break;
       const item = itemResult.value;
+      const identity = workflowIdentity(item);
+      if (identity && (!workflow || workflow.workflowRunId === identity.workflowRunId)) {
+        workflow = { ...identity, item };
+      } else if (identity) {
+        throw new Error('Muse admitted more than one workflow for one turn; concurrent workflow runs are not supported.');
+      }
       if (!sawFirstItem) {
         sawFirstItem = true;
         context.markTime('firstItemMs');
@@ -342,7 +352,60 @@ export class MuseAdapter extends BaseAgent {
       yield* mapper.mapItem(item);
     }
 
+    if (workflow) {
+      // The parent outcome only means the workflow was admitted. Keep this
+      // generator (and therefore Circus session ownership) open until it ends.
+      await deadline(outcome || turn.completed, {
+        timeoutMs: await remainingMuseTurnMs(this._timeouts.turnMs, context, host, options.abortController),
+        phase: 'parentCompletion', context, onTimeout: () => host.close(),
+      });
+      yield* this._observeWorkflow({ host, session, workflow, options, mapper, context });
+      return;
+    }
     yield* this._finishTurnItems({ host, session, turn, options, mapper, context, outcome });
+  }
+
+  async *_observeWorkflow({ host, session, workflow, options, mapper, context }) {
+    let cancellationRequested = false;
+    host.setAbortHandler(async () => {
+      cancellationRequested = true;
+      if (typeof session.cancelWorkflow !== 'function') {
+        await host.close();
+        return;
+      }
+      await session.cancelWorkflow({ workflowRunId: workflow.workflowRunId });
+    });
+    const iterator = sessionItems(session)[Symbol.asyncIterator]();
+    let revision = workflow.revision;
+    try {
+      // A replay may already contain the terminal revision that replaced the
+      // launch item before the parent turn's completion was observed.
+      if (isWorkflowTerminal(workflow.item)) {
+        yield* mapper.mapWorkflowTerminal(workflow.item);
+        return;
+      }
+      while (true) {
+        const remainingMs = await remainingMuseTurnMs(this._timeouts.turnMs, context, host, options.abortController);
+        const next = await deadline(iterator.next(), {
+          timeoutMs: remainingMs, phase: 'workflow', context, onTimeout: () => host.close(),
+        });
+        if (next.done) throw new Error('Muse session item stream ended before the workflow reached a terminal state.');
+        const item = next.value;
+        const identity = workflowIdentity(item);
+        if (!identity || identity.workflowRunId !== workflow.workflowRunId) continue;
+        if (identity.revision <= revision) continue;
+        revision = identity.revision;
+        if (isWorkflowTerminal(item)) {
+          yield* mapper.mapWorkflowTerminal(item);
+          return;
+        }
+        yield* mapper.mapItem(item);
+      }
+    } finally {
+      host.setAbortHandler(null);
+      await iterator.return?.();
+      if (cancellationRequested) context.markCancelled();
+    }
   }
 
   *_cancelTurnDrain(mapper, context) {

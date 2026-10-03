@@ -215,11 +215,12 @@ describe('createMuseEventMapper', () => {
   });
 
   describe('finalize/reset', () => {
-    it('emits a terminal success when the turn ends without an outcome', () => {
+    it('emits a visible error when the execution ends without an outcome', () => {
       const mapper = createMuseEventMapper();
       const [result] = mapper.finalize();
       expect(result).toEqual({
-        type: 'result', subtype: 'success', usage: { input_tokens: 0, output_tokens: 0 },
+        type: 'result', subtype: 'error', is_error: true,
+        error: 'Muse execution ended without a terminal result.',
       });
       expect(mapper.finalize()).toEqual([]);
     });

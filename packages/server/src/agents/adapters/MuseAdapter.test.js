@@ -12,7 +12,7 @@ import { getNodeBinDir } from '../../services/nodeSpawnHelper.js';
  * `startSession` / `resumeSession` / `close`, plus sessions with
  * `onApproval` / `sendUserTurn`.
  */
-function createFakeClient({ items = [], outcome = { kind: 'completed', params: { terminal: 'completed' } }, sessionId = 'msp-session-1' } = {}) {
+function createFakeClient({ items = [], sessionItems: observedItems = null, outcome = { kind: 'completed', params: { terminal: 'completed' } }, sessionId = 'msp-session-1' } = {}) {
   const calls = { startSession: [], resumeSession: [], sendUserTurn: [], close: 0, approvals: [] };
   let approvalHandler = null;
 
@@ -30,6 +30,11 @@ function createFakeClient({ items = [], outcome = { kind: 'completed', params: {
       };
     },
   };
+  if (observedItems) {
+    session.items = async function* sessionItems() {
+      for (const item of observedItems) yield item;
+    };
+  }
 
   const client = {
     calls,
@@ -106,6 +111,42 @@ describe('MuseAdapter', () => {
       type: 'result', subtype: 'success', usage: { input_tokens: 3, output_tokens: 7 },
     });
     expect(client.calls.close).toBe(1);
+  });
+
+  it('keeps the Circus turn open until an admitted workflow supplies its final message', async () => {
+    const workflow = {
+      kind: 'workflow', itemId: 'workflow-item-1', workflowRunId: 'workflow-run-1', revision: 1,
+      status: 'inProgress', objective: 'Review the branch',
+    };
+    const client = createFakeClient({
+      items: [workflow],
+      outcome: { kind: 'completed', params: { terminal: 'completed' } },
+      sessionItems: [workflow, {
+        ...workflow, revision: 2, status: 'completed', message: 'The PR is ready to merge.',
+        usage: { inputTokens: 11, outputTokens: 7 },
+      }],
+    });
+    const adapter = new MuseAdapter({ museClientFactory: async () => client });
+
+    const events = await collect(adapter, { prompt: 'Review it', options: { env: {} } });
+
+    expect(events.filter((event) => event.type === 'assistant').at(-1)).toEqual({
+      type: 'assistant', message: { content: [{ type: 'text', text: 'The PR is ready to merge.' }] },
+    });
+    expect(events.at(-1)).toEqual({
+      type: 'result', subtype: 'success', usage: { input_tokens: 11, output_tokens: 7 },
+    });
+    expect(client.calls.close).toBe(1);
+  });
+
+  it('does not report workflow cancellation as success', async () => {
+    const workflow = { kind: 'workflow', workflowRunId: 'workflow-run-1', revision: 1, status: 'inProgress' };
+    const client = createFakeClient({
+      items: [workflow], sessionItems: [workflow, { ...workflow, revision: 2, status: 'cancelled' }],
+    });
+    const adapter = new MuseAdapter({ museClientFactory: async () => client });
+    const events = await collect(adapter, { prompt: 'Review it', options: { env: {} } });
+    expect(events.at(-1)).toEqual({ type: 'result', subtype: 'cancelled' });
   });
 
   it('composes options.systemPrompt into the user turn like the Codex/Gemini adapters', async () => {
