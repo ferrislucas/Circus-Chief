@@ -458,6 +458,159 @@ describe('createOverlaySessionsStore', () => {
     expect(api.sendMessage).toHaveBeenCalledWith('sess-1', 'Hello', [], 'claude-sonnet-4');
   });
 
+  // ==================== FR-1: immediate command acknowledgement ====================
+
+  describe('lifecycle command acknowledgement (FR-1)', () => {
+    it('sendMessage transitions the overlay currentSession to running after the API accepts', async () => {
+      const mainStore = useSessionsStore();
+      const overlayStore = createOverlaySessionsStore();
+
+      overlayStore.currentSession = { id: 'sess-1', name: 'Test', status: 'waiting' };
+      mainStore.sessions.push({ id: 'sess-1', name: 'Test', status: 'waiting' });
+      api.sendMessage.mockResolvedValue({ id: 'msg1' });
+
+      await overlayStore.sendMessage('sess-1', 'Continue');
+
+      // Overlay's canonical session is active immediately...
+      expect(overlayStore.currentSession.status).toBe('running');
+      // ...and the main store's list entry received the same treatment.
+      expect(mainStore.sessions[0].status).toBe('running');
+    });
+
+    it('startSession transitions the overlay currentSession to starting after the API accepts', async () => {
+      const mainStore = useSessionsStore();
+      const overlayStore = createOverlaySessionsStore();
+
+      overlayStore.currentSession = { id: 'draft-1', name: 'Draft', status: 'waiting' };
+      mainStore.sessions.push({ id: 'draft-1', name: 'Draft', status: 'waiting' });
+      api.startSession.mockResolvedValue({ id: 'draft-1' });
+
+      await overlayStore.startSession('draft-1', 'Go', 'claude-sonnet-4');
+
+      expect(overlayStore.currentSession.status).toBe('starting');
+      expect(mainStore.sessions[0].status).toBe('starting');
+    });
+
+    it('runScheduledNow reflects the returned active status in the overlay', async () => {
+      const mainStore = useSessionsStore();
+      const overlayStore = createOverlaySessionsStore();
+
+      overlayStore.currentSession = { id: 'sched-1', status: 'scheduled', scheduledAt: 123 };
+      mainStore.sessions.push({ id: 'sched-1', status: 'scheduled', scheduledAt: 123 });
+      api.runScheduledNow.mockResolvedValue({ id: 'sched-1', status: 'starting', scheduledAt: null });
+
+      await overlayStore.runScheduledNow('sched-1');
+
+      expect(overlayStore.currentSession.status).toBe('starting');
+      expect(overlayStore.currentSession.scheduledAt).toBeNull();
+      expect(mainStore.sessions[0].status).toBe('starting');
+    });
+
+    it('sendMessage does not advance the overlay session when the API rejects', async () => {
+      const mainStore = useSessionsStore();
+      const overlayStore = createOverlaySessionsStore();
+
+      overlayStore.currentSession = { id: 'sess-1', name: 'Test', status: 'waiting', pendingPrompt: 'Continue' };
+      mainStore.sessions.push({ id: 'sess-1', name: 'Test', status: 'waiting' });
+      api.sendMessage.mockRejectedValue(new Error('Provider unavailable'));
+
+      await expect(overlayStore.sendMessage('sess-1', 'Continue')).rejects.toThrow('Provider unavailable');
+
+      // Neither store's status advances on rejection; the caller (and its
+      // unsent input) stay in the prior state.
+      expect(overlayStore.currentSession.status).toBe('waiting');
+      expect(overlayStore.currentSession.pendingPrompt).toBe('Continue');
+      expect(mainStore.sessions[0].status).toBe('waiting');
+    });
+
+    it('startSession does not advance the overlay session when the API rejects', async () => {
+      const mainStore = useSessionsStore();
+      const overlayStore = createOverlaySessionsStore();
+
+      overlayStore.currentSession = { id: 'draft-1', name: 'Draft', status: 'waiting' };
+      mainStore.sessions.push({ id: 'draft-1', name: 'Draft', status: 'waiting' });
+      api.startSession.mockRejectedValue(new Error('Bad request'));
+
+      await expect(overlayStore.startSession('draft-1', 'Go')).rejects.toThrow('Bad request');
+
+      expect(overlayStore.currentSession.status).toBe('waiting');
+      expect(mainStore.sessions[0].status).toBe('waiting');
+    });
+
+    it('runScheduledNow does not advance the overlay session when the API rejects', async () => {
+      const overlayStore = createOverlaySessionsStore();
+
+      overlayStore.currentSession = { id: 'sched-1', status: 'scheduled', scheduledAt: 123 };
+      api.runScheduledNow.mockRejectedValue(new Error('Already claimed'));
+
+      await expect(overlayStore.runScheduledNow('sched-1')).rejects.toThrow('Already claimed');
+
+      expect(overlayStore.currentSession.status).toBe('scheduled');
+      expect(overlayStore.currentSession.scheduledAt).toBe(123);
+    });
+
+    it('a send for another session does not change the overlay currentSession', async () => {
+      const mainStore = useSessionsStore();
+      const overlayStore = createOverlaySessionsStore();
+
+      overlayStore.currentSession = { id: 'sess-selected', name: 'Selected', status: 'waiting' };
+      mainStore.sessions.push(
+        { id: 'sess-selected', name: 'Selected', status: 'waiting' },
+        { id: 'sess-other', name: 'Other', status: 'waiting' },
+      );
+      api.sendMessage.mockResolvedValue({ id: 'msg1' });
+
+      await overlayStore.sendMessage('sess-other', 'Hello');
+
+      // Session isolation (FR-6): the selected session is untouched...
+      expect(overlayStore.currentSession.status).toBe('waiting');
+      // ...while the target session's main-store entry went active.
+      expect(mainStore.sessions.find((s) => s.id === 'sess-other').status).toBe('running');
+    });
+  });
+
+  // ==================== FR-5: stale snapshot ordering ====================
+
+  describe('stale snapshot ordering (FR-5)', () => {
+    it('a snapshot fetched before a lifecycle status cannot regress it', async () => {
+      const overlayStore = createOverlaySessionsStore();
+      overlayStore.viewedSessionId = 'sess-1';
+      overlayStore.currentSession = { id: 'sess-1', name: 'Test', status: 'waiting' };
+
+      let resolveFetch;
+      api.getSession.mockImplementation(() => new Promise((resolve) => { resolveFetch = resolve; }));
+
+      const fetchPromise = overlayStore.fetchSession('sess-1');
+
+      // A `running` lifecycle frame arrives while the snapshot is in flight.
+      overlayStore.updateSessionStatus('sess-1', 'running');
+      expect(overlayStore.currentSession.status).toBe('running');
+
+      // The older snapshot resolves as `waiting` — it must not regress.
+      resolveFetch({ id: 'sess-1', name: 'Test (refreshed)', status: 'waiting' });
+      await fetchPromise;
+
+      expect(overlayStore.currentSession.status).toBe('running');
+      // Non-status fields from the snapshot still apply.
+      expect(overlayStore.currentSession.name).toBe('Test (refreshed)');
+    });
+
+    it('a snapshot fetched after a lifecycle status applies normally', async () => {
+      const overlayStore = createOverlaySessionsStore();
+      overlayStore.viewedSessionId = 'sess-1';
+      overlayStore.currentSession = { id: 'sess-1', status: 'running' };
+
+      // The lifecycle frame is applied BEFORE the fetch is issued, so the
+      // snapshot is the newer, authoritative reconciliation.
+      overlayStore.updateSessionStatus('sess-1', 'running');
+      api.getSession.mockResolvedValue({ id: 'sess-1', status: 'waiting' });
+
+      await overlayStore.fetchSession('sess-1');
+
+      expect(overlayStore.currentSession.status).toBe('waiting');
+    });
+  });
+
   it('updateSessionStatus sets hasResponses when transitioning from running to waiting', () => {
     const overlayStore = createOverlaySessionsStore();
 

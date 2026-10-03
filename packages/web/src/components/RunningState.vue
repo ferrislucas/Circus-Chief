@@ -3,7 +3,7 @@
     <!-- Header row with status, token display, and stop button -->
     <div class="running-header">
       <div class="running-status">
-        <span class="running-title">Agent is working...</span>
+        <span class="running-title">{{ statusTitle }}</span>
       </div>
       <div class="running-actions">
         <span
@@ -58,6 +58,13 @@ const props = defineProps({
   partialThinking: { type: String, default: '' },
   nextTemplate: { type: Object, default: null },
   projectId: { type: String, default: null },
+  /**
+   * The session lifecycle status this panel is rendering. `running` shows the
+   * working treatment; `starting` shows the same non-sendable transitional
+   * panel with starting copy (FR-2: consistent treatment across draft starts
+   * and follow-up sends).
+   */
+  status: { type: String, default: 'running' },
 });
 
 const emit = defineEmits(['stop']);
@@ -65,6 +72,10 @@ const emit = defineEmits(['stop']);
 function onStopClick() {
   emit('stop');
 }
+
+const statusTitle = computed(() =>
+  props.status === 'starting' ? 'Workspace starting...' : 'Agent is working...'
+);
 
 const templateLink = computed(() => `/projects/${props.projectId}/templates`);
 </script>

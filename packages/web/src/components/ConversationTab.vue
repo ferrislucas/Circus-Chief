@@ -32,13 +32,14 @@
     />
 
     <RunningState
-      v-if="sessionsStore.currentSession?.status === 'running'"
+      v-if="isSessionActive"
       :active-model-display-name="activeModelDisplayName"
       :stopping="stopping"
       :work-logs="unassociatedWorkLogs"
       :partial-thinking="sessionsStore.partialThinking"
       :next-template="nextTemplate"
       :project-id="sessionsStore.currentSession?.projectId"
+      :status="sessionsStore.currentSession?.status"
       @stop="handleStop"
     />
 
@@ -217,6 +218,17 @@ const canSendMessage = computed(() => {
 });
 
 const isRunning = computed(() => sessionsStore.currentSession?.status === 'running');
+
+/**
+ * True when the selected session is executing (or transitioning into an
+ * execution): `running` shows the working treatment, `starting` shows the
+ * same non-sendable transitional panel (FR-2). A session in either state
+ * must never present an actionable Send control.
+ */
+const isSessionActive = computed(() => {
+  const status = sessionsStore.currentSession?.status;
+  return status === 'running' || status === 'starting';
+});
 
 const isDraft = computed(() => {
   if (!sessionsStore.currentSession) return false;

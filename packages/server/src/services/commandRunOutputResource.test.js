@@ -183,13 +183,16 @@ describe('commandRunOutputResource', () => {
     run.outputHighWater = appended.length;
 
     await expect(appendCommandRunOutputResource({ workingDirectory, runId: run.id, chunks: appended })).resolves.toBe(true);
-    expect(await readFile(join(workingDirectory, descriptor.path))).toEqual(Buffer.concat([exactWindow, justOverWindow, substantiallyLarge, subsequent]));
+    // Compare large outputs with Buffer.equals: vitest's structural toEqual
+    // walks 64 KiB+ buffers byte-by-byte and alone costs multiple seconds,
+    // which times this test out under `test:coverage`.
+    expect((await readFile(join(workingDirectory, descriptor.path))).equals(Buffer.concat([exactWindow, justOverWindow, substantiallyLarge, subsequent]))).toBe(true);
     await expect(appendCommandRunOutputResource({
       workingDirectory, runId: run.id, chunks: [{ sequence: 5, content: Buffer.from('later output\n') }],
     })).resolves.toBe(true);
-    expect(await readFile(join(workingDirectory, descriptor.path))).toEqual(Buffer.concat([
+    expect((await readFile(join(workingDirectory, descriptor.path))).equals(Buffer.concat([
       exactWindow, justOverWindow, substantiallyLarge, subsequent, Buffer.from('later output\n'),
-    ]));
+    ]))).toBe(true);
   });
 
   it('surfaces a partial live-write failure and reconciles the artifact from persisted chunks', async () => {
@@ -246,7 +249,7 @@ describe('commandRunOutputResource', () => {
     });
 
     expect(reads).toHaveLength(Math.ceil(output.length / byteWindow) + 1);
-    expect(await readFile(join(workingDirectory, descriptor.path))).toEqual(output);
+    expect((await readFile(join(workingDirectory, descriptor.path))).equals(output)).toBe(true);
   });
 
   it('preserves mixed UTF-8, empty, and stdout/stderr chunks while reconstructing byte windows', async () => {

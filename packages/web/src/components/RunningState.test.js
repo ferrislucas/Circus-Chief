@@ -63,6 +63,23 @@ describe('RunningState', () => {
     });
   });
 
+  describe('status copy (FR-2)', () => {
+    it('should show the working title while running (default)', () => {
+      const wrapper = mountComponent({ status: 'running' });
+      expect(wrapper.find('.running-title').text()).toBe('Agent is working...');
+    });
+
+    it('should show the transitional starting title while starting', () => {
+      const wrapper = mountComponent({ status: 'starting' });
+      expect(wrapper.find('.running-title').text()).toBe('Workspace starting...');
+    });
+
+    it('should keep the stop control available in the starting transitional state', () => {
+      const wrapper = mountComponent({ status: 'starting' });
+      expect(wrapper.find('.btn-stop').exists()).toBe(true);
+    });
+  });
+
   describe('stop button', () => {
     it('should have clickable stop button', async () => {
       // Note: Custom emit capture via wrapper.emitted() is unreliable with

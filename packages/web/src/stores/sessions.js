@@ -6,6 +6,7 @@ import { sessionActions } from './sessions/sessionActions.js';
 import { conversationActions } from './sessions/conversationActions.js';
 import { perSessionActions } from './sessions/perSessionActions.js';
 import { perSessionGetters } from './sessions/perSessionGetters.js';
+import { statusOrderingState, statusOrderingActions } from './sessions/statusOrdering.js';
 import {
   collectWorkflowSessions,
   summarizeWorkflowSessions,
@@ -48,6 +49,10 @@ export const useSessionsStore = defineStore('sessions', {
     // Per-session in-flight schedule mutation kind ('starting' | 'cancelling').
     // See the `scheduleMutationInFlight` getter for the full rationale.
     scheduleMutationsInFlight: {},
+    // Per-session status ordering generations (see statusOrdering.js): used
+    // by fetchSession() so a snapshot issued before a lifecycle status event
+    // cannot overwrite that event's newer status.
+    ...statusOrderingState(),
   }),
 
   getters: {
@@ -191,10 +196,17 @@ export const useSessionsStore = defineStore('sessions', {
       if (this.currentSession?.id === sessionId) {
         this.currentSession = { ...this.currentSession, ...updates };
       }
+      // Status-bearing updates (socket lifecycle frames, optimistic
+      // send/start acknowledgements, stop/restart) advance the ordering
+      // generation so a snapshot fetched before them cannot regress them.
+      if (updates?.status !== undefined) this._bumpStatusGeneration(sessionId);
     },
 
     // ==================== SESSION FETCH & CRUD ACTIONS ====================
     ...sessionActions,
+
+    // ==================== STATUS ORDERING (see statusOrdering.js) ====================
+    ...statusOrderingActions,
 
     // ==================== FILTER ACTIONS (delegate to sessionFilters store) ====================
 

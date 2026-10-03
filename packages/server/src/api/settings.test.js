@@ -7,7 +7,12 @@ import settingsRouter from './settings.js';
 
 // Use a generous timeout to avoid flakiness during full-suite runs
 // where GC pressure and event-loop contention cause sporadic slowdowns.
-describe('Settings API', { timeout: 30_000 }, () => {
+// Allow one extra retry on top of the global retry: every test here opens a
+// real localhost TCP server via supertest, which intermittently fails at the
+// transport layer (ECONNRESET and similar socket errors) under
+// `test:coverage` load even though the assertions themselves are
+// deterministic. Real failures still surface because they fail every attempt.
+describe('Settings API', { timeout: 30_000, retry: 2 }, () => {
   let app;
 
   beforeEach(() => {
