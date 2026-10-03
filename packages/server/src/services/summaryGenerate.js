@@ -195,6 +195,11 @@ async function retryIfParseFailed(summaryData, retryCount, { sessionId, force, u
   return { shouldRetry: true, result };
 }
 
+// Log-only terminal failure reason (never persisted or user-facing).
+function logOnlyFailureDetail(error) {
+  return typeof error?.detail === 'string' && error.detail ? { detail: error.detail } : {};
+}
+
 /** Log the reason why summary generation is proceeding (diagnostic, no summary text). */
 function _logGenerationReason(sessionId, force, existingSummary) {
   const pfx = `[SummaryService] Generating summary for session ${sessionId}:`;
@@ -248,6 +253,7 @@ export async function _doGenerateSummary(sessionId, retryCount = 0, force = fals
     console.error(`[SummaryService] Failed to generate summary for session ${sessionId}:`, {
       error: isUserFacingSummaryError ? error.publicMessage : error.message,
       category: error.code || 'unknown', sessionId,
+      ...logOnlyFailureDetail(error),
     });
     if (userInitiated && isUserFacingSummaryError) throw error;
     return null;

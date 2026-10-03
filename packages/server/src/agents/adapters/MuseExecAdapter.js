@@ -20,7 +20,7 @@ export class MuseExecAdapter extends BaseAgent {
     super(rest);
     this._spawn = spawnMuseExec || defaultSpawn;
     this._sshLivenessProbe = sshLivenessProbe;
-    this._timeouts = { startupMs: 30_000, turnMs: 15 * 60_000, shutdownGraceMs: 2_000, ...(timeouts || {}) };
+    this._timeouts = { startupMs: 30_000, turnMs: 12 * 60 * 60_000, shutdownGraceMs: 2_000, ...(timeouts || {}) };
   }
   getCapabilities() { return { ...MuseExecAdapter.capabilities }; }
   supportsResume() { return true; }

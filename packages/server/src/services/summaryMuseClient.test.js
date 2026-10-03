@@ -4,6 +4,7 @@ import {
   buildMuseSummaryArgs, buildMuseSummaryPrompt, callMuseSummary, MUSE_SUMMARY_TIMEOUT_MS,
   normalizeMuseOutputSchema,
 } from './summaryMuseClient.js';
+import { SESSION_SUMMARY_SCHEMA } from './summaryClaudeClient.js';
 
 const record = (sequence, payload_type, payload) => JSON.stringify({
   schema_version: 1, record_type: 'event', sequence, payload_type, payload,
@@ -14,6 +15,10 @@ const terminal = (sequence, outcome, text) => record(sequence, `run.terminal.${o
   command_id: 'cmd-active', run_stream: { id: 'run-active' }, terminal: outcome, text, reason: null,
 });
 const completedStdout = (text) => `${accepted()}\n${linked()}\n${terminal(3, 'completed', text)}\n`;
+const failedTerminal = (sequence, reason) => record(sequence, 'run.terminal.failed', {
+  command_id: 'cmd-active', run_stream: { id: 'run-active' }, terminal: 'failed', text: null, reason,
+});
+const failedStdout = (reason) => `${accepted()}\n${linked()}\n${failedTerminal(3, reason)}\n`;
 
 function childWith({ stdout = '', stderr = '', exitCode = 0 } = {}) {
   const child = new EventEmitter();
@@ -127,5 +132,75 @@ describe('summaryMuseClient', () => {
 
   it('uses the configured summary timeout by default', () => {
     expect(MUSE_SUMMARY_TIMEOUT_MS).toBe(180_000);
+  });
+
+  it('normalizes the session summary schema with a complete required list', () => {
+    const normalized = normalizeMuseOutputSchema(SESSION_SUMMARY_SCHEMA);
+    expect(normalized.required).toHaveLength(7);
+    expect(normalized.required).toEqual(expect.arrayContaining([
+      'short_summary', 'full_summary', 'key_actions', 'files_modified',
+      'outcome', 'pr_url', 'session_title',
+    ]));
+    expect(normalized).toMatchObject({ additionalProperties: false });
+    // The shared schema itself is untouched by the boundary fix.
+    expect(SESSION_SUMMARY_SCHEMA.required).toHaveLength(5);
+  });
+
+  it('backfills required recursively in nested object subschemas', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        nested: {
+          type: 'object',
+          properties: { a: { type: 'string' }, b: { type: 'string' } },
+          required: ['a'],
+        },
+      },
+      required: ['nested'],
+    };
+    const normalized = normalizeMuseOutputSchema(schema);
+    expect(normalized.properties.nested.required).toEqual(['a', 'b']);
+    expect(normalized.properties.nested).toMatchObject({ additionalProperties: false });
+  });
+
+  it('keeps the terminal failure reason as log-only detail on nonzero exit', async () => {
+    const reason = "API error 400: 'required' is required to be supplied and to be an array including every key in properties. Missing 'pr_url'.";
+    const fs = testFs();
+    const child = childWith({ stdout: failedStdout(reason), exitCode: 1 });
+    const failure = await callMuseSummary(
+      { prompt: 'x', model: 'muse-spark-1.3', jsonSchema: {} },
+      { fs, spawn: vi.fn(() => child) },
+    ).catch((error) => error);
+    expect(failure).toMatchObject({ code: 'MUSE_SUMMARY_NON_ZERO_EXIT' });
+    expect(failure.publicMessage).toBe('Muse could not generate a summary. Please try again.');
+    expect(failure.publicMessage).not.toContain('pr_url');
+    expect(failure.detail).toContain("Missing 'pr_url'");
+  });
+
+  it('omits detail when nonzero-exit stdout is not parseable', async () => {
+    const fs = testFs();
+    const child = childWith({ stdout: 'not json at all {{{', exitCode: 1 });
+    const failure = await callMuseSummary(
+      { prompt: 'x', model: 'muse-spark-1.3', jsonSchema: {} },
+      { fs, spawn: vi.fn(() => child) },
+    ).catch((error) => error);
+    expect(failure).toMatchObject({ code: 'MUSE_SUMMARY_NON_ZERO_EXIT' });
+    expect(failure).not.toHaveProperty('detail');
+  });
+
+  it('preserves an already-complete required list without mutating the input', () => {
+    const schema = {
+      type: 'object',
+      properties: { a: { type: 'string' }, b: { type: 'string' } },
+      required: ['b', 'a'],
+    };
+    const normalized = normalizeMuseOutputSchema(schema);
+    expect(normalized.required).toEqual(['b', 'a']);
+    expect(normalized.required).not.toBe(schema.required);
+    expect(schema).toEqual({
+      type: 'object',
+      properties: { a: { type: 'string' }, b: { type: 'string' } },
+      required: ['b', 'a'],
+    });
   });
 });

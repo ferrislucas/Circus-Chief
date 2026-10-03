@@ -32,6 +32,11 @@ async function collect(adapter) {
 }
 
 describe('MuseExecAdapter', () => {
+  it('defaults to a twelve-hour per-turn timeout', () => {
+    const adapter = new MuseExecAdapter();
+    expect(adapter._timeouts.turnMs).toBe(12 * 60 * 60_000);
+  });
+
   it('accepts Muse reconciliation records before streaming a completed response', async () => {
     const events = await collect(new MuseExecAdapter({ spawnMuseExec: fakeSpawn([
       record('reconciliation', 1, 'runtime.command.accepted', { command_id: 'cmd-123' }),

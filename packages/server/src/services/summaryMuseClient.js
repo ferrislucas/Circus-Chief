@@ -12,6 +12,7 @@ import { createRobustEnv } from './nodeSpawnHelper.js';
 export const MUSE_SUMMARY_TIMEOUT_MS = 180_000;
 const MAX_STDERR_BYTES = 16 * 1024;
 const MAX_STDOUT_BYTES = 1024 * 1024;
+const MAX_TERMINAL_REASON_CHARS = 500;
 const AUTH_FAILURE_PATTERNS = ['not logged in', 'login', 'authentication', 'authenticate', 'unauthorized', 'muse auth'];
 const MUSE_BIN = process.env.MUSE_BIN || 'muse';
 
@@ -48,7 +49,9 @@ export function buildMuseSummaryArgs({ model, schemaPath, cwd, promptFile, promp
  * (400: "'additionalProperties' is required to be supplied and to be
  * false"), which the shared summary schemas omit. Deep-clone and set
  * `additionalProperties: false` on every object schema missing the key;
- * explicit values (including true) are preserved.
+ * explicit values (including true) are preserved. The API is also strict
+ * about `required`: it must list every key in `properties`, so missing
+ * property keys are backfilled (explicit entries first, order preserved).
  */
 export function normalizeMuseOutputSchema(schema) {
   if (!schema || typeof schema !== 'object') return schema;
@@ -56,10 +59,22 @@ export function normalizeMuseOutputSchema(schema) {
   return {
     ...schema,
     ...(isObjectSchemaWithoutAdditionalProperties(schema) ? { additionalProperties: false } : {}),
+    ...backfillRequired(schema),
     ...normalizeSchemaMapEntries(schema),
     ...normalizeSingleSchemaEntries(schema),
     ...normalizeSchemaArrayEntries(schema),
   };
+}
+
+function backfillRequired(schema) {
+  if (!schema.properties || typeof schema.properties !== 'object' || Array.isArray(schema.properties)) return {};
+  const names = Object.keys(schema.properties);
+  if (!Array.isArray(schema.required)) return names.length ? { required: names } : {};
+  const required = [...schema.required];
+  for (const name of names) {
+    if (!required.includes(name)) required.push(name);
+  }
+  return { required };
 }
 
 function isObjectSchemaWithoutAdditionalProperties(schema) {
@@ -191,16 +206,25 @@ function runChild({ child, timeoutMs, abortController, setTimer }) {
       stderr = `${stderr}${text}`.slice(-MAX_STDERR_BYTES);
     });
     child.once('error', (error) => finish(Object.assign(error, { stderr })));
-    child.once('exit', (code) => finish(code === 0 ? null : Object.assign(new Error('Muse exited'), { exitCode: code, stderr }), stdout));
+    child.once('exit', (code) => {
+      if (code === 0) { finish(null, stdout); return; }
+      const failure = Object.assign(new Error('Muse exited'), { exitCode: code, stderr });
+      const terminalReason = findFailedTerminalReason(stdout);
+      if (terminalReason) failure.terminalReason = terminalReason;
+      finish(failure, stdout);
+    });
   });
 }
 
+function readTerminalRecords(stdout) {
+  return createMuseExecProtocol().push(stdout).filter((item) => item?.kind === 'terminal');
+}
+
 function extractTerminalText(stdout) {
-  const parser = createMuseExecProtocol();
   let terminalText = null;
   try {
-    for (const item of parser.push(stdout)) {
-      if (item?.kind === 'terminal' && item?.outcome === 'completed' && typeof item?.text === 'string') {
+    for (const item of readTerminalRecords(stdout)) {
+      if (item?.outcome === 'completed' && typeof item?.text === 'string') {
         terminalText = item.text;
       }
     }
@@ -213,6 +237,23 @@ function extractTerminalText(stdout) {
   return terminalText;
 }
 
+// Best-effort extraction of a failed terminal's reason for server logs only.
+// Never throws: unparseable stdout simply yields no detail, and only the
+// protocol's truncated reason string (never prompt, schema, or secret text)
+// is returned.
+function findFailedTerminalReason(stdout) {
+  try {
+    for (const item of readTerminalRecords(stdout)) {
+      if (item?.outcome === 'failed' && typeof item?.reason === 'string' && item.reason) {
+        return item.reason.slice(0, MAX_TERMINAL_REASON_CHARS);
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function classifyMuseError(error) {
   if (error?.code === 'ENOENT') {
     return new MuseSummaryError('MUSE_SUMMARY_CLI_NOT_FOUND', 'Muse CLI is not installed. Install Muse Code and ensure `muse` is on PATH (or set MUSE_BIN).');
@@ -221,5 +262,13 @@ function classifyMuseError(error) {
   if (AUTH_FAILURE_PATTERNS.some((pattern) => detail.includes(pattern))) {
     return new MuseSummaryError('MUSE_SUMMARY_AUTHENTICATION', 'Muse is not authenticated. Run `muse auth` and try again.');
   }
-  return new MuseSummaryError('MUSE_SUMMARY_NON_ZERO_EXIT', 'Muse could not generate a summary. Please try again.');
+  const classified = new MuseSummaryError('MUSE_SUMMARY_NON_ZERO_EXIT', 'Muse could not generate a summary. Please try again.');
+  // Log-only diagnostic: carried on a separate field so it can never leak
+  // into publicMessage, agent_call_logs, API responses, or broadcasts.
+  // Only the protocol's truncated reason string is attached (never prompt,
+  // schema, or secret-bearing text).
+  if (typeof error?.terminalReason === 'string' && error.terminalReason) {
+    classified.detail = error.terminalReason;
+  }
+  return classified;
 }
