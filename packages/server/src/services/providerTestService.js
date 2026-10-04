@@ -1,11 +1,17 @@
-import { spawn } from 'child_process';
 import { tmpdir } from 'node:os';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import { createMuseExecProtocol } from '../agents/adapters/museExecProtocol.js';
 import { createGeminiSpawner } from './geminiSpawnHelper.js';
-import { createRobustEnv } from './nodeSpawnHelper.js';
 import { appendBoundedDiagnostic } from './summaryMuseClient.js';
+import {
+  buildMuseTestArgs,
+  createProbeStreamTracker,
+  defaultMuseTestSpawn,
+  killMuseTestProcess,
+  scheduleProbeKillEscalation,
+} from './metaProbe.js';
+
+export { buildMuseTestArgs };
 
 /**
  * Build the probe config shared by BOTH provider test routes (finding #9):
@@ -38,42 +44,6 @@ export function buildProviderTestConfig(provider) {
       ? { workingDirectory: provider.workingDirectory }
       : (provider.kind === 'meta' ? { workingDirectory: tmpdir() } : {})),
   };
-}
-
-/**
- * Default spawn for the Meta connection test. Plain `spawn` with a robust
- * env (Node on PATH) — no E2E capture hook: E2E Muse coverage is out of
- * scope until the adapter has E2E fixtures. Detached on POSIX so a timeout
- * can signal the whole process group (round-3 finding #10).
- */
-function defaultMuseTestSpawn({ command, args, cwd, env }) {
-  return spawn(command, args, {
-    cwd,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: createRobustEnv(env),
-    windowsHide: true,
-    detached: process.platform !== 'win32',
-  });
-}
-
-/**
- * Kill a timed-out meta probe, group first (round-3 finding #10): `muse
- * exec` can leave grandchildren behind a direct `child.kill`, so signal the
- * process group the detached spawn created. Falls back to `child.kill` when
- * there is no group to signal (no pid, Windows, already reaped). The group
- * kill is injectable via `deps.killProcessGroup` for tests.
- */
-function killMuseTestProcess(child, killProcessGroup) {
-  const killGroup = killProcessGroup || ((pid, signal) => process.kill(pid, signal));
-  if (child?.pid && process.platform !== 'win32') {
-    try {
-      killGroup(-child.pid, 'SIGTERM');
-      return;
-    } catch {
-      // No group to signal — fall through to the direct kill.
-    }
-  }
-  try { child.kill('SIGTERM'); } catch { /* ignore */ }
 }
 
 /**
@@ -263,40 +233,11 @@ async function testGoogleConnection(config, deps = {}) {
 }
 
 /**
- * Build the headless `muse exec` argv for the Meta connection test (pure).
- *
- * No no-cost probe exists: `muse auth` only stores keys (verified against
- * `muse --help` — there is no `auth status` equivalent), so the test stays
- * one minimal billed `exec` turn. Sandbox stays ON (default); no session
- * log is written. Throws when no working directory is set — falling back
- * to the server cwd would test the wrong directory.
- *
- * @param {Object} config - `{ workingDirectory, defaultSonnetModel }`.
- * @returns {{ command: string, args: string[], cwd: string, model: string }}
- */
-export function buildMuseTestArgs(config) {
-  if (!config?.workingDirectory) {
-    const error = new Error('A working directory is required to test the Muse connection.');
-    error.code = 'MISSING_WORKING_DIRECTORY';
-    throw error;
-  }
-  // Last-resort-only fallback (finding #9): always prefer the configured
-  // model — this test turn is billed — the literal exists solely so a
-  // model-less provider can still probe binary presence + auth.
-  const model = config.defaultSonnetModel || 'muse-spark-1.3';
-  return {
-    command: process.env.MUSE_BIN || 'muse',
-    args: ['exec', '--json', '--no-session-log', '--workspace', config.workingDirectory, '--model', model, 'Hi'],
-    cwd: config.workingDirectory,
-    model,
-  };
-}
-
-/**
  * Meta-kind connection test: run a minimal headless `muse exec` turn.
  * The exec child authenticates with the host's own `muse auth`
  * credentials, so this exercises binary presence, auth, and model access
- * in one call (see buildMuseTestArgs for the cost note).
+ * in one call (see buildMuseTestArgs for the cost note). Process mechanics
+ * live in metaProbe.js so this file stays under the max-lines budget.
  */
 async function testMetaConnection(config, deps = {}) {
   let spec;
@@ -321,31 +262,23 @@ async function testMetaConnection(config, deps = {}) {
       // FR-4 doctrine applies to the probe too: process exit alone is not
       // success. The probe requires the validated success terminal record,
       // which `muse exec --json` emits even with `--no-session-log`.
-      const protocol = createMuseExecProtocol();
-      let terminal = null;
-      let outputValid = true;
+      const tracker = createProbeStreamTracker();
+      let escalationTimer;
 
       const timer = setTimeout(() => {
         killed = true;
         killMuseTestProcess(child, deps.killProcessGroup);
+        escalationTimer = scheduleProbeKillEscalation(child, deps);
         resolve(failureResponse(new Error(`Muse CLI timed out after ${timeoutMs}ms`)));
       }, timeoutMs);
 
-      child.stdout?.on('data', (d) => {
-        if (!outputValid) return;
-        try {
-          for (const item of protocol.push(d)) {
-            if (item?.kind === 'terminal') terminal = item;
-          }
-        } catch {
-          outputValid = false;
-        }
-      });
+      child.stdout?.on('data', (d) => tracker.onData(d));
+      child.stdout?.on('close', () => tracker.onClose());
       // Stderr is diagnostic-only and bounded (16 KiB, shared with the
       // summary client) so a chatty child cannot grow memory without limit.
       child.stderr?.on('data', (d) => { stderr = appendBoundedDiagnostic(stderr, d); });
       child.on('error', (error) => {
-        clearTimeout(timer);
+        clearTimeout(timer); clearTimeout(escalationTimer);
         if (killed) return;
         if (error.code === 'ENOENT') {
           resolve(failureResponse(new Error('Muse CLI not found. Install Muse Code and ensure `muse` is on PATH (or set MUSE_BIN).')));
@@ -354,14 +287,12 @@ async function testMetaConnection(config, deps = {}) {
         }
       });
       child.on('exit', (code) => {
-        clearTimeout(timer);
+        clearTimeout(timer); clearTimeout(escalationTimer);
         if (killed) return;
-        if (code === 0) {
-          if (outputValid && terminal?.outcome === 'completed' && terminal.text) {
-            resolve(connectionSuccess({ model: spec.model }));
-          } else {
-            resolve(failureResponse(new Error(describeMissingTerminal(terminal))));
-          }
+        if (code === 0 && tracker.state.outputValid && tracker.state.terminal?.outcome === 'completed' && tracker.state.terminal.text) {
+          resolve(connectionSuccess({ model: spec.model }));
+        } else if (code === 0) {
+          resolve(failureResponse(new Error(describeMissingTerminal(tracker.state.terminal))));
         } else {
           resolve(failureResponse(new Error(stderr.trim() || `Muse CLI exited with code ${code}`)));
         }

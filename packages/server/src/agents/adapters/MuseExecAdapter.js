@@ -83,8 +83,14 @@ export class MuseExecAdapter extends BaseAgent {
 
   async *execute(queryParams) {
     const options = queryParams.options || {};
-    const cwd = options.cwd || options.workingDirectory;
     const mapper = createMuseExecEventMapper({ model: options.model });
+    // Finding #3: an already-aborted turn must not spawn a billed `muse
+    // exec` child — resolve to the cancelled result before any env, probe,
+    // or spawn work happens.
+    if (options.abortController?.signal.aborted) {
+      yield* mapper.final({ outcome: 'cancelled' });
+      return;
+    }
     // Muse exec persists its native history under a caller-supplied UUID.
     // The stream handler saves this init id on the active conversation and
     // supplies it as options.resume on follow-up turns.
@@ -103,7 +109,7 @@ export class MuseExecAdapter extends BaseAgent {
         await writeFile(path, prompt, { mode: 0o600 });
         options.__musePromptFile = path;
       }
-      const spec = buildMuseExecArgs({ prompt: queryParams.prompt, options, workingDirectory: cwd, sessionId: museSessionId, promptFile: options.__musePromptFile });
+      const spec = buildMuseExecArgs({ prompt: queryParams.prompt, options, workingDirectory: options.cwd || options.workingDirectory, sessionId: museSessionId, promptFile: options.__musePromptFile });
       yield mapper.init(museSessionId);
       // Fingerprint the journal before spawn so the post-turn usage read
       // ignores entries that predate this turn (finding #4).
@@ -143,7 +149,7 @@ export class MuseExecAdapter extends BaseAgent {
     const fail = (error) => { cleanup(); completion.reject(error); queue.wake(); };
     const finish = () => {
       if (!exited || !stdoutClosed || !stderrClosed) return;
-      cleanup();
+      cleanup(); clearTimeout(killTimer);
       if (stopped) completion.resolve({ outcome: 'cancelled' });
       else if (exitCode !== 0) completion.reject(new Error(stderr || `Muse exec exited with code ${exitCode ?? 'unknown'}.`));
       else if (!terminal) completion.reject(new Error('Muse exec exited without a terminal result.'));
@@ -159,12 +165,22 @@ export class MuseExecAdapter extends BaseAgent {
         try { child.kill(force ? 'SIGKILL' : 'SIGTERM'); } catch { /* process already exited */ }
       }
     };
+    // cleanup() deliberately leaves the escalation timer alone: fail() and
+    // the drain finally both run cleanup while a SIGTERM'd child may still
+    // be alive, and the escalation must survive them (finding #1). Only the
+    // natural terminal path (finish) clears it.
     const cleanup = () => {
-      clearTimeout(totalTimer); clearTimeout(killTimer); signal?.removeEventListener('abort', stop);
+      clearTimeout(totalTimer); signal?.removeEventListener('abort', stop);
     };
-    const stop = () => { stopped = true; terminate(); killTimer = setTimeout(() => terminate(true), this._timeouts.shutdownGraceMs); };
+    const armEscalation = () => { clearTimeout(killTimer); killTimer = setTimeout(() => terminate(true), this._timeouts.shutdownGraceMs); };
+    const stop = () => { stopped = true; terminate(); armEscalation(); };
     let killTimer;
-    const totalTimer = setTimeout(() => { stopped = true; terminate(); fail(new Error(`Muse exec timed out after ${this._timeouts.turnMs}ms.`)); }, this._timeouts.turnMs);
+    // Finding #1: the timeout path escalates like the abort path — a CLI
+    // that ignores SIGTERM is reaped with SIGKILL after the grace period.
+    // Armed after fail() because fail→cleanup clears pending total timers.
+    const totalTimer = setTimeout(() => {
+      stopped = true; terminate(); fail(new Error(`Muse exec timed out after ${this._timeouts.turnMs}ms.`)); armEscalation();
+    }, this._timeouts.turnMs);
     const ingest = (item) => {
       if (item.kind === 'terminal') {
         terminal = item;
@@ -182,7 +198,7 @@ export class MuseExecAdapter extends BaseAgent {
     };
     try {
       child = this._spawn(spec.command, spec.args, { cwd: spec.cwd, env, shell: false, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
-    } catch (err) { cleanup(); clearTimeout(totalTimer); throw err; }
+    } catch (err) { cleanup(); throw err; }
     signal?.addEventListener('abort', stop, { once: true });
     child.stdout.on('data', onData);
     child.stdout.on('close', () => { try { parser.end(); stdoutClosed = true; finish(); } catch (err) { fail(err); } });

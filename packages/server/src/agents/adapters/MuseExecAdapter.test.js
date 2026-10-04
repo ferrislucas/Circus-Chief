@@ -265,4 +265,47 @@ describe('MuseExecAdapter', () => {
     ]) }));
     expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'cancelled' });
   });
+  // Finding #3: a turn that is already aborted must not spawn a billed
+  // `muse exec` child — it resolves to a single cancelled result.
+  it('does not spawn a billed child when the turn is already aborted', async () => {
+    const spawnMuseExec = vi.fn(fakeSpawn([...currentRun()]));
+    const controller = new AbortController();
+    controller.abort();
+    const adapter = new MuseExecAdapter({ spawnMuseExec });
+    const events = [];
+    for await (const item of adapter.execute({ prompt: 'Hi', options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll', abortController: controller } })) events.push(item);
+    expect(spawnMuseExec).not.toHaveBeenCalled();
+    expect(events).toEqual([{ type: 'result', subtype: 'cancelled' }]);
+  });
+  // Finding #1: the total-turn timeout must escalate like the abort path —
+  // a CLI that ignores SIGTERM is reaped with SIGKILL after the grace
+  // period instead of being orphaned.
+  it('escalates a hung child to SIGKILL after the total-turn timeout', { timeout: 10000 }, async () => {
+    const kills = [];
+    let child;
+    const adapter = new MuseExecAdapter({
+      timeouts: { turnMs: 30, shutdownGraceMs: 20 },
+      spawnMuseExec: () => {
+        child = new EventEmitter();
+        child.pid = 4242;
+        child.stdout = new PassThrough();
+        child.stderr = new PassThrough();
+        // Ignores SIGTERM like a hung workflow child: records the signal
+        // but never exits.
+        child.kill = (signal) => { kills.push(signal); return true; };
+        return child;
+      },
+    });
+    const events = [];
+    try {
+      for await (const item of adapter.execute({ prompt: 'Hi', options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll' } })) events.push(item);
+    } finally {
+      child.stdout.destroy();
+      child.stderr.destroy();
+    }
+    expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'error' });
+    expect(kills).toContain('SIGTERM');
+    await new Promise((resolve) => { setTimeout(resolve, 150); });
+    expect(kills).toContain('SIGKILL');
+  });
 });

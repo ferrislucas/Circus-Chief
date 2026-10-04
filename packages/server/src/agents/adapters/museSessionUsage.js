@@ -175,13 +175,19 @@ export async function readMuseSessionUsage(sessionId, { sessionsDir = defaultSes
   for (let attempt = 0; attempt < JOURNAL_RETRIES; attempt += 1) {
     try {
       const texts = await readJournalTexts(dir, baseline);
-      if (!texts) return null;
-      const params = findLastTokenUsage(texts);
-      if (!params) return null;
-      const model = typeof params.modelId === 'string' && params.modelId ? params.modelId : null;
-      return toReading(params, await lookupContextWindow(model, catalogDir));
+      const params = texts ? findLastTokenUsage(texts) : null;
+      if (params) {
+        const model = typeof params.modelId === 'string' && params.modelId ? params.modelId : null;
+        // eslint-disable-next-line no-await-in-loop
+        return toReading(params, await lookupContextWindow(model, catalogDir));
+      }
+      // No fresh entry yet — the CLI flushes the journal after the turn
+      // ends, so wait within the bounded budget instead of resolving a
+      // silent zero (finding #4).
     } catch {
       // Journal not flushed yet (or unreadable) — retry briefly, then give up.
+    }
+    if (attempt + 1 < JOURNAL_RETRIES) {
       // eslint-disable-next-line no-await-in-loop
       await new Promise((resolve) => { setTimeout(resolve, JOURNAL_RETRY_MS); });
     }

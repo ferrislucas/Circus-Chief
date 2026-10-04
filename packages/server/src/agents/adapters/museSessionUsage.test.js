@@ -137,6 +137,44 @@ describe('readMuseSessionUsage', () => {
       model: null,
     });
   });
+
+  // Finding #4: the journal flush lands after the turn ends — a fresh entry
+  // that arrives after the first read must resolve to that entry, not null.
+  it('waits for a fresh entry that flushes after the first read', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'muse-usage-'));
+    const sessionsDir = join(root, 'sessions');
+    await mkdir(join(sessionsDir, SESSION_ID), { recursive: true });
+    const catalogDir = join(root, 'catalog');
+    await mkdir(catalogDir, { recursive: true });
+    await writeFile(join(catalogDir, 'catalog.json'), JSON.stringify({ rows: [] }));
+    const baseline = await snapshotMuseJournalState(SESSION_ID, { sessionsDir });
+    const pending = readMuseSessionUsage(SESSION_ID, { sessionsDir, catalogDir, baseline });
+    await new Promise((resolve) => { setTimeout(resolve, 20); });
+    await writeFile(
+      join(sessionsDir, SESSION_ID, 'journal-00000000.bin'),
+      tokenUsageLine({ params: { usage: { inputTokens: 7, outputTokens: 8 }, modelId: 'fresh-model', turnId: 'turn-2' } }),
+    );
+    await expect(pending).resolves.toMatchObject({
+      inputTokens: 7,
+      outputTokens: 8,
+      model: 'fresh-model',
+    });
+  });
+
+  // Finding #4: the wait stays bounded — a journal that never flushes a
+  // fresh entry still resolves null instead of hanging.
+  it('resolves null within the bounded budget when the journal stays empty', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'muse-usage-'));
+    const sessionsDir = join(root, 'sessions');
+    await mkdir(join(sessionsDir, SESSION_ID), { recursive: true });
+    const catalogDir = join(root, 'catalog');
+    await mkdir(catalogDir, { recursive: true });
+    await writeFile(join(catalogDir, 'catalog.json'), JSON.stringify({ rows: [] }));
+    const baseline = await snapshotMuseJournalState(SESSION_ID, { sessionsDir });
+    const started = Date.now();
+    await expect(readMuseSessionUsage(SESSION_ID, { sessionsDir, catalogDir, baseline })).resolves.toBeNull();
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
 });
 
 describe('buildTerminalUsage', () => {

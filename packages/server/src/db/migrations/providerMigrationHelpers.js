@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- TODO(round-3 finding #12): migration helpers share provider constants and preserve ordered upgrade operations. Remove this waiver when the file is split (timeouts/lifecycle-style extraction). */
+/* eslint-disable max-lines -- Follow-up tracked in ferrislucas/Circus-Chief#1149 (review finding #9): migration helpers share provider constants and preserve ordered upgrade operations. Remove this waiver when the file is split (timeouts/lifecycle-style extraction). */
 import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS, MUSE_MODELS } from '@circuschief/shared';
 import { getTableSql } from './migrationUtils.js';
 import { BUILT_IN_OPENAI_COMMIT_ATTRIBUTION } from '../seedBaselineData.js';

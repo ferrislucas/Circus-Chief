@@ -99,8 +99,16 @@ function buildGoogleProviderEnv(provider) {
  * own `muse auth` credentials — there is no documented `META_*` wire env
  * convention to set, and inventing one would silently do nothing. Provider
  * `additionalEnvVars` (merged by the caller) remain the escape hatch.
+ * A configured `authToken`/`baseUrl` is therefore a no-op and warns loudly
+ * (finding #5) instead of being silently ignored.
  */
-function buildMetaProviderEnv(_provider) {
+function buildMetaProviderEnv(provider) {
+  const ignored = ['authToken', 'baseUrl'].filter((key) => provider?.[key]);
+  if (ignored.length > 0) {
+    console.warn(
+      `[SessionManager] buildProviderEnv: Provider "${provider.name}" (meta) sets ${ignored.join(' and ')} which is ignored — muse exec authenticates with the host's own muse auth credentials.`,
+    );
+  }
   return {};
 }
 
@@ -157,6 +165,8 @@ function logProviderEnv(provider, kind, env) {
 
   if (kind === 'meta') {
     console.log(`[SessionManager] buildProviderEnv: Provider "${provider.name}" (meta) uses host muse auth credentials.`, {
+      authToken: provider.authToken ? '[SET, IGNORED]' : '[NOT SET]',
+      baseUrl: provider.baseUrl || '[NOT SET]',
       API_TIMEOUT_MS: env.API_TIMEOUT_MS,
     });
     return;

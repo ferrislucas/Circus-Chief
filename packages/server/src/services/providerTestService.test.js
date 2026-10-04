@@ -450,6 +450,24 @@ describe('providerTestService', () => {
       expect(result.message.length).toBeLessThanOrEqual(16 * 1024);
     });
 
+    // Finding #6: the probe must be as strict as a real turn — a valid
+    // terminal followed by trailing partial JSON fails the adapter, so it
+    // must fail the probe too.
+    it('fails a clean exit whose stdout has trailing partial JSON after the terminal', async () => {
+      const child = createMockGeminiChild();
+      const spawnMuseProcess = vi.fn(() => child);
+
+      const promise = testProviderConnection({ kind: 'meta', workingDirectory: '/tmp/muse-workdir' }, { spawnMuseProcess });
+
+      child.stdout.emit('data', Buffer.from(`${museProbeCompletedOutput()}\n{"schema_version": 1, "record_type": "eve`));
+      child.stdout.emit('close');
+      child.emit('exit', 0);
+      const result = await promise;
+
+      expect(result.success).toBe(false);
+      expect(result.message).toMatch(/terminal/i);
+    });
+
     // Finding #5 (FR-4 doctrine): process exit alone is not success — a
     // clean exit with no validated success terminal record fails the probe.
     it('fails a clean exit that produced no terminal record', async () => {
@@ -533,6 +551,34 @@ describe('providerTestService', () => {
       expect(result.success).toBe(false);
       expect(killProcessGroup).toHaveBeenCalledWith(-424243, 'SIGTERM');
       expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    });
+
+    // Finding #2: a probe child that survives SIGTERM must be reaped with
+    // SIGKILL after the grace period instead of lingering past the timeout.
+    it('escalates a wedged probe child to SIGKILL after the grace period', async () => {
+      vi.useFakeTimers();
+      try {
+        const child = createMockGeminiChild();
+        child.pid = 424242;
+        const spawnMuseProcess = vi.fn(() => child);
+        const killProcessGroup = vi.fn();
+
+        const promise = testProviderConnection(
+          { kind: 'meta', workingDirectory: '/tmp/muse-workdir', apiTimeoutMs: 25 },
+          { spawnMuseProcess, killProcessGroup, probeKillGraceMs: 50 },
+        );
+
+        await vi.advanceTimersByTimeAsync(25);
+        expect(killProcessGroup).toHaveBeenCalledWith(-424242, 'SIGTERM');
+        await vi.advanceTimersByTimeAsync(50);
+        expect(killProcessGroup).toHaveBeenCalledWith(-424242, 'SIGKILL');
+
+        const result = await promise;
+        expect(result.success).toBe(false);
+        expect(result.message).toMatch(/timed out/);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });
