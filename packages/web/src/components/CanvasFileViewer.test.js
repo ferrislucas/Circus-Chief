@@ -21,6 +21,7 @@ vi.mock('../composables/useApi.js', () => ({
     getAllCanvasItems: vi.fn().mockResolvedValue([]),
     getCanvasFileContent: vi.fn().mockResolvedValue({ content: null, data: null }),
     getCanvasItemContent: vi.fn().mockResolvedValue({ content: null, data: null }),
+    updateCanvasItem: vi.fn(),
     uploadCanvasItem: vi.fn(),
     deleteCanvasItem: vi.fn(),
     getCanvasTrash: vi.fn().mockResolvedValue([]),
@@ -31,6 +32,8 @@ vi.mock('../composables/useApi.js', () => ({
 }));
 
 import CanvasFileViewer from './CanvasFileViewer.vue';
+import { api } from '../composables/useApi.js';
+import { useUiStore } from '../stores/ui.js';
 
 // Global helper to flush all async updates
 async function flushAll(wrapper) {
@@ -606,5 +609,107 @@ describe('CanvasFileViewer', () => {
       });
       expect(endEditingSpy).toHaveBeenCalledWith('readme.md');
     });
+  });
+});
+
+describe('CanvasFileViewer task-list toggles', () => {
+  // NOTE: the real MarkdownViewer is used here (the file's MarkdownViewer
+  // stub key does not match the script-setup child, so the real component
+  // renders). Toggles are driven through real bubbling DOM events.
+  function mountMarkdown(props = {}) {
+    const defaultProps = {
+      item: { id: 'item-1', filename: 'plan.md', type: 'markdown', content: '- [ ] todo', createdAt: Date.now() },
+      sessionId: 'sess-1',
+      versions: [],
+      showBackButton: true,
+    };
+    return mount(CanvasFileViewer, {
+      props: { ...defaultProps, ...props },
+    });
+  }
+
+  function clickCheckbox(wrapper, line) {
+    wrapper.find(`input[data-task-line="${line}"]`).element.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+  }
+
+  function checkboxChecked(wrapper, line) {
+    return wrapper.find(`input[data-task-line="${line}"]`).element.checked;
+  }
+
+  beforeEach(() => {
+    api.updateCanvasItem.mockResolvedValue({ content: '- [x] todo', updatedAt: Date.now() });
+  });
+
+  it('saves toggles in place via PUT with the flipped line', async () => {
+    const wrapper = mountMarkdown();
+    clickCheckbox(wrapper, 0);
+    await flushAll(wrapper);
+
+    expect(api.updateCanvasItem).toHaveBeenCalledTimes(1);
+    expect(api.updateCanvasItem).toHaveBeenCalledWith('sess-1', 'item-1', { content: '- [x] todo' });
+    expect(checkboxChecked(wrapper, 0)).toBe(true);
+  });
+
+  it('reverts content and toasts on save failure', async () => {
+    api.updateCanvasItem.mockRejectedValue(new Error('nope'));
+    const wrapper = mountMarkdown();
+    clickCheckbox(wrapper, 0);
+    await flushAll(wrapper);
+
+    expect(checkboxChecked(wrapper, 0)).toBe(false);
+    expect(useUiStore().toasts.some((t) => t.type === 'error')).toBe(true);
+  });
+
+  it('ignores toggles for non-task lines without saving', async () => {
+    const wrapper = mountMarkdown({
+      item: { id: 'item-1', filename: 'plan.md', type: 'markdown', content: '# Hello', createdAt: Date.now() },
+    });
+    // A checkbox pointing at a non-task line (malformed DOM): no save.
+    const viewer = wrapper.find('.viewer-markdown').element;
+    const rogue = document.createElement('input');
+    rogue.setAttribute('type', 'checkbox');
+    rogue.setAttribute('data-task-line', '0');
+    viewer.appendChild(rogue);
+    rogue.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await flushAll(wrapper);
+
+    expect(api.updateCanvasItem).not.toHaveBeenCalled();
+  });
+
+  it('renders historical versions disabled and latest enabled', async () => {
+    const versions = [
+      { id: 'v2', createdAt: 2000 },
+      { id: 'v1', createdAt: 1000 },
+    ];
+    const historical = mountMarkdown({
+      item: { id: 'v1', filename: 'plan.md', type: 'markdown', content: '- [ ] todo', createdAt: 1000 },
+      versions,
+    });
+    await flushAll(historical);
+    expect(historical.find('input[data-task-line="0"]').attributes('disabled')).not.toBeUndefined();
+
+    const latest = mountMarkdown({
+      item: { id: 'v2', filename: 'plan.md', type: 'markdown', content: '- [x] todo', createdAt: 2000 },
+      versions,
+    });
+    await flushAll(latest);
+    expect(latest.find('input[data-task-line="0"]').attributes('disabled')).toBeUndefined();
+  });
+
+  it('ignores toggles while viewing a historical version', async () => {
+    const versions = [
+      { id: 'v2', createdAt: 2000 },
+      { id: 'v1', createdAt: 1000 },
+    ];
+    const wrapper = mountMarkdown({
+      item: { id: 'v1', filename: 'plan.md', type: 'markdown', content: '- [ ] todo', createdAt: 1000 },
+      versions,
+    });
+    clickCheckbox(wrapper, 0);
+    await flushAll(wrapper);
+
+    expect(api.updateCanvasItem).not.toHaveBeenCalled();
   });
 });

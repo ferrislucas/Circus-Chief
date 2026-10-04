@@ -49,8 +49,11 @@
 
         <MarkdownViewer
           v-if="item.type === 'markdown'"
-          :content="item.content"
+          :content="displayedContent"
+          :interactive="isLatestVersion"
+          :pending-line="pendingLine"
           class="viewer-markdown"
+          @toggle-task="handleToggleTask"
         />
 
         <pre
@@ -82,6 +85,8 @@ import MarkdownViewer from './MarkdownViewer.vue';
 import CanvasFileViewerHeader from './CanvasFileViewerHeader.vue';
 import hljs from 'highlight.js';
 import { useCanvasStore } from '../stores/canvas.js';
+import { useUiStore } from '../stores/ui.js';
+import { toggleTaskLine } from '../utils/taskList.js';
 
 const MarkdownEditor = defineAsyncComponent(() =>
   import('./MarkdownEditor.vue')
@@ -150,12 +155,71 @@ const props = defineProps({
 });
 
 const canvasStore = useCanvasStore();
+const uiStore = useUiStore();
 
 const emit = defineEmits(['back', 'selectVersion', 'deleteAll', 'editingChange']);
 
 const contentLoading = ref(false);
 const isEditing = ref(false);
 const markdownEditorRef = ref(null);
+
+// Task-list toggle state: optimistic content shown while the in-place PUT is
+// in flight, and the line currently saving (only that box renders disabled).
+const optimisticContent = ref(null);
+const pendingLine = ref(null);
+let toggleQueue = Promise.resolve();
+
+// Historical versions (selected via the version dropdown) render read-only.
+// versions[] is sorted newest-first by the parent; a single version (or none)
+// is always the latest.
+const isLatestVersion = computed(() => {
+  if (!props.versions || props.versions.length <= 1) return true;
+  return props.versions[0].id === props.item.id;
+});
+
+const displayedContent = computed(() => optimisticContent.value ?? props.item.content);
+
+// A different file/version replaces the buffer: drop toggle state.
+watch(() => props.item.id, () => {
+  optimisticContent.value = null;
+  pendingLine.value = null;
+});
+
+// The in-place PUT patches the store item (the same object as the prop in
+// production): once the prop converges, the optimistic override is redundant.
+watch(() => props.item.content, (content) => {
+  if (optimisticContent.value !== null && optimisticContent.value === content) {
+    optimisticContent.value = null;
+  }
+});
+
+function handleToggleTask({ line }) {
+  if (!isLatestVersion.value || typeof line !== 'number') return;
+  const base = optimisticContent.value ?? props.item.content ?? '';
+  const next = toggleTaskLine(base, line);
+  if (next === base) return;
+  optimisticContent.value = next;
+  // Serialize saves so concurrent toggles layer onto the latest content
+  // (last-writer-wins full-content PUT, per v1 semantics).
+  toggleQueue = toggleQueue.then(() => saveToggle(line, base, next));
+}
+
+async function saveToggle(line, base, next) {
+  pendingLine.value = line;
+  try {
+    await canvasStore.updateItemContent(props.sessionId, props.item.id, next);
+    if (optimisticContent.value === props.item.content) {
+      optimisticContent.value = null;
+    }
+  } catch (err) {
+    if (optimisticContent.value === next) {
+      optimisticContent.value = base;
+    }
+    uiStore.error(`Failed to update checkbox: ${err.message}`);
+  } finally {
+    pendingLine.value = null;
+  }
+}
 
 // Watch the item's id to handle both initial load AND version switching.
 // Cannot watch just a `needsContent` computed because switching between two
