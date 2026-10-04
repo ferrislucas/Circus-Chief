@@ -23,6 +23,7 @@ describe('parseCliOptions', () => {
     process.env = { ...originalEnv };
     delete process.env.PORT;
     delete process.env.HOST;
+    delete process.env.CIRCUSCHIEF_HOST;
   });
 
   afterEach(() => {
@@ -199,12 +200,40 @@ describe('parseCliOptions', () => {
     it('includes host configuration in help text', () => {
       expect(() => parseCliOptions(['node', 'cli.js', '--help'])).toThrow('process.exit');
       expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('--host'));
-      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('env: HOST'));
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('env: CIRCUSCHIEF_HOST'));
     });
   });
 
-  describe('HOST environment variable', () => {
-    it('respects HOST when no CLI flag is given', () => {
+  describe('CIRCUSCHIEF_HOST environment variable', () => {
+    it('respects CIRCUSCHIEF_HOST when no CLI flag is given', () => {
+      process.env.CIRCUSCHIEF_HOST = '0.0.0.0';
+      expect(parseCliOptions(['node', 'cli.js']).host).toBe('0.0.0.0');
+    });
+
+    it('gives --host precedence over CIRCUSCHIEF_HOST', () => {
+      process.env.CIRCUSCHIEF_HOST = '0.0.0.0';
+      expect(parseCliOptions(['node', 'cli.js', '--host', '::1']).host).toBe('::1');
+    });
+
+    it('falls back to the default when CIRCUSCHIEF_HOST is empty', () => {
+      process.env.CIRCUSCHIEF_HOST = '';
+      expect(parseCliOptions(['node', 'cli.js']).host).toBe('127.0.0.1');
+    });
+
+    it('falls back to the default when CIRCUSCHIEF_HOST is whitespace-only', () => {
+      process.env.CIRCUSCHIEF_HOST = '   ';
+      expect(parseCliOptions(['node', 'cli.js']).host).toBe('127.0.0.1');
+    });
+
+    it('gives CIRCUSCHIEF_HOST precedence over the legacy HOST variable', () => {
+      process.env.CIRCUSCHIEF_HOST = '::1';
+      process.env.HOST = '0.0.0.0';
+      expect(parseCliOptions(['node', 'cli.js']).host).toBe('::1');
+    });
+  });
+
+  describe('legacy HOST environment variable', () => {
+    it('respects HOST when CIRCUSCHIEF_HOST is unset', () => {
       process.env.HOST = '0.0.0.0';
       expect(parseCliOptions(['node', 'cli.js']).host).toBe('0.0.0.0');
     });
@@ -218,15 +247,29 @@ describe('parseCliOptions', () => {
       process.env.HOST = '';
       expect(parseCliOptions(['node', 'cli.js']).host).toBe('127.0.0.1');
     });
+
+    it('falls back to the default when HOST is whitespace-only', () => {
+      process.env.HOST = '  ';
+      expect(parseCliOptions(['node', 'cli.js']).host).toBe('127.0.0.1');
+    });
+
+    it('trims HOST values before use', () => {
+      process.env.HOST = '  ::1  ';
+      expect(parseCliOptions(['node', 'cli.js']).host).toBe('::1');
+    });
   });
 
   describe('describeBindHost', () => {
     it.each([
       ['127.0.0.1', { urlHost: '127.0.0.1', wildcard: false }],
       ['192.168.1.50', { urlHost: '192.168.1.50', wildcard: false }],
+      ['myhost.local', { urlHost: 'myhost.local', wildcard: false }],
       ['::1', { urlHost: '[::1]', wildcard: false }],
+      ['fd00::1', { urlHost: '[fd00::1]', wildcard: false }],
       ['0.0.0.0', { urlHost: 'localhost', wildcard: true }],
       ['::', { urlHost: 'localhost', wildcard: true }],
+      ['0', { urlHost: 'localhost', wildcard: true }],
+      ['::ffff:0.0.0.0', { urlHost: 'localhost', wildcard: true }],
     ])('describes %s', (host, expected) => {
       expect(describeBindHost(host)).toEqual(expected);
     });

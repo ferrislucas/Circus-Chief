@@ -3,6 +3,9 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { DEFAULT_SERVER_PORT, DEFAULT_SERVER_HOST } from '@circuschief/shared';
+import { describeBindHost } from './bindAddress.js';
+
+export { describeBindHost };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -12,7 +15,7 @@ function showHelp() {
 
 Options:
   -p, --port <number>  Port to listen on (env: PORT, default: ${DEFAULT_SERVER_PORT})
-  -H, --host <address> Network address to bind to (env: HOST, default: ${DEFAULT_SERVER_HOST})
+  -H, --host <address> Network address to bind to (env: CIRCUSCHIEF_HOST or HOST, default: ${DEFAULT_SERVER_HOST})
   --no-analytics       Disable anonymous usage analytics
   -h, --help           Show this help message
   -V, --version        Show version number`);
@@ -44,7 +47,14 @@ export function parseCliOptions(argv = process.argv) {
         host: {
           type: 'string',
           short: 'H',
-          default: process.env.HOST || DEFAULT_SERVER_HOST,
+          // Trim before the fallback chain so a whitespace-only env var falls
+          // through to the default instead of failing startup later. Bare
+          // HOST is a legacy fallback: some shells and CI images export it
+          // with the machine hostname, so prefer CIRCUSCHIEF_HOST.
+          default:
+            process.env.CIRCUSCHIEF_HOST?.trim() ||
+            process.env.HOST?.trim() ||
+            DEFAULT_SERVER_HOST,
         },
         help: {
           type: 'boolean',
@@ -91,17 +101,4 @@ export function parseCliOptions(argv = process.argv) {
   }
 
   return { port, host, disableAnalytics: values['no-analytics'] };
-}
-
-const WILDCARD_HOSTS = new Set(['0.0.0.0', '::']);
-
-/**
- * Return a URL-safe representation of a server bind address.
- *
- * @returns {{ urlHost: string, wildcard: boolean }}
- */
-export function describeBindHost(host) {
-  if (WILDCARD_HOSTS.has(host)) return { urlHost: 'localhost', wildcard: true };
-
-  return { urlHost: host.includes(':') ? `[${host}]` : host, wildcard: false };
 }

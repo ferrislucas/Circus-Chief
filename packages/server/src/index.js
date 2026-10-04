@@ -6,7 +6,9 @@ import { createApp } from './app.js';
 import { initDatabase, commandRuns, sessions } from './database.js';
 import { processCommandRunOutputCleanup } from './services/commandRunOutputCleanup.js';
 import { initWebSocket, webSocketManager, setCommandRunOutputAuthorizer } from './websocket.js';
-import { describeBindHost, parseCliOptions } from './cli.js';
+import { parseCliOptions } from './cli.js';
+import { startServer, prepareBindFailureHandler } from './startup.js';
+import { DEFAULT_SERVER_HOST } from '@circuschief/shared';
 import { settings } from './db/index.js';
 import * as prStatusService from './services/prStatusService.js';
 import * as systemMonitor from './services/systemMonitor.js';
@@ -42,6 +44,9 @@ function validateNodeEnvironment() {
 
 const { port, host, disableAnalytics } = parseCliOptions();
 process.env.PORT = String(port);
+// Publish the effective bind address (flag > env > default) so downstream
+// consumers like getApiBaseUrl() construct agent-reachable URLs.
+process.env.CIRCUSCHIEF_HOST = host;
 const production = process.env.NODE_ENV === 'production';
 const dbPath = process.env.DB_PATH || getDefaultDbPath();
 
@@ -117,6 +122,13 @@ const app = createApp({ production });
 // Create HTTP server
 const server = createServer(app);
 
+// Install the listen-phase bind-failure handler BEFORE the WebSocket layer
+// attaches. `ws` forwards the HTTP server's 'error' event onto itself, and a
+// bind failure re-emitted there has no listener — an Unhandled 'error' crash
+// that beats our handler to process.exit. Registered first, failBind runs
+// first and exits cleanly with a diagnosis.
+const { onListenFailure } = prepareBindFailureHandler(server, { port, host });
+
 // Initialize WebSocket for app
 initWebSocket(server);
 
@@ -172,19 +184,9 @@ async function shutdown(signal) {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-const { urlHost, wildcard } = describeBindHost(host);
-
-server.on('error', (err) => {
-  console.error(`Error: failed to bind to ${host}:${port} — ${err.code || err.message}`);
-  process.exit(1);
-});
-
-server.listen(port, host, () => {
-  console.log(`Circus Chief running on http://${urlHost}:${port}`);
-  console.log(`WebSocket available at ws://${urlHost}:${port}/ws`);
-  if (wildcard) {
-    console.warn(
-      `Warning: bound to all interfaces (${host}) — the server is reachable from the network.`
-    );
-  }
+startServer(server, {
+  port,
+  host,
+  isDefaultHost: host === DEFAULT_SERVER_HOST,
+  onListenFailure,
 });

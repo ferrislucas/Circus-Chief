@@ -199,7 +199,8 @@ echo "$SELECTED_PORT" > "$PORT_FILE"
 # Write VCR mode for pw.sh to detect mismatches
 echo "${VCR_MODE:-}" > "$PROJECT_ROOT/.vcr-mode"
 
-# Forward DB_PATH and HOST explicitly so inherited environment cannot alter
-# the development server's database or network exposure.
+# Pin the bind address via -H so an inherited CIRCUSCHIEF_HOST/HOST cannot
+# move the dev/E2E server's network exposure. DB_PATH is forwarded
+# explicitly for the same reason.
 NODE_ENV=production VCR_MODE="${VCR_MODE:-}" DB_PATH="${DB_PATH:-}" \
     node packages/server/src/index.js -p ${SELECTED_PORT} -H 127.0.0.1

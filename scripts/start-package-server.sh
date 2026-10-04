@@ -114,6 +114,8 @@ echo "${VCR_MODE:-}" > "$PROJECT_ROOT/.vcr-mode"
 export DB_PATH="$INSTALL_DIR/circuschief.db"
 echo "$DB_PATH" > "$PROJECT_ROOT/.db-path"
 
-# Start the server from the installed package
+# Start the server from the installed package. The bind address is pinned so
+# an inherited CIRCUSCHIEF_HOST/HOST cannot move the test server's network
+# exposure (matches scripts/start-server.sh).
 cd "$INSTALL_DIR"
-VCR_MODE="${VCR_MODE:-}" DB_PATH="$DB_PATH" node node_modules/.bin/circuschief -p "$SELECTED_PORT"
+VCR_MODE="${VCR_MODE:-}" DB_PATH="$DB_PATH" node node_modules/.bin/circuschief -p "$SELECTED_PORT" -H 127.0.0.1

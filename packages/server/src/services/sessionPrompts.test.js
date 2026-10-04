@@ -101,6 +101,7 @@ describe('sessionPrompts', () => {
     // Restore env vars we may have set
     delete process.env.CIRCUSCHIEF_API_URL;
     delete process.env.PORT;
+    delete process.env.CIRCUSCHIEF_HOST;
   });
 
   // ── getApiBaseUrl ─────────────────────────────────────────────────────
@@ -126,6 +127,43 @@ describe('sessionPrompts', () => {
     it('CIRCUSCHIEF_API_URL takes precedence over PORT', () => {
       process.env.CIRCUSCHIEF_API_URL = 'https://override.example.com';
       process.env.PORT = '9999';
+      expect(getApiBaseUrl()).toBe('https://override.example.com');
+    });
+
+    it.each(['0.0.0.0', '::', '0', '127.0.0.1', 'localhost'])(
+      'dials localhost when bound to %s',
+      (host) => {
+        delete process.env.CIRCUSCHIEF_API_URL;
+        process.env.CIRCUSCHIEF_HOST = host;
+        process.env.PORT = '3456';
+        expect(getApiBaseUrl()).toBe('http://localhost:3456');
+      }
+    );
+
+    it('dials [::1] explicitly when bound to IPv6 loopback', () => {
+      delete process.env.CIRCUSCHIEF_API_URL;
+      process.env.CIRCUSCHIEF_HOST = '::1';
+      process.env.PORT = '3456';
+      expect(getApiBaseUrl()).toBe('http://[::1]:3456');
+    });
+
+    it('dials the literal address when bound to a specific interface', () => {
+      delete process.env.CIRCUSCHIEF_API_URL;
+      process.env.CIRCUSCHIEF_HOST = '192.168.1.50';
+      process.env.PORT = '3456';
+      expect(getApiBaseUrl()).toBe('http://192.168.1.50:3456');
+    });
+
+    it('brackets IPv6 interface addresses', () => {
+      delete process.env.CIRCUSCHIEF_API_URL;
+      process.env.CIRCUSCHIEF_HOST = 'fd00::1';
+      process.env.PORT = '3456';
+      expect(getApiBaseUrl()).toBe('http://[fd00::1]:3456');
+    });
+
+    it('CIRCUSCHIEF_API_URL takes precedence over the bind host', () => {
+      process.env.CIRCUSCHIEF_API_URL = 'https://override.example.com';
+      process.env.CIRCUSCHIEF_HOST = '192.168.1.50';
       expect(getApiBaseUrl()).toBe('https://override.example.com');
     });
   });
