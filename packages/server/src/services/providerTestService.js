@@ -1,13 +1,48 @@
 import { spawn } from 'child_process';
+import { tmpdir } from 'node:os';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { createGeminiSpawner } from './geminiSpawnHelper.js';
 import { createRobustEnv } from './nodeSpawnHelper.js';
 
 /**
+ * Build the probe config shared by BOTH provider test routes (finding #9):
+ * `POST /api/providers/test` (transient) and `POST /api/providers/:id/test`
+ * (saved). One model fallback (`sonnet` tier, else the request's explicit
+ * `defaultSonnetModel`, else the first enabled non-retired model) and one
+ * meta-kind cwd rule: the Muse probe errors when `workingDirectory` is
+ * unset, and a provider record / transient request carries none, so the OS
+ * temp dir is used explicitly rather than leaking the server cwd into the
+ * probe. An explicit `workingDirectory` always wins.
+ *
+ * @param {Object} provider - Saved provider record or validated transient
+ *   request body (`kind`, `baseUrl`, `authToken`, `models`?, `defaultSonnetModel`?,
+ *   `apiTimeoutMs`?, `workingDirectory`?).
+ * @returns {Object} Config accepted by {@link testProviderConnection}.
+ */
+export function buildProviderTestConfig(provider) {
+  const sonnetModel = provider.models?.find((m) => m.tier === 'sonnet');
+  const explicitModel = provider.defaultSonnetModel || null;
+  const firstEnabled = provider.models?.find((m) => m.enabled !== false && m.lifecycle !== 'retired')
+    || provider.models?.[0]
+    || null;
+  return {
+    kind: provider.kind || 'anthropic',
+    baseUrl: provider.baseUrl,
+    authToken: provider.authToken,
+    defaultSonnetModel: sonnetModel?.modelId || explicitModel || firstEnabled?.modelId || null,
+    apiTimeoutMs: provider.apiTimeoutMs,
+    ...(provider.workingDirectory
+      ? { workingDirectory: provider.workingDirectory }
+      : (provider.kind === 'meta' ? { workingDirectory: tmpdir() } : {})),
+  };
+}
+
+/**
  * Default spawn for the Meta connection test. Plain `spawn` with a robust
  * env (Node on PATH) — no E2E capture hook: E2E Muse coverage is out of
- * scope until the adapter has E2E fixtures.
+ * scope until the adapter has E2E fixtures. Detached on POSIX so a timeout
+ * can signal the whole process group (round-3 finding #10).
  */
 function defaultMuseTestSpawn({ command, args, cwd, env }) {
   return spawn(command, args, {
@@ -15,7 +50,28 @@ function defaultMuseTestSpawn({ command, args, cwd, env }) {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: createRobustEnv(env),
     windowsHide: true,
+    detached: process.platform !== 'win32',
   });
+}
+
+/**
+ * Kill a timed-out meta probe, group first (round-3 finding #10): `muse
+ * exec` can leave grandchildren behind a direct `child.kill`, so signal the
+ * process group the detached spawn created. Falls back to `child.kill` when
+ * there is no group to signal (no pid, Windows, already reaped). The group
+ * kill is injectable via `deps.killProcessGroup` for tests.
+ */
+function killMuseTestProcess(child, killProcessGroup) {
+  const killGroup = killProcessGroup || ((pid, signal) => process.kill(pid, signal));
+  if (child?.pid && process.platform !== 'win32') {
+    try {
+      killGroup(-child.pid, 'SIGTERM');
+      return;
+    } catch {
+      // No group to signal — fall through to the direct kill.
+    }
+  }
+  try { child.kill('SIGTERM'); } catch { /* ignore */ }
 }
 
 /**
@@ -205,19 +261,55 @@ async function testGoogleConnection(config, deps = {}) {
 }
 
 /**
+ * Build the headless `muse exec` argv for the Meta connection test (pure).
+ *
+ * No no-cost probe exists: `muse auth` only stores keys (verified against
+ * `muse --help` — there is no `auth status` equivalent), so the test stays
+ * one minimal billed `exec` turn. Sandbox stays ON (default); no session
+ * log is written. Throws when no working directory is set — falling back
+ * to the server cwd would test the wrong directory.
+ *
+ * @param {Object} config - `{ workingDirectory, defaultSonnetModel }`.
+ * @returns {{ command: string, args: string[], cwd: string, model: string }}
+ */
+export function buildMuseTestArgs(config) {
+  if (!config?.workingDirectory) {
+    const error = new Error('A working directory is required to test the Muse connection.');
+    error.code = 'MISSING_WORKING_DIRECTORY';
+    throw error;
+  }
+  // Last-resort-only fallback (finding #9): always prefer the configured
+  // model — this test turn is billed — the literal exists solely so a
+  // model-less provider can still probe binary presence + auth.
+  const model = config.defaultSonnetModel || 'muse-spark-1.3';
+  return {
+    command: process.env.MUSE_BIN || 'muse',
+    args: ['exec', '--json', '--no-session-log', '--workspace', config.workingDirectory, '--model', model, 'Hi'],
+    cwd: config.workingDirectory,
+    model,
+  };
+}
+
+/**
  * Meta-kind connection test: run a minimal headless `muse exec` turn.
- * The `muse serve` host authenticates with the host's own `muse auth`
+ * The exec child authenticates with the host's own `muse auth`
  * credentials, so this exercises binary presence, auth, and model access
- * in one call. Sandbox stays ON (default); no session log is written.
+ * in one call (see buildMuseTestArgs for the cost note).
  */
 async function testMetaConnection(config, deps = {}) {
+  let spec;
+  try {
+    spec = buildMuseTestArgs(config);
+  } catch (error) {
+    return failureResponse(error);
+  }
   try {
     const timeoutMs = config.apiTimeoutMs || 30000;
     const spawnMuseProcess = deps.spawnMuseProcess || defaultMuseTestSpawn;
     const child = spawnMuseProcess({
-      command: process.env.MUSE_BIN || 'muse',
-      args: ['exec', '--json', '--no-session-log', '-p', 'Hi', '-m', 'muse-spark-1.3'],
-      cwd: config.workingDirectory,
+      command: spec.command,
+      args: spec.args,
+      cwd: spec.cwd,
       env: process.env,
     });
 
@@ -227,7 +319,7 @@ async function testMetaConnection(config, deps = {}) {
 
       const timer = setTimeout(() => {
         killed = true;
-        try { child.kill('SIGTERM'); } catch { /* ignore */ }
+        killMuseTestProcess(child, deps.killProcessGroup);
         resolve(failureResponse(new Error(`Muse CLI timed out after ${timeoutMs}ms`)));
       }, timeoutMs);
 
@@ -246,7 +338,7 @@ async function testMetaConnection(config, deps = {}) {
         clearTimeout(timer);
         if (killed) return;
         if (code === 0) {
-          resolve(connectionSuccess({ model: 'muse-spark-1.3' }));
+          resolve(connectionSuccess({ model: spec.model }));
         } else {
           resolve(failureResponse(new Error(stderr.trim() || `Muse CLI exited with code ${code}`)));
         }

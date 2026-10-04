@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   callClaude: vi.fn(),
   buildProviderEnv: vi.fn(),
   callCodexSummary: vi.fn(),
+  callMuseSummary: vi.fn(),
   agentCallLogger: {
     startCall: vi.fn(),
     updateUsage: vi.fn(),
@@ -47,6 +48,10 @@ vi.mock('./summaryCodexClient.js', () => ({
   callCodexSummary: mocks.callCodexSummary,
 }));
 
+vi.mock('./summaryMuseClient.js', () => ({
+  callMuseSummary: mocks.callMuseSummary,
+}));
+
 import { SESSION_SUMMARY_SCHEMA, callSummaryModel } from './summaryModelClient.js';
 
 describe('summaryModelClient', () => {
@@ -60,6 +65,7 @@ describe('summaryModelClient', () => {
     });
     mocks.callClaude.mockResolvedValue('{"short_summary":"ok"}');
     mocks.callCodexSummary.mockResolvedValue('{"short_summary":"codex"}');
+    mocks.callMuseSummary.mockResolvedValue('{"short_summary":"muse"}');
     mocks.buildProviderEnv.mockReturnValue({ ANTHROPIC_API_KEY: 'custom-token' });
     mocks.agentCallLogger.startCall.mockReturnValue('call-1');
   });
@@ -216,6 +222,50 @@ describe('summaryModelClient', () => {
       resolvedModel: resolution,
       logMeta: { sessionId: 'session-1', callType: 'session-summary' },
     })).rejects.toThrow('OpenAI failed');
+
+    expect(mocks.agentCallLogger.completeCall).toHaveBeenCalledWith('call-1', { success: false, error });
+  });
+
+  it('routes meta resolutions through Muse instead of Claude', async () => {
+    const resolution = {
+      model: 'muse-spark-1.3',
+      providerId: 'meta-default',
+      provider: { id: 'meta-default', isBuiltIn: true, kind: 'meta' },
+      kind: 'meta',
+      selectionReason: 'explicit',
+    };
+
+    const result = await callSummaryModel('prompt', [], 'completed', {
+      resolvedModel: resolution,
+      logMeta: { sessionId: 'session-1', conversationId: 'conversation-1', callType: 'session-summary' },
+    });
+
+    expect(result).toBe('{"short_summary":"muse"}');
+    expect(mocks.callMuseSummary).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'muse-spark-1.3', prompt: 'prompt',
+    }), undefined);
+    expect(mocks.callClaude).not.toHaveBeenCalled();
+    expect(mocks.openAICreate).not.toHaveBeenCalled();
+    expect(mocks.agentCallLogger.startCall).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ route: 'muse-cli' }),
+    }));
+  });
+
+  it('keeps Muse failure logging', async () => {
+    const error = new Error('Muse failed');
+    mocks.callMuseSummary.mockRejectedValue(error);
+    const resolution = {
+      model: 'muse-spark-1.3',
+      providerId: 'meta-default',
+      provider: { id: 'meta-default', isBuiltIn: true, kind: 'meta' },
+      kind: 'meta',
+      selectionReason: 'explicit',
+    };
+
+    await expect(callSummaryModel('prompt', [], 'completed', {
+      resolvedModel: resolution,
+      logMeta: { sessionId: 'session-1', callType: 'session-summary' },
+    })).rejects.toThrow('Muse failed');
 
     expect(mocks.agentCallLogger.completeCall).toHaveBeenCalledWith('call-1', { success: false, error });
   });

@@ -22,7 +22,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => {
 import { AgentGateway } from './AgentGateway.js';
 import { ClaudeCodeAdapter } from './adapters/ClaudeCodeAdapter.js';
 import { CodexAdapter } from './adapters/CodexAdapter.js';
-import { MuseAdapter } from './adapters/MuseAdapter.js';
+import { MuseExecAdapter } from './adapters/MuseExecAdapter.js';
 import { BaseAgent } from './BaseAgent.js';
 
 describe('AgentGateway', () => {
@@ -144,17 +144,10 @@ describe('AgentGateway', () => {
 
   // ── Muse integration ────────────────────────────────────────────────────
   describe('muse adapter integration', () => {
-    it('createAgent("muse") returns a MuseAdapter instance', () => {
+    it('createAgent("muse") returns a MuseExecAdapter instance', () => {
       const gateway = new AgentGateway();
       const agent = gateway.createAgent('muse');
-      expect(agent).toBeInstanceOf(MuseAdapter);
-    });
-
-    it('createAgent("muse", config) forwards config to the adapter', () => {
-      const gateway = new AgentGateway();
-      const fakeFactory = async () => ({});
-      const agent = gateway.createAgent('muse', { museClientFactory: fakeFactory });
-      expect(agent._museClientFactory).toBe(fakeFactory);
+      expect(agent).toBeInstanceOf(MuseExecAdapter);
     });
 
     it('getAgentCapabilities("muse") returns muse capabilities WITHOUT calling constructor', () => {
@@ -167,7 +160,7 @@ describe('AgentGateway', () => {
         toolUse: true,
         resume: true,
       });
-      expect(caps).toEqual(MuseAdapter.capabilities);
+      expect(caps).toEqual(MuseExecAdapter.capabilities);
     });
   });
 });

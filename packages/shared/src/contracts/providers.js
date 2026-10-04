@@ -168,6 +168,7 @@ export const TestConnectionRequest = z.object({
   authToken: z.string().nullable().optional(),
   defaultSonnetModel: z.string().nullable().optional(),
   apiTimeoutMs: z.number().int().positive().nullable().optional(),
+  workingDirectory: z.string().min(1).nullable().optional(),
 });
 
 export const TestConnectionResponse = z.object({

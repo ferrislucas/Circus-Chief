@@ -101,6 +101,11 @@ const routes = [
         name: 'AgentLogs',
         component: () => import('./views/AgentLogsView.vue'),
       },
+      {
+        path: 'muse-env',
+        name: 'MuseDiagnostics',
+        component: () => import('./views/MuseDiagnosticsView.vue'),
+      },
     ],
   },
 ];

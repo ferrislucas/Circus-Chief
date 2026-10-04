@@ -95,12 +95,17 @@ export function createRobustEnv(baseEnv = process.env, opts = {}) {
   const nodeBinDir = getNodeBinDir();
   const pathSeparator = process.platform === 'win32' ? ';' : ':';
   const currentPath = withShell.PATH || withShell.Path || '';
-  // The user's existing entries are never reordered or removed, so the
-  // original PATH stays intact as a substring. User bin dirs are appended
-  // only when missing, so re-applying never duplicates them.
-  // The Node bin dir is always first (existing contract: PATH starts with it
-  // and still contains the original PATH as a substring).
-  let mergedPath = currentPath ? `${nodeBinDir}${pathSeparator}${currentPath}` : nodeBinDir;
+  // The user's existing entries are never dropped or reordered relative to
+  // each other, so agent-spawned tools resolve the same binaries. User bin
+  // dirs are appended only when missing, so re-applying never duplicates
+  // them.
+  // The Node bin dir is always first and appears exactly once (finding #6):
+  // nested launches (yarn → vitest → worker) can hand us a PATH already
+  // carrying duplicate copies of it, and re-prepending on every build would
+  // compound them. Collapsing copies of *our own* dir preserves resolution
+  // semantics while keeping every other entry — and its order — untouched.
+  const pathParts = currentPath ? currentPath.split(pathSeparator).filter(Boolean) : [];
+  let mergedPath = [nodeBinDir, ...pathParts.filter((dir) => dir !== nodeBinDir)].join(pathSeparator);
   if (process.platform !== 'win32') {
     for (const dir of POSIX_USER_BIN_DIRS) {
       if (!pathContainsDir(mergedPath, pathSeparator, dir)) {

@@ -26,7 +26,7 @@ vi.mock('openai', () => {
   return { default: MockOpenAI };
 });
 
-import { testProviderConnection } from './providerTestService.js';
+import { testProviderConnection, buildMuseTestArgs } from './providerTestService.js';
 
 function createMockGeminiChild() {
   const child = new EventEmitter();
@@ -326,7 +326,7 @@ describe('providerTestService', () => {
   // ── Meta/Muse kind ────────────────────────────────────────────────────
 
   describe("kind='meta'", () => {
-    it('success spawns headless muse exec and reports the Muse model', async () => {
+    it('success spawns headless muse exec with the configured model', async () => {
       const savedMuseBin = process.env.MUSE_BIN;
       delete process.env.MUSE_BIN;
       const child = createMockGeminiChild();
@@ -335,6 +335,7 @@ describe('providerTestService', () => {
       const promise = testProviderConnection({
         kind: 'meta',
         workingDirectory: '/tmp/muse-workdir',
+        defaultSonnetModel: 'muse-spark-1.3-contributor',
       }, { spawnMuseProcess });
 
       child.emit('exit', 0);
@@ -343,11 +344,11 @@ describe('providerTestService', () => {
       expect(result).toEqual({
         success: true,
         message: 'Connection successful',
-        details: { model: 'muse-spark-1.3' },
+        details: { model: 'muse-spark-1.3-contributor' },
       });
       expect(spawnMuseProcess).toHaveBeenCalledWith({
         command: 'muse',
-        args: ['exec', '--json', '--no-session-log', '-p', 'Hi', '-m', 'muse-spark-1.3'],
+        args: ['exec', '--json', '--no-session-log', '--workspace', '/tmp/muse-workdir', '--model', 'muse-spark-1.3-contributor', 'Hi'],
         cwd: '/tmp/muse-workdir',
         env: process.env,
       });
@@ -355,11 +356,54 @@ describe('providerTestService', () => {
       else process.env.MUSE_BIN = savedMuseBin;
     });
 
+    it('errors out when no working directory is set (never server-cwd fallback)', async () => {
+      const spawnMuseProcess = vi.fn(() => createMockGeminiChild());
+
+      const result = await testProviderConnection({
+        kind: 'meta',
+        defaultSonnetModel: 'muse-spark-1.3',
+      }, { spawnMuseProcess });
+
+      expect(result.success).toBe(false);
+      expect(result.message).toMatch(/working directory/i);
+      expect(result.details?.code).toBe('MISSING_WORKING_DIRECTORY');
+      expect(spawnMuseProcess).not.toHaveBeenCalled();
+    });
+
+    it('buildMuseTestArgs builds the headless exec argv from the configured model', () => {
+      expect(buildMuseTestArgs({
+        workingDirectory: '/tmp/w',
+        defaultSonnetModel: 'muse-spark-1.3-contributor',
+      })).toEqual({
+        command: 'muse',
+        args: ['exec', '--json', '--no-session-log', '--workspace', '/tmp/w', '--model', 'muse-spark-1.3-contributor', 'Hi'],
+        cwd: '/tmp/w',
+        model: 'muse-spark-1.3-contributor',
+      });
+    });
+
+    it('buildMuseTestArgs throws when the working directory is unset', () => {
+      expect(() => buildMuseTestArgs({ defaultSonnetModel: 'muse-spark-1.3' }))
+        .toThrow(expect.objectContaining({ code: 'MISSING_WORKING_DIRECTORY' }));
+    });
+
+    // Finding #9: the 'muse-spark-1.3' fallback is last-resort-only for a
+    // model-less provider. The connection test is one minimal BILLED exec
+    // turn, so an explicitly configured model is always preferred.
+    it('buildMuseTestArgs falls back to muse-spark-1.3 only when no model is configured', () => {
+      expect(buildMuseTestArgs({ workingDirectory: '/tmp/w' })).toEqual({
+        command: 'muse',
+        args: ['exec', '--json', '--no-session-log', '--workspace', '/tmp/w', '--model', 'muse-spark-1.3', 'Hi'],
+        cwd: '/tmp/w',
+        model: 'muse-spark-1.3',
+      });
+    });
+
     it('non-zero exit maps stderr into failure shape', async () => {
       const child = createMockGeminiChild();
       const spawnMuseProcess = vi.fn(() => child);
 
-      const promise = testProviderConnection({ kind: 'meta' }, { spawnMuseProcess });
+      const promise = testProviderConnection({ kind: 'meta', workingDirectory: '/tmp/muse-workdir' }, { spawnMuseProcess });
 
       child.stderr.emit('data', Buffer.from('auth required\n'));
       child.emit('exit', 1);
@@ -376,7 +420,7 @@ describe('providerTestService', () => {
       const child = createMockGeminiChild();
       const spawnMuseProcess = vi.fn(() => child);
 
-      const promise = testProviderConnection({ kind: 'meta' }, { spawnMuseProcess });
+      const promise = testProviderConnection({ kind: 'meta', workingDirectory: '/tmp/muse-workdir' }, { spawnMuseProcess });
       const error = new Error('spawn muse ENOENT');
       error.code = 'ENOENT';
       child.emit('error', error);
@@ -384,6 +428,41 @@ describe('providerTestService', () => {
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('Muse CLI not found');
+    });
+
+    // Round-3 finding #10: a timed-out `muse exec` must die as a group —
+    // killing only the direct child can strand grandchildren.
+    it('kills a timed-out probe as a process group when a pid is available', async () => {
+      const child = createMockGeminiChild();
+      child.pid = 424242;
+      const spawnMuseProcess = vi.fn(() => child);
+      const killProcessGroup = vi.fn();
+
+      const result = await testProviderConnection(
+        { kind: 'meta', workingDirectory: '/tmp/muse-workdir', apiTimeoutMs: 25 },
+        { spawnMuseProcess, killProcessGroup },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.message).toMatch(/timed out/);
+      expect(killProcessGroup).toHaveBeenCalledWith(-424242, 'SIGTERM');
+      expect(child.kill).not.toHaveBeenCalled();
+    });
+
+    it('falls back to child.kill when the group kill throws', async () => {
+      const child = createMockGeminiChild();
+      child.pid = 424243;
+      const spawnMuseProcess = vi.fn(() => child);
+      const killProcessGroup = vi.fn(() => { throw new Error('ESRCH'); });
+
+      const result = await testProviderConnection(
+        { kind: 'meta', workingDirectory: '/tmp/muse-workdir', apiTimeoutMs: 25 },
+        { spawnMuseProcess, killProcessGroup },
+      );
+
+      expect(result.success).toBe(false);
+      expect(killProcessGroup).toHaveBeenCalledWith(-424243, 'SIGTERM');
+      expect(child.kill).toHaveBeenCalledWith('SIGTERM');
     });
   });
 });
