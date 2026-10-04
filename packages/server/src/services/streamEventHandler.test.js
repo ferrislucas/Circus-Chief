@@ -10,6 +10,7 @@ vi.mock('../database.js', () => ({
   messages: {
     getBySessionId: vi.fn(),
     getByConversationId: vi.fn(),
+    getLastByConversationIdAndRole: vi.fn(),
     create: vi.fn(),
   },
   workLogs: {
@@ -61,12 +62,17 @@ vi.mock('./usageTracker.js', () => ({
   estimateTokens: vi.fn(),
 }));
 
+vi.mock('./workflowSessionService.js', () => ({
+  withActiveLaneRunOwnership: vi.fn((_sessionId, mutation) => mutation()),
+}));
+
 import { sessions, messages, workLogs, conversations } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import * as summaryService from './summaryService.js';
 import * as diffService from './diffService.js';
 import * as gitService from './gitService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { abortForUserStop } from './sessionAbort.js';
 import {
   createWorkLog,
   associateAndBroadcastWorkLogs,
@@ -87,6 +93,9 @@ import {
   finalResultEvents,
   getResultEvent,
 } from './streamEventHandler.js';
+import { wakeupTurnStates, recordExplicitSchedule, captureScheduleWakeup, __resetWakeupTurnStatesForTest } from './scheduleWakeupBridge.js';
+import { withActiveLaneRunOwnership } from './workflowSessionService.js';
+import { getPrompt, parkPrompt } from './promptStore.js';
 
 describe('streamEventHandler', () => {
   beforeEach(() => {
@@ -102,7 +111,9 @@ describe('streamEventHandler', () => {
     loggedToolUseIds.clear();
     finalErrorSessionIds.clear();
     finalResultEvents.clear();
+    __resetWakeupTurnStatesForTest();
     messages.getByConversationId.mockReturnValue([]);
+    messages.getLastByConversationIdAndRole.mockReturnValue(null);
     messages.getBySessionId.mockReturnValue([]);
     messages.create.mockImplementation((sessionId, role, content, options = {}) => ({
       id: `msg-${role}`,
@@ -111,6 +122,7 @@ describe('streamEventHandler', () => {
       role,
       content,
     }));
+    withActiveLaneRunOwnership.mockImplementation((_sessionId, mutation) => mutation());
   });
 
   // ── createWorkLog ─────────────────────────────────────────────────────
@@ -343,17 +355,37 @@ describe('streamEventHandler', () => {
       thinkingAccumulators.set('sess-1', 'thinking...');
       currentModels.set('sess-1', 'claude-3');
       loggedToolUseIds.set('sess-1', new Set(['tu-1']));
+      lastMessageIds.set('sess-1', 'msg-1');
+      finalResultEvents.set('sess-1', { subtype: 'success' });
+      activeConversationIds.set('sess-1', 'conv-1');
       activeSessions.set('sess-1', { controller: new AbortController() });
       finalErrorSessionIds.add('sess-1');
 
-      cleanupSessionState('sess-1');
+      cleanupSessionState('sess-1', true);
 
       expect(textAccumulators.has('sess-1')).toBe(false);
       expect(thinkingAccumulators.has('sess-1')).toBe(false);
       expect(currentModels.has('sess-1')).toBe(false);
       expect(loggedToolUseIds.has('sess-1')).toBe(false);
+      expect(lastMessageIds.has('sess-1')).toBe(false);
       expect(finalErrorSessionIds.has('sess-1')).toBe(false);
+      expect(finalResultEvents.has('sess-1')).toBe(false);
+      expect(activeConversationIds.has('sess-1')).toBe(false);
       expect(activeSessions.has('sess-1')).toBe(false);
+    });
+
+    it('settles a parked prompt before clearing its turn state', async () => {
+      const controller = new AbortController();
+      activeSessions.set('sess-1', { controller });
+      const parked = parkPrompt({
+        sessionId: 'sess-1', conversationId: 'conv-1', kind: 'permission',
+        payload: { toolName: 'Read', input: {}, displayName: 'Read' }, signal: controller.signal,
+      });
+
+      cleanupSessionState('sess-1', true, controller);
+
+      await expect(parked).resolves.toEqual({ behavior: 'deny', message: 'Session was cancelled.' });
+      expect(getPrompt('sess-1')).toBeNull();
     });
 
     it('does not clean up activeConversationIds by default', () => {
@@ -382,6 +414,70 @@ describe('streamEventHandler', () => {
 
       expect(textAccumulators.has('sess-2')).toBe(true);
       expect(activeSessions.has('sess-2')).toBe(true);
+    });
+
+    it('does not let an old execution clean up replacement execution state', () => {
+      const oldController = new AbortController();
+      const replacementController = new AbortController();
+      textAccumulators.set('sess-1', 'replacement text');
+      thinkingAccumulators.set('sess-1', 'replacement thinking');
+      currentModels.set('sess-1', 'replacement-model');
+      loggedToolUseIds.set('sess-1', new Set(['replacement-tool']));
+      finalErrorSessionIds.add('sess-1');
+      finalResultEvents.set('sess-1', { subtype: 'success' });
+      activeConversationIds.set('sess-1', 'replacement-conversation');
+      activeSessions.set('sess-1', { controller: replacementController });
+
+      const cleaned = cleanupSessionState('sess-1', true, oldController);
+
+      expect(cleaned).toBe(false);
+      expect(activeSessions.get('sess-1')?.controller).toBe(replacementController);
+      expect(textAccumulators.get('sess-1')).toBe('replacement text');
+      expect(thinkingAccumulators.get('sess-1')).toBe('replacement thinking');
+      expect(currentModels.get('sess-1')).toBe('replacement-model');
+      expect(loggedToolUseIds.get('sess-1')).toEqual(new Set(['replacement-tool']));
+      expect(finalErrorSessionIds.has('sess-1')).toBe(true);
+      expect(finalResultEvents.get('sess-1')).toEqual({ subtype: 'success' });
+      expect(activeConversationIds.get('sess-1')).toBe('replacement-conversation');
+    });
+
+    it('cleans up state when the expected controller still owns the session', () => {
+      const controller = new AbortController();
+      textAccumulators.set('sess-1', 'some text');
+      activeConversationIds.set('sess-1', 'conv-1');
+      activeSessions.set('sess-1', { controller });
+
+      const cleaned = cleanupSessionState('sess-1', true, controller);
+
+      expect(cleaned).toBe(true);
+      expect(textAccumulators.has('sess-1')).toBe(false);
+      expect(activeSessions.has('sess-1')).toBe(false);
+      expect(activeConversationIds.has('sess-1')).toBe(false);
+    });
+
+    it('still cleans up when the owner already deregistered (stopSession path)', () => {
+      const controller = new AbortController();
+      textAccumulators.set('sess-1', 'partial text');
+      thinkingAccumulators.set('sess-1', 'partial thinking');
+      currentModels.set('sess-1', 'some-model');
+      loggedToolUseIds.set('sess-1', new Set(['tool-1']));
+      finalErrorSessionIds.add('sess-1');
+      finalResultEvents.set('sess-1', { subtype: 'error' });
+      activeConversationIds.set('sess-1', 'conv-1');
+      // stopSession() removed the activeSessions entry before the turn unwound;
+      // an absent entry must not be mistaken for a live replacement execution.
+      activeSessions.delete('sess-1');
+
+      const cleaned = cleanupSessionState('sess-1', true, controller);
+
+      expect(cleaned).toBe(true);
+      expect(textAccumulators.has('sess-1')).toBe(false);
+      expect(thinkingAccumulators.has('sess-1')).toBe(false);
+      expect(currentModels.has('sess-1')).toBe(false);
+      expect(loggedToolUseIds.has('sess-1')).toBe(false);
+      expect(finalErrorSessionIds.has('sess-1')).toBe(false);
+      expect(finalResultEvents.has('sess-1')).toBe(false);
+      expect(activeConversationIds.has('sess-1')).toBe(false);
     });
   });
 
@@ -416,6 +512,42 @@ describe('streamEventHandler', () => {
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+    });
+
+    it('lands both status dimensions when an aborted turn has no recorded outcome', async () => {
+      const controller = { signal: { aborted: true } };
+      activeSessions.set('sess-1', { controller });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ status: 'running' });
+
+      await handleTurnCompletion('sess-1', '/workspace', {}, { controller });
+
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', {
+        status: 'stopped',
+        executionState: 'stopped',
+      });
+    });
+
+    it('does not let an aborted older turn stop a newer registered turn', async () => {
+      const oldController = { signal: { aborted: true } };
+      const newController = { signal: { aborted: false } };
+      activeSessions.set('sess-1', { controller: newController });
+      sessions.getById.mockReturnValue({ status: 'running' });
+
+      await handleTurnCompletion('sess-1', '/workspace', {}, { controller: oldController });
+
+      expect(sessions.update).not.toHaveBeenCalled();
+    });
+
+    it('does not let a normally-completing older turn mark a newer turn waiting', async () => {
+      const oldController = { signal: { aborted: false } };
+      const newController = { signal: { aborted: false } };
+      activeSessions.set('sess-1', { controller: newController });
+      sessions.getById.mockReturnValue({ status: 'running' });
+
+      await handleTurnCompletion('sess-1', '/workspace', {}, { controller: oldController });
+
+      expect(sessions.update).not.toHaveBeenCalled();
     });
 
     it('clears stale error when transitioning to waiting status', async () => {
@@ -474,7 +606,7 @@ describe('streamEventHandler', () => {
       expect(mockHandleTemplate).toHaveBeenCalledWith('sess-1');
     });
 
-    it('does not set waiting when session was aborted', async () => {
+    it('lands stopped, not waiting, when the session was aborted', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: true } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
 
@@ -483,7 +615,7 @@ describe('streamEventHandler', () => {
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(sessions.update).not.toHaveBeenCalled();
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'stopped', executionState: 'stopped' });
     });
 
     it('does not set waiting when session not in activeSessions', async () => {
@@ -759,6 +891,30 @@ describe('streamEventHandler', () => {
       expect(mockHandleTemplate).not.toHaveBeenCalled();
     });
 
+    it('does not launch automation when the turn is stopped during completion', async () => {
+      const controller = new AbortController();
+      activeSessions.set('sess-1', { controller });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockImplementation(async () => {
+        controller.abort();
+        return { staged: null, unstaged: null, untracked: null };
+      });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      }, { controller });
+
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
     it('does not call auto-send or template trigger when rescheduled', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
@@ -777,7 +933,11 @@ describe('streamEventHandler', () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       activeConversationIds.set('sess-1', 'conv-1');
       lastMessageIds.set('sess-1', 'msg-last');
-      sessions.getById.mockReturnValue({ agentType: 'codex', projectId: 'proj-1' });
+      sessions.getById.mockReturnValue({
+        agentType: 'codex',
+        projectId: 'proj-1',
+        error: 'usage limit reached',
+      });
       messages.getByConversationId.mockReturnValue([
         { id: 'msg-user', sessionId: 'sess-1', conversationId: 'conv-1', role: 'user', content: 'continue' },
       ]);
@@ -791,7 +951,11 @@ describe('streamEventHandler', () => {
 
       vi.clearAllMocks();
       workLogs.associatePendingLogs.mockReturnValue(1);
-      sessions.getById.mockReturnValue({ agentType: 'codex', projectId: 'proj-1' });
+      sessions.getById.mockReturnValue({
+        agentType: 'codex',
+        projectId: 'proj-1',
+        error: 'usage limit reached',
+      });
 
       const mockCheckReschedule = vi.fn().mockResolvedValue(false);
       const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
@@ -803,7 +967,9 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
+      expect(result).toMatchObject({ wasRescheduled: false, heldForLimit: false });
+      expect(result.terminalError).toBeInstanceOf(Error);
+      expect(result.terminalError.message).toBe('usage limit reached');
       expect(workLogs.associatePendingLogs).toHaveBeenCalledWith('sess-1', 'msg-last');
       expect(lastMessageIds.has('sess-1')).toBe(false);
       expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
@@ -827,7 +993,15 @@ describe('streamEventHandler', () => {
 
       const futureScheduledAt = Date.now() + 3600000;
       sessions.getById.mockReturnValue({
+        id: 'sess-1',
         projectId: 'proj-1',
+        scheduledAt: futureScheduledAt,
+        pendingPrompt: 'Continue the analysis',
+      });
+      sessions.update.mockReturnValue({
+        id: 'sess-1',
+        projectId: 'proj-1',
+        status: 'scheduled',
         scheduledAt: futureScheduledAt,
         pendingPrompt: 'Continue the analysis',
       });
@@ -843,8 +1017,8 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled', error: null });
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
       expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
       expect(diffService.getChanges).toHaveBeenCalledWith('/workspace');
@@ -886,7 +1060,7 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
+      expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
       expect(mockCheckReschedule).not.toHaveBeenCalled();
       expect(session).toMatchObject({
         status: 'scheduled',
@@ -895,8 +1069,8 @@ describe('streamEventHandler', () => {
         pendingConversationId: 'conv-explicit',
         pendingModel: 'gpt-5.4',
       });
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled', error: null });
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
       expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
       expect(diffService.getChanges).toHaveBeenCalledWith('/workspace');
@@ -910,7 +1084,15 @@ describe('streamEventHandler', () => {
 
       const pastScheduledAt = Date.now() - 1000;
       sessions.getById.mockReturnValue({
+        id: 'sess-1',
         projectId: 'proj-1',
+        scheduledAt: pastScheduledAt,
+        pendingPrompt: 'Continue',
+      });
+      sessions.update.mockReturnValue({
+        id: 'sess-1',
+        projectId: 'proj-1',
+        status: 'scheduled',
         scheduledAt: pastScheduledAt,
         pendingPrompt: 'Continue',
       });
@@ -926,9 +1108,9 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
+      expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled', error: null });
       expect(broadcastToSession).toHaveBeenCalledWith(
         'sess-1',
         WS_MESSAGE_TYPES.SESSION_STATUS,
@@ -1036,9 +1218,476 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
+      expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
       // Auto-send must NOT fire — schedule wins
       expect(mockAutoSend).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── ScheduleWakeup bridge (end-to-end wiring) ─────────────────────────
+
+  describe('ScheduleWakeup bridge', () => {
+    /** Assistant event carrying a ScheduleWakeup tool_use block. */
+    function wakeupEvent(input) {
+      return {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'text', text: "I'll wait for the scheduled wakeup." },
+            { type: 'tool_use', id: 'tool-wakeup', name: 'ScheduleWakeup', input },
+          ],
+        },
+      };
+    }
+
+    /** Stateful session mock so the completion predicate observes the bridge's write. */
+    function statefulSession(overrides = {}) {
+      const session = {
+        id: 'sess-1',
+        projectId: 'proj-1',
+        scheduledAt: null,
+        pendingPrompt: null,
+        laneRunId: null,
+        ...overrides,
+      };
+      sessions.getById.mockReturnValue(session);
+      sessions.update.mockImplementation((sessionId, updates) => {
+        if (sessionId === 'sess-1') Object.assign(session, updates);
+        return session;
+      });
+      return session;
+    }
+
+    beforeEach(() => {
+      // Reset all turn-scoped wakeup state for 'sess-1' (pending wakeup, the
+      // tool_use dedup set, and the explicit-schedule recency marker) — not
+      // just pendingWakeups — since several tests below reuse the same
+      // tool_use id ('tool-wakeup') across `it` blocks.
+      __resetWakeupTurnStatesForTest();
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+    });
+
+    it('turns a ScheduleWakeup call into a scheduled continuation', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      const session = statefulSession();
+
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 1200,
+        reason: 'waiting for the full E2E suite',
+        prompt: 'Continue: check /tmp/e2e-full-run.log',
+      }));
+
+      // Nothing is persisted until the turn actually ends.
+      expect(session.scheduledAt).toBeNull();
+
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(result).toEqual({ wasRescheduled: true, heldForLimit: false });
+      expect(session).toMatchObject({
+        status: 'scheduled',
+        pendingPrompt: 'Continue: check /tmp/e2e-full-run.log',
+        pendingConversationId: null,
+      });
+      expect(session.scheduledAt).toBeGreaterThan(Date.now());
+      // No intermediate 'waiting' status is broadcast on the wakeup path.
+      expect(broadcastToSession).not.toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_STATUS,
+        { sessionId: 'sess-1', status: 'waiting' }
+      );
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_STATUS,
+        { sessionId: 'sess-1', status: 'scheduled' }
+      );
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_UPDATED,
+        expect.objectContaining({
+          sessionId: 'sess-1',
+          session: expect.objectContaining({
+            status: 'scheduled',
+            pendingPrompt: 'Continue: check /tmp/e2e-full-run.log',
+            pendingConversationId: null,
+          }),
+        })
+      );
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        'proj-1',
+        WS_MESSAGE_TYPES.SESSION_UPDATED,
+        expect.objectContaining({
+          sessionId: 'sess-1',
+          session: expect.objectContaining({ scheduledAt: session.scheduledAt }),
+        })
+      );
+    });
+
+    it('turns the SDK dynamic autonomous-loop sentinel into a resumable existing-message continuation', async () => {
+      const controller = new AbortController();
+      activeSessions.set('sess-1', { controller });
+      const session = statefulSession();
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-loop', claudeSessionId: 'claude-loop' });
+      messages.getLastByConversationIdAndRole.mockReturnValue({ id: 'msg-loop-user', role: 'user', content: '/loop' });
+
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 600,
+        reason: 'wait for external work',
+        prompt: '<<autonomous-loop-dynamic>>',
+      }), { controller });
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      }, { controller });
+
+      expect(session).toMatchObject({
+        status: 'scheduled',
+        pendingPrompt: 'Continue',
+        pendingConversationId: 'conv-loop',
+      });
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_UPDATED,
+        expect.objectContaining({
+          session: expect.objectContaining({ pendingConversationId: 'conv-loop' }),
+        })
+      );
+    });
+
+    it('suppresses auto-send and the template trigger, like a REST schedule', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      statefulSession({ autoSendPendingPrompt: true });
+
+      await handleStreamEvent('sess-1', wakeupEvent({ delaySeconds: 600, reason: 'r', prompt: 'Continue' }));
+
+      const mockAutoSend = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+      });
+
+      expect(mockCheckReschedule).not.toHaveBeenCalled();
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
+    it('associates a wakeup supersession diagnostic with the current turn', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      statefulSession({
+        scheduledAt: Date.now() + 3_600_000,
+        pendingPrompt: 'Explicitly scheduled prompt',
+      });
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 600,
+        reason: 'r',
+        prompt: 'Earlier wakeup prompt',
+      }));
+      recordExplicitSchedule('sess-1', activeSessions.get('sess-1').controller);
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(workLogs.create).toHaveBeenCalledWith(
+        'sess-1',
+        'tool_output',
+        expect.stringContaining('superseded'),
+        expect.objectContaining({ toolName: 'ScheduleWakeup' })
+      );
+      const supersessionLogIndex = workLogs.create.mock.calls.findIndex(([, , content]) => content.includes('superseded'));
+      const supersessionLogOrder = workLogs.create.mock.invocationCallOrder[supersessionLogIndex];
+      expect(workLogs.associatePendingLogs).toHaveBeenLastCalledWith('sess-1', 'msg-assistant');
+      expect(workLogs.associatePendingLogs.mock.invocationCallOrder.at(-1)).toBeGreaterThan(supersessionLogOrder);
+      expect(lastMessageIds.has('sess-1')).toBe(false);
+    });
+
+    it('leaves an ordinary turn untouched', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      const session = statefulSession();
+
+      await handleStreamEvent('sess-1', {
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }] },
+      });
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(session.status).toBe('waiting');
+      expect(session.scheduledAt).toBeNull();
+    });
+
+    it('skips the intermediate waiting write when a captured wakeup is applied', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      const session = statefulSession();
+
+      await handleStreamEvent('sess-1', wakeupEvent({ delaySeconds: 600, prompt: 'Continue' }));
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(session.status).toBe('scheduled');
+      expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+      const scheduledWrites = sessions.update.mock.calls.filter(
+        (call) => call[0] === 'sess-1' && call[1]?.status === 'scheduled'
+      );
+      expect(scheduledWrites).toHaveLength(1);
+    });
+
+    it('lands waiting when a captured deferred wakeup cannot be resolved', async () => {
+      const controller = new AbortController();
+      activeSessions.set('sess-1', { controller });
+      const session = statefulSession({ status: 'running' });
+      conversations.getActiveBySessionId.mockReturnValue(null);
+
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 600,
+        reason: 'resume autonomous loop',
+        prompt: '<<autonomous-loop-dynamic>>',
+      }), { controller });
+
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      }, { controller });
+
+      expect(result).toEqual({ wasRescheduled: false, heldForLimit: false });
+      expect(session).toMatchObject({ status: 'waiting', scheduledAt: null, pendingPrompt: null });
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_STATUS,
+        { sessionId: 'sess-1', status: 'waiting' }
+      );
+    });
+
+    it('refuses to restore \'scheduled\' when a superseded lane run carries a leftover schedule', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      const session = statefulSession({
+        laneRunId: 'run-1',
+        scheduledAt: Date.now() + 3_600_000,
+        pendingPrompt: 'Leftover schedule',
+      });
+      withActiveLaneRunOwnership.mockReturnValue(null);
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(session.status).not.toBe('scheduled');
+      expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(broadcastToSession).not.toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_STATUS,
+        { sessionId: 'sess-1', status: 'scheduled' }
+      );
+    });
+
+    it('restores \'scheduled\' through the lane fence when the lane run is still active', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      const session = statefulSession({
+        laneRunId: 'run-1',
+        scheduledAt: Date.now() + 3_600_000,
+        pendingPrompt: 'Leftover schedule',
+      });
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(withActiveLaneRunOwnership).toHaveBeenCalledWith('sess-1', expect.any(Function));
+      expect(session.status).toBe('scheduled');
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_STATUS,
+        { sessionId: 'sess-1', status: 'scheduled' }
+      );
+    });
+
+    it('does not apply lane fencing to a non-workflow session', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      const session = statefulSession({
+        scheduledAt: Date.now() + 3_600_000,
+        pendingPrompt: 'Leftover schedule',
+      });
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(session.status).toBe('scheduled');
+      expect(withActiveLaneRunOwnership).not.toHaveBeenCalled();
+    });
+
+    it('discards a dynamic autonomous-loop wakeup across the error path', async () => {
+      const controller = { signal: { aborted: false } };
+      activeSessions.set('sess-1', { controller });
+      const session = statefulSession();
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-loop', claudeSessionId: 'claude-loop' });
+      messages.getByConversationId.mockReturnValue([{ id: 'msg-loop-user', role: 'user', content: '/loop' }]);
+
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 270,
+        reason: 'r',
+        prompt: '<<autonomous-loop-dynamic>>',
+      }));
+
+      const mockScheduler = { rescheduleSession: vi.fn().mockResolvedValue(true) };
+      const result = await handleSessionError('sess-1', new Error('stream blew up'), {
+        controller,
+        shouldRescheduleOnError: vi.fn().mockReturnValue(true),
+        schedulerService: mockScheduler,
+      });
+
+      // ScheduleWakeup only takes effect after a successful completion, so an
+      // error falls through to the ordinary automatic-reschedule policy.
+      expect(result).toBe(true);
+      expect(mockScheduler.rescheduleSession).toHaveBeenCalled();
+      expect(session.pendingConversationId).not.toBe('conv-loop');
+      expect(wakeupTurnStates.has(controller)).toBe(false);
+    });
+
+    it('discards a dynamic autonomous-loop wakeup when the turn is cleaned up without completing', async () => {
+      const controller = { signal: { aborted: false } };
+      activeSessions.set('sess-1', { controller });
+      statefulSession();
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-loop', claudeSessionId: 'claude-loop' });
+      messages.getByConversationId.mockReturnValue([{ id: 'msg-loop-user', role: 'user', content: '/loop' }]);
+
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 600,
+        reason: 'r',
+        prompt: '<<autonomous-loop-dynamic>>',
+      }));
+      expect(wakeupTurnStates.get(activeSessions.get('sess-1').controller)?.pendingWakeup).toBeTruthy();
+
+      cleanupSessionState('sess-1');
+
+      expect(wakeupTurnStates.get(controller)?.pendingWakeup).toBeFalsy();
+    });
+
+    it('keeps a replacement turn isolated while an aborted turn finally unwinds', async () => {
+      const controllerA = new AbortController();
+      const controllerB = new AbortController();
+      const session = statefulSession();
+      const callbacks = {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      };
+
+      activeSessions.set('sess-1', { controller: controllerA });
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 600, reason: 'turn A', prompt: 'STALE TURN A PROMPT',
+      }), { controller: controllerA });
+
+      // stopSession() aborts and deregisters A before its async finally runs.
+      controllerA.abort();
+      activeSessions.delete('sess-1');
+      activeSessions.set('sess-1', { controller: controllerB });
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 900, reason: 'turn B', prompt: 'TURN B PROMPT',
+      }), { controller: controllerB });
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 600, reason: 'stale turn A event', prompt: 'STALE TURN A EVENT PROMPT',
+      }), { controller: controllerA });
+
+      expect(wakeupTurnStates.get(controllerB)?.pendingWakeup).toMatchObject({ prompt: 'TURN B PROMPT' });
+
+      // A's delayed completion/finally cannot read, apply, or clear B's state.
+      await handleTurnCompletion('sess-1', '/workspace', callbacks, { controller: controllerA });
+      expect(wakeupTurnStates.has(controllerA)).toBe(false);
+      expect(wakeupTurnStates.get(controllerB)?.pendingWakeup).toMatchObject({ prompt: 'TURN B PROMPT' });
+      expect(session.pendingPrompt).not.toBe('STALE TURN A PROMPT');
+
+      expect(cleanupSessionState('sess-1', true, controllerA)).toBe(false);
+      expect(wakeupTurnStates.get(controllerB)?.pendingWakeup).toMatchObject({ prompt: 'TURN B PROMPT' });
+
+      await handleTurnCompletion('sess-1', '/workspace', callbacks, { controller: controllerB });
+      expect(session).toMatchObject({ status: 'scheduled', pendingPrompt: 'TURN B PROMPT' });
+      expect(session.pendingPrompt).not.toBe('STALE TURN A PROMPT');
+    });
+
+    it('makes the double-clear of an aborted turn idempotent (guard clear is a no-op after completion-path clear)', async () => {
+      const controllerA = new AbortController();
+      const controllerB = new AbortController();
+      statefulSession();
+      const callbacks = {
+        checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+        handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+        handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+      };
+
+      activeSessions.set('sess-1', { controller: controllerA });
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 600, reason: 'turn A', prompt: 'STALE TURN A PROMPT',
+      }), { controller: controllerA });
+
+      controllerA.abort();
+      activeSessions.delete('sess-1');
+      activeSessions.set('sess-1', { controller: controllerB });
+      await handleStreamEvent('sess-1', wakeupEvent({
+        delaySeconds: 900, reason: 'turn B', prompt: 'TURN B PROMPT',
+      }), { controller: controllerB });
+
+      // The non-owner completion path already cleared A's wakeup state.
+      await handleTurnCompletion('sess-1', '/workspace', callbacks, { controller: controllerA });
+      expect(wakeupTurnStates.has(controllerA)).toBe(false);
+
+      // The unwinding finally then hits the early-return guard, which clears A
+      // again. It must stay a no-op for A and must not touch B's entry.
+      expect(cleanupSessionState('sess-1', true, controllerA)).toBe(false);
+      expect(wakeupTurnStates.has(controllerA)).toBe(false);
+      expect(wakeupTurnStates.get(controllerB)?.pendingWakeup).toMatchObject({ prompt: 'TURN B PROMPT' });
+    });
+
+    it('clears an aborted turn wakeup state when its finally runs before the completion path (guard-order independence)', async () => {
+      const controllerA = new AbortController();
+      const controllerB = new AbortController();
+      statefulSession();
+
+      activeSessions.set('sess-1', { controller: controllerA });
+      captureScheduleWakeup('sess-1', controllerA, [
+        { type: 'tool_use', id: 'wk-guard-a', name: 'ScheduleWakeup', input: { delaySeconds: 600, prompt: 'TURN A PROMPT' } },
+      ]);
+
+      // A replacement registers; A's finally runs first with NO prior
+      // completion-path clear — the exact leak this hardening removes.
+      controllerA.abort();
+      activeSessions.delete('sess-1');
+      activeSessions.set('sess-1', { controller: controllerB });
+      captureScheduleWakeup('sess-1', controllerB, [
+        { type: 'tool_use', id: 'wk-guard-b', name: 'ScheduleWakeup', input: { delaySeconds: 900, prompt: 'TURN B PROMPT' } },
+      ]);
+
+      expect(cleanupSessionState('sess-1', true, controllerA)).toBe(false);
+      expect(wakeupTurnStates.has(controllerA)).toBe(false);
+      expect(wakeupTurnStates.get(controllerB)?.pendingWakeup).toMatchObject({ prompt: 'TURN B PROMPT' });
     });
   });
 
@@ -1062,6 +1711,24 @@ describe('streamEventHandler', () => {
         'sess-1',
         error.message,
         expect.objectContaining({ retryExistingMessage: expect.any(Boolean) })
+      );
+    });
+
+    it('carries a claimed user schedule origin into its retry after durable state is cleared', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('retryable failure');
+      sessions.getById.mockReturnValue({ autoRescheduleEnabled: true });
+      const mockScheduler = { rescheduleSession: vi.fn().mockResolvedValue(true) };
+
+      await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: vi.fn().mockReturnValue(true),
+        schedulerService: mockScheduler,
+        interactive: true,
+      });
+
+      expect(mockScheduler.rescheduleSession).toHaveBeenCalledWith(
+        'sess-1', error.message, expect.objectContaining({ interactive: true })
       );
     });
 
@@ -1185,7 +1852,8 @@ describe('streamEventHandler', () => {
     });
 
     it('does not update when controller is aborted', async () => {
-      const controller = { signal: { aborted: true } };
+      const controller = new AbortController();
+      abortForUserStop(controller);
       const error = new Error('Aborted');
       const mockShouldReschedule = vi.fn();
       const mockScheduler = { rescheduleSession: vi.fn() };
@@ -1392,7 +2060,8 @@ describe('streamEventHandler', () => {
     });
 
     it('does not call extractPrUrlIfNeeded when controller is aborted', async () => {
-      const controller = { signal: { aborted: true } };
+      const controller = new AbortController();
+      abortForUserStop(controller);
       const error = new Error('Aborted');
 
       const mockShouldReschedule = vi.fn();
@@ -1469,7 +2138,8 @@ describe('streamEventHandler', () => {
     });
 
     it('does not call handleTemplateTriggerIfNeeded when controller is aborted', async () => {
-      const controller = { signal: { aborted: true } };
+      const controller = new AbortController();
+      abortForUserStop(controller);
       const error = new Error('Aborted');
 
       const mockShouldReschedule = vi.fn();

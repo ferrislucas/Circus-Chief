@@ -5,6 +5,7 @@ import { commandRunner } from '../services/commandRunner.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { broadcastCommandEvent, broadcastCommandOutput } from './commandEventBroadcast.js';
+import { processCommandRunOutputCleanup } from '../services/commandRunOutputCleanup.js';
 
 // Error message constants
 const ERR_SESSION_NOT_FOUND = 'Session not found';
@@ -125,6 +126,7 @@ router.delete('/:id', (req, res) => {
   }
 
   commandButtons.delete(req.params.id);
+  processCommandRunOutputCleanup().catch((error) => console.error('[Command output cleanup] pass failed', error));
   res.status(204).send();
 });
 
@@ -269,6 +271,7 @@ router.delete('/runs/:runId', (req, res) => {
   }
 
   commandRuns.deleteById(runId);
+  processCommandRunOutputCleanup().catch((error) => console.error('[Command output cleanup] pass failed', error));
 
   // Broadcast deletion to session and project subscribers
   broadcastCommandEvent(sessionId, session.projectId, WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, { runId, buttonId: run.buttonId });

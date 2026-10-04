@@ -24,7 +24,6 @@ import {
   cardByIdInLane,
   moveCardViaUI,
   resumeScheduledSessionViaUI,
-  attemptResumeStaleWorker,
   runFollowUpTurnViaUI,
 } from './kanbanLaneRunHelpers';
 
@@ -47,7 +46,7 @@ import {
  *  2. AC-7  — a transient limit + scheduled retry holds the card
  *  3. AC-8  — a permanent error leaves a visible, inspectable failure
  *  4. AC-5  — a scheduled descendant blocks until it succeeds, then rolls up
- *  5. AC-9  — a manual move supersedes the run; its later success is inert
+ *  5. AC-9  — routing during an open run selects its exit without interrupting it
  *  6. AC-14 — the target lane's on-enter automation starts exactly once
  */
 
@@ -365,10 +364,10 @@ test.describe('Kanban structured lane runs', () => {
   });
 
   // ----------------------------------------------------------------
-  // 5. AC-9: a manual move supersedes the open run; a later success from
-  //    that superseded run never moves the card again.
+  // 5. A manual move during an open run is authoritative and immediate.
+  //    The superseded run must not later apply its configured completion.
   // ----------------------------------------------------------------
-  test('a manual move supersedes the run; its later success is inert', async ({ page }) => {
+  test('manually moving an open run applies immediately and supersedes its completion', async ({ page }) => {
     const board = await getBoard(project.id);
     const inProgress = getLaneByName(board, 'In Progress');
     const done = getLaneByName(board, 'Done');
@@ -392,29 +391,18 @@ test.describe('Kanban structured lane runs', () => {
     await waitForStatus(worker.id, 'scheduled', 20000);
     expect(findCardOfSession(await getBoard(project.id), workspace.id).activeLaneRun.status).toBe('open');
 
-    // A user manually moves the card to a lane with no automation/target.
+    // A user move is authoritative even while automation is open.
     await moveCardViaUI(page, cardByIdInLane(page, 'In Progress', workspace.id), 'Review');
     await expect(cardByIdInLane(page, 'Review', workspace.id)).toBeVisible();
 
     let boardNow = await getBoard(project.id);
     expect(findLaneOfSession(boardNow, workspace.id)).toBe('Review');
-    // Review has no target/automation, so no new run opens either.
     expect(findCardOfSession(boardNow, workspace.id).activeLaneRun).toBeNull();
 
-    // The old worker may not recreate executable scheduling state after its
-    // run has been superseded. The write itself is ownership-fenced.
-    const resumeResponse = await attemptResumeStaleWorker(worker.id);
-    expect(resumeResponse.status).toBe(409);
-    expect(await resumeResponse.json()).toEqual(expect.objectContaining({
-      code: 'LANE_RUN_OWNERSHIP_LOST',
-    }));
-
-    // Give a real (incorrect) start time to fire, then assert the stale
-    // worker never actually ran and the card never moved, nor did Done's
-    // automation start.
-    await new Promise((r) => setTimeout(r, 2000));
-    const staleWorker = await getSession(worker.id);
-    expect(staleWorker.status).not.toBe('waiting');
+    // The source worker keeps its independently scheduled continuation, but
+    // the superseded run can no longer use it to move the card to Done.
+    await expect.poll(async () => (await getSession(worker.id)).status).toBe('scheduled');
+    await new Promise((r) => setTimeout(r, 1000));
     boardNow = await getBoard(project.id);
     expect(findLaneOfSession(boardNow, workspace.id)).toBe('Review');
     expect(findCardOfSession(boardNow, workspace.id).activeLaneRun).toBeNull();

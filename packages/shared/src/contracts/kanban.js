@@ -101,11 +101,10 @@ export const CreateKanbanCardRequest = z.object({
   laneId: z.string().uuid(),
 });
 
-export const MoveKanbanCardRequest = z.object({
-  targetLaneId: z.string().uuid(),
-  sortOrder: z.number().optional(),
-  runOnEnterTemplate: z.boolean().default(true),
-});
+/** The sole agent-facing card-routing input. */
+export const RouteKanbanCardRequest = z.object({
+  laneId: z.string().uuid(),
+}).strict();
 
 export const ReorderKanbanCardsRequest = z.array(z.string().uuid());
 

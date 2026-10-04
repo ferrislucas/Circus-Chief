@@ -1,21 +1,31 @@
-.page-header {
+/*
+ * SessionListView styles.
+ *
+ * This file is imported as a GLOBAL stylesheet (see SessionListView.vue),
+ * so every rule is scoped under the `.session-list-view` root class to keep
+ * generic class names (.page-header, .tabs, .tab, .empty-state, .btn-secondary,
+ * .desktop-only, ...) from leaking into other views. Lazy route chunks keep
+ * their <style> tags after navigating away, and an unscoped rule here would
+ * then apply app-wide for the rest of the page session.
+ */
+.session-list-view .page-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 1rem;
 }
 
-.page-header h1 {
+.session-list-view .page-header h1 {
   margin: 0;
 }
 
-.project-title {
+.session-list-view .project-title {
   display: flex;
   align-items: center;
   gap: 0.75rem;
 }
 
-.repo-link {
+.session-list-view .repo-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -26,19 +36,19 @@
   padding: 0.25rem;
 }
 
-.repo-link:hover {
+.session-list-view .repo-link:hover {
   color: var(--color-primary-bright, #06ffff);
   transform: scale(1.1);
 }
 
-.repo-icon {
+.session-list-view .repo-icon {
   width: 100%;
   height: 100%;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.settings-link {
+.session-list-view .settings-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -49,19 +59,19 @@
   padding: 0.25rem;
 }
 
-.settings-link:hover {
+.session-list-view .settings-link:hover {
   color: var(--color-primary-bright, #06ffff);
   transform: scale(1.1);
 }
 
-.settings-icon {
+.session-list-view .settings-icon {
   width: 100%;
   height: 100%;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.tabs {
+.session-list-view .tabs {
   display: flex;
   gap: 0;
   border-bottom: 1px solid var(--color-border);
@@ -78,29 +88,29 @@
 
 /* iPad and larger screens - account for safe area */
 @media (min-width: 768px) {
-  .tabs {
+  .session-list-view .tabs {
     top: calc(var(--header-height-computed, 80px) + var(--viewport-offset-top, 0px));
   }
 }
 
-.tabs-desktop {
+.session-list-view .tabs-desktop {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
 }
 
-.tabs-mobile {
+.session-list-view .tabs-mobile {
   display: none;
   width: 100%;
 }
 
-.tabs-left {
+.session-list-view .tabs-left {
   display: flex;
   gap: 0;
 }
 
-.tab {
+.session-list-view .tab {
   background: none;
   border: none;
   padding: 0.75rem 1.25rem;
@@ -112,131 +122,131 @@
   transition: color 0.15s, border-color 0.15s;
 }
 
-.tab:hover {
+.session-list-view .tab:hover {
   color: var(--color-text);
 }
 
-.tab.active {
+.session-list-view .tab.active {
   color: var(--color-primary);
   border-bottom-color: var(--color-primary);
   font-weight: 500;
 }
 
-.skeleton-list {
+.session-list-view .skeleton-list {
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
-.error-message {
+.session-list-view .error-message {
   color: var(--color-error);
   padding: 1rem;
   background-color: rgba(248, 81, 73, 0.1);
   border-radius: var(--border-radius);
 }
 
-.empty-state {
+.session-list-view .empty-state {
   text-align: center;
   padding: 3rem;
   color: var(--color-text-soft);
 }
 
-.empty-state p {
+.session-list-view .empty-state p {
   margin-bottom: 1rem;
 }
 
-.session-list {
+.session-list-view .session-list {
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
-.tab-spacer {
+.session-list-view .tab-spacer {
   height: 1rem;
 }
 
 @media (max-width: 700px) {
-  .page-header {
+  .session-list-view .page-header {
     flex-direction: column;
     gap: 1rem;
   }
 
-  .page-header .btn {
+  .session-list-view .page-header .btn {
     width: 100%;
     justify-content: center;
   }
 
   /* Hide desktop tabs on mobile */
-  .tabs-desktop {
+  .session-list-view .tabs-desktop {
     display: none !important;
   }
 
   /* Show mobile tabs on mobile */
-  .tabs-mobile {
+  .session-list-view .tabs-mobile {
     display: block;
   }
 
   /* Hide desktop-only elements on mobile */
-  .desktop-only {
+  .session-list-view .desktop-only {
     display: none !important;
   }
 }
 
 /* Responsive utility classes */
-.mobile-only {
+.session-list-view .mobile-only {
   display: block;
 }
 
 /* Hide desktop-only elements by default (mobile) */
-.desktop-only {
+.session-list-view .desktop-only {
   display: none;
 }
 
 /* Hide mobile-only elements on desktop */
 @media (min-width: 701px) {
-  .mobile-only {
+  .session-list-view .mobile-only {
     display: none !important;
   }
 }
 
 /* Show desktop-only elements on desktop */
 @media (min-width: 701px) {
-  .desktop-only {
+  .session-list-view .desktop-only {
     display: inline-flex !important;
   }
 }
 
 /* Responsive add-session button labels in tab bar */
-.add-session-label-short {
+.session-list-view .add-session-label-short {
   display: none;
 }
 
-.add-session-label-full {
+.session-list-view .add-session-label-full {
   display: inline;
 }
 
 @media (max-width: 768px) {
-  .add-session-label-full {
+  .session-list-view .add-session-label-full {
     display: none;
   }
 
-  .add-session-label-short {
+  .session-list-view .add-session-label-short {
     display: inline;
   }
 }
 
 /* Prevent the tab bar button from shrinking or wrapping */
-.tabs-desktop .btn-primary {
+.session-list-view .tabs-desktop .btn-primary {
   flex-shrink: 0;
   white-space: nowrap;
 }
 
-.btn-secondary {
+.session-list-view .btn-secondary {
   background: var(--color-background);
   border: 1px solid var(--color-border);
   color: var(--color-text);
 }
 
-.btn-secondary:hover {
+.session-list-view .btn-secondary:hover {
   background: var(--color-background-secondary);
 }

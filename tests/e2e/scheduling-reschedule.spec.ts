@@ -420,7 +420,9 @@ test.describe('Category 3: Scheduled Session Lifecycle', () => {
 
     expect(session.status).toBe('scheduled');
 
-    // Cancel by clearing scheduledAt and setting status to stopped
+    // Clearing a schedule also clears its pending state and returns the
+    // session to the sendable waiting state. The PATCH route deliberately
+    // normalizes this even when a caller supplies a different status.
     await updateSessionScheduling(session.id, {
       scheduledAt: null,
       status: 'stopped',
@@ -428,7 +430,7 @@ test.describe('Category 3: Scheduled Session Lifecycle', () => {
 
     const fetched = await getSession(session.id);
     expect(fetched.scheduledAt).toBeNull();
-    expect(fetched.status).toBe('stopped');
+    expect(fetched.status).toBe('waiting');
   });
 
   test('pendingPrompt is preserved on scheduled session', async () => {

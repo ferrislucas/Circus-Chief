@@ -112,8 +112,9 @@ describe('CommandButtons Store', () => {
         { id: 'btn-1', projectId: 'proj-1', label: 'Test' }
       ]);
 
-      await store.fetchButtons('proj-1');
+      const succeeded = await store.fetchButtons('proj-1');
       expect(store.error).toBeNull();
+      expect(succeeded).toBe(true);
     });
 
     it('sets error state on API failure', async () => {
@@ -121,9 +122,10 @@ describe('CommandButtons Store', () => {
       const errorMessage = 'Failed to fetch buttons';
       api.getCommandButtons.mockRejectedValue(new Error(errorMessage));
 
-      await store.fetchButtons('proj-1');
+      const succeeded = await store.fetchButtons('proj-1');
       expect(store.error).toBe(errorMessage);
       expect(store.loading).toBe(false);
+      expect(succeeded).toBe(false);
     });
 
     it('handles empty button list from API', async () => {
@@ -594,13 +596,26 @@ describe('CommandButtons Store', () => {
       expect(store.runs['run-1'].output).toBe('Hello World');
     });
 
+    it('preserves identical persisted chunks with distinct sequences', () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'run-1': { runId: 'run-1', status: 'running', output: '', outputTruncated: false },
+      };
+
+      store.appendOutput('run-1', '.', { sequence: 1 });
+      store.appendOutput('run-1', '.', { sequence: 2 });
+      store.flushPendingOutput('run-1');
+
+      expect(store.runs['run-1'].output).toBe('..');
+    });
+
     it('appendOutput does nothing for non-existent run', () => {
       const store = useCommandButtonsStore();
       store.appendOutput('nonexistent', 'text');
       expect(store.runs['nonexistent']).toBeUndefined();
     });
 
-    it('appendOutput ignores output for completed runs', () => {
+    it('appendOutput preserves output that arrives after command completion', () => {
       const store = useCommandButtonsStore();
       store.runs = {
         'run-1': { runId: 'run-1', status: 'success', output: 'final output', outputTruncated: false },
@@ -609,10 +624,10 @@ describe('CommandButtons Store', () => {
       store.appendOutput('run-1', ' extra');
       store.flushPendingOutput('run-1');
 
-      expect(store.runs['run-1'].output).toBe('final output');
+      expect(store.runs['run-1'].output).toBe('final output extra');
     });
 
-    it('appendOutput ignores output for errored runs', () => {
+    it('appendOutput preserves output that arrives after an error event', () => {
       const store = useCommandButtonsStore();
       store.runs = {
         'run-1': { runId: 'run-1', status: 'error', output: 'error output', outputTruncated: false },
@@ -621,7 +636,33 @@ describe('CommandButtons Store', () => {
       store.appendOutput('run-1', ' extra');
       store.flushPendingOutput('run-1');
 
-      expect(store.runs['run-1'].output).toBe('error output');
+      expect(store.runs['run-1'].output).toBe('error output extra');
+    });
+
+    it('appendOutput applies catch-up text that lands after completion', () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'run-1': { runId: 'run-1', status: 'success', output: 'LINE 67\n', outputTruncated: false },
+      };
+
+      // A resync issued while the run was still going can only resolve after
+      // the completion event; its chunks must still reach the rendered output.
+      store.appendOutput('run-1', 'LINE 68\n');
+      store.flushPendingOutput('run-1');
+
+      expect(store.runs['run-1'].output).toBe('LINE 67\nLINE 68\n');
+    });
+
+    it('appendOutput applies sequenced catch-up text for errored runs too', () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'run-1': { runId: 'run-1', status: 'error', output: 'boom', outputTruncated: false },
+      };
+
+      store.appendOutput('run-1', ' trailing');
+      store.flushPendingOutput('run-1');
+
+      expect(store.runs['run-1'].output).toBe('boom trailing');
     });
 
     it('completeRun updates status and exit code', () => {
@@ -1133,6 +1174,30 @@ describe('CommandButtons Store', () => {
       expect(store.runs['r1'].outputHighWater).toBe(2);
     });
 
+    it('skips the snapshot read when a catch-up read already applied chunks', async () => {
+      const store = useCommandButtonsStore();
+      // Output is still in the throttled flush buffer, so only the cursor shows
+      // that the chunks have been applied. Re-reading here would duplicate them.
+      store.runs = { r1: { runId: 'r1', status: 'success', output: '', outputHighWater: 2, outputTruncated: false } };
+
+      await store.fetchRunOutput('sess-1', 'r1');
+
+      expect(api.getCommandRunOutput).not.toHaveBeenCalled();
+    });
+
+    it('leaves output alone when a catch-up read renders it mid-request', async () => {
+      const store = useCommandButtonsStore();
+      store.runs = { r1: { runId: 'r1', status: 'success', output: '', outputHighWater: 0, outputTruncated: false } };
+      api.getCommandRunOutput.mockImplementation(async () => {
+        store.runs.r1 = { ...store.runs.r1, output: 'streamed output', outputHighWater: 2 };
+        return { chunks: [{ sequence: 1, content: 'streamed ' }, { sequence: 2, content: 'output' }], highWater: 2, hasMore: false };
+      });
+
+      await store.fetchRunOutput('sess-1', 'r1');
+
+      expect(store.runs.r1.output).toBe('streamed output');
+    });
+
     it('fetches persisted chunks while a run is currently running', async () => {
       const store = useCommandButtonsStore();
       store.runs = {
@@ -1255,6 +1320,48 @@ describe('CommandButtons Store', () => {
 
       expect(api.getCommandRunOutput).toHaveBeenCalledTimes(MAX_SYNC_PAGES_PER_CALL);
       expect(result).toEqual({ highWater: MAX_SYNC_PAGES_PER_CALL, hasMore: true });
+    });
+
+    it('never re-reads below output already rendered by another loader', async () => {
+      const store = useCommandButtonsStore();
+      store.runs = { r1: { runId: 'r1', output: 'already rendered', outputTruncated: false, outputHighWater: 4 } };
+      api.getCommandRunOutput.mockResolvedValue({ chunks: [], highWater: 4, hasMore: false });
+
+      // `after` is captured before awaiting, so a stale caller must not make the
+      // catch-up read replay chunks that are already on screen.
+      const result = await store.syncRunOutput('sess-1', 'r1', 0);
+
+      expect(api.getCommandRunOutput).toHaveBeenCalledWith('sess-1', 'r1', expect.objectContaining({ after: 4 }));
+      expect(result.highWater).toBe(4);
+    });
+
+    it('does not lower the rendered cursor when a read returns nothing', async () => {
+      const store = useCommandButtonsStore();
+      store.runs = { r1: { runId: 'r1', output: 'rendered', outputTruncated: false, outputHighWater: 7 } };
+      api.getCommandRunOutput.mockResolvedValue({ chunks: [], highWater: 7, hasMore: false });
+
+      await store.syncRunOutput('sess-1', 'r1', 0);
+
+      expect(store.runs.r1.outputHighWater).toBe(7);
+    });
+  });
+
+  describe('advanceOutputHighWater', () => {
+    it('raises the cursor and ignores stale sequences', () => {
+      const store = useCommandButtonsStore();
+      store.runs = { r1: { runId: 'r1', output: '', outputHighWater: 0 } };
+
+      store.advanceOutputHighWater('r1', 3);
+      store.advanceOutputHighWater('r1', 2);
+
+      expect(store.runs.r1.outputHighWater).toBe(3);
+    });
+
+    it('ignores runs that are not in the store', () => {
+      const store = useCommandButtonsStore();
+      store.runs = {};
+
+      expect(() => store.advanceOutputHighWater('missing', 3)).not.toThrow();
     });
   });
 

@@ -92,20 +92,6 @@
             </label>
           </div>
         </div>
-
-        <div
-          v-if="showAutomationCheckbox"
-          class="automation-option"
-        >
-          <label class="checkbox-label">
-            <input
-              v-model="runOnEnterTemplate"
-              type="checkbox"
-              aria-label="Run automation on entry"
-            >
-            <span>Run automation on entry</span>
-          </label>
-        </div>
       </div>
 
       <div class="modal-footer">
@@ -152,6 +138,10 @@ const props = defineProps({
     type: String,
     required: true,
   },
+  workspaceId: {
+    type: String,
+    required: true,
+  },
   currentLaneId: {
     type: String,
     required: true,
@@ -172,7 +162,6 @@ const kanbanStore = useKanbanStore();
 const uiStore = useUiStore();
 
 const selectedLaneId = ref(null);
-const runOnEnterTemplate = ref(true);
 const moving = ref(false);
 const removing = ref(false);
 
@@ -184,16 +173,6 @@ const displayName = computed(() => {
     return props.sessionName;
   }
   return props.cardId || 'Unnamed workspace';
-});
-
-const selectedLane = computed(() => {
-  if (!selectedLaneId.value) return null;
-  return lanes.value.find((l) => l.id === selectedLaneId.value) || null;
-});
-
-const showAutomationCheckbox = computed(() => {
-  if (!selectedLane.value) return false;
-  return hasAutomation(selectedLane.value);
 });
 
 const canMove = computed(() => selectedLaneId.value && selectedLaneId.value !== props.currentLaneId);
@@ -209,7 +188,6 @@ function close() {
   emit('close');
   // Reset state
   selectedLaneId.value = null;
-  runOnEnterTemplate.value = true;
 }
 
 async function handleMove() {
@@ -217,13 +195,13 @@ async function handleMove() {
 
   moving.value = true;
   try {
-    await kanbanStore.moveCard(
+    const result = await kanbanStore.routeWorkspaceCard(
       props.projectId,
+      props.workspaceId,
       props.cardId,
-      selectedLaneId.value,
-      { runOnEnterTemplate: runOnEnterTemplate.value }
+      selectedLaneId.value
     );
-    uiStore.success('Card moved successfully');
+    uiStore.success(result.status === 'moved' ? 'Card moved successfully' : 'Card is already in that lane');
     emit('moved');
     close();
   } catch (err) {
@@ -250,15 +228,6 @@ async function handleRemove() {
   }
 }
 
-// Reset automation checkbox when switching lanes
-watch(selectedLaneId, (newLaneId, oldLaneId) => {
-  if (newLaneId !== oldLaneId) {
-    const newLane = lanes.value.find((l) => l.id === newLaneId);
-    // Default to checked if the new lane has automation
-    runOnEnterTemplate.value = hasAutomation(newLane);
-  }
-});
-
 // Watch for isOpen changes to reset state when modal opens
 watch(
   () => props.isOpen,
@@ -269,7 +238,6 @@ watch(
     }
     // Reset when opening
     selectedLaneId.value = null;
-    runOnEnterTemplate.value = true;
   }
 );
 

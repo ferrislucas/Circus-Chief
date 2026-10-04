@@ -2757,3 +2757,49 @@ export async function seedKanbanCard(
 
   return await response.json();
 }
+
+// ============================================================
+// Kanban Lane-Entry Outbox Helpers (for delivery retry/exhaustion tests)
+// Reads/adjusts kanban_lane_entry_events rows directly via
+// scripts/kanban-entry-event.mjs — no API endpoint exposes this state.
+// ============================================================
+
+function runKanbanEntryEventScript(payload: object): any {
+  const script = join(process.cwd(), 'scripts', 'kanban-entry-event.mjs');
+  const input = JSON.stringify({ dbPath: getDBPath(), ...payload });
+  const result = execSync(`node "${script}"`, {
+    input,
+    encoding: 'utf-8',
+    timeout: 10000,
+  });
+  return JSON.parse(result);
+}
+
+/**
+ * Read a kanban_lane_entry_events row (status, attempt_count, delivery_phase,
+ * dispatch_acknowledged_at, next_attempt_at, last_error, etc.) directly from
+ * the DB. Returns null if the event does not exist.
+ */
+export function getKanbanEntryEvent(eventId: string): any {
+  return runKanbanEntryEventScript({ action: 'get', eventId });
+}
+
+/**
+ * Fast-forward a pending kanban_lane_entry_events row's backoff by zeroing
+ * next_attempt_at, so the 1s retry worker picks it up on its next tick
+ * instead of waiting out the real exponential delay. No-op (and returns the
+ * unchanged row) if the event is not currently 'pending'.
+ */
+export function advanceKanbanEntryEvent(eventId: string): any {
+  return runKanbanEntryEventScript({ action: 'advance', eventId });
+}
+
+/**
+ * Fetch GET /api/server-info, which exposes automationStatus.deliveryHealth
+ * (pending/claimed/stalled/ambiguous/exhausted/quarantined/completed counts).
+ */
+export async function getServerInfo(): Promise<any> {
+  const response = await fetch(`${API_URL}/api/server-info`);
+  if (!response.ok) throw new Error(`Failed to fetch server info: ${response.status}`);
+  return response.json();
+}

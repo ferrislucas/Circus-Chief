@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 /**
  * Append defined values from jsonData to formData for the given field names.
  * @param {FormData} formData
@@ -160,8 +161,8 @@ export function SessionsApi(ApiClient) {
      * @param {string} id - Session ID
      * @returns {Promise<Object>}
      */
-    async getSession(id) {
-      return this._get(`/sessions/${id}`);
+    async getSession(id, { signal } = {}) {
+      return this._get(`/sessions/${id}`, { signal });
     },
 
     /**
@@ -270,6 +271,16 @@ export function SessionsApi(ApiClient) {
         params.fetch = true;
       }
       return this._get(this._buildQueryPath(`/sessions/${sessionId}/git-status`, params));
+    },
+
+    /** Push the current session branch to its server-resolved origin. */
+    async pushSessionBranch(sessionId) {
+      return this._post(`/sessions/${sessionId}/git/push`);
+    },
+
+    /** Fast-forward pull the current session branch from its origin upstream. */
+    async pullSessionBranch(sessionId) {
+      return this._post(`/sessions/${sessionId}/git/pull`);
     },
 
     /**

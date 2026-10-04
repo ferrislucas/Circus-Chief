@@ -55,10 +55,30 @@
           <!-- Session status badges -->
           <p class="session-meta">
             <span
-              v-if="session.pendingAgentInput"
-              class="status-badge status-waiting"
+              v-if="workflowStatus.waitingCount > 0"
+              class="status-badge status-waiting agent-input-indicator"
               aria-label="Agent input required"
-            >needs input</span>
+              title="The agent is waiting for your input"
+            >
+              <svg
+                class="agent-input-icon"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 8.5 8.5 0 0 1-5.5-2.1L3 19l1.2-3.5A8.5 8.5 0 1 1 21 11.5Z" />
+                <path d="M9.1 9a3 3 0 1 1 5.6 1.5c-.9 1.2-2.2 1.4-2.2 3" />
+                <path d="M12 17h.01" />
+              </svg>
+              needs input
+            </span>
             <!-- Running status badge -->
             <span
               v-if="workflowStatus.runningCount > 0"
@@ -197,9 +217,6 @@
         v-if="showSummary"
         :session-id="session.id"
         :summary="summary"
-        :summary-loading="summaryLoading"
-        :summary-error="summaryError"
-        @retry-summary="$emit('retrySummary', session.id)"
       />
 
       <!-- Streaming log output for running sessions (root or children) -->
@@ -207,6 +224,7 @@
         v-if="hasRunningSession"
         :root-session-id="session.id"
         :session-ids="runningSessionIds"
+        default-collapsed
         data-testid="session-log-stream"
       />
     </router-link>
@@ -245,6 +263,7 @@ import { useKanbanStore } from '../stores/kanban.js';
 import { findNearestScheduledTime } from '../utils/scheduleInfo.js';
 import { getStatusIconSvg } from './statusIcons';
 import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
+import { isSessionActivelyRunning, summarizeWorkflowSessions } from '../utils/workflowStatus.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import MoveCardModal from './MoveCardModal.vue';
 import PrIndicators from './PrIndicators.vue';
@@ -259,7 +278,7 @@ const selectedButtonForModal = ref(null);
 const showMoveCardModal = ref(false);
 const cardElement = ref(null);
 const { isVisible } = useElementVisibility(cardElement);
-const emit = defineEmits(['archive', 'unarchive', 'star', 'addToBoard', 'retrySummary', 'visibility-change']);
+const emit = defineEmits(['archive', 'unarchive', 'star', 'addToBoard', 'visibility-change']);
 
 const props = defineProps({
   session: {
@@ -277,14 +296,6 @@ const props = defineProps({
   summary: {
     type: Object,
     default: null,
-  },
-  summaryLoading: {
-    type: Boolean,
-    default: false,
-  },
-  summaryError: {
-    type: Boolean,
-    default: false,
   },
   isChild: {
     type: Boolean,
@@ -310,14 +321,28 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  // Supplied by the authoritative workspace-card API. Legacy detail callers
+  // continue to derive this from the hydrated session tree.
+  workflowAggregate: {
+    type: Object,
+    default: null,
+  },
 });
 
 watch(isVisible, (visible) => emit('visibility-change', props.session.id, visible), { immediate: true });
 
 // Check if session is already on the kanban board
-const isOnBoard = computed(() => kanbanStore.isSessionOnBoard(props.session.id));
-const sessionCard = computed(() => kanbanStore.getCardBySessionId(props.session.id));
+const compactKanbanCard = computed(() => props.session.kanban
+  ? { id: props.session.kanban.cardId, laneId: props.session.kanban.laneId }
+  : null);
+const isOnBoard = computed(() => props.workflowAggregate
+  ? Boolean(compactKanbanCard.value)
+  : Boolean(compactKanbanCard.value) || kanbanStore.isSessionOnBoard(props.session.id));
+const sessionCard = computed(() => props.workflowAggregate
+  ? compactKanbanCard.value
+  : compactKanbanCard.value || kanbanStore.getCardBySessionId(props.session.id));
 const sessionLane = computed(() => {
+  if (props.session.kanban) return { id: props.session.kanban.laneId, name: props.session.kanban.laneName };
   if (!sessionCard.value) return null;
   return kanbanStore.getLaneById(sessionCard.value.laneId);
 });
@@ -338,35 +363,35 @@ function getWorkflowSessions() {
 
 // Get workflow status including all descendant sessions (full tree traversal)
 const workflowStatus = computed(() => {
-  const allSessions = getWorkflowSessions();
-  const runningStatuses = ['running', 'starting'];
-
-  let runningCount = 0;
-  let scheduledCount = 0;
-  for (const s of allSessions) {
-    if (runningStatuses.includes(s.status)) runningCount++;
-    if (s.status === 'scheduled') scheduledCount++;
+  if (props.workflowAggregate) {
+    return {
+      runningCount: props.workflowAggregate.runningCount || 0,
+      waitingCount: props.workflowAggregate.waitingCount || 0,
+      scheduledCount: props.workflowAggregate.scheduledCount || 0,
+      totalCount: (props.workflowAggregate.descendantCount || 0) + 1,
+      effectiveStatus: (props.workflowAggregate.runningCount || 0) > 0
+        ? 'running'
+        : (props.workflowAggregate.waitingCount || 0) > 0 ? 'waiting' : 'idle',
+    };
   }
-
-  return {
-    runningCount,
-    scheduledCount,
-    totalCount: allSessions.length,
-    effectiveStatus: props.session.status,
-  };
+  return summarizeWorkflowSessions(getWorkflowSessions());
 });
 
 // Collect all running/starting session IDs in the workflow (full tree traversal)
 const runningSessionIds = computed(() => {
-  const runningStatuses = ['running', 'starting'];
+  if (props.workflowAggregate) {
+    return props.workflowAggregate.runningSessionIds || [];
+  }
   return getWorkflowSessions()
-    .filter(s => runningStatuses.includes(s.status))
+    .filter(s => isSessionActivelyRunning(s))
     .map(s => s.id);
 });
 
 const hasRunningSession = computed(() => runningSessionIds.value.length > 0);
 
-const nearestScheduledAt = computed(() => findNearestScheduledTime(props.session.id));
+const nearestScheduledAt = computed(() => props.workflowAggregate
+  ? props.workflowAggregate.nearestScheduledAt
+  : findNearestScheduledTime(props.session.id));
 
 const scheduledTimeDisplay = computed(() => {
   if (!nearestScheduledAt.value) return null;
@@ -389,19 +414,20 @@ const buttonStatusesToDisplay = computed(() => {
   const buttons = commandButtonsStore.getButtonsByProjectId(projectId);
   const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
 
-  // Prefer the live store session's runs; fall back to the runs on the card's
-  // own session prop (used when the store hasn't hydrated this session yet).
   const storeSession = sessionsStore.sessions.find(s => s.id === props.session.id);
-  const latestRuns = storeSession?.latestCommandRuns || props.session.latestCommandRuns || [];
+  const latestRuns = props.workflowAggregate
+    ? props.session.latestCommandRuns || []
+    : storeSession?.latestCommandRuns || props.session.latestCommandRuns || [];
 
   return mapRunsToButtonStatuses(buttonMap, latestRuns);
 });
 
 const getStatusIcon = (status) => getStatusIconSvg(status);
 
-const onStarClick = () => {
-  sessionsStore.toggleSessionStar(props.session.id);
-};
+const onStarClick = () => emit('star', {
+  id: props.session.id,
+  starred: !props.session.starred,
+});
 </script>
 
 <style scoped>
@@ -488,6 +514,16 @@ const onStarClick = () => {
   display: inline-block;
   vertical-align: middle;
   margin-right: 0.25rem;
+}
+
+.agent-input-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.agent-input-icon {
+  flex: 0 0 auto;
 }
 
 .scheduled-time {

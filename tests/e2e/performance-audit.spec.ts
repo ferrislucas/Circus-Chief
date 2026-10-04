@@ -532,6 +532,21 @@ test.describe('Performance Audit (read-only, live data)', () => {
     }
     console.log('══════════════════════════════════════════════════════════');
 
+    // Explicit budget for GET /api/projects. The `critical` filter below only
+    // matches endpoints containing "/sessions", so this endpoint has never
+    // had its own assertion. It now carries the running-workspace recursive
+    // CTE (project-activity-queries.js) joined across every project on every
+    // call — assert it stays under the standard API budget on live data.
+    // (See project-activity-queries.test.js for the "sessions table only"
+    // EXPLAIN QUERY PLAN guarantee that keeps this cheap.)
+    const projectsListResult = results.find((r) => r.endpoint === 'GET /api/projects');
+    if (projectsListResult) {
+      expect(
+        projectsListResult.durationMs,
+        `GET /api/projects took ${projectsListResult.durationMs}ms (threshold: ${THRESHOLDS.apiCallSlow}ms)`
+      ).toBeLessThan(THRESHOLDS.apiCallSlow);
+    }
+
     // Assert no single critical endpoint is catastrophically slow
     const critical = results.filter(
       (r) =>

@@ -23,6 +23,12 @@ Optional fields: same as creating a workspace. Add \`scheduledAt\` to schedule t
 
 **Note:** "workspace" here refers to a group of related sessions. This is distinct from the Codex \`workspace-write\` sandbox mode — those are separate concepts.
 
+### List Providers & Available Models
+\`\`\`bash
+curl ${apiUrl}/api/providers
+\`\`\`
+Returns configured providers, each with \`kind\` (\`anthropic\` | \`openai\` | \`google\`) and a \`models\` array of \`{modelId, displayName, tier, enabled, lifecycle}\`. Use a listed \`models[].modelId\` to discover the currently available model choices for new workspaces/sessions. This is a discoverability list, not an exhaustive validation contract: validation also accepts SDK tier aliases (such as \`fable\`, \`opus\`, \`sonnet\`, and \`haiku\`) and can retain historical model IDs that are not listed.
+
 ### Send a Follow-up Message
 \`\`\`bash
 curl -X POST ${apiUrl}/api/sessions/<session_id>/message \\
@@ -112,6 +118,69 @@ ${buildSessionCrudOps(apiUrl, projectId, sessionId, workspaceId)}
 ${buildProjectOps(apiUrl, sessionId)}`;
 }
 
+function buildLaneContext(projectId) {
+  const board = kanbanBoards.getByProjectId(projectId);
+  if (!board) {
+    return '';
+  }
+
+  const lanes = kanbanLanes.getByBoardId(board.id);
+  if (!lanes?.length) {
+    return '';
+  }
+
+  const laneList = lanes.map((lane) => `  - "${lane.name}" (ID: ${lane.id})`).join('\n');
+  return `\n### Available Lanes\n${laneList}\n`;
+}
+
+/** Build the lane request-field documentation shared by create and update */
+function buildLaneFieldDocs() {
+  return `### Lane Request Fields
+For \`POST /lanes\`, \`name\` is the only required field (a non-empty string). All other shared fields below are optional and accepted on both create and update. \`PATCH /lanes/:laneId\` is a partial update: omitted fields preserve their current values, while explicit \`null\` clears nullable settings.
+
+- \`name\` — non-empty string; lane display name.
+- \`sortOrder\` — number; requested lane position (not card ordering).
+- \`onEnterTemplateId\` — UUID string or null; template used for entry automation.
+- \`onEnterPrompt\` — string or null; prompt used for entry automation.
+- \`onEnterMode\` — \`plan\`, \`standard\`, or \`yolo\`, or null; entry session mode.
+- \`onEnterModel\` — string or null; entry session model identifier.
+- \`onEnterEffortLevel\` — \`low\`, \`medium\`, \`high\`, \`max\`, or \`auto\`, or null; entry session reasoning effort.
+- \`onEnterThinkingEnabled\` — boolean or null; entry session thinking setting.
+- \`onEnterAutoRescheduleEnabled\` — boolean; enables automatic rescheduling.
+- \`onEnterRescheduleDelayMinutes\` — number; delay before automatic rescheduling.
+- \`onEnterRescheduleOnTokenLimit\` — boolean; reschedule after a token-limit failure.
+- \`onEnterRescheduleOnServiceError\` — boolean; reschedule after a service failure.
+- \`onEnterMaxRescheduleCount\` — number or null; maximum automatic reschedules.
+- \`onEnterMaxTotalTokens\` — number or null; total token cap for the entry workflow.
+- \`onEnterRescheduleAtTokenCount\` — number or null; token count that triggers a continuation reschedule.
+- \`completionTargetLaneId\` — UUID string or null; destination lane after successful completion. It must be a different lane on the same board; \`null\` clears the destination.
+
+\`onEnterTemplateId\` and a non-blank \`onEnterPrompt\` are mutually exclusive: never send both. To replace template automation with prompt automation, set \`onEnterPrompt\` and \`onEnterTemplateId: null\`; to replace prompt automation with template automation, set \`onEnterTemplateId\` and \`onEnterPrompt: null\`. Omitting either property preserves its existing value.
+
+Completion routing requires on-entry automation: a create or update that sets \`completionTargetLaneId\` must also give the lane on-entry automation via \`onEnterTemplateId\` or a non-blank \`onEnterPrompt\` — in the same request, or through an earlier update. Otherwise the request fails with \`KANBAN_LANE_AUTOMATION_REQUIRED\`.`;
+}
+
+/** Build workspace card operations section */
+function buildKanbanCardOps(apiUrl, projectId, workspaceId) {
+  return `### Add Current Workspace to the Board
+\`\`\`bash
+curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
+  -H "Content-Type: application/json" \\
+  -d '{"workspaceId": "${workspaceId}", "laneId": "<lane_id>"}'
+\`\`\`
+
+### Move this Workspace's Card
+\`\`\`bash
+curl -X PUT ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/lane \\
+  -H "Content-Type: application/json" \\
+  -d '{"laneId":"<lane_id>"}'
+\`\`\`
+### Remove a Card from the Board
+\`\`\`bash
+curl -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}
+\`\`\``;
+}
+
 /**
  * Build Kanban API instructions for system prompt.
  * @param {string} sessionId - Current session ID
@@ -125,20 +194,8 @@ export function buildKanbanApiInstructions(sessionId, projectId) {
   }
 
   const apiUrl = getApiBaseUrl();
-  // Compute the workspace id for this session — the agent uses workspace
-  // addressing for all kanban operations.
   const workspaceId = sessions.getRootSessionId(sessionId) || sessionId;
-  const board = kanbanBoards.getByProjectId(projectId);
-
-  // Get lane names for context
-  let laneContext = '';
-  if (board) {
-    const lanes = kanbanLanes.getByBoardId(board.id);
-    if (lanes && lanes.length > 0) {
-      const laneList = lanes.map((l) => `  - "${l.name}" (ID: ${l.id})`).join('\n');
-      laneContext = `\n### Available Lanes\n${laneList}\n`;
-    }
-  }
+  const laneContext = buildLaneContext(projectId);
 
   return `## Kanban Board API
 
@@ -150,25 +207,11 @@ ${laneContext}
 \`\`\`bash
 curl ${apiUrl}/api/projects/${projectId}/kanban
 \`\`\`
+Read the board before changing settings that depend on existing lanes (completion routing or reordering). Its response is the authoritative source for current settings and lane IDs; use those returned IDs rather than guessing. The displayed lane list, when present, is convenience context only.
 
-### Add Current Workspace to the Board
-\`\`\`bash
-curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
-  -H "Content-Type: application/json" \\
-  -d '{"workspaceId": "${workspaceId}", "laneId": "<lane_id>"}'
-\`\`\`
+${buildLaneFieldDocs()}
 
-### Move a Card to a Different Lane
-\`\`\`bash
-curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/move \\
-  -H "Content-Type: application/json" \\
-  -d '{"targetLaneId": "<lane_id>"}'
-\`\`\`
-
-### Remove a Card from the Board
-\`\`\`bash
-curl -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}
-\`\`\`
+${buildKanbanCardOps(apiUrl, projectId, workspaceId)}
 
 ### Create a New Lane
 \`\`\`bash
@@ -177,11 +220,42 @@ curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/lanes \\
   -d '{"name": "Lane Name"}'
 \`\`\`
 
+### Create a Lane with Prompt Automation
+\`\`\`bash
+curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/lanes \\
+  -H "Content-Type: application/json" \\
+  -d '{"name":"Testing","onEnterPrompt":"Run the test suite and report failures.","onEnterMode":"standard","onEnterModel":"gpt-5.6","onEnterEffortLevel":"high","onEnterThinkingEnabled":true,"onEnterAutoRescheduleEnabled":true,"onEnterRescheduleDelayMinutes":15,"onEnterRescheduleOnTokenLimit":true,"onEnterRescheduleOnServiceError":true,"onEnterMaxRescheduleCount":2,"onEnterMaxTotalTokens":500000,"onEnterRescheduleAtTokenCount":400000}'
+\`\`\`
+
 ### Update a Lane
 \`\`\`bash
 curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id> \\
   -H "Content-Type: application/json" \\
   -d '{"name": "New Name"}'
+\`\`\`
+
+### Set Completion Routing
+After reading the board and using its returned IDs, route successful completion to a different lane on the same board. The source lane must have on-entry automation, so this example configures it in the same request (omit \`onEnterPrompt\` when the lane already has automation):
+\`\`\`bash
+curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id> \\
+  -H "Content-Type: application/json" \\
+  -d '{"onEnterPrompt":"Continue with the next workflow stage.","completionTargetLaneId":"<target_lane_id>"}'
+\`\`\`
+
+### Clear Lane Automation and Completion Routing
+Disable entry automation and clear the completion destination explicitly:
+\`\`\`bash
+curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id> \\
+  -H "Content-Type: application/json" \\
+  -d '{"onEnterTemplateId":null,"onEnterPrompt":null,"completionTargetLaneId":null}'
+\`\`\`
+
+### Reorder Lanes
+Use this canonical deterministic lane-order operation after reading the board. The body is the complete desired order of lane UUIDs, not a card-order request:
+\`\`\`bash
+curl -X PUT ${apiUrl}/api/projects/${projectId}/kanban/lanes/reorder \\
+  -H "Content-Type: application/json" \\
+  -d '["<lane_id_1>","<lane_id_2>"]'
 \`\`\`
 
 ### Delete a Lane

@@ -133,7 +133,7 @@ export function getRecentSessionModelUsage(limit = 50) {
     .prepare(
       `SELECT s.model, s.provider_id, ${ACTIVITY_FIELDS_SQL}
        FROM sessions s
-       ORDER BY COALESCE(last_activity_at, s.updated_at, s.created_at) DESC,
+       ORDER BY COALESCE(s.last_activity_at, s.updated_at, s.created_at) DESC,
                 s.updated_at DESC,
                 s.created_at DESC,
                 s.rowid DESC

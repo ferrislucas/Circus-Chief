@@ -92,5 +92,36 @@ describe('summaryBroadcast', () => {
       broadcastSessionUpdate('sess-1', null, {});
       expect(broadcastToProject).not.toHaveBeenCalled();
     });
+
+    it('emits a session-scoped SESSION_STATUS when the payload carries a status', () => {
+      const session = { id: 'sess-1', status: 'scheduled' };
+      broadcastSessionUpdate('sess-1', 'proj-1', session);
+
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        'session:status',
+        { sessionId: 'sess-1', status: 'scheduled' }
+      );
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        'session:updated',
+        { sessionId: 'sess-1', session }
+      );
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        'proj-1',
+        'session:updated',
+        { projectId: 'proj-1', sessionId: 'sess-1', session }
+      );
+    });
+
+    it('omits SESSION_STATUS when the payload status is falsy', () => {
+      broadcastSessionUpdate('sess-1', null, { id: 'sess-1', status: null });
+
+      expect(broadcastToSession).not.toHaveBeenCalledWith(
+        'sess-1',
+        'session:status',
+        expect.anything()
+      );
+    });
   });
 });

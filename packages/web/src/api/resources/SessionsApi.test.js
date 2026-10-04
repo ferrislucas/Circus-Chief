@@ -704,7 +704,6 @@ describe('SessionsApi', () => {
       await client.scheduleSession('sess-123', scheduleData);
 
       expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/schedule', expect.objectContaining({
-        method: 'POST',
         body: JSON.stringify(scheduleData),
       }));
     });

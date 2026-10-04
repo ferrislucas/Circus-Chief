@@ -1,9 +1,12 @@
+/* eslint-disable max-lines -- legacy scheduler service; split in a dedicated refactor. */
 import { sessions, messages, conversations, projects, attachments } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
-import { claimWorkflowSessionStart, withActiveLaneRunOwnership, activeLaneRunOwnsSession } from './workflowSessionService.js';
+import { claimWorkflowSessionStart, withActiveLaneRunOwnership, activeLaneRunOwnsSession, closeOwnWork } from './workflowSessionService.js';
 import { didSessionExecutionStart, rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
+import { broadcastSessionStatus } from './streamEventHandler.js';
+import { clearedPendingSchedule } from './pendingSchedule.js';
 
 function broadcastRescheduledSession(sessionId, updated) {
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
@@ -187,7 +190,7 @@ class SchedulerService {
       session.id,
       effectivePrompt,
       workingDirectory,
-      { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel }
+      { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel, interactive: Boolean(session.pendingInteractive) }
     );
   }
 
@@ -247,8 +250,7 @@ class SchedulerService {
   /** Clear a stale start after its executor re-checks lane-run ownership. */
   rejectScheduledStart(session) {
     const updated = sessions.update(session.id, {
-      status: 'stopped', scheduledAt: null, pendingPrompt: null,
-      pendingModel: null, pendingConversationId: null,
+      status: 'stopped', ...clearedPendingSchedule,
     });
     broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'stopped' });
     if (updated?.projectId) {
@@ -284,6 +286,47 @@ class SchedulerService {
     return { claimed: true, ...result };
   }
 
+  _refuseLaunchPastBudget(sessionId) {
+    const row = sessions.getById(sessionId);
+    if (!row || !this.hasReachedLaunchBudget(row)) return null;
+    const error = `Scheduled launch refused: max total tokens reached (${row.maxTotalTokens.toLocaleString()}).`;
+    sessions.update(sessionId, {
+      status: 'stopped', ...clearedPendingSchedule,
+      error,
+    });
+    // The token cap is a hard terminal limit, not a retryable hold. A
+    // participating worker therefore must close its durable obligation and
+    // reconcile its lane run; otherwise the cleared schedule would strand an
+    // open run with no executable owner. This is intentionally idempotent for
+    // ordinary sessions and for a worker concurrently superseded or closed.
+    closeOwnWork(sessionId, 'closed_failed', error);
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'stopped' });
+    return { claimed: false, started: false, reason: 'launch_budget_exhausted', sessionId };
+  }
+
+  async _dispatchScheduledLaunch(claimed, launch) {
+    const { workingDirectory, prompt, effectivePrompt, effectiveSystemPrompt, sessionAttachments, hasAssistantResponses, activeConversationId } = launch;
+    if (claimed.pendingConversationId) {
+      return this.sessionManager.continueSessionWithExistingMessage(
+        claimed.id,
+        claimed.pendingConversationId,
+        workingDirectory,
+        { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel, interactive: Boolean(claimed.pendingInteractive) }
+      );
+    }
+    if (hasAssistantResponses) {
+      return this.sessionManager.continueSession(
+        claimed.id,
+        effectivePrompt,
+        workingDirectory,
+        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel, interactive: Boolean(claimed.pendingInteractive) }
+      );
+    }
+    return this.startFreshScheduledSession({
+      session: claimed, prompt, effectivePrompt, effectiveSystemPrompt, workingDirectory, sessionAttachments, activeConversationId,
+    });
+  }
+
   /**
    * Start a scheduled session — the single entry point used by both the
    * 30s poller (`checkScheduledSessions`) and the manual
@@ -307,9 +350,21 @@ class SchedulerService {
       throw new Error('SchedulerService not initialized with sessionManager');
     }
 
+    // A ScheduleWakeup may become due while its originating turn is still
+    // completing summaries, broadcasts, or workflow bookkeeping. Do not claim
+    // (and therefore clear) that durable schedule until the old controller has
+    // actually been deregistered. A later poll will pick it up normally.
+    if (this.sessionManager.isSessionActive?.(session.id)) {
+      return { claimed: false, started: false, reason: 'session_still_active', sessionId: session.id };
+    }
+
     if (!claimWorkflowSessionStart(session.id)) {
       return { claimed: false, started: false, reason: 'lane_run_ownership_lost', sessionId: session.id };
     }
+
+    // Re-read the row so a poller snapshot cannot undercount current usage.
+    const budgetRefusal = this._refuseLaunchPastBudget(session.id);
+    if (budgetRefusal) return budgetRefusal;
 
     const claimed = sessions.claimScheduled(session.id, { promptOverride });
     if (!claimed) {
@@ -317,7 +372,12 @@ class SchedulerService {
     }
 
     console.log(`[SchedulerService] Starting scheduled session ${claimed.id}: ${claimed.name}`);
-    broadcastToSession(claimed.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: claimed.id, status: 'starting' });
+    // broadcastSessionStatus sends both the session-scoped SESSION_STATUS frame
+    // and the project-scoped SESSION_UPDATED frame, so a sibling session's
+    // dropdown row in another view also flips out of "⏰ Scheduled" for the
+    // `starting` transition (previously only the `running` transition was
+    // project-broadcast).
+    broadcastSessionStatus(claimed.id, 'starting');
 
     let launch;
     try {
@@ -327,11 +387,9 @@ class SchedulerService {
       throw error;
     }
 
-    const { workingDirectory, prompt, effectivePrompt, effectiveSystemPrompt, sessionAttachments, hasAssistantResponses, activeConversationId } = launch;
-
     // Prompt resolution may yield to disk IO while a manual move supersedes
     // this lane run. Fence the durable clear and provider handoff.
-    if (claimed.laneRunId && !activeLaneRunOwnsSession(claimed.id)) {
+    if (claimed.laneRunId && !claimed.pendingInteractive && !activeLaneRunOwnsSession(claimed.id)) {
       return { claimed: true, ...this.finishScheduledStart(claimed, rejectedSessionExecution(claimed.id, 'lane_run_ownership_lost')) };
     }
 
@@ -339,30 +397,10 @@ class SchedulerService {
     // successfully, so it's now safe to clear the scheduling fields. Any
     // failure past this point is a normal in-flight turn failure, handled
     // by the existing turn error-handling path rather than by this method.
-    sessions.update(claimed.id, { scheduledAt: null, pendingPrompt: null, pendingConversationId: null });
+    sessions.update(claimed.id, clearedPendingSchedule);
 
-    if (claimed.pendingConversationId) {
-      const startResult = await this.sessionManager.continueSessionWithExistingMessage(
-        claimed.id,
-        claimed.pendingConversationId,
-        workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel }
-      );
-      return this.scheduledStartResult(claimed, startResult);
-    } else if (hasAssistantResponses) {
-      const startResult = await this.sessionManager.continueSession(
-        claimed.id,
-        effectivePrompt,
-        workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel }
-      );
-      return this.scheduledStartResult(claimed, startResult);
-    } else {
-      const startResult = await this.startFreshScheduledSession({
-        session: claimed, prompt, effectivePrompt, effectiveSystemPrompt, workingDirectory, sessionAttachments, activeConversationId,
-      });
-      return this.scheduledStartResult(claimed, startResult);
-    }
+    const startResult = await this._dispatchScheduledLaunch(claimed, launch);
+    return this.scheduledStartResult(claimed, startResult);
   }
 
   /**
@@ -374,7 +412,7 @@ class SchedulerService {
    *   - conversationId: the active conversation to retry (required when retryExistingMessage is true)
    * @returns {boolean} True if rescheduled, false if limits reached
    */
-  async rescheduleSession(sessionId, reason, { retryExistingMessage = false, conversationId = null } = {}) {
+  async rescheduleSession(sessionId, reason, { retryExistingMessage = false, conversationId = null, interactive = false } = {}) {
     const session = sessions.getById(sessionId);
     if (!session) {
       console.error(`[SchedulerService] Session not found: ${sessionId}`);
@@ -410,9 +448,11 @@ class SchedulerService {
       rescheduleCount: newRescheduleCount,
       pendingPrompt,
       pendingConversationId,
+      pendingInteractive: interactive || Boolean(session.pendingInteractive),
       error: `Rescheduled (${newRescheduleCount}x): ${reason}`,
     });
-    const updated = session.laneRunId ? withActiveLaneRunOwnership(sessionId, update) : update();
+    const updated = session.laneRunId && !interactive && !session.pendingInteractive
+      ? withActiveLaneRunOwnership(sessionId, update) : update();
     if (!updated) return false;
 
     broadcastRescheduledSession(sessionId, updated);
@@ -443,6 +483,34 @@ class SchedulerService {
 
     console.log(`[SchedulerService] Continue retry for session ${sessionId}`);
     return { pendingPrompt: 'Continue', pendingConversationId: null };
+  }
+
+  /**
+   * Governance check for a scheduled launch. Applies the durable budget caps
+   * (maxTotalTokens) to every scheduled start, regardless of which mechanism
+   * wrote the schedule (explicit REST, error-retry, or the ScheduleWakeup bridge).
+   *
+   * Unlike rescheduleSession's use of hasReachedLimits, this intentionally does
+   * NOT gate on maxRescheduleCount: an explicit REST schedule is a durable user
+   * instruction that must still fire even when past the retry cap. Only the
+   * hard token budget is enforced here, because token spend is cumulative and
+   * cannot be undone, whereas a missed retry is recoverable.
+   *
+   * @param {object} session
+   * @returns {boolean} true when the launch must be refused.
+   */
+  hasReachedLaunchBudget(session) {
+    if (session.maxTotalTokens !== null) {
+      const totalTokens = session.inputTokens + session.outputTokens;
+      if (totalTokens >= session.maxTotalTokens) {
+        console.warn(
+          `[SchedulerService] Max total tokens reached at scheduled launch: `
+          + `${totalTokens.toLocaleString()}/${session.maxTotalTokens.toLocaleString()} for session ${session.id}`
+        );
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

@@ -12,8 +12,10 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
     sessionPartialText: {},        // { [sessionId]: string }
     sessionFileCounts: {},         // { [sessionId]: number }
 
-    // UI preference: which sessions have logs collapsed
-    collapsedSessionLogs: new Set(),  // sessionIds where user closed the log panel
+    // UI preferences for live-output visibility. Session cards default closed,
+    // while the summary view continues to default open.
+    collapsedSessionLogs: new Set(),
+    expandedSessionLogs: new Set(),
   }),
 
   getters: {
@@ -53,7 +55,11 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
      * @param {string} sessionId
      * @returns {boolean}
      */
-    isSessionLogCollapsed: (state) => (sessionId) => state.collapsedSessionLogs.has(sessionId),
+    isSessionLogCollapsed: (state) => (sessionId, defaultCollapsed = false) => (
+      defaultCollapsed
+        ? !state.expandedSessionLogs.has(sessionId)
+        : state.collapsedSessionLogs.has(sessionId)
+    ),
   },
 
   actions: {
@@ -205,14 +211,19 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
      * Toggle collapsed state for a session's log panel
      * @param {string} sessionId
      */
-    toggleSessionLogCollapsed(sessionId) {
-      if (this.collapsedSessionLogs.has(sessionId)) {
-        this.collapsedSessionLogs.delete(sessionId);
+    toggleSessionLogCollapsed(sessionId, defaultCollapsed = false) {
+      const preference = defaultCollapsed ? this.expandedSessionLogs : this.collapsedSessionLogs;
+      if (preference.has(sessionId)) {
+        preference.delete(sessionId);
       } else {
-        this.collapsedSessionLogs.add(sessionId);
+        preference.add(sessionId);
       }
       // Trigger reactivity by creating new Set
-      this.collapsedSessionLogs = new Set(this.collapsedSessionLogs);
+      if (defaultCollapsed) {
+        this.expandedSessionLogs = new Set(preference);
+      } else {
+        this.collapsedSessionLogs = new Set(preference);
+      }
       this.saveCollapsedLogState();
     },
 
@@ -222,6 +233,7 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
     saveCollapsedLogState() {
       try {
         localStorage.setItem('collapsedSessionLogs', JSON.stringify([...this.collapsedSessionLogs]));
+        localStorage.setItem('expandedSessionLogs', JSON.stringify([...this.expandedSessionLogs]));
       } catch (e) { /* ignore */ }
     },
 
@@ -232,6 +244,8 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
       try {
         const saved = localStorage.getItem('collapsedSessionLogs');
         if (saved) this.collapsedSessionLogs = new Set(JSON.parse(saved));
+        const expanded = localStorage.getItem('expandedSessionLogs');
+        if (expanded) this.expandedSessionLogs = new Set(JSON.parse(expanded));
       } catch (e) { /* ignore */ }
     },
   },

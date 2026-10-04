@@ -5,8 +5,9 @@ import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
-import { activeLaneRunOwnsSession, closeOwnWork } from './workflowSessionService.js';
+import { activeLaneRunOwnsSession, pauseForUserStop } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
+import { clearedPendingSchedule } from './pendingSchedule.js';
 import {
   shouldRescheduleOnError,
   _checkProactiveReschedule,
@@ -29,6 +30,8 @@ import {
   broadcastSessionStatus,
 } from './streamEventHandler.js';
 import { cancelPrompt } from './promptStore.js';
+import { clearPendingWakeup } from './scheduleWakeupBridge.js';
+import { abortForUserStop } from './sessionAbort.js';
 // Import execution helpers from sessionExecution.js
 import {
   createAgentForSession,
@@ -189,6 +192,11 @@ export async function continueSession(sessionId, content, workingDirectory, opti
   });
 }
 
+/** Whether a provider turn still owns this session's execution lifecycle. */
+export function isSessionActive(sessionId) {
+  return activeSessions.has(sessionId);
+}
+
 /**
  * Continue a session when the user message is already stored (e.g., from branching)
  * This triggers Claude's response without creating a new user message
@@ -325,7 +333,8 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   }
 
   const controller = new AbortController();
-  activeSessions.set(sessionId, { controller });
+  const startedAt = Date.now();
+  activeSessions.set(sessionId, { controller, turnStartedAt: startedAt, lastEventAt: startedAt });
 
   // Make sure this conversation is active
   if (!conversation.isActive) {
@@ -361,6 +370,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     controller,
     workingDirectory,
     callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
+    interactive,
     errorLabel: 'Continue session with existing message error',
   });
   return execution || startedSessionExecution(sessionId);
@@ -376,19 +386,28 @@ export async function stopSession(sessionId) {
 
   if (sessionData) {
     // Session is actively processing - abort it
-    sessionData.controller.abort();
+    abortForUserStop(sessionData.controller);
+    clearPendingWakeup(sessionId, sessionData.controller);
     activeSessions.delete(sessionId);
   }
   // If not in activeSessions, session may have crashed or be waiting
   // Either way, we can still update the status to stopped
 
-  sessions.update(sessionId, { status: 'stopped' });
+  // A user-initiated stop must also cancel any pending scheduled continuation.
+  // Otherwise handleScheduledContinuationIfNeeded's status-agnostic predicate
+  // (deliberately unguarded, see its doc comment) will resurrect the schedule on
+  // the next completed chat turn — flipping the session back to 'scheduled',
+  // suppressing auto-send/template triggers for that turn, and firing a prompt
+  // the user believed they had cancelled.
+  sessions.update(sessionId, {
+    status: 'stopped',
+    ...clearedPendingSchedule,
+  });
   broadcastSessionStatus(sessionId, 'stopped');
 
-  // FR-9.4: a user-stopped blocking session must not be interpreted as
-  // success — close its own-work obligation as cancelled (no-op if it isn't
-  // a lane-run participant, or its own work is already closed).
-  closeOwnWork(sessionId, 'cancelled', 'Stopped by user');
+  // A user stop pauses an active structured-lane obligation rather than
+  // cancelling it. Non-participating and already-closed sessions are no-ops.
+  pauseForUserStop(sessionId);
 
   // Trigger summary generation on stop (session is truly complete now)
   summaryService.onSessionComplete(sessionId);
@@ -414,6 +433,7 @@ export function cleanupActiveSession(sessionId) {
   if (sessionData) {
     cancelPrompt(sessionId);
     sessionData.controller.abort();
+    clearPendingWakeup(sessionId, sessionData.controller);
     activeSessions.delete(sessionId);
     return true;
   }

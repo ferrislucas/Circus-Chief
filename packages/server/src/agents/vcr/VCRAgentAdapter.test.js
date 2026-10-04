@@ -356,6 +356,125 @@ describe('VCRAgentAdapter', () => {
       expect(received).toEqual([{ type: 'result', subtype: 'success' }]);
     });
 
+    it('accepts question results whose updatedInput keys have a different insertion order than the cassette', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'AskUserQuestion',
+        result: { behavior: 'allow', updatedInput: { command: 'answer', file_path: 'notes.md' } },
+      }, {
+        behavior: 'allow', updatedInput: { file_path: 'notes.md', command: 'answer' },
+      }, 'key-order')).not.toThrow();
+    });
+
+    it('accepts nested replay objects whose keys have a different insertion order than the cassette', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'Edit',
+        result: {
+          behavior: 'allow',
+          updatedPermissions: [{ rules: [{ toolName: 'Edit', path: 'notes.md' }], destination: 'session' }],
+        },
+      }, {
+        behavior: 'allow',
+        updatedPermissions: [{ destination: 'session', rules: [{ path: 'notes.md', toolName: 'Edit' }] }],
+      }, 'nested-key-order')).not.toThrow();
+    });
+
+    it('rejects reordered updatedPermissions during replay', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'Edit',
+        result: {
+          behavior: 'allow',
+          updatedPermissions: [
+            { destination: 'session', rules: [{ toolName: 'Edit' }] },
+            { destination: 'projectSettings', rules: [{ toolName: 'Bash' }] },
+          ],
+        },
+      }, {
+        behavior: 'allow',
+        updatedPermissions: [
+          { destination: 'projectSettings', rules: [{ toolName: 'Bash' }] },
+          { destination: 'session', rules: [{ toolName: 'Edit' }] },
+        ],
+      }, 'updated-permissions-array-order')).toThrow(/updatedPermissions mismatch/i);
+    });
+
+    it('rejects reordered nested question data during replay', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'AskUserQuestion',
+        result: {
+          behavior: 'allow',
+          updatedInput: { questions: [{ question: 'First?' }, { question: 'Second?' }] },
+        },
+      }, {
+        behavior: 'allow',
+        updatedInput: { questions: [{ question: 'Second?' }, { question: 'First?' }] },
+      }, 'nested-question-array-order')).toThrow(/updatedInput mismatch/i);
+    });
+
+    it('ignores host-owned fields retained in an older permission cassette', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'Edit',
+        result: { behavior: 'allow', decisionClassification: 'previous-host-format' },
+      }, { behavior: 'allow' }, 'host-owned-field')).not.toThrow();
+    });
+
+    it('still rejects semantic permission divergences during replay', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'Edit',
+        result: {
+          behavior: 'allow',
+          updatedPermissions: [{ behavior: 'allow', destination: 'session', rules: [{ toolName: 'Edit' }] }],
+        },
+      }, {
+        behavior: 'allow',
+        updatedPermissions: [{ behavior: 'allow', destination: 'projectSettings', rules: [{ toolName: 'Edit' }] }],
+      }, 'semantic-divergence')).toThrow(/diverges/i);
+    });
+
+    it('rejects deny results whose message differs from the recording', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'Bash',
+        result: { behavior: 'deny', message: 'This command requires approval' },
+      }, {
+        behavior: 'deny', message: 'Command is not permitted',
+      }, 'deny-message')).toThrow(/message[\s\S]*Recorded:[\s\S]*This command requires approval[\s\S]*Observed:[\s\S]*Command is not permitted/i);
+    });
+
+    it('rejects deny results whose interrupt value differs from the recording', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'Bash',
+        result: { behavior: 'deny', message: 'Denied', interrupt: true },
+      }, {
+        behavior: 'deny', message: 'Denied', interrupt: false,
+      }, 'deny-interrupt-value')).toThrow(/interrupt[\s\S]*Recorded:[\s\S]*true[\s\S]*Observed:[\s\S]*false/i);
+    });
+
+    it('rejects deny results when interrupt is absent in one result and present in the other', () => {
+      const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+      expect(() => adapter.assertResultMatchesRecording({
+        toolName: 'Bash',
+        result: { behavior: 'deny', message: 'Denied' },
+      }, {
+        behavior: 'deny', message: 'Denied', interrupt: true,
+      }, 'deny-interrupt-presence')).toThrow(/interrupt[\s\S]*Recorded:[\s\S]*absent[\s\S]*Observed:[\s\S]*true/i);
+    });
+
     it('rejects a gated cassette that has no recorded callback result', async () => {
       const fixtureKey = CassetteStore.buildKey('runSession', 'missing gated result');
       CassetteStore.save(testCassetteDir, fixtureKey, {

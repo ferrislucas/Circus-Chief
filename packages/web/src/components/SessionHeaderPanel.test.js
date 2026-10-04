@@ -52,7 +52,7 @@ vi.mock('../composables/useApi.js', () => ({
     updateSession: vi.fn().mockResolvedValue({}),
     getKanbanBoard: vi.fn().mockResolvedValue(null),
     createKanbanCard: vi.fn().mockResolvedValue({}),
-    moveKanbanCard: vi.fn().mockResolvedValue({}),
+    routeWorkspaceKanbanCard: vi.fn().mockResolvedValue({}),
     deleteKanbanCard: vi.fn().mockResolvedValue({}),
   },
 }));

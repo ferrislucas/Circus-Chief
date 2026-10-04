@@ -237,6 +237,7 @@ import { ref, reactive, computed, watch } from 'vue';
 import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
 import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
+import { formatDateTimeLocal } from '../utils/formatters.js';
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';
 import TemplateSelector from './TemplateSelector.vue';
@@ -275,7 +276,7 @@ const form = reactive({
 const minDateTime = computed(() => {
   const now = new Date();
   now.setMinutes(now.getMinutes() + 1);
-  return now.toISOString().slice(0, 16);
+  return formatDateTimeLocal(now);
 });
 
 const modalTitle = computed(() => {
@@ -295,13 +296,7 @@ function handleTemplateChange(templateId) {
 
 function convertToLocalDatetime(timestamp) {
   if (!timestamp) return '';
-  const date = new Date(timestamp);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
+  return formatDateTimeLocal(new Date(timestamp));
 }
 
 async function handleSave() {

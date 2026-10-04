@@ -11,6 +11,7 @@ vi.mock('vue', () => ({
 class MockWebSocket {
   static OPEN = 1;
   static CLOSED = 3;
+  static instances = [];
 
   constructor(url) {
     this.url = url;
@@ -20,6 +21,7 @@ class MockWebSocket {
     this.onclose = null;
     this.onerror = null;
     this.sentMessages = [];
+    MockWebSocket.instances.push(this);
 
     // Simulate connection
     setTimeout(() => {
@@ -60,6 +62,7 @@ describe('useWebSocket composables', () => {
 
     // Reset WebSocket mock
     globalThis.WebSocket = MockWebSocket;
+    MockWebSocket.instances = [];
   });
 
   afterEach(() => {
@@ -81,6 +84,7 @@ describe('useWebSocket composables', () => {
       expect(typeof subscription.onSessionCreated).toBe('function');
       expect(typeof subscription.onSessionUpdated).toBe('function');
       expect(typeof subscription.onSessionDeleted).toBe('function');
+      expect(typeof subscription.onKanbanExitLaneDeclared).toBe('function');
     });
 
     it('returns onSessionSummaryUpdated handler for real-time summary updates', async () => {
@@ -98,6 +102,46 @@ describe('useWebSocket composables', () => {
       const cleanup = subscription.onSessionSummaryUpdated(callback);
 
       expect(typeof cleanup).toBe('function');
+    });
+
+    it('ignores project events whose projectId does not match the subscription', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useProjectSubscription('project-a');
+      const callback = vi.fn();
+      subscription.onSessionUpdated(callback);
+      const socket = MockWebSocket.instances[0];
+
+      socket.receiveMessage(WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId: 'project-b',
+        session: { id: 'foreign' },
+      });
+      socket.receiveMessage(WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId: 'project-a',
+        session: { id: 'local' },
+      });
+
+      expect(callback).toHaveBeenCalledOnce();
+      expect(callback).toHaveBeenCalledWith({ id: 'local' });
+    });
+
+    it('keeps a shared project subscription active until its last consumer unsubscribes', async () => {
+      const module = await import('./useWebSocket.js');
+      const first = module.useProjectSubscription('project-shared');
+      const second = module.useProjectSubscription('project-shared');
+      const socket = MockWebSocket.instances[0];
+      const sentProjectMessages = type => socket.sentMessages
+        .map(message => JSON.parse(message))
+        .filter(message => message.type === type && message.projectId === 'project-shared');
+
+      first.subscribe();
+      second.subscribe();
+      expect(sentProjectMessages(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT)).toHaveLength(1);
+
+      first.unsubscribe();
+      expect(sentProjectMessages(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT)).toHaveLength(0);
+
+      second.unsubscribe();
+      expect(sentProjectMessages(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT)).toHaveLength(1);
     });
   });
 

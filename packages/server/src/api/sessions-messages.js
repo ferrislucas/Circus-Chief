@@ -7,6 +7,7 @@ import * as slashCommandService from '../services/slashCommandService.js';
 import { checkCrossKindSwitch } from '../services/sessionAgentGuard.js';
 import { getRootSession, renderTemplatePrompt } from '../services/templateTriggerService.js';
 import { validateModelId } from './model-validation.js';
+import { clearedPendingSchedule } from '../services/pendingSchedule.js';
 
 const router = Router();
 
@@ -112,6 +113,14 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
     const resolved = await slashCommandService.resolvePromptSkillOrCommand(
       req.workingDirectory, renderedContent, req.project.systemPrompt || null
     );
+
+    // Cancel an obsolete continuation only after all fallible request
+    // preparation succeeds. A render, attachment, or slash-command failure
+    // must leave the existing schedule intact because no replacement turn was
+    // dispatched.
+    if (req.session_.scheduledAt && req.session_.pendingPrompt) {
+      sessions.update(req.session_.id, clearedPendingSchedule);
+    }
 
     if (resolved) {
       continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, { systemPrompt: resolved.systemPrompt, fileAttachments: messageAttachments, model, interactive: true }).catch((error) => {

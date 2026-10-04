@@ -68,6 +68,23 @@ export class MessageRepository extends BaseRepository {
   }
 
   /**
+   * Get the most recent message of a given role in a conversation, without
+   * materializing the full conversation.
+   * @param {string} conversationId
+   * @param {string} role - 'user' | 'assistant'
+   * @returns {Object|null}
+   */
+  getLastByConversationIdAndRole(conversationId, role) {
+    const row = this.db
+      .prepare(
+        'SELECT * FROM conversation_messages WHERE conversation_id = ? AND role = ? '
+        + 'ORDER BY timestamp DESC, rowid DESC LIMIT 1'
+      )
+      .get(conversationId, role);
+    return this.map(row);
+  }
+
+  /**
    * Get message count for a conversation
    * @param {string} conversationId - The conversation ID
    * @returns {number} Number of messages

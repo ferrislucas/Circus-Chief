@@ -4,6 +4,7 @@
  * Each export is an array of { name, up(db) } migration objects.
  */
 import { addColumnIfMissing, getColumns, tableExists } from './migrationUtils.js';
+import { ACTIVITY_TRIGGER_CREATE_DDL } from './activityTriggers.js';
 
 /**
  * Prompt strings for the default global session templates.
@@ -64,6 +65,48 @@ export function normalizeStaleClaudeModelIds(db) {
 
 /** @type {Array<{name: string, up: (db: import('better-sqlite3').Database) => void}>} */
 export const miscMigrations = [
+  // --- Workspace list activity column ---
+  //
+  // The workspace-card list query needs "when did anything in this workspace
+  // last happen" as a sortable value. Computing that at read time (a
+  // correlated subquery joining messages/summaries/command_runs per row) costs
+  // O(total sessions in the project) on every list request regardless of page
+  // size, because the sort key has to be known before LIMIT can apply.
+  //
+  // Instead, maintain `sessions.last_activity_at` as a denormalized column,
+  // written once per activity event (by trigger, not by application code, so
+  // no write path can forget it) and read as a plain column by the
+  // aggregate query. The workspace list then only pays for MAX() over the
+  // already-scanned tree rows, not an additional per-row fan-out.
+  {
+    name: 'workspace-list-activity-column',
+    up(db) {
+      addColumnIfMissing(db, 'sessions', 'last_activity_at', 'INTEGER');
+
+      // Give activity-free rows their creation time, so this expensive
+      // backfill retires every row after its first run.
+      db.exec(`
+        UPDATE sessions
+        SET last_activity_at = COALESCE((
+          SELECT MAX(activity_at) FROM (
+            SELECT MAX(timestamp) AS activity_at FROM conversation_messages WHERE session_id = sessions.id
+            UNION ALL
+            SELECT MAX(generated_at) FROM session_summaries WHERE session_id = sessions.id
+            UNION ALL
+            SELECT MAX(updated_at) FROM session_summaries WHERE session_id = sessions.id
+            UNION ALL
+            SELECT MAX(completed_at) FROM command_runs WHERE session_id = sessions.id
+            UNION ALL
+            SELECT MAX(started_at) FROM command_runs WHERE session_id = sessions.id
+          )
+        ), created_at)
+        WHERE last_activity_at IS NULL
+      `);
+
+      db.exec(`${ACTIVITY_TRIGGER_CREATE_DDL.join(';\n')};`);
+    },
+  },
+
   // --- Command buttons ---
   {
     name: 'command_buttons-add-show_on_list',
@@ -85,6 +128,67 @@ export const miscMigrations = [
         );
         CREATE INDEX IF NOT EXISTS idx_command_run_output_chunks_run_sequence
           ON command_run_output_chunks(run_id, sequence);
+      `);
+    },
+  },
+  {
+    name: 'command-runs-preserve-raw-output-chunks',
+    up(db) {
+      addColumnIfMissing(db, 'command_run_output_chunks', 'raw_content', 'BLOB');
+      addColumnIfMissing(db, 'command_run_output_chunks', 'raw_byte_length', 'INTEGER');
+    },
+  },
+  {
+    name: 'command-runs-create-output-cleanup',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS command_run_output_cleanup (
+          run_id TEXT PRIMARY KEY,
+          working_directory TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          next_attempt_at INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+        );
+        CREATE TRIGGER IF NOT EXISTS trg_command_run_output_cleanup
+        BEFORE DELETE ON command_runs FOR EACH ROW BEGIN
+          INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
+          SELECT OLD.id, COALESCE(s.git_worktree, p.working_directory)
+          FROM sessions s JOIN projects p ON p.id = s.project_id WHERE s.id = OLD.session_id;
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_session_command_output_cleanup
+        BEFORE DELETE ON sessions FOR EACH ROW BEGIN
+          INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
+          SELECT cr.id, COALESCE(OLD.git_worktree, p.working_directory)
+          FROM command_runs cr JOIN projects p ON p.id = OLD.project_id WHERE cr.session_id = OLD.id;
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_button_command_output_cleanup
+        BEFORE DELETE ON command_buttons FOR EACH ROW BEGIN
+          INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
+          SELECT cr.id, COALESCE(s.git_worktree, p.working_directory)
+          FROM command_runs cr JOIN sessions s ON s.id = cr.session_id
+          JOIN projects p ON p.id = s.project_id WHERE cr.button_id = OLD.id;
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_project_command_output_cleanup
+        BEFORE DELETE ON projects FOR EACH ROW BEGIN
+          INSERT OR IGNORE INTO command_run_output_cleanup (run_id, working_directory)
+          SELECT cr.id, COALESCE(s.git_worktree, OLD.working_directory)
+          FROM command_runs cr JOIN sessions s ON s.id = cr.session_id WHERE s.project_id = OLD.id;
+        END;
+      `);
+    },
+  },
+  {
+    name: 'command-runs-add-output-cleanup-exhaustion',
+    up(db) {
+      addColumnIfMissing(db, 'command_run_output_cleanup', 'exhausted_at', 'INTEGER');
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_command_run_output_cleanup_eligible
+          ON command_run_output_cleanup (next_attempt_at, created_at)
+          WHERE exhausted_at IS NULL;
+        UPDATE command_run_output_cleanup
+        SET exhausted_at = created_at
+        WHERE exhausted_at IS NULL AND attempts >= 8;
       `);
     },
   },

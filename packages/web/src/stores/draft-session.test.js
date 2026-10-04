@@ -86,27 +86,30 @@ describe('Draft Session Editing Logic', () => {
       // Component should not call API for empty prompts
     });
 
-    it('debounces rapid saves', (done) => {
-      let saveCount = 0;
-      const mockSave = vi.fn().mockImplementation(() => {
-        saveCount++;
-        return Promise.resolve({});
-      });
+    it('debounces rapid saves', async () => {
+      vi.useFakeTimers();
+      try {
+        let saveCount = 0;
+        const mockSave = vi.fn().mockImplementation(() => {
+          saveCount++;
+          return Promise.resolve({});
+        });
 
-      // Simulate 5 rapid edits
-      for (let i = 0; i < 5; i++) {
-        clearTimeout(draftState.debounceTimer);
-        draftState.debounceTimer = setTimeout(() => {
-          mockSave('session-1', `Edit ${i}`);
-        }, 500);
-      }
+        // Simulate 5 rapid edits
+        for (let i = 0; i < 5; i++) {
+          clearTimeout(draftState.debounceTimer);
+          draftState.debounceTimer = setTimeout(() => {
+            mockSave('session-1', `Edit ${i}`);
+          }, 500);
+        }
 
-      // After debounce, only 1 save should occur (the last one)
-      setTimeout(() => {
+        await vi.advanceTimersByTimeAsync(500);
+
         expect(saveCount).toBe(1);
         expect(mockSave).toHaveBeenCalledWith('session-1', 'Edit 4');
-        done();
-      }, 600);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

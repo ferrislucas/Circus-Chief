@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { execFileSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,5 +16,19 @@ const rootPlanFiles = readdirSync(repositoryRoot, { withFileTypes: true })
 if (rootPlanFiles.length) {
   console.error('Repository-root plan files are not allowed. Keep planning artifacts on the canvas or in ~/.claude/plans:');
   for (const filename of rootPlanFiles) console.error(`- ${filename}`);
+  process.exitCode = 1;
+}
+
+const trackedCircusRunArtifacts = execFileSync('git', ['ls-files', '--', '.circus/runs'], {
+  cwd: repositoryRoot,
+  encoding: 'utf8',
+})
+  .trim()
+  .split('\n')
+  .filter(Boolean);
+
+if (trackedCircusRunArtifacts.length) {
+  console.error('Generated Circus run artifacts must not be tracked:');
+  for (const filename of trackedCircusRunArtifacts) console.error(`- ${filename}`);
   process.exitCode = 1;
 }
