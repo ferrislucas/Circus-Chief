@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -89,11 +89,60 @@ async function lookupContextWindow(model, catalogDir = defaultCatalogDir()) {
   return undefined;
 }
 
+/**
+ * Snapshot per-file journal sizes for a session, or null when the session
+ * directory is unavailable. Callers capture this at turn start and hand it
+ * back to {@link readMuseSessionUsage} so entries that predate the turn are
+ * ignored instead of misattributed to it (finding #4).
+ *
+ * @param {string} sessionId - The --session-id passed to the turn.
+ * @returns {Promise<Object<string, number>|null>} Filename → byte size.
+ */
+export async function snapshotMuseJournalState(sessionId, { sessionsDir = defaultSessionsDir() } = {}) {
+  if (!isSafeJournalSegment(sessionId)) return null;
+  try {
+    const dir = join(sessionsDir, sessionId);
+    const files = (await readdir(dir)).filter((name) => name.startsWith(JOURNAL_PREFIX)).sort();
+    const sizes = {};
+    for (const file of files) {
+      // eslint-disable-next-line no-await-in-loop
+      sizes[file] = (await stat(join(dir, file))).size;
+    }
+    return sizes;
+  } catch {
+    return null;
+  }
+}
+
+/** A session id must be a single safe path segment under the sessions dir. */
+function isSafeJournalSegment(sessionId) {
+  return typeof sessionId === 'string'
+    && Boolean(sessionId)
+    && sessionId !== '.'
+    && sessionId !== '..'
+    && !sessionId.includes('/')
+    && !sessionId.includes('\\');
+}
+
+/**
+ * Read one journal file, skipping the first `skipBytes` bytes when a
+ * turn-start baseline covers them. Bytes are sliced before UTF-8 decoding so
+ * a byte offset can never split the string indexing; a partial leading line
+ * simply fails the `{` check in parseTokenUsageLine and is skipped. A file
+ * smaller than its baseline was rotated since the snapshot, so its whole
+ * content is fresh.
+ */
+async function readJournalFile(path, skipBytes) {
+  const data = await readFile(path);
+  const skip = Number.isFinite(skipBytes) && skipBytes > 0 && skipBytes <= data.length ? skipBytes : 0;
+  return (skip > 0 ? data.subarray(skip) : data).toString('utf8');
+}
+
 /** Read every journal file for a session, or null when none exist yet. */
-async function readJournalTexts(dir) {
+async function readJournalTexts(dir, baseline) {
   const files = (await readdir(dir)).filter((name) => name.startsWith(JOURNAL_PREFIX)).sort();
   if (files.length === 0) return null;
-  return Promise.all(files.map((file) => readFile(join(dir, file), 'utf8')));
+  return Promise.all(files.map((file) => readJournalFile(join(dir, file), baseline?.[file])));
 }
 
 /** Shape journal params into the normalized reading. */
@@ -114,14 +163,18 @@ function toReading(params, contextWindow) {
 /**
  * Read one turn's usage from the CLI session journal.
  * @param {string} sessionId - The --session-id passed to this turn.
+ * @param {Object} [options]
+ * @param {Object<string, number>} [options.baseline] - Turn-start snapshot
+ *   from {@link snapshotMuseJournalState}; entries predating it are ignored
+ *   and resolve to null (the caller falls back to zeros).
  * @returns {Promise<{inputTokens:number,outputTokens:number,thinkingTokens:number,cacheReadInputTokens:number,cacheCreationInputTokens:number,model:string|null,contextWindow:number|undefined}|null>}
  */
-export async function readMuseSessionUsage(sessionId, { sessionsDir = defaultSessionsDir(), catalogDir } = {}) {
-  if (typeof sessionId !== 'string' || !sessionId || sessionId.includes('/') || sessionId.includes('\\')) return null;
+export async function readMuseSessionUsage(sessionId, { sessionsDir = defaultSessionsDir(), catalogDir, baseline } = {}) {
+  if (!isSafeJournalSegment(sessionId)) return null;
   const dir = join(sessionsDir, sessionId);
   for (let attempt = 0; attempt < JOURNAL_RETRIES; attempt += 1) {
     try {
-      const texts = await readJournalTexts(dir);
+      const texts = await readJournalTexts(dir, baseline);
       if (!texts) return null;
       const params = findLastTokenUsage(texts);
       if (!params) return null;

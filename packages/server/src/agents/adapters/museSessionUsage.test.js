@@ -1,8 +1,8 @@
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, appendFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildTerminalUsage, readMuseSessionUsage } from './museSessionUsage.js';
+import { buildTerminalUsage, readMuseSessionUsage, snapshotMuseJournalState } from './museSessionUsage.js';
 
 const SESSION_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
@@ -76,6 +76,53 @@ describe('readMuseSessionUsage', () => {
     const { sessionsDir, catalogDir } = await fixtureSessions([[tokenUsageLine()]]);
     await expect(readMuseSessionUsage('../escape', { sessionsDir, catalogDir })).resolves.toBeNull();
     await expect(readMuseSessionUsage('', { sessionsDir, catalogDir })).resolves.toBeNull();
+  });
+
+  // Finding #6: bare dot segments resolve inside the sessions dir itself —
+  // `..` escapes it via join. Both must return null even when a journal
+  // file sits at that level (planted here so the test can tell).
+  it('rejects bare dot segments as session ids', async () => {
+    const { sessionsDir, catalogDir } = await fixtureSessions([[tokenUsageLine()]]);
+    await writeFile(join(sessionsDir, 'journal-00000000.bin'), tokenUsageLine());
+    await expect(readMuseSessionUsage('..', { sessionsDir, catalogDir })).resolves.toBeNull();
+    await expect(readMuseSessionUsage('.', { sessionsDir, catalogDir })).resolves.toBeNull();
+  });
+
+  // Finding #4: a previous turn's usage must never be misattributed to
+  // the current turn. The journal state is fingerprinted at turn start
+  // (file sizes here) and entries predating it resolve to null.
+  it('ignores pre-turn entries covered by the baseline snapshot', async () => {
+    const { sessionsDir, catalogDir } = await fixtureSessions([[tokenUsageLine()]]);
+    const baseline = await snapshotMuseJournalState(SESSION_ID, { sessionsDir });
+    expect(baseline).toEqual({ 'journal-00000000.bin': expect.any(Number) });
+    await expect(readMuseSessionUsage(SESSION_ID, { sessionsDir, catalogDir, baseline })).resolves.toBeNull();
+  });
+
+  it('reads entries appended after the baseline snapshot', async () => {
+    const { sessionsDir, catalogDir } = await fixtureSessions([[tokenUsageLine()]]);
+    const baseline = await snapshotMuseJournalState(SESSION_ID, { sessionsDir });
+    await appendFile(
+      join(sessionsDir, SESSION_ID, 'journal-00000000.bin'),
+      `\n${tokenUsageLine({ params: { usage: { inputTokens: 7, outputTokens: 8 }, modelId: 'fresh-model', turnId: 'turn-2' } })}`,
+    );
+    await expect(readMuseSessionUsage(SESSION_ID, { sessionsDir, catalogDir, baseline })).resolves.toMatchObject({
+      inputTokens: 7,
+      outputTokens: 8,
+      model: 'fresh-model',
+    });
+  });
+
+  it('treats a rotated (shrunk) journal file as fully fresh', async () => {
+    const { sessionsDir, catalogDir } = await fixtureSessions([[tokenUsageLine()]]);
+    const baseline = await snapshotMuseJournalState(SESSION_ID, { sessionsDir });
+    await writeFile(
+      join(sessionsDir, SESSION_ID, 'journal-00000000.bin'),
+      tokenUsageLine({ params: { usage: { inputTokens: 9, outputTokens: 10 }, modelId: 'rotated-model', turnId: 'turn-3' } }),
+    );
+    await expect(readMuseSessionUsage(SESSION_ID, { sessionsDir, catalogDir, baseline })).resolves.toMatchObject({
+      inputTokens: 9,
+      model: 'rotated-model',
+    });
   });
 
   it('coerces malformed counts to zero and skips non-JSON lines', async () => {

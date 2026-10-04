@@ -1,10 +1,12 @@
 import { EventEmitter } from 'node:events';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { MuseExecAdapter, MAX_MUSE_TURN_EVENTS } from './MuseExecAdapter.js';
+import { composeCliPrompt } from './cliUtils.js';
 
 function fakeSpawn(output, code = 0, onSpawn = () => {}) {
   return (_command, args) => {
@@ -38,6 +40,15 @@ describe('MuseExecAdapter', () => {
   it('defaults to a twelve-hour per-turn timeout', () => {
     const adapter = new MuseExecAdapter();
     expect(adapter._timeouts.turnMs).toBe(12 * 60 * 60_000);
+  });
+
+  // Finding #2: there is no startup/idle enforcement — only the total-turn
+  // timeout and the shutdown grace period. No other timeout key may linger
+  // in the defaults to mislead readers.
+  it('exposes exactly the enforced timeouts (no dead startupMs)', () => {
+    const adapter = new MuseExecAdapter();
+    expect(Object.keys(adapter._timeouts).sort()).toEqual(['shutdownGraceMs', 'turnMs']);
+    expect(adapter._timeouts).not.toHaveProperty('startupMs');
   });
 
   it('accepts Muse reconciliation records before streaming a completed response', async () => {
@@ -89,7 +100,34 @@ describe('MuseExecAdapter', () => {
     expect(events.find((item) => item.type === 'system' && item.subtype === 'init')).toMatchObject({ session_id: resumedId });
     expect(args[args.indexOf('--session-id') + 1]).toBe(resumedId);
   });
-  it('attaches real journal usage to the terminal result', async () => {
+  it('attaches journal usage flushed during the turn to the terminal result', async () => {
+    const viewsDir = await mkdtemp(join(tmpdir(), 'muse-views-'));
+    const catalogDir = await mkdtemp(join(tmpdir(), 'muse-catalog-'));
+    const resumeId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+    await mkdir(join(viewsDir, resumeId), { recursive: true });
+    vi.stubEnv('MUSE_SESSION_VIEWS_DIR', viewsDir);
+    vi.stubEnv('MUSE_MODEL_CATALOG_DIR', catalogDir);
+    try {
+      // The CLI flushes its journal while the turn runs (after the adapter's
+      // turn-start snapshot), so the entry counts as fresh usage.
+      const flushJournal = () => writeFile(join(viewsDir, resumeId, 'journal-00000000.bin'), JSON.stringify({
+        method: 'session/tokenUsage',
+        params: { usage: { inputTokens: 100, outputTokens: 20 }, modelId: 'muse-spark', turnId: 'turn-1' },
+      }));
+      const adapter = new MuseExecAdapter({ spawnMuseExec: fakeSpawn([...currentRun()], 0, flushJournal) });
+      const events = [];
+      for await (const item of adapter.execute({ prompt: 'Hi', options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll', resume: resumeId } })) events.push(item);
+      expect(events.at(-1)).toMatchObject({
+        type: 'result', subtype: 'success', usage: { input_tokens: 100, output_tokens: 20 },
+      });
+      expect(events.at(-1).modelUsage['muse-spark']).toMatchObject({ inputTokens: 100, outputTokens: 20 });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  // Finding #4: a journal entry that predates the turn is stale and must not
+  // be attached — the terminal falls back to no usage fields.
+  it('ignores a pre-turn journal entry instead of misattributing it', async () => {
     const viewsDir = await mkdtemp(join(tmpdir(), 'muse-views-'));
     const catalogDir = await mkdtemp(join(tmpdir(), 'muse-catalog-'));
     const resumeId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
@@ -104,10 +142,11 @@ describe('MuseExecAdapter', () => {
       const adapter = new MuseExecAdapter({ spawnMuseExec: fakeSpawn([...currentRun()]) });
       const events = [];
       for await (const item of adapter.execute({ prompt: 'Hi', options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll', resume: resumeId } })) events.push(item);
-      expect(events.at(-1)).toMatchObject({
-        type: 'result', subtype: 'success', usage: { input_tokens: 100, output_tokens: 20 },
-      });
-      expect(events.at(-1).modelUsage['muse-spark']).toMatchObject({ inputTokens: 100, outputTokens: 20 });
+      expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
+      // The stale pre-turn reading (100/20) is ignored; the mapper falls
+      // back to zeros with no modelUsage.
+      expect(events.at(-1)).toMatchObject({ usage: { input_tokens: 0, output_tokens: 0 } });
+      expect(events.at(-1)).not.toHaveProperty('modelUsage');
     } finally {
       vi.unstubAllEnvs();
     }
@@ -200,6 +239,23 @@ describe('MuseExecAdapter', () => {
     child.emit('exit', 0);
     await pump;
     expect(seen.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
+  });
+  // Finding #11: the argv path (composeCliPrompt in museExecArgs) and the
+  // prompt-file path (adapter's large-prompt composition) must carry
+  // byte-identical text for a system-prompt-bearing turn.
+  it('writes byte-identical prompt text to the prompt file', async () => {
+    const systemPrompt = 'Be helpful.';
+    const prompt = `large-${'x'.repeat(25 * 1024)}`;
+    let promptFileContent = null;
+    const events = [];
+    const adapter = new MuseExecAdapter({
+      spawnMuseExec: fakeSpawn([...currentRun()], 0, (args) => {
+        promptFileContent = readFileSync(args[args.indexOf('--prompt-file') + 1], 'utf8');
+      }),
+    });
+    for await (const item of adapter.execute({ prompt, options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll', systemPrompt } })) events.push(item);
+    expect(promptFileContent).toBe(composeCliPrompt(systemPrompt, prompt));
+    expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
   });
   it('maps a validated cancelled terminal to a cancelled result', async () => {
     const events = await collect(new MuseExecAdapter({ spawnMuseExec: fakeSpawn([

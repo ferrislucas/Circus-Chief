@@ -7,9 +7,10 @@ import { BaseAgent } from '../BaseAgent.js';
 import { buildMuseHostEnv } from './museHostEnv.js';
 import { filterDeadSshSocketAsync } from '../../services/loginShellEnv.js';
 import { buildMuseExecArgs, MUSE_EXEC_PROMPT_FILE_THRESHOLD } from './museExecArgs.js';
+import { composeCliPrompt } from './cliUtils.js';
 import { createMuseExecProtocol } from './museExecProtocol.js';
 import { createMuseExecEventMapper } from './museExecEventMapper.js';
-import { buildTerminalUsage, readMuseSessionUsage } from './museSessionUsage.js';
+import { buildTerminalUsage, readMuseSessionUsage, snapshotMuseJournalState } from './museSessionUsage.js';
 import { scrubEventForLogging } from '../../services/parityDiagnostics.js';
 import logger from '../../logger.js';
 
@@ -57,10 +58,10 @@ function trackCompletion() {
  * by our --session-id. Never throws — a missing journal just leaves the
  * terminal without usage and the mapper falls back to zeros.
  */
-async function attachJournalUsage(terminal, museSessionId) {
+async function attachJournalUsage(terminal, museSessionId, baseline) {
   if (!terminal || terminal.outcome !== 'completed') return;
   try {
-    const reading = await readMuseSessionUsage(museSessionId);
+    const reading = await readMuseSessionUsage(museSessionId, { baseline });
     Object.assign(terminal, buildTerminalUsage(reading));
   } catch {
     // Journal unavailable; usage stays unset.
@@ -75,7 +76,7 @@ export class MuseExecAdapter extends BaseAgent {
     super(rest);
     this._spawn = spawnMuseExec || defaultSpawn;
     this._sshLivenessProbe = sshLivenessProbe;
-    this._timeouts = { startupMs: 30_000, turnMs: 12 * 60 * 60_000, shutdownGraceMs: 2_000, ...(timeouts || {}) };
+    this._timeouts = { turnMs: 12 * 60 * 60_000, shutdownGraceMs: 2_000, ...(timeouts || {}) };
   }
   getCapabilities() { return { ...MuseExecAdapter.capabilities }; }
   supportsResume() { return true; }
@@ -90,7 +91,10 @@ export class MuseExecAdapter extends BaseAgent {
     const museSessionId = options.resume || randomUUID();
     let env = buildMuseHostEnv(options.env);
     env = (await filterDeadSshSocketAsync(env, this._sshLivenessProbe)).env;
-    const prompt = `${options.systemPrompt ? `SYSTEM PROMPT:\n${options.systemPrompt}\n\nUSER:\n` : ''}${queryParams.prompt || ''}`;
+    // Single prompt owner (finding #11): the same composeCliPrompt text
+    // feeds both the argv path (inside buildMuseExecArgs) and the
+    // prompt-file path below, so the two can never drift.
+    const prompt = composeCliPrompt(options.systemPrompt, queryParams.prompt);
     let promptDir = null;
     try {
       if (Buffer.byteLength(prompt) > MUSE_EXEC_PROMPT_FILE_THRESHOLD) {
@@ -101,8 +105,11 @@ export class MuseExecAdapter extends BaseAgent {
       }
       const spec = buildMuseExecArgs({ prompt: queryParams.prompt, options, workingDirectory: cwd, sessionId: museSessionId, promptFile: options.__musePromptFile });
       yield mapper.init(museSessionId);
+      // Fingerprint the journal before spawn so the post-turn usage read
+      // ignores entries that predate this turn (finding #4).
+      const journalBaseline = await snapshotMuseJournalState(museSessionId);
       const terminal = yield* this._stream(spec, env, options.abortController?.signal, mapper);
-      await attachJournalUsage(terminal, museSessionId);
+      await attachJournalUsage(terminal, museSessionId, journalBaseline);
       yield* mapper.final(terminal);
     } catch (err) {
       yield { type: 'result', subtype: 'error', is_error: true, error: err?.message || 'Muse exec failed.' };
