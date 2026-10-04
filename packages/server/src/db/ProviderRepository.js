@@ -6,11 +6,12 @@ import * as modelOps from './providerModelOperations.js';
 
 /**
  * Valid values for `providers.kind`. Maps 1:1 to an agent adapter:
- *   - 'anthropic' ��� 'claude-code'
+ *   - 'anthropic' → 'claude-code'
  *   - 'openai'    → 'codex'
  *   - 'google'    → 'gemini'
+ *   - 'meta'      → 'muse'
  */
-export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai', 'google']);
+export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai', 'google', 'meta']);
 
 /**
  * Model tier aliases handled directly by the Claude SDK. These are matched
@@ -27,6 +28,7 @@ export const AGENT_TYPE_BY_KIND = Object.freeze({
   anthropic: 'claude-code',
   openai: 'codex',
   google: 'gemini',
+  meta: 'muse',
 });
 
 const BUILT_IN_MUTABLE_FIELDS = Object.freeze(['commitAttributionOverride', 'enabled']);

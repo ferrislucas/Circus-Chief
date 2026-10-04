@@ -22,6 +22,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => {
 import { AgentGateway } from './AgentGateway.js';
 import { ClaudeCodeAdapter } from './adapters/ClaudeCodeAdapter.js';
 import { CodexAdapter } from './adapters/CodexAdapter.js';
+import { MuseAdapter } from './adapters/MuseAdapter.js';
 import { BaseAgent } from './BaseAgent.js';
 
 describe('AgentGateway', () => {
@@ -34,7 +35,7 @@ describe('AgentGateway', () => {
   it('throws descriptive error for unknown agent type', () => {
     const gateway = new AgentGateway();
     expect(() => gateway.createAgent('nonexistent')).toThrow(
-      'Unknown agent type: "nonexistent". Available: claude-code, codex, gemini'
+      'Unknown agent type: "nonexistent". Available: claude-code, codex, gemini, muse'
     );
   });
 
@@ -53,11 +54,11 @@ describe('AgentGateway', () => {
 
   it('lists all registered agent types', () => {
     const gateway = new AgentGateway();
-    expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'gemini']);
+    expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'gemini', 'muse']);
 
     class FakeAdapter extends BaseAgent {}
     gateway.registerAdapter('fake', FakeAdapter);
-    expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'gemini', 'fake']);
+    expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'gemini', 'muse', 'fake']);
   });
 
   it('returns capabilities for registered agent types', () => {
@@ -119,7 +120,7 @@ describe('AgentGateway', () => {
     it('getAllAgentCapabilities() returns entries for every registered adapter', () => {
       const gateway = new AgentGateway();
       const all = gateway.getAllAgentCapabilities();
-      expect(all).toHaveLength(3);
+      expect(all).toHaveLength(4);
       const byType = Object.fromEntries(all.map((e) => [e.agentType, e.capabilities]));
       expect(byType['claude-code']).toEqual({
         streaming: true, thinking: true, reasoningEffort: true, toolUse: true, resume: true,
@@ -130,11 +131,43 @@ describe('AgentGateway', () => {
       expect(byType['gemini']).toEqual({
         streaming: true, thinking: false, reasoningEffort: false, toolUse: true, resume: false,
       });
+      expect(byType['muse']).toEqual({
+        streaming: true, thinking: false, reasoningEffort: true, toolUse: true, resume: true,
+      });
     });
 
-    it('getAvailableAgents() includes claude-code, codex, and gemini', () => {
+    it('getAvailableAgents() includes claude-code, codex, gemini, and muse', () => {
       const gateway = new AgentGateway();
-      expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'gemini']);
+      expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'gemini', 'muse']);
+    });
+  });
+
+  // ── Muse integration ────────────────────────────────────────────────────
+  describe('muse adapter integration', () => {
+    it('createAgent("muse") returns a MuseAdapter instance', () => {
+      const gateway = new AgentGateway();
+      const agent = gateway.createAgent('muse');
+      expect(agent).toBeInstanceOf(MuseAdapter);
+    });
+
+    it('createAgent("muse", config) forwards config to the adapter', () => {
+      const gateway = new AgentGateway();
+      const fakeFactory = async () => ({});
+      const agent = gateway.createAgent('muse', { museClientFactory: fakeFactory });
+      expect(agent._museClientFactory).toBe(fakeFactory);
+    });
+
+    it('getAgentCapabilities("muse") returns muse capabilities WITHOUT calling constructor', () => {
+      const gateway = new AgentGateway();
+      const caps = gateway.getAgentCapabilities('muse');
+      expect(caps).toEqual({
+        streaming: true,
+        thinking: false,
+        reasoningEffort: true,
+        toolUse: true,
+        resume: true,
+      });
+      expect(caps).toEqual(MuseAdapter.capabilities);
     });
   });
 });

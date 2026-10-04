@@ -293,6 +293,18 @@ export const GEMINI_MODELS = [
 ];
 export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 
+export const MUSE_MODELS = [
+  {
+    id: 'muse-spark-1.3', name: 'Muse Spark 1.3', description: 'Capable Muse Spark model', seedId: 'meta-muse-spark-1-3',
+    lifecycle: 'current', defaultEnabled: true, evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
+    id: 'muse-spark-1.3-contributor', name: 'Muse Spark 1.3 Contributor', description: 'Most capable Muse Spark model', seedId: 'meta-muse-spark-1-3-contributor',
+    lifecycle: 'current', defaultEnabled: true, evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+];
+export const DEFAULT_MUSE_MODEL = 'muse-spark-1.3';
+
 /**
  * @typedef {Object} KanbanBoard
  * @property {string} id

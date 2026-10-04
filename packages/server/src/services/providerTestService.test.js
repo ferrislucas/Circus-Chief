@@ -322,4 +322,68 @@ describe('providerTestService', () => {
       vi.useRealTimers();
     });
   });
+
+  // ── Meta/Muse kind ────────────────────────────────────────────────────
+
+  describe("kind='meta'", () => {
+    it('success spawns headless muse exec and reports the Muse model', async () => {
+      const savedMuseBin = process.env.MUSE_BIN;
+      delete process.env.MUSE_BIN;
+      const child = createMockGeminiChild();
+      const spawnMuseProcess = vi.fn(() => child);
+
+      const promise = testProviderConnection({
+        kind: 'meta',
+        workingDirectory: '/tmp/muse-workdir',
+      }, { spawnMuseProcess });
+
+      child.emit('exit', 0);
+      const result = await promise;
+
+      expect(result).toEqual({
+        success: true,
+        message: 'Connection successful',
+        details: { model: 'muse-spark-1.3' },
+      });
+      expect(spawnMuseProcess).toHaveBeenCalledWith({
+        command: 'muse',
+        args: ['exec', '--json', '--no-session-log', '-p', 'Hi', '-m', 'muse-spark-1.3'],
+        cwd: '/tmp/muse-workdir',
+        env: process.env,
+      });
+      if (savedMuseBin === undefined) delete process.env.MUSE_BIN;
+      else process.env.MUSE_BIN = savedMuseBin;
+    });
+
+    it('non-zero exit maps stderr into failure shape', async () => {
+      const child = createMockGeminiChild();
+      const spawnMuseProcess = vi.fn(() => child);
+
+      const promise = testProviderConnection({ kind: 'meta' }, { spawnMuseProcess });
+
+      child.stderr.emit('data', Buffer.from('auth required\n'));
+      child.emit('exit', 1);
+      const result = await promise;
+
+      expect(result).toEqual({
+        success: false,
+        message: 'auth required',
+        details: { code: undefined, type: 'Error' },
+      });
+    });
+
+    it('ENOENT maps to install-help failure message', async () => {
+      const child = createMockGeminiChild();
+      const spawnMuseProcess = vi.fn(() => child);
+
+      const promise = testProviderConnection({ kind: 'meta' }, { spawnMuseProcess });
+      const error = new Error('spawn muse ENOENT');
+      error.code = 'ENOENT';
+      child.emit('error', error);
+      const result = await promise;
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('Muse CLI not found');
+    });
+  });
 });

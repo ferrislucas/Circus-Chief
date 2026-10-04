@@ -153,6 +153,27 @@ export function getGeminiApprovalModeForSession(mode) {
   }
 }
 
+/**
+ * Map session mode to the Muse MSP session approval mode.
+ *
+ * MSP modes are closed (select-never-create): allowAll | promptUnmatched |
+ * onRequest | denyUnmatched. The `muse serve` default is on-request; yolo
+ * lifts enforcement, plan selects the most conservative interactive mode.
+ * Tool calls still resolve through the adapter's headless `onApproval`
+ * handler (see MuseAdapter) — this selects the server-side posture.
+ */
+export function getMuseApprovalModeForSession(mode) {
+  switch (mode) {
+    case 'yolo':
+      return 'allowAll';
+    case 'plan':
+      return 'promptUnmatched';
+    case 'standard':
+    default:
+      return 'onRequest';
+  }
+}
+
 /** Plan mode system prompt instructions */
 export const PLAN_MODE_PROMPT = `## Plan Mode Active
 

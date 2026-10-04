@@ -1,10 +1,11 @@
-import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
+import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS, MUSE_MODELS } from '@circuschief/shared';
 import { getTableSql } from './migrationUtils.js';
 import { BUILT_IN_OPENAI_COMMIT_ATTRIBUTION } from '../seedBaselineData.js';
 
 const ANTHROPIC_PROVIDER_ID = 'anthropic-default';
 const OPENAI_PROVIDER_ID = 'openai-default';
 const GOOGLE_PROVIDER_ID = 'google-default';
+const META_PROVIDER_ID = 'meta-default';
 const FABLE_MODEL = {
   id: 'anthropic-fable',
   modelId: 'claude-fable-5',
@@ -108,9 +109,116 @@ export function seedBuiltInGoogleProvider(db) {
   seedCatalogModels(db, GOOGLE_PROVIDER_ID, GEMINI_MODELS, () => 'custom');
 }
 
+/**
+ * Seed (and backfill) the built-in Meta provider and its Muse model rows.
+ *
+ * Mirrors {@link seedBuiltInGoogleProvider}: `INSERT OR IGNORE` over the
+ * current `MUSE_MODELS` catalog, so re-runs on every startup pick up newly
+ * added built-in Muse models without a dedicated migration.
+ */
+export function seedBuiltInMetaProvider(db) {
+  const now = Date.now();
+
+  db.prepare(
+    `INSERT OR IGNORE INTO providers (
+       id, name, base_url, auth_token, kind, is_built_in, created_at, updated_at
+     )
+     VALUES (?, ?, NULL, NULL, 'meta', 1, ?, ?)`
+  ).run(META_PROVIDER_ID, 'Meta (Official)', now, now);
+
+  seedCatalogModels(db, META_PROVIDER_ID, MUSE_MODELS, () => 'custom');
+}
+
 export function seedBuiltInProviders(db) {
   seedBuiltInAnthropicProvider(db);
   seedBuiltInOpenAIProvider(db);
+}
+
+/**
+ * Widen the `providers.kind` CHECK constraint to the given kinds by
+ * recreating the table — SQLite CHECKs are baked into the table definition
+ * and cannot be altered in place.
+ *
+ * Unlike the one-shot 'providers-widen-kind-check-google' swap, this is
+ * SHAPE-AWARE: it rebuilds `providers_new` from the live
+ * `PRAGMA table_info(providers)` (preserving every existing column
+ * verbatim — including later additions like `enabled`) instead of a
+ * hardcoded column list. A hardcoded list breaks on any database whose
+ * column count differs (e.g. an existing install that already ran
+ * 'providers-add-enabled' yields 12 values into an 11-column copy and the
+ * boot crashes). Explicit column lists are used for the copy so column
+ * ORDER differences are harmless too.
+ *
+ * Also drops a stale `providers_new` left behind by a previously crashed
+ * swap attempt before rebuilding it.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {string[]} kinds - Allowed kind values, e.g. ['anthropic','openai','google','meta']
+ */
+/**
+ * Re-emit a `PRAGMA table_info` default verbatim when it is a plain
+ * literal, or parenthesized when it is an expression. PRAGMA strips the
+ * outer parens SQLite requires around expression defaults (e.g. it reports
+ * `unixepoch() * 1000` for `DEFAULT (unixepoch() * 1000)`), so re-emitting
+ * the raw text is a syntax error — caught live when this swap ran against
+ * a fresh-schema database.
+ */
+function formatColumnDefault(dfltValue) {
+  if (dfltValue === null || dfltValue === undefined) return '';
+  if (/^\(.*\)$/s.test(dfltValue)) return ` DEFAULT ${dfltValue}`;
+  if (/^'.*'$/s.test(dfltValue)) return ` DEFAULT ${dfltValue}`;
+  if (/^(NULL|TRUE|FALSE|CURRENT_TIME|CURRENT_DATE|CURRENT_TIMESTAMP)$/i.test(dfltValue)) {
+    return ` DEFAULT ${dfltValue}`;
+  }
+  if (/^[+-]?(\d+\.?\d*|\.\d+)$/.test(dfltValue)) return ` DEFAULT ${dfltValue}`;
+  return ` DEFAULT (${dfltValue})`;
+}
+
+export function widenProvidersKindCheck(db, kinds) {
+  const columns = db.prepare('PRAGMA table_info(providers)').all();
+  if (columns.length === 0) return;
+
+  const kindList = kinds.map((kind) => `'${kind}'`).join(',');
+  const definitions = columns.map((column) => {
+    if (column.name === 'kind') {
+      return `"kind" ${column.type} NOT NULL DEFAULT 'anthropic' CHECK(kind IN (${kindList}))`;
+    }
+    let definition = `"${column.name}" ${column.type}`;
+    if (column.pk) {
+      definition += ' PRIMARY KEY';
+    } else if (column.notnull) {
+      definition += ' NOT NULL';
+    }
+    definition += formatColumnDefault(column.dflt_value);
+    return definition;
+  });
+  const columnNames = columns.map((column) => `"${column.name}"`).join(', ');
+
+  // IMPORTANT: Disable foreign key enforcement during the table swap.
+  // provider_models has ON DELETE CASCADE referencing providers; SQLite
+  // fires that cascade when DROP TABLE deletes parent rows, which would
+  // wipe all provider_models data. Disabling FK enforcement prevents the
+  // cascade. It is re-enabled immediately after the rename.
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.exec(`
+      DROP TABLE IF EXISTS providers_new;
+
+      CREATE TABLE providers_new (
+        ${definitions.join(',\n        ')}
+      );
+
+      INSERT INTO providers_new (${columnNames}) SELECT ${columnNames} FROM providers;
+
+      DROP TABLE providers;
+
+      ALTER TABLE providers_new RENAME TO providers;
+
+      CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
+    `);
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
 }
 
 export function backfillBuiltInOpenAIAttribution(db) {
@@ -222,6 +330,7 @@ const CATALOGS_BY_PROVIDER = [
   [ANTHROPIC_PROVIDER_ID, CLAUDE_MODELS, (model) => model.tier],
   [OPENAI_PROVIDER_ID, OPENAI_MODELS, () => 'custom'],
   [GOOGLE_PROVIDER_ID, GEMINI_MODELS, () => 'custom'],
+  [META_PROVIDER_ID, MUSE_MODELS, () => 'custom'],
 ];
 
 /** Seed current catalogs after enabled/sort_order columns have been added. */

@@ -22,13 +22,15 @@ export function resolveProviderMetadataFromModel(modelId) {
 }
 
 /**
- * Resolve the agent type (claude-code vs codex) for a given model ID.
+ * Resolve the agent type for a given model ID.
  * Uses the owning provider's kind:
  *   - anthropic → claude-code
  *   - openai    → codex
+ *   - google    → gemini
+ *   - meta      → muse
  * Falls back to 'claude-code' for null / unknown / tier-name inputs.
  * @param {string|null} modelId
- * @returns {string} 'claude-code' | 'codex'
+ * @returns {string} 'claude-code' | 'codex' | 'gemini' | 'muse'
  */
 export function resolveAgentTypeFromModel(modelId) {
   if (!modelId) return 'claude-code';
@@ -42,6 +44,7 @@ export function resolveAgentTypeFromModel(modelId) {
   // derive from kind directly.
   if (provider.kind === 'openai') return 'codex';
   if (provider.kind === 'google') return 'gemini';
+  if (provider.kind === 'meta') return 'muse';
   return 'claude-code';
 }
 
@@ -65,7 +68,9 @@ export function buildProviderEnv(provider) {
     ? buildOpenAIProviderEnv(provider)
     : kind === 'google'
       ? buildGoogleProviderEnv(provider)
-      : buildAnthropicProviderEnv(provider);
+      : kind === 'meta'
+        ? buildMetaProviderEnv(provider)
+        : buildAnthropicProviderEnv(provider);
 
   if (provider.apiTimeoutMs) {
     env.API_TIMEOUT_MS = String(provider.apiTimeoutMs);
@@ -85,6 +90,18 @@ function buildGoogleProviderEnv(provider) {
   const env = {};
   if (provider.authToken) env.GEMINI_API_KEY = provider.authToken;
   return env;
+}
+
+/**
+ * Meta-kind provider env (v1).
+ *
+ * Deliberately empty: the `muse serve` host authenticates with the host's
+ * own `muse auth` credentials — there is no documented `META_*` wire env
+ * convention to set, and inventing one would silently do nothing. Provider
+ * `additionalEnvVars` (merged by the caller) remain the escape hatch.
+ */
+function buildMetaProviderEnv(_provider) {
+  return {};
 }
 
 function buildOpenAIProviderEnv(provider) {
@@ -138,6 +155,13 @@ function logProviderEnv(provider, kind, env) {
     return;
   }
 
+  if (kind === 'meta') {
+    console.log(`[SessionManager] buildProviderEnv: Provider "${provider.name}" (meta) uses host muse auth credentials.`, {
+      API_TIMEOUT_MS: env.API_TIMEOUT_MS,
+    });
+    return;
+  }
+
   console.log(`[SessionManager] buildProviderEnv: Provider "${provider.name}" (anthropic) env vars:`, {
     ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL,
     ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY ? '[SET]' : '[NOT SET]',
@@ -159,16 +183,24 @@ function logProviderEnv(provider, kind, env) {
  *   - provider.kind === 'openai': Claude-only envs (MAX_THINKING_TOKENS,
  *     CLAUDE_CODE_EFFORT_LEVEL) are NOT set, and any ANTHROPIC_* vars from
  *     process.env are stripped so Claude env doesn't leak into Codex sessions.
+ *   - provider.kind === 'google' / 'meta': same cross-kind stripping for
+ *     Gemini / Muse sessions.
  *   - provider === null: strip BOTH kinds' auth/base-url vars so host env
  *     doesn't bleed into the SDK defaults.
  *
  * @param {Object|null} provider - Provider object or null for agent defaults
  * @param {boolean} thinkingEnabled - Whether thinking mode is enabled
  * @param {string|null} effortLevel - Optional effort level
+ * @param {Object} [opts] - Optional `{ shellEnv }` forwarded to createRobustEnv
+ *   (fixture injection for tests; undefined runs the cached live probe).
  * @returns {Object}
  */
-export function buildSessionEnv(provider, thinkingEnabled = false, effortLevel = null) {
-  const baseEnv = createRobustEnv(process.env);
+function shellProbeOpts(opts) {
+  return opts.shellEnv !== undefined ? { shellEnv: opts.shellEnv } : {};
+}
+
+export function buildSessionEnv(provider, thinkingEnabled = false, effortLevel = null, opts = {}) {
+  const baseEnv = createRobustEnv(process.env, shellProbeOpts(opts));
   const providerEnv = buildProviderEnv(provider);
 
   // Combine all env vars
@@ -185,6 +217,8 @@ export function buildSessionEnv(provider, thinkingEnabled = false, effortLevel =
     applyOpenAISessionEnv(sessionEnv, providerEnv);
   } else if (kind === 'google') {
     applyGoogleSessionEnv(sessionEnv, providerEnv);
+  } else if (kind === 'meta') {
+    applyMetaSessionEnv(sessionEnv, providerEnv);
   } else {
     stripOpenAIHostEnv(sessionEnv);
     stripGoogleHostEnv(sessionEnv);
@@ -226,6 +260,14 @@ function applyGoogleSessionEnv(sessionEnv, providerEnv) {
   stripAnthropicHostEnv(sessionEnv);
   stripOpenAIHostEnv(sessionEnv);
   // Apply provider-specific env vars
+  Object.assign(sessionEnv, providerEnv);
+}
+
+function applyMetaSessionEnv(sessionEnv, providerEnv) {
+  stripAnthropicHostEnv(sessionEnv);
+  stripOpenAIHostEnv(sessionEnv);
+  stripGoogleHostEnv(sessionEnv);
+  // Apply provider-specific env vars (additionalEnvVars escape hatch)
   Object.assign(sessionEnv, providerEnv);
 }
 
