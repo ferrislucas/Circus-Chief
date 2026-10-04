@@ -9,6 +9,7 @@ import { filterDeadSshSocketAsync } from '../../services/loginShellEnv.js';
 import { buildMuseExecArgs, MUSE_EXEC_PROMPT_FILE_THRESHOLD } from './museExecArgs.js';
 import { createMuseExecProtocol } from './museExecProtocol.js';
 import { createMuseExecEventMapper } from './museExecEventMapper.js';
+import { buildTerminalUsage, readMuseSessionUsage } from './museSessionUsage.js';
 import { scrubEventForLogging } from '../../services/parityDiagnostics.js';
 import logger from '../../logger.js';
 
@@ -50,6 +51,22 @@ function trackCompletion() {
   };
 }
 
+/**
+ * Best-effort usage enrichment: the CLI stdout stream carries no token
+ * counts, but the session journal on disk records real per-turn usage keyed
+ * by our --session-id. Never throws — a missing journal just leaves the
+ * terminal without usage and the mapper falls back to zeros.
+ */
+async function attachJournalUsage(terminal, museSessionId) {
+  if (!terminal || terminal.outcome !== 'completed') return;
+  try {
+    const reading = await readMuseSessionUsage(museSessionId);
+    Object.assign(terminal, buildTerminalUsage(reading));
+  } catch {
+    // Journal unavailable; usage stays unset.
+  }
+}
+
 /** Process-owned Muse CLI transport. A terminal JSON record and clean exit are both required. */
 export class MuseExecAdapter extends BaseAgent {
   static capabilities = Object.freeze({ streaming: true, thinking: false, reasoningEffort: true, toolUse: true, resume: true });
@@ -85,6 +102,7 @@ export class MuseExecAdapter extends BaseAgent {
       const spec = buildMuseExecArgs({ prompt: queryParams.prompt, options, workingDirectory: cwd, sessionId: museSessionId, promptFile: options.__musePromptFile });
       yield mapper.init(museSessionId);
       const terminal = yield* this._stream(spec, env, options.abortController?.signal, mapper);
+      await attachJournalUsage(terminal, museSessionId);
       yield* mapper.final(terminal);
     } catch (err) {
       yield { type: 'result', subtype: 'error', is_error: true, error: err?.message || 'Muse exec failed.' };

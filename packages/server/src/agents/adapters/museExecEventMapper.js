@@ -62,9 +62,14 @@ export function createMuseExecEventMapper({ model } = {}) {
       if (terminal?.outcome === 'cancelled') return [{ type: 'result', subtype: 'cancelled' }];
       if (terminal?.outcome !== 'completed') return [{ type: 'result', subtype: 'error', is_error: true, error: terminal?.reason || 'Muse execution failed.' }];
       if (!terminal.text) return [{ type: 'result', subtype: 'error', is_error: true, error: 'Muse completed without a final response.' }];
+      // The CLI stdout stream carries no token counts, so usage defaults to
+      // zeros unless the adapter attached journal usage to the terminal.
+      const usage = terminal.usage?.input_tokens || terminal.usage?.output_tokens
+        ? { input_tokens: terminal.usage.input_tokens || 0, output_tokens: terminal.usage.output_tokens || 0 }
+        : { input_tokens: 0, output_tokens: 0 };
       return [
         { type: 'assistant', message: { content: [{ type: 'text', text: terminal.text }] } },
-        { type: 'result', subtype: 'success', usage: { input_tokens: 0, output_tokens: 0 } },
+        { type: 'result', subtype: 'success', usage, ...(terminal.modelUsage ? { modelUsage: terminal.modelUsage } : {}) },
       ];
     },
   };

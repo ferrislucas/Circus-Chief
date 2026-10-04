@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { MuseExecAdapter, MAX_MUSE_TURN_EVENTS } from './MuseExecAdapter.js';
@@ -85,6 +88,29 @@ describe('MuseExecAdapter', () => {
     for await (const item of adapter.execute({ prompt: 'Continue', options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll', resume: resumedId } })) events.push(item);
     expect(events.find((item) => item.type === 'system' && item.subtype === 'init')).toMatchObject({ session_id: resumedId });
     expect(args[args.indexOf('--session-id') + 1]).toBe(resumedId);
+  });
+  it('attaches real journal usage to the terminal result', async () => {
+    const viewsDir = await mkdtemp(join(tmpdir(), 'muse-views-'));
+    const catalogDir = await mkdtemp(join(tmpdir(), 'muse-catalog-'));
+    const resumeId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+    await mkdir(join(viewsDir, resumeId), { recursive: true });
+    await writeFile(join(viewsDir, resumeId, 'journal-00000000.bin'), JSON.stringify({
+      method: 'session/tokenUsage',
+      params: { usage: { inputTokens: 100, outputTokens: 20 }, modelId: 'muse-spark', turnId: 'turn-1' },
+    }));
+    vi.stubEnv('MUSE_SESSION_VIEWS_DIR', viewsDir);
+    vi.stubEnv('MUSE_MODEL_CATALOG_DIR', catalogDir);
+    try {
+      const adapter = new MuseExecAdapter({ spawnMuseExec: fakeSpawn([...currentRun()]) });
+      const events = [];
+      for await (const item of adapter.execute({ prompt: 'Hi', options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll', resume: resumeId } })) events.push(item);
+      expect(events.at(-1)).toMatchObject({
+        type: 'result', subtype: 'success', usage: { input_tokens: 100, output_tokens: 20 },
+      });
+      expect(events.at(-1).modelUsage['muse-spark']).toMatchObject({ inputTokens: 100, outputTokens: 20 });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
   it('advertises native continuation without replaying conversation history', () => {
     const adapter = new MuseExecAdapter();

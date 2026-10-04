@@ -71,6 +71,24 @@ describe('museExecEventMapper mid-turn signal', () => {
       .toEqual([{ type: 'tool_result', content: 'Muse progress: some.future.type' }]);
   });
 
+  it('forwards journal usage attached to the terminal into the result event', () => {
+    const mapper = createMuseExecEventMapper({});
+    const modelUsage = { 'muse-spark': { inputTokens: 100, outputTokens: 20 } };
+    const events = mapper.final({
+      outcome: 'completed',
+      text: 'done',
+      usage: { input_tokens: 100, output_tokens: 20 },
+      modelUsage,
+    });
+    expect(events.at(-1)).toEqual({ type: 'result', subtype: 'success', usage: { input_tokens: 100, output_tokens: 20 }, modelUsage });
+  });
+
+  it('falls back to zero usage when the terminal carries none', () => {
+    const mapper = createMuseExecEventMapper({});
+    expect(mapper.final({ outcome: 'completed', text: 'done' }).at(-1))
+      .toEqual({ type: 'result', subtype: 'success', usage: { input_tokens: 0, output_tokens: 0 } });
+  });
+
   it('forwards tool results as tool_output work logs with headline and body', () => {
     const mapper = createMuseExecEventMapper({});
     expect(mapper.map({ kind: 'tool_result', text: 'wrote 40 bytes to /tmp/out.txt' }))
