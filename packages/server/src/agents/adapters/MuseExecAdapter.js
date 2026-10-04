@@ -15,6 +15,41 @@ import logger from '../../logger.js';
 /** Hard bound on buffered mapped events per turn so a chatty workflow cannot grow memory without limit. */
 export const MAX_MUSE_TURN_EVENTS = 500;
 
+/** FIFO of mapped events with a wake-up for its single draining consumer. */
+function createEventQueue() {
+  const pending = [];
+  let wake = null;
+  return {
+    push(...items) {
+      pending.push(...items);
+      this.wake();
+    },
+    wake() {
+      if (wake) { const w = wake; wake = null; w(); }
+    },
+    async *drain(completion) {
+      while (true) {
+        while (pending.length) yield pending.shift();
+        if (completion.isSettled()) break;
+        await new Promise((resolve) => { wake = resolve; });
+      }
+    },
+  };
+}
+
+/** One-shot completion gate: first settlement wins, later ones are ignored. */
+function trackCompletion() {
+  let resolve; let reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  let settled = false;
+  return {
+    promise,
+    isSettled: () => settled,
+    resolve: (value) => { if (!settled) { settled = true; resolve(value); } },
+    reject: (error) => { if (!settled) { settled = true; reject(error); } },
+  };
+}
+
 /** Process-owned Muse CLI transport. A terminal JSON record and clean exit are both required. */
 export class MuseExecAdapter extends BaseAgent {
   static capabilities = Object.freeze({ streaming: true, thinking: false, reasoningEffort: true, toolUse: true, resume: true });
@@ -49,9 +84,8 @@ export class MuseExecAdapter extends BaseAgent {
       }
       const spec = buildMuseExecArgs({ prompt: queryParams.prompt, options, workingDirectory: cwd, sessionId: museSessionId, promptFile: options.__musePromptFile });
       yield mapper.init(museSessionId);
-      const outcome = await this._run(spec, env, options.abortController?.signal, mapper);
-      for (const event of outcome.events) yield event;
-      yield* mapper.final(outcome.terminal);
+      const terminal = yield* this._stream(spec, env, options.abortController?.signal, mapper);
+      yield* mapper.final(terminal);
     } catch (err) {
       yield { type: 'result', subtype: 'error', is_error: true, error: err?.message || 'Muse exec failed.' };
     } finally {
@@ -60,49 +94,87 @@ export class MuseExecAdapter extends BaseAgent {
     }
   }
 
-  _run(spec, env, signal, mapper) {
+  /**
+   * Stream mapped CLI events as stdout records arrive, resolving with the
+   * terminal record once the process lifecycle completes. Parsing continues
+   * over every record (sequence validation) even after the mapped-event cap;
+   * only mapping is skipped beyond it, and the terminal is always captured.
+   * An early consumer break terminates the child so no orphan is left behind.
+   */
+  // eslint-disable-next-line max-statements
+  async *_stream(spec, env, signal, mapper) {
+    let child; let terminal = null; let stdoutClosed = false; let stderrClosed = false; let exited = false; let exitCode = null; let stopped = Boolean(signal?.aborted); let stderr = ''; let mapped = 0;
     // Process lifecycle intentionally keeps all terminal-state reconciliation
     // in one closure so stdout, stderr, exit, timeout, and cancellation share
     // the same state.
-    // eslint-disable-next-line max-statements
-    return new Promise((resolve, reject) => {
-      let child; let terminal = null; let stdoutClosed = false; let stderrClosed = false; let exited = false; let exitCode = null; let stopped = Boolean(signal?.aborted); let stderr = ''; const events = [];
-      const parser = createMuseExecProtocol({
-        onDiagnostic: (diagnostics, message) => logger.error('[MuseExecAdapter] Muse protocol error', { message, diagnostics }),
-      });
-      const finish = () => {
-        if (!exited || !stdoutClosed || !stderrClosed) return;
-        clearTimeout(totalTimer); clearTimeout(killTimer); signal?.removeEventListener('abort', stop);
-        if (stopped) return resolve({ terminal: { outcome: 'cancelled' }, events });
-        if (exitCode !== 0) return reject(new Error(stderr || `Muse exec exited with code ${exitCode ?? 'unknown'}.`));
-        if (!terminal) return reject(new Error('Muse exec exited without a terminal result.'));
-        if (terminal.outcome === 'completed' && !terminal.text) return reject(new Error('Muse exec completed without a final response.'));
-        resolve({ terminal, events });
-      };
-      const terminate = (force = false) => {
-        if (!child?.pid) return;
-        try {
-          process.kill(process.platform === 'win32' ? child.pid : -child.pid, force ? 'SIGKILL' : 'SIGTERM');
-        } catch {
-          try { child.kill(force ? 'SIGKILL' : 'SIGTERM'); } catch { /* process already exited */ }
-        }
-      };
-      const stop = () => { stopped = true; terminate(); killTimer = setTimeout(() => terminate(true), this._timeouts.shutdownGraceMs); };
-      let killTimer;
-      const totalTimer = setTimeout(() => { stopped = true; terminate(); reject(new Error(`Muse exec timed out after ${this._timeouts.turnMs}ms.`)); }, this._timeouts.turnMs);
-      try {
-        child = this._spawn(spec.command, spec.args, { cwd: spec.cwd, env, shell: false, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
-      } catch (err) { clearTimeout(totalTimer); reject(err); return; }
-      signal?.addEventListener('abort', stop, { once: true });
-      child.stdout.on('data', (chunk) => { try { for (const item of parser.push(chunk)) { if (item.kind === 'terminal') terminal = item; else if (events.length < MAX_MUSE_TURN_EVENTS) events.push(...mapper.map(item)); } } catch (err) { terminate(); reject(err); } });
-      child.stdout.on('close', () => { try { parser.end(); stdoutClosed = true; finish(); } catch (err) { reject(err); } });
-      child.stderr.on('data', (chunk) => {
-        // Stderr is diagnostic-only, bounded, and scrubbed before retention.
-        if (stderr.length < 8192) stderr += scrubEventForLogging(String(chunk), env).slice(0, 8192 - stderr.length);
-      });
-      child.stderr.on('close', () => { stderrClosed = true; finish(); });
-      child.on('error', (err) => { clearTimeout(totalTimer); reject(err.code === 'ENOENT' ? new Error('Muse CLI not found. Install Muse Code or set MUSE_BIN.') : err); });
-      child.on('exit', (code) => { exited = true; exitCode = code; finish(); });
+    const parser = createMuseExecProtocol({
+      onDiagnostic: (diagnostics, message) => logger.error('[MuseExecAdapter] Muse protocol error', { message, diagnostics }),
     });
+    const queue = createEventQueue();
+    const completion = trackCompletion();
+    // Every settlement wakes the drain loop: whichever of exit/stdout-close/
+    // stderr-close completes the lifecycle last must not leave the consumer
+    // parked in its wake-up wait with no further events coming.
+    const fail = (error) => { cleanup(); completion.reject(error); queue.wake(); };
+    const finish = () => {
+      if (!exited || !stdoutClosed || !stderrClosed) return;
+      cleanup();
+      if (stopped) completion.resolve({ outcome: 'cancelled' });
+      else if (exitCode !== 0) completion.reject(new Error(stderr || `Muse exec exited with code ${exitCode ?? 'unknown'}.`));
+      else if (!terminal) completion.reject(new Error('Muse exec exited without a terminal result.'));
+      else if (terminal.outcome === 'completed' && !terminal.text) completion.reject(new Error('Muse exec completed without a final response.'));
+      else completion.resolve(terminal);
+      queue.wake();
+    };
+    const terminate = (force = false) => {
+      if (!child?.pid) return;
+      try {
+        process.kill(process.platform === 'win32' ? child.pid : -child.pid, force ? 'SIGKILL' : 'SIGTERM');
+      } catch {
+        try { child.kill(force ? 'SIGKILL' : 'SIGTERM'); } catch { /* process already exited */ }
+      }
+    };
+    const cleanup = () => {
+      clearTimeout(totalTimer); clearTimeout(killTimer); signal?.removeEventListener('abort', stop);
+    };
+    const stop = () => { stopped = true; terminate(); killTimer = setTimeout(() => terminate(true), this._timeouts.shutdownGraceMs); };
+    let killTimer;
+    const totalTimer = setTimeout(() => { stopped = true; terminate(); fail(new Error(`Muse exec timed out after ${this._timeouts.turnMs}ms.`)); }, this._timeouts.turnMs);
+    const ingest = (item) => {
+      if (item.kind === 'terminal') {
+        terminal = item;
+        return;
+      }
+      if (mapped >= MAX_MUSE_TURN_EVENTS) return;
+      const mappedEvents = mapper.map(item);
+      mapped += mappedEvents.length;
+      if (mappedEvents.length) queue.push(...mappedEvents);
+    };
+    const onData = (chunk) => {
+      try {
+        for (const item of parser.push(chunk)) ingest(item);
+      } catch (err) { terminate(); fail(err); }
+    };
+    try {
+      child = this._spawn(spec.command, spec.args, { cwd: spec.cwd, env, shell: false, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
+    } catch (err) { cleanup(); clearTimeout(totalTimer); throw err; }
+    signal?.addEventListener('abort', stop, { once: true });
+    child.stdout.on('data', onData);
+    child.stdout.on('close', () => { try { parser.end(); stdoutClosed = true; finish(); } catch (err) { fail(err); } });
+    child.stderr.on('data', (chunk) => {
+      // Stderr is diagnostic-only, bounded, and scrubbed before retention.
+      if (stderr.length < 8192) stderr += scrubEventForLogging(String(chunk), env).slice(0, 8192 - stderr.length);
+    });
+    child.stderr.on('close', () => { stderrClosed = true; finish(); });
+    child.on('error', (err) => { fail(err.code === 'ENOENT' ? new Error('Muse CLI not found. Install Muse Code or set MUSE_BIN.') : err); });
+    child.on('exit', (code) => { exited = true; exitCode = code; finish(); });
+    try {
+      yield* queue.drain(completion);
+      return await completion.promise;
+    } finally {
+      // An early consumer break must not orphan the CLI process.
+      if (!completion.isSettled()) { stopped = true; terminate(); }
+      cleanup();
+    }
   }
 }

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MuseExecAdapter, MAX_MUSE_TURN_EVENTS } from './MuseExecAdapter.js';
 
 function fakeSpawn(output, code = 0, onSpawn = () => {}) {
@@ -113,6 +113,67 @@ describe('MuseExecAdapter', () => {
       event(3, 'run.terminal.failed', { command_id: 'cmd-123', run_stream: { id: 'run-123' }, terminal: 'failed', reason: 'Muse failed' }),
     ]) }));
     expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'error', error: 'Muse failed' });
+  });
+  it('yields mapped events before the process exits', async () => {
+    let child;
+    const adapter = new MuseExecAdapter({
+      spawnMuseExec: () => {
+        child = new EventEmitter();
+        child.pid = 4242; child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => true;
+        return child;
+      },
+    });
+    const seen = [];
+    const pump = (async () => {
+      for await (const item of adapter.execute({ prompt: 'Hi', options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll' } })) seen.push(item);
+    })();
+    await vi.waitFor(() => expect(child).toBeTruthy());
+    const head = [
+      record('reconciliation', 1, 'runtime.command.accepted', { command_id: 'cmd-123' }),
+      event(2, 'session.run.linked', { command_id: 'cmd-123', run_stream: { id: 'run-123' } }),
+      event(3, 'task.lifecycle.status', { event: { kind: 'status', message: 'opening meta model stream attempt 1/10' } }),
+    ].join('\n');
+    child.stdout.write(`${head}\n`);
+    // The status notice must surface while the CLI process is still running —
+    // no terminal has arrived and the process has not exited.
+    await vi.waitFor(() => {
+      expect(seen.find((item) => item.type === 'tool_result' && /opening meta model stream/.test(item.content))).toBeTruthy();
+    });
+    expect(seen.some((item) => item.type === 'result')).toBe(false);
+    child.stdout.end(`${event(4, 'run.terminal.completed', { command_id: 'cmd-123', run_stream: { id: 'run-123' }, terminal: 'completed', text: 'Finished' })}\n`);
+    child.stderr.end();
+    child.emit('exit', 0);
+    await pump;
+    expect(seen).toContainEqual({ type: 'assistant', message: { content: [{ type: 'text', text: 'Finished' }] } });
+    expect(seen.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
+  });
+  it('completes when stderr-close and exit arrive after stdout-close', { timeout: 10000 }, async () => {
+    let child;
+    const adapter = new MuseExecAdapter({
+      spawnMuseExec: () => {
+        child = new EventEmitter();
+        // Raw emitters (no PassThrough timing) expose the real-CLI ordering:
+        // stdout can close while stderr and exit are still pending.
+        child.pid = 4242; child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.kill = () => true;
+        return child;
+      },
+    });
+    const seen = [];
+    const pump = (async () => {
+      for await (const item of adapter.execute({ prompt: 'Hi', options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll' } })) seen.push(item);
+    })();
+    await vi.waitFor(() => expect(child).toBeTruthy());
+    child.stdout.emit('data', `${currentRun().join('\n')}\n`);
+    child.stdout.emit('close');
+    // Let the drain loop consume everything and park with the turn incomplete.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(seen.some((item) => item.type === 'result')).toBe(false);
+    // The final settlement arrives with no wake-up in flight — the consumer
+    // must still observe it instead of hanging.
+    child.stderr.emit('close');
+    child.emit('exit', 0);
+    await pump;
+    expect(seen.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
   });
   it('maps a validated cancelled terminal to a cancelled result', async () => {
     const events = await collect(new MuseExecAdapter({ spawnMuseExec: fakeSpawn([

@@ -142,4 +142,36 @@ describe('muse exec protocol', () => {
     const parser = createMuseExecProtocol({ maxRecordBytes: 16 });
     expect(() => parser.push('{"schema_version":1')).toThrow(/record exceeded/);
   });
+
+  it('forwards tool results with bounded text for mid-turn work logs', () => {
+    const parser = createMuseExecProtocol();
+    expect(push(parser,
+      accepted(), linked(),
+      record(3, 'tool.result', { kind: 'tool_result', call_id: 'call-1', text: 'wrote 40 bytes' }),
+    )).toContainEqual({ kind: 'tool_result', text: 'wrote 40 bytes' });
+  });
+
+  it('bounds oversized tool result text', () => {
+    const parser = createMuseExecProtocol();
+    const [mapped] = push(parser,
+      accepted(), linked(),
+      record(3, 'tool.result', { kind: 'tool_result', call_id: 'call-1', text: `x${'y'.repeat(9000)}` }),
+    ).filter((item) => item.kind === 'tool_result');
+    expect(mapped.text).toHaveLength(8000 + '… (truncated)'.length);
+    expect(mapped.text.endsWith('… (truncated)')).toBe(true);
+  });
+
+  it('forwards task status messages and output chunks for progress notices', () => {
+    const parser = createMuseExecProtocol();
+    expect(push(parser,
+      accepted(), linked(),
+      record(3, 'task.lifecycle.status', { kind: 'task_lifecycle', event: { kind: 'status', message: 'opening meta model stream attempt 1/10' } }),
+      record(4, 'task.lifecycle.output', { kind: 'task_lifecycle', event: { kind: 'output', chunk: '{"command":"ls"}' } }),
+    )).toEqual([
+      { kind: 'accepted', commandId: 'cmd-active' },
+      { kind: 'unknown', payloadType: 'session.run.linked' },
+      { kind: 'progress', phase: 'status', taskKind: null, message: 'opening meta model stream attempt 1/10' },
+      { kind: 'progress', phase: 'output', taskKind: null, chunk: '{"command":"ls"}' },
+    ]);
+  });
 });

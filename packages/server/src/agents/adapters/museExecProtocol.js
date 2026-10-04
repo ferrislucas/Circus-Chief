@@ -153,6 +153,23 @@ function mapPayloadEvent(type, payload) {
   if (type === 'runtime.command.accepted') return { kind: 'accepted', commandId: safe(payload.command_id) };
   if (type === 'run.lifecycle.started') return { kind: 'started' };
   if (type === 'run.output.delta') return typeof payload.text === 'string' ? { kind: 'text', text: payload.text } : null;
+  // Tool results carry the human-readable outcome ("wrote N bytes…",
+  // "Read text file…", or exec JSON with command/description/exit_code).
+  // Bounded here so one huge tool dump cannot grow memory without limit.
+  if (type === 'tool.result') {
+    return typeof payload.text === 'string' ? { kind: 'tool_result', text: bounded(payload.text, 8000) } : null;
+  }
+  // task.lifecycle.status carries the only human-readable progress messages
+  // ("opening meta model stream attempt 1/10"); task.lifecycle.output carries
+  // tool output chunks. Both are forwarded so the mapper can surface them.
+  if (type === 'task.lifecycle.status') {
+    const message = typeof payload?.event?.message === 'string' ? bounded(payload.event.message, 500) : null;
+    return { kind: 'progress', phase: 'status', taskKind: safe(payload.task_kind), message };
+  }
+  if (type === 'task.lifecycle.output') {
+    const chunk = typeof payload?.event?.chunk === 'string' ? bounded(payload.event.chunk, 4000) : null;
+    return { kind: 'progress', phase: 'output', taskKind: safe(payload.task_kind), chunk };
+  }
   if (type.startsWith('task.lifecycle.')) return { kind: 'progress', phase: type.slice('task.lifecycle.'.length), taskKind: safe(payload.task_kind) };
   return { kind: 'unknown', payloadType: type };
 }
@@ -176,3 +193,4 @@ function requiredIdentifier(value) { return typeof value === 'string' && value.t
 function identifier(value) { return requiredIdentifier(value); }
 function eventIdentifier(record) { return identifier(record.id ?? record.event_id ?? record.payload?.event_id); }
 function safe(value) { return typeof value === 'string' ? value.slice(0, 240) : null; }
+function bounded(value, max) { return typeof value === 'string' && value.length > max ? `${value.slice(0, max)}… (truncated)` : value; }
