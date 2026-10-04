@@ -100,6 +100,23 @@ describe('markdown task-list checkboxes', () => {
     }
   });
 
+  it('renders blockquoted task checkboxes disabled even when interactive', () => {
+    const html = renderMarkdown('> - [ ] quoted', { interactive: true });
+    const boxes = checkboxTags(html);
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0]).toContain('disabled');
+  });
+
+  it('never addresses line 0 for invalid line ids', async () => {
+    const { renderTaskCheckbox } = await import('./markdown.js');
+    for (const bad of [-1, 'x', NaN, 1.5, null]) {
+      const html = renderTaskCheckbox(bad, false);
+      expect(html).toContain('disabled');
+      expect(html).not.toContain('data-task-line');
+      expect(html).not.toContain('data-task-line="0"');
+    }
+  });
+
   it('renders interactive checkboxes without disabled except pending lines', () => {
     const src = '- [ ] one\n- [ ] two';
     const html = renderMarkdown(src, { interactive: true });

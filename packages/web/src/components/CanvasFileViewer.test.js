@@ -649,6 +649,12 @@ describe('CanvasFileViewer task-list toggles', () => {
 
     expect(api.updateCanvasItem).toHaveBeenCalledTimes(1);
     expect(api.updateCanvasItem).toHaveBeenCalledWith('sess-1', 'item-1', { content: '- [x] todo' });
+    // In production the store patches the same object as the prop on PUT
+    // success; converge the prop here to simulate that before asserting.
+    await wrapper.setProps({
+      item: { id: 'item-1', filename: 'plan.md', type: 'markdown', content: '- [x] todo', createdAt: Date.now() },
+    });
+    await flushAll(wrapper);
     expect(checkboxChecked(wrapper, 0)).toBe(true);
   });
 
@@ -660,6 +666,28 @@ describe('CanvasFileViewer task-list toggles', () => {
 
     expect(checkboxChecked(wrapper, 0)).toBe(false);
     expect(useUiStore().toasts.some((t) => t.type === 'error')).toBe(true);
+  });
+
+  it('converges to remote content when it lands mid-flight', async () => {
+    let resolvePut;
+    api.updateCanvasItem.mockImplementation(() => new Promise((res) => { resolvePut = res; }));
+    const wrapper = mountMarkdown({
+      item: { id: 'item-1', filename: 'plan.md', type: 'markdown', content: '- [ ] one\n- [ ] two', createdAt: Date.now() },
+    });
+    clickCheckbox(wrapper, 0);
+    await flushAll(wrapper);
+    // A remote toggle of a different line lands while our PUT is in flight.
+    await wrapper.setProps({
+      item: { id: 'item-1', filename: 'plan.md', type: 'markdown', content: '- [ ] one\n- [x] two', createdAt: Date.now() },
+    });
+    resolvePut({ content: '- [x] one\n- [ ] two', updatedAt: Date.now() });
+    await flushAll(wrapper);
+
+    // The server acknowledged our toggle; the view must converge to the
+    // remote (server) content rather than staying stuck on stale optimism
+    // (line 0 back to unchecked, remote line 1 checked).
+    expect(checkboxChecked(wrapper, 0)).toBe(false);
+    expect(checkboxChecked(wrapper, 1)).toBe(true);
   });
 
   it('ignores toggles for non-task lines without saving', async () => {
@@ -696,6 +724,31 @@ describe('CanvasFileViewer task-list toggles', () => {
     });
     await flushAll(latest);
     expect(latest.find('input[data-task-line="0"]').attributes('disabled')).toBeUndefined();
+  });
+
+  it('does not PUT a stale toggle onto a newly selected version', async () => {
+    api.updateCanvasItem.mockImplementation(() => new Promise(() => {}));
+    const versions = [
+      { id: 'v2', createdAt: 2000 },
+      { id: 'v1', createdAt: 1000 },
+    ];
+    const wrapper = mountMarkdown({
+      item: { id: 'v2', filename: 'plan.md', type: 'markdown', content: '- [ ] todo', createdAt: 2000 },
+      versions,
+    });
+    clickCheckbox(wrapper, 0);
+    // User switches to the historical version before the queued save executes.
+    await wrapper.setProps({
+      item: { id: 'v1', filename: 'plan.md', type: 'markdown', content: '- [ ] old', createdAt: 1000 },
+    });
+    await flushAll(wrapper);
+
+    // The stale save must be dropped: no PUT may address the new version's id,
+    // which would silently rewrite history.
+    for (const call of api.updateCanvasItem.mock.calls) {
+      expect(call[1]).toBe('v2');
+    }
+    expect(api.updateCanvasItem).not.toHaveBeenCalled();
   });
 
   it('ignores toggles while viewing a historical version', async () => {

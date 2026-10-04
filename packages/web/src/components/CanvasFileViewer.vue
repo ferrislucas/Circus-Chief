@@ -199,16 +199,33 @@ function handleToggleTask({ line }) {
   const next = toggleTaskLine(base, line);
   if (next === base) return;
   optimisticContent.value = next;
+  // Capture version identity at click time: `next` was computed from this
+  // version's content, so the save must address this version even if the user
+  // switches versions mid-flight.
+  const sessionId = props.sessionId;
+  const itemId = props.item.id;
   // Serialize saves so concurrent toggles layer onto the latest content
   // (last-writer-wins full-content PUT, per v1 semantics).
-  toggleQueue = toggleQueue.then(() => saveToggle(line, base, next));
+  toggleQueue = toggleQueue.then(() => saveToggle({ line, base, next, sessionId, itemId }));
 }
 
-async function saveToggle(line, base, next) {
+async function saveToggle({ line, base, next, sessionId, itemId }) {
+  // The user navigated to a different file/version while the save was queued:
+  // dropping avoids writing stale content onto the newly selected version.
+  if (props.item.id !== itemId) {
+    if (optimisticContent.value === next) {
+      optimisticContent.value = null;
+    }
+    pendingLine.value = null;
+    return;
+  }
   pendingLine.value = line;
   try {
-    await canvasStore.updateItemContent(props.sessionId, props.item.id, next);
-    if (optimisticContent.value === props.item.content) {
+    await canvasStore.updateItemContent(sessionId, itemId, next);
+    // The server acknowledged `next`: clear the optimistic override so a
+    // remote change that landed mid-flight becomes visible. A queued local
+    // edit (optimistic `nextB` !== acknowledged `next`) is preserved.
+    if (optimisticContent.value === next) {
       optimisticContent.value = null;
     }
   } catch (err) {

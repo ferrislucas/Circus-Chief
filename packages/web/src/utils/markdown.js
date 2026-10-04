@@ -44,8 +44,14 @@ const TASK_PREFIX_RE = /^\[([ xX])\](\s+|$)/;
  * @returns {string} HTML for the checkbox input
  */
 export function renderTaskCheckbox(line, checked, disabled = true) {
-  const safeLine = Number.isInteger(line) && line >= 0 ? line : 0;
-  let html = `<input type="checkbox" class="task-list-item-checkbox" data-task-line="${safeLine}"`;
+  // Invalid line ids must never address line 0 (a misclick would flip the
+  // wrong task). Emit a disabled box with no data-task-line so the
+  // MarkdownViewer delegation selector ignores it. Internal callers always
+  // pass valid lines and are unaffected.
+  if (!Number.isInteger(line) || line < 0) {
+    return '<input type="checkbox" class="task-list-item-checkbox" disabled>';
+  }
+  let html = `<input type="checkbox" class="task-list-item-checkbox" data-task-line="${line}"`;
   if (checked) html += ' checked';
   if (disabled) html += ' disabled';
   return `${html}>`;
@@ -99,19 +105,29 @@ function stripTaskPrefix(inlineToken, line, interactive, disabledLines) {
  * @param {boolean} interactive - Omit `disabled` so boxes are clickable
  * @param {Array<number>} disabledLines - Source lines kept disabled (in-flight saves)
  */
+function maybeTransformListItem(tokens, index, { interactive, pending, inBlockquote }) {
+  if (tokens[index].type !== 'list_item_open') return;
+  const line = tokens[index].map ? tokens[index].map[0] : null;
+  if (line === null || line === undefined) return;
+  const inlineToken = findDirectInlineToken(tokens, index);
+  if (!inlineToken) return;
+  const before = inlineToken.children ? inlineToken.children.length : 0;
+  // Option (a): blockquoted task lines are not toggleable (toggleTaskLine
+  // cannot match the `>` prefix), so their boxes always render disabled —
+  // never clickable and dead.
+  stripTaskPrefix(inlineToken, line, inBlockquote ? false : interactive, pending);
+  if (inlineToken.children && inlineToken.children.length !== before) {
+    addTaskItemClass(tokens[index]);
+  }
+}
+
 export function transformTaskListTokens(tokens, interactive, disabledLines) {
   const pending = Array.isArray(disabledLines) ? disabledLines : [];
+  let blockquoteDepth = 0;
   for (let i = 0; i < tokens.length; i++) {
-    if (tokens[i].type !== 'list_item_open') continue;
-    const line = tokens[i].map ? tokens[i].map[0] : null;
-    if (line === null || line === undefined) continue;
-    const inlineToken = findDirectInlineToken(tokens, i);
-    if (!inlineToken) continue;
-    const before = inlineToken.children ? inlineToken.children.length : 0;
-    stripTaskPrefix(inlineToken, line, interactive, pending);
-    if (inlineToken.children && inlineToken.children.length !== before) {
-      addTaskItemClass(tokens[i]);
-    }
+    if (tokens[i].type === 'blockquote_open') blockquoteDepth += 1;
+    else if (tokens[i].type === 'blockquote_close') blockquoteDepth = Math.max(0, blockquoteDepth - 1);
+    else maybeTransformListItem(tokens, i, { interactive, pending, inBlockquote: blockquoteDepth > 0 });
   }
 }
 

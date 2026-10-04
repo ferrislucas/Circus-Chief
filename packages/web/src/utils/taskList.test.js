@@ -66,4 +66,8 @@ describe('toggleTaskLine', () => {
   it('handles a bare "- [ ]" with no trailing text', () => {
     expect(toggleTaskLine('- [ ]', 0)).toBe('- [x]');
   });
+
+  it('leaves blockquoted task lines unchanged (not toggleable)', () => {
+    expect(toggleTaskLine('> - [ ] task', 0)).toBe('> - [ ] task');
+  });
 });
