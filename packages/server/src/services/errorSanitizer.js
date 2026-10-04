@@ -7,6 +7,18 @@
  * `Authorization` headers, error payloads). Every sink must pass through
  * this module first.
  *
+ * Sink-audit checklist — a new write path for provider error text must
+ * register itself here and sanitize at its own persistence boundary:
+ *   - agent-call logs: `AgentCallLogger.completeCall` + `_logFailoverEvent`
+ *     (agentCallLogger.js) sanitize `errorMessage` / `reason` in place.
+ *   - workflow failure reasons: `closeOwnWork` (workflowSessionService.js)
+ *     sanitizes `reason` before `workflow_reason` + audit `details`.
+ *   - console reschedule diagnostics: `checkRescheduleTrigger`
+ *     (sessionErrors.js) sanitizes the logged message body.
+ *   - visible session errors: `normalizeFinalErrorMessage`
+ *     (visibleFinalErrorMessage.js) is the single choke point for
+ *     sessions.error, broadcasts, and visible chat messages.
+ *
  * Two entry points:
  *   - `sanitizeValue` / `sanitizeString` — recursive, depth- and
  *     size-bounded redaction of arbitrary values. Fails closed: circular

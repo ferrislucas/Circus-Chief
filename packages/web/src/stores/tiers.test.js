@@ -134,9 +134,19 @@ describe('useTiersStore', () => {
       const store = useTiersStore();
       store.tiers = [
         { id: 't1', name: 'Empty', members: [] },
-        { id: 't2', name: 'Full', members: [{ id: 'm1' }] },
+        { id: 't2', name: 'Full', members: [{ id: 'm1', available: true }] },
       ];
-      expect(store.tiersWithMembers).toEqual([{ id: 't2', name: 'Full', members: [{ id: 'm1' }] }]);
+      expect(store.tiersWithMembers).toEqual([{ id: 't2', name: 'Full', members: [{ id: 'm1', available: true }] }]);
+    });
+
+    it('tiersWithMembers excludes tiers whose members are all unusable (deleted/disabled providers)', () => {
+      const store = useTiersStore();
+      const unusable = { id: 't1', name: 'Dead', members: [{ id: 'm1', providerId: 'gone', available: false }] };
+      const usable = { id: 't2', name: 'Live', members: [{ id: 'm2', providerId: 'p1', available: true }] };
+      store.tiers = [unusable, usable];
+      // Same shared "is this tier selectable" predicate the selector and the
+      // save-path guard judge through — member count alone is not usability.
+      expect(store.tiersWithMembers).toEqual([usable]);
     });
 
     it('asTierRef builds a tier ref string', () => {

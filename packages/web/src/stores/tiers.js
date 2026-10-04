@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from '../composables/useApi.js';
+import { isTierSelectable } from '../components/modelSelectorTiers.js';
 import { isTierRef, buildTierRef } from '@circuschief/shared';
 
 export { isTierRef, buildTierRef };
@@ -18,8 +19,15 @@ export const useTiersStore = defineStore('tiers', {
   getters: {
     getById: (state) => (id) => state.tiers.find((t) => t.id === id),
 
-    /** Tiers that have at least one member (shown in selectors) */
-    tiersWithMembers: (state) => state.tiers.filter((t) => t.members && t.members.length > 0),
+    /** Tiers with at least one usable member (shown in selectors).
+     *
+     * Judged through the same shared `isTierSelectable` predicate the
+     * selector (`tierSupportsProviderKinds`) and the save-path guard
+     * (`describeSelectionProblem`) use, so the three cannot drift apart:
+     * existence plus ≥1 `available` member. Kind-restricted pickers layer
+     * their `allowedProviderKinds` through the same predicate at the
+     * selector/guard level. */
+    tiersWithMembers: (state) => state.tiers.filter((t) => isTierSelectable(t)),
 
     /** Build a tier ref sentinel string from a tier id */
     asTierRef: () => (id) => buildTierRef(id),

@@ -4,6 +4,7 @@ import { useWebSocket } from './useWebSocket.js';
 import { createCatalogSync } from './catalogSync.js';
 import { useSelectionGuard } from './useSelectionGuard.js';
 import { reconcileFormFields, reconcileModelSelection } from './modelSelectionReconciliation.js';
+import { normalizeModelProviderPair } from '../components/modelSelectorTiers.js';
 import { DEFAULT_RESCHEDULE_DELAY_MINUTES, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { formatDateTimeLocal } from '../utils/formatters.js';
 
@@ -61,16 +62,20 @@ export function useSchedulingSessionSync({ formState, getSession, isOpen }) {
   }
 
   // The stored (model, providerId) pair, preferring a pending scheduled-run
-  // override when one exists.
+  // override when one exists. Normalized through the same predicate
+  // useNewSessionForm uses: a tier ref never carries a concrete provider
+  // hint, so a stale stored pair (tier model + concrete providerId) cannot
+  // enter the form mismatched — and the convergence snapshots baseline from
+  // the normalized pair, so later intakes compare apples to apples.
   function canonicalPairFromSession(session) {
     const hasPendingSelection = session.pendingModel !== null
       && session.pendingModel !== undefined;
-    return {
-      model: hasPendingSelection ? session.pendingModel : (session.model || null),
-      providerId: hasPendingSelection
+    return normalizeModelProviderPair(
+      hasPendingSelection ? session.pendingModel : (session.model || null),
+      hasPendingSelection
         ? (session.pendingProviderId || null)
         : (session.providerId || null),
-    };
+    );
   }
 
   // Every other session-backed form field, normalized exactly as hydration

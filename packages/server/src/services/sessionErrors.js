@@ -30,6 +30,7 @@
  */
 
 import { sessions, messages } from '../database.js';
+import { sanitizeString } from './errorSanitizer.js';
 import { schedulerService } from './schedulerService.js';
 import { isTierRef } from '@circuschief/shared';
 import { sessionHasNoObservableAgentActivity } from './sessionAgentGuard.js';
@@ -197,16 +198,20 @@ function getLastAssistantMessage(sessionId) {
  * @returns {boolean} True if matches a rescheduling trigger
  */
 function checkRescheduleTrigger(session, message, source) {
+  // Only the emitted text is sanitized — the match behavior above is
+  // untouched. Raw trigger text can echo provider credentials, so the message
+  // body is redacted at this console sink; the match decision + source stay
+  // for debuggability.
   if (session.rescheduleOnTokenLimit && matchesTokenLimitError(message)) {
     console.log(`[SessionManager] Token limit detected in ${source}, rescheduling`);
-    console.log(`[SessionManager] ${source}:`, message);
+    console.log(`[SessionManager] ${source}:`, sanitizeString(message));
     console.log('[SessionManager] Session config: rescheduleOnTokenLimit=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
     return true;
   }
 
   if (session.rescheduleOnServiceError && matchesServiceError(message)) {
     console.log(`[SessionManager] Service error detected in ${source}, rescheduling`);
-    console.log(`[SessionManager] ${source}:`, message);
+    console.log(`[SessionManager] ${source}:`, sanitizeString(message));
     console.log('[SessionManager] Session config: rescheduleOnServiceError=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
     return true;
   }

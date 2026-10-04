@@ -125,6 +125,10 @@ export class AgentCallLogger {
    */
   _logFailoverEvent(sessionId, { fromModel, fromProviderId, toModel, toProviderId, tierRef, tierName, reason, agentType }) {
     const callId = nanoid();
+    // Persistence-boundary sanitization (same guarantee as completeCall):
+    // the triggering reason is raw provider error text, so every caller is
+    // covered here instead of each call site sanitizing first.
+    const safeReason = typeof reason === 'string' ? sanitizeString(reason) : (reason || null);
     const metadata = {
       fromModel: fromModel || null,
       fromProviderId: fromProviderId || null,
@@ -132,7 +136,7 @@ export class AgentCallLogger {
       toProviderId: toProviderId || null,
       tierRef: tierRef || null,
       tierName: tierName || null,
-      reason: reason || null,
+      reason: safeReason,
     };
 
     agentCallLogs.create({
@@ -150,7 +154,7 @@ export class AgentCallLogger {
     // success: true → status 'completed' — a failover that advances is not a failure.
     agentCallLogs.complete(callId, {
       success: true,
-      errorMessage: reason || 'Tier failover',
+      errorMessage: safeReason || 'Tier failover',
     });
   }
 

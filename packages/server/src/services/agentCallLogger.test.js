@@ -300,6 +300,27 @@ describe('AgentCallLogger', () => {
       );
     });
 
+    it('redacts credentials from persisted failover metadata and errorMessage', () => {
+      const sentinel = 'sentinel-6-failover-log-secret';
+      logger._logFailoverEvent('session-1', {
+        fromModel: 'gpt-5-codex',
+        fromProviderId: 'provider-codex',
+        toModel: 'claude-sonnet-4-20250514',
+        toProviderId: 'provider-claude',
+        tierRef: 'tier::abc',
+        tierName: 'My Tier',
+        reason: `rate limit reached api_key=${sentinel}`,
+        agentType: 'codex',
+      });
+
+      const created = agentCallLogs.create.mock.calls[0][0];
+      expect(JSON.stringify(created.metadata)).not.toContain(sentinel);
+      const completed = agentCallLogs.complete.mock.calls[0][1];
+      expect(completed.errorMessage).not.toContain(sentinel);
+      // The human-readable cause survives redaction — only the secret is cut.
+      expect(completed.errorMessage).toContain('rate limit reached');
+    });
+
     it('completes the log entry with success: true (status completed, not error)', () => {
       logger._logFailoverEvent('session-1', {
         fromModel: 'gemini-2.5-pro',

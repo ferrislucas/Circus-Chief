@@ -159,6 +159,25 @@ describe('sessionErrors', () => {
       expect(shouldRescheduleOnError(session, error)).toBe(true);
     });
 
+    it('never logs raw provider error text through the reschedule trigger path', () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        const session = {
+          autoRescheduleEnabled: true,
+          rescheduleOnTokenLimit: true,
+          rescheduleOnServiceError: true,
+        };
+        const sentinel = 'sentinel-5-reschedule-log-secret';
+        const error = new Error(`token limit exceeded api_key=${sentinel}`);
+        expect(shouldRescheduleOnError(session, error)).toBe(true);
+        const output = log.mock.calls.map((args) => args.map(String).join(' ')).join('\n');
+        expect(output).toContain('reschedul');
+        expect(output).not.toContain(sentinel);
+      } finally {
+        log.mockRestore();
+      }
+    });
+
     it('returns false for token limit error when rescheduleOnTokenLimit is false', () => {
       const session = {
         autoRescheduleEnabled: true,
