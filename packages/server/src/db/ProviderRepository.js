@@ -2,6 +2,7 @@ import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { normalizeCommitAttributionOverride } from '@circuschief/shared/contracts/providers';
+import { degradeReferencesToEmptiedTiers } from '../services/tierDeletionService.js';
 import * as modelOps from './providerModelOperations.js';
 
 /**
@@ -77,6 +78,22 @@ function buildUpdateColumns(data = {}) {
     result.values.push(value);
     return result;
   }, { updates: [], values: [] });
+}
+
+/**
+ * A mutation can make a previously executable tier member ineligible. Keep
+ * this decision next to the repository boundary so delete, rename, and
+ * disable all use the same transactional degradation pipeline.
+ */
+function removesProviderEligibility(provider, data) {
+  return data.enabled === false && provider.enabled !== false;
+}
+
+function removesModelEligibility(model, data) {
+  return (
+    (data.modelId !== undefined && data.modelId !== model.modelId) ||
+    (data.enabled === false && model.enabled !== false)
+  );
 }
 
 /**
@@ -202,21 +219,54 @@ export class ProviderRepository extends BaseRepository {
     validateBuiltInUpdate(provider, data);
     validateKindImmutable(data);
 
-    const { updates, values } = buildUpdateColumns(data);
+    return databaseManager.transaction(() => {
+      const { updates, values } = buildUpdateColumns(data);
 
-    if (updates.length > 0) {
-      updates.push('updated_at = ?');
-      values.push(Date.now());
-      values.push(id);
+      if (updates.length > 0) {
+        updates.push('updated_at = ?');
+        values.push(Date.now());
+        values.push(id);
 
-      this.db.prepare(`UPDATE providers SET ${updates.join(', ')} WHERE id = ?`).run(...values);
-    }
+        this.db.prepare(`UPDATE providers SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+      }
 
-    return this.getById(id);
+      if (removesProviderEligibility(provider, data)) degradeReferencesToEmptiedTiers();
+      return this.getById(id);
+    });
+  }
+
+  /** Update a provider and return post-commit degradation facts for delivery. */
+  updateWithDegradation(id, data) {
+    const provider = this.getById(id);
+    if (!provider) return null;
+
+    validateBuiltInUpdate(provider, data);
+    validateKindImmutable(data);
+
+    return databaseManager.transaction(() => {
+      const { updates, values } = buildUpdateColumns(data);
+      if (updates.length > 0) {
+        updates.push('updated_at = ?');
+        values.push(Date.now(), id);
+        this.db.prepare(`UPDATE providers SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+      }
+      const degradation = removesProviderEligibility(provider, data)
+        ? degradeReferencesToEmptiedTiers()
+        : [];
+      return { provider: this.getById(id), degradation };
+    });
   }
 
   /**
-   * Delete a provider (prevents deletion of built-in providers)
+   * Delete a provider (prevents deletion of built-in providers).
+   *
+   * Atomic with tier repair: deleting a provider cascades its
+   * `model_tier_members` rows away, which can empty one or more model tiers.
+   * In the same transaction, every persisted consumer of a tier left with no
+   * executable member (project defaults, templates, lanes, summary settings,
+   * sessions) is degraded to its default — mirroring
+   * `deleteTierAndDegradeReferences` — so session creation and other tier
+   * consumers never fail validation on a dangling `tier::<id>` ref.
    * @param {string} id
    * @throws {Error} If attempting to delete a built-in provider or non-existent provider
    */
@@ -229,7 +279,25 @@ export class ProviderRepository extends BaseRepository {
       throw new Error('Cannot delete built-in provider');
     }
 
-    super.delete(id);
+    databaseManager.transaction(() => {
+      super.delete(id);
+      degradeReferencesToEmptiedTiers();
+    });
+  }
+
+  /**
+   * Delete a provider and return the committed tier-reference repair facts for
+   * the API layer to publish. Kept separate from `delete` so internal cleanup
+   * callers remain transport-agnostic.
+   */
+  deleteWithDegradation(id) {
+    const provider = this.getById(id);
+    if (!provider) throw new Error('Provider not found');
+    if (provider.isBuiltIn) throw new Error('Cannot delete built-in provider');
+    return databaseManager.transaction(() => {
+      super.delete(id);
+      return degradeReferencesToEmptiedTiers();
+    });
   }
 
   /**
@@ -283,7 +351,10 @@ export class ProviderRepository extends BaseRepository {
   }
 
   /**
-   * Update an existing model
+   * Update an existing model. Atomic with tier repair: renaming a model id
+   * removes the old id from the executable catalog, which can leave a tier
+   * whose members referenced the old id without any executable member — its
+   * persisted consumers are degraded in the same transaction.
    * @param {string} id - Model row ID
    * @returns {Object} Updated model
    */
@@ -291,18 +362,55 @@ export class ProviderRepository extends BaseRepository {
     const current = this.getModelById(id);
     if (!current) throw new Error('Model not found');
     const provider = this.getById(current.providerId);
-    return modelOps.updateModel(this.db, id, data, { current, provider });
+    const removesEligibility = removesModelEligibility(current, data);
+    return databaseManager.transaction(() => {
+      const updated = modelOps.updateModel(this.db, id, data, { current, provider });
+      if (removesEligibility) degradeReferencesToEmptiedTiers();
+      return updated;
+    });
+  }
+
+  /** Update a model and retain any tier degradation change sets for delivery. */
+  updateModelWithDegradation(id, data) {
+    const current = this.getModelById(id);
+    if (!current) throw new Error('Model not found');
+    const provider = this.getById(current.providerId);
+    const removesEligibility = removesModelEligibility(current, data);
+    return databaseManager.transaction(() => {
+      const model = modelOps.updateModel(this.db, id, data, { current, provider });
+      const degradation = removesEligibility ? degradeReferencesToEmptiedTiers() : [];
+      return { model, degradation };
+    });
   }
 
   /**
    * Remove a model from a provider (soft-removal; see providerModelOperations.js).
+   *
+   * Atomic with tier repair: tombstoning the last executable member of a tier
+   * empties it, so every persisted consumer of that tier is degraded to its
+   * default in the same transaction (safe-deletion requirement; mirrors
+   * `deleteTierAndDegradeReferences`).
    * @param {string} modelId - Model row ID (not the model string like "claude-opus-4-6")
    * @returns {Object} The soft-removed model row
    */
   removeModel(modelId) {
     const model = this.getModelById(modelId);
     if (!model) throw new Error('Model not found');
-    return modelOps.removeModel(this.db, modelId, model);
+    return databaseManager.transaction(() => {
+      const removed = modelOps.removeModel(this.db, modelId, model);
+      degradeReferencesToEmptiedTiers();
+      return removed;
+    });
+  }
+
+  /** Soft-remove a model and retain tier repair facts for post-commit delivery. */
+  removeModelWithDegradation(modelId) {
+    const model = this.getModelById(modelId);
+    if (!model) throw new Error('Model not found');
+    return databaseManager.transaction(() => {
+      const removed = modelOps.removeModel(this.db, modelId, model);
+      return { model: removed, degradation: degradeReferencesToEmptiedTiers() };
+    });
   }
 
   reorderModels(providerId, orderedRowIds) {
@@ -393,7 +501,7 @@ export class ProviderRepository extends BaseRepository {
    */
   getAllModelIds() {
     const rows = this.db
-      .prepare('SELECT DISTINCT model_id FROM provider_models')
+      .prepare("SELECT DISTINCT model_id FROM provider_models WHERE substr(model_id, 1, 6) <> 'tier::'")
       .all();
     const ids = new Set(rows.map((row) => row.model_id));
     for (const alias of MODEL_TIER_ALIASES) {

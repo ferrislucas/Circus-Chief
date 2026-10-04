@@ -9,7 +9,7 @@ import { executeHookAsync } from '../services/hookService.js';
 import { requireRootSessionAndProject, requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import { duplicateSession } from '../services/sessionDuplicator.js';
 import { validateScheduledAt } from './scheduledAtValidation.js';
-import { validateModelId } from './model-validation.js';
+import { validateModelAndProvider } from './model-validation.js';
 import { broadcastSessionUpdate } from './sessions-patch.js';
 import { activeSessions } from '../services/streamEventHandler.js';
 import { schedulerService } from '../services/schedulerService.js';
@@ -82,14 +82,14 @@ router.put('/:id/summary', requireRootSessionAndProject, async (req, res) => {
 function validateScheduleFields(body) {
   // Schedule provenance is derived from the target's server-owned turn state;
   // callers cannot supply an authority discriminator.
-  const allowedFields = new Set(['prompt', 'scheduledAt', 'model']);
+  const allowedFields = new Set(['prompt', 'scheduledAt', 'model', 'providerId']);
   const unexpectedFields = Object.keys(body || {}).filter((key) => !allowedFields.has(key));
   return unexpectedFields.length === 0
     ? null
     : {
       status: 400,
       error: {
-        error: `Unexpected field(s): ${unexpectedFields.join(', ')}. Only prompt, scheduledAt, and model are accepted; set reschedule policy via PATCH /api/sessions/:id.`,
+        error: `Unexpected field(s): ${unexpectedFields.join(', ')}. Only prompt, scheduledAt, model, and providerId are accepted; set reschedule policy via PATCH /api/sessions/:id.`,
       },
     };
 }
@@ -116,7 +116,7 @@ function buildScheduleUpdate(req) {
   const fieldsError = validateScheduleFields(req.body);
   if (fieldsError) return fieldsError;
 
-  const { prompt, scheduledAt: scheduledAtRaw, model } = req.body;
+  const { prompt, scheduledAt: scheduledAtRaw, model, providerId } = req.body;
 
   // Validate prompt
   if (typeof prompt !== 'string' || prompt.trim() === '') {
@@ -137,7 +137,7 @@ function buildScheduleUpdate(req) {
   }
 
   // Validate model if provided, applying the cross-kind drift guard
-  const modelResult = resolveScheduleModel(req, model);
+  const modelResult = resolveScheduleModel(req, model, providerId);
   if (modelResult.error) {
     return modelResult;
   }
@@ -153,6 +153,7 @@ function buildScheduleUpdate(req) {
   };
   if (Object.prototype.hasOwnProperty.call(modelResult, 'pendingModel')) {
     updateData.pendingModel = modelResult.pendingModel;
+    updateData.pendingProviderId = modelResult.pendingProviderId;
   }
 
   return { updateData, scheduleOrigin };
@@ -161,21 +162,22 @@ function buildScheduleUpdate(req) {
 // Validate the optional model field for /schedule and resolve the agentType update.
 // Returns { pendingModel, agentTypeUpdate } when model is supplied,
 // { agentTypeUpdate } when omitted, or { status, error } on failure.
-function resolveScheduleModel(req, model) {
+function resolveScheduleModel(req, model, providerId) {
   if (model === undefined || model === null || model === '') {
     return { agentTypeUpdate: {} };
   }
 
-  const modelResult = validateModelId(model, { fieldName: 'model' });
+  const modelResult = validateModelAndProvider(model, providerId, { fieldName: 'model' });
   if (modelResult.error) {
     return { status: 400, error: { error: modelResult.error } };
   }
-  const pendingModel = modelResult.value;
+  const pendingModel = modelResult.model;
+  const pendingProviderId = modelResult.providerId;
 
   if (sessionHasNoAssistantMessages(req.params.id)) {
     // Draft session: re-derive agentType from model (safe to mutate kind)
-    const agentTypeUpdate = deriveAgentTypeUpdate(req.session_, req.params.id, pendingModel, { providerId: null });
-    return { pendingModel, agentTypeUpdate };
+    const agentTypeUpdate = deriveAgentTypeUpdate(req.session_, req.params.id, pendingModel, { providerId: pendingProviderId });
+    return { pendingModel, pendingProviderId, agentTypeUpdate };
   }
 
   // Started session: reject cross-kind switches
@@ -183,7 +185,7 @@ function resolveScheduleModel(req, model) {
   if (driftError) {
     return { status: 400, error: driftError };
   }
-  return { pendingModel, agentTypeUpdate: {} };
+  return { pendingModel, pendingProviderId, agentTypeUpdate: {} };
 }
 
 // POST /api/sessions/:id/schedule - Schedule the current session to continue later.

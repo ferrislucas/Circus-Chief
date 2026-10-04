@@ -1,0 +1,40 @@
+function memberSupportsProviderKinds(member, providersStore, allowedProviderKinds) {
+  const provider = providersStore.getById(member.providerId);
+  return provider && allowedProviderKinds.includes(provider.kind || 'anthropic');
+}
+
+export function tierSupportsProviderKinds(tier, providersStore, allowedProviderKinds) {
+  if (!tier.members?.some((member) => member.available === true)) return false;
+  if (!allowedProviderKinds) return true;
+  // A tier is selectable when ANY member fits the restricted picker — every()
+  // would hide mixed-kind tiers whose other members belong elsewhere.
+  return tier.members.some((member) =>
+    memberSupportsProviderKinds(member, providersStore, allowedProviderKinds)
+  );
+}
+
+export function tierDisplayName(modelValue, tiersStore) {
+  const tierId = modelValue.slice('tier::'.length);
+  return tiersStore.getById(tierId)?.name || tierId;
+}
+
+export function tierIsStale(modelValue, tiersStore, visibleTiers) {
+  // `loaded` is false only for the real store's initial/failure state. Treat
+  // lightweight callers that predate the flag as ready, preserving the helper
+  // contract for callers that provide an explicit tier list.
+  if (tiersStore.loaded === false) return false;
+  const tierId = modelValue.slice('tier::'.length);
+  return !visibleTiers.some((tier) => tier.id === tierId);
+}
+
+export function tierDisplayTitle(modelValue, tiersStore, stale) {
+  const tierId = modelValue.slice('tier::'.length);
+  const tier = tiersStore.getById(tierId);
+  if (!tier) {
+    return stale
+      ? `Model tier "${tierId}" is no longer available — choose a replacement to update it.`
+      : `Tier: ${tierId}`;
+  }
+  const memberCount = tier.members?.length ?? 0;
+  return `Model tier "${tier.name}" — ${memberCount} member${memberCount !== 1 ? 's' : ''}`;
+}

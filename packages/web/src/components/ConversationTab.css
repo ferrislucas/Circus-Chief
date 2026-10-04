@@ -1,0 +1,2 @@
+.conversation-tab { display: flex; flex-direction: column; transition: opacity 0.3s ease; }
+.conversation-tab.connection-stale { opacity: 0.5; }

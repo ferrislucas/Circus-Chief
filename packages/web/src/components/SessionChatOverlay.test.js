@@ -141,6 +141,7 @@ vi.mock('../composables/useSessionSubscription.js', () => ({
     onSessionUpdate: mockOnSessionUpdate,
     onConversationCreated: mockOnConversationCreated,
     onConversationUpdated: mockOnConversationUpdated,
+    onTierFailover: vi.fn(() => vi.fn()),
     onPrompt: mockOnPrompt,
     onPromptResolved: mockOnPromptResolved,
   }),

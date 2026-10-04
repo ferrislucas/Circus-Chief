@@ -142,6 +142,13 @@
         empty-label="Use system default"
         select-class="form-input"
       />
+      <SelectionConflictBanner
+        :visible="selectionGuard.showBanner"
+        :problem="selectionGuard.problem"
+        conflict-text="The default model changed elsewhere while you were editing. Your edit is preserved."
+        @use-canonical="useCanonicalModelSelection"
+        @keep-mine="selectionGuard.keepMine"
+      />
       <p class="form-help">
         Choose the default model for new workspaces in this project.
       </p>
@@ -163,10 +170,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { computed, ref, onMounted, watch } from 'vue';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useUiStore } from '../stores/ui.js';
 import ModelSelector from './ModelSelector.vue';
+import SelectionConflictBanner from './SelectionConflictBanner.vue';
+import { api } from '../composables/useApi.js';
+import { useCanonicalSync } from '../composables/useCanonicalSync.js';
+import { reconcileModelSelection } from '../composables/modelSelectionReconciliation.js';
+import { useSelectionGuard } from '../composables/useSelectionGuard.js';
 
 const props = defineProps({
   projectId: { type: String, required: true },
@@ -183,24 +196,67 @@ const defaultGitMode = ref('');
 const defaultGitBranch = ref('');
 const defaultModel = ref('');
 const defaultProviderId = ref(null);
+const modelSelectionConflict = ref(false);
 const savingDefaults = ref(false);
+let hasLoadedDefaults = false;
+let lastCanonicalSelection = { model: null, providerId: null };
+
+// One monotonic coordinator for initial load, websocket invalidation, and
+// reconnect: a slow initial response can never overwrite a newer push.
+const { refresh: refreshDefaults } = useCanonicalSync({
+  fetchCanonical: () => api.getProjectSessionDefaults(props.projectId),
+  applyCanonical: (defaults) => defaultsStore.setDefaults(props.projectId, defaults),
+  messageType: WS_MESSAGE_TYPES.PROJECT_DEFAULTS_UPDATED,
+  selectPush: (message) => (
+    message?.projectId === props.projectId && message.defaults ? { notify: message.defaults } : undefined
+  ),
+  onSettled: () => { hasLoadedDefaults = true; },
+});
+
+// Shared conflict contract (see useSelectionGuard): an invalid selection
+// keeps the banner up and blocks the parent's submit.
+const selectionGuard = useSelectionGuard(
+  () => ({ model: defaultModel.value, providerId: defaultProviderId.value }),
+  () => modelSelectionConflict.value,
+  () => { modelSelectionConflict.value = false; }
+);
+const modelSelectionInvalid = computed(() => selectionGuard.invalid);
+
+function applyInitialDefaults(defaults) {
+  defaultMode.value = defaults.mode || '';
+  defaultThinkingEnabled.value = defaults.thinkingEnabled || false;
+  defaultEffortLevel.value = defaults.effortLevel ?? '';
+  defaultStartImmediately.value = defaults.startImmediately !== false;
+  defaultGitMode.value = defaults.gitMode || '';
+  defaultGitBranch.value = defaults.gitBranch || '';
+}
 
 onMounted(() => {
-  defaultsStore.fetchDefaults(props.projectId);
+  refreshDefaults();
 });
 
 watch(() => defaultsStore.getDefaultsForProject(props.projectId), (defaults) => {
   if (defaults) {
-    defaultMode.value = defaults.mode || '';
-    defaultThinkingEnabled.value = defaults.thinkingEnabled || false;
-    defaultEffortLevel.value = defaults.effortLevel ?? '';
-    defaultStartImmediately.value = defaults.startImmediately !== false;
-    defaultGitMode.value = defaults.gitMode || '';
-    defaultGitBranch.value = defaults.gitBranch || '';
-    defaultModel.value = defaults.model || '';
-    defaultProviderId.value = defaults.providerId || null;
+    if (!hasLoadedDefaults) {
+      applyInitialDefaults(defaults);
+    }
+    const selection = reconcileModelSelection({
+      current: { model: defaultModel.value, providerId: defaultProviderId.value },
+      previousCanonical: lastCanonicalSelection,
+      canonical: { model: defaults.model || '', providerId: defaults.providerId || null },
+    });
+    defaultModel.value = selection.model || '';
+    defaultProviderId.value = selection.providerId;
+    modelSelectionConflict.value = selection.conflict;
+    lastCanonicalSelection = { model: defaults.model || '', providerId: defaults.providerId || null };
   }
 }, { immediate: true });
+
+function useCanonicalModelSelection() {
+  defaultModel.value = lastCanonicalSelection.model || '';
+  defaultProviderId.value = lastCanonicalSelection.providerId;
+  modelSelectionConflict.value = false;
+}
 
 function collectNonDefaultValues() {
   return {
@@ -238,7 +294,7 @@ async function handleResetDefaults() {
   }
 }
 
-defineExpose({ collectNonDefaultValues });
+defineExpose({ collectNonDefaultValues, modelSelectionInvalid });
 </script>
 
 <style scoped>

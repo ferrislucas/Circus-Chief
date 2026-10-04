@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
 import { agentCallLogs } from '../database.js';
+import { sanitizeString } from './errorSanitizer.js';
 
 /**
  * Service for logging agent calls with in-memory tracking for active calls.
@@ -60,13 +61,16 @@ export class AgentCallLogger {
    * Mark call as completed or errored.
    */
   completeCall(callId, { success, usage, error }) {
+    // Sanitize at the persistence boundary: thrown provider errors can echo
+    // credentials (request URLs, headers, SDK payloads) in their message.
+    const rawMessage = error?.message;
     agentCallLogs.complete(callId, {
       success,
       inputTokens: usage?.inputTokens,
       outputTokens: usage?.outputTokens,
       cacheReadTokens: usage?.cacheReadInputTokens,
       cacheWriteTokens: usage?.cacheCreationInputTokens,
-      errorMessage: error?.message,
+      errorMessage: typeof rawMessage === 'string' ? sanitizeString(rawMessage).slice(0, 2000) : rawMessage,
     });
     this.activeCalls.delete(callId);
   }
@@ -100,6 +104,54 @@ export class AgentCallLogger {
    */
   getFilterOptions() {
     return agentCallLogs.getFilterOptions();
+  }
+
+  /**
+   * Log a tier failover event as a completed agent-call entry (Fix 4 / F26).
+   * Creates a single-row "tierFailover" call-type log entry that appears in
+   * Settings → Logs alongside regular agent calls.
+   *
+   * The entry is logged with `success: true` (status `'completed'`) because a
+   * failover that successfully advances to the next member is not a call
+   * failure — it's a benign system event. `errorMessage` still carries the
+   * triggering reason for context. Stats are grouped by `call_type`, so the
+   * `tierFailover` bucket stays segregated from real runSession cost/failure
+   * rollups regardless of this flag (Issue 4).
+   *
+   * @param {string} sessionId
+   * @param {{ fromModel, fromProviderId, toModel, toProviderId, tierRef, tierName, reason, agentType }} opts
+   *   `agentType` should reflect the *source* (failing) member's agent type —
+   *   callers must pass it explicitly; it is not assumed to be 'claude-code'.
+   */
+  _logFailoverEvent(sessionId, { fromModel, fromProviderId, toModel, toProviderId, tierRef, tierName, reason, agentType }) {
+    const callId = nanoid();
+    const metadata = {
+      fromModel: fromModel || null,
+      fromProviderId: fromProviderId || null,
+      toModel: toModel || null,
+      toProviderId: toProviderId || null,
+      tierRef: tierRef || null,
+      tierName: tierName || null,
+      reason: reason || null,
+    };
+
+    agentCallLogs.create({
+      id: callId,
+      sessionId,
+      conversationId: null,
+      agentType: agentType || 'claude-code',
+      model: fromModel || null,
+      callType: 'tierFailover',
+      promptLength: 0,
+      metadata,
+    });
+
+    // Immediately complete the log entry as a neutral system event (no streaming).
+    // success: true → status 'completed' — a failover that advances is not a failure.
+    agentCallLogs.complete(callId, {
+      success: true,
+      errorMessage: reason || 'Tier failover',
+    });
   }
 
   /**

@@ -114,6 +114,9 @@ test.describe('SessionChatOverlay layout', () => {
   }
 
   async function scrollUntilSessionTabsStuck(page: Page) {
+    await page.locator('.tabs').waitFor({ state: 'attached', timeout: 10000 });
+    await page.locator('.tab-content').waitFor({ state: 'attached', timeout: 10000 });
+
     await page.evaluate(() => {
       if (document.querySelector('[data-testid="sticky-tabs-scroll-spacer"]')) return;
       const tabContent = document.querySelector('.tab-content') as HTMLElement | null;

@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { projects, sessions, modelProviders, messages } from '../database.js';
+import { projects, sessions, modelProviders, messages, modelTiers } from '../database.js';
+import { buildTierRef } from '@circuschief/shared';
 
 // Mock websocket so PATCH/start don't try to reach real subscribers.
 vi.mock('../websocket.js', () => ({
@@ -195,6 +196,112 @@ describe('Cross-kind agent/model drift on model change', () => {
 
     expect(sessions.getById(session.id).model).toBe(CLAUDE_OPUS);
     expect(sessions.getById(session.id).agentType).toBe('claude-code');
+  });
+
+  describe('Model Tier bindings (remediation Work Items 1 & 2)', () => {
+    let gptFirstTier;
+    let claudeFirstTier;
+    let emptyTier;
+
+    beforeEach(() => {
+      gptFirstTier = modelTiers.create({
+        name: 'PATCH Drift GPT-first Tier',
+        members: [{ providerId: openaiProvider.id, modelId: OPENAI_MODEL, position: 0 }],
+      });
+      claudeFirstTier = modelTiers.create({
+        name: 'PATCH Drift Claude-first Tier',
+        members: [{ providerId: anthropicProvider.id, modelId: CLAUDE_SONNET, position: 0 }],
+      });
+      emptyTier = modelTiers.create({ name: 'PATCH Drift Empty Tier', members: [] });
+    });
+
+    afterEach(() => {
+      try { modelTiers.delete(gptFirstTier.id); } catch { /* noop */ }
+      try { modelTiers.delete(claudeFirstTier.id); } catch { /* noop */ }
+      try { modelTiers.delete(emptyTier.id); } catch { /* noop */ }
+    });
+
+    it('re-derives agentType to "codex" when a waiting Claude session PATCHes to a Codex-first tier', async () => {
+      const session = sessions.create(project.id, 'Claude to Tier Session', 'Initial prompt', {
+        model: CLAUDE_SONNET,
+        providerId: anthropicProvider.id,
+        status: 'waiting',
+      });
+      expect(sessions.getById(session.id).agentType).toBe('claude-code');
+
+      const res = await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ model: buildTierRef(gptFirstTier.id) });
+
+      expect(res.status).toBe(200);
+      const updated = sessions.getById(session.id);
+      expect(updated.model).toBe(buildTierRef(gptFirstTier.id));
+      expect(updated.agentType).toBe('codex');
+      // The tier's concrete provider is resolved per-run, not persisted here.
+      expect(updated.providerId).toBeNull();
+    });
+
+    it('normalizes a stray concrete providerId to null when PATCHing to a tier ref', async () => {
+      const session = createWaitingCodexSession();
+
+      const res = await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ model: buildTierRef(claudeFirstTier.id), providerId: anthropicProvider.id });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('providerId must be null when model is a tier reference');
+    });
+
+    it('allows a started Claude session to PATCH to a Claude-first tier (same kind)', async () => {
+      const session = sessions.create(project.id, 'Started Claude Tier Session', 'Initial prompt', {
+        model: CLAUDE_SONNET,
+        providerId: anthropicProvider.id,
+        status: 'running',
+      });
+      messages.create(session.id, 'assistant', 'Hello, I am Claude.');
+
+      const res = await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ model: buildTierRef(claudeFirstTier.id) });
+
+      expect(res.status).toBe(200);
+      expect(sessions.getById(session.id).model).toBe(buildTierRef(claudeFirstTier.id));
+      expect(sessions.getById(session.id).agentType).toBe('claude-code');
+    });
+
+    it('rejects a started Claude session PATCHing to a Codex-first tier (CROSS_KIND_MODEL_SWITCH)', async () => {
+      const session = sessions.create(project.id, 'Started Claude Cross-tier Session', 'Initial prompt', {
+        model: CLAUDE_SONNET,
+        providerId: anthropicProvider.id,
+        status: 'running',
+      });
+      messages.create(session.id, 'assistant', 'Hello, I am Claude.');
+
+      const res = await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ model: buildTierRef(gptFirstTier.id) });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+
+      const unchanged = sessions.getById(session.id);
+      expect(unchanged.model).toBe(CLAUDE_SONNET);
+      expect(unchanged.agentType).toBe('claude-code');
+    });
+
+    it('rejects a PATCH model update naming a tier with no resolvable members', async () => {
+      const session = sessions.create(project.id, 'Empty Tier PATCH Session', 'Initial prompt', {
+        model: CLAUDE_SONNET,
+        providerId: anthropicProvider.id,
+        status: 'waiting',
+      });
+
+      const res = await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ model: buildTierRef(emptyTier.id) });
+
+      expect(res.status).toBe(400);
+    });
   });
 });
 

@@ -1,17 +1,108 @@
 import { modelProviders } from '../database.js';
 import { createRobustEnv } from './nodeSpawnHelper.js';
+import { isTierRef } from '@circuschief/shared';
+import { resolveActiveModel } from './tierResolutionService.js';
+import { validateExactTierMember } from './tierIdentity.js';
+
+/**
+ * Resolve the explicit provider named by `providerId`, but only when it
+ * actually owns `modelId`. Used to disambiguate duplicate model ids across
+ * providers (e.g. a tier with two members that share the same `modelId` but
+ * belong to different providers/agent kinds). Returns null when `providerId`
+ * is absent, unknown, or doesn't own the model — callers should fall back to
+ * the plain model-id lookup in that case.
+ * @param {string} modelId
+ * @param {string|null|undefined} providerId
+ * @returns {Object|null}
+ */
+function resolveExplicitOwningProvider(modelId, providerId) {
+  if (!providerId) return null;
+  const provider = modelProviders.getById(providerId);
+  if (!provider) return null;
+  const ownsModel = provider.models?.some((model) => model.modelId === modelId);
+  return ownsModel ? provider : null;
+}
 
 /**
  * Resolve the provider for a given model ID
  * Looks up which provider owns the model, or returns null for Anthropic defaults
+ *
+ * Provider-aware (Fix 1): when `providerId` is supplied, resolve that provider
+ * explicitly and verify it owns `modelId` — this disambiguates the same
+ * `modelId` registered under two different providers (e.g. a tier member).
+ * When `providerId` is absent, or doesn't own the model, falls back to the
+ * existing model-id lookup for backward compatibility.
  * @param {string|null} modelId - The model ID to look up
+ * @param {string|null} [providerId] - Optional explicit provider hint
  * @returns {Object|null} Provider object or null if using Anthropic default
  */
-export function resolveProviderFromModel(modelId) {
+export function resolveProviderFromModel(modelId, providerId = null) {
+  const explicit = resolveExplicitOwningProvider(modelId, providerId);
+  if (explicit) {
+    // Preserve the built-in-Anthropic-falls-through-to-SDK-defaults convention.
+    if (explicit.isBuiltIn && explicit.kind === 'anthropic') return null;
+    return explicit;
+  }
   return modelProviders.getProviderByModelId(modelId);
 }
 
-export function resolveProviderMetadataFromModel(modelId) {
+/**
+ * Strict tier-member provider resolution — the single consumer-side identity
+ * rule for tier-derived `(model, providerId)` pairs (startup failover
+ * members, continuation snapshots/hints, tier-switch selections).
+ *
+ * Returns the owning provider ONLY on an exact ownership match (validated
+ * through the shared {@link validateExactTierMember} rule: provider exists
+ * and is enabled, model row present and enabled). Otherwise throws a typed
+ * `TierIdentityError` — it never falls back to a different provider by model
+ * id alone, and never degrades to SDK defaults. Non-tier paths keep using
+ * {@link resolveProviderFromModel} with its backward-compatible fallback.
+ *
+ * @param {string} modelId - Concrete model id from a tier member identity.
+ * @param {string} providerId - The tier member's exact provider id (required).
+ * @returns {Object} Provider object (including models array).
+ * @throws {TierIdentityError} When the exact pair cannot be honored.
+ */
+export function resolveTierMemberProvider(modelId, providerId) {
+  const pair = validateExactTierMember(providerId, modelId);
+  return modelProviders.getById(pair.providerId);
+}
+
+/**
+ * Single dispatch-site provider rule shared by session startup, continuation,
+ * and attachment-bearing turns.
+ *
+ * Tier-derived bindings (an explicit tier-ref request, or continuing on an
+ * existing tier binding) resolve STRICTLY: the hint must name the exact owner
+ * or a typed `TierIdentityError` is thrown — never a cross-provider fallback,
+ * never SDK defaults. All other (concrete-model) bindings keep the legacy
+ * {@link resolveProviderFromModel} fallback for backward compatibility.
+ *
+ * @param {Object} session - Current session row (for the bound `model`).
+ * @param {string|null} requestedModel - Explicit model override, if any.
+ * @param {string|null} effectiveModel - Concrete model resolved for dispatch.
+ * @param {string|null} providerIdHint - Provider hint from tier resolution.
+ * @returns {{ provider: Object|null, providerMetadata: Object|null }}
+ * @throws {TierIdentityError} For tier-derived bindings with a stale hint.
+ */
+export function resolveDispatchProvider(session, requestedModel, effectiveModel, providerIdHint) {
+  const tierDerived = Boolean(
+    (requestedModel && isTierRef(requestedModel))
+    || (!requestedModel && session && isTierRef(session.model))
+  );
+  if (tierDerived && effectiveModel) {
+    const provider = resolveTierMemberProvider(effectiveModel, providerIdHint);
+    return { provider, providerMetadata: provider };
+  }
+  return {
+    provider: resolveProviderFromModel(effectiveModel, providerIdHint),
+    providerMetadata: resolveProviderMetadataFromModel(effectiveModel, providerIdHint),
+  };
+}
+
+export function resolveProviderMetadataFromModel(modelId, providerId = null) {
+  const explicit = resolveExplicitOwningProvider(modelId, providerId);
+  if (explicit) return explicit;
   if (!modelId) {
     return modelProviders.getById?.('anthropic-default') || null;
   }
@@ -22,17 +113,48 @@ export function resolveProviderMetadataFromModel(modelId) {
 }
 
 /**
- * Resolve the agent type (claude-code vs codex) for a given model ID.
+ * Resolve the commit-attribution override for a model field that may be a
+ * Model Tier reference (Work Item 5). A raw `tier::<id>` sentinel owns no
+ * provider itself — passing it straight to {@link resolveProviderMetadataFromModel}
+ * would silently fail to find an owning provider and fall through to the
+ * Anthropic default's metadata, which is wrong whenever the tier's actual
+ * active member belongs to a different provider (e.g. an OpenAI/Google tier
+ * member). This helper resolves the tier to its currently active member
+ * first — via the same resolver used by start/continue execution — before
+ * looking up commit-attribution metadata, so worktree setup for a
+ * tier-bound session/template/lane always uses the correct member's
+ * provider metadata.
+ *
+ * @param {string|null|undefined} modelOrRef - A concrete model id or a tier ref.
+ * @returns {string|null} The commit-attribution override, or null.
+ */
+export function resolveCommitAttributionOverrideForModel(modelOrRef) {
+  if (!isTierRef(modelOrRef)) {
+    return resolveProviderMetadataFromModel(modelOrRef)?.commitAttributionOverride ?? null;
+  }
+  const resolved = resolveActiveModel(modelOrRef, {});
+  if (!resolved) return null;
+  return resolveProviderMetadataFromModel(resolved.model, resolved.providerId)?.commitAttributionOverride ?? null;
+}
+
+/**
+ * Resolve the agent type (claude-code vs codex vs gemini) for a given model ID.
  * Uses the owning provider's kind:
  *   - anthropic → claude-code
  *   - openai    → codex
+ *   - google    → gemini
  * Falls back to 'claude-code' for null / unknown / tier-name inputs.
+ *
+ * Provider-aware (Fix 1): when `providerId` is supplied and owns `modelId`,
+ * the agent type is derived from THAT provider — required whenever tier
+ * members can cross Anthropic/OpenAI/Google with a duplicate `modelId`.
  * @param {string|null} modelId
- * @returns {string} 'claude-code' | 'codex'
+ * @param {string|null} [providerId] - Optional explicit provider hint
+ * @returns {string} 'claude-code' | 'codex' | 'gemini'
  */
-export function resolveAgentTypeFromModel(modelId) {
+export function resolveAgentTypeFromModel(modelId, providerId = null) {
   if (!modelId) return 'claude-code';
-  const provider = modelProviders.getProviderByModelId(modelId);
+  const provider = resolveExplicitOwningProvider(modelId, providerId) || modelProviders.getProviderByModelId(modelId);
   if (!provider) return 'claude-code';
   if (typeof modelProviders.getAgentTypeForProvider === 'function') {
     const agentType = modelProviders.getAgentTypeForProvider(provider.id);

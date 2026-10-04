@@ -9,7 +9,8 @@ import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief
 import { renderTemplatePrompt, getRootSession } from './templateTriggerService.js';
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
-import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
+import { resolveCommitAttributionOverrideForModel } from './sessionProvider.js';
+import { deriveAgentTypeForModelOrTier } from './sessionAgentGuard.js';
 import { attachRootSession } from './workflowSessionService.js';
 
 function throwIfAborted(controller) {
@@ -68,8 +69,7 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
       gitBranch: gitOptions.gitBranch || null,
       sessionId: gitOptions.sessionId,
       worktreeBasePath: project.worktreePath || null,
-      commitAttributionOverride:
-        resolveProviderMetadataFromModel(gitOptions.model)?.commitAttributionOverride ?? null,
+      commitAttributionOverride: resolveCommitAttributionOverrideForModel(gitOptions.model),
     });
     throwIfAborted(gitOptions.abortController);
     return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
@@ -112,6 +112,7 @@ export function getLaneSessionSettings(lane, session) {
   return {
     thinkingEnabled: lane.onEnterThinkingEnabled ?? session.thinkingEnabled,
     model: lane.onEnterModel || session.model,
+    providerId: lane.onEnterModel ? lane.onEnterProviderId : session.providerId,
     mode: lane.onEnterMode || session.mode,
     effortLevel: lane.onEnterEffortLevel || session.effortLevel || null,
     gitBranch: session.gitBranch,
@@ -128,6 +129,7 @@ export function getTemplateSessionSettings(template, session) {
   return {
     thinkingEnabled: template.thinkingEnabled !== null ? template.thinkingEnabled : session.thinkingEnabled,
     model: template.model || session.model,
+    providerId: template.model ? template.providerId : session.providerId,
     mode: template.mode || session.mode,
     gitBranch: template.gitBranch || session.gitBranch,
     gitMode: template.gitMode || null,
@@ -161,7 +163,8 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
     gitBranch: settings.gitBranch,
     status: 'starting',
     model: settings.model,
-    agentType: resolveAgentTypeFromModel(settings.model),
+    providerId: settings.providerId,
+    agentType: deriveAgentTypeForModelOrTier(settings.model),
     parentSessionId: session.id,
   });
   if (!newSession) throw new Error('attached lane-entry child session is missing');
@@ -206,6 +209,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
       gitBranch: settings.gitBranch,
       sessionId: newSession.id,
       model: settings.model,
+      providerId: settings.providerId,
       abortController,
       });
     if (gitWorktree) {
@@ -226,6 +230,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
     const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
+      providerId: settings.providerId,
       ...(abortController ? { abortController } : {}),
     });
     if (!accepted) return undelivered('provider dispatch was not accepted');
@@ -260,7 +265,7 @@ async function buildChildSessionFromPrompt(lane, session, options = {}) {
   const newSession = childSessionId ? sessions.getById(childSessionId) : sessions.create(session.projectId, `Lane prompt (lane: ${lane.name})`, renderedPrompt, {
     ...settings,
     status: 'starting',
-    agentType: resolveAgentTypeFromModel(settings.model),
+    agentType: deriveAgentTypeForModelOrTier(settings.model),
     parentSessionId: session.id,
   });
   if (!newSession) throw new Error('attached lane-entry child session is missing');

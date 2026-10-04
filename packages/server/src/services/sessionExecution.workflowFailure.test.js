@@ -11,6 +11,10 @@ import { KanbanBoardRepository } from '../db/KanbanBoardRepository.js';
 import { KanbanLaneRepository } from '../db/KanbanLaneRepository.js';
 import { KanbanCardRepository } from '../db/KanbanCardRepository.js';
 import { createLaneRunForEntry, attachRootSession, getRun } from './workflowSessionService.js';
+import { modelProviders, modelTiers } from '../database.js';
+import { buildTierRef } from '@circuschief/shared';
+import { markUnhealthy } from './tierResolutionService.js';
+import { activeSessions } from './streamEventHandler.js';
 
 /**
  * W4 (FRD: Kanban Lane-Run Structured Completion, FR-9, AC-7/AC-8): proves
@@ -124,6 +128,29 @@ describe('W4: failure/cancellation propagation through _executeSession', () => {
     expect(cardRepo.getById(card.id).laneId).toBe(source.id);
   });
 
+  it('an all-cooled tier start cleans active state and fails the lane run', async () => {
+    const provider = modelProviders.create({ name: 'Cooling provider', kind: 'anthropic' });
+    modelProviders.addModel(provider.id, { modelId: 'cooling-model', displayName: 'Cooling model' });
+    const tier = modelTiers.create({
+      name: 'Cooling tier',
+      members: [{ providerId: provider.id, modelId: 'cooling-model', position: 0 }],
+    });
+    sessionRepo.update(root.id, { model: buildTierRef(tier.id) });
+    markUnhealthy(provider.id, 'cooling-model', 60_000);
+
+    await expect(runSession(root.id, 'do work', tempDir)).rejects.toThrow(
+      'No healthy member is currently available for tier "Cooling tier" (all members are cooling down)'
+    );
+
+    const updated = sessionRepo.getById(root.id);
+    expect(activeSessions.has(root.id)).toBe(false);
+    expect(updated.status).toBe('error');
+    expect(updated.ownWorkState).toBe('closed_failed');
+    expect(updated.executionState).toBe('stopped');
+    expect(getRun(run.id).status).toBe('failed');
+    expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+  });
+
   it('a terminal result event for a token limit is automatically rescheduled and keeps the run open', async () => {
     sessionRepo.update(root.id, {
       autoRescheduleEnabled: true,
@@ -142,6 +169,47 @@ describe('W4: failure/cancellation propagation through _executeSession', () => {
     expect(updated.executionState).toBe('retrying');
     expect(getRun(run.id).status).toBe('open');
     expect(cardRepo.getById(card.id).laneId).toBe(source.id);
+  });
+
+  it('a retryable terminal result event fails over before closing the lane run', async () => {
+    const providerA = modelProviders.create({ name: 'Failing provider', kind: 'anthropic' });
+    const providerB = modelProviders.create({ name: 'Healthy provider', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'failing-model', displayName: 'Failing model' });
+    modelProviders.addModel(providerB.id, { modelId: 'healthy-model', displayName: 'Healthy model' });
+    const tier = modelTiers.create({
+      name: 'Workflow failover tier',
+      members: [
+        { providerId: providerA.id, modelId: 'failing-model', position: 0 },
+        { providerId: providerB.id, modelId: 'healthy-model', position: 1 },
+      ],
+    });
+    sessionRepo.update(root.id, { model: buildTierRef(tier.id) });
+
+    let attempt = 0;
+    const stubAgent = {
+      execute: vi.fn(async function* () {
+        attempt += 1;
+        if (attempt === 1) {
+          yield { type: 'result', subtype: 'error', is_error: true, error: '503 Service Unavailable' };
+          return;
+        }
+        yield { type: 'result', subtype: 'success' };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    await runSession(root.id, 'do work', tempDir);
+
+    const updated = sessionRepo.getById(root.id);
+    expect(stubAgent.execute).toHaveBeenCalledTimes(2);
+    expect(updated.ownWorkState).toBe('closed_successfully');
+    expect(updated.subtreeOutcome).toBe('succeeded');
+    expect(updated.resolvedModel).toBe('healthy-model');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    expect(getRun(run.id).status).toBe('succeeded');
+    expect(cardRepo.getById(card.id).laneId).toBe(target.id);
   });
 
   it('a non-retryable terminal result event fails rather than successfully completing the run', async () => {

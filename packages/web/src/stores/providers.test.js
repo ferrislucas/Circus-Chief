@@ -31,6 +31,26 @@ describe('useProvidersStore — Phase 5 kind wiring', () => {
     vi.clearAllMocks();
   });
 
+  describe('fetchProviders', () => {
+    it('ignores a stale response that resolves after a newer fetch', async () => {
+      let resolveStale;
+      let resolveFresh;
+      mockApi.getProviders
+        .mockImplementationOnce(() => new Promise((r) => { resolveStale = r; }))
+        .mockImplementationOnce(() => new Promise((r) => { resolveFresh = r; }));
+
+      const store = useProvidersStore();
+      const stale = store.fetchProviders();
+      const fresh = store.fetchProviders();
+      resolveFresh([{ id: 'new', name: 'New' }]);
+      await fresh;
+      resolveStale([{ id: 'old', name: 'Old' }]);
+      await stale;
+
+      expect(store.providers).toEqual([{ id: 'new', name: 'New' }]);
+    });
+  });
+
   describe('createProvider', () => {
     it('forwards kind to the api layer', async () => {
       const payload = {

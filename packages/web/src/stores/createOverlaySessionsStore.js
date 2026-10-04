@@ -153,7 +153,10 @@ const delegatedSessionActions = {
     if (this.currentSession?.id === sessionId) {
       const updateData = { model };
       if (providerId !== undefined) updateData.providerId = providerId;
-      if (this.currentSession.status === 'waiting') updateData.pendingModel = model;
+      if (this.currentSession.status === 'waiting') {
+        updateData.pendingModel = model;
+        if (providerId !== undefined) updateData.pendingProviderId = providerId;
+      }
       this.currentSession = { ...this.currentSession, ...updateData };
     }
     return result;

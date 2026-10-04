@@ -387,14 +387,21 @@ describe('continueSessionCore model fallback', () => {
   });
 
   it('resolves provider from session.model when model option is null', async () => {
-    const spy = vi.spyOn(sessionProvider, 'resolveProviderFromModel');
+    const spy = vi.spyOn(sessionProvider, 'resolveDispatchProvider');
     conversationRepo.create(session.id, 'Test Conversation');
 
     await continueSession(session.id, 'Follow-up message', tempDir, { model: null });
 
-    // resolveProviderFromModel should be called with session.model (the fallback),
-    // not null, so third-party provider env vars are correctly resolved.
-    expect(spy).toHaveBeenCalledWith('claude-sonnet-4-20250514');
+    // The single dispatch rule should be called with session.model (the fallback),
+    // not null, so third-party provider env vars are correctly resolved. The
+    // last arg is the provider-id disambiguation hint (null here since
+    // this session has no explicit providerId set).
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: session.id }),
+      null,
+      'claude-sonnet-4-20250514',
+      null
+    );
     spy.mockRestore();
   });
 
@@ -522,15 +529,22 @@ describe('continueSessionWithExistingMessage model fallback', () => {
   });
 
   it('resolves provider from session.model when model option is null', async () => {
-    const spy = vi.spyOn(sessionProvider, 'resolveProviderFromModel');
+    const spy = vi.spyOn(sessionProvider, 'resolveDispatchProvider');
     const conversation = conversationRepo.create(session.id, 'Test Conversation');
     messageRepo.create(session.id, 'user', 'Existing message', { conversationId: conversation.id });
 
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, { model: null });
 
-    // resolveProviderFromModel should be called with session.model (the fallback),
-    // not null, so third-party provider env vars are correctly resolved.
-    expect(spy).toHaveBeenCalledWith('claude-sonnet-4-20250514');
+    // The single dispatch rule should be called with session.model (the fallback),
+    // not null, so third-party provider env vars are correctly resolved. The
+    // last arg is the provider-id disambiguation hint (null here since
+    // this session has no explicit providerId set).
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: session.id }),
+      null,
+      'claude-sonnet-4-20250514',
+      null
+    );
     spy.mockRestore();
   });
 });
@@ -1068,7 +1082,14 @@ describe('commit attribution hook installation guard', () => {
 
   it('continueSession does NOT install hook when no attribution is configured', async () => {
     const hookSpy = vi.spyOn(gitService, 'ensureWorktreeCommitAttributionHook');
-    vi.spyOn(sessionProvider, 'resolveProviderMetadataFromModel').mockReturnValue(null);
+    // Continuation resolves its provider through the single dispatch rule;
+    // metadata without an attribution override installs no hook.
+    vi.spyOn(sessionProvider, 'resolveDispatchProvider').mockImplementation(
+      (sess, model, effectiveModel, hint) => ({
+        provider: sessionProvider.resolveProviderFromModel(effectiveModel, hint),
+        providerMetadata: null,
+      })
+    );
 
     const project = projectRepo.create('Attribution Test', tempDir);
     const session = sessionRepo.create(project.id, 'Attribution Session', 'prompt', 'standard');
@@ -1086,9 +1107,16 @@ describe('commit attribution hook installation guard', () => {
 
   it('continueSession installs hook when attribution IS configured', async () => {
     const hookSpy = vi.spyOn(gitService, 'ensureWorktreeCommitAttributionHook').mockResolvedValue(true);
-    vi.spyOn(sessionProvider, 'resolveProviderMetadataFromModel').mockReturnValue({
-      commitAttributionOverride: 'Co-authored-by: Claude <noreply@anthropic.com>',
-    });
+    // Continuation resolves its provider through the single dispatch rule —
+    // the attribution override travels on providerMetadata.
+    vi.spyOn(sessionProvider, 'resolveDispatchProvider').mockImplementation(
+      (sess, model, effectiveModel, hint) => ({
+        provider: sessionProvider.resolveProviderFromModel(effectiveModel, hint),
+        providerMetadata: {
+          commitAttributionOverride: 'Co-authored-by: Claude <noreply@anthropic.com>',
+        },
+      })
+    );
 
     const project = projectRepo.create('Attribution Test', tempDir);
     const session = sessionRepo.create(project.id, 'Attribution Session', 'prompt', 'standard');

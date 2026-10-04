@@ -129,6 +129,23 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
     expect(continueSession).toHaveBeenCalledTimes(1);
   });
 
+  it('forwards the concrete provider/model pair atomically with a follow-up', async () => {
+    modelProviders.addModel(openaiProvider.id, {
+      modelId: 'claude-sonnet-test', displayName: 'Duplicate model id', tier: 'custom',
+    });
+    sessions.update(claudeSession.id, { providerId: anthropicProvider.id });
+
+    const res = await request(app)
+      .post(`/api/sessions/${claudeSession.id}/message`)
+      .send({ content: 'follow-up', model: 'claude-sonnet-test', providerId: anthropicProvider.id });
+
+    expect(res.status).toBe(200);
+    expect(continueSession).toHaveBeenCalledWith(
+      claudeSession.id, 'follow-up', '/tmp/phase7-messages',
+      expect.objectContaining({ model: null, providerId: null, interactive: true })
+    );
+  });
+
   it('rejects invalid model ids before dispatching continuation', async () => {
     const res = await request(app)
       .post(`/api/sessions/${claudeSession.id}/message`)

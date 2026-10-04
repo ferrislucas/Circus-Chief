@@ -13,6 +13,10 @@ export const useProjectDefaultsStore = defineStore('projectDefaults', {
   },
 
   actions: {
+    setDefaults(projectId, defaults) {
+      this.defaultsByProjectId[projectId] = defaults;
+    },
+
     async fetchDefaults(projectId) {
       this.loading = true;
       this.error = null;

@@ -220,6 +220,24 @@ describe('AgentCallLogger', () => {
       });
       expect(logger.activeCalls.has(callId)).toBe(false);
     });
+
+    it('never persists raw credentials from thrown provider errors', () => {
+      const sentinel = 'sentinel-7a1c-logger-secret';
+      const callId = logger.startCall({
+        sessionId: 'session-1',
+        callType: 'runSession',
+        promptLength: 100,
+      });
+
+      logger.completeCall(callId, {
+        success: false,
+        error: new Error(`GET https://example/v1/models/m:generateContent?key=${sentinel} failed`),
+      });
+
+      const persisted = agentCallLogs.complete.mock.calls[0][1].errorMessage;
+      expect(persisted).not.toContain(sentinel);
+      expect(persisted).toContain('generateContent');
+    });
   });
 
   describe('getSessionStats', () => {
@@ -234,6 +252,73 @@ describe('AgentCallLogger', () => {
     it('delegates to repository correctly', () => {
       logger.getGlobalStats(1000, 2000);
       expect(agentCallLogs.getGlobalStats).toHaveBeenCalledWith(1000, 2000);
+    });
+  });
+
+  // ── _logFailoverEvent (Issue 4) ────────────────────────────────────────
+  //
+  // A failover that successfully advances to another tier member is a
+  // benign system event, not a call failure — and the entry must reflect
+  // the *source* (failing) member's agent type rather than assuming
+  // 'claude-code'.
+
+  describe('_logFailoverEvent', () => {
+    it('uses the passed agentType instead of hardcoding claude-code', () => {
+      logger._logFailoverEvent('session-1', {
+        fromModel: 'gpt-5-codex',
+        fromProviderId: 'provider-codex',
+        toModel: 'claude-sonnet-4-20250514',
+        toProviderId: 'provider-claude',
+        tierRef: 'tier::abc',
+        tierName: 'My Tier',
+        reason: 'rate limit reached',
+        agentType: 'codex',
+      });
+
+      expect(agentCallLogs.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentType: 'codex',
+          model: 'gpt-5-codex',
+          callType: 'tierFailover',
+        })
+      );
+    });
+
+    it('defaults agentType to claude-code when not provided', () => {
+      logger._logFailoverEvent('session-1', {
+        fromModel: 'claude-sonnet-4-20250514',
+        fromProviderId: 'provider-claude',
+        toModel: 'claude-opus-4-20250514',
+        toProviderId: 'provider-claude-2',
+        tierRef: 'tier::abc',
+        tierName: 'My Tier',
+        reason: 'quota exhausted',
+      });
+
+      expect(agentCallLogs.create).toHaveBeenCalledWith(
+        expect.objectContaining({ agentType: 'claude-code' })
+      );
+    });
+
+    it('completes the log entry with success: true (status completed, not error)', () => {
+      logger._logFailoverEvent('session-1', {
+        fromModel: 'gemini-2.5-pro',
+        fromProviderId: 'provider-gemini',
+        toModel: 'claude-sonnet-4-20250514',
+        toProviderId: 'provider-claude',
+        tierRef: 'tier::abc',
+        tierName: 'My Tier',
+        reason: 'service unavailable',
+        agentType: 'gemini',
+      });
+
+      expect(agentCallLogs.complete).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          success: true,
+          errorMessage: 'service unavailable',
+        })
+      );
     });
   });
 });

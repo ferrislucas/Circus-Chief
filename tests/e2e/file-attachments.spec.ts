@@ -255,14 +255,14 @@ test.describe('File Attachments - UI Display', () => {
     const attachmentLocator = page.locator('.attachment-chip .attachment-name').filter({ hasText: 'display-test.txt' }).first();
     let visible = false;
     for (let attempt = 0; attempt < 3 && !visible; attempt++) {
-      await page.reload();
-      await page.waitForLoadState('networkidle');
-      await openSessionOverlay(page);
       try {
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+        await openSessionOverlay(page);
         await expect(attachmentLocator).toBeVisible({ timeout: 5000 });
         visible = true;
       } catch {
-        // Retry reload if chip not visible yet
+        // Retry the full reload-and-open flow if the page or chip is not ready yet.
       }
     }
 

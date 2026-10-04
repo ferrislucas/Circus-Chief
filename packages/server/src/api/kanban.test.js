@@ -1,16 +1,20 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import express from 'express';
+import express, { Router } from 'express';
 import request from 'supertest';
+import { callRouter } from '../../test/callRouter.js';
 import {
   projects,
   sessions,
   kanbanBoards,
   kanbanLanes,
   kanbanCards,
+  modelProviders,
+  modelTiers,
   commandButtons,
   commandRuns,
   databaseManager,
 } from '../database.js';
+import { WS_MESSAGE_TYPES, buildTierRef } from '@circuschief/shared';
 
 // Mock websocket before importing the router
 vi.mock('../websocket.js', () => ({
@@ -40,9 +44,6 @@ import {
   createLaneRunForEntry,
   getRun,
 } from '../services/workflowSessionService.js';
-import {
-  WS_MESSAGE_TYPES,
-} from '@circuschief/shared';
 
 describe('Kanban API', () => {
   let app;
@@ -425,6 +426,58 @@ describe('Kanban API', () => {
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Completion target lane not found');
     });
+
+    describe('onEnterModel tier-ref validation (Work Item 1)', () => {
+      let provider;
+      let tier;
+
+      beforeEach(() => {
+        provider = modelProviders.create({
+          name: 'Kanban lane tier test provider',
+          kind: 'openai',
+          baseUrl: 'https://api.example.com/v1',
+          authToken: 'token',
+        });
+        modelProviders.addModel(provider.id, {
+          modelId: 'kanban-lane-tier-model',
+          displayName: 'Kanban Lane Tier Model',
+          tier: 'custom',
+        });
+        tier = modelTiers.create({
+          name: 'Kanban Lane Tier Test',
+          members: [{ providerId: provider.id, modelId: 'kanban-lane-tier-model', position: 0 }],
+        });
+      });
+
+      it('accepts and persists a valid tier ref as onEnterModel', async () => {
+        setupBoard();
+        const res = await request(app)
+          .post(`/api/projects/${projectId}/kanban/lanes`)
+          .send({ name: 'Tier Lane', onEnterModel: buildTierRef(tier.id) });
+
+        expect(res.status).toBe(201);
+        expect(res.body.onEnterModel).toBe(buildTierRef(tier.id));
+      });
+
+      it('rejects an unknown model id for onEnterModel', async () => {
+        setupBoard();
+        const res = await request(app)
+          .post(`/api/projects/${projectId}/kanban/lanes`)
+          .send({ name: 'Bad Model Lane', onEnterModel: 'not-a-real-model' });
+
+        expect(res.status).toBe(400);
+      });
+
+      it('rejects a tier ref with no resolvable members for onEnterModel', async () => {
+        const emptyTier = modelTiers.create({ name: 'Kanban Lane Empty Tier', members: [] });
+        setupBoard();
+        const res = await request(app)
+          .post(`/api/projects/${projectId}/kanban/lanes`)
+          .send({ name: 'Empty Tier Lane', onEnterModel: buildTierRef(emptyTier.id) });
+
+        expect(res.status).toBe(400);
+      });
+    });
   });
 
   describe('PATCH /api/projects/:projectId/kanban/lanes/:laneId', () => {
@@ -437,6 +490,77 @@ describe('Kanban API', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.name).toBe('Renamed');
+    });
+
+    it('accepts and persists a valid tier ref as onEnterModel', async () => {
+      setupBoard();
+      const provider = modelProviders.create({
+        name: 'Kanban lane PATCH tier test provider',
+        kind: 'openai',
+        baseUrl: 'https://api.example.com/v1',
+        authToken: 'token',
+      });
+      modelProviders.addModel(provider.id, {
+        modelId: 'kanban-lane-patch-tier-model',
+        displayName: 'Kanban Lane PATCH Tier Model',
+        tier: 'custom',
+      });
+      const tier = modelTiers.create({
+        name: 'Kanban Lane PATCH Tier Test',
+        members: [{ providerId: provider.id, modelId: 'kanban-lane-patch-tier-model', position: 0 }],
+      });
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ onEnterModel: buildTierRef(tier.id) });
+
+      expect(res.status).toBe(200);
+      expect(res.body.onEnterModel).toBe(buildTierRef(tier.id));
+    });
+
+    it('rejects an unresolvable tier ref for onEnterModel', async () => {
+      setupBoard();
+      const emptyTier = modelTiers.create({ name: 'Kanban Lane PATCH Empty Tier', members: [] });
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ onEnterModel: buildTierRef(emptyTier.id) });
+
+      expect(res.status).toBe(400);
+    });
+
+    // Network-free coverage (same handlers as the supertest cases above, via
+    // test/callRouter.js) for environments where supertest cannot bind a port.
+    describe('untouched model bindings (direct router calls)', () => {
+      function callLanePatch(laneId, body) {
+        const parent = Router({ mergeParams: true });
+        parent.use('/:projectId/kanban', kanbanRouter);
+        return callRouter(parent, {
+          method: 'PATCH',
+          url: `/${projectId}/kanban/lanes/${laneId}`,
+          body,
+        });
+      }
+
+      it('allows an unrelated edit when the stored binding is stale', async () => {
+        setupBoard();
+        kanbanLanes.update(lanes[0].id, { onEnterModel: 'ghost-model', onEnterProviderId: null });
+
+        const res = await callLanePatch(lanes[0].id, { name: 'Renamed' });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.name).toBe('Renamed');
+        expect(res.body.onEnterModel).toBe('ghost-model');
+      });
+
+      it('still validates the binding when the request touches it', async () => {
+        setupBoard();
+        kanbanLanes.update(lanes[0].id, { onEnterModel: 'ghost-model', onEnterProviderId: null });
+
+        const res = await callLanePatch(lanes[0].id, { onEnterModel: 'also-ghost' });
+
+        expect(res.statusCode).toBe(400);
+      });
     });
 
     it('accepts completionTargetLaneId null', async () => {

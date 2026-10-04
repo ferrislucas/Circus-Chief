@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { sessionTemplates } from '../database.js';
 import { CreateSessionTemplateRequest, UpdateSessionTemplateRequest } from '@circuschief/shared/contracts/templates';
-import { validateModelId } from './model-validation.js';
+import { validateModelAndProvider } from './model-validation.js';
 
 const router = Router();
 
@@ -18,14 +18,14 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  const modelResult = validateModelId(result.data.model);
+  const modelResult = validateModelAndProvider(result.data.model, result.data.providerId);
   if (modelResult.error) {
     return res.status(400).json({ error: modelResult.error });
   }
 
   const template = sessionTemplates.create({
     projectId: null, // Global template
-    ...result.data,
+    ...result.data, model: modelResult.model, providerId: modelResult.providerId,
   });
   res.status(201).json(template);
 });
@@ -51,12 +51,26 @@ router.patch('/:id', (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  const modelResult = validateModelId(result.data.model);
-  if (modelResult.error) {
-    return res.status(400).json({ error: modelResult.error });
+  // Only validate the (model, providerId) pair when the request touches it.
+  // Otherwise an edit to an unrelated field would be blocked by a binding
+  // that became unresolvable after it was stored (e.g. a deleted provider).
+  const touchesBinding = result.data.model !== undefined || result.data.providerId !== undefined;
+  let model = template.model;
+  let providerId = template.providerId ?? null;
+  if (touchesBinding) {
+    model = result.data.model === undefined ? template.model : result.data.model;
+    providerId = result.data.providerId === undefined ? template.providerId : result.data.providerId;
+    const modelResult = validateModelAndProvider(model, providerId);
+    if (modelResult.error) {
+      return res.status(400).json({ error: modelResult.error });
+    }
+    model = modelResult.model;
+    providerId = modelResult.providerId;
   }
 
-  const updated = sessionTemplates.update(req.params.id, result.data);
+  const updated = sessionTemplates.update(req.params.id, {
+    ...result.data, model, providerId,
+  });
   res.json(updated);
 });
 

@@ -23,6 +23,9 @@ vi.mock('./sessionManager.js', () => ({
 
 vi.mock('./sessionProvider.js', () => ({
   resolveAgentTypeFromModel: vi.fn().mockReturnValue('codex'),
+  // Model-tiers: git setup resolves commit attribution from the (possibly tier-ref)
+  // model before dispatch, so the mock must expose it too.
+  resolveCommitAttributionOverrideForModel: vi.fn().mockReturnValue(null),
   resolveProviderMetadataFromModel: vi.fn().mockReturnValue({
     kind: 'openai', authToken: 'test-key', commitAttributionOverride: null,
     supportsIdempotentDispatch: true,
