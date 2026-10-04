@@ -36,6 +36,22 @@ function createMockGeminiChild() {
   return child;
 }
 
+/**
+ * Minimal owned `muse exec --json` transcript for the meta probe: an
+ * accepted command, its linked run, and the completed success terminal the
+ * probe requires (FR-4 doctrine — exit 0 alone is not success).
+ */
+function museProbeCompletedOutput() {
+  const line = (sequence, payload_type, payload) => JSON.stringify({
+    schema_version: 1, record_type: 'event', sequence, payload_type, payload,
+  });
+  return [
+    line(1, 'runtime.command.accepted', { command_id: 'cmd-probe' }),
+    line(2, 'session.run.linked', { command_id: 'cmd-probe', run_stream: { id: 'run-probe' } }),
+    line(3, 'run.terminal.completed', { command_id: 'cmd-probe', run_stream: { id: 'run-probe' }, terminal: 'completed', text: 'Hi!' }),
+  ].join('\n');
+}
+
 function apiError({ status, code, type, message }) {
   const err = new Error(message || 'API error');
   if (status !== undefined) err.status = status;
@@ -338,6 +354,7 @@ describe('providerTestService', () => {
         defaultSonnetModel: 'muse-spark-1.3-contributor',
       }, { spawnMuseProcess });
 
+      child.stdout.emit('data', Buffer.from(`${museProbeCompletedOutput()}\n`));
       child.emit('exit', 0);
       const result = await promise;
 
@@ -413,6 +430,59 @@ describe('providerTestService', () => {
         success: false,
         message: 'auth required',
         details: { code: undefined, type: 'Error' },
+      });
+    });
+
+    // Finding #5: probe stderr retention must be bounded like the other
+    // transports (16 KiB) — a chatty child must not grow memory without
+    // limit through the failure message.
+    it('bounds retained probe stderr on a chatty failure', async () => {
+      const child = createMockGeminiChild();
+      const spawnMuseProcess = vi.fn(() => child);
+
+      const promise = testProviderConnection({ kind: 'meta', workingDirectory: '/tmp/muse-workdir' }, { spawnMuseProcess });
+
+      child.stderr.emit('data', Buffer.from('x'.repeat(5 * 1024 * 1024)));
+      child.emit('exit', 1);
+      const result = await promise;
+
+      expect(result.success).toBe(false);
+      expect(result.message.length).toBeLessThanOrEqual(16 * 1024);
+    });
+
+    // Finding #5 (FR-4 doctrine): process exit alone is not success — a
+    // clean exit with no validated success terminal record fails the probe.
+    it('fails a clean exit that produced no terminal record', async () => {
+      const child = createMockGeminiChild();
+      const spawnMuseProcess = vi.fn(() => child);
+
+      const promise = testProviderConnection({ kind: 'meta', workingDirectory: '/tmp/muse-workdir' }, { spawnMuseProcess });
+
+      child.emit('exit', 0);
+      const result = await promise;
+
+      expect(result.success).toBe(false);
+      expect(result.message).toMatch(/terminal/i);
+    });
+
+    it('succeeds on a clean exit with a validated completed terminal', async () => {
+      const child = createMockGeminiChild();
+      const spawnMuseProcess = vi.fn(() => child);
+
+      const promise = testProviderConnection({
+        kind: 'meta',
+        workingDirectory: '/tmp/muse-workdir',
+        defaultSonnetModel: 'muse-spark-1.3-contributor',
+      }, { spawnMuseProcess });
+
+      child.stdout.emit('data', Buffer.from(`${museProbeCompletedOutput()}\n`));
+      child.emit('exit', 0);
+      const result = await promise;
+
+      expect(result).toEqual({
+        success: true,
+        message: 'Connection successful',
+        details: { model: 'muse-spark-1.3-contributor' },
       });
     });
 

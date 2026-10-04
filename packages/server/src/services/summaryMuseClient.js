@@ -14,7 +14,11 @@ const MAX_STDERR_BYTES = 16 * 1024;
 const MAX_STDOUT_BYTES = 1024 * 1024;
 const MAX_TERMINAL_REASON_CHARS = 500;
 const AUTH_FAILURE_PATTERNS = ['not logged in', 'login', 'authentication', 'authenticate', 'unauthorized', 'muse auth'];
-const MUSE_BIN = process.env.MUSE_BIN || 'muse';
+
+/** Resolve the Muse binary at call time so a late-set MUSE_BIN is honored. */
+function resolveMuseBin() {
+  return process.env.MUSE_BIN || 'muse';
+}
 
 /** An error which is safe to show to a user or put in normal logs. */
 export class MuseSummaryError extends Error {
@@ -30,10 +34,22 @@ export function isSupportedMuseSummaryModel(model) {
   return MUSE_SUMMARY_MODELS.includes(model);
 }
 
+/**
+ * Append a child-output chunk to retained diagnostics without growing memory
+ * without bound. Keeps the tail (where the actionable error text lives) and
+ * is shared with the meta connection probe so there is exactly one cap
+ * implementation.
+ */
+export function appendBoundedDiagnostic(current, chunk, maxBytes = MAX_STDERR_BYTES) {
+  const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+  return `${current}${text}`.slice(-maxBytes);
+}
+
 export function buildMuseSummaryArgs({ model, schemaPath, cwd, promptFile, prompt }) {
-  // No --no-session-log: `muse exec` requires session logging for its local
-  // messaging transport. Session logs for one-off summaries are accepted,
-  // matching the session MuseExecAdapter invocation.
+  // No --no-session-log: one-off summary runs keep their session logs for
+  // debuggability, matching the session MuseExecAdapter invocation. (The
+  // flag itself is valid — `muse exec --json` still emits its terminal
+  // record with session logging disabled; the probe relies on that.)
   const args = [
     'exec', '--json', '--workspace', cwd,
     '--model', model, '--output-schema', schemaPath,
@@ -160,7 +176,7 @@ export async function callMuseSummary({ prompt, systemPrompt, model, jsonSchema,
     await fs.writeFile(schemaPath, JSON.stringify(normalizeMuseOutputSchema(jsonSchema)), 'utf8');
     const args = await buildSummaryInvocation({ fs, systemPrompt, prompt, model, schemaPath, workspaceDir, tempDir });
     return await executeMuseChild({
-      spawn, command: dependencies.command || MUSE_BIN, args, workspaceDir,
+      spawn, command: dependencies.command || resolveMuseBin(), args, workspaceDir,
       env: dependencies.env || process.env, timeoutMs, abortController,
       setTimer: (value) => { timer = value; },
       killProcessGroup: dependencies.killProcessGroup,
@@ -229,12 +245,10 @@ function runChild({ child, timeoutMs, abortController, setTimer, killProcessGrou
     let stdout = '';
     let stderr = '';
     child.stdout?.on('data', (chunk) => {
-      const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-      stdout = `${stdout}${text}`.slice(-MAX_STDOUT_BYTES);
+      stdout = appendBoundedDiagnostic(stdout, chunk, MAX_STDOUT_BYTES);
     });
     child.stderr?.on('data', (chunk) => {
-      const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-      stderr = `${stderr}${text}`.slice(-MAX_STDERR_BYTES);
+      stderr = appendBoundedDiagnostic(stderr, chunk);
     });
     child.once('error', (error) => finish(Object.assign(error, { stderr })));
     child.once('exit', (code) => {

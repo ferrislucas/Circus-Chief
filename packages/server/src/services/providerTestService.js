@@ -2,8 +2,10 @@ import { spawn } from 'child_process';
 import { tmpdir } from 'node:os';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
+import { createMuseExecProtocol } from '../agents/adapters/museExecProtocol.js';
 import { createGeminiSpawner } from './geminiSpawnHelper.js';
 import { createRobustEnv } from './nodeSpawnHelper.js';
+import { appendBoundedDiagnostic } from './summaryMuseClient.js';
 
 /**
  * Build the probe config shared by BOTH provider test routes (finding #9):
@@ -316,6 +318,12 @@ async function testMetaConnection(config, deps = {}) {
     return await new Promise((resolve) => {
       let stderr = '';
       let killed = false;
+      // FR-4 doctrine applies to the probe too: process exit alone is not
+      // success. The probe requires the validated success terminal record,
+      // which `muse exec --json` emits even with `--no-session-log`.
+      const protocol = createMuseExecProtocol();
+      let terminal = null;
+      let outputValid = true;
 
       const timer = setTimeout(() => {
         killed = true;
@@ -323,8 +331,19 @@ async function testMetaConnection(config, deps = {}) {
         resolve(failureResponse(new Error(`Muse CLI timed out after ${timeoutMs}ms`)));
       }, timeoutMs);
 
-      child.stdout?.on('data', () => { /* drain */ });
-      child.stderr?.on('data', (d) => { stderr += d; });
+      child.stdout?.on('data', (d) => {
+        if (!outputValid) return;
+        try {
+          for (const item of protocol.push(d)) {
+            if (item?.kind === 'terminal') terminal = item;
+          }
+        } catch {
+          outputValid = false;
+        }
+      });
+      // Stderr is diagnostic-only and bounded (16 KiB, shared with the
+      // summary client) so a chatty child cannot grow memory without limit.
+      child.stderr?.on('data', (d) => { stderr = appendBoundedDiagnostic(stderr, d); });
       child.on('error', (error) => {
         clearTimeout(timer);
         if (killed) return;
@@ -338,7 +357,11 @@ async function testMetaConnection(config, deps = {}) {
         clearTimeout(timer);
         if (killed) return;
         if (code === 0) {
-          resolve(connectionSuccess({ model: spec.model }));
+          if (outputValid && terminal?.outcome === 'completed' && terminal.text) {
+            resolve(connectionSuccess({ model: spec.model }));
+          } else {
+            resolve(failureResponse(new Error(describeMissingTerminal(terminal))));
+          }
         } else {
           resolve(failureResponse(new Error(stderr.trim() || `Muse CLI exited with code ${code}`)));
         }
@@ -347,6 +370,18 @@ async function testMetaConnection(config, deps = {}) {
   } catch (error) {
     return failureResponse(error);
   }
+}
+
+/**
+ * Actionable message for a clean probe exit with no usable terminal record.
+ * A non-completed terminal carries its own reason; anything else means the
+ * CLI never produced the validated success the probe requires.
+ */
+function describeMissingTerminal(terminal) {
+  if (terminal && terminal.outcome !== 'completed') {
+    return `Muse CLI reported ${terminal.outcome}${terminal.reason ? `: ${terminal.reason}` : ''}.`;
+  }
+  return 'Muse CLI exited without a validated terminal result.';
 }
 
 function connectionSuccess(details) {

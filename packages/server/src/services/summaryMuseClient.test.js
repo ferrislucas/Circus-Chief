@@ -56,7 +56,8 @@ describe('summaryMuseClient', () => {
       'exec', '--json', '--workspace', '/tmp/work',
       '--model', 'muse-spark-1.3', '--output-schema', '/tmp/schema', 'text',
     ]);
-    // `muse exec` requires session logging for its local messaging transport.
+    // Summary runs keep session logs for debuggability (the flag itself is
+    // valid — `muse exec --json` still emits its terminal record without them).
     expect(args).not.toContain('--no-session-log');
   });
 
@@ -113,6 +114,21 @@ describe('summaryMuseClient', () => {
     await expect(callMuseSummary({ prompt: 'x', model: 'not-supported', jsonSchema: {} }, { spawn }))
       .rejects.toMatchObject({ code: 'MUSE_SUMMARY_UNSUPPORTED_MODEL' });
     expect(spawn).not.toHaveBeenCalled();
+  });
+
+  // Finding #9: the binary override must resolve at call time, like
+  // museExecArgs.js — setting MUSE_BIN after import must be honored.
+  it('resolves MUSE_BIN at call time', async () => {
+    const fs = testFs();
+    const child = childWith({ stdout: completedStdout('{"short_summary":"ok"}') });
+    const spawn = vi.fn(() => child);
+    vi.stubEnv('MUSE_BIN', '/custom/muse-bin');
+    try {
+      await callMuseSummary({ prompt: 'x', model: 'muse-spark-1.3', jsonSchema: {} }, { fs, spawn });
+      expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ command: '/custom/muse-bin' }));
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('classifies authentication failures without exposing stderr', async () => {
