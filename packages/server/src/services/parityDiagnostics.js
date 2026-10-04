@@ -22,6 +22,25 @@ import { isSshAgentSocketAlive } from './loginShellEnv.js';
 export const SECRET_KEY_PATTERN = /(^|_)(TOKEN|SECRET|PASSWORD|PRIVATE|PAT|KEY)$/i;
 
 /**
+ * Login-shell-propagated keys that carry credentials without matching
+ * SECRET_KEY_PATTERN. The parity allowlist forwards `GIT_*`/`GCM_*` from the
+ * user's shell so agent-spawned git/gh authenticate like the user's own
+ * shell — but `GIT_HTTP_EXTRAHEADER` (an `Authorization:` header value) and
+ * `GIT_CONFIG_VALUE_*` (env-passed git config, which can embed tokens via
+ * `url.<base>.insteadOf` rewrites) and `GCM_*` (Git Credential Manager
+ * settings) would otherwise bypass the scrub set and leak verbatim into
+ * work logs on echo. Their values always join the scrub set.
+ */
+const EXTRA_SCRUB_KEYS = new Set(['GIT_HTTP_EXTRAHEADER']);
+const EXTRA_SCRUB_KEY_PREFIXES = ['GCM_', 'GIT_CONFIG_VALUE'];
+
+function isScrubbedKey(key) {
+  if (SECRET_KEY_PATTERN.test(key)) return true;
+  if (EXTRA_SCRUB_KEYS.has(key)) return true;
+  return EXTRA_SCRUB_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
+/**
  * Minimum secret-value length admitted into a scrub set (round-3 finding #4).
  * A 1–3 character "secret" (e.g. `GH_TOKEN=x` in additionalEnvVars) would
  * otherwise replace every occurrence of that character in transcripts.
@@ -339,7 +358,7 @@ export function redactEnvForDiagnostics(env, opts = {}) {
 export function redactSecretsFromText(text, env) {
   const values = new Set();
   for (const [key, value] of Object.entries(env || {})) {
-    if (typeof value === 'string' && value.length >= MIN_SECRET_VALUE_LENGTH && SECRET_KEY_PATTERN.test(key)) {
+    if (typeof value === 'string' && value.length >= MIN_SECRET_VALUE_LENGTH && isScrubbedKey(key)) {
       values.add(value);
     }
   }
@@ -411,7 +430,7 @@ export function scrubValuesForSession(env) {
   const merged = { ...process.env, ...(env || {}) };
   const values = new Set();
   for (const [key, value] of Object.entries(merged)) {
-    if (typeof value === 'string' && value.length >= MIN_SECRET_VALUE_LENGTH && SECRET_KEY_PATTERN.test(key)) {
+    if (typeof value === 'string' && value.length >= MIN_SECRET_VALUE_LENGTH && isScrubbedKey(key)) {
       values.add(value);
     }
   }

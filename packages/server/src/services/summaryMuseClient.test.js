@@ -40,6 +40,15 @@ function testFs() {
   };
 }
 
+function hangingChild({ pid } = {}) {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  if (pid !== undefined) child.pid = pid;
+  child.kill = vi.fn(() => true);
+  return child;
+}
+
 describe('summaryMuseClient', () => {
   it('builds a headless muse exec invocation with schema shaping', () => {
     const args = buildMuseSummaryArgs({ model: 'muse-spark-1.3', schemaPath: '/tmp/schema', cwd: '/tmp/work', prompt: 'text' });
@@ -186,6 +195,47 @@ describe('summaryMuseClient', () => {
     ).catch((error) => error);
     expect(failure).toMatchObject({ code: 'MUSE_SUMMARY_NON_ZERO_EXIT' });
     expect(failure).not.toHaveProperty('detail');
+  });
+
+  it('signals the owned process group on summary timeout', async () => {
+    const fs = testFs();
+    const child = hangingChild({ pid: 4242 });
+    const killProcessGroup = vi.fn();
+    const failure = await callMuseSummary(
+      { prompt: 'x', model: 'muse-spark-1.3', jsonSchema: {}, timeoutMs: 25 },
+      { fs, spawn: vi.fn(() => child), killProcessGroup },
+    ).catch((error) => error);
+    expect(failure).toMatchObject({ code: 'MUSE_SUMMARY_TIMEOUT' });
+    expect(killProcessGroup).toHaveBeenCalledWith(-4242, 'SIGTERM');
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a direct kill when the timed-out child has no process group', async () => {
+    const fs = testFs();
+    const child = hangingChild();
+    const killProcessGroup = vi.fn();
+    const failure = await callMuseSummary(
+      { prompt: 'x', model: 'muse-spark-1.3', jsonSchema: {}, timeoutMs: 25 },
+      { fs, spawn: vi.fn(() => child), killProcessGroup },
+    ).catch((error) => error);
+    expect(failure).toMatchObject({ code: 'MUSE_SUMMARY_TIMEOUT' });
+    expect(killProcessGroup).not.toHaveBeenCalled();
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+  });
+
+  it('leaves additionalProperties off non-object schemas carrying properties', () => {
+    expect(normalizeMuseOutputSchema({
+      type: 'string', properties: { a: { type: 'string' } },
+    })).not.toHaveProperty('additionalProperties');
+    expect(normalizeMuseOutputSchema({
+      type: ['string', 'null'], properties: { a: { type: 'string' } },
+    })).not.toHaveProperty('additionalProperties');
+    expect(normalizeMuseOutputSchema({
+      type: ['object', 'null'], properties: { a: { type: 'string' } },
+    })).toMatchObject({ additionalProperties: false });
+    expect(normalizeMuseOutputSchema({
+      properties: { a: { type: 'string' } },
+    })).toMatchObject({ additionalProperties: false });
   });
 
   it('preserves an already-complete required list without mutating the input', () => {

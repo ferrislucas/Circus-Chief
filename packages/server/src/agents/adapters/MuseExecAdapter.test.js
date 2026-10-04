@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import { MuseExecAdapter } from './MuseExecAdapter.js';
+import { MuseExecAdapter, MAX_MUSE_TURN_EVENTS } from './MuseExecAdapter.js';
 
 function fakeSpawn(output, code = 0, onSpawn = () => {}) {
   return (_command, args) => {
@@ -90,6 +90,21 @@ describe('MuseExecAdapter', () => {
     const adapter = new MuseExecAdapter();
     expect(adapter.supportsResume()).toBe(true);
     expect(adapter.needsConversationContext()).toBe(false);
+  });
+  it('bounds buffered events on a chatty turn without losing the terminal result', async () => {
+    const deltas = Array.from({ length: MAX_MUSE_TURN_EVENTS + 100 }, (_, i) => event(i + 3, 'run.output.delta', { text: `t${i}` }));
+    const records = [
+      event(1, 'runtime.command.accepted', { command_id: 'cmd-123' }),
+      event(2, 'session.run.linked', { command_id: 'cmd-123', run_stream: { id: 'run-123' } }),
+      ...deltas,
+      event(MAX_MUSE_TURN_EVENTS + 103, 'run.terminal.completed', { command_id: 'cmd-123', run_stream: { id: 'run-123' }, terminal: 'completed', text: 'Finished' }),
+    ];
+    const events = await collect(new MuseExecAdapter({ spawnMuseExec: fakeSpawn(records) }));
+    // The `session.run.linked` record occupies one notice slot, so the
+    // bounded buffer holds it plus exactly MAX-1 deltas — never more.
+    const mapped = events.filter((item) => item.type === 'stream_event' || item.type === 'tool_result');
+    expect(mapped).toHaveLength(MAX_MUSE_TURN_EVENTS);
+    expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
   });
   it('maps a validated failed terminal to an error result', async () => {
     const events = await collect(new MuseExecAdapter({ spawnMuseExec: fakeSpawn([

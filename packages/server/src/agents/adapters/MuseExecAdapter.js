@@ -12,6 +12,9 @@ import { createMuseExecEventMapper } from './museExecEventMapper.js';
 import { scrubEventForLogging } from '../../services/parityDiagnostics.js';
 import logger from '../../logger.js';
 
+/** Hard bound on buffered mapped events per turn so a chatty workflow cannot grow memory without limit. */
+export const MAX_MUSE_TURN_EVENTS = 500;
+
 /** Process-owned Muse CLI transport. A terminal JSON record and clean exit are both required. */
 export class MuseExecAdapter extends BaseAgent {
   static capabilities = Object.freeze({ streaming: true, thinking: false, reasoningEffort: true, toolUse: true, resume: true });
@@ -91,7 +94,7 @@ export class MuseExecAdapter extends BaseAgent {
         child = this._spawn(spec.command, spec.args, { cwd: spec.cwd, env, shell: false, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
       } catch (err) { clearTimeout(totalTimer); reject(err); return; }
       signal?.addEventListener('abort', stop, { once: true });
-      child.stdout.on('data', (chunk) => { try { for (const item of parser.push(chunk)) { if (item.kind === 'terminal') terminal = item; else events.push(...mapper.map(item)); } } catch (err) { terminate(); reject(err); } });
+      child.stdout.on('data', (chunk) => { try { for (const item of parser.push(chunk)) { if (item.kind === 'terminal') terminal = item; else if (events.length < MAX_MUSE_TURN_EVENTS) events.push(...mapper.map(item)); } } catch (err) { terminate(); reject(err); } });
       child.stdout.on('close', () => { try { parser.end(); stdoutClosed = true; finish(); } catch (err) { reject(err); } });
       child.stderr.on('data', (chunk) => {
         // Stderr is diagnostic-only, bounded, and scrubbed before retention.

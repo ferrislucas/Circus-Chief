@@ -102,6 +102,18 @@ describe('parityDiagnostics (FR-8, FR-11)', () => {
       }
     });
 
+    it.each([
+      ['GIT_HTTP_EXTRAHEADER', 'Authorization: Basic c2VudGluZWwtYmFzaWM='],
+      ['GIT_CONFIG_VALUE_0', 'https://sentinel-config-token@github.com/org/repo'],
+      ['GCM_CREDENTIAL_STORE', 'sentinel-gcm-store-secret'],
+    ])('scrubs shell-propagated %s values that miss the secret suffix pattern', (key, secret) => {
+      for (const scrub of [(t, e) => redactSecretsFromText(t, e), (t, e) => scrubEventForLogging(t, e)]) {
+        const out = scrub(`tool echoed ${secret} in output`, { [key]: secret });
+        expect(out).not.toContain(secret);
+        expect(out).toContain('[REDACTED]');
+      }
+    });
+
     it('scrubs a custom additionalEnvVars secret (GITHUB_PAT) when its value appears', () => {
       const secret = 'pat_TEST_SENTINEL_PAT_456';
       const out = redactSecretsFromText(

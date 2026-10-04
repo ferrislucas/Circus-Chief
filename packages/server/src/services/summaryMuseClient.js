@@ -77,9 +77,19 @@ function backfillRequired(schema) {
   return { required };
 }
 
+function isObjectType(type) {
+  return type === 'object' || (Array.isArray(type) && type.includes('object'));
+}
+
 function isObjectSchemaWithoutAdditionalProperties(schema) {
-  return (schema.type === 'object' || schema.properties)
-    && !Object.prototype.hasOwnProperty.call(schema, 'additionalProperties');
+  if (Object.prototype.hasOwnProperty.call(schema, 'additionalProperties')) return false;
+  // Only object schemas get `additionalProperties: false`: stamping it onto a
+  // non-object schema that merely carries a `properties` keyword (unions like
+  // `type: ['string', 'null']`, custom keyword bags) manufactures the same
+  // class of strict-schema 400 this normalization exists to prevent.
+  // Typeless schemas with `properties` keep the old behavior — the keyword
+  // only validates objects, so the Meta API still expects the flag there.
+  return isObjectType(schema.type) || (schema.type === undefined && Boolean(schema.properties));
 }
 
 function normalizeSchemaMapEntries(schema) {
@@ -153,6 +163,7 @@ export async function callMuseSummary({ prompt, systemPrompt, model, jsonSchema,
       spawn, command: dependencies.command || MUSE_BIN, args, workspaceDir,
       env: dependencies.env || process.env, timeoutMs, abortController,
       setTimer: (value) => { timer = value; },
+      killProcessGroup: dependencies.killProcessGroup,
     });
   } catch (error) {
     if (error?.isMuseSummaryError) throw error;
@@ -163,9 +174,29 @@ export async function callMuseSummary({ prompt, systemPrompt, model, jsonSchema,
   }
 }
 
-async function executeMuseChild({ spawn, command, args, workspaceDir, env, timeoutMs, abortController, setTimer }) {
+/**
+ * Kill a timed-out summary child, group first: `muse exec` can leave
+ * grandchildren behind a direct `child.kill`, so signal the process group
+ * the detached spawn created. Falls back to `child.kill` when there is no
+ * group to signal (no pid, Windows, already reaped). The group kill is
+ * injectable via `killProcessGroup` for tests.
+ */
+function killMuseSummaryChild(child, killProcessGroup) {
+  const killGroup = killProcessGroup || ((pid, signal) => process.kill(pid, signal));
+  if (child?.pid && process.platform !== 'win32') {
+    try {
+      killGroup(-child.pid, 'SIGTERM');
+      return;
+    } catch {
+      // No group to signal — fall through to the direct kill.
+    }
+  }
+  try { child.kill?.('SIGTERM'); } catch { /* ignore */ }
+}
+
+async function executeMuseChild({ spawn, command, args, workspaceDir, env, timeoutMs, abortController, setTimer, killProcessGroup }) {
   const child = spawn({ command, args, cwd: workspaceDir, env, signal: abortController.signal });
-  const stdout = await runChild({ child, timeoutMs, abortController, setTimer });
+  const stdout = await runChild({ child, timeoutMs, abortController, setTimer, killProcessGroup });
   const result = extractTerminalText(stdout);
   if (!result.trim()) throw new MuseSummaryError('MUSE_SUMMARY_MALFORMED_OUTPUT', 'Muse did not return a valid summary. Please try again.');
   return result.trim();
@@ -181,7 +212,7 @@ async function buildSummaryInvocation({ fs, systemPrompt, prompt, model, schemaP
   return buildMuseSummaryArgs({ model, schemaPath, cwd: workspaceDir, prompt: text });
 }
 
-function runChild({ child, timeoutMs, abortController, setTimer }) {
+function runChild({ child, timeoutMs, abortController, setTimer, killProcessGroup }) {
   return new Promise((resolve, reject) => {
     let finished = false;
     const finish = (error, stdout) => {
@@ -191,7 +222,7 @@ function runChild({ child, timeoutMs, abortController, setTimer }) {
     };
     const timer = setTimeout(() => {
       abortController.abort();
-      try { child.kill?.('SIGTERM'); } catch { /* ignore */ }
+      killMuseSummaryChild(child, killProcessGroup);
       finish(new MuseSummaryError('MUSE_SUMMARY_TIMEOUT', 'Muse summary generation timed out. Please try again.'));
     }, timeoutMs);
     setTimer(timer);
