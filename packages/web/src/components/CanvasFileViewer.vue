@@ -229,10 +229,15 @@ async function saveToggle({ line, base, next, sessionId, itemId }) {
       optimisticContent.value = null;
     }
   } catch (err) {
+    // Last-writer-wins: when a queued toggle already advanced
+    // `optimisticContent` past `next`, its save still determines the outcome
+    // (and persists this flip as part of its own content). Only revert and
+    // toast when this save is still the latest word — otherwise the toast
+    // would report a failure for a change that actually lands.
     if (optimisticContent.value === next) {
       optimisticContent.value = base;
+      uiStore.error(`Failed to update checkbox: ${err.message}`);
     }
-    uiStore.error(`Failed to update checkbox: ${err.message}`);
   } finally {
     pendingLine.value = null;
   }

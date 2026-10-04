@@ -690,6 +690,31 @@ describe('CanvasFileViewer task-list toggles', () => {
     expect(checkboxChecked(wrapper, 1)).toBe(true);
   });
 
+  it('does not toast when a failed save is superseded by a queued toggle', async () => {
+    let rejectFirst;
+    api.updateCanvasItem
+      .mockImplementationOnce(() => new Promise((_, reject) => { rejectFirst = reject; }))
+      .mockImplementationOnce(() => Promise.resolve({ content: '- [x] one\n- [x] two', updatedAt: Date.now() }));
+    const wrapper = mountMarkdown({
+      item: { id: 'item-1', filename: 'plan.md', type: 'markdown', content: '- [ ] one\n- [ ] two', createdAt: Date.now() },
+    });
+    clickCheckbox(wrapper, 0);
+    await flushAll(wrapper);
+    // Queue a second toggle while the first save is still in flight; the
+    // optimistic content already advanced past the first save's `next`.
+    clickCheckbox(wrapper, 1);
+    await flushAll(wrapper);
+    // The first save fails after the second toggle was queued.
+    rejectFirst(new Error('nope'));
+    await flushAll(wrapper);
+
+    // Last-writer-wins: the queued save still determines the outcome, so no
+    // error toast may claim the change failed.
+    expect(api.updateCanvasItem).toHaveBeenCalledTimes(2);
+    expect(api.updateCanvasItem).toHaveBeenNthCalledWith(2, 'sess-1', 'item-1', { content: '- [x] one\n- [x] two' });
+    expect(useUiStore().toasts.some((t) => t.type === 'error')).toBe(false);
+  });
+
   it('ignores toggles for non-task lines without saving', async () => {
     const wrapper = mountMarkdown({
       item: { id: 'item-1', filename: 'plan.md', type: 'markdown', content: '# Hello', createdAt: Date.now() },
