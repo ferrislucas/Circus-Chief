@@ -64,35 +64,47 @@ function filterPill(page: Page, status: string) {
  * because another worker can seed or finish a project in between.
  *
  * So badge counts are asserted through an invariant that holds within a
- * single render regardless of what the other workers are doing for the project
- * count badges: with a status filter applied, the pill's badge count equals
- * the number of project cards the list renders. The per-status semantics
- * — e.g. that a `waiting`-status session with no pending agent input is not a
- * "waiting" project — are asserted by which filters our own seeded project
- * appears under, which is unaffected by other workers' projects.
+ * single render regardless of what the other workers are doing. For the
+ * project-count badges (`waiting`/`idle`): with a status filter applied, the
+ * pill's badge count equals the number of project cards the list renders.
+ * For `running` the badge is a session total while the list renders projects
+ * (one project may own many running sessions), so the matching single-render
+ * invariant is: the pill's badge count equals the sum of the per-card
+ * "N running" counts over the visible project cards. Both numbers derive
+ * from the same store.projects array — with no filter every project is
+ * visible; under the running filter every visible card is running or pinned
+ * (a pinned idle card contributes 0) — so the comparison is immune to other
+ * workers changing the global total between two separate reads. The
+ * per-status semantics — e.g. that a `waiting`-status session with no
+ * pending agent input is not a "waiting" project — are asserted by which
+ * filters our own seeded project appears under, which is unaffected by other
+ * workers' projects.
  */
 async function expectPillCountMatchesFilteredList(page: Page, status: string) {
-  if (status === 'running') {
-    await expect
-      .poll(
-        async () => {
-          const badge = await filterPill(page, status).locator('.filter-count').textContent();
-          return Number(badge) === (await getStatusFacets()).running;
-        },
-        { timeout: LIVE_TIMEOUT }
-      )
-      .toBe(true);
-    return;
-  }
-
+  // Read the badge and cards in one DOM snapshot: separate reads can straddle
+  // another worker's seed/finish plus this list's ~1s realtime-refresh
+  // debounce, which is the flake that failed the release gate after retry.
   await expect
     .poll(
-      async () => {
-        const badge = await filterPill(page, status).locator('.filter-count').textContent();
-        const cards = await page.locator('.project-card').count();
-        return Number(badge) === cards;
-      },
-      { timeout: LIVE_TIMEOUT }
+      async () => page.evaluate((expectedStatus) => {
+        const pill = [...document.querySelectorAll('.project-status-filters .filter-btn')].find(
+          (el) => (el.getAttribute('aria-label') || '').startsWith(`${expectedStatus} `),
+        );
+        const badge = Number((pill?.querySelector('.filter-count')?.textContent ?? '').trim());
+        if (!Number.isFinite(badge)) return false;
+        if (expectedStatus !== 'running') {
+          return badge === document.querySelectorAll('.project-card').length;
+        }
+
+        let runningSessionTotal = 0;
+        for (const el of document.querySelectorAll('.project-card .project-running-count')) {
+          const match = (el.textContent || '').match(/\d+/);
+          if (!match) return false;
+          runningSessionTotal += Number(match[0]);
+        }
+        return badge === runningSessionTotal;
+      }, status),
+      { timeout: LIVE_TIMEOUT },
     )
     .toBe(true);
 }
@@ -119,7 +131,8 @@ test.describe('Project list embedded session cards', () => {
   // running concurrently (each beforeEach/afterEach calls cleanupAll()).
   // This does not, by itself, isolate the file from the other 3 parallel
   // workers running different spec files against the same DB — see
-  // getStatusFacets() above for how the count-sensitive tests handle that.
+  // expectPillCountMatchesFilteredList() above for how the count-sensitive
+  // tests handle that.
   // Matches the same accommodation made in
   // built-in-provider-model-management.spec.ts and
   // commit-attribution-settings.spec.ts for file-local state reasons.
