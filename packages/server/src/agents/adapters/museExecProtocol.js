@@ -30,33 +30,34 @@ export function createMuseExecProtocol({ maxRecordBytes = MAX_RECORD_BYTES, onDi
     onDiagnostic?.(error.museDiagnostics, message);
     throw error;
   };
+  const trackAcceptedCommand = (record) => {
+    if (record.payload_type !== 'runtime.command.accepted') return;
+    const acceptedId = requiredIdentifier(record.payload.command_id);
+    if (!acceptedId) fail('Muse exec accepted a command without a command id.');
+    // One exec invocation can accept follow-up commands after our turn (e.g. an
+    // inbox-drain run delivering a background task result). The first accepted
+    // command owns this turn; later ones are CLI-internal and ignored, matching
+    // how foreign linked runs and terminals are already skipped below.
+    if (!commandId) commandId = acceptedId;
+  };
+  const trackLinkedRun = (record) => {
+    if (record.payload_type !== 'session.run.linked') return;
+    const linkedCommandId = requiredIdentifier(record.payload.command_id);
+    const linkedRunId = requiredIdentifier(record.payload.run_stream?.id);
+    if (!linkedCommandId || !linkedRunId) fail('Muse exec linked a run without command and run identifiers.');
+    // Reconciliation can include historical linked runs. Only our accepted command owns one.
+    if (commandId && linkedCommandId === commandId) {
+      if (runId && runId !== linkedRunId) fail('Muse exec emitted conflicting linked run ids.');
+      runId = linkedRunId;
+    }
+  };
   const parseRecord = (json) => {
     const record = parseProtocolRecord(json);
     recordDiagnostic(record);
     if (record.sequence <= sequence) fail('Muse exec JSONL sequence was duplicated or out of order.');
     sequence = record.sequence;
-
-    if (record.payload_type === 'runtime.command.accepted') {
-      const acceptedId = requiredIdentifier(record.payload.command_id);
-      if (!acceptedId) fail('Muse exec accepted a command without a command id.');
-      // One exec invocation can accept follow-up commands after our turn (e.g. an
-      // inbox-drain run delivering a background task result). The first accepted
-      // command owns this turn; later ones are CLI-internal and ignored, matching
-      // how foreign linked runs and terminals are already skipped below.
-      if (!commandId) commandId = acceptedId;
-    }
-
-    if (record.payload_type === 'session.run.linked') {
-      const linkedCommandId = requiredIdentifier(record.payload.command_id);
-      const linkedRunId = requiredIdentifier(record.payload.run_stream?.id);
-      if (!linkedCommandId || !linkedRunId) fail('Muse exec linked a run without command and run identifiers.');
-      // Reconciliation can include historical linked runs. Only our accepted command owns one.
-      if (commandId && linkedCommandId === commandId) {
-        if (runId && runId !== linkedRunId) fail('Muse exec emitted conflicting linked run ids.');
-        runId = linkedRunId;
-      }
-    }
-
+    trackAcceptedCommand(record);
+    trackLinkedRun(record);
     if (record.payload_type.startsWith('run.terminal.')) return mapOwnedTerminal(record, { commandId, runId, terminal, fail, setTerminal: (value) => { terminal = value; } });
     const event = mapPayloadEvent(record.payload_type, record.payload);
     return event ? [event] : [];
@@ -87,25 +88,7 @@ function extractJsonObjects({ buffer, maxRecordBytes, fail }) {
     if (offset === buffer.length) return { values, remainder: '' };
     if (buffer[offset] !== '{') fail('Muse exec emitted invalid JSON object framing.');
 
-    let depth = 0; let inString = false; let escaped = false; let completeAt = -1; let recordBytes = 0;
-    for (let index = offset; index < buffer.length; index += 1) {
-      const character = buffer[index];
-      // Counting UTF-16 code units separately can only over-count surrogate
-      // pairs, which is safe for this upper bound and keeps scanning linear.
-      recordBytes += Buffer.byteLength(character);
-      if (recordBytes > maxRecordBytes) fail('Muse exec JSON record exceeded the safety limit.');
-      if (inString) {
-        if (escaped) escaped = false;
-        else if (character === '\\') escaped = true;
-        else if (character === '"') inString = false;
-      } else if (character === '"') inString = true;
-      else if (character === '{') depth += 1;
-      else if (character === '}') {
-        depth -= 1;
-        if (depth === 0) { completeAt = index; break; }
-        if (depth < 0) fail('Muse exec emitted invalid JSON object framing.');
-      }
-    }
+    const completeAt = scanRecordEnd(buffer, offset, { maxRecordBytes, fail });
     if (completeAt === -1) {
       return { values, remainder: buffer.slice(offset) };
     }
@@ -113,6 +96,44 @@ function extractJsonObjects({ buffer, maxRecordBytes, fail }) {
     offset = completeAt + 1;
   }
   return { values, remainder: '' };
+}
+
+function scanRecordEnd(buffer, offset, { maxRecordBytes, fail }) {
+  let state = { depth: 0, inString: false, escaped: false };
+  let recordBytes = 0;
+  for (let index = offset; index < buffer.length; index += 1) {
+    const character = buffer[index];
+    // Counting UTF-16 code units separately can only over-count surrogate
+    // pairs, which is safe for this upper bound and keeps scanning linear.
+    recordBytes += Buffer.byteLength(character);
+    if (recordBytes > maxRecordBytes) fail('Muse exec JSON record exceeded the safety limit.');
+    const step = consumeRecordCharacter(state, character, fail);
+    state = step.state;
+    if (step.complete) return index;
+  }
+  return -1;
+}
+
+function consumeRecordCharacter(state, character, fail) {
+  if (state.inString) return { state: consumeStringCharacter(state, character), complete: false };
+  if (character === '"') return { state: { ...state, inString: true }, complete: false };
+  if (character === '{') return { state: { ...state, depth: state.depth + 1 }, complete: false };
+  if (character !== '}') return { state, complete: false };
+  return consumeClosingBrace(state, fail);
+}
+
+function consumeStringCharacter(state, character) {
+  if (state.escaped) return { ...state, escaped: false };
+  if (character === '\\') return { ...state, escaped: true };
+  if (character === '"') return { ...state, inString: false };
+  return state;
+}
+
+function consumeClosingBrace(state, fail) {
+  const depth = state.depth - 1;
+  if (depth === 0) return { state, complete: true };
+  if (depth < 0) fail('Muse exec emitted invalid JSON object framing.');
+  return { state: { ...state, depth }, complete: false };
 }
 
 function mapOwnedTerminal(record, state) {
