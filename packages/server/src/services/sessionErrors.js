@@ -71,13 +71,27 @@ export function matchesTokenLimitError(message) {
 // normalized transient evidence (below) may make a 500 eligible.
 const TRANSIENT_FAILOVER_STATUS_CODES = new Set([429, 503, 529]);
 
+// Pattern-tier policy (see sessionErrorFixtures.js policy matrix): this list
+// is the TIGHT failover gate — every entry must name a service-availability
+// condition, never a bare word. In particular, bare 'unavailable' is banned:
+// it also matches entitlement wording ("model unavailable for this
+// account/plan", "provider unavailable in this region"), and a false positive
+// here silently switches a session's model AND provider. The broad
+// auto-reschedule matcher (matchesTokenLimitError) keeps the weak signals;
+// this gate keeps only service-context phrases (mirroring the
+// service|server|api + temporarily|currently framing of
+// TERMINAL_LIMIT_OR_OUTAGE_PATTERNS below, minus 'provider', which collides
+// with regional-unavailability wording).
 const TRANSIENT_FAILOVER_PATTERNS = [
   'overloaded',
   'rate limit',
   '503',
   '529',
-  'unavailable',
   'service unavailable',
+  'server unavailable',
+  'api unavailable',
+  'temporarily unavailable',
+  'currently unavailable',
   'too many requests',
 ];
 
@@ -284,7 +298,10 @@ export function shouldRescheduleOnError(session, error, sessionId = null, tierCo
     return false;
   }
 
-  const errorMessage = error.message.toLowerCase();
+  // Non-Error throws (a bare string, null, a status code) must not throw a
+  // TypeError here: a thrown string still carries matchable trigger text,
+  // while nullish/non-textual values carry none and simply do not reschedule.
+  const errorMessage = String(typeof error === 'string' ? error : error?.message ?? '').toLowerCase();
 
   // Log skipped checks for debugging
   if (!session.rescheduleOnTokenLimit) logSkippedReschedule('rescheduleOnTokenLimit');

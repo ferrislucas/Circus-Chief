@@ -90,11 +90,18 @@ export function validateModelId(value, { allowNull = true, fieldName = 'model' }
  */
 function validateConcreteProvider(model, providerId) {
   if (providerId === null || providerId === undefined) return null;
+  // Non-Zod PATCH/message paths pass raw body values here — a non-string
+  // must be a 400, never a database binding (objects throw inside
+  // better-sqlite3 and would surface as a 500).
+  if (typeof providerId !== 'string') return 'providerId must be a string or null';
   const provider = modelProviders.getById(providerId);
   if (!provider) return `Invalid providerId "${providerId}"`;
   if (provider.enabled === false) return `Provider "${providerId}" is disabled`;
   const owned = provider.models?.find((entry) => entry.modelId === model);
-  return !owned || owned.enabled === false || owned.unavailable === true
+  // No `unavailable` check: there is no such column on provider_models and
+  // no server writer for the flag (it is web display-layer only) — `enabled`
+  // alone decides executability.
+  return !owned || owned.enabled === false
     ? `Model "${model}" is unavailable or is not owned by provider "${providerId}"`
     : null;
 }
@@ -146,7 +153,8 @@ function validateTierMemberAvailability(member) {
     const model = provider.models?.find((entry) => entry.modelId === member.modelId);
     if (!model) return `Invalid tier member: model "${member.modelId}" is unavailable or is not owned by provider "${member.providerId}"`;
     if (model.enabled === false) return `Invalid tier member: model "${member.modelId}" on provider "${member.providerId}" is disabled`;
-    if (model.unavailable === true) return `Invalid tier member: model "${member.modelId}" on provider "${member.providerId}" is unavailable`;
+    // No `unavailable` check: there is no such column on provider_models and
+    // no server writer for the flag (it is web display-layer only).
     return null;
 }
 

@@ -107,7 +107,7 @@ function buildContinueModelAndEnv(session, sessionId, model, providerId = null) 
  * @returns {{ queryParams: Object, agentCallMeta: Object }}
  */
 async function buildContinueParams({
-  sessionId, session, model, systemPrompt, effectiveModel, sessionEnv,
+  sessionId, session, systemPrompt, effectiveModel, sessionEnv,
   modelChanged, activeConversation, promptWithAttachments,
   workingDirectory, controller, agentType, agent, commitAttributionOverride,
 }) {
@@ -134,13 +134,15 @@ async function buildContinueParams({
     commitAttributionOverride,
   });
 
-  // Logging metadata for agent call tracking
+  // Logging metadata for agent call tracking. Log the RESOLVED member
+  // (effectiveModel) — the model actually dispatched — not the raw caller
+  // override, which may be a tier sentinel or null for a tier-bound session.
   const agentCallMeta = {
     sessionId,
     conversationId: activeConversation.id,
     callType: 'continueSession',
     agentType,
-    model,
+    model: effectiveModel,
     effortLevel: session.effortLevel,
     isResume: canResume,
     promptLength: promptWithContext.length,

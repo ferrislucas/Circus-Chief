@@ -31,6 +31,11 @@ export class TierIdentityError extends Error {
  * fully executable (provider exists and is enabled; the provider owns an
  * enabled, non-removed row for the model id).
  *
+ * Executability is decided by `enabled` alone. There is no `unavailable`
+ * column on provider_models and no server writer for such a flag — it
+ * exists only as a web display-layer marking (ModelSelector's
+ * preserved-but-disabled models) and must never gate server-side identity.
+ *
  * @param {string|null} providerId
  * @param {string|null} modelId
  * @returns {string|null} One of TIER_IDENTITY_ERROR_CODES, or null when valid.
@@ -42,7 +47,7 @@ export function describeIdentityProblem(providerId, modelId) {
   if (provider.enabled === false) return TIER_IDENTITY_ERROR_CODES.PROVIDER_DISABLED;
   const model = provider.models?.find((entry) => entry.modelId === modelId);
   if (!model) return TIER_IDENTITY_ERROR_CODES.MODEL_MISSING;
-  if (model.enabled === false || model.unavailable === true) {
+  if (model.enabled === false) {
     return TIER_IDENTITY_ERROR_CODES.MODEL_DISABLED;
   }
   return null;

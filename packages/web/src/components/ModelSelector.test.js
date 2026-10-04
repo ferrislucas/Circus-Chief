@@ -122,6 +122,27 @@ describe('ModelSelector', () => {
       expect(text).not.toContain('Gemini Pro');
     });
 
+    it('normalizes a stale provider hint to null when the bound value is a tier ref', async () => {
+      const tiersStore = useTiersStore();
+      tiersStore.tiers = [
+        { id: 't-high', name: 'High', members: [{ providerId: 'anthropic', modelId: sonnet.id, available: true }] },
+      ];
+      tiersStore.loaded = true;
+
+      // NOTE: wrapper.emitted() does not reliably capture custom emits in
+      // this repo (see SlashCommandWizard.test.js) — listen via attrs.
+      const onUpdateProviderId = vi.fn();
+      const wrapper = mountComponent(
+        { modelValue: 'tier::t-high', providerId: 'stale-provider' },
+        { 'onUpdate:providerId': onUpdateProviderId }
+      );
+      await flushAll(wrapper);
+
+      // Tier refs never carry a concrete provider: the parent must converge
+      // to providerId null instead of persisting the stale hint.
+      expect(onUpdateProviderId).toHaveBeenCalledWith(null);
+    });
+
     it('does not surface a legacy provider model that uses the reserved tier reference prefix', async () => {
       providersStore.providers.push({
         id: 'legacy-catalog',

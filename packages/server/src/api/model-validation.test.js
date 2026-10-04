@@ -169,6 +169,15 @@ describe('validateModelAndProvider', () => {
     }
   });
 
+  it('rejects a non-string providerId without a database lookup', () => {
+    expect(validateModelAndProvider('gpt-5.6-sol', 123)).toEqual({
+      error: 'providerId must be a string or null',
+    });
+    expect(validateModelAndProvider('gpt-5.6-sol', { id: 'openai-default' })).toEqual({
+      error: 'providerId must be a string or null',
+    });
+  });
+
   it('normalizes providerId to null for a valid tier ref', () => {
     const provider = modelProviders.create({
       name: 'Tier + provider normalization test',

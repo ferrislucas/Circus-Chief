@@ -1,9 +1,25 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
+import { createPinia, setActivePinia } from 'pinia';
 import SchedulingEditModal from './SchedulingEditModal.vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
+import { useTiersStore } from '../stores/tiers.js';
+
+// Capture websocket subscriptions so tests can simulate server broadcasts
+const wsHandlers = {};
+vi.mock('../composables/useWebSocket.js', () => ({
+  useWebSocket: () => ({
+    on: vi.fn((type, cb) => {
+      wsHandlers[type] = cb;
+    }),
+    off: vi.fn((type) => {
+      delete wsHandlers[type];
+    }),
+    onReconnect: vi.fn(() => () => {}),
+  }),
+}));
 
 vi.mock('../stores/sessions.js', () => ({
   useSessionsStore: vi.fn(() => ({
@@ -85,6 +101,9 @@ describe('SchedulingEditModal.vue', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    setActivePinia(createPinia());
+    // Teleported modal DOM accumulates in document.body across mounts.
+    document.body.innerHTML = '';
   });
 
   describe('component structure', () => {
@@ -204,6 +223,113 @@ describe('SchedulingEditModal.vue', () => {
     it('does not render TemplateSelector component for non-scheduled workspaces', () => {
       const wrapper = mountComponent({ session: runningSession });
       expect(wrapper.findComponent({ name: 'TemplateSelector' }).exists()).toBe(false);
+    });
+  });
+
+  describe('stale model/tier selection guard', () => {
+    it('blocks save when the bound tier has no usable members', async () => {
+      const tiersStore = useTiersStore();
+      tiersStore.tiers = [{ id: 't-empty', name: 'Emptied', members: [] }];
+      tiersStore.loaded = true;
+      const mockUpdateSessionFields = vi.fn().mockResolvedValue({});
+      useSessionsStore.mockReturnValue({ updateSessionFields: mockUpdateSessionFields });
+
+      const wrapper = mountComponent({
+        isOpen: false,
+        session: { ...scheduledSession, model: 'tier::t-empty', providerId: null },
+      });
+      await wrapper.setProps({ isOpen: true });
+      await nextTick();
+
+      // The modal teleports to document.body (the Teleport stub above does
+      // not intercept the built-in), so assert against body DOM.
+      const updateBtn = document.body.querySelector('.modal-footer .btn-primary');
+      expect(updateBtn).not.toBeNull();
+      expect(updateBtn.disabled).toBe(true);
+      expect(document.body.querySelector('.conflict-banner')).not.toBeNull();
+      updateBtn.click();
+      await flushPromises();
+      expect(mockUpdateSessionFields).not.toHaveBeenCalled();
+      wrapper.unmount();
+      document.body.innerHTML = '';
+    });
+  });
+
+  describe('session update convergence while open', () => {
+    async function openModal(session = scheduledSession) {
+      const mockUpdateSessionFields = vi.fn().mockResolvedValue({});
+      useSessionsStore.mockReturnValue({ updateSessionFields: mockUpdateSessionFields });
+      const wrapper = mountComponent({ isOpen: false, session });
+      await wrapper.setProps({ isOpen: true });
+      await nextTick();
+      return { wrapper, mockUpdateSessionFields };
+    }
+
+    function broadcastSessionUpdate(row) {
+      wsHandlers['session:updated']({ sessionId: row.id, session: row });
+    }
+
+    it('adopts an external non-model change without touching local state', async () => {
+      const { wrapper, mockUpdateSessionFields } = await openModal();
+      expect(wsHandlers['session:updated']).toBeDefined();
+
+      broadcastSessionUpdate({ ...scheduledSession, mode: 'plan' });
+      await flushPromises();
+      await nextTick();
+
+      // Untouched field converges; the conflict banner stays down.
+      expect(document.body.querySelector('.conflict-banner')).toBeNull();
+      document.body.querySelector('.modal-footer .btn-primary').click();
+      await flushPromises();
+      expect(mockUpdateSessionFields).toHaveBeenCalledWith(
+        'session-1',
+        expect.objectContaining({ mode: 'plan' })
+      );
+      wrapper.unmount();
+      document.body.innerHTML = '';
+    });
+
+    it('keeps a locally edited field and flags a conflict when upstream also moves it', async () => {
+      const { wrapper, mockUpdateSessionFields } = await openModal();
+
+      // Local unsaved edit to the scheduled time.
+      const timeInput = document.body.querySelector('#scheduled-at');
+      timeInput.value = '2030-01-02T03:04';
+      timeInput.dispatchEvent(new Event('input'));
+      await nextTick();
+
+      broadcastSessionUpdate({ ...scheduledSession, scheduledAt: Date.now() + 7200000 });
+      await flushPromises();
+      await nextTick();
+
+      // Local edit is preserved, not clobbered — and surfaced via the banner.
+      expect(timeInput.value).toBe('2030-01-02T03:04');
+      expect(document.body.querySelector('.conflict-banner')).not.toBeNull();
+      document.body.querySelector('.modal-footer .btn-primary').click();
+      await flushPromises();
+      expect(mockUpdateSessionFields).toHaveBeenCalledWith(
+        'session-1',
+        expect.objectContaining({ rescheduleDelayMinutes: 15 })
+      );
+      wrapper.unmount();
+      document.body.innerHTML = '';
+    });
+
+    it('ignores session updates for other sessions', async () => {
+      const { wrapper, mockUpdateSessionFields } = await openModal();
+
+      broadcastSessionUpdate({ ...scheduledSession, id: 'session-other', mode: 'plan' });
+      await flushPromises();
+      await nextTick();
+
+      document.body.querySelector('.modal-footer .btn-primary').click();
+      await flushPromises();
+      expect(mockUpdateSessionFields).toHaveBeenCalledWith(
+        'session-1',
+        expect.objectContaining({ mode: 'standard' })
+      );
+      wrapper.unmount();
+      document.body.innerHTML = '';
     });
   });
 

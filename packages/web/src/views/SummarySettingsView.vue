@@ -45,7 +45,7 @@
       <SelectionConflictBanner
         :visible="selectionGuard.showBanner"
         :problem="selectionGuard.problem"
-        conflict-text="The summary model changed elsewhere while you were editing. Your edit is preserved."
+        conflict-text="These settings changed elsewhere while you were editing. Your edits are preserved."
         @use-canonical="useCanonicalModelSelection"
         @keep-mine="selectionGuard.keepMine"
       />
@@ -109,7 +109,8 @@ import ModelSelector from '../components/ModelSelector.vue';
 import SelectionConflictBanner from '../components/SelectionConflictBanner.vue';
 import { api } from '../composables/useApi.js';
 import { useCanonicalSync } from '../composables/useCanonicalSync.js';
-import { reconcileModelSelection } from '../composables/modelSelectionReconciliation.js';
+import { reconcileFormFields, reconcileModelSelection } from '../composables/modelSelectionReconciliation.js';
+import { normalizeModelProviderPair } from '../components/modelSelectorTiers.js';
 import { useSelectionGuard } from '../composables/useSelectionGuard.js';
 
 const settingsStore = useSettingsStore();
@@ -123,7 +124,7 @@ const saving = ref(false);
 const error = ref(null);
 const modelSelectionConflict = ref(false);
 let lastCanonicalSelection = { model: null, providerId: null };
-let hasLoadedCanonicalSettings = false;
+let lastCanonicalFields = null;
 
 // One monotonic coordinator for initial load, websocket invalidation, and
 // reconnect: a slow initial response can never overwrite a newer push.
@@ -132,7 +133,6 @@ const { refresh: refreshSettings } = useCanonicalSync({
   applyCanonical: (settings) => { settingsStore.summarySettings = settings; },
   messageType: WS_MESSAGE_TYPES.SUMMARY_SETTINGS_UPDATED,
   selectPush: (message) => (message?.settings ? { notify: message.settings } : undefined),
-  onSettled: () => { hasLoadedCanonicalSettings = true; },
 });
 
 // Shared conflict contract (see useSelectionGuard): an invalid selection
@@ -147,13 +147,37 @@ onMounted(() => {
   refreshSettings();
 });
 
+// Canonical record projected onto the form shape (same normalization the
+// first application uses, so later intakes compare apples to apples).
+function toNonModelForm(settings) {
+  return {
+    disableSessionSummaries: settings.disableSessionSummaries,
+    sessionTitlePrompt: settings.sessionTitlePrompt || settings.defaultSessionTitlePrompt || '',
+  };
+}
+
+function applyNonModelForm(values) {
+  disableSessionSummaries.value = values.disableSessionSummaries ?? false;
+  sessionTitlePrompt.value = values.sessionTitlePrompt ?? '';
+}
+
 // Watch for changes to the store and update local refs
 watch(() => settingsStore.summarySettings, (settings) => {
   if (settings) {
-    if (!hasLoadedCanonicalSettings) {
-      disableSessionSummaries.value = settings.disableSessionSummaries;
-      sessionTitlePrompt.value = settings.sessionTitlePrompt || settings.defaultSessionTitlePrompt || '';
-    }
+    // Per-field convergence (no first-load latch): untouched fields adopt the
+    // new canonical values so external changes surface; fields the user
+    // edited are kept, flagging a conflict only when upstream moved them
+    // too. Snapshots always advance to the latest canonical.
+    const fields = reconcileFormFields({
+      current: {
+        disableSessionSummaries: disableSessionSummaries.value,
+        sessionTitlePrompt: sessionTitlePrompt.value,
+      },
+      previousCanonical: lastCanonicalFields,
+      canonical: toNonModelForm(settings),
+    });
+    applyNonModelForm(fields.values);
+    lastCanonicalFields = toNonModelForm(settings);
     const selection = reconcileModelSelection({
       current: { model: summaryModel.value, providerId: summaryProviderId.value },
       previousCanonical: lastCanonicalSelection,
@@ -161,7 +185,7 @@ watch(() => settingsStore.summarySettings, (settings) => {
     });
     summaryModel.value = selection.model || '';
     summaryProviderId.value = selection.providerId;
-    modelSelectionConflict.value = selection.conflict;
+    modelSelectionConflict.value = selection.conflict || fields.conflict;
     lastCanonicalSelection = { model: settings.summaryModel || '', providerId: settings.summaryProviderId || null };
   }
 }, { immediate: true });
@@ -174,6 +198,7 @@ function handleModelSelected(selection) {
 function useCanonicalModelSelection() {
   summaryModel.value = lastCanonicalSelection.model || '';
   summaryProviderId.value = lastCanonicalSelection.providerId;
+  if (lastCanonicalFields) applyNonModelForm(lastCanonicalFields);
   modelSelectionConflict.value = false;
 }
 
@@ -186,11 +211,13 @@ async function handleSave() {
   saving.value = true;
 
   try {
+    // A tier-bound summary model never persists a concrete provider hint.
+    const pair = normalizeModelProviderPair(summaryModel.value || '', summaryProviderId.value);
     await settingsStore.updateSummarySettings({
       disableSessionSummaries: disableSessionSummaries.value,
       sessionTitlePrompt: sessionTitlePrompt.value,
-      summaryModel: summaryModel.value || '',
-      summaryProviderId: summaryModel.value ? summaryProviderId.value : null,
+      summaryModel: pair.model || '',
+      summaryProviderId: pair.model ? pair.providerId : null,
     });
     uiStore.success('Summary settings saved successfully');
   } catch (err) {

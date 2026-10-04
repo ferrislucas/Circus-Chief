@@ -83,6 +83,17 @@ describe('sanitizeString', () => {
   it('leaves ordinary text untouched', () => {
     expect(sanitizeString('Error: 529 Service overloaded')).toBe('Error: 529 Service overloaded');
   });
+
+  it.each([
+    ['Google', 'call failed for key AIzaSyA-1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7'],
+    ['xAI', 'auth error for token xai-9f8e7d6c5b4a3928173645a1b2c3d4e5f'],
+    ['GitHub', 'bad credentials for token ghp_9f8e7d6c5b4a3928173645a1b2c3d4e5f'],
+    ['AWS', 'auth failure for key AKIA9F8E7D6C5B4A39281'],
+  ])('redacts a bare %s token shape with no name anchor', (_label, token) => {
+    const out = sanitizeString(`provider request failed: ${token}; retry later`);
+    expect(out).not.toContain(token);
+    expect(out).toContain(SECRET_PLACEHOLDER);
+  });
 });
 
 describe('sanitizeValue', () => {
@@ -95,6 +106,22 @@ describe('sanitizeValue', () => {
     expect(JSON.stringify(out)).not.toContain(SENTINEL);
     expect(out.model).toBe('m');
     expect(out.list[1]).toBe('plain');
+  });
+
+  it('redacts token-shaped strings nested anywhere inside evidence payloads', () => {
+    const googleToken = 'AIzaSyA-1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7';
+    const xaiToken = 'xai-9f8e7d6c5b4a3928173645a1b2c3d4e5f';
+    const out = sanitizeValue({
+      evidence: {
+        reason: `provider start failed: ${googleToken}`,
+        nested: [`inner failure ${xaiToken}`, { deep: { key: `k=${xaiToken}` } }],
+      },
+      model: 'm',
+    });
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain(googleToken);
+    expect(serialized).not.toContain(xaiToken);
+    expect(out.model).toBe('m');
   });
 
   it('fails closed on circular structures instead of throwing', () => {

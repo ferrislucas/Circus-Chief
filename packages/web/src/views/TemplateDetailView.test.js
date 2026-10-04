@@ -1041,6 +1041,34 @@ describe('TemplateDetailView - model selection conflict', () => {
     expect(wrapper.findComponent({ name: 'ModelSelector' }).props('modelValue')).toBe('claude-sonnet-5');
   });
 
+  it('surfaces an external non-model change after first load instead of freezing it', async () => {
+    const wrapper = mount(TemplateDetailView, {
+      global: { plugins: [pinia, router] },
+    });
+    await flushPromises();
+    await nextTick();
+    expect(wrapper.find('#name').element.value).toBe('Test Template');
+
+    await broadcastCanonicalUpdate(wrapper, { name: 'Renamed Elsewhere' });
+
+    expect(wrapper.find('#name').element.value).toBe('Renamed Elsewhere');
+    expect(wrapper.find('.conflict-banner').exists()).toBe(false);
+  });
+
+  it('keeps a locally edited non-model field and flags a conflict when upstream also moves it', async () => {
+    const wrapper = mount(TemplateDetailView, {
+      global: { plugins: [pinia, router] },
+    });
+    await flushPromises();
+    await nextTick();
+
+    await wrapper.find('#name').setValue('My Local Name');
+    await broadcastCanonicalUpdate(wrapper, { name: 'Renamed Elsewhere' });
+
+    expect(wrapper.find('#name').element.value).toBe('My Local Name');
+    expect(wrapper.find('.conflict-banner').exists()).toBe(true);
+  });
+
   it('Use latest applies the canonical selection and clears the banner', async () => {
     const wrapper = await mountAndEditModel();
     await broadcastCanonicalUpdate(wrapper, { model: 'claude-sonnet-5', providerId: null });

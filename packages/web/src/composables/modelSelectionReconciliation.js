@@ -1,4 +1,5 @@
 import { isTierRef, parseTierRef } from '@circuschief/shared';
+import { isTierSelectable } from '../components/modelSelectorTiers.js';
 
 function sameSelection(left, right) {
   return (left?.model || null) === (right?.model || null)
@@ -10,6 +11,53 @@ function sameSelection(left, right) {
  * edit wins and is reported to the caller; unrelated fields are never read or
  * changed, so a server-side tier degradation cannot discard unsaved form work.
  */
+/**
+ * Normalize one form/canonical value for comparison: `undefined` and `''`
+ * both mean "unset" across these editors (every save path maps them to
+ * null/undefined), while `false` and `0` stay meaningful values.
+ */
+function normalizeFieldValue(value) {
+  return value === undefined || value === '' ? null : value;
+}
+
+/**
+ * Per-field reconciliation for non-model form fields — the replacement for
+ * the old all-or-nothing first-load latches. For every field of `canonical`:
+ *
+ * - the local value still equals the previously applied canonical value
+ *   (or there is no previous snapshot yet): adopt the new canonical value,
+ *   so external changes surface without reload;
+ * - the local value diverges AND upstream moved since the snapshot: keep
+ *   the local edit and report the field in `conflicts`;
+ * - the local value diverges but upstream is static: keep the local edit
+ *   silently (no false conflict for an edit nobody raced).
+ *
+ * `previousCanonical` must hold the last APPLIED (form-normalized) values,
+ * not the raw server record — capture it right after applying, the way the
+ * model pair tracks `lastCanonicalSelection`.
+ *
+ * @param {{ current: Object, previousCanonical: Object|null, canonical: Object }} args
+ * @returns {{ values: Object, conflicts: Array<string>, conflict: boolean }}
+ */
+export function reconcileFormFields({ current, previousCanonical, canonical }) {
+  const values = {};
+  const conflicts = [];
+  for (const field of Object.keys(canonical || {})) {
+    const prev = normalizeFieldValue(previousCanonical?.[field]);
+    const next = normalizeFieldValue(canonical?.[field]);
+    const cur = normalizeFieldValue(current?.[field]);
+    if (previousCanonical == null || Object.is(cur, prev)) {
+      values[field] = next;
+    } else if (Object.is(prev, next)) {
+      values[field] = cur;
+    } else {
+      values[field] = cur;
+      conflicts.push(field);
+    }
+  }
+  return { values, conflicts, conflict: conflicts.length > 0 };
+}
+
 export function reconcileModelSelection({ current, previousCanonical, canonical }) {
   const localSelection = { model: current?.model || null, providerId: current?.providerId ?? null };
   const canonicalSelection = { model: canonical?.model || null, providerId: canonical?.providerId ?? null };
@@ -35,13 +83,29 @@ export function reconcileModelSelection({ current, previousCanonical, canonical 
  * loading are unjudgeable — returning a problem there would block valid
  * submissions on incomplete data.
  */
-function describeTierProblem(modelValue, tiers) {
+function describeTierProblem(modelValue, tiers, { providers, providersLoaded, allowedProviderKinds }) {
   const tierId = parseTierRef(modelValue);
-  if (tiers.some((tier) => tier?.id === tierId)) return null;
-  return {
-    code: 'tier-missing',
-    message: 'The selected tier no longer exists. Choose a current tier or clear the selection.',
-  };
+  const tier = tiers.find((entry) => entry?.id === tierId);
+  if (!tier) {
+    return {
+      code: 'tier-missing',
+      message: 'The selected tier no longer exists. Choose a current tier or clear the selection.',
+    };
+  }
+  // A kind-restricted judgement needs the providers half of the catalog;
+  // without it the kind fit is unprovable, so stay permissive (same
+  // unjudgeable-while-loading rule as the concrete path below).
+  if (allowedProviderKinds && !providersLoaded) return null;
+  // Judge against the SAME selectable set the selector shows (see
+  // isTierSelectable): a tier the picker hides — zero usable members, or no
+  // member fitting the picker's kind restriction — blocks submission too.
+  if (!isTierSelectable(tier, { providers, allowedProviderKinds })) {
+    return {
+      code: 'tier-unusable',
+      message: 'The selected tier currently has no usable models. Choose a current tier or clear the selection.',
+    };
+  }
+  return null;
 }
 
 function describeModelProblem(modelValue, provider) {
@@ -80,16 +144,28 @@ function describeConcreteProblem(modelValue, providerId, providers) {
 
 export function describeSelectionProblem(
   { model, providerId },
-  { tiers = [], tiersLoaded = false, providers = [], providersLoaded = false } = {}
+  { tiers = [], tiersLoaded = false, providers = [], providersLoaded = false, allowedProviderKinds = null } = {}
 ) {
   const modelValue = model || null;
   if (!modelValue) return null;
 
   if (isTierRef(modelValue)) {
     if (!tiersLoaded) return null;
-    return describeTierProblem(modelValue, tiers);
+    return describeTierProblem(modelValue, tiers, { providers, providersLoaded, allowedProviderKinds });
   }
 
   if (providerId == null || !providersLoaded) return null;
   return describeConcreteProblem(modelValue, providerId, providers);
+}
+
+/**
+ * The single shared "is this selection submittable" predicate. The selector
+ * judges through `isTierSelectable` / `isValidModelId` and every guarded
+ * save path judges through this function — both bottom out in
+ * `isTierSelectable`, so the guard and the selector cannot drift apart again.
+ * Returns true while the selection is submittable OR unjudgeable (catalog
+ * half still loading / empty concrete hint); false only for a proven problem.
+ */
+export function isSelectionSubmittable(selection, catalog) {
+  return describeSelectionProblem(selection, catalog) === null;
 }

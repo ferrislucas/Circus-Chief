@@ -302,7 +302,7 @@ function buildModelAndProvider(session, sessionId, model, providerId = null) {
  * @returns {{ queryParams: Object, agentCallMeta: Object }}
  */
 function buildExistingMessageQueryParams({
-  sessionId, conversationId, session, model, systemPrompt,
+  sessionId, conversationId, session, systemPrompt,
   effectiveModel, sessionEnv, modelChanged, conversation,
   lastUserMessage, workingDirectory, controller, agentType, agent,
 }) {
@@ -338,12 +338,14 @@ function buildExistingMessageQueryParams({
     resumeSessionId: canResume ? conversation.claudeSessionId : null,
   });
 
+  // Log the RESOLVED member (effectiveModel) actually dispatched — not the
+  // raw caller override, which may be a tier sentinel or null.
   const agentCallMeta = {
     sessionId,
     conversationId,
     callType: 'continueSessionWithExistingMessage',
     agentType,
-    model,
+    model: effectiveModel,
     effortLevel: session.effortLevel,
     isResume: canResume,
     promptLength: promptWithContext.length,

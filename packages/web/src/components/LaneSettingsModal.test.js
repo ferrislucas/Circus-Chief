@@ -1005,4 +1005,26 @@ describe('LaneSettingsModal.vue', () => {
       expect(mockTemplatesStore.fetchProjectTemplates).not.toHaveBeenCalled();
     });
   });
+
+  // -----------------------------------------------------------------------
+  // Stale on-enter model guard
+  // -----------------------------------------------------------------------
+  describe('stale on-enter model guard', () => {
+    it('blocks save when prompt automation binds a tier with no usable members', async () => {
+      const { useTiersStore } = await import('../stores/tiers.js');
+      const tiersStore = useTiersStore();
+      tiersStore.tiers = [{ id: 't-empty', name: 'Emptied', members: [] }];
+      tiersStore.loaded = true;
+
+      const wrapper = mountModal({
+        lane: { ...laneWithPrompt, onEnterModel: 'tier::t-empty', onEnterProviderId: null },
+      });
+      await wrapper.vm.$nextTick();
+
+      const saveBtn = wrapper.find('.modal-footer .btn-primary');
+      expect(saveBtn.element.disabled).toBe(true);
+      await saveBtn.trigger('click');
+      expect(mockKanbanStore.updateLane).not.toHaveBeenCalled();
+    });
+  });
 });

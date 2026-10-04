@@ -455,6 +455,54 @@ describe('tierResolutionService', () => {
           nowSpy.mockRestore();
         }
       });
+
+      // Issue #26: the override must not take effect in production. The
+      // Playwright harness boots the server with NODE_ENV=production
+      // (start-server.sh) but sets VCR_MODE, so VCR presence — never active
+      // in real use — is the E2E signal.
+      describe('production gating', () => {
+        const savedNodeEnv = process.env.NODE_ENV;
+        const savedVcr = process.env.VCR_MODE;
+
+        afterEach(() => {
+          if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
+          else process.env.NODE_ENV = savedNodeEnv;
+          if (savedVcr === undefined) delete process.env.VCR_MODE;
+          else process.env.VCR_MODE = savedVcr;
+        });
+
+        it('ignores E2E_TIER_COOLDOWN_MS in production without the test harness', () => {
+          process.env.NODE_ENV = 'production';
+          delete process.env.VCR_MODE;
+          process.env.E2E_TIER_COOLDOWN_MS = '500';
+          const nowSpy = vi.spyOn(Date, 'now');
+          try {
+            nowSpy.mockReturnValue(4_000_000);
+            markUnhealthy(providerA.id, 'model-prod-gated');
+            nowSpy.mockReturnValue(4_000_501);
+            // 500ms override ignored — still within the 5-minute default.
+            expect(isUnhealthy(providerA.id, 'model-prod-gated')).toBe(true);
+          } finally {
+            nowSpy.mockRestore();
+          }
+        });
+
+        it('honors E2E_TIER_COOLDOWN_MS under the E2E harness (VCR_MODE set)', () => {
+          process.env.NODE_ENV = 'production';
+          process.env.VCR_MODE = 'replay';
+          process.env.E2E_TIER_COOLDOWN_MS = '500';
+          const nowSpy = vi.spyOn(Date, 'now');
+          try {
+            nowSpy.mockReturnValue(5_000_000);
+            markUnhealthy(providerA.id, 'model-e2e-harness');
+            expect(isUnhealthy(providerA.id, 'model-e2e-harness')).toBe(true);
+            nowSpy.mockReturnValue(5_000_501);
+            expect(isUnhealthy(providerA.id, 'model-e2e-harness')).toBe(false);
+          } finally {
+            nowSpy.mockRestore();
+          }
+        });
+      });
     });
   });
 
@@ -730,6 +778,18 @@ describe('tierResolutionService', () => {
       ]);
 
       // The dangling member is filtered; ordering still follows position.
+      expect(evaluateTierMembers(members, providersById).map((m) => m.modelId)).toEqual(['m-a']);
+    });
+
+    it('ignores the web display-layer unavailable flag: enabled is the single server predicate', () => {
+      // `unavailable` has no provider_models column and no server writer —
+      // only the web selector sets it (preserved-but-disabled display
+      // marking). Server executability is decided by `enabled` alone.
+      const members = [{ providerId: 'p-a', modelId: 'm-a', position: 0 }];
+      const providersById = new Map([
+        ['p-a', { id: 'p-a', enabled: true, models: [{ modelId: 'm-a', enabled: true, unavailable: true }] }],
+      ]);
+
       expect(evaluateTierMembers(members, providersById).map((m) => m.modelId)).toEqual(['m-a']);
     });
   });

@@ -154,6 +154,8 @@ export const SESSION_ERROR_FIXTURES = [
   row('rate limit reached', 'service', `${SRC_TESTS} — plain rate-limit phrasing`),
 
   // ── Terminal errors: never fail over, never reschedule ──────────────────
+  row('The model is unavailable for this account plan', 'terminal', `${SRC_TESTS} — entitlement wording must not fail over (bare 'unavailable' is not a service signal)`),
+  row('The provider is unavailable in this region', 'terminal', `${SRC_TESTS} — regional unavailability must not fail over (no service-context phrase)`),
   row('Invalid API key', 'terminal', `${SRC_TESTS} — auth failure`, { providerKind: 'anthropic' }),
   row('authentication failed', 'terminal', `${SRC_TESTS} — auth failure prose`),
   row('Unexpected token in JSON', 'terminal', [

@@ -271,6 +271,13 @@
               @update:effort-level="form.onEnterEffortLevel = $event"
               @update:thinking-enabled="form.onEnterThinkingEnabled = $event"
             />
+            <SelectionConflictBanner
+              :visible="selectionGuard.showBanner && automationType === 'prompt'"
+              :problem="selectionGuard.problem"
+              conflict-text=""
+              @use-canonical="clearStaleOnEnterSelection"
+              @keep-mine="selectionGuard.keepMine"
+            />
 
             <!-- Auto-Reschedule Settings -->
             <div class="form-group">
@@ -412,7 +419,7 @@
         </button>
         <button
           class="btn btn-primary"
-          :disabled="saving || !isValid"
+          :disabled="saving || !isValid || selectionBlocked"
           @click="handleSave"
         >
           {{ saving ? 'Saving...' : 'Save Changes' }}
@@ -433,6 +440,9 @@ import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 import InterpolationHelp from './InterpolationHelp.vue';
 import ResizableTextarea from './ResizableTextarea.vue';
 import SessionFormOptions from './SessionFormOptions.vue';
+import SelectionConflictBanner from './SelectionConflictBanner.vue';
+import { useSelectionGuard } from '../composables/useSelectionGuard.js';
+import { normalizeModelProviderPair } from './modelSelectorTiers.js';
 import SlashCommandButton from './SlashCommandButton.vue';
 import SlashCommandWizard from './SlashCommandWizard.vue';
 
@@ -509,6 +519,26 @@ const isValid = computed(() => {
   if (targetRequiresAutomation.value) return false;
   return true;
 });
+
+// Shared save-path contract (see useSelectionGuard): prompt automation
+// persists the on-enter (model, providerId) pair, so a stale binding blocks
+// saving until the user picks a current value or clears it. Template/none
+// automation never persists the pair, so the guard only applies to prompt
+// automation. No canonical-sync concept here: the banner's resolve action
+// clears the stale binding (empty/inherit is always submittable).
+const selectionGuard = useSelectionGuard(
+  () => ({ model: form.onEnterModel, providerId: form.onEnterProviderId }),
+  () => false,
+  () => {}
+);
+const selectionBlocked = computed(
+  () => automationType.value === 'prompt' && selectionGuard.invalid
+);
+
+function clearStaleOnEnterSelection() {
+  form.onEnterModel = null;
+  form.onEnterProviderId = null;
+}
 
 /**
  * Build the reschedule-related form fields from lane data.
@@ -679,12 +709,14 @@ function buildSaveDataForTemplate(formData) {
  * @returns {Object} Save data fields for 'prompt' automation
  */
 function buildSaveDataForPrompt(formData) {
+  // A tier-bound lane never persists a concrete provider hint.
+  const pair = normalizeModelProviderPair(formData.onEnterModel, formData.onEnterProviderId);
   return {
     onEnterTemplateId: null,
     onEnterPrompt: formData.onEnterPrompt.trim(),
     onEnterMode: formData.onEnterMode,
-    onEnterModel: formData.onEnterModel,
-    onEnterProviderId: formData.onEnterProviderId,
+    onEnterModel: pair.model,
+    onEnterProviderId: pair.providerId,
     onEnterEffortLevel: formData.onEnterEffortLevel,
     onEnterThinkingEnabled: formData.onEnterThinkingEnabled,
     onEnterAutoRescheduleEnabled: formData.onEnterAutoRescheduleEnabled,
@@ -717,6 +749,10 @@ async function handleLanePositionChange(lane, fromIndex, toIndex, projectId) {
 
 async function handleSave() {
   if (!props.lane || !isValid.value) return;
+  if (selectionBlocked.value) {
+    saveError.value = selectionGuard.problem?.message || 'The on-enter model selection is no longer available.';
+    return;
+  }
 
   saving.value = true;
   saveError.value = '';

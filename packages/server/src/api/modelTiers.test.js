@@ -670,6 +670,68 @@ describe('Model Tiers API', () => {
         }
       });
 
+      it('rejects leaving the configured summary tier with only dead pairs', async () => {
+        const created = await request(app)
+          .post('/api/tiers')
+          .send({
+            name: 'Summary Tier Dead Pair Guard',
+            members: [
+              { providerId: providerA.id, modelId: 'model-a', position: 0 },
+              { providerId: providerB.id, modelId: 'model-b', position: 1 },
+            ],
+          })
+          .expect(201);
+
+        settings.setSummarySettings({ summaryModel: buildTierRef(created.body.id), summaryProviderId: null });
+
+        try {
+          // Kill model-a's provider. The tier stays executable via model-b,
+          // so no degradation fires and the summary binding is intact.
+          modelProviders.update(providerA.id, { enabled: false });
+
+          // model-a is now dead but already-configured, so member validation
+          // exempts it — the summary guard must still reject a proposal with
+          // no executable member.
+          const response = await request(app)
+            .patch(`/api/tiers/${created.body.id}`)
+            .send({ members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }] })
+            .expect(400);
+          expect(response.body.error).toContain('at least one executable model');
+
+          const unchanged = await request(app).get(`/api/tiers/${created.body.id}`).expect(200);
+          expect(unchanged.body.members).toHaveLength(2);
+        } finally {
+          settings.setSummarySettings({ summaryModel: '', summaryProviderId: null });
+        }
+      });
+
+      it('allows trimming the configured summary tier while one executable member remains', async () => {
+        const created = await request(app)
+          .post('/api/tiers')
+          .send({
+            name: 'Summary Tier Trim Keeps Executable',
+            members: [
+              { providerId: providerA.id, modelId: 'model-a', position: 0 },
+              { providerId: providerB.id, modelId: 'model-b', position: 1 },
+            ],
+          })
+          .expect(201);
+
+        settings.setSummarySettings({ summaryModel: buildTierRef(created.body.id), summaryProviderId: null });
+
+        try {
+          await request(app)
+            .patch(`/api/tiers/${created.body.id}`)
+            .send({ members: [{ providerId: providerB.id, modelId: 'model-b', position: 0 }] })
+            .expect(200);
+
+          const trimmed = await request(app).get(`/api/tiers/${created.body.id}`).expect(200);
+          expect(trimmed.body.members).toHaveLength(1);
+        } finally {
+          settings.setSummarySettings({ summaryModel: '', summaryProviderId: null });
+        }
+      });
+
       it('allows introducing an unsupported-kind member when this tier is NOT the configured summary tier', async () => {
         const created = await request(app)
           .post('/api/tiers')
@@ -709,6 +771,28 @@ describe('Model Tiers API', () => {
 
     it('returns 404 for missing tier', async () => {
       await request(app).delete('/api/tiers/nonexistent').expect(404);
+    });
+
+    it('maps service failures with statusCode instead of 500', async () => {
+      const { databaseManager } = await import('../db/DatabaseManager.js');
+      const created = await request(app)
+        .post('/api/tiers')
+        .send({ name: 'Delete Mapped Failure', members: [] })
+        .expect(201);
+
+      const failure = new Error('Tier is referenced and cannot be deleted');
+      failure.statusCode = 400;
+      const spy = vi.spyOn(databaseManager, 'transaction').mockImplementationOnce(() => {
+        throw failure;
+      });
+      try {
+        const response = await request(app).delete(`/api/tiers/${created.body.id}`).expect(400);
+        expect(response.body.error).toBe('Tier is referenced and cannot be deleted');
+      } finally {
+        spy.mockRestore();
+      }
+
+      await request(app).get(`/api/tiers/${created.body.id}`).expect(200);
     });
 
     it('atomically degrades every persisted tier configuration to its active member', async () => {

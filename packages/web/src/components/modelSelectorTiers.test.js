@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  isTierSelectable,
+  normalizeModelProviderPair,
+  resolveDefaultModelId,
   tierDisplayName,
   tierDisplayTitle,
   tierIsStale,
@@ -9,6 +12,11 @@ import {
 
 describe('model selector tier helpers', () => {
   const providersStore = {
+    providers: [
+      { id: 'anthropic', kind: 'anthropic' },
+      { id: 'codex', kind: 'openai' },
+      { id: 'legacy' },
+    ],
     getById: vi.fn((id) => ({
       anthropic: { kind: 'anthropic' },
       codex: { kind: 'openai' },
@@ -67,6 +75,81 @@ describe('model selector tier helpers', () => {
     expect(tierIsStale('tier::saved', { loaded: true, tiers: [] }, [])).toBe(true);
     expect(tierIsStale('tier::saved', { loaded: true, tiers: [{}] }, [{ id: 'saved' }])).toBe(false);
     expect(tierIsStale('tier::saved', { loaded: true, tiers: [{}] }, [{ id: 'other' }])).toBe(true);
+  });
+
+  it('judges selectability by usable members, honoring the kind filter', () => {
+    const providers = [
+      { id: 'anthropic', kind: 'anthropic' },
+      { id: 'codex', kind: 'openai' },
+    ];
+    // Exists but zero usable members → not selectable.
+    expect(isTierSelectable({ id: 't', members: [] }, { providers })).toBe(false);
+    expect(isTierSelectable(
+      { id: 't', members: [{ providerId: 'anthropic', available: false }] },
+      { providers }
+    )).toBe(false);
+    // ≥1 usable member → selectable.
+    expect(isTierSelectable(
+      { id: 't', members: [{ providerId: 'anthropic', available: true }] },
+      { providers }
+    )).toBe(true);
+    // Kind filter applies to usable members only.
+    expect(isTierSelectable(
+      {
+        id: 't',
+        members: [
+          { providerId: 'anthropic', available: true },
+          { providerId: 'codex', available: true },
+        ],
+      },
+      { providers, allowedProviderKinds: ['openai'] }
+    )).toBe(true);
+    expect(isTierSelectable(
+      { id: 't', members: [{ providerId: 'anthropic', available: true }] },
+      { providers, allowedProviderKinds: ['openai'] }
+    )).toBe(false);
+    // Unknown provider id fails closed under a kind filter (cannot prove fit).
+    expect(isTierSelectable(
+      { id: 't', members: [{ providerId: 'ghost', available: true }] },
+      { providers, allowedProviderKinds: ['anthropic'] }
+    )).toBe(false);
+    // ...but stays selectable for unrestricted pickers (server `available` holds).
+    expect(isTierSelectable(
+      { id: 't', members: [{ providerId: 'ghost', available: true }] },
+      { providers }
+    )).toBe(true);
+  });
+
+  it('normalizes tier pairs to a null provider hint and preserves concrete pairs', () => {
+    expect(normalizeModelProviderPair('tier::t-high', 'p-abc')).toEqual({ model: 'tier::t-high', providerId: null });
+    expect(normalizeModelProviderPair('tier::t-high', null)).toEqual({ model: 'tier::t-high', providerId: null });
+    expect(normalizeModelProviderPair('gpt-5', 'p-openai')).toEqual({ model: 'gpt-5', providerId: 'p-openai' });
+    expect(normalizeModelProviderPair('gpt-5', undefined)).toEqual({ model: 'gpt-5', providerId: null });
+    expect(normalizeModelProviderPair(null, 'p-openai')).toEqual({ model: null, providerId: 'p-openai' });
+  });
+
+  it('resolves the default model like the selector fallback', () => {
+    expect(resolveDefaultModelId([])).toBeNull();
+    expect(resolveDefaultModelId([{ id: 'x', kind: 'openai', enabled: true, models: [{ modelId: 'gpt-5' }] }])).toBeNull();
+    const providers = [
+      {
+        id: 'custom', kind: 'anthropic', enabled: true,
+        models: [{ modelId: 'custom-a', enabled: true }],
+      },
+      {
+        id: 'built-in', kind: 'anthropic', isBuiltIn: true, enabled: true,
+        models: [
+          { modelId: 'opus-id', tier: 'opus', enabled: true },
+          { modelId: 'sonnet-id', tier: 'sonnet', enabled: true },
+        ],
+      },
+    ];
+    // Built-in preferred, sonnet-tier model preferred within it.
+    expect(resolveDefaultModelId(providers)).toBe('sonnet-id');
+    // Disabled providers never qualify.
+    expect(resolveDefaultModelId([{ id: 'off', kind: 'anthropic', enabled: false, models: [{ modelId: 'm' }] }])).toBeNull();
+    // Legacy providers without a kind still group as Claude Code.
+    expect(resolveDefaultModelId([{ id: 'legacy', models: [{ modelId: 'm-legacy' }] }])).toBe('m-legacy');
   });
 
   it('describes unresolved, stale, singular, and plural tier bindings', () => {

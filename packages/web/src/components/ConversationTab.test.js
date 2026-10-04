@@ -36,10 +36,24 @@ vi.mock('../stores/projects.js', () => ({
   })),
 }));
 
-// Mock the providers store
+// Mock the providers store. Seeded with a built-in Anthropic provider whose
+// sonnet-tier model is the shared default-model fallback (see
+// resolveDefaultModelId) — describes that need an empty catalog override
+// this wholesale via mockReturnValue.
 vi.mock('../stores/providers.js', () => ({
   useProvidersStore: vi.fn(() => ({
-    providers: [],
+    providers: [
+      {
+        id: 'anthropic',
+        name: 'Anthropic',
+        isBuiltIn: true,
+        kind: 'anthropic',
+        enabled: true,
+        models: [
+          { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-5', displayName: 'Sonnet', tier: 'sonnet', enabled: true },
+        ],
+      },
+    ],
     fetchProviders: vi.fn().mockResolvedValue(undefined),
   })),
 }));
@@ -483,7 +497,7 @@ describe.skip('ConversationTab', () => {
       await wrapper.find('form').trigger('submit.prevent');
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', [], 'sonnet');
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', [], 'claude-sonnet-4-5');
     });
 
     it('clears input after sending', async () => {
@@ -757,7 +771,7 @@ describe.skip('ConversationTab', () => {
       await wrapper.find('textarea').trigger('keydown', { key: 'Enter', metaKey: true });
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', [], 'sonnet');
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', [], 'claude-sonnet-4-5');
     });
 
     it('calls handleSend on Ctrl+Enter when not a draft', async () => {
@@ -770,7 +784,7 @@ describe.skip('ConversationTab', () => {
       await wrapper.find('textarea').trigger('keydown', { key: 'Enter', ctrlKey: true });
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', [], 'sonnet');
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', [], 'claude-sonnet-4-5');
     });
 
     it('does NOT submit on plain Enter', async () => {
@@ -1075,7 +1089,7 @@ describe('ConversationTab - Error Handling Improvements', () => {
       await wrapper.find('form').trigger('submit.prevent');
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Retry message', [], 'sonnet');
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Retry message', [], 'claude-sonnet-4-5');
     });
   });
 
@@ -2281,7 +2295,8 @@ describe('ConversationTab - New messages button', () => {
  * - Switching conversations before conversations are fetched
  * - When there's no active conversation
  *
- * The fix ensures selectedModel falls back to: session.model → project default → 'sonnet'
+ * The fix ensures selectedModel falls back to: session.model → project default →
+ * the shared default-model resolver (resolveDefaultModelId)
  */
 describe('ConversationTab - Model Initialization with null activeConversation', () => {
   let mockSessionsStore;
@@ -2387,7 +2402,7 @@ describe('ConversationTab - Model Initialization with null activeConversation', 
   }
 
   describe('Model defaults when activeConversation is null', () => {
-    it('defaults to sonnet when activeConversation is null and workspace has no model', async () => {
+    it('resolves the shared default model when activeConversation is null and workspace has no model', async () => {
       // Bug scenario: activeConversation is null, session.model is null
       mockSessionsStore.activeConversation = null;
       mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard', model: null };
@@ -2395,10 +2410,10 @@ describe('ConversationTab - Model Initialization with null activeConversation', 
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // The ModelSelector stub should receive 'sonnet' as modelValue
+      // The ModelSelector stub should receive the shared default model
       const modelSelector = wrapper.find('.model-selector-stub');
       expect(modelSelector.exists()).toBe(true);
-      expect(modelSelector.attributes('data-model')).toBe('sonnet');
+      expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-5');
     });
 
     it('uses workspace model when activeConversation is null but workspace has a model', async () => {
@@ -2415,7 +2430,7 @@ describe('ConversationTab - Model Initialization with null activeConversation', 
       expect(modelSelector.attributes('data-model')).toBe('opus');
     });
 
-    it('defaults to sonnet when activeConversation is undefined', async () => {
+    it('resolves the shared default model when activeConversation is undefined', async () => {
       // Similar to null case but with undefined
       mockSessionsStore.activeConversation = undefined;
       mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard', model: null };
@@ -2425,7 +2440,7 @@ describe('ConversationTab - Model Initialization with null activeConversation', 
 
       const modelSelector = wrapper.find('.model-selector-stub');
       expect(modelSelector.exists()).toBe(true);
-      expect(modelSelector.attributes('data-model')).toBe('sonnet');
+      expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-5');
     });
 
     it('sends message with fallback model when activeConversation is null', async () => {
@@ -2441,12 +2456,12 @@ describe('ConversationTab - Model Initialization with null activeConversation', 
       await wrapper.find('form').trigger('submit.prevent');
       await flushAll(wrapper);
 
-      // Verify sendMessage was called with 'sonnet' as the model (the fallback)
+      // Verify sendMessage was called with the shared default model (the fallback)
       expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith(
         'sess-123',
         'Test message',
         [],
-        'sonnet'
+        'claude-sonnet-4-5'
       );
     });
 
@@ -2486,9 +2501,9 @@ describe('ConversationTab - Model Initialization with null activeConversation', 
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // Initially should be 'sonnet'
+      // Initially should be the shared default model
       let modelSelector = wrapper.find('.model-selector-stub');
-      expect(modelSelector.attributes('data-model')).toBe('sonnet');
+      expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-5');
 
       // Now simulate activeConversation becoming available
       mockSessionsStore.activeConversation = { id: 'conv-1', model: 'opus' };
@@ -3367,14 +3382,14 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       expect(modelSelector.attributes('data-model')).toBe('opus');
     });
 
-    it('falls back to sonnet when workspace has no model', async () => {
+    it('falls back to the shared default model when workspace has no model', async () => {
       mockSessionsStore.currentSession.model = null;
 
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
       const modelSelector = wrapper.find('.model-selector-stub');
-      expect(modelSelector.attributes('data-model')).toBe('sonnet');
+      expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-5');
     });
 
     it('does not call updateSessionModel during initial load', async () => {
@@ -3411,15 +3426,15 @@ describe('ConversationTab - Model selector persistence on stop', () => {
     });
 
     it('preserves user-selected model when workspace status changes trigger state updates', async () => {
-      // Start with sonnet (default)
+      // Start with the shared default model
       mockSessionsStore.currentSession.model = null;
 
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // Verify default is sonnet
+      // Verify the shared default model
       let modelSelector = wrapper.find('.model-selector-stub');
-      expect(modelSelector.attributes('data-model')).toBe('sonnet');
+      expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-5');
 
       // Simulate user selecting opus via ModelSelector v-model emit
       const modelSelectorComponent = wrapper.findComponent({ name: 'ModelSelector' });
@@ -3525,9 +3540,9 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // Verify default is sonnet
+      // Verify the shared default model
       let modelSelector = wrapper.find('.model-selector-stub');
-      expect(modelSelector.attributes('data-model')).toBe('sonnet');
+      expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-5');
 
       // Simulate user selecting opus
       const modelSelectorComponent = wrapper.findComponent({ name: 'ModelSelector' });
@@ -4297,7 +4312,7 @@ describe('ConversationTab - Input clearing on submit', () => {
       expect(mockSessionsStore.startSession).toHaveBeenCalledWith(
         'sess-123',
         'My draft prompt',
-        'sonnet',
+        'claude-sonnet-4-5',
         null
       );
       // After successful start, textarea should be cleared
@@ -4352,7 +4367,7 @@ describe('ConversationTab - Input clearing on submit', () => {
         'sess-123',
         'Follow-up message',
         [],
-        'sonnet'
+        'claude-sonnet-4-5'
       );
       // After successful send, textarea should be cleared
       expect(textarea.element.value).toBe('');

@@ -98,4 +98,46 @@ describe('handleStreamResultEvent (error subtype)', () => {
     const visibleMessage = messages.create.mock.calls[0][2];
     expect(visibleMessage).not.toContain(SENTINEL);
   });
+
+  // Issue #15: provider SDKs nest the HTTP status on the error object
+  // (`event.error.status`); that nested value is authoritative. A top-level
+  // `event.status` is only a fallback for producers that set it there.
+  it('prefers a nested event.error.status over a top-level event status', () => {
+    let seen = null;
+    handleStreamResultEvent(
+      'session-1',
+      {
+        subtype: 'error',
+        is_error: true,
+        error: { message: 'too many requests', status: 429 },
+        status: 500,
+      },
+      {
+        finalResultEvents,
+        finalErrorSessionIds,
+        activeConversationIds,
+        broadcastSessionStatus: vi.fn(),
+        shouldThrowOnResultError: (error) => { seen = error; return false; },
+      }
+    );
+
+    expect(seen.status).toBe(429);
+  });
+
+  it('falls back to a top-level event status when the nested error carries none', () => {
+    let seen = null;
+    handleStreamResultEvent(
+      'session-1',
+      { subtype: 'error', is_error: true, error: { message: 'boom' }, status: 503 },
+      {
+        finalResultEvents,
+        finalErrorSessionIds,
+        activeConversationIds,
+        broadcastSessionStatus: vi.fn(),
+        shouldThrowOnResultError: (error) => { seen = error; return false; },
+      }
+    );
+
+    expect(seen.status).toBe(503);
+  });
 });

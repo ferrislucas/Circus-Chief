@@ -1,6 +1,12 @@
 import { isTierRef, parseTierRef, DEFAULT_TIER_COOLDOWN_MS } from '@circuschief/shared';
 import { modelTiers, modelProviders } from '../database.js';
-import { getProvidersByIds } from '../db/providerModelOperations.js';
+import { getProvidersByIds, evaluateTierMembers } from '../db/providerModelOperations.js';
+
+// Re-exported so existing consumers keep importing the pure evaluator from
+// the service layer; the implementation lives in providerModelOperations.js
+// (cycle-safe) and is shared with the create-time lookup in
+// db/session-helpers.js.
+export { evaluateTierMembers };
 import { validateExactTierMember } from './tierIdentity.js';
 
 /**
@@ -55,11 +61,21 @@ const defaultTierCooldown = createTierCooldown();
  * production default or a fixed sleep — see
  * model-tiers-e2e-coverage-plan.md Phase 0/1); falls back to the shared
  * production default.
+ *
+ * The override is gated on a test environment: unit/dev processes run with
+ * `NODE_ENV=test` (or unset), while the Playwright harness boots the server
+ * with `NODE_ENV=production` (start-server.sh) but always sets `VCR_MODE`.
+ * Cassette infrastructure is never active in real use, so a set `VCR_MODE`
+ * identifies the E2E harness. A production deployment honors neither signal
+ * and always gets the production default, even with a stray override set.
  * @param {number|undefined} explicitCooldownMs
  * @returns {number}
  */
 function resolveCooldownMs(explicitCooldownMs) {
   if (explicitCooldownMs !== undefined) return explicitCooldownMs;
+  if (process.env.NODE_ENV === 'production' && !process.env.VCR_MODE) {
+    return DEFAULT_TIER_COOLDOWN_MS;
+  }
   const override = process.env.E2E_TIER_COOLDOWN_MS;
   if (override !== undefined && override !== '') {
     const parsed = Number(override);
@@ -110,24 +126,6 @@ export function clearUnhealthy(providerId, modelId) {
  * @param {string} tierId
  * @returns {Array<{ providerId: string, modelId: string, position: number }>}
  */
-/**
- * Pure in-memory member evaluation over a pre-fetched provider catalog.
- * Separated from catalog loading so ordered-member correctness (ordering,
- * disabled providers/models, missing records) is unit-testable without
- * database setup.
- */
-export function evaluateTierMembers(members, providersById) {
-  return members
-    .filter((m) => {
-      const provider = providersById.get(m.providerId);
-      if (!provider || provider.enabled === false) return false;
-      return provider.models.some(
-        (model) => model.modelId === m.modelId && model.enabled !== false && model.unavailable !== true
-      );
-    })
-    .sort((a, b) => a.position - b.position || a.createdAt - b.createdAt);
-}
-
 export function getTierMembersResolved(tierId) {
   const tier = modelTiers.getByIdWithMembers(tierId);
   if (!tier) return [];

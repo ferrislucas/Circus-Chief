@@ -179,4 +179,41 @@ describe('ProjectSessionDefaults - model selection conflict', () => {
     expect(wrapper.find('.conflict-banner').exists()).toBe(true);
     expect(wrapper.vm.modelSelectionInvalid).toBe(true);
   });
+
+  it('surfaces an external non-model change after first load instead of dropping it', async () => {
+    const wrapper = mount(ProjectSessionDefaults, {
+      props: { projectId: 'proj-1' },
+    });
+    await flushPromises();
+    await nextTick();
+    expect(wrapper.find('#defaultMode').element.value).toBe('');
+
+    wsHandlers['project:defaults_updated']({
+      projectId: 'proj-1',
+      defaults: { ...canonicalDefaults, mode: 'plan' },
+    });
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.find('#defaultMode').element.value).toBe('plan');
+  });
+
+  it('keeps a locally edited non-model field and flags a conflict when upstream also moves it', async () => {
+    const wrapper = mount(ProjectSessionDefaults, {
+      props: { projectId: 'proj-1' },
+    });
+    await flushPromises();
+    await nextTick();
+
+    await wrapper.find('#defaultMode').setValue('yolo');
+    wsHandlers['project:defaults_updated']({
+      projectId: 'proj-1',
+      defaults: { ...canonicalDefaults, mode: 'plan' },
+    });
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.find('#defaultMode').element.value).toBe('yolo');
+    expect(wrapper.find('.conflict-banner').exists()).toBe(true);
+  });
 });

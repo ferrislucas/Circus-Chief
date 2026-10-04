@@ -7,6 +7,10 @@ import { DEFAULT_RESCHEDULE_DELAY_MINUTES, isTierRef, parseTierRef } from '@circ
 // Imported only to resolve agent type from a model at call time (runtime), so the
 // ES-module cycle (index → SessionRepository → session-helpers → index) is safe.
 import { modelProviders, modelTiers } from './index.js';
+// Cycle-safe: providerModelOperations owns no repository singletons (only the
+// DatabaseManager leaf), so sharing the pure evaluator + batched loader does
+// not reintroduce the index cycle the tierResolutionService import would.
+import { evaluateTierMembers } from './providerModelOperations.js';
 
 /** Fallback agent runtime when none can be derived from the model/provider. */
 export const DEFAULT_AGENT_TYPE = 'claude-code';
@@ -14,10 +18,11 @@ export const DEFAULT_AGENT_TYPE = 'claude-code';
 /**
  * Find the first enabled tier member (by position) for a tier id — a minimal,
  * cooldown-unaware lookup used only to derive an initial `agentType` at
- * session-create time (Work Item 2). Deliberately duplicates a slice of
- * `tierResolutionService.getTierMembersResolved` rather than importing that
- * module: `services/tierResolutionService.js` imports `../database.js`,
- * which would re-introduce the exact
+ * session-create time (Work Item 2). Shares `evaluateTierMembers` with the
+ * authoritative `tierResolutionService.getTierMembersResolved` path rather
+ * than duplicating it: the evaluator lives in the cycle-safe
+ * `providerModelOperations` module because `services/tierResolutionService.js`
+ * imports `../database.js`, which would re-introduce the exact
  * `index → SessionRepository → session-helpers → index` cycle this file was
  * already structured to avoid (see the module-level comment above). The
  * authoritative, cooldown-aware resolution still happens at actual session
@@ -29,14 +34,14 @@ export const DEFAULT_AGENT_TYPE = 'claude-code';
  */
 function findFirstEnabledTierMember(tierId) {
   const tier = modelTiers.getByIdWithMembers?.(tierId);
-  if (!tier) return null;
-  const enabled = (tier.members || []).filter((m) => {
-    const provider = modelProviders.getById(m.providerId);
-    if (!provider || provider.enabled === false) return false;
-    return provider.models?.some((model) => model.modelId === m.modelId);
-  });
+  if (!tier || (tier.members || []).length === 0) return null;
+  // Batched catalog load: two queries total no matter how many members the
+  // tier has — never one provider-with-models query per member.
+  const providersById = modelProviders.getByIdsWithModels(
+    tier.members.map((m) => m.providerId)
+  );
+  const enabled = evaluateTierMembers(tier.members, providersById);
   if (enabled.length === 0) return null;
-  enabled.sort((a, b) => a.position - b.position || a.createdAt - b.createdAt);
   return enabled[0];
 }
 

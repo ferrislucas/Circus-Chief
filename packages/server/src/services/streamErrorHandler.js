@@ -5,6 +5,21 @@ import * as summaryService from './summaryService.js';
 import { createVisibleFinalErrorMessage, normalizeFinalErrorMessage } from './visibleFinalErrorMessage.js';
 import { handleResultUsage } from './streamUsageHandler.js';
 
+/**
+ * Resolve the HTTP status to attribute to a stream result error. Provider
+ * SDKs nest the status on the error object (`event.error.status`); that
+ * nested value is authoritative. A top-level `event.status` is only a
+ * fallback for producers that set it there instead.
+ * @param {Object} event - Stream result event.
+ * @returns {number|undefined} Finite status, or undefined when absent.
+ */
+function resolveStreamErrorStatus(event) {
+  const nestedStatus = event.error && typeof event.error === 'object' ? event.error.status : undefined;
+  if (Number.isFinite(nestedStatus)) return nestedStatus;
+  if (Number.isFinite(event.status)) return event.status;
+  return undefined;
+}
+
 /** Route terminal stream result events without leaking retryable tier failures. */
 export function handleStreamResultEvent(sessionId, event, {
   shouldThrowOnResultError,
@@ -15,9 +30,10 @@ export function handleStreamResultEvent(sessionId, event, {
 } = {}) {
   if (event.subtype === 'error') {
     const message = normalizeFinalErrorMessage(event.error);
+    const status = resolveStreamErrorStatus(event);
     const streamError = Object.assign(new Error(message),
       event.error && typeof event.error === 'object' ? event.error : {},
-      Number.isFinite(event.status) ? { status: event.status } : {});
+      status !== undefined ? { status } : {});
     if (shouldThrowOnResultError?.(streamError)) throw streamError;
   }
 

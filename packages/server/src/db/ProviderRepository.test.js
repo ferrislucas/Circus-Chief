@@ -5,7 +5,10 @@ import {
   AGENT_TYPE_BY_KIND,
   MODEL_TIER_ALIASES,
 } from './ProviderRepository.js';
-import { OPENAI_MODELS } from '@circuschief/shared';
+import { ModelTierRepository } from './ModelTierRepository.js';
+import { ProjectRepository } from './ProjectRepository.js';
+import { ProjectDefaultsRepository } from './ProjectDefaultsRepository.js';
+import { OPENAI_MODELS, buildTierRef } from '@circuschief/shared';
 
 describe('ProviderRepository', () => {
   let repo;
@@ -306,6 +309,52 @@ describe('ProviderRepository', () => {
 
     it('throws error when provider not found', () => {
       expect(() => repo.delete('non-existent')).toThrow('Provider not found');
+    });
+  });
+
+  // Issue #20 — quiet repair variants: tier repair runs in-transaction, but
+  // the degradation change sets are discarded (nothing returned to publish).
+  // These tests pin that contract: the DATABASE is repaired, and no
+  // publishable facts come back.
+  describe('quiet repair variants', () => {
+    function seedTierBoundDefaults(name) {
+      const provider = repo.create({ name: `${name} Provider`, kind: 'anthropic' });
+      repo.addModel(provider.id, { modelId: `${name}-model`, displayName: name });
+      const tierRepo = new ModelTierRepository();
+      const tier = tierRepo.create({
+        name: `${name} Tier`,
+        members: [{ providerId: provider.id, modelId: `${name}-model`, position: 0 }],
+      });
+      const project = new ProjectRepository().create(name, `/tmp/${name}`);
+      const tierRef = buildTierRef(tier.id);
+      new ProjectDefaultsRepository().upsert(project.id, { model: tierRef, providerId: null });
+      return { provider, tierRef, project };
+    }
+
+    function defaultsModel(projectId) {
+      return new ProjectDefaultsRepository().getByProjectId(projectId).model;
+    }
+
+    it('quiet delete repairs emptied-tier references but returns no publishable facts', () => {
+      const { provider, tierRef, project } = seedTierBoundDefaults('Quiet Delete');
+      expect(defaultsModel(project.id)).toBe(tierRef);
+
+      const result = repo.delete(provider.id);
+
+      expect(result).toBeUndefined();
+      expect(repo.getById(provider.id)).toBeNull();
+      expect(defaultsModel(project.id)).not.toBe(tierRef);
+    });
+
+    it('quiet update repairs emptied-tier references but returns the provider without facts', () => {
+      const { provider, tierRef, project } = seedTierBoundDefaults('Quiet Update');
+      expect(defaultsModel(project.id)).toBe(tierRef);
+
+      const updated = repo.update(provider.id, { enabled: false });
+
+      expect(updated).toMatchObject({ id: provider.id, enabled: false });
+      expect(updated).not.toHaveProperty('degradation');
+      expect(defaultsModel(project.id)).not.toBe(tierRef);
     });
   });
 

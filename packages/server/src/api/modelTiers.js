@@ -6,6 +6,7 @@ import {
 } from '@circuschief/shared/contracts/modelTiers';
 import { isTierRef, parseTierRef } from '@circuschief/shared';
 import { resolveTierWriteError, validateTierMembers } from './model-validation.js';
+import { describeIdentityProblem } from '../services/tierIdentity.js';
 import { getTierMemberAvailabilityMap, getTierMembersWithAvailability } from '../services/tierResolutionService.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { deleteTierAndDegradeReferences, degradeReferencesToEmptiedTiers } from '../services/tierDeletionService.js';
@@ -21,19 +22,26 @@ function withManagementMembers(tier, availabilityByProvider) {
 const router = Router();
 
 /**
- * A configured summary tier must retain at least one member. Provider kinds
- * are unrestricted: summary dispatch supports every kind available in tiers.
+ * A configured summary tier must retain at least one EXECUTABLE member.
+ * Provider kinds are unrestricted: summary dispatch supports every kind
+ * available in tiers. The proposed members are evaluated against the live
+ * catalog with the shared exact-pair predicate, so already-configured pairs
+ * whose provider was disabled (or model removed) cannot satisfy the guard —
+ * a non-empty proposal of only dead pairs is rejected the same as emptying.
  * @param {string} tierId
  * @param {Array<{providerId: string, modelId: string}>} members
  * @returns {string|null} An error message, or null if the edit is allowed.
  */
-function checkSummaryTierKindGuard(tierId, members) {
+function checkSummaryTierExecutableGuard(tierId, members) {
   const summarySettings = settings.getSummarySettings();
   const isConfiguredSummaryTier =
     isTierRef(summarySettings.summaryModel) && parseTierRef(summarySettings.summaryModel) === tierId;
   if (!isConfiguredSummaryTier) return null;
 
-  if (members.length === 0) {
+  const hasExecutableMember = members.some(
+    (member) => describeIdentityProblem(member.providerId, member.modelId) === null
+  );
+  if (!hasExecutableMember) {
     return 'This tier is the configured summary model — it must contain at least one executable model (see Settings → Summary Settings)';
   }
   return null;
@@ -101,7 +109,7 @@ router.patch('/:id', (req, res) => {
       return res.status(400).json({ error: memberValidation.error });
     }
 
-    const summaryGuardError = checkSummaryTierKindGuard(req.params.id, result.data.members);
+    const summaryGuardError = checkSummaryTierExecutableGuard(req.params.id, result.data.members);
     if (summaryGuardError) {
       return res.status(400).json({ error: summaryGuardError });
     }
@@ -141,7 +149,10 @@ router.delete('/:id', (req, res) => {
     publishCatalogInvalidation('tiers');
     res.status(204).send();
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    // Same write-error mapping as the POST/PATCH paths: a statusCode-carrying
+    // service failure keeps its status instead of surfacing as a 500.
+    const { status, message } = resolveTierWriteError(error);
+    res.status(status).json({ error: message });
   }
 });
 

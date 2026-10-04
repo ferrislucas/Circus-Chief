@@ -377,10 +377,6 @@ export const allMigrations = validateMigrations([
   k.get('kanban-drop-deferred-card-move-turn-fence'),
   k.get('kanban-routing-observability'),
 
-  // Must follow all sessions/lane table-recreation cutovers so an upgrade
-  // cannot add these columns only to have a historical recreation drop them.
-  mt.get('model-tiers-provider-pair-columns'),
-
   // --- Sessions blocked on agent input ---
   // Keep this last: it is additive and must run for databases created before
   // pending_agent_input was added to schema.sql.

@@ -43,7 +43,7 @@ import { continueSession, runSession } from './sessionManager.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
 import { modelProviders, modelTiers, agentCallLogs, workLogs } from '../database.js';
-import { isUnhealthy, markUnhealthy } from './tierResolutionService.js';
+import { clearUnhealthy, isUnhealthy, markUnhealthy } from './tierResolutionService.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { BaseAgent } from '../agents/BaseAgent.js';
 import { CodexAdapter } from '../agents/adapters/CodexAdapter.js';
@@ -591,6 +591,12 @@ describe('handleTierMemberFailure cooldown', () => {
   });
 
   afterEach(() => {
+    // Cooldown state is process-local: reset it so each test starts with a
+    // healthy tier instead of inheriting a previous test's cooldowns.
+    if (providerA && providerB) {
+      clearUnhealthy(providerA.id, 'fix2-model-a');
+      clearUnhealthy(providerB.id, 'fix2-model-b');
+    }
     if (tempDir && existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -617,6 +623,32 @@ describe('handleTierMemberFailure cooldown', () => {
 
     const updated = sessionRepo.getById(session.id);
     expect(updated.resolvedModel).toBe('fix2-model-b');
+  });
+
+  it('skips a member cooled mid-loop without attempting it (cooldown re-checked per attempt)', async () => {
+    let queryCalls = 0;
+    // A fails with an eligible outage; while A's attempt is in flight a
+    // concurrent session cools B.
+    // eslint-disable-next-line require-yield
+    mockQuery.mockImplementationOnce(async function* () {
+      queryCalls += 1;
+      markUnhealthy(providerB.id, 'fix2-model-b', DEFAULT_TIER_COOLDOWN_MS);
+      throw new Error('Error: 529 Service overloaded');
+    });
+    // eslint-disable-next-line require-yield
+    mockQuery.mockImplementationOnce(async function* () {
+      queryCalls += 1;
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'fix2-model-b', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'B response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    await expect(runSession(session.id, 'prompt', tempDir, { model: null })).rejects.toThrow();
+
+    // B was cooled before its attempt: the loop must skip it, not hammer it.
+    expect(queryCalls).toBe(1);
+    // A was attempted and failed → cooled; B was never attempted.
+    expect(isUnhealthy(providerA.id, 'fix2-model-a')).toBe(true);
   });
 
   it('cools down the last failing member when no successor exists', async () => {

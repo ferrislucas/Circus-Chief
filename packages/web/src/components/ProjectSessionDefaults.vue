@@ -145,7 +145,7 @@
       <SelectionConflictBanner
         :visible="selectionGuard.showBanner"
         :problem="selectionGuard.problem"
-        conflict-text="The default model changed elsewhere while you were editing. Your edit is preserved."
+        conflict-text="These defaults changed elsewhere while you were editing. Your edits are preserved."
         @use-canonical="useCanonicalModelSelection"
         @keep-mine="selectionGuard.keepMine"
       />
@@ -178,7 +178,8 @@ import ModelSelector from './ModelSelector.vue';
 import SelectionConflictBanner from './SelectionConflictBanner.vue';
 import { api } from '../composables/useApi.js';
 import { useCanonicalSync } from '../composables/useCanonicalSync.js';
-import { reconcileModelSelection } from '../composables/modelSelectionReconciliation.js';
+import { reconcileFormFields, reconcileModelSelection } from '../composables/modelSelectionReconciliation.js';
+import { normalizeModelProviderPair } from './modelSelectorTiers.js';
 import { useSelectionGuard } from '../composables/useSelectionGuard.js';
 
 const props = defineProps({
@@ -198,8 +199,8 @@ const defaultModel = ref('');
 const defaultProviderId = ref(null);
 const modelSelectionConflict = ref(false);
 const savingDefaults = ref(false);
-let hasLoadedDefaults = false;
 let lastCanonicalSelection = { model: null, providerId: null };
+let lastCanonicalFields = null;
 
 // One monotonic coordinator for initial load, websocket invalidation, and
 // reconnect: a slow initial response can never overwrite a newer push.
@@ -210,7 +211,6 @@ const { refresh: refreshDefaults } = useCanonicalSync({
   selectPush: (message) => (
     message?.projectId === props.projectId && message.defaults ? { notify: message.defaults } : undefined
   ),
-  onSettled: () => { hasLoadedDefaults = true; },
 });
 
 // Shared conflict contract (see useSelectionGuard): an invalid selection
@@ -222,13 +222,37 @@ const selectionGuard = useSelectionGuard(
 );
 const modelSelectionInvalid = computed(() => selectionGuard.invalid);
 
-function applyInitialDefaults(defaults) {
-  defaultMode.value = defaults.mode || '';
-  defaultThinkingEnabled.value = defaults.thinkingEnabled || false;
-  defaultEffortLevel.value = defaults.effortLevel ?? '';
-  defaultStartImmediately.value = defaults.startImmediately !== false;
-  defaultGitMode.value = defaults.gitMode || '';
-  defaultGitBranch.value = defaults.gitBranch || '';
+function readNonModelForm() {
+  return {
+    mode: defaultMode.value,
+    thinkingEnabled: defaultThinkingEnabled.value,
+    effortLevel: defaultEffortLevel.value,
+    startImmediately: defaultStartImmediately.value,
+    gitMode: defaultGitMode.value,
+    gitBranch: defaultGitBranch.value,
+  };
+}
+
+// Canonical record projected onto the form shape (same normalization the
+// first application uses, so later intakes compare apples to apples).
+function toNonModelForm(defaults) {
+  return {
+    mode: defaults.mode || '',
+    thinkingEnabled: defaults.thinkingEnabled || false,
+    effortLevel: defaults.effortLevel ?? '',
+    startImmediately: defaults.startImmediately !== false,
+    gitMode: defaults.gitMode || '',
+    gitBranch: defaults.gitBranch || '',
+  };
+}
+
+function applyNonModelForm(values) {
+  defaultMode.value = values.mode ?? '';
+  defaultThinkingEnabled.value = values.thinkingEnabled ?? false;
+  defaultEffortLevel.value = values.effortLevel ?? '';
+  defaultStartImmediately.value = values.startImmediately ?? true;
+  defaultGitMode.value = values.gitMode ?? '';
+  defaultGitBranch.value = values.gitBranch ?? '';
 }
 
 onMounted(() => {
@@ -237,9 +261,17 @@ onMounted(() => {
 
 watch(() => defaultsStore.getDefaultsForProject(props.projectId), (defaults) => {
   if (defaults) {
-    if (!hasLoadedDefaults) {
-      applyInitialDefaults(defaults);
-    }
+    // Per-field convergence (no first-load latch): untouched fields adopt the
+    // new canonical values so external non-model changes surface; fields the
+    // user edited are kept, flagging a conflict only when upstream moved
+    // them too. Snapshots always advance to the latest canonical.
+    const fields = reconcileFormFields({
+      current: readNonModelForm(),
+      previousCanonical: lastCanonicalFields,
+      canonical: toNonModelForm(defaults),
+    });
+    applyNonModelForm(fields.values);
+    lastCanonicalFields = toNonModelForm(defaults);
     const selection = reconcileModelSelection({
       current: { model: defaultModel.value, providerId: defaultProviderId.value },
       previousCanonical: lastCanonicalSelection,
@@ -247,7 +279,7 @@ watch(() => defaultsStore.getDefaultsForProject(props.projectId), (defaults) => 
     });
     defaultModel.value = selection.model || '';
     defaultProviderId.value = selection.providerId;
-    modelSelectionConflict.value = selection.conflict;
+    modelSelectionConflict.value = selection.conflict || fields.conflict;
     lastCanonicalSelection = { model: defaults.model || '', providerId: defaults.providerId || null };
   }
 }, { immediate: true });
@@ -255,10 +287,13 @@ watch(() => defaultsStore.getDefaultsForProject(props.projectId), (defaults) => 
 function useCanonicalModelSelection() {
   defaultModel.value = lastCanonicalSelection.model || '';
   defaultProviderId.value = lastCanonicalSelection.providerId;
+  if (lastCanonicalFields) applyNonModelForm(lastCanonicalFields);
   modelSelectionConflict.value = false;
 }
 
 function collectNonDefaultValues() {
+  // A tier-bound default never persists a concrete provider hint.
+  const pair = normalizeModelProviderPair(defaultModel.value || null, defaultProviderId.value || null);
   return {
     mode: defaultMode.value || null,
     thinkingEnabled: defaultThinkingEnabled.value,
@@ -266,8 +301,8 @@ function collectNonDefaultValues() {
     startImmediately: defaultStartImmediately.value,
     gitMode: defaultGitMode.value || null,
     gitBranch: defaultGitBranch.value || null,
-    model: defaultModel.value || null,
-    providerId: defaultModel.value ? (defaultProviderId.value || null) : null,
+    model: pair.model,
+    providerId: pair.model ? pair.providerId : null,
   };
 }
 

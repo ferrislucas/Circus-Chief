@@ -134,6 +134,7 @@ import './ConversationTab.css';
 import { useScheduleStartNow } from '../composables/useScheduleStartNow.js';
 import { useConnectionStatus } from '../composables/useConnectionStatus.js';
 import { appendTemplatePromptValue, buildTemplateSettingsFields, resolveTemplateProviderId } from '../utils/templateApply.js';
+import { normalizeModelProviderPair, resolveDefaultModelId } from './modelSelectorTiers.js';
 import TodoDrawer from './TodoDrawer.vue';
 import ConversationPanel from './ConversationPanel.vue';
 import ConversationMessages from './ConversationMessages.vue';
@@ -536,18 +537,25 @@ watch(
   }
 );
 
-// Model initialization from active conversation
+// Model initialization from active conversation. The pair resolves
+// atomically: a tier-bound model never pairs with a concrete provider hint,
+// and the legacy 'sonnet' literal defers to the shared default-model
+// resolver so the fallback always names a model in the live catalog.
 watch(
   () => sessionsStore.activeConversation,
   (conv) => {
     if (selectedModel.value === null) {
       suppressNextModelPersist = true;
-      selectedModel.value = sessionsStore.currentSession?.model ||
-        getProjectDefaultModel() ||
-        'sonnet';
-      selectedProviderId.value = sessionsStore.currentSession?.providerId ||
-        getProjectDefaultProviderId() ||
-        null;
+      const pair = normalizeModelProviderPair(
+        sessionsStore.currentSession?.model ||
+          getProjectDefaultModel() ||
+          resolveDefaultModelId(providersStore.providers),
+        sessionsStore.currentSession?.providerId ||
+          getProjectDefaultProviderId() ||
+          null
+      );
+      selectedModel.value = pair.model;
+      selectedProviderId.value = pair.providerId;
       nextTick(() => {
         suppressNextModelPersist = false;
       });

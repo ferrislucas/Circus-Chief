@@ -91,6 +91,13 @@
             empty-label="Inherit from root workspace"
             @update:provider-id="formData.providerId = $event"
           />
+          <SelectionConflictBanner
+            :visible="selectionGuard.showBanner"
+            :problem="selectionGuard.problem"
+            conflict-text=""
+            @use-canonical="clearStaleSelection"
+            @keep-mine="selectionGuard.keepMine"
+          />
         </div>
 
         <div class="form-group">
@@ -174,7 +181,7 @@
           <button
             type="submit"
             class="btn btn-primary"
-            :disabled="saving"
+            :disabled="saving || selectionGuard.invalid"
             data-testid="submit-btn"
           >
             <span
@@ -263,6 +270,9 @@ import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
 import { useProvidersStore } from '../stores/providers.js';
 import ModelSelector from './ModelSelector.vue';
+import SelectionConflictBanner from './SelectionConflictBanner.vue';
+import { useSelectionGuard } from '../composables/useSelectionGuard.js';
+import { normalizeModelProviderPair } from './modelSelectorTiers.js';
 import InterpolationHelp from './InterpolationHelp.vue';
 import ResizableTextarea from './ResizableTextarea.vue';
 import TemplateCard from './TemplateCard.vue';
@@ -331,6 +341,22 @@ function getModelName(modelId) {
   return modelId;
 }
 
+// Shared save-path contract (see useSelectionGuard): a selection naming a
+// deleted or emptied tier/provider/model keeps the banner up and blocks
+// creation until the user picks a current value or clears the selection. No
+// canonical-sync concept here, so the banner's resolve action clears the
+// stale binding (inherit/empty is always submittable).
+const selectionGuard = useSelectionGuard(
+  () => ({ model: formData.value.model, providerId: formData.value.providerId }),
+  () => false,
+  () => {}
+);
+
+function clearStaleSelection() {
+  formData.value.model = null;
+  formData.value.providerId = null;
+}
+
 function resetForm() {
   formData.value = {
     name: '',
@@ -357,17 +383,23 @@ function cancelForm() {
 
 async function handleSubmit() {
   if (saving.value) return;
+  if (selectionGuard.invalid) {
+    uiStore.error(selectionGuard.problem?.message || 'The model selection is no longer available.');
+    return;
+  }
 
   saving.value = true;
   try {
+    // A tier-bound template never persists a concrete provider hint.
+    const pair = normalizeModelProviderPair(formData.value.model, formData.value.providerId);
     const data = {
       name: formData.value.name,
       prompt: formData.value.prompt,
       nextTemplateId: formData.value.nextTemplateId || undefined,
       thinkingEnabled: formData.value.thinkingEnabled,  // null = inherit, true/false = explicit
       gitBranch: formData.value.gitBranch || undefined,
-      model: formData.value.model,                      // null = inherit
-      providerId: formData.value.providerId,
+      model: pair.model,                                // null = inherit
+      providerId: pair.providerId,
       mode: formData.value.mode,                        // null = inherit
       showInQuickResponses: formData.value.showInQuickResponses,
     };

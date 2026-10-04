@@ -77,6 +77,7 @@ import { ref, computed, watch, toRef, onMounted } from 'vue';
 import { useProvidersStore } from '../stores/providers.js';
 import { useTiersStore, isTierRef } from '../stores/tiers.js';
 import {
+  resolveDefaultModelId,
   tierDisplayName,
   tierDisplayTitle,
   tierIsStale,
@@ -403,22 +404,9 @@ function withDisabledModelsHidden(provider, keepModelIds, markPreservedUnavailab
 //   - Prefer the first built-in Anthropic provider's sonnet (or first) model.
 //   - If NO Anthropic providers exist at all, return null rather than silently
 //     selecting a Codex model (Codex has no "default" concept in the UI yet).
-const defaultModel = computed(() => {
-  const anthropicProviders = providersStore.providers.filter(
-    (p) => agentTypeFor(p) === 'claude-code' && p.enabled !== false
-  );
-  if (anthropicProviders.length === 0) {
-    return null;
-  }
-  const builtIn = anthropicProviders.find((p) => p.isBuiltIn);
-  const candidate = builtIn || anthropicProviders[0];
-  const enabledModels = candidate?.models?.filter((model) => model.enabled !== false) || [];
-  if (enabledModels.length) {
-    const sonnet = enabledModels.find((m) => m.tier === 'sonnet');
-    return sonnet?.modelId || enabledModels[0].modelId;
-  }
-  return null;
-});
+// Default-model resolution lives in the shared selection module so session
+// init paths resolve the same fallback (see resolveDefaultModelId).
+const defaultModel = computed(() => resolveDefaultModelId(providersStore.providers));
 
 // Track if we've already initialized (to prevent default model from overriding after init)
 const hasInitialized = ref(false);
@@ -558,12 +546,9 @@ function syncSelectionFromProviders() {
 
   const resolvedModel = props.modelValue ? resolveModelId(props.modelValue) : null;
 
-  // Tier refs don't need provider resolution — handle them directly
+  // Tier refs don't need provider resolution — handle them directly.
   if (resolvedModel && isTierRef(resolvedModel)) {
-    if (selectedModel.value !== resolvedModel) {
-      selectedModel.value = resolvedModel;
-      selectedProviderId.value = null;
-    }
+    applyTierRefSelection(resolvedModel);
     return;
   }
 
@@ -584,6 +569,21 @@ function syncSelectionFromProviders() {
   }
 
   applyDefaultModel();
+}
+
+// A tier ref never carries a concrete provider hint, so converge a stale
+// parent hint to null (same rule as handleModelChange and
+// normalizeModelProviderPair).
+function applyTierRefSelection(resolvedModel) {
+  if (selectedModel.value !== resolvedModel) {
+    selectedModel.value = resolvedModel;
+  }
+  if (selectedProviderId.value !== null) {
+    selectedProviderId.value = null;
+  }
+  if (props.providerId != null) {
+    emit(EVT_UPDATE_PROVIDER_ID, null);
+  }
 }
 
 function applyResolvedModel(resolvedModel) {

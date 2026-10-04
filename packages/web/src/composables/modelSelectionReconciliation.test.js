@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reconcileModelSelection, describeSelectionProblem } from './modelSelectionReconciliation.js';
+import { reconcileModelSelection, reconcileFormFields, describeSelectionProblem } from './modelSelectionReconciliation.js';
 
 describe('reconcileModelSelection', () => {
   it('updates only an untouched provider/model pair and preserves unrelated edits in the owning form', () => {
@@ -23,9 +23,50 @@ describe('reconcileModelSelection', () => {
   });
 });
 
+describe('reconcileFormFields', () => {
+  it('adopts every field on first intake (no previous canonical)', () => {
+    expect(reconcileFormFields({
+      current: { mode: '', thinkingEnabled: false },
+      previousCanonical: null,
+      canonical: { mode: 'plan', thinkingEnabled: true },
+    })).toEqual({ values: { mode: 'plan', thinkingEnabled: true }, conflicts: [], conflict: false });
+  });
+
+  it('adopts untouched fields so external non-model changes surface', () => {
+    expect(reconcileFormFields({
+      current: { mode: 'plan', thinkingEnabled: true },
+      previousCanonical: { mode: 'plan', thinkingEnabled: true },
+      canonical: { mode: 'code', thinkingEnabled: true },
+    })).toEqual({ values: { mode: 'code', thinkingEnabled: true }, conflicts: [], conflict: false });
+  });
+
+  it('keeps user-edited fields and flags a conflict only when upstream also moved', () => {
+    // Upstream moved the same field the user edited: keep mine, flag it.
+    expect(reconcileFormFields({
+      current: { mode: 'yolo', thinkingEnabled: true },
+      previousCanonical: { mode: 'plan', thinkingEnabled: true },
+      canonical: { mode: 'code', thinkingEnabled: true },
+    })).toEqual({ values: { mode: 'yolo', thinkingEnabled: true }, conflicts: ['mode'], conflict: true });
+    // Upstream static: keep mine silently, no false conflict.
+    expect(reconcileFormFields({
+      current: { mode: 'yolo', thinkingEnabled: true },
+      previousCanonical: { mode: 'plan', thinkingEnabled: true },
+      canonical: { mode: 'plan', thinkingEnabled: false },
+    })).toEqual({ values: { mode: 'yolo', thinkingEnabled: false }, conflicts: [], conflict: false });
+  });
+
+  it('treats empty and null as the same unset value', () => {
+    expect(reconcileFormFields({
+      current: { gitBranch: '' },
+      previousCanonical: { gitBranch: null },
+      canonical: { gitBranch: 'feature/x' },
+    })).toEqual({ values: { gitBranch: 'feature/x' }, conflicts: [], conflict: false });
+  });
+});
+
 describe('describeSelectionProblem', () => {
   const catalog = {
-    tiers: [{ id: 't-keep', name: 'Keep', members: [] }],
+    tiers: [{ id: 't-keep', name: 'Keep', members: [{ providerId: 'p-a', modelId: 'm-a', available: true }] }],
     tiersLoaded: true,
     providers: [
       {
@@ -52,6 +93,40 @@ describe('describeSelectionProblem', () => {
   it('flags a tier ref whose tier no longer exists', () => {
     const problem = describeSelectionProblem({ model: 'tier::t-gone', providerId: null }, catalog);
     expect(problem).toMatchObject({ code: 'tier-missing' });
+  });
+
+  it('flags a tier ref whose tier exists but has zero usable members', () => {
+    const emptied = {
+      ...catalog,
+      tiers: [{ id: 't-empty', name: 'Emptied', members: [] }],
+    };
+    const problem = describeSelectionProblem({ model: 'tier::t-empty', providerId: null }, emptied);
+    expect(problem).not.toBeNull();
+    expect(problem.code).toBe('tier-unusable');
+
+    const allUnavailable = {
+      ...catalog,
+      tiers: [{
+        id: 't-dark',
+        name: 'Dark',
+        members: [{ providerId: 'p-a', modelId: 'm-a', available: false }],
+      }],
+    };
+    expect(
+      describeSelectionProblem({ model: 'tier::t-dark', providerId: null }, allUnavailable)
+    ).toMatchObject({ code: 'tier-unusable' });
+  });
+
+  it('accepts a tier ref with at least one usable member', () => {
+    const usable = {
+      ...catalog,
+      tiers: [{
+        id: 't-live',
+        name: 'Live',
+        members: [{ providerId: 'p-a', modelId: 'm-a', available: true }],
+      }],
+    };
+    expect(describeSelectionProblem({ model: 'tier::t-live', providerId: null }, usable)).toBeNull();
   });
 
   it('accepts an enabled provider/model pair', () => {

@@ -123,6 +123,47 @@ describe('Settings API', { timeout: 30_000 }, () => {
       expect(res.body.error).toContain('does not own');
     });
 
+    it('rejects an explicit pair on a disabled provider', async () => {
+      const provider = modelProviders.create({ name: 'Disabled Settings Provider', kind: 'anthropic' });
+      modelProviders.addModel(provider.id, { modelId: 'settings-disabled-model', displayName: 'D' });
+      modelProviders.update(provider.id, { enabled: false });
+
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: 'settings-disabled-model',
+          summaryProviderId: provider.id,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/disabled/i);
+
+      modelProviders.delete(provider.id);
+    });
+
+    it('rejects an explicit pair with a disabled model', async () => {
+      const provider = modelProviders.create({ name: 'Model Disabled Settings Provider', kind: 'anthropic' });
+      modelProviders.addModel(provider.id, { modelId: 'settings-toggled-model', displayName: 'T' });
+      const rowId = modelProviders.getById(provider.id).models.find((m) => m.modelId === 'settings-toggled-model').id;
+      modelProviders.updateModel(rowId, { enabled: false });
+
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: 'settings-toggled-model',
+          summaryProviderId: provider.id,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/disabled/i);
+
+      modelProviders.delete(provider.id);
+    });
+
     it('rejects model-only explicit mode', async () => {
       const provider = modelProviders.getById('openai-default');
       const model = provider.models[0].modelId;

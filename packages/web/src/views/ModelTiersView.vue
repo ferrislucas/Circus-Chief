@@ -98,9 +98,18 @@
       v-if="showModal"
       class="modal-overlay"
       @click.self="closeModal"
+      @keydown="onTierModalKeydown"
     >
-      <div class="modal">
-        <h3>{{ editingTier ? 'Edit Tier' : 'New Tier' }}</h3>
+      <div
+        ref="tierModal"
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="tier-modal-title"
+      >
+        <h3 id="tier-modal-title">
+          {{ editingTier ? 'Edit Tier' : 'New Tier' }}
+        </h3>
 
         <div class="form-group">
           <label for="tier-name">Name <span class="required">*</span></label>
@@ -157,6 +166,7 @@
                 :disabled="idx === 0"
                 class="btn-icon"
                 title="Move up"
+                :aria-label="`Move ${member.modelId} up`"
                 @click="moveMemberUp(idx)"
               >
                 ↑
@@ -165,6 +175,7 @@
                 :disabled="idx === form.members.length - 1"
                 class="btn-icon"
                 title="Move down"
+                :aria-label="`Move ${member.modelId} down`"
                 @click="moveMemberDown(idx)"
               >
                 ↓
@@ -172,6 +183,7 @@
               <button
                 class="btn-icon btn-icon-danger"
                 title="Remove"
+                :aria-label="`Remove ${member.modelId} from tier`"
                 @click="removeMember(idx)"
               >
                 ✕
@@ -242,9 +254,18 @@
       v-if="confirmingDelete"
       class="modal-overlay"
       @click.self="confirmingDelete = null"
+      @keydown="onDeleteModalKeydown"
     >
-      <div class="modal modal-sm">
-        <h3>Delete tier?</h3>
+      <div
+        ref="deleteModal"
+        class="modal modal-sm"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-modal-title"
+      >
+        <h3 id="delete-modal-title">
+          Delete tier?
+        </h3>
         <p>
           Are you sure you want to delete <strong>{{ confirmingDelete.name }}</strong>? Sessions
           currently bound to this tier will lose their tier assignment.
@@ -270,7 +291,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useTiersStore } from '../stores/tiers.js';
 import { useProvidersStore } from '../stores/providers.js';
 import { useUiStore } from '../stores/ui.js';
@@ -290,6 +311,47 @@ const newMemberKey = ref('');
 
 const confirmingDelete = ref(null);
 const deleting = ref(false);
+
+const tierModal = ref(null);
+const deleteModal = ref(null);
+
+function focusFirstControl(root) {
+  root?.querySelector('input, select, textarea, button:not([disabled])')?.focus();
+}
+
+// Keep Tab cycling inside the open modal. Only enabled controls participate;
+// hidden/disabled controls are skipped by the disabled filter.
+function confineModalTab(event, root) {
+  if (event.key !== 'Tab' || !root) return;
+  const controls = [...root.querySelectorAll('input, select, textarea, button')]
+    .filter((el) => !el.disabled);
+  if (controls.length === 0) return;
+  const first = controls[0];
+  const last = controls[controls.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function onTierModalKeydown(event) {
+  if (event.key === 'Escape') {
+    closeModal();
+    return;
+  }
+  confineModalTab(event, tierModal.value);
+}
+
+function onDeleteModalKeydown(event) {
+  if (event.key === 'Escape') {
+    confirmingDelete.value = null;
+    return;
+  }
+  confineModalTab(event, deleteModal.value);
+}
 
 // ── Computed ────────────────────────────────────────────────────────────────
 function isEnabledProvider(provider) {
@@ -329,13 +391,46 @@ function availabilityLabel(reason) {
   return labels[reason] || 'not executable';
 }
 
+// A provider list that is present but carries no models (e.g. a
+// create-response snapshot, or models stripped upstream) cannot feed the
+// member picker — refetch in that case instead of rendering empty groups.
+const providersHaveModels = computed(() => providersStore.providers.length > 0
+  && providersStore.providers.some((p) => Array.isArray(p.models) && p.models.length > 0));
+
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 onMounted(async () => {
   await Promise.all([
     !tiersStore.loaded ? tiersStore.fetchTiers() : Promise.resolve(),
-    providersStore.providers.length === 0 ? providersStore.fetchProviders() : Promise.resolve(),
+    providersHaveModels.value ? Promise.resolve() : providersStore.fetchProviders(),
   ]);
 });
+
+// ── Mid-edit catalog reconciliation ──────────────────────────────────────────
+// Recompute availability flags on the in-progress form rows against the
+// CURRENT catalog without touching membership or order: a provider/model
+// disabled mid-edit (e.g. by another client) surfaces on its row instead of
+// silently keeping the snapshot from modal-open time. Rows are never
+// removed here — retention of dead pairs is a deliberate server contract
+// (the already-configured bypass), surfaced to the user as a flag.
+function describeRowAvailability(providerId, modelId) {
+  const provider = providersStore.providers.find((p) => p.id === providerId);
+  if (!provider) return { available: false, unavailabilityReason: 'provider_missing' };
+  if (provider.enabled === false) return { available: false, unavailabilityReason: 'provider_disabled' };
+  const model = provider.models?.find((m) => m.modelId === modelId);
+  if (!model) return { available: false, unavailabilityReason: 'model_missing' };
+  if (model.enabled === false) return { available: false, unavailabilityReason: 'model_disabled' };
+  return { available: true, unavailabilityReason: null };
+}
+
+function refreshFormAvailability() {
+  for (const member of form.value.members) {
+    const { available, unavailabilityReason } = describeRowAvailability(member.providerId, member.modelId);
+    member.available = available;
+    member.unavailabilityReason = unavailabilityReason;
+  }
+}
+
+watch(() => providersStore.providers, refreshFormAvailability, { deep: true });
 
 // ── Modal helpers ────────────────────────────────────────────────────────────
 function openCreateModal() {
@@ -344,6 +439,7 @@ function openCreateModal() {
   newMemberKey.value = '';
   modalError.value = '';
   showModal.value = true;
+  nextTick(() => focusFirstControl(tierModal.value));
 }
 
 function openEditModal(tier) {
@@ -356,6 +452,7 @@ function openEditModal(tier) {
   newMemberKey.value = '';
   modalError.value = '';
   showModal.value = true;
+  nextTick(() => focusFirstControl(tierModal.value));
 }
 
 function closeModal() {
@@ -445,6 +542,7 @@ async function saveTier() {
 // ── Delete ───────────────────────────────────────────────────────────────────
 function confirmDelete(tier) {
   confirmingDelete.value = tier;
+  nextTick(() => focusFirstControl(deleteModal.value));
 }
 
 async function doDelete() {

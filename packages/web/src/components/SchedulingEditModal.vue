@@ -42,6 +42,13 @@
                 preserve-current-value
                 @update:provider-id="form.providerId = $event"
               />
+              <SelectionConflictBanner
+                :visible="selectionGuard.showBanner"
+                :problem="selectionGuard.problem"
+                conflict-text="This workspace changed elsewhere while you were editing. Your edits are preserved."
+                @use-canonical="resolveSelectionBanner"
+                @keep-mine="selectionGuard.keepMine"
+              />
             </div>
 
             <div class="form-group">
@@ -223,7 +230,7 @@
           </button>
           <button
             class="btn btn-primary"
-            :disabled="loading"
+            :disabled="loading || selectionGuard.invalid"
             @click="handleSave"
           >
             {{ loading ? 'Updating...' : 'Update' }}
@@ -243,6 +250,9 @@ import { formatDateTimeLocal } from '../utils/formatters.js';
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';
 import TemplateSelector from './TemplateSelector.vue';
+import SelectionConflictBanner from './SelectionConflictBanner.vue';
+import { useSchedulingSessionSync } from '../composables/useSchedulingSessionSync.js';
+import { normalizeModelProviderPair } from './modelSelectorTiers.js';
 
 const props = defineProps({
   isOpen: { type: Boolean, default: false },
@@ -293,51 +303,30 @@ function close() {
   emit('close');
 }
 
-function handleTemplateChange(templateId) {
-  form.nextTemplateId = templateId;
-}
-
-function convertToLocalDatetime(timestamp) {
-  if (!timestamp) return '';
-  return formatDateTimeLocal(new Date(timestamp));
-}
-
-function hydrateSessionSettings(session) {
-  const hasPendingSelection = session.pendingModel !== null
-    && session.pendingModel !== undefined;
-  form.model = hasPendingSelection ? session.pendingModel : (session.model || null);
-  form.providerId = hasPendingSelection
-    ? (session.pendingProviderId || null)
-    : (session.providerId || null);
-  form.mode = session.mode || 'standard';
-  form.thinkingEnabled = session.thinkingEnabled || false;
-}
-
-function hydrateSchedulingSettings(session) {
-  form.scheduledAtLocal = convertToLocalDatetime(session.scheduledAt);
-  form.nextTemplateId = session.nextTemplateId || null;
-}
-
-function hydrateRescheduleSettings(session) {
-  form.autoRescheduleEnabled = session.autoRescheduleEnabled || false;
-  form.rescheduleDelayMinutes = session.rescheduleDelayMinutes || DEFAULT_RESCHEDULE_DELAY_MINUTES;
-  form.rescheduleOnTokenLimit = session.rescheduleOnTokenLimit ?? true;
-  form.rescheduleOnServiceError = session.rescheduleOnServiceError ?? true;
-  form.maxRescheduleCount = session.maxRescheduleCount;
-  form.maxTotalTokens = session.maxTotalTokens;
-  form.rescheduleAtTokenCount = session.rescheduleAtTokenCount;
-  form.resetRescheduleCount = false;
-}
+// Canonical session sync (hydration, convergence, guard, websocket intake)
+// lives in useSchedulingSessionSync to keep this component under the
+// file-size lint budget — same behavior, operated on `form` in place.
+const { selectionGuard, resolveSelectionBanner, hydrateFromSession } = useSchedulingSessionSync({
+  formState: form,
+  getSession: () => props.session,
+  isOpen: () => props.isOpen,
+});
 
 async function handleSave() {
+  if (selectionGuard.invalid) {
+    error.value = selectionGuard.problem?.message || 'The model selection is no longer available.';
+    return;
+  }
   loading.value = true;
   error.value = null;
 
   try {
+    // A tier-bound session never persists a concrete provider hint.
+    const pair = normalizeModelProviderPair(form.model, form.providerId);
     const updateData = {
       // Session settings
-      model: form.model,
-      providerId: form.providerId,
+      model: pair.model,
+      providerId: pair.providerId,
       mode: form.mode,
       thinkingEnabled: form.thinkingEnabled,
       // Template chaining
@@ -356,8 +345,8 @@ async function handleSave() {
     // the workspace setting so a scheduled edit cannot retain a stale provider
     // for an otherwise identical model id.
     if (props.session?.status === 'scheduled') {
-      updateData.pendingModel = form.model;
-      updateData.pendingProviderId = form.providerId;
+      updateData.pendingModel = pair.model;
+      updateData.pendingProviderId = pair.providerId;
     }
 
     // Update scheduled time if changed
@@ -390,9 +379,7 @@ watch(
   (isOpen) => {
     if (isOpen && props.session) {
       error.value = null; // Clear any previous errors
-      hydrateSessionSettings(props.session);
-      hydrateSchedulingSettings(props.session);
-      hydrateRescheduleSettings(props.session);
+      hydrateFromSession(props.session);
     }
   }
 );

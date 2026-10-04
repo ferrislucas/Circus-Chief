@@ -28,15 +28,20 @@ let capturedTierContexts = [];
 // tests can assert the agent adapter is created from the RECONCILED agentType
 // (Work Item 4), not a stale pre-reconciliation value.
 let capturedAgentTypes = [];
+// Capture the logging metadata handed to _executeSession alongside the query
+// params, so tests can assert the logged model is the resolved member —
+// never the raw caller override (Issue #25).
+let capturedAgentCallMetas = [];
 const workflowMock = vi.hoisted(() => ({ laneRunOwnsSession: true }));
 
 vi.mock('./sessionExecution.js', async (importOriginal) => {
   const original = await importOriginal();
   return {
     ...original,
-    _executeSession: vi.fn(async ({ queryParams, tierContext }) => {
+    _executeSession: vi.fn(async ({ queryParams, tierContext, agentCallMeta }) => {
       capturedQueryParams.push(queryParams);
       capturedTierContexts.push(tierContext ?? null);
+      capturedAgentCallMetas.push(agentCallMeta ?? null);
     }),
     createAgentForSession: vi.fn((agentType) => {
       capturedAgentTypes.push(agentType);
@@ -117,6 +122,7 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
     capturedQueryParams = [];
     capturedTierContexts = [];
     capturedAgentTypes = [];
+    capturedAgentCallMetas = [];
     workflowMock.laneRunOwnsSession = true;
     vi.clearAllMocks();
     activeSessions.clear();
@@ -397,6 +403,64 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
     expect(updated.model).toBe(tierBRef);
     expect(updated.resolvedModel).toBe('claude-sonnet-5');
     expect(updated.resolvedProviderId).toBe(providerA.id);
+  });
+
+  // Issue #25: call metadata must log the resolved member, not the raw
+  // override — otherwise call history shows tier sentinels (or null) for
+  // turns that actually dispatched a concrete member model.
+  it('logs the resolved member (not the raw tier override) in continuation call metadata', async () => {
+    const tierA = modelTiers.create({
+      name: 'Meta Tier A',
+      members: [{ providerId: providerA.id, modelId: 'claude-opus-4-6', position: 0 }],
+    });
+    const tierB = modelTiers.create({
+      name: 'Meta Tier B',
+      members: [{ providerId: providerA.id, modelId: 'claude-sonnet-5', position: 0 }],
+    });
+    const tierARef = buildTierRef(tierA.id);
+    const tierBRef = buildTierRef(tierB.id);
+
+    const session = createTestSession(project, {
+      model: tierARef,
+      resolvedModel: 'claude-opus-4-6',
+      resolvedProviderId: providerA.id,
+    });
+    conversations.ensureActiveConversation(session.id);
+
+    await continueSessionCore(
+      session.id,
+      'Switch to tier B',
+      '/tmp/tier-continue-test',
+      { options: { model: tierBRef }, callbacks: mockCallbacks }
+    );
+
+    expect(capturedAgentCallMetas.length).toBeGreaterThan(0);
+    expect(capturedAgentCallMetas[0]).toMatchObject({ model: 'claude-sonnet-5' });
+    expect(capturedAgentCallMetas[0].model).not.toContain('tier::');
+  });
+
+  it('logs the snapshot member (not null) when continuing a tier-bound session without an override', async () => {
+    const tier = modelTiers.create({
+      name: 'Meta Tier',
+      members: [{ providerId: providerA.id, modelId: 'claude-opus-4-6', position: 0 }],
+    });
+
+    const session = createTestSession(project, {
+      model: buildTierRef(tier.id),
+      resolvedModel: 'claude-opus-4-6',
+      resolvedProviderId: providerA.id,
+    });
+    conversations.ensureActiveConversation(session.id);
+
+    await continueSessionCore(
+      session.id,
+      'Follow-up turn',
+      '/tmp/tier-continue-test',
+      { options: {}, callbacks: mockCallbacks }
+    );
+
+    expect(capturedAgentCallMetas.length).toBeGreaterThan(0);
+    expect(capturedAgentCallMetas[0]).toMatchObject({ model: 'claude-opus-4-6' });
   });
 
   it('an explicit concrete-model override on a tier-bound session persists the concrete model and clears the resolved snapshot', async () => {

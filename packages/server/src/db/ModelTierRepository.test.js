@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ModelTierRepository } from './ModelTierRepository.js';
 import { ProviderRepository } from './ProviderRepository.js';
+import { MAX_TIER_MEMBERS, MAX_TIER_DESCRIPTION_LENGTH } from '@circuschief/shared';
 
 describe('ModelTierRepository', () => {
   let repo;
@@ -208,6 +209,87 @@ describe('ModelTierRepository', () => {
           { providerId: providerB.id, modelId: 'm2', position: 1 },
         ],
       }), 'Duplicate tier member');
+    });
+
+    it('rejects more than MAX_TIER_MEMBERS members at the repository boundary', () => {
+      const members = Array.from({ length: MAX_TIER_MEMBERS + 1 }, (_, index) => ({
+        providerId: providerA.id,
+        modelId: `cap-model-${index}`,
+        position: index,
+      }));
+      expectMemberError(() => repo.create({ name: 'Too Many Members', members }), 'at most 50 members');
+
+      const tier = repo.create({ name: 'Capped Tier', members: [] });
+      expectMemberError(() => repo.update(tier.id, { members }), 'at most 50 members');
+    });
+
+    it('rejects an overlong description at the repository boundary', () => {
+      const overlong = 'x'.repeat(MAX_TIER_DESCRIPTION_LENGTH + 1);
+      expectMemberError(
+        () => repo.create({ name: 'Long Description', description: overlong }),
+        'at most 2000 characters'
+      );
+
+      const tier = repo.create({ name: 'Describable Tier' });
+      expectMemberError(
+        () => repo.update(tier.id, { description: overlong }),
+        'at most 2000 characters'
+      );
+    });
+
+    it('accepts a description at exactly the limit', () => {
+      const atLimit = 'x'.repeat(MAX_TIER_DESCRIPTION_LENGTH);
+      const tier = repo.create({ name: 'Limit Description', description: atLimit });
+      expect(tier.description).toBe(atLimit);
+    });
+  });
+
+  // Issue #29: tier names are trimmed and unique case-insensitively at the
+  // repository boundary (SQLite UNIQUE is BINARY collation, so the schema
+  // alone would admit 'Dup' alongside 'dup').
+  describe('name normalization', () => {
+    function expectTierError(fn, statusCode, messagePart) {
+      try {
+        fn();
+      } catch (error) {
+        expect(error.statusCode).toBe(statusCode);
+        if (messagePart) expect(error.message).toContain(messagePart);
+        return;
+      }
+      throw new Error('Expected tier validation to throw');
+    }
+
+    it('trims tier names on create and update', () => {
+      const tier = repo.create({ name: '  Padded Tier  ' });
+      expect(tier.name).toBe('Padded Tier');
+
+      const updated = repo.update(tier.id, { name: '  Still Padded  ' });
+      expect(updated.name).toBe('Still Padded');
+    });
+
+    it('rejects blank names', () => {
+      expectTierError(() => repo.create({ name: '   ' }), 400, 'non-empty');
+
+      const tier = repo.create({ name: 'Not Blank' });
+      expectTierError(() => repo.update(tier.id, { name: '  ' }), 400, 'non-empty');
+    });
+
+    it('rejects case-insensitive duplicate names with 409', () => {
+      repo.create({ name: 'Case Tier' });
+      expectTierError(() => repo.create({ name: 'case tier' }), 409, 'already exists');
+      expectTierError(() => repo.create({ name: '  CASE TIER ' }), 409, 'already exists');
+    });
+
+    it('rejects renaming onto another tier name case-insensitively', () => {
+      const tier = repo.create({ name: 'First Tier' });
+      repo.create({ name: 'Second Tier' });
+      expectTierError(() => repo.update(tier.id, { name: 'second tier' }), 409, 'already exists');
+    });
+
+    it('allows renaming a tier to a case-variant of its own name', () => {
+      const tier = repo.create({ name: 'Own Tier' });
+      const updated = repo.update(tier.id, { name: 'OWN TIER' });
+      expect(updated.name).toBe('OWN TIER');
     });
   });
 

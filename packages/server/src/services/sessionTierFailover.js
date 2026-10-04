@@ -382,11 +382,23 @@ export async function runSessionWithTierFailover(
   sessions.update(sessionId, { model: tierRef });
 
   const attempts = [];
+  let attemptedAny = false;
   try {
     for (let memberIndex = 0; memberIndex < attemptableMembers.length; memberIndex++) {
       const member = attemptableMembers[memberIndex];
-      const nextMember = attemptableMembers[memberIndex + 1] || null;
+      // Re-check cooldown before every attempt against the frozen member
+      // list (the list itself never re-reads live configuration mid-run):
+      // a member cooled after the loop-start snapshot — by a concurrent
+      // session, or by an earlier attempt's attribution — must be skipped,
+      // never hammered. The successor handed to the reschedule decision and
+      // the failover event is likewise the next STILL-HEALTHY member, so a
+      // cooled successor can neither suppress rescheduling nor be announced.
+      if (isUnhealthy(member.providerId, member.modelId)) continue;
+      const nextMember = attemptableMembers
+        .slice(memberIndex + 1)
+        .find((candidate) => !isUnhealthy(candidate.providerId, candidate.modelId)) || null;
 
+      attemptedAny = true;
       const result = await runSingleTierAttempt(sessionId, promptWithAttachments, workingDirectory, {
         member,
         nextMember,
@@ -404,6 +416,12 @@ export async function runSessionWithTierFailover(
     }
 
     if (attempts.length) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
+    if (!attemptedAny) {
+      // Every frozen member was cooled before its attempt: the tier is
+      // temporarily exhausted, exactly as if the loop-start snapshot had
+      // found nothing attemptable.
+      throw createTierCooldownUnavailableError(tierId, tierName);
+    }
   } finally {
     // Late events from an unwinding stream must never pin the session to a
     // member that is no longer running.

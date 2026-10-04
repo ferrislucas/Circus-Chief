@@ -22,13 +22,17 @@ describe('summaryModelResolver', () => {
   });
 
   it('resolves an explicit built-in OpenAI model to the OpenAI provider', () => {
+    // NOTE (Issue #13): the fixture must be a catalog-enabled model.
+    // DEFAULT_OPENAI_SUMMARY_MODEL ('gpt-5.4-mini') is catalog-disabled
+    // (lifecycle 'older', defaultEnabled false), so explicit resolution of
+    // that pair now correctly throws — see the disabled-pair tests below.
     const resolved = resolveSummaryModel({
-      summaryModel: DEFAULT_OPENAI_SUMMARY_MODEL,
+      summaryModel: 'gpt-5.6-sol',
       summaryProviderId: 'openai-default',
     });
 
     expect(resolved).toMatchObject({
-      model: DEFAULT_OPENAI_SUMMARY_MODEL,
+      model: 'gpt-5.6-sol',
       kind: 'openai',
       providerId: 'openai-default',
       isDefault: false,
@@ -151,6 +155,33 @@ describe('summaryModelResolver', () => {
       providerId: BUILT_IN_OPENAI_PROVIDER_ID,
       selectionReason: 'recent-built-in-provider',
     });
+  });
+
+  it('throws for an explicit pair on a disabled provider', () => {
+    const provider = modelProviders.create({ name: 'Disabled Summary Provider', kind: 'anthropic' });
+    modelProviders.addModel(provider.id, { modelId: 'disabled-summary-model', displayName: 'Disabled' });
+    modelProviders.update(provider.id, { enabled: false });
+
+    expect(() => resolveSummaryModel({
+      summaryModel: 'disabled-summary-model',
+      summaryProviderId: provider.id,
+    })).toThrow(/disabled/i);
+
+    modelProviders.delete(provider.id);
+  });
+
+  it('throws for an explicit pair with a disabled model', () => {
+    const provider = modelProviders.create({ name: 'Model Disabled Summary Provider', kind: 'anthropic' });
+    modelProviders.addModel(provider.id, { modelId: 'toggled-summary-model', displayName: 'Toggled' });
+    const rowId = modelProviders.getById(provider.id).models.find((m) => m.modelId === 'toggled-summary-model').id;
+    modelProviders.updateModel(rowId, { enabled: false });
+
+    expect(() => resolveSummaryModel({
+      summaryModel: 'toggled-summary-model',
+      summaryProviderId: provider.id,
+    })).toThrow(/disabled/i);
+
+    modelProviders.delete(provider.id);
   });
 
   it('throws for model-only explicit settings', () => {

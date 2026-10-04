@@ -2,6 +2,7 @@ import { modelProviders, modelTiers, sessions } from '../database.js';
 import { isTierRef, parseTierRef } from '@circuschief/shared';
 import { getTierMembersResolved, isUnhealthy } from './tierResolutionService.js';
 import { createTierCooldownUnavailableError } from './tierCooldownUnavailableError.js';
+import { validateExactTierMember } from './tierIdentity.js';
 import { ACTIVITY_FIELDS_SQL } from '../db/session-helpers.js';
 
 export const DEFAULT_ANTHROPIC_SUMMARY_MODEL = 'claude-haiku-4-5-20251001';
@@ -110,15 +111,11 @@ export function resolveExplicitSummaryModel(summaryModel, summaryProviderId) {
     throw new Error('summaryProviderId is required when summaryModel is set');
   }
 
+  // Exact-pair identity (existence + enabled on both halves) shares the one
+  // server predicate with tier resolution — a summary pinned to a disabled
+  // or removed pair fails closed here instead of dispatching to it.
+  validateExactTierMember(summaryProviderId, summaryModel);
   const provider = modelProviders.getById(summaryProviderId);
-  if (!provider) {
-    throw new Error(`Summary provider not found: ${summaryProviderId}`);
-  }
-
-  const ownsModel = provider.models?.some((model) => model.modelId === summaryModel);
-  if (!ownsModel) {
-    throw new Error(`Summary provider ${summaryProviderId} does not own model ${summaryModel}`);
-  }
   return providerResolution(summaryModel, provider, 'explicit');
 }
 

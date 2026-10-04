@@ -68,6 +68,13 @@ vi.mock('../composables/useWebSocket.js', () => ({
     onConversationDeleted: vi.fn(() => vi.fn()),
     onUsageUpdate: vi.fn(() => vi.fn()),
   })),
+  // SchedulingEditModal (rendered by SchedulingInfo) subscribes to session
+  // updates + reconnects through this hook; stub the interface it consumes.
+  useWebSocket: vi.fn(() => ({
+    on: vi.fn(() => vi.fn()),
+    off: vi.fn(),
+    onReconnect: vi.fn(() => vi.fn()),
+  })),
 }));
 
 vi.mock('../composables/useApi.js', () => ({

@@ -613,6 +613,17 @@ describe('resolveNextTemplateId', () => {
     expect(result.error).toBe('nextTemplateId references a non-existent template');
     expect(result.nextTemplateId).toBeNull();
   });
+
+  it('returns error for a non-string nextTemplateId without a database lookup', async () => {
+    const { sessionTemplates } = await import('../database.js');
+    sessionTemplates.getById.mockClear();
+
+    expect(resolveNextTemplateId({ nextTemplateId: 123 }, null)).toEqual({
+      nextTemplateId: null,
+      error: 'nextTemplateId must be a string or null',
+    });
+    expect(sessionTemplates.getById).not.toHaveBeenCalled();
+  });
 });
 
 // ── determineInitialStatus ───────────────────────────────────────────────

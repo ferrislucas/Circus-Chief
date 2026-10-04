@@ -1,6 +1,6 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
-import { TIER_REF_PREFIX } from '@circuschief/shared';
+import { TIER_REF_PREFIX, MAX_TIER_MEMBERS, MAX_TIER_DESCRIPTION_LENGTH } from '@circuschief/shared';
 
 /**
  * Build a 400-coded error for invalid tier member sets. The tiers API maps
@@ -13,6 +13,36 @@ function tierMemberError(message) {
   const error = new Error(message);
   error.statusCode = 400;
   return error;
+}
+
+/**
+ * Normalize a tier name: trim surrounding whitespace. Tier names are
+ * short labels (max 100 per the API contract); surrounding spaces are
+ * never significant and would otherwise defeat duplicate detection.
+ * @param {*} name
+ * @returns {string} Trimmed name (possibly empty — callers reject blanks).
+ */
+function normalizeTierName(name) {
+  return typeof name === 'string' ? name.trim() : name;
+}
+
+/**
+ * Enforce case-insensitive name uniqueness at the repository boundary. The
+ * schema UNIQUE index uses BINARY collation, so without this check 'Dup'
+ * and 'dup' could coexist as confusing near-duplicates. NOCASE folding is
+ * ASCII-only — documented limitation, matching SQLite semantics.
+ * @param {string} name - Already-trimmed candidate name.
+ * @param {string|null} [excludeId] - Tier id to exclude (updates keep own name).
+ */
+function assertTierNameAvailable(db, name, excludeId = null) {
+  const clash = db
+    .prepare('SELECT id FROM model_tiers WHERE name = ? COLLATE NOCASE')
+    .get(name);
+  if (clash && clash.id !== excludeId) {
+    const error = new Error('A tier with that name already exists');
+    error.statusCode = 409;
+    throw error;
+  }
 }
 
 /**
@@ -126,6 +156,12 @@ export class ModelTierRepository extends BaseRepository {
   create({ name, description = null, members = [] }) {
     const id = databaseManager.generateId();
     const now = Date.now();
+    const cleanName = normalizeTierName(name);
+    if (typeof cleanName !== 'string' || cleanName.length === 0) {
+      throw tierMemberError('Tier name must be a non-empty string');
+    }
+    assertTierNameAvailable(this.db, cleanName);
+    this.#validateDescription(description);
 
     databaseManager.transaction(() => {
       this.db
@@ -133,7 +169,7 @@ export class ModelTierRepository extends BaseRepository {
           `INSERT INTO model_tiers (id, name, description, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?)`
         )
-        .run(id, name, description ?? null, now, now);
+        .run(id, cleanName, description ?? null, now, now);
 
       this.#insertMembers(id, members, now);
     });
@@ -158,10 +194,16 @@ export class ModelTierRepository extends BaseRepository {
       const values = [];
 
       if (name !== undefined) {
+        const cleanName = normalizeTierName(name);
+        if (typeof cleanName !== 'string' || cleanName.length === 0) {
+          throw tierMemberError('Tier name must be a non-empty string');
+        }
+        assertTierNameAvailable(this.db, cleanName, id);
         updates.push('name = ?');
-        values.push(name);
+        values.push(cleanName);
       }
       if (description !== undefined) {
+        this.#validateDescription(description);
         updates.push('description = ?');
         values.push(description ?? null);
       }
@@ -235,8 +277,26 @@ export class ModelTierRepository extends BaseRepository {
    * @param {Array} members
    * @returns {Array} Members with normalized positions
    */
+  #validateDescription(description) {
+    if (description === undefined || description === null) return;
+    if (typeof description !== 'string') {
+      throw tierMemberError('Tier description must be a string or null');
+    }
+    if (description.length > MAX_TIER_DESCRIPTION_LENGTH) {
+      throw tierMemberError(
+        `Tier description must be at most ${MAX_TIER_DESCRIPTION_LENGTH} characters`
+      );
+    }
+  }
+
   #validateMembers(members) {
     if (!Array.isArray(members)) throw tierMemberError('Tier members must be an array');
+    // Repository-boundary member cap (mirrors the Zod contract's
+    // MAX_TIER_MEMBERS): tiers are an ordered failover chain, so the count
+    // is bounded here for every write path, not just HTTP requests.
+    if (members.length > MAX_TIER_MEMBERS) {
+      throw tierMemberError(`A tier can have at most ${MAX_TIER_MEMBERS} members`);
+    }
     const pairs = new Set();
     const positions = new Set();
     return members.map((member, index) => {

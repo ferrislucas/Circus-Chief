@@ -42,12 +42,35 @@ const MAX_ARRAY_ITEMS = 100;
 const MAX_STRING_LENGTH = 4000;
 const MAX_MESSAGE_LENGTH = 500;
 
+// ── Secret-pattern registry ─────────────────────────────────────────────
+// ONE canonical credential-word list feeds both the key-name classifier
+// below and the anchored value matcher, so the two can never drift apart:
+// every word the classifier treats as secret-bearing is also an anchor the
+// value matcher redacts on.
+//
 // Lowercase matching: a key is secret-bearing when it equals (or, for
 // compound names, is bounded by non-letters around) a known credential word.
 // The boundary guards keep ordinary words (`monkey`, `keyboard`, `turkey`)
 // from matching the bare `key` alternative.
-const SECRET_KEY_PATTERN =
-  /(^|[^a-z])(api[_-]?key|auth[_-]?token|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|secret[_-]?key|access[_-]?key|authorization|proxy[_-]?authorization|password|passwd|secret|token|key)([^a-z]|$)/;
+const SECRET_WORDS = [
+  'api[_-]?key',
+  'auth[_-]?token',
+  'access[_-]?token',
+  'refresh[_-]?token',
+  'id[_-]?token',
+  'client[_-]?secret',
+  'secret[_-]?key',
+  'access[_-]?key',
+  'authorization',
+  'proxy[_-]?authorization',
+  'password',
+  'passwd',
+  'secret',
+  'token',
+  'key',
+];
+const SECRET_WORD = SECRET_WORDS.join('|');
+const SECRET_KEY_PATTERN = new RegExp(`(^|[^a-z])(${SECRET_WORD})([^a-z]|$)`);
 
 /**
  * @param {unknown} name - Object key / parameter name to classify.
@@ -58,6 +81,22 @@ export function isSecretKeyName(name) {
   return SECRET_KEY_PATTERN.test(name.toLowerCase());
 }
 
+// Bare provider-token shapes (no name anchor required). Each entry keeps its
+// own replacement: scheme-prefixed matches preserve the scheme word for
+// debuggability, bare tokens redact fully. Length floors follow each
+// provider's published key format; the `AIza`/`xai-` prefixes are
+// distinctive enough that prose collisions are not a practical risk.
+const SECRET_VALUE_PATTERNS = [
+  { pattern: /\bBearer\s+[A-Za-z0-9\-._~+/=]+/g, replacement: `Bearer ${SECRET_PLACEHOLDER}` },
+  { pattern: /\bBasic\s+[A-Za-z0-9+/=]+/g, replacement: `Basic ${SECRET_PLACEHOLDER}` },
+  { pattern: /\bsk-[A-Za-z0-9\-_]{8,}\b/g, replacement: SECRET_PLACEHOLDER },
+  { pattern: /\bAIza[0-9A-Za-z_-]{35,}/g, replacement: SECRET_PLACEHOLDER },
+  { pattern: /\bxai-[A-Za-z0-9]{16,}/g, replacement: SECRET_PLACEHOLDER },
+  { pattern: /\bgh[opurs]_[A-Za-z0-9]{32,}/g, replacement: SECRET_PLACEHOLDER },
+  { pattern: /\bgithub_pat_[A-Za-z0-9_]{22,}/g, replacement: SECRET_PLACEHOLDER },
+  { pattern: /\bAKIA[0-9A-Z]{16,}/g, replacement: SECRET_PLACEHOLDER },
+];
+
 // Secret-anchored assignments: `name = value`, `name: value`, JSON
 // `"name": "value"`, and percent-encoded forms (`name%3Dvalue`). The match
 // can only START at a known credential word, so an outer non-secret binding
@@ -65,13 +104,8 @@ export function isSecretKeyName(name) {
 // credential — the leftmost match begins at the secret word itself. The full
 // name (prefix + word) is still verified with isSecretKeyName so `monkey=abc`
 // is left alone.
-const SECRET_WORD =
-  'api[_-]?key|auth[_-]?token|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|secret[_-]?key|access[_-]?key|authorization|proxy[_-]?authorization|password|passwd|secret|token|key';
 const SECRET_ANCHORED_SOURCE =
   `(?<q1>"|')?(?<sprefix>[A-Za-z0-9_.$@|x-]*?)(?<sname>${SECRET_WORD})(?<q2>"|')?\\s*(?<ssep>=|:|%3D|%3A)\\s*(?<sscheme>Bearer\\s+|Basic\\s+)?(?<sraw>"(?:[^"\\\\]|\\\\.)*"|'(?:[^'\\\\]|\\\\.)*'|[^\\s,;&}"']+)`;
-const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9\-._~+/=]+/g;
-const BASIC_PATTERN = /\bBasic\s+[A-Za-z0-9+/=]+/g;
-const SK_TOKEN_PATTERN = /\bsk-[A-Za-z0-9\-_]{8,}\b/g;
 // Query-string parameters: split on the separator so the parameter NAME can
 // be classified exactly (catches bare `?key=` / `&token=` without matching
 // `monkey=`).
@@ -127,9 +161,9 @@ export function sanitizeString(input) {
   let out = input.length > MAX_STRING_LENGTH ? input.slice(0, MAX_STRING_LENGTH) : input;
   out = out.replace(QUERY_PARAM_PATTERN, redactQueryParam);
   out = redactAnchoredFragment(out, 0);
-  out = out.replace(BEARER_PATTERN, `Bearer ${SECRET_PLACEHOLDER}`);
-  out = out.replace(BASIC_PATTERN, `Basic ${SECRET_PLACEHOLDER}`);
-  out = out.replace(SK_TOKEN_PATTERN, SECRET_PLACEHOLDER);
+  for (const { pattern, replacement } of SECRET_VALUE_PATTERNS) {
+    out = out.replace(pattern, replacement);
+  }
   return out;
 }
 

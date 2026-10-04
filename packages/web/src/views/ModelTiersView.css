@@ -345,6 +345,12 @@ h2 {
   border-radius: 0.25rem;
   cursor: pointer;
   font-size: 0.875rem;
+  /* 44px minimum touch target for the reorder/remove controls. */
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btn-icon:hover:not(:disabled) {

@@ -253,6 +253,12 @@ export function resolveNextTemplateId(body, derivedNextTemplateId) {
     return { nextTemplateId: null, error: null };
   }
 
+  // Raw body value on a non-Zod path — reject non-strings before the lookup
+  // so objects cannot throw inside the database binding (500).
+  if (typeof body.nextTemplateId !== 'string') {
+    return { nextTemplateId: null, error: 'nextTemplateId must be a string or null' };
+  }
+
   const nextTemplate = sessionTemplates.getById(body.nextTemplateId);
   if (!nextTemplate) {
     return { nextTemplateId: null, error: 'nextTemplateId references a non-existent template' };

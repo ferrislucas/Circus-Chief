@@ -58,6 +58,12 @@ export const TierMember = z.object({
 // silently degrading runtime behavior.
 export const MAX_TIER_MEMBERS = 50;
 
+// Upper bound on tier description length. Descriptions are one-line labels
+// in the management UI; the bound keeps list payloads and stored rows small.
+// Enforced at the repository boundary (ModelTierRepository) so every write
+// path is covered, not just Zod-validated HTTP requests.
+export const MAX_TIER_DESCRIPTION_LENGTH = 2000;
+
 const CanonicalTierMembers = z
   .array(TierMember)
   .max(MAX_TIER_MEMBERS, `A tier can have at most ${MAX_TIER_MEMBERS} members`)
@@ -72,14 +78,16 @@ const CanonicalTierMembers = z
   });
 
 export const CreateTierRequest = z.object({
-  name: z.string().min(1).max(100),
+  // Trimmed so padding-only names fail min(1) and stored names never carry
+  // surrounding whitespace (repository trims again as the boundary backstop).
+  name: z.string().trim().min(1).max(100),
   description: z.string().nullable().optional(),
   members: CanonicalTierMembers,
 });
 
 export const UpdateTierRequest = z
   .object({
-    name: z.string().min(1).max(100).optional(),
+    name: z.string().trim().min(1).max(100).optional(),
     description: z.string().nullable().optional(),
     members: CanonicalTierMembers.optional(),
   })

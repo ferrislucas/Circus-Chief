@@ -135,6 +135,48 @@ describe('SummarySettingsView', () => {
     expect(wrapper.find('textarea').element.value).toBe('Saved prompt');
   });
 
+  it('surfaces an external title-prompt change after first load instead of dropping it', async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await nextTick();
+
+    wsHandlers['settings:summary_updated']({
+      settings: {
+        disableSessionSummaries: false,
+        sessionTitlePrompt: 'Remote prompt',
+        summaryModel: '',
+        summaryProviderId: null,
+        defaultSessionTitlePrompt: 'Default title prompt',
+      },
+    });
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.find('textarea').element.value).toBe('Remote prompt');
+  });
+
+  it('keeps a locally edited title prompt and flags a conflict when upstream also moves it', async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await nextTick();
+
+    await wrapper.find('textarea').setValue('My local prompt');
+    wsHandlers['settings:summary_updated']({
+      settings: {
+        disableSessionSummaries: false,
+        sessionTitlePrompt: 'Remote prompt',
+        summaryModel: '',
+        summaryProviderId: null,
+        defaultSessionTitlePrompt: 'Default title prompt',
+      },
+    });
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.find('textarea').element.value).toBe('My local prompt');
+    expect(wrapper.find('.conflict-banner').exists()).toBe(true);
+  });
+
   it('saves an explicit provider and model pair', async () => {
     const wrapper = mountView();
     await nextTick();

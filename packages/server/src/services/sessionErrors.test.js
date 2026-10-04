@@ -125,6 +125,20 @@ describe('sessionErrors', () => {
   // ── shouldRescheduleOnError ───────────────────────────────────────────
 
   describe('shouldRescheduleOnError', () => {
+    it('null-guards non-Error throws instead of throwing a TypeError', () => {
+      const session = {
+        autoRescheduleEnabled: true,
+        rescheduleOnTokenLimit: true,
+        rescheduleOnServiceError: true,
+      };
+      // A thrown string still carries matchable trigger text.
+      expect(shouldRescheduleOnError(session, 'token limit exceeded')).toBe(true);
+      // Nullish / non-textual throws carry no trigger text: no reschedule, no crash.
+      expect(shouldRescheduleOnError(session, null)).toBe(false);
+      expect(shouldRescheduleOnError(session, undefined)).toBe(false);
+      expect(shouldRescheduleOnError(session, 42)).toBe(false);
+    });
+
     it('returns false when autoRescheduleEnabled is false', () => {
       const session = {
         autoRescheduleEnabled: false,

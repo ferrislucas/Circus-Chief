@@ -113,7 +113,7 @@
           <SelectionConflictBanner
             :visible="selectionGuard.showBanner"
             :problem="selectionGuard.problem"
-            conflict-text="The model selection changed elsewhere while you were editing. Your edit is preserved."
+            conflict-text="This template changed elsewhere while you were editing. Your edits are preserved."
             button-class="btn btn-outline-secondary"
             @use-canonical="useCanonicalModelSelection"
             @keep-mine="selectionGuard.keepMine"
@@ -255,7 +255,8 @@ import EffortLevelSelector from '../components/EffortLevelSelector.vue';
 import InterpolationHelp from '../components/InterpolationHelp.vue';
 import ResizableTextarea from '../components/ResizableTextarea.vue';
 import { useCanonicalSync } from '../composables/useCanonicalSync.js';
-import { reconcileModelSelection } from '../composables/modelSelectionReconciliation.js';
+import { useTemplateCanonicalForm } from '../composables/useTemplateCanonicalForm.js';
+import { normalizeModelProviderPair } from '../components/modelSelectorTiers.js';
 import { useSelectionGuard } from '../composables/useSelectionGuard.js';
 import SelectionConflictBanner from '../components/SelectionConflictBanner.vue';
 
@@ -269,8 +270,6 @@ const isSaving = ref(false);
 const isDeleting = ref(false);
 const showDeleteConfirm = ref(false);
 const error = ref(null);
-const modelSelectionConflict = ref(false);
-let lastCanonicalSelection = { model: null, providerId: null };
 
 const formData = ref({
   name: '',
@@ -294,52 +293,17 @@ const availableNextTemplates = computed(() => [...templatesStore.projectTemplate
 // Shared conflict contract (see useSelectionGuard): a selection naming a
 // deleted or disabled tier/provider/model keeps the banner up and blocks
 // submit until the user picks a current value or clears the selection.
+// Canonical template-form sync (snapshots, convergence, conflict flag)
+// lives in useTemplateCanonicalForm to keep this view under the file-size
+// lint budget — same behavior, operated on `formData` in place.
+const templateForm = useTemplateCanonicalForm(formData);
+const { applyCanonicalTemplate, useCanonicalModelSelection } = templateForm;
+
 const selectionGuard = useSelectionGuard(
   () => ({ model: formData.value.model, providerId: formData.value.providerId }),
-  () => modelSelectionConflict.value,
-  () => { modelSelectionConflict.value = false; }
+  () => templateForm.conflict.value,
+  () => templateForm.clearConflict()
 );
-
-function toFormData(template) {
-  return {
-    name: template.name,
-    prompt: template.prompt,
-    isGlobal: !template.projectId,
-    nextTemplateId: template.nextTemplateId ?? null,
-    thinkingEnabled: template.thinkingEnabled,
-    gitBranch: template.gitBranch || '',
-    model: template.model,
-    providerId: template.providerId ?? null,
-    mode: template.mode,
-    effortLevel: template.effortLevel ?? null,
-    showInQuickResponses: template.showInQuickResponses,
-  };
-}
-
-function applyCanonicalTemplate(template, { preserveEdits = false } = {}) {
-  if (!template) return;
-  const canonical = toFormData(template);
-  if (!preserveEdits) {
-    formData.value = canonical;
-    modelSelectionConflict.value = false;
-  } else {
-    const selection = reconcileModelSelection({
-      current: formData.value,
-      previousCanonical: lastCanonicalSelection,
-      canonical,
-    });
-    formData.value.model = selection.model;
-    formData.value.providerId = selection.providerId;
-    modelSelectionConflict.value = selection.conflict;
-  }
-  lastCanonicalSelection = { model: canonical.model, providerId: canonical.providerId };
-}
-
-function useCanonicalModelSelection() {
-  formData.value.model = lastCanonicalSelection.model;
-  formData.value.providerId = lastCanonicalSelection.providerId;
-  modelSelectionConflict.value = false;
-}
 
 // One monotonic coordinator for initial load, websocket invalidation, and
 // reconnect — every intake preserves local edits, only the newest applies.
@@ -373,14 +337,16 @@ const onSubmit = async () => {
   }
   isSaving.value = true;
   try {
+    // A tier-bound template never persists a concrete provider hint.
+    const pair = normalizeModelProviderPair(formData.value.model, formData.value.providerId);
     const data = {
       name: formData.value.name,
       prompt: formData.value.prompt,
       nextTemplateId: formData.value.nextTemplateId ?? null,
       thinkingEnabled: formData.value.thinkingEnabled,  // null = inherit, true/false = explicit
       gitBranch: formData.value.gitBranch || undefined,
-      model: formData.value.model,                      // null = inherit
-      providerId: formData.value.providerId,
+      model: pair.model,                               // null = inherit
+      providerId: pair.providerId,
       mode: formData.value.mode,                        // null = inherit
       effortLevel: formData.value.effortLevel,          // null = inherit
       showInQuickResponses: formData.value.showInQuickResponses,

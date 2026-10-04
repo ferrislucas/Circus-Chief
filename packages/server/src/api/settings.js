@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import { modelProviders, modelTiers, settings } from '../db/index.js';
+import { modelTiers, settings } from '../db/index.js';
 import { DEFAULT_SESSION_TITLE_PROMPT } from '../services/summaryService.js';
 import { getTierMembersResolved } from '../services/tierResolutionService.js';
+import { describeIdentityProblem, TIER_IDENTITY_ERROR_CODES } from '../services/tierIdentity.js';
 import { isTierRef, parseTierRef } from '@circuschief/shared';
 
 const router = Router();
@@ -189,13 +190,20 @@ function validateConcreteSummaryModelSelection(summaryModel, summaryProviderId) 
     return 'summaryProviderId is required when summaryModel is set';
   }
 
-  const provider = modelProviders.getById(summaryProviderId);
-  if (!provider) return `Unknown summary provider: ${summaryProviderId}`;
-  const ownsModel = provider.models?.some((model) => model.modelId === summaryModel);
-  if (!ownsModel) {
-    return `Provider ${summaryProviderId} does not own summary model ${summaryModel}`;
+  // Same exact-pair predicate as the summary executor
+  // (resolveExplicitSummaryModel): existence and enabled on both halves.
+  const problem = describeIdentityProblem(summaryProviderId, summaryModel);
+  if (!problem) return null;
+  switch (problem) {
+    case TIER_IDENTITY_ERROR_CODES.PROVIDER_MISSING:
+      return `Unknown summary provider: ${summaryProviderId}`;
+    case TIER_IDENTITY_ERROR_CODES.PROVIDER_DISABLED:
+      return `Summary provider ${summaryProviderId} is disabled`;
+    case TIER_IDENTITY_ERROR_CODES.MODEL_DISABLED:
+      return `Summary model ${summaryModel} on provider ${summaryProviderId} is disabled`;
+    default:
+      return `Provider ${summaryProviderId} does not own summary model ${summaryModel}`;
   }
-  return null;
 }
 
 /**

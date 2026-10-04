@@ -206,18 +206,38 @@ export class ProviderRepository extends BaseRepository {
     return { ...provider, models: this.getModels(id) };
   }
 
+  /** Batch-load providers with models in two queries, keyed by id. */
+  getByIdsWithModels(ids) { return modelOps.getProvidersByIds(this.db, ids, (row) => this.map(row)); }
+
+  // Shared update preamble: fetch + mutable-field validation. Both update
+  // variants propagate null for a missing provider.
+  #getUpdatableProvider(id, data) {
+    const provider = this.getById(id);
+    if (!provider) return null;
+    validateBuiltInUpdate(provider, data);
+    validateKindImmutable(data);
+    return provider;
+  }
+
+  // Shared delete preamble: fetch + built-in guard. Both delete variants
+  // throw identically for missing/built-in providers.
+  #requireDeletableProvider(id) {
+    const provider = this.getById(id);
+    if (!provider) throw new Error('Provider not found');
+    if (provider.isBuiltIn) throw new Error('Cannot delete built-in provider');
+    return provider;
+  }
+
   /**
    * Update a provider
    * @param {string} id
    * @param {Object} data
    * @returns {Object} Updated provider (with models array)
    */
+  /** Update a provider. Quiet variant (facts discarded): use `updateWithDegradation` + publish in production. */
   update(id, data) {
-    const provider = this.getById(id);
+    const provider = this.#getUpdatableProvider(id, data);
     if (!provider) return null;
-
-    validateBuiltInUpdate(provider, data);
-    validateKindImmutable(data);
 
     return databaseManager.transaction(() => {
       const { updates, values } = buildUpdateColumns(data);
@@ -237,11 +257,8 @@ export class ProviderRepository extends BaseRepository {
 
   /** Update a provider and return post-commit degradation facts for delivery. */
   updateWithDegradation(id, data) {
-    const provider = this.getById(id);
+    const provider = this.#getUpdatableProvider(id, data);
     if (!provider) return null;
-
-    validateBuiltInUpdate(provider, data);
-    validateKindImmutable(data);
 
     return databaseManager.transaction(() => {
       const { updates, values } = buildUpdateColumns(data);
@@ -250,9 +267,7 @@ export class ProviderRepository extends BaseRepository {
         values.push(Date.now(), id);
         this.db.prepare(`UPDATE providers SET ${updates.join(', ')} WHERE id = ?`).run(...values);
       }
-      const degradation = removesProviderEligibility(provider, data)
-        ? degradeReferencesToEmptiedTiers()
-        : [];
+      const degradation = removesProviderEligibility(provider, data) ? degradeReferencesToEmptiedTiers() : [];
       return { provider: this.getById(id), degradation };
     });
   }
@@ -267,17 +282,12 @@ export class ProviderRepository extends BaseRepository {
    * sessions) is degraded to its default — mirroring
    * `deleteTierAndDegradeReferences` — so session creation and other tier
    * consumers never fail validation on a dangling `tier::<id>` ref.
+   * Quiet variant (facts discarded): use `deleteWithDegradation` + publish in production.
    * @param {string} id
    * @throws {Error} If attempting to delete a built-in provider or non-existent provider
    */
   delete(id) {
-    const provider = this.getById(id);
-    if (!provider) {
-      throw new Error('Provider not found');
-    }
-    if (provider.isBuiltIn) {
-      throw new Error('Cannot delete built-in provider');
-    }
+    this.#requireDeletableProvider(id);
 
     databaseManager.transaction(() => {
       super.delete(id);
@@ -291,9 +301,7 @@ export class ProviderRepository extends BaseRepository {
    * callers remain transport-agnostic.
    */
   deleteWithDegradation(id) {
-    const provider = this.getById(id);
-    if (!provider) throw new Error('Provider not found');
-    if (provider.isBuiltIn) throw new Error('Cannot delete built-in provider');
+    this.#requireDeletableProvider(id);
     return databaseManager.transaction(() => {
       super.delete(id);
       return degradeReferencesToEmptiedTiers();
@@ -355,6 +363,7 @@ export class ProviderRepository extends BaseRepository {
    * removes the old id from the executable catalog, which can leave a tier
    * whose members referenced the old id without any executable member — its
    * persisted consumers are degraded in the same transaction.
+   * Quiet variant (facts discarded): use `updateModelWithDegradation` + publish in production.
    * @param {string} id - Model row ID
    * @returns {Object} Updated model
    */
@@ -390,6 +399,7 @@ export class ProviderRepository extends BaseRepository {
    * empties it, so every persisted consumer of that tier is degraded to its
    * default in the same transaction (safe-deletion requirement; mirrors
    * `deleteTierAndDegradeReferences`).
+   * Quiet variant (facts discarded): use `removeModelWithDegradation` + publish in production.
    * @param {string} modelId - Model row ID (not the model string like "claude-opus-4-6")
    * @returns {Object} The soft-removed model row
    */

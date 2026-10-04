@@ -45,6 +45,22 @@ describe('useNewSessionForm', () => {
     });
   });
 
+  describe('applyProjectDefaults pair hygiene', () => {
+    it('nulls the provider hint when defaults bind a tier ref', () => {
+      const form = useNewSessionForm(storageKey);
+      form.applyProjectDefaults({ model: 'tier::t-high', providerId: 'stale-provider' });
+      expect(form.model.value).toBe('tier::t-high');
+      expect(form.providerId.value).toBeNull();
+    });
+
+    it('keeps a concrete provider hint for concrete models', () => {
+      const form = useNewSessionForm(storageKey);
+      form.applyProjectDefaults({ model: 'gpt-5', providerId: 'openai-custom' });
+      expect(form.model.value).toBe('gpt-5');
+      expect(form.providerId.value).toBe('openai-custom');
+    });
+  });
+
   describe('resetSchedulingData', () => {
     it('restores autoRescheduleEnabled to true after being set to false', () => {
       const form = useNewSessionForm(storageKey);
