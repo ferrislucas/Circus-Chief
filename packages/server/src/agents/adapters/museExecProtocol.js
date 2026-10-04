@@ -39,8 +39,11 @@ export function createMuseExecProtocol({ maxRecordBytes = MAX_RECORD_BYTES, onDi
     if (record.payload_type === 'runtime.command.accepted') {
       const acceptedId = requiredIdentifier(record.payload.command_id);
       if (!acceptedId) fail('Muse exec accepted a command without a command id.');
-      if (commandId && commandId !== acceptedId) fail('Muse exec emitted conflicting accepted command ids.');
-      commandId = acceptedId;
+      // One exec invocation can accept follow-up commands after our turn (e.g. an
+      // inbox-drain run delivering a background task result). The first accepted
+      // command owns this turn; later ones are CLI-internal and ignored, matching
+      // how foreign linked runs and terminals are already skipped below.
+      if (!commandId) commandId = acceptedId;
     }
 
     if (record.payload_type === 'session.run.linked') {

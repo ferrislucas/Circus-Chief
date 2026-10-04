@@ -68,6 +68,27 @@ describe('muse exec protocol', () => {
     )).toEqual([{ kind: 'accepted', commandId: 'cmd-active' }, { kind: 'unknown', payloadType: 'session.run.linked' }, { kind: 'terminal', outcome: 'completed', text: 'active', reason: null }]);
   });
 
+  it('ignores a follow-up inbox-drain command accepted after the active terminal', () => {
+    const parser = createMuseExecProtocol();
+    const followupTerminal = (sequence, outcome, extra = {}) => record(
+      sequence, `run.terminal.${outcome}`,
+      { command_id: 'cmd-followup', run_stream: { id: 'run-followup' }, terminal: outcome, ...extra },
+    );
+    const followupLinked = record(5, 'session.run.linked', { command_id: 'cmd-followup', run_stream: { id: 'run-followup' } });
+    const followupAccepted = record(4, 'runtime.command.accepted', { command_id: 'cmd-followup' });
+    expect(push(parser,
+      accepted(), linked(), terminal(3, 'completed', { text: 'Done' }),
+      followupAccepted, followupLinked, followupTerminal(6, 'cancelled', { reason: 'cancelled' }),
+    )).toEqual([
+      { kind: 'accepted', commandId: 'cmd-active' },
+      { kind: 'unknown', payloadType: 'session.run.linked' },
+      { kind: 'terminal', outcome: 'completed', text: 'Done', reason: null },
+      { kind: 'accepted', commandId: 'cmd-followup' },
+      { kind: 'unknown', payloadType: 'session.run.linked' },
+    ]);
+    expect(parser.end()).toEqual([]);
+  });
+
   it('accepts an exact active terminal replay once', () => {
     const parser = createMuseExecProtocol();
     expect(push(parser, accepted(), linked(), terminal(3, 'completed', { text: 'Done', id: 'terminal-1' }), terminal(4, 'completed', { text: 'changed replay text', id: 'terminal-1' })))
