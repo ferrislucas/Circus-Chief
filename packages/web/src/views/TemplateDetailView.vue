@@ -110,13 +110,14 @@
             empty-label="Inherit from root session"
             @update:provider-id="formData.providerId = $event"
           />
-          <div v-if="modelSelectionConflict" class="conflict-banner" role="alert">
-            <p>The model selection changed elsewhere while you were editing. Your edit is preserved.</p>
-            <div class="conflict-actions">
-              <button type="button" class="btn btn-outline-secondary" @click="useCanonicalModelSelection">Use latest</button>
-              <button type="button" class="btn btn-outline-secondary" @click="modelSelectionConflict = false">Keep mine</button>
-            </div>
-          </div>
+          <SelectionConflictBanner
+            :visible="selectionGuard.showBanner"
+            :problem="selectionGuard.problem"
+            conflict-text="The model selection changed elsewhere while you were editing. Your edit is preserved."
+            button-class="btn btn-outline-secondary"
+            @use-canonical="useCanonicalModelSelection"
+            @keep-mine="selectionGuard.keepMine"
+          />
         </div>
 
         <!-- Mode Field -->
@@ -189,7 +190,7 @@
           <button
             type="submit"
             class="btn btn-primary"
-            :disabled="isSaving"
+            :disabled="isSaving || selectionGuard.invalid"
           >
             {{ isSaving ? 'Saving...' : 'Save' }}
           </button>
@@ -243,7 +244,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { useRouter, useRoute } from 'vue-router';
 import { useTemplatesStore } from '../stores/templates.js';
@@ -253,15 +254,15 @@ import ModelSelector from '../components/ModelSelector.vue';
 import EffortLevelSelector from '../components/EffortLevelSelector.vue';
 import InterpolationHelp from '../components/InterpolationHelp.vue';
 import ResizableTextarea from '../components/ResizableTextarea.vue';
-import { useWebSocket } from '../composables/useWebSocket.js';
-import { createReconnectRefetch } from '../composables/reconnectRefetch.js';
+import { useCanonicalSync } from '../composables/useCanonicalSync.js';
 import { reconcileModelSelection } from '../composables/modelSelectionReconciliation.js';
+import { useSelectionGuard } from '../composables/useSelectionGuard.js';
+import SelectionConflictBanner from '../components/SelectionConflictBanner.vue';
 
 const route = useRoute();
 const router = useRouter();
 const templatesStore = useTemplatesStore();
 const uiStore = useUiStore();
-const { on, off, onReconnect } = useWebSocket();
 
 const isLoading = ref(false);
 const isSaving = ref(false);
@@ -270,7 +271,6 @@ const showDeleteConfirm = ref(false);
 const error = ref(null);
 const modelSelectionConflict = ref(false);
 let lastCanonicalSelection = { model: null, providerId: null };
-let reconnectReconciliation;
 
 const formData = ref({
   name: '',
@@ -290,6 +290,15 @@ const projectId = computed(() => route.params.projectId);
 const templateId = computed(() => route.params.templateId);
 
 const availableNextTemplates = computed(() => [...templatesStore.projectTemplates, ...templatesStore.globalTemplates]);
+
+// Shared conflict contract (see useSelectionGuard): a selection naming a
+// deleted or disabled tier/provider/model keeps the banner up and blocks
+// submit until the user picks a current value or clears the selection.
+const selectionGuard = useSelectionGuard(
+  () => ({ model: formData.value.model, providerId: formData.value.providerId }),
+  () => modelSelectionConflict.value,
+  () => { modelSelectionConflict.value = false; }
+);
 
 function toFormData(template) {
   return {
@@ -332,13 +341,22 @@ function useCanonicalModelSelection() {
   modelSelectionConflict.value = false;
 }
 
+// One monotonic coordinator for initial load, websocket invalidation, and
+// reconnect — every intake preserves local edits, only the newest applies.
+// The websocket message names the template; the canonical record is always
+// refetched, never trusted inline.
+const { refresh: refreshTemplate } = useCanonicalSync({
+  fetchCanonical: () => api.getTemplate(templateId.value),
+  applyCanonical: (template, options) => applyCanonicalTemplate(template, { preserveEdits: true, ...options }),
+  messageType: WS_MESSAGE_TYPES.TEMPLATE_UPDATED,
+  selectPush: (message) => (message?.templateId === templateId.value ? {} : undefined),
+});
+
 const loadTemplate = async ({ preserveEdits = false } = {}) => {
   isLoading.value = true;
   error.value = null;
   try {
-    const template = await api.getTemplate(templateId.value);
-
-    applyCanonicalTemplate(template, { preserveEdits });
+    await refreshTemplate({ preserveEdits });
   } catch (err) {
     error.value = `Failed to load template: ${err.message}`;
     uiStore.error(err.message);
@@ -347,12 +365,12 @@ const loadTemplate = async ({ preserveEdits = false } = {}) => {
   }
 };
 
-function handleTemplateUpdated(message) {
-  if (message?.templateId === templateId.value) loadTemplate({ preserveEdits: true });
-}
-
 const onSubmit = async () => {
   error.value = null;
+  if (selectionGuard.invalid) {
+    error.value = selectionGuard.problem?.message || 'The model selection is no longer available.';
+    return;
+  }
   isSaving.value = true;
   try {
     const data = {
@@ -406,12 +424,6 @@ const confirmDelete = async () => {
 };
 
 onMounted(async () => {
-  on(WS_MESSAGE_TYPES.TEMPLATE_UPDATED, handleTemplateUpdated);
-  reconnectReconciliation = createReconnectRefetch({
-    onReconnect,
-    fetchCanonical: () => api.getTemplate(templateId.value),
-    apply: (template) => applyCanonicalTemplate(template, { preserveEdits: true }),
-  });
   await Promise.all([
     loadTemplate(),
     templatesStore.fetchProjectTemplates(projectId.value).catch((err) => {
@@ -419,11 +431,6 @@ onMounted(async () => {
       uiStore.error(err.message);
     }),
   ]);
-});
-
-onUnmounted(() => {
-  off(WS_MESSAGE_TYPES.TEMPLATE_UPDATED, handleTemplateUpdated);
-  reconnectReconciliation?.dispose();
 });
 </script>
 
@@ -573,10 +580,6 @@ onUnmounted(() => {
   color: var(--color-error);
   font-size: 0.9rem;
 }
-
-.conflict-banner { padding: 0.75rem; background-color: rgba(234, 179, 8, 0.1); border: 1px solid var(--color-warning, #eab308); border-radius: var(--border-radius); color: var(--color-text); font-size: 0.9rem; }
-.conflict-banner p { margin: 0 0 0.5rem; }
-.conflict-actions { display: flex; gap: 0.5rem; }
 
 .form-actions {
   display: flex;

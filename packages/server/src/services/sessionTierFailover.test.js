@@ -157,6 +157,26 @@ describe('runSessionCore tier failover (integration)', () => {
     expect(failoverBroadcast[2].sessionId).toBe(session.id);
   });
 
+  it('never broadcasts raw credentials from the failing member error', async () => {
+    const sentinel = 'sentinel-3f9b-broadcast-secret';
+    // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      throw Object.assign(
+        new Error(`GET https://example/v1/models/model-a:generateContent?key=${sentinel} failed`),
+        { status: 503 }
+      );
+    });
+
+    const callsBefore = broadcastToSession.mock.calls.length;
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    const failoverBroadcast = broadcastToSession.mock.calls
+      .slice(callsBefore)
+      .find((call) => call[1] === 'tier:failover');
+    expect(failoverBroadcast).toBeTruthy();
+    expect(JSON.stringify(failoverBroadcast[2])).not.toContain(sentinel);
+  });
+
   it('uses one member snapshot when the tier is edited during a failed attempt', async () => {
     // The failover loop has already resolved A → B at this point. Removing B
     // from live configuration must not make stream policy, the notice, and
@@ -1120,6 +1140,40 @@ describe('resolveTierRefForContinueWithStaleFallback (continuation-path degradat
 
     // Own binding untouched.
     expect(sessionRepo.getById(session.id).model).toBe(freshSession.model);
+  });
+
+  it('ignores a snapshot whose own pair is no longer valid when degrading a stale binding', () => {
+    const { tier, session, freshSession } = tierBoundSession({
+      resolvedModel: 'model-a',
+      resolvedProviderId: providerA.id,
+    });
+    modelTiers.delete(tier.id);
+    // The pinned pair itself is gone too (provider deleted) — reusing the
+    // snapshot would persist an undispatchable model id. Degrade to the
+    // server default instead of the invalid snapshot.
+    modelProviders.delete(providerA.id);
+
+    const result = resolveTierRefForContinueWithStaleFallback(session.id, freshSession, null);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBeNull();
+    expect(updated.providerId).toBeNull();
+    expect(updated.resolvedModel).toBeNull();
+    expect(result.effectiveModel).toBeNull();
+  });
+
+  it('ignores a snapshot whose provider was disabled when degrading a stale binding', () => {
+    const { tier, session, freshSession } = tierBoundSession({
+      resolvedModel: 'model-a',
+      resolvedProviderId: providerA.id,
+    });
+    modelTiers.delete(tier.id);
+    modelProviders.update(providerA.id, { enabled: false });
+
+    const result = resolveTierRefForContinueWithStaleFallback(session.id, freshSession, null);
+
+    expect(sessionRepo.getById(session.id).model).toBeNull();
+    expect(result.effectiveModel).toBeNull();
   });
 
   it('returns the snapshot resolution unchanged for a healthy binding', () => {

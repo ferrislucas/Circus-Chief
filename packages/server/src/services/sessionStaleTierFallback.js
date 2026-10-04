@@ -2,6 +2,7 @@ import { sessions } from '../database.js';
 import { isTierRef, parseTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { broadcastToSession } from '../websocket.js';
 import { resolveTierRefForContinue } from './tierResolutionService.js';
+import { isExactTierMemberValid } from './tierIdentity.js';
 import { agentCallLogger } from './agentCallLogger.js';
 import { getTierName, hasResolvableTierMembers } from './sessionTierFailover.js';
 
@@ -12,8 +13,9 @@ import { getTierName, hasResolvableTierMembers } from './sessionTierFailover.js'
  *
  * Falls back to:
  *   1. The session's last-resolved concrete snapshot (`resolvedModel` /
- *      `resolvedProviderId`), when present — a session that has run before on
- *      this tier keeps using the model it last succeeded on.
+ *      `resolvedProviderId`), when present AND its exact pair still validates
+ *      — a session that has run before on this tier keeps using the model it
+ *      last succeeded on.
  *   2. Otherwise, the same server default used elsewhere (a null model /
  *      provider, i.e. whatever the agent adapter's own SDK default resolves
  *      to — there is always a resolvable Anthropic default, so this branch
@@ -30,7 +32,12 @@ import { getTierName, hasResolvableTierMembers } from './sessionTierFailover.js'
  * @returns {{ model: string|null, session: Object }}
  */
 export function applyStaleTierFallback(sessionId, session, staleTierRef) {
-  const hasSnapshot = Boolean(session.resolvedModel);
+  // Atomic identity: a snapshot is only reusable when its EXACT pair still
+  // validates. A snapshot pointing at a deleted/disabled provider or model
+  // degrades to the server default — persisting the stale model id would
+  // leave the session bound to an undispatchable concrete model.
+  const hasSnapshot = Boolean(session.resolvedModel)
+    && isExactTierMemberValid(session.resolvedProviderId, session.resolvedModel);
   const fallbackModel = hasSnapshot ? session.resolvedModel : null;
   const fallbackProviderId = hasSnapshot ? session.resolvedProviderId || null : null;
   const tierName = getTierName(parseTierRef(staleTierRef) || staleTierRef);

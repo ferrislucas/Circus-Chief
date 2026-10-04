@@ -1,26 +1,23 @@
+import { createCatalogSync } from './catalogSync.js';
+
 /**
  * Run a canonical refetch on websocket reconnect without allowing a slower,
  * older request to overwrite newer state. The caller owns how canonical data
  * is merged with local edits; this helper only owns request ordering and
  * listener disposal.
+ *
+ * Implemented on the shared {@link createCatalogSync} coordinator so the
+ * reconnect path shares its revision with every other canonical intake.
  */
 export function createReconnectRefetch({ onReconnect, fetchCanonical, apply }) {
-  let revision = 0;
-  let disposed = false;
-
-  async function refresh() {
-    const requestRevision = ++revision;
-    const canonical = await fetchCanonical();
-    if (!disposed && requestRevision === revision) apply(canonical);
-    return canonical;
-  }
-
-  const removeReconnectListener = onReconnect(refresh);
+  const sync = createCatalogSync({ fetchCanonical, applyCanonical: (canonical) => apply(canonical) });
+  const removeReconnectListener = onReconnect(() => sync.refresh());
 
   return {
-    refresh,
+    refresh: (options) => sync.refresh(options),
+    notifyCanonical: (canonical, options) => sync.notifyCanonical(canonical, options),
     dispose() {
-      disposed = true;
+      sync.dispose();
       removeReconnectListener?.();
     },
   };

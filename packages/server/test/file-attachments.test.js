@@ -539,6 +539,7 @@ describe('File Attachments API', () => {
             }),
           ]),
           model: null,
+          providerId: null,
           interactive: true,
         }
       );
@@ -690,6 +691,7 @@ describe('File Attachments API', () => {
           systemPrompt: null,
           fileAttachments: expect.any(Array),
           model: null,
+          providerId: null,
           interactive: true,
         }
       );
@@ -712,6 +714,7 @@ describe('File Attachments API', () => {
           systemPrompt: null,
           fileAttachments: [], // Empty attachments
           model: null,
+          providerId: null,
           interactive: true,
         }
       );

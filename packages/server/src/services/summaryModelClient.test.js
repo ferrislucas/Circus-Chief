@@ -423,6 +423,11 @@ describe('callSummaryModel tier failover (Work Item 2)', () => {
     expect(result).toBe('{"short_summary":"from Gemini"}');
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch.mock.calls[0][0]).toContain('gemini-summary-model:generateContent');
+    // Credentials travel in the x-goog-api-key header — never in the URL
+    // (URLs are logged, persisted in diagnostics, and replayable).
+    expect(fetch.mock.calls[0][0]).not.toContain('google-summary-key');
+    expect(fetch.mock.calls[0][0]).not.toContain('key=');
+    expect(fetch.mock.calls[0][1]?.headers?.['x-goog-api-key']).toBe('google-summary-key');
     expect(mocks.callClaude).not.toHaveBeenCalled();
     expect(isUnhealthy(googleProvider.id, 'gemini-summary-model')).toBe(false);
     expect(mocks.agentCallLogger._logFailoverEvent).not.toHaveBeenCalled();

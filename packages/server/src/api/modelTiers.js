@@ -10,6 +10,7 @@ import { getTierMemberAvailabilityMap, getTierMembersWithAvailability } from '..
 import { databaseManager } from '../db/DatabaseManager.js';
 import { deleteTierAndDegradeReferences, degradeReferencesToEmptiedTiers } from '../services/tierDeletionService.js';
 import { publishEmptiedTierDegradations, publishTierDegradation } from '../services/tierDegradationNotifier.js';
+import { publishCatalogInvalidation } from '../services/catalogInvalidation.js';
 
 const ERR_TIER_NOT_FOUND = 'Tier not found';
 
@@ -74,6 +75,7 @@ router.post('/', (req, res) => {
 
   try {
     const tier = modelTiers.create(result.data);
+    publishCatalogInvalidation('tiers');
     res.status(201).json(withManagementMembers(tier));
   } catch (error) {
     const { status, message } = resolveTierWriteError(error);
@@ -121,6 +123,7 @@ router.patch('/:id', (req, res) => {
       return updated;
     });
     publishEmptiedTierDegradations(degradationChangeSets);
+    publishCatalogInvalidation('tiers');
     res.json(withManagementMembers(updatedTier));
   } catch (error) {
     const { status, message } = resolveTierWriteError(error);
@@ -135,6 +138,7 @@ router.delete('/:id', (req, res) => {
     if (!result) return res.status(404).json({ error: ERR_TIER_NOT_FOUND });
     // Post-commit: reconcile connected clients with the degraded state.
     publishTierDegradation(result.degradation);
+    publishCatalogInvalidation('tiers');
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: error.message });

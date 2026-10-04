@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
 import { agentCallLogs } from '../database.js';
+import { sanitizeString } from './errorSanitizer.js';
 
 /**
  * Service for logging agent calls with in-memory tracking for active calls.
@@ -60,13 +61,16 @@ export class AgentCallLogger {
    * Mark call as completed or errored.
    */
   completeCall(callId, { success, usage, error }) {
+    // Sanitize at the persistence boundary: thrown provider errors can echo
+    // credentials (request URLs, headers, SDK payloads) in their message.
+    const rawMessage = error?.message;
     agentCallLogs.complete(callId, {
       success,
       inputTokens: usage?.inputTokens,
       outputTokens: usage?.outputTokens,
       cacheReadTokens: usage?.cacheReadInputTokens,
       cacheWriteTokens: usage?.cacheCreationInputTokens,
-      errorMessage: error?.message,
+      errorMessage: typeof rawMessage === 'string' ? sanitizeString(rawMessage).slice(0, 2000) : rawMessage,
     });
     this.activeCalls.delete(callId);
   }

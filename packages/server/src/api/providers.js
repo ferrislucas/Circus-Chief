@@ -11,6 +11,7 @@ import {
 import { testProviderConnection } from '../services/providerTestService.js';
 import { assertValidReorder } from '../db/providerModelOperations.js';
 import { publishEmptiedTierDegradations } from '../services/tierDegradationNotifier.js';
+import { publishCatalogInvalidation } from '../services/catalogInvalidation.js';
 
 // Error message constants
 const ERR_PROVIDER_NOT_FOUND = 'Provider not found';
@@ -54,6 +55,7 @@ router.post('/', (req, res) => {
 
   try {
     const provider = modelProviders.create(result.data);
+    publishCatalogInvalidation('providers');
     res.status(201).json(redactAuthToken(provider));
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -88,6 +90,7 @@ router.patch('/:id', (req, res) => {
 
     const { provider: updated, degradation } = modelProviders.updateWithDegradation(req.params.id, result.data);
     publishEmptiedTierDegradations(degradation);
+    publishCatalogInvalidation('providers');
     res.json(redactAuthToken(updated));
   } catch (error) {
     if (
@@ -113,6 +116,7 @@ router.delete('/:id', (req, res) => {
 
     const degradation = modelProviders.deleteWithDegradation(req.params.id);
     publishEmptiedTierDegradations(degradation);
+    publishCatalogInvalidation('providers');
     res.status(204).send();
   } catch (error) {
     if (error.message === 'Cannot delete built-in provider') {
@@ -231,6 +235,7 @@ router.post('/:id/models', (req, res) => {
     }
 
     const model = modelProviders.addModel(req.params.id, result.data);
+    publishCatalogInvalidation('providers');
     res.status(201).json(model);
   } catch (error) {
     if (error.message.includes('already exists for this provider')) {
@@ -257,7 +262,9 @@ router.put('/:id/models/order', (req, res) => {
       return res.status(400).json({ error: validationError.message });
     }
 
-    res.json(modelProviders.reorderModels(req.params.id, result.data.order));
+    const reordered = modelProviders.reorderModels(req.params.id, result.data.order);
+    publishCatalogInvalidation('providers');
+    res.json(reordered);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -287,6 +294,7 @@ router.patch('/:id/models/:modelId', (req, res) => {
 
     const { model: updated, degradation } = modelProviders.updateModelWithDegradation(req.params.modelId, result.data);
     publishEmptiedTierDegradations(degradation);
+    publishCatalogInvalidation('providers');
     res.json(updated);
   } catch (error) {
     if (error.message === 'Cannot change the model id of a built-in provider model') {
@@ -316,6 +324,7 @@ router.delete('/:providerId/models/:modelId', (req, res) => {
     // Soft-remove: works identically for built-in and custom providers.
     const { degradation } = modelProviders.removeModelWithDegradation(req.params.modelId);
     publishEmptiedTierDegradations(degradation);
+    publishCatalogInvalidation('providers');
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: error.message });

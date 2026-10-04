@@ -77,6 +77,38 @@ export function getModels(db, providerId, { includeRemoved = false } = {}) {
   return rows.map(mapProviderModel);
 }
 
+/**
+ * Batch-load many providers with their models in a constant two queries.
+ * Same filtering as {@link getModels} without `includeRemoved`; missing ids
+ * are absent from the map. `mapProvider` translates a provider row (owned by
+ * the repository, which also owns auth-token decryption).
+ */
+export function getProvidersByIds(db, ids, mapProvider) {
+  const unique = [...new Set((ids || []).filter((id) => typeof id === 'string' && id.length > 0))];
+  const byId = new Map();
+  if (unique.length === 0) return byId;
+  const placeholders = unique.map(() => '?').join(',');
+  const providerRows = db
+    .prepare(`SELECT * FROM providers WHERE id IN (${placeholders})`)
+    .all(...unique);
+  for (const row of providerRows) {
+    byId.set(row.id, { ...mapProvider(row), models: [] });
+  }
+  if (byId.size === 0) return byId;
+  const modelRows = db
+    .prepare(
+      `SELECT * FROM provider_models
+       WHERE provider_id IN (${placeholders}) AND removed_at IS NULL AND substr(model_id, 1, 6) <> 'tier::'
+       ORDER BY (sort_order IS NULL), sort_order ASC, created_at ASC, rowid ASC`
+    )
+    .all(...unique);
+  for (const row of modelRows) {
+    const provider = byId.get(row.provider_id);
+    if (provider) provider.models.push(mapProviderModel(row));
+  }
+  return byId;
+}
+
 export function nextSortOrder(db, providerId) {
   return db
     .prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS nextOrder FROM provider_models WHERE provider_id = ?')

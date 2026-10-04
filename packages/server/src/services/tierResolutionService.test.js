@@ -5,12 +5,15 @@ import {
   findNextHealthyTierMember,
   resolveTierRefForContinue,
   getTierMembersResolved,
+  evaluateTierMembers,
   markUnhealthy,
   isUnhealthy,
   clearUnhealthy,
+  createTierCooldown,
 } from './tierResolutionService.js';
 import { modelTiers, modelProviders } from '../database.js';
 import { buildTierRef } from '@circuschief/shared';
+import { TierIdentityError } from './tierIdentity.js';
 
 describe('tierResolutionService', () => {
   let providerA;
@@ -198,6 +201,103 @@ describe('tierResolutionService', () => {
 
       expect(findNextHealthyTierMember('tier::', { modelId: 'model-a', providerId: providerA.id })).toBeNull();
       expect(findNextHealthyTierMember(tierRef, { modelId: 'not-a-member', providerId: 'nope' })).toBeNull();
+    });
+  });
+
+  describe('stale snapshot continuation (atomic identity)', () => {
+    function buildPinnedSession() {
+      const tier = modelTiers.create({
+        name: 'Pinned Tier',
+        members: [
+          { providerId: providerA.id, modelId: 'model-a', position: 0 },
+          { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        ],
+      });
+      const tierRef = buildTierRef(tier.id);
+      return {
+        tierRef,
+        session: {
+          model: tierRef,
+          providerId: null,
+          resolvedModel: 'model-a',
+          resolvedProviderId: providerA.id,
+        },
+      };
+    }
+
+    it('rejects a snapshot whose provider was deleted even though the tier still resolves', () => {
+      const { tierRef, session } = buildPinnedSession();
+      modelProviders.delete(providerA.id);
+
+      // The tier still has a healthy member — but the pinned pair is gone.
+      // Continuation must fail with a typed identity error, never silently
+      // reuse the stale snapshot or fall over to the surviving member.
+      expect(() => resolveTierRefForContinue(session, null)).toThrow(TierIdentityError);
+      try {
+        resolveTierRefForContinue(session, null);
+      } catch (error) {
+        expect(error.code).toBe('provider_missing');
+      }
+      expect(tierRef).toBe(session.model);
+    });
+
+    it('rejects a snapshot whose provider was disabled even though the tier still resolves', () => {
+      const { session } = buildPinnedSession();
+      modelProviders.update(providerA.id, { enabled: false });
+
+      expect(() => resolveTierRefForContinue(session, null)).toThrow(TierIdentityError);
+      try {
+        resolveTierRefForContinue(session, null);
+      } catch (error) {
+        expect(error.code).toBe('provider_disabled');
+      }
+    });
+
+    it('rejects a snapshot whose model was removed even though the tier still resolves', () => {
+      const { session } = buildPinnedSession();
+      const modelRow = modelProviders.getById(providerA.id).models.find((m) => m.modelId === 'model-a');
+      modelProviders.removeModel(modelRow.id);
+
+      expect(() => resolveTierRefForContinue(session, null)).toThrow(TierIdentityError);
+      try {
+        resolveTierRefForContinue(session, null);
+      } catch (error) {
+        expect(error.code).toBe('model_missing');
+      }
+    });
+
+    it('never dispatches a stale snapshot through a different provider owning the same model id', () => {
+      modelProviders.addModel(providerA.id, { modelId: 'dupe-model', displayName: 'Dupe' });
+      modelProviders.addModel(providerB.id, { modelId: 'dupe-model', displayName: 'Dupe' });
+      const tier = modelTiers.create({
+        name: 'Dupe Tier',
+        members: [
+          { providerId: providerA.id, modelId: 'dupe-model', position: 0 },
+          { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        ],
+      });
+      const tierRef = buildTierRef(tier.id);
+      const session = {
+        model: tierRef,
+        providerId: null,
+        resolvedModel: 'dupe-model',
+        resolvedProviderId: providerA.id,
+      };
+      modelProviders.delete(providerA.id);
+
+      // providerB owns an identical model id, but the pinned identity
+      // (providerA, dupe-model) is gone — this must throw rather than route
+      // the conversation through providerB or fall back to SDK defaults.
+      expect(() => resolveTierRefForContinue(session, null)).toThrow(TierIdentityError);
+    });
+
+    it('still reuses a snapshot whose exact pair remains valid', () => {
+      const { session } = buildPinnedSession();
+      expect(resolveTierRefForContinue(session, null)).toEqual({
+        effectiveModel: 'model-a',
+        providerIdHint: providerA.id,
+        persist: {},
+      });
     });
   });
 
@@ -532,6 +632,105 @@ describe('tierResolutionService', () => {
           /no enabled configured members/
         );
       });
+    });
+  });
+
+  describe('createTierCooldown (deterministic expiry)', () => {
+    it('expires entries with injected time and isolates instances', () => {
+      let now = 1_000;
+      const cooldown = createTierCooldown({ now: () => now });
+
+      cooldown.markUnhealthy('p', 'm', 500);
+      expect(cooldown.isUnhealthy('p', 'm')).toBe(true);
+      now += 499;
+      expect(cooldown.isUnhealthy('p', 'm')).toBe(true);
+      now += 2;
+      expect(cooldown.isUnhealthy('p', 'm')).toBe(false);
+
+      const other = createTierCooldown({ now: () => now });
+      expect(other.isUnhealthy('p', 'm')).toBe(false);
+      other.markUnhealthy('p', 'm', 500);
+      expect(other.isUnhealthy('p', 'm')).toBe(true);
+      other.clearUnhealthy('p', 'm');
+      expect(other.isUnhealthy('p', 'm')).toBe(false);
+    });
+  });
+
+  describe('getTierMembersResolved batched lookup', () => {
+    it('resolves many members across few providers without one query per member', () => {
+      for (let i = 0; i < 5; i += 1) {
+        modelProviders.addModel(providerA.id, { modelId: `model-a${i}`, displayName: `A${i}` });
+        modelProviders.addModel(providerB.id, { modelId: `model-b${i}`, displayName: `B${i}` });
+      }
+      const tier = modelTiers.create({
+        name: 'Tier',
+        members: [
+          ...[0, 1, 2, 3, 4].map((i) => ({ providerId: providerA.id, modelId: `model-a${i}`, position: i * 2 })),
+          ...[0, 1, 2, 3, 4].map((i) => ({ providerId: providerB.id, modelId: `model-b${i}`, position: i * 2 + 1 })),
+        ],
+      });
+
+      const getByIdSpy = vi.spyOn(modelProviders, 'getById');
+      getByIdSpy.mockClear();
+      let members;
+      try {
+        members = getTierMembersResolved(tier.id);
+      } finally {
+        // Restore before asserting so a failure cannot leak the spy into
+        // neighboring tests.
+        const calls = getByIdSpy.mock.calls.length;
+        getByIdSpy.mockRestore();
+        // All ten members resolve in configured order with a batched provider
+        // lookup — never one provider-with-models query per member.
+        expect(members.map((m) => m.modelId)).toEqual([
+          'model-a0', 'model-b0', 'model-a1', 'model-b1', 'model-a2',
+          'model-b2', 'model-a3', 'model-b3', 'model-a4', 'model-b4',
+        ]);
+        expect(calls).toBe(0);
+      }
+    });
+
+    it('keeps parity for disabled providers/models and missing records', () => {
+      // A dangling member row (provider deleted after the tier was written)
+      // cannot be inserted directly — member rows carry a provider FK — so
+      // delete the provider after creating the tier.
+      modelProviders.addModel(providerA.id, { modelId: 'model-off', displayName: 'Off' });
+      const offRow = modelProviders.getModels(providerA.id).find((m) => m.modelId === 'model-off');
+      modelProviders.updateModel(offRow.id, { enabled: false });
+      const providerC = modelProviders.create({ name: 'Provider C', kind: 'anthropic' });
+      modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+      const tier = modelTiers.create({
+        name: 'Tier',
+        members: [
+          { providerId: providerA.id, modelId: 'model-a', position: 0 },
+          { providerId: providerA.id, modelId: 'model-off', position: 1 },
+          { providerId: providerA.id, modelId: 'model-gone', position: 2 },
+          { providerId: providerC.id, modelId: 'model-c', position: 3 },
+        ],
+      });
+      modelProviders.delete(providerC.id);
+
+      modelProviders.update(providerB.id, { enabled: false });
+      const tier2 = modelTiers.create({
+        name: 'Tier 2',
+        members: [{ providerId: providerB.id, modelId: 'model-b', position: 0 }],
+      });
+
+      expect(getTierMembersResolved(tier.id).map((m) => m.modelId)).toEqual(['model-a']);
+      expect(getTierMembersResolved(tier2.id)).toEqual([]);
+    });
+
+    it('evaluates missing providers without database setup', () => {
+      const members = [
+        { providerId: 'p-a', modelId: 'm-a', position: 1 },
+        { providerId: 'p-gone', modelId: 'm-a', position: 0 },
+      ];
+      const providersById = new Map([
+        ['p-a', { id: 'p-a', enabled: true, models: [{ modelId: 'm-a', enabled: true }] }],
+      ]);
+
+      // The dangling member is filtered; ordering still follows position.
+      expect(evaluateTierMembers(members, providersById).map((m) => m.modelId)).toEqual(['m-a']);
     });
   });
 });

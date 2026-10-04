@@ -51,6 +51,25 @@ describe('useTiersStore', () => {
       expect(store.tiers).toEqual([]);
       expect(store.loaded).toBe(false);
     });
+
+    it('ignores a stale response that resolves after a newer fetch', async () => {
+      let resolveStale;
+      let resolveFresh;
+      mockApi.getTiers
+        .mockImplementationOnce(() => new Promise((r) => { resolveStale = r; }))
+        .mockImplementationOnce(() => new Promise((r) => { resolveFresh = r; }));
+
+      const store = useTiersStore();
+      const stale = store.fetchTiers();
+      const fresh = store.fetchTiers();
+      resolveFresh([{ id: 'new', name: 'New', members: [] }]);
+      await fresh;
+      resolveStale([{ id: 'old', name: 'Old', members: [] }]);
+      await stale;
+
+      expect(store.tiers).toEqual([{ id: 'new', name: 'New', members: [] }]);
+      expect(store.loaded).toBe(true);
+    });
   });
 
   describe('createTier', () => {

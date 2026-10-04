@@ -51,15 +51,25 @@ export const TierMember = z.object({
   position: z.number().int().nonnegative(),
 });
 
-const CanonicalTierMembers = z.array(TierMember).superRefine((members, ctx) => {
-  const pairs = new Set();
-  for (const [index, member] of members.entries()) {
-    const pair = `${member.providerId}\u0000${member.modelId}`;
-    if (pairs.has(pair)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index], message: 'Duplicate tier member provider/model pair' });
-    pairs.add(pair);
-    if (member.position !== index) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index, 'position'], message: 'Tier member positions must be contiguous starting at 0 and match array order' });
-  }
-});
+// Upper bound on members per tier. Tiers are an ordered failover chain, not
+// an inventory: beyond this count the management payload, the tier selectors,
+// and per-start resolution cost all grow without a failover-quality gain.
+// Enforced at the API contract so oversized writes fail with a 400 instead of
+// silently degrading runtime behavior.
+export const MAX_TIER_MEMBERS = 50;
+
+const CanonicalTierMembers = z
+  .array(TierMember)
+  .max(MAX_TIER_MEMBERS, `A tier can have at most ${MAX_TIER_MEMBERS} members`)
+  .superRefine((members, ctx) => {
+    const pairs = new Set();
+    for (const [index, member] of members.entries()) {
+      const pair = `${member.providerId}\u0000${member.modelId}`;
+      if (pairs.has(pair)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index], message: 'Duplicate tier member provider/model pair' });
+      pairs.add(pair);
+      if (member.position !== index) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index, 'position'], message: 'Tier member positions must be contiguous starting at 0 and match array order' });
+    }
+  });
 
 export const CreateTierRequest = z.object({
   name: z.string().min(1).max(100),

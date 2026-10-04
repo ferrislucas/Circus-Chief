@@ -2,6 +2,7 @@ import { modelProviders } from '../database.js';
 import { createRobustEnv } from './nodeSpawnHelper.js';
 import { isTierRef } from '@circuschief/shared';
 import { resolveActiveModel } from './tierResolutionService.js';
+import { validateExactTierMember } from './tierIdentity.js';
 
 /**
  * Resolve the explicit provider named by `providerId`, but only when it
@@ -43,6 +44,60 @@ export function resolveProviderFromModel(modelId, providerId = null) {
     return explicit;
   }
   return modelProviders.getProviderByModelId(modelId);
+}
+
+/**
+ * Strict tier-member provider resolution — the single consumer-side identity
+ * rule for tier-derived `(model, providerId)` pairs (startup failover
+ * members, continuation snapshots/hints, tier-switch selections).
+ *
+ * Returns the owning provider ONLY on an exact ownership match (validated
+ * through the shared {@link validateExactTierMember} rule: provider exists
+ * and is enabled, model row present and enabled). Otherwise throws a typed
+ * `TierIdentityError` — it never falls back to a different provider by model
+ * id alone, and never degrades to SDK defaults. Non-tier paths keep using
+ * {@link resolveProviderFromModel} with its backward-compatible fallback.
+ *
+ * @param {string} modelId - Concrete model id from a tier member identity.
+ * @param {string} providerId - The tier member's exact provider id (required).
+ * @returns {Object} Provider object (including models array).
+ * @throws {TierIdentityError} When the exact pair cannot be honored.
+ */
+export function resolveTierMemberProvider(modelId, providerId) {
+  const pair = validateExactTierMember(providerId, modelId);
+  return modelProviders.getById(pair.providerId);
+}
+
+/**
+ * Single dispatch-site provider rule shared by session startup, continuation,
+ * and attachment-bearing turns.
+ *
+ * Tier-derived bindings (an explicit tier-ref request, or continuing on an
+ * existing tier binding) resolve STRICTLY: the hint must name the exact owner
+ * or a typed `TierIdentityError` is thrown — never a cross-provider fallback,
+ * never SDK defaults. All other (concrete-model) bindings keep the legacy
+ * {@link resolveProviderFromModel} fallback for backward compatibility.
+ *
+ * @param {Object} session - Current session row (for the bound `model`).
+ * @param {string|null} requestedModel - Explicit model override, if any.
+ * @param {string|null} effectiveModel - Concrete model resolved for dispatch.
+ * @param {string|null} providerIdHint - Provider hint from tier resolution.
+ * @returns {{ provider: Object|null, providerMetadata: Object|null }}
+ * @throws {TierIdentityError} For tier-derived bindings with a stale hint.
+ */
+export function resolveDispatchProvider(session, requestedModel, effectiveModel, providerIdHint) {
+  const tierDerived = Boolean(
+    (requestedModel && isTierRef(requestedModel))
+    || (!requestedModel && session && isTierRef(session.model))
+  );
+  if (tierDerived && effectiveModel) {
+    const provider = resolveTierMemberProvider(effectiveModel, providerIdHint);
+    return { provider, providerMetadata: provider };
+  }
+  return {
+    provider: resolveProviderFromModel(effectiveModel, providerIdHint),
+    providerMetadata: resolveProviderMetadataFromModel(effectiveModel, providerIdHint),
+  };
 }
 
 export function resolveProviderMetadataFromModel(modelId, providerId = null) {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   TIER_REF_PREFIX,
+  MAX_TIER_MEMBERS,
   isTierRef,
   parseTierRef,
   buildTierRef,
@@ -172,6 +173,26 @@ describe('Model Tier Contracts', () => {
     it('rejects missing members', () => {
       const result = CreateTierRequest.safeParse({ name: 'Fast tier' });
       expect(result.success).toBe(false);
+    });
+
+    it(`rejects more than ${MAX_TIER_MEMBERS} members`, () => {
+      const members = Array.from({ length: MAX_TIER_MEMBERS + 1 }, (_, i) => ({
+        providerId: UUID,
+        modelId: `model-${i}`,
+        position: i,
+      }));
+      const result = CreateTierRequest.safeParse({ name: 'Fast tier', members });
+      expect(result.success).toBe(false);
+    });
+
+    it(`accepts exactly ${MAX_TIER_MEMBERS} members`, () => {
+      const members = Array.from({ length: MAX_TIER_MEMBERS }, (_, i) => ({
+        providerId: UUID,
+        modelId: `model-${i}`,
+        position: i,
+      }));
+      const result = CreateTierRequest.safeParse({ name: 'Fast tier', members });
+      expect(result.success).toBe(true);
     });
 
     it('rejects duplicate provider/model pairs', () => {

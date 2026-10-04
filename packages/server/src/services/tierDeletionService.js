@@ -1,5 +1,6 @@
 import { databaseManager } from '../db/DatabaseManager.js';
 import { buildTierRef, isTierRef, parseTierRef } from '@circuschief/shared';
+import { isExactTierMemberValid } from './tierIdentity.js';
 
 const SUMMARY_SETTINGS_KEY = 'summary_settings';
 
@@ -280,8 +281,69 @@ export function degradeReferencesToEmptiedTiers() {
       degraded.push({ tierId, ...changeSet });
     }
 
+    // Partial degradation: a tier can survive a provider/model loss (it still
+    // has executable members) while a session pinned to the LOST member keeps
+    // a stale resolved snapshot. Repair those snapshots even though the tier
+    // is not empty — otherwise the next continuation dispatches a dead pair.
+    degraded.push(...repairStaleSnapshots(db, now));
+
     return degraded;
   });
+}
+
+/**
+ * Repair tier-bound sessions whose resolved snapshot no longer validates as an
+ * exact `{ providerId, modelId }` identity (provider deleted/disabled, model
+ * removed/disabled/renamed) while their tier binding still has executable
+ * members. The tier binding is kept; only the stale snapshot is cleared, so
+ * the next continuation re-resolves live against current membership and the
+ * repair is surfaced to connected clients via the returned change sets (same
+ * shape as {@link degradeTierReferences}, session scope only).
+ *
+ * Must run inside the caller's transaction (see
+ * {@link degradeReferencesToEmptiedTiers}), after emptied-tier degradation so
+ * sessions already degraded by the tier-level sweep are never double-counted.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {number} now
+ * @returns {Array<Object>} One change set per tier with repaired snapshots.
+ */
+export function repairStaleSnapshots(db, now) {
+  const rows = db.prepare(
+    `SELECT id, project_id AS projectId, model, resolved_model AS resolvedModel,
+            resolved_provider_id AS resolvedProviderId
+     FROM sessions
+     WHERE model LIKE 'tier::%' AND resolved_model IS NOT NULL`
+  ).all();
+
+  const byTierRef = new Map();
+  for (const row of rows) {
+    const tierId = parseTierRef(row.model);
+    if (!tierId || !hasExecutableMember(db, tierId)) continue;
+    if (isExactTierMemberValid(row.resolvedProviderId, row.resolvedModel)) continue;
+    db.prepare(
+      `UPDATE sessions
+       SET resolved_model = NULL, resolved_provider_id = NULL, updated_at = ?
+       WHERE id = ?`
+    ).run(now, row.id);
+    const tierRef = buildTierRef(tierId);
+    let changeSet = byTierRef.get(tierRef);
+    if (!changeSet) {
+      changeSet = {
+        tierId,
+        degradedFrom: tierRef,
+        affectedSessions: [],
+        affectedTemplateIds: [],
+        projectDefaultProjectIds: [],
+        laneProjectIds: [],
+        summarySettingsChanged: false,
+      };
+      byTierRef.set(tierRef, changeSet);
+    }
+    changeSet.affectedSessions.push({ id: row.id, projectId: row.projectId });
+  }
+
+  return [...byTierRef.values()];
 }
 
 /**

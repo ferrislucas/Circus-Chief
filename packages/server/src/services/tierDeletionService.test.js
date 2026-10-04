@@ -129,6 +129,74 @@ describe('tier consumer repair on provider/model loss (tierDeletionService)', ()
       });
     });
 
+    it('repairs a session snapshot pinned to the deleted provider while the tier still has healthy members', () => {
+      const tier = modelTiers.create({
+        name: 'Partial Survivor Tier',
+        members: [
+          { providerId: providerA.id, modelId: 'loss-model-a', position: 0 },
+          { providerId: providerB.id, modelId: 'loss-model-b', position: 1 },
+        ],
+      });
+      const tierRef = buildTierRef(tier.id);
+      const project = projects.create('Partial survivor sessions', '/tmp/partial-survivor');
+      const pinnedSession = sessions.create(project.id, 'Pinned session', 'Later', {
+        status: 'waiting', model: tierRef,
+      });
+      sessions.update(pinnedSession.id, {
+        resolvedModel: 'loss-model-a',
+        resolvedProviderId: providerA.id,
+      });
+      const healthySession = sessions.create(project.id, 'Healthy session', 'Later', {
+        status: 'waiting', model: tierRef,
+      });
+      sessions.update(healthySession.id, {
+        resolvedModel: 'loss-model-b',
+        resolvedProviderId: providerB.id,
+      });
+
+      const degradation = modelProviders.deleteWithDegradation(providerA.id);
+
+      // The tier itself survives on provider B, but the pinned pair is gone:
+      // the stale snapshot is repaired (cleared) while the tier binding is
+      // kept, and the change set names the session for client notification.
+      expect(sessions.getById(pinnedSession.id)).toMatchObject({
+        model: tierRef, resolvedModel: null, resolvedProviderId: null,
+      });
+      const affectedIds = (degradation ?? []).flatMap((changeSet) =>
+        (changeSet.affectedSessions ?? []).map((entry) => entry.id));
+      expect(affectedIds).toContain(pinnedSession.id);
+
+      // A snapshot pinned to the surviving member is untouched.
+      expect(sessions.getById(healthySession.id)).toMatchObject({
+        model: tierRef, resolvedModel: 'loss-model-b', resolvedProviderId: providerB.id,
+      });
+    });
+
+    it('repairs snapshots pinned to a disabled provider while the tier still resolves', () => {
+      const tier = modelTiers.create({
+        name: 'Disabled Survivor Tier',
+        members: [
+          { providerId: providerA.id, modelId: 'loss-model-a', position: 0 },
+          { providerId: providerB.id, modelId: 'loss-model-b', position: 1 },
+        ],
+      });
+      const tierRef = buildTierRef(tier.id);
+      const project = projects.create('Disabled survivor sessions', '/tmp/disabled-survivor');
+      const pinnedSession = sessions.create(project.id, 'Pinned session', 'Later', {
+        status: 'waiting', model: tierRef,
+      });
+      sessions.update(pinnedSession.id, {
+        resolvedModel: 'loss-model-a',
+        resolvedProviderId: providerA.id,
+      });
+
+      modelProviders.updateWithDegradation(providerA.id, { enabled: false });
+
+      expect(sessions.getById(pinnedSession.id)).toMatchObject({
+        model: tierRef, resolvedModel: null, resolvedProviderId: null,
+      });
+    });
+
     it('deletes a provider referenced by no tier without disturbing other tiers', () => {
       const tier = modelTiers.create({
         name: 'Unrelated Tier',

@@ -42,6 +42,13 @@
       <p class="form-help">
         Choose the model used when summaries are generated.
       </p>
+      <SelectionConflictBanner
+        :visible="selectionGuard.showBanner"
+        :problem="selectionGuard.problem"
+        conflict-text="The summary model changed elsewhere while you were editing. Your edit is preserved."
+        @use-canonical="useCanonicalModelSelection"
+        @keep-mine="selectionGuard.keepMine"
+      />
     </div>
 
     <div class="form-group">
@@ -72,7 +79,7 @@
       <button
         type="submit"
         class="btn btn-primary"
-        :disabled="saving"
+        :disabled="saving || selectionGuard.invalid"
       >
         <span
           v-if="saving"
@@ -93,16 +100,17 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { useWebSocket } from '../composables/useWebSocket.js';
 import { useSettingsStore } from '../stores/settings.js';
 import { useUiStore } from '../stores/ui.js';
 import ResizableTextarea from '../components/ResizableTextarea.vue';
 import ModelSelector from '../components/ModelSelector.vue';
+import SelectionConflictBanner from '../components/SelectionConflictBanner.vue';
 import { api } from '../composables/useApi.js';
-import { createReconnectRefetch } from '../composables/reconnectRefetch.js';
+import { useCanonicalSync } from '../composables/useCanonicalSync.js';
 import { reconcileModelSelection } from '../composables/modelSelectionReconciliation.js';
+import { useSelectionGuard } from '../composables/useSelectionGuard.js';
 
 const settingsStore = useSettingsStore();
 const uiStore = useUiStore();
@@ -113,30 +121,30 @@ const summaryModel = ref('');
 const summaryProviderId = ref(null);
 const saving = ref(false);
 const error = ref(null);
-const { on, off, onReconnect } = useWebSocket();
+const modelSelectionConflict = ref(false);
 let lastCanonicalSelection = { model: null, providerId: null };
-let reconnectReconciliation;
 let hasLoadedCanonicalSettings = false;
 
-function handleSummarySettingsUpdated(message) {
-  if (message?.settings) settingsStore.summarySettings = message.settings;
-}
-
-onMounted(() => {
-  settingsStore.fetchSummarySettings().finally(() => {
-    hasLoadedCanonicalSettings = true;
-  });
-  on(WS_MESSAGE_TYPES.SUMMARY_SETTINGS_UPDATED, handleSummarySettingsUpdated);
-  reconnectReconciliation = createReconnectRefetch({
-    onReconnect,
-    fetchCanonical: () => api.getSummarySettings(),
-    apply: (settings) => { settingsStore.summarySettings = settings; },
-  });
+// One monotonic coordinator for initial load, websocket invalidation, and
+// reconnect: a slow initial response can never overwrite a newer push.
+const { refresh: refreshSettings } = useCanonicalSync({
+  fetchCanonical: () => api.getSummarySettings(),
+  applyCanonical: (settings) => { settingsStore.summarySettings = settings; },
+  messageType: WS_MESSAGE_TYPES.SUMMARY_SETTINGS_UPDATED,
+  selectPush: (message) => (message?.settings ? { notify: message.settings } : undefined),
+  onSettled: () => { hasLoadedCanonicalSettings = true; },
 });
 
-onUnmounted(() => {
-  off(WS_MESSAGE_TYPES.SUMMARY_SETTINGS_UPDATED, handleSummarySettingsUpdated);
-  reconnectReconciliation?.dispose();
+// Shared conflict contract (see useSelectionGuard): an invalid selection
+// blocks save until the user picks a current value or clears it.
+const selectionGuard = useSelectionGuard(
+  () => ({ model: summaryModel.value, providerId: summaryProviderId.value }),
+  () => modelSelectionConflict.value,
+  () => { modelSelectionConflict.value = false; }
+);
+
+onMounted(() => {
+  refreshSettings();
 });
 
 // Watch for changes to the store and update local refs
@@ -153,6 +161,7 @@ watch(() => settingsStore.summarySettings, (settings) => {
     });
     summaryModel.value = selection.model || '';
     summaryProviderId.value = selection.providerId;
+    modelSelectionConflict.value = selection.conflict;
     lastCanonicalSelection = { model: settings.summaryModel || '', providerId: settings.summaryProviderId || null };
   }
 }, { immediate: true });
@@ -162,9 +171,19 @@ function handleModelSelected(selection) {
   summaryProviderId.value = selection.providerId || null;
 }
 
+function useCanonicalModelSelection() {
+  summaryModel.value = lastCanonicalSelection.model || '';
+  summaryProviderId.value = lastCanonicalSelection.providerId;
+  modelSelectionConflict.value = false;
+}
+
 async function handleSave() {
-  saving.value = true;
   error.value = null;
+  if (selectionGuard.invalid) {
+    error.value = selectionGuard.problem?.message || 'The summary model selection is no longer available.';
+    return;
+  }
+  saving.value = true;
 
   try {
     await settingsStore.updateSummarySettings({

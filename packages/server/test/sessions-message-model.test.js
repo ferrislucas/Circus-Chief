@@ -109,7 +109,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-6', interactive: true }
+        { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-6', providerId: null, interactive: true }
       );
     });
 
@@ -126,7 +126,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: [], model: null, interactive: true }
+        { systemPrompt: null, fileAttachments: [], model: null, providerId: null, interactive: true }
       );
     });
 
@@ -148,7 +148,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: expect.any(Array), model: 'claude-opus-4-6', interactive: true }
+        { systemPrompt: null, fileAttachments: expect.any(Array), model: 'claude-opus-4-6', providerId: null, interactive: true }
       );
     });
 
@@ -164,7 +164,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: [], model: 'opus', interactive: true }
+        { systemPrompt: null, fileAttachments: [], model: 'opus', providerId: null, interactive: true }
       );
     });
 
@@ -192,9 +192,61 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: [], model: 'custom-provider-model-v2', interactive: true }
+        { systemPrompt: null, fileAttachments: [], model: 'custom-provider-model-v2', providerId: null, interactive: true }
       );
       modelProviders.delete(provider.id);
+    });
+
+    it('forwards an exact model + owning providerId pair', async () => {
+      const provider = modelProviders.create({
+        name: 'Exact Pair Provider',
+        kind: 'anthropic',
+        baseUrl: 'https://api.exact-pair.example',
+        authToken: 'token',
+      });
+      modelProviders.addModel(provider.id, {
+        modelId: 'exact-pair-model',
+        displayName: 'Exact Pair Model',
+      });
+
+      const response = await request(server)
+        .post(`/api/sessions/${session.id}/message`)
+        .send({ content: 'Test message', model: 'exact-pair-model', providerId: provider.id })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+
+      expect(continueSession).toHaveBeenCalledWith(
+        session.id,
+        'Test message',
+        testTempDir,
+        { systemPrompt: null, fileAttachments: [], model: 'exact-pair-model', providerId: provider.id, interactive: true }
+      );
+      modelProviders.delete(provider.id);
+    });
+
+    it('rejects a model paired with a provider that does not own it', async () => {
+      const provider = modelProviders.create({
+        name: 'Mismatch Provider',
+        kind: 'anthropic',
+        baseUrl: 'https://api.mismatch.example',
+        authToken: 'token',
+      });
+      modelProviders.addModel(provider.id, {
+        modelId: 'mismatch-model',
+        displayName: 'Mismatch Model',
+      });
+      const other = modelProviders.create({ name: 'Other Provider', kind: 'anthropic' });
+
+      const response = await request(server)
+        .post(`/api/sessions/${session.id}/message`)
+        .send({ content: 'Test message', model: 'mismatch-model', providerId: other.id })
+        .expect(400);
+
+      expect(response.body.error).toBeDefined();
+      expect(continueSession).not.toHaveBeenCalled();
+      modelProviders.delete(provider.id);
+      modelProviders.delete(other.id);
     });
 
     it('can switch models between messages', async () => {
@@ -208,7 +260,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'First message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-6', interactive: true }
+        { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-6', providerId: null, interactive: true }
       );
 
       // Second message with another Claude model
@@ -221,7 +273,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Second message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-7', interactive: true }
+        { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-7', providerId: null, interactive: true }
       );
     });
   });

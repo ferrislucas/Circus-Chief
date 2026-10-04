@@ -1,34 +1,51 @@
 import { isTierRef, parseTierRef, DEFAULT_TIER_COOLDOWN_MS } from '@circuschief/shared';
 import { modelTiers, modelProviders } from '../database.js';
+import { getProvidersByIds } from '../db/providerModelOperations.js';
+import { validateExactTierMember } from './tierIdentity.js';
 
 /**
- * In-memory cooldown store. Maps "providerId::modelId" → expiry timestamp (ms).
+ * Process-local member cooldown store. Maps "providerId::modelId" → expiry
+ * timestamp (ms).
  *
- * Scope note (Fix 6 / E7): this map is per-process. Cooldown entries are cleared
- * on server restart, meaning a member that failed before a restart is immediately
- * retryable again. For a local-first, single-process deployment this is acceptable:
- * the thundering-herd protection (F21) is effective within a session's lifecycle.
- * If multi-process or multi-replica deployments are ever added, cooldown state
- * should be persisted (e.g., a `healthy_until` column in the provider_models table
- * or a shared store) so the protection spans process boundaries.
- *
- * @type {Map<string, number>}
+ * This store is DELIBERATELY process-local: the supported deployment is a
+ * single server process per database, enforced at boot by
+ * `assertSingleProcessDeployment` (see `deploymentBoundary.js`). A second
+ * process would hold a divergent cooldown map and retry members the first
+ * process just cooled down. Entries clear on restart, so a member that failed
+ * before a restart is immediately retryable again — acceptable for a
+ * local-first deployment, where the thundering-herd protection (F21) is
+ * effective within a session's lifecycle. If the topology ever changes, swap
+ * this factory for a shared-store implementation with expiry and atomic
+ * updates; every consumer below goes through the factory's interface, so the
+ * semantics travel with it.
  */
-const cooldownMap = new Map();
+export function createTierCooldown({ now = () => Date.now() } = {}) {
+  const cooldownMap = new Map();
+  const cooldownKey = (providerId, modelId) => `${providerId}::${modelId}`;
 
-function cooldownKey(providerId, modelId) {
-  return `${providerId}::${modelId}`;
-}
-
-/**
- * Sweep expired entries from the cooldown map (called on every read).
- */
-function sweepExpired() {
-  const now = Date.now();
-  for (const [key, expiry] of cooldownMap) {
-    if (now >= expiry) cooldownMap.delete(key);
+  function sweepExpired() {
+    const current = now();
+    for (const [key, expiry] of cooldownMap) {
+      if (current >= expiry) cooldownMap.delete(key);
+    }
   }
+
+  return {
+    markUnhealthy(providerId, modelId, cooldownMs) {
+      cooldownMap.set(cooldownKey(providerId, modelId), now() + resolveCooldownMs(cooldownMs));
+    },
+    isUnhealthy(providerId, modelId) {
+      sweepExpired();
+      const expiry = cooldownMap.get(cooldownKey(providerId, modelId));
+      return expiry !== undefined && now() < expiry;
+    },
+    clearUnhealthy(providerId, modelId) {
+      cooldownMap.delete(cooldownKey(providerId, modelId));
+    },
+  };
 }
+
+const defaultTierCooldown = createTierCooldown();
 
 /**
  * Resolve the cooldown duration to apply. An explicit `cooldownMs` argument
@@ -53,33 +70,34 @@ function resolveCooldownMs(explicitCooldownMs) {
 
 /**
  * Mark a (provider, model) pair as unhealthy for the cooldown period.
+ * Process-singleton façade over {@link createTierCooldown}.
  * @param {string} providerId
  * @param {string} modelId
  * @param {number} [cooldownMs]
  */
 export function markUnhealthy(providerId, modelId, cooldownMs) {
-  cooldownMap.set(cooldownKey(providerId, modelId), Date.now() + resolveCooldownMs(cooldownMs));
+  defaultTierCooldown.markUnhealthy(providerId, modelId, cooldownMs);
 }
 
 /**
  * Check whether a (provider, model) pair is currently in cooldown.
+ * Process-singleton façade over {@link createTierCooldown}.
  * @param {string} providerId
  * @param {string} modelId
  * @returns {boolean}
  */
 export function isUnhealthy(providerId, modelId) {
-  sweepExpired();
-  const expiry = cooldownMap.get(cooldownKey(providerId, modelId));
-  return expiry !== undefined && Date.now() < expiry;
+  return defaultTierCooldown.isUnhealthy(providerId, modelId);
 }
 
 /**
  * Clear cooldown for a (provider, model) pair.
+ * Process-singleton façade over {@link createTierCooldown}.
  * @param {string} providerId
  * @param {string} modelId
  */
 export function clearUnhealthy(providerId, modelId) {
-  cooldownMap.delete(cooldownKey(providerId, modelId));
+  defaultTierCooldown.clearUnhealthy(providerId, modelId);
 }
 
 /**
@@ -92,20 +110,37 @@ export function clearUnhealthy(providerId, modelId) {
  * @param {string} tierId
  * @returns {Array<{ providerId: string, modelId: string, position: number }>}
  */
-export function getTierMembersResolved(tierId) {
-  const tier = modelTiers.getByIdWithMembers(tierId);
-  if (!tier) return [];
-
-  return tier.members
+/**
+ * Pure in-memory member evaluation over a pre-fetched provider catalog.
+ * Separated from catalog loading so ordered-member correctness (ordering,
+ * disabled providers/models, missing records) is unit-testable without
+ * database setup.
+ */
+export function evaluateTierMembers(members, providersById) {
+  return members
     .filter((m) => {
-      const provider = modelProviders.getById(m.providerId);
+      const provider = providersById.get(m.providerId);
       if (!provider || provider.enabled === false) return false;
-      // Reuse the already-fetched provider object — no extra query per member.
       return provider.models.some(
         (model) => model.modelId === m.modelId && model.enabled !== false && model.unavailable !== true
       );
     })
     .sort((a, b) => a.position - b.position || a.createdAt - b.createdAt);
+}
+
+export function getTierMembersResolved(tierId) {
+  const tier = modelTiers.getByIdWithMembers(tierId);
+  if (!tier) return [];
+
+  // Batched catalog load: two queries total (providers + models) no matter
+  // how many members the tier has — never one provider-with-models query per
+  // member. Members resolve in configured order against the in-memory index.
+  const providersById = getProvidersByIds(
+    modelProviders.db,
+    tier.members.map((m) => m.providerId),
+    (row) => modelProviders.map(row)
+  );
+  return evaluateTierMembers(tier.members, providersById);
 }
 
 /**
@@ -315,9 +350,17 @@ export function buildTierHealthContext(session) {
  */
 function snapshotResolution(session) {
   if (!session.resolvedModel) return null;
+  // Atomic identity: the pinned pair must still validate EXACTLY against the
+  // current catalog. A stale snapshot (provider deleted/disabled, model
+  // removed/disabled) throws a typed TierIdentityError — it is never reused
+  // blindly, never re-routed through a different provider that happens to own
+  // the same model id, and never downgraded to SDK defaults. Callers surface
+  // the actionable error; only a truly-stale tier binding (no executable
+  // members left) degrades via the stale-fallback path instead.
+  const validated = validateExactTierMember(session.resolvedProviderId, session.resolvedModel);
   return {
-    effectiveModel: session.resolvedModel,
-    providerIdHint: session.resolvedProviderId || null,
+    effectiveModel: validated.modelId,
+    providerIdHint: validated.providerId,
     persist: {},
   };
 }

@@ -27,15 +27,23 @@ export const useTiersStore = defineStore('tiers', {
 
   actions: {
     async fetchTiers() {
+      // Monotonic intake: overlapping fetches (initial load, reconnect,
+      // manual refresh, catalog-invalidation refetch) resolve in any order —
+      // only the latest request may write state.
+      const request = (this.fetchRevision = (this.fetchRevision || 0) + 1);
       this.loading = true;
       this.error = null;
       try {
-        this.tiers = await api.getTiers();
+        const tiers = await api.getTiers();
+        if (request !== this.fetchRevision) return tiers;
+        this.tiers = tiers;
         this.loaded = true;
+        return tiers;
       } catch (err) {
-        this.error = err.message;
+        if (request === this.fetchRevision) this.error = err.message;
+        return this.tiers;
       } finally {
-        this.loading = false;
+        if (request === this.fetchRevision) this.loading = false;
       }
     },
 

@@ -1081,4 +1081,54 @@ describe('TemplateDetailView - model selection conflict', () => {
     expect(wrapper.find('.conflict-banner').exists()).toBe(false);
     expect(wrapper.findComponent({ name: 'ModelSelector' }).props('modelValue')).toBe('claude-sonnet-5');
   });
+
+  it('Keep mine cannot dismiss a conflict for a tier that no longer exists', async () => {
+    const { useTiersStore } = await import('../stores/tiers.js');
+    const tiersStore = useTiersStore();
+    tiersStore.tiers = [];
+    tiersStore.loaded = true;
+
+    api.getTemplate.mockResolvedValue({ ...canonicalTemplate, model: 'tier::t-gone', providerId: null });
+    const wrapper = mount(TemplateDetailView, {
+      global: { plugins: [pinia, router] },
+    });
+    await flushPromises();
+    await nextTick();
+
+    // The deleted tier is visible as a conflict even without a concurrent edit.
+    expect(wrapper.find('.conflict-banner').exists()).toBe(true);
+
+    // A concurrent canonical change raises a conflict; Keep mine must not
+    // silently dismiss it while the kept tier does not exist.
+    api.getTemplate.mockResolvedValue({ ...canonicalTemplate, model: 'tier::t-other', providerId: null });
+    wsHandlers['template:updated']({ templateId: 'template-1' });
+    await flushPromises();
+    await nextTick();
+
+    const buttons = wrapper.find('.conflict-banner').findAll('button');
+    await buttons[1].trigger('click');
+    await nextTick();
+
+    expect(wrapper.find('.conflict-banner').exists()).toBe(true);
+  });
+
+  it('blocks submit while the selected tier does not exist', async () => {
+    const { useTiersStore } = await import('../stores/tiers.js');
+    const tiersStore = useTiersStore();
+    tiersStore.tiers = [];
+    tiersStore.loaded = true;
+    vi.spyOn(templatesStore, 'updateTemplate').mockResolvedValue({ id: 'template-1' });
+
+    api.getTemplate.mockResolvedValue({ ...canonicalTemplate, model: 'tier::t-gone', providerId: null });
+    const wrapper = mount(TemplateDetailView, {
+      global: { plugins: [pinia, router] },
+    });
+    await flushPromises();
+    await nextTick();
+
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+
+    expect(templatesStore.updateTemplate).not.toHaveBeenCalled();
+  });
 });

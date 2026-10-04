@@ -265,9 +265,9 @@ async function callGoogleSummaryModel(prompt, resolution, options) {
 
   const callId = startOpenAISummaryLog(logMeta, resolution, prompt.length, 'google-generate-content');
   try {
-    const response = await fetch(googleSummaryEndpoint(resolution.model, apiKey), {
+    const response = await fetch(googleSummaryEndpoint(resolution.model), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify(googleSummaryRequest(prompt, systemPrompt, schema)),
       ...(provider?.apiTimeoutMs ? { signal: AbortSignal.timeout(provider.apiTimeoutMs) } : {}),
     });
@@ -280,8 +280,8 @@ async function callGoogleSummaryModel(prompt, resolution, options) {
   }
 }
 
-function googleSummaryEndpoint(model, apiKey) {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+function googleSummaryEndpoint(model) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 }
 
 function googleSummaryRequest(prompt, systemPrompt, schema) {

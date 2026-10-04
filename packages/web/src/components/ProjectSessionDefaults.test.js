@@ -134,4 +134,49 @@ describe('ProjectSessionDefaults - model selection conflict', () => {
 
     expect(wrapper.find('.conflict-banner').exists()).toBe(false);
   });
+
+  it('Keep mine cannot dismiss a conflict for a tier that no longer exists', async () => {
+    const { useTiersStore } = await import('../stores/tiers.js');
+    const { useProvidersStore } = await import('../stores/providers.js');
+    // The selected tier was deleted from the catalog while editing.
+    api.getProjectSessionDefaults.mockResolvedValue({
+      ...canonicalDefaults,
+      model: 'tier::t-gone',
+      providerId: null,
+    });
+
+    const wrapper = mount(ProjectSessionDefaults, {
+      props: { projectId: 'proj-1' },
+    });
+    await flushPromises();
+    await nextTick();
+
+    const tiersStore = useTiersStore();
+    const providersStore = useProvidersStore();
+    tiersStore.tiers = [];
+    tiersStore.loaded = true;
+    providersStore.providers = [];
+    providersStore.loaded = true;
+    await nextTick();
+
+    // The invalid selection is visible even without a concurrent edit.
+    expect(wrapper.find('.conflict-banner').exists()).toBe(true);
+    expect(wrapper.vm.modelSelectionInvalid).toBe(true);
+
+    // A concurrent canonical change raises a conflict; Keep mine must not
+    // silently dismiss it while the kept tier does not exist.
+    wsHandlers['project:defaults_updated']({
+      projectId: 'proj-1',
+      defaults: { ...canonicalDefaults, model: 'tier::t-other', providerId: null },
+    });
+    await flushPromises();
+    await nextTick();
+
+    const buttons = wrapper.find('.conflict-banner').findAll('button');
+    await buttons[1].trigger('click');
+    await nextTick();
+
+    expect(wrapper.find('.conflict-banner').exists()).toBe(true);
+    expect(wrapper.vm.modelSelectionInvalid).toBe(true);
+  });
 });

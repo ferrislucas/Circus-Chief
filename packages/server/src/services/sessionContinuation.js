@@ -1,5 +1,5 @@
 import { sessions, messages, attachments, conversations } from '../database.js';
-import { resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
+import { resolveDispatchProvider, buildSessionEnv } from './sessionProvider.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
@@ -62,10 +62,10 @@ function buildContinueModelAndEnv(session, sessionId, model, providerId = null) 
     sessionId, session, model, providerId
   );
 
-  // Derive provider from the effective model ID + hint (Fix 1 — disambiguates
-  // duplicate model ids registered under two different providers).
-  const provider = resolveProviderFromModel(effectiveModel, providerIdHint);
-  const providerMetadata = resolveProviderMetadataFromModel(effectiveModel, providerIdHint);
+  // Derive provider through the single dispatch rule: tier-derived bindings
+  // resolve strictly (exact owner or typed error — never a cross-provider
+  // fallback), concrete bindings keep the legacy fallback.
+  const { provider, providerMetadata } = resolveDispatchProvider(session, model, effectiveModel, providerIdHint);
   const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
   const sessionEnv = buildAgentEnv(
     buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel),

@@ -3,7 +3,7 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
-import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
+import { resolveDispatchProvider, buildSessionEnv } from './sessionProvider.js';
 import { resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
 import { buildTierHealthContext } from './tierResolutionService.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
@@ -261,7 +261,7 @@ function buildModelAndProvider(session, sessionId, model, providerId = null) {
     sessionId, session, model, providerId
   );
 
-  const provider = resolveProviderFromModel(effectiveModel, providerIdHint);
+  const { provider } = resolveDispatchProvider(session, model, effectiveModel, providerIdHint);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
   // Model changed = the caller explicitly requested a different binding

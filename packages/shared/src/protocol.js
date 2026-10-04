@@ -68,6 +68,14 @@ export const WS_MESSAGE_TYPES = {
   PROJECT_DEFAULTS_UPDATED: 'project:defaults_updated',
   SUMMARY_SETTINGS_UPDATED: 'settings:summary_updated',
 
+  // Fires after a tier, provider, or model-catalog mutation commits so every
+  // connected client refetches canonical catalog state instead of acting on
+  // a stale snapshot. Payload: `{ scope: 'tiers' | 'providers', revision }`.
+  // Revisions are strictly increasing per server process; clients ignore any
+  // revision that is not newer than the last one they applied, which makes
+  // duplicate, delayed, and out-of-order delivery idempotent.
+  CATALOG_INVALIDATED: 'catalog:invalidated',
+
   // Tier failover events
   TIER_FAILOVER: 'tier:failover',
   // Fires for each session whose tier binding was repaired server-side

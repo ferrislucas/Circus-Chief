@@ -220,6 +220,24 @@ describe('AgentCallLogger', () => {
       });
       expect(logger.activeCalls.has(callId)).toBe(false);
     });
+
+    it('never persists raw credentials from thrown provider errors', () => {
+      const sentinel = 'sentinel-7a1c-logger-secret';
+      const callId = logger.startCall({
+        sessionId: 'session-1',
+        callType: 'runSession',
+        promptLength: 100,
+      });
+
+      logger.completeCall(callId, {
+        success: false,
+        error: new Error(`GET https://example/v1/models/m:generateContent?key=${sentinel} failed`),
+      });
+
+      const persisted = agentCallLogs.complete.mock.calls[0][1].errorMessage;
+      expect(persisted).not.toContain(sentinel);
+      expect(persisted).toContain('generateContent');
+    });
   });
 
   describe('getSessionStats', () => {
