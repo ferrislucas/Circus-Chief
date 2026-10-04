@@ -362,6 +362,32 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
     expect(updated.model).toBe(tierRef);
   });
 
+  // A session with no stored model adopting the caller's concrete model is
+  // initialization, not a switch. Lane on-enter workers are created model-less
+  // and the web client echoes a resolved picker default on every follow-up —
+  // treating that as modelChanged prefixes conversation history onto the
+  // prompt (changing the VCR cassette key so replay misses) and drops resume.
+  // Regression: kanban-lane-run-structured "graceful provider limit" follow-up
+  // errored with `VCR replay: no cassette found` and the card never advanced.
+  it('a model-less session adopting the caller model keeps the bare prompt (no history prefix)', async () => {
+    const session = createTestSession(project);
+    expect(session.model).toBeNull();
+    const conv = conversations.ensureActiveConversation(session.id);
+    // A prior turn, so a (buggy) model-switch prefix would be non-empty.
+    messages.create(session.id, 'user', 'First turn', { conversationId: conv.id });
+    messages.create(session.id, 'assistant', 'First reply', { conversationId: conv.id });
+
+    await continueSessionCore(
+      session.id,
+      'Follow-up turn',
+      '/tmp/tier-continue-test',
+      { options: { model: 'claude-sonnet-5', interactive: true }, callbacks: mockCallbacks }
+    );
+
+    expect(capturedQueryParams.length).toBeGreaterThan(0);
+    expect(capturedQueryParams[0].prompt).toBe('Follow-up turn');
+  });
+
   // Fix 2: an explicit tier ref passed as the requested `model` (e.g. the live
   // chat picker switching tiers mid-conversation) must resolve THAT tier live
   // — never forward the raw `tier::<id>` sentinel to the adapter, and never

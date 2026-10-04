@@ -265,8 +265,10 @@ function buildModelAndProvider(session, sessionId, model, providerId = null) {
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
   // Model changed = the caller explicitly requested a different binding
-  // (concrete or tier) than what's currently stored on the session.
-  const modelChanged = Boolean(model) && model !== session.model;
+  // (concrete or tier) than what's currently stored on the session. A session
+  // with no stored binding adopting the caller's model is initialization, not
+  // a switch (see sessionContinuation.js) — it keeps resume/context state.
+  const modelChanged = Boolean(model && session.model && model !== session.model);
 
   let updatedSession = session;
   // Defense in depth: if this is still a draft (no assistant messages),

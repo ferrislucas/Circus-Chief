@@ -183,13 +183,20 @@ describe('commandRunOutputResource', () => {
     run.outputHighWater = appended.length;
 
     await expect(appendCommandRunOutputResource({ workingDirectory, runId: run.id, chunks: appended })).resolves.toBe(true);
-    expect(await readFile(join(workingDirectory, descriptor.path))).toEqual(Buffer.concat([exactWindow, justOverWindow, substantiallyLarge, subsequent]));
+    // NOTE: compared with Buffer.equals (native memcmp) instead of toEqual:
+    // vitest's pretty-format serializer crawls on ~0.5 MiB buffers and the
+    // test exceeds the default 10s timeout under coverage instrumentation.
+    const expectedFirst = Buffer.concat([exactWindow, justOverWindow, substantiallyLarge, subsequent]);
+    const actualFirst = await readFile(join(workingDirectory, descriptor.path));
+    expect(actualFirst.length).toBe(expectedFirst.length);
+    expect(actualFirst.equals(expectedFirst)).toBe(true);
     await expect(appendCommandRunOutputResource({
       workingDirectory, runId: run.id, chunks: [{ sequence: 5, content: Buffer.from('later output\n') }],
     })).resolves.toBe(true);
-    expect(await readFile(join(workingDirectory, descriptor.path))).toEqual(Buffer.concat([
-      exactWindow, justOverWindow, substantiallyLarge, subsequent, Buffer.from('later output\n'),
-    ]));
+    const expectedSecond = Buffer.concat([expectedFirst, Buffer.from('later output\n')]);
+    const actualSecond = await readFile(join(workingDirectory, descriptor.path));
+    expect(actualSecond.length).toBe(expectedSecond.length);
+    expect(actualSecond.equals(expectedSecond)).toBe(true);
   });
 
   it('surfaces a partial live-write failure and reconciles the artifact from persisted chunks', async () => {
@@ -246,7 +253,9 @@ describe('commandRunOutputResource', () => {
     });
 
     expect(reads).toHaveLength(Math.ceil(output.length / byteWindow) + 1);
-    expect(await readFile(join(workingDirectory, descriptor.path))).toEqual(output);
+    const actualOversized = await readFile(join(workingDirectory, descriptor.path));
+    expect(actualOversized.length).toBe(output.length);
+    expect(actualOversized.equals(output)).toBe(true);
   });
 
   it('preserves mixed UTF-8, empty, and stdout/stderr chunks while reconstructing byte windows', async () => {

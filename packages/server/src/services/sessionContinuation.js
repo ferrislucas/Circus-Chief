@@ -74,8 +74,14 @@ function buildContinueModelAndEnv(session, sessionId, model, providerId = null) 
   );
 
   // Model changed = the caller explicitly requested a different binding
-  // (concrete or tier) than what's currently stored on the session.
-  const modelChanged = Boolean(model) && model !== session.model;
+  // (concrete or tier) than what's currently stored on the session. A session
+  // with no stored binding adopting the caller's model is initialization, not
+  // a switch: it must keep resume/context state (the web client always echoes
+  // a resolved picker default, and lane on-enter workers are created
+  // model-less). Treating it as changed prefixes conversation history onto
+  // the prompt and drops resume, which breaks VCR-cassette continuations and
+  // lane-run completion for those sessions.
+  const modelChanged = Boolean(model && session.model && model !== session.model);
 
   // Defense in depth: re-derive agentType using the effective model + provider
   // hint so a stale stored agentType is corrected even when no explicit model
