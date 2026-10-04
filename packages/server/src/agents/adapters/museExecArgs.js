@@ -15,7 +15,6 @@ export function buildMuseExecArgs({ prompt, options = {}, workingDirectory, sess
     args.push('--reasoning-effort', options.effortLevel);
   }
   args.push(...museExecApprovalFlags(options.approvalMode));
-  if (options.trustWorkspace) args.push('--trust-workspace');
   const text = composeCliPrompt(options.systemPrompt, prompt);
   if (promptFile) args.push('--prompt-file', promptFile);
   else args.push(text);
@@ -30,11 +29,14 @@ export function buildMuseExecArgs({ prompt, options = {}, workingDirectory, sess
  * denial text in the transcript. Only the yolo posture (`allowAll`)
  * disables enforcement. Unset fails closed to the standard posture.
  * Posture vocabulary comes from `getMuseApprovalModeForSession`
- * (`allowAll | onRequest | promptUnmatched`).
+ * (`allowAll | onRequest | promptUnmatched | denyUnmatched`). `denyUnmatched`
+ * is stricter than `promptUnmatched`, so it takes the strictest CLI posture
+ * (`never` with writes disabled).
  */
 function museExecApprovalFlags(approvalMode) {
   if (approvalMode === 'allowAll') return ['--yolo'];
   if (!approvalMode || approvalMode === 'onRequest') return ['--approval-mode', 'on-request'];
   if (approvalMode === 'promptUnmatched') return ['--approval-mode', 'untrusted', '--disable-write'];
+  if (approvalMode === 'denyUnmatched') return ['--approval-mode', 'never', '--disable-write'];
   throw new Error(`Unsupported Muse approval mode: ${approvalMode}`);
 }

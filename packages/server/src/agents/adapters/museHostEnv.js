@@ -24,7 +24,8 @@ import { filterDeadSshSocket, staleSshSocketMessage } from '../../services/login
  *   the socket path), and `{ skipSshFilter }` — when true the sync-stat
  *   socket filter is skipped because the caller runs the cached async
  *   connect-test instead, so only one liveness probe exists per turn
- *   (finding #8; used by the adapter's `_prepareHostEnv`).
+ *   (finding #8; used by the adapter, which builds the host env inline in
+ *   `execute` and filters via `filterDeadSshSocketAsync`).
  * @returns {Object}
  */
 export function buildMuseHostEnv(sessionEnv = {}, baseEnv = process.env, opts = {}) {

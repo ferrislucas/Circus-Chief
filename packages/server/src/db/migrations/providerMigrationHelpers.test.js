@@ -315,6 +315,25 @@ describe('widenProvidersKindCheck', () => {
     }
   });
 
+  // Finding #12: the table rebuild hardcodes the kind column shape, so pin
+  // the live contract — a future rebuild must preserve NOT NULL and the
+  // 'anthropic' default rather than silently relaxing either. No
+  // re-migration: this only asserts what live DBs already have.
+  it("preserves the live kind default and nullability across the rebuild (finding #12)", () => {
+    const db = liveDbWithEnabled();
+    try {
+      widenProvidersKindCheck(db, META_KINDS);
+      const kind = db.prepare('PRAGMA table_info(providers)').all().find((c) => c.name === 'kind');
+      expect(kind.notnull).toBe(1);
+      expect(kind.dflt_value).toBe("'anthropic'");
+      // The default actually applies: omitting kind yields 'anthropic'.
+      db.prepare("INSERT INTO providers (id, name) VALUES ('default-kind', 'D')").run();
+      expect(db.prepare("SELECT kind FROM providers WHERE id = 'default-kind'").get().kind).toBe('anthropic');
+    } finally {
+      db.close();
+    }
+  });
+
   it('is safe to run twice (mimics ledger-less re-runs on every startup)', () => {
     const db = liveDbWithEnabled();
     try {

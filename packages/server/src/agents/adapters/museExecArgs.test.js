@@ -22,4 +22,16 @@ describe('buildMuseExecArgs', () => {
   it('rejects unknown approval modes before spawn', () => {
     expect(() => buildMuseExecArgs({ prompt: 'Hi', workingDirectory: '/tmp/project', options: { approvalMode: 'ask' } })).toThrow(/Unsupported Muse approval mode/);
   });
+  // Finding #7: no producer ever sets `trustWorkspace`, so the flag must
+  // never be emitted even when the option is set.
+  it('never emits --trust-workspace', () => {
+    const spec = buildMuseExecArgs({ prompt: 'Hi', workingDirectory: '/tmp/project', museBin: 'muse', options: { approvalMode: 'allowAll', trustWorkspace: true } });
+    expect(spec.args).not.toContain('--trust-workspace');
+  });
+  // Finding #10: `denyUnmatched` is in the closed posture vocabulary, so the
+  // adapter must handle it — strictest flags (`never` + no writes).
+  it('maps denyUnmatched to the strictest approval flags', () => {
+    const spec = buildMuseExecArgs({ prompt: 'Hi', workingDirectory: '/tmp/project', museBin: 'muse', options: { approvalMode: 'denyUnmatched' } });
+    expect(spec.args).toEqual(['exec', '--json', '--workspace', '/tmp/project', '--approval-mode', 'never', '--disable-write', 'Hi']);
+  });
 });
