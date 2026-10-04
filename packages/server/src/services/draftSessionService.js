@@ -5,6 +5,7 @@ import * as slashCommandService from './slashCommandService.js';
 import { resolveAgentTypeFromModel } from './sessionProvider.js';
 import { resolveModelForAgentKind } from './sessionAgentGuard.js';
 import { validateModelAndProvider } from '../api/model-validation.js';
+import { normalizeFinalErrorMessage } from './visibleFinalErrorMessage.js';
 
 /**
  * Validates that a session is a draft (waiting status with no assistant messages).
@@ -194,7 +195,7 @@ export async function startDraft(session, options = {}) {
     systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model, providerId: modelResult.providerId,
   }).catch((error) => {
     console.error('Session error:', error);
-    sessions.update(session.id, { status: 'error', error: error.message });
+    sessions.update(session.id, { status: 'error', error: normalizeFinalErrorMessage(error) });
   });
 
   // Broadcast status update

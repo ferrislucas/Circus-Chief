@@ -22,6 +22,7 @@ import {
 import { agentCallLogger } from './agentCallLogger.js';
 import { resolveAgentTypeFromModel } from './sessionProvider.js';
 import { sanitizeTierFailureReason } from './tierFailureReason.js';
+import { redactUrlCredentials } from './errorSanitizer.js';
 import { createTierCooldownUnavailableError } from './tierCooldownUnavailableError.js';
 import {
   clearTierAttemptMember,
@@ -112,7 +113,7 @@ async function attemptRunWithModel(
   });
 
   console.log(
-    `[SessionManager] runSession: model=${queryParams.options?.model || '[default]'} baseUrl=${queryParams.options?.env?.ANTHROPIC_BASE_URL || '[not set]'}`
+    `[SessionManager] runSession: model=${queryParams.options?.model || '[default]'} baseUrl=${redactUrlCredentials(queryParams.options?.env?.ANTHROPIC_BASE_URL) || '[not set]'}`
   );
 
   const agentCallMeta = {

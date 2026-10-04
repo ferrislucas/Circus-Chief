@@ -20,6 +20,22 @@
 
 export const SECRET_PLACEHOLDER = '[redacted]';
 
+/**
+ * Redact embedded URL credentials (userinfo) for safe logging.
+ *
+ * A user-configured provider `baseUrl` may embed `user:password@` credentials;
+ * error text and debug logs that echo the URL must not repeat them. Only the
+ * userinfo segment is replaced — host, port, and path are preserved for
+ * debuggability. Non-string inputs pass through unchanged.
+ *
+ * @param {unknown} value
+ * @returns {unknown}
+ */
+export function redactUrlCredentials(value) {
+  if (typeof value !== 'string') return value;
+  return value.replace(/:\/\/([^/@\s]+)@/g, '://[redacted]@');
+}
+
 const MAX_DEPTH = 10;
 const MAX_OBJECT_KEYS = 100;
 const MAX_ARRAY_ITEMS = 100;

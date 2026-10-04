@@ -4,6 +4,7 @@ import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { resolveCommitAttributionOverrideForModel } from '../services/sessionProvider.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
+import { normalizeFinalErrorMessage } from '../services/visibleFinalErrorMessage.js';
 import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES, DEFAULT_MAX_RESCHEDULE_COUNT } from '@circuschief/shared';
 
 const SCHEDULED_AT_FORMAT_MESSAGE = 'scheduledAt must be a valid ISO 8601 date-time string with a timezone, for example "2026-06-12T14:00:00Z".';
@@ -361,7 +362,7 @@ async function startSessionImmediately({ session, config, project, workingDirect
     providerId: config.providerId,
   }).catch((error) => {
     console.error('Session error:', error);
-    sessions.update(session.id, { status: 'error', error: error.message });
+    sessions.update(session.id, { status: 'error', error: normalizeFinalErrorMessage(error) });
   });
 }
 

@@ -3,6 +3,7 @@ import {
   SECRET_PLACEHOLDER,
   isSecretKeyName,
   normalizeProviderError,
+  redactUrlCredentials,
   sanitizeString,
   sanitizeValue,
 } from './errorSanitizer.js';
@@ -166,5 +167,19 @@ describe('normalizeProviderError', () => {
     );
     expect(normalized.message.length).toBeLessThanOrEqual(500);
     expect(normalized.message).not.toContain(SENTINEL);
+  });
+});
+
+describe('redactUrlCredentials', () => {
+  it('redacts userinfo credentials but keeps host and path', () => {
+    const out = redactUrlCredentials(`https://user:${SENTINEL}@proxy.example:8080/v1`);
+    expect(out).toBe('https://[redacted]@proxy.example:8080/v1');
+    expect(out).not.toContain(SENTINEL);
+  });
+
+  it('leaves credential-free URLs and non-strings alone', () => {
+    expect(redactUrlCredentials('https://api.example.com/v1')).toBe('https://api.example.com/v1');
+    expect(redactUrlCredentials(undefined)).toBe(undefined);
+    expect(redactUrlCredentials(null)).toBe(null);
   });
 });

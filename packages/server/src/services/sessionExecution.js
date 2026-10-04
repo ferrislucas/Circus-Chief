@@ -28,6 +28,8 @@ import { isUserStopAbort } from './sessionAbort.js';
 // _executeSession, long after the module graph is loaded (same pattern as
 // session-helpers.js's database.js <-> SessionRepository cycle).
 import { drainLaneEntryTrigger } from './kanbanService.js';
+import { normalizeFinalErrorMessage } from './visibleFinalErrorMessage.js';
+import { redactUrlCredentials } from './errorSanitizer.js';
 // continueSessionCore lives in sessionContinuation.js (extracted to keep this
 // file under the max-lines limit); re-exported here so sessionManager.js's
 // existing `from './sessionExecution.js'` import keeps working unchanged.
@@ -530,9 +532,10 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     // must not overwrite that state or fail the run. Keep parity with
     // handleTurnFailure — only real failures terminally close own work.
     if (!isUserStopAbort(controller)) {
-      sessions.update(sessionId, { status: 'error', error: error.message });
+      const sanitizedError = normalizeFinalErrorMessage(error);
+      sessions.update(sessionId, { status: 'error', error: sanitizedError });
       broadcastSessionStatus(sessionId, 'error');
-      closeOwnWork(sessionId, 'closed_failed', error.message);
+      closeOwnWork(sessionId, 'closed_failed', sanitizedError);
     }
     throw error;
   } finally {
@@ -586,7 +589,7 @@ async function _runStandardSession(
   });
 
   // Log query params for debugging third-party provider issues
-  console.log(`[SessionManager] runSession: model=${queryParams.options?.model || '[default]'} baseUrl=${queryParams.options?.env?.ANTHROPIC_BASE_URL || '[not set]'}`);
+  console.log(`[SessionManager] runSession: model=${queryParams.options?.model || '[default]'} baseUrl=${redactUrlCredentials(queryParams.options?.env?.ANTHROPIC_BASE_URL) || '[not set]'}`);
 
   // Logging metadata for agent call tracking
   const agentCallMeta = {

@@ -11,6 +11,7 @@ import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
 import { resolveCommitAttributionOverrideForModel } from './sessionProvider.js';
 import { deriveAgentTypeForModelOrTier } from './sessionAgentGuard.js';
+import { normalizeFinalErrorMessage } from './visibleFinalErrorMessage.js';
 import { attachRootSession } from './workflowSessionService.js';
 
 function throwIfAborted(controller) {
@@ -92,7 +93,7 @@ export function startChildSession(newSession, prompt, workingDirectory, options)
     // particular `{ started: false }`) into a provider acknowledgement.
     result === undefined || result?.started === true).catch((error) => {
     console.error(`Kanban: Error running on-enter session ${newSession.id}:`, error);
-    const errorSession = sessions.update(newSession.id, { status: 'error', error: error.message });
+    const errorSession = sessions.update(newSession.id, { status: 'error', error: normalizeFinalErrorMessage(error) });
     broadcastToProject(newSession.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
       projectId: newSession.projectId,
       sessionId: newSession.id,

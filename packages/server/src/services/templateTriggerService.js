@@ -6,6 +6,7 @@ import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { resolveCommitAttributionOverrideForModel } from './sessionProvider.js';
 import { deriveAgentTypeForModelOrTier } from './sessionAgentGuard.js';
+import { normalizeFinalErrorMessage } from './visibleFinalErrorMessage.js';
 
 const liquid = new Liquid();
 
@@ -217,7 +218,7 @@ export async function checkAndTriggerNextTemplate(sessionId) {
       systemPrompt: project.systemPrompt, model: settings.model, providerId: settings.providerId,
     }).catch((error) => {
       console.error(`Template trigger: Error running session ${newSession.id}:`, error);
-      const errorSession = sessions.update(newSession.id, { status: 'error', error: error.message });
+      const errorSession = sessions.update(newSession.id, { status: 'error', error: normalizeFinalErrorMessage(error) });
       broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
         projectId: session.projectId,
         sessionId: newSession.id,
