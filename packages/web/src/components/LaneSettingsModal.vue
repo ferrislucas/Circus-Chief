@@ -237,9 +237,9 @@
           @insert="handleSlashCommandInsert"
         />
 
-        <!-- Agent Settings (only for custom prompt) -->
+        <!-- Agent Settings (session options only for custom prompt; reschedule for prompt + template) -->
         <div
-          v-if="automationType === 'prompt'"
+          v-if="automationType === 'prompt' || automationType === 'template'"
           class="agent-settings-section"
         >
           <button
@@ -259,6 +259,7 @@
             class="agent-settings-body"
           >
             <SessionFormOptions
+              v-if="automationType === 'prompt'"
               :mode="form.onEnterMode || 'standard'"
               :model="form.onEnterModel"
               :provider-id="form.onEnterProviderId"
@@ -700,6 +701,14 @@ function buildSaveDataForTemplate(formData) {
     ...buildSaveDataForNone(),
     onEnterTemplateId: formData.onEnterTemplateId,
     onEnterPrompt: null,
+    // Retry policy applies to template lanes too (see FR-4).
+    onEnterAutoRescheduleEnabled: formData.onEnterAutoRescheduleEnabled,
+    onEnterRescheduleDelayMinutes: formData.onEnterRescheduleDelayMinutes,
+    onEnterRescheduleOnTokenLimit: formData.onEnterRescheduleOnTokenLimit,
+    onEnterRescheduleOnServiceError: formData.onEnterRescheduleOnServiceError,
+    onEnterMaxRescheduleCount: formData.onEnterMaxRescheduleCount,
+    onEnterMaxTotalTokens: formData.onEnterMaxTotalTokens,
+    onEnterRescheduleAtTokenCount: formData.onEnterRescheduleAtTokenCount,
   };
 }
 

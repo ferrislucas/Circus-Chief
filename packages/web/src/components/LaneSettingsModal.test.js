@@ -556,6 +556,34 @@ describe('LaneSettingsModal.vue', () => {
       expect(data.onEnterMaxTotalTokens).toBeNull();
       expect(data.onEnterRescheduleAtTokenCount).toBeNull();
     });
+
+    it('preserves retry settings for template lanes', async () => {
+      mockTemplatesStore.projectTemplates = [{ id: 'template-42', name: 'Test Template' }];
+      const wrapper = mountModal({ lane: {
+        ...laneWithTemplate,
+        onEnterAutoRescheduleEnabled: true,
+        onEnterRescheduleDelayMinutes: 30,
+        onEnterRescheduleOnTokenLimit: false,
+        onEnterRescheduleOnServiceError: true,
+        onEnterMaxRescheduleCount: 5,
+        onEnterMaxTotalTokens: 100000,
+        onEnterRescheduleAtTokenCount: 50000,
+      } });
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      expect(mockKanbanStore.updateLane).toHaveBeenCalled();
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.onEnterTemplateId).toBe('template-42');
+      expect(data.onEnterPrompt).toBeNull();
+      expect(data.onEnterAutoRescheduleEnabled).toBe(true);
+      expect(data.onEnterRescheduleDelayMinutes).toBe(30);
+      expect(data.onEnterRescheduleOnTokenLimit).toBe(false);
+      expect(data.onEnterRescheduleOnServiceError).toBe(true);
+      expect(data.onEnterMaxRescheduleCount).toBe(5);
+      expect(data.onEnterMaxTotalTokens).toBe(100000);
+      expect(data.onEnterRescheduleAtTokenCount).toBe(50000);
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -931,6 +959,18 @@ describe('LaneSettingsModal.vue', () => {
     it('does not show agent settings section when automation type is "none"', () => {
       const wrapper = mountModal({ lane: baseLane });
       expect(wrapper.find('.agent-settings-section').exists()).toBe(false);
+    });
+
+    it('shows retry settings but not session options when automation type is "template"', () => {
+      const wrapper = mountModal({ lane: { ...laneWithTemplate, onEnterAutoRescheduleEnabled: true } });
+      expect(wrapper.find('.agent-settings-section').exists()).toBe(true);
+      expect(wrapper.text()).toContain('Auto-reschedule on errors');
+      expect(wrapper.find('.session-form-options-stub').exists()).toBe(false);
+    });
+
+    it('shows session options when automation type is "prompt"', () => {
+      const wrapper = mountModal({ lane: laneWithPrompt });
+      expect(wrapper.find('.session-form-options-stub').exists()).toBe(true);
     });
 
     it('renders three radio options for automation type', () => {

@@ -444,6 +444,68 @@ describe('kanbanTriggers', () => {
       }));
     });
 
+    it('applies lane auto-reschedule settings when enabled', async () => {
+      const autoRescheduleLane = {
+        ...lane,
+        onEnterAutoRescheduleEnabled: true,
+        onEnterRescheduleDelayMinutes: 30,
+        onEnterRescheduleOnTokenLimit: false,
+        onEnterRescheduleOnServiceError: false,
+        onEnterMaxRescheduleCount: 10,
+        onEnterMaxTotalTokens: 50000,
+        onEnterRescheduleAtTokenCount: 40000,
+      };
+
+      await triggerOnEnterTemplate('s1', autoRescheduleLane);
+
+      expect(sessions.update).toHaveBeenCalledWith('new-1', expect.objectContaining({
+        nextTemplateId: null,
+        autoRescheduleEnabled: true,
+        rescheduleDelayMinutes: 30,
+        rescheduleOnTokenLimit: false,
+        rescheduleOnServiceError: false,
+        maxRescheduleCount: 10,
+        maxTotalTokens: 50000,
+        rescheduleAtTokenCount: 40000,
+      }));
+    });
+
+    it('uses default auto-reschedule values when not specified', async () => {
+      const autoRescheduleLane = {
+        ...lane,
+        onEnterAutoRescheduleEnabled: true,
+        onEnterRescheduleDelayMinutes: null,
+        onEnterRescheduleOnTokenLimit: undefined,
+        onEnterRescheduleOnServiceError: undefined,
+        onEnterMaxRescheduleCount: null,
+        onEnterMaxTotalTokens: null,
+        onEnterRescheduleAtTokenCount: null,
+      };
+
+      await triggerOnEnterTemplate('s1', autoRescheduleLane);
+
+      expect(sessions.update).toHaveBeenCalledWith('new-1', expect.objectContaining({
+        autoRescheduleEnabled: true,
+        rescheduleDelayMinutes: DEFAULT_RESCHEDULE_DELAY_MINUTES,
+        rescheduleOnTokenLimit: true,
+        rescheduleOnServiceError: true,
+        maxRescheduleCount: null,
+        maxTotalTokens: null,
+        rescheduleAtTokenCount: null,
+      }));
+    });
+
+    it('does not include auto-reschedule fields when disabled', async () => {
+      await triggerOnEnterTemplate('s1', lane);
+
+      const updateCall = sessions.update.mock.calls.find(
+        (call) => call[0] === 'new-1'
+      );
+      expect(updateCall).toBeDefined();
+      expect(updateCall[1]).not.toHaveProperty('autoRescheduleEnabled');
+      expect(updateCall[1]).not.toHaveProperty('rescheduleDelayMinutes');
+    });
+
     it('sets gitWorktree when determineWorkingDirectory returns one', async () => {
       sessions.getById.mockReturnValue({ ...session, gitWorktree: '/tmp/existing-worktree' });
 

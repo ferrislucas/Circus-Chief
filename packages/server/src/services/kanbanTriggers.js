@@ -138,6 +138,26 @@ export function getTemplateSessionSettings(template, session) {
 }
 
 /**
+ * Build the reschedule policy update for a lane-entry child session.
+ * Returns an empty object when the lane does not enable auto-reschedule,
+ * leaving the child's default scheduling untouched.
+ * @param {Object} lane
+ * @returns {Object}
+ */
+export function buildLaneRescheduleUpdates(lane) {
+  if (!lane.onEnterAutoRescheduleEnabled) return {};
+  return {
+    autoRescheduleEnabled: true,
+    rescheduleDelayMinutes: lane.onEnterRescheduleDelayMinutes || DEFAULT_RESCHEDULE_DELAY_MINUTES,
+    rescheduleOnTokenLimit: lane.onEnterRescheduleOnTokenLimit ?? true,
+    rescheduleOnServiceError: lane.onEnterRescheduleOnServiceError ?? true,
+    maxRescheduleCount: lane.onEnterMaxRescheduleCount || null,
+    maxTotalTokens: lane.onEnterMaxTotalTokens || null,
+    rescheduleAtTokenCount: lane.onEnterRescheduleAtTokenCount || null,
+  };
+}
+
+/**
  * Create and configure a child session from a template for lane entry.
  * @param {Object} template
  * @param {Object} session - Parent session
@@ -174,6 +194,7 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
   // Configure remaining fields not supported by create()
   sessions.update(newSession.id, {
     nextTemplateId: template.nextTemplateId || null,
+    ...buildLaneRescheduleUpdates(lane),
   });
 
   return { newSession, renderedPrompt, settings };
@@ -273,18 +294,7 @@ async function buildChildSessionFromPrompt(lane, session, options = {}) {
   if (laneRunId && !childSessionId) attachRootSession(laneRunId, newSession.id);
 
   // Configure remaining fields not supported by create()
-  const sessionUpdates = {};
-  if (lane.onEnterAutoRescheduleEnabled) {
-    Object.assign(sessionUpdates, {
-      autoRescheduleEnabled: true,
-      rescheduleDelayMinutes: lane.onEnterRescheduleDelayMinutes || DEFAULT_RESCHEDULE_DELAY_MINUTES,
-      rescheduleOnTokenLimit: lane.onEnterRescheduleOnTokenLimit ?? true,
-      rescheduleOnServiceError: lane.onEnterRescheduleOnServiceError ?? true,
-      maxRescheduleCount: lane.onEnterMaxRescheduleCount || null,
-      maxTotalTokens: lane.onEnterMaxTotalTokens || null,
-      rescheduleAtTokenCount: lane.onEnterRescheduleAtTokenCount || null,
-    });
-  }
+  const sessionUpdates = buildLaneRescheduleUpdates(lane);
   sessions.update(newSession.id, sessionUpdates);
 
   return { newSession, renderedPrompt, settings };

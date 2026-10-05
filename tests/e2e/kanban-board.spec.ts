@@ -227,7 +227,7 @@ test.describe('Kanban Board', () => {
     await expect(autoRescheduleLabel).toBeVisible();
   });
 
-  test('"Workspace Settings" section is hidden for template and none automation types', async ({ page }) => {
+  test('"Workspace Settings" section is hidden for none but shown for template and prompt automation', async ({ page }) => {
     await navigateAndWait(page, `/projects/${project.id}/kanban`, {
       waitFor: '.kanban-board',
     });
@@ -242,9 +242,14 @@ test.describe('Kanban Board', () => {
     await page.click('input[type="radio"][value="none"]');
     await expect(sessionSettingsBtn).not.toBeVisible();
 
-    // "Run a template" radio: section should NOT be visible
+    // "Run a template" radio: section SHOULD be visible (retry policy applies to template lanes too)
     await page.click('input[type="radio"][value="template"]');
-    await expect(sessionSettingsBtn).not.toBeVisible();
+    await expect(sessionSettingsBtn).toBeVisible();
+
+    // Template lanes expose the retry toggle once expanded
+    await sessionSettingsBtn.click();
+    const retryLabel = page.locator('.agent-settings-body').locator('text=Auto-reschedule on errors');
+    await expect(retryLabel).toBeVisible();
 
     // "Run a custom prompt" radio: section SHOULD be visible
     await page.click('input[type="radio"][value="prompt"]');
