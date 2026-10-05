@@ -56,15 +56,7 @@ function repositoryWith(providers) {
 }
 
 describe('zaiQuotaPoller', () => {
-  let originalEnv;
-
   beforeEach(() => {
-    originalEnv = {
-      PROVIDER_ALLOWANCES_ENABLED: process.env.PROVIDER_ALLOWANCES_ENABLED,
-      PROVIDER_ALLOWANCES_ZAI: process.env.PROVIDER_ALLOWANCES_ZAI,
-    };
-    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
-    process.env.PROVIDER_ALLOWANCES_ZAI = '1';
     fetchOutcome = { outcome: 'ok', payload: fixture.payload };
     fetchZaiQuotaLimit.mockImplementation(() => Promise.resolve(fetchOutcome));
     fetchZaiQuotaLimit.mockClear();
@@ -76,10 +68,6 @@ describe('zaiQuotaPoller', () => {
   afterEach(() => {
     stopZaiQuotaPoller();
     vi.useRealTimers();
-    Object.assign(process.env, {
-      PROVIDER_ALLOWANCES_ENABLED: originalEnv.PROVIDER_ALLOWANCES_ENABLED,
-      PROVIDER_ALLOWANCES_ZAI: originalEnv.PROVIDER_ALLOWANCES_ZAI,
-    });
   });
 
   it('polls GLM plan providers and observes mapped absolute allowances', async () => {
@@ -172,13 +160,6 @@ describe('zaiQuotaPoller', () => {
 
   it('observes nothing when the payload has no usable rows', async () => {
     fetchOutcome = { outcome: 'ok', payload: { success: true, data: { limits: [] } } };
-    await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
-
-    expect(observer).not.toHaveBeenCalled();
-  });
-
-  it('does not poll while the source gate is off', async () => {
-    delete process.env.PROVIDER_ALLOWANCES_ZAI;
     await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
 
     expect(observer).not.toHaveBeenCalled();

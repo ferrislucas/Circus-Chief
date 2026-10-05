@@ -134,14 +134,13 @@ prStatusService.start();
 // Start system metrics broadcast service
 systemMonitor.start();
 
-// Start the global Codex ChatGPT-plan usage meter. No-ops unless its rollout
-// gate is on (see config/providerAllowances.js); repeated failures disable it
-// without affecting indicators.
+// Start the global Codex ChatGPT-plan usage meter. Repeated failures
+// disable it without affecting indicators.
 startCodexAppServerMeter({ modelProviders, getObserver: getProviderAllowanceObserver })
   .catch((error) => console.error('[CodexAppServerMeter] startup failed', error));
 
-// Start the z.ai GLM Coding Plan quota poller. No-ops unless its rollout gate
-// is on; the poll set follows provider edits without a restart.
+// Start the z.ai GLM Coding Plan quota poller. The poll set follows
+// provider edits without a restart.
 startZaiQuotaPoller();
 
 // Graceful shutdown

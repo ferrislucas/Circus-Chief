@@ -5,7 +5,7 @@ import { createOpenAIStream } from './openaiDirectApi.js';
 import { serializeMcpServersToArgs } from './codexMcpSerialization.js';
 import { createCodexRolloutWatcher } from '../../services/codexRolloutWatcher.js';
 import { isCodexAppServerMeterHealthy } from '../../services/codexAppServerMeter.js';
-import { isCodexAllowanceSourceEnabled, getStreamStaleAfterMs } from '../../config/providerAllowances.js';
+import { getStreamStaleAfterMs } from '../../config/providerAllowances.js';
 
 /**
  * Module-level flag: once an ENOENT is observed for the Codex CLI, remember
@@ -136,7 +136,6 @@ export class CodexAdapter extends BaseAgent {
    */
   _maybeCreateRolloutWatcher(options) {
     if (!this._allowance.allowanceObserver) return null;
-    if (!isCodexAllowanceSourceEnabled()) return null;
     if (!options.providerId) return null;
     if (options.env?.OPENAI_API_KEY) return null; // API-key path observes headers (AC 21)
     if (isCodexAppServerMeterHealthy()) return null;

@@ -771,17 +771,9 @@ describe('VCRAgentAdapter', () => {
       const key = CassetteStore.buildKey('runSession', TELEMETRY_PROMPT);
       CassetteStore.save(testCassetteDir, key, { prompt: TELEMETRY_PROMPT, events: recorded });
       const queryParams = { prompt: TELEMETRY_PROMPT, options: { providerId: 'anthropic-default' } };
-      const savedFlags = {
-        enabled: process.env.PROVIDER_ALLOWANCES_ENABLED,
-        claude: process.env.PROVIDER_ALLOWANCES_CLAUDE,
-      };
       const now = 1_789_895_000_000;
 
-      async function replayWithFlags(master, claude) {
-        if (master === undefined) delete process.env.PROVIDER_ALLOWANCES_ENABLED;
-        else process.env.PROVIDER_ALLOWANCES_ENABLED = master;
-        if (claude === undefined) delete process.env.PROVIDER_ALLOWANCES_CLAUDE;
-        else process.env.PROVIDER_ALLOWANCES_CLAUDE = claude;
+      async function replayTelemetry() {
         const observer = vi.fn();
         const innerAgent = new ClaudeCodeAdapter({ allowanceObserver: observer, clock: { now: () => now } });
         // The replay mode is captured at construction, so it must be set
@@ -800,27 +792,14 @@ describe('VCRAgentAdapter', () => {
         }
       }
 
-      try {
-        // Gated on: the recorded frame is observed exactly as a live stream
-        // would, and still never reaches the conversation consumer.
-        const gatedOn = await replayWithFlags('1', '1');
-        expect(gatedOn.observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-          providerId: 'anthropic-default',
-          allowances: [expect.objectContaining({ key: 'five_hour' })],
-        }));
-        expect(gatedOn.replayed).toEqual([recorded[0], recorded[2]]);
-
-        // Gated off: nothing is observed, but the frame is still swallowed —
-        // the same deliberate gate escape a live stream performs.
-        const gatedOff = await replayWithFlags('1', undefined);
-        expect(gatedOff.observer).not.toHaveBeenCalled();
-        expect(gatedOff.replayed).toEqual([recorded[0], recorded[2]]);
-      } finally {
-        if (savedFlags.enabled === undefined) delete process.env.PROVIDER_ALLOWANCES_ENABLED;
-        else process.env.PROVIDER_ALLOWANCES_ENABLED = savedFlags.enabled;
-        if (savedFlags.claude === undefined) delete process.env.PROVIDER_ALLOWANCES_CLAUDE;
-        else process.env.PROVIDER_ALLOWANCES_CLAUDE = savedFlags.claude;
-      }
+      // The recorded frame is observed exactly as a live stream would, and
+      // still never reaches the conversation consumer.
+      const { replayed, observer } = await replayTelemetry();
+      expect(observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        providerId: 'anthropic-default',
+        allowances: [expect.objectContaining({ key: 'five_hour' })],
+      }));
+      expect(replayed).toEqual([recorded[0], recorded[2]]);
     });
 
     it('yields every event unchanged when the inner agent has no telemetry hook', async () => {

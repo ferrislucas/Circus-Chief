@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import readline from 'node:readline';
 import { mapCodexRateLimits } from '../agents/adapters/codexRolloutAllowanceExtractor.js';
-import { getAccountRefreshMs, getStreamStaleAfterMs, isCodexAppServerAllowanceSourceEnabled } from '../config/providerAllowances.js';
+import { getAccountRefreshMs, getStreamStaleAfterMs } from '../config/providerAllowances.js';
 import { buildCodexMeterEnv, checkCodexVersionSupported, CLIENT_INFO, logCodexMeterOutcome, resolveCodexAllowanceProvider } from './codexAppServerMeterSupport.js';
 
 export { buildCodexMeterEnv, parseCodexMinorVersion, resolveCodexAllowanceProvider } from './codexAppServerMeterSupport.js';
@@ -102,7 +102,6 @@ export class CodexAppServerMeter {
 
   async start() {
     if (this.state !== 'stopped') return;
-    if (!isCodexAppServerAllowanceSourceEnabled()) return;
     this.provider = resolveCodexAllowanceProvider(this.modelProviders);
     if (!this.provider) return;
     this.state = 'starting';

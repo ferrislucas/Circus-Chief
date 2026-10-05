@@ -1,8 +1,10 @@
 # Provider Allowance Sources
 
-Provider allowance indicators are staged, opt-in telemetry. They show only
-authoritative provider data; when a source is disabled, unavailable, or not
-yet validated, its indicator is `unknown`. The feature is disabled by default.
+Provider allowance indicators ship to all users. They show only
+authoritative provider data; when a source is unavailable or not yet
+validated, its indicator is `unknown`. There is no feature flag or rollout
+gate: every source below runs for eligible providers, so a source must be
+validated against real payloads before it is merged.
 
 ## Source matrix
 
@@ -28,37 +30,19 @@ next respawn or refresh, and while no eligible provider remains the meter
 stands down (logging `no-provider`) and rechecks on a bounded cadence
 instead of spawning. Flag changes still require a server restart.
 
-## Rollout configuration
+## Configuration
 
-Every gate is default-off: only the literal value `1` opts in. Any other value,
-including `true`, enables nothing. A source sub-flag is considered only after
-the master gate is enabled. Remove a value or set it to any value other than
-`1`, then restart the server, to roll it back.
+There are no opt-in flags: collection and presentation are always on. The
+only tuning knob is freshness:
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `PROVIDER_ALLOWANCES_ENABLED` | off | Master gate for collection and allowance UI presentation. |
-| `PROVIDER_ALLOWANCES_CLAUDE` | off | Enables Claude in-stream allowance handling when the master gate is on. |
-| `PROVIDER_ALLOWANCES_CODEX` | off | Enables the Codex rollout tail fallback when the master gate is on and the app-server meter is not healthy. |
-| `PROVIDER_ALLOWANCES_CODEX_APPSERVER` | off | Enables the Codex app-server meter when the master gate is on. |
-| `PROVIDER_ALLOWANCES_ZAI` | off | Enables the z.ai poller for eligible GLM Coding Plan providers when the master gate is on. |
-| `PROVIDER_ALLOWANCES_OPENAI` | off | Enables OpenAI direct-API header observation when the master gate is on. |
 | `PROVIDER_ALLOWANCE_STREAM_STALE_MS` | `900000` (15 minutes) | Freshness duration for Claude in-stream and Codex rollout-tail observations. A finite non-negative value overrides the default. |
 
-For example, a controlled Codex rollout-tail validation needs both
-`PROVIDER_ALLOWANCES_ENABLED=1` and `PROVIDER_ALLOWANCES_CODEX=1`. Enabling a
-sub-flag alone has no effect. Likewise, OpenAI header observation needs both
-`PROVIDER_ALLOWANCES_ENABLED=1` and `PROVIDER_ALLOWANCES_OPENAI=1`; with the
-master flag on but the OpenAI sub-flag off, direct-API responses stream
-normally and no header observation occurs.
-
-One stream-filtering behavior is independent of every flag: the Claude Code
-adapter consumes `rate_limit_event` frames from the SDK stream even when
-Claude allowance collection is disabled (including the default all-off
-configuration). The flags decide whether a frame is *read* into the allowance
-service; the frame is never forwarded to the conversation UI either way, so
-plan telemetry cannot leak into conversation history in any configuration.
-This is deliberate, not a gate bug (round-3 review, item 5).
+The Claude Code adapter consumes `rate_limit_event` frames from the SDK
+stream and reads them into the allowance service unconditionally; the frame
+is never forwarded to the conversation UI either way, so plan telemetry
+cannot leak into conversation history.
 
 ## Codex rollout-tail discovery
 
@@ -90,24 +74,19 @@ or 403 responses stop polling that provider until its credential changes, and
 All acquisition failures are non-critical: they do not interrupt an agent
 session, and the UI stays honest by reporting stale or `unknown` data.
 
-## Staged enablement
+## Validation before merge
 
-1. Keep `PROVIDER_ALLOWANCES_ENABLED` and every source sub-flag unset in
-   normal deployments.
-2. In a controlled environment, enable the master flag plus one source
-   sub-flag, validate real payloads and freshness, then roll back if the
-   source is not trustworthy.
-3. Enable another source only after its own validation passes; do not infer
-   allowances from request logs, credentials, or unsupported provider APIs.
-4. Promote a source only after its evidence and tests are recorded here.
+1. Validate a new source against real payloads and freshness, with sanitized
+   fixtures captured from those payloads checked in as tests.
+2. Do not infer allowances from request logs, credentials, or unsupported
+   provider APIs.
+3. Merge a source only after its evidence and tests are recorded here.
 
 ### Claude in-stream capture status
 
 On 2026-09-21, the planned live OAuth capture of Claude
 `rate_limit_event` telemetry could not run because the local Claude Code OAuth
 token was revoked (401). The checked-in Claude fixture remains derived from the
-SDK type contract, and the Claude source is shelved pending refreshed OAuth
-access or an SDK bump. `PROVIDER_ALLOWANCES_CLAUDE` must remain default-off;
-affected indicators stay `unknown` rather than presenting unverified allowance
-data. Its validation gate is a sanitized live capture plus green mapper,
-adapter, and E2E cassette suites.
+SDK type contract. A sanitized live capture is still pending to confirm the
+real payload shape; its validation bar is a sanitized live capture plus green
+mapper, adapter, and E2E cassette suites.

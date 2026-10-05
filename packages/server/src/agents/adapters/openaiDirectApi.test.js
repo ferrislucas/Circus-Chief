@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createOpenAIStream, observeOpenAIAllowance } from './openaiDirectApi.js';
 
 const HEADERS = {
@@ -10,44 +10,8 @@ const HEADERS = {
   'x-ratelimit-reset-tokens': '2m0s',
 };
 
-const FLAG_ENV = ['PROVIDER_ALLOWANCES_ENABLED', 'PROVIDER_ALLOWANCES_OPENAI'];
-const savedEnv = Object.fromEntries(FLAG_ENV.map((name) => [name, process.env[name]]));
-
-function setFlags(master, openai) {
-  if (master === undefined) delete process.env.PROVIDER_ALLOWANCES_ENABLED;
-  else process.env.PROVIDER_ALLOWANCES_ENABLED = master;
-  if (openai === undefined) delete process.env.PROVIDER_ALLOWANCES_OPENAI;
-  else process.env.PROVIDER_ALLOWANCES_OPENAI = openai;
-}
-
-afterEach(() => {
-  for (const name of FLAG_ENV) {
-    if (savedEnv[name] === undefined) delete process.env[name];
-    else process.env[name] = savedEnv[name];
-  }
-});
-
-describe('observeOpenAIAllowance source gate', () => {
-  it('stays inert when the master flag is on but the OpenAI source flag is off', () => {
-    setFlags('1', undefined);
-    const observer = vi.fn();
-
-    observeOpenAIAllowance({ headers: HEADERS, providerId: 'openai-production', allowanceObserver: observer, clock: { now: () => 1_700_000_000_000 } });
-
-    expect(observer).not.toHaveBeenCalled();
-  });
-
-  it('stays inert when the master flag is off even if the OpenAI source flag is on', () => {
-    setFlags(undefined, '1');
-    const observer = vi.fn();
-
-    observeOpenAIAllowance({ headers: HEADERS, providerId: 'openai-production', allowanceObserver: observer, clock: { now: () => 1_700_000_000_000 } });
-
-    expect(observer).not.toHaveBeenCalled();
-  });
-
-  it('observes only when both the master and OpenAI source flags are on', () => {
-    setFlags('1', '1');
+describe('observeOpenAIAllowance', () => {
+  it('observes header allowances with no opt-in gate', () => {
     const observer = vi.fn();
 
     observeOpenAIAllowance({ headers: HEADERS, providerId: 'openai-production', allowanceObserver: observer, clock: { now: () => 1_700_000_000_000 } });
@@ -58,20 +22,24 @@ describe('observeOpenAIAllowance source gate', () => {
     }));
   });
 
-  it('rejects non-literal opt-ins for the OpenAI source flag', () => {
-    setFlags('1', 'true');
+  it('stays inert without an observer or providerId', () => {
     const observer = vi.fn();
 
-    observeOpenAIAllowance({ headers: HEADERS, providerId: 'openai-production', allowanceObserver: observer, clock: { now: () => 1_700_000_000_000 } });
+    observeOpenAIAllowance({ headers: HEADERS, providerId: null, allowanceObserver: observer, clock: { now: () => 1_700_000_000_000 } });
+    observeOpenAIAllowance({ headers: HEADERS, providerId: 'openai-production', allowanceObserver: null, clock: { now: () => 1_700_000_000_000 } });
 
     expect(observer).not.toHaveBeenCalled();
   });
 
-  it('still returns the stream while skipping observation when the source flag is off', async () => {
-    setFlags('1', undefined);
+  it('observes while still returning the stream', async () => {
     const observer = vi.fn();
     const stream = [{ choices: [{ delta: { content: 'hi' } }] }];
-    const client = { chat: { completions: { create: vi.fn(async () => stream) } } };
+    // Mirrors the real SDK shape: the create() result is awaitable and
+    // carries withResponse() for header access.
+    const pending = Object.assign(Promise.resolve(stream), {
+      withResponse: async () => ({ data: stream, response: { headers: HEADERS } }),
+    });
+    const client = { chat: { completions: { create: vi.fn(() => pending) } } };
 
     const result = await createOpenAIStream({
       client,
@@ -83,6 +51,6 @@ describe('observeOpenAIAllowance source gate', () => {
     });
 
     expect(result).toBe(stream);
-    expect(observer).not.toHaveBeenCalled();
+    expect(observer).toHaveBeenCalledOnce();
   });
 });

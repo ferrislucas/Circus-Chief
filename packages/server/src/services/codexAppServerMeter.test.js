@@ -1,11 +1,10 @@
 import { EventEmitter } from 'node:events';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CodexAppServerMeter,
   _setActiveCodexAppServerMeterForTests,
   isCodexAppServerMeterHealthy,
   parseCodexMinorVersion,
-  startCodexAppServerMeter,
   stopCodexAppServerMeter,
 } from './codexAppServerMeter.js';
 import { getStreamStaleAfterMs } from '../config/providerAllowances.js';
@@ -125,23 +124,8 @@ describe('parseCodexMinorVersion', () => {
 });
 
 describe('CodexAppServerMeter', () => {
-  let originalEnv;
-
-  beforeEach(() => {
-    originalEnv = {
-      PROVIDER_ALLOWANCES_ENABLED: process.env.PROVIDER_ALLOWANCES_ENABLED,
-      PROVIDER_ALLOWANCES_CODEX_APPSERVER: process.env.PROVIDER_ALLOWANCES_CODEX_APPSERVER,
-    };
-    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
-    process.env.PROVIDER_ALLOWANCES_CODEX_APPSERVER = '1';
-  });
-
   afterEach(async () => {
     await stopCodexAppServerMeter();
-    Object.assign(process.env, {
-      PROVIDER_ALLOWANCES_ENABLED: originalEnv.PROVIDER_ALLOWANCES_ENABLED,
-      PROVIDER_ALLOWANCES_CODEX_APPSERVER: originalEnv.PROVIDER_ALLOWANCES_CODEX_APPSERVER,
-    });
   });
 
   it('reads account rate limits on start and observes the authoritative built-in Codex provider only', async () => {
@@ -572,18 +556,6 @@ describe('meter server lifecycle singleton', () => {
     _setActiveCodexAppServerMeterForTests(null);
   });
 
-  it('is not healthy while the source gate is off', async () => {
-    const originalFlag = process.env.PROVIDER_ALLOWANCES_CODEX_APPSERVER;
-    delete process.env.PROVIDER_ALLOWANCES_CODEX_APPSERVER;
-    try {
-      await startCodexAppServerMeter({ getObserver: () => null });
-
-      expect(isCodexAppServerMeterHealthy()).toBe(false);
-    } finally {
-      if (originalFlag !== undefined) process.env.PROVIDER_ALLOWANCES_CODEX_APPSERVER = originalFlag;
-    }
-  });
-
   it('reports health from the active singleton and stops it on shutdown', async () => {
     const stop = vi.fn();
     _setActiveCodexAppServerMeterForTests({ healthy: true, stop });
@@ -598,24 +570,6 @@ describe('meter server lifecycle singleton', () => {
 });
 
 describe('Codex app-server → allowance boundary (integration)', () => {
-  let originalEnv;
-
-  beforeEach(() => {
-    originalEnv = {
-      PROVIDER_ALLOWANCES_ENABLED: process.env.PROVIDER_ALLOWANCES_ENABLED,
-      PROVIDER_ALLOWANCES_CODEX_APPSERVER: process.env.PROVIDER_ALLOWANCES_CODEX_APPSERVER,
-    };
-    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
-    process.env.PROVIDER_ALLOWANCES_CODEX_APPSERVER = '1';
-  });
-
-  afterEach(async () => {
-    Object.assign(process.env, {
-      PROVIDER_ALLOWANCES_ENABLED: originalEnv.PROVIDER_ALLOWANCES_ENABLED,
-      PROVIDER_ALLOWANCES_CODEX_APPSERVER: originalEnv.PROVIDER_ALLOWANCES_CODEX_APPSERVER,
-    });
-  });
-
   // The production wiring under test (index.js): the meter's getObserver is
   // the allowance service, so an initialized, session-independent snapshot
   // must land in the REST state (getSnapshots, served by

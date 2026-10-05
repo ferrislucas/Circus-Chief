@@ -1,5 +1,4 @@
 import { modelProviders } from '../database.js';
-import { isZaiAllowanceSourceEnabled } from '../config/providerAllowances.js';
 import { getProviderAllowanceObserver } from './providerAllowanceServiceInstance.js';
 import { fetchZaiQuotaLimit, isZaiQuotaHost } from './zaiQuotaClient.js';
 import { mapZaiQuota } from '../agents/adapters/zaiAllowanceMapper.js';
@@ -44,7 +43,7 @@ export function stopZaiQuotaPoller() {
 }
 
 export async function pollOnce({ clock = Date, providerRepository = modelProviders } = {}) {
-  if (!isZaiQuotaPollerEnabled() || pollInFlight) return;
+  if (pollInFlight) return;
   pollInFlight = true;
   try {
     const observer = getProviderAllowanceObserver();
@@ -68,10 +67,6 @@ async function runWithConcurrency(items, limit, worker) {
     while (queue.length) await worker(queue.shift());
   });
   await Promise.all(workers);
-}
-
-function isZaiQuotaPollerEnabled() {
-  return isZaiAllowanceSourceEnabled();
 }
 
 /**

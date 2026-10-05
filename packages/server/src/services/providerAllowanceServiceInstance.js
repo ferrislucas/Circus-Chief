@@ -1,6 +1,5 @@
 import { modelProviders, sessions } from '../database.js';
 import { ProviderAllowanceService } from './ProviderAllowanceService.js';
-import { isProviderAllowancesEnabled } from '../config/providerAllowances.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 let providerAllowanceService;
@@ -49,7 +48,6 @@ export function getProviderAllowanceService() {
 }
 
 export function getProviderAllowanceObserver() {
-  if (!isProviderAllowancesEnabled()) return null;
   const service = getProviderAllowanceService();
   return service.observe.bind(service);
 }

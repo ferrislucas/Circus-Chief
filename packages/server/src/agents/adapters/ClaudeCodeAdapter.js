@@ -1,7 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { BaseAgent } from '../BaseAgent.js';
 import { mapClaudeRateLimitEvent } from './claudeRateLimitEventMapper.js';
-import { isClaudeAllowanceSourceEnabled, getStreamStaleAfterMs } from '../../config/providerAllowances.js';
+import { getStreamStaleAfterMs } from '../../config/providerAllowances.js';
 
 /**
  * Adapter for Claude Code SDK. Wraps the SDK's `query()` function
@@ -12,12 +12,9 @@ import { isClaudeAllowanceSourceEnabled, getStreamStaleAfterMs } from '../../con
  *
  * One exception: `rate_limit_event` messages are subscription-plan telemetry
  * for the provider allowance indicators. They are diverted to the allowance
- * observer and never forwarded to the conversation UI — and that consumption
- * is unconditional: even with every allowance flag off (including
- * PROVIDER_ALLOWANCES_CLAUDE, which is default-off), the frames are still
- * swallowed rather than yielded, so plan telemetry never leaks into
- * conversation history. Only the *observation* is gated; see
- * handleAllowanceTelemetry.
+ * observer and never forwarded to the conversation UI — consumption and
+ * observation are both unconditional, so plan telemetry never leaks into
+ * conversation history; see handleAllowanceTelemetry.
  */
 export class ClaudeCodeAdapter extends BaseAgent {
   static capabilities = Object.freeze({
@@ -31,8 +28,7 @@ export class ClaudeCodeAdapter extends BaseAgent {
   /**
    * @param {Object} [opts]
    * @param {Function} [opts.allowanceObserver] - Allowance candidate consumer
-   *   (bound ProviderAllowanceService.observe). Null unless the rollout gate
-   *   is enabled.
+   *   (bound ProviderAllowanceService.observe).
    * @param {Object} [opts.clock] - Clock DI ({ now }).
    * @param {Object} [opts.rest] - Passed to {@link BaseAgent}.
    */
@@ -64,11 +60,9 @@ export class ClaudeCodeAdapter extends BaseAgent {
    * the frame is allowance telemetry consumed by the tap — those frames are
    * never forwarded to the conversation UI (FR-7).
    *
-   * Deliberate stream-filtering behavior: a `rate_limit_event` frame is
-   * consumed (true) even when the Claude allowance source is disabled and no
-   * observation occurs — this is not a gate bug. Swallowing the frame
-   * unconditionally keeps plan telemetry out of the conversation stream in
-   * every configuration; the flags below only decide whether it is *read*.
+   * A `rate_limit_event` frame is always consumed (true) and observed:
+   * swallowing the frame unconditionally keeps plan telemetry out of the
+   * conversation stream while the tap records the allowance snapshot.
    *
    * VCR replay invokes this on the inner adapter so a recorded stream
    * exercises the exact tap a live stream would; see VCRAgentAdapter.replay.
@@ -78,7 +72,7 @@ export class ClaudeCodeAdapter extends BaseAgent {
    */
   handleAllowanceTelemetry(message, queryParams) {
     if (message?.type !== 'rate_limit_event') return false;
-    if (isClaudeAllowanceSourceEnabled()) this.#observeRateLimit(message.rate_limit_info, queryParams);
+    this.#observeRateLimit(message.rate_limit_info, queryParams);
     return true;
   }
 

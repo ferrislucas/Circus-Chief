@@ -45,8 +45,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
  */
 export function createAgentForSession(agentType = 'claude-code', config = {}, session = null) {
   // Session-bound allowance sources tap their adapter's stream (Codex headers/
-  // rollout tails, Claude rate-limit events); the factory returns null while
-  // the master rollout flag is off.
+  // rollout tails, Claude rate-limit events); observation is always on.
   const allowance = ['codex', 'claude-code'].includes(agentType) ? { allowanceObserver: getProviderAllowanceObserver() } : {};
   const mergedConfig = { ...buildAgentConfig(agentType, session), ...allowance, ...config };
   const baseAgent = agentGateway.createAgent(agentType, mergedConfig);

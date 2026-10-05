@@ -797,46 +797,24 @@ describe('buildQueryParams agent-aware', () => {
 // ── createAgentForSession config forwarding ────────────────────────────────
 
 describe('createAgentForSession config forwarding', () => {
-  it('claude-code → calls agentGateway.createAgent with an inert allowance observer while disabled', () => {
-    delete process.env.PROVIDER_ALLOWANCES_ENABLED;
-    const spy = vi.spyOn(agentGateway, 'createAgent');
-    createAgentForSession('claude-code');
-    expect(spy).toHaveBeenCalledWith('claude-code', { allowanceObserver: null });
-    spy.mockRestore();
-  });
-
-  it('claude-code → binds the real allowance observer when the Claude source is enabled', () => {
-    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
-    process.env.PROVIDER_ALLOWANCES_CLAUDE = '1';
+  it('claude-code → always binds the real allowance observer with no opt-in', () => {
     const spy = vi.spyOn(agentGateway, 'createAgent');
     createAgentForSession('claude-code');
     expect(spy).toHaveBeenCalledWith('claude-code', expect.objectContaining({ allowanceObserver: expect.any(Function) }));
     spy.mockRestore();
-    delete process.env.PROVIDER_ALLOWANCES_ENABLED;
-    delete process.env.PROVIDER_ALLOWANCES_CLAUDE;
   });
 
-  it('does not start allowance observation for Codex while the rollout is disabled', () => {
-    delete process.env.PROVIDER_ALLOWANCES_ENABLED;
+  it('codex → always binds the real allowance observer with no opt-in', () => {
     const spy = vi.spyOn(agentGateway, 'createAgent');
     createAgentForSession('codex');
     expect(spy).toHaveBeenCalledWith(
       'codex',
       expect.objectContaining({
         spawnCodexProcess: expect.any(Function),
-        allowanceObserver: null,
+        allowanceObserver: expect.any(Function),
       }),
     );
     spy.mockRestore();
-  });
-
-  it('starts real adapter observation only when the rollout is explicitly enabled', () => {
-    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
-    const spy = vi.spyOn(agentGateway, 'createAgent');
-    createAgentForSession('codex');
-    expect(spy).toHaveBeenCalledWith('codex', expect.objectContaining({ allowanceObserver: expect.any(Function) }));
-    spy.mockRestore();
-    delete process.env.PROVIDER_ALLOWANCES_ENABLED;
   });
 });
 
@@ -850,11 +828,9 @@ describe('createAgentForSession E2E OpenAI allowance fixture scoping', () => {
     savedEnv = {
       VCR_MODE: process.env.VCR_MODE,
       FIXTURE: process.env.E2E_OPENAI_ALLOWANCE_FIXTURE,
-      ENABLED: process.env.PROVIDER_ALLOWANCES_ENABLED,
     };
     process.env.VCR_MODE = 'replay';
     process.env.E2E_OPENAI_ALLOWANCE_FIXTURE = FIXTURE_PATH;
-    delete process.env.PROVIDER_ALLOWANCES_ENABLED;
   });
 
   afterEach(() => {
@@ -862,8 +838,6 @@ describe('createAgentForSession E2E OpenAI allowance fixture scoping', () => {
     else delete process.env.VCR_MODE;
     if (savedEnv.FIXTURE !== undefined) process.env.E2E_OPENAI_ALLOWANCE_FIXTURE = savedEnv.FIXTURE;
     else delete process.env.E2E_OPENAI_ALLOWANCE_FIXTURE;
-    if (savedEnv.ENABLED !== undefined) process.env.PROVIDER_ALLOWANCES_ENABLED = savedEnv.ENABLED;
-    else delete process.env.PROVIDER_ALLOWANCES_ENABLED;
   });
 
   it('reroutes built-in default OpenAI codex sessions to the fixture client and skips VCR for them', () => {
@@ -872,7 +846,7 @@ describe('createAgentForSession E2E OpenAI allowance fixture scoping', () => {
     expect(spy).toHaveBeenCalledWith('codex', expect.objectContaining({
       spawnCodexProcess: null,
       openaiClientFactory: expect.any(Function),
-      allowanceObserver: null,
+      allowanceObserver: expect.any(Function),
     }));
     spy.mockRestore();
     // No VCR wrapper: the fixture exists to execute the production adapter.
@@ -884,7 +858,7 @@ describe('createAgentForSession E2E OpenAI allowance fixture scoping', () => {
     const agent = createAgentForSession('codex', {}, { providerId: 'custom-e2e-provider' });
     expect(spy).toHaveBeenCalledWith('codex', expect.objectContaining({
       spawnCodexProcess: expect.any(Function),
-      allowanceObserver: null,
+      allowanceObserver: expect.any(Function),
     }));
     expect(spy.mock.calls[0][1].openaiClientFactory).toBeUndefined();
     spy.mockRestore();

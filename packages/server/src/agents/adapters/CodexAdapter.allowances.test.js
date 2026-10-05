@@ -35,25 +35,7 @@ function fixtureResponse(responseHeaders = headers) {
 }
 
 describe('CodexAdapter OpenAI allowance observation', () => {
-  const savedFlags = {
-    enabled: process.env.PROVIDER_ALLOWANCES_ENABLED,
-    openai: process.env.PROVIDER_ALLOWANCES_OPENAI,
-  };
-  // Header observation requires the master gate plus the OpenAI source
-  // sub-flag; restore the ambient environment after each case.
-  function enableHeaderObservation() {
-    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
-    process.env.PROVIDER_ALLOWANCES_OPENAI = '1';
-  }
-  function restoreFlags() {
-    if (savedFlags.enabled === undefined) delete process.env.PROVIDER_ALLOWANCES_ENABLED;
-    else process.env.PROVIDER_ALLOWANCES_ENABLED = savedFlags.enabled;
-    if (savedFlags.openai === undefined) delete process.env.PROVIDER_ALLOWANCES_OPENAI;
-    else process.env.PROVIDER_ALLOWANCES_OPENAI = savedFlags.openai;
-  }
-
   it('observes an actual OpenAI SDK response through the adapter boundary and broadcasts the normalized snapshot', async () => {
-    enableHeaderObservation();
     const broadcaster = vi.fn();
     const service = new ProviderAllowanceService({
       providerRepository: { getAll: () => [{ id: 'openai-production', name: 'OpenAI Production', kind: 'openai', enabled: true }] },
@@ -83,34 +65,6 @@ describe('CodexAdapter OpenAI allowance observation', () => {
       snapshot: expect.objectContaining({ providerId: 'openai-production' }),
     });
     expect(JSON.stringify(service.getSnapshots())).not.toMatch(/authorization|redacted|req_sanitized|headers/i);
-    restoreFlags();
-  });
-
-  it('stays inert through the adapter boundary when the master flag is on but the OpenAI source flag is off', async () => {
-    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
-    delete process.env.PROVIDER_ALLOWANCES_OPENAI;
-    const broadcaster = vi.fn();
-    const service = new ProviderAllowanceService({
-      providerRepository: { getAll: () => [{ id: 'openai-production', name: 'OpenAI Production', kind: 'openai', enabled: true }] },
-      broadcaster,
-      clock: { now: () => 1_700_000_000_000 },
-    });
-    const adapter = new CodexAdapter({
-      openaiClientFactory: () => ({ chat: { completions: { create: vi.fn(() => fixtureResponse()) } } }),
-      allowanceObserver: service.observe.bind(service),
-      clock: { now: () => 1_700_000_000_000 },
-    });
-
-    const events = await collect(adapter._executeDirectApi(
-      { prompt: 'hello', options: { model: 'gpt-4o-mini', env: { OPENAI_API_KEY: 'sk-test' }, providerId: 'openai-production' } },
-      { model: 'gpt-4o-mini', env: { OPENAI_API_KEY: 'sk-test' }, providerId: 'openai-production' },
-    ));
-
-    // The stream still completes normally; only observation is skipped.
-    expect(events.some((event) => event?.type === 'result')).toBe(true);
-    expect(service.getSnapshots().snapshots.every((snapshot) => snapshot.status === 'unknown')).toBe(true);
-    expect(broadcaster).not.toHaveBeenCalled();
-    restoreFlags();
   });
 
   it.each([
@@ -136,93 +90,40 @@ describe('CodexAdapter OpenAI allowance observation', () => {
   });
 });
 
-describe('CodexAdapter rollout-tail gating', () => {
+describe('CodexAdapter rollout-tail watcher selection', () => {
   const observer = () => {};
-  let savedEnv;
-
-  function setEnv(enabled, codexFlag) {
-    if (enabled === undefined) delete process.env.PROVIDER_ALLOWANCES_ENABLED;
-    else process.env.PROVIDER_ALLOWANCES_ENABLED = enabled;
-    if (codexFlag === undefined) delete process.env.PROVIDER_ALLOWANCES_CODEX;
-    else process.env.PROVIDER_ALLOWANCES_CODEX = codexFlag;
-  }
 
   function adapterWith(observerFn = observer) {
     return new CodexAdapter({ allowanceObserver: observerFn, clock: { now: () => 1 } });
   }
 
-  it('creates a rollout watcher for ChatGPT-plan CLI sessions while the source gate is on', () => {
-    savedEnv = { enabled: process.env.PROVIDER_ALLOWANCES_ENABLED, codex: process.env.PROVIDER_ALLOWANCES_CODEX };
-    setEnv('1', '1');
-    try {
-      const watcher = adapterWith()._maybeCreateRolloutWatcher({ providerId: 'openai-default', env: {} });
-      expect(watcher).not.toBeNull();
-    } finally {
-      setEnv(savedEnv.enabled, savedEnv.codex);
-    }
+  it('creates a rollout watcher for ChatGPT-plan CLI sessions', () => {
+    const watcher = adapterWith()._maybeCreateRolloutWatcher({ providerId: 'openai-default', env: {} });
+    expect(watcher).not.toBeNull();
   });
 
-  it('skips the rollout tail when there is no observer (master gate off)', () => {
-    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
-    process.env.PROVIDER_ALLOWANCES_CODEX = '1';
-    try {
-      expect(adapterWith(null)._maybeCreateRolloutWatcher({ providerId: 'openai-default', env: {} })).toBeNull();
-    } finally {
-      delete process.env.PROVIDER_ALLOWANCES_ENABLED;
-      delete process.env.PROVIDER_ALLOWANCES_CODEX;
-    }
-  });
-
-  it('skips the rollout tail while the Codex source gate is off', () => {
-    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
-    delete process.env.PROVIDER_ALLOWANCES_CODEX;
-    try {
-      expect(adapterWith()._maybeCreateRolloutWatcher({ providerId: 'openai-default', env: {} })).toBeNull();
-    } finally {
-      delete process.env.PROVIDER_ALLOWANCES_ENABLED;
-      delete process.env.PROVIDER_ALLOWANCES_CODEX;
-    }
+  it('skips the rollout tail when there is no observer', () => {
+    expect(adapterWith(null)._maybeCreateRolloutWatcher({ providerId: 'openai-default', env: {} })).toBeNull();
   });
 
   it('skips the rollout tail without a providerId', () => {
-    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
-    process.env.PROVIDER_ALLOWANCES_CODEX = '1';
-    try {
-      expect(adapterWith()._maybeCreateRolloutWatcher({ env: {} })).toBeNull();
-    } finally {
-      delete process.env.PROVIDER_ALLOWANCES_ENABLED;
-      delete process.env.PROVIDER_ALLOWANCES_CODEX;
-    }
+    expect(adapterWith()._maybeCreateRolloutWatcher({ env: {} })).toBeNull();
   });
 
   it('skips the rollout tail for API-key spawns: documented headers remain the source (AC 21)', () => {
-    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
-    process.env.PROVIDER_ALLOWANCES_CODEX = '1';
-    try {
-      expect(adapterWith()._maybeCreateRolloutWatcher({ providerId: 'openai-default', env: { OPENAI_API_KEY: 'sk-test' } })).toBeNull();
-    } finally {
-      delete process.env.PROVIDER_ALLOWANCES_ENABLED;
-      delete process.env.PROVIDER_ALLOWANCES_CODEX;
-    }
+    expect(adapterWith()._maybeCreateRolloutWatcher({ providerId: 'openai-default', env: { OPENAI_API_KEY: 'sk-test' } })).toBeNull();
   });
 
   it('defers to a healthy app-server meter as the single writer', () => {
-    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
-    process.env.PROVIDER_ALLOWANCES_CODEX = '1';
     _setActiveCodexAppServerMeterForTests({ healthy: true, stop: vi.fn() });
     try {
       expect(adapterWith()._maybeCreateRolloutWatcher({ providerId: 'openai-default', env: {} })).toBeNull();
     } finally {
       _setActiveCodexAppServerMeterForTests(null);
-      delete process.env.PROVIDER_ALLOWANCES_ENABLED;
-      delete process.env.PROVIDER_ALLOWANCES_CODEX;
     }
   });
 
   it('runs the rollout tail while the active meter is alive but has never delivered', async () => {
-    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
-    process.env.PROVIDER_ALLOWANCES_CODEX = '1';
-    process.env.PROVIDER_ALLOWANCES_CODEX_APPSERVER = '1';
     const meter = new CodexAppServerMeter({
       getObserver: () => null,
       modelProviders: { getEnabledForAllowances: () => [{ id: 'openai-default', isBuiltIn: true, kind: 'openai' }] },
@@ -244,9 +145,6 @@ describe('CodexAdapter rollout-tail gating', () => {
     } finally {
       _setActiveCodexAppServerMeterForTests(null);
       await meter.stop();
-      delete process.env.PROVIDER_ALLOWANCES_ENABLED;
-      delete process.env.PROVIDER_ALLOWANCES_CODEX;
-      delete process.env.PROVIDER_ALLOWANCES_CODEX_APPSERVER;
     }
   });
 });

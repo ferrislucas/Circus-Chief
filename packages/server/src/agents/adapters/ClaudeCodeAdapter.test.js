@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 // Mock the SDK before importing the adapter
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
@@ -185,18 +185,6 @@ describe('ClaudeCodeAdapter', () => {
 describe('ClaudeCodeAdapter rate-limit allowance tap', () => {
   const FIXTURE = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
   const now = 1_789_895_000_000;
-  let originalEnv;
-
-  beforeEach(() => {
-    originalEnv = { ...process.env };
-    process.env.PROVIDER_ALLOWANCES_ENABLED = '1';
-    process.env.PROVIDER_ALLOWANCES_CLAUDE = '1';
-  });
-
-  afterEach(() => {
-    process.env.PROVIDER_ALLOWANCES_ENABLED = originalEnv.PROVIDER_ALLOWANCES_ENABLED;
-    process.env.PROVIDER_ALLOWANCES_CLAUDE = originalEnv.PROVIDER_ALLOWANCES_CLAUDE;
-  });
 
   function sdkStream(...messages) {
     query.mockImplementation(async function* () {
@@ -273,20 +261,11 @@ describe('ClaudeCodeAdapter rate-limit allowance tap', () => {
     expect(events).toEqual([{ type: 'system', subtype: 'init' }]);
   });
 
-  it.each([
-    ['1', '1', true],
-    ['1', undefined, false],
-    [undefined, '1', false],
-    [undefined, undefined, false],
-  ])('passes non-telemetry frames through byte-identical with master=%j claude=%j while swallowing rate_limit_event frames (observes=%j)', async (master, claude, observes) => {
-    // The one intentional gate escape: telemetry frames never reach the
-    // conversation consumer in any flag combination; only the observation
-    // is gated. Non-telemetry frames must be yielded as the identical
-    // objects the SDK produced (same re-yield semantics as `yield* query()`).
-    if (master === undefined) delete process.env.PROVIDER_ALLOWANCES_ENABLED;
-    else process.env.PROVIDER_ALLOWANCES_ENABLED = master;
-    if (claude === undefined) delete process.env.PROVIDER_ALLOWANCES_CLAUDE;
-    else process.env.PROVIDER_ALLOWANCES_CLAUDE = claude;
+  it('passes non-telemetry frames through byte-identical while swallowing and observing rate_limit_event frames', async () => {
+    // Telemetry frames never reach the conversation consumer; the tap
+    // always observes them. Non-telemetry frames must be yielded as the
+    // identical objects the SDK produced (same re-yield semantics as
+    // `yield* query()`).
     const observer = vi.fn();
     const systemFrame = { type: 'system', subtype: 'init', session_id: 'redacted' };
     const assistantFrame = { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } };
@@ -301,18 +280,15 @@ describe('ClaudeCodeAdapter rate-limit allowance tap', () => {
     expect(events[1]).toBe(assistantFrame);
     expect(events[2]).toBe(streamEventFrame);
     expect(events.some((event) => event?.type === 'rate_limit_event')).toBe(false);
-    if (observes) expect(observer).toHaveBeenCalledTimes(1);
-    else expect(observer).not.toHaveBeenCalled();
+    expect(observer).toHaveBeenCalledTimes(1);
   });
 
-  it('does not observe without a providerId, without an observer, or while the source gate is off', async () => {
+  it('does not observe without a providerId or without an observer', async () => {
     const observer = vi.fn();
     sdkStream(FIXTURE.fiveHourWithUtilization);
 
     await collect(new ClaudeCodeAdapter({ allowanceObserver: observer, clock: { now: () => now } }), { prompt: 'x', options: {} });
     await collect(new ClaudeCodeAdapter({ clock: { now: () => now } }), { prompt: 'x', options: { providerId: 'anthropic-default' } });
-    delete process.env.PROVIDER_ALLOWANCES_CLAUDE;
-    await collect(new ClaudeCodeAdapter({ allowanceObserver: observer, clock: { now: () => now } }));
 
     expect(observer).not.toHaveBeenCalled();
   });
