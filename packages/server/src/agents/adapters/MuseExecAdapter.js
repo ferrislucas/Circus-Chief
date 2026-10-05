@@ -194,7 +194,7 @@ export class MuseExecAdapter extends BaseAgent {
     const onData = (chunk) => {
       try {
         for (const item of parser.push(chunk)) ingest(item);
-      } catch (err) { terminate(); fail(err); }
+      } catch (err) { terminate(); armEscalation(); fail(err); }
     };
     try {
       child = this._spawn(spec.command, spec.args, { cwd: spec.cwd, env, shell: false, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
@@ -207,14 +207,16 @@ export class MuseExecAdapter extends BaseAgent {
       if (stderr.length < 8192) stderr += scrubEventForLogging(String(chunk), env).slice(0, 8192 - stderr.length);
     });
     child.stderr.on('close', () => { stderrClosed = true; finish(); });
-    child.on('error', (err) => { fail(err.code === 'ENOENT' ? new Error('Muse CLI not found. Install Muse Code or set MUSE_BIN.') : err); });
+    child.on('error', (err) => { terminate(); armEscalation(); fail(err.code === 'ENOENT' ? new Error('Muse CLI not found. Install Muse Code or set MUSE_BIN.') : err); });
     child.on('exit', (code) => { exited = true; exitCode = code; finish(); });
     try {
       yield* queue.drain(completion);
       return await completion.promise;
     } finally {
-      // An early consumer break must not orphan the CLI process.
-      if (!completion.isSettled()) { stopped = true; terminate(); }
+      // An early consumer break must not orphan the CLI process. Escalate
+      // like every other non-natural terminal path: a child that ignores
+      // SIGTERM is reaped with SIGKILL after the grace period.
+      if (!completion.isSettled()) { stopped = true; terminate(); armEscalation(); }
       cleanup();
     }
   }

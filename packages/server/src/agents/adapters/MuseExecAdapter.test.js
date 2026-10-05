@@ -308,4 +308,84 @@ describe('MuseExecAdapter', () => {
     await new Promise((resolve) => { setTimeout(resolve, 150); });
     expect(kills).toContain('SIGKILL');
   });
+  // Issue #2: every non-natural terminal path must escalate like the abort
+  // path — a CLI that ignores SIGTERM is reaped with SIGKILL after the
+  // grace period instead of being orphaned.
+  function hungChildSpawn(kills, onChild) {
+    return () => {
+      const child = new EventEmitter();
+      child.pid = 4242;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      // Ignores SIGTERM like a hung workflow child: records the signal but
+      // never exits.
+      child.kill = (signal) => { kills.push(signal); return true; };
+      onChild?.(child);
+      return child;
+    };
+  }
+  it('escalates to SIGKILL when stdout parsing fails on a hung child', { timeout: 10000 }, async () => {
+    const kills = [];
+    let child;
+    const adapter = new MuseExecAdapter({
+      timeouts: { turnMs: 60_000, shutdownGraceMs: 20 },
+      spawnMuseExec: hungChildSpawn(kills, (spawned) => { child = spawned; }),
+    });
+    const events = [];
+    const pump = (async () => {
+      for await (const item of adapter.execute({ prompt: 'Hi', options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll' } })) events.push(item);
+    })();
+    await vi.waitFor(() => expect(child).toBeTruthy());
+    child.stdout.write('not-json\n');
+    await pump;
+    expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'error' });
+    expect(kills).toContain('SIGTERM');
+    await new Promise((resolve) => { setTimeout(resolve, 150); });
+    expect(kills).toContain('SIGKILL');
+    child.stdout.destroy();
+    child.stderr.destroy();
+  });
+  it('escalates to SIGKILL when the child errors on a hung process', { timeout: 10000 }, async () => {
+    const kills = [];
+    let child;
+    const adapter = new MuseExecAdapter({
+      timeouts: { turnMs: 60_000, shutdownGraceMs: 20 },
+      spawnMuseExec: hungChildSpawn(kills, (spawned) => { child = spawned; }),
+    });
+    const events = [];
+    const pump = (async () => {
+      for await (const item of adapter.execute({ prompt: 'Hi', options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll' } })) events.push(item);
+    })();
+    await vi.waitFor(() => expect(child).toBeTruthy());
+    child.emit('error', new Error('spawn boom'));
+    await pump;
+    expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'error' });
+    expect(kills).toContain('SIGTERM');
+    await new Promise((resolve) => { setTimeout(resolve, 150); });
+    expect(kills).toContain('SIGKILL');
+    child.stdout.destroy();
+    child.stderr.destroy();
+  });
+  it('escalates to SIGKILL when the consumer breaks early on a hung child', { timeout: 10000 }, async () => {
+    const kills = [];
+    let child;
+    const adapter = new MuseExecAdapter({
+      timeouts: { turnMs: 60_000, shutdownGraceMs: 20 },
+      spawnMuseExec: hungChildSpawn(kills, (spawned) => { child = spawned; }),
+    });
+    const gen = adapter.execute({ prompt: 'Hi', options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll' } });
+    await gen.next();
+    const second = gen.next();
+    await vi.waitFor(() => expect(child).toBeTruthy());
+    // Let the turn stream one live event, then break while the child is
+    // still alive with no terminal and no exit.
+    child.stdout.write(`${event(1, 'run.output.delta', { text: 'partial' })}\n`);
+    await second;
+    await gen.return();
+    expect(kills).toContain('SIGTERM');
+    await new Promise((resolve) => { setTimeout(resolve, 150); });
+    expect(kills).toContain('SIGKILL');
+    child.stdout.destroy();
+    child.stderr.destroy();
+  });
 });
