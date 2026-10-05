@@ -139,7 +139,11 @@ function handleVersionSwitch(newItemId, normalizedContent) {
 // Distinguishes between:
 //   1. itemId change → deliberate version switch → always accept & replace buffer
 //   2. Same itemId, content change, buffer NOT user-modified → accept new content
+//      (this is also the canvas task-checkbox conflict rule: an incoming
+//      toggle patch updates a clean buffer without clobbering anything)
 //   3. Same itemId, content change, buffer IS user-modified → ignore background churn
+//      (a toggle arriving while the user has unsaved edits never destroys the
+//      buffer; the editor's next debounced save wins — last-writer-wins)
 watch(
   () => ({ itemId: props.itemId, content: props.content }),
   ({ itemId: newItemId, content: newContent }) => {

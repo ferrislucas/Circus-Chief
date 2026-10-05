@@ -21,6 +21,7 @@ vi.mock('../composables/useApi.js', () => ({
     getAllCanvasItems: vi.fn().mockResolvedValue([]),
     getCanvasFileContent: vi.fn().mockResolvedValue({ content: null, data: null }),
     getCanvasItemContent: vi.fn().mockResolvedValue({ content: null, data: null }),
+    updateCanvasItem: vi.fn(),
     uploadCanvasItem: vi.fn(),
     deleteCanvasItem: vi.fn(),
     getCanvasTrash: vi.fn().mockResolvedValue([]),
@@ -31,6 +32,8 @@ vi.mock('../composables/useApi.js', () => ({
 }));
 
 import CanvasFileViewer from './CanvasFileViewer.vue';
+import { api } from '../composables/useApi.js';
+import { useUiStore } from '../stores/ui.js';
 
 // Global helper to flush all async updates
 async function flushAll(wrapper) {
@@ -606,5 +609,185 @@ describe('CanvasFileViewer', () => {
       });
       expect(endEditingSpy).toHaveBeenCalledWith('readme.md');
     });
+  });
+});
+
+describe('CanvasFileViewer task-list toggles', () => {
+  // NOTE: the real MarkdownViewer is used here (the file's MarkdownViewer
+  // stub key does not match the script-setup child, so the real component
+  // renders). Toggles are driven through real bubbling DOM events.
+  function mountMarkdown(props = {}) {
+    const defaultProps = {
+      item: { id: 'item-1', filename: 'plan.md', type: 'markdown', content: '- [ ] todo', createdAt: Date.now() },
+      sessionId: 'sess-1',
+      versions: [],
+      showBackButton: true,
+    };
+    return mount(CanvasFileViewer, {
+      props: { ...defaultProps, ...props },
+    });
+  }
+
+  function clickCheckbox(wrapper, line) {
+    wrapper.find(`input[data-task-line="${line}"]`).element.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+  }
+
+  function checkboxChecked(wrapper, line) {
+    return wrapper.find(`input[data-task-line="${line}"]`).element.checked;
+  }
+
+  beforeEach(() => {
+    api.updateCanvasItem.mockResolvedValue({ content: '- [x] todo', updatedAt: Date.now() });
+  });
+
+  it('saves toggles in place via PUT with the flipped line', async () => {
+    const wrapper = mountMarkdown();
+    clickCheckbox(wrapper, 0);
+    await flushAll(wrapper);
+
+    expect(api.updateCanvasItem).toHaveBeenCalledTimes(1);
+    expect(api.updateCanvasItem).toHaveBeenCalledWith('sess-1', 'item-1', { content: '- [x] todo' });
+    // In production the store patches the same object as the prop on PUT
+    // success; converge the prop here to simulate that before asserting.
+    await wrapper.setProps({
+      item: { id: 'item-1', filename: 'plan.md', type: 'markdown', content: '- [x] todo', createdAt: Date.now() },
+    });
+    await flushAll(wrapper);
+    expect(checkboxChecked(wrapper, 0)).toBe(true);
+  });
+
+  it('reverts content and toasts on save failure', async () => {
+    api.updateCanvasItem.mockRejectedValue(new Error('nope'));
+    const wrapper = mountMarkdown();
+    clickCheckbox(wrapper, 0);
+    await flushAll(wrapper);
+
+    expect(checkboxChecked(wrapper, 0)).toBe(false);
+    expect(useUiStore().toasts.some((t) => t.type === 'error')).toBe(true);
+  });
+
+  it('converges to remote content when it lands mid-flight', async () => {
+    let resolvePut;
+    api.updateCanvasItem.mockImplementation(() => new Promise((res) => { resolvePut = res; }));
+    const wrapper = mountMarkdown({
+      item: { id: 'item-1', filename: 'plan.md', type: 'markdown', content: '- [ ] one\n- [ ] two', createdAt: Date.now() },
+    });
+    clickCheckbox(wrapper, 0);
+    await flushAll(wrapper);
+    // A remote toggle of a different line lands while our PUT is in flight.
+    await wrapper.setProps({
+      item: { id: 'item-1', filename: 'plan.md', type: 'markdown', content: '- [ ] one\n- [x] two', createdAt: Date.now() },
+    });
+    resolvePut({ content: '- [x] one\n- [ ] two', updatedAt: Date.now() });
+    await flushAll(wrapper);
+
+    // The server acknowledged our toggle; the view must converge to the
+    // remote (server) content rather than staying stuck on stale optimism
+    // (line 0 back to unchecked, remote line 1 checked).
+    expect(checkboxChecked(wrapper, 0)).toBe(false);
+    expect(checkboxChecked(wrapper, 1)).toBe(true);
+  });
+
+  it('does not toast when a failed save is superseded by a queued toggle', async () => {
+    let rejectFirst;
+    api.updateCanvasItem
+      .mockImplementationOnce(() => new Promise((_, reject) => { rejectFirst = reject; }))
+      .mockImplementationOnce(() => Promise.resolve({ content: '- [x] one\n- [x] two', updatedAt: Date.now() }));
+    const wrapper = mountMarkdown({
+      item: { id: 'item-1', filename: 'plan.md', type: 'markdown', content: '- [ ] one\n- [ ] two', createdAt: Date.now() },
+    });
+    clickCheckbox(wrapper, 0);
+    await flushAll(wrapper);
+    // Queue a second toggle while the first save is still in flight; the
+    // optimistic content already advanced past the first save's `next`.
+    clickCheckbox(wrapper, 1);
+    await flushAll(wrapper);
+    // The first save fails after the second toggle was queued.
+    rejectFirst(new Error('nope'));
+    await flushAll(wrapper);
+
+    // Last-writer-wins: the queued save still determines the outcome, so no
+    // error toast may claim the change failed.
+    expect(api.updateCanvasItem).toHaveBeenCalledTimes(2);
+    expect(api.updateCanvasItem).toHaveBeenNthCalledWith(2, 'sess-1', 'item-1', { content: '- [x] one\n- [x] two' });
+    expect(useUiStore().toasts.some((t) => t.type === 'error')).toBe(false);
+  });
+
+  it('ignores toggles for non-task lines without saving', async () => {
+    const wrapper = mountMarkdown({
+      item: { id: 'item-1', filename: 'plan.md', type: 'markdown', content: '# Hello', createdAt: Date.now() },
+    });
+    // A checkbox pointing at a non-task line (malformed DOM): no save.
+    const viewer = wrapper.find('.viewer-markdown').element;
+    const rogue = document.createElement('input');
+    rogue.setAttribute('type', 'checkbox');
+    rogue.setAttribute('data-task-line', '0');
+    viewer.appendChild(rogue);
+    rogue.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await flushAll(wrapper);
+
+    expect(api.updateCanvasItem).not.toHaveBeenCalled();
+  });
+
+  it('renders historical versions disabled and latest enabled', async () => {
+    const versions = [
+      { id: 'v2', createdAt: 2000 },
+      { id: 'v1', createdAt: 1000 },
+    ];
+    const historical = mountMarkdown({
+      item: { id: 'v1', filename: 'plan.md', type: 'markdown', content: '- [ ] todo', createdAt: 1000 },
+      versions,
+    });
+    await flushAll(historical);
+    expect(historical.find('input[data-task-line="0"]').attributes('disabled')).not.toBeUndefined();
+
+    const latest = mountMarkdown({
+      item: { id: 'v2', filename: 'plan.md', type: 'markdown', content: '- [x] todo', createdAt: 2000 },
+      versions,
+    });
+    await flushAll(latest);
+    expect(latest.find('input[data-task-line="0"]').attributes('disabled')).toBeUndefined();
+  });
+
+  it('does not PUT a stale toggle onto a newly selected version', async () => {
+    api.updateCanvasItem.mockImplementation(() => new Promise(() => {}));
+    const versions = [
+      { id: 'v2', createdAt: 2000 },
+      { id: 'v1', createdAt: 1000 },
+    ];
+    const wrapper = mountMarkdown({
+      item: { id: 'v2', filename: 'plan.md', type: 'markdown', content: '- [ ] todo', createdAt: 2000 },
+      versions,
+    });
+    clickCheckbox(wrapper, 0);
+    // User switches to the historical version before the queued save executes.
+    await wrapper.setProps({
+      item: { id: 'v1', filename: 'plan.md', type: 'markdown', content: '- [ ] old', createdAt: 1000 },
+    });
+    await flushAll(wrapper);
+
+    // The stale save must be dropped: no PUT may address the new version's id,
+    // which would silently rewrite history.
+    for (const call of api.updateCanvasItem.mock.calls) {
+      expect(call[1]).toBe('v2');
+    }
+    expect(api.updateCanvasItem).not.toHaveBeenCalled();
+  });
+
+  it('ignores toggles while viewing a historical version', async () => {
+    const versions = [
+      { id: 'v2', createdAt: 2000 },
+      { id: 'v1', createdAt: 1000 },
+    ];
+    const wrapper = mountMarkdown({
+      item: { id: 'v1', filename: 'plan.md', type: 'markdown', content: '- [ ] todo', createdAt: 1000 },
+      versions,
+    });
+    clickCheckbox(wrapper, 0);
+    await flushAll(wrapper);
+
+    expect(api.updateCanvasItem).not.toHaveBeenCalled();
   });
 });
