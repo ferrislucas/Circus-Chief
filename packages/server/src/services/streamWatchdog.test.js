@@ -3,15 +3,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../database.js', () => ({
   sessions: { getById: vi.fn(), update: vi.fn() },
 }));
-vi.mock('./streamEventHandler.js', () => ({
+vi.mock('./sessionExecutionOwnership.js', () => ({
   activeSessions: new Map(),
+}));
+vi.mock('./streamEventHandler.js', () => ({
   broadcastSessionStatus: vi.fn(),
   cleanupSessionState: vi.fn(),
 }));
 vi.mock('./workflowSessionService.js', () => ({ closeOwnWork: vi.fn() }));
 
 import { sessions } from '../database.js';
-import { activeSessions, broadcastSessionStatus, cleanupSessionState } from './streamEventHandler.js';
+import { activeSessions } from './sessionExecutionOwnership.js';
+import { broadcastSessionStatus, cleanupSessionState } from './streamEventHandler.js';
 import { closeOwnWork } from './workflowSessionService.js';
 import { reapWedgedTurn, runStreamWatchdog, STREAM_WATCHDOG_ABORT_GRACE_MS } from './streamWatchdog.js';
 

@@ -101,6 +101,33 @@ describe('codexCliRunner startup timeout', () => {
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
   });
 
+  it('abort escalation: SIGTERM first, SIGKILL after the grace period, silence after exit', async () => {
+    const controller = new AbortController();
+    const gen = executeCodexCli(
+      child,
+      { prompt: 'Hi' },
+      { model: 'gpt-5-codex', startupTimeoutMs: 0, abortController: controller },
+      markCliUnavailable,
+    );
+
+    const resultPromise = collectEvents(gen);
+    await vi.advanceTimersByTimeAsync(10);
+    controller.abort();
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(child.kill).toHaveBeenNthCalledWith(1, 'SIGTERM');
+
+    // The grace period elapsing with no child exit escalates exactly once.
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(child.kill).toHaveBeenCalledTimes(2);
+    expect(child.kill).toHaveBeenNthCalledWith(2, 'SIGKILL');
+
+    // Settling the child ends the generator and clears timers/listeners.
+    child.emit('exit', 0);
+    await expect(resultPromise).resolves.toBeDefined();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(child.kill).toHaveBeenCalledTimes(2);
+  });
+
   it('disabled: startupTimeoutMs 0 never schedules a timeout', async () => {
     const gen = executeCodexCli(
       child,

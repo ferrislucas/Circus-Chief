@@ -32,8 +32,11 @@ export const thinkingAccumulators = new Map();
 /** @type {Map<string, string>} Accumulate text content per session */
 export const textAccumulators = new Map();
 
-/** @type {Map<string, { controller: AbortController, turnStartedAt?: number, lastEventAt?: number }>} */
-export const activeSessions = new Map();
+// Execution ownership lives in sessionExecutionOwnership.js; import it directly.
+// `activeSessions` is the authoritative in-process ownership record: claimed
+// atomically at turn start, released only by the owning turn's finalizer after
+// the provider generator has settled.
+import { activeSessions } from './sessionExecutionOwnership.js';
 
 /** @type {Map<string, string>} Map sessionId -> conversationId for current turn */
 export const activeConversationIds = new Map();
@@ -547,9 +550,11 @@ export function cleanupSessionState(sessionId, includeConversationId = false, ex
   // controller or any of the replacement turn's session-scoped state.
   //
   // An absent entry is not a replacement: it means this turn's owner already
-  // deregistered (e.g. stopSession() deletes the activeSessions entry before
-  // the turn unwinds), and this turn still owns the cleanup. Only bail out
-  // when a *different, live* controller is registered.
+  // released ownership (a prior finalizer ran), and this turn still owns the
+  // remaining per-turn cleanup. Only bail out when a *different, live*
+  // controller is registered. In particular, stopSession() retains the entry
+  // (marked `stopping`) until this finalizer runs, so a replacement can never
+  // be admitted while this turn is still unwinding.
   const current = activeSessions.get(sessionId);
   if (expectedController && current && current.controller !== expectedController) {
     // This unwinding turn no longer owns the session, so it must not erase the

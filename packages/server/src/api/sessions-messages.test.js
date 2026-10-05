@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { projects, sessions, modelProviders } from '../database.js';
+import { projects, sessions, messages as conversationMessages, modelProviders } from '../database.js';
+import { activeSessions } from '../services/sessionExecutionOwnership.js';
 
 // Mock websocket and sessionManager before importing the router.
 // continueSession is asserted via spy to prove the cross-kind guard short-circuits.
@@ -265,6 +266,70 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
       pendingConversationId: null,
       pendingModel: 'claude-opus-test',
     });
+  });
+
+  it('returns 409 SESSION_STOPPING while a stopped turn is still shutting down, with no side effects', async () => {
+    const controller = new AbortController();
+    activeSessions.set(claudeSession.id, {
+      controller,
+      turnStartedAt: Date.now(),
+      lastEventAt: Date.now(),
+      stopRequestedAt: Date.now(),
+      phase: 'stopping',
+    });
+    const scheduledAt = Date.now() + 60_000;
+    sessions.update(claudeSession.id, {
+      status: 'stopped',
+      scheduledAt,
+      pendingPrompt: 'Scheduled continuation',
+      pendingConversationId: null,
+      pendingModel: 'claude-opus-test',
+    });
+    const messagesBefore = conversationMessages.getBySessionId(claudeSession.id).length;
+    try {
+      const res = await request(app)
+        .post(`/api/sessions/${claudeSession.id}/message`)
+        .send({ content: 'follow-up' });
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('SESSION_STOPPING');
+      expect(res.body.executionPhase).toBe('stopping');
+      expect(res.body.error).toMatch(/still shutting down/);
+      // No phantom user message, no provider dispatch, no schedule theft.
+      expect(continueSession).not.toHaveBeenCalled();
+      expect(conversationMessages.getBySessionId(claudeSession.id)).toHaveLength(messagesBefore);
+      expect(sessions.getById(claudeSession.id)).toMatchObject({
+        scheduledAt,
+        pendingPrompt: 'Scheduled continuation',
+        pendingModel: 'claude-opus-test',
+      });
+    } finally {
+      activeSessions.delete(claudeSession.id);
+      sessions.update(claudeSession.id, { scheduledAt: null, pendingPrompt: null, pendingModel: null });
+    }
+  });
+
+  it('returns 409 SESSION_EXECUTION_ACTIVE while a turn is running, without dispatching', async () => {
+    const controller = new AbortController();
+    activeSessions.set(claudeSession.id, {
+      controller,
+      turnStartedAt: Date.now(),
+      lastEventAt: Date.now(),
+      stopRequestedAt: null,
+      phase: 'running',
+    });
+    try {
+      const res = await request(app)
+        .post(`/api/sessions/${claudeSession.id}/message`)
+        .send({ content: 'follow-up' });
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('SESSION_EXECUTION_ACTIVE');
+      expect(res.body.executionPhase).toBe('running');
+      expect(continueSession).not.toHaveBeenCalled();
+    } finally {
+      activeSessions.delete(claudeSession.id);
+    }
   });
 
   it('cancels an existing schedule after preparation succeeds and dispatches chat', async () => {

@@ -73,6 +73,7 @@ import * as diffService from './diffService.js';
 import * as gitService from './gitService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { abortForUserStop } from './sessionAbort.js';
+import { activeSessions } from './sessionExecutionOwnership.js';
 import {
   createWorkLog,
   associateAndBroadcastWorkLogs,
@@ -85,7 +86,6 @@ import {
   lastMessageIds,
   thinkingAccumulators,
   textAccumulators,
-  activeSessions,
   activeConversationIds,
   currentModels,
   loggedToolUseIds,

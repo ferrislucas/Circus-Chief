@@ -11,7 +11,7 @@ import { duplicateSession } from '../services/sessionDuplicator.js';
 import { validateScheduledAt } from './scheduledAtValidation.js';
 import { validateModelId } from './model-validation.js';
 import { broadcastSessionUpdate } from './sessions-patch.js';
-import { activeSessions } from '../services/streamEventHandler.js';
+import { activeSessions, isSessionStopping } from '../services/sessionExecutionOwnership.js';
 import { schedulerService } from '../services/schedulerService.js';
 import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
 import { removeSessionFromBoard } from '../services/kanbanService.js';
@@ -326,7 +326,9 @@ router.post('/:id/stop', requireSession, async (req, res) => {
 
   try {
     await stopSession(req.session_.id);
-    res.json({ success: true });
+    // Tells the UI whether the previous provider turn is still shutting down
+    // (`stopping: true` disables Continue until settlement) or fully stopped.
+    res.json({ success: true, stopping: isSessionStopping(req.session_.id) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
