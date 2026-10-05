@@ -1,4 +1,4 @@
-import { sessions, messages, conversations, projects } from '../database.js';
+import { sessions, conversations, projects } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
@@ -6,7 +6,7 @@ import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveDispatchProvider, buildSessionEnv } from './sessionProvider.js';
 import { resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
 import { buildTierHealthContext } from './tierResolutionService.js';
-import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
+import { buildLastExecutedUpdate, checkExplicitTierDispatchKind, createCrossKindDispatchError, deriveAgentTypeUpdate, hasDispatchPairChanged } from './sessionAgentGuard.js';
 import { activeLaneRunOwnsSession, pauseForUserStop } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 import { clearedPendingSchedule } from './pendingSchedule.js';
@@ -26,11 +26,16 @@ import {
 import { getApiBaseUrl } from './apiBaseUrl.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForBranch, buildConversationContextForContinuation } from './conversationContext.js';
 import {
-  activeSessions,
   activeConversationIds,
   cleanupSessionState,
   broadcastSessionStatus,
 } from './streamEventHandler.js';
+import {
+  activeSessions,
+  claimSessionExecution,
+  markSessionStopping,
+} from './sessionExecutionOwnership.js';
+import { validateAndFetchContinueContext } from './sessionContinuation.js';
 import { cancelPrompt } from './promptStore.js';
 import { clearPendingWakeup } from './scheduleWakeupBridge.js';
 import { abortForUserStop } from './sessionAbort.js';
@@ -41,6 +46,7 @@ import {
   _executeSession,
   runSessionCore,
   continueSessionCore,
+  handlePreparationFailure,
 } from './sessionExecution.js';
 
 // Re-export prompt-related functions for backward compatibility
@@ -171,11 +177,24 @@ export async function handleAutoSendIfNeeded(sessionId) {
  * @param {string} workingDirectory
  * @param {{ systemPrompt?: string|null, fileAttachments?: Array, model?: string|null }} options - Optional parameters
  */
+/**
+ * Callbacks shared by every execution entry point. `onUserStopSettled` fires
+ * only after a user-stopped provider generator has settled, so summary
+ * generation can never race output still arriving from the aborted provider.
+ */
+function executionCallbacks() {
+  return {
+    handleTemplateTriggerIfNeeded,
+    handleAutoSendIfNeeded,
+    onUserStopSettled: (settledSessionId) => summaryService.onSessionComplete(settledSessionId),
+  };
+}
+
 export async function runSession(sessionId, prompt, workingDirectory, options = {}) {
   // Delegate to sessionExecution.js, passing callbacks to avoid circular imports
   return runSessionCore(sessionId, prompt, workingDirectory, {
     options,
-    callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
+    callbacks: executionCallbacks(),
   });
 }
 
@@ -190,7 +209,7 @@ export async function continueSession(sessionId, content, workingDirectory, opti
   // Delegate to sessionExecution.js, passing callbacks to avoid circular imports
   return continueSessionCore(sessionId, content, workingDirectory, {
     options,
-    callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
+    callbacks: executionCallbacks(),
   });
 }
 
@@ -211,26 +230,6 @@ export function isSessionActive(sessionId) {
  * Validate and fetch the session, conversation, and last user message for continuing a session.
  * @returns {{ session: Object, conversation: Object, lastUserMessage: Object }}
  */
-function validateAndFetchContinueContext(sessionId, conversationId) {
-  if (activeSessions.has(sessionId)) {
-    throw new Error('Session is already processing');
-  }
-  const session = sessions.getById(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
-  }
-  const conversation = conversations.getById(conversationId);
-  if (!conversation || conversation.sessionId !== sessionId) {
-    throw new Error('Conversation not found');
-  }
-  const conversationMessages = messages.getByConversationId(conversationId);
-  const lastUserMessage = [...conversationMessages].reverse().find(m => m.role === 'user');
-  if (!lastUserMessage) {
-    throw new Error('No user message found in conversation');
-  }
-  return { session, conversation, lastUserMessage };
-}
-
 /**
  * Resolve the effective model, provider, and session env from a model override.
  * Detects model changes and updates the session record when needed.
@@ -261,14 +260,27 @@ function buildModelAndProvider(session, sessionId, model, providerId = null) {
     sessionId, session, model, providerId
   );
 
+  // Enforce the cross-kind policy on the exact pair about to be dispatched —
+  // shared contract with `sessionContinuation.buildContinueModelAndEnv`.
+  // Throws before any persistence, agent construction, or dispatch.
+  const dispatchDrift = checkExplicitTierDispatchKind(session, sessionId, model, { effectiveModel, providerIdHint });
+  if (dispatchDrift) {
+    throw createCrossKindDispatchError(dispatchDrift);
+  }
+
   const { provider } = resolveDispatchProvider(session, model, effectiveModel, providerIdHint);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
-  // Model changed = the caller explicitly requested a different binding
-  // (concrete or tier) than what's currently stored on the session. A session
-  // with no stored binding adopting the caller's model is initialization, not
-  // a switch (see sessionContinuation.js) — it keeps resume/context state.
-  const modelChanged = Boolean(model && session.model && model !== session.model);
+  // The dispatched concrete pair, resolved through the single dispatch rule.
+  const dispatchedProviderId = provider?.id ?? providerIdHint ?? null;
+  const dispatchedPair = { model: effectiveModel, providerId: dispatchedProviderId };
+
+  // A switch is determined from the previous EXECUTED concrete (providerId,
+  // modelId) pair and the newly validated candidate — shared contract with
+  // `sessionContinuation.buildContinueModelAndEnv`. A provider-only switch
+  // starts a fresh provider thread (no resume, replay history); distinct tier
+  // bindings resolving to the same concrete pair stay on the same thread.
+  const modelChanged = hasDispatchPairChanged(session, sessionId, dispatchedPair);
 
   let updatedSession = session;
   // Defense in depth: if this is still a draft (no assistant messages),
@@ -289,7 +301,9 @@ function buildModelAndProvider(session, sessionId, model, providerId = null) {
   const agentTypeUpdate = effectiveModel
     ? deriveAgentTypeUpdate(session, sessionId, effectiveModel, { providerId: providerIdHint ?? session.providerId })
     : {};
-  const updatePayload = { ...persist, ...agentTypeUpdate };
+  // Record the durable last-executed identity alongside any other persistence
+  // (see sessionContinuation.js). Written only when it differs.
+  const updatePayload = { ...persist, ...agentTypeUpdate, ...buildLastExecutedUpdate(session, effectiveModel, dispatchedProviderId) };
   if (Object.keys(updatePayload).length > 0) {
     sessions.update(sessionId, updatePayload);
     updatedSession = sessions.getById(sessionId);
@@ -356,69 +370,86 @@ function buildExistingMessageQueryParams({
   return { queryParams, agentCallMeta };
 }
 
+/**
+ * Claim ownership and prepare a branch-continuation turn (the user message
+ * already exists). Releases the claim if setup fails before _executeSession
+ * takes over, so a setup failure can never wedge the session.
+ * @returns {{ session: Object, queryParams: Object, agentCallMeta: Object, agent: Object }}
+ */
+function prepareBranchContinueTurn({ session, sessionId, conversationId, conversation, lastUserMessage, workingDirectory, options, controller }) {
+  const { systemPrompt = null, model = null, providerId = null } = options;
+  claimSessionExecution(sessionId, controller);
+  try {
+    // Make sure this conversation is active
+    if (!conversation.isActive) {
+      conversations.update(conversationId, { isActive: true });
+    }
+    activeConversationIds.set(sessionId, conversationId);
+
+    // Update status to running
+    sessions.update(sessionId, { status: 'running' });
+    broadcastSessionStatus(sessionId, 'running');
+
+    // Resolve model/provider and detect model changes BEFORE creating the
+    // agent: for a tier-bound draft, `buildModelAndProvider` may reconcile
+    // and persist a new `session.agentType`. Creating the agent from the
+    // stale pre-reconciliation agentType would dispatch the wrong adapter.
+    const modelEnv = buildModelAndProvider(session, sessionId, model, providerId);
+    const updatedSession = modelEnv.session;
+
+    // Health attribution for tier-bound continuations (mid-conversation
+    // cooldown). Built AFTER resolution so a backfilled snapshot is visible.
+    // This context can report member health on an eligible failure but can
+    // never authorize failover — the continuation stays pinned to this member.
+    const tierContext = buildTierHealthContext(updatedSession);
+
+    // Create agent via gateway (or mock agent in mock mode), using the
+    // reconciled agentType.
+    const agentType = updatedSession.agentType || 'claude-code';
+    const agent = createAgentForSession(agentType);
+
+    // Build query params and agent call meta
+    const { queryParams, agentCallMeta } = buildExistingMessageQueryParams({
+      sessionId, conversationId, session: updatedSession, model, systemPrompt,
+      effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
+      modelChanged: modelEnv.modelChanged, conversation,
+      lastUserMessage, workingDirectory, controller, agentType, agent,
+    });
+    return { session: updatedSession, queryParams, agentCallMeta, agent, tierContext };
+  } catch (error) {
+    // Preparation failed before provider dispatch: fail the turn explicitly
+    // (sanitized visible error, error status, workflow failure,
+    // controller-aware cleanup) instead of wedging the session as running.
+    handlePreparationFailure({ sessionId, controller, error, includeConversationId: true });
+  }
+}
+
 export async function continueSessionWithExistingMessage(sessionId, conversationId, workingDirectory, options = {}) {
-  const { systemPrompt = null, model = null, providerId = null, interactive = false } = options;
+  const { interactive = false } = options;
   const context = validateAndFetchContinueContext(sessionId, conversationId);
-  let session = context.session;
-  const { conversation, lastUserMessage } = context;
+  const { session, conversation, lastUserMessage } = context;
 
   if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
 
   const controller = new AbortController();
-  const startedAt = Date.now();
-  activeSessions.set(sessionId, { controller, turnStartedAt: startedAt, lastEventAt: startedAt });
-
-  // Make sure this conversation is active
-  if (!conversation.isActive) {
-    conversations.update(conversationId, { isActive: true });
-  }
-  activeConversationIds.set(sessionId, conversationId);
-
-  // Update status to running
-  sessions.update(sessionId, { status: 'running' });
-  broadcastSessionStatus(sessionId, 'running');
-
-  // Resolve model/provider and detect model changes BEFORE creating the
-  // agent (Work Item 4): for a tier-bound draft, `buildModelAndProvider` may
-  // reconcile and persist a new `session.agentType` (e.g. a tier's first
-  // member resolves to Codex although the row still says 'claude-code').
-  // Creating the agent from the stale pre-reconciliation agentType would
-  // dispatch the wrong adapter for the resolved model.
-  const modelEnv = buildModelAndProvider(session, sessionId, model, providerId);
-  session = modelEnv.session;
-
-  // Health attribution for tier-bound continuations (mid-conversation
-  // cooldown). Built AFTER resolution so a backfilled snapshot is visible.
-  // This context can report member health on an eligible failure but can
-  // never authorize failover — the continuation stays pinned to this member.
-  const tierContext = buildTierHealthContext(session);
-
-  // Create agent via gateway (or mock agent in mock mode), using the
-  // reconciled agentType.
-  const agentType = session.agentType || 'claude-code';
-  const agent = createAgentForSession(agentType);
-
-  // Build query params and agent call meta
-  const { queryParams, agentCallMeta } = buildExistingMessageQueryParams({
-    sessionId, conversationId, session, model, systemPrompt,
-    effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
-    modelChanged: modelEnv.modelChanged, conversation,
-    lastUserMessage, workingDirectory, controller, agentType, agent,
+  const prepared = prepareBranchContinueTurn({
+    session, sessionId, conversationId, conversation, lastUserMessage,
+    workingDirectory, options, controller,
   });
 
   const execution = await _executeSession({
     sessionId,
-    agent,
-    queryParams,
-    agentCallMeta,
+    agent: prepared.agent,
+    queryParams: prepared.queryParams,
+    agentCallMeta: prepared.agentCallMeta,
     controller,
     workingDirectory,
-    callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
+    callbacks: executionCallbacks(),
     interactive,
     errorLabel: 'Continue session with existing message error',
-    tierContext,
+    tierContext: prepared.tierContext,
   });
   return execution || startedSessionExecution(sessionId);
 }
@@ -430,12 +461,21 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
 export async function stopSession(sessionId) {
   cancelPrompt(sessionId);
   const sessionData = activeSessions.get(sessionId);
+  // A live execution owns the session until its own finalizer releases it —
+  // even across a user Stop. The entry is marked `stopping` (never deleted
+  // here) so a Continue issued while the provider is still shutting down is
+  // rejected instead of starting a second provider execution against the same
+  // native session.
+  const hadActiveExecution = Boolean(sessionData);
 
   if (sessionData) {
     // Session is actively processing - abort it
     abortForUserStop(sessionData.controller);
     clearPendingWakeup(sessionId, sessionData.controller);
-    activeSessions.delete(sessionId);
+    markSessionStopping(sessionId, sessionData.controller);
+    console.warn(
+      `[sessionManager] stop requested for session ${sessionId}; provider shutdown pending (phase=stopping)`
+    );
   }
   // If not in activeSessions, session may have crashed or be waiting
   // Either way, we can still update the status to stopped
@@ -456,8 +496,14 @@ export async function stopSession(sessionId) {
   // cancelling it. Non-participating and already-closed sessions are no-ops.
   pauseForUserStop(sessionId);
 
-  // Trigger summary generation on stop (session is truly complete now)
-  summaryService.onSessionComplete(sessionId);
+  if (!hadActiveExecution) {
+    // No provider turn is unwinding, so the session is truly complete now.
+    summaryService.onSessionComplete(sessionId);
+  }
+  // Otherwise summary generation is deferred to the user-stop settlement path
+  // in _executeSession, which fires only after the provider generator has
+  // settled — summaries must never race output still arriving from the
+  // aborted provider.
 }
 
 /**
@@ -472,6 +518,17 @@ export function restartSession(sessionId) {
 
 /**
  * Clean up an active session before deletion
+ *
+ * Unlike stopSession(), this path also deletes the session row immediately
+ * after, so no replacement turn can ever be admitted — admission requires
+ * the row to exist. The entry is therefore dropped (rather than marked
+ * `stopping`) so the still-unwinding provider turn cannot write work
+ * logs/messages against the deleted row; its late events are discarded by
+ * the missing-entry guard in handleStreamEvent, and its finalizer becomes a
+ * harmless no-op. A bounded asynchronous deletion (await a termination grace
+ * period, then answer 409/202 while shutdown is pending) remains follow-up
+ * work; it needs an async delete route the current sync call chain cannot
+ * provide.
  * @param {string} sessionId
  * @returns {boolean} true if session was active and cleaned up
  */

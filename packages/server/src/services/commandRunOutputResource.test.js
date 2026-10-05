@@ -183,20 +183,19 @@ describe('commandRunOutputResource', () => {
     run.outputHighWater = appended.length;
 
     await expect(appendCommandRunOutputResource({ workingDirectory, runId: run.id, chunks: appended })).resolves.toBe(true);
-    // NOTE: compared with Buffer.equals (native memcmp) instead of toEqual:
-    // vitest's pretty-format serializer crawls on ~0.5 MiB buffers and the
-    // test exceeds the default 10s timeout under coverage instrumentation.
-    const expectedFirst = Buffer.concat([exactWindow, justOverWindow, substantiallyLarge, subsequent]);
-    const actualFirst = await readFile(join(workingDirectory, descriptor.path));
-    expect(actualFirst.length).toBe(expectedFirst.length);
-    expect(actualFirst.equals(expectedFirst)).toBe(true);
+    // NOTE: use Buffer.equals instead of toEqual here: vitest's structural
+    // equality serializes both ~656 KiB buffers (~2.4s each), which pushes
+    // this test past the default timeout under coverage. equals() is the
+    // same byte-for-byte check in ~1ms.
+    expect((await readFile(join(workingDirectory, descriptor.path))).equals(
+      Buffer.concat([exactWindow, justOverWindow, substantiallyLarge, subsequent]),
+    )).toBe(true);
     await expect(appendCommandRunOutputResource({
       workingDirectory, runId: run.id, chunks: [{ sequence: 5, content: Buffer.from('later output\n') }],
     })).resolves.toBe(true);
-    const expectedSecond = Buffer.concat([expectedFirst, Buffer.from('later output\n')]);
-    const actualSecond = await readFile(join(workingDirectory, descriptor.path));
-    expect(actualSecond.length).toBe(expectedSecond.length);
-    expect(actualSecond.equals(expectedSecond)).toBe(true);
+    expect((await readFile(join(workingDirectory, descriptor.path))).equals(Buffer.concat([
+      exactWindow, justOverWindow, substantiallyLarge, subsequent, Buffer.from('later output\n'),
+    ]))).toBe(true);
   });
 
   it('surfaces a partial live-write failure and reconciles the artifact from persisted chunks', async () => {

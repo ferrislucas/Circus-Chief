@@ -16,6 +16,8 @@ const SESSIONS_TARGET_THINKING_ENABLED_DEFAULT = '1';
 
 export const SESSIONS_TIER_RESOLUTION_COLUMNS = ['resolved_model', 'resolved_provider_id'];
 
+export const SESSIONS_LAST_EXECUTED_COLUMNS = ['last_executed_model', 'last_executed_provider_id'];
+
 function quoteIdentifier(identifier) {
   return `"${identifier.replaceAll('"', '""')}"`;
 }
@@ -73,6 +75,8 @@ export const SESSIONS_ALL_CURRENT_COLUMNS = `
     provider_id TEXT,
     resolved_model TEXT,
     resolved_provider_id TEXT,
+    last_executed_model TEXT,
+    last_executed_provider_id TEXT,
     next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
     parent_session_id TEXT REFERENCES sessions(id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
     input_tokens INTEGER DEFAULT 0,
@@ -117,6 +121,7 @@ export const SESSIONS_ALL_CURRENT_COLUMN_NAMES = [
   'archived', 'git_branch', 'git_worktree', 'pr_url', 'error',
   'effort_level', 'cost_usd', 'claude_session_id', 'model', 'provider_id',
   ...SESSIONS_TIER_RESOLUTION_COLUMNS,
+  ...SESSIONS_LAST_EXECUTED_COLUMNS,
   'next_template_id', 'parent_session_id', 'input_tokens', 'output_tokens',
   'thinking_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens',
   'web_search_requests', 'context_window', 'starred', 'manually_named',

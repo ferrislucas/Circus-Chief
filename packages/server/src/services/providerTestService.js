@@ -1,6 +1,50 @@
+import { tmpdir } from 'node:os';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { createGeminiSpawner } from './geminiSpawnHelper.js';
+import { appendBoundedDiagnostic } from './summaryMuseClient.js';
+import {
+  buildMuseTestArgs,
+  createProbeStreamTracker,
+  defaultMuseTestSpawn,
+  killMuseTestProcess,
+  scheduleProbeKillEscalation,
+} from './metaProbe.js';
+
+export { buildMuseTestArgs };
+
+/**
+ * Build the probe config shared by BOTH provider test routes (finding #9):
+ * `POST /api/providers/test` (transient) and `POST /api/providers/:id/test`
+ * (saved). One model fallback (`sonnet` tier, else the request's explicit
+ * `defaultSonnetModel`, else the first enabled non-retired model) and one
+ * meta-kind cwd rule: the Muse probe errors when `workingDirectory` is
+ * unset, and a provider record / transient request carries none, so the OS
+ * temp dir is used explicitly rather than leaking the server cwd into the
+ * probe. An explicit `workingDirectory` always wins.
+ *
+ * @param {Object} provider - Saved provider record or validated transient
+ *   request body (`kind`, `baseUrl`, `authToken`, `models`?, `defaultSonnetModel`?,
+ *   `apiTimeoutMs`?, `workingDirectory`?).
+ * @returns {Object} Config accepted by {@link testProviderConnection}.
+ */
+export function buildProviderTestConfig(provider) {
+  const sonnetModel = provider.models?.find((m) => m.tier === 'sonnet');
+  const explicitModel = provider.defaultSonnetModel || null;
+  const firstEnabled = provider.models?.find((m) => m.enabled !== false && m.lifecycle !== 'retired')
+    || provider.models?.[0]
+    || null;
+  return {
+    kind: provider.kind || 'anthropic',
+    baseUrl: provider.baseUrl,
+    authToken: provider.authToken,
+    defaultSonnetModel: sonnetModel?.modelId || explicitModel || firstEnabled?.modelId || null,
+    apiTimeoutMs: provider.apiTimeoutMs,
+    ...(provider.workingDirectory
+      ? { workingDirectory: provider.workingDirectory }
+      : (provider.kind === 'meta' ? { workingDirectory: tmpdir() } : {})),
+  };
+}
 
 /**
  * Test a provider configuration by making a minimal API call.
@@ -30,6 +74,9 @@ export async function testProviderConnection(config, deps = {}) {
   }
   if (kind === 'google') {
     return testGoogleConnection(config, deps);
+  }
+  if (kind === 'meta') {
+    return testMetaConnection(config, deps);
   }
   return testAnthropicConnection(config);
 }
@@ -183,6 +230,89 @@ async function testGoogleConnection(config, deps = {}) {
   } catch (error) {
     return failureResponse(error);
   }
+}
+
+/**
+ * Meta-kind connection test: run a minimal headless `muse exec` turn.
+ * The exec child authenticates with the host's own `muse auth`
+ * credentials, so this exercises binary presence, auth, and model access
+ * in one call (see buildMuseTestArgs for the cost note). Process mechanics
+ * live in metaProbe.js so this file stays under the max-lines budget.
+ */
+async function testMetaConnection(config, deps = {}) {
+  let spec;
+  try {
+    spec = buildMuseTestArgs(config);
+  } catch (error) {
+    return failureResponse(error);
+  }
+  try {
+    const timeoutMs = config.apiTimeoutMs || 30000;
+    const spawnMuseProcess = deps.spawnMuseProcess || defaultMuseTestSpawn;
+    const child = spawnMuseProcess({
+      command: spec.command,
+      args: spec.args,
+      cwd: spec.cwd,
+      env: process.env,
+    });
+
+    return await new Promise((resolve) => {
+      let stderr = '';
+      let killed = false;
+      // FR-4 doctrine applies to the probe too: process exit alone is not
+      // success. The probe requires the validated success terminal record,
+      // which `muse exec --json` emits even with `--no-session-log`.
+      const tracker = createProbeStreamTracker();
+      let escalationTimer;
+
+      const timer = setTimeout(() => {
+        killed = true;
+        killMuseTestProcess(child, deps.killProcessGroup);
+        escalationTimer = scheduleProbeKillEscalation(child, deps);
+        resolve(failureResponse(new Error(`Muse CLI timed out after ${timeoutMs}ms`)));
+      }, timeoutMs);
+
+      child.stdout?.on('data', (d) => tracker.onData(d));
+      child.stdout?.on('close', () => tracker.onClose());
+      // Stderr is diagnostic-only and bounded (16 KiB, shared with the
+      // summary client) so a chatty child cannot grow memory without limit.
+      child.stderr?.on('data', (d) => { stderr = appendBoundedDiagnostic(stderr, d); });
+      child.on('error', (error) => {
+        clearTimeout(timer); clearTimeout(escalationTimer);
+        if (killed) return;
+        if (error.code === 'ENOENT') {
+          resolve(failureResponse(new Error('Muse CLI not found. Install Muse Code and ensure `muse` is on PATH (or set MUSE_BIN).')));
+        } else {
+          resolve(failureResponse(error));
+        }
+      });
+      child.on('exit', (code) => {
+        clearTimeout(timer); clearTimeout(escalationTimer);
+        if (killed) return;
+        if (code === 0 && tracker.state.outputValid && tracker.state.terminal?.outcome === 'completed' && tracker.state.terminal.text) {
+          resolve(connectionSuccess({ model: spec.model }));
+        } else if (code === 0) {
+          resolve(failureResponse(new Error(describeMissingTerminal(tracker.state.terminal))));
+        } else {
+          resolve(failureResponse(new Error(stderr.trim() || `Muse CLI exited with code ${code}`)));
+        }
+      });
+    });
+  } catch (error) {
+    return failureResponse(error);
+  }
+}
+
+/**
+ * Actionable message for a clean probe exit with no usable terminal record.
+ * A non-completed terminal carries its own reason; anything else means the
+ * CLI never produced the validated success the probe requires.
+ */
+function describeMissingTerminal(terminal) {
+  if (terminal && terminal.outcome !== 'completed') {
+    return `Muse CLI reported ${terminal.outcome}${terminal.reason ? `: ${terminal.reason}` : ''}.`;
+  }
+  return 'Muse CLI exited without a validated terminal result.';
 }
 
 function connectionSuccess(details) {

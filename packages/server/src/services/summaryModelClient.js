@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { callClaude, SESSION_SUMMARY_SCHEMA } from './summaryClaudeClient.js';
+import { startOpenAISummaryLog, logOpenAIUsage } from './summaryCallLog.js';
 import { agentCallLogger } from './agentCallLogger.js';
 import { buildProviderEnv } from './sessionProvider.js';
 import { BUILT_IN_OPENAI_PROVIDER_ID, resolveSummaryModel, resolveExplicitSummaryModel } from './summaryModelResolver.js';
@@ -11,6 +12,7 @@ import { isTierRef, parseTierRef } from '@circuschief/shared';
 import { modelTiers } from '../database.js';
 import { SummaryTierExhaustedError } from './summaryTierExhaustedError.js';
 import { createTierCooldownUnavailableError } from './tierCooldownUnavailableError.js';
+import { callMuseSummary } from './summaryMuseClient.js';
 
 export { SummaryTierExhaustedError, SESSION_SUMMARY_SCHEMA };
 
@@ -50,6 +52,9 @@ export async function callSummaryModel(prompt, recentMessages, sessionStatus, op
 function dispatchSummaryResolution(resolution, { prompt, recentMessages, sessionStatus, options }) {
   if (isBuiltInCodexResolution(resolution)) {
     return callBuiltInCodexSummary(prompt, resolution, options);
+  }
+  if (resolution.kind === 'meta') {
+    return callMuseSummaryModel(prompt, resolution, options);
   }
   if (resolution.kind === 'openai') {
     return callOpenAISummaryModel(prompt, resolution, options);
@@ -202,6 +207,29 @@ export function isBuiltInCodexResolution(resolution) {
     && resolution?.kind === 'openai';
 }
 
+export function isMuseResolution(resolution) {
+  return resolution?.kind === 'meta';
+}
+
+async function callMuseSummaryModel(prompt, resolution, options) {
+  const callId = startOpenAISummaryLog(options.logMeta, resolution, prompt.length, 'muse-cli');
+  try {
+    const result = await callMuseSummary({
+      prompt,
+      systemPrompt: options.systemPrompt,
+      model: resolution.model,
+      jsonSchema: options.jsonSchema || SESSION_SUMMARY_SCHEMA,
+      ...(options.cwd ? { cwd: options.cwd } : {}),
+      ...(options.workingDirectory ? { workingDirectory: options.workingDirectory } : {}),
+    }, options.museDependencies);
+    if (callId) agentCallLogger.completeCall(callId, { success: true });
+    return result;
+  } catch (error) {
+    if (callId) agentCallLogger.completeCall(callId, { success: false, error });
+    throw error;
+  }
+}
+
 function callAnthropicSummaryModel({ prompt, recentMessages, sessionStatus, resolution, options }) {
   const providerEnv = resolution.provider && !resolution.provider.isBuiltIn
     ? { ...process.env, ...buildProviderEnv(resolution.provider) }
@@ -304,34 +332,6 @@ async function parseGoogleSummaryResponse(response) {
     .join('') || '';
   if (!content) throw new Error('Google summary response contained no text');
   return content;
-}
-
-function startOpenAISummaryLog(logMeta, resolution, promptLength, route = 'direct-api') {
-  if (!logMeta) return null;
-  return agentCallLogger.startCall({
-    sessionId: logMeta.sessionId,
-    conversationId: logMeta.conversationId || null,
-    agentType: 'summary',
-    model: resolution.model,
-    callType: logMeta.callType,
-    promptLength,
-    metadata: {
-      ...(resolution.providerId ? { providerId: resolution.providerId } : {}),
-      ...(resolution.selectionReason ? { selectionReason: resolution.selectionReason } : {}),
-      route,
-    },
-  });
-}
-
-function logOpenAIUsage(callId, usage) {
-  if (!callId || !usage) return;
-  agentCallLogger.updateUsage(callId, {
-    inputTokens: usage.prompt_tokens || 0,
-    outputTokens: usage.completion_tokens || 0,
-    thinkingTokens: 0,
-    cacheReadInputTokens: 0,
-    cacheCreationInputTokens: 0,
-  });
 }
 
 function createOpenAIClient(provider) {

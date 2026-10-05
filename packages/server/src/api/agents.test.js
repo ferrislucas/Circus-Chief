@@ -6,6 +6,7 @@ import apiRouter from './index.js';
 import { AgentGateway } from '../agents/AgentGateway.js';
 import { ClaudeCodeAdapter } from '../agents/adapters/ClaudeCodeAdapter.js';
 import { CodexAdapter } from '../agents/adapters/CodexAdapter.js';
+import { MuseExecAdapter } from '../agents/adapters/MuseExecAdapter.js';
 
 describe('Agents API', () => {
   let app;
@@ -24,10 +25,11 @@ describe('Agents API', () => {
       expect(Array.isArray(res.body)).toBe(true);
 
       const agentTypes = res.body.map((a) => a.agentType).sort();
-      expect(agentTypes).toEqual(['claude-code', 'codex', 'gemini']);
+      expect(agentTypes).toEqual(['claude-code', 'codex', 'gemini', 'muse']);
 
       const claude = res.body.find((a) => a.agentType === 'claude-code');
       const codex = res.body.find((a) => a.agentType === 'codex');
+      const muse = res.body.find((a) => a.agentType === 'muse');
 
       expect(claude.capabilities).toEqual({
         streaming: true,
@@ -44,12 +46,21 @@ describe('Agents API', () => {
         toolUse: true,
         resume: false,
       });
+
+      expect(muse.capabilities).toEqual({
+        streaming: true,
+        thinking: false,
+        reasoningEffort: true,
+        toolUse: true,
+        resume: true,
+      });
     });
 
     it('does not instantiate adapter classes when serving capabilities', async () => {
       // Spy on adapter constructors; the handler should NOT call them.
       const claudeSpy = vi.spyOn(ClaudeCodeAdapter.prototype, 'getCapabilities');
       const codexSpy = vi.spyOn(CodexAdapter.prototype, 'getCapabilities');
+      const museSpy = vi.spyOn(MuseExecAdapter.prototype, 'getCapabilities');
 
       // Force a fresh gateway so any cached capabilities from earlier tests
       // do not mask instantiation. We wire in a fresh router backed by a
@@ -64,9 +75,11 @@ describe('Agents API', () => {
 
       expect(claudeSpy).not.toHaveBeenCalled();
       expect(codexSpy).not.toHaveBeenCalled();
+      expect(museSpy).not.toHaveBeenCalled();
 
       claudeSpy.mockRestore();
       codexSpy.mockRestore();
+      museSpy.mockRestore();
     });
   });
 

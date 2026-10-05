@@ -8,7 +8,7 @@ import {
   ReorderProviderModelsRequest,
   TestConnectionRequest,
 } from '@circuschief/shared/contracts/providers';
-import { testProviderConnection } from '../services/providerTestService.js';
+import { testProviderConnection, buildProviderTestConfig } from '../services/providerTestService.js';
 import { assertValidReorder } from '../db/providerModelOperations.js';
 import { publishEmptiedTierDegradations } from '../services/tierDegradationNotifier.js';
 import { publishCatalogInvalidation } from '../services/catalogInvalidation.js';
@@ -134,7 +134,9 @@ router.post('/test', async (req, res) => {
   }
 
   try {
-    const testResult = await testProviderConnection(result.data);
+    // Finding #9: both test routes share one config builder — same model
+    // fallback, same meta-kind cwd rule (tmpdir when the caller omits it).
+    const testResult = await testProviderConnection(buildProviderTestConfig(result.data));
     res.json(testResult);
   } catch (error) {
     res.status(500).json({
@@ -155,17 +157,7 @@ router.post('/:id/test', async (req, res) => {
       return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
     }
 
-    // Pick the sonnet-tiered model (if any) as the test model, falling back to any first model
-    const sonnetModel = provider.models?.find((m) => m.tier === 'sonnet');
-    const testConfig = {
-      kind: provider.kind || 'anthropic',
-      baseUrl: provider.baseUrl,
-      authToken: provider.authToken,
-      defaultSonnetModel: sonnetModel?.modelId,
-      apiTimeoutMs: provider.apiTimeoutMs,
-    };
-
-    const testResult = await testProviderConnection(testConfig);
+    const testResult = await testProviderConnection(buildProviderTestConfig(provider));
     res.json(testResult);
   } catch (error) {
     res.status(500).json({

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { sessions, messages, todos, conversations, attachments, sessionSummaries } from '../database.js';
 import { continueSession } from '../services/sessionManager.js';
+import { getSessionExecutionConflict } from '../services/sessionExecutionOwnership.js';
 import { upload as _upload, handleUploadError } from '../middleware/upload.js';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import * as slashCommandService from '../services/slashCommandService.js';
@@ -134,6 +135,19 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
   const continuationModel = validation.model;
   const continuationProviderId = validation.providerId;
 
+  // Admission before any side effect: while a live turn owns the session —
+  // running, or still shutting down after a Stop — reject with 409 instead of
+  // creating a phantom user message, associating attachments, cancelling the
+  // schedule, and reporting a success the provider will never honor.
+  const executionConflict = getSessionExecutionConflict(req.session_.id);
+  if (executionConflict) {
+    return res.status(409).json({
+      error: executionConflict.message,
+      code: executionConflict.code,
+      executionPhase: executionConflict.phase,
+    });
+  }
+
   try {
     // Store file attachments if any - saves to disk in workingDirectory/.attachments
     const messageAttachments = attachments.createBatch(req.session_.id, null, files, req.workingDirectory);
@@ -157,14 +171,14 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
 
     if (resolved) {
       continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, { systemPrompt: resolved.systemPrompt, fileAttachments: messageAttachments, model: continuationModel, providerId: continuationProviderId, interactive: true }).catch((error) => {
-        console.error(`Continue session error (${resolved.type}):`, error);
+        console.error(`Continue session error (${resolved.type}):`, error?.code || error?.message || error);
       });
       return res.json({ success: true });
     }
 
     // Standard plain text message
     continueSession(req.session_.id, renderedContent, req.workingDirectory, { systemPrompt: req.project.systemPrompt, fileAttachments: messageAttachments, model: continuationModel, providerId: continuationProviderId, interactive: true }).catch((error) => {
-      console.error('Continue session error:', error);
+      console.error('Continue session error:', error?.code || error?.message || error);
     });
     res.json({ success: true });
   } catch (error) {

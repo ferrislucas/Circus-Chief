@@ -1634,3 +1634,158 @@ describe('pins the first member that produces durable activity', () => {
     expect(updated.resolvedProviderId).toBeFalsy();
   });
 });
+
+// ── Finding 5: strict per-attempt identity at startup ───────────────────────
+//
+// Each frozen tier member is validated as an exact (providerId, modelId)
+// identity at its attempt boundary. A member whose provider was deleted or
+// disabled mid-flight — or whose model row was removed/renamed — is
+// UNAVAILABLE: the loop must never dispatch it to a different provider that
+// happens to own the same model id, nor to SDK defaults. The stale attempt is
+// recorded and the loop advances (when a successor exists and no durable
+// activity happened yet) or exhausts.
+
+function finding5SuccessStream(model) {
+  return async function* () {
+    yield { type: 'system', subtype: 'init', session_id: 'finding5-ok', model, slash_commands: [] };
+    yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+    yield { type: 'result', subtype: 'success' };
+  };
+}
+
+describe('stale frozen member at a startup attempt (finding 5)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let providerDecoy;
+  let tier;
+  const FIRST_MODEL = 'finding5-first-model';
+  const SHARED_MODEL = 'finding5-shared-model';
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+    // Attempts after the first succeed IF dispatched — so any second provider
+    // call proves the stale member leaked to a live dispatch.
+    mockQuery.mockImplementation(finding5SuccessStream(SHARED_MODEL));
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding5-stale-member-'));
+    const project = projectRepo.create('Finding5 Project', tempDir);
+
+    providerA = modelProviders.create({ name: 'Finding5 A', kind: 'anthropic' });
+    providerB = modelProviders.create({
+      name: 'Finding5 B',
+      kind: 'anthropic',
+      additionalEnvVars: { FINDING5_OWNER_MARKER: 'provider-b' },
+    });
+    providerDecoy = modelProviders.create({ name: 'Finding5 Decoy', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: FIRST_MODEL, displayName: 'First' });
+    modelProviders.addModel(providerB.id, { modelId: SHARED_MODEL, displayName: 'Shared' });
+
+    tier = modelTiers.create({
+      name: 'Finding5 Tier',
+      members: [
+        { providerId: providerA.id, modelId: FIRST_MODEL, position: 0 },
+        { providerId: providerB.id, modelId: SHARED_MODEL, position: 1 },
+      ],
+    });
+
+    session = sessionRepo.create(project.id, 'Finding5 Session', 'Test prompt', 'standard');
+    sessionRepo.update(session.id, { model: buildTierRef(tier.id) });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  async function failFirstAttemptEligiblyAfterMutation(mutate) {
+    let releaseAttempt;
+    const gate = new Promise((resolve) => { releaseAttempt = resolve; });
+    // eslint-disable-next-line require-yield -- gated startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      await gate;
+      throw Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 });
+    });
+
+    const runPromise = runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    // The first attempt is now in flight (paused inside the provider call).
+    await vi.waitFor(() => expect(mockQuery).toHaveBeenCalledTimes(1));
+    await mutate();
+    releaseAttempt();
+    return runPromise.then(() => null, (error) => error);
+  }
+
+  it('never dispatches a stale member to another provider owning the same model id', async () => {
+    const failure = await failFirstAttemptEligiblyAfterMutation(async () => {
+      // Member 2 loses its model mid-flight; the decoy owns the same id.
+      const doomed = modelProviders.getModels(providerB.id)
+        .find((entry) => entry.modelId === SHARED_MODEL);
+      modelProviders.removeModel(doomed.id);
+      modelProviders.addModel(providerDecoy.id, { modelId: SHARED_MODEL, displayName: 'Shared decoy' });
+    });
+
+    expect(failure).toMatchObject({ name: 'ModelTierExhaustedError', code: 'MODEL_TIER_EXHAUSTED' });
+    // Exactly one provider call (the failed first attempt): the stale second
+    // member never dispatched — neither to the decoy nor anywhere else.
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(failure.attempts).toHaveLength(2);
+    expect(failure.attempts[1]).toMatchObject({ providerId: providerB.id, modelId: SHARED_MODEL });
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.status).toBe('error');
+    expect(updated.resolvedModel).toBeFalsy();
+    expect(updated.resolvedProviderId).toBeFalsy();
+  });
+
+  it('never dispatches a stale member to SDK defaults when no other provider owns the model', async () => {
+    const failure = await failFirstAttemptEligiblyAfterMutation(async () => {
+      // Member 2's provider is disabled mid-flight; nobody else owns the id.
+      modelProviders.update(providerB.id, { enabled: false });
+    });
+
+    expect(failure).toMatchObject({ name: 'ModelTierExhaustedError', code: 'MODEL_TIER_EXHAUSTED' });
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(failure.attempts).toHaveLength(2);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.status).toBe('error');
+    expect(updated.resolvedModel).toBeFalsy();
+  });
+
+  it('derives adapter kind, env, and metadata from the exact member owner (valid-member control)', async () => {
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    // First member succeeds on its own dispatch shape.
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe(FIRST_MODEL);
+
+    // Fail the first member so the run advances to member 2, whose env must
+    // carry provider B's marker — proving the dispatch environment came from
+    // the exact frozen owner, never a same-model-id neighbor or defaults.
+    mockQuery.mockClear();
+    // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      throw Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 });
+    });
+    mockQuery.mockImplementation(finding5SuccessStream(SHARED_MODEL));
+
+    const session2 = sessionRepo.create(session.projectId, 'Finding5 Control 2', 'prompt', 'standard');
+    sessionRepo.update(session2.id, { model: buildTierRef(tier.id) });
+    await runSession(session2.id, 'Second prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    const member2Env = mockQuery.mock.calls[1][0].options.env;
+    expect(member2Env.FINDING5_OWNER_MARKER).toBe('provider-b');
+
+    const updated = sessionRepo.getById(session2.id);
+    expect(updated.resolvedModel).toBe(SHARED_MODEL);
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+  });
+});

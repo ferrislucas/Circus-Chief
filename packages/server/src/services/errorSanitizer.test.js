@@ -7,6 +7,8 @@ import {
   sanitizeString,
   sanitizeValue,
 } from './errorSanitizer.js';
+import { normalizeFinalErrorMessage } from './visibleFinalErrorMessage.js';
+import { sanitizeTierFailureReason } from './tierFailureReason.js';
 
 // Sentinel stands in for a real credential. No test may let it reach a
 // persistence or websocket boundary unsanitized.
@@ -208,5 +210,89 @@ describe('redactUrlCredentials', () => {
     expect(redactUrlCredentials('https://api.example.com/v1')).toBe('https://api.example.com/v1');
     expect(redactUrlCredentials(undefined)).toBe(undefined);
     expect(redactUrlCredentials(null)).toBe(null);
+  });
+});
+
+// ── Finding 6: URL userinfo through the shared sanitizer ───────────────────
+// Every outward sink (persisted session errors, websocket payloads, failover
+// history, logs) funnels through sanitizeString — so userinfo redaction must
+// live there, not only in the standalone redactUrlCredentials helper used by
+// console baseUrl logging. Truncation must never run before redaction:
+// otherwise a credential sitting past the cut keeps its leading fragment.
+describe('sanitizeString URL userinfo (finding 6)', () => {
+  const USER = `user-${SENTINEL}`;
+  const PASS = `pass-${SENTINEL}`;
+
+  it('redacts username:password userinfo but keeps host and path', () => {
+    const out = sanitizeString(`fetch failed for https://${USER}:${PASS}@proxy.example:8080/v1: refused`);
+    expect(out).not.toContain(SENTINEL);
+    expect(out).toContain('https://[redacted]@proxy.example:8080/v1');
+  });
+
+  it('redacts username-only userinfo', () => {
+    const out = sanitizeString(`dial https://${USER}@proxy.example/v1 failed`);
+    expect(out).not.toContain(SENTINEL);
+    expect(out).toContain('https://[redacted]@proxy.example/v1');
+  });
+
+  it('redacts percent-encoded userinfo credentials', () => {
+    const out = sanitizeString(`dial https://${USER}%3A${PASS}@proxy.example/v1 failed`);
+    expect(out).not.toContain(SENTINEL);
+    expect(out).not.toContain(encodeURIComponent(PASS));
+    expect(out).toContain('https://[redacted]@proxy.example/v1');
+  });
+
+  it('redacts userinfo in every URL when several appear', () => {
+    const out = sanitizeString(
+      `primary https://${USER}:${PASS}@a.example/v1 failed over to https://other:${SENTINEL}@b.example/v1`
+    );
+    expect(out).not.toContain(SENTINEL);
+    expect(out).toContain('https://[redacted]@a.example/v1');
+    expect(out).toContain('https://[redacted]@b.example/v1');
+  });
+
+  it('redacts userinfo inside nested values and Error objects', () => {
+    const url = `https://${USER}:${PASS}@proxy.example:8080/v1`;
+    const out = sanitizeValue({
+      endpoint: url,
+      list: [`retrying ${url}`],
+      err: new Error(`boom for ${url}`),
+    });
+    expect(JSON.stringify(out)).not.toContain(SENTINEL);
+  });
+
+  it('redacts a credential whose password spans the truncation boundary', () => {
+    // Module truncation cuts at 4000 chars; the password crosses the cut and
+    // the `@` marker sits beyond it — truncating first would keep a
+    // `user:pass-fragment` prefix behind.
+    const longPass = (`pass-${SENTINEL}.`).repeat(30);
+    const input = `${'z'.repeat(3950)}https://a:${longPass}@proxy.example/v1`;
+    expect(input.indexOf('@')).toBeGreaterThan(4000);
+    const out = sanitizeString(input);
+    expect(out).not.toContain(SENTINEL);
+    expect(out.length).toBeLessThanOrEqual(4000);
+  });
+
+  it('redacts long userinfo whose @ falls beyond the truncation boundary', () => {
+    const longUser = (`${USER}.`).repeat(110);
+    const input = `https://${longUser}:end@proxy.example/v1`;
+    expect(input.indexOf('@')).toBeGreaterThan(4000);
+    const out = sanitizeString(input);
+    expect(out).not.toContain(SENTINEL);
+    expect(out).toContain('https://[redacted]@proxy.example/v1');
+    expect(out.length).toBeLessThanOrEqual(4000);
+  });
+
+  it('is idempotent for URL-bearing input', () => {
+    const input = `fetch failed for https://${USER}:${PASS}@proxy.example:8080/v1: refused`;
+    expect(sanitizeString(sanitizeString(input))).toBe(sanitizeString(input));
+  });
+
+  it('keeps sink error text free of URL userinfo (final error + failover reason)', () => {
+    // Websocket broadcasts and persisted session errors carry these reason
+    // strings verbatim — checking the reason strings checks the payloads.
+    const message = `provider start failed for https://${USER}:${PASS}@proxy.example:8080/v1: refused`;
+    expect(normalizeFinalErrorMessage(new Error(message))).not.toContain(SENTINEL);
+    expect(sanitizeTierFailureReason(new Error(message))).not.toContain(SENTINEL);
   });
 });

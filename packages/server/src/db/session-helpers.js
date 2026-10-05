@@ -285,6 +285,8 @@ export const DIRECT_FIELD_MAP = {
   agentType: 'agent_type',
   resolvedModel: 'resolved_model',
   resolvedProviderId: 'resolved_provider_id',
+  lastExecutedModel: 'last_executed_model',
+  lastExecutedProviderId: 'last_executed_provider_id',
 };
 
 /** camelCase -> snake_case column mapping for boolean fields (converted to 1/0) */

@@ -1,14 +1,15 @@
 import { sessions, messages, attachments, conversations } from '../database.js';
 import { resolveDispatchProvider, buildSessionEnv } from './sessionProvider.js';
-import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
+import { buildLastExecutedUpdate, checkExplicitTierDispatchKind, createCrossKindDispatchError, deriveAgentTypeUpdate, hasDispatchPairChanged } from './sessionAgentGuard.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { buildQueryParams } from './queryParamBuilder.js';
-import { activeSessions, activeConversationIds, broadcastSessionStatus } from './streamEventHandler.js';
+import { activeConversationIds, broadcastSessionStatus } from './streamEventHandler.js';
+import { claimSessionExecution, createExecutionConflictError, getSessionExecutionConflict } from './sessionExecutionOwnership.js';
 import { buildPromptWithAttachments } from './sessionPrompts.js';
-import { createAgentForSession, buildAgentEnv, _executeSession } from './sessionExecution.js';
+import { createAgentForSession, buildAgentEnv, _executeSession, handlePreparationFailure } from './sessionExecution.js';
 import { resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
 import { buildTierHealthContext } from './tierResolutionService.js';
 import { activeLaneRunOwnsSession } from './workflowSessionService.js';
@@ -38,6 +39,32 @@ async function buildPromptForContinue({ modelChanged, agent, conversationId, pro
 }
 
 /**
+ * Validate the ownership claim for a branch continue, then fetch the session,
+ * conversation, and last user message it needs. Shared with sessionManager's
+ * branch path so both continue entries enforce the same admission contract.
+ */
+export function validateAndFetchContinueContext(sessionId, conversationId) {
+  const conflict = getSessionExecutionConflict(sessionId);
+  if (conflict) {
+    throw createExecutionConflictError(sessionId, conflict.phase);
+  }
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    throw new Error('Session not found');
+  }
+  const conversation = conversations.getById(conversationId);
+  if (!conversation || conversation.sessionId !== sessionId) {
+    throw new Error('Conversation not found');
+  }
+  const conversationMessages = messages.getByConversationId(conversationId);
+  const lastUserMessage = [...conversationMessages].reverse().find((m) => m.role === 'user');
+  if (!lastUserMessage) {
+    throw new Error('No user message found in conversation');
+  }
+  return { session, conversation, lastUserMessage };
+}
+
+/**
  * Resolve model/provider and build session environment for a continue operation.
  * Also detects model changes and updates the session record.
  *
@@ -62,6 +89,15 @@ function buildContinueModelAndEnv(session, sessionId, model, providerId = null) 
     sessionId, session, model, providerId
   );
 
+  // Enforce the cross-kind policy on the exact pair about to be dispatched —
+  // not the pair the API guard saw. Cooldown can shift the resolved member
+  // between HTTP validation and execution, and scheduled continuations bypass
+  // the HTTP guard entirely. Throws before any persistence or dispatch.
+  const dispatchDrift = checkExplicitTierDispatchKind(session, sessionId, model, { effectiveModel, providerIdHint });
+  if (dispatchDrift) {
+    throw createCrossKindDispatchError(dispatchDrift);
+  }
+
   // Derive provider through the single dispatch rule: tier-derived bindings
   // resolve strictly (exact owner or typed error — never a cross-provider
   // fallback), concrete bindings keep the legacy fallback.
@@ -73,15 +109,21 @@ function buildContinueModelAndEnv(session, sessionId, model, providerId = null) 
     { providerId: provider?.id ?? providerIdHint ?? null, sessionId }
   );
 
-  // Model changed = the caller explicitly requested a different binding
-  // (concrete or tier) than what's currently stored on the session. A session
-  // with no stored binding adopting the caller's model is initialization, not
-  // a switch: it must keep resume/context state (the web client always echoes
-  // a resolved picker default, and lane on-enter workers are created
-  // model-less). Treating it as changed prefixes conversation history onto
-  // the prompt and drops resume, which breaks VCR-cassette continuations and
-  // lane-run completion for those sessions.
-  const modelChanged = Boolean(model && session.model && model !== session.model);
+  // The dispatched concrete pair, resolved through the single dispatch rule.
+  const dispatchedProviderId = provider?.id ?? providerIdHint ?? null;
+  const dispatchedPair = { model: effectiveModel, providerId: dispatchedProviderId };
+
+  // A switch is determined from the previous EXECUTED concrete (providerId,
+  // modelId) pair and the newly validated candidate — not the model string or
+  // tier sentinel alone. A provider-only switch (same model id, different
+  // provider) starts a fresh provider thread: the old resume handle is
+  // meaningless and history must be replayed. Distinct tier bindings
+  // resolving to the same concrete pair are the same thread: resume stays
+  // valid and no replay happens. A session with no stored binding adopting
+  // the caller's model is initialization, not a switch: it must keep
+  // resume/context state (the web client always echoes a resolved picker
+  // default, and lane on-enter workers are created model-less).
+  const modelChanged = hasDispatchPairChanged(session, sessionId, dispatchedPair);
 
   // Defense in depth: re-derive agentType using the effective model + provider
   // hint so a stale stored agentType is corrected even when no explicit model
@@ -92,7 +134,10 @@ function buildContinueModelAndEnv(session, sessionId, model, providerId = null) 
     : {};
 
   let updatedSession = session;
-  const updatePayload = { ...persist, ...agentTypeUpdate };
+  // Record the durable last-executed identity alongside any other persistence
+  // so a later provider-only PATCH cannot erase the evidence of which pair
+  // actually ran.
+  const updatePayload = { ...persist, ...agentTypeUpdate, ...buildLastExecutedUpdate(session, effectiveModel, dispatchedProviderId) };
   if (Object.keys(updatePayload).length > 0) {
     sessions.update(sessionId, updatePayload);
     updatedSession = sessions.getById(sessionId);
@@ -193,50 +238,13 @@ async function setupConversationAndMessage(sessionId, content, fileAttachments) 
  * @param {Object} [config.options] - Session options (systemPrompt, fileAttachments, model)
  * @param {Object} config.callbacks - Callback functions from sessionManager
  */
-export async function continueSessionCore(sessionId, content, workingDirectory, config = {}) {
-  const { options = {}, callbacks } = config;
-  const { systemPrompt = null, fileAttachments = [], model = null, providerId = null, interactive = false } = options;
-  // Check if session is already running
-  if (activeSessions.has(sessionId)) {
-    throw new Error('Session is already processing');
-  }
-
-  // Get the session to retrieve the Claude session ID and settings
-  let session = sessions.getById(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
-  }
-
-  // A scheduled/automatic continuation can race with a manual card move that
-  // revokes its lane-run ownership. Reject before registering active state,
-  // creating a user message, or changing the session status. _executeSession
-  // repeats this immediately before provider dispatch to close the remaining
-  // race window.
-  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
-    return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
-  }
-
-  const controller = new AbortController();
-  activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
-
-  // Ensure there's an active conversation and create the user message
-  const { activeConversation, promptWithAttachments } = await setupConversationAndMessage(
-    sessionId, content, fileAttachments
-  );
-
-  // Update status to running
-  sessions.update(sessionId, { status: 'running' });
-  broadcastSessionStatus(sessionId, 'running');
-
-  // Resolve model/provider and detect model changes BEFORE creating the agent
-  // (Work Item 4): for a tier-bound draft, `buildContinueModelAndEnv` may
-  // reconcile and persist a new `session.agentType` (e.g. a tier's first
-  // member resolves to Codex although the row still says 'claude-code').
-  // Creating the agent from the stale pre-reconciliation agentType would
-  // dispatch the wrong adapter for the resolved model.
-  const modelEnv = buildContinueModelAndEnv(session, sessionId, model, providerId);
-  session = modelEnv.session;
-
+// Build everything the provider dispatch needs after model resolution:
+// the health-reporting tier context, the commit-attribution hook, the
+// reconciled-kind agent, and the query params.
+async function prepareContinueDispatch({
+  session, modelEnv, model, systemPrompt, activeConversation,
+  promptWithAttachments, workingDirectory, controller,
+}) {
   // Health attribution for tier-bound continuations (mid-conversation
   // cooldown). Built AFTER resolution so a backfilled snapshot is visible.
   // This context can report member health on an eligible failure but can
@@ -254,28 +262,92 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
 
   // Build query params and agent call meta
   const { queryParams, agentCallMeta } = await buildContinueParams({
-    sessionId, session, model, systemPrompt,
+    sessionId: session.id, session, model, systemPrompt,
     effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
     commitAttributionOverride: modelEnv.commitAttributionOverride,
     modelChanged: modelEnv.modelChanged, activeConversation, promptWithAttachments,
     workingDirectory, controller, agentType, agent,
   });
+  return { tierContext, agentType, agent, queryParams, agentCallMeta };
+}
 
-  const execution = await _executeSession({
-    sessionId,
-    agent,
-    queryParams,
-    agentCallMeta,
-    controller,
-    workingDirectory,
-    callbacks,
-    broadcastConversationStateOnError: true,
-    cleanupConversationId: true,
-    interactive,
-    errorLabel: 'Continue session error',
-    tierContext,
-  });
-  // _executeSession only returns a result when it rejected the dispatch before
-  // the provider call; otherwise the handoff was accepted.
-  return execution || startedSessionExecution(sessionId);
+export async function continueSessionCore(sessionId, content, workingDirectory, config = {}) {
+  const { options = {}, callbacks } = config;
+  const { systemPrompt = null, fileAttachments = [], model = null, providerId = null, interactive = false } = options;
+
+  // Get the session to retrieve the Claude session ID and settings
+  let session = sessions.getById(sessionId);
+  if (!session) {
+    throw new Error('Session not found');
+  }
+
+  // A scheduled/automatic continuation can race with a manual card move that
+  // revokes its lane-run ownership. Reject before registering active state,
+  // creating a user message, or changing the session status. _executeSession
+  // repeats this immediately before provider dispatch to close the remaining
+  // race window.
+  if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
+    return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
+  }
+
+  const controller = new AbortController();
+  // Atomically claim execution ownership. Throws a 409-coded conflict when a
+  // live turn (running or still shutting down after a Stop) owns the session.
+  claimSessionExecution(sessionId, controller);
+
+  // Preparation runs BEFORE provider dispatch and outside _executeSession's
+  // own error/finally boundary: any failure here must fail the turn
+  // explicitly (sanitized visible error, error status, workflow failure,
+  // controller-aware cleanup) instead of wedging the session as permanently
+  // running. The flag keeps _executeSession's own — already handled —
+  // failures out of that path: they propagate unchanged.
+  let providerDispatched = false;
+  try {
+    // Ensure there's an active conversation and create the user message
+    const { activeConversation, promptWithAttachments } = await setupConversationAndMessage(
+      sessionId, content, fileAttachments
+    );
+
+    // Update status to running
+    sessions.update(sessionId, { status: 'running' });
+    broadcastSessionStatus(sessionId, 'running');
+
+    // Resolve model/provider and detect model changes BEFORE creating the agent
+    // (Work Item 4): for a tier-bound draft, `buildContinueModelAndEnv` may
+    // reconcile and persist a new `session.agentType` (e.g. a tier's first
+    // member resolves to Codex although the row still says 'claude-code').
+    // Creating the agent from the stale pre-reconciliation agentType would
+    // dispatch the wrong adapter for the resolved model.
+    const modelEnv = buildContinueModelAndEnv(session, sessionId, model, providerId);
+    session = modelEnv.session;
+
+    const { tierContext, agent, queryParams, agentCallMeta } = await prepareContinueDispatch({
+      session, modelEnv, model, systemPrompt, activeConversation,
+      promptWithAttachments, workingDirectory, controller,
+    });
+
+    providerDispatched = true;
+    const execution = await _executeSession({
+      sessionId,
+      agent,
+      queryParams,
+      agentCallMeta,
+      controller,
+      workingDirectory,
+      callbacks,
+      broadcastConversationStateOnError: true,
+      cleanupConversationId: true,
+      interactive,
+      errorLabel: 'Continue session error',
+      tierContext,
+    });
+    // _executeSession only returns a result when it rejected the dispatch before
+    // the provider call; otherwise the handoff was accepted.
+    return execution || startedSessionExecution(sessionId);
+  } catch (error) {
+    if (!providerDispatched) {
+      handlePreparationFailure({ sessionId, controller, error, includeConversationId: true });
+    }
+    throw error;
+  }
 }

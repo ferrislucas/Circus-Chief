@@ -263,6 +263,12 @@ export const allMigrations = validateMigrations([
   // --- Seed built-in Google provider + Gemini models ---
   pr.get('providers-seed-built-in-google'),
 
+  // --- Widen providers kind CHECK constraint to include 'meta' ---
+  pr.get('providers-widen-kind-check-meta'),
+
+  // --- Seed built-in Meta provider + Muse models ---
+  pr.get('providers-seed-built-in-meta'),
+
   // --- Update expired Gemini Flash Lite preview model to stable GA ---
   pr.get('providers-update-gemini-flash-lite-model'),
 
@@ -329,6 +335,7 @@ export const allMigrations = validateMigrations([
   // --- Model tiers (cross-model failover v1) ---
   mt.get('model_tiers-create-tables'),
   mt.get('sessions-add-resolved_model'),
+  mt.get('sessions-add-last-executed-pair'),
   // Present before the historical Kanban cutover so its copy SQL can retain it.
   mt.get('model-tiers-provider-pair-columns'),
   mt.get('model-tiers-repair-members-and-unique-indexes'),

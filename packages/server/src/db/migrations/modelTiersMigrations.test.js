@@ -213,3 +213,145 @@ describe('provider model tier-reference prefix migration', () => {
     }
   });
 });
+
+// ── Finding 8: concrete provider-reference repair across schema shapes ──────
+// Provider deletion must repair dependent concrete (model, providerId) pairs
+// BEFORE the provider row goes away — on both the upgraded schema (provider
+// columns declared REFERENCES providers(id), i.e. NO ACTION: the delete would
+// otherwise fail closed) and the fresh schema (columns without the FK, or
+// absent entirely: the repair must no-op safely instead of throwing).
+describe('concrete provider-reference repair schema shapes (finding 8)', () => {
+  async function loadRepair() {
+    // Dynamic import keeps this scratch-schema suite decoupled from the
+    // service module's own import graph (database manager, agents).
+    const module = await import('../../services/tierProviderRepair.js');
+    expect(typeof module.repairConcreteProviderReferences).toBe('function');
+    return module.repairConcreteProviderReferences;
+  }
+
+  function createUpgradedDatabase() {
+    const db = new Database(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    db.exec(`
+      CREATE TABLE providers (id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1);
+      CREATE TABLE provider_models (
+        id TEXT PRIMARY KEY,
+        provider_id TEXT NOT NULL REFERENCES providers(id),
+        model_id TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        removed_at INTEGER
+      );
+      CREATE TABLE session_templates (
+        id TEXT PRIMARY KEY, model TEXT,
+        provider_id TEXT REFERENCES providers(id), updated_at INTEGER
+      );
+      CREATE TABLE kanban_boards (id TEXT PRIMARY KEY, project_id TEXT);
+      CREATE TABLE kanban_lanes (
+        id TEXT PRIMARY KEY, board_id TEXT, on_enter_model TEXT,
+        on_enter_provider_id TEXT REFERENCES providers(id), updated_at INTEGER
+      );
+      CREATE TABLE project_session_defaults (
+        id TEXT PRIMARY KEY, project_id TEXT, model TEXT,
+        provider_id TEXT REFERENCES providers(id), updated_at INTEGER
+      );
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY, project_id TEXT, model TEXT,
+        provider_id TEXT REFERENCES providers(id),
+        pending_model TEXT, pending_provider_id TEXT REFERENCES providers(id),
+        resolved_model TEXT, resolved_provider_id TEXT,
+        last_executed_model TEXT, last_executed_provider_id TEXT,
+        updated_at INTEGER
+      );
+      CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER);
+    `);
+    return db;
+  }
+
+  it('repairs concrete pairs on the upgraded NO ACTION schema so the provider row can go away', async () => {
+    const repairConcreteProviderReferences = await loadRepair();
+    const db = createUpgradedDatabase();
+    try {
+      db.prepare('INSERT INTO providers (id, enabled) VALUES (?, ?)').run('provider-a', 1);
+      db.prepare('INSERT INTO session_templates (id, model, provider_id, updated_at) VALUES (?, ?, ?, ?)')
+        .run('template', 'model-a', 'provider-a', 1);
+      db.prepare('INSERT INTO kanban_boards (id, project_id) VALUES (?, ?)').run('board', 'project');
+      db.prepare(`INSERT INTO kanban_lanes (id, board_id, on_enter_model, on_enter_provider_id, updated_at)
+        VALUES (?, ?, ?, ?, ?)`).run('lane', 'board', 'model-a', 'provider-a', 1);
+      db.prepare(`INSERT INTO project_session_defaults (id, project_id, model, provider_id, updated_at)
+        VALUES (?, ?, ?, ?, ?)`).run('defaults', 'project', 'model-a', 'provider-a', 1);
+      db.prepare(`INSERT INTO sessions
+        (id, project_id, model, provider_id, pending_model, pending_provider_id,
+         resolved_model, resolved_provider_id, last_executed_model, last_executed_provider_id, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, ?)`)
+        .run(
+          'concrete-session', 'project', 'model-a', 'provider-a', 'model-a', 'provider-a',
+          'model-a', 'provider-a', 'model-a', 'provider-a', 1,
+          'tier-session', 'project', 'tier::healthy-tier', 'provider-a', 1
+        );
+      db.prepare('INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)')
+        .run('summary_settings', JSON.stringify({ summaryModel: 'model-a', summaryProviderId: 'provider-a' }), 1);
+
+      // Without the repair this delete fails closed on the NO ACTION columns.
+      expect(() => db.prepare('DELETE FROM providers WHERE id = ?').run('provider-a')).toThrow();
+
+      const changeSet = repairConcreteProviderReferences(db, 'provider-a', 2);
+
+      expect(changeSet.affectedTemplateIds).toEqual(['template']);
+      expect(changeSet.affectedSessions.map((entry) => entry.id).sort())
+        .toEqual(['concrete-session', 'tier-session']);
+      for (const [table, id, modelColumn, providerColumn] of [
+        ['session_templates', 'template', 'model', 'provider_id'],
+        ['kanban_lanes', 'lane', 'on_enter_model', 'on_enter_provider_id'],
+        ['project_session_defaults', 'defaults', 'model', 'provider_id'],
+      ]) {
+        expect(db.prepare(`SELECT ${modelColumn} AS model, ${providerColumn} AS providerId
+          FROM ${table} WHERE id = ?`).get(id)).toEqual({ model: null, providerId: null });
+      }
+      // Concrete bindings clear fully; a tier-bound session keeps its tier
+      // ref (the emptied-tier sweep owns that half) but drops the dead
+      // provider association and stale snapshots.
+      expect(db.prepare(`SELECT model, provider_id, pending_model, pending_provider_id,
+        resolved_model, resolved_provider_id, last_executed_model, last_executed_provider_id
+        FROM sessions WHERE id = ?`).get('concrete-session'))
+        .toEqual({
+          model: null, provider_id: null, pending_model: null, pending_provider_id: null,
+          resolved_model: null, resolved_provider_id: null,
+          last_executed_model: null, last_executed_provider_id: null,
+        });
+      expect(db.prepare('SELECT model, provider_id FROM sessions WHERE id = ?').get('tier-session'))
+        .toEqual({ model: 'tier::healthy-tier', provider_id: null });
+      expect(JSON.parse(db.prepare('SELECT value FROM app_settings WHERE key = ?').get('summary_settings').value))
+        .toMatchObject({ summaryModel: '', summaryProviderId: null });
+
+      db.prepare('DELETE FROM providers WHERE id = ?').run('provider-a');
+      expect(db.prepare('SELECT id FROM providers WHERE id = ?').get('provider-a')).toBeUndefined();
+      expect(db.pragma('foreign_key_check')).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('no-ops safely on a fresh schema without the provider reference columns', async () => {
+    const repairConcreteProviderReferences = await loadRepair();
+    const db = new Database(':memory:');
+    try {
+      db.exec(`
+        CREATE TABLE providers (id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1);
+        CREATE TABLE session_templates (id TEXT PRIMARY KEY, model TEXT);
+        CREATE TABLE sessions (id TEXT PRIMARY KEY, model TEXT);
+      `);
+      db.prepare('INSERT INTO providers (id, enabled) VALUES (?, ?)').run('provider-a', 1);
+
+      let changeSet;
+      expect(() => {
+        changeSet = repairConcreteProviderReferences(db, 'provider-a', 2);
+      }).not.toThrow();
+      expect(changeSet).toBeNull();
+
+      db.prepare('DELETE FROM providers WHERE id = ?').run('provider-a');
+      expect(db.prepare('SELECT id FROM providers WHERE id = ?').get('provider-a')).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+});

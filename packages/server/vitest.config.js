@@ -12,7 +12,9 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.test.js', 'test/**/*.test.js'],
-    setupFiles: ['./test/setup.js'],
+    // hermeticity.js runs FIRST (import-free) so the login-shell probe is
+    // disabled before any module can spawn the user's shell (finding #5).
+    setupFiles: ['./test/hermeticity.js', './test/setup.js'],
     // Run tests sequentially to avoid database singleton race conditions
     // The DatabaseManager singleton is shared across all test files,
     // and concurrent initDatabase() calls cause race conditions

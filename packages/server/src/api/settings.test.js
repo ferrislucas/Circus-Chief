@@ -109,6 +109,52 @@ describe('Settings API', { timeout: 30_000 }, () => {
       });
     });
 
+    it('accepts a meta provider/model pair for Muse summaries', async () => {
+      const provider = modelProviders.getById('meta-default');
+      const model = provider.models[0].modelId;
+
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: model,
+          summaryProviderId: provider.id,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        summaryModel: model,
+        summaryProviderId: provider.id,
+      });
+    });
+
+    // NOTE (origin/main merge): main rejected the google kind here via
+    // SUPPORTED_SUMMARY_PROVIDER_KINDS, but the merged branch executes google
+    // summaries end-to-end (summaryModelClient google dispatch +
+    // summaryModelResolver google resolution, both pinned by their own
+    // suites). The kind blocklist is therefore stale and stays dropped; the
+    // ownership/enabled validation above remains the gate.
+    it('accepts a google provider that owns the summary model', async () => {
+      const provider = modelProviders.getById('google-default');
+      const model = provider.models[0].modelId;
+
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: model,
+          summaryProviderId: provider.id,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        summaryModel: model,
+        summaryProviderId: provider.id,
+      });
+    });
+
     it('rejects provider/model ownership mismatches', async () => {
       const res = await request(app)
         .put('/api/settings/summary')

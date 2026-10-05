@@ -6,10 +6,14 @@ import {
   getSessionAttachmentsContext,
   PLAN_MODE_PROMPT,
   continueSession,
+  continueSessionWithExistingMessage,
   shouldRescheduleOnError,
 } from './sessionManager.js';
+import { modelProviders, modelTiers } from '../database.js';
+import { buildTierRef } from '@circuschief/shared';
+import { markUnhealthy, clearUnhealthy } from './tierResolutionService.js';
+import { activeSessions } from './sessionExecutionOwnership.js';
 import {
-  activeSessions,
   textAccumulators,
   thinkingAccumulators,
   currentModels,
@@ -847,10 +851,11 @@ describe('sessionManager', () => {
   });
 
   // ── Issue 1 regression ──────────────────────────────────────────────────
-  // cleanupSessionState's fence used to treat an *absent* activeSessions
-  // entry as evidence of a live replacement execution, so a turn stopped via
-  // stopSession() (which deletes the activeSessions entry immediately, before
-  // the turn unwinds) never got its per-session stream state cleaned up.
+  // cleanupSessionState's fence must clear a stopped turn's per-session stream
+  // state when its own finalizer runs. stopSession() retains the
+  // activeSessions entry (marked `stopping`) until that finalizer releases
+  // ownership, so the unwind path below also proves the ownership barrier:
+  // the entry survives Stop and is released only after settlement.
   describe('stopSession mid-turn (cleanupSessionState leak regression)', () => {
     it('clears per-session stream state after a mid-turn stop, and a later turn still reaches waiting', async () => {
       const { stopSession } = await import('./sessionManager.js');
@@ -898,22 +903,22 @@ describe('sessionManager', () => {
         expect(activeConversationIds.has(session.id)).toBe(true);
 
         // Simulate the user clicking Stop mid-turn: this aborts the
-        // controller and deletes the activeSessions entry immediately,
-        // before the turn's finally block has run.
+        // controller and marks the activeSessions entry stopping. The entry
+        // is retained until the turn's finally block runs.
         await stopSession(session.id);
-        expect(activeSessions.has(session.id)).toBe(false);
+        expect(activeSessions.has(session.id)).toBe(true);
 
         // Let the aborted turn's stream loop unwind and hit its finally block.
         releaseGate();
         await firstTurn;
+        expect(activeSessions.has(session.id)).toBe(false);
 
         const stoppedSession = sessionRepo.getById(session.id);
         expect(stoppedSession.status).toBe('stopped');
 
-        // Regression check: cleanupSessionState must not treat the absent
-        // activeSessions entry as a live replacement — every per-session Map
-        // must be cleared, not just the ones incidentally re-touched by a
-        // later turn.
+        // Regression check: the stopped turn's own finalizer must clear every
+        // per-session Map — not just the ones incidentally re-touched by a
+        // later turn — while releasing ownership.
         expect(textAccumulators.has(session.id)).toBe(false);
         expect(thinkingAccumulators.has(session.id)).toBe(false);
         expect(currentModels.has(session.id)).toBe(false);
@@ -938,6 +943,99 @@ describe('sessionManager', () => {
         const finalSession = sessionRepo.getById(session.id);
         expect(finalSession.status).toBe('waiting');
         expect(finalSession.error).toBeNull();
+      } finally {
+        if (existsSync(tempDir)) {
+          rmSync(tempDir, { recursive: true, force: true });
+        }
+      }
+    });
+  });
+
+  // ── Provider-turn ownership barrier ───────────────────────────────────────
+  // stopSession() must not release the in-memory execution ownership while
+  // the provider generator is still live. Otherwise a Continue issued during
+  // shutdown starts a second provider turn against the same native session
+  // (Muse rejects it with "already in use") while Circus reports success.
+  describe('stopSession retains execution ownership until provider settlement', () => {
+    it('rejects Continue while the stopped turn is still unwinding, admits after settlement', async () => {
+      const { stopSession } = await import('./sessionManager.js');
+      const { onSessionComplete } = await import('./summaryService.js');
+      vi.mocked(onSessionComplete).mockClear();
+      const sessionRepo = new SessionRepository();
+      const projectRepo = new ProjectRepository();
+      const conversationRepo = new ConversationRepository();
+      const tempDir = mkdtempSync(join(tmpdir(), 'ownership-barrier-'));
+
+      try {
+        const project = projectRepo.create('Test Project', tempDir);
+        const session = sessionRepo.create(project.id, 'Test Session', 'Test prompt', 'standard');
+        sessionRepo.update(session.id, { claudeSessionId: 'mock-claude-session-id' });
+        conversationRepo.create(session.id, 'Test Conversation');
+
+        let releaseProvider;
+        const providerGate = new Promise((resolve) => { releaseProvider = resolve; });
+        let signalStarted;
+        const started = new Promise((resolve) => { signalStarted = resolve; });
+        let abortReceived = false;
+
+        vi.mocked(query).mockImplementationOnce(async function* (queryParams) {
+          queryParams?.options?.abortController?.signal?.addEventListener('abort', () => { abortReceived = true; });
+          yield {
+            type: 'system', subtype: 'init', session_id: 'mock-claude-session-id',
+            model: 'claude-haiku-4-5-20251001', slash_commands: [],
+          };
+          signalStarted();
+          // Model a provider that received cancellation yet still owns its
+          // native runtime session: the abort listener records cancellation
+          // but nothing releases this gate.
+          await providerGate;
+        });
+
+        const firstTurn = continueSession(session.id, 'First message', tempDir);
+        await started;
+        expect(activeSessions.has(session.id)).toBe(true);
+        const providerCallsAfterStart = vi.mocked(query).mock.calls.length;
+
+        await stopSession(session.id);
+        expect(abortReceived).toBe(true);
+        // Externally observable stop behavior is preserved.
+        expect(sessionRepo.getById(session.id).status).toBe('stopped');
+        // Summary generation must wait for confirmed provider exit, not race
+        // output still arriving from the aborted provider.
+        expect(onSessionComplete).not.toHaveBeenCalled();
+
+        // Ownership must survive Stop until the provider generator settles.
+        expect(activeSessions.has(session.id)).toBe(true);
+
+        // A Continue issued while shutdown is pending must be rejected as
+        // stopping — and must never spawn a second provider execution.
+        const stoppingError = await continueSession(session.id, 'Second message', tempDir).then(
+          () => { throw new Error('expected continueSession to reject while stopping'); },
+          (error) => error,
+        );
+        expect(stoppingError.code).toBe('SESSION_STOPPING');
+        expect(stoppingError.message).toMatch(/still shutting down/i);
+        expect(vi.mocked(query).mock.calls.length).toBe(providerCallsAfterStart);
+
+        // Once the provider settles, ownership is released and Continue works.
+        releaseProvider();
+        await firstTurn;
+        expect(activeSessions.has(session.id)).toBe(false);
+        // The deferred summary fires exactly once, after settlement.
+        expect(onSessionComplete).toHaveBeenCalledTimes(1);
+        expect(onSessionComplete).toHaveBeenCalledWith(session.id);
+
+        vi.mocked(query).mockImplementationOnce(async function* () {
+          yield {
+            type: 'system', subtype: 'init', session_id: 'mock-claude-session-id-2',
+            model: 'claude-haiku-4-5-20251001', slash_commands: [],
+          };
+          yield { type: 'assistant', message: { content: [{ type: 'text', text: 'second turn text' }] } };
+          yield { type: 'result', subtype: 'success' };
+        });
+
+        await continueSession(session.id, 'Third message', tempDir);
+        expect(sessionRepo.getById(session.id).status).toBe('waiting');
       } finally {
         if (existsSync(tempDir)) {
           rmSync(tempDir, { recursive: true, force: true });
@@ -1313,7 +1411,6 @@ describe('summary service integration', () => {
 
   describe('continueSessionWithExistingMessage summary integration', () => {
     it('does not call onSessionComplete when turn completes successfully', async () => {
-      const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
       // Create a conversation and user message
       const conversation = conversationRepo.create(session.id, 'Test Conversation');
@@ -1487,7 +1584,6 @@ describe('buildModelAndProvider agent_type re-derivation (Fix 3)', () => {
     // The cross-kind path is validated by the sessionAgentGuard tests.
 
     // For same-kind (claude → claude), agent_type should remain unchanged
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, {
       model: 'claude-haiku-4-5-20251001', // Same kind (claude-code)
@@ -1506,7 +1602,6 @@ describe('buildModelAndProvider agent_type re-derivation (Fix 3)', () => {
 
     // Even if we could pass an OpenAI model, agent_type should NOT change
     // because there are already assistant messages.
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, {
       model: 'claude-haiku-4-5-20251001',
@@ -1520,7 +1615,6 @@ describe('buildModelAndProvider agent_type re-derivation (Fix 3)', () => {
     const conversation = conversationRepo.create(session.id, 'Test Conversation');
     messageRepo.create(session.id, 'user', 'Test message', { conversationId: conversation.id });
 
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, {
       model: 'claude-haiku-4-5-20251001',
@@ -1581,7 +1675,6 @@ describe('continueSessionWithExistingMessage Codex conversation context', () => 
     messageRepo.create(session.id, 'assistant', '4', null, conversation.id);
     messageRepo.create(session.id, 'user', 'Now tell me more', { conversationId: conversation.id });
 
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, { model: 'gpt-4o-test' });
 
@@ -1616,7 +1709,6 @@ describe('continueSessionWithExistingMessage Codex conversation context', () => 
     const conversation = conversationRepo.create(session.id, 'Test Conversation');
     messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
 
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, { model: 'gpt-4o-test' });
 
@@ -1651,7 +1743,6 @@ describe('continueSessionWithExistingMessage Codex conversation context', () => 
     messageRepo.create(session.id, 'assistant', '4', null, conversation.id);
     messageRepo.create(session.id, 'user', 'Now tell me more', { conversationId: conversation.id });
 
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir);
 
@@ -1706,11 +1797,9 @@ describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
     const project = projectRepo.create('Test Project', tempDir);
 
     // Create a provider + tier
-    const { modelProviders, modelTiers } = await import('../database.js');
     providerA = modelProviders.create({ name: 'Provider A Fix1', kind: 'anthropic' });
     modelProviders.addModel(providerA.id, { modelId: 'concrete-model-a', displayName: 'Model A' });
 
-    const { buildTierRef } = await import('@circuschief/shared');
     tier = modelTiers.create({
       name: 'Fix1 Tier',
       members: [{ providerId: providerA.id, modelId: 'concrete-model-a', position: 0 }],
@@ -1738,7 +1827,6 @@ describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
     const conversation = conversationRepo.create(session.id, 'Conv');
     messageRepo.create(session.id, 'user', 'What is 2+2?', { conversationId: conversation.id });
 
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir);
 
     // Agent must receive the concrete model, never the tier:: sentinel
@@ -1753,7 +1841,6 @@ describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
     const conversation = conversationRepo.create(session.id, 'Conv');
     messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
 
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir);
 
     // Live resolution falls back to the first healthy member
@@ -1765,10 +1852,8 @@ describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
     const conversation = conversationRepo.create(session.id, 'Conv');
     messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
 
-    const { buildTierRef } = await import('@circuschief/shared');
     const tierRef = buildTierRef(tier.id);
 
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
     // Pass the tier ref as an explicit model override — must still resolve to concrete
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, {
       model: tierRef,
@@ -1783,8 +1868,6 @@ describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
   // `resolvedModel` snapshot here would silently keep dispatching to the
   // wrong (stale) concrete model.
   it('switching from tier A to tier B resolves tier B live, not tier A\'s stale snapshot', async () => {
-    const { modelProviders, modelTiers } = await import('../database.js');
-    const { buildTierRef } = await import('@circuschief/shared');
 
     modelProviders.addModel(providerA.id, { modelId: 'concrete-model-b', displayName: 'Model B' });
     const tierB = modelTiers.create({
@@ -1796,7 +1879,6 @@ describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
     const conversation = conversationRepo.create(session.id, 'Conv');
     messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
 
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, {
       model: tierBRef,
     });
@@ -1816,8 +1898,6 @@ describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
   // stale agentType is 'claude-code' must still dispatch through the Codex
   // adapter once the tier resolves to a Codex member.
   it('creates the agent from the reconciled agentType, not the stale pre-reconciliation value (Work Item 4)', async () => {
-    const { modelProviders, modelTiers } = await import('../database.js');
-    const { buildTierRef } = await import('@circuschief/shared');
 
     const codexProvider = modelProviders.create({ name: 'Codex Provider Fix4', kind: 'openai' });
     modelProviders.addModel(codexProvider.id, { modelId: 'gpt-fix4-test', displayName: 'GPT Fix4' });
@@ -1840,7 +1920,6 @@ describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
     const conversation = conversationRepo.create(session.id, 'Conv');
     messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
 
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir);
 
     // The adapter must be created with 'codex' — never the stale 'claude-code'.
@@ -1850,5 +1929,152 @@ describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
     expect(agentTypesUsed).not.toContain('claude-code');
 
     expect(sessionRepo.getById(session.id).agentType).toBe('codex');
+  });
+
+  // ── Finding 4: preparation-failure cleanup on the branch path ──────────────
+  // continueSessionWithExistingMessage registers active state (ownership claim,
+  // running status, conversation id) BEFORE model/environment resolution. A
+  // resolution failure there must surface a sanitized visible error, move the
+  // session to error status, and release all active state — never wedge the
+  // session as permanently running.
+  describe('continueSessionWithExistingMessage preparation-failure cleanup (finding 4)', () => {
+    // Repositories, session, tempDir, and tier reuse the enclosing suite's
+    // bindings (repository instances are stateless); only the branch
+    // fixtures below are owned by this block.
+    let project;
+    let provider;
+    let tierRef;
+
+    beforeEach(() => {
+      sessionRepo = new SessionRepository();
+      messageRepo = new MessageRepository();
+      conversationRepo = new ConversationRepository();
+      projectRepo = new ProjectRepository();
+
+      // The enclosing binding already holds a directory from its own setup;
+      // release it before pointing the shared binding at this block's dir.
+      if (tempDir && existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
+      tempDir = mkdtempSync(join(tmpdir(), 'finding4-branch-'));
+      project = projectRepo.create('Finding4 Branch Project', tempDir);
+      provider = modelProviders.create({ name: 'Finding4 Branch Provider', kind: 'anthropic' });
+      modelProviders.addModel(provider.id, { modelId: 'finding4-branch-model', displayName: 'F4B' });
+      modelProviders.addModel(provider.id, { modelId: 'finding4-branch-model-2', displayName: 'F4B2' });
+      const branchTier = modelTiers.create({
+        name: 'Finding4 Branch Tier',
+        members: [
+          { providerId: provider.id, modelId: 'finding4-branch-model', position: 0 },
+          { providerId: provider.id, modelId: 'finding4-branch-model-2', position: 1 },
+        ],
+      });
+      tierRef = buildTierRef(branchTier.id);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      if (tempDir && existsSync(tempDir)) {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects a cross-kind dispatch candidate on an established session with no provider call', async () => {
+      const codexProvider = modelProviders.create({ name: 'Finding2 Branch Codex', kind: 'openai' });
+      modelProviders.addModel(codexProvider.id, { modelId: 'finding2-branch-codex', displayName: 'F2B Codex' });
+      const mixedTier = modelTiers.create({
+        name: 'Finding2 Branch Mixed Tier',
+        members: [
+          { providerId: provider.id, modelId: 'finding4-branch-model', position: 0 },
+          { providerId: codexProvider.id, modelId: 'finding2-branch-codex', position: 1 },
+        ],
+      });
+      const mixedRef = buildTierRef(mixedTier.id);
+      markUnhealthy(provider.id, 'finding4-branch-model', 60_000);
+      try {
+        const establishedSession = sessionRepo.create(project.id, 'Established Branch Session', 'Initial prompt', 'standard');
+        sessionRepo.update(establishedSession.id, {
+          model: 'finding4-branch-model', providerId: provider.id, agentType: 'claude-code',
+        });
+        const conversation = conversationRepo.create(establishedSession.id, 'Branch Conv');
+        messageRepo.create(establishedSession.id, 'user', 'Existing message', { conversationId: conversation.id });
+        messageRepo.create(establishedSession.id, 'assistant', 'Prior answer', { conversationId: conversation.id });
+
+        const queryCallsBefore = vi.mocked(query).mock.calls.length;
+        await expect(continueSessionWithExistingMessage(establishedSession.id, conversation.id, tempDir, {
+          model: mixedRef,
+        })).rejects.toThrow(/Cannot switch agent kind/);
+
+        // No provider dispatch and no selection mutation.
+        expect(vi.mocked(query).mock.calls.length).toBe(queryCallsBefore);
+        const row = sessionRepo.getById(establishedSession.id);
+        expect(row.model).toBe('finding4-branch-model');
+        expect(activeSessions.has(establishedSession.id)).toBe(false);
+      } finally {
+        clearUnhealthy(provider.id, 'finding4-branch-model');
+      }
+    });
+
+    it('drops resume and replays context on a provider-only switch (finding 9)', async () => {
+      const SHARED = 'finding9-branch-shared';
+      modelProviders.addModel(provider.id, { modelId: SHARED, displayName: 'Shared' });
+      const providerB = modelProviders.create({ name: 'Finding9 Branch B', kind: 'anthropic' });
+      modelProviders.addModel(providerB.id, { modelId: SHARED, displayName: 'Shared' });
+
+      const executedSession = sessionRepo.create(project.id, 'Executed Branch Session', 'Initial prompt', 'standard');
+      sessionRepo.update(executedSession.id, {
+        model: SHARED, providerId: provider.id, agentType: 'claude-code',
+      });
+      const conversation = conversationRepo.create(executedSession.id, 'Branch Conv');
+      conversationRepo.update(conversation.id, { claudeSessionId: 'resume-handle-9-branch' });
+      messageRepo.create(executedSession.id, 'user', 'Existing message', { conversationId: conversation.id });
+      messageRepo.create(executedSession.id, 'assistant', 'Original branch answer', { conversationId: conversation.id });
+
+      // The enclosing suite stubs agent creation with a synthetic agent; this
+      // test needs the real adapter so the SDK query mock observes dispatch.
+      vi.mocked(agentGateway.createAgent).mockRestore();
+
+      const queryCallsBefore = vi.mocked(query).mock.calls.length;
+      await continueSessionWithExistingMessage(executedSession.id, conversation.id, tempDir, {
+        model: SHARED, providerId: providerB.id,
+      });
+
+      expect(vi.mocked(query).mock.calls.length).toBe(queryCallsBefore + 1);
+      const sentParams = vi.mocked(query).mock.calls[queryCallsBefore][0];
+      // Same model string, different provider: a fresh provider thread.
+      expect(sentParams.options?.resume ?? null).toBe(null);
+      expect(sentParams.prompt).toContain('<conversation_history>');
+      const row = sessionRepo.getById(executedSession.id);
+      expect(row.lastExecutedModel).toBe(SHARED);
+      expect(row.lastExecutedProviderId).toBe(providerB.id);
+    });
+
+    it('releases active state, flags error status, and dispatches nothing when a newly selected tier has every member cooling down', async () => {
+      markUnhealthy(provider.id, 'finding4-branch-model', 60_000);
+      markUnhealthy(provider.id, 'finding4-branch-model-2', 60_000);
+      try {
+        const coolingSession = sessionRepo.create(project.id, 'Branch Session', 'Initial prompt', 'standard');
+        sessionRepo.update(coolingSession.id, { model: 'finding4-branch-model', providerId: provider.id });
+        const conversation = conversationRepo.create(coolingSession.id, 'Branch Conv');
+        messageRepo.create(coolingSession.id, 'user', 'Existing message', { conversationId: conversation.id });
+
+        const queryCallsBefore = vi.mocked(query).mock.calls.length;
+        await expect(continueSessionWithExistingMessage(coolingSession.id, conversation.id, tempDir, {
+          model: tierRef,
+        })).rejects.toThrow(/currently healthy/);
+
+        // No provider dispatch happened.
+        expect(vi.mocked(query).mock.calls.length).toBe(queryCallsBefore);
+
+        // Sanitized visible error + error status.
+        const row = sessionRepo.getById(coolingSession.id);
+        expect(row.status).toBe('error');
+        expect(row.error).toMatch(/currently healthy/);
+
+        // Active state fully released.
+        expect(activeSessions.has(coolingSession.id)).toBe(false);
+        expect(activeConversationIds.has(coolingSession.id)).toBe(false);
+      } finally {
+        clearUnhealthy(provider.id, 'finding4-branch-model');
+        clearUnhealthy(provider.id, 'finding4-branch-model-2');
+      }
+    });
   });
 });

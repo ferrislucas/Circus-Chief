@@ -1,15 +1,21 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { tmpdir } from 'node:os';
 import { modelProviders, modelTiers, projects, sessions } from '../database.js';
 import { testProviderConnection } from '../services/providerTestService.js';
 import { OPENAI_MODELS, CLAUDE_MODELS, buildTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 // Mock providerTestService so we can spy on kind forwarding without hitting
-// external APIs.
-vi.mock('../services/providerTestService.js', () => ({
-  testProviderConnection: vi.fn(),
-}));
+// external APIs. buildProviderTestConfig stays real: it is the shared
+// config builder both test routes go through (finding #9).
+vi.mock('../services/providerTestService.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    testProviderConnection: vi.fn(),
+  };
+});
 
 vi.mock('../websocket.js', () => ({
   broadcastToSession: vi.fn(),
@@ -19,7 +25,9 @@ vi.mock('../websocket.js', () => ({
 
 // Import the router
 import providersRouter from './providers.js';
-import { broadcastToSession, broadcastToProject } from '../websocket.js';
+import { broadcastToSession, broadcastToProject, broadcast } from '../websocket.js';
+import { SessionTemplateRepository } from '../db/SessionTemplateRepository.js';
+import { databaseManager } from '../db/DatabaseManager.js';
 
 describe('Providers API', () => {
   let app;
@@ -60,6 +68,72 @@ describe('Providers API', () => {
         WS_MESSAGE_TYPES.SESSION_UPDATED,
         expect.any(Object)
       );
+    });
+  });
+
+  describe('concrete reference repair (finding 8)', () => {
+    it('repairs concrete dependents and publishes the repair on DELETE', async () => {
+      const provider = modelProviders.create({ name: 'Concrete repair API provider', kind: 'anthropic' });
+      testProviderId = provider.id;
+      modelProviders.addModel(provider.id, { modelId: 'concrete-repair-api-model', displayName: 'M' });
+      const project = projects.create('Concrete repair API project', '/tmp/concrete-repair-api');
+      const template = new SessionTemplateRepository().create({
+        projectId: project.id,
+        name: 'Concrete repair template',
+        prompt: 'prompt',
+        model: 'concrete-repair-api-model',
+        providerId: provider.id,
+      });
+      const session = sessions.create(project.id, 'Concrete repair session', 'Prompt', { status: 'waiting' });
+      sessions.update(session.id, { model: 'concrete-repair-api-model', providerId: provider.id });
+
+      await request(app).delete(`/api/providers/${provider.id}`).expect(204);
+      testProviderId = null;
+
+      expect(new SessionTemplateRepository().getById(template.id)).toMatchObject({
+        model: null,
+        providerId: null,
+      });
+      expect(sessions.getById(session.id)).toMatchObject({ model: null, providerId: null });
+      // The committed repair is published so open clients drop the dead pair.
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        session.id,
+        WS_MESSAGE_TYPES.SESSION_UPDATED,
+        expect.any(Object)
+      );
+    });
+
+    it('returns 500 with no broadcasts when the repair fails', async () => {
+      const provider = modelProviders.create({ name: 'Concrete repair failure provider', kind: 'anthropic' });
+      testProviderId = provider.id;
+      modelProviders.addModel(provider.id, { modelId: 'concrete-repair-failure-model', displayName: 'M' });
+      const project = projects.create('Concrete repair failure project', '/tmp/concrete-repair-failure');
+      new SessionTemplateRepository().create({
+        projectId: project.id,
+        name: 'Concrete repair failure template',
+        prompt: 'prompt',
+        model: 'concrete-repair-failure-model',
+        providerId: provider.id,
+      });
+
+      const db = databaseManager.get();
+      db.exec(`CREATE TEMP TRIGGER finding8_api_inject_failure
+        BEFORE UPDATE ON session_templates
+        BEGIN SELECT RAISE(ABORT, 'injected repair failure'); END;`);
+      let res;
+      try {
+        res = await request(app).delete(`/api/providers/${provider.id}`).expect(500);
+      } finally {
+        db.exec('DROP TRIGGER IF EXISTS finding8_api_inject_failure');
+      }
+      expect(res.body.error).toMatch(/injected repair failure/);
+
+      // Rolled back: the provider survives and no success/degradation notice
+      // was published for a deletion that never committed.
+      expect(modelProviders.getById(provider.id)).not.toBeNull();
+      expect(broadcastToSession).not.toHaveBeenCalled();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+      expect(broadcast).not.toHaveBeenCalled();
     });
   });
 
@@ -572,6 +646,33 @@ describe('Providers API', () => {
       expect(response.body.success).toBe(false);
       expect(response.body.message).toBe('Authentication failed');
       expect(response.body.details.code).toBe(401);
+    });
+
+    // Finding #9 (route parity): a transient meta-kind test without an
+    // explicit workingDirectory must probe with cwd = OS temp dir — the same
+    // treatment the saved-provider route applies — instead of failing with
+    // MISSING_WORKING_DIRECTORY deep inside the probe.
+    it('200: fills workingDirectory=tmpdir() for meta kind when the request omits it (finding #9)', async () => {
+      const response = await request(app)
+        .post('/api/providers/test')
+        .send({ kind: 'meta' })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(testProviderConnection).toHaveBeenCalledTimes(1);
+      const calledWith = testProviderConnection.mock.calls[0][0];
+      expect(calledWith.kind).toBe('meta');
+      expect(calledWith.workingDirectory).toBe(tmpdir());
+    });
+
+    it('200: keeps an explicit workingDirectory for meta kind (finding #9)', async () => {
+      await request(app)
+        .post('/api/providers/test')
+        .send({ kind: 'meta', workingDirectory: '/explicit/dir' })
+        .expect(200);
+
+      const calledWith = testProviderConnection.mock.calls[0][0];
+      expect(calledWith.workingDirectory).toBe('/explicit/dir');
     });
   });
 

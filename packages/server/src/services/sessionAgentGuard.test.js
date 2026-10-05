@@ -39,6 +39,11 @@ describe('sessionAgentGuard', () => {
     it('includes a label for gemini', () => {
       expect(AGENT_TYPE_LABELS.gemini).toBe('Gemini');
     });
+
+    it('includes a label for muse', () => {
+      expect(AGENT_TYPE_LABELS.muse).toBe('Muse');
+      expect(agentLabel('muse')).toBe('Muse');
+    });
   });
 
   describe('checkCrossKindSwitch', () => {
@@ -274,6 +279,88 @@ describe('sessionAgentGuard', () => {
         const result = resolveModelForAgentKind(buildTierRef(otherTier.id), null, snapshotSession());
         expect(result.unresolved).toBe(true);
         modelTiers.delete(otherTier.id);
+      });
+    });
+
+    describe('explicit-selection dispatch candidate (finding 2)', () => {
+      // The guard and the tier-switch dispatch must resolve the SAME member:
+      // the first HEALTHY member (what resolveRequestedTierRef dispatches),
+      // not the first configured member (what resolveAnyMember sees). A new
+      // tier ordered Claude → Codex whose Claude member is cooling down
+      // dispatches Codex — the guard must reject it on an established Claude
+      // session instead of validating the cooling Claude member.
+      let claudeCodexTier;
+      let codexClaudeTier;
+      let claudeCodexTierRef;
+      let codexClaudeTierRef;
+
+      beforeEach(() => {
+        claudeCodexTier = modelTiers.create({
+          name: 'Guard Test Claude-Codex Tier',
+          members: [
+            { providerId: anthropicProvider.id, modelId: 'claude-sonnet-guard', position: 0 },
+            { providerId: openaiProvider.id, modelId: 'gpt-4o-guard', position: 1 },
+          ],
+        });
+        codexClaudeTier = modelTiers.create({
+          name: 'Guard Test Codex-Claude Tier',
+          members: [
+            { providerId: openaiProvider.id, modelId: 'gpt-4o-guard', position: 0 },
+            { providerId: anthropicProvider.id, modelId: 'claude-sonnet-guard', position: 1 },
+          ],
+        });
+        claudeCodexTierRef = buildTierRef(claudeCodexTier.id);
+        codexClaudeTierRef = buildTierRef(codexClaudeTier.id);
+      });
+
+      afterEach(() => {
+        clearUnhealthy(anthropicProvider.id, 'claude-sonnet-guard');
+        clearUnhealthy(openaiProvider.id, 'gpt-4o-guard');
+        try { modelTiers.delete(claudeCodexTier.id); } catch { /* noop */ }
+        try { modelTiers.delete(codexClaudeTier.id); } catch { /* noop */ }
+      });
+
+      it('rejects a new Claude→Codex tier whose Claude member is cooling down (CROSS_KIND_MODEL_SWITCH)', () => {
+        markUnhealthy(anthropicProvider.id, 'claude-sonnet-guard', 60_000);
+        const session = { agentType: 'claude-code', model: 'claude-sonnet-guard' };
+        const result = checkCrossKindSwitch(session, claudeCodexTierRef);
+        expect(result).toEqual({
+          error: 'CROSS_KIND_MODEL_SWITCH',
+          message: expect.stringContaining('Claude Code'),
+        });
+        expect(result.message).toContain('Codex');
+      });
+
+      it('allows the inverse order when cooldown makes the dispatch candidate same-kind', () => {
+        markUnhealthy(openaiProvider.id, 'gpt-4o-guard', 60_000);
+        const session = { agentType: 'claude-code', model: 'claude-sonnet-guard' };
+        expect(checkCrossKindSwitch(session, codexClaudeTierRef)).toBeNull();
+      });
+
+      it('resolveModelForAgentKind returns the healthy dispatch candidate for a new selection', () => {
+        markUnhealthy(anthropicProvider.id, 'claude-sonnet-guard', 60_000);
+        const session = { agentType: 'claude-code', model: 'claude-sonnet-guard' };
+        expect(resolveModelForAgentKind(claudeCodexTierRef, null, session)).toEqual({
+          modelId: 'gpt-4o-guard',
+          providerIdHint: openaiProvider.id,
+        });
+      });
+
+      it('resolveModelForAgentKind falls back to the structural member when every member is cooling down', () => {
+        markUnhealthy(anthropicProvider.id, 'claude-sonnet-guard', 60_000);
+        const singleTier = modelTiers.create({
+          name: 'Guard Test All Cooling Tier',
+          members: [{ providerId: anthropicProvider.id, modelId: 'claude-sonnet-guard', position: 0 }],
+        });
+        try {
+          const session = { agentType: 'claude-code', model: 'claude-sonnet-guard' };
+          expect(resolveModelForAgentKind(buildTierRef(singleTier.id), null, session)).toEqual({
+            modelId: 'claude-sonnet-guard',
+            providerIdHint: anthropicProvider.id,
+          });
+        } finally {
+          modelTiers.delete(singleTier.id);
+        }
       });
     });
   });

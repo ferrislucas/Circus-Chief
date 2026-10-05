@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { sessions, sessionTemplates, modelProviders, sessionSummaries } from '../database.js';
+import { sessions, sessionSummaries } from '../database.js';
+import { buildUpdateData } from './sessions-patch-validation.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES, isTierRef } from '@circuschief/shared';
 import * as summaryService from '../services/summaryService.js';
@@ -7,192 +8,18 @@ import { setSessionNameFromPr } from '../services/prUrlService.js';
 import { checkSessionCiStatusNow } from '../services/prStatusService.js';
 import { broadcastSummaryUpdate } from '../services/summaryBroadcast.js';
 import { requireSession } from '../middleware/sessionLookup.js';
-import { validateModelId, validateModelAndProvider } from './model-validation.js';
-import { validateScheduledAt } from './scheduledAtValidation.js';
+import { validateModelAndProvider } from './model-validation.js';
 import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
 import { clearedPendingSchedule } from '../services/pendingSchedule.js';
 import {
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
   deriveAgentTypeUpdate,
+  resolveModelForAgentKind,
 } from '../services/sessionAgentGuard.js';
 
 const router = Router();
 
-/**
- * Validate effortLevel field
- * @param {*} value
- * @returns {{ error?: string, value: * }}
- */
-function validateEffortLevel(value) {
-  if (value === null) return { value };
-  const valid = ['low', 'medium', 'high', 'max', 'auto'];
-  if (!valid.includes(value)) {
-    return { error: 'Invalid effort level. Must be one of: low, medium, high, max, auto' };
-  }
-  // Normalize 'auto' to null
-  return { value: value === 'auto' ? null : value };
-}
-
-/**
- * Validate status field
- * @param {*} value
- * @returns {{ error?: string, value: * }}
- */
-function validateStatus(value) {
-  const valid = ['starting', 'running', 'waiting', 'error', 'stopped', 'scheduled'];
-  if (!valid.includes(value)) {
-    return { error: 'Invalid status' };
-  }
-  return { value };
-}
-
-/**
- * Validate mode field
- * @param {*} value
- * @returns {{ error?: string, value: * }}
- */
-function validateMode(value) {
-  const valid = ['plan', 'standard', 'yolo'];
-  if (!valid.includes(value)) {
-    return { error: 'Invalid mode. Must be one of: plan, standard, yolo' };
-  }
-  return { value };
-}
-
-/**
- * Validate nextTemplateId field
- * @param {*} value
- * @returns {{ error?: string, value: * }}
- */
-function validateNextTemplateId(value) {
-  if (value !== null) {
-    const template = sessionTemplates.getById(value);
-    if (!template) {
-      return { error: 'Template not found' };
-    }
-  }
-  return { value };
-}
-
-/**
- * Validate providerId field
- * @param {*} value
- * @returns {{ error?: string, value: * }}
- */
-function validateProviderId(value) {
-  if (value !== null) {
-    const provider = modelProviders.getById(value);
-    if (!provider) {
-      return { error: 'Provider not found' };
-    }
-  }
-  return { value };
-}
-
-/**
- * Validate prUrl field
- * @param {*} value
- * @returns {{ error?: string, value: * }}
- */
-function validatePrUrl(value) {
-  if (value === null || value === '') {
-    return { value: null };
-  }
-  if (typeof value !== 'string') {
-    return { error: 'prUrl must be a string or null' };
-  }
-  const prUrlPattern = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/;
-  if (!prUrlPattern.test(value)) {
-    return { error: 'Invalid PR URL format. Must be a valid GitHub PR URL (e.g., https://github.com/owner/repo/pull/123)' };
-  }
-  return { value };
-}
-
-/**
- * Field definitions for PATCH /:id with optional validators and transforms.
- * Each entry maps a request body field name to its processing config.
- */
-const FIELD_DEFINITIONS = [
-  { field: 'name' },
-  { field: 'manuallyNamed', transform: Boolean },
-  { field: 'thinkingEnabled', transform: Boolean },
-  { field: 'effortLevel', validate: validateEffortLevel },
-  { field: 'status', validate: validateStatus },
-  { field: 'mode', validate: validateMode },
-  { field: 'nextTemplateId', validate: validateNextTemplateId },
-  { field: 'model', validate: validateModelId },
-  { field: 'pendingModel', validate: (value) => validateModelId(value, { fieldName: 'pendingModel' }) },
-  { field: 'pendingProviderId' },
-  { field: 'autoSendPendingPrompt', transform: Boolean },
-  { field: 'providerId', validate: validateProviderId },
-  { field: 'prUrl', validate: validatePrUrl },
-  // Git fields
-  { field: 'gitWorktree' },
-  // Scheduling fields
-  { field: 'scheduledAt', validate: validateScheduledAt },
-  { field: 'autoRescheduleEnabled', transform: Boolean },
-  { field: 'rescheduleDelayMinutes', transform: (v) => parseInt(v, 10) },
-  { field: 'rescheduleOnTokenLimit', transform: Boolean },
-  { field: 'rescheduleOnServiceError', transform: Boolean },
-  { field: 'maxRescheduleCount', transform: (v) => v ? parseInt(v, 10) : null },
-  { field: 'maxTotalTokens', transform: (v) => v ? parseInt(v, 10) : null },
-  { field: 'rescheduleCount', transform: (v) => parseInt(v, 10) },
-  { field: 'rescheduleAtTokenCount', transform: (v) => v ? parseInt(v, 10) : null },
-];
-
-function applyTierProviderRule(updateData) {
-  if (!Object.hasOwn(updateData, 'model') || !isTierRef(updateData.model)) {
-    return { updateData };
-  }
-
-  if (Object.hasOwn(updateData, 'providerId') && updateData.providerId !== null) {
-    return { updateData: {}, error: 'providerId must be null when model is a tier reference' };
-  }
-
-  return { updateData: { ...updateData, providerId: null } };
-}
-
-/**
- * Build update data object from request body using field definitions.
- * Returns { updateData, error } where error is a string if validation failed.
- * @param {object} body - The request body
- * @returns {{ updateData: object, error?: string }}
- */
-function buildUpdateData(body) {
-  const updateData = {};
-
-  for (const { field, validate, transform } of FIELD_DEFINITIONS) {
-    const value = body[field];
-    if (value === undefined) continue;
-
-    if (validate) {
-      const result = validate(value);
-      if (result.error) return { updateData: {}, error: result.error };
-      updateData[field] = result.value;
-    } else if (transform) {
-      updateData[field] = transform(value);
-    } else {
-      updateData[field] = value;
-    }
-  }
-
-  // Special case: auto-set manuallyNamed when name is updated (unless explicitly provided)
-  if (body.name !== undefined && body.manuallyNamed === undefined) {
-    updateData.manuallyNamed = true;
-  }
-
-  if (body.prUrl !== undefined) {
-    updateData.prUrlAutoLinkDisabled = updateData.prUrl === null;
-  }
-
-  // A tier binding has no single owning provider — the concrete provider is
-  // resolved per-run from the active tier member (Work Item 1). Reject an
-  // explicit concrete providerId submitted alongside a tier-bound `model`,
-  // and otherwise normalize the companion providerId to null so a stale
-  // concrete value can never shadow the tier's own resolution.
-  return applyTierProviderRule(updateData);
-}
 
 /**
  * Broadcast session update to both session and project subscribers.
@@ -251,22 +78,40 @@ function resetPrStateForSession(sessionId, projectId) {
 
 /**
  * Apply the cross-kind agent/model drift guard to a pending update.
+ * Each normalized (model, providerId) pair is validated with its OWN
+ * provider — never a lookup-preferred owner, and never one pair's provider
+ * standing in for the other's. Current and pending changes are validated
+ * independently so neither can hide the other; a rejection leaves the entire
+ * record unchanged (validation runs before any persistence).
  * Returns the error payload (for started sessions) or the agentType update (for drafts).
  * Does NOT mutate updateData — caller merges the returned agentTypeUpdate.
  * @param {Object} session
  * @param {string} sessionId
- * @param {Object} updateData
- * @param {string|null} suppliedProviderId
+ * @param {Object} updateData - Normalized pairs (see normalizeSessionSelectionPairs).
  * @returns {{ driftError: Object|null, agentTypeUpdate: Object }}
  */
-function applyModelDriftGuard(session, sessionId, updateData, suppliedProviderId) {
-  const newModel = updateData.pendingModel ?? updateData.model ?? null;
-  if (!newModel) return { driftError: null, agentTypeUpdate: {} };
+function applyModelDriftGuard(session, sessionId, updateData) {
+  const currentChanged = Object.hasOwn(updateData, 'model') || Object.hasOwn(updateData, 'providerId');
+  const pendingChanged = Object.hasOwn(updateData, 'pendingModel') || Object.hasOwn(updateData, 'pendingProviderId');
+  if (!currentChanged && !pendingChanged) return { driftError: null, agentTypeUpdate: {} };
   if (sessionHasNoAssistantMessages(sessionId)) {
-    const agentTypeUpdate = deriveAgentTypeUpdate(session, sessionId, newModel, { providerId: suppliedProviderId });
+    // Drafts stay mutable: re-derive the agent kind from the CURRENT binding
+    // only. A pending selection is a future dispatch, not the present
+    // identity — it must never redefine the draft's agent kind.
+    const agentTypeUpdate = currentChanged
+      ? deriveAgentTypeUpdate(session, sessionId, updateData.model, { providerId: updateData.providerId })
+      : {};
     return { driftError: null, agentTypeUpdate };
   }
-  return { driftError: checkCrossKindSwitch(session, newModel), agentTypeUpdate: {} };
+  if (currentChanged) {
+    const driftError = checkCrossKindSwitch(session, updateData.model, updateData.providerId);
+    if (driftError) return { driftError, agentTypeUpdate: {} };
+  }
+  if (pendingChanged) {
+    const driftError = checkCrossKindSwitch(session, updateData.pendingModel, updateData.pendingProviderId);
+    if (driftError) return { driftError, agentTypeUpdate: {} };
+  }
+  return { driftError: null, agentTypeUpdate: {} };
 }
 
 /**
@@ -311,6 +156,41 @@ function normalizeSessionSelectionPairs(input, session) {
   return { updateData };
 }
 
+/**
+ * Reconcile the tier snapshot (`resolvedModel`/`resolvedProviderId`) with a
+ * normalized current-binding change, merged into the SAME atomic repository
+ * update as the binding itself.
+ *
+ * - Concrete model or cleared selection: a concrete binding owns no snapshot,
+ *   so both fields are cleared.
+ * - Unchanged tier binding with a snapshot: preserved untouched.
+ * - Newly selected tier: the dispatch candidate is resolved NOW (the step-2
+ *   concrete-pair contract) and committed as the snapshot. An unresolvable
+ *   new tier on a draft stores a cleared snapshot; established rows never
+ *   reach this branch for such tiers because the drift guard rejects them.
+ * - Untouched binding or pending-only changes: no snapshot fields returned.
+ * @param {Object} session - Pre-update session row.
+ * @param {Object} updateData - Normalized update (see normalizeSessionSelectionPairs).
+ * @returns {Object} Snapshot fields to merge into the update, or {}.
+ */
+function reconcileBindingSnapshot(session, updateData) {
+  if (!Object.hasOwn(updateData, 'model') && !Object.hasOwn(updateData, 'providerId')) {
+    return {};
+  }
+  const newModel = updateData.model;
+  if (!isTierRef(newModel)) {
+    return { resolvedModel: null, resolvedProviderId: null };
+  }
+  if (newModel === session.model && session.resolvedModel) {
+    return {};
+  }
+  const candidate = resolveModelForAgentKind(newModel, null, session);
+  if (candidate.unresolved || !candidate.modelId) {
+    return { resolvedModel: null, resolvedProviderId: null };
+  }
+  return { resolvedModel: candidate.modelId, resolvedProviderId: candidate.providerIdHint };
+}
+
 function applyImplicitScheduledStatus(updateData, requestStatus, sessionStatus) {
   if (updateData.scheduledAt != null && requestStatus === undefined && !['running', 'starting'].includes(sessionStatus)) {
     return { ...updateData, status: 'scheduled' };
@@ -329,40 +209,53 @@ function normalizeScheduleCancellation(updateData) {
 }
 
 // PATCH /api/sessions/:id - Update session settings
-router.patch('/:id', requireSession, (req, res) => {
-  const built = buildUpdateData(req.body);
-  const { error } = built;
-  let updateData = built.updateData;
-
-  if (error) {
-    return res.status(400).json({ error });
-  }
-
-  if (Object.keys(updateData).length === 0) {
-    return res.status(400).json({ error: 'No valid fields to update' });
-  }
-
-  const normalizedPairs = normalizeSessionSelectionPairs(updateData, req.session_);
-  if (normalizedPairs.error) return res.status(400).json({ error: normalizedPairs.error });
-  updateData = normalizedPairs.updateData;
-
-  updateData = applyImplicitScheduledStatus(updateData, req.body.status, req.session_.status);
-
-  const { driftError, agentTypeUpdate } = applyModelDriftGuard(
-    req.session_, req.params.id, updateData, updateData.pendingProviderId ?? updateData.providerId,
-  );
-  if (driftError) {
-    return res.status(400).json(driftError);
-  }
+// Run the drift guard, snapshot reconcile, and lane-ownership-gated update as
+// one unit. Returns { updated } or { driftError } / { updated: null } for the
+// handler to map to 400 / 409.
+function applyGuardedSessionUpdate(sessionRow, sessionId, updateData) {
+  const { driftError, agentTypeUpdate } = applyModelDriftGuard(sessionRow, sessionId, updateData);
+  if (driftError) return { driftError };
   Object.assign(updateData, agentTypeUpdate);
+  Object.assign(updateData, reconcileBindingSnapshot(sessionRow, updateData));
 
   const schedulingMutation = Object.hasOwn(updateData, 'scheduledAt') || updateData.status === 'scheduled';
   normalizeScheduleCancellation(updateData);
-  const update = () => sessions.update(req.params.id, updateData);
-  const userScheduleLive = canEditLiveUserSchedule(req.session_);
-  const updated = schedulingMutation && req.session_.laneRunId && !userScheduleLive
-    ? withActiveLaneRunOwnership(req.params.id, update)
+  const update = () => sessions.update(sessionId, updateData);
+  const userScheduleLive = canEditLiveUserSchedule(sessionRow);
+  const updated = schedulingMutation && sessionRow.laneRunId && !userScheduleLive
+    ? withActiveLaneRunOwnership(sessionId, update)
     : update();
+  return { updated };
+}
+
+// Validate and normalize the PATCH body into the update payload. Returns
+// { updateData } or { error } for the handler to map to 400.
+function buildValidatedPatchUpdate(req) {
+  const built = buildUpdateData(req.body);
+  if (built.error) return { error: built.error };
+  if (Object.keys(built.updateData).length === 0) {
+    return { error: 'No valid fields to update' };
+  }
+
+  const normalizedPairs = normalizeSessionSelectionPairs(built.updateData, req.session_);
+  if (normalizedPairs.error) return { error: normalizedPairs.error };
+  return {
+    updateData: applyImplicitScheduledStatus(normalizedPairs.updateData, req.body.status, req.session_.status),
+  };
+}
+
+router.patch('/:id', requireSession, (req, res) => {
+  const validated = buildValidatedPatchUpdate(req);
+  if (validated.error) {
+    return res.status(400).json({ error: validated.error });
+  }
+  const updateData = validated.updateData;
+
+  const guarded = applyGuardedSessionUpdate(req.session_, req.params.id, updateData);
+  if (guarded.driftError) {
+    return res.status(400).json(guarded.driftError);
+  }
+  const updated = guarded.updated;
   if (!updated) {
     return res.status(409).json({
       error: 'Session no longer owns an active lane run',
@@ -403,5 +296,6 @@ router.patch('/:id/pending-prompt', requireSession, (req, res) => {
 
 export default router;
 
-// Export for testing
-export { buildUpdateData, broadcastSessionUpdate, FIELD_DEFINITIONS };
+// Export for testing (validation internals re-exported from their module).
+export { broadcastSessionUpdate };
+export { buildUpdateData, FIELD_DEFINITIONS } from './sessions-patch-validation.js';

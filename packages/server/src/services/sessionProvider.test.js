@@ -9,7 +9,13 @@ vi.mock('../database.js', () => ({
 }));
 
 vi.mock('./nodeSpawnHelper.js', () => ({
-  createRobustEnv: vi.fn((env) => ({ ...env, PATH: `/mock-node-bin:${env.PATH || ''}` })),
+  // Forwards the login-shell overlay like the real helper so shellEnv
+  // threading tests exercise the production merge order.
+  createRobustEnv: vi.fn((env, opts = {}) => ({
+    ...env,
+    ...(opts.shellEnv || {}),
+    PATH: `/mock-node-bin:${env.PATH || ''}`,
+  })),
 }));
 
 import { modelProviders } from '../database.js';
@@ -290,6 +296,13 @@ describe('sessionProvider', () => {
       modelProviders.getAgentTypeForProvider.mockReturnValue('codex');
       expect(resolveAgentTypeFromModel('gpt-5.5')).toBe('codex');
       expect(modelProviders.getAgentTypeForProvider).toHaveBeenCalledWith('openai-default');
+    });
+
+    it("returns 'muse' for a model owned by a meta-kind provider", () => {
+      modelProviders.getProviderByModelId.mockReturnValue({ id: 'meta-default', kind: 'meta' });
+      modelProviders.getAgentTypeForProvider.mockReturnValue('muse');
+      expect(resolveAgentTypeFromModel('muse-spark-1.3')).toBe('muse');
+      expect(modelProviders.getAgentTypeForProvider).toHaveBeenCalledWith('meta-default');
     });
 
     it("falls back to 'claude-code' when getAgentTypeForProvider returns null", () => {
@@ -657,6 +670,105 @@ describe('sessionProvider', () => {
       const provider = { name: 'O', kind: 'openai' };
       const env = buildSessionEnv(provider, false, null);
       expect(env.OPENAI_API_BASE).toBeUndefined();
+    });
+
+    // ── Meta / Muse kind ──
+
+    it('meta provider: does not set Claude-only env vars', () => {
+      delete process.env.VCR_MODE;
+      const provider = { name: 'M', kind: 'meta', authToken: 'unused-in-v1' };
+      const env = buildSessionEnv(provider, true, 'high');
+      expect(env.MAX_THINKING_TOKENS).toBeUndefined();
+      expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
+    });
+
+    it('meta provider: strips ANTHROPIC_*, OPENAI_*, and GEMINI_* host env', () => {
+      process.env.ANTHROPIC_API_KEY = 'host-a';
+      process.env.OPENAI_API_KEY = 'host-o';
+      const provider = { name: 'M', kind: 'meta' };
+      const env = buildSessionEnv(provider, false, null);
+      expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(env.OPENAI_API_KEY).toBeUndefined();
+      expect(env.GEMINI_API_KEY).toBeUndefined();
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+    });
+
+    it('meta provider: preserves user git/gh credential vars for the Muse host', () => {
+      let savedSshSock;
+      let savedGhToken;
+      let hadSshSock = false;
+      let hadGhToken = false;
+      try {
+        hadSshSock = Object.hasOwn(process.env, 'SSH_AUTH_SOCK');
+        savedSshSock = process.env.SSH_AUTH_SOCK;
+        hadGhToken = Object.hasOwn(process.env, 'GH_TOKEN');
+        savedGhToken = process.env.GH_TOKEN;
+        process.env.SSH_AUTH_SOCK = '/tmp/test-ssh-agent.sock';
+        process.env.GH_TOKEN = 'gh-token-for-muse';
+        const provider = { name: 'M', kind: 'meta' };
+        const env = buildSessionEnv(provider, false, null);
+        expect(env.SSH_AUTH_SOCK).toBe('/tmp/test-ssh-agent.sock');
+        expect(env.GH_TOKEN).toBe('gh-token-for-muse');
+        expect(env.HOME).toBeDefined();
+        expect(env.PATH).toBeTruthy();
+      } finally {
+        if (hadSshSock) process.env.SSH_AUTH_SOCK = savedSshSock;
+        else delete process.env.SSH_AUTH_SOCK;
+        if (hadGhToken) process.env.GH_TOKEN = savedGhToken;
+        else delete process.env.GH_TOKEN;
+      }
+    });
+
+    it('meta provider: additionalEnvVars are preserved as the escape hatch', () => {
+      const provider = {
+        name: 'M',
+        kind: 'meta',
+        additionalEnvVars: { CUSTOM_MUSE_VAR: 'custom-value' },
+      };
+      const env = buildSessionEnv(provider, false, null);
+      expect(env.CUSTOM_MUSE_VAR).toBe('custom-value');
+    });
+
+    it('provider additionalEnvVars override login-shell-derived values', () => {
+      const shellEnv = { GIT_TEST_SENTINEL_VAR: 'shell-value' };
+      const withoutOverride = buildSessionEnv({ name: 'M', kind: 'meta' }, false, null, { shellEnv });
+      expect(withoutOverride.GIT_TEST_SENTINEL_VAR).toBe('shell-value');
+
+      const provider = {
+        name: 'M',
+        kind: 'meta',
+        additionalEnvVars: { GIT_TEST_SENTINEL_VAR: 'provider-wins' },
+      };
+      const env = buildSessionEnv(provider, false, null, { shellEnv });
+      expect(env.GIT_TEST_SENTINEL_VAR).toBe('provider-wins');
+    });
+  });
+
+  // Finding #5: a token/baseUrl configured on a meta provider is a silent
+  // no-op (host `muse auth` always wins) — warn visibly instead of ignoring
+  // it. Chose warn-and-ignore over reject so existing saved providers keep
+  // working; the additionalEnvVars escape hatch is unaffected.
+  describe('buildProviderEnv (meta authToken)', () => {
+    let warn;
+    beforeEach(() => {
+      warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    it('warns and ignores authToken/baseUrl on a meta provider', () => {
+      const env = buildProviderEnv({ name: 'M', kind: 'meta', authToken: 'sk-x', baseUrl: 'https://x.example.com' });
+      expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(env.OPENAI_API_KEY).toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0].join(' ')).toMatch(/ignored/i);
+    });
+
+    it('stays silent when no token or baseUrl is configured', () => {
+      buildProviderEnv({ name: 'M', kind: 'meta' });
+      expect(warn).not.toHaveBeenCalled();
     });
   });
 });

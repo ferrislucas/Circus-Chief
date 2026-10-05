@@ -20,6 +20,21 @@ import {
 import { getWorkspaceCardPage } from './workspace-queries.js';
 import { getProjectActivityAggregates } from './project-activity-queries.js';
 
+// Durable dispatch-identity columns: the tier snapshot (last successful
+// start) and the last-executed concrete pair (every dispatch). Extracted so
+// the row mapper stays within the complexity budget.
+// (better-sqlite3 already returns null, not undefined, for unset TEXT columns)
+function mapDispatchIdentity(row) {
+  return {
+    // Tier failover: concrete model/provider snapshot from last successful start.
+    resolvedModel: row.resolved_model,
+    resolvedProviderId: row.resolved_provider_id,
+    // Durable identity of the concrete pair the last turn dispatched.
+    lastExecutedModel: row.last_executed_model ?? null,
+    lastExecutedProviderId: row.last_executed_provider_id ?? null,
+  };
+}
+
 /**
  * Session repository class
  */
@@ -62,10 +77,7 @@ export class SessionRepository extends BaseRepository {
       slashCommands: row.slash_commands || null,
       // Agent runtime driving this session (fallback to 'claude-code' for legacy rows).
       agentType: row.agent_type || DEFAULT_AGENT_TYPE,
-      // Tier failover: concrete model/provider snapshot from last successful start
-      // (better-sqlite3 already returns null, not undefined, for unset TEXT columns)
-      resolvedModel: row.resolved_model,
-      resolvedProviderId: row.resolved_provider_id,
+      ...mapDispatchIdentity(row),
       ...mapTokenUsage(row),
       ...mapScheduling(row),
       // Kanban fields

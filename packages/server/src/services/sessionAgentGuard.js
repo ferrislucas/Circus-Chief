@@ -1,13 +1,14 @@
 import { messages, sessions, workLogs } from '../database.js';
 import { resolveAgentTypeFromModel, resolveProviderFromModel } from './sessionProvider.js';
 import { isTierRef } from '@circuschief/shared';
-import { resolveAnyMember } from './tierResolutionService.js';
+import { resolveActiveModel, resolveAnyMember } from './tierResolutionService.js';
 
 // Human-readable labels used in the cross-kind switch error message.
 export const AGENT_TYPE_LABELS = Object.freeze({
   'claude-code': 'Claude Code',
   codex: 'Codex',
   gemini: 'Gemini',
+  muse: 'Muse',
 });
 
 /**
@@ -36,22 +37,49 @@ export function agentLabel(agentType) {
  *   Used only for the stale-binding snapshot fallback described above.
  * @returns {{ modelId: string|null, providerIdHint: string|null, unresolved?: boolean }}
  */
+// Resolve a tier ref against a session's established binding: the session's
+// own snapshot is authoritative for its binding (regardless of process-wide
+// cooldown or later tier reordering); a legacy own binding without a snapshot
+// agrees with the execution path's cooldown-blind structural resolver; a
+// newly selected tier validates the first HEALTHY member (matching what the
+// dispatch executes), falling back to the structural first member only while
+// every member is transiently cooling.
+function resolveSessionTierBinding(modelOrRef, session) {
+  if (modelOrRef === session.model && session.resolvedModel) {
+    return { modelId: session.resolvedModel, providerIdHint: session.resolvedProviderId || null };
+  }
+  if (modelOrRef === session.model) {
+    const structural = resolveAnyMember(modelOrRef, {});
+    if (!structural) {
+      return { modelId: null, providerIdHint: null, unresolved: true };
+    }
+    return { modelId: structural.model, providerIdHint: structural.providerId };
+  }
+  const active = resolveActiveModel(modelOrRef, {});
+  if (active) {
+    return { modelId: active.model, providerIdHint: active.providerId };
+  }
+  const structural = resolveAnyMember(modelOrRef, {});
+  if (structural) {
+    return { modelId: structural.model, providerIdHint: structural.providerId };
+  }
+  return { modelId: null, providerIdHint: null, unresolved: true };
+}
+
 export function resolveModelForAgentKind(modelOrRef, providerIdHint = null, session = null) {
   if (!isTierRef(modelOrRef)) {
     return { modelId: modelOrRef, providerIdHint };
   }
-  // The session's own snapshot is authoritative for its established binding,
-  // regardless of process-wide cooldown or later tier reordering.
-  if (session && modelOrRef === session.model && session.resolvedModel) {
-    return { modelId: session.resolvedModel, providerIdHint: session.resolvedProviderId || null };
+  if (session) {
+    return resolveSessionTierBinding(modelOrRef, session);
   }
 
-  // Agent kind is a structural property, not an attempt-scheduling decision.
+  // Session-less derivation (draft/template/lane setup): agent kind is a
+  // structural property, and the start path re-derives it per attempt.
   const resolved = resolveAnyMember(modelOrRef, {});
   if (!resolved) {
     // Stale-tier fallback (PRD E3 / D6): a tier ref that no longer resolves to
-    // any live member (tier deleted / emptied) degrades to the last-known-good
-    // concrete member snapshotted on the session — the same contract
+    // any live member degrades downstream — the same contract
     // `resolveTierRefForContinue`'s snapshot branch and `applyStaleTierFallback`
     // apply on the execution paths. Only consulted when the unresolvable ref IS
     // the session's own binding: a snapshot captured for one tier must never
@@ -110,6 +138,125 @@ export function deriveAgentTypeForModelOrTier(modelOrRef) {
  * @param {string|null} requestedModel - Model ID from req.body.model, or null.
  * @returns {{ error: string, message: string }|null} 400-body on block, or null to allow.
  */
+/**
+ * Validate the exact concrete pair about to be dispatched for an explicit
+ * tier selection, against the session's established agent kind. This is the
+ * shared dispatch-preparation enforcement behind both continuation paths: the
+ * API-layer guard (`checkCrossKindSwitch`) and the tier resolution it checked
+ * can disagree with the member actually dispatched when cooldown shifts
+ * between validation and execution, and scheduled continuations bypass the
+ * HTTP guard entirely. Checking the resolved candidate here closes both gaps.
+ *
+ * Only explicit tier requests on established sessions (assistant output
+ * exists, so the kind is locked) are checked: drafts reconcile their kind
+ * freely, unchanged pinned continuations reuse their validated snapshot, and
+ * concrete-model requests keep their existing validation path.
+ *
+ * @param {Object} session - Current session row (agentType + model).
+ * @param {string} sessionId - Session ID (for the established-session read).
+ * @param {string|null} requestedModel - Explicit model override, or null.
+ * @param {{ effectiveModel: string|null, providerIdHint: string|null }} candidate -
+ *   Resolved concrete pair about to be dispatched.
+ * @returns {{ error: string, message: string }|null} Block payload, or null.
+ */
+export function checkExplicitTierDispatchKind(session, sessionId, requestedModel, candidate) {
+  if (!isTierRef(requestedModel)) return null;
+  if (sessionHasNoAssistantMessages(sessionId)) return null;
+  return checkCrossKindSwitch(session, candidate?.effectiveModel, candidate?.providerIdHint);
+}
+
+/**
+ * Build the dispatch-blocking error for an explicit tier selection whose
+ * resolved candidate requires a different agent kind. Carries the same code
+ * the HTTP guard reports so entry points and tests observe one contract.
+ * @param {{ error: string, message: string }} driftError
+ * @returns {Error & { code: string }}
+ */
+export function createCrossKindDispatchError(driftError) {
+  return Object.assign(new Error(driftError.message), { code: driftError.error });
+}
+
+/**
+ * Read the previous EXECUTED concrete (providerId, modelId) pair for resume
+ * and context decisions. Prefers the durable last-executed identity (written
+ * at every dispatch), which survives a provider-only PATCH that rewrites the
+ * current binding; falls back to the tier snapshot, then to a concrete
+ * binding. Returns null when no previous identity exists at all.
+ *
+ * @param {Object} session - Current session row.
+ * @returns {{ model: string|null, providerId: string|null }|null}
+ */
+export function resolvePreviousExecutedPair(session) {
+  if (session.lastExecutedModel || session.lastExecutedProviderId) {
+    return {
+      model: session.lastExecutedModel ?? null,
+      providerId: session.lastExecutedProviderId ?? null,
+    };
+  }
+  if (isTierRef(session.model)) {
+    if (session.resolvedModel) {
+      return { model: session.resolvedModel, providerId: session.resolvedProviderId ?? null };
+    }
+    return null;
+  }
+  if (!session.model) return null;
+  return { model: session.model, providerId: session.providerId ?? null };
+}
+
+/**
+ * Decide whether continuing with a newly validated concrete candidate starts
+ * a different provider thread than the previous execution: either half of the
+ * (providerId, modelId) pair changed. A changed pair must not reuse the old
+ * resume handle and must replay conversation history for the new thread.
+ *
+ * Model-less initialization (no previous identity and no prior output) is not
+ * a switch: the first binding only establishes the thread. Otherwise an
+ * unknowable previous identity (a legacy tier binding without a snapshot) is
+ * treated conservatively as a switch — replay once rather than resume into a
+ * possibly unrelated provider thread.
+ *
+ * @param {Object} session - Current session row.
+ * @param {string} sessionId - Session ID (for the prior-output read).
+ * @param {{ model: string|null, providerId: string|null }} candidate - Newly validated concrete pair.
+ * @returns {boolean}
+ */
+export function hasDispatchPairChanged(session, sessionId, candidate) {
+  const prev = resolvePreviousExecutedPair(session);
+  if (!prev) {
+    // Model-less initialization establishes the thread rather than switching
+    // it — there is no binding for the candidate to be incompatible with —
+    // so resume/context state is preserved.
+    if (!session.model && !session.resolvedModel) return false;
+    // Otherwise the binding exists but its executed identity is unknowable (a
+    // legacy tier binding without a snapshot): treat conservatively as a
+    // switch and replay once rather than resume into a possibly unrelated
+    // provider thread. Drafts (no prior output) are still initializing.
+    return !sessionHasNoAssistantMessages(sessionId);
+  }
+  if (!candidate.model) return false;
+  return prev.model !== candidate.model || (prev.providerId ?? null) !== (candidate.providerId ?? null);
+}
+
+/**
+ * Build the durable last-executed identity update for a dispatch about to
+ * run, or `{}` when the stored identity already matches (so pure echo turns
+ * perform no extra write). Never clears stored evidence: a null candidate
+ * model writes nothing.
+ *
+ * @param {Object} session - Current session row.
+ * @param {string|null} model - Dispatched concrete model.
+ * @param {string|null} providerId - Dispatched concrete provider.
+ * @returns {Object}
+ */
+export function buildLastExecutedUpdate(session, model, providerId) {
+  if (!model) return {};
+  if ((session.lastExecutedModel ?? null) !== model
+    || (session.lastExecutedProviderId ?? null) !== (providerId ?? null)) {
+    return { lastExecutedModel: model, lastExecutedProviderId: providerId ?? null };
+  }
+  return {};
+}
+
 export function checkCrossKindSwitch(session, requestedModel, requestedProviderId = null) {
   const sessionAgentType = session.agentType || 'claude-code';
   const effectiveModel = requestedModel || session.model;

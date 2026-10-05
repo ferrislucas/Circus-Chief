@@ -26,7 +26,13 @@ export function useCatalogInvalidation() {
     if (!(revision > lastRevision)) return;
     lastRevision = revision;
     if (message?.scope === 'providers') {
+      // Finding 10: tier availability derives from provider/model
+      // eligibility, so a providers-scoped invalidation refreshes the tier
+      // catalog too — through the same monotonic intake path, keeping the
+      // revision guard above as the single ordering rule. Tiers-scoped
+      // events keep their narrower scope below.
       providersStore.fetchProviders();
+      tiersStore.fetchTiers();
     } else if (message?.scope === 'tiers') {
       tiersStore.fetchTiers();
     } else {

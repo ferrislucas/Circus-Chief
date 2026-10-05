@@ -1,0 +1,319 @@
+import { spawn as nodeSpawn } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
+import os from 'os';
+import path from 'path';
+import { MUSE_SUMMARY_MODELS } from '@circuschief/shared';
+import { createMuseExecProtocol } from '../agents/adapters/museExecProtocol.js';
+import { MUSE_EXEC_PROMPT_FILE_THRESHOLD } from '../agents/adapters/museExecArgs.js';
+import { createRobustEnv } from './nodeSpawnHelper.js';
+
+// Reasoning models can take longer than an ordinary chat completion. Callers
+// may still supply a shorter timeout for an explicitly latency-sensitive flow.
+export const MUSE_SUMMARY_TIMEOUT_MS = 180_000;
+const MAX_STDERR_BYTES = 16 * 1024;
+const MAX_STDOUT_BYTES = 1024 * 1024;
+const MAX_TERMINAL_REASON_CHARS = 500;
+const AUTH_FAILURE_PATTERNS = ['not logged in', 'login', 'authentication', 'authenticate', 'unauthorized', 'muse auth'];
+
+/** Resolve the Muse binary at call time so a late-set MUSE_BIN is honored. */
+function resolveMuseBin() {
+  return process.env.MUSE_BIN || 'muse';
+}
+
+/** An error which is safe to show to a user or put in normal logs. */
+export class MuseSummaryError extends Error {
+  constructor(code, publicMessage) {
+    super(publicMessage);
+    this.code = code;
+    this.publicMessage = publicMessage;
+    this.isMuseSummaryError = true;
+  }
+}
+
+export function isSupportedMuseSummaryModel(model) {
+  return MUSE_SUMMARY_MODELS.includes(model);
+}
+
+/**
+ * Append a child-output chunk to retained diagnostics without growing memory
+ * without bound. Keeps the tail (where the actionable error text lives) and
+ * is shared with the meta connection probe so there is exactly one cap
+ * implementation.
+ */
+export function appendBoundedDiagnostic(current, chunk, maxBytes = MAX_STDERR_BYTES) {
+  const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+  return `${current}${text}`.slice(-maxBytes);
+}
+
+export function buildMuseSummaryArgs({ model, schemaPath, cwd, promptFile, prompt }) {
+  // No --no-session-log: one-off summary runs keep their session logs for
+  // debuggability, matching the session MuseExecAdapter invocation. (The
+  // flag itself is valid — `muse exec --json` still emits its terminal
+  // record with session logging disabled; the probe relies on that.)
+  const args = [
+    'exec', '--json', '--workspace', cwd,
+    '--model', model, '--output-schema', schemaPath,
+  ];
+  if (promptFile) args.push('--prompt-file', promptFile);
+  else args.push(prompt);
+  return args;
+}
+
+/**
+ * Normalize a JSON schema for the Meta API via `muse exec --output-schema`.
+ * The API rejects object schemas without an explicit `additionalProperties`
+ * (400: "'additionalProperties' is required to be supplied and to be
+ * false"), which the shared summary schemas omit. Deep-clone and set
+ * `additionalProperties: false` on every object schema missing the key;
+ * explicit values (including true) are preserved. The API is also strict
+ * about `required`: it must list every key in `properties`, so missing
+ * property keys are backfilled (explicit entries first, order preserved).
+ */
+export function normalizeMuseOutputSchema(schema) {
+  if (!schema || typeof schema !== 'object') return schema;
+  if (Array.isArray(schema)) return schema.map(normalizeMuseOutputSchema);
+  return {
+    ...schema,
+    ...(isObjectSchemaWithoutAdditionalProperties(schema) ? { additionalProperties: false } : {}),
+    ...backfillRequired(schema),
+    ...normalizeSchemaMapEntries(schema),
+    ...normalizeSingleSchemaEntries(schema),
+    ...normalizeSchemaArrayEntries(schema),
+  };
+}
+
+function backfillRequired(schema) {
+  if (!schema.properties || typeof schema.properties !== 'object' || Array.isArray(schema.properties)) return {};
+  const names = Object.keys(schema.properties);
+  if (!Array.isArray(schema.required)) return names.length ? { required: names } : {};
+  const required = [...schema.required];
+  for (const name of names) {
+    if (!required.includes(name)) required.push(name);
+  }
+  return { required };
+}
+
+function isObjectType(type) {
+  return type === 'object' || (Array.isArray(type) && type.includes('object'));
+}
+
+function isObjectSchemaWithoutAdditionalProperties(schema) {
+  if (Object.prototype.hasOwnProperty.call(schema, 'additionalProperties')) return false;
+  // Only object schemas get `additionalProperties: false`: stamping it onto a
+  // non-object schema that merely carries a `properties` keyword (unions like
+  // `type: ['string', 'null']`, custom keyword bags) manufactures the same
+  // class of strict-schema 400 this normalization exists to prevent.
+  // Typeless schemas with `properties` keep the old behavior — the keyword
+  // only validates objects, so the Meta API still expects the flag there.
+  return isObjectType(schema.type) || (schema.type === undefined && Boolean(schema.properties));
+}
+
+function normalizeSchemaMapEntries(schema) {
+  const normalized = {};
+  for (const key of ['properties', 'patternProperties', '$defs', 'definitions']) {
+    const group = schema[key];
+    if (!group || typeof group !== 'object' || Array.isArray(group)) continue;
+    const entries = {};
+    for (const [name, subSchema] of Object.entries(group)) entries[name] = normalizeMuseOutputSchema(subSchema);
+    normalized[key] = entries;
+  }
+  return normalized;
+}
+
+function normalizeSingleSchemaEntries(schema) {
+  const normalized = {};
+  for (const key of ['items', 'additionalProperties', 'contains', 'not']) {
+    if (schema[key] && typeof schema[key] === 'object') normalized[key] = normalizeMuseOutputSchema(schema[key]);
+  }
+  return normalized;
+}
+
+function normalizeSchemaArrayEntries(schema) {
+  const normalized = {};
+  for (const key of ['allOf', 'anyOf', 'oneOf', 'prefixItems']) {
+    if (Array.isArray(schema[key])) normalized[key] = schema[key].map(normalizeMuseOutputSchema);
+  }
+  return normalized;
+}
+
+export function buildMuseSummaryPrompt(systemPrompt, prompt) {
+  return `${systemPrompt || ''}\n\n${prompt || ''}\n\nReturn only the requested JSON summary. Do not use tools or modify files.`.trim();
+}
+
+function defaultMuseSpawn({ command, args, cwd, env, signal }) {
+  const actualCommand = command === 'node' ? process.execPath : command;
+  return nodeSpawn(actualCommand, args, {
+    cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    signal,
+    env: createRobustEnv(env),
+    windowsHide: true,
+    detached: process.platform !== 'win32',
+  });
+}
+
+export async function callMuseSummary({ prompt, systemPrompt, model, jsonSchema, timeoutMs = MUSE_SUMMARY_TIMEOUT_MS, cwd, workingDirectory }, dependencies = {}) {
+  if (!isSupportedMuseSummaryModel(model)) {
+    throw new MuseSummaryError(
+      'MUSE_SUMMARY_UNSUPPORTED_MODEL',
+      `The selected summary model "${model}" is not supported by the installed Muse summary integration. Choose a supported built-in Muse model.`,
+    );
+  }
+
+  const fs = dependencies.fs || { mkdtemp, rm, writeFile };
+  const spawn = dependencies.spawn || defaultMuseSpawn;
+  // The workspace must be a real directory: `muse exec` rejects a workspace
+  // that contains its process-lifetime temp root, so os.tmpdir() itself is
+  // unusable here. Default to the server cwd (a real checkout, matching the
+  // Claude summary client); callers may override per session/project.
+  const workspaceDir = cwd || workingDirectory || dependencies.cwd || process.cwd();
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'circuschief-muse-summary-'));
+  const schemaPath = path.join(tempDir, 'summary-schema.json');
+  const abortController = new AbortController();
+  let timer;
+
+  try {
+    await fs.writeFile(schemaPath, JSON.stringify(normalizeMuseOutputSchema(jsonSchema)), 'utf8');
+    const args = await buildSummaryInvocation({ fs, systemPrompt, prompt, model, schemaPath, workspaceDir, tempDir });
+    return await executeMuseChild({
+      spawn, command: dependencies.command || resolveMuseBin(), args, workspaceDir,
+      env: dependencies.env || process.env, timeoutMs, abortController,
+      setTimer: (value) => { timer = value; },
+      killProcessGroup: dependencies.killProcessGroup,
+    });
+  } catch (error) {
+    if (error?.isMuseSummaryError) throw error;
+    throw classifyMuseError(error);
+  } finally {
+    if (timer) clearTimeout(timer);
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Kill a timed-out summary child, group first: `muse exec` can leave
+ * grandchildren behind a direct `child.kill`, so signal the process group
+ * the detached spawn created. Falls back to `child.kill` when there is no
+ * group to signal (no pid, Windows, already reaped). The group kill is
+ * injectable via `killProcessGroup` for tests.
+ */
+function killMuseSummaryChild(child, killProcessGroup) {
+  const killGroup = killProcessGroup || ((pid, signal) => process.kill(pid, signal));
+  if (child?.pid && process.platform !== 'win32') {
+    try {
+      killGroup(-child.pid, 'SIGTERM');
+      return;
+    } catch {
+      // No group to signal — fall through to the direct kill.
+    }
+  }
+  try { child.kill?.('SIGTERM'); } catch { /* ignore */ }
+}
+
+async function executeMuseChild({ spawn, command, args, workspaceDir, env, timeoutMs, abortController, setTimer, killProcessGroup }) {
+  const child = spawn({ command, args, cwd: workspaceDir, env, signal: abortController.signal });
+  const stdout = await runChild({ child, timeoutMs, abortController, setTimer, killProcessGroup });
+  const result = extractTerminalText(stdout);
+  if (!result.trim()) throw new MuseSummaryError('MUSE_SUMMARY_MALFORMED_OUTPUT', 'Muse did not return a valid summary. Please try again.');
+  return result.trim();
+}
+
+async function buildSummaryInvocation({ fs, systemPrompt, prompt, model, schemaPath, workspaceDir, tempDir }) {
+  const text = buildMuseSummaryPrompt(systemPrompt, prompt);
+  if (Buffer.byteLength(text) > MUSE_EXEC_PROMPT_FILE_THRESHOLD) {
+    const promptFile = path.join(tempDir, 'prompt.txt');
+    await fs.writeFile(promptFile, text, 'utf8');
+    return buildMuseSummaryArgs({ model, schemaPath, cwd: workspaceDir, promptFile });
+  }
+  return buildMuseSummaryArgs({ model, schemaPath, cwd: workspaceDir, prompt: text });
+}
+
+function runChild({ child, timeoutMs, abortController, setTimer, killProcessGroup }) {
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    const finish = (error, stdout) => {
+      if (finished) return;
+      finished = true;
+      if (error) reject(error); else resolve(stdout);
+    };
+    const timer = setTimeout(() => {
+      abortController.abort();
+      killMuseSummaryChild(child, killProcessGroup);
+      finish(new MuseSummaryError('MUSE_SUMMARY_TIMEOUT', 'Muse summary generation timed out. Please try again.'));
+    }, timeoutMs);
+    setTimer(timer);
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (chunk) => {
+      stdout = appendBoundedDiagnostic(stdout, chunk, MAX_STDOUT_BYTES);
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderr = appendBoundedDiagnostic(stderr, chunk);
+    });
+    child.once('error', (error) => finish(Object.assign(error, { stderr })));
+    child.once('exit', (code) => {
+      if (code === 0) { finish(null, stdout); return; }
+      const failure = Object.assign(new Error('Muse exited'), { exitCode: code, stderr });
+      const terminalReason = findFailedTerminalReason(stdout);
+      if (terminalReason) failure.terminalReason = terminalReason;
+      finish(failure, stdout);
+    });
+  });
+}
+
+function readTerminalRecords(stdout) {
+  return createMuseExecProtocol().push(stdout).filter((item) => item?.kind === 'terminal');
+}
+
+function extractTerminalText(stdout) {
+  let terminalText = null;
+  try {
+    for (const item of readTerminalRecords(stdout)) {
+      if (item?.outcome === 'completed' && typeof item?.text === 'string') {
+        terminalText = item.text;
+      }
+    }
+  } catch {
+    throw new MuseSummaryError('MUSE_SUMMARY_MALFORMED_OUTPUT', 'Muse did not return a valid summary. Please try again.');
+  }
+  if (terminalText == null) {
+    throw new MuseSummaryError('MUSE_SUMMARY_MALFORMED_OUTPUT', 'Muse did not return a valid summary. Please try again.');
+  }
+  return terminalText;
+}
+
+// Best-effort extraction of a failed terminal's reason for server logs only.
+// Never throws: unparseable stdout simply yields no detail, and only the
+// protocol's truncated reason string (never prompt, schema, or secret text)
+// is returned.
+function findFailedTerminalReason(stdout) {
+  try {
+    for (const item of readTerminalRecords(stdout)) {
+      if (item?.outcome === 'failed' && typeof item?.reason === 'string' && item.reason) {
+        return item.reason.slice(0, MAX_TERMINAL_REASON_CHARS);
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function classifyMuseError(error) {
+  if (error?.code === 'ENOENT') {
+    return new MuseSummaryError('MUSE_SUMMARY_CLI_NOT_FOUND', 'Muse CLI is not installed. Install Muse Code and ensure `muse` is on PATH (or set MUSE_BIN).');
+  }
+  const detail = `${error?.message || ''} ${error?.stderr || ''}`.toLowerCase();
+  if (AUTH_FAILURE_PATTERNS.some((pattern) => detail.includes(pattern))) {
+    return new MuseSummaryError('MUSE_SUMMARY_AUTHENTICATION', 'Muse is not authenticated. Run `muse auth` and try again.');
+  }
+  const classified = new MuseSummaryError('MUSE_SUMMARY_NON_ZERO_EXIT', 'Muse could not generate a summary. Please try again.');
+  // Log-only diagnostic: carried on a separate field so it can never leak
+  // into publicMessage, agent_call_logs, API responses, or broadcasts.
+  // Only the protocol's truncated reason string is attached (never prompt,
+  // schema, or secret-bearing text).
+  if (typeof error?.terminalReason === 'string' && error.terminalReason) {
+    classified.detail = error.terminalReason;
+  }
+  return classified;
+}

@@ -36,7 +36,8 @@ export function clearTierAttemptMember(sessionId) {
 /**
  * Idempotently pin a tier-bound session to the concrete member identified by
  * `member`: the tier reference stays in `session.model`; only the concrete
- * resolution snapshot (`resolvedModel` / `resolvedProviderId`) is written.
+ * resolution snapshot (`resolvedModel` / `resolvedProviderId`) is written,
+ * alongside the durable last-executed identity for that member.
  *
  * This is the single write path for member pinning, shared by:
  *   - the "first durable activity" trigger (see
@@ -48,8 +49,8 @@ export function clearTierAttemptMember(sessionId) {
  *     rescheduled).
  *
  * The write is skipped when the session is not tier-bound or already carries
- * exactly this snapshot, so repeated activity events cannot rewrite it or
- * cause duplicate side effects.
+ * exactly this snapshot and executed identity, so repeated activity events
+ * cannot rewrite it or cause duplicate side effects.
  *
  * @param {string} sessionId
  * @param {{ modelId: string, providerId: string }} member
@@ -59,13 +60,16 @@ export function pinSessionToTierMember(sessionId, member) {
   if (!member?.modelId || !member?.providerId) return false;
   const session = sessions.getById(sessionId);
   if (!session || !isTierRef(session.model)) return false;
-  if (session.resolvedModel === member.modelId && session.resolvedProviderId === member.providerId) {
+  if (session.resolvedModel === member.modelId && session.resolvedProviderId === member.providerId
+    && session.lastExecutedModel === member.modelId && session.lastExecutedProviderId === member.providerId) {
     return false;
   }
   sessions.update(sessionId, {
     model: session.model,
     resolvedModel: member.modelId,
     resolvedProviderId: member.providerId,
+    lastExecutedModel: member.modelId,
+    lastExecutedProviderId: member.providerId,
   });
   const updatedSession = sessions.getById(sessionId);
   broadcastSessionUpdate(sessionId, updatedSession.projectId, updatedSession);

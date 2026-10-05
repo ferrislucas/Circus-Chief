@@ -218,7 +218,10 @@ const {
   getSessionId: () => props.sessionId,
 });
 
+const isStopping = computed(() => sessionsStore.currentSession?.stopping === true);
+
 const canSendMessage = computed(() => {
+  if (isStopping.value) return false;
   const status = sessionsStore.currentSession?.status;
   return status === 'waiting' || status === 'scheduled' || status === 'stopped' || status === 'error';
 });
@@ -282,6 +285,9 @@ const isSendDisabled = computed(() => {
 const sendButtonDisabledReason = computed(() => {
   if (isStale.value) {
     return 'Waiting for connection...';
+  }
+  if (isStopping.value) {
+    return 'Previous turn is still shutting down. Try again once it has stopped.';
   }
   if (!inputHasContent.value) {
     return 'Enter a message to send';

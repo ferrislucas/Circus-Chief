@@ -18,6 +18,7 @@ vi.mock('../composables/useApi.js', () => ({
 
 // Import after mocking
 import { useTiersStore, isTierRef, buildTierRef } from './tiers.js';
+import { describeSelectionProblem, isSelectionSubmittable } from '../composables/modelSelectionReconciliation.js';
 
 describe('useTiersStore', () => {
   beforeEach(() => {
@@ -163,6 +164,85 @@ describe('useTiersStore', () => {
 
     it('buildTierRef builds the sentinel string', () => {
       expect(buildTierRef('abc')).toBe('tier::abc');
+    });
+  });
+
+  // Finding 10 — cross-client availability convergence without reload.
+  //
+  // Another client disables (or removes) this client's tier's last usable
+  // model; the providers-scoped invalidation makes this client refetch tiers
+  // through the monotonic intake path. The selector set (`tiersWithMembers`,
+  // judged through the shared `isTierSelectable` predicate) and the save
+  // guard (`describeSelectionProblem`) must converge on the refreshed
+  // canonical catalog — and converge back when the model is restored —
+  // without a reload. A stale (slower, older) response resolving after newer
+  // availability must never undo it.
+  describe('availability convergence (finding 10)', () => {
+    const MEMBER = { id: 'm1', providerId: 'p1', modelId: 'model-a', position: 0 };
+    const selection = () => ({ model: buildTierRef('gold'), providerId: null });
+    const catalogOf = (store) => ({
+      tiers: store.tiers,
+      tiersLoaded: store.loaded,
+      providers: [],
+      providersLoaded: true,
+    });
+
+    async function fetchCatalog(store, available) {
+      mockApi.getTiers.mockResolvedValue([
+        {
+          id: 'gold',
+          name: 'Gold',
+          members: available === 'removed' ? [] : [{ ...MEMBER, available }],
+        },
+      ]);
+      await store.fetchTiers();
+    }
+
+    it('selectors and save guards converge when the last usable model is disabled, then restored', async () => {
+      const store = useTiersStore();
+
+      await fetchCatalog(store, true);
+      expect(store.tiersWithMembers.map((tier) => tier.id)).toEqual(['gold']);
+      expect(describeSelectionProblem(selection(), catalogOf(store))).toBeNull();
+      expect(isSelectionSubmittable(selection(), catalogOf(store))).toBe(true);
+
+      // Another client disables the last usable model.
+      await fetchCatalog(store, false);
+      expect(store.tiersWithMembers).toEqual([]);
+      expect(describeSelectionProblem(selection(), catalogOf(store))).toMatchObject({ code: 'tier-unusable' });
+      expect(isSelectionSubmittable(selection(), catalogOf(store))).toBe(false);
+
+      // ...then removes it entirely: still converged, no reload involved.
+      await fetchCatalog(store, 'removed');
+      expect(store.tiersWithMembers).toEqual([]);
+      expect(describeSelectionProblem(selection(), catalogOf(store))).toMatchObject({ code: 'tier-unusable' });
+
+      // Restored: selectors offer the tier and the save guard clears again.
+      await fetchCatalog(store, true);
+      expect(store.tiersWithMembers.map((tier) => tier.id)).toEqual(['gold']);
+      expect(describeSelectionProblem(selection(), catalogOf(store))).toBeNull();
+      expect(isSelectionSubmittable(selection(), catalogOf(store))).toBe(true);
+    });
+
+    it('a stale response resolving after newer availability never undoes it', async () => {
+      let resolveStale;
+      let resolveFresh;
+      mockApi.getTiers
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveStale = resolve; }))
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveFresh = resolve; }));
+
+      const store = useTiersStore();
+      const unavailable = [{ id: 'gold', name: 'Gold', members: [{ ...MEMBER, available: false }] }];
+      const restored = [{ id: 'gold', name: 'Gold', members: [{ ...MEMBER, available: true }] }];
+      const stale = store.fetchTiers();
+      const fresh = store.fetchTiers();
+      resolveFresh(restored);
+      await fresh;
+      resolveStale(unavailable);
+      await stale;
+
+      expect(store.tiersWithMembers.map((tier) => tier.id)).toEqual(['gold']);
+      expect(describeSelectionProblem(selection(), catalogOf(store))).toBeNull();
     });
   });
 });

@@ -1,22 +1,18 @@
-import { sessions, messages, attachments, conversations } from '../database.js';
-import { buildAgentConfig, buildAgentEnv } from './sessionAgentConfig.js';
-import { resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
-import { reconcileAgentTypeForRun, sessionHasNoObservableAgentActivity } from './sessionAgentGuard.js';
-import { agentGateway } from '../agents/AgentGateway.js';
-import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
-import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
-import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
+import { sessions } from '../database.js';
+import { buildAgentEnv, createAgentForSession } from './sessionAgentConfig.js';
+import { resolveProviderFromModel, resolveProviderMetadataFromModel, resolveTierMemberProvider, buildSessionEnv } from './sessionProvider.js';
+import { buildLastExecutedUpdate, reconcileAgentTypeForRun, sessionHasNoObservableAgentActivity } from './sessionAgentGuard.js';
+import { beginSessionStart } from './sessionTurnSetup.js';
 export { buildQueryParams } from './queryParamBuilder.js';
 import { buildQueryParams } from './queryParamBuilder.js';
-import { buildPromptWithAttachments } from './sessionPrompts.js';
 import {
-  activeSessions, activeConversationIds, handleStreamEvent, handleTurnCompletion,
+  handleStreamEvent, handleTurnCompletion,
   handleSessionError, cleanupSessionState, broadcastSessionStatus,
 } from './streamEventHandler.js';
-import { shouldRescheduleOnError, isTierFailoverEligibleError, matchesStartFailoverEligibleError, _checkProactiveReschedule } from './sessionErrors.js';
-import { markUnhealthy } from './tierResolutionService.js';
+import { shouldRescheduleOnError, _checkProactiveReschedule } from './sessionErrors.js';
 import { isTierRef } from '@circuschief/shared';
 import { runSessionWithTierFailover, hasResolvableTierMembers } from './sessionTierFailover.js';
+import { shouldRethrowForTierFailover, reportTierMemberFailureHealth } from './tierFailureHealth.js';
 import { applyStaleTierFallback } from './sessionStaleTierFallback.js';
 import { schedulerService } from './schedulerService.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
@@ -34,10 +30,46 @@ import { redactUrlCredentials } from './errorSanitizer.js';
 // file under the max-lines limit); re-exported here so sessionManager.js's
 // existing `from './sessionExecution.js'` import keeps working unchanged.
 export { continueSessionCore } from './sessionContinuation.js';
-// buildAgentConfig/buildAgentEnv live in sessionAgentConfig.js (extracted to
-// keep this file under the max-lines limit); re-exported here so
-// sessionManager.js / sessionContinuation.js imports keep working unchanged.
-export { buildAgentEnv } from './sessionAgentConfig.js';
+// buildAgentEnv/createAgentForSession live in sessionAgentConfig.js
+// (extracted to keep this file under the max-lines limit); re-exported here
+// so sessionManager.js / sessionContinuation.js / test imports keep working
+// unchanged.
+export { buildAgentEnv, createAgentForSession };
+
+/**
+ * Fail a turn whose preparation (ownership registration, conversation/message
+ * setup, model resolution, agent construction, query-param building) threw
+ * BEFORE provider dispatch — i.e. outside `_executeSession`'s own
+ * error/finally boundary. Mirrors `runSessionCore`'s pre-dispatch catch:
+ * surfaces a sanitized visible error, moves the session to error status,
+ * fails an owned lane obligation instead of stranding it, and releases active
+ * state with controller fencing so a newer turn is never erased. Always
+ * rethrows so callers still observe the failure.
+ *
+ * A user stop is not a permanent error: stopSession() already set the status
+ * to 'stopped' and paused any open lane obligation, so this path must not
+ * overwrite that state or fail the run — it only releases this turn's claim
+ * and rethrows. Keep parity with `handleTurnFailure`.
+ *
+ * @param {Object} args
+ * @param {string} args.sessionId
+ * @param {AbortController} args.controller - This turn's controller (fencing).
+ * @param {unknown} args.error - The preparation failure.
+ * @param {boolean} [args.includeConversationId=true] - Whether a conversation
+ *   registration may have been created during preparation.
+ */
+export function handlePreparationFailure({ sessionId, controller, error, includeConversationId = true }) {
+  if (isUserStopAbort(controller)) {
+    cleanupSessionState(sessionId, includeConversationId, controller);
+    throw error;
+  }
+  const sanitizedError = normalizeFinalErrorMessage(error);
+  sessions.update(sessionId, { status: 'error', error: sanitizedError });
+  broadcastSessionStatus(sessionId, 'error');
+  closeOwnWork(sessionId, 'closed_failed', sanitizedError);
+  cleanupSessionState(sessionId, includeConversationId, controller);
+  throw error;
+}
 
 /**
  * @param {Object} session
@@ -47,11 +79,37 @@ export { buildAgentEnv } from './sessionAgentConfig.js';
  *   falls back to `session.providerId` so non-tier sessions with a known provider still
  *   disambiguate duplicate model ids correctly.
  */
+// Strict startup-attempt identity (finding 5): a tier-bound dispatch names
+// one atomic (providerId, modelId) member — validate the exact pair and
+// derive BOTH the dispatch provider and its metadata from the same validated
+// owner. A deleted/disabled provider or a removed model throws
+// TierIdentityError here instead of falling back to another provider that
+// owns the same model id, or to SDK defaults.
+function resolveTierAttemptOwner(effectiveModel, providerHint) {
+  const owner = resolveTierMemberProvider(effectiveModel, providerHint);
+  return { provider: owner, providerMetadata: owner };
+}
+
+// Legacy model-id lookup, scoped to concrete non-tier bindings.
+function resolveLegacyStartProvider(effectiveModel, providerHint) {
+  return {
+    provider: resolveProviderFromModel(effectiveModel, providerHint),
+    providerMetadata: resolveProviderMetadataFromModel(effectiveModel, providerHint),
+  };
+}
+
+function resolveStartProvider(session, effectiveModel, providerHint) {
+  if (session && isTierRef(session.model) && effectiveModel && !isTierRef(effectiveModel)) {
+    return resolveTierAttemptOwner(effectiveModel, providerHint);
+  }
+  return resolveLegacyStartProvider(effectiveModel, providerHint);
+}
+
 export async function resolveInitialSessionModelEnv(session, model, providerId = null) {
   const effectiveModel = model || session.model;
   const providerHint = providerId ?? (model ? null : session.providerId ?? null);
-  const provider = resolveProviderFromModel(effectiveModel, providerHint);
-  const providerMetadata = resolveProviderMetadataFromModel(effectiveModel, providerHint);
+
+  const { provider, providerMetadata } = resolveStartProvider(session, effectiveModel, providerHint);
   const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
 
   if (session.gitWorktree && commitAttributionOverride) {
@@ -67,30 +125,6 @@ export async function resolveInitialSessionModelEnv(session, model, providerId =
     }),
     commitAttributionOverride,
   };
-}
-
-/**
- * Create the agent for a session, using gateway + logging + VCR.
- *
- * If `config` is empty, the adapter-specific default config is applied
- * (e.g. codex receives a fresh `spawnCodexProcess` spawner). Explicit
- * `config` keys win over defaults.
- *
- * @param {string} agentType - The agent type (e.g., 'claude-code', 'codex')
- * @param {Object} [config] - Optional adapter config forwarded to the gateway.
- * @returns {{ execute: (queryParams: any, meta?: any) => AsyncGenerator }}
- */
-export function createAgentForSession(agentType = 'claude-code', config = {}) {
-  const mergedConfig = { ...buildAgentConfig(agentType), ...config };
-  const baseAgent = agentGateway.createAgent(agentType, mergedConfig);
-
-  // Wrap with VCR adapter if in VCR mode
-  const agent = process.env.VCR_MODE && !isE2ESpawnCaptureEnabled()
-    ? new VCRAgentAdapter(baseAgent, { cassetteDir: 'tests/e2e/cassettes' })
-    : baseAgent;
-
-  // Always wrap with logging
-  return new LoggingAgentWrapper(agent);
 }
 
 /**
@@ -151,36 +185,6 @@ async function completeSuccessfulTurn({ sessionId, interactive, workflowTurn, wa
  * @param {Object|null} tierContext
  * @returns {boolean} true when the error should be rethrown untouched
  */
-function shouldRethrowForTierFailover(sessionId, error, tierContext) {
-  if (!tierContext) return false;
-  const currentSession = sessions.getById(sessionId);
-  return Boolean(currentSession && isTierFailoverEligibleError(currentSession, error, sessionId, tierContext));
-}
-
-/**
- * Health attribution ONLY — never a failover decision. Report an eligible
- * (rate-limit/quota/availability) failure against the exact concrete member
- * that served this attempt, so subsequent new-session resolutions skip it
- * during cooldown (F21/E7). Works for BOTH kinds of tier context:
- *   - the start loop's failover-authorized context (terminal member / mid-
- *     conversation failures that stay on the normal error path), and
- *   - a pinned continuation's health-reporting-only context
- *     (`allowFailover: false` — see buildTierHealthContext).
- * A health update must never be mistaken for a failover attempt: no successor
- * is advanced, no failover notice is emitted here.
- *
- * @param {Error} error
- * @param {Object|null} tierContext
- */
-function reportTierMemberFailureHealth(error, tierContext) {
-  if (!tierContext || tierContext.currentMemberId === undefined) return;
-  if (!matchesStartFailoverEligibleError(error)) return;
-  console.log(
-    `[SessionManager] Tier health: member ${tierContext.currentMemberId} (provider ${tierContext.currentMemberProviderId}) marked unhealthy for cooldown — no failover from this attempt`
-  );
-  markUnhealthy(tierContext.currentMemberProviderId, tierContext.currentMemberId);
-}
-
 /**
  * Inject the durable workflow turn token into the agent's environment so the
  * agent's card-move API can attribute a deferred move to this exact execution
@@ -263,6 +267,22 @@ async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbac
 }
 
 /**
+ * Settle an aborted turn at a stream boundary. A user stop pauses the lane
+ * obligation and notifies (so summaries may read settled output); any other
+ * abort rethrows the abort reason. Returns true when the caller must return
+ * immediately (the turn ended by abort), false to continue.
+ */
+function settleAbortedTurn({ sessionId, controller, workflowTurn, notifyUserStopSettled }) {
+  if (!controller.signal.aborted) return false;
+  if (isUserStopAbort(controller)) {
+    pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
+    notifyUserStopSettled();
+    return true;
+  }
+  throw controller.signal.reason || new Error('Session execution was aborted');
+}
+
+/**
  * Execute the agent stream loop and handle post-turn completion, errors, and cleanup.
  * This is the shared core of runSession, continueSession, and continueSessionWithExistingMessage.
  * @param {Object} options
@@ -275,6 +295,9 @@ async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbac
  * @param {Object} options.callbacks - Callback functions passed from sessionManager
  * @param {Function} options.callbacks.handleTemplateTriggerIfNeeded - Template trigger handler
  * @param {Function} options.callbacks.handleAutoSendIfNeeded - Auto-send handler
+ * @param {Function} [options.callbacks.onUserStopSettled] - Fired after a user-stopped
+ *   provider generator has settled (confirmed provider exit), e.g. to trigger
+ *   summary generation without racing still-arriving output.
  * @param {boolean} [options.broadcastConversationStateOnError] - Whether to broadcast conversation state on error
  * @param {string} [options.errorLabel] - Label for error logging
  * @param {Object|null} [options.tierContext] - Tier failover context passed to shouldRescheduleOnError
@@ -294,7 +317,16 @@ export async function _executeSession({
   errorLabel = 'Session error',
   tierContext = null,
 }) {
-  const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded } = callbacks;
+  const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded, onUserStopSettled } = callbacks;
+  const notifyUserStopSettled = () => {
+    // The provider generator has settled at every call site below (the
+    // for-await loop only exits once the adapter iterator has finished, and a
+    // `break` awaits its return()), so this is confirmed provider exit — the
+    // only moment a summary may safely read the turn's output.
+    try { onUserStopSettled?.(sessionId); } catch (error) {
+      console.error(`[SessionManager] onUserStopSettled failed for session ${sessionId}:`, error?.message || error);
+    }
+  };
   const workflowTurn = beginWorkflowTurn(sessionId);
   // Last ownership fence before the irreversible provider call.
   if (!interactive && !workflowTurn && !activeLaneRunOwnsSession(sessionId)) {
@@ -309,13 +341,7 @@ export async function _executeSession({
     const { observableActivityBeforeTerminalError } = await executeProviderStream({
       sessionId, agent, providerQueryParams, agentCallMeta, controller, tierContext,
     });
-    if (controller.signal.aborted) {
-      if (isUserStopAbort(controller)) {
-        pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
-        return;
-      }
-      throw controller.signal.reason || new Error('Session execution was aborted');
-    }
+    if (settleAbortedTurn({ sessionId, controller, workflowTurn, notifyUserStopSettled })) return;
     // Handle post-turn completion (work log association, status transition, summary, etc.)
     const { wasRescheduled, heldForLimit, terminalError } = await handleTurnCompletion(
       sessionId,
@@ -324,13 +350,7 @@ export async function _executeSession({
       { controller },
     );
   // A stop invalidates the completion pipeline; stale work must not close the paused obligation.
-    if (controller.signal.aborted) {
-      if (isUserStopAbort(controller)) {
-        pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
-        return;
-      }
-      throw controller.signal.reason || new Error('Session execution was aborted');
-    }
+    if (settleAbortedTurn({ sessionId, controller, workflowTurn, notifyUserStopSettled })) return;
     // Some providers report terminal failures as a final stream event and then
     // close their generator normally. Route that outcome through the same retry
     // policy as a rejected execute() call; otherwise the normal completion path
@@ -348,6 +368,9 @@ export async function _executeSession({
     if (outcome === 'rethrow' || outcome === 'failed') throw error;
     if (outcome === 'rescheduled') return { started: true, outcome };
   } finally {
+    // Sole ownership-release point: runs only after the provider generator
+    // above has settled, and only clears this turn's own entry (controller
+    // fence). A replacement turn can never be admitted before this runs.
     cleanupSessionState(sessionId, cleanupConversationId, controller);
   }
 }
@@ -366,6 +389,9 @@ async function executeProviderStream({ sessionId, agent, providerQueryParams, ag
     }
     await handleStreamEvent(sessionId, event, {
       controller,
+      // Thread the turn's session env so tool-input/tool-output scrubbing
+      // can redact provider-supplied secret values.
+      env: providerQueryParams?.options?.env,
       // `result:error` is a normal provider event, not an iterator rejection.
       // Let the stream layer rethrow it only when this attempt can genuinely
       // fail over, before it creates terminal error state/messages.
@@ -407,42 +433,6 @@ async function handleTerminalStreamError({
   });
   return { started: true, outcome: 'failed', error: terminalError, observableActivityBeforeTerminalError };
 }
-/**
- * Prepare the shared per-start state for {@link runSessionCore}: register the
- * abort controller, ensure the active conversation, flip the session to
- * 'running', attach any pending file attachments, and build the final prompt.
- *
- * Extracted from runSessionCore so the entry point stays within the
- * complexity/statement budget now that it also has to branch across the
- * tier-failover and standard start paths.
- *
- * @returns {{ session: Object, activeConversation: Object, promptWithAttachments: string }}
- */
-function beginSessionStart(sessionId, prompt, { model, providerId, fileAttachments, controller }) {
-  activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
-
-  // Get the active conversation for this session (created in SessionRepository.create)
-  const activeConversation = conversations.ensureActiveConversation(sessionId);
-  activeConversationIds.set(sessionId, activeConversation.id);
-
-  // Update status to running and track the user-requested model (short format) on the session
-  sessions.update(sessionId, { status: 'running', ...(model && { model, providerId: providerId ?? null }) });
-  broadcastSessionStatus(sessionId, 'running');
-
-  // Note: Initial user message is already created in SessionRepository.create()
-  // Associate any pending attachments with the initial message
-  const initialMessage = messages.getBySessionId(sessionId)[0];
-  if (initialMessage && fileAttachments.length > 0) {
-    attachments.updateMessageIdForSession(sessionId, initialMessage.id);
-  }
-
-  return {
-    session: sessions.getById(sessionId),
-    activeConversation,
-    promptWithAttachments: buildPromptWithAttachments(prompt, fileAttachments),
-  };
-}
-
 /**
  * Tier-bound start path: run the tier's members in order via the failover loop,
  * or — when the ref no longer resolves to any member — degrade to a concrete
@@ -573,6 +563,17 @@ async function _runStandardSession(
 
   const { effectiveModel, sessionEnv, commitAttributionOverride } =
     await resolveInitialSessionModelEnv(reconciledSession, model, providerId ?? session.providerId);
+
+  // Record the durable last-executed identity for the dispatched concrete
+  // pair (see sessionContinuation.js). Written only when it differs, so
+  // restarts on an unchanged binding perform no extra write.
+  const startProviderId = effectiveModel
+    ? resolveProviderFromModel(effectiveModel, providerId ?? reconciledSession.providerId)?.id ?? null
+    : null;
+  const lastExecutedUpdate = buildLastExecutedUpdate(reconciledSession, effectiveModel, startProviderId);
+  if (Object.keys(lastExecutedUpdate).length > 0) {
+    sessions.update(sessionId, lastExecutedUpdate);
+  }
 
   const queryParams = buildQueryParams({
     prompt: promptWithAttachments,

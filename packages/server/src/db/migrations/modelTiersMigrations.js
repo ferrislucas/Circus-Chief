@@ -177,6 +177,17 @@ export const modelTiersMigrations = [
     },
   },
   {
+    name: 'sessions-add-last-executed-pair',
+    up(db) {
+      // Durable identity of the concrete pair the last turn actually
+      // dispatched. Unlike the current binding (rewritable by PATCH) it
+      // survives a provider-only model/provider change, so the next
+      // continuation can tell a provider switch from a same-thread follow-up.
+      addColumnIfMissing(db, 'sessions', 'last_executed_model', 'TEXT');
+      addColumnIfMissing(db, 'sessions', 'last_executed_provider_id', 'TEXT');
+    },
+  },
+  {
     name: 'model-tiers-provider-pair-columns',
     up(db) {
       addColumnIfMissing(db, 'session_templates', 'provider_id', 'TEXT REFERENCES providers(id)');

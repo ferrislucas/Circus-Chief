@@ -170,7 +170,13 @@ function redactQueryParam(match, sep, name, value) {
  */
 export function sanitizeString(input) {
   if (typeof input !== 'string') return '';
-  let out = input.length > MAX_STRING_LENGTH ? input.slice(0, MAX_STRING_LENGTH) : input;
+  // Finding 6: redact URL userinfo FIRST, on the untruncated input. The
+  // `@` marker may sit beyond MAX_STRING_LENGTH — truncating first would
+  // keep a `user:pass-fragment` prefix behind with no marker left to match.
+  // redactUrlCredentials is idempotent, so sinks that already call it (and
+  // repeated sanitizeString passes) stay stable.
+  let out = redactUrlCredentials(input);
+  if (out.length > MAX_STRING_LENGTH) out = out.slice(0, MAX_STRING_LENGTH);
   out = out.replace(QUERY_PARAM_PATTERN, redactQueryParam);
   out = redactAnchoredFragment(out, 0);
   for (const { pattern, replacement } of SECRET_VALUE_PATTERNS) {

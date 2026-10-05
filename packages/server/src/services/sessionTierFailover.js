@@ -13,7 +13,7 @@ import {
 import { matchesStartFailoverEligibleError } from './sessionErrors.js';
 import { broadcastToSession } from '../websocket.js';
 import { buildQueryParams } from './queryParamBuilder.js';
-import { activeSessions } from './streamEventHandler.js';
+import { activeSessions } from './sessionExecutionOwnership.js';
 import {
   createAgentForSession,
   resolveInitialSessionModelEnv,
@@ -22,6 +22,7 @@ import {
 import { agentCallLogger } from './agentCallLogger.js';
 import { resolveAgentTypeFromModel } from './sessionProvider.js';
 import { sanitizeTierFailureReason } from './tierFailureReason.js';
+import { TierIdentityError } from './tierIdentity.js';
 import { redactUrlCredentials } from './errorSanitizer.js';
 import { createTierCooldownUnavailableError } from './tierCooldownUnavailableError.js';
 import {
@@ -346,6 +347,29 @@ async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDir
     snapshotSuccessfulMember(sessionId, tierRef, member);
     return { settled: true, execution }; // done
   } catch (error) {
+    // Finding 5: the frozen member went stale between the loop-start freeze
+    // and its attempt boundary (provider deleted/disabled, model removed or
+    // renamed) — resolveInitialSessionModelEnv rejected the exact identity
+    // instead of re-routing by model id or to SDK defaults. The member is
+    // UNAVAILABLE: cool it, record the attempt, and advance only when a
+    // successor exists AND no durable activity happened yet. Replaying the
+    // prompt to a different member after observable activity is forbidden, so
+    // a post-activity stale member surfaces terminally; with no successor the
+    // run exhausts like any other fully-failed tier.
+    if (error instanceof TierIdentityError) {
+      markUnhealthy(member.providerId, member.modelId);
+      attempts.push({
+        providerId: member.providerId,
+        modelId: member.modelId,
+        reason: sanitizeTierFailureReason(error),
+      });
+      if (nextMember && wasPreActivity) {
+        emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember });
+        return { settled: false }; // advance to the next member
+      }
+      if (!wasPreActivity) throw error;
+      throw new ModelTierExhaustedError({ tierId, tierName, attempts });
+    }
     // Non-eligible and mid-conversation errors must retain their original
     // protocol. Eligible startup failures are recorded exactly once.
     recordTierAttemptFailure(error, {

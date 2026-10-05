@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { projects, sessions, messages, conversations, modelTiers, modelProviders } from '../database.js';
 import { buildTierRef } from '@circuschief/shared';
-import { clearUnhealthy } from './tierResolutionService.js';
+import { clearUnhealthy, markUnhealthy } from './tierResolutionService.js';
 
 // ── WebSocket mock ────────────────────────────────────────────────────────────
 vi.mock('../websocket.js', () => ({
@@ -82,8 +82,6 @@ vi.mock('./streamEventHandler.js', async (importOriginal) => {
   const original = await importOriginal();
   return {
     ...original,
-    activeSessions: new Map(),
-    activeConversationIds: new Map(),
     broadcastSessionStatus: vi.fn(),
   };
 });
@@ -97,7 +95,8 @@ vi.mock('./workflowSessionService.js', async (importOriginal) => {
 });
 
 import { continueSessionCore } from './sessionContinuation.js';
-import { activeSessions, broadcastSessionStatus } from './streamEventHandler.js';
+import { activeConversationIds, broadcastSessionStatus } from './streamEventHandler.js';
+import { activeSessions } from './sessionExecutionOwnership.js';
 import { broadcastToSession } from '../websocket.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -222,7 +221,6 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
       members: [{ providerId: providerA.id, modelId: 'model-x', position: 0 }],
     });
     const tierRef = buildTierRef(tier.id);
-    const { markUnhealthy } = await import('./tierResolutionService.js');
     markUnhealthy(providerA.id, 'model-x', 60_000);
 
     const session = createTestSession(project, {
@@ -323,7 +321,6 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
         status: 'waiting',
       });
       conversations.ensureActiveConversation(session.id);
-      const { markUnhealthy } = await import('./tierResolutionService.js');
       markUnhealthy(providerA.id, 'model-x', 60_000);
 
       await continueSessionCore(session.id, 'hi', '/tmp/test', {
@@ -672,5 +669,615 @@ describe('sessionContinuation — tier health context (mid-conversation cooldown
     });
 
     expect(capturedTierContexts).toEqual([null]);
+  });
+});
+
+// ── Preparation-failure cleanup (finding 4) ─────────────────────────────────
+// Both continuation entry points register active state (ownership claim,
+// running status, conversation id) BEFORE model/environment resolution. A
+// failure in that preparation window must surface a sanitized visible error,
+// move the session to error status, release the claim + conversation
+// registration, and fail an owned lane obligation — never wedge the session
+// as permanently running.
+describe('sessionContinuation — preparation-failure cleanup (finding 4)', () => {
+  let project;
+  let provider;
+
+  beforeEach(() => {
+    capturedQueryParams = [];
+    capturedTierContexts = [];
+    capturedAgentTypes = [];
+    capturedAgentCallMetas = [];
+    workflowMock.laneRunOwnsSession = true;
+    vi.clearAllMocks();
+    activeSessions.clear();
+    activeConversationIds.clear();
+
+    project = projects.create('Finding4 Project', '/tmp/finding4-test');
+    provider = modelProviders.create({ name: 'Finding4 Provider', kind: 'anthropic' });
+    modelProviders.addModel(provider.id, { modelId: 'finding4-model', displayName: 'F4' });
+    modelProviders.addModel(provider.id, { modelId: 'finding4-model-2', displayName: 'F4B' });
+  });
+
+  function createCoolingTierRef() {
+    const tier = modelTiers.create({
+      name: 'All Cooling Tier',
+      members: [
+        { providerId: provider.id, modelId: 'finding4-model', position: 0 },
+        { providerId: provider.id, modelId: 'finding4-model-2', position: 1 },
+      ],
+    });
+    return buildTierRef(tier.id);
+  }
+
+  function coolEveryMember() {
+    markUnhealthy(provider.id, 'finding4-model', 60_000);
+    markUnhealthy(provider.id, 'finding4-model-2', 60_000);
+  }
+
+  function clearEveryCooldown() {
+    clearUnhealthy(provider.id, 'finding4-model');
+    clearUnhealthy(provider.id, 'finding4-model-2');
+  }
+
+  it('releases claim, flags error status, and dispatches nothing when a newly selected tier has every member cooling down', async () => {
+    const tierRef = createCoolingTierRef();
+    await coolEveryMember();
+    try {
+      const session = createTestSession(project, { model: 'finding4-model', providerId: provider.id });
+      conversations.ensureActiveConversation(session.id);
+
+      await expect(continueSessionCore(session.id, 'Switch to cooling tier', '/tmp/test', {
+        options: { model: tierRef }, callbacks: mockCallbacks,
+      })).rejects.toThrow(/currently healthy/);
+
+      // No provider dispatch happened.
+      expect(capturedQueryParams).toHaveLength(0);
+
+      // Sanitized visible error + error status.
+      const row = sessions.getById(session.id);
+      expect(row.status).toBe('error');
+      expect(row.error).toMatch(/currently healthy/);
+
+      // Active state fully released.
+      expect(activeSessions.has(session.id)).toBe(false);
+      expect(activeConversationIds.has(session.id)).toBe(false);
+      expect(broadcastSessionStatus).toHaveBeenCalledWith(session.id, 'error');
+    } finally {
+      await clearEveryCooldown();
+    }
+  });
+
+  it('admits a subsequent valid continuation after a preparation failure', async () => {
+    const tierRef = createCoolingTierRef();
+    await coolEveryMember();
+    const session = createTestSession(project, { model: 'finding4-model', providerId: provider.id });
+    conversations.ensureActiveConversation(session.id);
+
+    await expect(continueSessionCore(session.id, 'Switch to cooling tier', '/tmp/test', {
+      options: { model: tierRef }, callbacks: mockCallbacks,
+    })).rejects.toThrow(/currently healthy/);
+    expect(activeSessions.has(session.id)).toBe(false);
+
+    await clearEveryCooldown();
+    await continueSessionCore(session.id, 'Retry on recovered tier', '/tmp/test', {
+      options: { model: tierRef }, callbacks: mockCallbacks,
+    });
+
+    expect(capturedQueryParams).toHaveLength(1);
+    expect(capturedQueryParams[0].options?.model).toBe('finding4-model');
+  });
+
+  it('sanitizes a credential-bearing setup failure and releases all active state', async () => {
+    const session = createTestSession(project, { model: 'finding4-model', providerId: provider.id });
+    const secret = 'sk-ant-finding4secret123';
+    // NOTE: ensureActiveConversation is synchronous (better-sqlite3), so the
+    // setup failure must be a synchronous throw — an async rejection would be
+    // kept as a (truthy) promise value and silently ignored.
+    const ensureSpy = vi.spyOn(conversations, 'ensureActiveConversation')
+      .mockImplementationOnce(() => {
+        throw new Error(`provider exploded with key ${secret}`);
+      });
+    try {
+      await expect(continueSessionCore(session.id, 'hi', '/tmp/test', {
+        options: {}, callbacks: mockCallbacks,
+      })).rejects.toThrow('provider exploded');
+
+      expect(ensureSpy).toHaveBeenCalledTimes(1);
+      expect(capturedQueryParams).toHaveLength(0);
+      const row = sessions.getById(session.id);
+      expect(row.status).toBe('error');
+      expect(row.error).not.toContain(secret);
+      expect(row.error).toMatch(/provider exploded/);
+      expect(activeSessions.has(session.id)).toBe(false);
+      expect(activeConversationIds.has(session.id)).toBe(false);
+    } finally {
+      ensureSpy.mockRestore();
+    }
+  });
+
+  it('preserves stopped state when the turn is stop-aborted during preparation', async () => {
+    const { abortForUserStop } = await import('./sessionAbort.js');
+    const { ensureWorktreeCommitAttributionHook } = await import('./gitService.js');
+    // The worktree hook is the only awaited preparation step, so it is the
+    // suspension point where a concurrent stop can land mid-preparation.
+    const hookedProvider = modelProviders.create({
+      name: 'Finding4 Hooked Provider',
+      kind: 'anthropic',
+      commitAttributionOverride: 'Co-authored-by: Test <test@example.com>',
+    });
+    modelProviders.addModel(hookedProvider.id, { modelId: 'finding4-hooked', displayName: 'F4H' });
+    const session = createTestSession(project, { model: 'finding4-hooked', providerId: hookedProvider.id });
+    sessions.update(session.id, { gitWorktree: '/tmp/finding4-test' });
+    conversations.ensureActiveConversation(session.id);
+
+    let releaseHook;
+    const hookGate = new Promise((resolve) => { releaseHook = resolve; });
+    ensureWorktreeCommitAttributionHook.mockImplementationOnce(async () => {
+      await hookGate;
+      throw new Error('hook failed after stop');
+    });
+    try {
+      const pending = continueSessionCore(session.id, 'hi', '/tmp/test', {
+        options: {}, callbacks: mockCallbacks,
+      });
+      // Wait until the turn has claimed ownership, then simulate stopSession
+      // aborting this exact turn while preparation is still in flight.
+      for (let i = 0; i < 200 && !activeSessions.has(session.id); i += 1) {
+        await new Promise((resolve) => { setTimeout(resolve, 5); });
+      }
+      expect(activeSessions.has(session.id)).toBe(true);
+      abortForUserStop(activeSessions.get(session.id).controller);
+      releaseHook();
+
+      await expect(pending).rejects.toThrow('hook failed after stop');
+
+      // A user stop is not a permanent error: the stopped state must survive.
+      const row = sessions.getById(session.id);
+      expect(row.status).not.toBe('error');
+      expect(row.error ?? null).toBe(null);
+      expect(activeSessions.has(session.id)).toBe(false);
+      expect(activeConversationIds.has(session.id)).toBe(false);
+    } finally {
+      ensureWorktreeCommitAttributionHook.mockReset();
+    }
+  });
+
+  it('does not clear a newer turn’s active state when an older turn’s preparation fails', async () => {
+    const { createAgentForSession: mockedCreateAgent } = await import('./sessionExecution.js');
+    const { ensureWorktreeCommitAttributionHook } = await import('./gitService.js');
+    const hookedProvider = modelProviders.create({
+      name: 'Finding4 Fence Provider',
+      kind: 'anthropic',
+      commitAttributionOverride: 'Co-authored-by: Test <test@example.com>',
+    });
+    modelProviders.addModel(hookedProvider.id, { modelId: 'finding4-fenced', displayName: 'F4F' });
+    const session = createTestSession(project, { model: 'finding4-fenced', providerId: hookedProvider.id });
+    sessions.update(session.id, { gitWorktree: '/tmp/finding4-test' });
+    conversations.ensureActiveConversation(session.id);
+
+    // Fail AFTER the hook suspension point so the test can install a newer
+    // controller before the older turn's cleanup runs. A naive cleanup that
+    // clears unconditionally would erase the replacement and fail this test.
+    mockedCreateAgent.mockImplementationOnce(() => {
+      throw new Error('agent factory blew up');
+    });
+    let releaseHook;
+    const hookGate = new Promise((resolve) => { releaseHook = resolve; });
+    ensureWorktreeCommitAttributionHook.mockImplementationOnce(async () => {
+      await hookGate;
+    });
+    try {
+      const pending = continueSessionCore(session.id, 'hi', '/tmp/test', {
+        options: {}, callbacks: mockCallbacks,
+      });
+      for (let i = 0; i < 200 && !activeSessions.has(session.id); i += 1) {
+        await new Promise((resolve) => { setTimeout(resolve, 5); });
+      }
+      expect(activeSessions.has(session.id)).toBe(true);
+
+      // A newer turn claims the session while the older preparation waits.
+      const newerController = new AbortController();
+      activeSessions.set(session.id, {
+        controller: newerController, turnStartedAt: Date.now(), lastEventAt: Date.now(),
+      });
+      releaseHook();
+
+      await expect(pending).rejects.toThrow('agent factory blew up');
+
+      // The older turn's cleanup must not erase the replacement's entry.
+      expect(activeSessions.get(session.id)?.controller).toBe(newerController);
+      activeSessions.delete(session.id);
+    } finally {
+      ensureWorktreeCommitAttributionHook.mockReset();
+    }
+  });
+
+  it('fails an owned lane obligation instead of stranding it when preparation fails', async () => {
+    const tierRef = createCoolingTierRef();
+    await coolEveryMember();
+    try {
+      const session = createTestSession(project, {
+        model: 'finding4-model', providerId: provider.id, laneRunId: 'finding4-run',
+      });
+      conversations.ensureActiveConversation(session.id);
+
+      await expect(continueSessionCore(session.id, 'Scheduled follow-up', '/tmp/test', {
+        options: { model: tierRef }, callbacks: mockCallbacks,
+      })).rejects.toThrow(/currently healthy/);
+
+      const row = sessions.getById(session.id);
+      expect(row.status).toBe('error');
+      expect(row.ownWorkState).toBe('closed_failed');
+      expect(activeSessions.has(session.id)).toBe(false);
+    } finally {
+      await clearEveryCooldown();
+    }
+  });
+});
+
+// ── Explicit-selection dispatch candidate (finding 2) ───────────────────────
+// The cross-kind guard and the tier-switch dispatch must validate the SAME
+// concrete pair: the first HEALTHY member. On an established Claude session,
+// selecting a new tier ordered Claude → Codex while its Claude member cools
+// must raise CROSS_KIND_MODEL_SWITCH before dispatch — with no provider call
+// and no selection/snapshot mutation.
+describe('sessionContinuation — explicit-selection dispatch candidate (finding 2)', () => {
+  let project;
+  let claudeProvider;
+  let codexProvider;
+  let claudeCodexTierRef;
+  let codexClaudeTierRef;
+
+  beforeEach(() => {
+    capturedQueryParams = [];
+    capturedTierContexts = [];
+    capturedAgentTypes = [];
+    capturedAgentCallMetas = [];
+    workflowMock.laneRunOwnsSession = true;
+    vi.clearAllMocks();
+    activeSessions.clear();
+    activeConversationIds.clear();
+
+    project = projects.create('Finding2 Project', '/tmp/finding2-test');
+    claudeProvider = modelProviders.create({ name: 'Finding2 Claude', kind: 'anthropic' });
+    modelProviders.addModel(claudeProvider.id, { modelId: 'finding2-claude', displayName: 'F2 Claude' });
+    codexProvider = modelProviders.create({ name: 'Finding2 Codex', kind: 'openai' });
+    modelProviders.addModel(codexProvider.id, { modelId: 'finding2-codex', displayName: 'F2 Codex' });
+
+    const claudeFirst = modelTiers.create({
+      name: 'Finding2 Claude-Codex Tier',
+      members: [
+        { providerId: claudeProvider.id, modelId: 'finding2-claude', position: 0 },
+        { providerId: codexProvider.id, modelId: 'finding2-codex', position: 1 },
+      ],
+    });
+    claudeCodexTierRef = buildTierRef(claudeFirst.id);
+    const codexFirst = modelTiers.create({
+      name: 'Finding2 Codex-Claude Tier',
+      members: [
+        { providerId: codexProvider.id, modelId: 'finding2-codex', position: 0 },
+        { providerId: claudeProvider.id, modelId: 'finding2-claude', position: 1 },
+      ],
+    });
+    codexClaudeTierRef = buildTierRef(codexFirst.id);
+  });
+
+  function coolClaude() {
+    markUnhealthy(claudeProvider.id, 'finding2-claude', 60_000);
+  }
+
+  function coolCodex() {
+    markUnhealthy(codexProvider.id, 'finding2-codex', 60_000);
+  }
+
+  function clearCooldowns() {
+    clearUnhealthy(claudeProvider.id, 'finding2-claude');
+    clearUnhealthy(codexProvider.id, 'finding2-codex');
+  }
+
+  // An established session: it already produced assistant output, so its
+  // agent kind is locked by the cross-kind guard.
+  function createEstablishedSession(projectRow, overrides = {}) {
+    const session = sessions.create(projectRow.id, 'Established session', 'Initial prompt', 'standard');
+    sessions.update(session.id, { status: 'waiting', ...overrides });
+    const conversation = conversations.ensureActiveConversation(session.id);
+    messages.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
+    messages.create(session.id, 'assistant', 'Hi there', { conversationId: conversation.id });
+    return sessions.getById(session.id);
+  }
+
+  it('rejects a new Claude→Codex tier whose Claude member is cooling down, with no dispatch or mutation', async () => {
+    await coolClaude();
+    try {
+      const session = createEstablishedSession(project, {
+        model: 'finding2-claude', providerId: claudeProvider.id, agentType: 'claude-code',
+      });
+
+      await expect(continueSessionCore(session.id, 'Switch tiers', '/tmp/test', {
+        options: { model: claudeCodexTierRef }, callbacks: mockCallbacks,
+      })).rejects.toThrow(/Cannot switch agent kind/);
+
+      // No provider dispatch happened.
+      expect(capturedQueryParams).toHaveLength(0);
+
+      // No selection or snapshot mutation.
+      const row = sessions.getById(session.id);
+      expect(row.model).toBe('finding2-claude');
+      expect(row.providerId).toBe(claudeProvider.id);
+      expect(row.resolvedModel ?? null).toBe(null);
+      expect(row.agentType).toBe('claude-code');
+
+      // Preparation-failure cleanup still applies.
+      expect(activeSessions.has(session.id)).toBe(false);
+    } finally {
+      await clearCooldowns();
+    }
+  });
+
+  it('continues on the same-kind dispatch candidate for the inverse member order', async () => {
+    await coolCodex();
+    try {
+      const session = createEstablishedSession(project, {
+        model: 'finding2-claude', providerId: claudeProvider.id, agentType: 'claude-code',
+      });
+
+      await continueSessionCore(session.id, 'Switch tiers', '/tmp/test', {
+        options: { model: codexClaudeTierRef }, callbacks: mockCallbacks,
+      });
+
+      expect(capturedQueryParams).toHaveLength(1);
+      expect(capturedQueryParams[0].options?.model).toBe('finding2-claude');
+      const row = sessions.getById(session.id);
+      expect(row.model).toBe(codexClaudeTierRef);
+      expect(row.resolvedModel).toBe('finding2-claude');
+    } finally {
+      await clearCooldowns();
+    }
+  });
+
+  it('rejects a scheduled pending selection that would dispatch cross-kind', async () => {
+    await coolClaude();
+    try {
+      const session = createEstablishedSession(project, {
+        model: 'finding2-claude', providerId: claudeProvider.id, agentType: 'claude-code',
+        pendingModel: claudeCodexTierRef, pendingProviderId: null,
+      });
+
+      // What the scheduler dispatches for an explicit pending selection.
+      await expect(continueSessionCore(session.id, 'Scheduled follow-up', '/tmp/test', {
+        options: { model: session.pendingModel, providerId: session.pendingProviderId },
+        callbacks: mockCallbacks,
+      })).rejects.toThrow(/Cannot switch agent kind/);
+
+      expect(capturedQueryParams).toHaveLength(0);
+      const row = sessions.getById(session.id);
+      expect(row.model).toBe('finding2-claude');
+      expect(activeSessions.has(session.id)).toBe(false);
+    } finally {
+      await clearCooldowns();
+    }
+  });
+
+  it('dispatches the newly stored snapshot when a follow-up echoes a re-bound tier (finding 1)', async () => {
+    // A session re-bound from tier High (member A) to tier Low (member B)
+    // carries Low's snapshot; a follow-up echoing Low must dispatch B,
+    // never the previous tier's member A.
+    const lowTier = modelTiers.create({
+      name: 'Finding1 Low Tier',
+      members: [{ providerId: claudeProvider.id, modelId: 'finding2-claude', position: 0 }],
+    });
+    const lowRef = buildTierRef(lowTier.id);
+    const session = createEstablishedSession(project, {
+      model: lowRef, resolvedModel: 'finding2-claude', resolvedProviderId: claudeProvider.id,
+      agentType: 'claude-code',
+    });
+
+    await continueSessionCore(session.id, 'Follow-up on Low', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    });
+
+    expect(capturedQueryParams).toHaveLength(1);
+    expect(capturedQueryParams[0].options?.model).toBe('finding2-claude');
+    expect(capturedQueryParams[0].options?.model).not.toBe('finding2-codex');
+  });
+
+  it('preserves an unchanged valid tier snapshot even when its member is cooling down', async () => {
+    const snapshotTier = modelTiers.create({
+      name: 'Finding2 Snapshot Tier',
+      members: [{ providerId: claudeProvider.id, modelId: 'finding2-claude', position: 0 }],
+    });
+    const snapshotRef = buildTierRef(snapshotTier.id);
+    await coolClaude();
+    try {
+      const session = createEstablishedSession(project, {
+        model: snapshotRef, resolvedModel: 'finding2-claude', resolvedProviderId: claudeProvider.id,
+        agentType: 'claude-code',
+      });
+
+      await continueSessionCore(session.id, 'Follow-up', '/tmp/test', {
+        options: {}, callbacks: mockCallbacks,
+      });
+
+      // Pinned continuations stay cooldown-independent.
+      expect(capturedQueryParams).toHaveLength(1);
+      expect(capturedQueryParams[0].options?.model).toBe('finding2-claude');
+      const row = sessions.getById(session.id);
+      expect(row.model).toBe(snapshotRef);
+      expect(row.resolvedModel).toBe('finding2-claude');
+    } finally {
+      await clearCooldowns();
+    }
+  });
+});
+
+// ── Provider-only switch context (finding 9) ─────────────────────────────────
+// Resume eligibility and conversation-context replay must follow the previous
+// EXECUTED concrete (providerId, modelId) pair — not the model string alone.
+// A provider-only switch (same model id, different provider) starts a fresh
+// provider thread: the old resume handle is meaningless and history must be
+// replayed. The durable last-executed identity survives a provider-only PATCH
+// that rewrites the current binding.
+describe('sessionContinuation — provider-only switch context (finding 9)', () => {
+  let project;
+  let providerA;
+  let providerB;
+
+  const SHARED_MODEL = 'finding9-shared-model';
+
+  function resumeCapableAgent() {
+    return {
+      // eslint-disable-next-line require-yield -- captures dispatch params without emitting provider events
+      async *execute(queryParams) {
+        capturedQueryParams.push(queryParams);
+      },
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+  }
+
+  beforeEach(() => {
+    capturedQueryParams = [];
+    capturedTierContexts = [];
+    capturedAgentTypes = [];
+    capturedAgentCallMetas = [];
+    workflowMock.laneRunOwnsSession = true;
+    vi.clearAllMocks();
+    activeSessions.clear();
+    activeConversationIds.clear();
+
+    project = projects.create('Finding9 Project', '/tmp/finding9-test');
+    providerA = modelProviders.create({ name: 'Finding9 Provider A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Finding9 Provider B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: SHARED_MODEL, displayName: 'Shared' });
+    modelProviders.addModel(providerB.id, { modelId: SHARED_MODEL, displayName: 'Shared' });
+  });
+
+  function createExecutedSession({ model = SHARED_MODEL, providerId = providerA.id } = {}) {
+    const session = sessions.create(project.id, 'Executed session', 'Initial prompt', 'standard');
+    sessions.update(session.id, {
+      status: 'waiting', model, providerId, agentType: 'claude-code',
+    });
+    const conversation = conversations.ensureActiveConversation(session.id);
+    conversations.update(conversation.id, { claudeSessionId: 'resume-handle-9' });
+    messages.create(session.id, 'user', 'Original question', { conversationId: conversation.id });
+    messages.create(session.id, 'assistant', 'Original answer', { conversationId: conversation.id });
+    return sessions.getById(session.id);
+  }
+
+  it('drops resume and replays context on an explicit provider-only switch', async () => {
+    const { createAgentForSession: mockedCreateAgent } = await import('./sessionExecution.js');
+    mockedCreateAgent.mockImplementationOnce(resumeCapableAgent);
+    const session = createExecutedSession();
+
+    await continueSessionCore(session.id, 'Follow-up', '/tmp/test', {
+      options: { model: SHARED_MODEL, providerId: providerB.id }, callbacks: mockCallbacks,
+    });
+
+    expect(capturedQueryParams).toHaveLength(1);
+    const [params] = capturedQueryParams;
+    expect(params.options?.model).toBe(SHARED_MODEL);
+    // Same model string, different provider: no resume, history replayed.
+    expect(params.options?.resume ?? null).toBe(null);
+    expect(params.prompt).toContain('Original answer');
+    // The new executed identity is recorded durably.
+    const row = sessions.getById(session.id);
+    expect(row.lastExecutedModel).toBe(SHARED_MODEL);
+    expect(row.lastExecutedProviderId).toBe(providerB.id);
+  });
+
+  it('detects the switch after a provider-only PATCH rewrote the binding', async () => {
+    const { createAgentForSession: mockedCreateAgent } = await import('./sessionExecution.js');
+    mockedCreateAgent.mockImplementationOnce(resumeCapableAgent);
+    const session = createExecutedSession();
+    // What a provider-only PATCH leaves behind: the binding now names B while
+    // the durable last-executed identity still names the A turn that ran.
+    sessions.update(session.id, {
+      providerId: providerB.id, lastExecutedModel: SHARED_MODEL, lastExecutedProviderId: providerA.id,
+    });
+
+    await continueSessionCore(session.id, 'Follow-up after PATCH', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    });
+
+    expect(capturedQueryParams).toHaveLength(1);
+    const [params] = capturedQueryParams;
+    expect(params.options?.resume ?? null).toBe(null);
+    expect(params.prompt).toContain('Original answer');
+    const row = sessions.getById(session.id);
+    expect(row.lastExecutedModel).toBe(SHARED_MODEL);
+    expect(row.lastExecutedProviderId).toBe(providerB.id);
+  });
+
+  it('keeps resume and skips replay when distinct tiers resolve to the same concrete pair', async () => {
+    const { createAgentForSession: mockedCreateAgent } = await import('./sessionExecution.js');
+    mockedCreateAgent.mockImplementationOnce(resumeCapableAgent);
+    const highTier = modelTiers.create({
+      name: 'Finding9 High Tier',
+      members: [{ providerId: providerA.id, modelId: SHARED_MODEL, position: 0 }],
+    });
+    const lowTier = modelTiers.create({
+      name: 'Finding9 Low Tier',
+      members: [{ providerId: providerA.id, modelId: SHARED_MODEL, position: 0 }],
+    });
+    const session = createExecutedSession({
+      model: buildTierRef(highTier.id), providerId: null,
+    });
+    sessions.update(session.id, {
+      resolvedModel: SHARED_MODEL, resolvedProviderId: providerA.id,
+      lastExecutedModel: SHARED_MODEL, lastExecutedProviderId: providerA.id,
+    });
+
+    await continueSessionCore(session.id, 'Follow-up on Low', '/tmp/test', {
+      options: { model: buildTierRef(lowTier.id) }, callbacks: mockCallbacks,
+    });
+
+    expect(capturedQueryParams).toHaveLength(1);
+    const [params] = capturedQueryParams;
+    // Same executed pair: the provider thread is still valid.
+    expect(params.options?.resume).toBe('resume-handle-9');
+    expect(params.prompt).not.toContain('Original answer');
+  });
+
+  it('preserves resume/context state on model-less initialization', async () => {
+    const { createAgentForSession: mockedCreateAgent } = await import('./sessionExecution.js');
+    mockedCreateAgent.mockImplementationOnce(resumeCapableAgent);
+    // A lane on-enter worker created model-less: adopting the first binding
+    // establishes the thread rather than switching it.
+    const session = sessions.create(project.id, 'Model-less session', 'Initial prompt', 'standard');
+    sessions.update(session.id, { status: 'waiting', model: null, providerId: null });
+
+    await continueSessionCore(session.id, 'First turn', '/tmp/test', {
+      options: { model: SHARED_MODEL, providerId: providerA.id }, callbacks: mockCallbacks,
+    });
+
+    expect(capturedQueryParams).toHaveLength(1);
+    const [params] = capturedQueryParams;
+    expect(params.options?.model).toBe(SHARED_MODEL);
+    expect(params.prompt).not.toContain('Original answer');
+  });
+
+  it('treats an unknowable previous identity conservatively on older records', async () => {
+    const { createAgentForSession: mockedCreateAgent } = await import('./sessionExecution.js');
+    mockedCreateAgent.mockImplementationOnce(resumeCapableAgent);
+    const legacyTier = modelTiers.create({
+      name: 'Finding9 Legacy Tier',
+      members: [{ providerId: providerA.id, modelId: SHARED_MODEL, position: 0 }],
+    });
+    // Legacy tier-bound row: executed before, but no snapshot and no
+    // last-executed identity were ever recorded.
+    const session = createExecutedSession({
+      model: buildTierRef(legacyTier.id), providerId: null,
+    });
+    sessions.update(session.id, { resolvedModel: null, resolvedProviderId: null });
+
+    await continueSessionCore(session.id, 'Follow-up', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    });
+
+    expect(capturedQueryParams).toHaveLength(1);
+    const [params] = capturedQueryParams;
+    expect(params.options?.resume ?? null).toBe(null);
+    expect(params.prompt).toContain('Original answer');
   });
 });

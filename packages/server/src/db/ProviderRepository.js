@@ -3,15 +3,24 @@ import { databaseManager } from './DatabaseManager.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { normalizeCommitAttributionOverride } from '@circuschief/shared/contracts/providers';
 import { degradeReferencesToEmptiedTiers } from '../services/tierDeletionService.js';
+import { repairConcreteProviderReferences } from '../services/tierProviderRepair.js';
+import {
+  validateBuiltInUpdate,
+  validateKindImmutable,
+  buildUpdateColumns,
+  removesProviderEligibility,
+  removesModelEligibility,
+} from './providerMutationHelpers.js';
 import * as modelOps from './providerModelOperations.js';
 
 /**
  * Valid values for `providers.kind`. Maps 1:1 to an agent adapter:
- *   - 'anthropic' ��� 'claude-code'
+ *   - 'anthropic' → 'claude-code'
  *   - 'openai'    → 'codex'
  *   - 'google'    → 'gemini'
+ *   - 'meta'      → 'muse'
  */
-export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai', 'google']);
+export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai', 'google', 'meta']);
 
 /**
  * Model tier aliases handled directly by the Claude SDK. These are matched
@@ -28,73 +37,8 @@ export const AGENT_TYPE_BY_KIND = Object.freeze({
   anthropic: 'claude-code',
   openai: 'codex',
   google: 'gemini',
+  meta: 'muse',
 });
-
-const BUILT_IN_MUTABLE_FIELDS = Object.freeze(['commitAttributionOverride', 'enabled']);
-
-const UPDATE_COLUMN_BUILDERS = Object.freeze({
-  name: (value) => ['name = ?', value],
-  baseUrl: (value) => ['base_url = ?', value],
-  authToken: (value) => ['auth_token = ?', encrypt(value)],
-  apiTimeoutMs: (value) => ['api_timeout_ms = ?', value],
-  additionalEnvVars: (value) => [
-    'additional_env_vars = ?',
-    value ? JSON.stringify(value) : null,
-  ],
-  commitAttributionOverride: (value) => [
-    'commit_attribution_override = ?',
-    normalizeCommitAttributionOverride(value),
-  ],
-  enabled: (value) => ['enabled = ?', value ? 1 : 0],
-});
-
-function validateBuiltInUpdate(provider, data) {
-  if (!provider.isBuiltIn) return;
-
-  const unsupportedFields = Object.keys(data || {}).filter(
-    (key) => !BUILT_IN_MUTABLE_FIELDS.includes(key)
-  );
-  if (unsupportedFields.length > 0) {
-    throw new Error(
-      `Built-in providers can only update: ${BUILT_IN_MUTABLE_FIELDS.join(', ')}. Rejected fields: ${unsupportedFields.join(', ')}.`
-    );
-  }
-}
-
-function validateKindImmutable(data) {
-  if (!data || !Object.prototype.hasOwnProperty.call(data, 'kind')) return;
-
-  throw new Error(
-    "Provider kind is immutable after create. Delete and recreate the provider to change kind."
-  );
-}
-
-function buildUpdateColumns(data = {}) {
-  return Object.entries(UPDATE_COLUMN_BUILDERS).reduce((result, [field, buildColumn]) => {
-    if (data[field] === undefined) return result;
-
-    const [update, value] = buildColumn(data[field]);
-    result.updates.push(update);
-    result.values.push(value);
-    return result;
-  }, { updates: [], values: [] });
-}
-
-/**
- * A mutation can make a previously executable tier member ineligible. Keep
- * this decision next to the repository boundary so delete, rename, and
- * disable all use the same transactional degradation pipeline.
- */
-function removesProviderEligibility(provider, data) {
-  return data.enabled === false && provider.enabled !== false;
-}
-
-function removesModelEligibility(model, data) {
-  return (
-    (data.modelId !== undefined && data.modelId !== model.modelId) ||
-    (data.enabled === false && model.enabled !== false)
-  );
-}
 
 /**
  * Provider repository class (replaces ModelProviderRepository).
@@ -286,26 +230,36 @@ export class ProviderRepository extends BaseRepository {
    * @param {string} id
    * @throws {Error} If attempting to delete a built-in provider or non-existent provider
    */
-  delete(id) {
-    this.#requireDeletableProvider(id);
-
-    databaseManager.transaction(() => {
+  // Shared transactional deletion core (finding 8): repair dependent concrete
+  // (model, providerId) pairs BEFORE the provider row goes away — upgraded
+  // NO ACTION foreign keys would fail the delete otherwise — then delete the
+  // row (cascading its tier members) and run the existing emptied-tier
+  // degradation after the cascade. Repair facts come first so notifications
+  // read in dependency order; callers publish only after commit.
+  #deleteProviderAndRepair(id) {
+    return databaseManager.transaction(() => {
+      const repair = repairConcreteProviderReferences(databaseManager.get(), id, Date.now());
       super.delete(id);
-      degradeReferencesToEmptiedTiers();
+      const tierSweep = degradeReferencesToEmptiedTiers();
+      return repair ? [repair, ...tierSweep] : tierSweep;
     });
   }
 
+  delete(id) {
+    this.#requireDeletableProvider(id);
+
+    this.#deleteProviderAndRepair(id);
+  }
+
   /**
-   * Delete a provider and return the committed tier-reference repair facts for
-   * the API layer to publish. Kept separate from `delete` so internal cleanup
+   * Delete a provider and return the committed reference-repair facts for
+   * the API layer to publish: the concrete-pair repair first, then the
+   * tier-reference sweep. Kept separate from `delete` so internal cleanup
    * callers remain transport-agnostic.
    */
   deleteWithDegradation(id) {
     this.#requireDeletableProvider(id);
-    return databaseManager.transaction(() => {
-      super.delete(id);
-      return degradeReferencesToEmptiedTiers();
-    });
+    return this.#deleteProviderAndRepair(id);
   }
 
   /**

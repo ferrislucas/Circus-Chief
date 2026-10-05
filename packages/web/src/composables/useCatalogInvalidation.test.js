@@ -45,11 +45,15 @@ describe('useCatalogInvalidation', () => {
     expect(mockProvidersStore.fetchProviders).not.toHaveBeenCalled();
   });
 
-  it('refetches only providers for a providers-scoped invalidation', () => {
+  it('refetches providers AND tiers for a providers-scoped invalidation', () => {
+    // Tier availability derives from provider/model eligibility, so a
+    // providers-scoped invalidation must refresh the tier catalog too —
+    // otherwise another client's selectors keep offering a tier whose last
+    // usable model was just disabled or removed.
     emit({ scope: 'providers', revision: 1 });
 
     expect(mockProvidersStore.fetchProviders).toHaveBeenCalledTimes(1);
-    expect(mockTiersStore.fetchTiers).not.toHaveBeenCalled();
+    expect(mockTiersStore.fetchTiers).toHaveBeenCalledTimes(1);
   });
 
   it('ignores duplicate revisions (idempotent delivery)', () => {
@@ -72,5 +76,6 @@ describe('useCatalogInvalidation', () => {
     emit({ scope: 'providers', revision: 4 });
 
     expect(mockProvidersStore.fetchProviders).toHaveBeenCalledTimes(2);
+    expect(mockTiersStore.fetchTiers).toHaveBeenCalledTimes(2);
   });
 });

@@ -18,7 +18,8 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 }));
 
 
-import { buildAgentEnv, buildQueryParams, createAgentForSession } from './sessionExecution.js';
+import { buildAgentEnv, buildQueryParams, createAgentForSession, resolveInitialSessionModelEnv } from './sessionExecution.js';
+import { TierIdentityError } from './tierIdentity.js';
 import { continueSession, runSession, continueSessionWithExistingMessage } from './sessionManager.js';
 import * as sessionProvider from './sessionProvider.js';
 import * as gitService from './gitService.js';
@@ -162,6 +163,43 @@ describe('buildQueryParams', () => {
     const result = buildQueryParams(args);
 
     expect(result.options.effortLevel).toBeNull();
+  });
+
+  it('builds Muse query options with model, effort, approval mode, and resume', () => {
+    const args = {
+      ...baseArgs(),
+      agentType: 'muse',
+      model: 'muse-spark-1.3',
+      session: { mode: 'yolo', projectId: 'proj-1', effortLevel: 'max' },
+      resumeSessionId: 'msp-session-9',
+    };
+
+    const result = buildQueryParams(args);
+
+    expect(result.prompt).toBe('Hello');
+    expect(result.options.cwd).toBe('/tmp/test');
+    expect(result.options.model).toBe('muse-spark-1.3');
+    expect(result.options.effortLevel).toBe('max');
+    expect(result.options.approvalMode).toBe('allowAll');
+    expect(result.options.resume).toBe('msp-session-9');
+    expect(result.options.permissionMode).toBeUndefined();
+    expect(result.options.settingSources).toBeUndefined();
+    expect(result.options.sandboxMode).toBeUndefined();
+    expect(result.options.spawnClaudeCodeProcess).toBeUndefined();
+  });
+
+  it('omits resume from Muse query options when resumeSessionId is null', () => {
+    const args = {
+      ...baseArgs(),
+      agentType: 'muse',
+      model: 'muse-spark-1.3',
+      resumeSessionId: null,
+    };
+
+    const result = buildQueryParams(args);
+
+    expect(result.options.resume).toBeUndefined();
+    expect(result.options.approvalMode).toBe('onRequest');
   });
 
   it('omits Claude attribution settings when override is null', () => {
@@ -455,6 +493,19 @@ describe('runSessionCore model fallback', () => {
     expect(queryParams.options.model).toBe('claude-sonnet-4-20250514');
   });
 
+  it('records the durable last-executed identity for the dispatched pair (finding 9)', async () => {
+    const startProvider = modelProviders.create({ name: 'Start Pin Provider', kind: 'anthropic' });
+    modelProviders.addModel(startProvider.id, { modelId: 'finding9-start-model', displayName: 'Start' });
+    sessionRepo.update(session.id, { model: 'finding9-start-model', providerId: startProvider.id });
+
+    await runSession(session.id, 'Initial prompt', tempDir, {});
+
+    expect(mockQuery).toHaveBeenCalled();
+    const row = sessionRepo.getById(session.id);
+    expect(row.lastExecutedModel).toBe('finding9-start-model');
+    expect(row.lastExecutedProviderId).toBe(startProvider.id);
+  });
+
   it('uses explicit model when provided', async () => {
     await runSession(session.id, 'Initial prompt', tempDir, { model: 'claude-opus-4-20250514' });
 
@@ -729,6 +780,33 @@ describe('buildQueryParams agent-aware', () => {
     const args = { ...baseArgs(), agentType: 'gemini', model: 'gemini-2.5-pro' };
     const result = buildQueryParams(args);
     expect(result.options.model).toBe('gemini-2.5-flash');
+  });
+
+  it('muse: systemPrompt is a composed prompt with canvas and session API instructions', () => {
+    const args = { ...baseArgs(), agentType: 'muse', model: 'muse-spark-1.3', systemPrompt: null };
+    const result = buildQueryParams(args);
+    expect(typeof result.options.systemPrompt).toBe('string');
+    expect(result.options.systemPrompt).toContain('AI coding assistant');
+    expect(result.options.systemPrompt).toContain('/api/workspaces/sess-1/canvas');
+    expect(result.options.systemPrompt).toContain('Session Management API');
+  });
+
+  it('muse: systemPrompt is composed with custom prompt as base', () => {
+    const args = { ...baseArgs(), agentType: 'muse', model: 'muse-spark-1.3', systemPrompt: 'be helpful' };
+    const result = buildQueryParams(args);
+    expect(result.options.systemPrompt).toContain('be helpful');
+    expect(result.options.systemPrompt).toContain('/api/workspaces/sess-1/canvas');
+  });
+
+  it('muse: composed systemPrompt includes plan mode when session.mode is plan', () => {
+    const args = {
+      ...baseArgs(),
+      agentType: 'muse',
+      model: 'muse-spark-1.3',
+      session: { mode: 'plan', projectId: 'proj-1' },
+    };
+    const result = buildQueryParams(args);
+    expect(result.options.systemPrompt).toContain('Plan Mode Active');
   });
 });
 
@@ -1146,5 +1224,76 @@ describe('commit attribution hook installation guard', () => {
     await runSession(session.id, 'test', tempDir);
 
     expect(hookSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ── Strict startup validation for tier-bound attempts (finding 5) ───────────
+// A frozen tier member is validated as an exact (providerId, modelId) identity
+// at the startup attempt boundary: a deleted/disabled provider or a
+// removed/renamed model rejects with TierIdentityError instead of falling
+// back to another provider owning the same model id or to SDK defaults.
+// Legacy model-id lookup stays scoped to concrete non-tier bindings.
+describe('resolveInitialSessionModelEnv tier-attempt ownership (finding 5)', () => {
+  let providerA;
+  let providerB;
+
+  const DUP_MODEL = 'finding5-dup-model';
+  const SOLO_MODEL = 'finding5-solo-model';
+
+  function tierSession() {
+    return {
+      id: 'finding5-session',
+      thinkingEnabled: true,
+      effortLevel: null,
+      gitWorktree: null,
+      model: 'tier::finding5-tier',
+      providerId: null,
+    };
+  }
+
+  function concreteSession() {
+    return { ...tierSession(), model: null };
+  }
+
+  beforeEach(() => {
+    providerA = modelProviders.create({ name: 'Finding5 A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Finding5 B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: DUP_MODEL, displayName: 'Dup' });
+    modelProviders.addModel(providerB.id, { modelId: DUP_MODEL, displayName: 'Dup' });
+    modelProviders.addModel(providerA.id, { modelId: SOLO_MODEL, displayName: 'Solo' });
+  });
+
+  it('rejects a tier-bound pair whose provider is disabled', async () => {
+    modelProviders.update(providerB.id, { enabled: false });
+    try {
+      await expect(resolveInitialSessionModelEnv(tierSession(), DUP_MODEL, providerB.id))
+        .rejects.toThrow(TierIdentityError);
+    } finally {
+      modelProviders.update(providerB.id, { enabled: true });
+    }
+  });
+
+  it('rejects a tier-bound pair whose model row was removed from its provider', async () => {
+    const row = modelProviders.addModel(providerB.id, { modelId: 'finding5-doomed', displayName: 'Doomed' });
+    modelProviders.removeModel(row.id);
+    await expect(resolveInitialSessionModelEnv(tierSession(), 'finding5-doomed', providerB.id))
+      .rejects.toThrow(TierIdentityError);
+  });
+
+  it('rejects a tier-bound pair naming a provider that does not own the model', async () => {
+    // SOLO_MODEL lives on providerA only — pinning it to providerB must not
+    // silently resolve providerA (or SDK defaults) instead.
+    await expect(resolveInitialSessionModelEnv(tierSession(), SOLO_MODEL, providerB.id))
+      .rejects.toThrow(TierIdentityError);
+  });
+
+  it('resolves a tier-bound valid pair from its exact owner', async () => {
+    const env = await resolveInitialSessionModelEnv(tierSession(), SOLO_MODEL, providerA.id);
+    expect(env.effectiveModel).toBe(SOLO_MODEL);
+  });
+
+  it('keeps the legacy model-id fallback for concrete non-tier bindings', async () => {
+    const env = await resolveInitialSessionModelEnv(concreteSession(), DUP_MODEL, null);
+    expect(env.effectiveModel).toBe(DUP_MODEL);
   });
 });

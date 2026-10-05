@@ -14,7 +14,7 @@ import { createLaneRunForEntry, attachRootSession, getRun } from './workflowSess
 import { modelProviders, modelTiers } from '../database.js';
 import { buildTierRef } from '@circuschief/shared';
 import { markUnhealthy } from './tierResolutionService.js';
-import { activeSessions } from './streamEventHandler.js';
+import { activeSessions } from './sessionExecutionOwnership.js';
 
 /**
  * W4 (FRD: Kanban Lane-Run Structured Completion, FR-9, AC-7/AC-8): proves
