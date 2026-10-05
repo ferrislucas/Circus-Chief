@@ -15,9 +15,9 @@
         class="tier-failover-history__entry"
       >
         <span class="tier-failover-history__route">
-          {{ modelLabel(failover.metadata?.fromProviderId, failover.metadata?.fromModel) }}
+          {{ modelLabel(failover.metadata?.fromProviderId, failover.metadata?.fromModel, failover.metadata?.tierName) }}
           <span aria-hidden="true">→</span>
-          {{ modelLabel(failover.metadata?.toProviderId, failover.metadata?.toModel) }}
+          {{ modelLabel(failover.metadata?.toProviderId, failover.metadata?.toModel, failover.metadata?.tierName) }}
         </span>
         <span class="tier-failover-history__tier">
           Tier: {{ failover.metadata?.tierName || 'Model tier' }}
@@ -35,6 +35,8 @@ import { onUnmounted, ref, watch } from 'vue';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { api } from '../composables/useApi.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
+import { useProvidersStore } from '../stores/providers.js';
+import { formatFailoverModelLabel } from '../utils/failoverLabels.js';
 
 const props = defineProps({
   sessionId: {
@@ -47,9 +49,20 @@ const failovers = ref([]);
 let requestVersion = 0;
 const { on, off } = useWebSocket();
 
-function modelLabel(providerId, modelId) {
-  if (providerId && modelId) return `${providerId}/${modelId}`;
-  return modelId || providerId || 'Unknown model';
+// The providers store may be unavailable when this component is mounted
+// without Pinia (unit tests); fall back to raw ids in that case.
+let providersStore = null;
+try {
+  providersStore = useProvidersStore();
+} catch {
+  providersStore = null;
+}
+
+function modelLabel(providerId, modelId, tierName) {
+  return formatFailoverModelLabel(
+    { providerId, modelId, tierName },
+    (id) => providersStore?.getById?.(id)?.name ?? id,
+  );
 }
 
 async function loadFailovers() {

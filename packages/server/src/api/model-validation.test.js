@@ -339,6 +339,15 @@ describe('resolveTierWriteError', () => {
     });
   });
 
+  it('does not report member-table races as name conflicts', () => {
+    expect(resolveTierWriteError(
+      new Error('UNIQUE constraint failed: model_tier_members.tier_id, model_tier_members.position'),
+    )).toEqual({
+      status: 500,
+      message: 'Failed to update tier members due to a conflicting change; please retry',
+    });
+  });
+
   it('maps unknown errors to 500', () => {
     expect(resolveTierWriteError(new Error('boom'))).toEqual({ status: 500, message: 'boom' });
   });

@@ -1,4 +1,5 @@
 import { modelProviders } from '../database.js';
+import { isTierRef } from '@circuschief/shared';
 
 /**
  * Typed identity failures for an exact `{ providerId, modelId }` pair.
@@ -83,6 +84,27 @@ export function validateExactTierMember(providerId, modelId) {
  */
 export function isExactTierMemberValid(providerId, modelId) {
   return describeIdentityProblem(providerId, modelId) === null;
+}
+
+/**
+ * Fail-closed guard for the standard start path: a `tier::` reference must
+ * be resolved to a concrete member (via `_runTierBoundSession`) before
+ * standard provider resolution. Throws a {@link TierIdentityError} when a
+ * sentinel leaks through instead of letting it fall through to null/
+ * SDK-default resolution, provider dispatch, or `lastExecutedModel`.
+ *
+ * @param {string|null} effectiveModel
+ * @param {string|null} [providerId]
+ * @throws {TierIdentityError}
+ */
+export function assertConcreteStartModel(effectiveModel, providerId = null) {
+  if (!isTierRef(effectiveModel)) return;
+  throw new TierIdentityError({
+    code: TIER_IDENTITY_ERROR_CODES.MODEL_MISSING,
+    providerId,
+    modelId: effectiveModel,
+    detail: `Tier reference "${effectiveModel}" reached the standard start path; resolve it to a concrete tier member first.`,
+  });
 }
 
 function identityErrorDetail(code, providerId, modelId) {

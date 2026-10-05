@@ -170,7 +170,15 @@ function validateTierMemberAvailability(member) {
 export function resolveTierWriteError(error) {
   if (error?.statusCode) return { status: error.statusCode, message: error.message };
   if (error?.message?.includes('UNIQUE constraint failed')) {
-    return { status: 409, message: 'A tier with that name already exists' };
+    // SQLite names the table/columns in the message: only a model_tiers.name
+    // violation is a name conflict. model_tier_members carries its own
+    // UNIQUE(tier_id, provider_id, model_id) and UNIQUE(tier_id, position),
+    // so those failures are concurrent member-add/reorder races, not
+    // duplicate tier names.
+    if (error.message.includes('model_tiers.name')) {
+      return { status: 409, message: 'A tier with that name already exists' };
+    }
+    return { status: 500, message: 'Failed to update tier members due to a conflicting change; please retry' };
   }
   return { status: 500, message: error?.message };
 }

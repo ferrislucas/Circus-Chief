@@ -275,7 +275,7 @@
             <SelectionConflictBanner
               :visible="selectionGuard.showBanner && automationType === 'prompt'"
               :problem="selectionGuard.problem"
-              conflict-text=""
+              conflict-text="This lane's entry automation changed elsewhere while you were editing. Your edits are preserved."
               @use-canonical="clearStaleOnEnterSelection"
               @keep-mine="selectionGuard.keepMine"
             />

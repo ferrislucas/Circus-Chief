@@ -1296,4 +1296,14 @@ describe('resolveInitialSessionModelEnv tier-attempt ownership (finding 5)', () 
     const env = await resolveInitialSessionModelEnv(concreteSession(), DUP_MODEL, null);
     expect(env.effectiveModel).toBe(DUP_MODEL);
   });
+
+  it('fail-closed rejects a tier ref that reaches the standard start path', async () => {
+    // A `tier::` sentinel must be resolved to a concrete member via
+    // _runTierBoundSession — never dispatched with provider null/SDK
+    // defaults, and never persisted to lastExecutedModel.
+    await expect(resolveInitialSessionModelEnv(tierSession(), 'tier::finding5-tier', null))
+      .rejects.toThrow(TierIdentityError);
+    await expect(resolveInitialSessionModelEnv(tierSession(), null))
+      .rejects.toThrow(TierIdentityError);
+  });
 });

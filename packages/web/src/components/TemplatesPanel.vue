@@ -94,7 +94,7 @@
           <SelectionConflictBanner
             :visible="selectionGuard.showBanner"
             :problem="selectionGuard.problem"
-            conflict-text=""
+            conflict-text="This template changed elsewhere while you were editing. Your edits are preserved."
             @use-canonical="clearStaleSelection"
             @keep-mine="selectionGuard.keepMine"
           />

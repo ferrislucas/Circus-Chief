@@ -11,6 +11,7 @@ import {
 } from './streamEventHandler.js';
 import { shouldRescheduleOnError, _checkProactiveReschedule } from './sessionErrors.js';
 import { isTierRef } from '@circuschief/shared';
+import { assertConcreteStartModel } from './tierIdentity.js';
 import { runSessionWithTierFailover, hasResolvableTierMembers } from './sessionTierFailover.js';
 import { shouldRethrowForTierFailover, reportTierMemberFailureHealth } from './tierFailureHealth.js';
 import { applyStaleTierFallback } from './sessionStaleTierFallback.js';
@@ -99,6 +100,10 @@ function resolveLegacyStartProvider(effectiveModel, providerHint) {
 }
 
 function resolveStartProvider(session, effectiveModel, providerHint) {
+  // Fail closed: a tier ref must resolve to a concrete member via
+  // _runTierBoundSession first — the raw `tier::` sentinel must never reach
+  // provider dispatch or lastExecutedModel.
+  assertConcreteStartModel(effectiveModel, providerHint ?? session?.providerId ?? null);
   if (session && isTierRef(session.model) && effectiveModel && !isTierRef(effectiveModel)) {
     return resolveTierAttemptOwner(effectiveModel, providerHint);
   }

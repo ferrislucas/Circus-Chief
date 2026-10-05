@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
+import { createPinia, setActivePinia } from 'pinia';
 import TierFailoverHistory from './TierFailoverHistory.vue';
+import { useProvidersStore } from '../stores/providers.js';
 
 const getSessionAgentCalls = vi.hoisted(() => vi.fn());
 const websocketHandlers = vi.hoisted(() => new Map());
@@ -83,6 +85,54 @@ describe('TierFailoverHistory', () => {
 
     expect(wrapper.text()).toContain('New reason');
     expect(wrapper.text()).not.toContain('Old reason');
+  });
+
+  it('resolves provider ids to display names when the providers store is loaded', async () => {
+    setActivePinia(createPinia());
+    useProvidersStore().providers = [{ id: 'uuid-openai-1', name: 'OpenAI' }];
+    getSessionAgentCalls.mockResolvedValue([
+      {
+        id: 'failover-uuid',
+        callType: 'tierFailover',
+        metadata: {
+          fromProviderId: 'uuid-openai-1',
+          fromModel: 'gpt-5',
+          toProviderId: 'uuid-openai-1',
+          toModel: 'gpt-5.5',
+          tierName: 'Reliable tier',
+          reason: 'Rate limit reached',
+        },
+      },
+    ]);
+
+    const wrapper = mount(TierFailoverHistory, { props: { sessionId: 'uuid-session' } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('OpenAI/gpt-5.5');
+    expect(wrapper.text()).not.toContain('uuid-openai-1');
+  });
+
+  it('renders stale tier refs as tier names instead of raw sentinels', async () => {
+    getSessionAgentCalls.mockResolvedValue([
+      {
+        id: 'failover-stale',
+        callType: 'tierFailover',
+        metadata: {
+          fromProviderId: null,
+          fromModel: 'tier::abc123',
+          toProviderId: 'openai',
+          toModel: 'gpt-5',
+          tierName: 'High',
+          reason: 'Stale tier binding',
+        },
+      },
+    ]);
+
+    const wrapper = mount(TierFailoverHistory, { props: { sessionId: 'stale-session' } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Tier: High');
+    expect(wrapper.text()).not.toContain('tier::abc123');
   });
 
   it('reloads persisted history when a live tier failover arrives for the session', async () => {
