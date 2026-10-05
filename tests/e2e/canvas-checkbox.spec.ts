@@ -53,8 +53,11 @@ test.describe('Canvas Markdown Task Checkboxes', () => {
     const body = await res.json();
     expect(body.content).toBe('- [x] task one\n- [x] task two');
 
-    // State persists across reload
+    // State persists across reload. Reload refetches the item list (metadata
+    // only) plus the item content before the viewer renders, so wait for the
+    // markdown viewer first with extra headroom for parallel-run load.
     await page.reload();
+    await expect(page.locator('.canvas-file-viewer .viewer-markdown')).toBeVisible({ timeout: 30000 });
     await expect(page.locator('input[data-task-line="0"]')).toBeChecked({ timeout: 10000 });
   });
 });
