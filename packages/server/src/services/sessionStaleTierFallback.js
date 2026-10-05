@@ -152,14 +152,22 @@ export function resolveTierRefForContinueWithStaleFallback(sessionId, session, r
  * @param {{ model: string|null, providerId: string|null }} dispatchedPair -
  *   Concrete pair about to be dispatched.
  */
-export function notifyOwnBindingFallback(session, requestedModel, dispatchedPair) {
-  if (!session || !isTierRef(session.model)) return;
-  if (requestedModel != null && requestedModel !== session.model) return;
-  if (session.resolvedModel) return;
+function resolveFallbackNoticeParties(session, requestedModel, dispatchedPair) {
+  if (!session || !isTierRef(session.model)) return null;
+  if (requestedModel != null && requestedModel !== session.model) return null;
+  if (session.resolvedModel) return null;
   const prev = resolvePreviousExecutedPair(session);
-  if (!prev?.model || !dispatchedPair?.model) return;
-  if (prev.model === dispatchedPair.model
-    && (prev.providerId ?? null) === (dispatchedPair.providerId ?? null)) return;
+  if (!prev?.model || !dispatchedPair?.model) return null;
+  const samePair = prev.model === dispatchedPair.model
+    && (prev.providerId ?? null) === (dispatchedPair.providerId ?? null);
+  if (samePair) return null;
+  return { prev };
+}
+
+export function notifyOwnBindingFallback(session, requestedModel, dispatchedPair) {
+  const parties = resolveFallbackNoticeParties(session, requestedModel, dispatchedPair);
+  if (!parties) return;
+  const { prev } = parties;
   const tierRef = session.model;
   const reason = `Previously pinned member "${prev.model}" is no longer available — continuing on "${dispatchedPair.model}"`;
   const payload = {
