@@ -1,4 +1,4 @@
-import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
+import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS, MUSE_MODELS } from '@circuschief/shared';
 
 export const BUILT_IN_ANTHROPIC_PROVIDER = {
   id: 'anthropic-default',
@@ -20,6 +20,12 @@ export const BUILT_IN_GOOGLE_PROVIDER = {
   kind: 'google',
 };
 
+export const BUILT_IN_META_PROVIDER = {
+  id: 'meta-default',
+  name: 'Meta (Official)',
+  kind: 'meta',
+};
+
 export const BUILT_IN_ANTHROPIC_MODELS = CLAUDE_MODELS.map((model) => ({
   id: model.seedId, providerId: BUILT_IN_ANTHROPIC_PROVIDER.id,
   modelId: model.id, displayName: model.name, description: model.description, tier: model.tier,
@@ -37,6 +43,15 @@ export const BUILT_IN_OPENAI_MODELS = OPENAI_MODELS.map((model) => ({
 export const BUILT_IN_GOOGLE_MODELS = GEMINI_MODELS.map((model) => ({
   id: model.seedId,
   providerId: BUILT_IN_GOOGLE_PROVIDER.id,
+  modelId: model.id,
+  displayName: model.name,
+  description: model.description,
+  tier: 'custom',
+}));
+
+export const BUILT_IN_META_MODELS = MUSE_MODELS.map((model) => ({
+  id: model.seedId,
+  providerId: BUILT_IN_META_PROVIDER.id,
   modelId: model.id,
   displayName: model.name,
   description: model.description,
@@ -74,13 +89,14 @@ function seedBuiltInProviders(db) {
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
 
-  // Note: Google provider and models are NOT seeded here because seedBaselineData
-  // runs before migrations. On existing databases the providers table still has
-  // CHECK(kind IN ('anthropic','openai')), so an INSERT with kind='google' would
-  // be silently ignored by INSERT OR IGNORE, and the subsequent model inserts
-  // would fail with a FOREIGN KEY constraint. The 'providers-seed-built-in-google'
-  // migration handles seeding Google for both fresh and existing databases after
-  // the 'providers-widen-kind-check-google' migration has widened the CHECK constraint.
+  // Note: Google and Meta providers and models are NOT seeded here because
+  // seedBaselineData runs before migrations. On existing databases the
+  // providers table still has an older CHECK(kind IN (...)) without the newer
+  // kinds, so an INSERT with kind='google'/'meta' would be silently ignored by
+  // INSERT OR IGNORE, and the subsequent model inserts would fail with a
+  // FOREIGN KEY constraint. The 'providers-seed-built-in-google' and
+  // 'providers-seed-built-in-meta' migrations handle seeding for both fresh
+  // and existing databases after their widen-kind-check migrations run.
   for (const model of [...BUILT_IN_ANTHROPIC_MODELS, ...BUILT_IN_OPENAI_MODELS]) {
     insertModel.run(model.id, model.providerId, model.modelId, model.displayName, model.description, model.tier, now);
   }

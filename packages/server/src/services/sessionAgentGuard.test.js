@@ -36,6 +36,11 @@ describe('sessionAgentGuard', () => {
     it('includes a label for gemini', () => {
       expect(AGENT_TYPE_LABELS.gemini).toBe('Gemini');
     });
+
+    it('includes a label for muse', () => {
+      expect(AGENT_TYPE_LABELS.muse).toBe('Muse');
+      expect(agentLabel('muse')).toBe('Muse');
+    });
   });
 
   describe('checkCrossKindSwitch', () => {

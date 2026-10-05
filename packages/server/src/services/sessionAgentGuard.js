@@ -6,6 +6,7 @@ export const AGENT_TYPE_LABELS = Object.freeze({
   'claude-code': 'Claude Code',
   codex: 'Codex',
   gemini: 'Gemini',
+  muse: 'Muse',
 });
 
 /**

@@ -5,6 +5,8 @@ import { createGeminiSpawner } from './geminiSpawnHelper.js';
 export function buildAgentConfig(agentType) {
   if (agentType === 'codex') return { spawnCodexProcess: createCodexSpawner() };
   if (agentType === 'gemini') return { spawnGeminiProcess: createGeminiSpawner() };
+  // Muse spawns `muse exec` directly; no spawner injection needed in production.
+  if (agentType === 'muse') return {};
   return {};
 }
 

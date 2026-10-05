@@ -4,6 +4,7 @@ import { agentCallLogger } from './agentCallLogger.js';
 import { buildProviderEnv } from './sessionProvider.js';
 import { BUILT_IN_OPENAI_PROVIDER_ID, resolveSummaryModel } from './summaryModelResolver.js';
 import { callCodexSummary } from './summaryCodexClient.js';
+import { callMuseSummary } from './summaryMuseClient.js';
 
 export { SESSION_SUMMARY_SCHEMA };
 
@@ -11,6 +12,9 @@ export async function callSummaryModel(prompt, recentMessages, sessionStatus, op
   const resolution = options.resolvedModel || resolveSummaryModel(options.summarySettings || {});
   if (isBuiltInCodexResolution(resolution)) {
     return callBuiltInCodexSummary(prompt, resolution, options);
+  }
+  if (resolution.kind === 'meta') {
+    return callMuseSummaryModel(prompt, resolution, options);
   }
   if (resolution.kind === 'openai') {
     return callOpenAISummaryModel(prompt, resolution, options);
@@ -39,6 +43,29 @@ export function isBuiltInCodexResolution(resolution) {
   return resolution?.providerId === BUILT_IN_OPENAI_PROVIDER_ID
     && resolution?.provider?.isBuiltIn === true
     && resolution?.kind === 'openai';
+}
+
+export function isMuseResolution(resolution) {
+  return resolution?.kind === 'meta';
+}
+
+async function callMuseSummaryModel(prompt, resolution, options) {
+  const callId = startOpenAISummaryLog(options.logMeta, resolution, prompt.length, 'muse-cli');
+  try {
+    const result = await callMuseSummary({
+      prompt,
+      systemPrompt: options.systemPrompt,
+      model: resolution.model,
+      jsonSchema: options.jsonSchema || SESSION_SUMMARY_SCHEMA,
+      ...(options.cwd ? { cwd: options.cwd } : {}),
+      ...(options.workingDirectory ? { workingDirectory: options.workingDirectory } : {}),
+    }, options.museDependencies);
+    if (callId) agentCallLogger.completeCall(callId, { success: true });
+    return result;
+  } catch (error) {
+    if (callId) agentCallLogger.completeCall(callId, { success: false, error });
+    throw error;
+  }
 }
 
 function callAnthropicSummaryModel({ prompt, recentMessages, sessionStatus, resolution, options }) {

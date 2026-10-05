@@ -298,6 +298,16 @@ describe('Sessions API - workflow summary routes', () => {
     expect(res.body.error).toContain('codex login');
   });
 
+  it('returns the Muse remediation error as an actionable 422', async () => {
+    summaryService.regenerateSummary.mockRejectedValueOnce(Object.assign(new Error('Muse is not authenticated.'), {
+      isMuseSummaryError: true,
+      publicMessage: 'Muse is not authenticated. Run `muse auth` and try again.',
+    }));
+    const res = await request(app).post(`/api/sessions/${child.id}/summary`);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain('muse auth');
+  });
+
   it('preserves meaningful non-Codex summary failures as 500 responses', async () => {
     summaryService.regenerateSummary.mockRejectedValueOnce(new Error('Custom OpenAI provider rejected the request'));
     const res = await request(app).post(`/api/sessions/${child.id}/summary`);

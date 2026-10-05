@@ -36,6 +36,22 @@ describe('summaryModelResolver', () => {
     });
   });
 
+  it('resolves an explicit built-in Muse model to the meta provider', () => {
+    const provider = modelProviders.getById('meta-default');
+    const resolved = resolveSummaryModel({
+      summaryModel: provider.models[0].modelId,
+      summaryProviderId: 'meta-default',
+    });
+
+    expect(resolved).toMatchObject({
+      model: provider.models[0].modelId,
+      kind: 'meta',
+      providerId: 'meta-default',
+      isDefault: false,
+      selectionReason: 'explicit',
+    });
+  });
+
   it('prefers provider id for duplicate explicit model ids', () => {
     const provider = modelProviders.create({
       name: 'Summary Resolver OpenAI',

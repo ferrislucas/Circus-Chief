@@ -1,17 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { nextTick, defineComponent } from 'vue';
+import { nextTick } from 'vue';
 import { setActivePinia, createPinia } from 'pinia';
 
-vi.mock('md-editor-v3', () => ({
-  MdEditor: defineComponent({
-    name: 'MdEditor',
-    props: ['modelValue', 'theme', 'preview', 'language', 'noUploadImg', 'showCodeRowNumber'],
-    emits: ['update:modelValue'],
-    template: '<textarea class="mock-md-editor" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
-  }),
-}));
-vi.mock('md-editor-v3/lib/style.css', () => ({}));
+// The production component loads md-editor-v3 through defineAsyncComponent.
+// Replace that loader before MarkdownEditor is imported so this test never
+// starts CodeMirror (which requires browser range-layout APIs unavailable in
+// jsdom). Unlike mocking the dynamic import, this remains deterministic when
+// coverage changes module-loading timing.
+vi.mock('vue', async (importOriginal) => {
+  const vue = await importOriginal();
+  return {
+    ...vue,
+    defineAsyncComponent: () => ({
+      name: 'MdEditorAsync',
+      props: ['modelValue'],
+      emits: ['update:modelValue'],
+      template: '<textarea class="mock-md-editor" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+    }),
+  };
+});
 
 vi.mock('../stores/canvas.js', () => ({
   useCanvasStore: () => ({

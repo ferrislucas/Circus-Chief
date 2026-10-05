@@ -6,6 +6,7 @@
       <div class="mode-selector-wrapper">
         <ModeSelector
           :model-value="mode"
+          :agent-type="selectedModelInfo.agentType"
           @update:model-value="$emit('update:mode', $event)"
         />
       </div>

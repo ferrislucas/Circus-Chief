@@ -116,7 +116,9 @@ export async function _executeSession({
     // Run the query with the agent (SDK via gateway, or mock)
     for await (const event of agent.execute(providerQueryParams, agentCallMeta)) {
       if (controller.signal.aborted) break;
-      await handleStreamEvent(sessionId, event, { controller });
+      // Thread the turn's session env so tool-input/tool-output scrubbing
+      // (finding #1) can redact provider-supplied secret values.
+      await handleStreamEvent(sessionId, event, { controller, env: providerQueryParams?.options?.env });
     }
     if (controller.signal.aborted) {
       if (isUserStopAbort(controller)) {

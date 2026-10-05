@@ -261,6 +261,12 @@ export const allMigrations = validateMigrations([
   // --- Seed built-in Google provider + Gemini models ---
   pr.get('providers-seed-built-in-google'),
 
+  // --- Widen providers kind CHECK constraint to include 'meta' ---
+  pr.get('providers-widen-kind-check-meta'),
+
+  // --- Seed built-in Meta provider + Muse models ---
+  pr.get('providers-seed-built-in-meta'),
+
   // --- Update expired Gemini Flash Lite preview model to stable GA ---
   pr.get('providers-update-gemini-flash-lite-model'),
 

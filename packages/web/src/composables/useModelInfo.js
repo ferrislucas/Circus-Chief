@@ -1,4 +1,4 @@
-import { CLAUDE_MODELS, DEFAULT_MODEL, OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
+import { CLAUDE_MODELS, DEFAULT_MODEL, OPENAI_MODELS, GEMINI_MODELS, MUSE_MODELS } from '@circuschief/shared';
 import { useProvidersStore } from '../stores/providers.js';
 import { api } from './useApi.js';
 
@@ -87,6 +87,7 @@ function capabilitiesFor(agentType) {
 function agentTypeForProvider(provider) {
   if (provider?.kind === 'openai') return 'codex';
   if (provider?.kind === 'google') return 'gemini';
+  if (provider?.kind === 'meta') return 'muse';
   return 'claude-code';
 }
 
@@ -96,6 +97,9 @@ function resolveCatalogModel(modelId, provider) {
   }
   if (provider?.kind === 'google') {
     return GEMINI_MODELS.find((m) => m.id === modelId) || null;
+  }
+  if (provider?.kind === 'meta') {
+    return MUSE_MODELS.find((m) => m.id === modelId) || null;
   }
   if (!provider || agentTypeForProvider(provider) === 'claude-code') {
     return CLAUDE_MODELS.find((m) => m.id === modelId) || null;
