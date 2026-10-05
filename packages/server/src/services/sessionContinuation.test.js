@@ -1281,3 +1281,213 @@ describe('sessionContinuation — provider-only switch context (finding 9)', () 
     expect(params.prompt).toContain('Original answer');
   });
 });
+
+// ── Catalog-driven fallback cross-kind guard (review issue 1) ───────────────
+// When the pinned member A of a tier becomes unavailable in the catalog
+// (disabled / removed / renamed / provider deleted) while another member
+// survives, repairStaleSnapshots clears the session snapshot and the next
+// follow-up resolves a replacement live. That replacement must be validated
+// against the session's established agent kind BEFORE dispatch on every entry
+// point — including plain follow-ups that pass no explicit model (the
+// scheduled path). Same-kind replacements continue with context preserved;
+// cross-kind replacements raise CROSS_KIND_MODEL_SWITCH with no dispatch.
+describe('sessionContinuation — catalog-fallback cross-kind guard (issue 1)', () => {
+  let project;
+  let claudeProvider;
+  let codexProvider;
+  let claudeProviderB;
+  let crossKindTierRef;
+  let sameKindTierRef;
+
+  beforeEach(() => {
+    capturedQueryParams = [];
+    capturedTierContexts = [];
+    capturedAgentTypes = [];
+    capturedAgentCallMetas = [];
+    workflowMock.laneRunOwnsSession = true;
+    vi.clearAllMocks();
+    activeSessions.clear();
+    activeConversationIds.clear();
+
+    project = projects.create('Issue1 Project', '/tmp/issue1-test');
+    claudeProvider = modelProviders.create({ name: 'Issue1 Claude', kind: 'anthropic' });
+    modelProviders.addModel(claudeProvider.id, { modelId: 'issue1-claude', displayName: 'Issue1 Claude' });
+    codexProvider = modelProviders.create({ name: 'Issue1 Codex', kind: 'openai' });
+    modelProviders.addModel(codexProvider.id, { modelId: 'issue1-codex', displayName: 'Issue1 Codex' });
+    claudeProviderB = modelProviders.create({ name: 'Issue1 Claude B', kind: 'anthropic' });
+    modelProviders.addModel(claudeProviderB.id, { modelId: 'issue1-claude-b', displayName: 'Issue1 Claude B' });
+
+    crossKindTierRef = buildTierRef(modelTiers.create({
+      name: 'Issue1 Cross-Kind Tier',
+      members: [
+        { providerId: claudeProvider.id, modelId: 'issue1-claude', position: 0 },
+        { providerId: codexProvider.id, modelId: 'issue1-codex', position: 1 },
+      ],
+    }).id);
+    sameKindTierRef = buildTierRef(modelTiers.create({
+      name: 'Issue1 Same-Kind Tier',
+      members: [
+        { providerId: claudeProvider.id, modelId: 'issue1-claude', position: 0 },
+        { providerId: claudeProviderB.id, modelId: 'issue1-claude-b', position: 1 },
+      ],
+    }).id);
+  });
+
+  // An established session pinned to member A: it ran before (last-executed
+  // identity + snapshot) and produced assistant output, so its kind is locked.
+  function createPinnedSession(tierRef, snapshot) {
+    const session = sessions.create(project.id, 'Pinned session', 'Initial prompt', 'standard');
+    sessions.update(session.id, {
+      status: 'waiting',
+      model: tierRef,
+      providerId: null,
+      agentType: 'claude-code',
+      resolvedModel: snapshot.model,
+      resolvedProviderId: snapshot.providerId,
+      lastExecutedModel: snapshot.model,
+      lastExecutedProviderId: snapshot.providerId,
+    });
+    const conversation = conversations.ensureActiveConversation(session.id);
+    messages.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
+    messages.create(session.id, 'assistant', 'Hi there', { conversationId: conversation.id });
+    return sessions.getById(session.id);
+  }
+
+  function disableClaudeProvider() {
+    // Production path: disabling the provider runs the degradation sweep,
+    // which clears snapshots pinned to its members.
+    modelProviders.updateWithDegradation(claudeProvider.id, { enabled: false });
+  }
+
+  it('rejects a follow-up that would dispatch a cross-kind replacement with no explicit model', async () => {
+    const session = createPinnedSession(crossKindTierRef, {
+      model: 'issue1-claude', providerId: claudeProvider.id,
+    });
+    disableClaudeProvider();
+    expect(sessions.getById(session.id).resolvedModel ?? null).toBe(null);
+
+    await expect(continueSessionCore(session.id, 'Follow-up', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    })).rejects.toThrow(/Cannot switch agent kind/);
+
+    // No provider dispatch happened.
+    expect(capturedQueryParams).toHaveLength(0);
+    expect(capturedAgentTypes).toHaveLength(0);
+
+    // No selection, snapshot, or identity mutation.
+    const row = sessions.getById(session.id);
+    expect(row.model).toBe(crossKindTierRef);
+    expect(row.agentType).toBe('claude-code');
+    expect(row.resolvedModel ?? null).toBe(null);
+
+    // Preparation-failure cleanup still applies.
+    expect(activeSessions.has(session.id)).toBe(false);
+    expect(row.status).toBe('error');
+  });
+
+  it('continues a same-kind replacement with preserved context and a fallback notice', async () => {
+    const session = createPinnedSession(sameKindTierRef, {
+      model: 'issue1-claude', providerId: claudeProvider.id,
+    });
+    disableClaudeProvider();
+
+    await continueSessionCore(session.id, 'Follow-up', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    });
+
+    expect(capturedQueryParams).toHaveLength(1);
+    expect(capturedQueryParams[0].options?.model).toBe('issue1-claude-b');
+
+    // Snapshot backfilled to the replacement; binding untouched.
+    const row = sessions.getById(session.id);
+    expect(row.model).toBe(sameKindTierRef);
+    expect(row.resolvedModel).toBe('issue1-claude-b');
+    expect(row.resolvedProviderId).toBe(claudeProviderB.id);
+
+    // Visible fallback notice names the from → to models and the reason.
+    expect(broadcastToSession).toHaveBeenCalledWith(
+      session.id,
+      expect.stringMatching(/tier|failover/i),
+      expect.objectContaining({ fromModel: 'issue1-claude', toModel: 'issue1-claude-b' }),
+    );
+
+    // Conversation intact: prior assistant output preserved.
+    const roles = messages.getBySessionId(session.id).map((m) => m.role);
+    expect(roles).toContain('assistant');
+  });
+
+  it('rejects the cross-kind replacement when the pinned model was removed', async () => {
+    const session = createPinnedSession(crossKindTierRef, {
+      model: 'issue1-claude', providerId: claudeProvider.id,
+    });
+    // Remove the pinned model row via the production soft-remove path.
+    const stored = modelProviders.db
+      .prepare('SELECT id FROM provider_models WHERE provider_id = ? AND model_id = ? AND removed_at IS NULL')
+      .get(claudeProvider.id, 'issue1-claude');
+    modelProviders.removeModel(stored.id);
+
+    await expect(continueSessionCore(session.id, 'Follow-up', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    })).rejects.toThrow(/Cannot switch agent kind/);
+
+    expect(capturedQueryParams).toHaveLength(0);
+    expect(sessions.getById(session.id).agentType).toBe('claude-code');
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+
+  it('rejects the cross-kind replacement when the pinned model was renamed', async () => {
+    const session = createPinnedSession(crossKindTierRef, {
+      model: 'issue1-claude', providerId: claudeProvider.id,
+    });
+    const stored = modelProviders.db
+      .prepare('SELECT id FROM provider_models WHERE provider_id = ? AND model_id = ? AND removed_at IS NULL')
+      .get(claudeProvider.id, 'issue1-claude');
+    modelProviders.updateModelWithDegradation(stored.id, { modelId: 'issue1-claude-renamed' });
+
+    await expect(continueSessionCore(session.id, 'Follow-up', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    })).rejects.toThrow(/Cannot switch agent kind/);
+
+    expect(capturedQueryParams).toHaveLength(0);
+    expect(sessions.getById(session.id).agentType).toBe('claude-code');
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+
+  it('rejects the cross-kind replacement when the pinned provider was deleted', async () => {
+    const session = createPinnedSession(crossKindTierRef, {
+      model: 'issue1-claude', providerId: claudeProvider.id,
+    });
+    modelProviders.deleteWithDegradation(claudeProvider.id);
+
+    await expect(continueSessionCore(session.id, 'Follow-up', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    })).rejects.toThrow(/Cannot switch agent kind/);
+
+    expect(capturedQueryParams).toHaveLength(0);
+    expect(sessions.getById(session.id).agentType).toBe('claude-code');
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+
+  it('continues on A again when A is re-enabled after a rejected switch', async () => {
+    const session = createPinnedSession(crossKindTierRef, {
+      model: 'issue1-claude', providerId: claudeProvider.id,
+    });
+    disableClaudeProvider();
+
+    await expect(continueSessionCore(session.id, 'Follow-up', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    })).rejects.toThrow(/Cannot switch agent kind/);
+    expect(capturedQueryParams).toHaveLength(0);
+
+    modelProviders.updateWithDegradation(claudeProvider.id, { enabled: true });
+
+    await continueSessionCore(session.id, 'Follow-up again', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    });
+
+    expect(capturedQueryParams).toHaveLength(1);
+    expect(capturedQueryParams[0].options?.model).toBe('issue1-claude');
+    const row = sessions.getById(session.id);
+    expect(row.resolvedModel).toBe('issue1-claude');
+  });
+});

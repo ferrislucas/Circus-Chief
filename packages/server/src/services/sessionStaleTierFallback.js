@@ -2,6 +2,7 @@ import { sessions } from '../database.js';
 import { isTierRef, parseTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { broadcastToSession } from '../websocket.js';
 import { resolveTierRefForContinue } from './tierResolutionService.js';
+import { resolvePreviousExecutedPair } from './sessionAgentGuard.js';
 import { isExactTierMemberValid } from './tierIdentity.js';
 import { agentCallLogger } from './agentCallLogger.js';
 import { getTierName, hasResolvableTierMembers } from './sessionTierFailover.js';
@@ -129,4 +130,53 @@ export function resolveTierRefForContinueWithStaleFallback(sessionId, session, r
     };
   }
   return resolveTierRefForContinue(session, requestedModel, requestedProviderId);
+}
+
+/**
+ * Surface a visible fallback notice when a continuation silently moves off
+ * its previously executed member (review issue 1).
+ *
+ * Fires only for the session's own tier binding resolving live with no
+ * snapshot: the repair sweep cleared the pin because member A became
+ * unavailable, and resolution landed on a different pair B. Explicit new
+ * selections, snapshot-authoritative continuations, legacy rows with no known
+ * previous identity, and unresolved/server-default candidates stay silent —
+ * the first is a deliberate user choice, the rest are owned by their
+ * existing paths.
+ *
+ * Call with the PRE-update session row and the dispatched concrete pair, so
+ * the previous identity reflects what actually ran before.
+ *
+ * @param {Object} session - Current (pre-update) session row.
+ * @param {string|null} requestedModel - Explicit model override, or null.
+ * @param {{ model: string|null, providerId: string|null }} dispatchedPair -
+ *   Concrete pair about to be dispatched.
+ */
+export function notifyOwnBindingFallback(session, requestedModel, dispatchedPair) {
+  if (!session || !isTierRef(session.model)) return;
+  if (requestedModel != null && requestedModel !== session.model) return;
+  if (session.resolvedModel) return;
+  const prev = resolvePreviousExecutedPair(session);
+  if (!prev?.model || !dispatchedPair?.model) return;
+  if (prev.model === dispatchedPair.model
+    && (prev.providerId ?? null) === (dispatchedPair.providerId ?? null)) return;
+  const tierRef = session.model;
+  const reason = `Previously pinned member "${prev.model}" is no longer available — continuing on "${dispatchedPair.model}"`;
+  const payload = {
+    sessionId: session.id,
+    tierRef,
+    tierName: getTierName(parseTierRef(tierRef) || tierRef),
+    fromModel: prev.model,
+    fromProviderId: prev.providerId ?? null,
+    toModel: dispatchedPair.model,
+    toProviderId: dispatchedPair.providerId ?? null,
+    reason,
+    timestamp: Date.now(),
+  };
+  broadcastToSession(session.id, WS_MESSAGE_TYPES.TIER_FAILOVER, payload);
+  try {
+    agentCallLogger._logFailoverEvent(session.id, { ...payload, agentType: session.agentType || 'claude-code' });
+  } catch (_logErr) {
+    // Non-fatal — the continuation proceeds even if logging fails.
+  }
 }

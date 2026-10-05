@@ -2078,3 +2078,88 @@ describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
     });
   });
 });
+
+// Catalog-driven fallback on the scheduled path (review issue 1): a
+// follow-up with no explicit model whose snapshot was cleared by a catalog
+// change must validate the live-resolved replacement against the session's
+// established kind before dispatch — the scheduled entry point bypasses the
+// HTTP guard, so this is the only enforcement.
+describe('continueSessionWithExistingMessage — catalog-fallback cross-kind guard (issue 1)', () => {
+  let sessionRepo;
+  let messageRepo;
+  let conversationRepo;
+  let projectRepo;
+  let tempDir;
+  let project;
+  let claudeProvider;
+  let codexProvider;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    sessionRepo = new SessionRepository();
+    messageRepo = new MessageRepository();
+    conversationRepo = new ConversationRepository();
+    projectRepo = new ProjectRepository();
+
+    tempDir = mkdtempSync(join(tmpdir(), 'issue1-branch-test-'));
+    project = projectRepo.create('Issue1 Branch Project', tempDir);
+
+    claudeProvider = modelProviders.create({ name: 'Issue1 Branch Claude', kind: 'anthropic' });
+    modelProviders.addModel(claudeProvider.id, { modelId: 'issue1-branch-claude', displayName: 'Claude' });
+    codexProvider = modelProviders.create({ name: 'Issue1 Branch Codex', kind: 'openai' });
+    modelProviders.addModel(codexProvider.id, { modelId: 'issue1-branch-codex', displayName: 'Codex' });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a scheduled follow-up that would dispatch a cross-kind replacement', async () => {
+    const tier = modelTiers.create({
+      name: 'Issue1 Branch Tier',
+      members: [
+        { providerId: claudeProvider.id, modelId: 'issue1-branch-claude', position: 0 },
+        { providerId: codexProvider.id, modelId: 'issue1-branch-codex', position: 1 },
+      ],
+    });
+    const tierRef = buildTierRef(tier.id);
+
+    const session = sessionRepo.create(project.id, 'Pinned Branch Session', 'Initial prompt', 'standard');
+    sessionRepo.update(session.id, {
+      status: 'waiting',
+      model: tierRef,
+      agentType: 'claude-code',
+      resolvedModel: 'issue1-branch-claude',
+      resolvedProviderId: claudeProvider.id,
+      lastExecutedModel: 'issue1-branch-claude',
+      lastExecutedProviderId: claudeProvider.id,
+    });
+    const conversation = conversationRepo.create(session.id, 'Branch Conv');
+    messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
+    messageRepo.create(session.id, 'assistant', 'Hi there', { conversationId: conversation.id });
+
+    // Catalog change clears the snapshot via the production sweep.
+    modelProviders.updateWithDegradation(claudeProvider.id, { enabled: false });
+    expect(sessionRepo.getById(session.id).resolvedModel ?? null).toBe(null);
+
+    // Scheduled follow-up: no explicit model, pendingModel echoes nothing.
+    const queryCallsBefore = vi.mocked(query).mock.calls.length;
+    await expect(
+      continueSessionWithExistingMessage(session.id, conversation.id, tempDir)
+    ).rejects.toThrow(/Cannot switch agent kind/);
+
+    // No provider dispatch happened.
+    expect(vi.mocked(query).mock.calls.length).toBe(queryCallsBefore);
+
+    // Identity preserved; active state released.
+    const row = sessionRepo.getById(session.id);
+    expect(row.model).toBe(tierRef);
+    expect(row.agentType).toBe('claude-code');
+    expect(row.status).toBe('error');
+    expect(activeSessions.has(session.id)).toBe(false);
+    expect(activeConversationIds.has(session.id)).toBe(false);
+  });
+});

@@ -166,6 +166,61 @@ export function checkExplicitTierDispatchKind(session, sessionId, requestedModel
 }
 
 /**
+ * Validate a live-resolved replacement for the session's OWN tier binding
+ * against the established agent kind (review issue 1).
+ *
+ * When the pinned member A becomes unavailable in the catalog while another
+ * member survives, the repair sweep clears the snapshot and the next
+ * follow-up resolves replacement B live. Plain follow-ups pass no explicit
+ * model (the scheduled path always does), so `checkExplicitTierDispatchKind`
+ * never fires for them — without this check B would dispatch through A's
+ * locked adapter. Same-kind replacements pass; cross-kind replacements
+ * return the same block payload as the explicit-selection path.
+ *
+ * Only the own-binding live-resolution case is checked: explicit new
+ * selections and concrete overrides keep their existing validation paths,
+ * drafts reconcile their kind freely, unresolved/server-default candidates
+ * keep the legacy degradation behavior, and concrete (non-tier) sessions are
+ * untouched.
+ *
+ * @param {Object} session - Current session row (agentType + model).
+ * @param {string} sessionId - Session ID (for the established-session read).
+ * @param {string|null} requestedModel - Explicit model override, or null.
+ * @param {{ effectiveModel: string|null, providerIdHint: string|null }} candidate -
+ *   Resolved concrete pair about to be dispatched.
+ * @returns {{ error: string, message: string }|null} Block payload, or null.
+ */
+export function checkCatalogFallbackDispatchKind(session, sessionId, requestedModel, candidate) {
+  if (requestedModel != null) return null;
+  if (!session || !isTierRef(session.model)) return null;
+  if (sessionHasNoAssistantMessages(sessionId)) return null;
+  const model = candidate?.effectiveModel;
+  if (!model || isTierRef(model)) return null;
+  return checkCrossKindSwitch(session, model, candidate?.providerIdHint);
+}
+
+/**
+ * Single dispatch-preparation contract for both continuation paths: validate
+ * the resolved concrete candidate against the session's established kind,
+ * covering explicit tier selections (which may have shifted under cooldown
+ * since HTTP validation) and own-binding live resolutions after catalog
+ * changes (which never see the HTTP guard). Returns the first block payload,
+ * or null when the candidate may dispatch. Throws nothing; callers raise
+ * via {@link createCrossKindDispatchError} before any persistence.
+ *
+ * @param {Object} session - Current session row (agentType + model).
+ * @param {string} sessionId - Session ID (for the established-session read).
+ * @param {string|null} requestedModel - Explicit model override, or null.
+ * @param {{ effectiveModel: string|null, providerIdHint: string|null }} candidate -
+ *   Resolved concrete pair about to be dispatched.
+ * @returns {{ error: string, message: string }|null} Block payload, or null.
+ */
+export function checkContinuationDispatchKind(session, sessionId, requestedModel, candidate) {
+  return checkExplicitTierDispatchKind(session, sessionId, requestedModel, candidate)
+    ?? checkCatalogFallbackDispatchKind(session, sessionId, requestedModel, candidate);
+}
+
+/**
  * Build the dispatch-blocking error for an explicit tier selection whose
  * resolved candidate requires a different agent kind. Carries the same code
  * the HTTP guard reports so entry points and tests observe one contract.

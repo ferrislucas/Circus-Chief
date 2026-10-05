@@ -4,9 +4,9 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveDispatchProvider, buildSessionEnv } from './sessionProvider.js';
-import { resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
+import { notifyOwnBindingFallback, resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
 import { buildTierHealthContext } from './tierResolutionService.js';
-import { buildLastExecutedUpdate, checkExplicitTierDispatchKind, createCrossKindDispatchError, deriveAgentTypeUpdate, hasDispatchPairChanged } from './sessionAgentGuard.js';
+import { buildLastExecutedUpdate, checkContinuationDispatchKind, createCrossKindDispatchError, deriveAgentTypeUpdate, hasDispatchPairChanged } from './sessionAgentGuard.js';
 import { activeLaneRunOwnsSession, pauseForUserStop } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 import { clearedPendingSchedule } from './pendingSchedule.js';
@@ -261,9 +261,10 @@ function buildModelAndProvider(session, sessionId, model, providerId = null) {
   );
 
   // Enforce the cross-kind policy on the exact pair about to be dispatched —
-  // shared contract with `sessionContinuation.buildContinueModelAndEnv`.
+  // shared contract with `sessionContinuation.buildContinueModelAndEnv`
+  // (explicit selections and catalog-fallback live resolutions alike).
   // Throws before any persistence, agent construction, or dispatch.
-  const dispatchDrift = checkExplicitTierDispatchKind(session, sessionId, model, { effectiveModel, providerIdHint });
+  const dispatchDrift = checkContinuationDispatchKind(session, sessionId, model, { effectiveModel, providerIdHint });
   if (dispatchDrift) {
     throw createCrossKindDispatchError(dispatchDrift);
   }
@@ -274,6 +275,11 @@ function buildModelAndProvider(session, sessionId, model, providerId = null) {
   // The dispatched concrete pair, resolved through the single dispatch rule.
   const dispatchedProviderId = provider?.id ?? providerIdHint ?? null;
   const dispatchedPair = { model: effectiveModel, providerId: dispatchedProviderId };
+
+  // Visible fallback notice when the own binding silently moved off its
+  // previously executed member (review issue 1) — shared contract with
+  // `sessionContinuation.buildContinueModelAndEnv`.
+  notifyOwnBindingFallback(session, model, dispatchedPair);
 
   // A switch is determined from the previous EXECUTED concrete (providerId,
   // modelId) pair and the newly validated candidate — shared contract with

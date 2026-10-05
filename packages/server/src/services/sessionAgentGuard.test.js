@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
+  checkCatalogFallbackDispatchKind,
+  checkContinuationDispatchKind,
   checkCrossKindSwitch,
   resolveModelForAgentKind,
   agentLabel,
@@ -361,6 +363,92 @@ describe('sessionAgentGuard', () => {
         } finally {
           modelTiers.delete(singleTier.id);
         }
+      });
+    });
+
+    describe('catalog-fallback dispatch candidate (issue 1)', () => {
+      let tier;
+      let tierRef;
+
+      beforeEach(() => {
+        tier = modelTiers.create({
+          name: 'Guard Test Catalog Tier',
+          members: [
+            { providerId: anthropicProvider.id, modelId: 'claude-sonnet-guard', position: 0 },
+            { providerId: openaiProvider.id, modelId: 'gpt-4o-guard', position: 1 },
+          ],
+        });
+        tierRef = buildTierRef(tier.id);
+      });
+
+      afterEach(() => {
+        try { modelTiers.delete(tier.id); } catch { /* noop */ }
+      });
+
+      function createTierSession(withAssistantMessage) {
+        const row = sessions.create(project.id, 'Catalog Guard Session', 'prompt');
+        sessions.update(row.id, { model: tierRef, agentType: 'claude-code' });
+        if (withAssistantMessage) {
+          messages.create(row.id, 'user', 'hi');
+          messages.create(row.id, 'assistant', 'hello');
+        }
+        return sessions.getById(row.id);
+      }
+
+      it('returns null for a draft session even with a cross-kind candidate', () => {
+        const session = createTierSession(false);
+        const candidate = { effectiveModel: 'gpt-4o-guard', providerIdHint: openaiProvider.id };
+        expect(checkCatalogFallbackDispatchKind(session, session.id, null, candidate)).toBeNull();
+      });
+
+      it('returns null when an explicit model was requested', () => {
+        const session = createTierSession(true);
+        const candidate = { effectiveModel: 'gpt-4o-guard', providerIdHint: openaiProvider.id };
+        expect(checkCatalogFallbackDispatchKind(session, session.id, tierRef, candidate)).toBeNull();
+        expect(checkCatalogFallbackDispatchKind(session, session.id, 'gpt-4o-guard', candidate)).toBeNull();
+      });
+
+      it('returns null for a concrete (non-tier) session binding', () => {
+        const row = sessions.create(project.id, 'Concrete Session', 'prompt');
+        sessions.update(row.id, { model: 'claude-sonnet-guard', agentType: 'claude-code' });
+        messages.create(row.id, 'assistant', 'hello');
+        const session = sessions.getById(row.id);
+        const candidate = { effectiveModel: 'gpt-4o-guard', providerIdHint: openaiProvider.id };
+        expect(checkCatalogFallbackDispatchKind(session, session.id, null, candidate)).toBeNull();
+      });
+
+      it('returns null for a same-kind replacement on an established tier session', () => {
+        const session = createTierSession(true);
+        const candidate = { effectiveModel: 'claude-opus-guard', providerIdHint: anthropicProvider.id };
+        expect(checkCatalogFallbackDispatchKind(session, session.id, null, candidate)).toBeNull();
+      });
+
+      it('returns CROSS_KIND_MODEL_SWITCH for a cross-kind replacement with no explicit request', () => {
+        const session = createTierSession(true);
+        const candidate = { effectiveModel: 'gpt-4o-guard', providerIdHint: openaiProvider.id };
+        expect(checkCatalogFallbackDispatchKind(session, session.id, null, candidate)).toEqual({
+          error: 'CROSS_KIND_MODEL_SWITCH',
+          message: expect.stringContaining('Cannot switch agent kind'),
+        });
+      });
+
+      it('returns null for an unresolvable candidate (legacy degradation paths own it)', () => {
+        const session = createTierSession(true);
+        expect(checkCatalogFallbackDispatchKind(session, session.id, null, { effectiveModel: null, providerIdHint: null })).toBeNull();
+      });
+
+      it('checkContinuationDispatchKind covers explicit and catalog-fallback cases alike', () => {
+        const session = createTierSession(true);
+        const crossKind = { effectiveModel: 'gpt-4o-guard', providerIdHint: openaiProvider.id };
+        const sameKind = { effectiveModel: 'claude-opus-guard', providerIdHint: anthropicProvider.id };
+        // Explicit cross-kind tier selection.
+        expect(checkContinuationDispatchKind(session, session.id, tierRef, crossKind)?.error)
+          .toBe('CROSS_KIND_MODEL_SWITCH');
+        // Catalog-fallback cross-kind replacement with no request.
+        expect(checkContinuationDispatchKind(session, session.id, null, crossKind)?.error)
+          .toBe('CROSS_KIND_MODEL_SWITCH');
+        // Same-kind replacement passes.
+        expect(checkContinuationDispatchKind(session, session.id, null, sameKind)).toBeNull();
       });
     });
   });

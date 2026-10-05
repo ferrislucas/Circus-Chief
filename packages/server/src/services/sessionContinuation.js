@@ -1,6 +1,6 @@
 import { sessions, messages, attachments, conversations } from '../database.js';
 import { resolveDispatchProvider, buildSessionEnv } from './sessionProvider.js';
-import { buildLastExecutedUpdate, checkExplicitTierDispatchKind, createCrossKindDispatchError, deriveAgentTypeUpdate, hasDispatchPairChanged } from './sessionAgentGuard.js';
+import { buildLastExecutedUpdate, checkContinuationDispatchKind, createCrossKindDispatchError, deriveAgentTypeUpdate, hasDispatchPairChanged } from './sessionAgentGuard.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
@@ -10,7 +10,7 @@ import { activeConversationIds, broadcastSessionStatus } from './streamEventHand
 import { claimSessionExecution, createExecutionConflictError, getSessionExecutionConflict } from './sessionExecutionOwnership.js';
 import { buildPromptWithAttachments } from './sessionPrompts.js';
 import { createAgentForSession, buildAgentEnv, _executeSession, handlePreparationFailure } from './sessionExecution.js';
-import { resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
+import { notifyOwnBindingFallback, resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
 import { buildTierHealthContext } from './tierResolutionService.js';
 import { activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
@@ -93,7 +93,11 @@ function buildContinueModelAndEnv(session, sessionId, model, providerId = null) 
   // not the pair the API guard saw. Cooldown can shift the resolved member
   // between HTTP validation and execution, and scheduled continuations bypass
   // the HTTP guard entirely. Throws before any persistence or dispatch.
-  const dispatchDrift = checkExplicitTierDispatchKind(session, sessionId, model, { effectiveModel, providerIdHint });
+  // Enforce the cross-kind policy on the exact pair about to be dispatched:
+  // explicit tier selections and own-binding live resolutions after catalog
+  // changes (review issue 1) share one contract. Throws before any
+  // persistence or dispatch.
+  const dispatchDrift = checkContinuationDispatchKind(session, sessionId, model, { effectiveModel, providerIdHint });
   if (dispatchDrift) {
     throw createCrossKindDispatchError(dispatchDrift);
   }
@@ -112,6 +116,11 @@ function buildContinueModelAndEnv(session, sessionId, model, providerId = null) 
   // The dispatched concrete pair, resolved through the single dispatch rule.
   const dispatchedProviderId = provider?.id ?? providerIdHint ?? null;
   const dispatchedPair = { model: effectiveModel, providerId: dispatchedProviderId };
+
+  // Visible fallback notice when the own binding silently moved off its
+  // previously executed member (review issue 1). Uses the pre-update row so
+  // the previous identity reflects what actually ran before.
+  notifyOwnBindingFallback(session, model, dispatchedPair);
 
   // A switch is determined from the previous EXECUTED concrete (providerId,
   // modelId) pair and the newly validated candidate — not the model string or
