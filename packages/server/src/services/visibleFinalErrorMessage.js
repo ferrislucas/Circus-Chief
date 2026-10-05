@@ -26,6 +26,9 @@ function buildVisibleErrorContent(agentType, errorMessage) {
   if (agentType === 'claude-code') {
     return `Claude Code failed before completing this turn:\n\n${errorMessage}`;
   }
+  if (agentType === 'muse') {
+    return `Muse failed before completing this turn:\n\n${errorMessage}`;
+  }
   return `The agent failed before completing this turn:\n\n${errorMessage}`;
 }
 

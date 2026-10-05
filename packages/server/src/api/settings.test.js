@@ -109,6 +109,43 @@ describe('Settings API', { timeout: 30_000 }, () => {
       });
     });
 
+    it('accepts a meta provider/model pair for Muse summaries', async () => {
+      const provider = modelProviders.getById('meta-default');
+      const model = provider.models[0].modelId;
+
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: model,
+          summaryProviderId: provider.id,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        summaryModel: model,
+        summaryProviderId: provider.id,
+      });
+    });
+
+    it('rejects google provider kind for summaries', async () => {
+      const provider = modelProviders.getById('google-default');
+      const model = provider.models[0].modelId;
+
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: model,
+          summaryProviderId: provider.id,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Unsupported summary provider kind: google');
+    });
+
     it('rejects provider/model ownership mismatches', async () => {
       const res = await request(app)
         .put('/api/settings/summary')
