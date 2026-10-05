@@ -103,7 +103,7 @@ function validatePrUrl(value) {
  * Field definitions for PATCH /:id with optional validators and transforms.
  * Each entry maps a request body field name to its processing config.
  */
-const FIELD_DEFINITIONS = [
+export const FIELD_DEFINITIONS = [
   { field: 'name' },
   { field: 'manuallyNamed', transform: Boolean },
   { field: 'thinkingEnabled', transform: Boolean },
