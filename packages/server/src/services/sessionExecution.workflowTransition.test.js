@@ -32,7 +32,7 @@ import { KanbanBoardRepository } from '../db/KanbanBoardRepository.js';
 import { KanbanLaneRepository } from '../db/KanbanLaneRepository.js';
 import { KanbanCardRepository } from '../db/KanbanCardRepository.js';
 import { createLaneRunForEntry, attachRootSession, getRun, markHeldForLimit, supersedeRunForCard } from './workflowSessionService.js';
-import { activeSessions } from './streamEventHandler.js';
+import { activeSessions } from './sessionExecutionOwnership.js';
 import { routeWorkspaceCard } from './kanbanService.js';
 import { abortForUserStop } from './sessionAbort.js';
 

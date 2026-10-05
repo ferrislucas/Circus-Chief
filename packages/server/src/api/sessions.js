@@ -20,6 +20,7 @@ import messagesRouter from './sessions-messages.js';
 import draftRouter from './sessions-draft.js';
 import promptsRouter from './sessions-prompts.js';
 import { hasPendingPrompt } from '../services/promptStore.js';
+import { isSessionStopping } from '../services/sessionExecutionOwnership.js';
 
 const router = Router();
 
@@ -173,7 +174,11 @@ router.get('/:id', requireSession, (req, res) => {
 
   const latestCommandRuns = Object.values(runsByButton);
 
-  res.json({ ...req.session_, pendingAgentInput: hasPendingPrompt(req.params.id), hasResponses, latestCommandRuns });
+  // `stopping` is derived live from execution ownership (not the persisted
+  // status, which reads `stopped` as soon as Stop is requested): it tells the
+  // UI that the previous provider turn is still shutting down and Continue is
+  // temporarily unavailable.
+  res.json({ ...req.session_, pendingAgentInput: hasPendingPrompt(req.params.id), hasResponses, latestCommandRuns, stopping: isSessionStopping(req.params.id) });
 });
 
 // GET /api/sessions/:id/changes - Get git changes for session

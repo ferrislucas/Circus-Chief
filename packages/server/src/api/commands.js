@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { sessions, projects } from '../database.js';
 import * as slashCommandService from '../services/slashCommandService.js';
 import { continueSession } from '../services/sessionManager.js';
+import { getSessionExecutionConflict } from '../services/sessionExecutionOwnership.js';
 
 const router = Router();
 
@@ -144,6 +145,17 @@ router.post('/:name/execute', async (req, res) => {
         error: `Session is not ready for commands. Current status: ${session.status}`,
       });
     }
+
+  // A persisted `stopped` row may still be owned by a shutting-down provider
+  // turn; starting a second turn here would resume the same native session.
+  const executionConflict = getSessionExecutionConflict(sessionId);
+  if (executionConflict) {
+    return res.status(409).json({
+      error: executionConflict.message,
+      code: executionConflict.code,
+      executionPhase: executionConflict.phase,
+    });
+  }
 
   try {
     // Check if this is a skill — skills need special handling

@@ -10,8 +10,8 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as diffService from '../services/diffService.js';
 import * as gitService from '../services/gitService.js';
+import { activeSessions } from '../services/sessionExecutionOwnership.js';
 import {
-  activeSessions,
   handleTurnCompletion,
 } from '../services/streamEventHandler.js';
 import { captureScheduleWakeup, __resetWakeupTurnStatesForTest } from '../services/scheduleWakeupBridge.js';
