@@ -183,13 +183,19 @@ describe('commandRunOutputResource', () => {
     run.outputHighWater = appended.length;
 
     await expect(appendCommandRunOutputResource({ workingDirectory, runId: run.id, chunks: appended })).resolves.toBe(true);
-    expect(await readFile(join(workingDirectory, descriptor.path))).toEqual(Buffer.concat([exactWindow, justOverWindow, substantiallyLarge, subsequent]));
+    // NOTE: use Buffer.equals instead of toEqual here: vitest's structural
+    // equality serializes both ~656 KiB buffers (~2.4s each), which pushes
+    // this test past the default timeout under coverage. equals() is the
+    // same byte-for-byte check in ~1ms.
+    expect((await readFile(join(workingDirectory, descriptor.path))).equals(
+      Buffer.concat([exactWindow, justOverWindow, substantiallyLarge, subsequent]),
+    )).toBe(true);
     await expect(appendCommandRunOutputResource({
       workingDirectory, runId: run.id, chunks: [{ sequence: 5, content: Buffer.from('later output\n') }],
     })).resolves.toBe(true);
-    expect(await readFile(join(workingDirectory, descriptor.path))).toEqual(Buffer.concat([
+    expect((await readFile(join(workingDirectory, descriptor.path))).equals(Buffer.concat([
       exactWindow, justOverWindow, substantiallyLarge, subsequent, Buffer.from('later output\n'),
-    ]));
+    ]))).toBe(true);
   });
 
   it('surfaces a partial live-write failure and reconciles the artifact from persisted chunks', async () => {

@@ -176,6 +176,43 @@ describe('buildQueryParams', () => {
     expect(result.options.providerId).toBe('configured-openai-provider');
   });
 
+  it('builds Muse query options with model, effort, approval mode, and resume', () => {
+    const args = {
+      ...baseArgs(),
+      agentType: 'muse',
+      model: 'muse-spark-1.3',
+      session: { mode: 'yolo', projectId: 'proj-1', effortLevel: 'max' },
+      resumeSessionId: 'msp-session-9',
+    };
+
+    const result = buildQueryParams(args);
+
+    expect(result.prompt).toBe('Hello');
+    expect(result.options.cwd).toBe('/tmp/test');
+    expect(result.options.model).toBe('muse-spark-1.3');
+    expect(result.options.effortLevel).toBe('max');
+    expect(result.options.approvalMode).toBe('allowAll');
+    expect(result.options.resume).toBe('msp-session-9');
+    expect(result.options.permissionMode).toBeUndefined();
+    expect(result.options.settingSources).toBeUndefined();
+    expect(result.options.sandboxMode).toBeUndefined();
+    expect(result.options.spawnClaudeCodeProcess).toBeUndefined();
+  });
+
+  it('omits resume from Muse query options when resumeSessionId is null', () => {
+    const args = {
+      ...baseArgs(),
+      agentType: 'muse',
+      model: 'muse-spark-1.3',
+      resumeSessionId: null,
+    };
+
+    const result = buildQueryParams(args);
+
+    expect(result.options.resume).toBeUndefined();
+    expect(result.options.approvalMode).toBe('onRequest');
+  });
+
   it('omits Claude attribution settings when override is null', () => {
     const result = buildQueryParams({ ...baseArgs(), commitAttributionOverride: null });
     expect(result.options.extraArgs).toBeUndefined();
@@ -727,6 +764,33 @@ describe('buildQueryParams agent-aware', () => {
     const args = { ...baseArgs(), agentType: 'gemini', model: 'gemini-2.5-pro' };
     const result = buildQueryParams(args);
     expect(result.options.model).toBe('gemini-2.5-flash');
+  });
+
+  it('muse: systemPrompt is a composed prompt with canvas and session API instructions', () => {
+    const args = { ...baseArgs(), agentType: 'muse', model: 'muse-spark-1.3', systemPrompt: null };
+    const result = buildQueryParams(args);
+    expect(typeof result.options.systemPrompt).toBe('string');
+    expect(result.options.systemPrompt).toContain('AI coding assistant');
+    expect(result.options.systemPrompt).toContain('/api/workspaces/sess-1/canvas');
+    expect(result.options.systemPrompt).toContain('Session Management API');
+  });
+
+  it('muse: systemPrompt is composed with custom prompt as base', () => {
+    const args = { ...baseArgs(), agentType: 'muse', model: 'muse-spark-1.3', systemPrompt: 'be helpful' };
+    const result = buildQueryParams(args);
+    expect(result.options.systemPrompt).toContain('be helpful');
+    expect(result.options.systemPrompt).toContain('/api/workspaces/sess-1/canvas');
+  });
+
+  it('muse: composed systemPrompt includes plan mode when session.mode is plan', () => {
+    const args = {
+      ...baseArgs(),
+      agentType: 'muse',
+      model: 'muse-spark-1.3',
+      session: { mode: 'plan', projectId: 'proj-1' },
+    };
+    const result = buildQueryParams(args);
+    expect(result.options.systemPrompt).toContain('Plan Mode Active');
   });
 });
 

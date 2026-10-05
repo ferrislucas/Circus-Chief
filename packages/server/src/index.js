@@ -19,6 +19,7 @@ import { recoverOrphanedStartingSessions, recoverOrphanedRunningSessions, clearS
 import { startLaneEntryRetryWorker, stopLaneEntryRetryWorker } from './services/kanbanService.js';
 import { formatKanbanInvariantReport } from './services/kanbanRecoveryService.js';
 import { runStartupPreflight } from './services/startupPreflight.js';
+import { getLoginShellEnv } from './services/loginShellEnv.js';
 import { setAutomationPreflightStatus } from './services/automationStatusService.js';
 import { startKanbanOperationRetention, stopKanbanOperationRetention } from './services/kanbanOperationRetention.js';
 import { startStreamWatchdog, stopStreamWatchdog } from './services/streamWatchdog.js';
@@ -186,6 +187,11 @@ async function shutdown(signal) {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Warm the login-shell env probe once at startup so the first Muse turn
+// doesn't pay the ~2s shell-spawn cost. Failures fall back to the server
+// snapshot env (FR-13) and are logged by the probe itself.
+getLoginShellEnv();
 
 // Start server on all interfaces
 server.listen(port, '0.0.0.0', () => {

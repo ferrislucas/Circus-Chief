@@ -3,7 +3,7 @@ import { modelProviders, settings } from '../db/index.js';
 import { DEFAULT_SESSION_TITLE_PROMPT } from '../services/summaryService.js';
 
 const router = Router();
-const SUPPORTED_SUMMARY_PROVIDER_KINDS = new Set(['anthropic', 'openai']);
+const SUPPORTED_SUMMARY_PROVIDER_KINDS = new Set(['anthropic', 'openai', 'meta']);
 
 /**
  * GET /api/settings/token-weights

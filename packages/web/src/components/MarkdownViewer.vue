@@ -2,6 +2,8 @@
   <!-- eslint-disable vue/no-v-html -->
   <div
     class="markdown-viewer"
+    @click="onClick"
+    @keydown="onKeydown"
     v-html="renderedContent"
   />
   <!-- eslint-enable vue/no-v-html -->
@@ -9,16 +11,69 @@
 
 <script setup>
 import { computed } from 'vue';
-import { renderMarkdown } from '../utils/markdown.js';
+import { renderMarkdown, TASK_CHECKBOX_SELECTOR } from '../utils/markdown.js';
 
 const props = defineProps({
   content: {
     type: String,
     default: '',
   },
+  interactive: {
+    type: Boolean,
+    default: false,
+  },
+  disabled: {
+    type: Boolean,
+    default: false,
+  },
+  pendingLine: {
+    type: Number,
+    default: null,
+  },
 });
 
-const renderedContent = computed(() => renderMarkdown(props.content));
+const emit = defineEmits(['toggle-task']);
+
+const renderedContent = computed(() => renderMarkdown(props.content, {
+  interactive: props.interactive && !props.disabled,
+  disabledLines: props.pendingLine === null || props.pendingLine === undefined ? [] : [props.pendingLine],
+}));
+
+function findCheckbox(event) {
+  const target = event.target;
+  if (!target || typeof target.closest !== 'function') return null;
+  return target.closest(TASK_CHECKBOX_SELECTOR);
+}
+
+function readLine(box) {
+  const line = Number(box.getAttribute('data-task-line'));
+  return Number.isInteger(line) ? line : null;
+}
+
+function onClick(event) {
+  const box = findCheckbox(event);
+  if (!box) return;
+  if (!props.interactive || props.disabled) {
+    event.preventDefault();
+    return;
+  }
+  const line = readLine(box);
+  if (line === null) return;
+  emit('toggle-task', { line, checked: box.checked });
+}
+
+function onKeydown(event) {
+  if (event.key !== ' ' && event.key !== 'Spacebar' && event.code !== 'Space') return;
+  const box = findCheckbox(event);
+  if (!box) return;
+  // Prevent native toggle so the click-driven state (from the parent) is the
+  // single source of truth and no double event fires.
+  event.preventDefault();
+  if (!props.interactive || props.disabled) return;
+  const line = readLine(box);
+  if (line === null) return;
+  emit('toggle-task', { line, checked: !box.checked });
+}
 </script>
 
 <style scoped>
@@ -225,6 +280,25 @@ const renderedContent = computed(() => renderMarkdown(props.content));
   max-width: 100%;
   height: auto;
   border-radius: var(--border-radius);
+}
+
+/* Task-list checkboxes */
+.markdown-viewer :deep(li.task-list-item) {
+  list-style: none;
+}
+
+.markdown-viewer :deep(.task-list-item-checkbox) {
+  min-width: 16px;
+  min-height: 16px;
+  width: 16px;
+  height: 16px;
+  margin-right: 0.35em;
+  vertical-align: -2px;
+  accent-color: var(--color-primary, #22d3ee);
+}
+
+.markdown-viewer :deep(.task-list-item-checkbox:not(:disabled)) {
+  cursor: pointer;
 }
 
 /* Strong and emphasis */

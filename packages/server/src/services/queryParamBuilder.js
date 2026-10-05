@@ -3,6 +3,7 @@ import { resolveClaudeMcpServers, resolveCodexMcpServers } from './claudeMcpConf
 import {
   buildSystemPromptConfig,
   getGeminiApprovalModeForSession,
+  getMuseApprovalModeForSession,
   getPermissionModeForSession,
   getSandboxModeForSession,
 } from './sessionPrompts.js';
@@ -116,6 +117,46 @@ function buildGeminiQueryParams({
 }
 
 /**
+ * Build query parameters for the Muse adapter (`muse exec` transport).
+ *
+ * Exec persists its native history under a caller-supplied UUID, so the
+ * adapter needs the workspace root, model, approval posture, and optional
+ * resume handle — not Claude-specific options (permissionMode,
+ * settingSources) or Codex-specific ones (sandboxMode). The CLI has no
+ * dedicated system-prompt field, so the composed system prompt is forwarded
+ * in `options.systemPrompt` and the adapter prepends it to the user turn
+ * (same `composeCliPrompt` parity as the Codex/Gemini CLI adapters).
+ *
+ * Exec is headless: there is deliberately no `canUseTool` interaction
+ * callback (unlike the Claude path) — gated modes enforce policy via CLI
+ * flags (`--approval-mode`, `--disable-write`) and denials surface as run
+ * failures, never as interactive prompts.
+ *
+ * @returns {Object}
+ */
+function buildMuseQueryParams({
+  prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
+  resumeSessionId = null,
+}) {
+  const isVCR = Boolean(process.env.VCR_MODE);
+  const effectiveModel = isVCR ? 'muse-spark-1.3' : model;
+
+  return {
+    prompt,
+    options: {
+      cwd: workingDirectory,
+      abortController: controller,
+      env: sessionEnv,
+      model: effectiveModel,
+      effortLevel: session?.effortLevel ?? null,
+      approvalMode: getMuseApprovalModeForSession(session?.mode),
+      systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
+      ...(resumeSessionId ? { resume: resumeSessionId } : {}),
+    },
+  };
+}
+
+/**
  * Build query parameters for executing a session via the configured agent.
  * Shared by runSession, continueSession, and continueSessionWithExistingMessage.
  *
@@ -129,7 +170,7 @@ function buildGeminiQueryParams({
  * @param {string|null} options.model - Model to use
  * @param {Object} options.sessionEnv - Environment variables for the session
  * @param {string|null} [options.resumeSessionId] - Session ID to resume (null for new session)
- * @param {string} [options.agentType] - 'claude-code' (default) | 'codex' | 'gemini'
+ * @param {string} [options.agentType] - 'claude-code' (default) | 'codex' | 'gemini' | 'muse'
  * @returns {Object} Query parameters for agent.execute()
  */
 export function buildQueryParams(options) {
@@ -139,6 +180,9 @@ export function buildQueryParams(options) {
   }
   if (agentType === 'gemini') {
     return buildGeminiQueryParams(options);
+  }
+  if (agentType === 'muse') {
+    return buildMuseQueryParams(options);
   }
   return buildClaudeCodeQueryParams(options);
 }

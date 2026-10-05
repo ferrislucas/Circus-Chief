@@ -1,5 +1,6 @@
 import { sessions } from '../database.js';
-import { activeSessions, broadcastSessionStatus, cleanupSessionState } from './streamEventHandler.js';
+import { activeSessions } from './sessionExecutionOwnership.js';
+import { broadcastSessionStatus, cleanupSessionState } from './streamEventHandler.js';
 import { closeOwnWork } from './workflowSessionService.js';
 
 const positiveEnv = (name, fallback) => {
