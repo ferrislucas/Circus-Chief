@@ -665,4 +665,31 @@ describe('sessionProvider', () => {
       expect(env.GIT_TEST_SENTINEL_VAR).toBe('provider-wins');
     });
   });
+
+  // Finding #5: a token/baseUrl configured on a meta provider is a silent
+  // no-op (host `muse auth` always wins) — warn visibly instead of ignoring
+  // it. Chose warn-and-ignore over reject so existing saved providers keep
+  // working; the additionalEnvVars escape hatch is unaffected.
+  describe('buildProviderEnv (meta authToken)', () => {
+    let warn;
+    beforeEach(() => {
+      warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    it('warns and ignores authToken/baseUrl on a meta provider', () => {
+      const env = buildProviderEnv({ name: 'M', kind: 'meta', authToken: 'sk-x', baseUrl: 'https://x.example.com' });
+      expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(env.OPENAI_API_KEY).toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0].join(' ')).toMatch(/ignored/i);
+    });
+
+    it('stays silent when no token or baseUrl is configured', () => {
+      buildProviderEnv({ name: 'M', kind: 'meta' });
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
 });

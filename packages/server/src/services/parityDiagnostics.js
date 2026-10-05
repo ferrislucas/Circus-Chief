@@ -10,9 +10,42 @@ import { isSshAgentSocketAlive } from './loginShellEnv.js';
 
 /**
  * Keys whose VALUES are secrets: matched by name pattern so future keys are
- * covered by default (FR-11).
+ * covered by default (FR-11). Boundary-anchored (finding #10, round-3
+ * finding #3): a key must END with a secret suffix (`_TOKEN`, `_SECRET`,
+ * `_PASSWORD`, `_PRIVATE`, `_PAT`, `_KEY`) or be an exact bare noun (TOKEN,
+ * PAT, KEY, API_KEY — the latter matches via the `_KEY` suffix rule) to
+ * count. Keys that merely CONTAIN these mid-name (PATH_TO_TOKENS_DIR,
+ * TOKENIZER_HOME, API_KEYS_PATH, MY_API_KEY_BACKUP) are benign, and scrubbing
+ * their values corrupted every agent's tool logs — so there is deliberately
+ * no unanchored alternative.
  */
-export const SECRET_KEY_PATTERN = /TOKEN|SECRET|PASSWORD|PRIVATE|API_KEY/i;
+export const SECRET_KEY_PATTERN = /(^|_)(TOKEN|SECRET|PASSWORD|PRIVATE|PAT|KEY)$/i;
+
+/**
+ * Login-shell-propagated keys that carry credentials without matching
+ * SECRET_KEY_PATTERN. The parity allowlist forwards `GIT_*`/`GCM_*` from the
+ * user's shell so agent-spawned git/gh authenticate like the user's own
+ * shell — but `GIT_HTTP_EXTRAHEADER` (an `Authorization:` header value) and
+ * `GIT_CONFIG_VALUE_*` (env-passed git config, which can embed tokens via
+ * `url.<base>.insteadOf` rewrites) and `GCM_*` (Git Credential Manager
+ * settings) would otherwise bypass the scrub set and leak verbatim into
+ * work logs on echo. Their values always join the scrub set.
+ */
+const EXTRA_SCRUB_KEYS = new Set(['GIT_HTTP_EXTRAHEADER']);
+const EXTRA_SCRUB_KEY_PREFIXES = ['GCM_', 'GIT_CONFIG_VALUE'];
+
+function isScrubbedKey(key) {
+  if (SECRET_KEY_PATTERN.test(key)) return true;
+  if (EXTRA_SCRUB_KEYS.has(key)) return true;
+  return EXTRA_SCRUB_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
+/**
+ * Minimum secret-value length admitted into a scrub set (round-3 finding #4).
+ * A 1–3 character "secret" (e.g. `GH_TOKEN=x` in additionalEnvVars) would
+ * otherwise replace every occurrence of that character in transcripts.
+ */
+export const MIN_SECRET_VALUE_LENGTH = 4;
 
 /**
  * Resolve a binary against an env PATH (no shell-out). Returns the absolute
@@ -45,6 +78,26 @@ export function findExecutableOnPath(env, name) {
   return null;
 }
 
+/**
+ * Resolve a launcher (bare name like `muse`, or an explicit path) to the
+ * absolute executable path it would run as under `env`. Explicit paths are
+ * returned unchanged; an unresolvable bare name is returned unchanged too,
+ * so the caller's own stat/exec surfaces the familiar ENOENT.
+ *
+ * Finding #1: Node resolves child-process executables against the *server
+ * process* PATH, not `options.env` — so anything that execs a bare launcher
+ * must resolve it through the derived host env first (the same env the
+ * parity gate validated and the real spawn receives).
+ *
+ * @param {Object} env - The env whose PATH governs resolution.
+ * @param {string} name - Launcher name or explicit path.
+ * @returns {string|null}
+ */
+export function resolveLauncherAbsolutePath(env, name) {
+  if (!name || name.includes('/')) return name;
+  return findExecutableOnPath(env, name) || name;
+}
+
 function dirExists(dir) {
   if (!dir) return false;
   try {
@@ -67,6 +120,32 @@ function ghHostsFileExists(home) {
   return fileExists(join(home, '.config', 'gh', 'hosts.yml'));
 }
 
+function stripGitconfigComments(content) {
+  return String(content)
+    .split('\n')
+    .filter((line) => !/^\s*[#;]/.test(line))
+    .join('\n');
+}
+
+function gitconfigSectionHasIdentity(content, section = 'user') {
+  const cleaned = stripGitconfigComments(content);
+  const match = cleaned.match(new RegExp(`\\[${section}\\][^[]*`, 'i'))?.[0] || '';
+  return /name\s*=/i.test(match) && /email\s*=/i.test(match);
+}
+
+function gitconfigIncludePaths(content, home) {
+  const cleaned = stripGitconfigComments(content);
+  const includeSection = cleaned.match(/\[include\][^[]*/i)?.[0] || '';
+  const paths = [];
+  for (const line of includeSection.split('\n')) {
+    const match = line.match(/^\s*path\s*=\s*(.+?)\s*$/i);
+    if (!match) continue;
+    const raw = match[1];
+    paths.push(raw.startsWith('~/') ? join(home, raw.slice(2)) : raw);
+  }
+  return paths;
+}
+
 function gitconfigHasIdentity(home) {
   if (!home) return false;
   let content;
@@ -75,8 +154,16 @@ function gitconfigHasIdentity(home) {
   } catch {
     return false;
   }
-  const userSection = content.match(/\[user\][^[]*/i)?.[0] || '';
-  return /name\s*=/i.test(userSection) && /email\s*=/i.test(userSection);
+  if (gitconfigSectionHasIdentity(content)) return true;
+  // Identity may live in an included file (e.g. dotfile-managed splits).
+  for (const includePath of gitconfigIncludePaths(content, home)) {
+    try {
+      if (gitconfigSectionHasIdentity(readFileSync(includePath, 'utf8'))) return true;
+    } catch {
+      /* unreadable include: keep looking */
+    }
+  }
+  return false;
 }
 
 function binarySignals(env) {
@@ -189,6 +276,18 @@ const PARITY_ERRORS = {
       + 'user.name/user.email in ~/.gitconfig). Run `git config --global user.name "You"` and '
       + '`git config --global user.email "you@example.com"` in your terminal.',
   },
+  'home': {
+    code: 'MUSE_HOME_MISSING',
+    message: 'Muse couldn\'t resolve your HOME directory, so tools that read ~/.config, '
+      + '~/.gitconfig, and gh hosts will misbehave. Relaunch Circus Chief from your terminal '
+      + 'so the agent inherits HOME.',
+  },
+  'identity': {
+    code: 'MUSE_IDENTITY_MISSING',
+    message: 'Muse couldn\'t determine your user identity (USER/LOGNAME are not set), so tools '
+      + 'fall back to inconsistent defaults. Relaunch Circus Chief from your terminal so the '
+      + 'agent inherits your login identity.',
+  },
   'muse-bin': {
     code: 'MUSE_CLI_NOT_FOUND',
     message: 'Muse CLI not found. Install Muse Code and ensure `muse` is on PATH (or set MUSE_BIN).',
@@ -198,7 +297,7 @@ const PARITY_ERRORS = {
 /**
  * Actionable, secret-free error for an unsatisfiable parity signal (FR-8).
  * Caller-provided values are never interpolated into the message (FR-11).
- * @param {'ssh-agent'|'gh-auth'|'git-identity'|'muse-bin'} kind
+ * @param {'ssh-agent'|'gh-auth'|'git-identity'|'home'|'identity'|'muse-bin'} kind
  * @returns {Error} With `.code` set.
  */
 export function buildParityCredentialError(kind) {
@@ -257,15 +356,110 @@ export function redactEnvForDiagnostics(env, opts = {}) {
  * @returns {string}
  */
 export function redactSecretsFromText(text, env) {
-  let out = String(text ?? '');
   const values = new Set();
   for (const [key, value] of Object.entries(env || {})) {
-    if (typeof value === 'string' && value && SECRET_KEY_PATTERN.test(key)) {
+    if (typeof value === 'string' && value.length >= MIN_SECRET_VALUE_LENGTH && isScrubbedKey(key)) {
       values.add(value);
     }
   }
+  return replaceSecretValuesWithRedacted(text, values);
+}
+
+function replaceSecretValuesWithRedacted(text, values) {
+  let out = String(text ?? '');
   for (const value of [...values].sort((a, b) => b.length - a.length)) {
     out = out.split(value).join('[REDACTED]');
   }
   return out;
+}
+
+/**
+ * Cache of tokens harvested from the gh hosts file, keyed by path + mtime so
+ * the file is read once per change (≈ once per turn) rather than per scrubbed
+ * event. Tokens live in memory only — never logged or persisted.
+ */
+let ghHostsTokenCache = { key: null, tokens: [] };
+
+/** Reset the harvested-token cache (tests). */
+export function __resetGhHostsTokenCacheForTest() {
+  ghHostsTokenCache = { key: null, tokens: [] };
+}
+
+/**
+ * Harvest `oauth_token` values from the gh CLI's `hosts.yml` (FR-6) for the
+ * per-turn scrub value set (finding #2). gh credentials often live only in
+ * that file — no env var — so a tool output echoing them would otherwise
+ * bypass the env-keyed scrub. Guarded: a missing/unreadable file yields no
+ * extra values. Values are held in memory only and never disclosed.
+ *
+ * @param {Object} [env] - Env providing HOME (defaults to process.env).
+ * @returns {string[]}
+ */
+export function harvestGhHostsTokens(env = process.env) {
+  const home = env?.HOME;
+  if (!home) return [];
+  const hostsPath = join(home, '.config', 'gh', 'hosts.yml');
+  try {
+    const mtimeMs = statSync(hostsPath).mtimeMs;
+    const key = `${hostsPath}:${mtimeMs}`;
+    if (ghHostsTokenCache.key === key) return ghHostsTokenCache.tokens;
+    const content = readFileSync(hostsPath, 'utf8');
+    const tokens = [];
+    // Accept one optional matching quote pair: `oauth_token: "ghp_…"`.
+    // Harvest the BARE token so a raw unquoted echo still matches the set.
+    for (const match of content.matchAll(/^\s*oauth_token:\s*(?:"([^"]+)"|'([^']+)'|(\S+))\s*$/gm)) {
+      tokens.push(match[1] ?? match[2] ?? match[3]);
+    }
+    ghHostsTokenCache = { key, tokens };
+    return tokens;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The per-session scrub value set (finding #2): secret-keyed values from the
+ * turn env merged over `process.env`, plus gh-hosts oauth tokens. Single
+ * source for the transcript path — tool inputs, tool outputs, and assistant
+ * text all scrub against this exact set.
+ *
+ * @param {Object} [env] - Turn session env carrying secret values.
+ * @returns {Set<string>}
+ */
+export function scrubValuesForSession(env) {
+  const merged = { ...process.env, ...(env || {}) };
+  const values = new Set();
+  for (const [key, value] of Object.entries(merged)) {
+    if (typeof value === 'string' && value.length >= MIN_SECRET_VALUE_LENGTH && isScrubbedKey(key)) {
+      values.add(value);
+    }
+  }
+  for (const token of harvestGhHostsTokens(merged)) {
+    if (typeof token === 'string' && token.length >= MIN_SECRET_VALUE_LENGTH) {
+      values.add(token);
+    }
+  }
+  return values;
+}
+
+/**
+ * Scrub secret values out of text bound for work logs (finding #1, FR-11).
+ * Single choke point for the transcript path: tool inputs, tool outputs,
+ * and assistant text are redacted here before reaching work logs (and from
+ * there transcripts and canvas payloads). `env` is the turn's session env —
+ * provider-supplied tokens live there, not in the server process env — merged
+ * over `process.env` so both are covered, plus gh-hosts harvested tokens
+ * (finding #2). Only secret *values* are scrubbed; key names and presence
+ * labels survive.
+ *
+ * The Muse event mapper is intentionally NOT a scrub point: it is pure
+ * (no env access), so mapped `tool_result` content passes through verbatim
+ * and is scrubbed here.
+ *
+ * @param {*} text - Text (or value stringified by the caller) to scrub.
+ * @param {Object} [env] - Session env carrying secret values.
+ * @returns {string} Scrubbed text with secret values replaced by `[REDACTED]`.
+ */
+export function scrubEventForLogging(text, env) {
+  return replaceSecretValuesWithRedacted(text, scrubValuesForSession(env));
 }

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Follow-up tracked in ferrislucas/Circus-Chief#1149 (review finding #9): migration helpers share provider constants and preserve ordered upgrade operations. Remove this waiver when the file is split (timeouts/lifecycle-style extraction). */
 import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS, MUSE_MODELS } from '@circuschief/shared';
 import { getTableSql } from './migrationUtils.js';
 import { BUILT_IN_OPENAI_COMMIT_ATTRIBUTION } from '../seedBaselineData.js';
@@ -135,6 +136,52 @@ export function seedBuiltInProviders(db) {
 }
 
 /**
+ * Re-emit a `PRAGMA table_info` default verbatim when it is a plain
+ * literal, or parenthesized when it is an expression. PRAGMA strips the
+ * outer parens SQLite requires around expression defaults (e.g. it reports
+ * `unixepoch() * 1000` for `DEFAULT (unixepoch() * 1000)`), so re-emitting
+ * the raw text is a syntax error — caught live when this swap ran against
+ * a fresh-schema database.
+ */
+function formatColumnDefault(dfltValue) {
+  if (dfltValue === null || dfltValue === undefined) return '';
+  if (/^\(.*\)$/s.test(dfltValue)) return ` DEFAULT ${dfltValue}`;
+  if (/^'.*'$/s.test(dfltValue)) return ` DEFAULT ${dfltValue}`;
+  if (/^(NULL|TRUE|FALSE|CURRENT_TIME|CURRENT_DATE|CURRENT_TIMESTAMP)$/i.test(dfltValue)) {
+    return ` DEFAULT ${dfltValue}`;
+  }
+  if (/^[+-]?(\d+\.?\d*|\.\d+)$/.test(dfltValue)) return ` DEFAULT ${dfltValue}`;
+  return ` DEFAULT (${dfltValue})`;
+}
+
+/**
+ * Self-guard: the table swap below only preserves plain columns (type, PK,
+ * NOT NULL, defaults) plus the widened kind CHECK. Anything fancier on a
+ * future `providers` shape — UNIQUE constraints/indexes, triggers — would
+ * be silently dropped, so fail loudly instead. Asserts column/UNIQUE/
+ * trigger counts before and after the swap.
+ */
+function assertProvidersSwapSafe(db, columns) {
+  const indexRows = db.prepare('PRAGMA index_list(providers)').all();
+  const kept = indexRows.filter((index) => index.origin === 'pk');
+  const dropped = indexRows.filter((index) => index.origin !== 'pk');
+  if (dropped.length > 0) {
+    throw new Error(
+      `widenProvidersKindCheck would silently drop indexes on providers: ${dropped.map((i) => i.name).join(', ')}. ` +
+      'Teach the swap to preserve them instead of widening the kind CHECK.',
+    );
+  }
+  const triggers = db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'providers'").all();
+  if (triggers.length > 0) {
+    throw new Error(
+      `widenProvidersKindCheck would silently drop triggers on providers: ${triggers.map((t) => t.name).join(', ')}. ` +
+      'Teach the swap to preserve them instead of widening the kind CHECK.',
+    );
+  }
+  return { columnNames: columns.map((c) => c.name), indexNames: kept.map((i) => i.name) };
+}
+
+/**
  * Widen the `providers.kind` CHECK constraint to the given kinds by
  * recreating the table — SQLite CHECKs are baked into the table definition
  * and cannot be altered in place.
@@ -155,28 +202,10 @@ export function seedBuiltInProviders(db) {
  * @param {import('better-sqlite3').Database} db
  * @param {string[]} kinds - Allowed kind values, e.g. ['anthropic','openai','google','meta']
  */
-/**
- * Re-emit a `PRAGMA table_info` default verbatim when it is a plain
- * literal, or parenthesized when it is an expression. PRAGMA strips the
- * outer parens SQLite requires around expression defaults (e.g. it reports
- * `unixepoch() * 1000` for `DEFAULT (unixepoch() * 1000)`), so re-emitting
- * the raw text is a syntax error — caught live when this swap ran against
- * a fresh-schema database.
- */
-function formatColumnDefault(dfltValue) {
-  if (dfltValue === null || dfltValue === undefined) return '';
-  if (/^\(.*\)$/s.test(dfltValue)) return ` DEFAULT ${dfltValue}`;
-  if (/^'.*'$/s.test(dfltValue)) return ` DEFAULT ${dfltValue}`;
-  if (/^(NULL|TRUE|FALSE|CURRENT_TIME|CURRENT_DATE|CURRENT_TIMESTAMP)$/i.test(dfltValue)) {
-    return ` DEFAULT ${dfltValue}`;
-  }
-  if (/^[+-]?(\d+\.?\d*|\.\d+)$/.test(dfltValue)) return ` DEFAULT ${dfltValue}`;
-  return ` DEFAULT (${dfltValue})`;
-}
-
 export function widenProvidersKindCheck(db, kinds) {
   const columns = db.prepare('PRAGMA table_info(providers)').all();
   if (columns.length === 0) return;
+  const preSwap = assertProvidersSwapSafe(db, columns);
 
   const kindList = kinds.map((kind) => `'${kind}'`).join(',');
   const definitions = columns.map((column) => {
@@ -199,23 +228,58 @@ export function widenProvidersKindCheck(db, kinds) {
   // fires that cascade when DROP TABLE deletes parent rows, which would
   // wipe all provider_models data. Disabling FK enforcement prevents the
   // cascade. It is re-enabled immediately after the rename.
+  //
+  // The FK pragma is toggled OUTSIDE the transaction below: SQLite ignores
+  // `PRAGMA foreign_keys` changes made inside a transaction.
   db.pragma('foreign_keys = OFF');
   try {
-    db.exec(`
-      DROP TABLE IF EXISTS providers_new;
+    // Atomic swap (finding #4): every statement between BEGIN IMMEDIATE and
+    // COMMIT applies together or not at all, so a crash or error mid-swap
+    // can no longer leave a half-renamed providers table behind.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec(`
+        DROP TABLE IF EXISTS providers_new;
 
-      CREATE TABLE providers_new (
-        ${definitions.join(',\n        ')}
-      );
+        CREATE TABLE providers_new (
+          ${definitions.join(',\n        ')}
+        );
 
-      INSERT INTO providers_new (${columnNames}) SELECT ${columnNames} FROM providers;
+        INSERT INTO providers_new (${columnNames}) SELECT ${columnNames} FROM providers;
 
-      DROP TABLE providers;
+        DROP TABLE providers;
 
-      ALTER TABLE providers_new RENAME TO providers;
+        ALTER TABLE providers_new RENAME TO providers;
 
-      CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
-    `);
+        CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
+      `);
+
+      // Post-swap assertion (defense in depth): column and PK-index counts
+      // must match the pre-swap fingerprint. These reads run inside the
+      // transaction, so a mismatch rolls the whole swap back instead of
+      // leaving it applied.
+      const postColumns = db.prepare('PRAGMA table_info(providers)').all().map((c) => c.name);
+      const postIndexes = db.prepare('PRAGMA index_list(providers)').all()
+        .filter((index) => index.origin === 'pk')
+        .map((i) => i.name);
+      if (postColumns.join(',') !== preSwap.columnNames.join(',')) {
+        throw new Error(
+          `widenProvidersKindCheck changed the providers columns (before: ${preSwap.columnNames.join(',')}; after: ${postColumns.join(',')}).`,
+        );
+      }
+      if (postIndexes.join(',') !== preSwap.indexNames.join(',')) {
+        throw new Error('widenProvidersKindCheck changed the providers indexes; refusing to continue silently.');
+      }
+
+      db.exec('COMMIT');
+    } catch (swapError) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        /* already rolled back or never began: the original error wins */
+      }
+      throw swapError;
+    }
   } finally {
     db.pragma('foreign_keys = ON');
   }

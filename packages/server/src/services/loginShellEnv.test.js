@@ -2,15 +2,31 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { createRobustEnv } from './nodeSpawnHelper.js';
+
+// Finding #5 (test hermeticity): wrap child_process.spawnSync in a recording
+// spy that delegates to the real implementation, so the hermeticity test can
+// prove the login-shell probe never spawns in the vitest environment.
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, spawnSync: vi.fn(actual.spawnSync) };
+});
 import {
   parseEnvZero,
   parseEnvLines,
   probeLoginShellEnv,
+  probeLoginShellEnvAsync,
+  refreshLoginShellEnvAsync,
   mergeShellEnv,
   getLoginShellEnv,
   resetLoginShellEnvCache,
   LOGIN_SHELL_TIMEOUT_MS,
+  LOGIN_SHELL_ASYNC_TIMEOUT_MS,
   isSshAgentSocketAlive,
+  isSshAgentSocketAliveAsync,
+  filterDeadSshSocketAsync,
+  clearSshLivenessCache,
+  staleSshSocketMessage,
 } from './loginShellEnv.js';
 import {
   checkParitySignals,
@@ -18,7 +34,7 @@ import {
   redactEnvForDiagnostics,
   redactSecretsFromText,
 } from './parityDiagnostics.js';
-import { buildMuseHostEnv } from '../agents/adapters/MuseAdapter.js';
+import { buildMuseHostEnv } from '../agents/adapters/museHostEnv.js';
 
 function nulEntries(obj) {
   return Buffer.from(`${Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('\0')}\0`);
@@ -28,11 +44,34 @@ function okSpawn(stdout) {
   return { status: 0, stdout, stderr: Buffer.alloc(0), error: undefined };
 }
 
+function busySleep(ms) {
+  const end = Date.now() + Math.max(0, ms);
+  while (Date.now() < end) { /* spin: simulate a hanging dump */ }
+}
+
 describe('loginShellEnv', () => {
   afterEach(() => {
     resetLoginShellEnvCache();
+    clearSshLivenessCache();
     vi.restoreAllMocks();
   });
+
+  // Finding #5: the vitest environment disables the login-shell probe
+  // (hermeticity). These probe/cache machinery tests exercise the probe
+  // itself with injected spawnSync/execFile doubles, so they re-enable it
+  // for their own scope only — no real shell is ever spawned.
+  async function withProbeEnabled(run) {
+    const previous = process.env.CIRCUS_CHIEF_NO_LOGIN_SHELL;
+    delete process.env.CIRCUS_CHIEF_NO_LOGIN_SHELL;
+    resetLoginShellEnvCache();
+    try {
+      await run();
+    } finally {
+      if (previous === undefined) delete process.env.CIRCUS_CHIEF_NO_LOGIN_SHELL;
+      else process.env.CIRCUS_CHIEF_NO_LOGIN_SHELL = previous;
+      resetLoginShellEnvCache();
+    }
+  }
 
   describe('parseEnvZero', () => {
     it('parses NUL-delimited KEY=VALUE output', () => {
@@ -110,20 +149,106 @@ describe('loginShellEnv', () => {
     });
   });
 
-  describe('getLoginShellEnv cache', () => {
-    it('probes once per process lifetime (single-flight cache)', () => {
-      const spawnSync = vi.fn(() => okSpawn(nulEntries({ PATH: '/cached' })));
-      const first = getLoginShellEnv({}, { spawnSync });
-      const second = getLoginShellEnv({}, { spawnSync });
-      expect(first).toBe(second);
-      expect(spawnSync).toHaveBeenCalledTimes(1);
+  describe('shared probe budget (finding #7)', () => {
+    it('gives the printenv retry only the remaining budget, not a fresh one', () => {
+      const budgets = [];
+      const spawnSync = vi.fn((_shell, _args, options) => {
+        budgets.push(options.timeout);
+        busySleep(options.timeout); // both dumps hang for their whole budget
+        return { status: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+      });
+      const startedAt = Date.now();
+      const result = probeLoginShellEnv({ shell: '/bin/zsh', timeoutMs: 300 }, { spawnSync });
+      const elapsed = Date.now() - startedAt;
+
+      expect(result.ok).toBe(false);
+      expect(budgets).toHaveLength(2);
+      expect(budgets[0]).toBe(300);
+      // The retry is bounded by what is left of the ONE overall budget —
+      // never a fresh full budget (FRD R-2: probe cost stays ≤2s).
+      expect(budgets[1]).toBeLessThan(300);
+      expect(elapsed).toBeLessThan(560);
     });
 
-    it('caches failures too (no repeated slow probes)', () => {
-      const spawnSync = vi.fn(() => { throw new Error('nope'); });
-      getLoginShellEnv({}, { spawnSync });
-      getLoginShellEnv({}, { spawnSync });
-      expect(spawnSync).toHaveBeenCalledTimes(1);
+    it('keeps the default overall budget within the 2s FRD bound', () => {
+      expect(LOGIN_SHELL_TIMEOUT_MS).toBeLessThanOrEqual(2000);
+    });
+  });
+
+  describe('probeLoginShellEnvAsync (finding #6)', () => {
+    it('uses a tighter per-dump budget than the sync probe', () => {
+      expect(LOGIN_SHELL_ASYNC_TIMEOUT_MS).toBeLessThan(LOGIN_SHELL_TIMEOUT_MS);
+    });
+
+    it('returns ok with the parsed env from env -0 via execFile', async () => {
+      const execFile = vi.fn(async () => ({ stdout: 'PATH=/shell/bin\0SSH_AUTH_SOCK=/tmp/s\0' }));
+      const result = await probeLoginShellEnvAsync({ shell: '/bin/zsh' }, { execFile });
+      expect(result.ok).toBe(true);
+      expect(result.env.PATH).toBe('/shell/bin');
+      expect(execFile).toHaveBeenCalledTimes(1);
+      expect(execFile.mock.calls[0][0]).toBe('/bin/zsh');
+      expect(execFile.mock.calls[0][1]).toContain('-lic');
+    });
+
+    it('falls back to plain printenv when env -0 yields nothing usable', async () => {
+      const execFile = vi.fn()
+        .mockResolvedValueOnce({ stdout: '' })
+        .mockResolvedValueOnce({ stdout: 'PATH=/fallback/bin\n' });
+      const result = await probeLoginShellEnvAsync({ shell: '/bin/zsh' }, { execFile });
+      expect(result.ok).toBe(true);
+      expect(result.env.PATH).toBe('/fallback/bin');
+      expect(execFile).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns { ok: false } without throwing on timeout', async () => {
+      const timeoutErr = new Error('Command timed out');
+      timeoutErr.killed = true;
+      const execFile = vi.fn(async () => { throw timeoutErr; });
+      const result = await probeLoginShellEnvAsync({ shell: '/bin/zsh', timeoutMs: 50 }, { execFile });
+      expect(result.ok).toBe(false);
+      expect(result.reason).toMatch(/timed out|timeout/i);
+    });
+
+    it('declines on win32 instead of probing', async () => {
+      const execFile = vi.fn(async () => ({ stdout: 'PATH=/x\0' }));
+      const result = await probeLoginShellEnvAsync({ shell: '/bin/zsh' }, { execFile, platform: 'win32' });
+      expect(result.ok).toBe(false);
+      expect(execFile).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('refreshLoginShellEnvAsync (finding #6)', () => {
+    it('repopulates the process-lifetime cache without blocking spawns', async () => {
+      await withProbeEnabled(async () => {
+        const execFile = vi.fn(async () => ({ stdout: 'PATH=/fresh/bin\0' }));
+        await refreshLoginShellEnvAsync({}, { execFile });
+        // The sync reader now serves the refreshed value with no new spawn.
+        const spawnSync = vi.fn(() => { throw new Error('must not probe'); });
+        const cached = getLoginShellEnv({}, { spawnSync });
+        expect(cached.ok).toBe(true);
+        expect(cached.env.PATH).toBe('/fresh/bin');
+      });
+    });
+  });
+
+  describe('getLoginShellEnv cache', () => {
+    it('probes once per process lifetime (single-flight cache)', async () => {
+      await withProbeEnabled(async () => {
+        const spawnSync = vi.fn(() => okSpawn(nulEntries({ PATH: '/cached' })));
+        const first = getLoginShellEnv({}, { spawnSync });
+        const second = getLoginShellEnv({}, { spawnSync });
+        expect(first).toBe(second);
+        expect(spawnSync).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('caches failures too (no repeated slow probes)', async () => {
+      await withProbeEnabled(async () => {
+        const spawnSync = vi.fn(() => { throw new Error('nope'); });
+        getLoginShellEnv({}, { spawnSync });
+        getLoginShellEnv({}, { spawnSync });
+        expect(spawnSync).toHaveBeenCalledTimes(1);
+      });
     });
   });
 
@@ -166,6 +291,27 @@ describe('loginShellEnv', () => {
 
     it('default timeout budget is bounded', () => {
       expect(LOGIN_SHELL_TIMEOUT_MS).toBeLessThanOrEqual(2000);
+    });
+
+    // Finding #11 (FR-3/FR-10): an explicit empty string is a *set* value —
+    // the user cleared it on purpose — so the login-shell baseline must not
+    // refill it. PATH stays special: an empty PATH is still filled.
+    it('keeps an explicit empty string for non-PATH keys (explicit clear wins, finding #11)', () => {
+      const merged = mergeShellEnv({
+        shellEnv: { GH_TOKEN: 'x', EDITOR: 'vim', HOME: '/shell/home' },
+        baseEnv: { GH_TOKEN: '', EDITOR: '' },
+      });
+      expect(merged.GH_TOKEN).toBe('');
+      expect(merged.EDITOR).toBe('');
+      expect(merged.HOME).toBe('/shell/home'); // unset → still filled
+    });
+
+    it('still fills an empty PATH from the shell (PATH stays special, finding #11)', () => {
+      const merged = mergeShellEnv({
+        shellEnv: { PATH: '/shell/bin' },
+        baseEnv: { PATH: '' },
+      });
+      expect(merged.PATH).toBe('/shell/bin');
     });
   });
 
@@ -243,6 +389,29 @@ describe('loginShellEnv', () => {
       const git = signals.find((s) => s.signal === 'git-identity');
       expect(git.ok).toBe(true);
     });
+
+    it('ignores comment lines when reading git identity', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'git-home-'));
+      try {
+        writeFileSync(join(dir, '.gitconfig'), '[user]\n# name = Comment Only\n; email = comment@example.com\n');
+        const signals = checkParitySignals({ HOME: dir, PATH: '/usr/bin:/bin' }, { skipBinaries: true });
+        expect(signals.find((s) => s.signal === 'git-identity').ok).toBe(false);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('follows include.path when reading git identity', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'git-home-'));
+      try {
+        writeFileSync(join(dir, '.gitconfig'), '[user]\n[include]\npath = ~/identity.inc\n');
+        writeFileSync(join(dir, 'identity.inc'), '[user]\nname = Included User\nemail = included@example.com\n');
+        const signals = checkParitySignals({ HOME: dir, PATH: '/usr/bin:/bin' }, { skipBinaries: true });
+        expect(signals.find((s) => s.signal === 'git-identity').ok).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('redaction (FR-11)', () => {
@@ -277,6 +446,153 @@ describe('loginShellEnv', () => {
       expect(err.message).toMatch(/ssh-add|ssh-agent/i);
       expect(err.message).not.toContain('TEST_SENTINEL_SECRET_XYZ');
       expect(err.code).toBeTruthy();
+    });
+  });
+
+  describe('SSH agent socket connect-test (FR-5)', () => {
+    it('reports a dead-but-present socket file as not alive', async () => {
+      const { EventEmitter } = await import('events');
+      const connect = () => {
+        const socket = new EventEmitter();
+        socket.destroy = () => {};
+        queueMicrotask(() => socket.emit('error', Object.assign(new Error('connect ECONNREFUSED /tmp/stale-agent.sock'), { code: 'ECONNREFUSED' })));
+        return socket;
+      };
+      const probe = await isSshAgentSocketAliveAsync('/tmp/stale-agent.sock', {
+        statSync: () => ({ isSocket: () => true }),
+        connect,
+        timeoutMs: 50,
+      });
+      expect(probe.alive).toBe(false);
+      expect(probe.reason).toMatch(/not accept|refused|reachable/i);
+    });
+
+    it('reports a listening socket as alive (real bind)', async () => {
+      const { default: net } = await import('net');
+      const dir = mkdtempSync(join(tmpdir(), 'ssh-live-'));
+      const sockPath = join(dir, 'agent.sock');
+      const server = net.createServer(() => {});
+      await new Promise((resolve) => server.listen(sockPath, resolve));
+      try {
+        const probe = await isSshAgentSocketAliveAsync(sockPath, { timeoutMs: 500 });
+        expect(probe).toMatchObject({ alive: true });
+      } finally {
+        await new Promise((resolve) => server.close(resolve));
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('falls back to stat when no connect implementation is available', async () => {
+      const probe = await isSshAgentSocketAliveAsync('/tmp/agent.sock', {
+        statSync: () => ({ isSocket: () => true }),
+        connect: null,
+      });
+      expect(probe.alive).toBe(true);
+    });
+  });
+
+  describe('async liveness cache (finding #8)', () => {
+    const SOCK = '/tmp/test-agent.sock';
+
+    it('probes once for consecutive calls with an unchanged socket', async () => {
+      const probe = vi.fn(async () => ({ alive: true }));
+      const env = { SSH_AUTH_SOCK: SOCK };
+      const statSync = () => ({ mtimeMs: 111 });
+      const first = await filterDeadSshSocketAsync(env, probe, { statSync });
+      const second = await filterDeadSshSocketAsync(env, probe, { statSync });
+      expect(probe).toHaveBeenCalledTimes(1);
+      expect(first.env).toBe(env);
+      expect(second.env).toBe(env);
+      expect(second.droppedReason).toBeNull();
+    });
+
+    it('re-probes when the socket mtime changes (state change)', async () => {
+      let mtimeMs = 111;
+      const probe = vi.fn(async () => ({ alive: true }));
+      const env = { SSH_AUTH_SOCK: SOCK };
+      const statSync = () => ({ mtimeMs });
+      await filterDeadSshSocketAsync(env, probe, { statSync });
+      mtimeMs = 222;
+      await filterDeadSshSocketAsync(env, probe, { statSync });
+      expect(probe).toHaveBeenCalledTimes(2);
+    });
+
+    it('re-probes after the TTL expires', async () => {
+      const probe = vi.fn(async () => ({ alive: true }));
+      const env = { SSH_AUTH_SOCK: SOCK };
+      const statSync = () => ({ mtimeMs: 111 });
+      await filterDeadSshSocketAsync(env, probe, { statSync });
+      await filterDeadSshSocketAsync(env, probe, { statSync, ttlMs: 0 });
+      expect(probe).toHaveBeenCalledTimes(2);
+    });
+
+    it('caches dead results but still drops with the reason on repeat turns', async () => {
+      const probe = vi.fn(async () => ({ alive: false, reason: 'socket dead' }));
+      const env = { SSH_AUTH_SOCK: SOCK };
+      const statSync = () => ({ mtimeMs: 111 });
+      const first = await filterDeadSshSocketAsync(env, probe, { statSync });
+      const second = await filterDeadSshSocketAsync(env, probe, { statSync });
+      expect(probe).toHaveBeenCalledTimes(1);
+      for (const result of [first, second]) {
+        expect(result.env).not.toHaveProperty('SSH_AUTH_SOCK');
+        expect(result.droppedReason).toBe('socket dead');
+      }
+    });
+
+    it('passes through without probing when SSH_AUTH_SOCK is unset', async () => {
+      const probe = vi.fn(async () => ({ alive: true }));
+      const result = await filterDeadSshSocketAsync({ PATH: 'x' }, probe);
+      expect(probe).not.toHaveBeenCalled();
+      expect(result).toEqual({ env: { PATH: 'x' }, droppedReason: null });
+    });
+  });
+
+  describe('staleSshSocketMessage (finding #13)', () => {
+    it('says a session retry is insufficient and a server re-spawn is needed', () => {
+      const message = staleSshSocketMessage('socket dead');
+      expect(message).toContain('socket dead');
+      expect(message).toMatch(/retrying the session is not enough/i);
+      expect(message).toMatch(/relaunch the server/i);
+    });
+  });
+
+  // Finding #5 (test hermeticity): unit tests must never spawn the user's
+  // real login shell. The vitest environment runs with the probe disabled
+  // (CIRCUS_CHIEF_NO_LOGIN_SHELL=1 set by the test setup, before any module
+  // can probe), so env derivation tests exercise fixtures — never `$SHELL -lic`.
+  describe('test hermeticity (finding #5)', () => {
+    it('runs the vitest environment with the login-shell probe disabled', () => {
+      expect(process.env.CIRCUS_CHIEF_NO_LOGIN_SHELL).toBe('1');
+    });
+
+    it('short-circuits the probe before any spawn attempt while disabled', () => {
+      resetLoginShellEnvCache();
+      try {
+        const boobyTrapped = vi.fn(() => {
+          throw new Error('real login shell spawned inside a unit test');
+        });
+        const result = getLoginShellEnv({}, { spawnSync: boobyTrapped });
+        expect(result.ok).toBe(false);
+        expect(result.reason).toMatch(/disabled via CIRCUS_CHIEF_NO_LOGIN_SHELL=1/);
+        expect(boobyTrapped).not.toHaveBeenCalled();
+      } finally {
+        resetLoginShellEnvCache();
+      }
+    });
+
+    it('records zero login-shell spawns during createRobustEnv(process.env) in the test env', async () => {
+      const { spawnSync } = await import('child_process');
+      const spawnSyncSpy = vi.mocked(spawnSync);
+      resetLoginShellEnvCache();
+      spawnSyncSpy.mockClear();
+      try {
+        const env = createRobustEnv(process.env);
+        expect(env.PATH).toBeDefined();
+        expect(spawnSyncSpy).not.toHaveBeenCalled();
+      } finally {
+        resetLoginShellEnvCache();
+        spawnSyncSpy.mockClear();
+      }
     });
   });
 });

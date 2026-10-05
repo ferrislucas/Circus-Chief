@@ -74,13 +74,22 @@ describe('nodeSpawnHelper', () => {
     it('uses process.env as default base', () => {
       const env = createRobustEnv();
       const nodeBinDir = getNodeBinDir();
+      const separator = process.platform === 'win32' ? ';' : ':';
+      const parts = env.PATH.split(separator);
 
-      // Should have Node bin dir at the start
-      expect(env.PATH.startsWith(nodeBinDir)).toBe(true);
+      // Finding #6: the node bin dir appears exactly once and first —
+      // nested launches can hand us a PATH with duplicate copies of it,
+      // and the builder collapses that one dir without touching the rest.
+      expect(parts[0]).toBe(nodeBinDir);
+      expect(parts.filter((dir) => dir === nodeBinDir)).toHaveLength(1);
 
-      // Should also include original PATH from process.env
-      if (process.env.PATH) {
-        expect(env.PATH).toContain(process.env.PATH);
+      // Every other entry from process.env.PATH survives, in order.
+      const originalOthers = String(process.env.PATH || '')
+        .split(separator)
+        .filter((dir) => dir && dir !== nodeBinDir);
+      const builtOthers = parts.filter((dir) => dir && dir !== nodeBinDir);
+      for (const dir of originalOthers) {
+        expect(builtOthers).toContain(dir);
       }
     });
 

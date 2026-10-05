@@ -111,15 +111,20 @@ function buildGeminiQueryParams({
 }
 
 /**
- * Build query parameters for the Muse adapter.
+ * Build query parameters for the Muse adapter (`muse exec` transport).
  *
- * Muse sessions open over MSP (`muse serve`), so the adapter needs the
- * workspace root, model, approval posture, and optional resume handle —
- * not Claude-specific options (permissionMode, settingSources) or
- * Codex-specific ones (sandboxMode). MSP has no dedicated system-prompt
- * field, so the composed system prompt is forwarded in `options.systemPrompt`
- * and the adapter prepends it to the user turn (same `composeCliPrompt`
- * parity as the Codex/Gemini CLI adapters).
+ * Exec persists its native history under a caller-supplied UUID, so the
+ * adapter needs the workspace root, model, approval posture, and optional
+ * resume handle — not Claude-specific options (permissionMode,
+ * settingSources) or Codex-specific ones (sandboxMode). The CLI has no
+ * dedicated system-prompt field, so the composed system prompt is forwarded
+ * in `options.systemPrompt` and the adapter prepends it to the user turn
+ * (same `composeCliPrompt` parity as the Codex/Gemini CLI adapters).
+ *
+ * Exec is headless: there is deliberately no `canUseTool` interaction
+ * callback (unlike the Claude path) — gated modes enforce policy via CLI
+ * flags (`--approval-mode`, `--disable-write`) and denials surface as run
+ * failures, never as interactive prompts.
  *
  * @returns {Object}
  */

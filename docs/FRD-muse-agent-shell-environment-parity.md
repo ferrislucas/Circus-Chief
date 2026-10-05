@@ -139,7 +139,7 @@ all adapters.
 | ID | Requirement |
 | --- | --- |
 | FR-9 | User shell environment variables that affect tool behavior (e.g. `EDITOR`, `GPG_TTY`, `GIT_*`, provider-adjacent tokens the user exports in dotfiles) MUST be visible to the Muse host under the same names and values as in the login shell, subject to FR-10/FR-11. |
-| FR-10 | Precedence MUST be, lowest to highest: login-shell-derived baseline < server process env < session env < provider `additionalEnvVars`. Cross-kind stripping in `buildSessionEnv` (e.g. removing `ANTHROPIC_*` from Muse sessions) MUST be preserved. |
+| FR-10 | Precedence MUST be, lowest to highest: login-shell-derived baseline < server process env < session env < provider `additionalEnvVars`. Cross-kind stripping in `buildSessionEnv` (e.g. removing `ANTHROPIC_*` from Muse sessions) MUST be preserved. An explicit empty string counts as a SET value for non-PATH keys (the user cleared it on purpose — explicit clear wins); only `undefined`/`null` are gaps. PATH stays special: an empty PATH is still filled, and `buildUserCredentialEnv` continues to backfill `HOME`. |
 | FR-11 | Secret values (tokens, keys) MUST be redacted in all server logs, error messages surfaced to the UI/canvas, agent transcripts, and diagnostics output. Only presence/absence and origin (e.g. "GH_TOKEN: set via login shell") MAY be disclosed. |
 
 ### 4.5 Diagnostics and operability
@@ -228,11 +228,45 @@ a GUI/daemon launch):
 5. Fallback rehearsal: break the shell probe (e.g. `SHELL=/bin/false`) and
    confirm sessions still start with a logged fallback.
 
+### Round-2 acceptance re-run (2026-10-02, review findings #1–#12)
+
+1. **Sparse launch (§6.1, finding #1): PASS.** Server `PATH` without the
+   muse dir, `muse` only on the login-shell `PATH`: the CLI-version
+   preflight now resolves the launcher against the derived host env (the
+   same `PATH` the parity gate validated), and the turn reaches the
+   `muse serve` spawn — never a raw `spawn muse ENOENT`. Preflight failures
+   are mapped to the actionable `MUSE_CLI_NOT_FOUND` error.
+2. **Parity spot-check (§6.2/§6.5): PASS.** `git status` and `gh auth status`
+   run with the derived host env from a sparse launch matched direct
+   invocation.
+3. **Fallback rehearsal (§6.7/§8.5, FR-13): PASS.** `SHELL=/bin/false`:
+   probe resolves `{ ok: false }`, the fallback cause is logged once
+   (`[loginShellEnv]`), and `createRobustEnv` still yields a usable
+   `PATH`/`HOME` so sessions start.
+4. **Secret grep audit (§6.8, finding #2): PASS, extended.** A fixture
+   `hosts.yml` `oauth_token` echoed in tool output, tool input, and
+   assistant text reaches none of the transcript paths (`[REDACTED]`
+   everywhere, zero sentinel hits). Assistant prose is scrubbed at the same
+   choke point before persist AND broadcast.
+5. **Integration run (finding #4): PASS.** One real turn through
+   `@muse-code/sdk` + the real CLI (`MUSE_INTEGRATION=1`): spawn →
+   `system(init)` → items → terminal `result` → host close (~23s). The
+   suite is skipped by default where the CLI is absent.
+
+### Endpoint exposure note (finding #8)
+
+The diagnostics endpoint (`GET /api/agents/muse/env-diagnostics`) — like the
+rest of the API — is unauthenticated while the server binds `0.0.0.0`. It
+discloses only presence/absence and origin labels (no values), and
+`?reprobe=1` executes `$SHELL -lic` under the shared probe budget. The
+reprobe flag is parsed strictly (`1`/`true` only), and endpoint failures log
+the underlying error instead of swallowing it.
+
 ## 9. Risks and Dependencies
 
 - **R-1 (secrets in process env):** Propagating tokens into the host env puts
   more secrets in more processes. Mitigation: allowlist-only propagation,
-  FR-11 redaction, and never persisting derived env to disk/DB/canvas.
+  FR-11 redaction, and never persisting derived env to disk/DB/canvas. Residual risk (recorded, review round 2 finding #2): SSH-agent-resident keys are out of scope for value harvesting — the agent can *use* them via the socket, but the redaction set cannot contain what it cannot read; the scrub set covers secret-keyed env values plus `oauth_token` values harvested from `~/.config/gh/hosts.yml` (read once per change, held in memory only, never logged or persisted). Values shorter than 4 characters are excluded from every scrub set — a 1–3 character "secret" would otherwise replace every occurrence of that character in transcripts (round-3 finding #4).
 - **R-2 (probe cost/fragility):** Sourcing dotfiles can be slow or
   side-effectful (nvm/rbenv init). Mitigation: cache aggressively, bound the
   timeout (suggested ≤2s), run once per server lifetime, FR-13 fallback.

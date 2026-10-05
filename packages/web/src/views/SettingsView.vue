@@ -33,6 +33,13 @@
         >
           Logs
         </router-link>
+        <router-link
+          to="/settings/muse-env"
+          class="tab"
+          :class="{ active: activeTab === 'muse-env' }"
+        >
+          Muse Env
+        </router-link>
       </div>
 
       <!-- Mobile dropdown -->
@@ -71,6 +78,7 @@ const tabs = [
   { id: 'summary', label: 'Summary Settings', path: '/settings/summary' },
   { id: 'general', label: 'Settings', path: '/settings/general' },
   { id: 'logs', label: 'Logs', path: '/settings/logs' },
+  { id: 'muse-env', label: 'Muse Env', path: '/settings/muse-env' },
 ];
 
 const activeTab = computed(() => {

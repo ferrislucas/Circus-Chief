@@ -1,15 +1,21 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { tmpdir } from 'node:os';
 import { modelProviders } from '../database.js';
 import { testProviderConnection } from '../services/providerTestService.js';
 import { OPENAI_MODELS, CLAUDE_MODELS } from '@circuschief/shared';
 
 // Mock providerTestService so we can spy on kind forwarding without hitting
-// external APIs.
-vi.mock('../services/providerTestService.js', () => ({
-  testProviderConnection: vi.fn(),
-}));
+// external APIs. buildProviderTestConfig stays real: it is the shared
+// config builder both test routes go through (finding #9).
+vi.mock('../services/providerTestService.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    testProviderConnection: vi.fn(),
+  };
+});
 
 // Import the router
 import providersRouter from './providers.js';
@@ -515,6 +521,33 @@ describe('Providers API', () => {
       expect(response.body.success).toBe(false);
       expect(response.body.message).toBe('Authentication failed');
       expect(response.body.details.code).toBe(401);
+    });
+
+    // Finding #9 (route parity): a transient meta-kind test without an
+    // explicit workingDirectory must probe with cwd = OS temp dir — the same
+    // treatment the saved-provider route applies — instead of failing with
+    // MISSING_WORKING_DIRECTORY deep inside the probe.
+    it('200: fills workingDirectory=tmpdir() for meta kind when the request omits it (finding #9)', async () => {
+      const response = await request(app)
+        .post('/api/providers/test')
+        .send({ kind: 'meta' })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(testProviderConnection).toHaveBeenCalledTimes(1);
+      const calledWith = testProviderConnection.mock.calls[0][0];
+      expect(calledWith.kind).toBe('meta');
+      expect(calledWith.workingDirectory).toBe(tmpdir());
+    });
+
+    it('200: keeps an explicit workingDirectory for meta kind (finding #9)', async () => {
+      await request(app)
+        .post('/api/providers/test')
+        .send({ kind: 'meta', workingDirectory: '/explicit/dir' })
+        .expect(200);
+
+      const calledWith = testProviderConnection.mock.calls[0][0];
+      expect(calledWith.workingDirectory).toBe('/explicit/dir');
     });
   });
 
