@@ -7,6 +7,8 @@ import { initDatabase, commandRuns, sessions } from './database.js';
 import { processCommandRunOutputCleanup } from './services/commandRunOutputCleanup.js';
 import { initWebSocket, webSocketManager, setCommandRunOutputAuthorizer } from './websocket.js';
 import { parseCliOptions } from './cli.js';
+import { startServer, prepareBindFailureHandler } from './startup.js';
+import { DEFAULT_SERVER_HOST } from '@circuschief/shared';
 import { settings } from './db/index.js';
 import * as prStatusService from './services/prStatusService.js';
 import * as systemMonitor from './services/systemMonitor.js';
@@ -41,8 +43,13 @@ function validateNodeEnvironment() {
   }
 }
 
-const { port, disableAnalytics } = parseCliOptions();
+const { port, host, disableAnalytics } = parseCliOptions();
 process.env.PORT = String(port);
+// Publish the effective bind address (--host flag or loopback default) so
+// downstream consumers like getApiBaseUrl() construct agent-reachable URLs.
+// This is set here from the parsed CLI options; it is never read from the
+// user environment (host env vars are not supported).
+process.env.CIRCUSCHIEF_HOST = host;
 const production = process.env.NODE_ENV === 'production';
 const dbPath = process.env.DB_PATH || getDefaultDbPath();
 
@@ -118,6 +125,13 @@ const app = createApp({ production });
 // Create HTTP server
 const server = createServer(app);
 
+// Install the listen-phase bind-failure handler BEFORE the WebSocket layer
+// attaches. `ws` forwards the HTTP server's 'error' event onto itself, and a
+// bind failure re-emitted there has no listener — an Unhandled 'error' crash
+// that beats our handler to process.exit. Registered first, failBind runs
+// first and exits cleanly with a diagnosis.
+const { onListenFailure } = prepareBindFailureHandler(server, { port, host });
+
 // Initialize WebSocket for app
 initWebSocket(server);
 
@@ -178,8 +192,9 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 // snapshot env (FR-13) and are logged by the probe itself.
 getLoginShellEnv();
 
-// Start server on all interfaces
-server.listen(port, '0.0.0.0', () => {
-  console.log(`Circus Chief running on http://localhost:${port}`);
-  console.log(`WebSocket available at ws://localhost:${port}/ws`);
+startServer(server, {
+  port,
+  host,
+  isDefaultHost: host === DEFAULT_SERVER_HOST,
+  onListenFailure,
 });

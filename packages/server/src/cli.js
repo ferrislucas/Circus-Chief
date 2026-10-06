@@ -2,7 +2,10 @@ import { parseArgs } from 'node:util';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { DEFAULT_SERVER_PORT } from '@circuschief/shared';
+import { DEFAULT_SERVER_PORT, DEFAULT_SERVER_HOST } from '@circuschief/shared';
+import { describeBindHost } from './bindAddress.js';
+
+export { describeBindHost };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -12,6 +15,7 @@ function showHelp() {
 
 Options:
   -p, --port <number>  Port to listen on (env: PORT, default: ${DEFAULT_SERVER_PORT})
+  -H, --host <address> Network address to bind to (default: ${DEFAULT_SERVER_HOST})
   --no-analytics       Disable anonymous usage analytics
   -h, --help           Show this help message
   -V, --version        Show version number`);
@@ -39,6 +43,14 @@ export function parseCliOptions(argv = process.argv) {
           type: 'string',
           short: 'p',
           default: process.env.PORT || String(DEFAULT_SERVER_PORT),
+        },
+        host: {
+          type: 'string',
+          short: 'H',
+          // No environment variable fallback: the bind address comes only
+          // from --host or the loopback default, so ambient HOST values
+          // exported by shells or CI images can never move the server.
+          default: DEFAULT_SERVER_HOST,
         },
         help: {
           type: 'boolean',
@@ -78,5 +90,11 @@ export function parseCliOptions(argv = process.argv) {
     process.exit(1);
   }
 
-  return { port, disableAnalytics: values['no-analytics'] };
+  const host = values.host.trim();
+  if (host === '') {
+    console.error(`Error: Invalid host "${values.host}". Must be a non-empty address.`);
+    process.exit(1);
+  }
+
+  return { port, host, disableAnalytics: values['no-analytics'] };
 }
