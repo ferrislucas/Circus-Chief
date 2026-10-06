@@ -745,6 +745,95 @@ describe('sessionProvider', () => {
     });
   });
 
+  // ── Built-in Anthropic tier-member parity (PR review finding 1) ──────
+  // A validated Official Anthropic tier member reaches `buildSessionEnv` as
+  // the FULL built-in provider object (strict identity keeps it for
+  // dispatch/metadata — see tierStrictProvider.test.js), while the same
+  // model selected directly arrives as the SDK-default null provider. Both
+  // shapes must sanitize inherited ANTHROPIC_* routing/authentication
+  // variables identically — otherwise a tier can route prompts to a host
+  // proxy/account while metadata claims Official Anthropic.
+  //
+  // These tests pin env construction for the exact object shape strict
+  // resolution returns; they pass provider objects directly because
+  // `buildSessionEnv` never touches the database. Tier-path resolution
+  // itself is covered against the real catalog in tierStrictProvider.test.js
+  // and the sessionExecution/sessionContinuation dispatch tests below.
+  describe('buildSessionEnv (built-in Anthropic tier parity)', () => {
+    const HOST_VARS = {
+      ANTHROPIC_API_KEY: 'synthetic-host-api-key',
+      ANTHROPIC_AUTH_TOKEN: 'synthetic-host-auth-token',
+      ANTHROPIC_BASE_URL: 'https://synthetic-host-proxy.example.com',
+      OPENAI_API_KEY: 'synthetic-host-openai-key',
+      OPENAI_BASE_URL: 'https://synthetic-host-openai.example.com',
+      GEMINI_API_KEY: 'synthetic-host-gemini-key',
+    };
+
+    // The exact shape strict tier resolution returns for a validated
+    // Official member: full provider object, SDK-default runtime (no
+    // baseUrl/authToken — built-ins cannot configure them).
+    const builtInProvider = {
+      id: 'anthropic-default',
+      name: 'Anthropic (Official)',
+      kind: 'anthropic',
+      isBuiltIn: true,
+      models: [{ modelId: 'claude-opus-5' }],
+    };
+
+    const savedHostVars = {};
+
+    beforeEach(() => {
+      for (const [key, value] of Object.entries(HOST_VARS)) {
+        savedHostVars[key] = process.env[key];
+        process.env[key] = value;
+      }
+    });
+
+    afterEach(() => {
+      for (const key of Object.keys(HOST_VARS)) {
+        if (savedHostVars[key] === undefined) delete process.env[key];
+        else process.env[key] = savedHostVars[key];
+      }
+    });
+
+    it('strips inherited ANTHROPIC_* host env for a validated Official member object', () => {
+      const env = buildSessionEnv(builtInProvider, false, null);
+      expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+      expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
+    });
+
+    it('matches direct SDK-default sanitization, including shell-probe values', () => {
+      const shellEnv = {
+        ANTHROPIC_API_KEY: 'synthetic-shell-api-key',
+        ANTHROPIC_AUTH_TOKEN: 'synthetic-shell-auth-token',
+        ANTHROPIC_BASE_URL: 'https://synthetic-shell-proxy.example.com',
+      };
+      const tiered = buildSessionEnv(builtInProvider, true, 'high', { shellEnv });
+      const direct = buildSessionEnv(null, true, 'high', { shellEnv });
+      for (const key of Object.keys(HOST_VARS)) {
+        expect(tiered[key]).toBeUndefined();
+        expect(direct[key]).toBeUndefined();
+      }
+      // Thinking/effort settings are preserved on the tier path.
+      expect(tiered.MAX_THINKING_TOKENS).toBe('10240');
+      expect(tiered.CLAUDE_CODE_EFFORT_LEVEL).toBe('high');
+    });
+
+    it('control: a custom Anthropic provider still applies its configured endpoint and credentials', () => {
+      const custom = {
+        name: 'Custom Proxy',
+        kind: 'anthropic',
+        baseUrl: 'https://custom-proxy.example.com',
+        authToken: 'synthetic-custom-token',
+      };
+      const env = buildSessionEnv(custom, false, null);
+      expect(env.ANTHROPIC_BASE_URL).toBe('https://custom-proxy.example.com');
+      expect(env.ANTHROPIC_API_KEY).toBe('synthetic-custom-token');
+      expect(env.ANTHROPIC_AUTH_TOKEN).toBe('synthetic-custom-token');
+    });
+  });
+
   // Finding #5: a token/baseUrl configured on a meta provider is a silent
   // no-op (host `muse auth` always wins) — warn visibly instead of ignoring
   // it. Chose warn-and-ignore over reject so existing saved providers keep

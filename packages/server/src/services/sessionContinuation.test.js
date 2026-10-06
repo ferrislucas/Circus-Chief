@@ -187,6 +187,48 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
     expect(qp.options?.model).not.toContain('tier::');
   });
 
+  it('passes a sanitized env to the agent for a pinned Official Anthropic tier continuation (finding 1)', async () => {
+    const tier = modelTiers.create({
+      name: 'Official',
+      members: [{ providerId: 'anthropic-default', modelId: 'claude-opus-5', position: 0 }],
+    });
+    const tierRef = buildTierRef(tier.id);
+
+    // Simulate a session pinned to an Official Anthropic tier member
+    const session = createTestSession(project, {
+      model: tierRef,
+      resolvedModel: 'claude-opus-5',
+      resolvedProviderId: 'anthropic-default',
+    });
+    conversations.ensureActiveConversation(session.id);
+
+    const saved = {};
+    for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL']) {
+      saved[key] = process.env[key];
+      process.env[key] = `synthetic-finding1-continue-${key}`;
+    }
+    try {
+      await continueSessionCore(
+        session.id,
+        'Follow-up turn',
+        '/tmp/tier-continue-test',
+        { options: {}, callbacks: mockCallbacks }
+      );
+    } finally {
+      for (const key of Object.keys(saved)) {
+        if (saved[key] === undefined) delete process.env[key];
+        else process.env[key] = saved[key];
+      }
+    }
+
+    expect(capturedQueryParams.length).toBeGreaterThan(0);
+    const qp = capturedQueryParams[0];
+    expect(qp.options?.model).toBe('claude-opus-5');
+    expect(qp.options?.env?.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(qp.options?.env?.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(qp.options?.env?.ANTHROPIC_BASE_URL).toBeUndefined();
+  });
+
   it('falls back to live tier resolution when resolvedModel snapshot is absent', async () => {
     const tier = modelTiers.create({
       name: 'Mid',

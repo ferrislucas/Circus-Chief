@@ -85,7 +85,10 @@ export function handlePreparationFailure({ sessionId, controller, error, include
 // derive BOTH the dispatch provider and its metadata from the same validated
 // owner. A deleted/disabled provider or a removed model throws
 // TierIdentityError here instead of falling back to another provider that
-// owns the same model id, or to SDK defaults.
+// owns the same model id, or to SDK defaults for identity. (A validated
+// built-in Anthropic member still keeps its full provider object here; only
+// its runtime environment uses SDK-default sanitization — see
+// buildSessionEnv.)
 function resolveTierAttemptOwner(effectiveModel, providerHint) {
   const owner = resolveTierMemberProvider(effectiveModel, providerHint);
   return { provider: owner, providerMetadata: owner };

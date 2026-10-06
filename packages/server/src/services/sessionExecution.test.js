@@ -1307,3 +1307,44 @@ describe('resolveInitialSessionModelEnv tier-attempt ownership (finding 5)', () 
       .rejects.toThrow(TierIdentityError);
   });
 });
+
+describe('resolveInitialSessionModelEnv built-in Anthropic tier sanitization (finding 1)', () => {
+  const SEEDED_MODEL = 'claude-opus-5';
+  const HOST_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'];
+  const savedHost = {};
+
+  function tierSession() {
+    return {
+      id: 'finding1-session',
+      thinkingEnabled: false,
+      effortLevel: null,
+      gitWorktree: null,
+      model: 'tier::finding1-tier',
+      providerId: null,
+    };
+  }
+
+  beforeEach(() => {
+    for (const key of HOST_KEYS) {
+      savedHost[key] = process.env[key];
+      process.env[key] = `synthetic-finding1-${key}`;
+    }
+  });
+
+  afterEach(() => {
+    for (const key of HOST_KEYS) {
+      if (savedHost[key] === undefined) delete process.env[key];
+      else process.env[key] = savedHost[key];
+    }
+  });
+
+  it('starts a tier-bound Official member with SDK-default env sanitization', async () => {
+    const { effectiveModel, sessionEnv } = await resolveInitialSessionModelEnv(
+      tierSession(), SEEDED_MODEL, 'anthropic-default',
+    );
+    expect(effectiveModel).toBe(SEEDED_MODEL);
+    expect(sessionEnv.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(sessionEnv.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(sessionEnv.ANTHROPIC_BASE_URL).toBeUndefined();
+  });
+});

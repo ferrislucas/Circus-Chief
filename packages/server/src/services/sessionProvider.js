@@ -54,9 +54,14 @@ export function resolveProviderFromModel(modelId, providerId = null) {
  * Returns the owning provider ONLY on an exact ownership match (validated
  * through the shared {@link validateExactTierMember} rule: provider exists
  * and is enabled, model row present and enabled). Otherwise throws a typed
- * `TierIdentityError` — it never falls back to a different provider by model
- * id alone, and never degrades to SDK defaults. Non-tier paths keep using
- * {@link resolveProviderFromModel} with its backward-compatible fallback.
+ * `TierIdentityError` — identity never falls back to a different provider by
+ * model id alone, and never degrades to SDK defaults. Non-tier paths keep
+ * using {@link resolveProviderFromModel} with its backward-compatible fallback.
+ *
+ * Identity is exact even when the runtime environment is not: a validated
+ * built-in Anthropic member keeps this full provider object for dispatch and
+ * metadata, while {@link buildSessionEnv} still sanitizes its environment
+ * exactly like the direct SDK-default path.
  *
  * @param {string} modelId - Concrete model id from a tier member identity.
  * @param {string} providerId - The tier member's exact provider id (required).
@@ -305,6 +310,35 @@ function logProviderEnv(provider, kind, env) {
 }
 
 /**
+ * A validated built-in Anthropic tier member (Official Anthropic) runs with
+ * SDK-default credentials/endpoints — exactly like the same model selected
+ * directly, which resolves to the null provider. Strict tier identity still
+ * returns the FULL provider object for dispatch and metadata; only the
+ * runtime environment is sanitized, centrally, here.
+ * @param {Object|null} provider - Provider object or null for agent defaults
+ * @returns {boolean}
+ */
+function isSdkDefaultBuiltInAnthropic(provider) {
+  return Boolean(provider?.isBuiltIn && (provider.kind || 'anthropic') === 'anthropic');
+}
+
+/**
+ * Classify which environment policy `buildSessionEnv` applies: the
+ * SDK-default strip (null provider, or a validated built-in Anthropic tier
+ * member), or the per-kind policy for a configured provider.
+ * @param {Object|null} provider - Provider object or null for agent defaults
+ * @returns {string} 'sdk-default' | 'openai' | 'google' | 'meta' | 'anthropic'
+ */
+function resolveSessionEnvPolicy(provider) {
+  if (!provider || isSdkDefaultBuiltInAnthropic(provider)) return 'sdk-default';
+  const kind = provider.kind || 'anthropic';
+  if (kind === 'openai') return 'openai';
+  if (kind === 'google') return 'google';
+  if (kind === 'meta') return 'meta';
+  return 'anthropic';
+}
+
+/**
  * Build environment variables for the agent runtime based on provider and session settings.
  * Always returns a robust env with Node in PATH to prevent ENOENT errors.
  *
@@ -318,6 +352,9 @@ function logProviderEnv(provider, kind, env) {
  *     Gemini / Muse sessions.
  *   - provider === null: strip BOTH kinds' auth/base-url vars so host env
  *     doesn't bleed into the SDK defaults.
+ *   - built-in Anthropic provider (Official Anthropic tier member): same
+ *     sanitization as the null-provider path, so a tier cannot route prompts
+ *     to a host proxy/account while metadata claims Official Anthropic.
  *
  * @param {Object|null} provider - Provider object or null for agent defaults
  * @param {boolean} thinkingEnabled - Whether thinking mode is enabled
@@ -340,15 +377,15 @@ export function buildSessionEnv(provider, thinkingEnabled = false, effortLevel =
     ...providerEnv, // Add provider env vars (wins over host env for its own keys)
   };
 
-  const kind = provider?.kind || (provider ? 'anthropic' : null);
+  const policy = resolveSessionEnvPolicy(provider);
 
-  if (!provider) {
+  if (policy === 'sdk-default') {
     stripProviderRuntimeEnv(sessionEnv);
-  } else if (kind === 'openai') {
+  } else if (policy === 'openai') {
     applyOpenAISessionEnv(sessionEnv, providerEnv);
-  } else if (kind === 'google') {
+  } else if (policy === 'google') {
     applyGoogleSessionEnv(sessionEnv, providerEnv);
-  } else if (kind === 'meta') {
+  } else if (policy === 'meta') {
     applyMetaSessionEnv(sessionEnv, providerEnv);
   } else {
     stripOpenAIHostEnv(sessionEnv);
@@ -357,7 +394,7 @@ export function buildSessionEnv(provider, thinkingEnabled = false, effortLevel =
 
   // Claude-only session env vars. Only set for Anthropic-kind providers
   // (or when no provider is configured → Claude-default flow).
-  const isClaudeFlow = !provider || kind === 'anthropic';
+  const isClaudeFlow = policy === 'sdk-default' || policy === 'anthropic';
 
   if (isClaudeFlow) {
     // Add thinking tokens if enabled (but suppress in VCR mode to minimize cost)

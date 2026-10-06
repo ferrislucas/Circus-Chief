@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { buildTierRef } from '@circuschief/shared';
 import { modelProviders } from '../database.js';
-import { resolveTierMemberProvider } from './sessionProvider.js';
+import { resolveDispatchProvider, resolveTierMemberProvider } from './sessionProvider.js';
 import { TierIdentityError } from './tierIdentity.js';
 
 // Item 1 centralization (red): tier-derived dispatch must resolve the provider
@@ -57,5 +58,30 @@ describe('resolveTierMemberProvider (strict tier identity)', () => {
 
   it('throws for a missing hint instead of falling back to model-id lookup', () => {
     expect(() => resolveTierMemberProvider('strict-model', null)).toThrow(TierIdentityError);
+  });
+
+  it('returns the seeded built-in Anthropic provider for a valid Official member pair', () => {
+    // A validated Official member keeps its FULL provider object for
+    // identity/metadata — the runtime-env fix must not change this.
+    const builtIn = modelProviders.getById('anthropic-default');
+    expect(builtIn?.isBuiltIn).toBe(true);
+    const member = builtIn.models.find((entry) => entry.enabled !== false);
+    expect(member).toBeDefined();
+    const provider = resolveTierMemberProvider(member.modelId, builtIn.id);
+    expect(provider?.id).toBe('anthropic-default');
+  });
+
+  it('keeps the validated Official provider in dispatch metadata on a tier-bound continuation', () => {
+    // No requested model: the session continues on its existing tier
+    // binding. Identity stays exact even though the runtime environment for
+    // this provider uses SDK-default sanitization (finding 1).
+    const builtIn = modelProviders.getById('anthropic-default');
+    const member = builtIn.models.find((entry) => entry.enabled !== false);
+    const session = { model: buildTierRef('continuation-tier') };
+    const { provider, providerMetadata } = resolveDispatchProvider(
+      session, null, member.modelId, builtIn.id,
+    );
+    expect(provider?.id).toBe('anthropic-default');
+    expect(providerMetadata?.id).toBe('anthropic-default');
   });
 });
