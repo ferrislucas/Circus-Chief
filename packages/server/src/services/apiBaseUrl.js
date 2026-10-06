@@ -6,9 +6,10 @@ import { apiHostFromBind } from '../bindAddress.js';
  *
  * Uses CIRCUSCHIEF_API_URL if set (explicit override), otherwise constructs
  * from the effective bind address and port. The bind address is set by the
- * server entry point into CIRCUSCHIEF_HOST after CLI/env resolution, so
- * agent prompt URLs follow the actual bind: dialing `localhost` against a
- * server bound to a specific interface IP would be refused.
+ * server entry point into CIRCUSCHIEF_HOST after CLI resolution (--host flag
+ * or loopback default; no env var), so agent prompt URLs follow the actual
+ * bind: dialing `localhost` against a server bound to a specific interface
+ * IP would be refused.
  *
  * @returns {string} The base API URL (e.g. http://localhost:5000)
  */

@@ -15,7 +15,7 @@ function showHelp() {
 
 Options:
   -p, --port <number>  Port to listen on (env: PORT, default: ${DEFAULT_SERVER_PORT})
-  -H, --host <address> Network address to bind to (env: CIRCUSCHIEF_HOST or HOST, default: ${DEFAULT_SERVER_HOST})
+  -H, --host <address> Network address to bind to (default: ${DEFAULT_SERVER_HOST})
   --no-analytics       Disable anonymous usage analytics
   -h, --help           Show this help message
   -V, --version        Show version number`);
@@ -47,14 +47,10 @@ export function parseCliOptions(argv = process.argv) {
         host: {
           type: 'string',
           short: 'H',
-          // Trim before the fallback chain so a whitespace-only env var falls
-          // through to the default instead of failing startup later. Bare
-          // HOST is a legacy fallback: some shells and CI images export it
-          // with the machine hostname, so prefer CIRCUSCHIEF_HOST.
-          default:
-            process.env.CIRCUSCHIEF_HOST?.trim() ||
-            process.env.HOST?.trim() ||
-            DEFAULT_SERVER_HOST,
+          // No environment variable fallback: the bind address comes only
+          // from --host or the loopback default, so ambient HOST values
+          // exported by shells or CI images can never move the server.
+          default: DEFAULT_SERVER_HOST,
         },
         help: {
           type: 'boolean',

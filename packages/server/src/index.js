@@ -45,8 +45,10 @@ function validateNodeEnvironment() {
 
 const { port, host, disableAnalytics } = parseCliOptions();
 process.env.PORT = String(port);
-// Publish the effective bind address (flag > env > default) so downstream
-// consumers like getApiBaseUrl() construct agent-reachable URLs.
+// Publish the effective bind address (--host flag or loopback default) so
+// downstream consumers like getApiBaseUrl() construct agent-reachable URLs.
+// This is set here from the parsed CLI options; it is never read from the
+// user environment (host env vars are not supported).
 process.env.CIRCUSCHIEF_HOST = host;
 const production = process.env.NODE_ENV === 'production';
 const dbPath = process.env.DB_PATH || getDefaultDbPath();
