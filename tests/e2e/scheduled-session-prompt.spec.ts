@@ -36,10 +36,12 @@ test.describe('Scheduled Session Prompt Location (#435)', () => {
     await openSessionOverlay(page);
 
     // VERIFY 1: Prompt should be in the text input field
+    // Poll for the value: the textarea renders with the overlay shell while
+    // the scheduled prompt is still hydrating from the session fetch, so a
+    // single immediate read races the restore.
     const textarea = page.locator('textarea');
     await expect(textarea).toBeVisible({ timeout: 5000 });
-    const textareaValue = await textarea.inputValue();
-    expect(textareaValue).toBe(testPrompt);
+    await expect(textarea).toHaveValue(testPrompt, { timeout: 10000 });
 
     // VERIFY 2: No user message should appear in the messages area
     // For scheduled sessions that haven't started, messages should be hidden

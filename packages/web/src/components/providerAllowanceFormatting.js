@@ -29,7 +29,7 @@ function formatDateTime(value) {
 function formatAllowance(allowance) {
   if (allowance.remainingPercent === null) return 'Unknown';
   if (allowance.value !== null && allowance.value !== undefined && allowance.valueKind && allowance.limit !== null) {
-    return `${formatCompactNumber(allowance.value)} ${allowance.unit} ${allowance.valueKind} of ${formatCompactNumber(allowance.limit)}`;
+    return `${formatCompactNumber(allowance.value)} ${allowance.unit} ${allowance.valueKind} of ${formatCompactNumber(allowance.limit)} (${Math.round(allowance.remainingPercent)}%)`;
   }
   if (allowance.remaining === null || allowance.limit === null) return `${Math.round(allowance.remainingPercent)}% remaining`;
   return `${allowance.remaining} / ${allowance.limit} ${allowance.unit} remaining (${Math.round(allowance.remainingPercent)}%)`;
