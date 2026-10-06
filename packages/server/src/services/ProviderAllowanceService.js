@@ -45,7 +45,7 @@ export class ProviderAllowanceService {
     const previous = this.snapshots.get(normalized.providerId);
     this.snapshots.set(normalized.providerId, normalized);
     if (!isDeepStrictEqual(previous, normalized)) {
-      this.broadcaster?.(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, { snapshot: normalized });
+      this.broadcaster?.(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, { snapshot: withFreshness(normalized, this.clock.now()) });
     }
     return normalized;
   }

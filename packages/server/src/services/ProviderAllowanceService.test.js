@@ -165,6 +165,26 @@ describe('ProviderAllowanceService', () => {
     expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'stale', updatedAt: 1, staleAt: 5, allowances: [{ remaining: 25, limit: 100 }] });
   });
 
+  it('broadcasts the freshness-aged snapshot when the observation is already stale', () => {
+    const broadcaster = vi.fn();
+    const service = new ProviderAllowanceService({
+      providerRepository: { getAll: () => [enabled] }, broadcaster, clock: { now: () => 10 },
+    });
+    const received = service.observe({
+      providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
+      status: 'warning', source: 'provider', updatedAt: 1, staleAt: 5, unavailableReason: null,
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: null }],
+    });
+
+    // The store keeps the un-aged snapshot; the wire carries the stale status.
+    expect(received).toMatchObject({ status: 'warning', updatedAt: 1, staleAt: 5 });
+    expect(broadcaster).toHaveBeenCalledWith(
+      WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED,
+      { snapshot: expect.objectContaining({ status: 'stale', updatedAt: 1, staleAt: 5 }) },
+    );
+    expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'stale' });
+  });
+
   it('does not retain or broadcast allowance updates for disabled or unknown providers', () => {
     const broadcaster = vi.fn();
     const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled, disabled] }, broadcaster });
