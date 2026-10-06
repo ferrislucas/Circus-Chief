@@ -184,6 +184,21 @@ describe('streamEventHandler', () => {
       expect(logged).not.toContain(SENTINEL);
     });
 
+    it('badges Muse progress rows with toolName Muse instead of unknown (FR-6)', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.create.mockReturnValue({ id: 'wl-muse' });
+
+      await handleStreamEvent('sess-1', {
+        type: 'tool_result',
+        content: 'Muse task model.unknown.response: started',
+        tool_name: 'Muse',
+      }, { env: {} });
+
+      expect(workLogs.create).toHaveBeenCalledWith(
+        'sess-1', 'tool_output', 'Muse task model.unknown.response: started', { messageId: null, toolName: 'Muse' },
+      );
+    });
+
     it('redacts secret values from tool_input work logs', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.create.mockReturnValue({ id: 'wl-2' });

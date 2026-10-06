@@ -147,8 +147,8 @@ describe('muse exec protocol', () => {
     const parser = createMuseExecProtocol();
     expect(push(parser,
       accepted(), linked(),
-      record(3, 'tool.result', { kind: 'tool_result', call_id: 'call-1', text: 'wrote 40 bytes' }),
-    )).toContainEqual({ kind: 'tool_result', text: 'wrote 40 bytes' });
+      record(3, 'tool.result', { kind: 'tool_result', call_id: 'call-1', task_id: 'task-8', text: 'wrote 40 bytes' }),
+    )).toContainEqual({ kind: 'tool_result', text: 'wrote 40 bytes', taskId: 'task-8' });
   });
 
   it('bounds oversized tool result text', () => {
@@ -157,8 +157,25 @@ describe('muse exec protocol', () => {
       accepted(), linked(),
       record(3, 'tool.result', { kind: 'tool_result', call_id: 'call-1', text: `x${'y'.repeat(9000)}` }),
     ).filter((item) => item.kind === 'tool_result');
+    expect(mapped.taskId).toBeNull();
     expect(mapped.text).toHaveLength(8000 + '… (truncated)'.length);
     expect(mapped.text.endsWith('… (truncated)')).toBe(true);
+  });
+
+  it('reads task kind from event.task_kind with fallback to top-level task_kind', () => {
+    const parser = createMuseExecProtocol();
+    expect(push(parser,
+      accepted(), linked(),
+      record(3, 'task.lifecycle.started', { kind: 'task_lifecycle', task_kind: null, task_id: 'task-3', event: { kind: 'started', task_kind: 'model.unknown.response', task_id: 'task-3' } }),
+      record(4, 'task.lifecycle.started', { kind: 'task_lifecycle', task_kind: 'model.response', task_id: 'task-4', event: { kind: 'started', task_id: 'task-4' } }),
+      record(5, 'task.lifecycle.started', { kind: 'task_lifecycle', task_kind: null, event: { kind: 'started' } }),
+    )).toEqual([
+      { kind: 'accepted', commandId: 'cmd-active' },
+      { kind: 'unknown', payloadType: 'session.run.linked' },
+      { kind: 'progress', phase: 'started', taskKind: 'model.unknown.response', taskId: 'task-3' },
+      { kind: 'progress', phase: 'started', taskKind: 'model.response', taskId: 'task-4' },
+      { kind: 'progress', phase: 'started', taskKind: null, taskId: null },
+    ]);
   });
 
   it('forwards task status messages and output chunks for progress notices', () => {
@@ -170,8 +187,8 @@ describe('muse exec protocol', () => {
     )).toEqual([
       { kind: 'accepted', commandId: 'cmd-active' },
       { kind: 'unknown', payloadType: 'session.run.linked' },
-      { kind: 'progress', phase: 'status', taskKind: null, message: 'opening meta model stream attempt 1/10' },
-      { kind: 'progress', phase: 'output', taskKind: null, chunk: '{"command":"ls"}' },
+      { kind: 'progress', phase: 'status', taskKind: null, taskId: null, message: 'opening meta model stream attempt 1/10' },
+      { kind: 'progress', phase: 'output', taskKind: null, taskId: null, chunk: '{"command":"ls"}' },
     ]);
   });
 });

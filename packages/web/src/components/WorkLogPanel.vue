@@ -45,7 +45,11 @@
           </svg>
         </span>
       </summary>
-      <div class="work-log-content">
+      <div
+        ref="contentRef"
+        class="work-log-content"
+        @scroll="handleScroll"
+      >
         <div
           v-for="log in workLogs"
           :key="log.id"
@@ -70,6 +74,7 @@
 import { ref, computed } from 'vue';
 import ThinkingBlock from './ThinkingBlock.vue';
 import CommandBlock from './CommandBlock.vue';
+import { useWorkLogFollow } from '../composables/useWorkLogFollow.js';
 
 const props = defineProps({
   workLogs: { type: Array, default: () => [] },
@@ -83,6 +88,21 @@ const totalCount = computed(() => props.workLogs?.length || 0);
 function handleToggle(event) {
   isExpanded.value = event.target.open;
 }
+
+// Follow mode (FR-9): new arrivals scroll to the newest item while the user
+// is near the bottom; scrolling up disengages until they return. Collapsed
+// panels never scroll.
+const contentRef = ref(null);
+const { isNearBottom, handleScroll } = useWorkLogFollow({
+  resolveContainer: () => contentRef.value,
+  watchSources: [() => props.workLogs?.length],
+  isActive: () => isExpanded.value,
+});
+
+// Expose for testing
+defineExpose({
+  isNearBottom,
+});
 </script>
 
 <style scoped>
@@ -142,6 +162,10 @@ function handleToggle(event) {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  /* Scroll container for follow mode (FR-9). Short lists render exactly as
+     before (no scrollbar); long turns scroll instead of growing the page. */
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 .work-log-item {
