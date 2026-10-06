@@ -26,6 +26,7 @@ import {
   buildPromptWithAttachments,
   getSessionAttachmentsContext,
   getGeminiApprovalModeForSession,
+  getMuseApprovalModeForSession,
   getPermissionModeForSession,
   PLAN_MODE_PROMPT,
   buildSystemPromptConfig,
@@ -328,6 +329,28 @@ describe('sessionPrompts', () => {
       expect(getGeminiApprovalModeForSession(undefined)).toBe('auto_edit');
       expect(getGeminiApprovalModeForSession(null)).toBe('auto_edit');
       expect(getGeminiApprovalModeForSession('anything-else')).toBe('auto_edit');
+    });
+  });
+
+  // ── getMuseApprovalModeForSession ─────────────────────────────────────
+
+  describe('getMuseApprovalModeForSession', () => {
+    it('maps yolo to allowAll', () => {
+      expect(getMuseApprovalModeForSession('yolo')).toBe('allowAll');
+    });
+
+    it('maps plan to promptUnmatched', () => {
+      expect(getMuseApprovalModeForSession('plan')).toBe('promptUnmatched');
+    });
+
+    it('maps standard to onRequest', () => {
+      expect(getMuseApprovalModeForSession('standard')).toBe('onRequest');
+    });
+
+    it('maps undefined, null, and unknown values to onRequest', () => {
+      expect(getMuseApprovalModeForSession(undefined)).toBe('onRequest');
+      expect(getMuseApprovalModeForSession(null)).toBe('onRequest');
+      expect(getMuseApprovalModeForSession('anything-else')).toBe('onRequest');
     });
   });
 

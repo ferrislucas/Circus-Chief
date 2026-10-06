@@ -66,6 +66,17 @@ export function recoverOrphanedStartingSessions() {
  * rather than 'error' because an orphaned row is not evidence that the work
  * itself failed, and 'stopped' leaves the session able to receive follow-ups.
  *
+ * A crash between a user Stop and provider settlement likewise leaves a
+ * 'stopped' row with no live owner, which is already consistent: a fresh
+ * continuation may start immediately.
+ *
+ * Operator recovery for an already-orphaned provider process (e.g. a Muse
+ * CLI/`muse exec` child that outlived its server): identify the exact PID or
+ * process group from the structured stop/shutdown logs (Circus session ID,
+ * abort time, signals sent), terminate that PID/process group, wait for exit,
+ * then create a fresh continuation. Never reuse the failed retry while the
+ * provider's own session lock may still be held.
+ *
  * Call once during server boot, after initDatabase() and before any services start.
  *
  * @returns {{ recovered: number }} Count of sessions recovered.

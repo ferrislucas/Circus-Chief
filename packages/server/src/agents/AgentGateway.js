@@ -1,6 +1,7 @@
 import { ClaudeCodeAdapter } from './adapters/ClaudeCodeAdapter.js';
 import { CodexAdapter } from './adapters/CodexAdapter.js';
 import { GeminiAdapter } from './adapters/GeminiAdapter.js';
+import { MuseExecAdapter } from './adapters/MuseExecAdapter.js';
 
 /**
  * Factory/registry for agent adapters.
@@ -19,6 +20,9 @@ export class AgentGateway {
     this.registerAdapter('claude-code', ClaudeCodeAdapter);
     this.registerAdapter('codex', CodexAdapter);
     this.registerAdapter('gemini', GeminiAdapter);
+    // Muse runs exclusively on the `muse exec` transport (the `muse serve`
+    // MSP path was removed): one headless CLI process per turn.
+    this.registerAdapter('muse', MuseExecAdapter);
   }
 
   /**

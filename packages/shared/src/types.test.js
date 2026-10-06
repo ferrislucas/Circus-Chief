@@ -3,13 +3,15 @@ import {
   CLAUDE_MODELS,
   OPENAI_MODELS,
   GEMINI_MODELS,
+  MUSE_MODELS,
   DEFAULT_MODEL,
   DEFAULT_OPENAI_MODEL,
   CODEX_SUMMARY_MODELS,
+  MUSE_SUMMARY_MODELS,
 } from './types.js';
 
 describe('catalog matrix completeness (FRD §0 / Phase 1 gate)', () => {
-  const catalogs = { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS };
+  const catalogs = { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS, MUSE_MODELS };
 
   for (const [name, models] of Object.entries(catalogs)) {
     describe(name, () => {
@@ -165,5 +167,14 @@ describe('CODEX_SUMMARY_MODELS', () => {
       'gpt-5.3-codex',
     ]);
     expect(CODEX_SUMMARY_MODELS).not.toContain('gpt-6-astra');
+  });
+});
+
+describe('MUSE_SUMMARY_MODELS', () => {
+  it('retains only the separately supported Muse summary-runner models', () => {
+    expect(MUSE_SUMMARY_MODELS).toEqual([
+      'muse-spark-1.3',
+      'muse-spark-1.3-contributor',
+    ]);
   });
 });

@@ -1,5 +1,5 @@
 import { sessions, attachments } from '../database.js';
-import { DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
+import { DEFAULT_SYSTEM_PROMPT, museApprovalModeForSessionMode } from '@circuschief/shared';
 import { buildCommandButtonApiInstructions } from './commandButtonPrompts.js';
 import {
   buildSessionApiInstructions,
@@ -151,6 +151,22 @@ export function getGeminiApprovalModeForSession(mode) {
     default:
       return 'auto_edit';
   }
+}
+
+/**
+ * Map session mode to the Muse approval posture.
+ *
+ * Delegates to the shared `museApprovalPolicy.js` table so the server
+ * mapping and the UI copy cannot drift. Postures are closed
+ * (select-never-create): allowAll | promptUnmatched | onRequest |
+ * denyUnmatched. The `muse exec` default is on-request; yolo lifts
+ * enforcement, plan selects the most conservative posture. Because exec is
+ * headless, the posture is enforced via CLI flags (`--approval-mode`,
+ * `--disable-write` — see `museExecArgs.js`), never via interactive
+ * prompting: denied tools fail the run instead of asking the user.
+ */
+export function getMuseApprovalModeForSession(mode) {
+  return museApprovalModeForSessionMode(mode);
 }
 
 /** Plan mode system prompt instructions */

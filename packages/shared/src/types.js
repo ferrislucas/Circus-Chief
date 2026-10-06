@@ -277,6 +277,16 @@ export const CODEX_SUMMARY_MODELS = [
   'gpt-5.3-codex',
 ];
 
+// Deliberately separate from MUSE_MODELS, mirroring CODEX_SUMMARY_MODELS.
+// Catalog availability does not imply summary-runner compatibility:
+// summaries run via `muse exec --output-schema` and must only offer model
+// IDs that headless non-interactive run supports. Keep this list in sync
+// with that runner's supported model IDs.
+export const MUSE_SUMMARY_MODELS = [
+  'muse-spark-1.3',
+  'muse-spark-1.3-contributor',
+];
+
 export const GEMINI_MODELS = [
   {
     id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Most capable reasoning model', seedId: 'google-gemini-2-5-pro',
@@ -292,6 +302,18 @@ export const GEMINI_MODELS = [
   },
 ];
 export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+
+export const MUSE_MODELS = [
+  {
+    id: 'muse-spark-1.3', name: 'Muse Spark 1.3', description: 'Capable Muse Spark model', seedId: 'meta-muse-spark-1-3',
+    lifecycle: 'current', defaultEnabled: true, evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
+    id: 'muse-spark-1.3-contributor', name: 'Muse Spark 1.3 Contributor', description: 'Most capable Muse Spark model', seedId: 'meta-muse-spark-1-3-contributor',
+    lifecycle: 'current', defaultEnabled: true, evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+];
+export const DEFAULT_MUSE_MODEL = 'muse-spark-1.3';
 
 /**
  * @typedef {Object} KanbanBoard

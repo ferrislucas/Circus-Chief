@@ -74,13 +74,22 @@ describe('nodeSpawnHelper', () => {
     it('uses process.env as default base', () => {
       const env = createRobustEnv();
       const nodeBinDir = getNodeBinDir();
+      const separator = process.platform === 'win32' ? ';' : ':';
+      const parts = env.PATH.split(separator);
 
-      // Should have Node bin dir at the start
-      expect(env.PATH.startsWith(nodeBinDir)).toBe(true);
+      // Finding #6: the node bin dir appears exactly once and first —
+      // nested launches can hand us a PATH with duplicate copies of it,
+      // and the builder collapses that one dir without touching the rest.
+      expect(parts[0]).toBe(nodeBinDir);
+      expect(parts.filter((dir) => dir === nodeBinDir)).toHaveLength(1);
 
-      // Should also include original PATH from process.env
-      if (process.env.PATH) {
-        expect(env.PATH).toContain(process.env.PATH);
+      // Every other entry from process.env.PATH survives, in order.
+      const originalOthers = String(process.env.PATH || '')
+        .split(separator)
+        .filter((dir) => dir && dir !== nodeBinDir);
+      const builtOthers = parts.filter((dir) => dir && dir !== nodeBinDir);
+      for (const dir of originalOthers) {
+        expect(builtOthers).toContain(dir);
       }
     });
 
@@ -89,6 +98,77 @@ describe('nodeSpawnHelper', () => {
       const expectedSeparator = process.platform === 'win32' ? ';' : ':';
 
       expect(env.PATH).toContain(expectedSeparator);
+    });
+
+    it('falls back to os.homedir() when HOME is missing so gh/git find user config', async () => {
+      const { homedir } = await import('os');
+      const env = createRobustEnv({ PATH: '/usr/bin:/bin' });
+
+      expect(env.HOME).toBe(homedir());
+    });
+
+    it('preserves an explicit HOME instead of overwriting it', () => {
+      const env = createRobustEnv({ PATH: '/usr/bin:/bin', HOME: '/custom/home' });
+
+      expect(env.HOME).toBe('/custom/home');
+    });
+
+    it('forwards user credential vars so git/gh run with user auth', () => {
+      const baseEnv = {
+        PATH: '/usr/bin:/bin',
+        SSH_AUTH_SOCK: '/tmp/ssh-agent.sock',
+        SSH_AGENT_PID: '1234',
+        GIT_SSH_COMMAND: 'ssh -i ~/.ssh/id_ed25519',
+        GIT_ASKPASS: '/usr/local/bin/askpass.sh',
+        GH_TOKEN: 'gh-secret',
+        GITHUB_TOKEN: 'github-secret',
+      };
+      const env = createRobustEnv(baseEnv);
+
+      expect(env.SSH_AUTH_SOCK).toBe('/tmp/ssh-agent.sock');
+      expect(env.SSH_AGENT_PID).toBe('1234');
+      expect(env.GIT_SSH_COMMAND).toBe('ssh -i ~/.ssh/id_ed25519');
+      expect(env.GIT_ASKPASS).toBe('/usr/local/bin/askpass.sh');
+      expect(env.GH_TOKEN).toBe('gh-secret');
+      expect(env.GITHUB_TOKEN).toBe('github-secret');
+    });
+
+    it('ensures well-known user bin dirs are on PATH without duplicating entries', () => {
+      if (process.platform === 'win32') return;
+      const nodeBinDir = getNodeBinDir();
+      const env = createRobustEnv({ PATH: '/usr/bin:/bin' });
+      const parts = env.PATH.split(':');
+
+      expect(parts[0]).toBe(nodeBinDir);
+      expect(parts).toContain('/opt/homebrew/bin');
+      expect(parts).toContain('/usr/local/bin');
+
+      const again = createRobustEnv({ PATH: env.PATH });
+      const dupes = again.PATH.split(':').filter((p) => p === '/opt/homebrew/bin');
+      expect(dupes).toHaveLength(1);
+    });
+
+    it('fills USER/LOGNAME when missing so tools see a consistent identity', async () => {
+      const { userInfo } = await import('os');
+      let expected = null;
+      try {
+        expected = userInfo().username;
+      } catch {
+        expected = null;
+      }
+      if (!expected) return;
+      const env = createRobustEnv({ PATH: '/usr/bin:/bin' });
+
+      expect(env.USER).toBe(expected);
+      expect(env.LOGNAME).toBe(expected);
+    });
+
+    it('resolves login-shell PATH entries (e.g. ~/.local/bin) absent from the server snapshot', () => {
+      const env = createRobustEnv({ PATH: '/usr/bin:/bin' }, {
+        shellEnv: { PATH: '/home/user/.local/bin:/usr/bin' },
+      });
+
+      expect(env.PATH.split(':')).toContain('/home/user/.local/bin');
     });
   });
 
