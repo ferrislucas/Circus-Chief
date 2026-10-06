@@ -54,7 +54,7 @@ export function mapClaudeRateLimitEvent(info, { observedAt = Date.now(), streamS
       remaining: null,
       limit: null,
       remainingPercent: utilization === null ? null : clampRemainingPercent(100 - utilization),
-      unit: 'tokens',
+      unit: 'other', // the wire carries a utilization percentage with no denomination (FRD §5)
       resetsAt: normalizeEpochMs(info.resetsAt),
     }],
   };

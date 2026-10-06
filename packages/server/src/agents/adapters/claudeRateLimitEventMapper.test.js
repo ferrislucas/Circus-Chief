@@ -25,10 +25,16 @@ describe('claudeRateLimitEventMapper', () => {
         remaining: null,
         limit: null,
         remainingPercent: 57.5,
-        unit: 'tokens',
+        unit: 'other',
         resetsAt: 1_789_900_000_000,
       }],
     });
+  });
+
+  it('reports utilization-derived windows with unit other (the wire carries a percentage, not a denomination)', () => {
+    const candidate = mapClaudeRateLimitEvent(fixture.fiveHourWithUtilization.rate_limit_info, { observedAt });
+
+    expect(candidate.allowances).toEqual([expect.objectContaining({ unit: 'other', remainingPercent: 57.5 })]);
   });
 
   it.each([
