@@ -32,6 +32,8 @@ const {
   startZaiQuotaPoller,
   stopZaiQuotaPoller,
   zaiQuotaProviders,
+  hashAuthToken,
+  _authFailureHashForTests,
   _resetZaiQuotaPollerStateForTests,
 } = await import('./zaiQuotaPoller.js');
 const { mapZaiQuota } = await import('../agents/adapters/zaiAllowanceMapper.js');
@@ -107,6 +109,31 @@ describe('zaiQuotaPoller', () => {
 
     const providers = repositoryWith([rotatedProvider]);
     expect(zaiQuotaProviders(providers, { clock: { now: () => 1_000 } })).toEqual([rotatedProvider]);
+  });
+
+  it('detects key rotation without retaining the raw credential', async () => {
+    fetchOutcome = { outcome: 'http', status: 401, retryAfterMs: null };
+    await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
+    expect(observer).not.toHaveBeenCalled();
+
+    // The rejection is remembered as a hash, never as the credential string.
+    expect(_authFailureHashForTests(zaiProvider.id)).toBe(hashAuthToken(zaiProvider.authToken));
+    expect(_authFailureHashForTests(zaiProvider.id)).not.toBe(zaiProvider.authToken);
+
+    // Same key stays skipped; a rotated key polls again.
+    fetchOutcome = { outcome: 'ok', payload: fixture.payload };
+    await pollOnce({ clock: { now: () => 2_000 }, providerRepository: repositoryWith([zaiProvider]) });
+    expect(observer).not.toHaveBeenCalled();
+    await pollOnce({ clock: { now: () => 3_000 }, providerRepository: repositoryWith([rotatedProvider]) });
+    expect(observer).toHaveBeenCalledTimes(1);
+  });
+
+  it('hashAuthToken is stable, distinct per input, and non-reversible', () => {
+    expect(hashAuthToken('plan-key-v1')).toBe(hashAuthToken('plan-key-v1'));
+    expect(hashAuthToken('plan-key-v1')).not.toBe(hashAuthToken('plan-key-v2'));
+    const digest = hashAuthToken('plan-key-v1');
+    expect(digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(digest).not.toContain('plan-key-v1');
   });
 
   it('honors retry-after on 429 and resumes after the backoff elapses', async () => {

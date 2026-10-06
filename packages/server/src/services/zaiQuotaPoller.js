@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { modelProviders } from '../database.js';
 import { getProviderAllowanceObserver } from './providerAllowanceServiceInstance.js';
 import { fetchZaiQuotaLimit, isZaiQuotaHost } from './zaiQuotaClient.js';
@@ -20,8 +21,14 @@ const DEFAULT_RATE_LIMIT_BACKOFF_MS = 5 * 60_000;
 const MAX_CONCURRENT_POLLS = 3;
 
 // In-memory state; reset on server restart by design.
-const authFailedProviders = new Map(); // providerId → authToken that failed
+// Rejected credentials are remembered as SHA-256 hashes (FR-8): the hash is
+// enough to detect rotation, and the raw token never enters this map.
+const authFailedProviders = new Map(); // providerId → hex hash of the authToken that failed
 const rateLimitedUntil = new Map(); // providerId → epoch ms to resume polling
+
+export function hashAuthToken(authToken) {
+  return createHash('sha256').update(authToken, 'utf8').digest('hex');
+}
 
 let pollTimer = null;
 let pollInFlight = false;
@@ -51,7 +58,7 @@ export async function pollOnce({ clock = Date, providerRepository = modelProvide
     const enabled = providerRepository.getEnabledForAllowances?.() ?? [];
     // Failure and backoff memory must not outlive the provider it belongs
     // to — otherwise a deleted provider's entry (including its rejected
-    // credential string) is retained until restart, and a re-created
+    // credential hash) is retained until restart, and a re-created
     // provider with the same key stays wrongly skipped.
     pruneProviderState(enabled);
     await runWithConcurrency(zaiQuotaCandidates(enabled, clock.now()), MAX_CONCURRENT_POLLS,
@@ -86,14 +93,14 @@ function zaiQuotaCandidates(enabledProviders, now) {
     .filter((provider) => provider.kind === 'anthropic'
       && isZaiQuotaHost(provider.baseUrl)
       && typeof provider.authToken === 'string' && provider.authToken.length > 0
-      && authFailedProviders.get(provider.id) !== provider.authToken
+      && authFailedProviders.get(provider.id) !== hashAuthToken(provider.authToken)
       && (rateLimitedUntil.get(provider.id) ?? 0) <= now);
 }
 
 /**
  * Drop failure/backoff entries for provider ids that no longer exist among
  * the enabled providers, so per-provider state (including rejected
- * credential strings) never outlives its provider until a restart.
+ * credential hashes) never outlives its provider until a restart.
  */
 function pruneProviderState(enabledProviders) {
   const enabledIds = new Set(enabledProviders.map((provider) => provider.id));
@@ -121,7 +128,7 @@ async function pollProvider(provider, { observer, clock }) {
         // changes. The last good snapshot persists and ages into `stale` on
         // its own freshness policy (2× the poll interval); the UI presents
         // it with its last-updated time — nothing resets it to unknown.
-        authFailedProviders.set(provider.id, provider.authToken);
+        authFailedProviders.set(provider.id, hashAuthToken(provider.authToken));
       } else if (result.status === 429) {
         rateLimitedUntil.set(provider.id, clock.now() + (result.retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS));
       }
@@ -144,6 +151,14 @@ async function pollProvider(provider, { observer, clock }) {
   } catch {
     // Allowance telemetry is non-critical (FR-7).
   }
+}
+
+/**
+ * Test-only: read the stored rejection hash for a provider.
+ * @private
+ */
+export function _authFailureHashForTests(providerId) {
+  return authFailedProviders.get(providerId) ?? null;
 }
 
 /**
