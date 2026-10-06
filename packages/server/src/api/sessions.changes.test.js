@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
-import request from 'supertest';
+import { createHttpTestServer } from '../../test/httpTestServer.js';
 import { projects, sessions } from '../database.js';
 
 // Mock websocket
@@ -50,19 +50,30 @@ import { getOriginDefaultBranch } from '../services/gitService.js';
 
 describe('Sessions API - Changes Endpoint', () => {
   let app;
+  let client;
+  let closeServer;
   let project;
   let session;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
 
     app = express();
     app.use(express.json());
     app.use('/api/sessions', sessionsRouter);
 
+    // Own the HTTP listener for the whole test so the global DB teardown
+    // cannot close the SQLite connection while a per-request supertest
+    // listener is still unwinding under load (ECONNRESET flakes).
+    ({ client, close: closeServer } = await createHttpTestServer(app));
+
     // Create test project and session
     project = projects.create('Test Project', '/tmp/test');
     session = sessions.create(project.id, 'Test Session', 'Initial prompt');
+  });
+
+  afterEach(async () => {
+    await closeServer?.();
   });
 
   describe('GET /api/sessions/:id/changes', () => {
@@ -73,7 +84,7 @@ describe('Sessions API - Changes Endpoint', () => {
         untracked: 'new files',
       });
 
-      const res = await request(app).get(`/api/sessions/${session.id}/changes`);
+      const res = await client.get(`/api/sessions/${session.id}/changes`);
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
@@ -90,7 +101,7 @@ describe('Sessions API - Changes Endpoint', () => {
         untracked: '',
       });
 
-      await request(app).get(`/api/sessions/${session.id}/changes`);
+      await client.get(`/api/sessions/${session.id}/changes`);
 
       expect(getChanges).toHaveBeenCalledWith('/tmp/test');
     });
@@ -104,13 +115,13 @@ describe('Sessions API - Changes Endpoint', () => {
         untracked: '',
       });
 
-      await request(app).get(`/api/sessions/${session.id}/changes`);
+      await client.get(`/api/sessions/${session.id}/changes`);
 
       expect(getChanges).toHaveBeenCalledWith('/custom/worktree');
     });
 
     it('returns 404 for non-existent session', async () => {
-      const res = await request(app).get('/api/sessions/nonexistent/changes');
+      const res = await client.get('/api/sessions/nonexistent/changes');
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Session not found');
@@ -119,7 +130,7 @@ describe('Sessions API - Changes Endpoint', () => {
     it('returns error when git operation fails', async () => {
       getChanges.mockRejectedValue(new Error('Git command failed'));
 
-      const res = await request(app).get(`/api/sessions/${session.id}/changes`);
+      const res = await client.get(`/api/sessions/${session.id}/changes`);
 
       expect(res.status).toBe(500);
       expect(res.body.error).toBe('Git command failed');
@@ -132,7 +143,7 @@ describe('Sessions API - Changes Endpoint', () => {
         untracked: '',
       });
 
-      const res = await request(app).get(`/api/sessions/${session.id}/changes`);
+      const res = await client.get(`/api/sessions/${session.id}/changes`);
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
@@ -150,7 +161,7 @@ describe('Sessions API - Changes Endpoint', () => {
       });
 
       // Send request with branch comparison parameters
-      const res = await request(app)
+      const res = await client
         .get(`/api/sessions/${session.id}/changes`)
         .query({ compareMode: 'branch', branch: 'origin/main' });
 
@@ -173,7 +184,7 @@ describe('Sessions API - Changes Endpoint', () => {
         untracked: 'untracked content',
       });
 
-      const res = await request(app).get(`/api/sessions/${session.id}/changes`);
+      const res = await client.get(`/api/sessions/${session.id}/changes`);
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('staged');
@@ -191,7 +202,7 @@ describe('Sessions API - Changes Endpoint', () => {
       });
 
       // Send request with branch comparison mode but no branch specified
-      const res = await request(app)
+      const res = await client
         .get(`/api/sessions/${session.id}/changes`)
         .query({ compareMode: 'branch' });
 
@@ -205,7 +216,7 @@ describe('Sessions API - Changes Endpoint', () => {
     it('provides default-branch endpoint to fetch the repository default branch', async () => {
       getOriginDefaultBranch.mockResolvedValue('origin/main');
 
-      const res = await request(app).get(`/api/sessions/${session.id}/default-branch`);
+      const res = await client.get(`/api/sessions/${session.id}/default-branch`);
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ branch: 'origin/main' });
