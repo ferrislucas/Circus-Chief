@@ -20,7 +20,7 @@ const UNITS = new Map([
 
 export const ZAI_POLL_STALE_MS = 10 * 60_000; // 2 × the 5-minute poll interval
 
-export function mapZaiQuota(payload, { observedAt = Date.now(), staleAfterMs = ZAI_POLL_STALE_MS } = {}) {
+export function mapZaiQuota(payload, { observedAt = Date.now(), staleAfterMs = ZAI_POLL_STALE_MS, providerKind = 'anthropic' } = {}) {
   const limits = payload?.data?.limits;
   if (!Array.isArray(limits)) return null;
 
@@ -32,7 +32,7 @@ export function mapZaiQuota(payload, { observedAt = Date.now(), staleAfterMs = Z
   if (allowances.length === 0) return null;
 
   return {
-    providerKind: 'anthropic',
+    providerKind,
     source: 'provider',
     updatedAt: observedAt,
     staleAfterMs,

@@ -6,8 +6,8 @@ import { mapZaiQuota } from '../agents/adapters/zaiAllowanceMapper.js';
 
 /**
  * Polls the z.ai GLM Coding Plan quota endpoint for every enabled
- * anthropic-kind provider whose baseUrl is a GLM plan host, and feeds the
- * results to the provider allowance observer.
+ * anthropic- or openai-kind provider whose baseUrl is a GLM plan host, and
+ * feeds the results to the provider allowance observer.
  *
  * The 5-minute cadence is aligned with z.ai's official plugin cache so the
  * poller never generates request pressure beyond the provider's own tooling.
@@ -77,7 +77,7 @@ async function runWithConcurrency(items, limit, worker) {
 }
 
 /**
- * Enabled anthropic-kind providers on a GLM plan host with stored
+ * Enabled anthropic- or openai-kind providers on a GLM plan host with stored
  * credentials. The poll set is recomputed every tick so provider edits and
  * enable/disable are honored without a restart. Providers whose stored key
  * was rejected keep being skipped until the key is rotated; providers under a
@@ -90,7 +90,7 @@ export function zaiQuotaProviders(providerRepository = modelProviders, { clock =
 
 function zaiQuotaCandidates(enabledProviders, now) {
   return enabledProviders
-    .filter((provider) => provider.kind === 'anthropic'
+    .filter((provider) => (provider.kind === 'anthropic' || provider.kind === 'openai')
       && isZaiQuotaHost(provider.baseUrl)
       && typeof provider.authToken === 'string' && provider.authToken.length > 0
       && authFailedProviders.get(provider.id) !== hashAuthToken(provider.authToken)
@@ -140,7 +140,7 @@ async function pollProvider(provider, { observer, clock }) {
     return;
   }
 
-  const candidate = mapZaiQuota(result.payload, { observedAt: clock.now() });
+  const candidate = mapZaiQuota(result.payload, { observedAt: clock.now(), providerKind: provider.kind });
   if (!candidate) {
     console.log('[ZaiQuotaPoller]', JSON.stringify({ ...entry, outcome: 'no-data' }));
     return;

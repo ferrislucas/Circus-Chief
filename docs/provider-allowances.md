@@ -13,7 +13,7 @@ validated against real payloads before it is merged.
 | Anthropic / Claude Code | Claude OAuth subscription (Pro or Max) | Claude in-stream `rate_limit_event` frames | `claude-rate-limit-event` |
 | OpenAI / Codex | ChatGPT OAuth subscription | Codex rollout tail: the session's local `rollout-*.jsonl` `token_count` frames | `codex-rollout` |
 | OpenAI / Codex | ChatGPT OAuth subscription | Codex app-server: local JSON-RPC rate-limit meter | `codex-app-server` |
-| Anthropic-compatible z.ai GLM Coding Plan | API key | z.ai poll: provider quota endpoint, immediately then every five minutes | `zai-quota-poll` |
+| Anthropic- or OpenAI-kind provider on a z.ai GLM Coding Plan host | API key | z.ai poll: provider quota endpoint, immediately then every five minutes | `zai-quota-poll` |
 | OpenAI-compatible provider | API key | OpenAI headers: documented `x-ratelimit-limit-*`, `x-ratelimit-remaining-*`, and `x-ratelimit-reset-*` response headers | `observed-header` |
 
 The OpenAI direct API adapter is a best-effort header observation path for

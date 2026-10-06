@@ -98,4 +98,9 @@ describe('zaiAllowanceMapper', () => {
 
     expect(candidate.staleAfterMs).toBe(60_000);
   });
+
+  it('threads the caller provider kind through, defaulting to anthropic', () => {
+    expect(mapZaiQuota(fixture.payload, { observedAt, providerKind: 'openai' }).providerKind).toBe('openai');
+    expect(mapZaiQuota(fixture.payload, { observedAt }).providerKind).toBe('anthropic');
+  });
 });

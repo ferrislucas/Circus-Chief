@@ -81,6 +81,35 @@ describe('zaiQuotaPoller', () => {
     });
   });
 
+  it('polls openai-kind providers on z.ai hosts end-to-end through the allowance service', async () => {
+    const { ProviderAllowanceService } = await import('./ProviderAllowanceService.js');
+    const { WS_MESSAGE_TYPES } = await import('@circuschief/shared');
+    const openaiZai = {
+      id: 'zai-glm-openai',
+      name: 'GLM Coding Plan (OpenAI)',
+      kind: 'openai',
+      baseUrl: 'https://api.z.ai/api/openai',
+      authToken: 'plan-key-openai',
+      enabled: true,
+    };
+    const broadcaster = vi.fn();
+    const service = new ProviderAllowanceService({
+      providerRepository: repositoryWith([openaiZai]), broadcaster,
+    });
+    observer.mockImplementationOnce((candidate) => service.observe(candidate));
+
+    await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([openaiZai]) });
+
+    expect(fetchZaiQuotaLimit).toHaveBeenCalledTimes(1);
+    expect(service.getSnapshots().snapshots).toEqual([
+      expect.objectContaining({ providerId: openaiZai.id, providerKind: 'openai', source: 'provider' }),
+    ]);
+    expect(broadcaster).toHaveBeenCalledWith(
+      WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED,
+      { snapshot: expect.objectContaining({ providerId: openaiZai.id }) },
+    );
+  });
+
   it('bounds simultaneous provider requests', async () => {
     let active = 0;
     let peak = 0;
