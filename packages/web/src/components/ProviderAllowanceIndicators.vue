@@ -20,7 +20,7 @@
         :key="snapshot.providerId"
         class="allowance-item"
         data-testid="provider-allowance-item"
-        :class="`is-${snapshot.status}`"
+        :class="[`is-${snapshot.status}`, { 'is-stale': snapshot.stale }]"
         type="button"
         :aria-label="ariaLabel(snapshot)"
         :title="ariaLabel(snapshot)"
@@ -137,7 +137,7 @@
             </li>
           </ul>
           <small v-if="snapshot.updatedAt">Last updated {{ formatRelativeTime(snapshot.updatedAt) }} (<time :datetime="formatDateTime(snapshot.updatedAt)">{{ formatExactTime(snapshot.updatedAt) }}</time>)</small>
-          <small v-if="snapshot.status === 'stale'">Last value may be out of date.</small>
+          <small v-if="snapshot.stale">Last value may be out of date.</small>
         </article>
       </section>
     </div>

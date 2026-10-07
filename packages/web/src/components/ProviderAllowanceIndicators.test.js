@@ -549,16 +549,78 @@ describe('ProviderAllowanceIndicators', () => {
     expect(wrapper.find('[aria-live="polite"]').text()).toBe('OpenAI usage is exhausted.');
   });
 
+  it('renders a stale-critical snapshot with the stale marker plus the critical treatment', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T10:00:00Z'));
+    const store = useProviderAllowancesStore();
+    store.snapshots = [{
+      ...snapshot({ status: 'critical', source: 'observed-header', updatedAt: Date.parse('2026-01-02T09:30:00Z') }),
+      stale: true,
+    }];
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+
+    const item = wrapper.get('[data-testid="provider-allowance-item"]');
+    expect(item.classes()).toContain('is-critical');
+    expect(item.classes()).toContain('is-stale');
+    expect(item.attributes('aria-label')).toContain('Critical');
+
+    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await nextTick();
+
+    const detail = wrapper.find('.provider-detail');
+    expect(detail.text()).toContain('Critical');
+    expect(detail.text()).toContain('Last value may be out of date.');
+    expect(detail.text()).toContain('Last updated 30 minutes ago');
+    wrapper.unmount();
+  });
+
+  it('does not announce again when a critical snapshot goes stale on the timer', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T10:00:00Z'));
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot({ status: 'available', source: 'provider', updatedAt: Date.parse('2026-01-02T10:00:00Z') })];
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+
+    // A fresh critical observation announces once (the seeded snapshot is the
+    // component's first sighting, which never announces by design).
+    store.replace(snapshot({ status: 'available', source: 'provider', updatedAt: Date.parse('2026-01-02T10:00:00Z') }));
+    await nextTick();
+    store.replace({
+      ...snapshot({ status: 'critical', source: 'provider', updatedAt: Date.parse('2026-01-02T10:00:00Z') }),
+      staleAt: Date.parse('2026-01-02T10:05:00Z'),
+    });
+    await nextTick();
+    await vi.runAllTimersAsync();
+    expect(wrapper.find('[aria-live="polite"]').text()).toBe('OpenAI usage is critical.');
+
+    // The staleness tick preserves the status, so no second announcement fires.
+    vi.setSystemTime(new Date('2026-01-02T10:06:00Z'));
+    await vi.runAllTimersAsync();
+    expect(wrapper.find('[aria-live="polite"]').text()).toBe('OpenAI usage is critical.');
+    expect(store.snapshots[0]).toMatchObject({ status: 'critical', stale: true });
+    expect(store.attentionCount).toBe(1);
+    wrapper.unmount();
+  });
+
   it('shows provenance, relative and exact reset times, and stale last-known metadata in details', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-02T10:00:00Z'));
     const store = useProviderAllowancesStore();
-    store.snapshots = [snapshot({
-      status: 'stale',
-      source: 'observed-header',
-      updatedAt: Date.parse('2026-01-02T09:30:00Z'),
-      resetsAt: Date.parse('2026-01-02T12:00:00Z'),
-    })];
+    store.snapshots = [{
+      ...snapshot({
+        status: 'warning',
+        source: 'observed-header',
+        updatedAt: Date.parse('2026-01-02T09:30:00Z'),
+        resetsAt: Date.parse('2026-01-02T12:00:00Z'),
+      }),
+      stale: true,
+    }];
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await nextTick();
     resizeObservers[0].trigger();
@@ -567,6 +629,7 @@ describe('ProviderAllowanceIndicators', () => {
     await nextTick();
 
     const detail = wrapper.find('.provider-detail');
+    expect(detail.text()).toContain('Warning');
     expect(detail.text()).toContain('Source: Observed from provider response headers');
     expect(detail.text()).toContain('resets in 2 hours');
     expect(detail.find('time[datetime="2026-01-02T12:00:00.000Z"]').exists()).toBe(true);
