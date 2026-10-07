@@ -170,6 +170,11 @@ export const ProviderAllowanceSnapshot = z.object({
   source: ProviderAllowanceSource.nullable(),
   updatedAt: z.number().finite().nullable(),
   staleAt: z.number().finite().nullable(),
+  // Freshness overlay: `stale` marks last-known data as out of date while
+  // `status` keeps the underlying attention state, so a stale-critical
+  // provider still reads as critical. Defaults to false for producers that
+  // do not set it.
+  stale: z.boolean().default(false),
   unavailableReason: z.string().nullable(),
 }).strict();
 export const ProviderAllowanceListResponse = z.object({

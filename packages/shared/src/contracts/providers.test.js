@@ -23,6 +23,28 @@ describe('Provider Contracts', () => {
       expect(ProviderAllowanceSnapshot.safeParse(snapshot).success).toBe(true);
       expect(ProviderAllowanceSnapshot.safeParse({ ...snapshot, authToken: 'secret' }).success).toBe(false);
     });
+
+    it('carries staleness as an overlay flag that preserves the underlying status', () => {
+      const snapshot = {
+        providerId: 'openai-default', providerName: 'OpenAI', providerKind: 'openai',
+        status: 'critical', allowances: [], source: 'provider', updatedAt: 1, staleAt: 2,
+        stale: true, unavailableReason: null,
+      };
+      const parsed = ProviderAllowanceSnapshot.safeParse(snapshot);
+      expect(parsed.success).toBe(true);
+      expect(parsed.data).toMatchObject({ status: 'critical', stale: true });
+    });
+
+    it('defaults the staleness overlay to false so producers that omit it keep current behavior', () => {
+      const snapshot = {
+        providerId: 'openai-default', providerName: 'OpenAI', providerKind: 'openai',
+        status: 'warning', allowances: [], source: 'provider', updatedAt: 1, staleAt: null,
+        unavailableReason: null,
+      };
+      const parsed = ProviderAllowanceSnapshot.safeParse(snapshot);
+      expect(parsed.success).toBe(true);
+      expect(parsed.data).toMatchObject({ status: 'warning', stale: false });
+    });
   });
 
   describe('provider allowance wire contracts', () => {
