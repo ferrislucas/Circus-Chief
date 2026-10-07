@@ -191,9 +191,12 @@ function isSource(value) {
   return ['provider', 'observed-header', 'configured'].includes(value);
 }
 
+// Staleness is a freshness overlay: the flag marks last-known data as out
+// of date while `status` keeps the underlying attention state, so a
+// stale-critical provider still sorts and reads as critical.
 export function withFreshness(snapshot, now) {
-  return snapshot.staleAt !== null && snapshot.staleAt <= now && snapshot.status !== 'stale'
-    ? { ...snapshot, status: 'stale' }
+  return snapshot.staleAt !== null && snapshot.staleAt <= now && !snapshot.stale
+    ? { ...snapshot, stale: true }
     : snapshot;
 }
 

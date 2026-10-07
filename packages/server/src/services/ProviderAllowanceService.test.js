@@ -33,8 +33,8 @@ describe('ProviderAllowanceService', () => {
     };
 
     service.observe(snapshot);
-    expect(broadcaster).toHaveBeenCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, { snapshot });
-    expect(service.getSnapshots()).toEqual({ snapshots: [snapshot], activeProviderIds: [] });
+    expect(broadcaster).toHaveBeenCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, { snapshot: { ...snapshot, stale: false } });
+    expect(service.getSnapshots()).toEqual({ snapshots: [{ ...snapshot, stale: false }], activeProviderIds: [] });
   });
 
   it('normalizes inconsistent adapter measurements and broadcasts only the canonical snapshot', () => {
@@ -55,7 +55,7 @@ describe('ProviderAllowanceService', () => {
 
     const expected = {
       providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
-      status: 'warning', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
+      status: 'warning', source: 'provider', updatedAt: 1, staleAt: null, stale: false, unavailableReason: null,
       allowances: [{ key: 'requests', label: 'Requests', remaining: 25, value: 25, valueKind: 'remaining', limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: 3 }],
     };
     expect(received).toEqual(expected);
@@ -162,7 +162,31 @@ describe('ProviderAllowanceService', () => {
       allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: null }],
     });
 
-    expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'stale', updatedAt: 1, staleAt: 5, allowances: [{ remaining: 25, limit: 100 }] });
+    expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'warning', stale: true, updatedAt: 1, staleAt: 5, allowances: [{ remaining: 25, limit: 100 }] });
+  });
+
+  it('keeps a stale-critical provider in the attention group ahead of fresh-available providers', () => {
+    const providers = [
+      { id: 'provider-a', name: 'A', kind: 'openai', enabled: true },
+      { id: 'provider-b', name: 'B', kind: 'openai', enabled: true },
+    ];
+    const service = new ProviderAllowanceService({
+      providerRepository: { getAll: () => providers }, clock: { now: () => 10 },
+    });
+    service.observe({
+      providerId: 'provider-a', providerName: 'A', providerKind: 'openai',
+      status: 'available', source: 'provider', updatedAt: 9, staleAt: null, unavailableReason: null,
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 90, limit: 100, remainingPercent: 90, unit: 'requests', resetsAt: null }],
+    });
+    service.observe({
+      providerId: 'provider-b', providerName: 'B', providerKind: 'openai',
+      status: 'critical', source: 'provider', updatedAt: 1, staleAt: 5, unavailableReason: null,
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 5, limit: 100, remainingPercent: 5, unit: 'requests', resetsAt: null }],
+    });
+
+    const snapshots = service.getSnapshots().snapshots;
+    expect(snapshots.map(({ providerId }) => providerId)).toEqual(['provider-b', 'provider-a']);
+    expect(snapshots[0]).toMatchObject({ status: 'critical', stale: true });
   });
 
   it('broadcasts the freshness-aged snapshot when the observation is already stale', () => {
@@ -176,13 +200,13 @@ describe('ProviderAllowanceService', () => {
       allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: null }],
     });
 
-    // The store keeps the un-aged snapshot; the wire carries the stale status.
-    expect(received).toMatchObject({ status: 'warning', updatedAt: 1, staleAt: 5 });
+    // The store keeps the un-aged snapshot; the wire carries the stale overlay.
+    expect(received).toMatchObject({ status: 'warning', stale: false, updatedAt: 1, staleAt: 5 });
     expect(broadcaster).toHaveBeenCalledWith(
       WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED,
-      { snapshot: expect.objectContaining({ status: 'stale', updatedAt: 1, staleAt: 5 }) },
+      { snapshot: expect.objectContaining({ status: 'warning', stale: true, updatedAt: 1, staleAt: 5 }) },
     );
-    expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'stale' });
+    expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'warning', stale: true });
   });
 
   it('does not retain or broadcast allowance updates for disabled or unknown providers', () => {
@@ -286,7 +310,7 @@ describe('ProviderAllowanceService', () => {
       allowances: [{ key: 'five_hour', label: '5-hour window', remaining: null, limit: null, remainingPercent: null, unit: 'tokens', resetsAt: null }],
     });
 
-    expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'stale', staleAt: 6 });
+    expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'exhausted', stale: true, staleAt: 6 });
   });
 
   it('marks an observation with an already-past reset stale immediately', () => {
@@ -301,6 +325,6 @@ describe('ProviderAllowanceService', () => {
       allowances: [{ key: 'requests', label: 'Requests', remaining: 75, limit: 100, remainingPercent: 75, unit: 'requests', resetsAt: -4_999 }],
     });
 
-    expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'stale', staleAt: -4_999 });
+    expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'available', stale: true, staleAt: -4_999 });
   });
 });
