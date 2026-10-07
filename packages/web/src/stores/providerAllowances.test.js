@@ -146,7 +146,7 @@ describe('provider allowances store', () => {
     expect(lowestAllowance({ allowances: [{ remainingPercent: null }, { remainingPercent: 20 }, { remainingPercent: 10 }] }).remainingPercent).toBe(10);
   });
 
-  it('marks snapshots stale at their staleAt boundary', () => {
+  it('marks snapshots stale at their staleAt boundary while preserving status', () => {
     vi.useFakeTimers();
     vi.setSystemTime(100);
     const store = useProviderAllowancesStore();
@@ -154,7 +154,48 @@ describe('provider allowances store', () => {
 
     vi.advanceTimersByTime(100);
 
-    expect(store.snapshots[0].status).toBe('stale');
+    expect(store.snapshots[0]).toMatchObject({ status: 'warning', stale: true });
+  });
+
+  it('keeps a stale-critical provider in the attention group and badge after refreshStaleness', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(300);
+    const store = useProviderAllowancesStore();
+    store.snapshots = [
+      { ...snapshot('a'), status: 'available', staleAt: null },
+      { ...snapshot('b'), status: 'critical', staleAt: 200 },
+    ];
+
+    store.refreshStaleness();
+
+    expect(store.snapshots.find(({ providerId }) => providerId === 'b'))
+      .toMatchObject({ status: 'critical', stale: true });
+    expect(store.attentionCount).toBe(1);
+    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['b', 'a']);
+  });
+
+  it('does not drop a critical provider from the badge when it goes stale on the timer', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(100);
+    const store = useProviderAllowancesStore();
+    store.replace({ ...snapshot(), status: 'critical', staleAt: 200 });
+    expect(store.attentionCount).toBe(1);
+
+    vi.advanceTimersByTime(100);
+
+    expect(store.snapshots[0]).toMatchObject({ status: 'critical', stale: true });
+    expect(store.attentionCount).toBe(1);
+  });
+
+  it('schedules and clears staleness timers under the overlay shape', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(100);
+    const store = useProviderAllowancesStore();
+    store.replace({ ...snapshot('a'), status: 'warning', staleAt: 200 });
+    expect(store.staleTimer).not.toBeNull();
+
+    store.replace({ ...snapshot('a'), status: 'warning', staleAt: null });
+    expect(store.staleTimer).toBeNull();
   });
 
   it('does not let an in-flight fetch clobber a websocket update', async () => {

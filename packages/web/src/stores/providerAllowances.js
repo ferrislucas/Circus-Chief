@@ -83,7 +83,7 @@ export const useProviderAllowancesStore = defineStore('providerAllowances', {
     scheduleStaleness() {
       if (this.staleTimer) clearTimeout(this.staleTimer);
       const nextStaleAt = this.snapshots
-        .filter((snapshot) => snapshot.status !== 'stale' && snapshot.staleAt !== null && snapshot.staleAt > Date.now())
+        .filter((snapshot) => !snapshot.stale && snapshot.staleAt !== null && snapshot.staleAt > Date.now())
         .map((snapshot) => snapshot.staleAt)
         .sort((left, right) => left - right)[0];
       this.staleTimer = nextStaleAt ? setTimeout(() => this.refreshStaleness(), nextStaleAt - Date.now()) : null;
@@ -91,11 +91,15 @@ export const useProviderAllowancesStore = defineStore('providerAllowances', {
   },
 });
 
+// Staleness is a freshness overlay: the flag marks last-known data as out
+// of date while `status` keeps the underlying attention state, so
+// `isAttention`, `snapshotPriority`, and `attentionCount` keep working
+// unchanged for stale-critical and stale-exhausted providers.
 function markStaleSnapshots(snapshots) {
   const now = Date.now();
   return snapshots.map((snapshot) => (
-    snapshot.staleAt !== null && snapshot.staleAt <= now && snapshot.status !== 'stale'
-      ? { ...snapshot, status: 'stale' }
+    snapshot.staleAt !== null && snapshot.staleAt <= now && !snapshot.stale
+      ? { ...snapshot, stale: true }
       : snapshot
   ));
 }
