@@ -74,6 +74,14 @@ or 403 responses stop polling that provider until its credential changes, and
 All acquisition failures are non-critical: they do not interrupt an agent
 session, and the UI stays honest by reporting stale or `unknown` data.
 
+Staleness is a freshness overlay, not a replacement status: an expired
+snapshot keeps its underlying `status` (`warning`, `critical`, `exhausted`,
+…) alongside a `stale: true` flag, so attention ordering, the mobile badge
+count, and screen-reader announcements keep treating a stale-critical
+provider as critical. The UI renders the stale marker ("Last value may be
+out of date"), the last-updated time, and the muted treatment from the
+flag.
+
 ## Validation before merge
 
 1. Validate a new source against real payloads and freshness, with sanitized
