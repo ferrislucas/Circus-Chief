@@ -36,6 +36,10 @@ import { drainLaneEntryTrigger } from './kanbanService.js';
  *   summary generation without racing still-arriving output.
  * @param {boolean} [options.broadcastConversationStateOnError] - Whether to broadcast conversation state on error
  * @param {string} [options.errorLabel] - Label for error logging
+ * @param {Function} [options.onProviderAccepted] - Fired once when the adapter
+ *   hands execution to the provider runner (see ProviderAcceptanceDetail).
+ *   Settles independently of stream completion: a long or silent turn still
+ *   reports acceptance promptly at the adapter's audited boundary.
  */
 // eslint-disable-next-line max-statements, max-lines-per-function, complexity, sonarjs/cognitive-complexity -- lifecycle boundaries must remain adjacent.
 export async function _executeSession({
@@ -49,7 +53,23 @@ export async function _executeSession({
   broadcastConversationStateOnError = false,
   cleanupConversationId = false, interactive = false,
   errorLabel = 'Session error',
+  onProviderAccepted = null,
 }) {
+  // Acceptance settles once and stays independent of stream duration. The
+  // observer must never break execution, so its failures are contained here.
+  let acceptanceSignalled = false;
+  const fireProviderAccepted = (detail) => {
+    if (acceptanceSignalled) return;
+    acceptanceSignalled = true;
+    try {
+      onProviderAccepted?.({ sessionId, ...detail });
+    } catch (error) {
+      console.error(`[SessionManager] onProviderAccepted failed for session ${sessionId}:`, error?.message || error);
+    }
+  };
+  const agentCallMetaWithAcceptance = agentCallMeta
+    ? { ...agentCallMeta, onProviderAccepted: fireProviderAccepted }
+    : { sessionId, onProviderAccepted: fireProviderAccepted };
   const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded, onUserStopSettled } = callbacks;
   const notifyUserStopSettled = () => {
     // The provider generator has settled at every call site below (the
@@ -87,7 +107,7 @@ export async function _executeSession({
     // once the provider's async generator has finished, so the `finally`
     // below (the sole ownership-release point) cannot run while the provider
     // still holds its native session.
-    for await (const event of agent.execute(providerQueryParams, agentCallMeta)) {
+    for await (const event of agent.execute(providerQueryParams, agentCallMetaWithAcceptance)) {
       if (controller.signal.aborted) break;
       // Thread the turn's session env so tool-input/tool-output scrubbing
       // (finding #1) can redact provider-supplied secret values.
@@ -205,7 +225,7 @@ export async function _executeSession({
  */
 export async function continueSessionCore(sessionId, content, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
-  const { interactive = false } = options;
+  const { interactive = false, onProviderAccepted = null } = options;
   // Get the session to retrieve the Claude session ID and settings
   const session = sessions.getById(sessionId);
   if (!session) {
@@ -233,6 +253,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     cleanupConversationId: true,
     interactive,
     errorLabel: 'Continue session error',
+    onProviderAccepted,
   });
   return execution || startedSessionExecution(sessionId);
 }
@@ -248,7 +269,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
  */
 export async function runSessionCore(sessionId, prompt, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
-  const { interactive = false, abortController = null } = options;
+  const { interactive = false, abortController = null, onProviderAccepted = null } = options;
   // Get session for settings
   const session = sessions.getById(sessionId);
   if (!session) throw new Error('Session not found');
@@ -270,5 +291,6 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     workingDirectory,
     callbacks,
     errorLabel: 'Session error',
+    onProviderAccepted,
   }).then((execution) => execution || startedSessionExecution(sessionId));
 }

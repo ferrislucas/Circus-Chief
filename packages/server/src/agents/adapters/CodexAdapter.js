@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { BaseAgent } from '../BaseAgent.js';
+import { BaseAgent, notifyProviderAccepted } from '../BaseAgent.js';
 import { executeCodexCli } from './codexCliRunner.js';
 import { createCodexSpawner } from '../../services/codexSpawnHelper.js';
 
@@ -75,20 +75,19 @@ export class CodexAdapter extends BaseAgent {
    * @param {import('../types.js').AgentQueryParams} queryParams
    * @yields {Object} Normalized SDK events
    */
-  async *execute(queryParams, _meta) {
+  async *execute(queryParams, meta) {
     const options = queryParams.options || {};
     if (this._shouldUseDirectApi()) {
-      yield* this._executeDirectApi(queryParams, options);
+      yield* this._executeDirectApi(queryParams, options, meta);
       return;
     }
-    yield* this._executeCli(queryParams, options);
+    yield* this._executeCli(queryParams, options, meta);
   }
 
   _shouldUseDirectApi() {
     if (process.env.USE_CODEX_DIRECT_API === '1') return true;
     if (this._spawnCodex === null) return true;
-    if (codexCliUnavailable) return true;
-    return false;
+    return codexCliUnavailable;
   }
 
   /**
@@ -105,8 +104,10 @@ export class CodexAdapter extends BaseAgent {
    *     `workspace-write`) which is set by
    *     {@code buildCodexQueryParams} from {@code session.mode}.
    */
-  async *_executeCli(queryParams, options) {
+  async *_executeCli(queryParams, options, meta) {
     const child = this._spawnCodexChild(queryParams, options);
+    // A returned spawn proves the provider runner owns the turn.
+    notifyCodexAccepted(meta, 'subprocess_start', child?.pid);
     yield* executeCodexCli(child, queryParams, options, markCodexCliUnavailable);
   }
 
@@ -166,7 +167,7 @@ export class CodexAdapter extends BaseAgent {
   /**
    * Direct-API path — stream Chat Completions via the OpenAI SDK.
    */
-  async *_executeDirectApi(queryParams, options) {
+  async *_executeDirectApi(queryParams, options, meta) {
     const { model, systemPrompt, abortController } = resolveDirectApiInputs(options);
     const client = await this._resolveOpenAiClient(options);
 
@@ -182,10 +183,10 @@ export class CodexAdapter extends BaseAgent {
       messages: buildChatMessages(queryParams.prompt, systemPrompt),
       stream: true,
     };
-    const requestOptions = {
-      ...(abortController?.signal && { signal: abortController.signal }),
-    };
+    const requestOptions = abortController?.signal ? { signal: abortController.signal } : {};
     const stream = await client.chat.completions.create(request, requestOptions);
+    // An accepted streaming request proves provider handoff (the synthetic init above does not).
+    notifyCodexAccepted(meta, 'stream_accepted');
 
     const onAbort = () => {
       try { stream?.controller?.abort?.(); } catch { /* ignore */ }
@@ -251,6 +252,10 @@ export function _resetCodexCliUnavailableForTests() {
 
 function markCodexCliUnavailable() {
   codexCliUnavailable = true;
+}
+
+function notifyCodexAccepted(meta, boundary, pid) {
+  notifyProviderAccepted(meta, () => ({ adapterType: 'codex', boundary, sessionId: meta?.sessionId, pid }));
 }
 
 function resolveDirectApiInputs(options) {

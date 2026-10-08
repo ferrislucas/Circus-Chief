@@ -535,7 +535,8 @@ CREATE TABLE IF NOT EXISTS kanban_lane_entry_events (
   caused_by_run_id TEXT, status TEXT NOT NULL DEFAULT 'pending', claim_token TEXT, claimed_at INTEGER,
   claim_expires_at INTEGER, next_attempt_at INTEGER, attempt_count INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL, completed_at INTEGER, delivery_phase TEXT NOT NULL DEFAULT 'pending',
-  dispatch_key TEXT, dispatch_acknowledged_at INTEGER
+  dispatch_key TEXT, dispatch_acknowledged_at INTEGER,
+  accepted_at INTEGER, accepted_dispatch_key TEXT
 );
 -- Allocation and provider acknowledgement are intentionally separate.  A
 -- root_session_id only proves child ownership; it must never be treated as a

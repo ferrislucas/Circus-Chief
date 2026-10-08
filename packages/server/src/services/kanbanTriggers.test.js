@@ -164,12 +164,71 @@ describe('kanbanTriggers', () => {
 
   describe('startChildSession', () => {
     it('calls runSession with the correct arguments', () => {
-      runSession.mockResolvedValue(undefined);
+      runSession.mockResolvedValue({ started: true });
       const newSession = { id: 'child-1', projectId: 'p1' };
 
       startChildSession(newSession, 'do something', '/tmp/work', { model: 'opus' });
 
-      expect(runSession).toHaveBeenCalledWith('child-1', 'do something', '/tmp/work', { model: 'opus' });
+      expect(runSession).toHaveBeenCalledWith('child-1', 'do something', '/tmp/work', {
+        model: 'opus',
+        onProviderAccepted: expect.any(Function),
+      });
+    });
+
+    it('resolves true on explicit acceptance without waiting for completion', async () => {
+      let releaseCompletion;
+      const completion = new Promise((resolve) => { releaseCompletion = resolve; });
+      runSession.mockImplementation((_id, _prompt, _dir, options) => {
+        options.onProviderAccepted({ boundary: 'subprocess_start' });
+        return completion;
+      });
+      const newSession = { id: 'child-accept', projectId: 'p1' };
+
+      const accepted = await startChildSession(newSession, 'do something', '/tmp/work', { model: 'opus' });
+
+      expect(accepted).toMatchObject({ accepted: true });
+      expect(sessions.update).not.toHaveBeenCalled();
+      releaseCompletion({ started: true });
+      await completion;
+    });
+
+    it('resolves true when the turn completes started without an explicit signal', async () => {
+      runSession.mockResolvedValue({ started: true });
+      const newSession = { id: 'child-late', projectId: 'p1' };
+
+      await expect(startChildSession(newSession, 'do something', '/tmp/work', {})).resolves.toMatchObject({ accepted: true });
+    });
+
+    it('resolves false for a definitive pre-start rejection, preserving the reason', async () => {
+      runSession.mockResolvedValue({ started: false, reason: 'lane_run_ownership_lost' });
+      const newSession = { id: 'child-reject', projectId: 'p1' };
+
+      await expect(startChildSession(newSession, 'do something', '/tmp/work', {}))
+        .resolves.toMatchObject({ accepted: false, reason: 'lane_run_ownership_lost' });
+      expect(sessions.update).not.toHaveBeenCalled();
+    });
+
+    it('treats an undefined resolution as unknown, not acceptance', async () => {
+      runSession.mockResolvedValue(undefined);
+      const newSession = { id: 'child-unknown', projectId: 'p1' };
+
+      await expect(startChildSession(newSession, 'do something', '/tmp/work', {}))
+        .resolves.toMatchObject({ accepted: false });
+    });
+
+    it('keeps a post-acceptance turn failure out of delivery bookkeeping', async () => {
+      runSession.mockImplementation((_id, _prompt, _dir, options) => {
+        options.onProviderAccepted({ boundary: 'subprocess_start' });
+        return Promise.reject(new Error('provider failed after accept'));
+      });
+      const newSession = { id: 'child-post', projectId: 'p1' };
+
+      await expect(startChildSession(newSession, 'do something', '/tmp/work', {})).resolves.toMatchObject({ accepted: true });
+      await Promise.resolve();
+      // The accepted turn's failure belongs to session execution, which
+      // already recorded it: the trigger must not overwrite it as a
+      // delivery error.
+      expect(sessions.update).not.toHaveBeenCalled();
     });
 
     it('handles runSession error by updating session status and broadcasting', async () => {
@@ -367,7 +426,7 @@ describe('kanbanTriggers', () => {
       renderTemplatePrompt.mockResolvedValue('Review: Did some work');
       sessions.create.mockReturnValue({ id: 'new-1', projectId: 'p1' });
       sessions.update.mockReturnValue({});
-      runSession.mockResolvedValue(undefined);
+      runSession.mockResolvedValue({ started: true });
     });
 
     it('returns early when template is not found', async () => {
@@ -427,6 +486,7 @@ describe('kanbanTriggers', () => {
       expect(runSession).toHaveBeenCalledWith('new-1', 'Review: Did some work', '/tmp/project', {
         systemPrompt: 'You are helpful.',
         model: session.model,
+        onProviderAccepted: expect.any(Function),
       });
     });
 
@@ -564,7 +624,7 @@ describe('kanbanTriggers', () => {
       renderTemplatePrompt.mockResolvedValue('Work on: Test Session');
       sessions.create.mockReturnValue({ id: 'new-prompt-1', projectId: 'p1' });
       sessions.update.mockReturnValue({});
-      runSession.mockResolvedValue(undefined);
+      runSession.mockResolvedValue({ started: true });
     });
 
     it('returns early when session is not found', async () => {
@@ -614,6 +674,7 @@ describe('kanbanTriggers', () => {
       expect(runSession).toHaveBeenCalledWith('new-prompt-1', 'Work on: Test Session', '/tmp/project', {
         systemPrompt: 'Be helpful.',
         model: session.model,
+        onProviderAccepted: expect.any(Function),
       });
     });
 
@@ -722,7 +783,7 @@ describe('kanbanTriggers', () => {
       renderTemplatePrompt.mockResolvedValue('Review: done');
       sessions.create.mockReturnValue({ id: 'codex-child-1', projectId: 'p1' });
       sessions.update.mockReturnValue({});
-      runSession.mockResolvedValue(undefined);
+      runSession.mockResolvedValue({ started: true });
       resolveAgentTypeFromModel.mockReturnValue('codex');
 
       await triggerOnEnterTemplate('s1', baseLane);
@@ -744,7 +805,7 @@ describe('kanbanTriggers', () => {
       renderTemplatePrompt.mockResolvedValue('Work on something');
       sessions.create.mockReturnValue({ id: 'codex-prompt-1', projectId: 'p1' });
       sessions.update.mockReturnValue({});
-      runSession.mockResolvedValue(undefined);
+      runSession.mockResolvedValue({ started: true });
       resolveAgentTypeFromModel.mockReturnValue('codex');
 
       const codexLane = { id: 'lane-2', name: 'In Progress', onEnterPrompt: 'Work on: {{workspace.name}}', onEnterModel: 'gpt-5.2', onEnterThinkingEnabled: undefined, onEnterMode: null, onEnterEffortLevel: null, onEnterAutoRescheduleEnabled: false };
@@ -769,7 +830,7 @@ describe('kanbanTriggers', () => {
       renderTemplatePrompt.mockResolvedValue('Review: done');
       sessions.create.mockReturnValue({ id: 'claude-child-1', projectId: 'p1' });
       sessions.update.mockReturnValue({});
-      runSession.mockResolvedValue(undefined);
+      runSession.mockResolvedValue({ started: true });
       resolveAgentTypeFromModel.mockReturnValue('claude-code');
 
       await triggerOnEnterTemplate('s1', baseLane);

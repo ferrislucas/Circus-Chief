@@ -79,26 +79,89 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
 }
 
 /**
- * Start a child session and handle errors via broadcast.
+ * Start a child session and resolve once provider acceptance is known.
+ *
+ * Acceptance (the adapter handed execution to the provider runner) settles
+ * this promise WITHOUT waiting for the potentially long turn to complete, so
+ * durable delivery can be acknowledged while the child keeps running. The
+ * turn's completion continues in the background under session ownership.
+ *
  * @param {Object} newSession
  * @param {string} prompt
  * @param {string} workingDirectory
- * @param {Object} options
+ * @param {Object} options - runSession options plus `onAccepted` (fired with
+ *   the acceptance detail, synchronously after the promise settles).
+ * @returns {Promise<{accepted:boolean,reason:string|null}>} `accepted` is true
+ *   when the provider accepted the turn — either via an explicit acceptance
+ *   signal or via a `{ started: true }` completion. `{ started: false }` is a
+ *   definitive pre-start rejection; any other resolution (notably `undefined`
+ *   from legacy wrappers) is NOT acceptance in the durable path. `reason`
+ *   carries the original rejection cause for diagnostics (never a generic
+ *   placeholder). Post-acceptance turn failures still resolve accepted: they
+ *   are logged, never reported as delivery failures, and never overwrite the
+ *   execution layer's own outcome bookkeeping.
  */
 export function startChildSession(newSession, prompt, workingDirectory, options) {
-  return runSession(newSession.id, prompt, workingDirectory, options).then((result) =>
-    // Older in-process adapters returned undefined. Keep that narrow
-    // compatibility path, but never coerce arbitrary resolved values (in
-    // particular `{ started: false }`) into a provider acknowledgement.
-    result === undefined || result?.started === true).catch((error) => {
-    console.error(`Kanban: Error running on-enter session ${newSession.id}:`, error);
-    const errorSession = sessions.update(newSession.id, { status: 'error', error: error.message });
-    broadcastToProject(newSession.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-      projectId: newSession.projectId,
-      sessionId: newSession.id,
-      session: errorSession,
-    });
-    return false;
+  const { onAccepted, ...runOptions } = options ?? {};
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (accepted, reason = null) => {
+      if (!settled) {
+        settled = true;
+        resolve({ accepted, reason });
+      }
+    };
+    const failBeforeAcceptance = (error) => {
+      console.error(`Kanban: Error running on-enter session ${newSession.id}:`, error);
+      const errorSession = sessions.update(newSession.id, { status: 'error', error: error.message });
+      broadcastToProject(newSession.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId: newSession.projectId,
+        sessionId: newSession.id,
+        session: errorSession,
+      });
+      settle(false, error?.message || 'child session execution failed');
+    };
+    let completion;
+    try {
+      completion = runSession(newSession.id, prompt, workingDirectory, {
+        ...runOptions,
+        onProviderAccepted: (detail) => {
+          settle(true);
+          try {
+            onAccepted?.(detail);
+          } catch (error) {
+            console.error(`Kanban: onAccepted hook failed for session ${newSession.id}:`, error?.message || error);
+          }
+        },
+      });
+    } catch (error) {
+      failBeforeAcceptance(error);
+      return;
+    }
+    Promise.resolve(completion).then(
+      (result) => {
+        if (result?.started === true) {
+          settle(true);
+          return;
+        }
+        // Definitive pre-start rejection (`{ started: false }`) or an
+        // unknown legacy resolution (`undefined`): either way the provider
+        // never demonstrably accepted this turn. settle() is idempotent, so
+        // a prior acceptance signal wins over this late completion. The
+        // original rejection reason is preserved for diagnostics.
+        settle(false, result?.reason || 'provider dispatch was not accepted');
+      },
+      (error) => {
+        if (settled) {
+          // The turn was already accepted and delivered; its failure belongs
+          // to session execution (which already recorded it). Log without
+          // overwriting that outcome.
+          console.error(`Kanban: Accepted on-enter session ${newSession.id} failed after delivery:`, error?.message || error);
+          return;
+        }
+        failBeforeAcceptance(error);
+      },
+    );
   });
 }
 
@@ -198,7 +261,7 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
 
 // eslint-disable-next-line max-statements, complexity -- capability, cancellation, setup, and dispatch fences form one boundary
 export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
-  const { laneRunId = null, childSessionId = null, beforeDispatch, abortController } = options;
+  const { laneRunId = null, childSessionId = null, beforeDispatch, abortController, onAccepted } = options;
 
   const template = sessionTemplates.getById(lane.onEnterTemplateId);
   if (!template) {
@@ -248,8 +311,9 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
       systemPrompt: project.systemPrompt,
       model: settings.model,
       ...(abortController ? { abortController } : {}),
+      ...(onAccepted ? { onAccepted } : {}),
     });
-    if (!accepted) return undelivered('provider dispatch was not accepted');
+    if (!accepted.accepted) return undelivered(accepted.reason || 'provider dispatch was not accepted');
 
     console.log(`Kanban: Created and started on-enter session ${newSession.id}`);
     return { delivered: true, rootSessionId: newSession.id };
@@ -295,7 +359,7 @@ async function buildChildSessionFromPrompt(lane, session, options = {}) {
 }
 
 export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
-  const { laneRunId = null, childSessionId = null, beforeDispatch, abortController } = options;
+  const { laneRunId = null, childSessionId = null, beforeDispatch, abortController, onAccepted } = options;
 
   const context = getSessionAndProjectForTrigger(sessionId);
   if (!context) return undelivered('workspace session or project not found');
@@ -330,8 +394,9 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
       systemPrompt: project.systemPrompt,
       model: settings.model,
       ...(abortController ? { abortController } : {}),
+      ...(onAccepted ? { onAccepted } : {}),
     });
-    if (!accepted) return undelivered('provider dispatch was not accepted');
+    if (!accepted.accepted) return undelivered(accepted.reason || 'provider dispatch was not accepted');
 
     console.log(`Kanban: Created and started on-enter prompt session ${newSession.id}`);
     return { delivered: true, rootSessionId: newSession.id };

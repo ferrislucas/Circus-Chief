@@ -18,7 +18,9 @@ vi.mock('./gitSessionSetup.js', () => ({
 }));
 
 vi.mock('./sessionManager.js', () => ({
-  runSession: vi.fn().mockResolvedValue(undefined),
+  // A resolved `{ started: true }` stands in for a genuinely executed turn:
+  // an undefined resolution is NOT acceptance in the durable delivery path.
+  runSession: vi.fn().mockResolvedValue({ started: true }),
 }));
 
 vi.mock('./sessionProvider.js', () => ({
@@ -515,7 +517,8 @@ describe('kanbanService', () => {
       await vi.waitFor(() => {
         const event = databaseManager.get().prepare('SELECT status, last_error FROM kanban_lane_entry_events WHERE card_id=?').get(card.id);
         expect(event.status).toBe('pending');
-        expect(event.last_error).toContain('provider dispatch was not accepted');
+        // The original provider rejection is retained in diagnostics.
+        expect(event.last_error).toContain('provider unavailable');
       });
     });
   });

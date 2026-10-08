@@ -32,6 +32,8 @@ export function getKanbanDeliveryHealth(db = databaseManager.get(), time = Date.
       WHERE status='claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at <= ?`, time),
     ambiguous: count(`SELECT count(*) count FROM kanban_lane_entry_events
       WHERE status IN ('pending','claimed') AND delivery_phase='dispatch_intent'`),
+    needsAttention: count(`SELECT count(*) count FROM kanban_lane_entry_events
+      WHERE status='needs_attention'`),
     exhausted: count(`SELECT count(*) count FROM kanban_lane_entry_events
       WHERE status='failed' AND COALESCE(completed_at, created_at) >= ?`, terminalSince),
     quarantined: count(`SELECT count(*) count FROM kanban_lane_entry_events
@@ -43,6 +45,7 @@ export function getKanbanDeliveryHealth(db = databaseManager.get(), time = Date.
   if (counts.quarantined) reasons.push('quarantined delivery events');
   if (counts.stalled) reasons.push('expired delivery claims');
   if (counts.ambiguous) reasons.push('ambiguous provider dispatches');
+  if (counts.needsAttention) reasons.push('lane-entry events need attention');
   const oldestRelevantAgeMs = pending.oldest == null ? null : Math.max(0, time - pending.oldest);
   const pendingWarning = thresholds.pendingWarning ?? 25;
   const pendingCritical = thresholds.pendingCritical ?? 100;
@@ -109,21 +112,76 @@ export function auditKanbanInvariants(db = databaseManager.get()) {
     violations.push(issue('stale_card_pointer', 'card points at a non-open lane run', { cardId: row.card_id, runId: row.run_id, boardId: row.board_id, projectId: row.project_id }));
   }
 
+  // The read-only dry-run path opens the database without running migrations,
+  // so acceptance-evidence columns may not exist yet on older databases.
+  const columnNames = new Set(db.prepare('PRAGMA table_info(kanban_lane_entry_events)').all().map((col) => col.name));
+  const hasAcceptanceEvidence = columnNames.has('accepted_at') && columnNames.has('accepted_dispatch_key');
+  const evidenceSelect = hasAcceptanceEvidence ? ', accepted_at, accepted_dispatch_key' : '';
   const entryEvents = db.prepare(`SELECT id, project_id, workspace_id, card_id, lane_id, cause, status, claim_token,
-      claimed_at, attempt_count, last_error, created_at FROM kanban_lane_entry_events
-      WHERE status IN ('pending', 'claimed') ORDER BY created_at`).all()
+      claimed_at, attempt_count, last_error, created_at, delivery_phase, dispatch_key,
+      dispatch_acknowledged_at${evidenceSelect} FROM kanban_lane_entry_events
+      WHERE status IN ('pending', 'claimed', 'needs_attention') ORDER BY created_at`).all()
     .map((row) => ({ id: row.id, projectId: row.project_id, workspaceId: row.workspace_id, cardId: row.card_id,
       laneId: row.lane_id, cause: row.cause, status: row.status, claimedAt: row.claimed_at,
-      attemptCount: row.attempt_count, lastError: row.last_error, createdAt: row.created_at }));
+      attemptCount: row.attempt_count, lastError: row.last_error, createdAt: row.created_at,
+      deliveryPhase: row.delivery_phase, dispatchKey: row.dispatch_key,
+      dispatchAcknowledgedAt: row.dispatch_acknowledged_at, acceptedAt: row.accepted_at ?? null,
+      acceptedDispatchKey: row.accepted_dispatch_key ?? null,
+      recoveryClassification: row.status === 'needs_attention' ? 'needs_attention'
+        : row.delivery_phase === 'dispatch_intent' && row.dispatch_key ? 'ambiguous_unresolved' : 'none' }));
 
   return {
     ok: !violations.some((violation) => violation.severity === 'error'),
     generatedAt: Date.now(),
     summary: { lanes: lanes.length, openRuns: db.prepare("SELECT count(*) count FROM kanban_lane_runs WHERE status='open'").get().count,
-      violations: violations.length, pendingOrClaimedEntryEvents: entryEvents.length },
-    violations, entryEvents,
+      violations: violations.length, pendingOrClaimedEntryEvents: entryEvents.length,
+      needsAttentionEntryEvents: entryEvents.filter((event) => event.status === 'needs_attention').length },
+    violations, entryEvents, recoveryCandidates: getLaneEntryRecoveryCandidates(db),
   };
 }
+
+/**
+ * Inspectable recovery candidates: parked uncertain dispatches plus
+ * terminally failed ambiguous dispatches. Read-only; neither the poller nor
+ * startup recovery re-drives these — only an explicit operator redrive does.
+ * Exposes the FR-6 diagnostic fields (event/run/child ids, cause, phase,
+ * dispatch key, attempts, acceptance time, last error, classification).
+ */
+export function getLaneEntryRecoveryCandidates(db = databaseManager.get()) {
+  const columnNames = new Set(db.prepare('PRAGMA table_info(kanban_lane_entry_events)').all().map((col) => col.name));
+  const evidenceSelect = columnNames.has('accepted_at') && columnNames.has('accepted_dispatch_key')
+    ? ', e.accepted_at, e.accepted_dispatch_key'
+    : '';
+  return db.prepare(`SELECT e.id, e.project_id, e.workspace_id, e.card_id, e.lane_id, e.cause, e.status,
+      e.delivery_phase, e.dispatch_key, e.dispatch_acknowledged_at,
+      e.attempt_count, e.last_error, e.created_at, e.updated_at${evidenceSelect},
+      r.id run_id, r.status run_status, r.root_session_id
+    FROM kanban_lane_entry_events e
+    LEFT JOIN kanban_lane_runs r ON r.lane_entry_event_id = e.id
+    WHERE e.status='needs_attention'
+      OR (e.status='failed' AND e.last_error LIKE 'ambiguous_dispatch%')
+    ORDER BY e.created_at`).all()
+    .map((row) => ({
+      eventId: row.id, projectId: row.project_id, workspaceId: row.workspace_id,
+      cardId: row.card_id, laneId: row.lane_id, cause: row.cause, status: row.status,
+      runId: row.run_id, runStatus: row.run_status, childSessionId: row.root_session_id,
+      deliveryPhase: row.delivery_phase, dispatchKey: row.dispatch_key,
+      dispatchAcknowledgedAt: row.dispatch_acknowledged_at,
+      acceptedAt: row.accepted_at ?? null, acceptedDispatchKey: row.accepted_dispatch_key ?? null,
+      attemptCount: row.attempt_count, lastError: row.last_error,
+      createdAt: row.created_at, updatedAt: row.updated_at,
+      recoveryClassification: row.status === 'needs_attention' ? 'needs_attention' : 'ambiguous_terminal',
+    }));
+}
+
+function summarizeCandidates(candidates) {
+  return candidates.map((candidate) => ({
+    type: candidate.recoveryClassification === 'needs_attention' ? 'needs_attention_delivery' : 'ambiguous_terminal_delivery',
+    eventId: candidate.eventId, runId: candidate.runId, cardId: candidate.cardId,
+  }));
+}
+
+export { redriveLaneEntryEvent } from './kanbanRedriveService.js';
 
 export function formatKanbanInvariantReport(report) {
   const lines = [`Kanban preflight: ${report.ok ? 'PASS' : 'FAIL'} (${report.summary.violations} violation(s))`];
@@ -266,5 +324,11 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
   }
   if (staleRunIds.length) changes.unshift({ type: 'superseded_runs', runIds: staleRunIds });
   if (preservedRootlessRunIds.length) changes.unshift({ type: 'preserved_recoverable_rootless_handoffs', runIds: preservedRootlessRunIds });
+  // Inspect-only: uncertain lane-entry dispatches are never re-driven
+  // automatically. They stay visible here (and in the audit report) until an
+  // explicit operator redrive resolves them.
+  for (const candidate of summarizeCandidates(getLaneEntryRecoveryCandidates(db))) {
+    changes.push(candidate);
+  }
   return { applied: !dryRun, blocked: false, report: auditKanbanInvariants(db), changes };
 }

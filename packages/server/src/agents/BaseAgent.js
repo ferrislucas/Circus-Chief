@@ -1,4 +1,27 @@
 /**
+ * Notify the caller that provider execution was accepted.
+ *
+ * Adapters call this once at their documented acceptance boundary (see
+ * `ProviderAcceptanceDetail` in types.js); the execution layer additionally
+ * guards acceptance once per turn. The notification must never throw into
+ * the provider stream — a failing observer must not break execution.
+ *
+ * @param {import('./types.js').AgentCallMeta} [meta] - Call metadata carrying `onProviderAccepted`
+ * @param {() => import('./types.js').ProviderAcceptanceDetail} buildDetail - Builds the signal detail
+ * @returns {boolean} True when a live observer was notified
+ */
+export function notifyProviderAccepted(meta, buildDetail) {
+  const observer = meta?.onProviderAccepted;
+  if (typeof observer !== 'function') return false;
+  try {
+    observer(buildDetail());
+  } catch (error) {
+    console.error('[Agent] onProviderAccepted observer failed:', error?.message || error);
+  }
+  return true;
+}
+
+/**
  * Base agent interface. All adapters must implement `execute()` which returns
  * an async generator of SDK events.
  */

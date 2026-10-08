@@ -1,4 +1,5 @@
 import { CassetteStore } from './CassetteStore.js';
+import { notifyProviderAccepted } from '../BaseAgent.js';
 
 /**
  * VCR (Video Cassette Recorder) Agent Adapter
@@ -43,7 +44,22 @@ export class VCRAgentAdapter {
       if (!cassette) {
         throw new Error(`VCR replay: no cassette found for "${key}"`);
       }
-      yield* this.replay(cassette, queryParams, key);
+      // Test-only approximation: the cassette records a turn that was
+      // accepted when recorded, so replaying its first event replays the
+      // acceptance. Live and record paths rely on the inner adapter's own
+      // boundary signal instead.
+      let first = true;
+      for await (const event of this.replay(cassette, queryParams, key)) {
+        if (first) {
+          first = false;
+          notifyProviderAccepted(meta, () => ({
+            adapterType: 'vcr-replay',
+            boundary: 'cassette_replay',
+            sessionId: meta?.sessionId,
+          }));
+        }
+        yield event;
+      }
     } else if (this.mode === 'auto') {
       const cassette = CassetteStore.load(this.cassetteDir, key);
       if (cassette) {

@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { BaseAgent } from '../BaseAgent.js';
+import { BaseAgent, notifyProviderAccepted } from '../BaseAgent.js';
 
 /**
  * Adapter for Claude Code SDK. Wraps the SDK's `query()` function
@@ -22,8 +22,23 @@ export class ClaudeCodeAdapter extends BaseAgent {
    * @param {import('../types.js').AgentQueryParams} queryParams - { prompt, options? }
    * @yields {Object} Raw SDK events (system, assistant, tool_result, stream_event, result)
    */
-  async *execute(queryParams) {
-    yield* query(queryParams);
+  async *execute(queryParams, meta) {
+    // Acceptance boundary: the first event yielded by the SDK generator is
+    // a provider protocol message (system init), proving the turn was handed
+    // to the provider runner. Merely calling query() constructs a lazy
+    // generator and proves nothing, so the signal fires here, not there.
+    let signalled = false;
+    for await (const event of query(queryParams)) {
+      if (!signalled) {
+        signalled = true;
+        notifyProviderAccepted(meta, () => ({
+          adapterType: 'claude-code',
+          boundary: 'provider_protocol_ack',
+          sessionId: meta?.sessionId,
+        }));
+      }
+      yield event;
+    }
   }
 
   supportsResume() {

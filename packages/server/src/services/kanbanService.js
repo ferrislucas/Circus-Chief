@@ -13,7 +13,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
 import {
   createLaneRunForEntry, supersedeLaneRun, supersedeLaneRunAuthorityOnly,
-  supersedeRunForCard, isStructured, getRun,
+  supersedeRunForCard, isStructured, getRun, reviveLaneEntryWorkerForRetry,
 } from './workflowSessionService.js';
 import { ApiError } from '../errors/ApiError.js';
 import { retrySqliteContention } from './sqliteContention.js';
@@ -158,7 +158,7 @@ function scheduleRouteOrRecover(db, { workspaceId, card, run, targetLane, worksp
 
 export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
   const { runOnEnterTemplate = true, laneRunId = null, childSessionId = null,
-    beforeDispatch, abortController } = options;
+    beforeDispatch, abortController, onAccepted } = options;
 
   if (!runOnEnterTemplate) return { delivered: true, rootSessionId: null };
 
@@ -166,11 +166,11 @@ export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}
   let result = { delivered: true, rootSessionId: null };
   if (lane?.onEnterTemplateId) {
     result = await triggerOnEnterTemplate(sessionId, lane, {
-      laneRunId, childSessionId, beforeDispatch, abortController,
+      laneRunId, childSessionId, beforeDispatch, abortController, onAccepted,
     });
   } else if (lane?.onEnterPrompt) {
     result = await triggerOnEnterPrompt(sessionId, lane, {
-      laneRunId, childSessionId, beforeDispatch, abortController,
+      laneRunId, childSessionId, beforeDispatch, abortController, onAccepted,
     });
   }
   if (!result?.delivered) throw new Error(`Lane-entry delivery failed: ${result?.reason || 'unknown error'}`);
@@ -501,11 +501,14 @@ export function laneEntryRetryDelay(attempt, random = Math.random) {
   return Math.round(capped * (1 - RETRY_JITTER + random() * RETRY_JITTER * 2));
 }
 
-function claimLaneEntryTrigger(eventId) {
+function claimLaneEntryTrigger(eventId, { countAttempt = true } = {}) {
   const token = crypto.randomUUID();
   const time = Date.now();
+  // Reconciliation claims recover already-proven deliveries without
+  // dispatching, so they must not consume the dispatch attempt budget.
+  const increment = countAttempt ? 'attempt_count=attempt_count+1,' : '';
   const claimed = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
-    SET status='claimed', claim_token=?, claimed_at=?, claim_expires_at=?, attempt_count=attempt_count+1, updated_at=?
+    SET status='claimed', claim_token=?, claimed_at=?, claim_expires_at=?, ${increment} updated_at=?
     WHERE id=? AND status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=?)
       AND attempt_count < ?`).run(token, time, time + ENTRY_EVENT_LEASE_MS, time, eventId, time, MAX_ENTRY_EVENT_ATTEMPTS);
   return claimed.changes ? token : null;
@@ -548,20 +551,129 @@ function createLaneEntryClaimGuard(eventId, token, abortController) {
   };
 }
 
-function completeVerifiedLaneEntry(eventId, rootSessionId, token) {
-  if (!eventId || !rootSessionId || !token) return false;
-  const db = databaseManager.get();
-  // Verify root attachment, not run liveness: a run legitimately superseded
-  // by the very child we're delivering (e.g. it moved its own card) is a
-  // successful delivery, not a failure. Status is intentionally not checked.
-  const owner = db.prepare(`SELECT 1 FROM kanban_lane_runs
-    WHERE lane_entry_event_id=? AND root_session_id=?`).get(eventId, rootSessionId);
-  if (!owner) throw new Error('Lane-entry delivery did not attach the expected run root');
+/**
+ * Record durable acceptance evidence under the live delivery claim. Called at
+ * provider-acceptance signal time, before the handoff transaction. Best
+ * effort: when the claim was already lost the write cannot commit, which
+ * preserves uncertainty instead of fabricating evidence.
+ * @returns {boolean} True when the evidence was durably recorded
+ */
+function recordDispatchAcceptance(eventId, token) {
   const time = Date.now();
-  const completed = db.prepare(`UPDATE kanban_lane_entry_events SET status='completed', delivery_phase='completed', completed_at=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL
-    WHERE id=? AND status='claimed' AND claim_token=? AND dispatch_acknowledged_at IS NOT NULL`).run(time, time, eventId, token);
-  if (completed.changes !== 1) throw new Error('Lane-entry event could not be completed after root verification');
-  return true;
+  const recorded = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+    SET accepted_at=?, accepted_dispatch_key=dispatch_key, updated_at=?
+    WHERE id=? AND status='claimed' AND claim_token=?
+      AND delivery_phase='dispatch_intent' AND dispatch_key IS NOT NULL`)
+    .run(time, time, eventId, token);
+  return recorded.changes === 1;
+}
+
+/**
+ * Atomic delivery handoff: one transaction verifies the live claim token and
+ * lease, the event/child/run association, and the dispatch identity, then
+ * writes the durable acknowledgement, marks the event completed, and clears
+ * claim ownership. Completion here means delivery accepted, not lane work
+ * succeeded. Only the owner of a live claim can commit; acknowledgement and
+ * completion cannot be split by a crash.
+ */
+function completeAcceptedLaneEntry(eventId, rootSessionId, token) {
+  if (!eventId || !rootSessionId || !token) return false;
+  return databaseManager.transaction(() => {
+    const db = databaseManager.get();
+    const time = Date.now();
+    const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+    if (!event || event.status !== 'claimed' || event.claim_token !== token || !(event.claim_expires_at > time)) {
+      throw new Error('Lane-entry delivery claim is no longer live');
+    }
+    // Legacy crash survivors may carry the old post-turn acknowledged phase;
+    // both phases prove the same dispatch intent for the same key.
+    if ((event.delivery_phase !== 'dispatch_intent' && event.delivery_phase !== 'dispatch_acknowledged') || !event.dispatch_key) {
+      throw new Error('Lane-entry delivery has no dispatch intent to acknowledge');
+    }
+    // A recorded acceptance must refer to this exact dispatch. Absence of a
+    // record is acceptable: the owning worker observed acceptance in-process
+    // (explicit signal or `{ started: true }` completion).
+    if (event.accepted_dispatch_key != null && event.accepted_dispatch_key !== event.dispatch_key) {
+      throw new Error('Lane-entry acceptance refers to a different dispatch');
+    }
+    // Verify root attachment, not run liveness: a run legitimately superseded
+    // by the very child we're delivering (e.g. it moved its own card, or the
+    // child already completed) is a successful delivery, not a failure.
+    // Status is intentionally not checked.
+    const owner = db.prepare(`SELECT 1 FROM kanban_lane_runs
+      WHERE lane_entry_event_id=? AND root_session_id=?`).get(eventId, rootSessionId);
+    if (!owner) throw new Error('Lane-entry delivery did not attach the expected run root');
+    const completed = db.prepare(`UPDATE kanban_lane_entry_events
+      SET status='completed', delivery_phase='completed',
+        dispatch_acknowledged_at=COALESCE(dispatch_acknowledged_at, ?),
+        accepted_at=COALESCE(accepted_at, ?),
+        accepted_dispatch_key=COALESCE(accepted_dispatch_key, dispatch_key),
+        completed_at=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL
+      WHERE id=? AND status='claimed' AND claim_token=?`).run(time, time, time, time, eventId, token);
+    if (completed.changes !== 1) throw new Error('Lane-entry event could not be completed after root verification');
+    return true;
+  });
+}
+
+/**
+ * Return a definitively pre-acceptance failure to a retryable phase under the
+ * owning worker's knowledge. The worker observed its own dispatch never reach
+ * acceptance, so the persisted intent must not poison the retry as permanently
+ * ambiguous. The attached child is retained for reuse; only the unproven
+ * intent (and any stale acceptance evidence) is cleared.
+ *
+ * Handles both wake orderings: normally the live claim is still owned
+ * (guard-first), but when the retry poller already reclaimed the expired
+ * lease the reset is fenced on the exact dispatch key this worker minted
+ * instead of the lost token (poller-first). A stale worker can never clear a
+ * live replacement claim or a parked needs-attention state.
+ */
+function resetDispatchIntentForRetry(eventId, token, { dispatchKey, backoffMs, reason }) {
+  const db = databaseManager.get();
+  const time = Date.now();
+  const owned = db.prepare(`UPDATE kanban_lane_entry_events
+    SET delivery_phase='pending', dispatch_key=NULL, accepted_at=NULL, accepted_dispatch_key=NULL, updated_at=?
+    WHERE id=? AND status='claimed' AND claim_token=?`).run(time, eventId, token);
+  if (owned.changes === 1) return true;
+  if (!dispatchKey) return false;
+  const reclaimed = db.prepare(`UPDATE kanban_lane_entry_events
+    SET status='pending', delivery_phase='pending', dispatch_key=NULL, accepted_at=NULL, accepted_dispatch_key=NULL,
+      next_attempt_at=?, last_error=?, updated_at=?
+    WHERE id=? AND status='pending' AND claim_token IS NULL
+      AND delivery_phase='dispatch_intent' AND dispatch_key=?`).run(backoffMs, String(reason).slice(0, 240), time, eventId, dispatchKey);
+  return reclaimed.changes === 1;
+}
+
+/**
+ * Park an uncertain dispatch for operator attention without consuming
+ * attempts or dispatching again. The poller never re-drives this state;
+ * only an explicit operator redrive (or a proven-acceptance reconciliation)
+ * resolves it.
+ */
+function parkAmbiguousDispatch(eventId, reason) {
+  const time = Date.now();
+  const parked = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+    SET status='needs_attention', last_error=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL
+    WHERE id=? AND status='pending'`).run(`ambiguous_dispatch: ${String(reason).slice(0, 200)}`, time, eventId);
+  return parked.changes === 1;
+}
+
+/** Release a held delivery claim into the needs-attention state. */
+function releaseClaimToNeedsAttention(eventId, token, reason) {
+  const time = Date.now();
+  const released = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+    SET status='needs_attention', last_error=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL
+    WHERE id=? AND status='claimed' AND claim_token=?`).run(String(reason).slice(0, 240), time, eventId, token);
+  return released.changes === 1;
+}
+
+/** Release a held reconciliation claim back to pending without side effects. */
+function releaseReconciliationClaim(eventId, token) {
+  const time = Date.now();
+  const released = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+    SET status='pending', updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL
+    WHERE id=? AND status='claimed' AND claim_token=?`).run(time, eventId, token);
+  return released.changes === 1;
 }
 
 function markDispatchIntent(eventId, token) {
@@ -572,14 +684,6 @@ function markDispatchIntent(eventId, token) {
     WHERE id=? AND status='claimed' AND claim_token=?`).run(key, time, eventId, token);
   if (result.changes !== 1) throw new Error('Lane-entry claim was lost before provider dispatch');
   return db.prepare('SELECT dispatch_key FROM kanban_lane_entry_events WHERE id=?').get(eventId).dispatch_key;
-}
-
-function acknowledgeDispatch(eventId, token) {
-  const time = Date.now();
-  const result = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
-    SET delivery_phase='dispatch_acknowledged', dispatch_acknowledged_at=?, updated_at=?
-    WHERE id=? AND status='claimed' AND claim_token=? AND delivery_phase='dispatch_intent'`).run(time, time, eventId, token);
-  if (result.changes !== 1) throw new Error('Lane-entry claim was lost before dispatch acknowledgement');
 }
 
 function resolveDeliveryState(event) {
@@ -609,67 +713,279 @@ function resolveDeliveryState(event) {
   if (event.delivery_phase !== 'dispatch_intent' || !event.dispatch_key) {
     return { state: 'needs_delivery', run, rootSessionId: run.root_session_id };
   }
-  // We deliberately refuse to infer acknowledgement from ownership.  This
-  // leaves pre-ack crashes visible and safe instead of risking a duplicate.
-  return { state: 'ambiguous_dispatch', reason: 'child ownership exists without provider dispatch acknowledgement' };
+  return resolveDispatchIntent(event, run);
 }
 
-/** Drain one committed completion handoff. Safe to call repeatedly. */
-// eslint-disable-next-line complexity -- deliberately linear durable state machine
-// eslint-disable-next-line max-statements, complexity -- durable transition boundaries are intentionally linear
-async function drainLaneEntryTriggerImpl(eventId) {
-  const token = claimLaneEntryTrigger(eventId);
+/**
+ * Resolve a persisted dispatch intent. Intent without an attached child
+ * means the worker that owned this dispatch is gone, so redispatching would
+ * risk a duplicate provider execution — this stays parked for explicit
+ * operator redrive, which can verify settlement first.
+ */
+function resolveDispatchIntent(event, run) {
+  if (!run.root_session_id) {
+    return { state: 'ambiguous_dispatch', reason: 'dispatch intent exists without an attached child session' };
+  }
+  return resolveAcceptedDispatch(event, run)
+    // We deliberately refuse to infer acknowledgement from ownership.  This
+    // leaves pre-ack crashes visible and safe instead of risking a duplicate.
+    || { state: 'ambiguous_dispatch', reason: 'child ownership exists without provider dispatch acknowledgement' };
+}
+
+/**
+ * Durable acceptance for this exact dispatch, with a valid attachment: the
+ * provider provably took the turn, so delivery completes without starting
+ * another child — regardless of later turn success or failure. Session
+ * status, allocated turn tokens, and PIDs alone are not evidence; only the
+ * accepted dispatch key matching the intent key counts.
+ * @returns {Object|null} Delivery state, or null when no acceptance is recorded
+ */
+function resolveAcceptedDispatch(event, run) {
+  if (event.accepted_dispatch_key == null) return null;
+  if (event.accepted_dispatch_key === event.dispatch_key && run.root_session_id) {
+    return { state: 'accepted_uncompleted', run, rootSessionId: run.root_session_id };
+  }
+  return { state: 'ambiguous_dispatch', reason: 'dispatch acceptance does not match a valid attached run' };
+}
+
+/**
+ * Reconcile an event whose delivery was already proven (legacy post-turn
+ * acknowledgement, or durable acceptance evidence) but never marked
+ * completed — e.g. a crash between acceptance and the handoff commit.
+ * Completes WITHOUT starting another child, under a reconciliation claim
+ * that leaves the dispatch attempt budget unchanged.
+ */
+function reconcileProvenDelivery(eventId) {
+  const token = claimLaneEntryTrigger(eventId, { countAttempt: false });
   if (!token) return false;
-  const abortController = new AbortController();
-  const claim = createLaneEntryClaimGuard(eventId, token, abortController);
   const db = databaseManager.get();
-  const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
-  const valid = event && db.prepare('SELECT 1 FROM kanban_cards WHERE id=?').get(event.card_id);
-  // A completion handoff is valid only if its source run actually performed
-  // this exact guarded transition. This prevents an old outbox event from
-  // spawning work after a manual move or a superseded source worker.
-  const sourceValid = !event?.caused_by_run_id || db.prepare(`SELECT 1 FROM kanban_lane_runs
-    WHERE id=? AND status='succeeded' AND transition_applied_at IS NOT NULL`).get(event.caused_by_run_id);
-  if (!valid || !sourceValid) {
-    const reason = !valid ? 'target card no longer exists' : 'source run no longer owns a completed transition';
-    const time = Date.now();
-    db.prepare(`UPDATE kanban_lane_entry_events SET status='invalid', last_error=?,
-      completed_at=?, updated_at=?, claim_token=NULL, claim_expires_at=NULL WHERE id=? AND claim_token=?`).run(reason, time, time, eventId, token);
-    claim.stop();
+  try {
+    const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+    const fresh = resolveDeliveryState(event);
+    if (fresh.state !== 'already_delivered' && fresh.state !== 'accepted_uncompleted') {
+      releaseReconciliationClaim(eventId, token);
+      if (fresh.state === 'ambiguous_dispatch') parkAmbiguousDispatch(eventId, fresh.reason);
+      return false;
+    }
+    return completeAcceptedLaneEntry(eventId, fresh.rootSessionId, token);
+  } catch (error) {
+    releaseClaimToNeedsAttention(eventId, token, error.message || 'proven-delivery reconciliation failed');
     return false;
   }
-  try {
-    claim.assertCurrent();
-    const resolved = resolveDeliveryState(event);
-    if (resolved.state === 'ownership_conflict') throw new Error(resolved.reason);
-    if (resolved.state === 'ambiguous_dispatch') throw new Error(resolved.reason);
-    let rootSessionId = resolved.rootSessionId;
-    if (resolved.state === 'needs_delivery') {
-      const delivery = await triggerLaneEntryAutomation(event.workspace_id, event.lane_id, {
-        runOnEnterTemplate: true, laneRunId: resolved.run.id,
-        childSessionId: resolved.rootSessionId,
-        abortController,
-        beforeDispatch: () => { claim.assertCurrent(); return markDispatchIntent(event.id, token); },
-      });
-      rootSessionId = delivery?.rootSessionId;
-      claim.assertCurrent();
-      acknowledgeDispatch(event.id, token);
-    }
-    claim.assertCurrent();
-    return completeVerifiedLaneEntry(event.id, rootSessionId, token);
-  } catch (error) {
+}
+
+/**
+ * Peek WITHOUT claiming: uncertainty and prior proof must never burn
+ * dispatch attempts, and the poller must not spin on them.
+ * @returns {{action:'skip'}|{action:'done',result:boolean}|{action:'reconcile'}|{action:'deliver'}}
+ */
+function preclaimLaneEntryEvent(eventId) {
+  const db = databaseManager.get();
+  const peeked = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+  if (!peeked || peeked.status !== 'pending') return { action: 'skip' };
+  if (peeked.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS) return { action: 'skip' };
+  if (peeked.next_attempt_at != null && peeked.next_attempt_at > Date.now()) return { action: 'skip' };
+  const resolved = resolveDeliveryState(peeked);
+  if (resolved.state === 'ownership_conflict') {
     const time = Date.now();
-    const exhausted = event.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS;
-    const nextAttemptAt = exhausted ? null : time + laneEntryRetryDelay(event.attempt_count);
-    db.prepare(`UPDATE kanban_lane_entry_events
-      SET status=CASE WHEN ? THEN 'failed' ELSE 'pending' END,
-        claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=?, last_error=?, updated_at=?, completed_at=CASE WHEN ? THEN ? ELSE completed_at END
-      WHERE id=? AND claim_token=?`)
-      .run(exhausted ? 1 : 0, nextAttemptAt, String(error.message || 'delivery failed').slice(0, 240), time, exhausted ? 1 : 0, time, eventId, token);
+    db.prepare(`UPDATE kanban_lane_entry_events SET status='invalid', last_error=?,
+      completed_at=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL
+      WHERE id=? AND status='pending'`).run(resolved.reason, time, time, eventId);
+    return { action: 'done', result: false };
+  }
+  // An intent without acknowledgement is uncertainty, not failure: park it
+  // for attention instead of spending attempts rethrowing the same ambiguity.
+  if (resolved.state === 'ambiguous_dispatch') {
+    parkAmbiguousDispatch(eventId, resolved.reason);
+    return { action: 'done', result: false };
+  }
+  if (resolved.state === 'already_delivered' || resolved.state === 'accepted_uncompleted') {
+    return { action: 'reconcile' };
+  }
+  return { action: 'deliver' };
+}
+
+/**
+ * Check the delivery target under a held claim. A completion handoff is
+ * valid only if its source run actually performed this exact guarded
+ * transition — this prevents an old outbox event from spawning work after a
+ * manual move or a superseded source worker.
+ * @returns {string|null} Invalid reason, or null when the target is valid
+ */
+function checkDeliveryTarget(db, event) {
+  const valid = event && db.prepare('SELECT 1 FROM kanban_cards WHERE id=?').get(event.card_id);
+  const sourceValid = !event?.caused_by_run_id || db.prepare(`SELECT 1 FROM kanban_lane_runs
+    WHERE id=? AND status='succeeded' AND transition_applied_at IS NOT NULL`).get(event.caused_by_run_id);
+  if (valid && sourceValid) return null;
+  return !valid ? 'target card no longer exists' : 'source run no longer owns a completed transition';
+}
+
+function markEventInvalidUnderClaim(db, eventId, token, reason) {
+  const time = Date.now();
+  db.prepare(`UPDATE kanban_lane_entry_events SET status='invalid', last_error=?,
+    completed_at=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL
+    WHERE id=? AND claim_token=?`).run(reason, time, time, eventId, token);
+}
+
+/**
+ * Run one dispatch attempt under a held claim. Resolves (never dispatches)
+ * when proof appeared between peek and claim; otherwise triggers lane-entry
+ * automation and resolves once the provider accepts.
+ * Progress travels on the thrown error so the failure path can reset the
+ * exact intent this attempt minted and revive the exact run/root it closed.
+ * @returns {Promise<{outcome:'parked'}|{outcome:'reconciled',result:boolean}|{outcome:'delivered',delivery:Object}>}
+ */
+async function attemptLaneEntryDispatch({ event, eventId, token, claim, executionController, detachDeliveryForwarding }) {
+  claim.assertCurrent();
+  const resolved = resolveDeliveryState(event);
+  if (resolved.state === 'ownership_conflict') throw new Error(resolved.reason);
+  if (resolved.state === 'ambiguous_dispatch') {
+    releaseClaimToNeedsAttention(eventId, token, `ambiguous_dispatch: ${resolved.reason}`);
+    return { outcome: 'parked' };
+  }
+  if (resolved.state !== 'needs_delivery') {
+    // Proof appeared between peek and claim (e.g. a racing reconciliation
+    // completed the picture): reconcile under this claim, never dispatch.
+    if (resolved.state === 'already_delivered' || resolved.state === 'accepted_uncompleted') {
+      return { outcome: 'reconciled', result: completeAcceptedLaneEntry(eventId, resolved.rootSessionId, token) };
+    }
+    throw new Error(resolved.reason || 'lane-entry event is not deliverable');
+  }
+  const progress = { dispatchKey: null, runId: resolved.run.id, childSessionId: resolved.rootSessionId };
+  let delivery;
+  try {
+    delivery = await triggerLaneEntryAutomation(event.workspace_id, event.lane_id, {
+      runOnEnterTemplate: true, laneRunId: resolved.run.id,
+      childSessionId: resolved.rootSessionId,
+      abortController: executionController,
+      beforeDispatch: () => {
+        claim.assertCurrent();
+        progress.dispatchKey = markDispatchIntent(event.id, token);
+        return progress.dispatchKey;
+      },
+      onAccepted: () => {
+        // Synchronous handoff, part 1: from this point the delivery lease no
+        // longer governs the accepted turn, and its acceptance is durably
+        // evidenced for any later reconciliation.
+        detachDeliveryForwarding();
+        recordDispatchAcceptance(event.id, token);
+      },
+    });
+  } catch (error) {
+    error.laneEntryAttempt = progress;
+    throw error;
+  }
+  return { outcome: 'delivered', delivery };
+}
+
+/**
+ * Bookkeep a pre-acceptance attempt failure: reset the unproven intent so
+ * the retry stays retryable, revive the run/root the failed turn closed,
+ * and apply the unchanged attempt budget and backoff. Always throws.
+ */
+function failDeliveryAttempt(db, { eventId, event, token, dispatchKey, runId, childSessionId, attempted }, error) {
+  const time = Date.now();
+  const exhausted = event.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS;
+  const nextAttemptAt = exhausted ? null : time + laneEntryRetryDelay(event.attempt_count);
+  resetDispatchIntentForRetry(eventId, token, { dispatchKey, backoffMs: nextAttemptAt, reason: error.message || 'delivery failed' });
+  // The failed turn closed its run and obligation without provider
+  // acceptance, so no lane work started. Revive both for the retry while the
+  // event stays retryable; a terminally exhausted event keeps its terminal
+  // state and never silently revives work. State-resolution failures (before
+  // any dispatch attempt) never reach this revival. The child may have been
+  // allocated inside the failed trigger, so fall back to the run's attached
+  // root when the pre-trigger resolution had none yet.
+  if (attempted && !exhausted) {
+    const failedChildId = childSessionId
+      ?? db.prepare('SELECT root_session_id FROM kanban_lane_runs WHERE id=?').get(runId)?.root_session_id;
+    reviveLaneEntryWorkerForRetry(runId, failedChildId);
+  }
+  db.prepare(`UPDATE kanban_lane_entry_events
+    SET status=CASE WHEN ? THEN 'failed' ELSE 'pending' END,
+      claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=?, last_error=?, updated_at=?, completed_at=CASE WHEN ? THEN ? ELSE completed_at END
+    WHERE id=? AND claim_token=?`)
+    .run(exhausted ? 1 : 0, nextAttemptAt, String(error.message || 'delivery failed').slice(0, 240), time, exhausted ? 1 : 0, time, eventId, token);
+  throw error;
+}
+
+/**
+ * Post-acceptance handoff commit: the provider owns the turn from here. A
+ * commit failure after acceptance preserves uncertainty for reconciliation —
+ * it never replays the provider call and never reports successful delivery
+ * without durable evidence.
+ */
+function commitAcceptedHandoff({ eventId, token, claim, rootSessionId }) {
+  try {
+    const completed = completeAcceptedLaneEntry(eventId, rootSessionId, token);
+    claim.stop();
+    return completed;
+  } catch (error) {
+    releaseClaimToNeedsAttention(eventId, token,
+      `delivery handoff could not commit after provider acceptance: ${error.message || error}`);
     throw error;
   } finally {
     claim.stop();
   }
+}
+
+/** Drain one committed completion handoff. Safe to call repeatedly. */
+async function drainLaneEntryTriggerImpl(eventId) {
+  const preclaim = preclaimLaneEntryEvent(eventId);
+  if (preclaim.action === 'skip' || preclaim.action === 'done') return preclaim.result ?? false;
+  if (preclaim.action === 'reconcile') return reconcileProvenDelivery(eventId);
+  return deliverClaimedLaneEntry(eventId);
+}
+
+/** Claim a pending event and drive it through one dispatch attempt plus the
+ * acceptance handoff, with separated delivery/execution cancellation. */
+async function deliverClaimedLaneEntry(eventId) {
+  const db = databaseManager.get();
+  const token = claimLaneEntryTrigger(eventId);
+  if (!token) return false;
+  // Separate cancellation ownership. The delivery controller owns the lease
+  // guard; the session-owned execution controller runs the turn. Delivery
+  // cancellation forwards to execution ONLY until the acceptance handoff —
+  // after that, lease expiry, polling, and worker shutdown cannot abort the
+  // accepted turn. User-stop, workflow ownership, and session shutdown
+  // controls are unaffected (they target execution directly).
+  const deliveryController = new AbortController();
+  const executionController = new AbortController();
+  const forwarding = { observed: false };
+  const detachDeliveryForwarding = () => {
+    forwarding.observed = true;
+    deliveryController.signal.removeEventListener('abort', forwardDeliveryAbort);
+  };
+  const forwardDeliveryAbort = () => {
+    if (!forwarding.observed) executionController.abort(deliveryController.signal.reason);
+  };
+  deliveryController.signal.addEventListener('abort', forwardDeliveryAbort);
+  const claim = createLaneEntryClaimGuard(eventId, token, deliveryController);
+  const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+  const invalidReason = checkDeliveryTarget(db, event);
+  if (invalidReason) {
+    markEventInvalidUnderClaim(db, eventId, token, invalidReason);
+    claim.stop();
+    return false;
+  }
+  let attempt;
+  try {
+    attempt = await attemptLaneEntryDispatch({
+      event, eventId, token, claim, executionController, detachDeliveryForwarding,
+    });
+  } catch (error) {
+    // A throw here is always pre-acceptance (acceptance resolves the trigger
+    // instead of throwing): setup errors and definitive provider rejections
+    // stay retryable on the same child via the intent reset.
+    detachDeliveryForwarding();
+    const { dispatchKey = null, runId = null, childSessionId = null } = error.laneEntryAttempt ?? {};
+    return failDeliveryAttempt(db, {
+      eventId, event, token, dispatchKey, runId, childSessionId, attempted: Boolean(error.laneEntryAttempt),
+    }, error);
+  } finally {
+    claim.stop();
+  }
+  if (attempt.outcome !== 'delivered') return attempt.outcome === 'reconciled' ? attempt.result : false;
+  return commitAcceptedHandoff({ eventId, token, claim, rootSessionId: attempt.delivery.rootSessionId });
 }
 
 /**
