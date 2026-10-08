@@ -22,20 +22,21 @@ import {
 /**
  * E2E coverage for the kanban lane-entry delivery outbox
  * (packages/server/src/services/kanbanService.js drainLaneEntryTrigger): the
- * retry/backoff loop, the `ambiguous_dispatch` state, the 1s background
- * retry worker, and terminal exhaustion after MAX_ENTRY_EVENT_ATTEMPTS (8)
- * attempts. None of this had test coverage before this file.
+ * retry/backoff loop, the 1s background retry worker, and terminal exhaustion
+ * after MAX_ENTRY_EVENT_ATTEMPTS (8) attempts.
+ *
+ * Branch semantics (provider-acceptance delivery): delivery completes at the
+ * adapter's audited acceptance boundary via onProviderAccepted, not at turn
+ * completion. A VCR "no cassette" throw happens BEFORE any acceptance
+ * signal, so it is a definitive pre-acceptance failure: the unproven
+ * dispatch intent is reset (delivery_phase stays 'pending', never
+ * 'dispatch_intent'), the failed turn's run/root are revived to 'open' for
+ * the retry, and the SAME child is reused — never a second worker, never an
+ * 'ambiguous_dispatch' parking. After the 8th attempt the event flips to
+ * terminal 'failed' with the original provider error retained, and only then
+ * does the lane run stay 'failed'.
  *
  * Recipe: an onEnterPrompt with NO committed VCR cassette (UNRECORDED_PROMPT).
- * Attempt 1 creates the child, attaches it as the run's root, marks dispatch
- * intent, then the VCR adapter throws deterministically inside the child's
- * own turn. That independently fails the LANE RUN (via closeOwnWork — see
- * kanban-lane-run-structured.spec.ts's "a permanent failure..." test for the
- * same mechanism), while the ENTRY EVENT itself goes back to 'pending' for
- * retry. From attempt 2 onward, resolveDeliveryState() sees an attached root
- * with dispatch_intent but no acknowledgement -> 'ambiguous_dispatch', so it
- * never calls triggerLaneEntryAutomation again — no second child is ever
- * created. After the 8th attempt the event flips to terminal 'failed'.
  *
  * The e2e server is shared across parallel spec files, and terminal events
  * persist (24h delivery-health window), so all server-info health
@@ -115,33 +116,38 @@ test.describe('Kanban lane-entry delivery outbox', () => {
     // health assertion below is relative to this snapshot.
     const before = (await getServerInfo()).automationStatus.deliveryHealth.counts;
 
-    // Attempt 1 fails (no cassette). Confirm it lands back at 'pending' with
-    // dispatch intent recorded — the precondition for 'ambiguous_dispatch'
-    // on every subsequent retry.
+    // Attempt 1 fails pre-acceptance (no cassette, no acceptance signal).
+    // Confirm it lands back at 'pending' with the unproven intent RESET —
+    // never 'dispatch_intent', so the retry stays retryable instead of
+    // parking as 'ambiguous_dispatch'. The original provider error is
+    // retained on the event.
     const afterAttempt1 = await pollEntryEvent(
       eventId!,
-      (e) => e.status === 'pending' && e.attempt_count >= 1 && e.delivery_phase === 'dispatch_intent',
+      (e) =>
+        e.status === 'pending' &&
+        e.attempt_count >= 1 &&
+        e.delivery_phase !== 'dispatch_intent' &&
+        /no cassette found/.test(e.last_error || ''),
       20000
     );
     expect(afterAttempt1.dispatch_acknowledged_at).toBeNull();
 
     // Anti-duplicate: the child created on attempt 1 is never replaced —
-    // resolveDeliveryState() short-circuits every later attempt to
-    // 'ambiguous_dispatch' before triggerLaneEntryAutomation ever runs again.
+    // every later retry reuses this same child after reviving its run/root.
     const workspaceChildren = (await getProjectSessions(project.id)).filter(
       (s: any) => s.parentSessionId === workspace.id
     );
     expect(workspaceChildren).toHaveLength(1);
     const child = workspaceChildren[0];
 
-    // 'ambiguous' counts any pending/claimed event whose delivery_phase is
-    // 'dispatch_intent' with no acknowledgement — true from attempt 1 onward.
-    // Unlike 'exhausted' (terminal, monotonic within the 24h health window),
-    // 'ambiguous' is a live/transient count: a concurrently-running spec's
-    // event can exit that state between our two snapshots, so assert an
-    // absolute floor instead of a baseline-relative delta.
+    // A pre-acceptance failure must not park as ambiguous: 'ambiguous'
+    // counts pending/claimed events stuck at delivery_phase='dispatch_intent',
+    // which the intent-reset path never leaves behind for this fixture.
+    // 'ambiguous' is a live/transient count shared with parallel specs, so
+    // assert our event's own phase directly rather than a global floor.
+    expect(afterAttempt1.delivery_phase).not.toBe('dispatch_intent');
     const duringRetries = (await getServerInfo()).automationStatus.deliveryHealth.counts;
-    expect(duringRetries.ambiguous).toBeGreaterThanOrEqual(1);
+    expect(duringRetries).toBeTruthy();
 
     // Worker-driven: with no test action, the 1s background retry worker
     // alone advances attempt_count past 1 (its poll tick lines up with the
@@ -151,32 +157,44 @@ test.describe('Kanban lane-entry delivery outbox', () => {
     // Fast-forward the remaining backoff (later gaps grow to tens of
     // seconds) by zeroing next_attempt_at between observed attempts —
     // mirrors how scheduler e2e tests manually perform the scheduler's real
-    // handoff instead of waiting out wall-clock delays.
+    // handoff instead of waiting out wall-clock delays. Drive until TERMINAL:
+    // 'claimed' is a transient in-flight state, not a stop condition, and a
+    // fixed iteration cap can be burned through under full-suite load — so
+    // bound the drive by a deadline instead.
+    // (The 1s retry worker sweeps attempt_count >= 8 to 'failed'.)
+    const driveDeadline = Date.now() + 100000;
     let latest = getKanbanEntryEvent(eventId!);
-    let iterations = 0;
-    while (latest.status === 'pending' && latest.attempt_count < 8 && iterations < 20) {
+    while (
+      Date.now() < driveDeadline &&
+      latest &&
+      (latest.status === 'pending' || latest.status === 'claimed') &&
+      latest.attempt_count < 8
+    ) {
       const priorAttemptCount = latest.attempt_count;
       advanceKanbanEntryEvent(eventId!);
       latest = await pollEntryEvent(
         eventId!,
-        (e) => e.attempt_count > priorAttemptCount || e.status !== 'pending',
-        5000
+        (e) =>
+          e.attempt_count > priorAttemptCount ||
+          (e.status !== 'pending' && e.status !== 'claimed'),
+        15000
       );
-      iterations += 1;
     }
 
-    const terminal = await pollEntryEvent(eventId!, (e) => e.status === 'failed', 10000);
+    const terminal = await pollEntryEvent(eventId!, (e) => e.status === 'failed', 30000);
     expect(terminal.attempt_count).toBe(8);
     expect(terminal.completed_at).toBeTruthy();
-    expect(terminal.last_error).toMatch(/ambiguous|child ownership/);
+    // Pre-acceptance exhaustion retains the original provider rejection,
+    // not a generic ambiguous/ownership message.
+    expect(terminal.last_error).toMatch(/no cassette found/);
 
     const afterHealth = (await getServerInfo()).automationStatus.deliveryHealth.counts;
     expect(afterHealth.exhausted).toBeGreaterThanOrEqual((before.exhausted || 0) + 1);
 
-    // The card never advances. The lane run independently failed (via the
-    // child's own turn error) well before the entry event exhausted its
-    // retries — the run's failure and the outbox's exhaustion are separate
-    // mechanisms that both land on the same conclusion.
+    // The card never advances. Each failed attempt revives the run/root to
+    // 'open' for the retry; only the terminally exhausted attempt leaves the
+    // lane run 'failed' — the run's failure and the outbox's exhaustion land
+    // on the same conclusion together.
     const boardAfter = await getBoard(project.id);
     expect(findLaneOfSession(boardAfter, workspace.id)).toBe(source.name);
     const finalCard = findCardOfSession(boardAfter, workspace.id);
@@ -192,7 +210,7 @@ test.describe('Kanban lane-entry delivery outbox', () => {
     expect(finalChildren[0].id).toBe(child.id);
   });
 
-  test('an ambiguous dispatch never spawns a second worker across repeated retries', async ({ page }) => {
+  test('a pre-acceptance failure never spawns a second worker across repeated retries', async ({ page }) => {
     const board = await getBoard(project.id);
     const source = getLaneByName(board, 'To Do');
     const done = getLaneByName(board, 'Done');
@@ -223,9 +241,15 @@ test.describe('Kanban lane-entry delivery outbox', () => {
       )
       .toBeTruthy();
 
+    // Pre-acceptance: intent is reset, never left as 'dispatch_intent', so
+    // the event stays retryable (never parked as ambiguous/needs_attention).
     await pollEntryEvent(
       eventId!,
-      (e) => e.status === 'pending' && e.attempt_count >= 1 && e.delivery_phase === 'dispatch_intent',
+      (e) =>
+        e.status === 'pending' &&
+        e.attempt_count >= 1 &&
+        e.delivery_phase !== 'dispatch_intent' &&
+        /no cassette found/.test(e.last_error || ''),
       20000
     );
 
@@ -236,15 +260,26 @@ test.describe('Kanban lane-entry delivery outbox', () => {
     expect(childrenAfterAttempt1[0].status).toBe('error');
 
     // Force a few more retries (advance-driven, not waiting out real
-    // backoff) and re-assert no second worker ever appears.
+    // backoff) and re-assert no second worker ever appears and the event
+    // never parks as ambiguous. 'claimed' is transient (a drain in flight),
+    // so settle back to a stable state before asserting.
     for (let i = 0; i < 3; i += 1) {
       const before = getKanbanEntryEvent(eventId!);
       advanceKanbanEntryEvent(eventId!);
       await pollEntryEvent(
         eventId!,
-        (e) => e.attempt_count > before.attempt_count || e.status !== 'pending',
-        5000
+        (e) =>
+          e.attempt_count > before.attempt_count ||
+          (e.status !== 'pending' && e.status !== 'claimed'),
+        15000
       );
+      const mid = await pollEntryEvent(
+        eventId!,
+        (e) => e.status !== 'claimed',
+        15000
+      );
+      expect(mid.delivery_phase).not.toBe('dispatch_intent');
+      expect(mid.status).toBe('pending');
     }
 
     const childrenAfterRetries = (await getProjectSessions(project.id)).filter(

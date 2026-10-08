@@ -35,11 +35,14 @@ test.describe('Scheduled Session Prompt Location (#435)', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
 
-    // VERIFY 1: Prompt should be in the text input field
+    // VERIFY 1: Prompt should be in the text input field. Poll for the
+    // value: under parallel-worker load the overlay can render before the
+    // session payload populates the input, so a one-shot read is flaky.
     const textarea = page.locator('textarea');
     await expect(textarea).toBeVisible({ timeout: 5000 });
-    const textareaValue = await textarea.inputValue();
-    expect(textareaValue).toBe(testPrompt);
+    await expect
+      .poll(async () => textarea.inputValue(), { timeout: 15000 })
+      .toBe(testPrompt);
 
     // VERIFY 2: No user message should appear in the messages area
     // For scheduled sessions that haven't started, messages should be hidden

@@ -8,6 +8,8 @@ import {
   waitForChildSession,
   getProjectSessions,
   getSession,
+  getKanbanEntryEvent,
+  advanceKanbanEntryEvent,
 } from './helpers';
 import {
   VCR_PROMPT,
@@ -255,7 +257,10 @@ test.describe('Kanban structured lane runs', () => {
 
   // ----------------------------------------------------------------
   // 3. AC-8: a permanent error leaves a visible, inspectable failure; the
-  //    card never advances to the completion target.
+  //    card never advances to the completion target. Under provider-
+  //    acceptance delivery a pre-acceptance (VCR no-cassette) failure first
+  //    revives the run to 'open' for retry on the same child; only terminal
+  //    exhaustion (8 attempts) leaves the inspectable 'failed' run.
   // ----------------------------------------------------------------
   test('a permanent failure leaves the card in place with an inspectable failed run', async ({ page }) => {
     const board = await getBoard(project.id);
@@ -263,10 +268,11 @@ test.describe('Kanban structured lane runs', () => {
     const done = getLaneByName(board, 'Done');
 
     // No cassette is committed for UNRECORDED_PROMPT, so under the default
-    // VCR_MODE=replay the VCR adapter throws deterministically instead of
-    // ever contacting a live model (see VCRAgentAdapter.execute()). That
-    // error does not match any transient reschedule-trigger pattern, so it
-    // is a reliable, offline permanent-failure fixture.
+    // VCR_MODE=replay the VCR adapter throws deterministically pre-acceptance
+    // instead of ever contacting a live model (see VCRAgentAdapter.execute()).
+    // That error does not match any transient reschedule-trigger pattern, so
+    // it is a reliable, offline permanent-failure fixture — retried to
+    // exhaustion on the same child, then left as an inspectable failed run.
     await setLaneOnEnter(project.id, inProgress.id, {
       onEnterPrompt: UNRECORDED_PROMPT,
       completionTargetLaneId: done.id,
@@ -283,6 +289,72 @@ test.describe('Kanban structured lane runs', () => {
 
     const worker = await waitForChildSession(workspace.id, 15000);
     await waitForStatus(worker.id, 'error', 20000);
+
+    // Resolve the outbox event for this card's run.
+    let eventId: string | null = null;
+    await expect
+      .poll(
+        async () => {
+          const card = findCardOfSession(await getBoard(project.id), workspace.id);
+          eventId = card?.activeLaneRun?.laneEntryEventId ?? null;
+          return eventId;
+        },
+        { timeout: 15000 }
+      )
+      .toBeTruthy();
+
+    // Pre-acceptance: the event stays retryable with the intent reset and
+    // the original provider error retained (never 'dispatch_intent').
+    const deadline = Date.now() + 20000;
+    let seen: any = null;
+    while (Date.now() < deadline) {
+      seen = getKanbanEntryEvent(eventId!);
+      if (
+        seen &&
+        seen.attempt_count >= 1 &&
+        seen.delivery_phase !== 'dispatch_intent' &&
+        /no cassette found/.test(seen.last_error || '')
+      ) {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    expect(seen?.attempt_count).toBeGreaterThanOrEqual(1);
+
+    // Fast-forward the remaining backoff to terminal exhaustion (mirrors
+    // kanban-delivery-retry.spec.ts) instead of waiting out wall-clock delays.
+    // Drive until TERMINAL: 'claimed' is a transient in-flight state, not a
+    // reason to stop, and under full-suite load an attempt can take a while
+    // to be picked up — so bound the whole drive by a deadline, not by a
+    // fixed iteration count that a transient observation can burn through.
+    // (The 1s retry worker sweeps attempt_count >= 8 to 'failed'.)
+    test.setTimeout(240000);
+    let latest: any = getKanbanEntryEvent(eventId!);
+    const driveDeadline = Date.now() + 100000;
+    while (
+      Date.now() < driveDeadline &&
+      latest &&
+      (latest.status === 'pending' || latest.status === 'claimed') &&
+      latest.attempt_count < 8
+    ) {
+      const priorAttemptCount = latest.attempt_count;
+      advanceKanbanEntryEvent(eventId!);
+      const innerDeadline = Date.now() + 15000;
+      while (Date.now() < innerDeadline) {
+        latest = getKanbanEntryEvent(eventId!);
+        if (!latest || latest.attempt_count > priorAttemptCount || (latest.status !== 'pending' && latest.status !== 'claimed')) break;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    }
+    const terminalDeadline = Date.now() + 30000;
+    let terminal: any = latest;
+    while (Date.now() < terminalDeadline) {
+      terminal = getKanbanEntryEvent(eventId!);
+      if (!terminal || terminal.status === 'failed' || terminal.status === 'needs_attention') break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    expect(terminal?.status).toBe('failed');
+    expect(terminal?.attempt_count).toBe(8);
 
     const card = findCardOfSession(await getBoard(project.id), workspace.id);
     expect(card.laneId).toBe(inProgress.id); // never advanced
