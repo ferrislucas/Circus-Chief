@@ -126,6 +126,12 @@ test.describe('Circus Command Output Auto-Tail', () => {
     await page.locator('.output-text').dispatchEvent('scroll');
 
     await expect(page.locator('.status-running')).toBeHidden({ timeout: 15000 });
+    // The completion event and the final output chunks are separate messages,
+    // and a backpressure resync re-reads the stream over HTTP, so the tail can
+    // legitimately render just after the run is marked complete.
+    await expect
+      .poll(async () => latestLineMarker(page, '.output-text'), { timeout: 10000 })
+      .toBe(LINE_COUNT);
     await expect
       .poll(async () => distanceFromBottom(page, '.output-text'), { timeout: 5000 })
       .toBeLessThanOrEqual(OUTPUT_BOTTOM_TOLERANCE_PX);

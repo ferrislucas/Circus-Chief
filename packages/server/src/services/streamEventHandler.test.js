@@ -73,6 +73,7 @@ import * as diffService from './diffService.js';
 import * as gitService from './gitService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { abortForUserStop } from './sessionAbort.js';
+import { activeSessions } from './sessionExecutionOwnership.js';
 import {
   createWorkLog,
   associateAndBroadcastWorkLogs,
@@ -85,7 +86,6 @@ import {
   lastMessageIds,
   thinkingAccumulators,
   textAccumulators,
-  activeSessions,
   activeConversationIds,
   currentModels,
   loggedToolUseIds,
@@ -156,6 +156,80 @@ describe('streamEventHandler', () => {
 
       // 4th arg is now an options object; messageId should always be null
       expect(workLogs.create.mock.calls[0][3].messageId).toBeNull();
+    });
+  });
+
+  // ── secret scrubbing (finding #1) ────────────────────────────────────
+  // Tool outputs and tool inputs can echo secret values (tokens printed by
+  // `printenv`, `gh` errors, exported credentials). The handler is the
+  // single scrub point: it redacts session-env secret values before the
+  // content reaches work logs (and from there transcripts/canvas).
+
+  describe('secret scrubbing (finding #1)', () => {
+    const SENTINEL = 'sentinel-gh-token-abc123';
+
+    it('redacts secret values from tool_result work logs', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.create.mockReturnValue({ id: 'wl-1' });
+
+      await handleStreamEvent('sess-1', {
+        type: 'tool_result',
+        content: `gh push failed with token ${SENTINEL}`,
+        tool_name: 'Bash',
+      }, { env: { GH_TOKEN: SENTINEL } });
+
+      expect(workLogs.create).toHaveBeenCalled();
+      const logged = workLogs.create.mock.calls[0][2];
+      expect(logged).toContain('[REDACTED]');
+      expect(logged).not.toContain(SENTINEL);
+    });
+
+    it('redacts secret values from tool_input work logs', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.create.mockReturnValue({ id: 'wl-2' });
+
+      await handleStreamEvent('sess-1', {
+        type: 'assistant',
+        message: {
+          content: [{
+            type: 'tool_use', id: 'tu-1', name: 'Bash', input: { command: `export GH_TOKEN=${SENTINEL}` },
+          }],
+        },
+      }, { env: { GH_TOKEN: SENTINEL } });
+
+      const toolInputCall = workLogs.create.mock.calls.find((call) => call[1] === 'tool_input');
+      expect(toolInputCall).toBeDefined();
+      expect(toolInputCall[2]).toContain('[REDACTED]');
+      expect(toolInputCall[2]).not.toContain(SENTINEL);
+    });
+
+    // Finding #2(a): assistant prose can echo a secret (the model repeating
+    // a token it read via a tool). It must be scrubbed at the same choke
+    // point before it is persisted to the conversation AND before it is
+    // broadcast to the UI.
+    it('redacts secret values from persisted and broadcast assistant text (finding #2)', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      conversations.getActiveBySessionId.mockReturnValue(null);
+
+      await handleStreamEvent('sess-1', {
+        type: 'assistant',
+        message: {
+          content: [{ type: 'text', text: `The failing credential was ${SENTINEL}, please rotate it.` }],
+        },
+      }, { env: { GH_TOKEN: SENTINEL } });
+
+      expect(messages.create).toHaveBeenCalled();
+      const persisted = messages.create.mock.calls[0][2];
+      expect(persisted).toContain('[REDACTED]');
+      expect(persisted).not.toContain(SENTINEL);
+
+      const messageBroadcast = broadcastToSession.mock.calls.find(
+        ([, type]) => type === WS_MESSAGE_TYPES.SESSION_MESSAGE,
+      );
+      expect(messageBroadcast).toBeDefined();
+      const broadcastContent = messageBroadcast[2].message.content;
+      expect(broadcastContent).toContain('[REDACTED]');
+      expect(broadcastContent).not.toContain(SENTINEL);
     });
   });
 

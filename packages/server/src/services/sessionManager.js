@@ -24,11 +24,17 @@ import {
 import { getApiBaseUrl } from './apiBaseUrl.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForBranch, buildConversationContextForContinuation } from './conversationContext.js';
 import {
-  activeSessions,
   activeConversationIds,
   cleanupSessionState,
   broadcastSessionStatus,
 } from './streamEventHandler.js';
+import {
+  activeSessions,
+  claimSessionExecution,
+  createExecutionConflictError,
+  getSessionExecutionConflict,
+  markSessionStopping,
+} from './sessionExecutionOwnership.js';
 import { cancelPrompt } from './promptStore.js';
 import { clearPendingWakeup } from './scheduleWakeupBridge.js';
 import { abortForUserStop } from './sessionAbort.js';
@@ -169,11 +175,24 @@ export async function handleAutoSendIfNeeded(sessionId) {
  * @param {string} workingDirectory
  * @param {{ systemPrompt?: string|null, fileAttachments?: Array, model?: string|null }} options - Optional parameters
  */
+/**
+ * Callbacks shared by every execution entry point. `onUserStopSettled` fires
+ * only after a user-stopped provider generator has settled, so summary
+ * generation can never race output still arriving from the aborted provider.
+ */
+function executionCallbacks() {
+  return {
+    handleTemplateTriggerIfNeeded,
+    handleAutoSendIfNeeded,
+    onUserStopSettled: (settledSessionId) => summaryService.onSessionComplete(settledSessionId),
+  };
+}
+
 export async function runSession(sessionId, prompt, workingDirectory, options = {}) {
   // Delegate to sessionExecution.js, passing callbacks to avoid circular imports
   return runSessionCore(sessionId, prompt, workingDirectory, {
     options,
-    callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
+    callbacks: executionCallbacks(),
   });
 }
 
@@ -188,7 +207,7 @@ export async function continueSession(sessionId, content, workingDirectory, opti
   // Delegate to sessionExecution.js, passing callbacks to avoid circular imports
   return continueSessionCore(sessionId, content, workingDirectory, {
     options,
-    callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
+    callbacks: executionCallbacks(),
   });
 }
 
@@ -210,8 +229,9 @@ export function isSessionActive(sessionId) {
  * @returns {{ session: Object, conversation: Object, lastUserMessage: Object }}
  */
 function validateAndFetchContinueContext(sessionId, conversationId) {
-  if (activeSessions.has(sessionId)) {
-    throw new Error('Session is already processing');
+  const conflict = getSessionExecutionConflict(sessionId);
+  if (conflict) {
+    throw createExecutionConflictError(sessionId, conflict.phase);
   }
   const session = sessions.getById(sessionId);
   if (!session) {
@@ -322,54 +342,71 @@ function buildExistingMessageQueryParams({
   return { queryParams, agentCallMeta };
 }
 
+/**
+ * Claim ownership and prepare a branch-continuation turn (the user message
+ * already exists). Releases the claim if setup fails before _executeSession
+ * takes over, so a setup failure can never wedge the session.
+ * @returns {{ session: Object, queryParams: Object, agentCallMeta: Object, agent: Object }}
+ */
+function prepareBranchContinueTurn({ session, sessionId, conversationId, conversation, lastUserMessage, workingDirectory, options, controller }) {
+  const { systemPrompt = null, model = null } = options;
+  claimSessionExecution(sessionId, controller);
+  try {
+    // Make sure this conversation is active
+    if (!conversation.isActive) {
+      conversations.update(conversationId, { isActive: true });
+    }
+    activeConversationIds.set(sessionId, conversationId);
+
+    // Update status to running
+    sessions.update(sessionId, { status: 'running' });
+    broadcastSessionStatus(sessionId, 'running');
+
+    // Create agent via gateway (or mock agent in mock mode)
+    const agentType = session.agentType || 'claude-code';
+    const agent = createAgentForSession(agentType);
+
+    // Resolve model/provider and detect model changes
+    const modelEnv = buildModelAndProvider(session, sessionId, model);
+    const updatedSession = modelEnv.session;
+
+    // Build query params and agent call meta
+    const { queryParams, agentCallMeta } = buildExistingMessageQueryParams({
+      sessionId, conversationId, session: updatedSession, model, systemPrompt,
+      effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
+      modelChanged: modelEnv.modelChanged, conversation,
+      lastUserMessage, workingDirectory, controller, agentType, agent,
+    });
+    return { session: updatedSession, queryParams, agentCallMeta, agent };
+  } catch (error) {
+    cleanupSessionState(sessionId, true, controller);
+    throw error;
+  }
+}
+
 export async function continueSessionWithExistingMessage(sessionId, conversationId, workingDirectory, options = {}) {
-  const { systemPrompt = null, model = null, interactive = false } = options;
+  const { interactive = false } = options;
   const context = validateAndFetchContinueContext(sessionId, conversationId);
-  let session = context.session;
-  const { conversation, lastUserMessage } = context;
+  const { session, conversation, lastUserMessage } = context;
 
   if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
 
   const controller = new AbortController();
-  const startedAt = Date.now();
-  activeSessions.set(sessionId, { controller, turnStartedAt: startedAt, lastEventAt: startedAt });
-
-  // Make sure this conversation is active
-  if (!conversation.isActive) {
-    conversations.update(conversationId, { isActive: true });
-  }
-  activeConversationIds.set(sessionId, conversationId);
-
-  // Update status to running
-  sessions.update(sessionId, { status: 'running' });
-  broadcastSessionStatus(sessionId, 'running');
-
-  // Create agent via gateway (or mock agent in mock mode)
-  const agentType = session.agentType || 'claude-code';
-  const agent = createAgentForSession(agentType);
-
-  // Resolve model/provider and detect model changes
-  const modelEnv = buildModelAndProvider(session, sessionId, model);
-  session = modelEnv.session;
-
-  // Build query params and agent call meta
-  const { queryParams, agentCallMeta } = buildExistingMessageQueryParams({
-    sessionId, conversationId, session, model, systemPrompt,
-    effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
-    modelChanged: modelEnv.modelChanged, conversation,
-    lastUserMessage, workingDirectory, controller, agentType, agent,
+  const prepared = prepareBranchContinueTurn({
+    session, sessionId, conversationId, conversation, lastUserMessage,
+    workingDirectory, options, controller,
   });
 
   const execution = await _executeSession({
     sessionId,
-    agent,
-    queryParams,
-    agentCallMeta,
+    agent: prepared.agent,
+    queryParams: prepared.queryParams,
+    agentCallMeta: prepared.agentCallMeta,
     controller,
     workingDirectory,
-    callbacks: { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded },
+    callbacks: executionCallbacks(),
     interactive,
     errorLabel: 'Continue session with existing message error',
   });
@@ -383,12 +420,21 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
 export async function stopSession(sessionId) {
   cancelPrompt(sessionId);
   const sessionData = activeSessions.get(sessionId);
+  // A live execution owns the session until its own finalizer releases it —
+  // even across a user Stop. The entry is marked `stopping` (never deleted
+  // here) so a Continue issued while the provider is still shutting down is
+  // rejected instead of starting a second provider execution against the same
+  // native session.
+  const hadActiveExecution = Boolean(sessionData);
 
   if (sessionData) {
     // Session is actively processing - abort it
     abortForUserStop(sessionData.controller);
     clearPendingWakeup(sessionId, sessionData.controller);
-    activeSessions.delete(sessionId);
+    markSessionStopping(sessionId, sessionData.controller);
+    console.warn(
+      `[sessionManager] stop requested for session ${sessionId}; provider shutdown pending (phase=stopping)`
+    );
   }
   // If not in activeSessions, session may have crashed or be waiting
   // Either way, we can still update the status to stopped
@@ -409,8 +455,14 @@ export async function stopSession(sessionId) {
   // cancelling it. Non-participating and already-closed sessions are no-ops.
   pauseForUserStop(sessionId);
 
-  // Trigger summary generation on stop (session is truly complete now)
-  summaryService.onSessionComplete(sessionId);
+  if (!hadActiveExecution) {
+    // No provider turn is unwinding, so the session is truly complete now.
+    summaryService.onSessionComplete(sessionId);
+  }
+  // Otherwise summary generation is deferred to the user-stop settlement path
+  // in _executeSession, which fires only after the provider generator has
+  // settled — summaries must never race output still arriving from the
+  // aborted provider.
 }
 
 /**
@@ -425,6 +477,17 @@ export function restartSession(sessionId) {
 
 /**
  * Clean up an active session before deletion
+ *
+ * Unlike stopSession(), this path also deletes the session row immediately
+ * after, so no replacement turn can ever be admitted — admission requires
+ * the row to exist. The entry is therefore dropped (rather than marked
+ * `stopping`) so the still-unwinding provider turn cannot write work
+ * logs/messages against the deleted row; its late events are discarded by
+ * the missing-entry guard in handleStreamEvent, and its finalizer becomes a
+ * harmless no-op. A bounded asynchronous deletion (await a termination grace
+ * period, then answer 409/202 while shutdown is pending) remains follow-up
+ * work; it needs an async delete route the current sync call chain cannot
+ * provide.
  * @param {string} sessionId
  * @returns {boolean} true if session was active and cleaned up
  */

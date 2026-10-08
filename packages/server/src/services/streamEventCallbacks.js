@@ -4,9 +4,9 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import { createVisibleFinalErrorMessage } from './visibleFinalErrorMessage.js';
 import { turnEndedDueToLimitOrOutage } from './sessionErrors.js';
+import { activeSessions } from './sessionExecutionOwnership.js';
 import {
   lastMessageIds,
-  activeSessions,
   activeConversationIds,
   finalErrorSessionIds,
   associateAndBroadcastWorkLogs,

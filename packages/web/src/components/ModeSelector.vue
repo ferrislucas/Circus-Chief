@@ -30,6 +30,7 @@
 
 <script setup>
 import { ref, computed, watch, toRef } from 'vue';
+import { museSessionModeCopy } from '@circuschief/shared';
 import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
 
@@ -46,6 +47,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  agentType: {
+    type: String,
+    default: null,
+  },
 });
 
 const emit = defineEmits(['update:modelValue']);
@@ -54,11 +59,25 @@ const sessionsStore = useInjectedSessionsStore();
 const uiStore = useUiStore();
 const togglingMode = ref(false);
 
-const modes = [
+const DEFAULT_MODES = [
   { value: 'plan', label: 'Plan', description: 'Plans first; tool approvals are requested as needed' },
   { value: 'standard', label: 'Standard', description: 'Requests approval for each gated tool' },
   { value: 'yolo', label: 'YOLO', description: 'Automatically approves tool use' },
 ];
+
+// Muse runs on the headless `muse exec` transport: gated modes enforce
+// approvals via CLI flags and denied tools fail the run — nothing ever
+// prompts the user, and only yolo auto-approves. The copy shares the
+// server's policy table via museSessionModeCopy so the UI wording cannot
+// drift from the enforced posture.
+const effectiveAgentType = computed(() => (
+  props.agentType ?? sessionsStore.currentSession?.agentType ?? null
+));
+
+const modes = computed(() => {
+  if (effectiveAgentType.value !== 'muse') return DEFAULT_MODES;
+  return ['plan', 'standard', 'yolo'].map((value) => ({ value, ...museSessionModeCopy(value) }));
+});
 
 // Use store state when sessionId provided, otherwise use modelValue prop
 const currentMode = computed(() => {
@@ -76,7 +95,7 @@ const isNativePlanning = computed(() => Boolean(props.sessionId)
 
 // Local state for optimistic UI updates - provides immediate visual feedback
 const selectedMode = ref(currentMode.value);
-const currentModeDescription = computed(() => modes.find((mode) => mode.value === selectedMode.value)?.description || '');
+const currentModeDescription = computed(() => modes.value.find((mode) => mode.value === selectedMode.value)?.description || '');
 
 // Watch for external changes to keep local selection in sync
 // Create a ref from the modelValue prop for reliable reactivity tracking

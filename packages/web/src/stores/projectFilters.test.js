@@ -17,6 +17,30 @@ describe('ProjectFilters Store', () => {
     it('has a null status filter by default', () => {
       const store = useProjectFiltersStore();
       expect(store.statusFilter).toBeNull();
+      expect(store.pinnedOnly).toBe(false);
+    });
+  });
+
+  describe('pinnedOnly (localStorage)', () => {
+    it('persists independently from the status filter', () => {
+      const store = useProjectFiltersStore();
+      store.setStatusFilter('running');
+      store.setPinnedOnly(true);
+
+      expect(store.pinnedOnly).toBe(true);
+      expect(localStorage.getItem('projectPinnedOnly')).toBe('true');
+      expect(localStorage.getItem('projectStatusFilter')).toBe('running');
+    });
+
+    it('restores only the explicit true value and safely falls back to false', () => {
+      localStorage.setItem('projectPinnedOnly', 'true');
+      const store = useProjectFiltersStore();
+      store.restorePinnedOnly();
+      expect(store.pinnedOnly).toBe(true);
+
+      localStorage.setItem('projectPinnedOnly', 'bogus');
+      store.restorePinnedOnly();
+      expect(store.pinnedOnly).toBe(false);
     });
   });
 

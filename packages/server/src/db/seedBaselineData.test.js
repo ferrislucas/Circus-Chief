@@ -8,6 +8,7 @@ import {
   BUILT_IN_OPENAI_MODELS,
   BUILT_IN_OPENAI_PROVIDER,
   BUILT_IN_GOOGLE_MODELS,
+  BUILT_IN_META_MODELS,
   seedBaselineData,
 } from './seedBaselineData.js';
 import { DEFAULT_SESSION_TEMPLATES } from './defaultSessionTemplates.js';
@@ -168,9 +169,9 @@ describe('seedBaselineData', () => {
   it('does not duplicate providers or models when seedBaselineData is rerun', () => {
     withDb((db) => {
       seedBaselineData(db);
-      expect(db.prepare('SELECT COUNT(*) AS cnt FROM providers').get().cnt).toBe(3);
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM providers').get().cnt).toBe(4);
       expect(db.prepare('SELECT COUNT(*) AS cnt FROM provider_models').get().cnt)
-        .toBe(BUILT_IN_ANTHROPIC_MODELS.length + BUILT_IN_OPENAI_MODELS.length + BUILT_IN_GOOGLE_MODELS.length);
+        .toBe(BUILT_IN_ANTHROPIC_MODELS.length + BUILT_IN_OPENAI_MODELS.length + BUILT_IN_GOOGLE_MODELS.length + BUILT_IN_META_MODELS.length);
     });
   });
 

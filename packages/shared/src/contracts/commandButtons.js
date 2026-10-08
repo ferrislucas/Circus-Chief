@@ -48,3 +48,15 @@ export const CommandRunResponse = z.object({
   exitCode: z.number().int().nullable(),
   output: z.string().optional(),
 });
+
+export const CommandRunOutputResourceResponse = z.object({
+  runId: z.string(),
+  status: z.enum(['running', 'success', 'error', 'killed']),
+  contentType: z.literal('text/plain; charset=utf-8'),
+  byteLength: z.number().int().nonnegative(),
+  complete: z.boolean(),
+  updatedAt: z.number().int().nonnegative(),
+  path: z.string().min(1).refine((value) => !value.startsWith('/') && !value.startsWith('\\') && !/^[A-Za-z]:[\\/]/.test(value), {
+    message: 'Path must be workspace-relative',
+  }),
+}).strict();

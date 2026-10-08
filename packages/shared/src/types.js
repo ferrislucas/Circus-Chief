@@ -182,6 +182,16 @@ export const DEFAULT_MODEL = 'claude-opus-5';
 
 export const OPENAI_MODELS = [
   {
+    id: 'gpt-6-astra',
+    name: 'GPT-6 Astra',
+    description: 'Next-generation frontier model',
+    seedId: 'openai-gpt-6-astra',
+    lifecycle: 'current',
+    defaultEnabled: true,
+    evidence: CATALOG_EVIDENCE,
+    reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
     id: 'gpt-5.6-sol',
     name: 'GPT-5.6 Sol',
     description: 'Frontier model for complex professional work',
@@ -254,10 +264,10 @@ export const OPENAI_MODELS = [
 ];
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
 
-// This is deliberately separate from OPENAI_MODELS. The latter is the catalog
-// of models available to direct OpenAI-compatible providers; summaries run via
-// the Codex CLI and must only offer model IDs that its non-interactive runner
-// supports. Keep this list in sync with Codex CLI model support.
+// This is deliberately separate from OPENAI_MODELS. Catalog availability does
+// not imply Codex summary-runner compatibility: summaries run via the Codex
+// CLI and must only offer model IDs its non-interactive runner supports. Keep
+// this list in sync with that runner's supported model IDs.
 export const CODEX_SUMMARY_MODELS = [
   'gpt-5.6-sol',
   'gpt-5.6-terra',
@@ -265,6 +275,16 @@ export const CODEX_SUMMARY_MODELS = [
   'gpt-5.4',
   'gpt-5.4-mini',
   'gpt-5.3-codex',
+];
+
+// Deliberately separate from MUSE_MODELS, mirroring CODEX_SUMMARY_MODELS.
+// Catalog availability does not imply summary-runner compatibility:
+// summaries run via `muse exec --output-schema` and must only offer model
+// IDs that headless non-interactive run supports. Keep this list in sync
+// with that runner's supported model IDs.
+export const MUSE_SUMMARY_MODELS = [
+  'muse-spark-1.3',
+  'muse-spark-1.3-contributor',
 ];
 
 export const GEMINI_MODELS = [
@@ -282,6 +302,18 @@ export const GEMINI_MODELS = [
   },
 ];
 export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+
+export const MUSE_MODELS = [
+  {
+    id: 'muse-spark-1.3', name: 'Muse Spark 1.3', description: 'Capable Muse Spark model', seedId: 'meta-muse-spark-1-3',
+    lifecycle: 'current', defaultEnabled: true, evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+  {
+    id: 'muse-spark-1.3-contributor', name: 'Muse Spark 1.3 Contributor', description: 'Most capable Muse Spark model', seedId: 'meta-muse-spark-1-3-contributor',
+    lifecycle: 'current', defaultEnabled: true, evidence: CATALOG_EVIDENCE, reviewedDate: CATALOG_REVIEWED_DATE,
+  },
+];
+export const DEFAULT_MUSE_MODEL = 'muse-spark-1.3';
 
 /**
  * @typedef {Object} KanbanBoard

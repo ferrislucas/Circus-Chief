@@ -170,6 +170,27 @@ describe('useOutputAutoTail', () => {
     expect(el.scrollTop).toBe(50000);
   });
 
+  it('a scroll-away before an already-scheduled frame runs keeps the pane paused', async () => {
+    const el = createFakeElement({ scrollHeight: 1000, scrollTop: 700, clientHeight: 300 });
+    const elRef = ref(el);
+    const { api } = mountComposable(elRef);
+
+    // Output arrives while tailing, so a scroll-to-bottom frame is queued.
+    api().handleRenderedOutput();
+    await nextTick();
+    expect(rafQueue.length).toBe(1);
+
+    // The user scrolls to the top before that frame gets a chance to run.
+    el.scrollTop = 0;
+    api().handleScroll();
+    expect(api().isTailing.value).toBe(false);
+
+    flushFrames();
+
+    expect(el.scrollTop).toBe(0);
+    expect(api().isTailing.value).toBe(false);
+  });
+
   it('repeated notifications before the frame runs coalesce to one frame', async () => {
     const el = createFakeElement({ scrollHeight: 1000, scrollTop: 700, clientHeight: 300 });
     const elRef = ref(el);
@@ -238,6 +259,40 @@ describe('useOutputAutoTail', () => {
     flushFrames();
 
     expect(api().isTailing.value).toBe(true); // only because resetTail set it, not the scroll itself
+  });
+
+  it('a scroll event from our own scroll-to-bottom does not pause a growing pane', async () => {
+    const el = createFakeElement({ scrollHeight: 1000, scrollTop: 700, clientHeight: 300 });
+    const elRef = ref(el);
+    const { api } = mountComposable(elRef);
+
+    api().handleRenderedOutput();
+    await nextTick();
+    flushFrames();
+    expect(el.scrollTop).toBe(1000);
+
+    // More output lands before the browser delivers the scroll event for the
+    // write above, so the pane now measures far from the bottom even though
+    // the user never touched it.
+    el.scrollHeight = 5000;
+    api().handleScroll();
+
+    expect(api().isTailing.value).toBe(true);
+  });
+
+  it('still pauses when the user scrolls up after a programmatic scroll', async () => {
+    const el = createFakeElement({ scrollHeight: 1000, scrollTop: 700, clientHeight: 300 });
+    const elRef = ref(el);
+    const { api } = mountComposable(elRef);
+
+    api().handleRenderedOutput();
+    await nextTick();
+    flushFrames();
+
+    el.scrollTop = 0;
+    api().handleScroll();
+
+    expect(api().isTailing.value).toBe(false);
   });
 
   it('disposal cancels pending frame work and a late frame cannot mutate the element', async () => {

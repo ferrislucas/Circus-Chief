@@ -1,8 +1,34 @@
 import { describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
+import { readFileSync } from 'node:fs';
 import { allMigrations } from './index.js';
 import { kanbanMigrations } from './kanbanMigrations.js';
+import { projectsMigrations } from './projectsMigrations.js';
 
 describe('migration registration', () => {
+  it('registers every declared project migration for upgraded databases', () => {
+    const registeredNames = new Set(allMigrations.map(({ name }) => name));
+
+    expect(projectsMigrations.map(({ name }) => name).every((name) => registeredNames.has(name))).toBe(true);
+  });
+
+  it('adds the pinned column when upgrading a database created before project pinning', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(readFileSync(new URL('../../schema.sql', import.meta.url), 'utf-8'));
+      db.exec('ALTER TABLE projects DROP COLUMN pinned');
+
+      for (const migration of allMigrations) migration.up(db);
+      for (const migration of allMigrations) migration.up(db);
+
+      const pinned = db.prepare("PRAGMA table_info('projects')").all()
+        .find((column) => column.name === 'pinned');
+      expect(pinned).toMatchObject({ notnull: 1, dflt_value: '0' });
+    } finally {
+      db.close();
+    }
+  });
+
   it('registers the lane-run workflow before the sessions recreation that preserves it', () => {
     const names = allMigrations.map(({ name }) => name);
     const workflowIndex = names.indexOf('kanban-add-lane-run-workflow');

@@ -13,6 +13,7 @@ function normalizeProject(project) {
     runningWorkspaces: project.runningWorkspaces ?? [],
     runningSessionCount: project.runningSessionCount ?? 0,
     waitingSessionCount: project.waitingSessionCount ?? 0,
+    pinned: project.pinned ?? false,
   };
 }
 
@@ -22,6 +23,7 @@ export const useProjectsStore = defineStore('projects', {
     currentProject: null,
     loading: false,
     error: null,
+    pendingPinIds: [],
   }),
 
   getters: {
@@ -47,19 +49,15 @@ export const useProjectsStore = defineStore('projects', {
       return { running, waiting, idle };
     },
 
+    pinnedFacet: (state) => state.projects.filter((project) => project.pinned).length,
+
+    isPinPending: (state) => (id) => state.pendingPinIds.includes(id),
+
     /** Projects visible under the current status filter from `projectFilters`. */
     filteredProjects() {
-      const filter = useProjectFiltersStore().statusFilter;
-      if (filter === 'running') {
-        return this.projects.filter((p) => p.runningSessionCount > 0);
-      }
-      if (filter === 'waiting') {
-        return this.projects.filter((p) => p.waitingSessionCount > 0);
-      }
-      if (filter === 'idle') {
-        return this.projects.filter((p) => p.runningSessionCount === 0 && p.waitingSessionCount === 0);
-      }
-      return this.projects;
+      const filters = useProjectFiltersStore();
+      if (filters.pinnedOnly) return this.projects.filter((project) => project.pinned);
+      return this.projects.filter((project) => project.pinned || matchesStatus(project, filters.statusFilter));
     },
   },
 
@@ -138,6 +136,37 @@ export const useProjectsStore = defineStore('projects', {
       }
     },
 
+    async toggleProjectPin(id) {
+      if (this.pendingPinIds.includes(id)) return;
+      const project = this.projects.find((entry) => entry.id === id);
+      if (!project) return;
+
+      const previousPinned = project.pinned;
+      const nextPinned = !previousPinned;
+      this.pendingPinIds.push(id);
+      this.projects = patchProjectPin(this.projects, id, nextPinned);
+      this.currentProject = patchCurrentProjectPin(this.currentProject, id, nextPinned);
+
+      try {
+        const updated = await api.updateProject(id, { pinned: nextPinned });
+        // A mutation response is a base project record, whereas the list is an
+        // aggregated read model. Replacing it would discard fresh activity and
+        // navigation data, so only reconcile the server-authoritative pin state.
+        this.projects = patchProjectPin(this.projects, id, updated.pinned);
+        this.currentProject = patchCurrentProjectPin(this.currentProject, id, updated.pinned);
+        return updated;
+      } catch (err) {
+        // Refreshes can replace or reorder the list while the request is in
+        // flight. Restore just the optimistic field on the project that still
+        // has this ID; never revive a stale whole-project snapshot.
+        this.projects = patchProjectPin(this.projects, id, previousPinned);
+        this.currentProject = patchCurrentProjectPin(this.currentProject, id, previousPinned);
+        throw err;
+      } finally {
+        this.pendingPinIds = this.pendingPinIds.filter((pendingId) => pendingId !== id);
+      }
+    },
+
     async deleteProject(id) {
       this.loading = true;
       this.error = null;
@@ -156,3 +185,20 @@ export const useProjectsStore = defineStore('projects', {
     },
   },
 });
+
+function matchesStatus(project, status) {
+  if (!status) return true;
+  if (status === 'running') return project.runningSessionCount > 0;
+  if (status === 'waiting') return project.waitingSessionCount > 0;
+  return project.runningSessionCount === 0 && project.waitingSessionCount === 0;
+}
+
+function patchProjectPin(projects, id, pinned) {
+  return projects.map((project) => (
+    project.id === id ? { ...project, pinned } : project
+  ));
+}
+
+function patchCurrentProjectPin(project, id, pinned) {
+  return project?.id === id ? { ...project, pinned } : project;
+}

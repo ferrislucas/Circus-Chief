@@ -77,6 +77,10 @@ temp/
 # Session attachments (temporary artifacts)
 .attachments/
 
+# Generated Circus command-run output and state. Keep other .circus
+# configuration trackable.
+.circus/runs/
+
 # Legacy coverage lock directories. scripts/with-coverage-lock.mjs now keeps its
 # locks in the OS temp dir so they are shared across worktrees, but older
 # checkouts and branches can still create this one locally.

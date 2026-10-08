@@ -97,6 +97,7 @@ yarn workspace @circuschief/web test         # Web tests only
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `5000` | Server port |
+| `CIRCUSCHIEF_HOST` | *(set internally)* | Effective server bind address, published by the entry point from the `--host` flag or the `127.0.0.1` default. No host env var is read: ambient `HOST` values exported by some shells and CI images can never move the server |
 | `NODE_ENV` | `development` | Environment mode |
 | `DB_PATH` | `~/.circuschief/circuschief.db` | SQLite database path. `./scripts/pw.sh test`/`debug` overrides this to a worktree-local `$PROJECT_ROOT/.circuschief-test.db` so E2E tests never touch the real user DB; `pw.sh test-package` lets `start-package-server.sh` pick a per-run mktemp path instead. See [E2E testing — DB isolation](./e2e-testing.md#db-isolation-and-server-info). |
 | `VCR_MODE` | *(unset)* | When set (e.g. `replay`, `record`, `auto`), disables the scheduler service at server boot so E2E test servers never pick up real scheduled sessions. See [E2E testing — VCR modes](./e2e-testing.md#vcr-modes). |
@@ -170,7 +171,7 @@ The CLI path also passes configured reasoning effort and commit attribution to C
 | Thinking | ❌ |
 | Resume | ❌ |
 
-Supported OpenAI models: GPT-5.6 Sol (default), GPT-5.6 Terra, GPT-5.6 Luna, GPT-5.4, GPT-5.4 mini, GPT-5.3-Codex. GPT-5.5 has been retired from the built-in model picker; existing sessions that already store `gpt-5.5` continue to run with it.
+Supported OpenAI models: GPT-6 Astra, GPT-5.6 Sol (the default), GPT-5.6 Terra, GPT-5.6 Luna, GPT-5.4, GPT-5.4 mini, and GPT-5.3-Codex. GPT-6 Astra and the GPT-5.6 family are available for new selections; older GPT-5.x models remain available for existing sessions and are hidden from new selections by default.
 
 ### Gemini Agent Details
 

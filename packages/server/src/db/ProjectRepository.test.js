@@ -400,6 +400,13 @@ describe('ProjectRepository', () => {
       expect(updated.workingDirectory).toBe('/tmp/new');
     });
 
+    it('persists the pinned preference as a boolean', () => {
+      const project = repo.create('Test', '/tmp/test');
+
+      expect(repo.update(project.id, { pinned: true }).pinned).toBe(true);
+      expect(repo.update(project.id, { pinned: false }).pinned).toBe(false);
+    });
+
     it('updates updatedAt timestamp', () => {
       const project = repo.create('Test', '/tmp/test');
       const originalUpdatedAt = project.updatedAt;

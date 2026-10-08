@@ -59,6 +59,16 @@ describe('Projects Contracts', () => {
       expect(valid.data.systemPrompt).toBeNull();
     });
 
+    it('rejects caller-controlled pinned state', () => {
+      const result = CreateProjectRequest.safeParse({
+        name: 'Test Project',
+        workingDirectory: '/tmp/test',
+        pinned: true,
+      });
+
+      expect(result.success).toBe(false);
+    });
+
   });
 
   describe('UpdateProjectRequest', () => {
@@ -85,6 +95,14 @@ describe('Projects Contracts', () => {
       expect(invalid.success).toBe(false);
     });
 
+    it('accepts a boolean pinned preference and rejects non-booleans', () => {
+      expect(UpdateProjectRequest.safeParse({ pinned: true })).toMatchObject({
+        success: true,
+        data: { pinned: true },
+      });
+      expect(UpdateProjectRequest.safeParse({ pinned: 1 }).success).toBe(false);
+    });
+
   });
 
   describe('ProjectResponse', () => {
@@ -97,6 +115,7 @@ describe('Projects Contracts', () => {
       onSessionDeleted: null,
       prPollInterval: 60000,
       worktreePath: null,
+      pinned: false,
       workspaceCount: 0,
       runningWorkspaces: [],
       runningSessionCount: 0,
@@ -108,6 +127,12 @@ describe('Projects Contracts', () => {
     it('validates complete project response', () => {
       const result = ProjectResponse.safeParse(validProject);
       expect(result.success).toBe(true);
+    });
+
+    it('requires pinned to be a boolean', () => {
+      const { pinned: _pinned, ...withoutPinned } = validProject;
+      expect(ProjectResponse.safeParse(withoutPinned).success).toBe(false);
+      expect(ProjectResponse.safeParse({ ...validProject, pinned: 1 }).success).toBe(false);
     });
 
     it('validates project with worktreePath as string', () => {

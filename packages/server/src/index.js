@@ -4,8 +4,11 @@ import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { createApp } from './app.js';
 import { initDatabase, commandRuns, sessions } from './database.js';
+import { processCommandRunOutputCleanup } from './services/commandRunOutputCleanup.js';
 import { initWebSocket, webSocketManager, setCommandRunOutputAuthorizer } from './websocket.js';
 import { parseCliOptions } from './cli.js';
+import { startServer, prepareBindFailureHandler } from './startup.js';
+import { DEFAULT_SERVER_HOST } from '@circuschief/shared';
 import { settings } from './db/index.js';
 import * as prStatusService from './services/prStatusService.js';
 import * as systemMonitor from './services/systemMonitor.js';
@@ -18,6 +21,7 @@ import { recoverOrphanedStartingSessions, recoverOrphanedRunningSessions, clearS
 import { startLaneEntryRetryWorker, stopLaneEntryRetryWorker } from './services/kanbanService.js';
 import { formatKanbanInvariantReport } from './services/kanbanRecoveryService.js';
 import { runStartupPreflight } from './services/startupPreflight.js';
+import { getLoginShellEnv } from './services/loginShellEnv.js';
 import { setAutomationPreflightStatus } from './services/automationStatusService.js';
 import { startKanbanOperationRetention, stopKanbanOperationRetention } from './services/kanbanOperationRetention.js';
 import { startStreamWatchdog, stopStreamWatchdog } from './services/streamWatchdog.js';
@@ -39,8 +43,13 @@ function validateNodeEnvironment() {
   }
 }
 
-const { port, disableAnalytics } = parseCliOptions();
+const { port, host, disableAnalytics } = parseCliOptions();
 process.env.PORT = String(port);
+// Publish the effective bind address (--host flag or loopback default) so
+// downstream consumers like getApiBaseUrl() construct agent-reachable URLs.
+// This is set here from the parsed CLI options; it is never read from the
+// user environment (host env vars are not supported).
+process.env.CIRCUSCHIEF_HOST = host;
 const production = process.env.NODE_ENV === 'production';
 const dbPath = process.env.DB_PATH || getDefaultDbPath();
 
@@ -60,6 +69,10 @@ mkdirSync(dirname(dbPath), { recursive: true });
 
 // Initialize database
 initDatabase(dbPath);
+processCommandRunOutputCleanup().catch((error) => console.error('[Command output cleanup] startup pass failed', error));
+setInterval(() => {
+  processCommandRunOutputCleanup().catch((error) => console.error('[Command output cleanup] periodic pass failed', error));
+}, 30_000).unref();
 setCommandRunOutputAuthorizer((runId, requestedSessionId) => {
   const run = commandRuns.getById(runId);
   const rootSessionId = sessions.getRootSessionId(requestedSessionId);
@@ -111,6 +124,13 @@ const app = createApp({ production });
 
 // Create HTTP server
 const server = createServer(app);
+
+// Install the listen-phase bind-failure handler BEFORE the WebSocket layer
+// attaches. `ws` forwards the HTTP server's 'error' event onto itself, and a
+// bind failure re-emitted there has no listener — an Unhandled 'error' crash
+// that beats our handler to process.exit. Registered first, failBind runs
+// first and exits cleanly with a diagnosis.
+const { onListenFailure } = prepareBindFailureHandler(server, { port, host });
 
 // Initialize WebSocket for app
 initWebSocket(server);
@@ -167,8 +187,14 @@ async function shutdown(signal) {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-// Start server on all interfaces
-server.listen(port, '0.0.0.0', () => {
-  console.log(`Circus Chief running on http://localhost:${port}`);
-  console.log(`WebSocket available at ws://localhost:${port}/ws`);
+// Warm the login-shell env probe once at startup so the first Muse turn
+// doesn't pay the ~2s shell-spawn cost. Failures fall back to the server
+// snapshot env (FR-13) and are logged by the probe itself.
+getLoginShellEnv();
+
+startServer(server, {
+  port,
+  host,
+  isDefaultHost: host === DEFAULT_SERVER_HOST,
+  onListenFailure,
 });

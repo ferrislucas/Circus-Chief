@@ -131,6 +131,7 @@ function isValidModelId(modelId) {
 function agentTypeFor(provider) {
   if (provider?.kind === 'openai') return 'codex';
   if (provider?.kind === 'google') return 'gemini';
+  if (provider?.kind === 'meta') return 'muse';
   return 'claude-code';
 }
 
@@ -139,14 +140,15 @@ function agentLabelFor(provider) {
   const type = agentTypeFor(provider);
   if (type === 'codex') return 'Codex';
   if (type === 'gemini') return 'Gemini';
+  if (type === 'muse') return 'Muse';
   return 'Claude Code';
 }
 
 // Sort providers by:
-//   1) Agent type: Claude Code first, then Gemini, then Codex
+//   1) Agent type: Claude Code first, then Gemini, then Muse, then Codex
 //   2) Built-in before custom within the same agent
 //   3) Alphabetical by name among custom providers
-const AGENT_SORT_ORDER = { 'claude-code': 0, 'gemini': 1, 'codex': 2 };
+const AGENT_SORT_ORDER = { 'claude-code': 0, 'gemini': 1, 'muse': 2, 'codex': 3 };
 const sortedProviders = computed(() => {
   const list = [...providersStore.providers].filter((p) => p.enabled !== false);
   list.sort((a, b) => {
@@ -237,8 +239,9 @@ function inferredBuiltInProviderId(modelId) {
   if (!modelId) return null;
   const kind = modelId.startsWith('gpt-') ? 'openai'
     : modelId.startsWith('gemini-') ? 'google'
-      : modelId.startsWith('claude-') ? 'anthropic'
-        : null;
+      : modelId.startsWith('muse-') ? 'meta'
+        : modelId.startsWith('claude-') ? 'anthropic'
+          : null;
   return providersStore.providers.find((provider) => provider.isBuiltIn && provider.kind === kind)?.id || null;
 }
 

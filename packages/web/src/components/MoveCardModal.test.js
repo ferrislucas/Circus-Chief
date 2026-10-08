@@ -16,6 +16,7 @@ vi.mock('../stores/kanban.js', () => ({
       ],
     },
     moveCard: vi.fn().mockResolvedValue({}),
+    routeWorkspaceCard: vi.fn().mockResolvedValue({ status: 'moved', laneId: 'lane-2' }),
     removeCard: vi.fn().mockResolvedValue({}),
   })),
 }));
@@ -97,6 +98,12 @@ describe('MoveCardModal.vue', () => {
     it('displays close button (×) in header', () => {
       const wrapper = mountModal();
       expect(wrapper.find('.close-btn').exists()).toBe(true);
+    });
+
+    it('explains that an active automation run is superseded immediately', () => {
+      const wrapper = mountModal({ activeLaneRun: { status: 'open' } });
+      expect(wrapper.find('.lane-run-warning').text()).toContain('supersedes its active automation run');
+      expect(wrapper.find('.lane-run-warning').text()).not.toContain('applied later');
     });
   });
 

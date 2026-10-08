@@ -199,13 +199,16 @@ export const sessionActions = {
         sendArgs.push(options);
       }
       await api.sendMessage(...sendArgs);
-      this._updateSessionInAllLists(sessionId, { status: 'running' });
+      this._updateSessionInAllLists(sessionId, { status: 'running', stopping: false });
     } catch (err) { this.error = err.message; throw err; }
   },
 
   async stopSession(id) {
     this.error = null;
-    try { await api.stopSession(id); this._updateSessionInAllLists(id, { status: 'stopped' }); }
+    try {
+      const result = await api.stopSession(id);
+      this._updateSessionInAllLists(id, { status: 'stopped', stopping: result?.stopping === true });
+    }
     catch (err) { this.error = err.message; throw err; }
   },
 
@@ -301,6 +304,9 @@ export const sessionActions = {
     const wasRunning = session?.status === 'running';
     const updates = { status };
     if (wasRunning && (status === 'waiting' || status === 'completed')) updates.hasResponses = true;
+    // A new or settled turn releases execution ownership; only the `stopped`
+    // broadcast preserves the shutdown flag set by the stop response.
+    if (status === 'running' || status === 'waiting' || status === 'error') updates.stopping = false;
     this._updateSessionInAllLists(sessionId, updates);
   },
 

@@ -92,6 +92,16 @@ function clearExecutableMemberState(db, runId, reason, time) {
     WHERE lane_run_id=? AND own_work_state='open'`).run(time, reason, time, runId);
 }
 
+/**
+ * Detach members from a terminal run without changing their independent
+ * lifecycle. This is used when a user moves a card: the old automation loses
+ * all authority over the card, while its sessions retain any work the user
+ * may want to run, schedule, or inspect separately.
+ */
+function releaseMemberSessionsFromRun(db, runId) {
+  return db.prepare('UPDATE sessions SET lane_run_id=NULL WHERE lane_run_id=?').run(runId);
+}
+
 /** Release a card only when the supplied run still owns it. */
 function releaseCardFromRun(db, runId, time) {
   db.prepare(`UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=?
@@ -533,7 +543,7 @@ export function attemptLaneRunTransition(runId, { deferBroadcast = false } = {})
 }
 /* eslint-enable max-statements, complexity */
 
-export function supersedeLaneRun(runId, reason = 'manual_move') {
+function supersedeLaneRunWithPolicy(runId, reason, { cancelMembers }) {
   const candidate = databaseManager.get().prepare('SELECT id FROM kanban_lane_runs WHERE id=? AND status=\'open\'').get(runId);
   if (!candidate) return null;
   const result = databaseManager.transaction(() => {
@@ -550,11 +560,15 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
         details: { targetLaneId: run.chosen_exit_lane_id, outcome: 'superseded' },
       });
     }
-    clearExecutableMemberState(db, runId, reason, time);
+    const members = db.prepare('SELECT id FROM sessions WHERE lane_run_id=?').all(runId);
+    if (cancelMembers) clearExecutableMemberState(db, runId, reason, time);
+    else releaseMemberSessionsFromRun(db, runId);
     releaseCardFromRun(db, runId, time);
     audit(db, runId, 'run_superseded', { details: { reason } });
-    for (const member of db.prepare('SELECT id FROM sessions WHERE lane_run_id=?').all(runId)) {
-      audit(db, runId, 'member_cancelled_on_supersession', { sessionId: member.id, details: { reason } });
+    for (const member of members) {
+      audit(db, runId, cancelMembers ? 'member_cancelled_on_supersession' : 'member_released_on_supersession', {
+        sessionId: member.id, details: { reason },
+      });
     }
     return { run: getRun(runId), discardedPendingDestination: Boolean(run.chosen_exit_lane_id) };
   });
@@ -567,6 +581,23 @@ export function supersedeLaneRun(runId, reason = 'manual_move') {
   // NOTE: startup reconciliation (kanbanRecoveryService) also supersedes runs
   // with no paired event at all — clients only converge on it via refetch.
   return result?.run || null;
+}
+
+/**
+ * Fully cancel a run and its member workflow state. Use this for removal and
+ * explicit cancellation paths where member work must not outlive the run.
+ */
+export function supersedeLaneRun(runId, reason = 'manual_move') {
+  return supersedeLaneRunWithPolicy(runId, reason, { cancelMembers: true });
+}
+
+/**
+ * Revoke a run's authority over its card while preserving its member
+ * sessions. Manual Kanban moves use this path so pending prompts and
+ * schedules remain independently runnable after the card has moved.
+ */
+export function supersedeLaneRunAuthorityOnly(runId, reason = 'manual_move') {
+  return supersedeLaneRunWithPolicy(runId, reason, { cancelMembers: false });
 }
 
 export function supersedeRunForCard(cardId, reason = 'manual_move') {

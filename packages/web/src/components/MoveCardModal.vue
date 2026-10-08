@@ -92,7 +92,6 @@
             </label>
           </div>
         </div>
-
       </div>
 
       <div class="modal-footer">
@@ -202,7 +201,7 @@ async function handleMove() {
       props.cardId,
       selectedLaneId.value
     );
-    uiStore.success(result.status === 'scheduled' ? 'Card route selected' : 'Card moved successfully');
+    uiStore.success(result.status === 'moved' ? 'Card moved successfully' : 'Card is already in that lane');
     emit('moved');
     close();
   } catch (err) {

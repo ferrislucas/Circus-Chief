@@ -17,6 +17,7 @@ import {
 } from './visibleFinalErrorMessage.js';
 export { createWorkLog } from './workLogService.js';
 import { createWorkLog } from './workLogService.js';
+import { scrubEventForLogging } from './parityDiagnostics.js';
 import { cancelPrompt } from './promptStore.js';
 import { setAgentPermissionMode } from './agentPlanModeService.js';
 import { buildSafeDenialSummary } from './promptDurableSummary.js';
@@ -33,8 +34,11 @@ export const thinkingAccumulators = new Map();
 /** @type {Map<string, string>} Accumulate text content per session */
 export const textAccumulators = new Map();
 
-/** @type {Map<string, { controller: AbortController, turnStartedAt?: number, lastEventAt?: number }>} */
-export const activeSessions = new Map();
+// Execution ownership lives in sessionExecutionOwnership.js; import it directly.
+// `activeSessions` is the authoritative in-process ownership record: claimed
+// atomically at turn start, released only by the owning turn's finalizer after
+// the provider generator has settled.
+import { activeSessions } from './sessionExecutionOwnership.js';
 
 /** @type {Map<string, string>} Map sessionId -> conversationId for current turn */
 export const activeConversationIds = new Map();
@@ -47,6 +51,14 @@ export const loggedToolUseIds = new Map();
 
 /** @type {Set<string>} Track sessions that received a final result.error event */
 export const finalErrorSessionIds = new Set();
+
+/**
+ * Scrub text for one session's work logs using the env stashed by
+ * `handleStreamEvent` for the current turn.
+ */
+function scrubForSession(sessionId, text) {
+  return scrubEventForLogging(text, activeSessions.get(sessionId)?.scrubEnv);
+}
 
 /**
  * @type {Map<string, { subtype: string, isError: boolean, resultText: string }>}
@@ -254,7 +266,11 @@ function handleAssistantEvent(sessionId, event, controller) {
  * @param {string} textContent
  * @param {Array} toolUseBlocks
  */
-function handleAssistantTextContent(sessionId, textContent, toolUseBlocks) {
+function handleAssistantTextContent(sessionId, rawTextContent, toolUseBlocks) {
+  // Finding #2: assistant prose can echo a secret the model read via a tool
+  // (env tokens, gh-hosts credentials). Scrub at the same choke point as
+  // tool inputs/outputs, before the text is persisted OR broadcast.
+  const textContent = scrubForSession(sessionId, rawTextContent);
   const toolUse = toolUseBlocks.length > 0 ? toolUseBlocks : null;
   const activeConversation = conversations.getActiveBySessionId(sessionId);
   const conversationId = activeConversation?.id || null;
@@ -316,7 +332,7 @@ function logToolUseInputs(sessionId, toolUseBlocks) {
   for (const toolUse of toolUseBlocks) {
     if (toolUse.id && loggedIds.has(toolUse.id)) continue;
     if (toolUse.id) loggedIds.add(toolUse.id);
-    const toolInput = JSON.stringify(toolUse.input, null, 2);
+    const toolInput = scrubForSession(sessionId, JSON.stringify(toolUse.input, null, 2));
     createWorkLog(sessionId, 'tool_input', toolInput, toolUse.name);
   }
 }
@@ -331,8 +347,9 @@ function handleToolResultEvent(sessionId, event) {
   const content = event.content || event.result || '';
   const toolName = event.tool_name || event.name || 'unknown';
 
-  // Handle different content formats
-  const logContent = formatToolResultContent(content);
+  // Handle different content formats, then scrub secret values (finding #1)
+  // before the output reaches the transcript path.
+  const logContent = scrubForSession(sessionId, formatToolResultContent(content));
 
   if (logContent) {
     createWorkLog(sessionId, 'tool_output', logContent, toolName);
@@ -523,9 +540,12 @@ const eventHandlers = {
  * Handle a stream event from Claude SDK
  * @param {string} sessionId
  * @param {Object} event
- * @param {{ controller?: AbortController }} options
+ * @param {{ controller?: AbortController, env?: Object }} options
+ *   `env` is the turn's session env: when provided it is stashed for the
+ *   session so tool-input/tool-output scrubbing (finding #1) can redact
+ *   provider-supplied secret values for this and subsequent events.
  */
-export async function handleStreamEvent(sessionId, event, { controller } = {}) {
+export async function handleStreamEvent(sessionId, event, { controller, env } = {}) {
   // Check if session has been cleaned up (aborted/deleted) - don't process events for deleted sessions
   if (!activeSessions.has(sessionId)) {
     return;
@@ -538,6 +558,10 @@ export async function handleStreamEvent(sessionId, event, { controller } = {}) {
   // unwinding. Never let that event be attributed to a replacement turn.
   if (controller && activeSession?.controller !== controller) return;
   if (activeSession) activeSession.lastEventAt = Date.now();
+  // Round-3 finding #11: retention across turns is intentional. A later event
+  // that omits `env` keeps scrubbing against the last turn's set (fail-safe
+  // over-scrubbing); values live in memory only and die with session cleanup.
+  if (env && activeSession) activeSession.scrubEnv = env;
 
   const handler = eventHandlers[event.type];
   if (handler) {
@@ -560,9 +584,11 @@ export function cleanupSessionState(sessionId, includeConversationId = false, ex
   // controller or any of the replacement turn's session-scoped state.
   //
   // An absent entry is not a replacement: it means this turn's owner already
-  // deregistered (e.g. stopSession() deletes the activeSessions entry before
-  // the turn unwinds), and this turn still owns the cleanup. Only bail out
-  // when a *different, live* controller is registered.
+  // released ownership (a prior finalizer ran), and this turn still owns the
+  // remaining per-turn cleanup. Only bail out when a *different, live*
+  // controller is registered. In particular, stopSession() retains the entry
+  // (marked `stopping`) until this finalizer runs, so a replacement can never
+  // be admitted while this turn is still unwinding.
   const current = activeSessions.get(sessionId);
   if (expectedController && current && current.controller !== expectedController) {
     // This unwinding turn no longer owns the session, so it must not erase the

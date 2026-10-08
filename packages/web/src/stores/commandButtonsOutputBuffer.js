@@ -20,6 +20,24 @@ export function truncateOutput(text) {
 }
 
 /**
+ * Resolve the client-side high-water cursor for a run entry.
+ *
+ * Client-side the cursor tracks how much output has actually been rendered, so
+ * the server's cursor only applies when its output snapshot does. Adopting it
+ * alongside an empty snapshot (lightweight queries exclude output) would make
+ * later catch-up reads skip the very chunks that still need to be displayed.
+ *
+ * @param {Object} run - The run data from API
+ * @param {Object|undefined} existing - Existing run entry if present
+ * @param {boolean} hasServerOutput - Whether the API response carried output
+ * @returns {number} The cursor to store
+ */
+function resolveOutputHighWater(run, existing, hasServerOutput) {
+  if (!hasServerOutput) return existing?.outputHighWater ?? 0;
+  return run.outputHighWater ?? existing?.outputHighWater ?? 0;
+}
+
+/**
  * Build a run entry, preserving existing output if API returned empty.
  * @param {Object} run - The run data from API
  * @param {string} runId - The resolved run ID
@@ -40,9 +58,28 @@ export function buildRunEntry(run, runId, existing) {
     startedAt: run.startedAt,
     completedAt: run.completedAt,
     hasOutput: run.hasOutput ?? existing?.hasOutput ?? Boolean(output),
-    outputHighWater: run.outputHighWater ?? existing?.outputHighWater ?? 0,
+    outputHighWater: resolveOutputHighWater(run, existing, Boolean(output)),
     outputTruncated: hasExistingOutput ? existing.outputTruncated : truncated,
   };
+}
+
+/**
+ * Append text to a run's rendered output immediately (no throttling buffer).
+ * @param {Object} store - The Pinia store instance
+ * @param {string} runId - The run ID
+ * @param {string} text - The text to append
+ */
+function patchRunOutput(store, runId, text) {
+  const { output, truncated } = truncateOutput(store.runs[runId].output + text);
+  store.$patch({
+    runs: {
+      [runId]: {
+        ...store.runs[runId],
+        output,
+        outputTruncated: store.runs[runId].outputTruncated || truncated,
+      },
+    },
+  });
 }
 
 /**
@@ -59,20 +96,10 @@ export function flushOutput(store, runId) {
     return;
   }
 
-  // Combine existing output with buffer
-  const combined = store.runs[runId].output + buffer;
-  const { output, truncated } = truncateOutput(combined);
-
-  // Update state in one batch
-  store.$patch({
-    runs: {
-      [runId]: {
-        ...store.runs[runId],
-        output,
-        outputTruncated: store.runs[runId].outputTruncated || truncated,
-      },
-    },
-  });
+  // Completion and persisted-output events travel on separate WebSocket paths,
+  // so a final chunk can arrive after the run is marked complete. Retain that
+  // chunk; subscribers deduplicate persisted chunks by sequence number.
+  patchRunOutput(store, runId, buffer);
 
   // Clear the buffer
   delete store._outputBuffers[runId];
@@ -86,25 +113,30 @@ export function flushOutput(store, runId) {
  * @param {Object} store - The Pinia store instance
  * @param {string} runId - The run ID
  * @param {string} text - The text to append
+ * @param {{ sequence?: number }|undefined} options - Persisted delivery identity, when available
  */
-export function appendOutput(store, runId, text) {
+export function appendOutput(store, runId, text, options) {
   if (!store.runs[runId]) {
     return;
   }
 
   // Completion and persisted-output events travel on separate WebSocket
   // paths, so a final output chunk can arrive after COMMAND_RUN_COMPLETE.
-  // Keep accepting it: duplicate delivery is handled below and subscribers
-  // already reject repeated chunk sequences.
+  // Keep accepting it: the subscription rejects repeated persisted sequences.
 
-  // Deduplicate identical output messages arriving from dual-channel WS broadcasts
-  // (server broadcasts to both session and project channels, client may receive both)
-  const now = Date.now();
-  const lastAppend = store._lastAppendedText[runId];
-  if (lastAppend && lastAppend.text === text && (now - lastAppend.timestamp) < 100) {
-    return; // Skip duplicate
+  // Persisted output is ordered and deduplicated by sequence in the
+  // subscription. Do not apply this legacy content/time heuristic to it:
+  // consecutive, valid chunks may have identical content.
+  if (options?.sequence === undefined) {
+    // Deduplicate identical output messages arriving from dual-channel WS broadcasts
+    // (server broadcasts to both session and project channels, client may receive both)
+    const now = Date.now();
+    const lastAppend = store._lastAppendedText[runId];
+    if (lastAppend && lastAppend.text === text && (now - lastAppend.timestamp) < 100) {
+      return; // Skip duplicate
+    }
+    store._lastAppendedText[runId] = { text, timestamp: now };
   }
-  store._lastAppendedText[runId] = { text, timestamp: now };
 
   // Append to buffer
   store._outputBuffers[runId] = (store._outputBuffers[runId] || '') + text;
@@ -156,7 +188,7 @@ export function processRunFromApi(run, sessionId, existing) {
     startedAt: run.startedAt,
     completedAt: run.completedAt,
     hasOutput: run.hasOutput ?? existing?.hasOutput ?? Boolean(resolvedOutput),
-    outputHighWater: run.outputHighWater ?? existing?.outputHighWater ?? 0,
+    outputHighWater: resolveOutputHighWater(run, existing, Boolean(output)),
     outputTruncated: resolvedTruncated,
   };
 }

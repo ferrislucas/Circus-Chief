@@ -5,6 +5,7 @@ import {
   disableOlderLifecycleModelsOnce,
   seedBuiltInFable5,
   seedBuiltInGoogleProvider,
+  seedBuiltInMetaProvider,
   seedBuiltInOpenAIProvider,
   seedBuiltInProviders,
   syncBuiltInModelCatalogs,
@@ -12,6 +13,7 @@ import {
   updateBuiltInModels,
   updateBuiltInSonnet5,
   widenProviderModelsTierCheckForFable,
+  widenProvidersKindCheck,
 } from './providerMigrationHelpers.js';
 
 export const providerMigrations = [
@@ -159,6 +161,27 @@ export const providerMigrations = [
   {
     name: 'providers-seed-built-in-google',
     up(db) { seedBuiltInGoogleProvider(db); },
+  },
+  {
+    name: 'providers-widen-kind-check-meta',
+    up(db) {
+      // Idempotency guard (same as 'providers-widen-kind-check-google'):
+      // skip the recreation when the table's CHECK already permits 'meta'.
+      // Migrations re-run on every startup with no ledger, so this must
+      // also be a safe no-op on databases that already migrated.
+      const existingSql = getTableSql(db, 'providers') || '';
+      if (existingSql.includes("'meta'")) {
+        return;
+      }
+      // Shape-aware swap: preserves whatever columns the table currently
+      // has (11 pre-'providers-add-enabled', 12 after) instead of assuming
+      // a fixed column list.
+      widenProvidersKindCheck(db, ['anthropic', 'openai', 'google', 'meta']);
+    },
+  },
+  {
+    name: 'providers-seed-built-in-meta',
+    up(db) { seedBuiltInMetaProvider(db); },
   },
   {
     name: 'providers-update-gemini-flash-lite-model',

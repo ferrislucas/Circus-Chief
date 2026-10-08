@@ -832,11 +832,12 @@ describe('ProviderRepository', () => {
 
   describe('kind column', () => {
     it('exports the allowed kinds and agent mapping', () => {
-      expect(PROVIDER_KINDS).toEqual(['anthropic', 'openai', 'google']);
+      expect(PROVIDER_KINDS).toEqual(['anthropic', 'openai', 'google', 'meta']);
       expect(AGENT_TYPE_BY_KIND).toEqual({
         anthropic: 'claude-code',
         openai: 'codex',
         google: 'gemini',
+        meta: 'muse',
       });
     });
 
