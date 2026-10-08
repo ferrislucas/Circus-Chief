@@ -134,6 +134,21 @@
             >
               <strong>{{ allowance.label }}</strong>: {{ formatAllowance(allowance) }}
               <span v-if="allowance.resetsAt"> · resets {{ formatRelativeTime(allowance.resetsAt) }} (<time :datetime="formatDateTime(allowance.resetsAt)">{{ formatExactTime(allowance.resetsAt) }}</time>)</span>
+              <div
+                v-if="barPercent(allowance) !== null"
+                class="allowance-bar"
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                :aria-valuenow="barPercent(allowance)"
+                :aria-label="`${allowance.label}: ${barPercent(allowance)} percent remaining`"
+              >
+                <span
+                  class="allowance-bar-fill"
+                  :class="`fill-${snapshot.status}`"
+                  :style="{ width: `${barPercent(allowance)}%` }"
+                />
+              </div>
             </li>
           </ul>
           <small v-if="snapshot.updatedAt">Last updated {{ formatRelativeTime(snapshot.updatedAt) }} (<time :datetime="formatDateTime(snapshot.updatedAt)">{{ formatExactTime(snapshot.updatedAt) }}</time>)</small>
@@ -228,6 +243,13 @@ function ariaLabel(snapshot) {
   return `${snapshot.providerName}: ${statusText(snapshot.status)}, ${value}${reset}`;
 }
 function formatReset(value) { return new Date(value).toLocaleString(); }
+function barPercent(allowance) {
+  const raw = allowance?.remainingPercent;
+  if (raw === null || raw === undefined || raw === '') return null;
+  const percent = Number(raw);
+  if (!Number.isFinite(percent)) return null;
+  return Math.min(100, Math.max(0, Math.round(percent)));
+}
 function open(providerId = null) {
   previousFocus = document.activeElement;
   focusedProviderId.value = providerId;
@@ -564,6 +586,25 @@ onUnmounted(() => {
 }
 
 .status { font-size: .8rem; }
+
+.allowance-bar {
+  height: .5rem;
+  margin-top: .4rem;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--color-background-mute);
+}
+
+.allowance-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-success);
+}
+
+.allowance-bar-fill.fill-warning { background: var(--color-warning); }
+.allowance-bar-fill.fill-critical,
+.allowance-bar-fill.fill-exhausted { background: var(--color-error); }
 
 .measurement-items {
   position: absolute;

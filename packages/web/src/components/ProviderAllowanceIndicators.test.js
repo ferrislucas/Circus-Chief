@@ -638,6 +638,53 @@ describe('ProviderAllowanceIndicators', () => {
     expect(detail.text()).toContain('Last value may be out of date.');
   });
 
+  it('renders one remaining-usage bar per allowance with progress semantics', async () => {
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot({
+      status: 'warning',
+      allowances: [
+        { key: 'five_hour', label: '5-hour window', remaining: 25, limit: 100, remainingPercent: 25, unit: 'tokens', resetsAt: null },
+        { key: 'weekly', label: 'Weekly window', remaining: 150, limit: 100, remainingPercent: 150, unit: 'tokens', resetsAt: null },
+      ],
+    })];
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await nextTick();
+
+    const bars = wrapper.findAll('.provider-detail [role="progressbar"]');
+    expect(bars).toHaveLength(2);
+    expect(bars[0].attributes('aria-valuemin')).toBe('0');
+    expect(bars[0].attributes('aria-valuemax')).toBe('100');
+    expect(bars[0].attributes('aria-valuenow')).toBe('25');
+    expect(bars[0].attributes('aria-label')).toContain('25 percent remaining');
+    expect(bars[0].find('.allowance-bar-fill').attributes('style')).toContain('width: 25%');
+    expect(bars[0].find('.allowance-bar-fill').classes()).toContain('fill-warning');
+    expect(bars[1].attributes('aria-valuenow')).toBe('100');
+    expect(bars[1].find('.allowance-bar-fill').attributes('style')).toContain('width: 100%');
+    wrapper.unmount();
+  });
+
+  it('renders no usage bar when the remaining percentage is unknown', async () => {
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot({
+      status: 'unknown',
+      allowances: [{ key: 'window', label: '5-hour window', remaining: null, limit: null, remainingPercent: null, unit: 'tokens', resetsAt: null }],
+    })];
+    const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
+    await nextTick();
+    resizeObservers[0].trigger();
+    await nextTick();
+    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await nextTick();
+
+    expect(wrapper.find('.provider-detail').text()).toContain('Unknown');
+    expect(wrapper.find('.provider-detail [role="progressbar"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it('uses the unavailable fallback and exposes fetch errors without any snapshots', async () => {
     api.getProviderAllowances.mockRejectedValueOnce(new Error('network down'));
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
