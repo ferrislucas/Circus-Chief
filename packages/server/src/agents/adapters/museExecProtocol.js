@@ -191,7 +191,12 @@ function mapPayloadEvent(type, payload) {
 // tool_result that supersedes them (FR-8 orphan flush).
 function mapToolResultPayload(payload) {
   const taskId = identifier(payload?.event?.task_id ?? payload?.task_id);
-  return typeof payload.text === 'string' ? { kind: 'tool_result', text: bounded(payload.text, 8000), taskId } : null;
+  // Forward the CLI-supplied tool identity (event field wins, top-level
+  // fallback) so the mapper's `event.tool_name || 'Muse'` badge resolves to
+  // a real tool. Bounded like the other forwarded identifiers; absent stays
+  // undefined and the mapper still badges 'Muse'.
+  const toolName = safe(payload?.event?.tool_name ?? payload?.tool_name) ?? undefined;
+  return typeof payload.text === 'string' ? { kind: 'tool_result', text: bounded(payload.text, 8000), taskId, ...(toolName ? { tool_name: toolName } : {}) } : null;
 }
 
 function mapStatusPayload(payload) {

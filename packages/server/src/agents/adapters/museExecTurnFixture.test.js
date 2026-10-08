@@ -82,12 +82,15 @@ export function replayEchoTurn() {
 }
 
 describe('muse echo-turn fixture (FRD criterion 1)', () => {
-  it('emits no unlabeled, reminder, or raw wire-name rows and one collapsed model-stream row', () => {
+  it('emits no unlabeled, reminder, or raw wire-name rows and at most two rows per status group', () => {
     const notices = replayEchoTurn();
     expect(notices.filter((content) => content.includes('Muse task work:'))).toEqual([]);
     expect(notices.filter((content) => /reminder\./.test(content))).toEqual([]);
     expect(notices.filter((content) => content.startsWith('Muse progress:'))).toEqual([]);
+    // Emit-first-then-coalesce: the first attempt signal streams live
+    // mid-turn and the collapsed latest text follows — at most two rows per
+    // group (first + latest-if-different), not exactly one.
     const attempts = notices.filter((content) => content.includes('attempt'));
-    expect(attempts).toEqual(['opening meta model stream attempt 2/10']);
+    expect(attempts).toEqual(['opening meta model stream attempt 1/10', 'opening meta model stream attempt 2/10']);
   });
 });

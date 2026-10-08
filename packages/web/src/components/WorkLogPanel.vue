@@ -48,7 +48,7 @@
       <div
         ref="contentRef"
         class="work-log-content"
-        @scroll="handleScroll"
+        @scroll.passive="handleScroll"
       >
         <div
           v-for="log in workLogs"
@@ -95,7 +95,11 @@ function handleToggle(event) {
 const contentRef = ref(null);
 const { isNearBottom, handleScroll } = useWorkLogFollow({
   resolveContainer: () => contentRef.value,
-  watchSources: [() => props.workLogs?.length],
+  // Watching expansion scrolls to newest on open when following — expanding
+  // with existing rows otherwise lands at the top (length is unchanged).
+  // The isActive gate still blocks scrolling while collapsed, and a
+  // scrolled-up user (isNearBottom false) is never yanked.
+  watchSources: [() => props.workLogs?.length, () => isExpanded.value],
   isActive: () => isExpanded.value,
 });
 

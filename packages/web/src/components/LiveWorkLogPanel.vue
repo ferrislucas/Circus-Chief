@@ -14,7 +14,7 @@
     <div
       v-if="hasContent"
       class="live-logs"
-      @scroll="handleScroll"
+      @scroll.passive="handleScroll"
     >
       <div
         v-for="log in workLogs"

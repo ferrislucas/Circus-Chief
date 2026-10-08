@@ -286,6 +286,45 @@ describe('WorkLogPanel', () => {
 
       expect(el.scrollTop).toBe(0);
     });
+
+    it('scrolls to newest when expanding a collapsed panel with existing rows', async () => {
+      // Opening a collapsed panel with rows used to land at the top — the
+      // follow watcher only fires on length changes. Expanding must follow.
+      const wrapper = mountComponent({ workLogs: [createWorkLog(1), createWorkLog(2)] });
+      expect(wrapper.find('details').attributes('open')).toBeUndefined();
+      const el = wrapper.find('.work-log-content').element;
+      mockScrollable(el);
+      el.scrollTop = 0;
+
+      const details = wrapper.find('details');
+      details.element.open = true;
+      await details.trigger('toggle');
+      await flushAll(wrapper);
+
+      expect(el.scrollTop).toBe(500);
+    });
+
+    it('does NOT yank to bottom on expand when the user had scrolled up', async () => {
+      const wrapper = await mountExpanded([createWorkLog(1)]);
+      const content = wrapper.find('.work-log-content');
+      const el = content.element;
+      mockScrollable(el);
+      el.scrollTop = 0; // user scrolls up while expanded
+      await content.trigger('scroll');
+      await flushAll(wrapper);
+      expect(wrapper.vm.isNearBottom).toBe(false);
+
+      // Collapse, then expand — follow is still disengaged, so no yank.
+      const details = wrapper.find('details');
+      details.element.open = false;
+      await details.trigger('toggle');
+      await flushAll(wrapper);
+      details.element.open = true;
+      await details.trigger('toggle');
+      await flushAll(wrapper);
+
+      expect(el.scrollTop).toBe(0);
+    });
   });
 
   describe('stays collapsed when logs are added', () => {

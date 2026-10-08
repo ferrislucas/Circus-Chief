@@ -85,9 +85,7 @@ export function createMuseExecEventMapper({ model } = {}) {
         return mapped.events;
       }
       if (event.kind === 'unknown' && !seenUnknown.has(event.payloadType)) {
-        seenUnknown.add(event.payloadType);
-        if (STRUCTURAL_PAYLOAD_TYPES.has(event.payloadType)) return [];
-        return notice(`Muse progress: ${humanizePayloadType(event.payloadType)}`);
+        return mapUnknownEvent(event, seenUnknown, notice);
       }
       return [];
     },
@@ -113,8 +111,12 @@ export function createMuseExecEventMapper({ model } = {}) {
 function createTaskKindRegistry() {
   const kindsById = new Map();
   return {
+    // First-write-wins: the `proposed` kind owns the task_id, so a stray
+    // kind on a later status/output record cannot silently overwrite it.
+    // Out-of-order stays safe: a kind-less `started` arriving before any
+    // `proposed` records nothing and still suppresses.
     record(event) {
-      if (event.taskId && event.taskKind) kindsById.set(event.taskId, event.taskKind);
+      if (event.taskId && event.taskKind && !kindsById.has(event.taskId)) kindsById.set(event.taskId, event.taskKind);
     },
     resolve(event) {
       return event.taskKind || (event.taskId ? kindsById.get(event.taskId) : undefined);
@@ -123,23 +125,37 @@ function createTaskKindRegistry() {
 }
 
 /**
- * Retry-group buffer for status messages (FR-5). Same-group retries
- * (transport `attempt N/10` chatter) buffer with the latest text winning;
- * the single collapsed row flushes when a different status group arrives
- * or at final(). A pending group survives task-lifecycle chatter so
+ * Emit-first-then-coalesce retry groups for status messages (FR-5). The
+ * first message of a group emits immediately so a long retry storm shows
+ * live progress mid-turn; same-group retries only refresh the pending
+ * text, and the collapsed latest text emits when a different group
+ * arrives or at final() — iff it differs from the already-emitted first
+ * row. With append-only work-log rows that costs at most two rows per
+ * group (first + latest-if-different); single-row purity is surrendered
+ * for liveness. A pending group survives task-lifecycle chatter so
  * interleaved retries still collapse. `buffer`/`flush` return the mapped
  * events plus the dedup key to store (null when unchanged).
  */
 function createStatusGroup(notice) {
   let pending = null;
   let pendingKey = null;
+  let emittedForGroup = null;
+  const emit = (message) => {
+    const events = notice(message);
+    return { events, key: events.length ? `status:${message}` : null };
+  };
   const flush = () => {
-    if (!pending) return { events: [], key: null };
+    if (!pending || pending === emittedForGroup) {
+      pending = null;
+      pendingKey = null;
+      emittedForGroup = null;
+      return { events: [], key: null };
+    }
     const message = pending;
     pending = null;
     pendingKey = null;
-    const events = notice(message);
-    return { events, key: events.length ? `status:${message}` : null };
+    emittedForGroup = null;
+    return emit(message);
   };
   const buffer = (event) => {
     if (!event.message) return { events: [], key: null };
@@ -148,10 +164,16 @@ function createStatusGroup(notice) {
       pending = event.message;
       return { events: [], key: null };
     }
-    const flushed = flush();
+    // A different group closes the previous one: emit its collapsed
+    // latest text first (only when it moved past the already-emitted
+    // first row), then the new group's first signal immediately.
+    const closed = pending && pending !== emittedForGroup ? emit(pending) : { events: [], key: null };
+    const first = emit(event.message);
     pending = event.message;
     pendingKey = key;
-    return flushed;
+    emittedForGroup = event.message;
+    const events = [...closed.events, ...first.events];
+    return { events, key: events.length ? first.key ?? closed.key : null };
   };
   return { buffer, flush };
 }
@@ -185,6 +207,19 @@ function createTaskOutputBuffer(notice) {
       return events;
     },
   };
+}
+
+/**
+ * Map one unknown wire payload type. Structural records and content-free
+ * `session.*` types (FR-4: the branch only sees the type string, which
+ * carries no human content for session.* records) are suppressed; genuinely
+ * new types get a one-time humanized notice.
+ */
+function mapUnknownEvent(event, seenUnknown, notice) {
+  seenUnknown.add(event.payloadType);
+  if (STRUCTURAL_PAYLOAD_TYPES.has(event.payloadType)) return [];
+  if (typeof event.payloadType === 'string' && event.payloadType.startsWith('session.')) return [];
+  return notice(`Muse progress: ${humanizePayloadType(event.payloadType)}`);
 }
 
 /**

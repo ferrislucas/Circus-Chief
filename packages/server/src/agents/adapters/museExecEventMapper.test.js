@@ -47,14 +47,21 @@ describe('museExecEventMapper mid-turn signal', () => {
       .toEqual([{ type: 'tool_result', tool_name: 'Muse', content: 'Muse task work: completed' }]);
   });
 
-  it('buffers status messages and emits the collapsed row at final', () => {
+  it('emits the first status message immediately and coalesces same-group retries', () => {
     const mapper = createMuseExecEventMapper({});
-    const message = 'opening meta model stream attempt 1/10';
-    expect(mapper.map({ kind: 'progress', phase: 'status', message })).toEqual([]);
-    expect(mapper.map({ kind: 'progress', phase: 'status', message })).toEqual([]);
+    const first = 'opening meta model stream attempt 1/10';
+    const latest = 'opening meta model stream attempt 2/10';
+    // (a) first signal for a new group emits immediately — a long retry
+    // storm shows progress mid-turn instead of withholding until final().
+    expect(mapper.map({ kind: 'progress', phase: 'status', message: first }))
+      .toEqual([{ type: 'tool_result', tool_name: 'Muse', content: first }]);
+    // (b) same-group follow-up only refreshes the pending text.
+    expect(mapper.map({ kind: 'progress', phase: 'status', message: latest })).toEqual([]);
     expect(mapper.map({ kind: 'progress', phase: 'status', message: null })).toEqual([]);
+    // (d) final() with a pending multi-message group emits the latest text.
     const done = mapper.final({ outcome: 'completed', text: 'done' });
-    expect(done[0]).toEqual({ type: 'tool_result', tool_name: 'Muse', content: message });
+    expect(done.filter((event) => event.content?.includes('attempt')))
+      .toEqual([{ type: 'tool_result', tool_name: 'Muse', content: latest }]);
   });
 
   it('normalizes attempt counters out of the status dedupe key', () => {
@@ -88,6 +95,16 @@ describe('museExecEventMapper mid-turn signal', () => {
     expect(mapper.map({ kind: 'progress', phase: 'failed', taskKind: 'reminder.agent.verify-reminder', taskId: 'task-2' })).toEqual([]);
   });
 
+  it('keeps the first proposed kind when a later record carries a stray kind (first-write-wins)', () => {
+    const mapper = createMuseExecEventMapper({});
+    expect(mapper.map({ kind: 'progress', phase: 'proposed', taskKind: 'kind-a', taskId: 'task-5' })).toEqual([]);
+    // A stray kind on a later status/output record must not overwrite kind-a.
+    expect(mapper.map({ kind: 'progress', phase: 'status', taskKind: 'kind-b', taskId: 'task-5', message: 'working' }))
+      .toEqual([{ type: 'tool_result', tool_name: 'Muse', content: 'working' }]);
+    expect(mapper.map({ kind: 'progress', phase: 'started', taskKind: null, taskId: 'task-5' }))
+      .toEqual([{ type: 'tool_result', tool_name: 'Muse', content: 'Muse task kind-a: started' }]);
+  });
+
   it('keeps the task registry per mapper instance with no cross-turn leakage', () => {
     const first = createMuseExecEventMapper({});
     expect(first.map({ kind: 'progress', phase: 'proposed', taskKind: 'model.response', taskId: 'task-4' })).toEqual([]);
@@ -96,22 +113,42 @@ describe('museExecEventMapper mid-turn signal', () => {
     expect(second.map({ kind: 'progress', phase: 'started', taskKind: null, taskId: 'task-4' })).toEqual([]);
   });
 
-  it('collapses consecutive attempt counters into one row showing the latest text', () => {
+  it('emits first + latest per retry group (at most two rows, liveness over purity)', () => {
     const mapper = createMuseExecEventMapper({});
-    expect(mapper.map({ kind: 'progress', phase: 'status', message: 'opening meta model stream attempt 1/10' })).toEqual([]);
+    expect(mapper.map({ kind: 'progress', phase: 'status', message: 'opening meta model stream attempt 1/10' }))
+      .toEqual([{ type: 'tool_result', tool_name: 'Muse', content: 'opening meta model stream attempt 1/10' }]);
     expect(mapper.map({ kind: 'progress', phase: 'status', message: 'opening meta model stream attempt 2/10' })).toEqual([]);
     const done = mapper.final({ outcome: 'completed', text: 'done' });
     expect(done.filter((event) => event.content?.includes('attempt')))
-      .toEqual([{ type: 'tool_result', tool_name: 'Muse', content: 'opening meta model stream attempt 2/10' }]);
+      .toEqual([
+        { type: 'tool_result', tool_name: 'Muse', content: 'opening meta model stream attempt 2/10' },
+      ]);
   });
 
-  it('emits a different status message separately from a pending attempt group', () => {
+  it('emits the collapsed latest-text row for the closed group when a different group arrives', () => {
     const mapper = createMuseExecEventMapper({});
-    expect(mapper.map({ kind: 'progress', phase: 'status', message: 'opening meta model stream attempt 1/10' })).toEqual([]);
-    expect(mapper.map({ kind: 'progress', phase: 'status', message: 'loading session context' }))
+    expect(mapper.map({ kind: 'progress', phase: 'status', message: 'opening meta model stream attempt 1/10' }))
       .toEqual([{ type: 'tool_result', tool_name: 'Muse', content: 'opening meta model stream attempt 1/10' }]);
+    expect(mapper.map({ kind: 'progress', phase: 'status', message: 'opening meta model stream attempt 2/10' })).toEqual([]);
+    // Closing the attempt group emits its collapsed latest text (it differs
+    // from the already-emitted first row) plus the new group's first signal.
+    expect(mapper.map({ kind: 'progress', phase: 'status', message: 'loading session context' }))
+      .toEqual([
+        { type: 'tool_result', tool_name: 'Muse', content: 'opening meta model stream attempt 2/10' },
+        { type: 'tool_result', tool_name: 'Muse', content: 'loading session context' },
+      ]);
+  });
+
+  it('emits nothing for the closed group when it never changed past its first row', () => {
+    const mapper = createMuseExecEventMapper({});
+    expect(mapper.map({ kind: 'progress', phase: 'status', message: 'opening meta model stream attempt 1/10' }))
+      .toEqual([{ type: 'tool_result', tool_name: 'Muse', content: 'opening meta model stream attempt 1/10' }]);
+    // Identical re-flush: pending equals the already-emitted first row, so
+    // only the new group's first signal emits.
+    expect(mapper.map({ kind: 'progress', phase: 'status', message: 'loading session context' }))
+      .toEqual([{ type: 'tool_result', tool_name: 'Muse', content: 'loading session context' }]);
     const done = mapper.final({ outcome: 'completed', text: 'done' });
-    expect(done.filter((event) => event.content === 'loading session context' )).toHaveLength(1);
+    expect(done.filter((event) => event.type === 'tool_result')).toEqual([]);
   });
 
   it('drops output chunks that duplicate the accompanying tool result', () => {
@@ -146,8 +183,17 @@ describe('museExecEventMapper mid-turn signal', () => {
     }
     expect(mapper.map({ kind: 'unknown', payloadType: 'some.future.type' }))
       .toEqual([{ type: 'tool_result', tool_name: 'Muse', content: 'Muse progress: some future type' }]);
-    expect(mapper.map({ kind: 'unknown', payloadType: 'session.foo_bar.observed' }))
-      .toEqual([{ type: 'tool_result', tool_name: 'Muse', content: 'Muse progress: session foo bar observed' }]);
+  });
+
+  it('suppresses any content-free session.* type (FR-4)', () => {
+    const mapper = createMuseExecEventMapper({});
+    // The unknown branch only sees the type string, which carries no human
+    // content for session.* records — suppress instead of humanizing noise.
+    expect(mapper.map({ kind: 'unknown', payloadType: 'session.foo_bar.observed' })).toEqual([]);
+    expect(mapper.map({ kind: 'unknown', payloadType: 'session.anything.new' })).toEqual([]);
+    // Non-session.* unknowns still get the humanized one-time notice.
+    expect(mapper.map({ kind: 'unknown', payloadType: 'some.future.type' }))
+      .toEqual([{ type: 'tool_result', tool_name: 'Muse', content: 'Muse progress: some future type' }]);
   });
 
   it('forwards journal usage attached to the terminal into the result event', () => {
@@ -166,6 +212,14 @@ describe('museExecEventMapper mid-turn signal', () => {
     const mapper = createMuseExecEventMapper({});
     expect(mapper.final({ outcome: 'completed', text: 'done' }).at(-1))
       .toEqual({ type: 'result', subtype: 'success', usage: { input_tokens: 0, output_tokens: 0 } });
+  });
+
+  it('preserves a CLI-supplied tool identity and badges anonymous results Muse', () => {
+    const mapper = createMuseExecEventMapper({});
+    expect(mapper.map({ kind: 'tool_result', text: 'file text', tool_name: 'Read' }))
+      .toEqual([{ type: 'tool_result', tool_name: 'Read', content: 'file text' }]);
+    expect(mapper.map({ kind: 'tool_result', text: 'file text' }))
+      .toEqual([{ type: 'tool_result', tool_name: 'Muse', content: 'file text' }]);
   });
 
   it('forwards tool results as tool_output work logs with headline and body', () => {

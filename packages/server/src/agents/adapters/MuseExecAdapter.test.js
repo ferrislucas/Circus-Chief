@@ -210,13 +210,19 @@ describe('MuseExecAdapter', () => {
     ].join('\n');
     child.stdout.write(`${head}\n`);
     // The tool notice must surface while the CLI process is still running —
-    // no terminal has arrived and the process has not exited. (Status
-    // retries instead buffer per FR-5 and flush when their group closes.)
+    // no terminal has arrived and the process has not exited.
     await vi.waitFor(() => {
       expect(seen.find((item) => item.type === 'tool_result' && /wrote 40 bytes/.test(item.content))).toBeTruthy();
     });
     expect(seen.some((item) => item.type === 'result')).toBe(false);
-    child.stdout.end(`${event(4, 'task.lifecycle.status', { event: { kind: 'status', message: 'opening meta model stream attempt 1/10' } })}\n${event(5, 'run.terminal.completed', { command_id: 'cmd-123', run_stream: { id: 'run-123' }, terminal: 'completed', text: 'Finished' })}\n`);
+    // FR-5 emit-first: the status row streams live mid-turn, before any
+    // terminal arrives and while the CLI process is still running.
+    child.stdout.write(`${event(4, 'task.lifecycle.status', { event: { kind: 'status', message: 'opening meta model stream attempt 1/10' } })}\n`);
+    await vi.waitFor(() => {
+      expect(seen.find((item) => item.type === 'tool_result' && /attempt 1\/10/.test(item.content))).toBeTruthy();
+    });
+    expect(seen.some((item) => item.type === 'result')).toBe(false);
+    child.stdout.end(`${event(5, 'run.terminal.completed', { command_id: 'cmd-123', run_stream: { id: 'run-123' }, terminal: 'completed', text: 'Finished' })}\n`);
     child.stderr.end();
     child.emit('exit', 0);
     await pump;

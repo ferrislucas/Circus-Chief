@@ -162,6 +162,25 @@ describe('muse exec protocol', () => {
     expect(mapped.text.endsWith('… (truncated)')).toBe(true);
   });
 
+  it('forwards the CLI-supplied tool identity on tool results (bounded to 240 chars)', () => {
+    const parser = createMuseExecProtocol();
+    const [mapped] = push(parser,
+      accepted(), linked(),
+      record(3, 'tool.result', { kind: 'tool_result', call_id: 'call-1', task_id: 'task-8', text: 'wrote 40 bytes', event: { task_id: 'task-8', tool_name: 'Read' } }),
+    ).filter((item) => item.kind === 'tool_result');
+    expect(mapped.tool_name).toBe('Read');
+    const [long] = push(parser,
+      record(4, 'tool.result', { kind: 'tool_result', call_id: 'call-2', text: 'more', event: { tool_name: `T${'o'.repeat(300)}` } }),
+    ).filter((item) => item.kind === 'tool_result');
+    expect(long.tool_name).toHaveLength(240);
+    const lone = createMuseExecProtocol();
+    const [absent] = push(lone,
+      accepted(), linked(),
+      record(3, 'tool.result', { kind: 'tool_result', call_id: 'call-1', text: 'wrote 40 bytes' }),
+    ).filter((item) => item.kind === 'tool_result');
+    expect(absent.tool_name).toBeUndefined();
+  });
+
   it('reads task kind from event.task_kind with fallback to top-level task_kind', () => {
     const parser = createMuseExecProtocol();
     expect(push(parser,
