@@ -14,7 +14,7 @@
     <div
       v-if="hasContent"
       class="live-logs"
-      @scroll="handleScroll"
+      @scroll.passive="handleScroll"
     >
       <div
         v-for="log in workLogs"
@@ -46,9 +46,10 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue';
+import { computed } from 'vue';
 import ThinkingBlock from './ThinkingBlock.vue';
 import CommandBlock from './CommandBlock.vue';
+import { useWorkLogFollow } from '../composables/useWorkLogFollow.js';
 
 const props = defineProps({
   workLogs: { type: Array, default: () => [] },
@@ -56,48 +57,16 @@ const props = defineProps({
   showHeader: { type: Boolean, default: true }, // Hide header when shown in parent
 });
 
-// Scroll state tracking - auto-scroll unless user manually scrolls up
-const SCROLL_THRESHOLD = 50; // pixels from bottom to consider "near bottom"
-const isNearBottom = ref(true);
+// Follow mode lives in the shared composable; the container lookup keeps the
+// original query so behavior is unchanged.
+const { isNearBottom, handleScroll, scrollToBottom } = useWorkLogFollow({
+  resolveContainer: () => document.querySelector('.live-logs'),
+  watchSources: [() => props.workLogs?.length, () => props.partialThinking],
+});
 
 const totalCount = computed(() => (props.workLogs?.length || 0) + (props.partialThinking ? 1 : 0));
 
 const hasContent = computed(() => props.workLogs?.length > 0 || props.partialThinking);
-
-// Detect when user manually scrolls away from bottom
-function handleScroll(event) {
-  const container = event.target;
-  if (!container) return;
-  const { scrollTop, scrollHeight, clientHeight } = container;
-  isNearBottom.value = scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD;
-}
-
-// Auto-scroll to bottom when new logs arrive (only if user is near bottom)
-function scrollToBottom() {
-  nextTick(() => {
-    if (isNearBottom.value) {
-      try {
-        const container = document.querySelector('.live-logs');
-        if (container) {
-          container.scrollTop = container.scrollHeight;
-        }
-      } catch (e) {
-        // May fail in certain environments, silently ignore
-      }
-    }
-  });
-}
-
-// Watch for new work logs
-// Use 'post' flush to let Vue batch updates instead of 'sync' which forces immediate execution
-watch(() => props.workLogs?.length, () => {
-  scrollToBottom();
-}, { flush: 'post' });
-
-// Watch for partial thinking changes
-watch(() => props.partialThinking, () => {
-  scrollToBottom();
-}, { flush: 'post' });
 
 // Expose for testing
 defineExpose({

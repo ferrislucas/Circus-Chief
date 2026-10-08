@@ -71,6 +71,16 @@ describe('MuseExecAdapter', () => {
     expect(events).toContainEqual({ type: 'assistant', message: { content: [{ type: 'text', text: 'Finished' }] } });
     expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
   });
+  it('flushes orphaned task output before the final result', async () => {
+    const events = await collect(new MuseExecAdapter({ spawnMuseExec: fakeSpawn([
+      event(1, 'runtime.command.accepted', { command_id: 'cmd-123' }),
+      event(2, 'session.run.linked', { command_id: 'cmd-123', run_stream: { id: 'run-123' } }),
+      event(3, 'task.lifecycle.output', { task_id: 'task-7', event: { kind: 'output', chunk: 'partial tool output' } }),
+      event(4, 'run.terminal.completed', { command_id: 'cmd-123', run_stream: { id: 'run-123' }, terminal: 'completed', text: 'Finished' }),
+    ]) }));
+    expect(events).toContainEqual({ type: 'tool_result', tool_name: 'Muse', content: 'partial tool output' });
+    expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
+  });
   it('accepts adjacent JSON objects from Muse stdout without newline framing', async () => {
     const events = await collect(new MuseExecAdapter({ spawnMuseExec: fakeSpawn(currentRun().join('')) }));
     expect(events).toContainEqual({ type: 'assistant', message: { content: [{ type: 'text', text: 'Finished' }] } });
@@ -196,19 +206,27 @@ describe('MuseExecAdapter', () => {
     const head = [
       record('reconciliation', 1, 'runtime.command.accepted', { command_id: 'cmd-123' }),
       event(2, 'session.run.linked', { command_id: 'cmd-123', run_stream: { id: 'run-123' } }),
-      event(3, 'task.lifecycle.status', { event: { kind: 'status', message: 'opening meta model stream attempt 1/10' } }),
+      event(3, 'tool.result', { kind: 'tool_result', call_id: 'call-1', text: 'wrote 40 bytes' }),
     ].join('\n');
     child.stdout.write(`${head}\n`);
-    // The status notice must surface while the CLI process is still running —
+    // The tool notice must surface while the CLI process is still running —
     // no terminal has arrived and the process has not exited.
     await vi.waitFor(() => {
-      expect(seen.find((item) => item.type === 'tool_result' && /opening meta model stream/.test(item.content))).toBeTruthy();
+      expect(seen.find((item) => item.type === 'tool_result' && /wrote 40 bytes/.test(item.content))).toBeTruthy();
     });
     expect(seen.some((item) => item.type === 'result')).toBe(false);
-    child.stdout.end(`${event(4, 'run.terminal.completed', { command_id: 'cmd-123', run_stream: { id: 'run-123' }, terminal: 'completed', text: 'Finished' })}\n`);
+    // FR-5 emit-first: the status row streams live mid-turn, before any
+    // terminal arrives and while the CLI process is still running.
+    child.stdout.write(`${event(4, 'task.lifecycle.status', { event: { kind: 'status', message: 'opening meta model stream attempt 1/10' } })}\n`);
+    await vi.waitFor(() => {
+      expect(seen.find((item) => item.type === 'tool_result' && /attempt 1\/10/.test(item.content))).toBeTruthy();
+    });
+    expect(seen.some((item) => item.type === 'result')).toBe(false);
+    child.stdout.end(`${event(5, 'run.terminal.completed', { command_id: 'cmd-123', run_stream: { id: 'run-123' }, terminal: 'completed', text: 'Finished' })}\n`);
     child.stderr.end();
     child.emit('exit', 0);
     await pump;
+    expect(seen).toContainEqual({ type: 'tool_result', tool_name: 'Muse', content: 'opening meta model stream attempt 1/10' });
     expect(seen).toContainEqual({ type: 'assistant', message: { content: [{ type: 'text', text: 'Finished' }] } });
     expect(seen.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
   });

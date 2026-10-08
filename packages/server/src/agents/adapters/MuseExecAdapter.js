@@ -115,14 +115,23 @@ export class MuseExecAdapter extends BaseAgent {
       // ignores entries that predate this turn (finding #4).
       const journalBaseline = await snapshotMuseJournalState(museSessionId);
       const terminal = yield* this._stream(spec, env, options.abortController?.signal, mapper);
-      await attachJournalUsage(terminal, museSessionId, journalBaseline);
-      yield* mapper.final(terminal);
+      yield* this._completeTurn(mapper, museSessionId, journalBaseline, terminal);
     } catch (err) {
       yield { type: 'result', subtype: 'error', is_error: true, error: err?.message || 'Muse exec failed.' };
     } finally {
       delete options.__musePromptFile;
       if (promptDir) await rm(promptDir, { recursive: true, force: true });
     }
+  }
+
+  /**
+   * Attach post-turn journal usage, then surface orphaned task output
+   * (FR-8 flush) ahead of the terminal result rows.
+   */
+  async *_completeTurn(mapper, museSessionId, journalBaseline, terminal) {
+    await attachJournalUsage(terminal, museSessionId, journalBaseline);
+    yield* mapper.flush();
+    yield* mapper.final(terminal);
   }
 
   /**
