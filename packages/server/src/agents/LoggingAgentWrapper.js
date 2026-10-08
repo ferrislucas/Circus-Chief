@@ -25,7 +25,8 @@ function extractUsageFromEvent(event) {
 
 /**
  * Decorator that wraps a BaseAgent's execute() to log call start/end/errors.
- * The wrapper is transparent to the consumer -- it yields the same events.
+ * The wrapper is transparent to the consumer -- it yields the same events and
+ * forwards call metadata (including the provider-acceptance observer) untouched.
  */
 export class LoggingAgentWrapper {
   /**

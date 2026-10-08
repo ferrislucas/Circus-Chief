@@ -216,6 +216,37 @@ export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, ca
   }
 }
 
+/**
+ * Revive a lane run and its attached root for one more dispatch attempt after
+ * a definitive pre-acceptance delivery failure (the provider never took the
+ * turn, so no lane work started). The caller must have observed its own
+ * dispatch fail before acceptance; this helper only enforces the structural
+ * shape (failed run, still-attached root, failed obligation) and never
+ * revives superseded/cancelled runs, foreign attachments, or user pauses.
+ * The prior `run_failed` / `own_work_failed` audit rows are preserved; the
+ * revival itself is audited as `run_revived_for_retry`.
+ * @returns {boolean} True when the run and root were reopened
+ */
+export function reviveLaneEntryWorkerForRetry(runId, sessionId) {
+  if (!runId || !sessionId) return false;
+  return databaseManager.transaction(() => {
+    const db = databaseManager.get();
+    const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
+    if (!run || run.status !== 'failed' || run.root_session_id !== sessionId) return false;
+    const member = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
+    if (!member || member.lane_run_id !== runId || member.own_work_state !== 'closed_failed') return false;
+    const time = now();
+    const revivedRun = db.prepare(`UPDATE kanban_lane_runs SET status='open', failure_reason=NULL,
+      failed_at=NULL, cancelled_at=NULL, updated_at=? WHERE id=? AND status='failed'`).run(time, runId);
+    if (revivedRun.changes !== 1) return false;
+    db.prepare(`UPDATE sessions SET own_work_state='open', workflow_reason=NULL, workflow_updated_at=?,
+      execution_state=CASE WHEN execution_state IN ('running', 'retrying') THEN 'idle' ELSE execution_state END
+      WHERE id=? AND lane_run_id=? AND own_work_state='closed_failed'`).run(time, sessionId, runId);
+    audit(db, runId, 'run_revived_for_retry', { sessionId });
+    return true;
+  });
+}
+
 /** Attach the actual on-entry worker as a lane run's root exactly once. */
 export function attachRootSession(runId, sessionId) {
   return databaseManager.transaction(() => {

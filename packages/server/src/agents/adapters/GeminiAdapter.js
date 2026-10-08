@@ -1,4 +1,4 @@
-import { BaseAgent } from '../BaseAgent.js';
+import { BaseAgent, notifyProviderAccepted } from '../BaseAgent.js';
 import { executeGeminiCli } from './geminiCliRunner.js';
 import { composeCliPrompt } from './cliUtils.js';
 import { createGeminiSpawner } from '../../services/geminiSpawnHelper.js';
@@ -71,13 +71,21 @@ export class GeminiAdapter extends BaseAgent {
    * @param {Object} queryParams
    * @yields {Object} Normalized SDK events
    */
-  async *execute(queryParams, _meta) {
+  async *execute(queryParams, meta) {
     const options = queryParams.options || {};
-    yield* this._executeCli(queryParams, options);
+    yield* this._executeCli(queryParams, options, meta);
   }
 
-  _executeCli(queryParams, options) {
+  _executeCli(queryParams, options, meta) {
     const child = this._spawnGeminiChild(queryParams, options);
+    // Acceptance boundary: confirmed subprocess start. A throw above (e.g.
+    // CLI not found) means the provider was never reached — no signal.
+    notifyProviderAccepted(meta, () => ({
+      adapterType: 'gemini',
+      boundary: 'subprocess_start',
+      sessionId: meta?.sessionId,
+      pid: child?.pid,
+    }));
     return executeGeminiCli(child, queryParams, options, markGeminiCliUnavailable);
   }
 

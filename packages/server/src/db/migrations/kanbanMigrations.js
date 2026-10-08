@@ -399,4 +399,17 @@ export const kanbanMigrations = [
       CREATE INDEX IF NOT EXISTS idx_kanban_routing_audit_workspace ON kanban_routing_audit_events(workspace_id, committed_at);`);
     },
   },
+  {
+    name: 'kanban-lane-entry-acceptance-evidence',
+    up(db) {
+      // Durable evidence that the provider accepted a specific dispatch: the
+      // acceptance signal time and the dispatch key it referred to. Written
+      // under the live delivery claim at signal time; matched against the
+      // intent key during the atomic handoff and later reconciliation.
+      // Additive only: historical events keep NULL evidence and stay
+      // conservative (never inferred as accepted).
+      addColumnIfMissing(db, 'kanban_lane_entry_events', 'accepted_at', 'INTEGER');
+      addColumnIfMissing(db, 'kanban_lane_entry_events', 'accepted_dispatch_key', 'TEXT');
+    },
+  },
 ];

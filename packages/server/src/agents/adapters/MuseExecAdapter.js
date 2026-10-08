@@ -3,7 +3,22 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BaseAgent } from '../BaseAgent.js';
+import { BaseAgent, notifyProviderAccepted } from '../BaseAgent.js';
+
+/**
+ * Build the provider-acceptance observer for a turn. The returned callback
+ * fires at confirmed `muse exec` subprocess start — never on the
+ * adapter-synthesized init event, which is local bookkeeping, not provider
+ * evidence.
+ */
+function museAcceptanceNotifier(meta) {
+  return (pid) => notifyProviderAccepted(meta, () => ({
+    adapterType: 'muse',
+    boundary: 'subprocess_start',
+    sessionId: meta?.sessionId,
+    pid,
+  }));
+}
 import { buildMuseHostEnv } from './museHostEnv.js';
 import { filterDeadSshSocketAsync } from '../../services/loginShellEnv.js';
 import { buildMuseExecArgs, MUSE_EXEC_PROMPT_FILE_THRESHOLD } from './museExecArgs.js';
@@ -81,7 +96,7 @@ export class MuseExecAdapter extends BaseAgent {
   getCapabilities() { return { ...MuseExecAdapter.capabilities }; }
   supportsResume() { return true; }
 
-  async *execute(queryParams) {
+  async *execute(queryParams, meta) {
     const options = queryParams.options || {};
     const mapper = createMuseExecEventMapper({ model: options.model });
     // Finding #3: an already-aborted turn must not spawn a billed `muse
@@ -114,7 +129,7 @@ export class MuseExecAdapter extends BaseAgent {
       // Fingerprint the journal before spawn so the post-turn usage read
       // ignores entries that predate this turn (finding #4).
       const journalBaseline = await snapshotMuseJournalState(museSessionId);
-      const terminal = yield* this._stream(spec, env, options.abortController?.signal, mapper);
+      const terminal = yield* this._stream(spec, env, options.abortController?.signal, mapper, museAcceptanceNotifier(meta));
       await attachJournalUsage(terminal, museSessionId, journalBaseline);
       yield* mapper.final(terminal);
     } catch (err) {
@@ -133,7 +148,8 @@ export class MuseExecAdapter extends BaseAgent {
    * An early consumer break terminates the child so no orphan is left behind.
    */
   // eslint-disable-next-line max-statements
-  async *_stream(spec, env, signal, mapper) {
+  // eslint-disable-next-line max-params, max-statements -- the acceptance observer travels with this turn's abort signal and mapper; the lifecycle closure is intentionally co-located
+  async *_stream(spec, env, signal, mapper, onAccepted) {
     let child; let terminal = null; let stdoutClosed = false; let stderrClosed = false; let exited = false; let exitCode = null; let stopped = Boolean(signal?.aborted); let stderr = ''; let mapped = 0;
     // Process lifecycle intentionally keeps all terminal-state reconciliation
     // in one closure so stdout, stderr, exit, timeout, and cancellation share
@@ -141,8 +157,7 @@ export class MuseExecAdapter extends BaseAgent {
     const parser = createMuseExecProtocol({
       onDiagnostic: (diagnostics, message) => logger.error('[MuseExecAdapter] Muse protocol error', { message, diagnostics }),
     });
-    const queue = createEventQueue();
-    const completion = trackCompletion();
+    const queue = createEventQueue(); const completion = trackCompletion();
     // Every settlement wakes the drain loop: whichever of exit/stdout-close/
     // stderr-close completes the lifecycle last must not leave the consumer
     // parked in its wake-up wait with no further events coming.
@@ -198,6 +213,7 @@ export class MuseExecAdapter extends BaseAgent {
     };
     try {
       child = this._spawn(spec.command, spec.args, { cwd: spec.cwd, env, shell: false, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
+      onAccepted?.(child?.pid);
     } catch (err) { cleanup(); throw err; }
     signal?.addEventListener('abort', stop, { once: true });
     child.stdout.on('data', onData);
