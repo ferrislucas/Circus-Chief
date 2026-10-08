@@ -93,6 +93,56 @@ describe('useTiersStore', () => {
       await expect(store.createTier({ name: 'Dup' })).rejects.toThrow('duplicate name');
       expect(store.error).toBe('duplicate name');
     });
+
+    // Finding 4, race A (duplicate): the server publishes catalog
+    // invalidation after committing a create and before returning its
+    // response, so an invalidation-triggered GET applied before the POST
+    // response resolves leaves the new tier already in the store.
+    it('upserts when an invalidation-triggered fetch lands before the create response', async () => {
+      const created = { id: 't-new', name: 'New', members: [] };
+      let resolveCreate;
+      mockApi.createTier.mockImplementation(() => new Promise((r) => { resolveCreate = r; }));
+
+      const store = useTiersStore();
+      const pending = store.createTier({ name: 'New', members: [] });
+      // Invalidation-triggered GET arrives first with the committed tier.
+      store.tiers = [{ ...created }];
+      resolveCreate(created);
+      await pending;
+
+      expect(store.tiers.filter((t) => t.id === 't-new')).toHaveLength(1);
+    });
+
+    // Finding 4, race B (stale overwrite): a pre-mutation GET resolving
+    // after a successful mutation must not drop the committed change.
+    it.each([
+      ['create', (store, record) => store.createTier(record), { id: 't-new', name: 'New', members: [] }],
+      ['update', (store, record) => store.updateTier('t1', record), { id: 't1', name: 'Renamed', members: [] }],
+      ['delete', (store) => store.deleteTier('t1'), null],
+    ])('a stale pre-mutation fetch cannot undo a committed %s', async (_label, mutate, record) => {
+      let resolveFetch;
+      let resolveMutation;
+      mockApi.getTiers.mockImplementationOnce(() => new Promise((r) => { resolveFetch = r; }));
+      const mutationApi = _label === 'create' ? mockApi.createTier
+        : _label === 'update' ? mockApi.updateTier : mockApi.deleteTier;
+      mutationApi.mockImplementationOnce(() => new Promise((r) => { resolveMutation = r; }));
+
+      const store = useTiersStore();
+      store.tiers = [{ id: 't1', name: 'Old', members: [] }];
+      const staleFetch = store.fetchTiers();
+      const pendingMutation = mutate(store, { name: record?.name ?? 'New', members: [] });
+      // The mutation commits first; the pre-mutation GET lands late.
+      resolveMutation(_label === 'delete' ? undefined : record);
+      await pendingMutation;
+      resolveFetch([{ id: 't1', name: 'Old', members: [] }]);
+      await staleFetch;
+
+      if (_label === 'delete') {
+        expect(store.tiers.find((t) => t.id === 't1')).toBeUndefined();
+      } else {
+        expect(store.tiers.find((t) => t.id === record.id)).toEqual(record);
+      }
+    });
   });
 
   describe('updateTier', () => {

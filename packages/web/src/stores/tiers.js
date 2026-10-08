@@ -55,12 +55,29 @@ export const useTiersStore = defineStore('tiers', {
       }
     },
 
+    // Mutations share the fetch revision so a stale in-flight GET cannot
+    // overwrite committed state: the server publishes catalog invalidation
+    // after committing a mutation and before returning its response, so
+    // overlapping reads resolve in either order. Bumping here retires any
+    // GET that started before the mutation committed.
+    bumpFetchRevision() {
+      this.fetchRevision = (this.fetchRevision || 0) + 1;
+    },
+
     async createTier(data) {
       this.loading = true;
       this.error = null;
       try {
         const tier = await api.createTier(data);
-        this.tiers.push(tier);
+        // Identity-based upsert: an invalidation-triggered GET applied
+        // before this response resolves already holds the same id.
+        const index = this.tiers.findIndex((t) => t.id === tier.id);
+        if (index !== -1) {
+          this.tiers[index] = tier;
+        } else {
+          this.tiers.push(tier);
+        }
+        this.bumpFetchRevision();
         return tier;
       } catch (err) {
         this.error = err.message;
@@ -79,6 +96,7 @@ export const useTiersStore = defineStore('tiers', {
         if (index !== -1) {
           this.tiers[index] = updated;
         }
+        this.bumpFetchRevision();
         return updated;
       } catch (err) {
         this.error = err.message;
@@ -94,6 +112,7 @@ export const useTiersStore = defineStore('tiers', {
       try {
         await api.deleteTier(id);
         this.tiers = this.tiers.filter((t) => t.id !== id);
+        this.bumpFetchRevision();
       } catch (err) {
         this.error = err.message;
         throw err;

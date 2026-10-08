@@ -152,6 +152,37 @@ describe('model selector tier helpers', () => {
     expect(resolveDefaultModelId([{ id: 'legacy', models: [{ modelId: 'm-legacy' }] }])).toBe('m-legacy');
   });
 
+  it('never defaults to a Meta/Muse provider (origin/main selected Claude-Code only)', () => {
+    const metaOnly = [
+      {
+        id: 'meta-builtin', kind: 'meta', isBuiltIn: true, enabled: true,
+        models: [{ modelId: 'muse-model', enabled: true }],
+      },
+    ];
+    // No enabled Anthropic provider → null, matching origin/main's
+    // `agentTypeFor(provider) === 'claude-code'` default.
+    expect(resolveDefaultModelId(metaOnly)).toBeNull();
+    // Disabled Anthropic + enabled Meta → still null (Meta never qualifies).
+    expect(resolveDefaultModelId([
+      { id: 'off', kind: 'anthropic', enabled: false, models: [{ modelId: 'm' }] },
+      ...metaOnly,
+    ])).toBeNull();
+  });
+
+  it('prefers an Anthropic provider over an enabled built-in Meta provider', () => {
+    const providers = [
+      {
+        id: 'meta-builtin', kind: 'meta', isBuiltIn: true, enabled: true,
+        models: [{ modelId: 'muse-model', enabled: true }],
+      },
+      {
+        id: 'custom', kind: 'anthropic', enabled: true,
+        models: [{ modelId: 'custom-a', enabled: true }],
+      },
+    ];
+    expect(resolveDefaultModelId(providers)).toBe('custom-a');
+  });
+
   it('describes unresolved, stale, singular, and plural tier bindings', () => {
     const tiersStore = {
       getById: vi.fn((id) => ({

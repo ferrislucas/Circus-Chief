@@ -59,9 +59,23 @@ export function normalizeModelProviderPair(model, providerId) {
  * hardcoding a legacy `'sonnet'` literal that may not exist in the catalog.
  * Returns a concrete model id, or null when no provider qualifies.
  */
+/**
+ * Mirror of ModelSelector's `agentTypeFor` mapping: only Claude-Code-kind
+ * providers (Anthropic, plus legacy rows with a missing `kind`) qualify for
+ * the implicit default. Kept here so the resolver and any future
+ * default-selection callers share one predicate instead of scattering kind
+ * checks across session-init paths.
+ */
+export function agentTypeForProvider(provider) {
+  if (provider?.kind === 'openai') return 'codex';
+  if (provider?.kind === 'google') return 'gemini';
+  if (provider?.kind === 'meta') return 'muse';
+  return 'claude-code';
+}
+
 export function resolveDefaultModelId(providers = []) {
   const candidates = (providers || []).filter(
-    (provider) => provider?.kind !== 'openai' && provider?.kind !== 'google' && provider?.enabled !== false
+    (provider) => agentTypeForProvider(provider) === 'claude-code' && provider?.enabled !== false
   );
   if (candidates.length === 0) return null;
   const preferred = candidates.find((provider) => provider.isBuiltIn) || candidates[0];
