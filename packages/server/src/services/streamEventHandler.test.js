@@ -2669,13 +2669,76 @@ describe('agent-initiated (native) plan mode tracking', () => {
   it('ignores EnterPlanMode forwarded from a subagent (parent_tool_use_id set)', async () => {
     await handleStreamEvent('sess-1', {
       type: 'assistant',
+      parent_tool_use_id: 'tu-parent',
       message: {
-        parent_tool_use_id: 'tu-parent',
         content: [{ type: 'tool_use', id: 'tu-enter-sub', name: 'EnterPlanMode', input: {} }],
       },
     });
 
     expect(sessions.update).not.toHaveBeenCalledWith('sess-1', expect.objectContaining({ agentPermissionMode: 'plan' }));
+  });
+
+  it('does not treat a nested message.parent_tool_use_id as subagent provenance', async () => {
+    // The SDK declares parent_tool_use_id on the assistant-message envelope,
+    // beside `message` — never inside it. A nested field must not suppress
+    // main-thread plan tracking.
+    await handleStreamEvent('sess-1', {
+      type: 'assistant',
+      parent_tool_use_id: null,
+      message: {
+        parent_tool_use_id: 'tu-parent',
+        content: [{ type: 'tool_use', id: 'tu-enter', name: 'EnterPlanMode', input: {} }],
+      },
+    });
+
+    expect(sessions.update).toHaveBeenCalledWith('sess-1', expect.objectContaining({ agentPermissionMode: 'plan' }));
+  });
+
+  it('accepts system(init).permissionMode as the authoritative runtime mode', async () => {
+    sessions.getById.mockReturnValue({ id: 'sess-1', projectId: 'proj-1', agentPermissionMode: 'plan' });
+
+    await handleStreamEvent('sess-1', {
+      type: 'system',
+      subtype: 'init',
+      permissionMode: 'bypassPermissions',
+      model: 'claude-haiku-4-5-20251001',
+      session_id: 'sdk-session-1',
+      slash_commands: [],
+    });
+
+    expect(sessions.update).toHaveBeenCalledWith('sess-1', expect.objectContaining({ agentPermissionMode: 'bypassPermissions' }));
+  });
+
+  it('preserves the persisted mirror when init carries no permissionMode', async () => {
+    sessions.getById.mockReturnValue({ id: 'sess-1', projectId: 'proj-1', agentPermissionMode: 'plan' });
+
+    await handleStreamEvent('sess-1', {
+      type: 'system',
+      subtype: 'init',
+      model: 'claude-haiku-4-5-20251001',
+      session_id: 'sdk-session-1',
+      slash_commands: [],
+    });
+
+    const modeWrites = sessions.update.mock.calls.filter(([, data]) => data && 'agentPermissionMode' in data);
+    expect(modeWrites).toHaveLength(0);
+  });
+
+  it('reconciles a stale plan mirror when a restarted query initializes in the baseline mode', async () => {
+    // Stopping a session while a plan is pending leaves the mirror at 'plan';
+    // the fresh query initializes in the configured baseline instead.
+    sessions.getById.mockReturnValue({ id: 'sess-1', projectId: 'proj-1', mode: 'standard', agentPermissionMode: 'plan' });
+
+    await handleStreamEvent('sess-1', {
+      type: 'system',
+      subtype: 'init',
+      permissionMode: 'default',
+      model: 'claude-haiku-4-5-20251001',
+      session_id: 'sdk-session-2',
+      slash_commands: [],
+    });
+
+    expect(sessions.update).toHaveBeenCalledWith('sess-1', expect.objectContaining({ agentPermissionMode: 'default' }));
   });
 
   it('does not flip mode on ExitPlanMode tool use — approval settles that in promptStore', async () => {

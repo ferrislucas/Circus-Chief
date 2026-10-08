@@ -187,10 +187,14 @@ function handleSystemEvent(sessionId, event) {
     }), toolName);
     return;
   }
-  // SDKStatusMessage.permissionMode is the CLI's authoritative word on
-  // agent-initiated mode transitions (it overrides tool-call inference).
-  // Falls through to the init guard below for status events.
-  if (event.subtype === 'status' && typeof event.permissionMode === 'string' && event.permissionMode) {
+  // The CLI's permissionMode is the authoritative word on agent-initiated
+  // mode transitions (it overrides tool-call inference). SDKSystemMessage
+  // declares it on `init`; SDKStatusMessage carries it optionally on
+  // `status`. A missing field preserves the persisted mirror — only a
+  // reported mode moves it, so a fresh query that initializes in the
+  // configured baseline reconciles a stale `plan` mirror left behind by a
+  // stopped session.
+  if ((event.subtype === 'status' || event.subtype === 'init') && typeof event.permissionMode === 'string' && event.permissionMode) {
     setAgentPermissionMode(sessionId, event.permissionMode);
   }
   // Store Claude's session info
@@ -254,10 +258,12 @@ function handleAssistantEvent(sessionId, event, controller) {
   logToolUseInputs(sessionId, toolUseBlocks);
 
   // Mirror agent-initiated native plan mode; main-thread only (a subagent's
-  // EnterPlanMode is scoped to that subagent — `parent_tool_use_id` marks
-  // forwarded messages). ExitPlanMode is deliberately not tracked: the exit
-  // completes only when the user approves (promptStore settles it).
-  if (event.message?.parent_tool_use_id == null && toolUseBlocks.some((t) => t.name === 'EnterPlanMode')) setAgentPermissionMode(sessionId, 'plan');
+  // EnterPlanMode is scoped to that subagent). The SDK declares
+  // `parent_tool_use_id` on the assistant-message envelope, beside `message`
+  // — never inside it — so provenance is read from the top level.
+  // ExitPlanMode is deliberately not tracked: the exit completes only when
+  // the user approves (promptStore settles it).
+  if (event.parent_tool_use_id == null && toolUseBlocks.some((t) => t.name === 'EnterPlanMode')) setAgentPermissionMode(sessionId, 'plan');
 }
 
 /**

@@ -930,5 +930,69 @@ describe('promptStore plan-kind prompts (ExitPlanMode)', () => {
 
       expect(sessions.update).not.toHaveBeenCalledWith('perm-no-transition', expect.objectContaining({ agentPermissionMode: expect.anything() }));
     });
+
+    describe('subagent plan decisions', () => {
+      it.each([
+        { action: 'allow', startMode: 'plan' },
+        { action: 'allow', startMode: 'default' },
+        { action: 'deny', startMode: 'plan' },
+        { action: 'deny', startMode: null },
+      ])('$action with the parent mirror at $startMode leaves the parent mirror untouched', async ({ action, startMode }) => {
+        const session = { id: 'plan-subagent', projectId: 'proj-1', mode: 'standard', agentPermissionMode: startMode };
+        sessions.getById = vi.fn(() => session);
+        sessions.update = vi.fn((_id, data) => ({ ...session, ...data }));
+
+        const promise = parkPrompt({ sessionId: 'plan-subagent', conversationId: 'conv-1', kind: 'plan', payload: planPayload, agentId: 'subagent-1' });
+        const prompt = getPromptQueue('plan-subagent').at(-1);
+        respondToPrompt('plan-subagent', prompt.id, action === 'allow' ? { action: 'allow' } : { action: 'deny', reason: 'narrow the scope' });
+        await promise;
+
+        const modeWrites = sessions.update.mock.calls.filter(([, data]) => data && 'agentPermissionMode' in data);
+        expect(modeWrites).toHaveLength(0);
+        // The card and decision history are still kept for the subagent prompt.
+        expect(createWorkLog).toHaveBeenCalledWith(
+          'plan-subagent',
+          'tool_output',
+          expect.stringContaining(action === 'allow' ? 'Outcome: approved' : 'Outcome: changes requested'),
+          'ExitPlanMode',
+        );
+      });
+    });
+
+    describe('plan lifecycle teardown outcomes', () => {
+      it('records cancellation as a distinct outcome without feedback and restores the baseline', async () => {
+        const session = { id: 'plan-cancel', projectId: 'proj-1', mode: 'standard', agentPermissionMode: 'plan' };
+        sessions.getById = vi.fn(() => session);
+        sessions.update = vi.fn((_id, data) => ({ ...session, ...data }));
+
+        const { promise } = park('plan-cancel', 'plan', planPayload);
+        cancelPrompt('plan-cancel');
+        const result = await promise;
+
+        expect(result).toMatchObject({ behavior: 'deny', message: 'Session was cancelled.' });
+        expect(createWorkLog).toHaveBeenCalledWith('plan-cancel', 'tool_output', expect.stringContaining('Outcome: cancelled'), 'ExitPlanMode');
+        const logged = createWorkLog.mock.calls.at(-1)[2];
+        expect(logged).toContain('Feedback provided: no');
+        expect(logged).not.toContain('changes requested');
+        // Teardown is not a revision request: the mirror returns to baseline.
+        expect(sessions.update).toHaveBeenCalledWith('plan-cancel', { agentPermissionMode: 'default' });
+      });
+
+      it('records expiry as a distinct outcome without feedback and restores the baseline', async () => {
+        const session = { id: 'plan-expire', projectId: 'proj-1', mode: 'yolo', agentPermissionMode: 'plan' };
+        sessions.getById = vi.fn(() => session);
+        sessions.update = vi.fn((_id, data) => ({ ...session, ...data }));
+
+        const promise = parkPrompt({ sessionId: 'plan-expire', conversationId: 'conv-1', kind: 'plan', payload: planPayload, expiryMs: 5 });
+        const result = await promise;
+
+        expect(result.behavior).toBe('deny');
+        expect(createWorkLog).toHaveBeenCalledWith('plan-expire', 'tool_output', expect.stringContaining('Outcome: expired'), 'ExitPlanMode');
+        const logged = createWorkLog.mock.calls.at(-1)[2];
+        expect(logged).toContain('Feedback provided: no');
+        expect(logged).not.toContain('changes requested');
+        expect(sessions.update).toHaveBeenCalledWith('plan-expire', { agentPermissionMode: 'bypassPermissions' });
+      });
+    });
   });
 });

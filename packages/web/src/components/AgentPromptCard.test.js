@@ -333,4 +333,42 @@ describe('AgentPromptCard plan approval', () => {
     expect(wrapper.find('.plan-body').exists()).toBe(false);
     expect(wrapper.find('.permission-evidence pre').exists()).toBe(true);
   });
+
+  it('renders a non-plan permission tool with a plan field as a generic card, not a plan approval', async () => {
+    const deployPrompt = {
+      id: 'perm-plan-field',
+      kind: 'permission',
+      payload: {
+        toolName: 'Deploy',
+        input: { plan: 'Deployment plan', command: 'deploy --env production', target: 'production' },
+        displayName: 'Deploy',
+        description: 'Run the production deploy',
+      },
+    };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: deployPrompt, onRespond: () => {} } });
+    await flushPromises();
+
+    expect(wrapper.find('.plan-body').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Deploy');
+    expect(wrapper.text()).toContain('Run the production deploy');
+    expect(wrapper.find('.permission-evidence pre').exists()).toBe(true);
+    expect(wrapper.get('button.prompt-primary-action').text()).toBe('Allow once');
+  });
+
+  it('renders a plan-kind prompt from an unexpected tool as a generic card, not a plan approval', async () => {
+    const oddPlan = {
+      id: 'plan-odd-tool',
+      kind: 'plan',
+      payload: {
+        toolName: 'SomethingElse',
+        input: { plan: '# A plan from the wrong tool' },
+        displayName: 'SomethingElse',
+      },
+    };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: oddPlan, onRespond: () => {} } });
+    await flushPromises();
+
+    expect(wrapper.find('.plan-body').exists()).toBe(false);
+    expect(wrapper.find('.permission-evidence pre').exists()).toBe(true);
+  });
 });

@@ -130,9 +130,13 @@
       </footer>
     </template>
 
-    <!-- Plan approval (ExitPlanMode). Falls through to the generic permission
-         card below when the parked input carries no renderable plan. -->
-    <template v-else-if="planContent">
+    <!-- Plan approval (ExitPlanMode). Gated on the plan kind *and* the
+         ExitPlanMode tool: an unrelated permission tool whose input happens
+         to contain a `plan` field must keep its generic card (tool name,
+         description, and normal permission controls). Falls through to the
+         generic permission card below when the parked input carries no
+         renderable plan. -->
+    <template v-else-if="isPlanApproval">
       <div class="permission-intro">
         <h3>Plan ready for review</h3>
         <p v-if="planFilePath" class="plan-file-path">Plan file: <code>{{ planFilePath }}</code></p>
@@ -335,6 +339,16 @@ const planContent = computed(() => {
   const plan = props.prompt?.payload?.input?.plan;
   return typeof plan === 'string' && plan.trim() ? plan : null;
 });
+// Strict plan-approval classification (FR-6): only an ExitPlanMode tool parked
+// as kind 'plan' with renderable plan content gets the plan UI. Anything else
+// — including a permission-kind tool whose input merely contains a `plan`
+// field — keeps the generic card and its normal permission controls, so an
+// approval always authorizes the tool the user actually reviewed.
+const isPlanApproval = computed(() => (
+  props.prompt?.kind === 'plan'
+  && props.prompt?.payload?.toolName === 'ExitPlanMode'
+  && planContent.value != null
+));
 const planFilePath = computed(() => {
   const filePath = props.prompt?.payload?.input?.planFilePath;
   return typeof filePath === 'string' && filePath.trim() ? filePath : null;

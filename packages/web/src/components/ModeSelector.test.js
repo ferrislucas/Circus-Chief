@@ -4,6 +4,7 @@ import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import ModeSelector from './ModeSelector.vue';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 import { useUiStore } from '../stores/ui.js';
 
 const modes = [
@@ -472,5 +473,53 @@ describe('native planning badge', () => {
     const notPlanning = mountBadge({ sessionId: 'sess-2' });
     await flushAll(notPlanning);
     expect(notPlanning.find('.planning-badge').exists()).toBe(false);
+  });
+
+  it('navigates to the pending plan card when the badge is activated', async () => {
+    const sessionsStore = useSessionsStore();
+    sessionsStore.currentSession = { id: 'sess-1', mode: 'yolo', agentPermissionMode: 'plan' };
+    const promptsStore = useSessionPromptsStore();
+    promptsStore.prompts['sess-1'] = {
+      id: 'plan-1',
+      sessionId: 'sess-1',
+      kind: 'plan',
+      payload: { toolName: 'ExitPlanMode', input: { plan: '# the plan' } },
+    };
+
+    const wrapper = mountBadge({ sessionId: 'sess-1' });
+    await flushAll(wrapper);
+
+    const badge = wrapper.find('.planning-badge');
+    expect(badge.element.tagName).toBe('BUTTON');
+
+    const card = document.createElement('section');
+    card.className = 'agent-prompt-card agent-prompt-card--plan';
+    const approve = document.createElement('button');
+    approve.className = 'btn prompt-primary-action';
+    card.appendChild(approve);
+    document.body.appendChild(card);
+    // jsdom does not implement scrollIntoView — stub it on the instance.
+    card.scrollIntoView = vi.fn();
+    const focusSpy = vi.spyOn(approve, 'focus').mockImplementation(() => {});
+    try {
+      await badge.trigger('click');
+      expect(card.scrollIntoView).toHaveBeenCalled();
+      expect(focusSpy).toHaveBeenCalled();
+    } finally {
+      focusSpy.mockRestore();
+      card.remove();
+    }
+  });
+
+  it('keeps the badge non-interactive when no plan card is pending', async () => {
+    const sessionsStore = useSessionsStore();
+    sessionsStore.currentSession = { id: 'sess-1', mode: 'yolo', agentPermissionMode: 'plan' };
+
+    const wrapper = mountBadge({ sessionId: 'sess-1' });
+    await flushAll(wrapper);
+
+    const badge = wrapper.find('.planning-badge');
+    expect(badge.exists()).toBe(true);
+    expect(badge.element.tagName).toBe('SPAN');
   });
 });

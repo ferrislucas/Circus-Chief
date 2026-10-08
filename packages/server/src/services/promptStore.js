@@ -105,14 +105,22 @@ const PLAN_CHANGES_MESSAGE = 'The user requested changes to the plan. Revise the
 
 // A plan approval (allow) completes the CLI's plan-exit protocol: the CLI
 // itself switches the permission mode back to the pre-plan mode. Mirror that
-// transition on the session so the UI "Planning" state clears. A deny keeps
-// the session in plan mode — the model is expected to revise and re-present.
+// transition on the session so the UI "Planning" state clears. A user deny
+// keeps the session in plan mode — the model is expected to revise and
+// re-present. Lifecycle teardown (cancelled/expired) is not a revision
+// request: no plan remains pending, so the mirror returns to baseline.
+// Subagent plan records never touch the parent session's mirror — the card
+// and decision history are kept, but the parent runtime state is the main
+// agent's alone.
 function applyPlanModeTransition(record, outcome) {
-  if (record.kind !== 'plan') return;
+  // Subagent records never move the parent mirror (see above); teardown
+  // outcomes (cancelled/expired) restore the baseline via the same branch
+  // as allow, since no plan remains pending.
+  if (record.kind !== 'plan' || record.agentId != null) return;
   // The pre-plan baseline is whatever permission mode the session was
   // configured with (mode-based mapping in sessionPrompts.js).
   const baseline = getPermissionModeForSession(sessions.getById(record.sessionId)?.mode);
-  setAgentPermissionMode(record.sessionId, outcome === 'allow' ? baseline : 'plan');
+  setAgentPermissionMode(record.sessionId, outcome === 'deny' ? 'plan' : baseline);
 }
 
 // Requests rejected before entering the queue still change the agent's
@@ -170,14 +178,29 @@ function describePromptOutcome(record, outcome, result) {
   if (record.kind === 'plan') {
     // Plan content never enters durable history (the plan itself lives on
     // disk at the planFilePath the CLI manages). Structural facts only.
-    const feedback = typeof result?.message === 'string' && result.message !== PLAN_CHANGES_MESSAGE;
+    // Cancellation and expiry are lifecycle teardown, not user revision
+    // decisions: they keep their own outcomes and never count feedback, so
+    // stopping a session (or letting a prompt expire) cannot masquerade as
+    // "changes requested".
+    if (outcome === 'cancelled' || outcome === 'expired') {
+      return {
+        toolName: 'ExitPlanMode',
+        content: [
+          'Plan decision',
+          `Outcome: ${outcome}`,
+          'Tool: ExitPlanMode',
+          'Feedback provided: no',
+        ].join('\n'),
+      };
+    }
+    const feedback = outcome === 'deny' && typeof result?.message === 'string' && result.message !== PLAN_CHANGES_MESSAGE;
     return {
       toolName: 'ExitPlanMode',
       content: [
         'Plan decision',
         `Outcome: ${outcome === 'allow' ? 'approved' : 'changes requested'}`,
         'Tool: ExitPlanMode',
-        `Feedback provided: ${outcome !== 'allow' && feedback ? 'yes' : 'no'}`,
+        `Feedback provided: ${feedback ? 'yes' : 'no'}`,
       ].join('\n'),
     };
   }
