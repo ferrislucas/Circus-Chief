@@ -3,7 +3,7 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
-import { resolveDispatchProvider, buildSessionEnv } from './sessionProvider.js';
+import { resolveDispatchProvider, resolveDurableProviderId, buildSessionEnv } from './sessionProvider.js';
 import { notifyOwnBindingFallback, resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
 import { buildTierHealthContext } from './tierResolutionService.js';
 import { buildLastExecutedUpdate, checkContinuationDispatchKind, createCrossKindDispatchError, deriveAgentTypeUpdate, hasDispatchPairChanged } from './sessionAgentGuard.js';
@@ -128,12 +128,18 @@ export async function handleAutoSendIfNeeded(sessionId) {
   }
 
   // Clear the auto-send flag and pending prompt BEFORE sending
-  // to prevent double-sends on race conditions
+  // to prevent double-sends on race conditions. The queued model/provider
+  // pair is captured and cleared together: the continuation below dispatches
+  // the exact pair (finding #4), and clearing both halves keeps a consumed
+  // identity from leaking into a later turn.
   const promptToSend = session.pendingPrompt;
   const modelToUse = session.pendingModel || null;
+  const providerToUse = session.pendingProviderId || null;
   const updatedSession = sessions.update(sessionId, {
     autoSendPendingPrompt: false,
     pendingPrompt: null,
+    pendingModel: null,
+    pendingProviderId: null,
   });
 
   // Broadcast the cleared state so the UI updates
@@ -161,7 +167,7 @@ export async function handleAutoSendIfNeeded(sessionId) {
   try {
     const project = projects.getById(session.projectId);
     const systemPrompt = project?.systemPrompt || null;
-    await continueSession(sessionId, promptToSend, session.gitWorktree || project?.workingDirectory, { systemPrompt, model: modelToUse });
+    await continueSession(sessionId, promptToSend, session.gitWorktree || project?.workingDirectory, { systemPrompt, model: modelToUse, providerId: providerToUse });
   } catch (error) {
     console.error(`[AUTO-SEND] Failed to auto-send for session ${sessionId}:`, error);
   }
@@ -272,8 +278,11 @@ function buildModelAndProvider(session, sessionId, model, providerId = null) {
   const { provider } = resolveDispatchProvider(session, model, effectiveModel, providerIdHint);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
-  // The dispatched concrete pair, resolved through the single dispatch rule.
-  const dispatchedProviderId = provider?.id ?? providerIdHint ?? null;
+  // The dispatched concrete pair, resolved through the single dispatch rule —
+  // shared durable identity with sessionContinuation.buildContinueModelAndEnv.
+  const dispatchedProviderId = provider?.id
+    ?? resolveDurableProviderId(effectiveModel, providerIdHint)
+    ?? providerIdHint ?? null;
   const dispatchedPair = { model: effectiveModel, providerId: dispatchedProviderId };
 
   // Visible fallback notice when the own binding silently moved off its

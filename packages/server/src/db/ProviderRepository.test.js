@@ -512,6 +512,150 @@ describe('ProviderRepository', () => {
     });
   });
 
+  // Finding #8 (PR review): deleting a provider must repair each persisted
+  // pair independently. A session currently bound to a surviving provider B
+  // must keep its B binding even when its pending selection or a historical
+  // snapshot names the deleted provider A — and vice versa.
+  describe('delete repairs each provider pair independently (finding #8)', () => {
+    const MODEL_A = 'finding8-independent-a';
+    const MODEL_B = 'finding8-independent-b';
+
+    function seedPairProviders(name) {
+      const providerA = repo.create({ name: `${name} Provider A`, kind: 'anthropic' });
+      repo.addModel(providerA.id, { modelId: MODEL_A, displayName: `${name} A` });
+      const providerB = repo.create({ name: `${name} Provider B`, kind: 'anthropic' });
+      repo.addModel(providerB.id, { modelId: MODEL_B, displayName: `${name} B` });
+      const project = new ProjectRepository().create(name, `/tmp/${name}`);
+      return { providerA, providerB, project };
+    }
+
+    it('keeps a valid current B binding when only the pending selection references deleted A', () => {
+      const { providerA, providerB, project } = seedPairProviders('Finding8 KeepCurrent');
+      const session = new SessionRepository().create(project.id, 'Session', 'prompt', 'standard');
+      new SessionRepository().update(session.id, {
+        model: MODEL_B,
+        providerId: providerB.id,
+        pendingModel: MODEL_A,
+        pendingProviderId: providerA.id,
+      });
+
+      repo.delete(providerA.id);
+
+      expect(new SessionRepository().getById(session.id)).toMatchObject({
+        model: MODEL_B,
+        providerId: providerB.id,
+        pendingModel: null,
+        pendingProviderId: null,
+      });
+      expect(repo.getById(providerB.id)).not.toBeNull();
+    });
+
+    it('keeps a valid pending B selection when only the current binding references deleted A', () => {
+      const { providerA, providerB, project } = seedPairProviders('Finding8 KeepPending');
+      const session = new SessionRepository().create(project.id, 'Session', 'prompt', 'standard');
+      new SessionRepository().update(session.id, {
+        model: MODEL_A,
+        providerId: providerA.id,
+        pendingModel: MODEL_B,
+        pendingProviderId: providerB.id,
+      });
+
+      repo.delete(providerA.id);
+
+      expect(new SessionRepository().getById(session.id)).toMatchObject({
+        model: null,
+        providerId: null,
+        pendingModel: MODEL_B,
+        pendingProviderId: providerB.id,
+      });
+    });
+
+    it('keeps a valid current B binding when resolved and last-executed snapshots reference deleted A', () => {
+      const { providerA, providerB, project } = seedPairProviders('Finding8 KeepSnapshots');
+      const session = new SessionRepository().create(project.id, 'Session', 'prompt', 'standard');
+      new SessionRepository().update(session.id, {
+        model: MODEL_B,
+        providerId: providerB.id,
+        resolvedModel: MODEL_A,
+        resolvedProviderId: providerA.id,
+        lastExecutedModel: MODEL_A,
+        lastExecutedProviderId: providerA.id,
+      });
+
+      repo.delete(providerA.id);
+
+      // The current pair survives; both halves of each stale snapshot clear together.
+      expect(new SessionRepository().getById(session.id)).toMatchObject({
+        model: MODEL_B,
+        providerId: providerB.id,
+        resolvedModel: null,
+        resolvedProviderId: null,
+        lastExecutedModel: null,
+        lastExecutedProviderId: null,
+      });
+    });
+
+    it('keeps a tier binding and its valid provider association when only snapshots reference deleted A', () => {
+      const { providerA, providerB, project } = seedPairProviders('Finding8 TierBinding');
+      const tier = new ModelTierRepository().create({
+        name: 'Finding8 Tier Binding',
+        members: [{ providerId: providerB.id, modelId: MODEL_B, position: 0 }],
+      });
+      const tierRef = buildTierRef(tier.id);
+      const session = new SessionRepository().create(project.id, 'Session', 'prompt', 'standard');
+      new SessionRepository().update(session.id, {
+        model: tierRef,
+        providerId: providerB.id,
+        resolvedModel: MODEL_A,
+        resolvedProviderId: providerA.id,
+        lastExecutedModel: MODEL_A,
+        lastExecutedProviderId: providerA.id,
+      });
+
+      repo.delete(providerA.id);
+
+      expect(new SessionRepository().getById(session.id)).toMatchObject({
+        model: tierRef,
+        providerId: providerB.id,
+        resolvedModel: null,
+        resolvedProviderId: null,
+        lastExecutedModel: null,
+        lastExecutedProviderId: null,
+      });
+    });
+
+    it('leaves rows with no reference to the deleted provider untouched', () => {
+      const { providerA, providerB, project } = seedPairProviders('Finding8 Unrelated');
+      const sessionRepo = new SessionRepository();
+      const unrelated = sessionRepo.create(project.id, 'Unrelated', 'prompt', 'standard');
+      sessionRepo.update(unrelated.id, {
+        model: MODEL_B,
+        providerId: providerB.id,
+        pendingModel: MODEL_B,
+        pendingProviderId: providerB.id,
+        resolvedModel: MODEL_B,
+        resolvedProviderId: providerB.id,
+      });
+      const before = sessionRepo.getById(unrelated.id);
+
+      const degradation = repo.deleteWithDegradation(providerA.id);
+
+      const after = sessionRepo.getById(unrelated.id);
+      expect(after).toMatchObject({
+        model: before.model,
+        providerId: before.providerId,
+        pendingModel: before.pendingModel,
+        pendingProviderId: before.pendingProviderId,
+        resolvedModel: before.resolvedModel,
+        resolvedProviderId: before.resolvedProviderId,
+      });
+      const affectedIds = (degradation ?? []).flatMap((changeSet) =>
+        (changeSet.affectedSessions ?? []).map((entry) => entry.id)
+      );
+      expect(affectedIds).not.toContain(unrelated.id);
+    });
+  });
+
   describe('addModel / getModels', () => {
     it('rejects model IDs that would be parsed as Model Tier references', () => {
       const provider = repo.create({ name: 'Reserved Prefix', kind: 'openai' });

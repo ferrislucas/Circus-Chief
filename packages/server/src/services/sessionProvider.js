@@ -118,6 +118,28 @@ export function resolveProviderMetadataFromModel(modelId, providerId = null) {
 }
 
 /**
+ * Durable provider identity for a dispatched concrete pair — the single rule
+ * shared by initial execution and both continuation paths when recording or
+ * comparing `lastExecutedProviderId`.
+ *
+ * Derived from provider METADATA, independently of the runtime resolver's
+ * null-provider convention for the official Anthropic SDK environment: the
+ * built-in Anthropic provider owns its models for identity purposes even
+ * though dispatch runs it with SDK defaults. An unchanged official dispatch
+ * therefore compares equal across turns and keeps its resume handle; only a
+ * genuine pair change invalidates it.
+ *
+ * @param {string|null} modelId - Dispatched concrete model id.
+ * @param {string|null} [providerIdHint] - Explicit owning provider, if any.
+ * @returns {string|null} The owning provider id, or null when unknowable.
+ */
+export function resolveDurableProviderId(modelId, providerIdHint = null) {
+  const metadata = resolveProviderMetadataFromModel(modelId, providerIdHint);
+  if (metadata?.id) return metadata.id;
+  return resolveProviderFromModel(modelId, providerIdHint)?.id ?? null;
+}
+
+/**
  * Resolve the commit-attribution override for a model field that may be a
  * Model Tier reference (Work Item 5). A raw `tier::<id>` sentinel owns no
  * provider itself — passing it straight to {@link resolveProviderMetadataFromModel}

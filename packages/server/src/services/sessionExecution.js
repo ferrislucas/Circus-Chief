@@ -1,8 +1,8 @@
 import { sessions } from '../database.js';
 import { buildAgentEnv, createAgentForSession } from './sessionAgentConfig.js';
-import { resolveProviderFromModel, resolveProviderMetadataFromModel, resolveTierMemberProvider, buildSessionEnv } from './sessionProvider.js';
+import { resolveProviderFromModel, resolveProviderMetadataFromModel, resolveDurableProviderId, resolveTierMemberProvider, buildSessionEnv } from './sessionProvider.js';
 import { buildLastExecutedUpdate, reconcileAgentTypeForRun, sessionHasNoObservableAgentActivity } from './sessionAgentGuard.js';
-import { beginSessionStart } from './sessionTurnSetup.js';
+import { admitSessionStart } from './sessionTurnSetup.js';
 export { buildQueryParams } from './queryParamBuilder.js';
 import { buildQueryParams } from './queryParamBuilder.js';
 import {
@@ -36,42 +36,10 @@ export { continueSessionCore } from './sessionContinuation.js';
 // so sessionManager.js / sessionContinuation.js / test imports keep working
 // unchanged.
 export { buildAgentEnv, createAgentForSession };
-
-/**
- * Fail a turn whose preparation (ownership registration, conversation/message
- * setup, model resolution, agent construction, query-param building) threw
- * BEFORE provider dispatch — i.e. outside `_executeSession`'s own
- * error/finally boundary. Mirrors `runSessionCore`'s pre-dispatch catch:
- * surfaces a sanitized visible error, moves the session to error status,
- * fails an owned lane obligation instead of stranding it, and releases active
- * state with controller fencing so a newer turn is never erased. Always
- * rethrows so callers still observe the failure.
- *
- * A user stop is not a permanent error: stopSession() already set the status
- * to 'stopped' and paused any open lane obligation, so this path must not
- * overwrite that state or fail the run — it only releases this turn's claim
- * and rethrows. Keep parity with `handleTurnFailure`.
- *
- * @param {Object} args
- * @param {string} args.sessionId
- * @param {AbortController} args.controller - This turn's controller (fencing).
- * @param {unknown} args.error - The preparation failure.
- * @param {boolean} [args.includeConversationId=true] - Whether a conversation
- *   registration may have been created during preparation.
- */
-export function handlePreparationFailure({ sessionId, controller, error, includeConversationId = true }) {
-  if (isUserStopAbort(controller)) {
-    cleanupSessionState(sessionId, includeConversationId, controller);
-    throw error;
-  }
-  const sanitizedError = normalizeFinalErrorMessage(error);
-  sessions.update(sessionId, { status: 'error', error: sanitizedError });
-  broadcastSessionStatus(sessionId, 'error');
-  closeOwnWork(sessionId, 'closed_failed', sanitizedError);
-  cleanupSessionState(sessionId, includeConversationId, controller);
-  throw error;
-}
-
+// handlePreparationFailure lives in sessionTurnSetup.js (the turn-preparation
+// owner); re-exported here so existing `from './sessionExecution.js'`
+// importers keep working unchanged.
+export { handlePreparationFailure } from './sessionTurnSetup.js';
 /**
  * @param {Object} session
  * @param {string|null} model - Explicit model override (e.g. a tier member's modelId), or null to use session.model.
@@ -234,7 +202,7 @@ function withWorkflowTurnToken(queryParams, workflowTurn) {
  * @param {Error} opts.error
  * @returns {Promise<'rethrow'|'rescheduled'|'failed'>}
  */
-async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbacks, controller, broadcastConversationStateOnError, errorLabel, error, interactive }) {
+async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbacks, controller, broadcastConversationStateOnError, errorLabel, error, interactive, notifyUserStopSettled }) {
   const { handleTemplateTriggerIfNeeded } = callbacks;
   if (shouldRethrowForTierFailover(sessionId, error, tierContext)) return 'rethrow';
 
@@ -268,6 +236,10 @@ async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbac
   // structured card never advances past this session.
   if (isUserStopAbort(controller)) {
     pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
+    // The provider generator has settled (this runs only after execute() or
+    // the stream loop rejected), so a rejection during cancellation still
+    // releases the deferred summary path — exactly once per turn.
+    notifyUserStopSettled?.();
   } else {
     closeOwnWork(sessionId, 'closed_failed', error.message, { turnToken: workflowTurn?.turnToken });
   }
@@ -326,7 +298,14 @@ export async function _executeSession({
   tierContext = null,
 }) {
   const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded, onUserStopSettled } = callbacks;
+  // Idempotent: the settled-stop signal must fire exactly once per turn,
+  // whether the provider exited normally (settleAbortedTurn) or rejected
+  // during cancellation (handleTurnFailure's user-stop branch). Callback
+  // errors stay isolated so a failing summary hook cannot fail the turn.
+  let userStopSettledNotified = false;
   const notifyUserStopSettled = () => {
+    if (userStopSettledNotified) return;
+    userStopSettledNotified = true;
     // The provider generator has settled at every call site below (the
     // for-await loop only exits once the adapter iterator has finished, and a
     // `break` awaits its return()), so this is confirmed provider exit — the
@@ -372,6 +351,7 @@ export async function _executeSession({
     const outcome = await handleTurnFailure({
       sessionId, workflowTurn, tierContext, callbacks, controller,
       broadcastConversationStateOnError, errorLabel, error, interactive,
+      notifyUserStopSettled,
     });
     if (outcome === 'rethrow' || outcome === 'failed') throw error;
     if (outcome === 'rescheduled') return { started: true, outcome };
@@ -503,8 +483,12 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
   const controller = abortController || new AbortController();
   if (controller.signal.aborted) return rejectedSessionExecution(sessionId, 'dispatch_aborted');
 
+  // Atomic admission through the shared start boundary (claim before any
+  // mutation; claim conflicts rethrow untouched, other preparation failures
+  // fail the turn explicitly). Both the standard and tier-bound paths enter
+  // through this call.
   const { session, activeConversation, promptWithAttachments } =
-    beginSessionStart(sessionId, prompt, { model, providerId, fileAttachments, controller });
+    admitSessionStart(sessionId, prompt, { model, providerId, fileAttachments, controller });
 
   const startCtx = { session, systemPrompt, activeConversation, controller, callbacks };
 
@@ -574,9 +558,11 @@ async function _runStandardSession(
 
   // Record the durable last-executed identity for the dispatched concrete
   // pair (see sessionContinuation.js). Written only when it differs, so
-  // restarts on an unchanged binding perform no extra write.
+  // restarts on an unchanged binding perform no extra write. Uses the shared
+  // durable identity rule so an official Anthropic dispatch records its real
+  // provider instead of the runtime null-provider SDK convention.
   const startProviderId = effectiveModel
-    ? resolveProviderFromModel(effectiveModel, providerId ?? reconciledSession.providerId)?.id ?? null
+    ? resolveDurableProviderId(effectiveModel, providerId ?? reconciledSession.providerId)
     : null;
   const lastExecutedUpdate = buildLastExecutedUpdate(reconciledSession, effectiveModel, startProviderId);
   if (Object.keys(lastExecutedUpdate).length > 0) {

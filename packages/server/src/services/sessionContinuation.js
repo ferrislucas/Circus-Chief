@@ -1,5 +1,5 @@
 import { sessions, messages, attachments, conversations } from '../database.js';
-import { resolveDispatchProvider, buildSessionEnv } from './sessionProvider.js';
+import { resolveDispatchProvider, resolveDurableProviderId, buildSessionEnv } from './sessionProvider.js';
 import { buildLastExecutedUpdate, checkContinuationDispatchKind, createCrossKindDispatchError, deriveAgentTypeUpdate, hasDispatchPairChanged } from './sessionAgentGuard.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
@@ -114,7 +114,14 @@ function buildContinueModelAndEnv(session, sessionId, model, providerId = null) 
   );
 
   // The dispatched concrete pair, resolved through the single dispatch rule.
-  const dispatchedProviderId = provider?.id ?? providerIdHint ?? null;
+  // Identity follows the shared durable rule: a dispatched provider object
+  // wins (tier-derived pairs always have one), otherwise metadata names the
+  // real owner — including the official Anthropic provider the runtime
+  // resolver deliberately reports as null — keeping the raw-hint fallback
+  // for bindings no catalog entry can name.
+  const dispatchedProviderId = provider?.id
+    ?? resolveDurableProviderId(effectiveModel, providerIdHint)
+    ?? providerIdHint ?? null;
   const dispatchedPair = { model: effectiveModel, providerId: dispatchedProviderId };
 
   // Visible fallback notice when the own binding silently moved off its

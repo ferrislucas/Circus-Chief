@@ -19,11 +19,14 @@ import { buildPromptWithAttachments } from './sessionPrompts.js';
 import {
   activeConversationIds, cleanupSessionState, broadcastSessionStatus,
 } from './streamEventHandler.js';
-import { activeSessions, claimSessionExecution } from './sessionExecutionOwnership.js';
+import { claimSessionExecution, isSessionExecutionConflictError } from './sessionExecutionOwnership.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { closeOwnWork } from './workflowSessionService.js';
+import { normalizeFinalErrorMessage } from './visibleFinalErrorMessage.js';
+import { isUserStopAbort } from './sessionAbort.js';
 
 async function resolveInitialSessionModelEnv(session, model) {
   const effectiveModel = model || session.model;
@@ -205,7 +208,11 @@ export async function prepareContinueTurn({ session, sessionId, content, working
  * @returns {{ session: Object, activeConversation: Object, promptWithAttachments: string }}
  */
 export function beginSessionStart(sessionId, prompt, { model, providerId, fileAttachments, controller }) {
-  activeSessions.set(sessionId, { controller, turnStartedAt: Date.now(), lastEventAt: Date.now() });
+  // Single atomic admission gate, shared by the standard and tier-bound
+  // initial-start paths: a live turn — running or still shutting down after
+  // a Stop — owns the session until its finalizer releases it. Throws a
+  // 409-coded conflict instead of replacing the live controller.
+  claimSessionExecution(sessionId, controller);
 
   // Get the active conversation for this session (created in SessionRepository.create)
   const activeConversation = conversations.ensureActiveConversation(sessionId);
@@ -297,5 +304,62 @@ export async function prepareRunTurn({ session, sessionId, prompt, workingDirect
     // Setup failed before _executeSession took over: release this turn's claim.
     cleanupSessionState(sessionId, false, controller);
     throw error;
+  }
+}
+
+/**
+ * Fail a turn whose preparation (ownership registration, conversation/message
+ * setup, model resolution, agent construction, query-param building) threw
+ * BEFORE provider dispatch — i.e. outside `_executeSession`'s own
+ * error/finally boundary. Surfaces a sanitized visible error, moves the
+ * session to error status, fails an owned lane obligation instead of
+ * stranding it, and releases active state with controller fencing so a newer
+ * turn is never erased. Always rethrows so callers still observe the failure.
+ *
+ * A user stop is not a permanent error: stopSession() already set the status
+ * to 'stopped' and paused any open lane obligation, so this path must not
+ * overwrite that state or fail the run — it only releases this turn's claim
+ * and rethrows.
+ *
+ * @param {Object} args
+ * @param {string} args.sessionId
+ * @param {AbortController} args.controller - This turn's controller (fencing).
+ * @param {unknown} args.error - The preparation failure.
+ * @param {boolean} [args.includeConversationId=true] - Whether a conversation
+ *   registration may have been created during preparation.
+ */
+export function handlePreparationFailure({ sessionId, controller, error, includeConversationId = true }) {
+  if (isUserStopAbort(controller)) {
+    cleanupSessionState(sessionId, includeConversationId, controller);
+    throw error;
+  }
+  const sanitizedError = normalizeFinalErrorMessage(error);
+  sessions.update(sessionId, { status: 'error', error: sanitizedError });
+  broadcastSessionStatus(sessionId, 'error');
+  closeOwnWork(sessionId, 'closed_failed', sanitizedError);
+  cleanupSessionState(sessionId, includeConversationId, controller);
+  throw error;
+}
+
+/**
+ * Admit an initial session start through the shared atomic boundary.
+ * Claims execution ownership before any start mutation (both the standard
+ * and tier-bound start paths enter here), then builds the shared per-start
+ * state.
+ *
+ * A claim conflict is a pure admission rejection — no mutation happened for
+ * this start — so it rethrows untouched, without setting error state,
+ * closing workflow, or cleaning up the live turn. Any other preparation
+ * failure after registration fails the turn explicitly through the shared
+ * preparation-failure path so the session is neither wedged nor stranded.
+ *
+ * @returns {{ session: Object, activeConversation: Object, promptWithAttachments: string }}
+ */
+export function admitSessionStart(sessionId, prompt, { model, providerId, fileAttachments, controller }) {
+  try {
+    return beginSessionStart(sessionId, prompt, { model, providerId, fileAttachments, controller });
+  } catch (error) {
+    if (isSessionExecutionConflictError(error)) throw error;
+    handlePreparationFailure({ sessionId, controller, error, includeConversationId: false });
   }
 }

@@ -117,18 +117,23 @@ function clearSessionProviderReferences(db, scope, providerId, now) {
     `${providerColumn} = CASE WHEN ${providerColumn} = ? THEN NULL ELSE ${providerColumn} END`
   );
   const snapshotArgs = halves.flatMap(() => [providerId, providerId]);
-  // Concrete bindings clear fully; a tier-bound session keeps its tier ref
-  // (the emptied-tier sweep owns that half) but drops the dead provider
-  // association. SQLite evaluates every RHS against the pre-update row, so
-  // snapshots clear atomically with the binding.
+  // Each persisted pair is repaired independently: the current
+  // (model, provider_id) pair clears only when its own provider half names
+  // the deleted provider — a row selected merely through a pending selection
+  // or a historical snapshot keeps its valid current binding. A tier-bound
+  // session keeps its tier ref (the emptied-tier sweep owns that half) but
+  // drops the dead provider association. SQLite evaluates every RHS against
+  // the pre-update row, so snapshots clear atomically with the binding.
   db.prepare(
     `UPDATE sessions
-     SET model = CASE WHEN model LIKE 'tier::%' THEN model ELSE NULL END,
-         provider_id = NULL,
+     SET model = CASE WHEN provider_id = ?
+                     THEN CASE WHEN model LIKE 'tier::%' THEN model ELSE NULL END
+                     ELSE model END,
+         provider_id = CASE WHEN provider_id = ? THEN NULL ELSE provider_id END,
          ${snapshotSets.length > 0 ? `${snapshotSets.join(', ')}, ` : ''}
          updated_at = ?
      ${where}`
-  ).run(...snapshotArgs, now, ...whereArgs);
+  ).run(providerId, providerId, ...snapshotArgs, now, ...whereArgs);
   if (pendingGuarded) {
     db.prepare(
       `UPDATE sessions
