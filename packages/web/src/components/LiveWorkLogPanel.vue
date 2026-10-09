@@ -13,6 +13,7 @@
     </div>
     <div
       v-if="hasContent"
+      ref="logsRef"
       class="live-logs"
       @scroll.passive="handleScroll"
     >
@@ -25,10 +26,12 @@
           v-if="log.type === 'thinking'"
           :content="log.content"
           :timestamp="log.timestamp"
+          :tail="true"
         />
         <CommandBlock
           v-else
           :log="log"
+          :tail="true"
         />
       </div>
       <!-- Streaming partial thinking -->
@@ -39,6 +42,7 @@
         <ThinkingBlock
           :content="partialThinking"
           :streaming="true"
+          :tail="true"
         />
       </div>
     </div>
@@ -46,7 +50,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import ThinkingBlock from './ThinkingBlock.vue';
 import CommandBlock from './CommandBlock.vue';
 import { useWorkLogFollow } from '../composables/useWorkLogFollow.js';
@@ -57,10 +61,11 @@ const props = defineProps({
   showHeader: { type: Boolean, default: true }, // Hide header when shown in parent
 });
 
-// Follow mode lives in the shared composable; the container lookup keeps the
-// original query so behavior is unchanged.
+// Follow mode lives in the shared composable; the container resolves from
+// this panel's own template ref so multiple live panels scroll correctly.
+const logsRef = ref(null);
 const { isNearBottom, handleScroll, scrollToBottom } = useWorkLogFollow({
-  resolveContainer: () => document.querySelector('.live-logs'),
+  resolveContainer: () => logsRef.value,
   watchSources: [() => props.workLogs?.length, () => props.partialThinking],
 });
 

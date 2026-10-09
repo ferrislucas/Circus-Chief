@@ -93,6 +93,7 @@ import { ref, computed } from 'vue';
 
 const props = defineProps({
   log: { type: Object, required: true },
+  tail: { type: Boolean, default: false },
 });
 
 const MAX_LINES = 10;
@@ -109,6 +110,9 @@ const shouldTruncate = computed(() => lineCount.value > MAX_LINES);
 const displayContent = computed(() => {
   if (isExpanded.value || !shouldTruncate.value) {
     return props.log.content;
+  }
+  if (props.tail) {
+    return `...\n${lines.value.slice(-MAX_LINES).join('\n')}`;
   }
   return `${lines.value.slice(0, MAX_LINES).join('\n')  }\n...`;
 });

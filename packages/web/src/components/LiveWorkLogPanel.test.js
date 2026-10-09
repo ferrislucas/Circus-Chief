@@ -26,13 +26,13 @@ async function flushAll(wrapper) {
 const ThinkingBlockStub = {
   name: 'ThinkingBlock',
   template: '<div class="thinking-block-stub">{{ content }}</div>',
-  props: ['content', 'timestamp', 'streaming'],
+  props: ['content', 'timestamp', 'streaming', 'tail'],
 };
 
 const CommandBlockStub = {
   name: 'CommandBlock',
   template: '<div class="command-block-stub">{{ log.content }}</div>',
-  props: ['log'],
+  props: ['log', 'tail'],
 };
 
 describe('LiveWorkLogPanel', () => {
@@ -324,6 +324,24 @@ describe('LiveWorkLogPanel', () => {
       expect(thinkingBlocks.length).toBe(1);
       expect(thinkingBlocks[0].props('content')).toBe('Streaming thought...');
       expect(thinkingBlocks[0].props('streaming')).toBe(true);
+    });
+
+    it('passes tail=true to ThinkingBlock and CommandBlock (live pane)', () => {
+      const wrapper = mountComponent({
+        workLogs: [
+          { id: 1, type: 'thinking', content: 'Thinking content', timestamp: Date.now() },
+          { id: 2, type: 'tool_output', toolName: 'Bash', content: 'output', timestamp: Date.now() },
+        ],
+        partialThinking: 'Streaming thought...',
+      });
+
+      const thinkingBlocks = wrapper.findAllComponents({ name: 'ThinkingBlock' });
+      expect(thinkingBlocks.length).toBe(2);
+      for (const block of thinkingBlocks) {
+        expect(block.props('tail')).toBe(true);
+      }
+      const commandBlock = wrapper.findComponent({ name: 'CommandBlock' });
+      expect(commandBlock.props('tail')).toBe(true);
     });
   });
 });

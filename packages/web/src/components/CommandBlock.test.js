@@ -354,6 +354,73 @@ describe('CommandBlock', () => {
       expect(wrapper.find('.command-pre').text()).toBe(longContent);
       expect(wrapper.find('.show-more-btn').text()).toBe('Show less');
     });
+
+    it('head-truncates long output by default (completed history)', () => {
+      const longContent = Array.from({ length: 20 }, (_, i) => `Line ${i + 1}`).join('\n');
+      const wrapper = mountComponent({
+        type: 'tool_output',
+        toolName: 'Bash',
+        content: longContent,
+        timestamp: Date.now(),
+      });
+
+      const text = wrapper.find('.command-pre').text();
+      expect(text).toContain('Line 1');
+      expect(text).toContain('Line 10');
+      expect(text).not.toContain('Line 20');
+    });
+
+    it('tail-truncates long output when tail is true (live pane)', () => {
+      const longContent = Array.from({ length: 20 }, (_, i) => `Line ${i + 1}`).join('\n');
+      const wrapper = mount(CommandBlock, {
+        props: {
+          log: {
+            type: 'tool_output',
+            toolName: 'Bash',
+            content: longContent,
+            timestamp: Date.now(),
+          },
+          tail: true,
+        },
+      });
+
+      const text = wrapper.find('.command-pre').text();
+      expect(text).toContain('Line 20');
+      expect(text).toContain('Line 11');
+      expect(text).not.toContain('Line 1\n');
+      expect(wrapper.find('.show-more-btn').text()).toContain('Show more');
+    });
+
+    it('shows full content when expanded regardless of tail', async () => {
+      const longContent = Array.from({ length: 20 }, (_, i) => `Line ${i + 1}`).join('\n');
+      const wrapper = mount(CommandBlock, {
+        props: {
+          log: {
+            type: 'tool_output',
+            toolName: 'Bash',
+            content: longContent,
+            timestamp: Date.now(),
+          },
+          tail: true,
+        },
+      });
+
+      await wrapper.find('.show-more-btn').trigger('click');
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.command-pre').text()).toBe(longContent);
+      expect(wrapper.find('.show-more-btn').text()).toBe('Show less');
+    });
+
+    it('defaults tail to false', () => {
+      const wrapper = mountComponent({
+        type: 'tool_output',
+        toolName: 'Bash',
+        content: 'output',
+        timestamp: Date.now(),
+      });
+      expect(wrapper.props('tail')).toBe(false);
+    });
   });
 
   describe('styling classes', () => {
