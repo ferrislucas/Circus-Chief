@@ -1,7 +1,32 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer } from 'http';
+import { createServer as createHttpsServer } from 'https';
+import { execFileSync } from 'child_process';
+import { mkdtempSync, readFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { WebSocketServer } from 'ws';
 import { startServer, prepareBindFailureHandler } from './startup.js';
+
+let hasOpenssl = true;
+try {
+  execFileSync('openssl', ['version'], { stdio: 'ignore' });
+} catch {
+  hasOpenssl = false;
+}
+
+function makeSelfSignedPair() {
+  const dir = mkdtempSync(join(tmpdir(), 'startup-tls-'));
+  const keyPath = join(dir, 'key.pem');
+  const certPath = join(dir, 'cert.pem');
+  execFileSync(
+    'openssl',
+    ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+      '-keyout', keyPath, '-out', certPath, '-subj', '/CN=localhost'],
+    { stdio: 'ignore' }
+  );
+  return { key: readFileSync(keyPath), cert: readFileSync(certPath) };
+}
 
 /**
  * Bind real servers on ephemeral ports (port 0) so these tests assert the
@@ -44,7 +69,7 @@ describe('startServer', () => {
     return server;
   }
 
-  function listen(server, { port = 0 } = {}) {
+  function listen(server, { port = 0, secure = false, selfSigned = false } = {}) {
     return new Promise((resolve, reject) => {
       const onEarlyError = (err) => reject(err);
       server.once('error', onEarlyError);
@@ -52,6 +77,8 @@ describe('startServer', () => {
         port,
         host: server.__testHost || '127.0.0.1',
         isDefaultHost: (server.__testHost || '127.0.0.1') === '127.0.0.1',
+        secure,
+        selfSigned,
       });
       const poll = setInterval(() => {
         if (server.listening) {
@@ -188,6 +215,74 @@ describe('startServer', () => {
       // Our handler must be first in emit order, ahead of ws's forwarding
       // listener. Assert before the error fires: once() removes itself on
       // first call, so afterwards the ordering is no longer observable.
+      expect(server.listeners('error')[0]).toBe(onListenFailure);
+
+      await sawError;
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`failed to bind to 127.0.0.1:${port}`)
+      );
+      expect(exitSpy).toHaveBeenCalledWith(1);
+
+      wss.close();
+      await new Promise((resolve) => blocker.close(resolve));
+    });
+  });
+
+  describe('TLS banner', () => {
+    it.skipIf(!hasOpenssl)('announces https/wss schemes when secure', async () => {
+      const server = createHttpsServer({ ...makeSelfSignedPair() }, () => {});
+      servers.push(server);
+      const bound = await listen(server, { secure: true });
+      expect(logSpy).toHaveBeenCalledWith(`Circus Chief running on https://127.0.0.1:${bound.port}`);
+      expect(logSpy).toHaveBeenCalledWith(`WebSocket available at wss://127.0.0.1:${bound.port}/ws`);
+    });
+
+    it.skipIf(!hasOpenssl)('shows the self-signed notice only for self-signed certs', async () => {
+      const server = createHttpsServer({ ...makeSelfSignedPair() }, () => {});
+      servers.push(server);
+      await listen(server, { secure: true, selfSigned: true });
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('self-signed certificate'));
+
+      const custom = createHttpsServer({ ...makeSelfSignedPair() }, () => {});
+      servers.push(custom);
+      logSpy.mockClear();
+      await listen(custom, { secure: true, selfSigned: false });
+      expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('self-signed certificate'));
+    });
+
+    it('keeps http/ws schemes by default', async () => {
+      const server = makeServer();
+      const bound = await listen(server);
+      expect(logSpy).toHaveBeenCalledWith(`Circus Chief running on http://127.0.0.1:${bound.port}`);
+      expect(logSpy).toHaveBeenCalledWith(`WebSocket available at ws://127.0.0.1:${bound.port}/ws`);
+    });
+
+    it.skipIf(!hasOpenssl)('bind-failure handler still wins over ws-forwarded error on an HTTPS server', async () => {
+      exitSpy.mockImplementation(() => {});
+
+      const blocker = createServer();
+      await new Promise((resolve) => blocker.listen(0, '127.0.0.1', resolve));
+      const { port } = blocker.address();
+
+      const server = createHttpsServer({ ...makeSelfSignedPair() }, () => {});
+      servers.push(server);
+      const { onListenFailure } = prepareBindFailureHandler(server, {
+        port,
+        host: '127.0.0.1',
+      });
+      const wss = new WebSocketServer({ server, path: '/ws' });
+      wss.on('error', () => {});
+
+      const sawError = new Promise((resolve) => server.once('error', resolve));
+      startServer(server, {
+        port,
+        host: '127.0.0.1',
+        isDefaultHost: true,
+        onListenFailure,
+        secure: true,
+      });
+
       expect(server.listeners('error')[0]).toBe(onListenFailure);
 
       await sawError;

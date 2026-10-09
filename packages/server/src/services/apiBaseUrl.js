@@ -9,7 +9,8 @@ import { apiHostFromBind } from '../bindAddress.js';
  * server entry point into CIRCUSCHIEF_HOST after CLI resolution (--host flag
  * or loopback default; no env var), so agent prompt URLs follow the actual
  * bind: dialing `localhost` against a server bound to a specific interface
- * IP would be refused.
+ * IP would be refused. When TLS is enabled the entry point sets
+ * CIRCUSCHIEF_SECURE=1 and the scheme becomes https.
  *
  * @returns {string} The base API URL (e.g. http://localhost:5000)
  */
@@ -17,5 +18,6 @@ export function getApiBaseUrl() {
   if (process.env.CIRCUSCHIEF_API_URL) return process.env.CIRCUSCHIEF_API_URL;
 
   const host = apiHostFromBind(process.env.CIRCUSCHIEF_HOST);
-  return `http://${host}:${process.env.PORT || DEFAULT_SERVER_PORT}`;
+  const scheme = process.env.CIRCUSCHIEF_SECURE === '1' ? 'https' : 'http';
+  return `${scheme}://${host}:${process.env.PORT || DEFAULT_SERVER_PORT}`;
 }
