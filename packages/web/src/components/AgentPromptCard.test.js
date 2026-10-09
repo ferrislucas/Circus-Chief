@@ -282,3 +282,93 @@ describe('AgentPromptCard', () => {
     expect(wrapper.find('.pending-state').text()).toContain('Saving decision');
   });
 });
+
+describe('AgentPromptCard plan approval', () => {
+  const planPrompt = {
+    id: 'plan-1',
+    kind: 'plan',
+    payload: {
+      toolName: 'ExitPlanMode',
+      input: {
+        plan: '# Add the model\n\n1. Edit `types.js`\n2. Add a test',
+        planFilePath: '/home/u/.claude/plans/example.md',
+      },
+      displayName: 'ExitPlanMode',
+    },
+  };
+
+  it('renders the plan as markdown with its file path instead of raw JSON', async () => {
+    const wrapper = mount(AgentPromptCard, { props: { prompt: planPrompt, onRespond: () => {} } });
+    await flushPromises();
+
+    expect(wrapper.get('.plan-body').text()).toContain('Add the model');
+    expect(wrapper.get('.plan-file-path').text()).toContain('/home/u/.claude/plans/example.md');
+    expect(wrapper.find('.permission-evidence pre').exists()).toBe(false);
+    expect(wrapper.get('button.prompt-primary-action').text()).toBe('Approve plan');
+  });
+
+  it('approves via allow without persisting a decision client-side', async () => {
+    const onRespond = vi.fn();
+    const wrapper = mount(AgentPromptCard, { props: { prompt: planPrompt, onRespond } });
+    await wrapper.get('button.prompt-primary-action').trigger('click');
+
+    expect(onRespond).toHaveBeenCalledWith({ action: 'allow' });
+  });
+
+  it('requests changes with optional feedback as a deny with reason', async () => {
+    const onRespond = vi.fn();
+    const wrapper = mount(AgentPromptCard, { props: { prompt: planPrompt, onRespond } });
+    await wrapper.get('.deny-action').trigger('click');
+    await wrapper.get('.deny-reason input').setValue('Trim the scope');
+    await wrapper.get('.deny-reason .btn').trigger('click');
+
+    expect(onRespond).toHaveBeenCalledWith({ action: 'deny', reason: 'Trim the scope' });
+  });
+
+  it('falls back to the generic permission card when the parked input has no plan content', async () => {
+    const barePlan = { id: 'plan-bare', kind: 'plan', payload: { toolName: 'ExitPlanMode', input: {}, displayName: 'ExitPlanMode' } };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: barePlan, onRespond: () => {} } });
+    await flushPromises();
+
+    expect(wrapper.find('.plan-body').exists()).toBe(false);
+    expect(wrapper.find('.permission-evidence pre').exists()).toBe(true);
+  });
+
+  it('renders a non-plan permission tool with a plan field as a generic card, not a plan approval', async () => {
+    const deployPrompt = {
+      id: 'perm-plan-field',
+      kind: 'permission',
+      payload: {
+        toolName: 'Deploy',
+        input: { plan: 'Deployment plan', command: 'deploy --env production', target: 'production' },
+        displayName: 'Deploy',
+        description: 'Run the production deploy',
+      },
+    };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: deployPrompt, onRespond: () => {} } });
+    await flushPromises();
+
+    expect(wrapper.find('.plan-body').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Deploy');
+    expect(wrapper.text()).toContain('Run the production deploy');
+    expect(wrapper.find('.permission-evidence pre').exists()).toBe(true);
+    expect(wrapper.get('button.prompt-primary-action').text()).toBe('Allow once');
+  });
+
+  it('renders a plan-kind prompt from an unexpected tool as a generic card, not a plan approval', async () => {
+    const oddPlan = {
+      id: 'plan-odd-tool',
+      kind: 'plan',
+      payload: {
+        toolName: 'SomethingElse',
+        input: { plan: '# A plan from the wrong tool' },
+        displayName: 'SomethingElse',
+      },
+    };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: oddPlan, onRespond: () => {} } });
+    await flushPromises();
+
+    expect(wrapper.find('.plan-body').exists()).toBe(false);
+    expect(wrapper.find('.permission-evidence pre').exists()).toBe(true);
+  });
+});

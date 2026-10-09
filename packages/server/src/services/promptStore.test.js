@@ -805,3 +805,212 @@ describe('promptStore bounded lifecycle', () => {
     await Promise.all(parked.map(({ promise }) => promise));
   });
 });
+
+describe('promptStore plan-kind prompts (ExitPlanMode)', () => {
+  const planPayload = {
+    toolName: 'ExitPlanMode',
+    input: { plan: '# The plan\n\n1. Change types.js', planFilePath: '/home/u/.claude/plans/plan.md', allowedPrompts: [] },
+    displayName: 'ExitPlanMode',
+  };
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it('allow echoes the tool input and parses as a valid CLI permission result', async () => {
+    const { promise, prompt } = park('plan-allow', 'plan', planPayload);
+
+    expect(respondToPrompt('plan-allow', prompt.id, { action: 'allow' })).toBe(true);
+    const result = await promise;
+
+    expect(result).toMatchObject({ behavior: 'allow', updatedInput: planPayload.input });
+    expect(() => CLI_PERMISSION_RESULT_SCHEMA.parse(result)).not.toThrow();
+  });
+
+  it('deny with feedback carries the feedback into the deny message and parses against the CLI schema', async () => {
+    const { promise, prompt } = park('plan-deny-feedback', 'plan', planPayload);
+
+    expect(respondToPrompt('plan-deny-feedback', prompt.id, { action: 'deny', reason: 'trim scope to the catalog entry' })).toBe(true);
+    const result = await promise;
+
+    expect(result.behavior).toBe('deny');
+    expect(result.message).toContain('trim scope to the catalog entry');
+    expect(() => CLI_PERMISSION_RESULT_SCHEMA.parse(result)).not.toThrow();
+  });
+
+  it('deny without feedback defaults to a revise-and-represent message, not a flat denial', async () => {
+    const { promise, prompt } = park('plan-deny-default', 'plan', planPayload);
+
+    expect(respondToPrompt('plan-deny-default', prompt.id, { action: 'deny' })).toBe(true);
+    const result = await promise;
+
+    expect(result.behavior).toBe('deny');
+    expect(result.message).toMatch(/requested changes to the plan/i);
+    expect(result.message).toMatch(/ExitPlanMode/);
+  });
+
+  it('rejects always_allow for plan kind', () => {
+    const { prompt } = park('plan-no-always', 'plan', planPayload);
+
+    expect(respondToPrompt('plan-no-always', prompt.id, { action: 'always_allow' })).toBeNull();
+  });
+
+  it('persists a structural plan decision without any plan content', async () => {
+    const { promise, prompt } = park('plan-audit', 'plan', planPayload);
+
+    respondToPrompt('plan-audit', prompt.id, { action: 'allow' });
+    await promise;
+
+    expect(createWorkLog).toHaveBeenCalledWith('plan-audit', 'tool_output', expect.stringContaining('Outcome: approved'), 'ExitPlanMode');
+    const logged = createWorkLog.mock.calls.at(-1)[2];
+    expect(logged).not.toContain('# The plan');
+    expect(logged).not.toContain('types.js');
+  });
+
+  describe('native plan-mode transition', () => {
+    it('allow restores the session baseline permission mode and broadcasts SESSION_UPDATED', async () => {
+      const session = { id: 'plan-transition-allow', projectId: 'proj-1', mode: 'yolo', agentPermissionMode: 'plan' };
+      sessions.getById = vi.fn(() => session);
+      sessions.update = vi.fn((_id, data) => ({ ...session, ...data }));
+
+      const { promise, prompt } = park('plan-transition-allow', 'plan', planPayload);
+      respondToPrompt('plan-transition-allow', prompt.id, { action: 'allow' });
+      await promise;
+
+      expect(sessions.update).toHaveBeenCalledWith('plan-transition-allow', { agentPermissionMode: 'bypassPermissions' });
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'plan-transition-allow',
+        WS_MESSAGE_TYPES.SESSION_UPDATED,
+        expect.objectContaining({ sessionId: 'plan-transition-allow', session: expect.objectContaining({ agentPermissionMode: 'bypassPermissions' }) }),
+      );
+    });
+
+    it('deny (re-)asserts native plan mode when the mirror drifted', async () => {
+      // EnterPlanMode was never observed here (e.g. status event missed), so
+      // the deny must still pin the session to 'plan': the model is expected
+      // to revise and re-present.
+      const session = { id: 'plan-transition-deny', projectId: 'proj-1', mode: 'standard', agentPermissionMode: null };
+      sessions.getById = vi.fn(() => session);
+      sessions.update = vi.fn((_id, data) => ({ ...session, ...data }));
+
+      const { promise, prompt } = park('plan-transition-deny', 'plan', planPayload);
+      respondToPrompt('plan-transition-deny', prompt.id, { action: 'deny' });
+      await promise;
+
+      expect(sessions.update).toHaveBeenCalledWith('plan-transition-deny', { agentPermissionMode: 'plan' });
+    });
+
+    it('is a no-op when the mirrored mode is already correct (no broadcast churn)', async () => {
+      const session = { id: 'plan-transition-noop', projectId: 'proj-1', mode: 'standard', agentPermissionMode: 'default' };
+      sessions.getById = vi.fn(() => session);
+      sessions.update = vi.fn((_id, data) => ({ ...session, ...data }));
+
+      const { promise, prompt } = park('plan-transition-noop', 'plan', planPayload);
+      respondToPrompt('plan-transition-noop', prompt.id, { action: 'allow' });
+      await promise;
+
+      // parkPrompt/settle legitimately broadcast SESSION_UPDATED for the
+      // pendingAgentInput badge; the no-op guarantee is that neither the
+      // write nor any broadcast announces a *changed* agentPermissionMode.
+      expect(sessions.update).not.toHaveBeenCalledWith('plan-transition-noop', expect.objectContaining({ agentPermissionMode: expect.anything() }));
+      const modeBroadcasts = broadcastToSession.mock.calls.filter(
+        ([channel, type]) => channel === 'plan-transition-noop' && type === WS_MESSAGE_TYPES.SESSION_UPDATED,
+      );
+      for (const [, , payload] of modeBroadcasts) {
+        expect(payload.session.agentPermissionMode).toBe('default');
+      }
+    });
+
+    it('does not touch session mode for non-plan kinds', async () => {
+      const session = { id: 'perm-no-transition', projectId: 'proj-1', mode: 'standard', agentPermissionMode: null };
+      sessions.getById = vi.fn(() => session);
+      sessions.update = vi.fn((_id, data) => ({ ...session, ...data }));
+
+      const { promise, prompt } = park('perm-no-transition', 'permission');
+      respondToPrompt('perm-no-transition', prompt.id, { action: 'allow' });
+      await promise;
+
+      expect(sessions.update).not.toHaveBeenCalledWith('perm-no-transition', expect.objectContaining({ agentPermissionMode: expect.anything() }));
+    });
+
+    describe('subagent plan decisions', () => {
+      it.each([
+        { action: 'allow', startMode: 'plan' },
+        { action: 'allow', startMode: 'default' },
+        { action: 'deny', startMode: 'plan' },
+        { action: 'deny', startMode: null },
+      ])('$action with the parent mirror at $startMode leaves the parent mirror untouched', async ({ action, startMode }) => {
+        const session = { id: 'plan-subagent', projectId: 'proj-1', mode: 'standard', agentPermissionMode: startMode };
+        sessions.getById = vi.fn(() => session);
+        sessions.update = vi.fn((_id, data) => ({ ...session, ...data }));
+
+        const promise = parkPrompt({ sessionId: 'plan-subagent', conversationId: 'conv-1', kind: 'plan', payload: planPayload, agentId: 'subagent-1' });
+        const prompt = getPromptQueue('plan-subagent').at(-1);
+        respondToPrompt('plan-subagent', prompt.id, action === 'allow' ? { action: 'allow' } : { action: 'deny', reason: 'narrow the scope' });
+        await promise;
+
+        const modeWrites = sessions.update.mock.calls.filter(([, data]) => data && 'agentPermissionMode' in data);
+        expect(modeWrites).toHaveLength(0);
+        // The card and decision history are still kept for the subagent prompt.
+        expect(createWorkLog).toHaveBeenCalledWith(
+          'plan-subagent',
+          'tool_output',
+          expect.stringContaining(action === 'allow' ? 'Outcome: approved' : 'Outcome: changes requested'),
+          'ExitPlanMode',
+        );
+      });
+    });
+
+    describe('plan lifecycle teardown outcomes', () => {
+      it('records cancellation as a distinct outcome without feedback and restores the baseline', async () => {
+        const session = { id: 'plan-cancel', projectId: 'proj-1', mode: 'standard', agentPermissionMode: 'plan' };
+        sessions.getById = vi.fn(() => session);
+        sessions.update = vi.fn((_id, data) => ({ ...session, ...data }));
+
+        const { promise } = park('plan-cancel', 'plan', planPayload);
+        cancelPrompt('plan-cancel');
+        const result = await promise;
+
+        expect(result).toMatchObject({ behavior: 'deny', message: 'Session was cancelled.' });
+        expect(createWorkLog).toHaveBeenCalledWith('plan-cancel', 'tool_output', expect.stringContaining('Outcome: cancelled'), 'ExitPlanMode');
+        const logged = createWorkLog.mock.calls.at(-1)[2];
+        expect(logged).toContain('Feedback provided: no');
+        expect(logged).not.toContain('changes requested');
+        // Teardown is not a revision request: the mirror returns to baseline.
+        expect(sessions.update).toHaveBeenCalledWith('plan-cancel', { agentPermissionMode: 'default' });
+      });
+
+      it('records expiry as a distinct outcome without feedback and preserves the plan mirror', async () => {
+        // A still-running main-agent query in native plan mode leaves an
+        // ExitPlanMode prompt unanswered until the timer fires (no abort).
+        // Expiry settles the SDK callback but proves nothing about the
+        // runtime: the CLI keeps running constrained to planning, so the
+        // mirror must stay 'plan' until an authoritative status event moves it.
+        const session = { id: 'plan-expire', projectId: 'proj-1', mode: 'yolo', agentPermissionMode: 'plan' };
+        sessions.getById = vi.fn(() => session);
+        sessions.update = vi.fn((_id, data) => ({ ...session, ...data }));
+
+        const promise = parkPrompt({ sessionId: 'plan-expire', conversationId: 'conv-1', kind: 'plan', payload: planPayload, expiryMs: 5 });
+        const result = await promise;
+
+        expect(result).toEqual({ behavior: 'deny', message: 'This approval request expired. Please continue without it.' });
+        expect(getPrompt('plan-expire')).toBeNull();
+        expect(createWorkLog).toHaveBeenCalledWith('plan-expire', 'tool_output', expect.stringContaining('Outcome: expired'), 'ExitPlanMode');
+        const logged = createWorkLog.mock.calls.at(-1)[2];
+        expect(logged).toContain('Feedback provided: no');
+        expect(logged).not.toContain('changes requested');
+        expect(logged).not.toContain('# The plan');
+        // The pending card is gone but the mirror is untouched: no write
+        // moves agentPermissionMode, and no SESSION_UPDATED claims a mode
+        // transition (pending-input badge traffic still carries 'plan').
+        const modeWrites = sessions.update.mock.calls.filter(([, data]) => data && 'agentPermissionMode' in data);
+        expect(modeWrites).toHaveLength(0);
+        const modeBroadcasts = broadcastToSession.mock.calls.filter(
+          ([channel, type]) => channel === 'plan-expire' && type === WS_MESSAGE_TYPES.SESSION_UPDATED,
+        );
+        expect(modeBroadcasts.length).toBeGreaterThan(0);
+        for (const [, , payload] of modeBroadcasts) {
+          expect(payload.session.agentPermissionMode).toBe('plan');
+        }
+      });
+    });
+  });
+});

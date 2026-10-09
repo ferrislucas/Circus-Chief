@@ -1,0 +1,79 @@
+{
+  "prompt": "E2E demo: enter plan mode and present a plan for approval.",
+  "model": "claude-haiku-4-5-20251001",
+  "gatedToolCalls": [
+    {
+      "toolName": "ExitPlanMode",
+      "afterEventIndex": 3,
+      "input": {
+        "plan": "# Demo plan\n\n1. Add a `greeting` constant to `config/demo.js`\n2. Export it from the package index",
+        "planFilePath": "/tmp/e2e-plans/demo-greeting.md",
+        "allowedPrompts": [
+          { "tool": "Bash", "prompt": "run unit tests with yarn" }
+        ]
+      },
+      "opts": {
+        "toolUseID": "toolu_demo_exit_plan_1",
+        "agentID": null,
+        "title": "Exit plan mode?",
+        "displayName": "ExitPlanMode",
+        "description": "Present the plan and start implementing.",
+        "suggestions": []
+      },
+      "result": {
+        "behavior": "allow"
+      }
+    }
+  ],
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "e2e-demo-plan-approval",
+      "model": "claude-haiku-4-5-20251001"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          { "type": "tool_use", "id": "toolu_demo_enter_plan_1", "name": "EnterPlanMode", "input": {} }
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_demo_exit_plan_1",
+            "name": "ExitPlanMode",
+            "input": {
+              "plan": "# Demo plan\n\n1. Add a `greeting` constant to `config/demo.js`\n2. Export it from the package index",
+              "planFilePath": "/tmp/e2e-plans/demo-greeting.md",
+              "allowedPrompts": [
+                { "tool": "Bash", "prompt": "run unit tests with yarn" }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          { "type": "text", "text": "Plan approved. Added the greeting constant." }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "result": "Plan approved. Added the greeting constant."
+    }
+  ],
+  "key": "runSession-288612ed345934a3",
+  "recordedAt": "2026-09-11T00:00:00.000Z"
+}

@@ -60,6 +60,9 @@ export class SessionRepository extends BaseRepository {
       slashCommands: row.slash_commands || null,
       // Agent runtime driving this session (fallback to 'claude-code' for legacy rows).
       agentType: row.agent_type || DEFAULT_AGENT_TYPE,
+      // CLI permission mode the agent switched itself into (e.g. 'plan' after
+      // EnterPlanMode). null = no agent-initiated mode transition observed.
+      agentPermissionMode: row.agent_permission_mode || null,
       ...mapTokenUsage(row),
       ...mapScheduling(row),
       // Kanban fields

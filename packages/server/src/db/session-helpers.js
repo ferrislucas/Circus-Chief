@@ -200,6 +200,10 @@ export const DIRECT_FIELD_MAP = {
   executionState: 'execution_state',
   subtreeOutcome: 'subtree_outcome',
   agentType: 'agent_type',
+  // Agent-initiated (native) plan mode mirror. Server-managed only
+  // (promptStore/streamEventHandler); intentionally absent from the PATCH
+  // allowlist so clients cannot set it.
+  agentPermissionMode: 'agent_permission_mode',
 };
 
 /** camelCase -> snake_case column mapping for boolean fields (converted to 1/0) */
