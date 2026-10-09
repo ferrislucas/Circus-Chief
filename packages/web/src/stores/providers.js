@@ -12,6 +12,12 @@ export const useProvidersStore = defineStore('providers', {
     error: null,
     testingConnection: false,
     testResult: null,
+    // Finding 9: explicit success/failure signal for the last fetch. The
+    // fetch resolves with cached data even on failure (existing callers
+    // depend on that), so refresh consumers (useCatalogInvalidation) cannot
+    // tell a successful refresh from a failure without this flag. Null until
+    // the first fetch settles.
+    lastFetchSucceeded: null,
   }),
 
   getters: {
@@ -47,9 +53,13 @@ export const useProvidersStore = defineStore('providers', {
         if (request !== this.fetchRevision) return providers;
         this.providers = providers;
         this.loaded = true;
+        this.lastFetchSucceeded = true;
         return providers;
       } catch (err) {
-        if (request === this.fetchRevision) this.error = err.message;
+        if (request === this.fetchRevision) {
+          this.error = err.message;
+          this.lastFetchSucceeded = false;
+        }
         return this.providers;
       } finally {
         if (request === this.fetchRevision) this.loading = false;

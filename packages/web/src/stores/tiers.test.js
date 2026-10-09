@@ -71,6 +71,41 @@ describe('useTiersStore', () => {
       expect(store.tiers).toEqual([{ id: 'new', name: 'New', members: [] }]);
       expect(store.loaded).toBe(true);
     });
+
+    it('reports success so refresh consumers can tell cached data from a fresh fetch', async () => {
+      // Isolate mock state both ways: earlier tests queue Once
+      // implementations that clearAllMocks does not drain, and this test's
+      // stubs must not leak into later tests either.
+      mockApi.getTiers.mockReset();
+      mockApi.getTiers.mockResolvedValue([{ id: 't1', name: 'High', members: [] }]);
+
+      const store = useTiersStore();
+      await store.fetchTiers();
+
+      expect(store.lastFetchSucceeded).toBe(true);
+      mockApi.getTiers.mockReset();
+    });
+
+    it('reports failure while still returning cached data to existing callers', async () => {
+      mockApi.getTiers.mockReset();
+      mockApi.getTiers
+        .mockResolvedValueOnce([{ id: 't1', name: 'High', members: [] }])
+        .mockRejectedValueOnce(new Error('offline'));
+
+      const store = useTiersStore();
+      // Perform every stubbed call before asserting: an early red assertion
+      // must not leak an unconsumed Once implementation into later tests.
+      await store.fetchTiers();
+      const afterSuccess = store.lastFetchSucceeded;
+      const cached = await store.fetchTiers();
+      const afterFailure = store.lastFetchSucceeded;
+
+      expect(afterSuccess).toBe(true);
+      expect(cached).toEqual([{ id: 't1', name: 'High', members: [] }]);
+      expect(afterFailure).toBe(false);
+      expect(store.tiers).toEqual([{ id: 't1', name: 'High', members: [] }]);
+      mockApi.getTiers.mockReset();
+    });
   });
 
   describe('createTier', () => {

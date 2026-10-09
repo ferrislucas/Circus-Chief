@@ -1923,3 +1923,207 @@ describe('finding #3 — settled user stops notify on exceptional provider exit'
     expect(activeSessions.has(session.id)).toBe(false);
   });
 });
+
+// ── Finding 12: user cancellation takes precedence over startup failover ────
+// Stop a tier startup before observable activity; the winding-down provider
+// rejects with an eligible capacity error (quota/503) rather than AbortError.
+// The successor adapter must never be invoked, no failover notice or retry may
+// be produced, work settles as user-paused/cancelled, and the deferred
+// Stop-summary notification fires exactly once after provider settlement.
+
+describe('finding 12 — stop preempts startup tier failover', () => {
+  let sessionRepo;
+  let projectRepo;
+  let tempDir;
+
+  const callbacksFor = (events) => ({
+    handleTemplateTriggerIfNeeded: async () => {},
+    handleAutoSendIfNeeded: async () => false,
+    onUserStopSettled: (settledId) => {
+      events.push(settledId);
+    },
+  });
+
+  function gatedQuotaRejectingAgent({ entered, release }) {
+    return {
+      // eslint-disable-next-line require-yield -- gated rejection before any provider event
+      execute: vi.fn(async function* () {
+        entered();
+        await new Promise((resolve, reject) => {
+          release({ resolve, reject });
+        });
+        throw Object.assign(
+          new Error("You've hit your usage limit. Please upgrade to continue."),
+          { status: 429 }
+        );
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+  }
+
+  function successAgent(calls) {
+    return {
+      execute: vi.fn(async function* () {
+        calls.push('executed');
+        yield { type: 'system', subtype: 'init', session_id: 'finding12-ok', model: 'finding12', slash_commands: [] };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'successor response' }] } };
+        yield { type: 'result', subtype: 'success' };
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+  }
+
+  async function createTierBoundSession(tag) {
+    const provider1 = modelProviders.create({ name: `Finding12 ${tag} P1`, kind: 'anthropic' });
+    const provider2 = modelProviders.create({ name: `Finding12 ${tag} P2`, kind: 'anthropic' });
+    modelProviders.addModel(provider1.id, { modelId: `finding12-${tag}-m1`, displayName: 'M1' });
+    modelProviders.addModel(provider2.id, { modelId: `finding12-${tag}-m2`, displayName: 'M2' });
+    const tier = modelTiers.create({
+      name: `Finding12 ${tag} Tier`,
+      members: [
+        { providerId: provider1.id, modelId: `finding12-${tag}-m1`, position: 0 },
+        { providerId: provider2.id, modelId: `finding12-${tag}-m2`, position: 1 },
+      ],
+    });
+    const project = projectRepo.create(`Finding12 ${tag} Project`, tempDir);
+    const session = sessionRepo.create(project.id, `Finding12 ${tag}`, 'Initial prompt', 'standard');
+    sessionRepo.update(session.id, { model: buildTierRef(tier.id) });
+    return { session, provider1, provider2 };
+  }
+
+  beforeEach(() => {
+    mockQuery.mockClear();
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding12-stop-'));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const [sessionId] of activeSessions) {
+      activeSessions.delete(sessionId);
+    }
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('never dispatches the successor when the cancelled provider rejects with an eligible quota error', async () => {
+    const { session, provider1 } = await createTierBoundSession('cancelled-quota');
+    const events = [];
+    let signalEntered;
+    const entered = new Promise((resolve) => { signalEntered = resolve; });
+    let releaseAttempt;
+    const released = new Promise((resolve) => { releaseAttempt = resolve; });
+    const firstAgent = gatedQuotaRejectingAgent({
+      entered: () => signalEntered(),
+      release: (hooks) => releaseAttempt(hooks),
+    });
+    const successorCalls = [];
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValueOnce(firstAgent)
+      .mockReturnValue(successAgent(successorCalls));
+
+    const run = runSessionCore(session.id, 'Initial prompt', tempDir, {
+      options: {},
+      callbacks: callbacksFor(events),
+    });
+    await entered;
+    await stopSession(session.id);
+    const hooks = await released;
+    hooks.resolve();
+    const outcome = await run.then(() => 'resolved', (error) => error);
+    createAgentSpy.mockRestore();
+
+    // The original capacity error propagates (existing cancellation contract),
+    // but nothing failed over: no successor dispatch, no cooldown, no retry.
+    expect(outcome?.message ?? outcome).toMatch(/usage limit/);
+    expect(successorCalls).toEqual([]);
+    const { isUnhealthy } = await import('./tierResolutionService.js');
+    expect(isUnhealthy(provider1.id, 'finding12-cancelled-quota-m1')).toBe(false);
+    // User-paused settlement, deferred summary exactly once, ownership released.
+    expect(sessionRepo.getById(session.id).status).toBe('stopped');
+    expect(events).toEqual([session.id]);
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+
+  it('settles as cancelled when the provider rejects with AbortError after Stop', async () => {
+    const { session } = await createTierBoundSession('abort-error');
+    const events = [];
+    let signalEntered;
+    const entered = new Promise((resolve) => { signalEntered = resolve; });
+    let releaseAttempt;
+    const released = new Promise((resolve) => { releaseAttempt = resolve; });
+    const abortAgent = {
+      // eslint-disable-next-line require-yield -- gated rejection before any provider event
+      execute: vi.fn(async function* () {
+        signalEntered();
+        await new Promise((resolve, reject) => {
+          releaseAttempt({ resolve, reject });
+        });
+        const abortError = new Error('The operation was aborted');
+        abortError.name = 'AbortError';
+        throw abortError;
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+    const successorCalls = [];
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValueOnce(abortAgent)
+      .mockReturnValue(successAgent(successorCalls));
+
+    const run = runSessionCore(session.id, 'Initial prompt', tempDir, {
+      options: {},
+      callbacks: callbacksFor(events),
+    });
+    await entered;
+    await stopSession(session.id);
+    const hooks = await released;
+    hooks.resolve();
+    const outcome = await run.then(() => 'resolved', (error) => error);
+    createAgentSpy.mockRestore();
+
+    expect(outcome?.message ?? outcome).toMatch(/aborted/i);
+    expect(successorCalls).toEqual([]);
+    expect(sessionRepo.getById(session.id).status).toBe('stopped');
+    expect(events).toEqual([session.id]);
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+
+  it('still advances startup failover for the same capacity error without cancellation', async () => {
+    const { session, provider2 } = await createTierBoundSession('no-cancel');
+    const events = [];
+    const failingAgent = {
+      // eslint-disable-next-line require-yield -- immediate startup failure before any provider event
+      execute: vi.fn(async function* () {
+        throw Object.assign(
+          new Error("You've hit your usage limit. Please upgrade to continue."),
+          { status: 429 }
+        );
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+    const successorCalls = [];
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValueOnce(failingAgent)
+      .mockReturnValue(successAgent(successorCalls));
+
+    await runSessionCore(session.id, 'Initial prompt', tempDir, {
+      options: {},
+      callbacks: callbacksFor(events),
+    });
+    createAgentSpy.mockRestore();
+
+    // Eligible, non-cancelled startup failure still fails over transparently.
+    expect(successorCalls).toEqual(['executed']);
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe('finding12-no-cancel-m2');
+    expect(updated.resolvedProviderId).toBe(provider2.id);
+    expect(updated.status).not.toBe('error');
+    expect(events).toEqual([]);
+  });
+});

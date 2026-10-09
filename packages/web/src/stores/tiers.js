@@ -14,6 +14,12 @@ export const useTiersStore = defineStore('tiers', {
     // deleted, while allowing the last deleted tier to become visibly stale.
     loaded: false,
     error: null,
+    // Finding 9: explicit success/failure signal for the last fetch. The
+    // fetch resolves with cached data even on failure (existing callers
+    // depend on that), so refresh consumers (useCatalogInvalidation) cannot
+    // tell a successful refresh from a failure without this flag. Null until
+    // the first fetch settles.
+    lastFetchSucceeded: null,
   }),
 
   getters: {
@@ -46,9 +52,13 @@ export const useTiersStore = defineStore('tiers', {
         if (request !== this.fetchRevision) return tiers;
         this.tiers = tiers;
         this.loaded = true;
+        this.lastFetchSucceeded = true;
         return tiers;
       } catch (err) {
-        if (request === this.fetchRevision) this.error = err.message;
+        if (request === this.fetchRevision) {
+          this.error = err.message;
+          this.lastFetchSucceeded = false;
+        }
         return this.tiers;
       } finally {
         if (request === this.fetchRevision) this.loading = false;

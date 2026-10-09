@@ -39,6 +39,7 @@ import { validateAndFetchContinueContext } from './sessionContinuation.js';
 import { cancelPrompt } from './promptStore.js';
 import { clearPendingWakeup } from './scheduleWakeupBridge.js';
 import { abortForUserStop } from './sessionAbort.js';
+import { clearTierAttemptMember } from './tierMemberPin.js';
 // Import execution helpers from sessionExecution.js
 import {
   createAgentForSession,
@@ -162,6 +163,13 @@ export async function handleAutoSendIfNeeded(sessionId) {
   // 2. cleanupSessionState just deletes Map entries (all idempotent)
   // 3. The finally block's redundant call is a harmless no-op
   cleanupSessionState(sessionId);
+
+  // Finding 11: the originating attempt is complete — retire its tier-attempt
+  // registration BEFORE the continuation dispatches. Otherwise the
+  // continuation's durable activity still finds the stale member registered
+  // and pins the new tier binding to the previous member, and the outer
+  // success snapshot overwrites the continuation's identity on unwind.
+  clearTierAttemptMember(sessionId);
 
   // Send the queued prompt (reuses existing continueSession logic)
   try {

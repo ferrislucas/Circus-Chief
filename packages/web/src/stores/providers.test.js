@@ -49,6 +49,38 @@ describe('useProvidersStore — Phase 5 kind wiring', () => {
 
       expect(store.providers).toEqual([{ id: 'new', name: 'New' }]);
     });
+
+    it('reports success so refresh consumers can tell cached data from a fresh fetch', async () => {
+      mockApi.getProviders.mockReset();
+      mockApi.getProviders.mockResolvedValue([{ id: 'p1', name: 'P1' }]);
+
+      const store = useProvidersStore();
+      await store.fetchProviders();
+
+      expect(store.lastFetchSucceeded).toBe(true);
+      mockApi.getProviders.mockReset();
+    });
+
+    it('reports failure while still returning cached data to existing callers', async () => {
+      mockApi.getProviders.mockReset();
+      mockApi.getProviders
+        .mockResolvedValueOnce([{ id: 'p1', name: 'P1' }])
+        .mockRejectedValueOnce(new Error('offline'));
+
+      const store = useProvidersStore();
+      // Perform every stubbed call before asserting: an early red assertion
+      // must not leak an unconsumed Once implementation into later tests.
+      await store.fetchProviders();
+      const afterSuccess = store.lastFetchSucceeded;
+      const cached = await store.fetchProviders();
+      const afterFailure = store.lastFetchSucceeded;
+
+      expect(afterSuccess).toBe(true);
+      expect(cached).toEqual([{ id: 'p1', name: 'P1' }]);
+      expect(afterFailure).toBe(false);
+      expect(store.providers).toEqual([{ id: 'p1', name: 'P1' }]);
+      mockApi.getProviders.mockReset();
+    });
   });
 
   describe('createProvider', () => {

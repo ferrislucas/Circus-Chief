@@ -42,7 +42,7 @@ vi.mock('./summaryService.js', () => ({
 import { continueSession, runSession } from './sessionManager.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
-import { modelProviders, modelTiers, agentCallLogs, workLogs } from '../database.js';
+import { modelProviders, modelTiers, agentCallLogs, workLogs, sessions } from '../database.js';
 import { clearUnhealthy, isUnhealthy, markUnhealthy } from './tierResolutionService.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { BaseAgent } from '../agents/BaseAgent.js';
@@ -1787,5 +1787,222 @@ describe('stale frozen member at a startup attempt (finding 5)', () => {
     const updated = sessionRepo.getById(session2.id);
     expect(updated.resolvedModel).toBe(SHARED_MODEL);
     expect(updated.resolvedProviderId).toBe(providerB.id);
+  });
+});
+
+// ── Finding 11: auto-send must not let a stale attempt corrupt continuation identity ──
+//
+// Start tier A on member A; queue auto-send with tier B and a distinct member
+// B on a compatible provider kind. A completes; B's continuation resolves and
+// dispatches correctly — but B's durable activity must pin B, not the stale
+// attempt-A registration that is still open while A's outer execution unwinds.
+// A's late success snapshot must likewise not overwrite B.
+
+function finding11SuccessStream() {
+  return async function* () {
+    yield { type: 'system', subtype: 'init', session_id: 'finding11-ok', model: 'finding11', slash_commands: [] };
+    yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+    yield { type: 'result', subtype: 'success' };
+  };
+}
+
+describe('auto-send keeps the newly selected tier identity (finding 11)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let tierA;
+  let tierB;
+  let tierARef;
+  let tierBRef;
+  let observedDuringB;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+    observedDuringB = null;
+    let calls = 0;
+    mockQuery.mockImplementation(async function* () {
+      calls += 1;
+      const thisCall = calls;
+      yield { type: 'system', subtype: 'init', session_id: 'finding11-ok', model: 'finding11', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: `reply ${thisCall}` }] } };
+      // The generator resumes here only after the consumer persisted the
+      // assistant event above — so this observes identity DURING B's activity.
+      if (thisCall === 2) {
+        const row = sessionRepo.getById(session.id);
+        observedDuringB = {
+          model: row.model,
+          resolvedModel: row.resolvedModel,
+          resolvedProviderId: row.resolvedProviderId,
+          lastExecutedModel: row.lastExecutedModel,
+          lastExecutedProviderId: row.lastExecutedProviderId,
+        };
+      }
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding11-autosend-'));
+    const project = projectRepo.create('Finding11 Project', tempDir);
+
+    // Distinct provider accounts on a compatible (anthropic) kind so account
+    // misattribution is observable and no cross-kind guard interferes.
+    providerA = modelProviders.create({ name: 'Finding11 A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Finding11 B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'finding11-model-a', displayName: 'A' });
+    modelProviders.addModel(providerB.id, { modelId: 'finding11-model-b', displayName: 'B' });
+
+    tierA = modelTiers.create({
+      name: 'Finding11 Tier A',
+      members: [{ providerId: providerA.id, modelId: 'finding11-model-a', position: 0 }],
+    });
+    tierB = modelTiers.create({
+      name: 'Finding11 Tier B',
+      members: [{ providerId: providerB.id, modelId: 'finding11-model-b', position: 0 }],
+    });
+    tierARef = buildTierRef(tierA.id);
+    tierBRef = buildTierRef(tierB.id);
+
+    session = sessionRepo.create(project.id, 'Finding11 Session', 'Initial prompt', 'standard');
+    sessionRepo.update(session.id, { model: tierARef });
+    // Queue auto-send with tier B BEFORE the start: completion dispatches the
+    // continuation while A's outer attempt registration is still open.
+    sessions.update(session.id, {
+      autoSendPendingPrompt: true,
+      pendingPrompt: 'Follow-up via auto-send',
+      pendingModel: tierBRef,
+      pendingProviderId: providerB.id,
+    });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("pins B's identity during B's activity and keeps it after A's execution unwinds", async () => {
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    // During B's activity the session already carries B in every identity field.
+    expect(observedDuringB).toMatchObject({
+      model: tierBRef,
+      resolvedModel: 'finding11-model-b',
+      resolvedProviderId: providerB.id,
+      lastExecutedModel: 'finding11-model-b',
+      lastExecutedProviderId: providerB.id,
+    });
+
+    // A's late success snapshot must not overwrite B after unwind.
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe(tierBRef);
+    expect(updated.resolvedModel).toBe('finding11-model-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    expect(updated.lastExecutedModel).toBe('finding11-model-b');
+    expect(updated.lastExecutedProviderId).toBe(providerB.id);
+  });
+
+  it('routes a subsequent model-less follow-up to B, never back to A', async () => {
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+
+    mockQuery.mockClear();
+    mockQuery.mockImplementation(finding11SuccessStream());
+    await continueSession(session.id, 'Another question', tempDir, {});
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('finding11-model-b');
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+  });
+});
+
+describe('tier attempt ownership (finding 11 unit)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let tierARef;
+  let tierBRef;
+
+  beforeEach(async () => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+    const { registerTierAttemptMember: _r, clearTierAttemptMember: _c } = await import('./tierMemberPin.js');
+    expect(typeof _r).toBe('function');
+    expect(typeof _c).toBe('function');
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding11-ownership-'));
+    const project = projectRepo.create('Finding11 Ownership Project', tempDir);
+    providerA = modelProviders.create({ name: 'Finding11 Own A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Finding11 Own B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'finding11-own-a', displayName: 'A' });
+    modelProviders.addModel(providerB.id, { modelId: 'finding11-own-b', displayName: 'B' });
+    const tierA = modelTiers.create({
+      name: 'Finding11 Own Tier A',
+      members: [{ providerId: providerA.id, modelId: 'finding11-own-a', position: 0 }],
+    });
+    const tierB = modelTiers.create({
+      name: 'Finding11 Own Tier B',
+      members: [{ providerId: providerB.id, modelId: 'finding11-own-b', position: 0 }],
+    });
+    tierARef = buildTierRef(tierA.id);
+    tierBRef = buildTierRef(tierB.id);
+    session = sessionRepo.create(project.id, 'Finding11 Ownership', 'prompt', 'standard');
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('stale cleanup for an older attempt cannot clear a successor registration', async () => {
+    const { registerTierAttemptMember, clearTierAttemptMember, pinTierMemberOnDurableActivity } =
+      await import('./tierMemberPin.js');
+    sessionRepo.update(session.id, { model: tierBRef });
+    const staleToken = registerTierAttemptMember(
+      session.id, { modelId: 'finding11-own-a', providerId: providerA.id }, { tierRef: tierARef }
+    );
+    registerTierAttemptMember(
+      session.id, { modelId: 'finding11-own-b', providerId: providerB.id }, { tierRef: tierBRef }
+    );
+    clearTierAttemptMember(session.id, staleToken);
+    // The successor registration survived: durable activity still pins B.
+    expect(pinTierMemberOnDurableActivity(session.id)).toBe(true);
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe('finding11-own-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    clearTierAttemptMember(session.id);
+  });
+
+  it('durable activity for a superseded tier never overwrites the current binding', async () => {
+    const { registerTierAttemptMember, clearTierAttemptMember, pinTierMemberOnDurableActivity } =
+      await import('./tierMemberPin.js');
+    // The session moved on to tier B; a late event from attempt A arrives.
+    sessionRepo.update(session.id, {
+      model: tierBRef,
+      resolvedModel: 'finding11-own-b',
+      resolvedProviderId: providerB.id,
+      lastExecutedModel: 'finding11-own-b',
+      lastExecutedProviderId: providerB.id,
+    });
+    registerTierAttemptMember(
+      session.id, { modelId: 'finding11-own-a', providerId: providerA.id }, { tierRef: tierARef }
+    );
+    expect(pinTierMemberOnDurableActivity(session.id)).toBe(false);
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe('finding11-own-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    clearTierAttemptMember(session.id);
   });
 });

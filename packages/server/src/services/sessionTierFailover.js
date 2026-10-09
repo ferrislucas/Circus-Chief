@@ -4,14 +4,11 @@ import {
   sessionHasNoAssistantMessages,
   sessionHasNoObservableAgentActivity,
 } from './sessionAgentGuard.js';
-import { parseTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { parseTierRef } from '@circuschief/shared';
 import {
   getTierMembersResolved,
-  markUnhealthy,
   isUnhealthy,
 } from './tierResolutionService.js';
-import { matchesStartFailoverEligibleError } from './sessionErrors.js';
-import { broadcastToSession } from '../websocket.js';
 import { buildQueryParams } from './queryParamBuilder.js';
 import { activeSessions } from './sessionExecutionOwnership.js';
 import {
@@ -19,52 +16,22 @@ import {
   resolveInitialSessionModelEnv,
   _executeSession,
 } from './sessionExecution.js';
-import { agentCallLogger } from './agentCallLogger.js';
-import { resolveAgentTypeFromModel } from './sessionProvider.js';
-import { sanitizeTierFailureReason } from './tierFailureReason.js';
-import { TierIdentityError } from './tierIdentity.js';
 import { redactUrlCredentials } from './errorSanitizer.js';
+import { isUserStopAbort } from './sessionAbort.js';
 import { createTierCooldownUnavailableError } from './tierCooldownUnavailableError.js';
 import {
   clearTierAttemptMember,
   pinSessionToTierMember,
   registerTierAttemptMember,
 } from './tierMemberPin.js';
+import {
+  ModelTierExhaustedError,
+  classifyAttemptFailure,
+  throwTerminalStreamFailure,
+} from './tierAttemptOutcome.js';
 
 export { sanitizeTierFailureReason } from './tierFailureReason.js';
-
-const terminalStreamFailures = new WeakMap();
-
-function throwTerminalStreamFailure(execution) {
-  if (execution?.outcome !== 'failed') return;
-  terminalStreamFailures.set(execution.error, {
-    observableActivityBeforeError: execution.observableActivityBeforeTerminalError,
-  });
-  throw execution.error;
-}
-
-function recordTierAttemptFailure(error, {
-  sessionId, member, nextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
-}) {
-  const resolvedNextMember = classifyTierMemberFailure(error, {
-    sessionId,
-    member,
-    nextMember,
-    tierRef,
-    tierName,
-    // Terminal stream handling records its visible error before returning
-    // control here. Preserve the pre-attempt boundary only when the provider
-    // had not produced any activity before its result:error; otherwise the
-    // durable tool/output activity must block replay of the prompt.
-    preConversationOverride: terminalStreamFailures.get(error)?.observableActivityBeforeError
-      ? false
-      : (terminalStreamFailures.has(error) ? wasPreActivity : undefined),
-  });
-  attempts.push({ providerId: member.providerId, modelId: member.modelId, reason: sanitizeTierFailureReason(error) });
-  // No successor means this was the terminal real attempt. Do not emit a
-  // fake from/to notice; report the complete ordered exhaustion instead.
-  if (!resolvedNextMember) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
-}
+export { ModelTierExhaustedError } from './tierAttemptOutcome.js';
 
 /**
  * Execute a single attempt with a concrete (model, providerId) pair.
@@ -140,53 +107,6 @@ async function attemptRunWithModel(
   });
 }
 
-/**
- * Handle a failed tier-member attempt.
- *
- * When the failure is failover-eligible (a start-only service/token error before
- * the conversation has produced any assistant output) and another healthy member
- * exists, marks the member unhealthy, emits a failover event and returns so the
- * caller can advance to the next member. Otherwise rethrows the original error
- * (without emitting a failover event — there is nothing to fail over *to*, so
- * the existing error/auto-reschedule handling, already applied upstream in
- * `_executeSession`, is the correct terminal behavior).
- *
- * @param {Error} error
- * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string }} ctx
- */
-function classifyTierMemberFailure(error, { sessionId, member, nextMember, tierRef, tierName, preConversationOverride }) {
-  // Use the tighter failover-specific matcher (Fix 4) to avoid spurious failover
-  // on non-quota errors (e.g. "Unexpected token in JSON" contains "token").
-  const isEligible = matchesStartFailoverEligibleError(error);
-  const isPreActivity = preConversationOverride ?? sessionHasNoObservableAgentActivity(sessionId);
-
-  // Non-eligible error (auth, bad request, abort) or mid-conversation — don't advance
-  if (!isEligible || !isPreActivity) {
-    throw error;
-  }
-
-  // Every retryable provider failure contributes to the shared cooldown,
-  // including the terminal member. Otherwise a fully unavailable tier (and
-  // especially a single-member tier) is hammered again by every new session.
-  markUnhealthy(member.providerId, member.modelId);
-
-  // There IS a next healthy, attemptable member — emit the failover event.
-  if (nextMember) emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember });
-  return nextMember;
-}
-
-export class ModelTierExhaustedError extends Error {
-  constructor({ tierId, tierName, attempts }) {
-    const rendered = attempts.map(({ providerId, modelId, reason }) => `${providerId}/${modelId} — ${reason}`).join('; ');
-    super(`Model tier "${tierName}" could not start the session. Attempts: ${rendered}.`);
-    this.name = 'ModelTierExhaustedError';
-    this.code = 'MODEL_TIER_EXHAUSTED';
-    this.tierId = tierId;
-    this.tierName = tierName;
-    this.attempts = attempts;
-  }
-}
-
 function resolveAttemptableTierMembers(tierId, tierName) {
   const configuredMembers = getTierMembersResolved(tierId);
   if (configuredMembers.length === 0) throw new Error(`No members configured for tier "${tierName}" — cannot start session`);
@@ -197,56 +117,6 @@ function resolveAttemptableTierMembers(tierId, tierName) {
   }
   return attemptableMembers;
 }
-/**
- * Emit the tier-failover side effects (WebSocket broadcast + agent-call log entry)
- * once a member has been confirmed as an eligible failure with a healthy successor.
- * Both the WebSocket payload and the agent-log entry are built from the SAME
- * `nextMember` value computed once by `handleTierMemberFailure` (Fix 5) — they
- * cannot disagree.
- *
- * @param {Error} error
- * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string, nextMember: Object }} ctx
- */
-function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember }) {
-  const reason = sanitizeTierFailureReason(error);
-  console.log(
-    `[SessionManager] Tier failover: member ${member.modelId} (provider ${member.providerId}) failed; marking unhealthy and advancing to ${nextMember.modelId}`
-  );
-
-  // Emit failover event via WebSocket — only fires when we're actually advancing.
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.TIER_FAILOVER, {
-    sessionId,
-    tierRef,
-    tierName,
-    fromModel: member.modelId,
-    fromProviderId: member.providerId,
-    toModel: nextMember.modelId,
-    toProviderId: nextMember.providerId,
-    reason,
-    timestamp: Date.now(),
-  });
-
-  // Write the failover event to the agent log stream (F26)
-  try {
-    agentCallLogger._logFailoverEvent(sessionId, {
-      fromModel: member.modelId,
-      fromProviderId: member.providerId,
-      toModel: nextMember.modelId,
-      toProviderId: nextMember.providerId,
-      tierRef,
-      tierName,
-      reason,
-      // Derive the source member's agent type from its OWN providerId (Fix 1 /
-      // Issue 4) instead of assuming 'claude-code' or looking it up by modelId
-      // alone — a failover away from a Codex/Gemini member (possibly sharing a
-      // modelId with an Anthropic member) must log its own agent type.
-      agentType: resolveAgentTypeFromModel(member.modelId, member.providerId),
-    });
-  } catch (_logErr) {
-    // Non-fatal — failover proceeds even if logging fails
-  }
-}
-
 /**
  * Snapshot the member whose turn succeeded (Fix 5 / Fix 3).
  *
@@ -274,12 +144,15 @@ function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, ne
  * @param {string} tierRef
  * @param {{ modelId: string, providerId: string }} member
  */
-function snapshotSuccessfulMember(sessionId, tierRef, member) {
+function snapshotSuccessfulMember(sessionId, tierRef, member, attemptToken) {
   const currentSession = sessions.getById(sessionId);
   const wasRescheduled = currentSession?.status === 'scheduled';
   const didRun = !sessionHasNoAssistantMessages(sessionId);
   if (!wasRescheduled || didRun) {
-    pinSessionToTierMember(sessionId, member);
+    // Finding 11: scope the late write to the originating tier binding and
+    // attempt — a stale completion unwinding after an auto-send handoff (or a
+    // newer execution) must not overwrite newer identity.
+    pinSessionToTierMember(sessionId, member, { tierRef, attemptToken });
   }
 }
 
@@ -295,6 +168,15 @@ async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDir
   member, nextMember, memberIndex, controller, tierRef, tierId, tierName, attempts,
   systemPrompt, activeConversation, callbacks,
 }) {
+  // Finding 12: user cancellation takes precedence over startup failover —
+  // never (re-)register active ownership or dispatch a successor adapter
+  // after Stop. Adapters must not be responsible for preventing a new call
+  // on an aborted controller. The abort propagates under the existing
+  // cancellation contract — never tier exhaustion, a capacity failure, or a
+  // successful completion.
+  if (isUserStopAbort(controller)) {
+    throw controller.signal.reason || new Error('Session execution was aborted');
+  }
   const tierContext = {
     currentMemberId: member.modelId,
     currentMemberProviderId: member.providerId,
@@ -318,8 +200,10 @@ async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDir
   // Attribute this attempt's stream activity to the exact member producing
   // it: the first durable activity persisted during the attempt pins the
   // session to `member`, even if the turn later ends in a terminal error.
-  // Overwritten per attempt so only the running member can pin.
-  registerTierAttemptMember(sessionId, member);
+  // Overwritten per attempt so only the running member can pin. Scoped to
+  // the originating tier binding with an attempt token (finding 11) so a
+  // stale attempt can neither pin nor be wiped by another attempt's cleanup.
+  const attemptToken = registerTierAttemptMember(sessionId, member, { tierRef });
 
   const wasPreActivity = sessionHasNoObservableAgentActivity(sessionId);
   try {
@@ -334,49 +218,34 @@ async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDir
     // A rejected dispatch (e.g. lane-run ownership lost before the provider
     // call) never reached this member's provider, so it is neither a success
     // to snapshot nor a failure to fail over from — surface it verbatim.
-    if (execution && !execution.started) return { settled: true, execution };
+    if (execution && !execution.started) return { settled: true, execution, attemptToken };
 
     // A provider may close its iterator normally after emitting result:error,
     // and automatic retry scheduling also intentionally returns normally.
     // Neither outcome is a successful member resolution. A reschedule ends
     // this start without a snapshot; a terminal stream failure enters the
     // same classification/exhaustion path as an iterator rejection.
-    if (execution?.outcome === 'rescheduled') return { settled: true, execution };
+    if (execution?.outcome === 'rescheduled') return { settled: true, execution, attemptToken };
     throwTerminalStreamFailure(execution);
 
-    snapshotSuccessfulMember(sessionId, tierRef, member);
-    return { settled: true, execution }; // done
+    snapshotSuccessfulMember(sessionId, tierRef, member, attemptToken);
+    return { settled: true, execution, attemptToken }; // done
   } catch (error) {
-    // Finding 5: the frozen member went stale between the loop-start freeze
-    // and its attempt boundary (provider deleted/disabled, model removed or
-    // renamed) — resolveInitialSessionModelEnv rejected the exact identity
-    // instead of re-routing by model id or to SDK defaults. The member is
-    // UNAVAILABLE: cool it, record the attempt, and advance only when a
-    // successor exists AND no durable activity happened yet. Replaying the
-    // prompt to a different member after observable activity is forbidden, so
-    // a post-activity stale member surfaces terminally; with no successor the
-    // run exhausts like any other fully-failed tier.
-    if (error instanceof TierIdentityError) {
-      markUnhealthy(member.providerId, member.modelId);
-      attempts.push({
-        providerId: member.providerId,
-        modelId: member.modelId,
-        reason: sanitizeTierFailureReason(error),
-      });
-      if (nextMember && wasPreActivity) {
-        emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember });
-        return { settled: false }; // advance to the next member
-      }
-      if (!wasPreActivity) throw error;
-      throw new ModelTierExhaustedError({ tierId, tierName, attempts });
+    // Finding 12: settle user cancellation before failover classification,
+    // member-health reporting, or successor dispatch — including the
+    // identity-error branch below. A Stop-aborted attempt whose provider
+    // rejects with an eligible capacity error lands as user-paused/cancelled
+    // (settled upstream in handleTurnFailure); it must neither cool the
+    // member nor advance the loop.
+    if (isUserStopAbort(controller)) {
+      clearTierAttemptMember(sessionId, attemptToken);
+      throw error;
     }
-    // Non-eligible and mid-conversation errors must retain their original
-    // protocol. Eligible startup failures are recorded exactly once.
-    recordTierAttemptFailure(error, {
+    classifyAttemptFailure(error, {
       sessionId, member, nextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
     });
   }
-  return { settled: false }; // advance to the next member
+  return { settled: false, attemptToken }; // advance to the next member
 }
 
 /**
@@ -407,6 +276,11 @@ export async function runSessionWithTierFailover(
 
   const attempts = [];
   let attemptedAny = false;
+  // Finding 11: the token of the most recent attempt registration. The loop
+  // exit clears only that registration — a stale outer `finally` unwinding
+  // after a successor (auto-send continuation, newer execution) registered
+  // itself must never wipe the successor's ownership.
+  let latestAttemptToken = null;
   try {
     for (let memberIndex = 0; memberIndex < attemptableMembers.length; memberIndex++) {
       const member = attemptableMembers[memberIndex];
@@ -436,6 +310,7 @@ export async function runSessionWithTierFailover(
         activeConversation,
         callbacks,
       });
+      if (result.attemptToken !== undefined) latestAttemptToken = result.attemptToken;
       if (result.settled) return result.execution;
     }
 
@@ -449,7 +324,7 @@ export async function runSessionWithTierFailover(
   } finally {
     // Late events from an unwinding stream must never pin the session to a
     // member that is no longer running.
-    clearTierAttemptMember(sessionId);
+    clearTierAttemptMember(sessionId, latestAttemptToken ?? undefined);
   }
 }
 

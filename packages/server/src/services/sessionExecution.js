@@ -204,6 +204,19 @@ function withWorkflowTurnToken(queryParams, workflowTurn) {
  */
 async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbacks, controller, broadcastConversationStateOnError, errorLabel, error, interactive, notifyUserStopSettled }) {
   const { handleTemplateTriggerIfNeeded } = callbacks;
+  // Finding 12: user cancellation settles BEFORE failover classification,
+  // member-health reporting, or error rescheduling. A Stop-aborted attempt
+  // whose provider rejects with an eligible capacity error must land as
+  // user-paused/cancelled — never advance the tier loop, which would bypass
+  // paused-work settlement and the deferred Stop-summary notification.
+  if (isUserStopAbort(controller)) {
+    pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
+    // The provider generator has settled (this runs only after execute() or
+    // the stream loop rejected), so a rejection during cancellation still
+    // releases the deferred summary path — exactly once per turn.
+    notifyUserStopSettled?.();
+    return 'failed';
+  }
   if (shouldRethrowForTierFailover(sessionId, error, tierContext)) return 'rethrow';
 
   // Terminal tier failures stay on the normal auto-reschedule path, but the
@@ -229,20 +242,12 @@ async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbac
     markExecutionState(sessionId, 'retrying');
     return 'rescheduled'; // Don't throw - session was rescheduled
   }
-  // FR-9.2/FR-9.4: distinguish a user-initiated stop (must land as
-  // 'cancelled', never a failure) from a genuine permanent error (must land
-  // as 'closed_failed'). Both are terminal — neither may be interpreted as
-  // success, and reconcileLaneRun() below fails/cancels the lane run so a
-  // structured card never advances past this session.
-  if (isUserStopAbort(controller)) {
-    pauseForUserStop(sessionId, { turnToken: workflowTurn?.turnToken });
-    // The provider generator has settled (this runs only after execute() or
-    // the stream loop rejected), so a rejection during cancellation still
-    // releases the deferred summary path — exactly once per turn.
-    notifyUserStopSettled?.();
-  } else {
-    closeOwnWork(sessionId, 'closed_failed', error.message, { turnToken: workflowTurn?.turnToken });
-  }
+  // FR-9.2/FR-9.4: user stops settle at the top of this function (finding 12
+  // — before failover classification), so only genuine permanent errors reach
+  // here and land as 'closed_failed'. Terminal either way — never success —
+  // and reconcileLaneRun() below fails/cancels the lane run so a structured
+  // card never advances past this session.
+  closeOwnWork(sessionId, 'closed_failed', error.message, { turnToken: workflowTurn?.turnToken });
   return 'failed';
 }
 
@@ -399,7 +404,11 @@ async function handleTerminalStreamError({
   // session. (Failover-authorized attempts with a healthy successor never
   // reach this function: the stream layer rethrows them so the failover loop
   // can classify and advance.)
-  reportTierMemberFailureHealth(terminalError, tierContext);
+  // Finding 12: a user stop is not a member failure — never cool a member
+  // the user cancelled.
+  if (!isUserStopAbort(controller)) {
+    reportTierMemberFailureHealth(terminalError, tierContext);
+  }
 
   const rescheduled = await handleSessionError(sessionId, terminalError, {
     controller,
