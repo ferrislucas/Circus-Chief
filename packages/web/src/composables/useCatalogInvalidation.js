@@ -12,13 +12,18 @@ const DEFAULT_RETRY_DELAYS = [1000, 3000, 10000];
  *
  * - A failed scope stays dirty; only a successful refresh clears it, so a
  *   newer event never discards an older failed scope.
+ * - Finding 13: each scope carries an invalidation generation. A trigger
+ *   that lands while that scope's fetch is in flight bumps the generation,
+ *   and the settling response clears only the generation it covered — so a
+ *   newer invalidation (or reconnect) always forces another fetch instead
+ *   of being erased by a stale success.
  * - Stale responses cannot overwrite newer state: the stores' monotonic
  *   intake remains the single ordering rule for writes.
  * - A pending backoff is woken early by fresh triggers (no unbounded loop:
  *   each trigger runs one pass plus a bounded retry budget).
  */
 function createCatalogRefreshEngine({ fetchScope, retryDelays }) {
-  const dirtyScopes = new Set();
+  const dirtyScopes = new Map();
   let disposed = false;
   let refreshInFlight = null;
   let needsRerun = false;
@@ -57,11 +62,15 @@ function createCatalogRefreshEngine({ fetchScope, retryDelays }) {
   // One pass over the currently dirty scopes. True when every scope
   // refreshed successfully.
   async function refreshDirtyOnce() {
-    for (const scope of [...dirtyScopes]) {
+    for (const scope of [...dirtyScopes.keys()]) {
       if (disposed) return false;
+      const generation = dirtyScopes.get(scope);
       const ok = await fetchScope(scope);
       if (disposed) return false;
-      if (ok) dirtyScopes.delete(scope);
+      // Clear only the generation covered by this request: a trigger that
+      // landed mid-fetch bumped the generation, so the scope stays dirty
+      // and is fetched again below.
+      if (ok && dirtyScopes.get(scope) === generation) dirtyScopes.delete(scope);
     }
     return dirtyScopes.size === 0;
   }
@@ -75,6 +84,12 @@ function createCatalogRefreshEngine({ fetchScope, retryDelays }) {
       return needsRerun;
     }
     if (disposed) return false;
+    if (needsRerun) {
+      // Scopes remain only because a newer invalidation or reconnect landed
+      // mid-pass: refetch promptly with a fresh budget instead of backing off.
+      retryIndex = 0;
+      return true;
+    }
     if (retryIndex >= retryDelays.length) {
       // Budget spent: stop retrying, but stay dirty so the next
       // invalidation or reconnect recovers without another mutation.
@@ -103,7 +118,7 @@ function createCatalogRefreshEngine({ fetchScope, retryDelays }) {
   }
 
   function markDirty(scopes) {
-    for (const scope of scopes) dirtyScopes.add(scope);
+    for (const scope of scopes) dirtyScopes.set(scope, (dirtyScopes.get(scope) ?? 0) + 1);
   }
 
   function requestRefresh() {

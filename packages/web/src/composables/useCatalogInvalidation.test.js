@@ -45,6 +45,12 @@ async function flushMicrotasks() {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((res) => { resolve = res; });
+  return { promise, resolve };
+}
+
 /**
  * Client B converges without a reload: a catalog mutation on client A is
  * broadcast, and client B refetches canonical state through the monotonic
@@ -200,6 +206,98 @@ describe('useCatalogInvalidation', () => {
     // ...yet the older failed providers scope still recovered through retry.
     expect(mockProvidersStore.fetchProviders.mock.calls.length).toBe(3);
     expect(mockTiersStore.fetchTiers.mock.calls.length).toBe(2);
+  });
+
+  // ── Finding 13: a newer invalidation must survive an older in-flight refresh ──
+
+  it('a newer invalidation arriving mid-fetch forces another fetch', async () => {
+    // Revision 1 starts a tiers GET that stays in flight; the server takes
+    // its snapshot, then another client deletes a tier and revision 2
+    // arrives before the old response settles. The stale success must not
+    // clear revision 2's dirt: a second GET converges to canonical state.
+    vi.useFakeTimers();
+    shared.dispose();
+    useCatalogInvalidation({ retryDelays: [10, 20] });
+
+    const gate = deferred();
+    let calls = 0;
+    mockTiersStore.fetchTiers.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) await gate.promise;
+      mockTiersStore.lastFetchSucceeded = true;
+      return [];
+    });
+
+    emit({ scope: 'tiers', revision: 1 });
+    await flushMicrotasks();
+    expect(mockTiersStore.fetchTiers.mock.calls.length).toBe(1);
+
+    emit({ scope: 'tiers', revision: 2 });
+    await flushMicrotasks();
+    gate.resolve();
+    await vi.runAllTimersAsync();
+
+    expect(mockTiersStore.fetchTiers.mock.calls.length).toBe(2);
+  });
+
+  it('a reconnect arriving mid-fetch forces another fetch', async () => {
+    vi.useFakeTimers();
+    shared.dispose();
+    useCatalogInvalidation({ retryDelays: [10, 20] });
+
+    const gate = deferred();
+    let calls = 0;
+    mockTiersStore.fetchTiers.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) await gate.promise;
+      mockTiersStore.lastFetchSucceeded = true;
+      return [];
+    });
+
+    emit({ scope: 'tiers', revision: 1 });
+    await flushMicrotasks();
+    expect(mockTiersStore.fetchTiers.mock.calls.length).toBe(1);
+
+    // Mutations may have landed while disconnected; the reconnect refresh
+    // must not be lost when the older GET settles.
+    reconnect();
+    await flushMicrotasks();
+    gate.resolve();
+    await vi.runAllTimersAsync();
+
+    expect(mockTiersStore.fetchTiers.mock.calls.length).toBe(2);
+  });
+
+  it('a providers-scoped revision mid-tiers-fetch refetches tiers without extra providers fetches', async () => {
+    // Revision 1 starts a tiers GET that stays in flight; revision 2
+    // (providers scope, which refreshes both catalogs) arrives before the
+    // old tiers response settles. The stale tiers success must not clear
+    // revision 2's dirt, while providers — never fetched yet — converges
+    // with exactly one GET.
+    vi.useFakeTimers();
+    shared.dispose();
+    useCatalogInvalidation({ retryDelays: [10, 20] });
+
+    const gate = deferred();
+    let tierCalls = 0;
+    mockTiersStore.fetchTiers.mockImplementation(async () => {
+      tierCalls += 1;
+      if (tierCalls === 1) await gate.promise;
+      mockTiersStore.lastFetchSucceeded = true;
+      return [];
+    });
+
+    emit({ scope: 'tiers', revision: 1 });
+    await flushMicrotasks();
+    expect(mockTiersStore.fetchTiers.mock.calls.length).toBe(1);
+
+    emit({ scope: 'providers', revision: 2 });
+    await flushMicrotasks();
+    gate.resolve();
+    await vi.runAllTimersAsync();
+
+    expect(mockTiersStore.fetchTiers.mock.calls.length).toBe(2);
+    expect(mockProvidersStore.fetchProviders.mock.calls.length).toBe(1);
   });
 
   it('dispose removes the reconnect listener and stops pending retries', async () => {
