@@ -19,6 +19,7 @@ import { isUserStopAbort } from './sessionAbort.js';
 // _executeSession, long after the module graph is loaded (same pattern as
 // session-helpers.js's database.js <-> SessionRepository cycle).
 import { drainLaneEntryTrigger } from './kanbanService.js';
+
 /** Execute the agent stream loop and handle post-turn completion, errors, and cleanup.
  * This is the shared core of runSession, continueSession, and continueSessionWithExistingMessage.
  * @param {Object} options

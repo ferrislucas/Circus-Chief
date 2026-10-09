@@ -31,6 +31,7 @@ export class WebSocketManager {
 
   /** @type {Map<string, Array<Object>>} */
   #usageUpdateBuffer = new Map();
+  #sessionPriority = new Map();
 
   /**
    * Initialize WebSocket server
@@ -247,15 +248,16 @@ export class WebSocketManager {
   broadcastToProject(projectId, type, payload) {
     this.#recordLifecycleEvent(type);
     const subscribers = this.#projectSubscriptions.get(projectId);
-    if (!subscribers || subscribers.size === 0) return;
-
-    const message = createMessage(type, payload);
-    for (const client of subscribers) {
-      if (client.readyState === 1) {
-        // WebSocket.OPEN
-        client.send(message);
+    if (subscribers?.size) {
+      const message = createMessage(type, payload);
+      for (const client of subscribers) {
+        if (client.readyState === 1) {
+          // WebSocket.OPEN
+          client.send(message);
+        }
       }
     }
+    this.#broadcastProviderPriorityInvalidation(type, payload);
   }
 
   /** Broadcast one serialized frame to the union of session and project subscribers. */
@@ -265,14 +267,15 @@ export class WebSocketManager {
       ...(this.#sessionSubscriptions.get(sessionId) || []),
       ...(this.#projectSubscriptions.get(projectId) || []),
     ]);
-    if (subscribers.size === 0) return;
-
-    // Scope identifiers are authoritative; a caller payload must not be able
-    // to redirect a frame to a different session or project.
-    const message = createMessage(type, { ...payload, sessionId, projectId });
-    for (const client of subscribers) {
-      if (client.readyState === 1) client.send(message);
+    if (subscribers.size) {
+      // Scope identifiers are authoritative; a caller payload must not be able
+      // to redirect a frame to a different session or project.
+      const message = createMessage(type, { ...payload, sessionId, projectId });
+      for (const client of subscribers) {
+        if (client.readyState === 1) client.send(message);
+      }
     }
+    this.#broadcastProviderPriorityInvalidation(type, payload);
   }
 
   /**
@@ -291,6 +294,45 @@ export class WebSocketManager {
       WS_MESSAGE_TYPES.COMMAND_RUN_KILLED,
       WS_MESSAGE_TYPES.COMMAND_RUN_DELETED,
     ].includes(type)) commandOutputMetrics.increment(COMMAND_OUTPUT_METRICS.LIFECYCLE_EVENTS);
+  }
+
+  #broadcastProviderPriorityInvalidation(type, payload) {
+    if (!isSessionLifecycleEvent(type)) return;
+    if (!this.#shouldInvalidateProviderPriority(type, payload)) return;
+    const message = createMessage(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_PRIORITY_INVALIDATED, {});
+    for (const client of this.#clients) {
+      if (client.readyState === 1) client.send(message);
+    }
+  }
+
+  #shouldInvalidateProviderPriority(type, payload) {
+    const session = payload?.session;
+    const sessionId = session?.id ?? payload?.sessionId;
+    if (type !== WS_MESSAGE_TYPES.SESSION_UPDATED) {
+      this.#recordSessionPriority(type, sessionId, session);
+      return true;
+    }
+    // Fail closed: a shape that cannot change priority must not trigger a
+    // global refetch. The debounce on the client is a backstop, not the
+    // primary defense against malformed emitters.
+    if (!hasSessionPriorityShape(session, sessionId)) {
+      console.warn('[WebSocketManager]', JSON.stringify({
+        outcome: 'priority-invalidation-skipped',
+        reason: 'malformed-session-payload',
+      }));
+      return false;
+    }
+    const next = { status: session.status, providerId: session.providerId };
+    const previous = this.#sessionPriority.get(sessionId);
+    this.#sessionPriority.set(sessionId, next);
+    return !previous || hasPriorityChanged(previous, next);
+  }
+
+  #recordSessionPriority(type, sessionId, session) {
+    if (type === WS_MESSAGE_TYPES.SESSION_CREATED && hasSessionPriorityShape(session, sessionId)) {
+      this.#sessionPriority.set(sessionId, { status: session.status, providerId: session.providerId });
+    }
+    if (type === WS_MESSAGE_TYPES.SESSION_DELETED && sessionId) this.#sessionPriority.delete(sessionId);
   }
 
   /**
@@ -335,7 +377,33 @@ export class WebSocketManager {
     this.#projectSubscriptions.clear();
     this.#commandRunOutputSubscriptions.clear();
     this.#usageUpdateBuffer.clear();
+    this.#sessionPriority.clear();
   }
+}
+
+function isActiveSessionStatus(status) {
+  return status === 'starting' || status === 'running';
+}
+
+/**
+ * Shared payload-shape validator for the record and decide paths: a
+ * priority memo is only meaningful for a real session object carrying its
+ * id. Anything else (missing payload, bare session id, null or non-object
+ * session) cannot change priority, so the decide path skips it and the
+ * record path refuses to memoize it.
+ */
+function hasSessionPriorityShape(session, sessionId) {
+  return session !== null && typeof session === 'object'
+    && typeof sessionId === 'string' && sessionId.length > 0;
+}
+
+function isSessionLifecycleEvent(type) {
+  return [WS_MESSAGE_TYPES.SESSION_CREATED, WS_MESSAGE_TYPES.SESSION_UPDATED, WS_MESSAGE_TYPES.SESSION_DELETED].includes(type);
+}
+
+function hasPriorityChanged(previous, next) {
+  return previous.providerId !== next.providerId
+    || isActiveSessionStatus(previous.status) !== isActiveSessionStatus(next.status);
 }
 
 // Singleton instance

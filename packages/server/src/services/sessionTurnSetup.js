@@ -17,6 +17,8 @@ import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
 import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
 import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
+import { isE2EOpenAIAllowanceFixtureEnabled } from './e2eOpenAIAllowanceFixture.js';
+import { getProviderAllowanceObserver } from './providerAllowanceServiceInstance.js';
 import { buildAgentConfig, buildAgentEnv } from './sessionAgentConfig.js';
 import { buildQueryParams } from './queryParamBuilder.js';
 import { buildPromptWithAttachments } from './sessionPrompts.js';
@@ -38,14 +40,20 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
  *
  * @param {string} agentType - The agent type (e.g., 'claude-code', 'codex')
  * @param {Object} [config] - Optional adapter config forwarded to the gateway.
+ * @param {Object} [session] - Session row used for session-scoped adapter config.
  * @returns {{ execute: (queryParams: any, meta?: any) => AsyncGenerator }}
  */
-export function createAgentForSession(agentType = 'claude-code', config = {}) {
-  const mergedConfig = { ...buildAgentConfig(agentType), ...config };
+export function createAgentForSession(agentType = 'claude-code', config = {}, session = null) {
+  // Session-bound allowance sources tap their adapter's stream (Codex headers/
+  // rollout tails, Claude rate-limit events); observation is always on.
+  const allowance = ['codex', 'claude-code'].includes(agentType) ? { allowanceObserver: getProviderAllowanceObserver() } : {};
+  const mergedConfig = { ...buildAgentConfig(agentType, session), ...allowance, ...config };
   const baseAgent = agentGateway.createAgent(agentType, mergedConfig);
 
-  // Wrap with VCR adapter if in VCR mode
-  const agent = process.env.VCR_MODE && !isE2ESpawnCaptureEnabled()
+  // Wrap with VCR adapter if in VCR mode — except the sessions that exist to
+  // execute the production adapter against the injected OpenAI allowance
+  // fixture: VCR replay would bypass that adapter boundary entirely.
+  const agent = process.env.VCR_MODE && !isE2ESpawnCaptureEnabled() && !isE2EOpenAIAllowanceFixtureEnabled(mergedConfig)
     ? new VCRAgentAdapter(baseAgent, { cassetteDir: 'tests/e2e/cassettes' })
     : baseAgent;
 
@@ -198,7 +206,7 @@ export async function prepareContinueTurn({ session, sessionId, content, working
     broadcastSessionStatus(sessionId, 'running');
 
     const agentType = session.agentType || 'claude-code';
-    const agent = createAgentForSession(agentType);
+    const agent = createAgentForSession(agentType, {}, session);
 
     let currentSession = session;
     const modelEnv = buildContinueModelAndEnv(currentSession, sessionId, model);
@@ -257,7 +265,7 @@ export async function prepareRunTurn({ session, sessionId, prompt, workingDirect
 
     // Create agent via gateway (or mock agent in mock mode)
     const agentType = currentSession.agentType || 'claude-code';
-    const agent = createAgentForSession(agentType);
+    const agent = createAgentForSession(agentType, {}, currentSession);
 
     const { effectiveModel, sessionEnv, commitAttributionOverride } =
       await resolveInitialSessionModelEnv(currentSession, model);

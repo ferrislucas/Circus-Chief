@@ -557,6 +557,12 @@ cmd_test() {
 
     # Enable VCR mode for E2E tests (replay committed cassettes; use VCR_MODE=record to re-record)
     export VCR_MODE=${VCR_MODE:-replay}
+    # Explicit test-only dependency injection for the OpenAI direct-SDK
+    # allowance path. This never mounts an HTTP mutation route.
+    export E2E_OPENAI_ALLOWANCE_FIXTURE=${E2E_OPENAI_ALLOWANCE_FIXTURE:-"$PROJECT_ROOT/packages/server/tests/fixtures/openai/allowance-headers.json"}
+    # Allowance collection is always on. The live-server allowance tests
+    # replay a sanitized Claude rate_limit_event through the real adapter tap
+    # via VCR, so no real provider traffic is generated.
 
     # Ensure DB isolation *before* the server starts so seed scripts and
     # Playwright helpers running in the current shell use the same DB the

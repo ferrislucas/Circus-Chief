@@ -2,8 +2,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import { VCRAgentAdapter } from './VCRAgentAdapter.js';
 import { CassetteStore } from './CassetteStore.js';
+import { ClaudeCodeAdapter } from '../adapters/ClaudeCodeAdapter.js';
+
+const claudeFixturePath = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..', '..', '..', 'tests', 'fixtures', 'claude', 'rate-limit-event.json',
+);
 
 describe('VCRAgentAdapter', () => {
   let testCassetteDir;
@@ -712,6 +719,104 @@ describe('VCRAgentAdapter', () => {
 
       const key = adapter.buildCassetteKey({ prompt: 'test' }, {});
       expect(key).toBe(CassetteStore.buildKey('unknown', 'test'));
+    });
+  });
+
+  describe('allowance telemetry during replay', () => {
+    const TELEMETRY_PROMPT = 'telemetry replay';
+    const TELEMETRY_EVENTS = [
+      { type: 'system', subtype: 'init', session_id: 'redacted' },
+      { type: 'rate_limit_event', rate_limit_info: { utilization: 42.5 } },
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } },
+    ];
+
+    function saveTelemetryCassette() {
+      const key = CassetteStore.buildKey('runSession', TELEMETRY_PROMPT);
+      CassetteStore.save(testCassetteDir, key, { prompt: TELEMETRY_PROMPT, events: TELEMETRY_EVENTS });
+    }
+
+    it('lets the inner agent consume telemetry frames so replay exercises the production tap', async () => {
+      saveTelemetryCassette();
+      process.env.VCR_MODE = 'replay';
+      try {
+        // The hook sees every replayed frame and reports which ones are
+        // allowance telemetry consumed by the production tap.
+        const tap = vi.fn((event) => event.type === 'rate_limit_event');
+        const innerAgent = { ...createMockAgent([]), handleAllowanceTelemetry: tap };
+        const adapter = new VCRAgentAdapter(innerAgent, { cassetteDir: testCassetteDir });
+
+        const queryParams = { prompt: TELEMETRY_PROMPT, options: { providerId: 'anthropic-default' } };
+        const replayed = [];
+        for await (const event of adapter.execute(queryParams, { callType: 'runSession' })) {
+          replayed.push(event);
+        }
+
+        expect(tap).toHaveBeenCalledTimes(TELEMETRY_EVENTS.length);
+        expect(tap).toHaveBeenCalledWith(TELEMETRY_EVENTS[1], queryParams);
+        expect(tap.mock.results.map((result) => result.value)).toEqual([false, true, false]);
+        // The consumed telemetry frame never reaches the conversation UI.
+        expect(replayed).toEqual([TELEMETRY_EVENTS[0], TELEMETRY_EVENTS[2]]);
+      } finally {
+        delete process.env.VCR_MODE;
+      }
+    });
+
+    it('replays recorded rate_limit_event frames through the real Claude tap a live stream would use', async () => {
+      const fixture = JSON.parse(fs.readFileSync(claudeFixturePath, 'utf8'));
+      const recorded = [
+        { type: 'system', subtype: 'init', session_id: 'redacted' },
+        fixture.fiveHourWithUtilization,
+        { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } },
+      ];
+      const key = CassetteStore.buildKey('runSession', TELEMETRY_PROMPT);
+      CassetteStore.save(testCassetteDir, key, { prompt: TELEMETRY_PROMPT, events: recorded });
+      const queryParams = { prompt: TELEMETRY_PROMPT, options: { providerId: 'anthropic-default' } };
+      const now = 1_789_895_000_000;
+
+      async function replayTelemetry() {
+        const observer = vi.fn();
+        const innerAgent = new ClaudeCodeAdapter({ allowanceObserver: observer, clock: { now: () => now } });
+        // The replay mode is captured at construction, so it must be set
+        // before wrapping — otherwise the adapter passes through to the
+        // live SDK.
+        process.env.VCR_MODE = 'replay';
+        const adapter = new VCRAgentAdapter(innerAgent, { cassetteDir: testCassetteDir });
+        try {
+          const replayed = [];
+          for await (const event of adapter.execute(queryParams, { callType: 'runSession' })) {
+            replayed.push(event);
+          }
+          return { replayed, observer };
+        } finally {
+          delete process.env.VCR_MODE;
+        }
+      }
+
+      // The recorded frame is observed exactly as a live stream would, and
+      // still never reaches the conversation consumer.
+      const { replayed, observer } = await replayTelemetry();
+      expect(observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        providerId: 'anthropic-default',
+        allowances: [expect.objectContaining({ key: 'five_hour' })],
+      }));
+      expect(replayed).toEqual([recorded[0], recorded[2]]);
+    });
+
+    it('yields every event unchanged when the inner agent has no telemetry hook', async () => {
+      saveTelemetryCassette();
+      process.env.VCR_MODE = 'replay';
+      try {
+        const adapter = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: testCassetteDir });
+
+        const replayed = [];
+        for await (const event of adapter.execute({ prompt: TELEMETRY_PROMPT }, { callType: 'runSession' })) {
+          replayed.push(event);
+        }
+
+        expect(replayed).toEqual(TELEMETRY_EVENTS);
+      } finally {
+        delete process.env.VCR_MODE;
+      }
     });
   });
 });

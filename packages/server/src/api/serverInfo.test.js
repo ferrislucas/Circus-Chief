@@ -50,6 +50,12 @@ describe('GET /api/server-info', () => {
     expect(res.body.automationStatus).toMatchObject({ http: 'available', scheduler: expect.any(String), kanban: expect.any(String) });
   });
 
+  it('no longer advertises provider allowance gates: collection ships to all users', async () => {
+    const res = await request(app).get('/api/server-info');
+    expect(res.body).not.toHaveProperty('providerAllowancesEnabled');
+    expect(res.body).not.toHaveProperty('providerAllowanceSources');
+  });
+
   it('dbPath matches the path the DB was initialized with', async () => {
     const res = await request(app).get('/api/server-info');
     // test/setup.js inits with ":memory:"

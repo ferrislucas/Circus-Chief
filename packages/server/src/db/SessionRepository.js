@@ -281,6 +281,25 @@ export class SessionRepository extends BaseRepository {
   }
 
   /**
+   * Provider IDs for sessions that are currently executing. `waiting` is an
+   * idle application state and intentionally remains part of getActiveAndWaiting
+   * only for session UI workflows, not provider allowance prioritization.
+   */
+  getExecutingProviderIds() {
+    return this.db
+      .prepare(
+        `SELECT DISTINCT provider_id
+         FROM sessions
+         WHERE status IN ('starting', 'running')
+           AND archived = 0
+           AND provider_id IS NOT NULL
+         ORDER BY provider_id ASC`
+      )
+      .pluck()
+      .all();
+  }
+
+  /**
    * Atomically claim a due scheduled session for execution. See
    * `claimScheduledRow` in session-helpers.js for the full contract.
    * @param {string} id - Session id to claim.

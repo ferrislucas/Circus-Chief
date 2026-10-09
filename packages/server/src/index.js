@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { createApp } from './app.js';
-import { initDatabase, commandRuns, sessions } from './database.js';
+import { initDatabase, commandRuns, sessions, modelProviders } from './database.js';
 import { processCommandRunOutputCleanup } from './services/commandRunOutputCleanup.js';
 import { initWebSocket, webSocketManager, setCommandRunOutputAuthorizer } from './websocket.js';
 import { parseCliOptions } from './cli.js';
@@ -25,6 +25,9 @@ import { getLoginShellEnv } from './services/loginShellEnv.js';
 import { setAutomationPreflightStatus } from './services/automationStatusService.js';
 import { startKanbanOperationRetention, stopKanbanOperationRetention } from './services/kanbanOperationRetention.js';
 import { startStreamWatchdog, stopStreamWatchdog } from './services/streamWatchdog.js';
+import { startCodexAppServerMeter, stopCodexAppServerMeter } from './services/codexAppServerMeter.js';
+import { getProviderAllowanceObserver } from './services/providerAllowanceServiceInstance.js';
+import { startZaiQuotaPoller, stopZaiQuotaPoller } from './services/zaiQuotaPoller.js';
 
 /**
  * Validate Node.js environment at startup.
@@ -145,6 +148,15 @@ prStatusService.start();
 // Start system metrics broadcast service
 systemMonitor.start();
 
+// Start the global Codex ChatGPT-plan usage meter. Repeated failures
+// disable it without affecting indicators.
+startCodexAppServerMeter({ modelProviders, getObserver: getProviderAllowanceObserver })
+  .catch((error) => console.error('[CodexAppServerMeter] startup failed', error));
+
+// Start the z.ai GLM Coding Plan quota poller. The poll set follows
+// provider edits without a restart.
+startZaiQuotaPoller();
+
 // Graceful shutdown
 let shuttingDown = false;
 async function shutdown(signal) {
@@ -167,6 +179,8 @@ async function shutdown(signal) {
   stopStreamWatchdog();
   prStatusService.stop();
   systemMonitor.stop();
+  stopCodexAppServerMeter();
+  stopZaiQuotaPoller();
 
   // Clear dangling timers from summary service
   clearScheduledTimers();
