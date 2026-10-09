@@ -2770,4 +2770,21 @@ describe('agent-initiated (native) plan mode tracking', () => {
 
     expect(sessions.update).not.toHaveBeenCalled();
   });
+
+  it('reconciles an expiry-preserved plan mirror when a later status event reports a new mode', async () => {
+    // Expiry removes the pending card without moving the mirror (the query
+    // keeps running in plan mode), so 'plan' persists here by design — not
+    // by cancellation. Only this authoritative status event clears it, and
+    // it must persist the change and broadcast the new mode.
+    sessions.getById.mockReturnValue({ id: 'sess-1', projectId: 'proj-1', mode: 'yolo', agentPermissionMode: 'plan' });
+
+    await handleStreamEvent('sess-1', { type: 'system', subtype: 'status', permissionMode: 'bypassPermissions' });
+
+    expect(sessions.update).toHaveBeenCalledWith('sess-1', expect.objectContaining({ agentPermissionMode: 'bypassPermissions' }));
+    expect(broadcastToSession).toHaveBeenCalledWith(
+      'sess-1',
+      WS_MESSAGE_TYPES.SESSION_UPDATED,
+      expect.objectContaining({ sessionId: 'sess-1', session: expect.objectContaining({ agentPermissionMode: 'bypassPermissions' }) }),
+    );
+  });
 });

@@ -6,6 +6,7 @@ import ModeSelector from './ModeSelector.vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 import { useUiStore } from '../stores/ui.js';
+import { SESSIONS_STORE_KEY } from '../composables/useOverlayStore.js';
 
 const modes = [
   { value: 'plan', label: 'Plan' },
@@ -486,7 +487,15 @@ describe('native planning badge', () => {
       payload: { toolName: 'ExitPlanMode', input: { plan: '# the plan' } },
     };
 
-    const wrapper = mountBadge({ sessionId: 'sess-1' });
+    // The badge resolves its card inside its own conversation view, so the
+    // wrapper mounts attached within one.
+    const view = document.createElement('div');
+    view.className = 'conversation-tab';
+    document.body.appendChild(view);
+    const wrapper = mount(ModeSelector, {
+      props: { modelValue: 'yolo', sessionId: 'sess-1' },
+      attachTo: view,
+    });
     await flushAll(wrapper);
 
     const badge = wrapper.find('.planning-badge');
@@ -497,7 +506,7 @@ describe('native planning badge', () => {
     const approve = document.createElement('button');
     approve.className = 'btn prompt-primary-action';
     card.appendChild(approve);
-    document.body.appendChild(card);
+    view.appendChild(card);
     // jsdom does not implement scrollIntoView — stub it on the instance.
     card.scrollIntoView = vi.fn();
     const focusSpy = vi.spyOn(approve, 'focus').mockImplementation(() => {});
@@ -507,7 +516,8 @@ describe('native planning badge', () => {
       expect(focusSpy).toHaveBeenCalled();
     } finally {
       focusSpy.mockRestore();
-      card.remove();
+      wrapper.unmount();
+      view.remove();
     }
   });
 
@@ -521,5 +531,158 @@ describe('native planning badge', () => {
     const badge = wrapper.find('.planning-badge');
     expect(badge.exists()).toBe(true);
     expect(badge.element.tagName).toBe('SPAN');
+  });
+});
+
+describe('planning badge view scoping (finding #8)', () => {
+  const planPrompt = (sessionId, id) => ({
+    id,
+    sessionId,
+    kind: 'plan',
+    payload: { toolName: 'ExitPlanMode', input: { plan: '# the plan' } },
+  });
+
+  const scopedSession = (sessionId) => ({
+    currentSession: { id: sessionId, mode: 'yolo', agentPermissionMode: 'plan' },
+  });
+
+  function makeCard() {
+    const card = document.createElement('section');
+    card.className = 'agent-prompt-card agent-prompt-card--plan';
+    const approve = document.createElement('button');
+    approve.className = 'btn prompt-primary-action';
+    approve.textContent = 'Approve plan';
+    card.appendChild(approve);
+    document.body.appendChild(card);
+    card.scrollIntoView = vi.fn();
+    const focusSpy = vi.spyOn(approve, 'focus').mockImplementation(() => {});
+    return { card, approve, focusSpy };
+  }
+
+  function makeView() {
+    const view = document.createElement('div');
+    view.className = 'conversation-tab';
+    document.body.appendChild(view);
+    return view;
+  }
+
+  const mountInView = (sessionId, view) => mount(ModeSelector, {
+    props: { sessionId, modelValue: 'yolo' },
+    attachTo: view,
+    global: { provide: { [SESSIONS_STORE_KEY]: scopedSession(sessionId) } },
+  });
+
+  it("targets only its own view's plan card with two concurrent conversations", async () => {
+    const promptsStore = useSessionPromptsStore();
+    promptsStore.prompts['sess-a'] = planPrompt('sess-a', 'plan-a');
+    promptsStore.prompts['sess-b'] = planPrompt('sess-b', 'plan-b');
+
+    // Session A's card is first in document order, so a global
+    // querySelector would resolve to it from either badge.
+    const viewA = makeView();
+    const viewB = makeView();
+    const a = makeCard();
+    const b = makeCard();
+    viewA.appendChild(a.card);
+    viewB.appendChild(b.card);
+
+    const wrapperA = mountInView('sess-a', viewA);
+    const wrapperB = mountInView('sess-b', viewB);
+    await flushAll(wrapperA);
+    await flushAll(wrapperB);
+    try {
+      expect(wrapperA.find('.planning-badge').element.tagName).toBe('BUTTON');
+      expect(wrapperB.find('.planning-badge').element.tagName).toBe('BUTTON');
+
+      await wrapperB.find('.planning-badge').trigger('click');
+      expect(b.card.scrollIntoView).toHaveBeenCalled();
+      expect(b.focusSpy).toHaveBeenCalled();
+      expect(a.card.scrollIntoView).not.toHaveBeenCalled();
+      expect(a.focusSpy).not.toHaveBeenCalled();
+
+      a.card.scrollIntoView.mockClear();
+      b.card.scrollIntoView.mockClear();
+      a.focusSpy.mockClear();
+      b.focusSpy.mockClear();
+
+      await wrapperA.find('.planning-badge').trigger('click');
+      expect(a.card.scrollIntoView).toHaveBeenCalled();
+      expect(a.focusSpy).toHaveBeenCalled();
+      expect(b.card.scrollIntoView).not.toHaveBeenCalled();
+      expect(b.focusSpy).not.toHaveBeenCalled();
+    } finally {
+      wrapperA.unmount();
+      wrapperB.unmount();
+      a.focusSpy.mockRestore();
+      b.focusSpy.mockRestore();
+      viewA.remove();
+      viewB.remove();
+      a.card.remove();
+      b.card.remove();
+    }
+  });
+
+  it('does not fall back to another view’s card when its own view has none', async () => {
+    const promptsStore = useSessionPromptsStore();
+    promptsStore.prompts['sess-c'] = planPrompt('sess-c', 'plan-c');
+    promptsStore.prompts['sess-d'] = planPrompt('sess-d', 'plan-d');
+
+    const viewC = makeView();
+    const viewD = makeView();
+    const d = makeCard();
+    viewD.appendChild(d.card);
+
+    const wrapperC = mountInView('sess-c', viewC);
+    const wrapperD = mountInView('sess-d', viewD);
+    await flushAll(wrapperC);
+    await flushAll(wrapperD);
+    try {
+      // C's badge is actionable (its prompt is pending) but its view renders
+      // no card — activation must be a safe no-op, not a jump to D's card.
+      expect(wrapperC.find('.planning-badge').element.tagName).toBe('BUTTON');
+      await wrapperC.find('.planning-badge').trigger('click');
+      expect(d.card.scrollIntoView).not.toHaveBeenCalled();
+      expect(d.focusSpy).not.toHaveBeenCalled();
+    } finally {
+      wrapperC.unmount();
+      wrapperD.unmount();
+      d.focusSpy.mockRestore();
+      viewC.remove();
+      viewD.remove();
+      d.card.remove();
+    }
+  });
+
+  it('stays local when the same session appears in two views', async () => {
+    const promptsStore = useSessionPromptsStore();
+    promptsStore.prompts['sess-s'] = planPrompt('sess-s', 'plan-s');
+
+    const viewOne = makeView();
+    const viewTwo = makeView();
+    const one = makeCard();
+    const two = makeCard();
+    viewOne.appendChild(one.card);
+    viewTwo.appendChild(two.card);
+
+    const wrapperOne = mountInView('sess-s', viewOne);
+    const wrapperTwo = mountInView('sess-s', viewTwo);
+    await flushAll(wrapperOne);
+    await flushAll(wrapperTwo);
+    try {
+      await wrapperTwo.find('.planning-badge').trigger('click');
+      expect(two.card.scrollIntoView).toHaveBeenCalled();
+      expect(two.focusSpy).toHaveBeenCalled();
+      expect(one.card.scrollIntoView).not.toHaveBeenCalled();
+      expect(one.focusSpy).not.toHaveBeenCalled();
+    } finally {
+      wrapperOne.unmount();
+      wrapperTwo.unmount();
+      one.focusSpy.mockRestore();
+      two.focusSpy.mockRestore();
+      viewOne.remove();
+      viewTwo.remove();
+      one.card.remove();
+      two.card.remove();
+    }
   });
 });

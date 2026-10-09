@@ -107,16 +107,18 @@ const PLAN_CHANGES_MESSAGE = 'The user requested changes to the plan. Revise the
 // itself switches the permission mode back to the pre-plan mode. Mirror that
 // transition on the session so the UI "Planning" state clears. A user deny
 // keeps the session in plan mode — the model is expected to revise and
-// re-present. Lifecycle teardown (cancelled/expired) is not a revision
-// request: no plan remains pending, so the mirror returns to baseline.
-// Subagent plan records never touch the parent session's mirror — the card
-// and decision history are kept, but the parent runtime state is the main
-// agent's alone.
+// re-present. Cancellation tears the session down, so the mirror returns to
+// baseline. Expiry is different: the timer settles the SDK callback with a
+// denial while the query keeps running constrained to planning, so prompt
+// disappearance alone proves no runtime transition — the mirror is preserved
+// until an authoritative status event reports a change. Subagent plan records
+// never touch the parent session's mirror — the card and decision history are
+// kept, but the parent runtime state is the main agent's alone.
 function applyPlanModeTransition(record, outcome) {
-  // Subagent records never move the parent mirror (see above); teardown
-  // outcomes (cancelled/expired) restore the baseline via the same branch
-  // as allow, since no plan remains pending.
+  // Subagent records never move the parent mirror (see above).
   if (record.kind !== 'plan' || record.agentId != null) return;
+  // Expiry removes the pending card but the CLI is still in plan mode.
+  if (outcome === 'expired') return;
   // The pre-plan baseline is whatever permission mode the session was
   // configured with (mode-based mapping in sessionPrompts.js).
   const baseline = getPermissionModeForSession(sessions.getById(record.sessionId)?.mode);

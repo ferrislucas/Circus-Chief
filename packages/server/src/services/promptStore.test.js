@@ -978,7 +978,12 @@ describe('promptStore plan-kind prompts (ExitPlanMode)', () => {
         expect(sessions.update).toHaveBeenCalledWith('plan-cancel', { agentPermissionMode: 'default' });
       });
 
-      it('records expiry as a distinct outcome without feedback and restores the baseline', async () => {
+      it('records expiry as a distinct outcome without feedback and preserves the plan mirror', async () => {
+        // A still-running main-agent query in native plan mode leaves an
+        // ExitPlanMode prompt unanswered until the timer fires (no abort).
+        // Expiry settles the SDK callback but proves nothing about the
+        // runtime: the CLI keeps running constrained to planning, so the
+        // mirror must stay 'plan' until an authoritative status event moves it.
         const session = { id: 'plan-expire', projectId: 'proj-1', mode: 'yolo', agentPermissionMode: 'plan' };
         sessions.getById = vi.fn(() => session);
         sessions.update = vi.fn((_id, data) => ({ ...session, ...data }));
@@ -986,12 +991,25 @@ describe('promptStore plan-kind prompts (ExitPlanMode)', () => {
         const promise = parkPrompt({ sessionId: 'plan-expire', conversationId: 'conv-1', kind: 'plan', payload: planPayload, expiryMs: 5 });
         const result = await promise;
 
-        expect(result.behavior).toBe('deny');
+        expect(result).toEqual({ behavior: 'deny', message: 'This approval request expired. Please continue without it.' });
+        expect(getPrompt('plan-expire')).toBeNull();
         expect(createWorkLog).toHaveBeenCalledWith('plan-expire', 'tool_output', expect.stringContaining('Outcome: expired'), 'ExitPlanMode');
         const logged = createWorkLog.mock.calls.at(-1)[2];
         expect(logged).toContain('Feedback provided: no');
         expect(logged).not.toContain('changes requested');
-        expect(sessions.update).toHaveBeenCalledWith('plan-expire', { agentPermissionMode: 'bypassPermissions' });
+        expect(logged).not.toContain('# The plan');
+        // The pending card is gone but the mirror is untouched: no write
+        // moves agentPermissionMode, and no SESSION_UPDATED claims a mode
+        // transition (pending-input badge traffic still carries 'plan').
+        const modeWrites = sessions.update.mock.calls.filter(([, data]) => data && 'agentPermissionMode' in data);
+        expect(modeWrites).toHaveLength(0);
+        const modeBroadcasts = broadcastToSession.mock.calls.filter(
+          ([channel, type]) => channel === 'plan-expire' && type === WS_MESSAGE_TYPES.SESSION_UPDATED,
+        );
+        expect(modeBroadcasts.length).toBeGreaterThan(0);
+        for (const [, , payload] of modeBroadcasts) {
+          expect(payload.session.agentPermissionMode).toBe('plan');
+        }
       });
     });
   });

@@ -113,8 +113,17 @@ const canJumpToPlan = computed(() => Boolean(props.sessionId)
   && isNativePlanning.value
   && promptsStore.promptFor(props.sessionId)?.kind === 'plan');
 
-function scrollToPlanCard() {
-  const card = document.querySelector('.agent-prompt-card--plan');
+function scrollToPlanCard(event) {
+  // Scope the lookup to this badge's own conversation view. The page can
+  // host a main conversation and a SessionChatOverlay simultaneously, each
+  // rendering its own plan card through ConversationTab — a global
+  // querySelector would return whichever card comes first in document order,
+  // potentially another session's Approve button. Each ConversationTab
+  // renders only its own session's prompt, so the container boundary is also
+  // the session-identity boundary. A view with no matching card is a safe
+  // no-op, never a jump into another view.
+  const scope = event?.currentTarget?.closest?.('.conversation-tab, .session-chat-content');
+  const card = scope?.querySelector('.agent-prompt-card--plan');
   if (!card) return;
   if (typeof card.scrollIntoView === 'function') card.scrollIntoView({ behavior: 'smooth', block: 'center' });
   card.querySelector('.prompt-primary-action')?.focus?.();
