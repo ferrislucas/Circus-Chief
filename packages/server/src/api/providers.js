@@ -12,6 +12,7 @@ import { testProviderConnection, buildProviderTestConfig } from '../services/pro
 import { assertValidReorder } from '../db/providerModelOperations.js';
 import { publishEmptiedTierDegradations } from '../services/tierDegradationNotifier.js';
 import { publishCatalogInvalidation } from '../services/catalogInvalidation.js';
+import { getProviderAllowanceService, notifyAllowanceListChangedAfterMutation } from '../services/providerAllowanceServiceInstance.js';
 
 // Error message constants
 const ERR_PROVIDER_NOT_FOUND = 'Provider not found';
@@ -46,8 +47,17 @@ router.get('/', (_req, res) => {
   }
 });
 
+// Must precede /:id so "allowances" is never interpreted as a provider id.
+router.get('/allowances', (_req, res) => {
+  try {
+    res.json(getProviderAllowanceService().getSnapshots());
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /api/providers - Create provider
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const result = CreateProviderRequest.safeParse(req.body);
   if (!result.success) {
     return res.status(400).json({ error: result.error.issues[0].message });
@@ -56,6 +66,7 @@ router.post('/', (req, res) => {
   try {
     const provider = modelProviders.create(result.data);
     publishCatalogInvalidation('providers');
+    await notifyAllowanceListChangedAfterMutation();
     res.status(201).json(redactAuthToken(provider));
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -76,7 +87,7 @@ router.get('/:id', (req, res) => {
 });
 
 // PATCH /api/providers/:id - Update provider
-router.patch('/:id', (req, res) => {
+router.patch('/:id', async (req, res) => {
   try {
     const provider = modelProviders.getById(req.params.id);
     if (!provider) {
@@ -91,6 +102,7 @@ router.patch('/:id', (req, res) => {
     const { provider: updated, degradation } = modelProviders.updateWithDegradation(req.params.id, result.data);
     publishEmptiedTierDegradations(degradation);
     publishCatalogInvalidation('providers');
+    await notifyAllowanceListChangedAfterMutation();
     res.json(redactAuthToken(updated));
   } catch (error) {
     if (
@@ -107,7 +119,7 @@ router.patch('/:id', (req, res) => {
 });
 
 // DELETE /api/providers/:id - Delete provider
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     const provider = modelProviders.getById(req.params.id);
     if (!provider) {
@@ -117,6 +129,7 @@ router.delete('/:id', (req, res) => {
     const degradation = modelProviders.deleteWithDegradation(req.params.id);
     publishEmptiedTierDegradations(degradation);
     publishCatalogInvalidation('providers');
+    await notifyAllowanceListChangedAfterMutation();
     res.status(204).send();
   } catch (error) {
     if (error.message === 'Cannot delete built-in provider') {

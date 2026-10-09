@@ -174,25 +174,53 @@ function mapPayloadEvent(type, payload) {
   if (type === 'runtime.command.accepted') return { kind: 'accepted', commandId: safe(payload.command_id) };
   if (type === 'run.lifecycle.started') return { kind: 'started' };
   if (type === 'run.output.delta') return typeof payload.text === 'string' ? { kind: 'text', text: payload.text } : null;
-  // Tool results carry the human-readable outcome ("wrote N bytes…",
-  // "Read text file…", or exec JSON with command/description/exit_code).
-  // Bounded here so one huge tool dump cannot grow memory without limit.
-  if (type === 'tool.result') {
-    return typeof payload.text === 'string' ? { kind: 'tool_result', text: bounded(payload.text, 8000) } : null;
-  }
+  if (type === 'tool.result') return mapToolResultPayload(payload);
   // task.lifecycle.status carries the only human-readable progress messages
   // ("opening meta model stream attempt 1/10"); task.lifecycle.output carries
   // tool output chunks. Both are forwarded so the mapper can surface them.
-  if (type === 'task.lifecycle.status') {
-    const message = typeof payload?.event?.message === 'string' ? bounded(payload.event.message, 500) : null;
-    return { kind: 'progress', phase: 'status', taskKind: safe(payload.task_kind), message };
-  }
-  if (type === 'task.lifecycle.output') {
-    const chunk = typeof payload?.event?.chunk === 'string' ? bounded(payload.event.chunk, 4000) : null;
-    return { kind: 'progress', phase: 'output', taskKind: safe(payload.task_kind), chunk };
-  }
-  if (type.startsWith('task.lifecycle.')) return { kind: 'progress', phase: type.slice('task.lifecycle.'.length), taskKind: safe(payload.task_kind) };
+  if (type === 'task.lifecycle.status') return mapStatusPayload(payload);
+  if (type === 'task.lifecycle.output') return mapOutputPayload(payload);
+  if (type.startsWith('task.lifecycle.')) return { kind: 'progress', phase: type.slice('task.lifecycle.'.length), ...taskIdentity(payload) };
   return { kind: 'unknown', payloadType: type };
+}
+
+// Tool results carry the human-readable outcome ("wrote N bytes…",
+// "Read text file…", or exec JSON with command/description/exit_code).
+// Bounded here so one huge tool dump cannot grow memory without limit.
+// The owning task id lets the mapper match output chunks against the
+// tool_result that supersedes them (FR-8 orphan flush).
+function mapToolResultPayload(payload) {
+  const taskId = identifier(payload?.event?.task_id ?? payload?.task_id);
+  // Forward the CLI-supplied tool identity (event field wins, top-level
+  // fallback) so the mapper's `event.tool_name || 'Muse'` badge resolves to
+  // a real tool. Bounded like the other forwarded identifiers; absent stays
+  // undefined and the mapper still badges 'Muse'.
+  const toolName = safe(payload?.event?.tool_name ?? payload?.tool_name) ?? undefined;
+  return typeof payload.text === 'string' ? { kind: 'tool_result', text: bounded(payload.text, 8000), taskId, ...(toolName ? { tool_name: toolName } : {}) } : null;
+}
+
+function mapStatusPayload(payload) {
+  const message = typeof payload?.event?.message === 'string' ? bounded(payload.event.message, 500) : null;
+  return { kind: 'progress', phase: 'status', ...taskIdentity(payload), message };
+}
+
+function mapOutputPayload(payload) {
+  const chunk = typeof payload?.event?.chunk === 'string' ? bounded(payload.event.chunk, 4000) : null;
+  return { kind: 'progress', phase: 'output', ...taskIdentity(payload), chunk };
+}
+
+/**
+ * Identify the task a lifecycle record belongs to. The CLI always leaves
+ * top-level `task_kind` null; the real kind arrives on the `proposed`
+ * event, so the event field wins with a top-level fallback. Both stay
+ * bounded like the other forwarded identifiers.
+ */
+function taskIdentity(payload) {
+  const event = payload?.event;
+  return {
+    taskKind: safe(event?.task_kind ?? payload?.task_kind),
+    taskId: identifier(event?.task_id ?? payload?.task_id),
+  };
 }
 
 function mapTerminalEvent(type, payload) {

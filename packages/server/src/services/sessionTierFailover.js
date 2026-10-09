@@ -60,8 +60,11 @@ async function attemptRunWithModel(
     memberProviderId
   );
 
+  // Allowance observation and fixture injection use the exact attempted provider,
+  // before durable activity pins that identity on the tier-bound session.
+  const dispatchSession = { ...reconciledSession, providerId: memberProviderId };
   const agentType = reconciledSession.agentType || 'claude-code';
-  const agent = createAgentForSession(agentType);
+  const agent = createAgentForSession(agentType, {}, dispatchSession);
 
   const { effectiveModel, sessionEnv, commitAttributionOverride } =
     await resolveInitialSessionModelEnv(reconciledSession, memberModelId, memberProviderId);
@@ -70,7 +73,7 @@ async function attemptRunWithModel(
     prompt: promptWithAttachments,
     workingDirectory,
     controller,
-    session: reconciledSession,
+    session: dispatchSession,
     sessionId,
     systemPrompt,
     model: effectiveModel,

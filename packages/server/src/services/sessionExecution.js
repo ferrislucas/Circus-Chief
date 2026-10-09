@@ -560,7 +560,7 @@ async function _runStandardSession(
 
   // Create agent via gateway (or mock agent in mock mode)
   const agentType = reconciledSession.agentType || 'claude-code';
-  const agent = createAgentForSession(agentType);
+  const agent = createAgentForSession(agentType, {}, reconciledSession);
 
   const { effectiveModel, sessionEnv, commitAttributionOverride } =
     await resolveInitialSessionModelEnv(reconciledSession, model, providerId ?? session.providerId);

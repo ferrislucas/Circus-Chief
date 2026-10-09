@@ -125,7 +125,9 @@ wait_for_server() {
     print_info "Waiting for server on port $port to be ready..."
 
     while [ $elapsed -lt $timeout ]; do
-        if curl -s "http://localhost:$port/api/projects" > /dev/null 2>&1; then
+        # -f matters: without it any HTTP response (including a proxy 502 for
+        # an unbound port, or a half-booted 500) counts as "ready".
+        if curl -fs "http://localhost:$port/api/projects" > /dev/null 2>&1; then
             print_success "Server is ready on port $port"
             return 0
         fi
@@ -348,8 +350,9 @@ detect_or_start_server() {
         detected_port=$(cat "$port_file")
         print_info "Found .server-port file with port: $detected_port"
 
-        # Check if server is actually running on that port
-        if curl -s "http://localhost:$detected_port/api/projects" > /dev/null 2>&1; then
+        # Check if server is actually running on that port (-f so a proxy
+        # error page for an unbound port does not count as running).
+        if curl -fs "http://localhost:$detected_port/api/projects" > /dev/null 2>&1; then
             # Verify the server belongs to THIS worktree by checking its cwd.
             # Without this, a stale .server-port can cause us to reuse a server
             # from a different worktree that happens to be on the same port.
@@ -554,6 +557,12 @@ cmd_test() {
 
     # Enable VCR mode for E2E tests (replay committed cassettes; use VCR_MODE=record to re-record)
     export VCR_MODE=${VCR_MODE:-replay}
+    # Explicit test-only dependency injection for the OpenAI direct-SDK
+    # allowance path. This never mounts an HTTP mutation route.
+    export E2E_OPENAI_ALLOWANCE_FIXTURE=${E2E_OPENAI_ALLOWANCE_FIXTURE:-"$PROJECT_ROOT/packages/server/tests/fixtures/openai/allowance-headers.json"}
+    # Allowance collection is always on. The live-server allowance tests
+    # replay a sanitized Claude rate_limit_event through the real adapter tap
+    # via VCR, so no real provider traffic is generated.
 
     # Ensure DB isolation *before* the server starts so seed scripts and
     # Playwright helpers running in the current shell use the same DB the

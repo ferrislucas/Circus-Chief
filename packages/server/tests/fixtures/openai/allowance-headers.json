@@ -1,0 +1,25 @@
+{
+  "complete": {
+    "x-ratelimit-limit-requests": "100",
+    "x-ratelimit-remaining-requests": "75",
+    "x-ratelimit-reset-requests": "12s",
+    "x-ratelimit-limit-tokens": "100000",
+    "x-ratelimit-remaining-tokens": "75000",
+    "x-ratelimit-reset-tokens": "2m0s",
+    "x-request-id": "req_sanitized",
+    "authorization": "Bearer redacted"
+  },
+  "percentageOnly": {
+    "x-ratelimit-remaining-requests": "75%",
+    "x-ratelimit-reset-requests": "12s"
+  },
+  "missingFields": {
+    "x-ratelimit-limit-requests": "100",
+    "x-ratelimit-remaining-requests": "75"
+  },
+  "malformed": {
+    "x-ratelimit-limit-requests": "not-a-number",
+    "x-ratelimit-remaining-requests": "-4",
+    "x-ratelimit-reset-requests": "tomorrow"
+  }
+}

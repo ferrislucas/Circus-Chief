@@ -95,7 +95,13 @@ export class VCRAgentAdapter {
     for (let index = 0; index < cassette.events.length; index += 1) {
       // Small delay to simulate streaming
       await new Promise((resolve) => setTimeout(resolve, 5));
-      yield cassette.events[index];
+      const event = cassette.events[index];
+      // Allowance telemetry (e.g. Claude rate_limit_events) is consumed by the
+      // inner adapter's production tap exactly as a live stream would, and
+      // like that tap it never reaches the conversation UI.
+      if (!this.innerAgent?.handleAllowanceTelemetry?.(event, queryParams)) {
+        yield event;
+      }
       await this.invokeGatedCallsAt(callsByPosition, index + 1, queryParams, cassetteKey);
     }
   }

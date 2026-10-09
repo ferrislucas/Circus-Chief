@@ -274,7 +274,7 @@ async function prepareContinueDispatch({
   // Create agent via gateway (or mock agent in mock mode), using the
   // reconciled agentType.
   const agentType = session.agentType || 'claude-code';
-  const agent = createAgentForSession(agentType);
+  const agent = createAgentForSession(agentType, {}, session);
 
   // Build query params and agent call meta
   const { queryParams, agentCallMeta } = await buildContinueParams({

@@ -173,7 +173,7 @@ export async function prepareContinueTurn({ session, sessionId, content, working
     broadcastSessionStatus(sessionId, 'running');
 
     const agentType = session.agentType || 'claude-code';
-    const agent = createAgentForSession(agentType);
+    const agent = createAgentForSession(agentType, {}, session);
 
     let currentSession = session;
     const modelEnv = buildContinueModelAndEnv(currentSession, sessionId, model);
@@ -270,7 +270,7 @@ export async function prepareRunTurn({ session, sessionId, prompt, workingDirect
 
     // Create agent via gateway (or mock agent in mock mode)
     const agentType = currentSession.agentType || 'claude-code';
-    const agent = createAgentForSession(agentType);
+    const agent = createAgentForSession(agentType, {}, currentSession);
 
     const { effectiveModel, sessionEnv, commitAttributionOverride } =
       await resolveInitialSessionModelEnv(currentSession, model);

@@ -4,10 +4,21 @@ import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
 import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
+import { createE2EOpenAIAllowanceClientFactory, isE2EOpenAIAllowanceFixtureEnabled } from './e2eOpenAIAllowanceFixture.js';
+import { getProviderAllowanceObserver } from './providerAllowanceServiceInstance.js';
 
-/** Build adapter-specific defaults before the agent is created. */
-export function buildAgentConfig(agentType) {
-  if (agentType === 'codex') return { spawnCodexProcess: createCodexSpawner() };
+/**
+ * Build adapter-specific defaults before the agent is created.
+ *
+ * `session` (when provided) scopes test-only dependency injection to the
+ * sessions it targets — see createE2EOpenAIAllowanceClientFactory.
+ */
+export function buildAgentConfig(agentType, session = null) {
+  if (agentType === 'codex') {
+    const openaiClientFactory = createE2EOpenAIAllowanceClientFactory(session?.providerId);
+    if (openaiClientFactory) return { spawnCodexProcess: null, openaiClientFactory };
+    return { spawnCodexProcess: createCodexSpawner() };
+  }
   if (agentType === 'gemini') return { spawnGeminiProcess: createGeminiSpawner() };
   // Muse spawns `muse exec` directly; no spawner injection needed in production.
   if (agentType === 'muse') return {};
@@ -49,14 +60,17 @@ export function buildAgentEnv(sessionEnv, commitAttributionOverride, e2eMeta = n
  *
  * @param {string} agentType - The agent type (e.g., 'claude-code', 'codex')
  * @param {Object} [config] - Optional adapter config forwarded to the gateway.
+ * @param {Object} [session] - Session row used for session-scoped adapter config.
  * @returns {{ execute: (queryParams: any, meta?: any) => AsyncGenerator }}
  */
-export function createAgentForSession(agentType = 'claude-code', config = {}) {
-  const mergedConfig = { ...buildAgentConfig(agentType), ...config };
+export function createAgentForSession(agentType = 'claude-code', config = {}, session = null) {
+  // Observe allowance data emitted by the production adapter streams.
+  const allowance = ['codex', 'claude-code'].includes(agentType) ? { allowanceObserver: getProviderAllowanceObserver() } : {};
+  const mergedConfig = { ...buildAgentConfig(agentType, session), ...allowance, ...config };
   const baseAgent = agentGateway.createAgent(agentType, mergedConfig);
 
-  // Wrap with VCR adapter if in VCR mode
-  const agent = process.env.VCR_MODE && !isE2ESpawnCaptureEnabled()
+  // Replay must not bypass the production adapter for allowance fixture sessions.
+  const agent = process.env.VCR_MODE && !isE2ESpawnCaptureEnabled() && !isE2EOpenAIAllowanceFixtureEnabled(mergedConfig)
     ? new VCRAgentAdapter(baseAgent, { cassetteDir: 'tests/e2e/cassettes' })
     : baseAgent;
 
