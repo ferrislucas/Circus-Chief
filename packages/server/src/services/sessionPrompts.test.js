@@ -103,6 +103,7 @@ describe('sessionPrompts', () => {
     delete process.env.CIRCUSCHIEF_API_URL;
     delete process.env.PORT;
     delete process.env.CIRCUSCHIEF_HOST;
+    delete process.env.CIRCUSCHIEF_SECURE;
   });
 
   // ── getApiBaseUrl ─────────────────────────────────────────────────────
@@ -166,6 +167,28 @@ describe('sessionPrompts', () => {
       process.env.CIRCUSCHIEF_API_URL = 'https://override.example.com';
       process.env.CIRCUSCHIEF_HOST = '192.168.1.50';
       expect(getApiBaseUrl()).toBe('https://override.example.com');
+    });
+
+    it('uses https scheme when CIRCUSCHIEF_SECURE=1', () => {
+      delete process.env.CIRCUSCHIEF_API_URL;
+      process.env.CIRCUSCHIEF_HOST = '127.0.0.1';
+      process.env.PORT = '3456';
+      process.env.CIRCUSCHIEF_SECURE = '1';
+      expect(getApiBaseUrl()).toBe('https://localhost:3456');
+    });
+
+    it('uses http scheme when CIRCUSCHIEF_SECURE is unset', () => {
+      delete process.env.CIRCUSCHIEF_API_URL;
+      delete process.env.CIRCUSCHIEF_SECURE;
+      process.env.CIRCUSCHIEF_HOST = '127.0.0.1';
+      process.env.PORT = '3456';
+      expect(getApiBaseUrl()).toBe('http://localhost:3456');
+    });
+
+    it('CIRCUSCHIEF_API_URL takes precedence over CIRCUSCHIEF_SECURE', () => {
+      process.env.CIRCUSCHIEF_API_URL = 'http://override.example.com';
+      process.env.CIRCUSCHIEF_SECURE = '1';
+      expect(getApiBaseUrl()).toBe('http://override.example.com');
     });
   });
 
