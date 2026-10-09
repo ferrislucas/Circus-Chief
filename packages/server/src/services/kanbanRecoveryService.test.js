@@ -221,6 +221,118 @@ describe('redriveLaneEntryEvent', () => {
     expect(drainLaneEntryTrigger).toHaveBeenCalledWith(result.newEventId);
   });
 
+  it('refuses apply when the card moved to a newer run after inspection', async () => {
+    const { eventId, card } = setupEvent({ runStatus: 'failed' });
+    const before = eventRow(eventId);
+    const dry = await redriveLaneEntryEvent(eventId, { dryRun: true });
+    expect(dry).toMatchObject({ plan: 'fresh_entry', blocked: false });
+    // The card moves away and back with a newer event/run that completes
+    // between inspection and apply — no competing active event remains, so
+    // only the card's current pointers can fence the stale redrive.
+    const replacement = createLaneRunForEntry({
+      projectId: project.id, workspaceId: before.workspace_id, cardId: card.id,
+      lane: kanbanLanes.getById(before.lane_id), cause: 'manual_move',
+    });
+    databaseManager.get().prepare(`UPDATE kanban_lane_entry_events SET status='completed',
+      delivery_phase='completed', completed_at=?, updated_at=? WHERE id=?`)
+      .run(Date.now(), Date.now(), replacement.laneEntryEventId);
+
+    const result = await redriveLaneEntryEvent(eventId, { dryRun: false });
+
+    expect(result).toMatchObject({ applied: false, blocked: true });
+    // Nothing was written: the original keeps its parked state and evidence,
+    // the replacement is untouched, and nothing was dispatched.
+    expect(eventRow(eventId)).toEqual(before);
+    expect(eventRow(replacement.laneEntryEventId).status).toBe('completed');
+    expect(databaseManager.get().prepare('SELECT active_lane_run_id, lane_entry_event_id FROM kanban_cards WHERE id=?')
+      .get(card.id)).toEqual({ active_lane_run_id: replacement.id, lane_entry_event_id: replacement.laneEntryEventId });
+    expect(drainLaneEntryTrigger).not.toHaveBeenCalled();
+  });
+
+  it('reports refused operations accurately instead of claiming apply succeeded', async () => {
+    const { eventId } = setupEvent({ acceptedKey: 'k1' });
+    // A racing drain completes the proven delivery between inspection and
+    // apply: the target is no longer redrivable, so the apply refuses
+    // without writing or dispatching.
+    databaseManager.get().prepare(`UPDATE kanban_lane_entry_events SET status='completed',
+      delivery_phase='completed', completed_at=?, updated_at=? WHERE id=?`)
+      .run(Date.now(), Date.now(), eventId);
+
+    const result = await redriveLaneEntryEvent(eventId, { dryRun: false });
+
+    expect(result).toMatchObject({ applied: false, blocked: true });
+    expect(eventRow(eventId).status).toBe('completed');
+    expect(drainLaneEntryTrigger).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed post-commit drain without losing the applied fact', async () => {
+    const { eventId } = setupEvent({ acceptedKey: 'k1' });
+    // The reset commits, then the reconciliation drain fails transiently.
+    // The result must carry both facts, not reject as if nothing applied.
+    drainLaneEntryTrigger.mockRejectedValueOnce(new Error('drain blew up'));
+
+    const result = await redriveLaneEntryEvent(eventId, { dryRun: false });
+
+    expect(result).toMatchObject({ plan: 'complete_proven', applied: true, blocked: false,
+      delivered: false, drainError: 'drain blew up' });
+    expect(eventRow(eventId).status).toBe('pending');
+  });
+
+  it('rolls back a replacement when retirement fails mid-apply', async () => {
+    const { eventId, card } = setupEvent({ runStatus: 'failed' });
+    const db = databaseManager.get();
+    // Inject a failure between replacement creation/linkage and retirement:
+    // retiring the original (UPDATE to invalid) throws, so the whole apply
+    // must roll back.
+    db.exec(`CREATE TRIGGER redrive_retire_fault BEFORE UPDATE ON kanban_lane_entry_events
+      WHEN NEW.status='invalid' BEGIN SELECT redrive_injected_failure(); END;`);
+    try {
+      await expect(redriveLaneEntryEvent(eventId, { dryRun: false })).rejects.toThrow();
+    } finally {
+      db.exec('DROP TRIGGER IF EXISTS redrive_retire_fault');
+    }
+    // Neither the replacement nor the retirement committed.
+    expect(databaseManager.get().prepare('SELECT count(*) count FROM kanban_lane_entry_events WHERE card_id=?')
+      .get(card.id).count).toBe(1);
+    expect(eventRow(eventId).status).toBe('needs_attention');
+    expect(databaseManager.get().prepare('SELECT count(*) count FROM kanban_lane_runs WHERE card_id=?')
+      .get(card.id).count).toBe(1);
+    expect(drainLaneEntryTrigger).not.toHaveBeenCalled();
+  });
+
+  it('links an eligible fresh replacement exactly once', async () => {
+    const { eventId, card } = setupEvent({ runStatus: 'failed' });
+    drainLaneEntryTrigger.mockResolvedValueOnce(true);
+    const result = await redriveLaneEntryEvent(eventId, { dryRun: false });
+    expect(result).toMatchObject({ plan: 'fresh_entry', applied: true, blocked: false });
+    // Old and new events link both ways, and the card points at the fresh run.
+    expect(eventRow(eventId).last_error).toContain(result.newEventId);
+    const fresh = eventRow(result.newEventId);
+    expect(fresh).toMatchObject({ status: 'pending', cause: 'operator_redrive' });
+    expect(databaseManager.get().prepare('SELECT active_lane_run_id, lane_entry_event_id FROM kanban_cards WHERE id=?')
+      .get(card.id)).toEqual({ active_lane_run_id: result.newRunId, lane_entry_event_id: result.newEventId });
+    expect(databaseManager.get().prepare('SELECT lane_entry_event_id FROM kanban_lane_runs WHERE id=?')
+      .get(result.newRunId).lane_entry_event_id).toBe(result.newEventId);
+    // Exactly one replacement exists: no duplicates were minted.
+    expect(databaseManager.get().prepare('SELECT count(*) count FROM kanban_lane_entry_events WHERE card_id=?')
+      .get(card.id).count).toBe(2);
+  });
+
+  it('keeps a failed event with unproven intent visible and redrivable despite stale error text', async () => {
+    const { eventId } = setupEvent({ status: 'failed', runStatus: 'failed', attempts: 8 });
+    databaseManager.get().prepare('UPDATE kanban_lane_entry_events SET last_error=? WHERE id=?')
+      .run('boom: stale failure text', eventId);
+
+    const candidates = getLaneEntryRecoveryCandidates();
+    expect(candidates.map((candidate) => candidate.eventId)).toContain(eventId);
+
+    const dry = await redriveLaneEntryEvent(eventId, { dryRun: true });
+    expect(dry).toMatchObject({ plan: 'fresh_entry', blocked: false });
+    drainLaneEntryTrigger.mockResolvedValueOnce(true);
+    const applied = await redriveLaneEntryEvent(eventId, { dryRun: false });
+    expect(applied).toMatchObject({ plan: 'fresh_entry', applied: true, blocked: false });
+  });
+
   it('lists parked and ambiguously-failed events as recovery candidates', async () => {
     const first = setupEvent();
     const second = setupEvent({ status: 'failed' });

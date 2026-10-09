@@ -138,12 +138,14 @@ describe('lane-entry acceptance lifecycle', () => {
       lane: kanbanLanes.getById(lanes[0].id),
     });
 
-    // Setup/dispath fails before any provider acceptance signal.
+    // Setup/dispatch fails before any provider acceptance signal. The error
+    // code proves the provider was never reached (a definitive pre-start
+    // rejection); a generic error here would park as uncertain instead.
     createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue({
       supportsResume: () => false,
       needsConversationContext: () => false,
       async *execute() {
-        yield await Promise.reject(new Error('provider unavailable'));
+        yield await Promise.reject(Object.assign(new Error('Codex CLI not found'), { code: 'CODEX_CLI_NOT_FOUND' }));
       },
     });
 
@@ -158,7 +160,7 @@ describe('lane-entry acceptance lifecycle', () => {
     expect(afterFailure.delivery_phase).not.toBe('dispatch_intent');
     // The original provider rejection is retained, not replaced by a generic
     // delivery message.
-    expect(afterFailure.last_error).toContain('provider unavailable');
+    expect(afterFailure.last_error).toContain('Codex CLI not found');
 
     const childrenBefore = sessions.getByProjectId(project.id).filter((s) => s.id !== workspace.id);
     expect(childrenBefore).toHaveLength(1);
@@ -183,6 +185,48 @@ describe('lane-entry acceptance lifecycle', () => {
     expect(childrenAfter[0].id).toBe(childrenBefore[0].id);
     expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
       .get(run.laneEntryEventId).status).toBe('completed');
+  });
+
+  it('parks a generic pre-acceptance execution failure with intent preserved', async () => {
+    const { project, lanes } = setupBoard();
+    kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the lane work' });
+    const workspace = sessions.create(project.id, 'Workspace', 'root prompt', {
+      model: 'gpt-4o-test',
+      agentType: 'codex',
+    });
+    const card = kanbanCards.create(lanes[0].id, workspace.id);
+    const run = createLaneRunForEntry({
+      projectId: project.id,
+      workspaceId: workspace.id,
+      cardId: card.id,
+      lane: kanbanLanes.getById(lanes[0].id),
+    });
+
+    // A mid-turn failure with no acceptance signal proves nothing about
+    // provider start: park with intent for reconciliation, never auto-replay.
+    createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue({
+      supportsResume: () => false,
+      needsConversationContext: () => false,
+      async *execute() {
+        yield await Promise.reject(new Error('provider failed mid-turn'));
+      },
+    });
+
+    await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow('provider failed mid-turn');
+    expect(databaseManager.get().prepare(`SELECT status, delivery_phase, dispatch_key, attempt_count, last_error
+      FROM kanban_lane_entry_events WHERE id=?`).get(run.laneEntryEventId)).toMatchObject({
+      status: 'needs_attention', delivery_phase: 'dispatch_intent', attempt_count: 1,
+    });
+    const parked = databaseManager.get().prepare('SELECT dispatch_key, last_error FROM kanban_lane_entry_events WHERE id=?')
+      .get(run.laneEntryEventId);
+    expect(parked.dispatch_key).toEqual(expect.any(String));
+    expect(parked.last_error).toContain('provider failed mid-turn');
+
+    // Repeated drains start no new provider execution and burn no attempts.
+    await expect(drainLaneEntryTrigger(run.laneEntryEventId)).resolves.toBe(false);
+    expect(createAgentSpy).toHaveBeenCalledTimes(1);
+    expect(databaseManager.get().prepare('SELECT status, attempt_count FROM kanban_lane_entry_events WHERE id=?')
+      .get(run.laneEntryEventId)).toEqual({ status: 'needs_attention', attempt_count: 1 });
   });
 
   it('recovers when the poller reclaims the lease before a pre-acceptance failure', async () => {
@@ -211,7 +255,10 @@ describe('lane-entry acceptance lifecycle', () => {
         databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
           SET claim_expires_at=? WHERE status='claimed'`).run(Date.now() - 1);
         reclaimExpiredLaneEntryClaims(Date.now());
-        yield await Promise.reject(new Error('provider unavailable after reclaim'));
+        // Definitive pre-start rejection (provider never reached): the worker
+        // resets the intent it minted through the poller-first path. A
+        // generic error here would park as uncertain instead.
+        yield await Promise.reject(Object.assign(new Error('Codex CLI not found'), { code: 'CODEX_CLI_NOT_FOUND' }));
       },
     });
 

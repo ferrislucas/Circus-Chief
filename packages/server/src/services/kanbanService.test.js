@@ -18,9 +18,14 @@ vi.mock('./gitSessionSetup.js', () => ({
 }));
 
 vi.mock('./sessionManager.js', () => ({
-  // A resolved `{ started: true }` stands in for a genuinely executed turn:
-  // an undefined resolution is NOT acceptance in the durable delivery path.
-  runSession: vi.fn().mockResolvedValue({ started: true }),
+  // The default stands in for a genuinely executed turn: real adapters
+  // signal provider acceptance before completing, so the mock fires
+  // onProviderAccepted first. Tests for missing acceptance override this.
+  // An undefined resolution is NOT acceptance in the durable delivery path.
+  runSession: vi.fn().mockImplementation((_id, _prompt, _dir, options) => {
+    options?.onProviderAccepted?.({ boundary: 'test-acceptance' });
+    return Promise.resolve({ started: true });
+  }),
 }));
 
 vi.mock('./sessionProvider.js', () => ({
@@ -56,13 +61,14 @@ import {
   removeSessionFromBoard,
   triggerStructuredTransitionAutomation,
   drainLaneEntryTrigger,
+  drainPendingLaneEntryTriggers,
   reclaimExpiredLaneEntryClaims,
 } from './kanbanService.js';
 import {
   beginWorkflowTurn, claimWorkflowSessionStart, createLaneRunForEntry, attachRootSession,
   finalizeOwnWorkCompletion, getRun, attemptLaneRunTransition,
 } from './workflowSessionService.js';
-import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
+import { reconcileKanbanOwnership, getLaneEntryRecoveryCandidates } from './kanbanRecoveryService.js';
 import { resolveProviderMetadataFromModel } from './sessionProvider.js';
 import { kanbanRoutingMetrics } from './kanbanRoutingObservability.js';
 
@@ -516,7 +522,9 @@ describe('kanbanService', () => {
 
       await vi.waitFor(() => {
         const event = databaseManager.get().prepare('SELECT status, last_error FROM kanban_lane_entry_events WHERE card_id=?').get(card.id);
-        expect(event.status).toBe('pending');
+        // A generic rejection proves nothing about provider start: the
+        // uncertainty is parked for reconciliation, never auto-replayed.
+        expect(event.status).toBe('needs_attention');
         // The original provider rejection is retained in diagnostics.
         expect(event.last_error).toContain('provider unavailable');
       });
@@ -1099,7 +1107,10 @@ describe('kanbanService', () => {
       const run = createLaneRunForEntry({
         projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
       });
-      runSession.mockImplementationOnce(async (workerId) => {
+      runSession.mockImplementationOnce(async (workerId, _prompt, _dir, options) => {
+        // The real adapter signals provider acceptance when the turn starts;
+        // without it the durable path must not complete delivery.
+        options?.onProviderAccepted?.({ boundary: 'test-acceptance' });
         const { turnToken } = beginWorkflowTurn(workerId);
         const response = await routeWorkspaceCard(workspace.id, lanes[1].id);
         expect(response).toMatchObject({ status: 'scheduled', laneId: lanes[1].id });
@@ -1202,6 +1213,349 @@ describe('kanbanService', () => {
         FROM kanban_lane_entry_events WHERE id=?`).get(eventId)).toEqual({
         status: 'completed', delivery_phase: 'completed', dispatch_key: expect.any(String),
       });
+    });
+
+    it('parks an unaccepted completion without replaying the provider', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[1].id),
+      });
+      // A turn that finishes `{ started: true }` WITHOUT an acceptance
+      // signal (reschedule, user stop, error-result stream) proves nothing.
+      runSession.mockImplementationOnce(() => Promise.resolve({ started: true }));
+
+      await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow('Lane-entry delivery failed');
+      const event = databaseManager.get().prepare(`SELECT status, delivery_phase, dispatch_key,
+        attempt_count, last_error FROM kanban_lane_entry_events WHERE id=?`).get(run.laneEntryEventId);
+      // Intent and key survive for reconciliation; the failure is parked.
+      expect(event).toMatchObject({ status: 'needs_attention', delivery_phase: 'dispatch_intent', attempt_count: 1 });
+      expect(event.dispatch_key).toEqual(expect.any(String));
+      expect(event.last_error).toMatch(/^ambiguous_dispatch: /);
+      expect(runSession).toHaveBeenCalledTimes(1);
+
+      // Repeated drains and the retry poller must not call the provider
+      // again and must not burn attempts on the parked uncertainty.
+      await expect(drainLaneEntryTrigger(run.laneEntryEventId)).resolves.toBe(false);
+      await drainPendingLaneEntryTriggers();
+      expect(runSession).toHaveBeenCalledTimes(1);
+      expect(databaseManager.get().prepare('SELECT status, attempt_count FROM kanban_lane_entry_events WHERE id=?')
+        .get(run.laneEntryEventId)).toEqual({ status: 'needs_attention', attempt_count: 1 });
+    });
+
+    it('retries a definitive pre-start rejection under the owning claim', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[1].id),
+      });
+      runSession.mockImplementationOnce(async () => {
+        throw Object.assign(new Error('Codex CLI not found'), { code: 'CODEX_CLI_NOT_FOUND' });
+      });
+
+      await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow('Codex CLI not found');
+      const event = databaseManager.get().prepare(`SELECT status, delivery_phase, dispatch_key,
+        attempt_count, next_attempt_at, last_error FROM kanban_lane_entry_events WHERE id=?`)
+        .get(run.laneEntryEventId);
+      // The unproven intent is cleared under the owner so the retry stays
+      // retryable; backoff applies and the original reason is retained.
+      expect(event).toMatchObject({ status: 'pending', delivery_phase: 'pending', attempt_count: 1 });
+      expect(event.dispatch_key).toBeNull();
+      expect(event.next_attempt_at).toBeGreaterThan(Date.now());
+      expect(event.last_error).toContain('Codex CLI not found');
+    });
+
+    it('revives failed work once per eligible retry, never for open work', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[1].id),
+      });
+      const child = createChildSession(workspace.id, 'Lane worker');
+      attachRootSession(run.id, child.id);
+      // The failed turn closed its run and obligation before reporting the
+      // definitive pre-start error.
+      const failTime = Date.now();
+      databaseManager.get().prepare(`UPDATE kanban_lane_runs SET status='failed', failure_reason='setup failed',
+        failed_at=? WHERE id=?`).run(failTime, run.id);
+      databaseManager.get().prepare(`UPDATE sessions SET own_work_state='closed_failed' WHERE id=?`).run(child.id);
+      const failingSpawn = async () => {
+        throw Object.assign(new Error('Codex CLI not found'), { code: 'CODEX_CLI_NOT_FOUND' });
+      };
+      runSession.mockImplementationOnce(failingSpawn);
+
+      await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow('Codex CLI not found');
+      expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_runs WHERE id=?').get(run.id))
+        .toEqual({ status: 'open' });
+      expect(databaseManager.get().prepare('SELECT own_work_state FROM sessions WHERE id=?').get(child.id))
+        .toEqual({ own_work_state: 'open' });
+      // Revival is audited (the audit row is idempotent per run+child, so
+      // repeat revives are proven by state, not by audit count).
+      expect(databaseManager.get().prepare(`SELECT count(*) count FROM kanban_lane_run_audit_events
+        WHERE lane_run_id=? AND event_type='run_revived_for_retry'`).get(run.id).count).toBe(1);
+
+      // A second eligible retry revives again: the failure markers the
+      // revival clears are gone afterwards.
+      databaseManager.get().prepare('UPDATE kanban_lane_runs SET status=?, failure_reason=?, failed_at=? WHERE id=?')
+        .run('failed', 'second failure', Date.now(), run.id);
+      databaseManager.get().prepare(`UPDATE sessions SET own_work_state='closed_failed' WHERE id=?`).run(child.id);
+      databaseManager.get().prepare('UPDATE kanban_lane_entry_events SET next_attempt_at=NULL WHERE id=?')
+        .run(run.laneEntryEventId);
+      runSession.mockImplementationOnce(failingSpawn);
+      await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow('Codex CLI not found');
+      expect(databaseManager.get().prepare('SELECT status, failure_reason, failed_at FROM kanban_lane_runs WHERE id=?')
+        .get(run.id)).toEqual({ status: 'open', failure_reason: null, failed_at: null });
+      expect(databaseManager.get().prepare('SELECT own_work_state FROM sessions WHERE id=?').get(child.id))
+        .toEqual({ own_work_state: 'open' });
+      // And a retry against already-open work performs no revival at all:
+      // leftover markers survive the attempt untouched.
+      databaseManager.get().prepare(`UPDATE kanban_lane_runs SET failure_reason='leftover' WHERE id=?`).run(run.id);
+      databaseManager.get().prepare('UPDATE kanban_lane_entry_events SET next_attempt_at=NULL WHERE id=?')
+        .run(run.laneEntryEventId);
+      runSession.mockImplementationOnce(failingSpawn);
+      await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow('Codex CLI not found');
+      expect(databaseManager.get().prepare('SELECT status, failure_reason FROM kanban_lane_runs WHERE id=?')
+        .get(run.id)).toEqual({ status: 'open', failure_reason: 'leftover' });
+    });
+
+    it('a stale worker that lost its claim revives nothing', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[1].id),
+      });
+      const child = createChildSession(workspace.id, 'Lane worker');
+      attachRootSession(run.id, child.id);
+      const failTime = Date.now();
+      databaseManager.get().prepare(`UPDATE kanban_lane_runs SET status='failed', failure_reason='setup failed',
+        failed_at=? WHERE id=?`).run(failTime, run.id);
+      databaseManager.get().prepare(`UPDATE sessions SET own_work_state='closed_failed' WHERE id=?`).run(child.id);
+      runSession.mockImplementationOnce(async () => {
+        const db = databaseManager.get();
+        // Simulate the poller-first ordering: the poller reclaims the
+        // expired lease, parks the event, and a replacement takes over the
+        // card before the original worker reports its failure.
+        const target = db.prepare('SELECT dispatch_key FROM kanban_lane_entry_events WHERE id=?')
+          .get(run.laneEntryEventId);
+        db.prepare(`UPDATE kanban_lane_entry_events SET status='needs_attention',
+          last_error='ambiguous_dispatch: poller parked first', updated_at=?,
+          claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL WHERE id=?`)
+          .run(Date.now(), run.laneEntryEventId);
+        expect(target.dispatch_key).toEqual(expect.any(String));
+        throw Object.assign(new Error('Codex CLI not found'), { code: 'CODEX_CLI_NOT_FOUND' });
+      });
+
+      await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow('Codex CLI not found');
+      // The refused reset revives nothing: the failed run and obligation
+      // stay failed, and the parked intent is untouched.
+      expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_runs WHERE id=?').get(run.id))
+        .toEqual({ status: 'failed' });
+      expect(databaseManager.get().prepare('SELECT own_work_state FROM sessions WHERE id=?').get(child.id))
+        .toEqual({ own_work_state: 'closed_failed' });
+      expect(databaseManager.get().prepare(`SELECT status, delivery_phase, dispatch_key, last_error
+        FROM kanban_lane_entry_events WHERE id=?`).get(run.laneEntryEventId)).toMatchObject({
+        status: 'needs_attention', delivery_phase: 'dispatch_intent', last_error: 'ambiguous_dispatch: poller parked first',
+      });
+      expect(databaseManager.get().prepare(`SELECT count(*) count FROM kanban_lane_run_audit_events
+        WHERE lane_run_id=? AND event_type='run_revived_for_retry'`).get(run.id).count).toBe(0);
+    });
+
+    it('a stale worker never touches a terminal event', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[1].id),
+      });
+      const child = createChildSession(workspace.id, 'Lane worker');
+      attachRootSession(run.id, child.id);
+      const failTime = Date.now();
+      databaseManager.get().prepare(`UPDATE kanban_lane_runs SET status='failed', failure_reason='setup failed',
+        failed_at=? WHERE id=?`).run(failTime, run.id);
+      databaseManager.get().prepare(`UPDATE sessions SET own_work_state='closed_failed' WHERE id=?`).run(child.id);
+      runSession.mockImplementationOnce(async () => {
+        // A racing path terminally fails the event while this worker's
+        // dispatch is still in flight.
+        databaseManager.get().prepare(`UPDATE kanban_lane_entry_events SET status='failed',
+          last_error='delivery attempts exhausted', completed_at=?, updated_at=?, claim_token=NULL,
+          claimed_at=NULL, claim_expires_at=NULL WHERE id=?`)
+          .run(Date.now(), Date.now(), run.laneEntryEventId);
+        throw Object.assign(new Error('Codex CLI not found'), { code: 'CODEX_CLI_NOT_FOUND' });
+      });
+
+      await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow('Codex CLI not found');
+      // Terminal state is retained verbatim: no revival, no error rewrite.
+      expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_runs WHERE id=?').get(run.id))
+        .toEqual({ status: 'failed' });
+      expect(databaseManager.get().prepare('SELECT own_work_state FROM sessions WHERE id=?').get(child.id))
+        .toEqual({ own_work_state: 'closed_failed' });
+      expect(databaseManager.get().prepare('SELECT status, last_error FROM kanban_lane_entry_events WHERE id=?')
+        .get(run.laneEntryEventId)).toEqual({ status: 'failed', last_error: 'delivery attempts exhausted' });
+    });
+
+    it('a stale worker never revives work the card has moved past', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[1].id),
+      });
+      const child = createChildSession(workspace.id, 'Lane worker');
+      attachRootSession(run.id, child.id);
+      const failTime = Date.now();
+      databaseManager.get().prepare(`UPDATE kanban_lane_runs SET status='failed', failure_reason='setup failed',
+        failed_at=? WHERE id=?`).run(failTime, run.id);
+      databaseManager.get().prepare(`UPDATE sessions SET own_work_state='closed_failed' WHERE id=?`).run(child.id);
+      let replacement;
+      runSession.mockImplementationOnce(async () => {
+        // The card moves on to a replacement entry/run while this worker's
+        // dispatch is still in flight. Its own claim is still live.
+        replacement = createLaneRunForEntry({
+          projectId, workspaceId: workspace.id, cardId: card.id,
+          lane: kanbanLanes.getById(lanes[1].id), cause: 'manual_move',
+        });
+        throw Object.assign(new Error('Codex CLI not found'), { code: 'CODEX_CLI_NOT_FOUND' });
+      });
+
+      await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow('Codex CLI not found');
+      // The stale delivery revives nothing: its run stays failed and the
+      // replacement's state is untouched.
+      expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_runs WHERE id=?').get(run.id))
+        .toEqual({ status: 'failed' });
+      expect(databaseManager.get().prepare('SELECT own_work_state FROM sessions WHERE id=?').get(child.id))
+        .toEqual({ own_work_state: 'closed_failed' });
+      expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_runs WHERE id=?').get(replacement.id))
+        .toEqual({ status: 'open' });
+      expect(databaseManager.get().prepare('SELECT active_lane_run_id, lane_entry_event_id FROM kanban_cards WHERE id=?')
+        .get(card.id)).toEqual({ active_lane_run_id: replacement.id, lane_entry_event_id: replacement.laneEntryEventId });
+      expect(databaseManager.get().prepare('SELECT status, attempt_count FROM kanban_lane_entry_events WHERE id=?')
+        .get(replacement.laneEntryEventId)).toEqual({ status: 'pending', attempt_count: 0 });
+      // Keep the replacement out of later pollers' way in this shared test DB.
+      databaseManager.get().prepare('UPDATE kanban_lane_entry_events SET next_attempt_at=? WHERE id=?')
+        .run(Date.now() + 3600_000, replacement.laneEntryEventId);
+    });
+
+    it('reconciles a proven final dispatch without a new provider call', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[1].id),
+      });
+      const child = createChildSession(workspace.id, 'Lane worker');
+      attachRootSession(run.id, child.id);
+      // Attempt 8 accepted and persisted matching evidence, then crashed
+      // before the delivery handoff could commit.
+      const acceptedAt = Date.now();
+      databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+        SET attempt_count=8, delivery_phase='dispatch_intent', dispatch_key='k-final',
+          accepted_at=?, accepted_dispatch_key='k-final', updated_at=? WHERE id=?`)
+        .run(acceptedAt, acceptedAt, run.laneEntryEventId);
+
+      // Direct drain completes the proven delivery without dispatching.
+      expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(true);
+      expect(databaseManager.get().prepare('SELECT status, attempt_count FROM kanban_lane_entry_events WHERE id=?')
+        .get(run.laneEntryEventId)).toEqual({ status: 'completed', attempt_count: 8 });
+      expect(runSession).not.toHaveBeenCalled();
+    });
+
+    it('reconciles a proven final dispatch through poller recovery', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[1].id),
+      });
+      const child = createChildSession(workspace.id, 'Lane worker');
+      attachRootSession(run.id, child.id);
+      const acceptedAt = Date.now();
+      databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+        SET attempt_count=8, delivery_phase='dispatch_intent', dispatch_key='k-final',
+          accepted_at=?, accepted_dispatch_key='k-final', updated_at=? WHERE id=?`)
+        .run(acceptedAt, acceptedAt, run.laneEntryEventId);
+
+      await drainPendingLaneEntryTriggers();
+      expect(databaseManager.get().prepare('SELECT status, attempt_count FROM kanban_lane_entry_events WHERE id=?')
+        .get(run.laneEntryEventId)).toEqual({ status: 'completed', attempt_count: 8 });
+      expect(runSession).not.toHaveBeenCalled();
+    });
+
+    it('parks a final uncertain dispatch instead of failing it', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[1].id),
+      });
+      const child = createChildSession(workspace.id, 'Lane worker');
+      attachRootSession(run.id, child.id);
+      // A final dispatch with intent but no acceptance, carrying stale
+      // last-error text from an earlier attempt.
+      databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+        SET attempt_count=8, delivery_phase='dispatch_intent', dispatch_key='k-uncertain',
+          last_error='some stale boom', updated_at=? WHERE id=?`)
+        .run(Date.now(), run.laneEntryEventId);
+
+      expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(false);
+      const event = databaseManager.get().prepare(`SELECT status, attempt_count, delivery_phase,
+        dispatch_key, last_error FROM kanban_lane_entry_events WHERE id=?`).get(run.laneEntryEventId);
+      expect(event).toMatchObject({ status: 'needs_attention', attempt_count: 8, delivery_phase: 'dispatch_intent' });
+      expect(event.dispatch_key).toBe('k-uncertain');
+      expect(event.last_error).toMatch(/^ambiguous_dispatch: /);
+      expect(runSession).not.toHaveBeenCalled();
+      const candidates = getLaneEntryRecoveryCandidates();
+      expect(candidates.map((candidate) => candidate.eventId)).toContain(run.laneEntryEventId);
+    });
+
+    it('fails a definitively rejected exhausted dispatch without a ninth dispatch', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[1].id),
+      });
+      // Eight definitive rejections left no unacknowledged intent behind.
+      databaseManager.get().prepare('UPDATE kanban_lane_entry_events SET attempt_count=8 WHERE id=?')
+        .run(run.laneEntryEventId);
+
+      expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(false);
+      expect(databaseManager.get().prepare('SELECT status, last_error FROM kanban_lane_entry_events WHERE id=?')
+        .get(run.laneEntryEventId)).toMatchObject({ status: 'failed' });
+      expect(runSession).not.toHaveBeenCalled();
+      expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(false);
+      expect(runSession).not.toHaveBeenCalled();
+    });
+
+    it('preserves uncertainty when the acceptance handoff cannot commit', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue the work' });
+      const workspace = createSession('Workspace');
+      const card = kanbanCards.create(lanes[1].id, workspace.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[1].id),
+      });
+      // The provider accepts, but the claim lease is lost before the handoff
+      // commit: the recorded evidence must survive, uncompleted and undispatched.
+      runSession.mockImplementationOnce(async (_id, _prompt, _dir, options) => {
+        options?.onProviderAccepted?.({ boundary: 'test-acceptance' });
+        databaseManager.get().prepare('UPDATE kanban_lane_entry_events SET claim_expires_at=? WHERE id=?')
+          .run(Date.now() - 1, run.laneEntryEventId);
+        return { started: true };
+      });
+
+      await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow();
+      const event = databaseManager.get().prepare(`SELECT status, delivery_phase, dispatch_key,
+        accepted_dispatch_key, attempt_count FROM kanban_lane_entry_events WHERE id=?`)
+        .get(run.laneEntryEventId);
+      expect(event).toMatchObject({ status: 'needs_attention', delivery_phase: 'dispatch_intent', attempt_count: 1 });
+      expect(event.dispatch_key).toEqual(expect.any(String));
+      expect(event.accepted_dispatch_key).toBe(event.dispatch_key);
+      expect(runSession).toHaveBeenCalledTimes(1);
+      await expect(drainLaneEntryTrigger(run.laneEntryEventId)).resolves.toBe(false);
+      expect(runSession).toHaveBeenCalledTimes(1);
     });
 
     it('drains a pending completion event once and marks it completed', async () => {

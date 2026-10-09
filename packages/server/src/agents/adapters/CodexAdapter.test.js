@@ -47,12 +47,15 @@ function createFakeChild({ stdoutLines = [], stderr = '', exitCode = 0, emitErro
   });
   child.kill = vi.fn();
 
-  // After nextTick, start pushing lines
+  // After nextTick, start pushing lines. A successful start always confirms
+  // with 'spawn' first (matching Node); the pre-start error path emits
+  // 'error' with no 'spawn'.
   process.nextTick(() => {
     if (emitError) {
       child.emit('error', emitError);
       return;
     }
+    child.emit('spawn');
     for (const line of stdoutLines) {
       child.stdout.push(`${line}\n`);
     }
@@ -1396,5 +1399,126 @@ describe('CodexAdapter', () => {
     // Neither emits type
     expect(httpArgs.some((a) => a.startsWith('mcp_servers.srv.type='))).toBe(false);
     expect(sseArgs.some((a) => a.startsWith('mcp_servers.srv.type='))).toBe(false);
+  });
+
+  describe('CLI subprocess start confirmation', () => {
+    function makeEmitterChild() {
+      const child = new EventEmitter();
+      child.stdout = new Readable({ read() {} });
+      child.stderr = new Readable({ read() {} });
+      child.stdin = new Writable({ write(chunk, _enc, cb) { cb(); } });
+      child.kill = vi.fn();
+      return child;
+    }
+
+    function cliOptions(overrides = {}) {
+      return {
+        model: 'gpt-4o', cwd: process.cwd(), env: {}, abortController: new AbortController(), ...overrides,
+      };
+    }
+
+    it('async pre-spawn error without spawn never signals acceptance and rejects definitively', async () => {
+      const child = makeEmitterChild();
+      const fakeSpawn = vi.fn(() => {
+        // Node reports a missing executable asynchronously as 'error' with
+        // no 'spawn' — a synchronous throw alone does not model production.
+        process.nextTick(() => {
+          child.emit('error', Object.assign(new Error('spawn codex ENOENT'), { code: 'ENOENT' }));
+        });
+        return child;
+      });
+      const onAccepted = vi.fn();
+      const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+      let caught = null;
+      try {
+        await collect(adapter.execute(
+          { prompt: 'hi', options: cliOptions() },
+          { sessionId: 's1', onProviderAccepted: onAccepted },
+        ));
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).not.toBeNull();
+      expect(caught.code).toBe('CODEX_CLI_NOT_FOUND');
+      expect(onAccepted).not.toHaveBeenCalled();
+    });
+
+    it('acceptance fires only after confirmed spawn, exactly once', async () => {
+      const child = makeEmitterChild();
+      const fakeSpawn = vi.fn(() => {
+        setTimeout(() => child.emit('spawn'), 10);
+        setTimeout(() => {
+          child.stdout.push('{"type":"thread.started","thread_id":"codex-spawn"}\n');
+          child.stdout.push('{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}\n');
+          child.stdout.push(null);
+          child.stderr.push(null);
+        }, 20);
+        setTimeout(() => child.emit('exit', 0), 30);
+        return child;
+      });
+      const onAccepted = vi.fn();
+      const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+      const eventsPromise = collect(adapter.execute(
+        { prompt: 'hi', options: cliOptions() },
+        { sessionId: 's1', onProviderAccepted: onAccepted },
+      ));
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      // The spawner returned but the process has not confirmed start yet.
+      expect(onAccepted).not.toHaveBeenCalled();
+      const events = await eventsPromise;
+      expect(onAccepted).toHaveBeenCalledTimes(1);
+      expect(onAccepted.mock.calls[0][0]).toMatchObject({ adapterType: 'codex', boundary: 'subprocess_start' });
+      expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
+    });
+
+    it('aborted signal before spawn never signals acceptance', async () => {
+      const child = makeEmitterChild();
+      const fakeSpawn = vi.fn(() => {
+        setTimeout(() => child.emit('spawn'), 10);
+        setTimeout(() => child.emit('exit', 0), 20);
+        return child;
+      });
+      const controller = new AbortController();
+      controller.abort(new Error('user stopped'));
+      const onAccepted = vi.fn();
+      const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+      let caught = null;
+      try {
+        await collect(adapter.execute(
+          { prompt: 'hi', options: cliOptions({ abortController: controller }) },
+          { sessionId: 's1', onProviderAccepted: onAccepted },
+        ));
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).not.toBeNull();
+      expect(onAccepted).not.toHaveBeenCalled();
+    });
+
+    it('duplicate spawn and late post-spawn error do not re-signal acceptance', async () => {
+      const child = makeEmitterChild();
+      const fakeSpawn = vi.fn(() => {
+        setTimeout(() => {
+          child.emit('spawn');
+          child.emit('spawn');
+          child.stdout.push('{"type":"thread.started","thread_id":"codex-dup"}\n');
+          child.stdout.push(null);
+          child.stderr.push(null);
+        }, 10);
+        setTimeout(() => child.emit('exit', 0), 20);
+        return child;
+      });
+      const onAccepted = vi.fn();
+      const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+      await collect(adapter.execute(
+        { prompt: 'hi', options: cliOptions() },
+        { sessionId: 's1', onProviderAccepted: onAccepted },
+      ));
+      expect(onAccepted).toHaveBeenCalledTimes(1);
+    });
   });
 });

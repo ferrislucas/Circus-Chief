@@ -172,6 +172,32 @@ function reusableRunForEntryEvent(db, eventId) {
   return null;
 }
 
+/**
+ * Transaction-free core of {@link createLaneRunForEntry} for callers that
+ * already hold a write transaction (operator redrive). Same inserts, card
+ * pointer update, and audit; the caller owns commit/rollback, and unique
+ * violations propagate so the caller's transaction rolls back.
+ */
+export function insertLaneRunForEntry(db, { projectId, workspaceId, cardId, lane, cause = 'card_added', priorLaneRunId = null, entryEventId = null, causeRunId = null }) {
+  const time = now();
+  const eventId = entryEventId || id(); const runId = id();
+  const key = `${cause}:${cardId}:${lane.id}:${eventId}`;
+  if (!entryEventId) db.prepare(`INSERT INTO kanban_lane_entry_events
+    (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,caused_by_run_id,status,created_at,updated_at,completed_at)
+    VALUES (?,?,?,?,?,?,?,?,'pending',?,?,NULL)`)
+    .run(eventId, key, projectId, workspaceId, cardId, lane.id, cause, causeRunId, time, time);
+  db.prepare(`INSERT INTO kanban_lane_runs
+    (id,lane_entry_event_id,prior_lane_run_id,project_id,workspace_id,card_id,source_lane_id,
+     completion_target_lane_id,root_session_id,status,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,'open',?,?)`)
+    .run(runId, eventId, priorLaneRunId, projectId, workspaceId, cardId, lane.id,
+      lane.completionTargetLaneId, null, time, time);
+  db.prepare(`UPDATE kanban_cards SET active_lane_run_id=?, lane_entry_event_id=?, updated_at=? WHERE id=?`)
+    .run(runId, eventId, time, cardId);
+  audit(db, runId, 'run_created', { details: { cause, laneId: lane.id } });
+  return getRun(runId);
+}
+
 export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, cause = 'card_added', priorLaneRunId = null, entryEventId = null }) {
   if (!isStructured(lane)) return null;
   const db = databaseManager.get();
@@ -181,25 +207,8 @@ export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, ca
     if (existingEvent) return reusableRunForEntryEvent(db, existingEvent.id);
   }
   try {
-    return databaseManager.transaction(() => {
-      const db2 = databaseManager.get(); const time = now();
-      const eventId = entryEventId || id(); const runId = id();
-      const key = `${cause}:${cardId}:${lane.id}:${eventId}`;
-      if (!entryEventId) db2.prepare(`INSERT INTO kanban_lane_entry_events
-        (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,caused_by_run_id,status,created_at,updated_at,completed_at)
-        VALUES (?,?,?,?,?,?,?,?,'pending',?,?,NULL)`)
-        .run(eventId, key, projectId, workspaceId, cardId, lane.id, cause, causeRunId, time, time);
-      db2.prepare(`INSERT INTO kanban_lane_runs
-        (id,lane_entry_event_id,prior_lane_run_id,project_id,workspace_id,card_id,source_lane_id,
-         completion_target_lane_id,root_session_id,status,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,'open',?,?)`)
-        .run(runId, eventId, priorLaneRunId, projectId, workspaceId, cardId, lane.id,
-          lane.completionTargetLaneId, null, time, time);
-      db2.prepare(`UPDATE kanban_cards SET active_lane_run_id=?, lane_entry_event_id=?, updated_at=? WHERE id=?`)
-        .run(runId, eventId, time, cardId);
-      audit(db2, runId, 'run_created', { details: { cause, laneId: lane.id } });
-      return getRun(runId);
-    });
+    return databaseManager.transaction(() => insertLaneRunForEntry(databaseManager.get(),
+      { projectId, workspaceId, cardId, lane, cause, priorLaneRunId, entryEventId, causeRunId }));
   } catch (error) {
     // W7 (AC-14): a concurrent caller committed first — either the same
     // caused_by_run_id entry event, or idx_lane_runs_one_open_card (at most
@@ -229,22 +238,30 @@ export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, ca
  */
 export function reviveLaneEntryWorkerForRetry(runId, sessionId) {
   if (!runId || !sessionId) return false;
-  return databaseManager.transaction(() => {
-    const db = databaseManager.get();
-    const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
-    if (!run || run.status !== 'failed' || run.root_session_id !== sessionId) return false;
-    const member = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
-    if (!member || member.lane_run_id !== runId || member.own_work_state !== 'closed_failed') return false;
-    const time = now();
-    const revivedRun = db.prepare(`UPDATE kanban_lane_runs SET status='open', failure_reason=NULL,
-      failed_at=NULL, cancelled_at=NULL, updated_at=? WHERE id=? AND status='failed'`).run(time, runId);
-    if (revivedRun.changes !== 1) return false;
-    db.prepare(`UPDATE sessions SET own_work_state='open', workflow_reason=NULL, workflow_updated_at=?,
-      execution_state=CASE WHEN execution_state IN ('running', 'retrying') THEN 'idle' ELSE execution_state END
-      WHERE id=? AND lane_run_id=? AND own_work_state='closed_failed'`).run(time, sessionId, runId);
-    audit(db, runId, 'run_revived_for_retry', { sessionId });
-    return true;
-  });
+  return databaseManager.transaction(() => reviveLaneEntryWorkerForRetryInTx(databaseManager.get(), runId, sessionId));
+}
+
+/**
+ * Transaction-free core of {@link reviveLaneEntryWorkerForRetry} for callers
+ * that already hold a write transaction (retry fencing, operator redrive).
+ * Same conditional checks and audit; the caller owns commit/rollback.
+ * @returns {boolean} True when the run and root were reopened
+ */
+export function reviveLaneEntryWorkerForRetryInTx(db, runId, sessionId) {
+  if (!db || !runId || !sessionId) return false;
+  const run = db.prepare(SELECT_RUN_BY_ID).get(runId);
+  if (!run || run.status !== 'failed' || run.root_session_id !== sessionId) return false;
+  const member = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
+  if (!member || member.lane_run_id !== runId || member.own_work_state !== 'closed_failed') return false;
+  const time = now();
+  const revivedRun = db.prepare(`UPDATE kanban_lane_runs SET status='open', failure_reason=NULL,
+    failed_at=NULL, cancelled_at=NULL, updated_at=? WHERE id=? AND status='failed'`).run(time, runId);
+  if (revivedRun.changes !== 1) return false;
+  db.prepare(`UPDATE sessions SET own_work_state='open', workflow_reason=NULL, workflow_updated_at=?,
+    execution_state=CASE WHEN execution_state IN ('running', 'retrying') THEN 'idle' ELSE execution_state END
+    WHERE id=? AND lane_run_id=? AND own_work_state='closed_failed'`).run(time, sessionId, runId);
+  audit(db, runId, 'run_revived_for_retry', { sessionId });
+  return true;
 }
 
 /** Attach the actual on-entry worker as a lane run's root exactly once. */

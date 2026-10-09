@@ -20,9 +20,39 @@ function throwIfAborted(controller) {
  * A lane-entry delivery must be observable by its caller.  In particular,
  * recovery must never confuse a missing configuration or a failed setup with
  * a successfully delivered outbox event.
+ *
+ * Every undelivered result carries a structured outcome for downstream
+ * bookkeeping: `rejected` (definitively never started — safe to retry) or
+ * `unknown` (acceptance unproven — park for reconciliation, never replay).
+ * Setup failures that throw before any dispatch default to `rejected`.
  */
-function undelivered(reason) {
-  return { delivered: false, reason };
+function undelivered(reason, outcome = 'rejected') {
+  return { delivered: false, reason, outcome };
+}
+
+/**
+ * Error codes proving the provider was never reached (missing executables,
+ * missing credentials, spawn-level OS refusals). Adapters map their
+ * pre-start failures to these stable codes; anything else is uncertainty.
+ */
+const DEFINITIVE_PRE_START_CODES = new Set([
+  'ENOENT',
+  'CODEX_CLI_NOT_FOUND',
+  'GEMINI_CLI_NOT_FOUND',
+  'MUSE_CLI_NOT_FOUND',
+  'OPENAI_API_KEY_MISSING',
+]);
+
+/**
+ * Classify a pre-acceptance execution failure as definitively rejected
+ * (safe to retry under the owning token) or unknown (park for
+ * reconciliation). Only positively known pre-start failures are rejected;
+ * absence of evidence is never evidence of non-start.
+ * @param {unknown} error
+ * @returns {boolean} True when the error proves the provider never started
+ */
+export function isDefinitivePreStartError(error) {
+  return Boolean(error && DEFINITIVE_PRE_START_CODES.has(error.code));
 }
 
 /**
@@ -91,24 +121,28 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
  * @param {string} workingDirectory
  * @param {Object} options - runSession options plus `onAccepted` (fired with
  *   the acceptance detail, synchronously after the promise settles).
- * @returns {Promise<{accepted:boolean,reason:string|null}>} `accepted` is true
- *   when the provider accepted the turn — either via an explicit acceptance
- *   signal or via a `{ started: true }` completion. `{ started: false }` is a
- *   definitive pre-start rejection; any other resolution (notably `undefined`
- *   from legacy wrappers) is NOT acceptance in the durable path. `reason`
- *   carries the original rejection cause for diagnostics (never a generic
- *   placeholder). Post-acceptance turn failures still resolve accepted: they
- *   are logged, never reported as delivery failures, and never overwrite the
- *   execution layer's own outcome bookkeeping.
+ * @returns {Promise<{accepted:boolean,reason:string|null,outcome:string}>}
+ *   `accepted` is true only on a positively observed provider-acceptance
+ *   signal for this dispatch. A `{ started: true }` completion alone proves
+ *   nothing — reschedules, user stops, and error-result streams all
+ *   synthesize it without provider handoff — so it resolves unaccepted with
+ *   outcome `unknown`. `{ started: false }` is a definitive pre-start
+ *   rejection (`rejected`); any other resolution (notably `undefined` from
+ *   legacy wrappers) is `unknown`. Thrown errors are `rejected` only for
+ *   positively known pre-start failures (see {@link isDefinitivePreStartError}),
+ *   otherwise `unknown`. `reason` carries the original cause for diagnostics
+ *   (never a generic placeholder). Post-acceptance turn failures still
+ *   resolve accepted: they are logged, never reported as delivery failures,
+ *   and never overwrite the execution layer's own outcome bookkeeping.
  */
 export function startChildSession(newSession, prompt, workingDirectory, options) {
   const { onAccepted, ...runOptions } = options ?? {};
   return new Promise((resolve) => {
     let settled = false;
-    const settle = (accepted, reason = null) => {
+    const settle = (accepted, reason = null, outcome = null) => {
       if (!settled) {
         settled = true;
-        resolve({ accepted, reason });
+        resolve({ accepted, reason, outcome: outcome ?? (accepted ? 'accepted' : 'unknown') });
       }
     };
     const failBeforeAcceptance = (error) => {
@@ -119,14 +153,15 @@ export function startChildSession(newSession, prompt, workingDirectory, options)
         sessionId: newSession.id,
         session: errorSession,
       });
-      settle(false, error?.message || 'child session execution failed');
+      settle(false, error?.message || 'child session execution failed',
+        isDefinitivePreStartError(error) ? 'rejected' : 'unknown');
     };
     let completion;
     try {
       completion = runSession(newSession.id, prompt, workingDirectory, {
         ...runOptions,
         onProviderAccepted: (detail) => {
-          settle(true);
+          settle(true, null, 'accepted');
           try {
             onAccepted?.(detail);
           } catch (error) {
@@ -140,16 +175,20 @@ export function startChildSession(newSession, prompt, workingDirectory, options)
     }
     Promise.resolve(completion).then(
       (result) => {
-        if (result?.started === true) {
-          settle(true);
+        if (settled) {
+          // A prior acceptance signal wins over this late completion.
           return;
         }
-        // Definitive pre-start rejection (`{ started: false }`) or an
-        // unknown legacy resolution (`undefined`): either way the provider
-        // never demonstrably accepted this turn. settle() is idempotent, so
-        // a prior acceptance signal wins over this late completion. The
-        // original rejection reason is preserved for diagnostics.
-        settle(false, result?.reason || 'provider dispatch was not accepted');
+        if (result?.started === false) {
+          // Definitive pre-start rejection: the execution fence refused
+          // before any provider call. Safe to retry under the owner.
+          settle(false, result?.reason || 'provider dispatch was rejected before start', 'rejected');
+          return;
+        }
+        // `{ started: true }` without an acceptance signal, or an unknown
+        // legacy resolution (`undefined`): the provider never demonstrably
+        // accepted this turn. Park for reconciliation — never replay.
+        settle(false, result?.reason || 'turn finished without provider acceptance', 'unknown');
       },
       (error) => {
         if (settled) {
@@ -259,6 +298,32 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
   return { newSession, renderedPrompt, settings };
 }
 
+/**
+ * Dispatch an attached lane-entry child after setup/broadcast, resolving
+ * once provider acceptance is known. Shared by the template and prompt
+ * triggers so both carry the same acceptance/outcome contract.
+ */
+async function dispatchLaneEntryChild(newSession, renderedPrompt, workingDirectory,
+  { systemPrompt, model, beforeDispatch, abortController, onAccepted, logLabel }) {
+  // Record dispatch intent after setup/broadcast but immediately before the
+  // provider boundary. A crash after this point remains an ambiguous dispatch
+  // and is not replayed automatically.
+  if (beforeDispatch) await beforeDispatch(newSession.id);
+  throwIfAborted(abortController);
+  const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
+    systemPrompt,
+    model,
+    ...(abortController ? { abortController } : {}),
+    ...(onAccepted ? { onAccepted } : {}),
+  });
+  if (!accepted.accepted) {
+    return undelivered(accepted.reason || 'provider dispatch was not accepted', accepted.outcome || 'unknown');
+  }
+
+  console.log(`Kanban: Created and started ${logLabel} session ${newSession.id}`);
+  return { delivered: true, rootSessionId: newSession.id };
+}
+
 // eslint-disable-next-line max-statements, complexity -- capability, cancellation, setup, and dispatch fences form one boundary
 export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
   const { laneRunId = null, childSessionId = null, beforeDispatch, abortController, onAccepted } = options;
@@ -302,21 +367,14 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
       session: sessions.getById(newSession.id),
     });
 
-    // Record dispatch intent after setup/broadcast but immediately before the
-    // provider boundary. A crash after this point remains an ambiguous dispatch
-    // and is not replayed automatically.
-    if (beforeDispatch) await beforeDispatch(newSession.id);
-    throwIfAborted(abortController);
-    const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
+    return dispatchLaneEntryChild(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
-      ...(abortController ? { abortController } : {}),
-      ...(onAccepted ? { onAccepted } : {}),
+      beforeDispatch,
+      abortController,
+      onAccepted,
+      logLabel: 'on-enter',
     });
-    if (!accepted.accepted) return undelivered(accepted.reason || 'provider dispatch was not accepted');
-
-    console.log(`Kanban: Created and started on-enter session ${newSession.id}`);
-    return { delivered: true, rootSessionId: newSession.id };
   } catch (error) {
     console.error(`Kanban: Failed to trigger on-enter template for session ${sessionId}:`, error);
     return undelivered(error instanceof Error ? error.message : 'template delivery failed');
@@ -388,18 +446,14 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
       session: sessions.getById(newSession.id),
     });
 
-    if (beforeDispatch) await beforeDispatch(newSession.id);
-    throwIfAborted(abortController);
-    const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
+    return dispatchLaneEntryChild(newSession, renderedPrompt, workingDirectory, {
       systemPrompt: project.systemPrompt,
       model: settings.model,
-      ...(abortController ? { abortController } : {}),
-      ...(onAccepted ? { onAccepted } : {}),
+      beforeDispatch,
+      abortController,
+      onAccepted,
+      logLabel: 'on-enter prompt',
     });
-    if (!accepted.accepted) return undelivered(accepted.reason || 'provider dispatch was not accepted');
-
-    console.log(`Kanban: Created and started on-enter prompt session ${newSession.id}`);
-    return { delivered: true, rootSessionId: newSession.id };
   } catch (error) {
     console.error(`Kanban: Failed to trigger on-enter prompt for session ${sessionId}:`, error);
     return undelivered(error instanceof Error ? error.message : 'prompt delivery failed');

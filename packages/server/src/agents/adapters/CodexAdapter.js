@@ -1,7 +1,10 @@
 import crypto from 'crypto';
 import { BaseAgent, notifyProviderAccepted } from '../BaseAgent.js';
+import { confirmCliSpawn, mapPreSpawnError } from './cliSpawnLifecycle.js';
 import { executeCodexCli } from './codexCliRunner.js';
 import { createCodexSpawner } from '../../services/codexSpawnHelper.js';
+
+const CODEX_NOT_FOUND = { notFoundCode: 'CODEX_CLI_NOT_FOUND', notFoundMessage: 'Codex CLI not found', markUnavailable: markCodexCliUnavailable };
 
 /**
  * Module-level flag: once an ENOENT is observed for the Codex CLI, remember
@@ -49,7 +52,8 @@ export class CodexAdapter extends BaseAgent {
   /**
    * @param {Object} [opts]
    * @param {Function} [opts.spawnCodexProcess] - Optional DI for testing the
-   *   CLI path. Shape matches {@link createCodexSpawner} output.
+   *   CLI path. Shape matches {@link createCodexSpawner} output, and the
+   *   child must follow the start contract in {@link confirmCliSpawn}.
    * @param {Function} [opts.openaiClientFactory] - Optional DI for testing
    *   the direct-API path: {@code ({ baseURL, apiKey, timeout }) => client}
    *   where {@code client.chat.completions.create} is OpenAI-SDK-compatible.
@@ -106,7 +110,9 @@ export class CodexAdapter extends BaseAgent {
    */
   async *_executeCli(queryParams, options, meta) {
     const child = this._spawnCodexChild(queryParams, options);
-    // A returned spawn proves the provider runner owns the turn.
+    // A returned spawner proves nothing: acceptance waits for confirmed
+    // process start, and a pre-start failure is a definitive rejection.
+    await confirmCliSpawn(child, { signal: options.abortController?.signal, ...CODEX_NOT_FOUND });
     notifyCodexAccepted(meta, 'subprocess_start', child?.pid);
     yield* executeCodexCli(child, queryParams, options, markCodexCliUnavailable);
   }
@@ -154,13 +160,7 @@ export class CodexAdapter extends BaseAgent {
         signal: abortController?.signal,
       });
     } catch (err) {
-      if (err && err.code === 'ENOENT') {
-        codexCliUnavailable = true;
-        const notFound = new Error('Codex CLI not found');
-        notFound.code = 'CODEX_CLI_NOT_FOUND';
-        throw notFound;
-      }
-      throw err;
+      throw mapPreSpawnError(err, CODEX_NOT_FOUND);
     }
   }
 

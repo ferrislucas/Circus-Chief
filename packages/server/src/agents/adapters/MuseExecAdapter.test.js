@@ -13,7 +13,11 @@ function fakeSpawn(output, code = 0, onSpawn = () => {}) {
     onSpawn(args);
     const child = new EventEmitter();
     child.pid = 4242; child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => true;
-    queueMicrotask(() => {
+    // Production ordering: 'spawn' confirms start before any stream/exit
+    // activity. The exit is deferred past the spawn microtask so the
+    // adapter's post-start listeners are attached before it can fire.
+    queueMicrotask(() => child.emit('spawn'));
+    setImmediate(() => {
       const stdout = Array.isArray(output) ? output.join('\n') + (output.length ? '\n' : '') : output;
       child.stdout.end(stdout);
       child.stderr.end();
@@ -193,6 +197,7 @@ describe('MuseExecAdapter', () => {
       for await (const item of adapter.execute({ prompt: 'Hi', options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll' } })) seen.push(item);
     })();
     await vi.waitFor(() => expect(child).toBeTruthy());
+    child.emit('spawn');
     const head = [
       record('reconciliation', 1, 'runtime.command.accepted', { command_id: 'cmd-123' }),
       event(2, 'session.run.linked', { command_id: 'cmd-123', run_stream: { id: 'run-123' } }),
@@ -228,6 +233,10 @@ describe('MuseExecAdapter', () => {
       for await (const item of adapter.execute({ prompt: 'Hi', options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll' } })) seen.push(item);
     })();
     await vi.waitFor(() => expect(child).toBeTruthy());
+    child.emit('spawn');
+    // Let the adapter attach its post-start stream listeners before driving
+    // the raw-emitter close ordering below.
+    await new Promise((resolve) => setImmediate(resolve));
     child.stdout.emit('data', `${currentRun().join('\n')}\n`);
     child.stdout.emit('close');
     // Let the drain loop consume everything and park with the turn incomplete.
@@ -336,6 +345,7 @@ describe('MuseExecAdapter', () => {
       for await (const item of adapter.execute({ prompt: 'Hi', options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll' } })) events.push(item);
     })();
     await vi.waitFor(() => expect(child).toBeTruthy());
+    child.emit('spawn');
     child.stdout.write('not-json\n');
     await pump;
     expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'error' });
@@ -357,6 +367,10 @@ describe('MuseExecAdapter', () => {
       for await (const item of adapter.execute({ prompt: 'Hi', options: { cwd: '/tmp', env: {}, approvalMode: 'allowAll' } })) events.push(item);
     })();
     await vi.waitFor(() => expect(child).toBeTruthy());
+    child.emit('spawn');
+    // The error must arrive after the post-start handlers are attached so
+    // it travels the post-spawn stream-failure path.
+    await new Promise((resolve) => setImmediate(resolve));
     child.emit('error', new Error('spawn boom'));
     await pump;
     expect(events.at(-1)).toMatchObject({ type: 'result', subtype: 'error' });
@@ -379,6 +393,7 @@ describe('MuseExecAdapter', () => {
     await vi.waitFor(() => expect(child).toBeTruthy());
     // Let the turn stream one live event, then break while the child is
     // still alive with no terminal and no exit.
+    child.emit('spawn');
     child.stdout.write(`${event(1, 'run.output.delta', { text: 'partial' })}\n`);
     await second;
     await gen.return();
@@ -387,5 +402,112 @@ describe('MuseExecAdapter', () => {
     expect(kills).toContain('SIGKILL');
     child.stdout.destroy();
     child.stderr.destroy();
+  });
+  describe('subprocess start confirmation', () => {
+    function cliOptions(overrides = {}) {
+      return { cwd: '/tmp', env: {}, approvalMode: 'allowAll', ...overrides };
+    }
+
+    it('async pre-spawn error without spawn never signals acceptance and rejects definitively', async () => {
+      const adapter = new MuseExecAdapter({
+        spawnMuseExec: () => {
+          const child = new EventEmitter();
+          child.pid = 4242;
+          child.stdout = new PassThrough();
+          child.stderr = new PassThrough();
+          child.kill = () => true;
+          // Node reports a missing executable asynchronously as 'error'
+          // with no 'spawn' — a synchronous throw alone does not model it.
+          queueMicrotask(() => {
+            const err = new Error('spawn muse ENOENT');
+            err.code = 'ENOENT';
+            child.emit('error', err);
+          });
+          return child;
+        },
+      });
+      const onAccepted = vi.fn();
+      let caught = null;
+      try {
+        for await (const _item of adapter.execute(
+          { prompt: 'Hi', options: cliOptions() },
+          { sessionId: 's1', onProviderAccepted: onAccepted },
+        )) { /* drain */ }
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).not.toBeNull();
+      expect(caught.code).toBe('MUSE_CLI_NOT_FOUND');
+      expect(onAccepted).not.toHaveBeenCalled();
+    });
+
+    it('acceptance fires only after confirmed spawn, exactly once', async () => {
+      let child;
+      const adapter = new MuseExecAdapter({
+        spawnMuseExec: () => {
+          child = new EventEmitter();
+          child.pid = 4242;
+          child.stdout = new PassThrough();
+          child.stderr = new PassThrough();
+          child.kill = () => true;
+          return child;
+        },
+      });
+      const onAccepted = vi.fn();
+      const seen = [];
+      const pump = (async () => {
+        for await (const item of adapter.execute(
+          { prompt: 'Hi', options: cliOptions() },
+          { sessionId: 's1', onProviderAccepted: onAccepted },
+        )) seen.push(item);
+      })();
+      await vi.waitFor(() => expect(child).toBeTruthy());
+      // The spawner returned but the process has not confirmed start yet.
+      expect(onAccepted).not.toHaveBeenCalled();
+      child.emit('spawn');
+      child.emit('spawn');
+      // The stream/exit activity must arrive after the post-start listeners
+      // are attached, matching production ordering.
+      await new Promise((resolve) => setImmediate(resolve));
+      child.stdout.end(`${currentRun().join('\n')}\n`);
+      child.stderr.end();
+      child.emit('exit', 0);
+      await pump;
+      expect(onAccepted).toHaveBeenCalledTimes(1);
+      expect(onAccepted.mock.calls[0][0]).toMatchObject({ adapterType: 'muse', boundary: 'subprocess_start', pid: 4242 });
+      expect(seen.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
+    });
+
+    it('late spawn after a pre-spawn error never signals acceptance', async () => {
+      const adapter = new MuseExecAdapter({
+        spawnMuseExec: () => {
+          const child = new EventEmitter();
+          child.pid = 4242;
+          child.stdout = new PassThrough();
+          child.stderr = new PassThrough();
+          child.kill = () => true;
+          queueMicrotask(() => {
+            const err = new Error('spawn muse ENOENT');
+            err.code = 'ENOENT';
+            child.emit('error', err);
+            child.emit('spawn');
+          });
+          return child;
+        },
+      });
+      const onAccepted = vi.fn();
+      let caught = null;
+      try {
+        for await (const _item of adapter.execute(
+          { prompt: 'Hi', options: cliOptions() },
+          { sessionId: 's1', onProviderAccepted: onAccepted },
+        )) { /* drain */ }
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).not.toBeNull();
+      expect(caught.code).toBe('MUSE_CLI_NOT_FOUND');
+      expect(onAccepted).not.toHaveBeenCalled();
+    });
   });
 });

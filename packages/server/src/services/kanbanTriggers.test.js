@@ -47,6 +47,15 @@ import {
   triggerOnEnterPrompt,
 } from './kanbanTriggers.js';
 
+// Real adapters signal provider acceptance before completing; the default
+// mock models that. Tests for missing acceptance override runSession.
+function mockAcceptedRunSession() {
+  runSession.mockImplementation((_id, _prompt, _dir, options) => {
+    options?.onProviderAccepted?.({ boundary: 'test-acceptance' });
+    return Promise.resolve({ started: true });
+  });
+}
+
 describe('kanbanTriggers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -192,11 +201,14 @@ describe('kanbanTriggers', () => {
       await completion;
     });
 
-    it('resolves true when the turn completes started without an explicit signal', async () => {
+    it('does NOT treat a started completion without an acceptance signal as delivery', async () => {
+      // Reschedules, user stops, and error-result streams all synthesize
+      // `{ started: true }` without ever reaching (or proving) the provider.
       runSession.mockResolvedValue({ started: true });
       const newSession = { id: 'child-late', projectId: 'p1' };
 
-      await expect(startChildSession(newSession, 'do something', '/tmp/work', {})).resolves.toMatchObject({ accepted: true });
+      await expect(startChildSession(newSession, 'do something', '/tmp/work', {}))
+        .resolves.toMatchObject({ accepted: false, outcome: 'unknown' });
     });
 
     it('resolves false for a definitive pre-start rejection, preserving the reason', async () => {
@@ -204,7 +216,7 @@ describe('kanbanTriggers', () => {
       const newSession = { id: 'child-reject', projectId: 'p1' };
 
       await expect(startChildSession(newSession, 'do something', '/tmp/work', {}))
-        .resolves.toMatchObject({ accepted: false, reason: 'lane_run_ownership_lost' });
+        .resolves.toMatchObject({ accepted: false, reason: 'lane_run_ownership_lost', outcome: 'rejected' });
       expect(sessions.update).not.toHaveBeenCalled();
     });
 
@@ -213,7 +225,26 @@ describe('kanbanTriggers', () => {
       const newSession = { id: 'child-unknown', projectId: 'p1' };
 
       await expect(startChildSession(newSession, 'do something', '/tmp/work', {}))
-        .resolves.toMatchObject({ accepted: false });
+        .resolves.toMatchObject({ accepted: false, outcome: 'unknown' });
+    });
+
+    it('classifies a definitive pre-start error rejection as rejected', async () => {
+      const error = Object.assign(new Error('Codex CLI not found'), { code: 'CODEX_CLI_NOT_FOUND' });
+      runSession.mockRejectedValue(error);
+      sessions.update.mockReturnValue({ id: 'child-def', projectId: 'p1', status: 'error' });
+      const newSession = { id: 'child-def', projectId: 'p1' };
+
+      await expect(startChildSession(newSession, 'do something', '/tmp/work', {}))
+        .resolves.toMatchObject({ accepted: false, reason: 'Codex CLI not found', outcome: 'rejected' });
+    });
+
+    it('classifies a non-definitive execution failure as unknown', async () => {
+      runSession.mockRejectedValue(new Error('provider failed mid-turn'));
+      sessions.update.mockReturnValue({ id: 'child-mid', projectId: 'p1', status: 'error' });
+      const newSession = { id: 'child-mid', projectId: 'p1' };
+
+      await expect(startChildSession(newSession, 'do something', '/tmp/work', {}))
+        .resolves.toMatchObject({ accepted: false, reason: 'provider failed mid-turn', outcome: 'unknown' });
     });
 
     it('keeps a post-acceptance turn failure out of delivery bookkeeping', async () => {
@@ -426,7 +457,7 @@ describe('kanbanTriggers', () => {
       renderTemplatePrompt.mockResolvedValue('Review: Did some work');
       sessions.create.mockReturnValue({ id: 'new-1', projectId: 'p1' });
       sessions.update.mockReturnValue({});
-      runSession.mockResolvedValue({ started: true });
+      mockAcceptedRunSession();
     });
 
     it('returns early when template is not found', async () => {
@@ -577,9 +608,12 @@ describe('kanbanTriggers', () => {
     it('reports a failed delivery when template rendering fails', async () => {
       renderTemplatePrompt.mockRejectedValue(new Error('render failed'));
 
+      // A setup failure throws before any dispatch: definitively rejected,
+      // safe to retry — never parked as unknown.
       await expect(triggerOnEnterTemplate('s1', lane)).resolves.toEqual({
         delivered: false,
         reason: 'render failed',
+        outcome: 'rejected',
       });
     });
 
@@ -624,7 +658,7 @@ describe('kanbanTriggers', () => {
       renderTemplatePrompt.mockResolvedValue('Work on: Test Session');
       sessions.create.mockReturnValue({ id: 'new-prompt-1', projectId: 'p1' });
       sessions.update.mockReturnValue({});
-      runSession.mockResolvedValue({ started: true });
+      mockAcceptedRunSession();
     });
 
     it('returns early when session is not found', async () => {
@@ -751,6 +785,7 @@ describe('kanbanTriggers', () => {
       await expect(triggerOnEnterPrompt('s1', lane)).resolves.toEqual({
         delivered: false,
         reason: 'render error',
+        outcome: 'rejected',
       });
     });
 

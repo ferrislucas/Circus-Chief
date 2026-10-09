@@ -13,7 +13,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
 import {
   createLaneRunForEntry, supersedeLaneRun, supersedeLaneRunAuthorityOnly,
-  supersedeRunForCard, isStructured, getRun, reviveLaneEntryWorkerForRetry,
+  supersedeRunForCard, isStructured, getRun, reviveLaneEntryWorkerForRetryInTx,
 } from './workflowSessionService.js';
 import { ApiError } from '../errors/ApiError.js';
 import { retrySqliteContention } from './sqliteContention.js';
@@ -173,7 +173,11 @@ export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}
       laneRunId, childSessionId, beforeDispatch, abortController, onAccepted,
     });
   }
-  if (!result?.delivered) throw new Error(`Lane-entry delivery failed: ${result?.reason || 'unknown error'}`);
+  if (!result?.delivered) {
+    const error = new Error(`Lane-entry delivery failed: ${result?.reason || 'unknown error'}`);
+    error.deliveryOutcome = result?.outcome || 'unknown';
+    throw error;
+  }
   return result;
 }
 
@@ -501,16 +505,24 @@ export function laneEntryRetryDelay(attempt, random = Math.random) {
   return Math.round(capped * (1 - RETRY_JITTER + random() * RETRY_JITTER * 2));
 }
 
+const SELECT_LANE_ENTRY_EVENT_BY_ID = 'SELECT * FROM kanban_lane_entry_events WHERE id=?';
+
 function claimLaneEntryTrigger(eventId, { countAttempt = true } = {}) {
   const token = crypto.randomUUID();
   const time = Date.now();
   // Reconciliation claims recover already-proven deliveries without
-  // dispatching, so they must not consume the dispatch attempt budget.
+  // dispatching, so they neither consume the dispatch attempt budget nor
+  // observe it: the budget caps new dispatches, not reconciliation of the
+  // last dispatch.
   const increment = countAttempt ? 'attempt_count=attempt_count+1,' : '';
+  const budget = countAttempt ? 'AND attempt_count < ?' : '';
+  const params = countAttempt
+    ? [token, time, time + ENTRY_EVENT_LEASE_MS, time, eventId, time, MAX_ENTRY_EVENT_ATTEMPTS]
+    : [token, time, time + ENTRY_EVENT_LEASE_MS, time, eventId, time];
   const claimed = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
     SET status='claimed', claim_token=?, claimed_at=?, claim_expires_at=?, ${increment} updated_at=?
     WHERE id=? AND status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=?)
-      AND attempt_count < ?`).run(token, time, time + ENTRY_EVENT_LEASE_MS, time, eventId, time, MAX_ENTRY_EVENT_ATTEMPTS);
+      ${budget}`).run(...params);
   return claimed.changes ? token : null;
 }
 
@@ -581,7 +593,7 @@ function completeAcceptedLaneEntry(eventId, rootSessionId, token) {
   return databaseManager.transaction(() => {
     const db = databaseManager.get();
     const time = Date.now();
-    const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+    const event = db.prepare(SELECT_LANE_ENTRY_EVENT_BY_ID).get(eventId);
     if (!event || event.status !== 'claimed' || event.claim_token !== token || !(event.claim_expires_at > time)) {
       throw new Error('Lane-entry delivery claim is no longer live');
     }
@@ -760,7 +772,7 @@ function reconcileProvenDelivery(eventId) {
   if (!token) return false;
   const db = databaseManager.get();
   try {
-    const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+    const event = db.prepare(SELECT_LANE_ENTRY_EVENT_BY_ID).get(eventId);
     const fresh = resolveDeliveryState(event);
     if (fresh.state !== 'already_delivered' && fresh.state !== 'accepted_uncompleted') {
       releaseReconciliationClaim(eventId, token);
@@ -774,16 +786,26 @@ function reconcileProvenDelivery(eventId) {
   }
 }
 
+/** Mark a definitively exhausted delivery failed without another dispatch. */
+function markExhaustedLaneEntryEvent(db, eventId) {
+  const time = Date.now();
+  db.prepare(`UPDATE kanban_lane_entry_events SET status='failed',
+    last_error=COALESCE(last_error, 'delivery attempts exhausted'),
+    completed_at=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL
+    WHERE id=? AND status='pending'`).run(time, time, eventId);
+}
+
 /**
- * Peek WITHOUT claiming: uncertainty and prior proof must never burn
- * dispatch attempts, and the poller must not spin on them.
+ * Peek WITHOUT claiming: proof and uncertainty are resolved BEFORE the
+ * dispatch budget is applied, so the last allowed attempt can still be
+ * reconciled (or parked) after a crash. Uncertainty and prior proof never
+ * burn dispatch attempts, and the poller does not spin on them.
  * @returns {{action:'skip'}|{action:'done',result:boolean}|{action:'reconcile'}|{action:'deliver'}}
  */
 function preclaimLaneEntryEvent(eventId) {
   const db = databaseManager.get();
-  const peeked = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+  const peeked = db.prepare(SELECT_LANE_ENTRY_EVENT_BY_ID).get(eventId);
   if (!peeked || peeked.status !== 'pending') return { action: 'skip' };
-  if (peeked.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS) return { action: 'skip' };
   if (peeked.next_attempt_at != null && peeked.next_attempt_at > Date.now()) return { action: 'skip' };
   const resolved = resolveDeliveryState(peeked);
   if (resolved.state === 'ownership_conflict') {
@@ -801,6 +823,15 @@ function preclaimLaneEntryEvent(eventId) {
   }
   if (resolved.state === 'already_delivered' || resolved.state === 'accepted_uncompleted') {
     return { action: 'reconcile' };
+  }
+  // Dispatch budget exhaustion prevents NEW dispatches, not reconciliation
+  // of the last dispatch (handled above). needs_delivery at the cap means no
+  // unacknowledged intent exists — every attempt was a definitive rejection —
+  // so only this definitive exhaustion becomes failed. Unknown states were
+  // parked above and stay visible.
+  if (peeked.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS) {
+    markExhaustedLaneEntryEvent(db, eventId);
+    return { action: 'done', result: false };
   }
   return { action: 'deliver' };
 }
@@ -878,33 +909,127 @@ async function attemptLaneEntryDispatch({ event, eventId, token, claim, executio
   return { outcome: 'delivered', delivery };
 }
 
+/** Terminal outbox states: failure bookkeeping must never touch these. */
+function isTerminalLaneEntryStatus(status) {
+  return status === 'completed' || status === 'failed' || status === 'invalid';
+}
+
 /**
- * Bookkeep a pre-acceptance attempt failure: reset the unproven intent so
- * the retry stays retryable, revive the run/root the failed turn closed,
- * and apply the unchanged attempt budget and backoff. Always throws.
+ * Acceptance proof for the dispatch this attempt minted: a recorded
+ * accepted key matching the intent key, or a legacy acknowledgement. Proof
+ * is never cleared or revived over — the attempt failure is preserved as-is
+ * and the next drain reconciles it without another dispatch.
  */
-function failDeliveryAttempt(db, { eventId, event, token, dispatchKey, runId, childSessionId, attempted }, error) {
+function hasAcceptedDispatchProof(live, dispatchKey) {
+  if (live.dispatch_acknowledged_at != null) return true;
+  if (live.accepted_dispatch_key == null) return false;
+  if (!dispatchKey) return true;
+  return live.accepted_dispatch_key === dispatchKey;
+}
+
+/**
+ * The retry target (event/run/card) is still owned by this delivery: the
+ * run belongs to the event, and the card — when it tracks pointers — still
+ * points at this event/run rather than a replacement. Null pointers are
+ * legacy rows and do not veto; a non-null pointer at different work does.
+ */
+function retryTargetStillOurs(db, live, runId, eventId) {
+  const run = runId ? db.prepare('SELECT id, lane_entry_event_id FROM kanban_lane_runs WHERE id=?').get(runId) : null;
+  if (!run || run.lane_entry_event_id !== eventId) return false;
+  const card = db.prepare('SELECT active_lane_run_id, lane_entry_event_id FROM kanban_cards WHERE id=?').get(live.card_id);
+  if (!card) return false;
+  if (card.active_lane_run_id != null && card.active_lane_run_id !== runId) return false;
+  if (card.lane_entry_event_id != null && card.lane_entry_event_id !== eventId) return false;
+  return true;
+}
+
+/**
+ * Bookkeep an attempt that died before minting dispatch progress (state
+ * resolution or a lost guard). Never resets intent or revives work: an
+ * ownership conflict is marked invalid under the held claim, anything else
+ * releases the held claim into needs-attention for reconciliation.
+ */
+function failUndispatchedAttempt(db, eventId, token, error) {
+  const live = db.prepare(SELECT_LANE_ENTRY_EVENT_BY_ID).get(eventId);
+  if (live && live.status === 'claimed' && live.claim_token === token) {
+    const resolved = resolveDeliveryState(live);
+    if (resolved.state === 'ownership_conflict') {
+      markEventInvalidUnderClaim(db, eventId, token, resolved.reason);
+      return;
+    }
+  }
+  releaseClaimToNeedsAttention(eventId, token,
+    `attempt failed before dispatch: ${String(error?.message || 'delivery failed').slice(0, 200)}`);
+}
+
+/** Park an uncertain dispatch: keep intent and evidence, release the claim. */
+function parkUncertainDispatch(eventId, token, error) {
+  releaseClaimToNeedsAttention(eventId, token,
+    `ambiguous_dispatch: ${String(error?.message || 'delivery failed').slice(0, 200)}`);
+}
+
+/**
+ * Bookkeep a definitive pre-acceptance failure under fenced ownership.
+ * Reset, revival, backoff, and claim release commit as ONE transaction:
+ * a worker that lost its claim (or whose event was parked, completed, or
+ * superseded by a replacement) revives nothing and mutates nothing.
+ */
+function failDefinitiveAttempt(db, eventId, { live, token, dispatchKey, runId, childSessionId }, error) {
   const time = Date.now();
-  const exhausted = event.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS;
-  const nextAttemptAt = exhausted ? null : time + laneEntryRetryDelay(event.attempt_count);
-  resetDispatchIntentForRetry(eventId, token, { dispatchKey, backoffMs: nextAttemptAt, reason: error.message || 'delivery failed' });
+  const reason = String(error?.message || 'delivery failed').slice(0, 240);
+  const exhausted = live.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS;
+  const nextAttemptAt = exhausted ? null : time + laneEntryRetryDelay(live.attempt_count);
+  const reset = resetDispatchIntentForRetry(eventId, token, { dispatchKey, backoffMs: nextAttemptAt, reason });
+  // A refused reset means another worker owns, parked, completed, or
+  // replaced this delivery: revive nothing and leave every row untouched.
+  if (!reset) return;
   // The failed turn closed its run and obligation without provider
   // acceptance, so no lane work started. Revive both for the retry while the
-  // event stays retryable; a terminally exhausted event keeps its terminal
-  // state and never silently revives work. State-resolution failures (before
-  // any dispatch attempt) never reach this revival. The child may have been
-  // allocated inside the failed trigger, so fall back to the run's attached
-  // root when the pre-trigger resolution had none yet.
-  if (attempted && !exhausted) {
+  // event stays retryable and still targets this delivery; a terminally
+  // exhausted event keeps its terminal state and never silently revives
+  // work. The child may have been allocated inside the failed trigger, so
+  // fall back to the run's attached root when the pre-trigger resolution had
+  // none yet.
+  if (!exhausted && retryTargetStillOurs(db, live, runId, eventId)) {
     const failedChildId = childSessionId
       ?? db.prepare('SELECT root_session_id FROM kanban_lane_runs WHERE id=?').get(runId)?.root_session_id;
-    reviveLaneEntryWorkerForRetry(runId, failedChildId);
+    if (failedChildId) reviveLaneEntryWorkerForRetryInTx(db, runId, failedChildId);
   }
   db.prepare(`UPDATE kanban_lane_entry_events
     SET status=CASE WHEN ? THEN 'failed' ELSE 'pending' END,
       claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=?, last_error=?, updated_at=?, completed_at=CASE WHEN ? THEN ? ELSE completed_at END
-    WHERE id=? AND claim_token=?`)
-    .run(exhausted ? 1 : 0, nextAttemptAt, String(error.message || 'delivery failed').slice(0, 240), time, exhausted ? 1 : 0, time, eventId, token);
+    WHERE id=? AND (claim_token=? OR (claim_token IS NULL AND status='pending'))`)
+    .run(exhausted ? 1 : 0, nextAttemptAt, reason, time, exhausted ? 1 : 0, time, eventId, token);
+}
+
+/**
+ * Bookkeep a pre-acceptance attempt failure: route by structured outcome.
+ * A definitive rejection returns the event to a retryable phase under fenced
+ * ownership; any uncertainty parks the event for reconciliation without
+ * resetting intent, reviving work, or dispatching again. Terminal events are
+ * never touched. Retry authorization, intent reset, run/root revival,
+ * backoff, and claim release commit as ONE transaction, so a stale worker
+ * that lost its claim cannot reopen workflow state. Always throws the
+ * original error.
+ */
+function failDeliveryAttempt(db, { eventId, token, dispatchKey, runId, childSessionId, attempted }, error) {
+  const outcome = error?.deliveryOutcome === 'rejected' ? 'rejected' : 'unknown';
+  databaseManager.transaction(() => {
+    const live = databaseManager.get().prepare(SELECT_LANE_ENTRY_EVENT_BY_ID).get(eventId);
+    if (!live || isTerminalLaneEntryStatus(live.status)) return;
+    if (!attempted) {
+      failUndispatchedAttempt(databaseManager.get(), eventId, token, error);
+      return;
+    }
+    // Conflicting acceptance proof: never reset or revive over it. The next
+    // drain reconciles the proven delivery without another dispatch.
+    if (hasAcceptedDispatchProof(live, dispatchKey)) return;
+    if (outcome === 'unknown') {
+      parkUncertainDispatch(eventId, token, error);
+      return;
+    }
+    failDefinitiveAttempt(databaseManager.get(), eventId, { live, token, dispatchKey, runId, childSessionId }, error);
+  });
   throw error;
 }
 
@@ -960,7 +1085,7 @@ async function deliverClaimedLaneEntry(eventId) {
   };
   deliveryController.signal.addEventListener('abort', forwardDeliveryAbort);
   const claim = createLaneEntryClaimGuard(eventId, token, deliveryController);
-  const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+  const event = db.prepare(SELECT_LANE_ENTRY_EVENT_BY_ID).get(eventId);
   const invalidReason = checkDeliveryTarget(db, event);
   if (invalidReason) {
     markEventInvalidUnderClaim(db, eventId, token, invalidReason);
@@ -979,7 +1104,7 @@ async function deliverClaimedLaneEntry(eventId) {
     detachDeliveryForwarding();
     const { dispatchKey = null, runId = null, childSessionId = null } = error.laneEntryAttempt ?? {};
     return failDeliveryAttempt(db, {
-      eventId, event, token, dispatchKey, runId, childSessionId, attempted: Boolean(error.laneEntryAttempt),
+      eventId, token, dispatchKey, runId, childSessionId, attempted: Boolean(error.laneEntryAttempt),
     }, error);
   } finally {
     claim.stop();
@@ -1007,11 +1132,11 @@ export function reclaimExpiredLaneEntryClaims(time = Date.now()) {
 export async function drainPendingLaneEntryTriggers() {
   const time = Date.now();
   reclaimExpiredLaneEntryClaims(time);
-  // Terminally expose exhausted deliveries instead of endlessly spinning a
-  // startup loop. Pending event age/attempt_count/last_error remain directly
-  // queryable through the durable outbox table for operations visibility.
-  databaseManager.get().prepare(`UPDATE kanban_lane_entry_events SET status='failed', last_error=COALESCE(last_error, 'delivery attempts exhausted'),
-    completed_at=?, updated_at=? WHERE status='pending' AND attempt_count >= ?`).run(Date.now(), Date.now(), MAX_ENTRY_EVENT_ATTEMPTS);
+  // Capped events are NOT blanket-failed here: each pending event drains
+  // through classified recovery (proven deliveries reconcile, uncertain ones
+  // park, only definitive exhaustion fails). Pending event age/attempt_count/
+  // last_error remain directly queryable through the durable outbox table
+  // for operations visibility.
   const events = databaseManager.get().prepare(`SELECT id FROM kanban_lane_entry_events
     WHERE status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at LIMIT 50`).all(Date.now());
   for (const { id } of events) {

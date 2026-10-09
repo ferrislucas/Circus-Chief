@@ -3,12 +3,18 @@ import { EventEmitter } from 'events';
 import { Readable } from 'stream';
 import { GeminiAdapter, _resetGeminiCliUnavailableForTests } from './GeminiAdapter.js';
 
-function createMockChild() {
+function createMockChild({ autoSpawn = true } = {}) {
   const child = new EventEmitter();
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
   child.kill = vi.fn();
   child.stdin = { end: vi.fn() };
+  if (autoSpawn) {
+    // Model a normal process start: Node confirms with 'spawn'
+    // asynchronously after the spawner returns. Tests for the pre-start
+    // error path opt out and emit 'error' with no 'spawn' instead.
+    queueMicrotask(() => child.emit('spawn'));
+  }
   return child;
 }
 
@@ -317,6 +323,115 @@ describe('GeminiAdapter', () => {
 
       await collectEvents(gen2);
       expect(spawnFn2).toHaveBeenCalled();
+    });
+  });
+
+  describe('subprocess start confirmation', () => {
+    function makeEmitterChild() {
+      const child = new EventEmitter();
+      child.stdout = new Readable({ read() {} });
+      child.stderr = new Readable({ read() {} });
+      child.stdin = { end: vi.fn() };
+      child.kill = vi.fn();
+      return child;
+    }
+
+    it('async pre-spawn error without spawn never signals acceptance and rejects definitively', async () => {
+      const child = makeEmitterChild();
+      const spawnFn = vi.fn(() => {
+        // Node reports a missing executable asynchronously as 'error' with
+        // no 'spawn' — a synchronous throw alone does not model production.
+        process.nextTick(() => {
+          const err = new Error('spawn gemini ENOENT');
+          err.code = 'ENOENT';
+          child.emit('error', err);
+        });
+        return child;
+      });
+      const onAccepted = vi.fn();
+      const adapter = new GeminiAdapter({ spawnGeminiProcess: spawnFn });
+
+      let caught = null;
+      try {
+        await collectEvents(adapter.execute({ prompt: 'Hi' }, { sessionId: 's1', onProviderAccepted: onAccepted }));
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).not.toBeNull();
+      expect(caught.code).toBe('GEMINI_CLI_NOT_FOUND');
+      expect(onAccepted).not.toHaveBeenCalled();
+    });
+
+    it('acceptance fires only after confirmed spawn, exactly once', async () => {
+      const child = makeEmitterChild();
+      const spawnFn = vi.fn(() => {
+        setTimeout(() => child.emit('spawn'), 10);
+        setTimeout(() => {
+          emitLine(child, { type: 'result', status: 'success', stats: { input_tokens: 1, output_tokens: 1 } });
+          child.emit('exit', 0);
+        }, 20);
+        return child;
+      });
+      const onAccepted = vi.fn();
+      const adapter = new GeminiAdapter({ spawnGeminiProcess: spawnFn });
+
+      const eventsPromise = collectEvents(
+        adapter.execute({ prompt: 'Hi' }, { sessionId: 's1', onProviderAccepted: onAccepted }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      // The spawner returned but the process has not confirmed start yet.
+      expect(onAccepted).not.toHaveBeenCalled();
+      const events = await eventsPromise;
+      expect(onAccepted).toHaveBeenCalledTimes(1);
+      expect(onAccepted.mock.calls[0][0]).toMatchObject({ adapterType: 'gemini', boundary: 'subprocess_start' });
+      expect(events.find((e) => e.type === 'result')).toMatchObject({ subtype: 'success' });
+    });
+
+    it('aborted signal before spawn never signals acceptance', async () => {
+      const child = makeEmitterChild();
+      const spawnFn = vi.fn(() => {
+        setTimeout(() => child.emit('spawn'), 10);
+        setTimeout(() => child.emit('exit', 0), 20);
+        return child;
+      });
+      const controller = new AbortController();
+      controller.abort(new Error('user stopped'));
+      const onAccepted = vi.fn();
+      const adapter = new GeminiAdapter({ spawnGeminiProcess: spawnFn });
+
+      let caught = null;
+      try {
+        await collectEvents(adapter.execute(
+          { prompt: 'Hi', options: { abortController: controller } },
+          { sessionId: 's1', onProviderAccepted: onAccepted },
+        ));
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).not.toBeNull();
+      expect(onAccepted).not.toHaveBeenCalled();
+    });
+
+    it('duplicate spawn events signal acceptance exactly once', async () => {
+      const child = makeEmitterChild();
+      const spawnFn = vi.fn(() => {
+        setTimeout(() => {
+          child.emit('spawn');
+          child.emit('spawn');
+        }, 10);
+        // Stream activity follows start on a later tick, matching
+        // production ordering where exit can never coincide with spawn.
+        setTimeout(() => {
+          emitLine(child, { type: 'result', status: 'success', stats: { input_tokens: 1, output_tokens: 1 } });
+          child.emit('exit', 0);
+        }, 20);
+        return child;
+      });
+      const onAccepted = vi.fn();
+      const adapter = new GeminiAdapter({ spawnGeminiProcess: spawnFn });
+
+      await collectEvents(adapter.execute({ prompt: 'Hi' }, { sessionId: 's1', onProviderAccepted: onAccepted }));
+      expect(onAccepted).toHaveBeenCalledTimes(1);
     });
   });
 });

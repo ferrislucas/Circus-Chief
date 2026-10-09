@@ -4,6 +4,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BaseAgent, notifyProviderAccepted } from '../BaseAgent.js';
+import { awaitCliSpawn, mapPreSpawnError } from './cliSpawnLifecycle.js';
 
 /**
  * Build the provider-acceptance observer for a turn. The returned callback
@@ -18,6 +19,92 @@ function museAcceptanceNotifier(meta) {
     sessionId: meta?.sessionId,
     pid,
   }));
+}
+
+const MUSE_CLI_NOT_FOUND_MESSAGE = 'Muse CLI not found. Install Muse Code or set MUSE_BIN.';
+
+/** Map any spawn/start failure to the stable Muse pre-start error shape. */
+function mapMuseStartError(err) {
+  return mapPreSpawnError(err, {
+    notFoundCode: 'MUSE_CLI_NOT_FOUND',
+    notFoundMessage: MUSE_CLI_NOT_FOUND_MESSAGE,
+  });
+}
+
+/**
+ * Settle a failed turn: a definitive pre-start failure (missing executable)
+ * is a structured rejection, not a stream error — the provider was never
+ * reached, so the durable layer must classify it retryable instead of
+ * uncertain. Post-start stream failures keep yielding error results.
+ */
+function *handleMuseTurnError(err) {
+  if (err?.code === 'MUSE_CLI_NOT_FOUND') throw err;
+  yield { type: 'result', subtype: 'error', is_error: true, error: err?.message || 'Muse exec failed.' };
+}
+
+/**
+ * Resolve the terminal outcome once the process has exited and both streams
+ * have closed. Cancellation wins over exit codes; a terminal JSON record
+ * and a clean exit are both required otherwise.
+ */
+function resolveTerminalOutcome({ stopped, exitCode, stderr, terminal }) {
+  if (stopped) return { outcome: 'cancelled' };
+  if (exitCode !== 0) throw new Error(stderr || `Muse exec exited with code ${exitCode ?? 'unknown'}.`);
+  if (!terminal) throw new Error('Muse exec exited without a terminal result.');
+  if (terminal.outcome === 'completed' && !terminal.text) throw new Error('Muse exec completed without a final response.');
+  return terminal;
+}
+
+/**
+ * Wire pre-start cancellation for the spawn wait: an already-aborted turn
+ * cancels immediately, an outer abort cancels the wait, and the caller
+ * cancels it on the total-turn timeout. The outer listener serves only the
+ * wait — detach it once start settles.
+ */
+function wirePreStartCancellation(signal) {
+  const startController = new AbortController();
+  const cancelStart = (reason) => {
+    if (!startController.signal.aborted) startController.abort(reason);
+  };
+  const forwardOuterAbort = () => cancelStart(
+    signal?.reason instanceof Error ? signal.reason : new Error('Muse exec turn was aborted before process start.'),
+  );
+  if (signal?.aborted) cancelStart(signal.reason);
+  else signal?.addEventListener('abort', forwardOuterAbort);
+  return { startController, cancelStart, unforward: () => signal?.removeEventListener('abort', forwardOuterAbort) };
+}
+
+/**
+ * Spawn the CLI child and wait for confirmed process start. A returned
+ * spawner proves nothing: Node reports a missing executable or working
+ * directory asynchronously as 'error' with no 'spawn'. Acceptance fires
+ * only on confirmed start; a pre-start failure is a definitive rejection,
+ * never acceptance. Stream handlers attach only after this resolves.
+ */
+async function spawnConfirmedChild(spawnFn, spec, env, { startState, cleanup, completion, onAccepted, publish, killGraceMs }) {
+  const { startController, unforward } = startState;
+  let child;
+  try {
+    child = spawnFn(spec.command, spec.args, {
+      cwd: spec.cwd, env, shell: false, stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32', windowsHide: true,
+    });
+    // Publish the raw child immediately so timeout/abort escalation can reap
+    // it even when confirmation never arrives; acceptance still waits.
+    publish?.(child);
+    await awaitCliSpawn(child, { signal: startController.signal, killGraceMs });
+    onAccepted?.(child?.pid);
+  } catch (err) {
+    cleanup();
+    unforward();
+    try { child?.kill?.('SIGTERM'); } catch { /* best effort */ }
+    // The start wait settled first, so a later completion settlement must
+    // not surface as an unhandled rejection.
+    completion.promise.catch(() => {});
+    throw mapMuseStartError(err);
+  }
+  unforward();
+  return child;
 }
 import { buildMuseHostEnv } from './museHostEnv.js';
 import { filterDeadSshSocketAsync } from '../../services/loginShellEnv.js';
@@ -87,6 +174,11 @@ async function attachJournalUsage(terminal, museSessionId, baseline) {
 export class MuseExecAdapter extends BaseAgent {
   static capabilities = Object.freeze({ streaming: true, thinking: false, reasoningEffort: true, toolUse: true, resume: true });
 
+  /**
+   * @param {Object} [opts]
+   * @param {Function} [opts.spawnMuseExec] - Optional DI spawner; the child
+   *   must follow the start contract in {@link spawnConfirmedChild}.
+   */
   constructor({ spawnMuseExec, sshLivenessProbe, timeouts, ...rest } = {}) {
     super(rest);
     this._spawn = spawnMuseExec || defaultSpawn;
@@ -133,7 +225,7 @@ export class MuseExecAdapter extends BaseAgent {
       await attachJournalUsage(terminal, museSessionId, journalBaseline);
       yield* mapper.final(terminal);
     } catch (err) {
-      yield { type: 'result', subtype: 'error', is_error: true, error: err?.message || 'Muse exec failed.' };
+      yield* handleMuseTurnError(err);
     } finally {
       delete options.__musePromptFile;
       if (promptDir) await rm(promptDir, { recursive: true, force: true });
@@ -150,7 +242,7 @@ export class MuseExecAdapter extends BaseAgent {
   // eslint-disable-next-line max-statements
   // eslint-disable-next-line max-params, max-statements -- the acceptance observer travels with this turn's abort signal and mapper; the lifecycle closure is intentionally co-located
   async *_stream(spec, env, signal, mapper, onAccepted) {
-    let child; let terminal = null; let stdoutClosed = false; let stderrClosed = false; let exited = false; let exitCode = null; let stopped = Boolean(signal?.aborted); let stderr = ''; let mapped = 0;
+    let child = null; let terminal = null; let stdoutClosed = false; let stderrClosed = false; let exited = false; let exitCode = null; let stopped = Boolean(signal?.aborted); let stderr = ''; let mapped = 0;
     // Process lifecycle intentionally keeps all terminal-state reconciliation
     // in one closure so stdout, stderr, exit, timeout, and cancellation share
     // the same state.
@@ -158,18 +250,14 @@ export class MuseExecAdapter extends BaseAgent {
       onDiagnostic: (diagnostics, message) => logger.error('[MuseExecAdapter] Muse protocol error', { message, diagnostics }),
     });
     const queue = createEventQueue(); const completion = trackCompletion();
-    // Every settlement wakes the drain loop: whichever of exit/stdout-close/
-    // stderr-close completes the lifecycle last must not leave the consumer
-    // parked in its wake-up wait with no further events coming.
+    // Every settlement wakes the drain loop so the last of exit/stdout-close/stderr-close cannot leave the consumer parked.
     const fail = (error) => { cleanup(); completion.reject(error); queue.wake(); };
     const finish = () => {
       if (!exited || !stdoutClosed || !stderrClosed) return;
       cleanup(); clearTimeout(killTimer);
-      if (stopped) completion.resolve({ outcome: 'cancelled' });
-      else if (exitCode !== 0) completion.reject(new Error(stderr || `Muse exec exited with code ${exitCode ?? 'unknown'}.`));
-      else if (!terminal) completion.reject(new Error('Muse exec exited without a terminal result.'));
-      else if (terminal.outcome === 'completed' && !terminal.text) completion.reject(new Error('Muse exec completed without a final response.'));
-      else completion.resolve(terminal);
+      try {
+        completion.resolve(resolveTerminalOutcome({ stopped, exitCode, stderr, terminal }));
+      } catch (error) { completion.reject(error); }
       queue.wake();
     };
     const terminate = (force = false) => {
@@ -180,21 +268,19 @@ export class MuseExecAdapter extends BaseAgent {
         try { child.kill(force ? 'SIGKILL' : 'SIGTERM'); } catch { /* process already exited */ }
       }
     };
-    // cleanup() deliberately leaves the escalation timer alone: fail() and
-    // the drain finally both run cleanup while a SIGTERM'd child may still
-    // be alive, and the escalation must survive them (finding #1). Only the
-    // natural terminal path (finish) clears it.
+    // cleanup() leaves the escalation timer alone: fail() and the drain finally run cleanup while a SIGTERM'd child may live on (finding #1).
     const cleanup = () => {
       clearTimeout(totalTimer); signal?.removeEventListener('abort', stop);
     };
     const armEscalation = () => { clearTimeout(killTimer); killTimer = setTimeout(() => terminate(true), this._timeouts.shutdownGraceMs); };
     const stop = () => { stopped = true; terminate(); armEscalation(); };
     let killTimer;
-    // Finding #1: the timeout path escalates like the abort path — a CLI
-    // that ignores SIGTERM is reaped with SIGKILL after the grace period.
-    // Armed after fail() because fail→cleanup clears pending total timers.
+    // A pre-start abort or timeout must win over a late spawn: neither hang nor late acceptance.
+    const preStart = wirePreStartCancellation(signal);
+    // Finding #1: timeout escalates like abort — a SIGTERM-ignoring CLI is reaped with SIGKILL after the grace period.
     const totalTimer = setTimeout(() => {
-      stopped = true; terminate(); fail(new Error(`Muse exec timed out after ${this._timeouts.turnMs}ms.`)); armEscalation();
+      const timeoutError = new Error(`Muse exec timed out after ${this._timeouts.turnMs}ms.`);
+      stopped = true; terminate(); preStart.cancelStart(timeoutError); fail(timeoutError); armEscalation();
     }, this._timeouts.turnMs);
     const ingest = (item) => {
       if (item.kind === 'terminal') {
@@ -211,10 +297,9 @@ export class MuseExecAdapter extends BaseAgent {
         for (const item of parser.push(chunk)) ingest(item);
       } catch (err) { terminate(); armEscalation(); fail(err); }
     };
-    try {
-      child = this._spawn(spec.command, spec.args, { cwd: spec.cwd, env, shell: false, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
-      onAccepted?.(child?.pid);
-    } catch (err) { cleanup(); throw err; }
+    child = await spawnConfirmedChild((command, args, opts) => this._spawn(command, args, opts), spec, env,
+      { startState: preStart, cleanup, completion, onAccepted,
+        publish: (started) => { child = started; }, killGraceMs: this._timeouts.shutdownGraceMs });
     signal?.addEventListener('abort', stop, { once: true });
     child.stdout.on('data', onData);
     child.stdout.on('close', () => { try { parser.end(); stdoutClosed = true; finish(); } catch (err) { fail(err); } });
@@ -223,15 +308,13 @@ export class MuseExecAdapter extends BaseAgent {
       if (stderr.length < 8192) stderr += scrubEventForLogging(String(chunk), env).slice(0, 8192 - stderr.length);
     });
     child.stderr.on('close', () => { stderrClosed = true; finish(); });
-    child.on('error', (err) => { terminate(); armEscalation(); fail(err.code === 'ENOENT' ? new Error('Muse CLI not found. Install Muse Code or set MUSE_BIN.') : err); });
+    child.on('error', (err) => { terminate(); armEscalation(); fail(mapMuseStartError(err)); });
     child.on('exit', (code) => { exited = true; exitCode = code; finish(); });
     try {
       yield* queue.drain(completion);
       return await completion.promise;
     } finally {
-      // An early consumer break must not orphan the CLI process. Escalate
-      // like every other non-natural terminal path: a child that ignores
-      // SIGTERM is reaped with SIGKILL after the grace period.
+      // An early consumer break must not orphan the CLI: escalate like every non-natural terminal path.
       if (!completion.isSettled()) { stopped = true; terminate(); armEscalation(); }
       cleanup();
     }

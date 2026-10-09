@@ -58,6 +58,10 @@ export function createCapturedSpawnProcess(agentType) {
     stdin.once('finish', complete);
   }
 
+  // Adapters gate provider acceptance on confirmed process start; model a
+  // normal start asynchronously like real child_process.spawn.
+  queueMicrotask(() => processStub.emit('spawn'));
+
   return processStub;
 }
 

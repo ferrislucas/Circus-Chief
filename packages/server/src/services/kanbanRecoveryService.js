@@ -152,6 +152,14 @@ export function getLaneEntryRecoveryCandidates(db = databaseManager.get()) {
   const evidenceSelect = columnNames.has('accepted_at') && columnNames.has('accepted_dispatch_key')
     ? ', e.accepted_at, e.accepted_dispatch_key'
     : '';
+  // Failed dispatches holding intent without acceptance proof stay visible
+  // even when their last-error text is stale (predates the ambiguous marker).
+  const unknownFailedClause = columnNames.has('accepted_at') && columnNames.has('accepted_dispatch_key')
+    && columnNames.has('dispatch_acknowledged_at')
+    ? `OR (e.status='failed' AND e.delivery_phase='dispatch_intent' AND e.dispatch_key IS NOT NULL
+      AND e.dispatch_acknowledged_at IS NULL
+      AND (e.accepted_dispatch_key IS NULL OR e.accepted_dispatch_key != e.dispatch_key))`
+    : '';
   return db.prepare(`SELECT e.id, e.project_id, e.workspace_id, e.card_id, e.lane_id, e.cause, e.status,
       e.delivery_phase, e.dispatch_key, e.dispatch_acknowledged_at,
       e.attempt_count, e.last_error, e.created_at, e.updated_at${evidenceSelect},
@@ -160,6 +168,7 @@ export function getLaneEntryRecoveryCandidates(db = databaseManager.get()) {
     LEFT JOIN kanban_lane_runs r ON r.lane_entry_event_id = e.id
     WHERE e.status='needs_attention'
       OR (e.status='failed' AND e.last_error LIKE 'ambiguous_dispatch%')
+      ${unknownFailedClause}
     ORDER BY e.created_at`).all()
     .map((row) => ({
       eventId: row.id, projectId: row.project_id, workspaceId: row.workspace_id,

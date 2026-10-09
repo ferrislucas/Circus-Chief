@@ -1,4 +1,5 @@
 import { BaseAgent, notifyProviderAccepted } from '../BaseAgent.js';
+import { confirmCliSpawn } from './cliSpawnLifecycle.js';
 import { executeGeminiCli } from './geminiCliRunner.js';
 import { composeCliPrompt } from './cliUtils.js';
 import { createGeminiSpawner } from '../../services/geminiSpawnHelper.js';
@@ -49,7 +50,8 @@ export class GeminiAdapter extends BaseAgent {
   /**
    * @param {Object} [opts]
    * @param {Function} [opts.spawnGeminiProcess] - Optional DI for testing.
-   *   Shape matches {@link createGeminiSpawner} output.
+   *   Shape matches {@link createGeminiSpawner} output, and the child must
+   *   follow the start contract in {@link confirmCliSpawn}.
    * @param {Object} [opts.rest] - Passed to {@link BaseAgent}.
    */
   constructor({ spawnGeminiProcess, ...rest } = {}) {
@@ -76,17 +78,24 @@ export class GeminiAdapter extends BaseAgent {
     yield* this._executeCli(queryParams, options, meta);
   }
 
-  _executeCli(queryParams, options, meta) {
+  async *_executeCli(queryParams, options, meta) {
     const child = this._spawnGeminiChild(queryParams, options);
-    // Acceptance boundary: confirmed subprocess start. A throw above (e.g.
-    // CLI not found) means the provider was never reached — no signal.
+    // Acceptance boundary: confirmed subprocess start. A throw above or a
+    // pre-start failure means the provider was never reached: no signal,
+    // definitive rejection.
+    await confirmCliSpawn(child, {
+      signal: options.abortController?.signal,
+      notFoundCode: 'GEMINI_CLI_NOT_FOUND',
+      notFoundMessage: 'Gemini CLI not found',
+      markUnavailable: markGeminiCliUnavailable,
+    });
     notifyProviderAccepted(meta, () => ({
       adapterType: 'gemini',
       boundary: 'subprocess_start',
       sessionId: meta?.sessionId,
       pid: child?.pid,
     }));
-    return executeGeminiCli(child, queryParams, options, markGeminiCliUnavailable);
+    yield* executeGeminiCli(child, queryParams, options, markGeminiCliUnavailable);
   }
 
   _spawnGeminiChild(queryParams, options) {
