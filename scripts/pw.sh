@@ -125,7 +125,9 @@ wait_for_server() {
     print_info "Waiting for server on port $port to be ready..."
 
     while [ $elapsed -lt $timeout ]; do
-        if curl -s "http://localhost:$port/api/projects" > /dev/null 2>&1; then
+        # -f matters: without it any HTTP response (including a proxy 502 for
+        # an unbound port, or a half-booted 500) counts as "ready".
+        if curl -fs "http://localhost:$port/api/projects" > /dev/null 2>&1; then
             print_success "Server is ready on port $port"
             return 0
         fi
@@ -348,8 +350,9 @@ detect_or_start_server() {
         detected_port=$(cat "$port_file")
         print_info "Found .server-port file with port: $detected_port"
 
-        # Check if server is actually running on that port
-        if curl -s "http://localhost:$detected_port/api/projects" > /dev/null 2>&1; then
+        # Check if server is actually running on that port (-f so a proxy
+        # error page for an unbound port does not count as running).
+        if curl -fs "http://localhost:$detected_port/api/projects" > /dev/null 2>&1; then
             # Verify the server belongs to THIS worktree by checking its cwd.
             # Without this, a stale .server-port can cause us to reuse a server
             # from a different worktree that happens to be on the same port.

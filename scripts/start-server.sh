@@ -199,7 +199,8 @@ echo "$SELECTED_PORT" > "$PORT_FILE"
 # Write VCR mode for pw.sh to detect mismatches
 echo "${VCR_MODE:-}" > "$PROJECT_ROOT/.vcr-mode"
 
-# Bind loopback explicitly via -H so the dev/E2E server never depends on
-# ambient configuration. DB_PATH is forwarded explicitly for the same reason.
+# Bind to all interfaces via -H so the dev/E2E server is reachable from
+# LAN/Docker as well as localhost. DB_PATH is forwarded explicitly so the
+# server never depends on ambient configuration.
 NODE_ENV=production VCR_MODE="${VCR_MODE:-}" DB_PATH="${DB_PATH:-}" \
-    node packages/server/src/index.js -p ${SELECTED_PORT} -H 127.0.0.1
+    node packages/server/src/index.js -p ${SELECTED_PORT} --host 0.0.0.0
