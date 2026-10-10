@@ -67,7 +67,7 @@
       <template v-else>
         <pre
           class="command-pre low-reflow-output"
-          :class="{ expanded: isExpanded }"
+          :class="{ expanded: isExpanded, 'tail-preview': tail && !isExpanded }"
         >{{ displayContent }}</pre>
         <button
           v-if="shouldTruncate && !isExpanded"
@@ -93,6 +93,7 @@ import { ref, computed } from 'vue';
 
 const props = defineProps({
   log: { type: Object, required: true },
+  tail: { type: Boolean, default: false },
 });
 
 const MAX_LINES = 10;
@@ -109,6 +110,9 @@ const shouldTruncate = computed(() => lineCount.value > MAX_LINES);
 const displayContent = computed(() => {
   if (isExpanded.value || !shouldTruncate.value) {
     return props.log.content;
+  }
+  if (props.tail) {
+    return `...\n${lines.value.slice(-MAX_LINES).join('\n')}`;
   }
   return `${lines.value.slice(0, MAX_LINES).join('\n')  }\n...`;
 });
@@ -275,6 +279,15 @@ function formatTime(ts) {
 
 .command-pre.expanded {
   max-height: none;
+}
+
+/* Collapsed tail previews (live pane) grow with the outer scroll container
+   so the newest wrapped line stays visible without inner scrolling.
+   Applies regardless of logical line count: wrapping alone can exceed the
+   cap. Completed history (tail: false) and raw JSON details keep the cap. */
+.command-pre.tail-preview {
+  max-height: none;
+  overflow: visible;
 }
 
 .show-more-btn {

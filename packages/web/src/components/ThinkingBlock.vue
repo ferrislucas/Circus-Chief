@@ -71,6 +71,7 @@ const props = defineProps({
   content: { type: String, required: true },
   timestamp: { type: Number, default: null },
   streaming: { type: Boolean, default: false },
+  tail: { type: Boolean, default: false },
 });
 
 const MAX_LENGTH = 500;
@@ -81,6 +82,9 @@ const shouldTruncate = computed(() => props.content.length > MAX_LENGTH);
 const displayContent = computed(() => {
   if (isExpanded.value || !shouldTruncate.value) {
     return props.content;
+  }
+  if (props.tail) {
+    return `...${props.content.slice(-MAX_LENGTH)}`;
   }
   return `${props.content.slice(0, MAX_LENGTH)  }...`;
 });

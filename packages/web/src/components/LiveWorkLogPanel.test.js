@@ -26,13 +26,13 @@ async function flushAll(wrapper) {
 const ThinkingBlockStub = {
   name: 'ThinkingBlock',
   template: '<div class="thinking-block-stub">{{ content }}</div>',
-  props: ['content', 'timestamp', 'streaming'],
+  props: ['content', 'timestamp', 'streaming', 'tail'],
 };
 
 const CommandBlockStub = {
   name: 'CommandBlock',
   template: '<div class="command-block-stub">{{ log.content }}</div>',
-  props: ['log'],
+  props: ['log', 'tail'],
 };
 
 describe('LiveWorkLogPanel', () => {
@@ -262,6 +262,82 @@ describe('LiveWorkLogPanel', () => {
       expect(wrapper.vm.isNearBottom).toBe(true);
     });
 
+    it('re-pins to the bottom when rendered content grows while following', async () => {
+      const observed = [];
+      const OriginalRO = globalThis.ResizeObserver;
+      globalThis.ResizeObserver = class {
+        constructor(cb) {
+          observed.push(cb);
+        }
+
+        observe() {}
+        disconnect() {}
+      };
+      try {
+        const wrapper = mountComponent({
+          workLogs: [createWorkLog(1)],
+        });
+        await flushAll(wrapper);
+        expect(observed.length).toBe(1);
+
+        const logsContainer = wrapper.find('.live-logs');
+        const el = logsContainer.element;
+        Object.defineProperty(el, 'scrollHeight', { value: 500, configurable: true, writable: true });
+        Object.defineProperty(el, 'clientHeight', { value: 250, configurable: true, writable: true });
+        el.scrollTop = 250; // At bottom
+        await logsContainer.trigger('scroll');
+        await flushAll(wrapper);
+        expect(wrapper.vm.isNearBottom).toBe(true);
+
+        // Rendered content grows after the follow scroll ran (late wrap
+        // reflow); the stale position must be re-pinned without interaction.
+        Object.defineProperty(el, 'scrollHeight', { value: 800 });
+        el.scrollTop = 250;
+        observed[0]();
+        await flushAll(wrapper);
+        expect(el.scrollTop).toBe(800);
+      } finally {
+        if (OriginalRO === undefined) delete globalThis.ResizeObserver;
+        else globalThis.ResizeObserver = OriginalRO;
+      }
+    });
+
+    it('does NOT re-pin on content growth while the user is scrolled up', async () => {
+      const observed = [];
+      const OriginalRO = globalThis.ResizeObserver;
+      globalThis.ResizeObserver = class {
+        constructor(cb) {
+          observed.push(cb);
+        }
+
+        observe() {}
+        disconnect() {}
+      };
+      try {
+        const wrapper = mountComponent({
+          workLogs: [createWorkLog(1)],
+        });
+        await flushAll(wrapper);
+        expect(observed.length).toBe(1);
+
+        const logsContainer = wrapper.find('.live-logs');
+        const el = logsContainer.element;
+        Object.defineProperty(el, 'scrollHeight', { value: 500, configurable: true, writable: true });
+        Object.defineProperty(el, 'clientHeight', { value: 250, configurable: true, writable: true });
+        el.scrollTop = 0; // User scrolled to top
+        await logsContainer.trigger('scroll');
+        expect(wrapper.vm.isNearBottom).toBe(false);
+
+        Object.defineProperty(el, 'scrollHeight', { value: 800 });
+        observed[0]();
+        await flushAll(wrapper);
+        expect(el.scrollTop).toBe(0);
+      } finally {
+        if (OriginalRO === undefined) delete globalThis.ResizeObserver;
+        else globalThis.ResizeObserver = OriginalRO;
+      }
+    });
+
     it('considers user NOT "near bottom" when beyond threshold', async () => {
       const wrapper = mountComponent({
         workLogs: [createWorkLog(1)],
@@ -324,6 +400,24 @@ describe('LiveWorkLogPanel', () => {
       expect(thinkingBlocks.length).toBe(1);
       expect(thinkingBlocks[0].props('content')).toBe('Streaming thought...');
       expect(thinkingBlocks[0].props('streaming')).toBe(true);
+    });
+
+    it('passes tail=true to ThinkingBlock and CommandBlock (live pane)', () => {
+      const wrapper = mountComponent({
+        workLogs: [
+          { id: 1, type: 'thinking', content: 'Thinking content', timestamp: Date.now() },
+          { id: 2, type: 'tool_output', toolName: 'Bash', content: 'output', timestamp: Date.now() },
+        ],
+        partialThinking: 'Streaming thought...',
+      });
+
+      const thinkingBlocks = wrapper.findAllComponents({ name: 'ThinkingBlock' });
+      expect(thinkingBlocks.length).toBe(2);
+      for (const block of thinkingBlocks) {
+        expect(block.props('tail')).toBe(true);
+      }
+      const commandBlock = wrapper.findComponent({ name: 'CommandBlock' });
+      expect(commandBlock.props('tail')).toBe(true);
     });
   });
 });
