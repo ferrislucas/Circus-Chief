@@ -150,6 +150,24 @@ vi.mock('../composables/useWebSocket.js', () => {
       clearSessionBuffer: vi.fn(),
       onReconnect: vi.fn(() => () => {}),
     })),
+    // No-op project subscription: the view wires useKanbanRealtime (which
+    // needs useProjectSubscription) but these tests assert session/header
+    // behavior, not realtime kanban updates — those live in
+    // SessionDetailViewKanbanRealtime.test.js with a faithful fake.
+    useProjectSubscription: vi.fn(() => ({
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      onSessionUpdated: h(),
+      onKanbanBoardUpdated: h(),
+      onKanbanCardMoved: h(),
+      onKanbanCardAdded: h(),
+      onKanbanCardRemoved: h(),
+      onKanbanExitLaneDeclared: h(),
+      onCommandRunStarted: h(),
+      onCommandRunComplete: h(),
+      onCommandRunError: h(),
+      onCommandRunDeleted: h(),
+    })),
     useSessionSubscription: vi.fn(() => ({
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),
