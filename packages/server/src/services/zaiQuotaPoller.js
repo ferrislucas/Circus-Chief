@@ -25,6 +25,7 @@ const MAX_CONCURRENT_POLLS = 3;
 // enough to detect rotation, and the raw token never enters this map.
 const authFailedProviders = new Map(); // providerId → hex hash of the authToken that failed
 const rateLimitedUntil = new Map(); // providerId → epoch ms to resume polling
+const observedOkProviders = new Set(); // providerIds with a successful observation this process
 
 export function hashAuthToken(authToken) {
   return createHash('sha256').update(authToken, 'utf8').digest('hex');
@@ -110,6 +111,9 @@ function pruneProviderState(enabledProviders) {
   for (const providerId of [...rateLimitedUntil.keys()]) {
     if (!enabledIds.has(providerId)) rateLimitedUntil.delete(providerId);
   }
+  for (const providerId of [...observedOkProviders]) {
+    if (!enabledIds.has(providerId)) observedOkProviders.delete(providerId);
+  }
 }
 
 async function pollProvider(provider, { observer, clock }) {
@@ -128,7 +132,12 @@ async function pollProvider(provider, { observer, clock }) {
         // changes. The last good snapshot persists and ages into `stale` on
         // its own freshness policy (2× the poll interval); the UI presents
         // it with its last-updated time — nothing resets it to unknown.
+        // When there is no good snapshot yet, observe an explicit unknown
+        // with the reason so the indicator can say why instead of the
+        // generic "no data" text. Rejections are remembered below, so this
+        // observes (and broadcasts) at most once per stored credential.
         authFailedProviders.set(provider.id, hashAuthToken(provider.authToken));
+        observeRejection({ observer, provider, clock, status: result.status });
       } else if (result.status === 429) {
         rateLimitedUntil.set(provider.id, clock.now() + (result.retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS));
       }
@@ -147,7 +156,34 @@ async function pollProvider(provider, { observer, clock }) {
   }
   try {
     observer({ ...candidate, providerId: provider.id });
+    observedOkProviders.add(provider.id);
     console.log('[ZaiQuotaPoller]', JSON.stringify({ ...entry, outcome: 'ok' }));
+  } catch {
+    // Allowance telemetry is non-critical (FR-7).
+  }
+}
+
+/**
+ * Observe an explicit unknown snapshot when the quota endpoint rejects the
+ * stored credential and no good snapshot exists yet, so the indicator can
+ * report the reason instead of the generic "no data" text. Providers with a
+ * successful observation this process keep their last good snapshot (which
+ * ages into `stale` on its own policy) — a rejection never resets known
+ * data to unknown.
+ */
+function observeRejection({ observer, provider, clock, status }) {
+  if (observedOkProviders.has(provider.id)) return;
+  try {
+    observer({
+      providerId: provider.id,
+      providerKind: provider.kind,
+      source: 'provider',
+      status: 'unknown',
+      updatedAt: clock.now(),
+      allowances: [],
+      unavailableReason: `z.ai rejected the stored credential for usage polling (HTTP ${status}). `
+        + 'If this persists, check the provider key.',
+    });
   } catch {
     // Allowance telemetry is non-critical (FR-7).
   }
@@ -168,4 +204,5 @@ export function _authFailureHashForTests(providerId) {
 export function _resetZaiQuotaPollerStateForTests() {
   authFailedProviders.clear();
   rateLimitedUntil.clear();
+  observedOkProviders.clear();
 }
