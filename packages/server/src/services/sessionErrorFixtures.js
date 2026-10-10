@@ -108,6 +108,20 @@ export const SESSION_ERROR_FIXTURES = [
     'quota', SRC_OPENAI_429, { providerKind: 'openai' }
   ),
   row(
+    'Error: 429 RESOURCE_EXHAUSTED',
+    'quota', [
+      'sessionErrors.test.js — synthetic regression for the Gemini CLI text-only rate-limit',
+      'signature (finding 6): CLI failures carry stderr text with `code: GEMINI_CLI_EXIT` and no',
+      'numeric HTTP status, so the status-code check cannot see them. Provider-doc-style wording,',
+      'NOT a captured production log — Google documents 429 RESOURCE_EXHAUSTED as a rate-limit error',
+      '(https://ai.google.dev/gemini-api/docs/troubleshooting).',
+      'Pinned asymmetry: the paired 429 + resource_exhausted signature is failover-eligible, but the',
+      'broad reschedule pair has no weak keyword for it (no token/limit/quota/exceeded wording), so a',
+      'non-tier session terminal-errors here while a tier session fails over — the same deliberate',
+      'split as the insufficient-credit row. Do NOT "fix" by widening the broad list.',
+    ].join(' '), { providerKind: 'google', failoverEligible: true, rescheduleTrigger: false }
+  ),
+  row(
     `{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'claude-sonnet-4-6' model is not supported when using Codex with a ChatGPT account."}}`,
     'terminal', `${SRC_CODEX_400} envelope`, { providerKind: 'anthropic' }
   ),

@@ -157,6 +157,18 @@ export function matchesStartFailoverEligibleError(messageOrError) {
   // reached").
   if (QUOTA_FAILOVER_PATTERNS.some(pattern => message.includes(pattern))) return true;
 
+  // Finding 6: Gemini CLI text-only rate-limit signature. The CLI runner
+  // (geminiCliRunner.js) builds failures from stderr text with
+  // `code: GEMINI_CLI_EXIT` and no numeric HTTP status, so the status-code
+  // check below cannot see them — and a bare `429 RESOURCE_EXHAUSTED`
+  // matches neither the transient nor the quota phrases above. Require BOTH
+  // halves, bounded: bare 'resource_exhausted' without a 429 is not capacity
+  // evidence (it also appears in quota-configuration prose), and a bare
+  // number without exhaustion wording is not either. Google documents 429
+  // RESOURCE_EXHAUSTED as a rate-limit error, so the pair qualifies as a
+  // tight-gate capacity signal without widening any wording list.
+  if (message.includes('resource_exhausted') && /\b429\b/.test(message)) return true;
+
   // Status-code check (SDK errors). Never applied to prompt-size errors —
   // those don't carry these status codes, so this can't accidentally
   // override the exclusion above.

@@ -69,10 +69,15 @@ export function clearTierAttemptMember(sessionId, token) {
 
 /**
  * Whether a pin request is superseded: the session's binding has moved to a
- * different tier than the originating attempt (`tierRef` mismatch), or a
- * newer attempt owns the in-flight registration (`attemptToken` mismatch).
+ * different tier than the originating attempt (`tierRef` mismatch), or the
+ * originating attempt no longer owns the in-flight registration.
  * Finding 11: checking only that the current selection is any tier, or even
- * the same tier, is insufficient — ownership must match too.
+ * the same tier, is insufficient — ownership must match too. An ABSENT
+ * registration is lost ownership, exactly like a mismatched token: the
+ * originating attempt retired (its loop exited or the auto-send handoff
+ * cleared it) and a late token-scoped write from it must not overwrite the
+ * successor's identity — even when the tier binding still matches and no
+ * successor registration remains.
  *
  * @param {Object} session - Current session row.
  * @param {string} sessionId
@@ -84,7 +89,8 @@ function isSupersededPin(session, sessionId, opts = {}) {
   if (!session || session.model !== opts.tierRef) return true;
   if (opts?.attemptToken === undefined || opts?.attemptToken === null) return false;
   const active = activeTierAttemptMembers.get(sessionId);
-  return Boolean(active && active.token !== opts.attemptToken);
+  if (!active) return true;
+  return active.token !== opts.attemptToken;
 }
 
 /**
@@ -110,7 +116,9 @@ function isSupersededPin(session, sessionId, opts = {}) {
  * write is additionally scoped to it — a stale attempt whose binding has
  * moved on (auto-send continuation on another tier) is a no-op, as is a
  * stale success snapshot racing a newer attempt (`opts.attemptToken`
- * mismatch). Checking only that the current selection is any tier, or even
+ * mismatch) or unwinding after its own registration was retired (no active
+ * registration at all — e.g. a same-tier auto-send continuation that already
+ * cleaned up). Checking only that the current selection is any tier, or even
  * the same tier, is insufficient.
  *
  * @param {string} sessionId

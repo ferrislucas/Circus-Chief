@@ -727,6 +727,47 @@ describe('start-time failover trigger set — matchesStartFailoverEligibleError 
       expect(matchesStartFailoverEligibleError('error: 529 service overloaded')).toBe(true);
       expect(matchesStartFailoverEligibleError('invalid api key')).toBe(false);
     });
+
+    // ── Finding 6: Gemini CLI text-only rate-limit signature ─────────────
+    //
+    // geminiCliRunner.js builds CLI failures from stderr text with
+    // `code: GEMINI_CLI_EXIT` and a nonzero exitCode — no numeric HTTP
+    // status — so the status-code check cannot see them. The paired,
+    // bounded `429` + `resource_exhausted` signature must be eligible;
+    // either half alone is not capacity evidence.
+    describe('Gemini CLI text-only 429 RESOURCE_EXHAUSTED (finding 6)', () => {
+      const geminiCliExitError = (stderr) => Object.assign(new Error(stderr), {
+        code: 'GEMINI_CLI_EXIT',
+        exitCode: 1,
+      });
+
+      it('treats the paired CLI-shaped signature as failover-eligible', () => {
+        expect(matchesStartFailoverEligibleError(
+          geminiCliExitError('Error: 429 RESOURCE_EXHAUSTED')
+        )).toBe(true);
+      });
+
+      it('requires both halves: bare resource-exhaustion wording is not eligible', () => {
+        expect(matchesStartFailoverEligibleError(
+          geminiCliExitError('Error: RESOURCE_EXHAUSTED')
+        )).toBe(false);
+        expect(matchesStartFailoverEligibleError(
+          'resource_exhausted: configuration value missing'
+        )).toBe(false);
+      });
+
+      it('requires both halves: a bare 429 without exhaustion wording is not eligible', () => {
+        expect(matchesStartFailoverEligibleError(
+          geminiCliExitError('Error: 429')
+        )).toBe(false);
+      });
+
+      it('keeps pure prompt-size, auth, and parse errors ineligible', () => {
+        expect(matchesStartFailoverEligibleError('context length exceeded')).toBe(false);
+        expect(matchesStartFailoverEligibleError('invalid api key')).toBe(false);
+        expect(matchesStartFailoverEligibleError('unexpected token in json')).toBe(false);
+      });
+    });
   });
 
   // ── Incident ec5b56d5 conformance seeds: REAL provider error strings ────

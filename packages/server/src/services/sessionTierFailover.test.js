@@ -2006,3 +2006,328 @@ describe('tier attempt ownership (finding 11 unit)', () => {
     clearTierAttemptMember(session.id);
   });
 });
+
+// ── Finding 11 (same-tier): a retired startup attempt must not overwrite a
+// same-tier successor's identity ──
+//
+// A tier contains same-kind members A and B. A produces durable activity,
+// then A's provider is disabled through the normal catalog mutation path
+// (which repairs the stale snapshot but keeps the tier binding). The queued
+// auto-send continuation re-resolves live to B on the SAME tier ref and
+// executes B. When the original startup call unwinds, its late token-scoped
+// success snapshot for A must be rejected — including after the continuation
+// cleaned up its own registration, when no active registration exists.
+describe('same-tier retired attempt cannot overwrite successor identity (finding 11 same-tier unit)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let tierRef;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding11-sametier-'));
+    const project = projectRepo.create('Finding11 SameTier Project', tempDir);
+    providerA = modelProviders.create({ name: 'Finding11 Same A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Finding11 Same B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'finding11-same-a', displayName: 'A' });
+    modelProviders.addModel(providerB.id, { modelId: 'finding11-same-b', displayName: 'B' });
+    const tier = modelTiers.create({
+      name: 'Finding11 Same Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'finding11-same-a', position: 0 },
+        { providerId: providerB.id, modelId: 'finding11-same-b', position: 1 },
+      ],
+    });
+    tierRef = buildTierRef(tier.id);
+    session = sessionRepo.create(project.id, 'Finding11 SameTier', 'prompt', 'standard');
+    sessionRepo.update(session.id, { model: tierRef });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a retired token-scoped pin after its registration was cleaned up', async () => {
+    const { registerTierAttemptMember, clearTierAttemptMember, pinSessionToTierMember } =
+      await import('./tierMemberPin.js');
+    // Attempt A registers, then retires (the auto-send handoff clears the
+    // originating registration before the continuation dispatches).
+    const tokenA = registerTierAttemptMember(
+      session.id, { modelId: 'finding11-same-a', providerId: providerA.id }, { tierRef }
+    );
+    clearTierAttemptMember(session.id, tokenA);
+    // The continuation established B's identity on the same tier binding and
+    // has itself finished (no active registration remains).
+    sessionRepo.update(session.id, {
+      resolvedModel: 'finding11-same-b',
+      resolvedProviderId: providerB.id,
+      lastExecutedModel: 'finding11-same-b',
+      lastExecutedProviderId: providerB.id,
+    });
+    // A's late success snapshot unwinds now.
+    expect(pinSessionToTierMember(
+      session.id, { modelId: 'finding11-same-a', providerId: providerA.id }, { tierRef, attemptToken: tokenA }
+    )).toBe(false);
+    expect(broadcastToSession).not.toHaveBeenCalled();
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe(tierRef);
+    expect(updated.resolvedModel).toBe('finding11-same-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    expect(updated.lastExecutedModel).toBe('finding11-same-b');
+    expect(updated.lastExecutedProviderId).toBe(providerB.id);
+  });
+
+  it('rejects a retired token-scoped pin while the successor is still registered', async () => {
+    const { registerTierAttemptMember, clearTierAttemptMember, pinSessionToTierMember } =
+      await import('./tierMemberPin.js');
+    const tokenA = registerTierAttemptMember(
+      session.id, { modelId: 'finding11-same-a', providerId: providerA.id }, { tierRef }
+    );
+    clearTierAttemptMember(session.id, tokenA);
+    sessionRepo.update(session.id, {
+      resolvedModel: 'finding11-same-b',
+      resolvedProviderId: providerB.id,
+      lastExecutedModel: 'finding11-same-b',
+      lastExecutedProviderId: providerB.id,
+    });
+    // A newer execution registered itself; A's late write must still lose.
+    registerTierAttemptMember(
+      session.id, { modelId: 'finding11-same-b', providerId: providerB.id }, { tierRef }
+    );
+    expect(pinSessionToTierMember(
+      session.id, { modelId: 'finding11-same-a', providerId: providerA.id }, { tierRef, attemptToken: tokenA }
+    )).toBe(false);
+    expect(broadcastToSession).not.toHaveBeenCalled();
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe('finding11-same-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    expect(updated.lastExecutedModel).toBe('finding11-same-b');
+    expect(updated.lastExecutedProviderId).toBe(providerB.id);
+    clearTierAttemptMember(session.id);
+  });
+});
+
+// ── Finding 11 (same-tier auto-send integration): the full trigger chain ──
+//
+// Start tier T (members A, B) on A with auto-send queued and no model
+// override, so the continuation keeps the same tier binding. A's stream
+// emits durable activity (pinning A), then pauses on a deferred barrier.
+// While paused, A's provider is disabled through the normal catalog
+// mutation path: the repair sweep clears A's stale snapshot but retains
+// the tier ref. The continuation re-resolves live to B, executes B, and
+// the original startup call unwinds afterward. All four identity fields
+// must remain B and the tier ref unchanged.
+describe('auto-send keeps the same-tier successor identity (finding 11 same-tier)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let tierRef;
+  let releaseA;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+    let calls = 0;
+    let gateResolve;
+    const gate = new Promise((resolve) => { gateResolve = resolve; });
+    releaseA = gateResolve;
+    mockQuery.mockImplementation(async function* () {
+      calls += 1;
+      yield { type: 'system', subtype: 'init', session_id: 'finding11-same-ok', model: 'finding11-same', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: `reply ${calls}` }] } };
+      // The first attempt pauses after its durable activity is observable so
+      // the catalog mutation lands strictly before the queued continuation
+      // dispatches — a deferred barrier, not a timing sleep.
+      if (calls === 1) await gate;
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding11-sametier-auto-'));
+    const project = projectRepo.create('Finding11 SameTier Auto Project', tempDir);
+    providerA = modelProviders.create({ name: 'Finding11 SameAuto A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Finding11 SameAuto B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'finding11-sameauto-a', displayName: 'A' });
+    modelProviders.addModel(providerB.id, { modelId: 'finding11-sameauto-b', displayName: 'B' });
+    const tier = modelTiers.create({
+      name: 'Finding11 SameAuto Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'finding11-sameauto-a', position: 0 },
+        { providerId: providerB.id, modelId: 'finding11-sameauto-b', position: 1 },
+      ],
+    });
+    tierRef = buildTierRef(tier.id);
+    session = sessionRepo.create(project.id, 'Finding11 SameTier Auto', 'Initial prompt', 'standard');
+    sessionRepo.update(session.id, { model: tierRef });
+    // Queue auto-send with no model override: the continuation keeps the
+    // same tier binding.
+    sessions.update(session.id, {
+      autoSendPendingPrompt: true,
+      pendingPrompt: 'Follow-up via auto-send',
+      pendingModel: null,
+      pendingProviderId: null,
+    });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps B's resolution and last-executed identity after A's late unwind", async () => {
+    const runPromise = runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    // A's durable activity pinned A before the barrier was reached.
+    await vi.waitFor(() => expect(sessionRepo.getById(session.id).resolvedModel).toBe('finding11-sameauto-a'));
+    // Disable A's provider through the normal catalog path: the repair sweep
+    // clears A's stale snapshot while retaining the tier binding.
+    modelProviders.update(providerA.id, { enabled: false });
+    expect(sessionRepo.getById(session.id).model).toBe(tierRef);
+    releaseA();
+    await runPromise;
+
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe(tierRef);
+    expect(updated.resolvedModel).toBe('finding11-sameauto-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    expect(updated.lastExecutedModel).toBe('finding11-sameauto-b');
+    expect(updated.lastExecutedProviderId).toBe(providerB.id);
+  });
+
+  it('routes a subsequent model-less follow-up to B, never back to A', async () => {
+    const runPromise = runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    await vi.waitFor(() => expect(sessionRepo.getById(session.id).resolvedModel).toBe('finding11-sameauto-a'));
+    modelProviders.update(providerA.id, { enabled: false });
+    releaseA();
+    await runPromise;
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+
+    mockQuery.mockClear();
+    mockQuery.mockImplementation(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'finding11-same-ok', model: 'finding11-same', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'follow-up reply' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+    await continueSession(session.id, 'Another question', tempDir, {});
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('finding11-sameauto-b');
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+  });
+});
+
+// ── Finding 6: a text-only Gemini `429 RESOURCE_EXHAUSTED` startup failure
+// must fail over and cool the failed member ──
+//
+// geminiCliRunner.js builds CLI failures from stderr text with
+// `code: GEMINI_CLI_EXIT` and a nonzero exit code — no numeric HTTP status —
+// so the status-code check in the tight failover gate cannot see them. The
+// first member fails with exactly that CLI shape before any durable
+// activity; the run must advance to the next eligible member and cool the
+// failed one. (Members use anthropic-kind providers to stay on this file's
+// mocked SDK path; the regression is the CLI error SHAPE, which the
+// classifier treats provider-agnostically.)
+describe('gemini text-only rate-limit failure fails over at startup (finding 6)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let tier;
+
+  const geminiCliRateLimitFailure = () => Object.assign(
+    new Error('Error: 429 RESOURCE_EXHAUSTED'),
+    { code: 'GEMINI_CLI_EXIT', exitCode: 1 }
+  );
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockQuery.mockImplementation(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'finding6-ok', model: 'finding6', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+    broadcastToSession.mockClear();
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding6-clirate-'));
+    const project = projectRepo.create('Finding6 Project', tempDir);
+    providerA = modelProviders.create({ name: 'Finding6 A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Finding6 B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'finding6-model-a', displayName: 'A' });
+    modelProviders.addModel(providerB.id, { modelId: 'finding6-model-b', displayName: 'B' });
+    tier = modelTiers.create({
+      name: 'Finding6 Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'finding6-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'finding6-model-b', position: 1 },
+      ],
+    });
+    session = sessionRepo.create(project.id, 'Finding6 Session', 'Initial prompt', 'standard');
+    sessionRepo.update(session.id, { model: buildTierRef(tier.id) });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('advances to the next eligible member and cools the failed member', async () => {
+    // eslint-disable-next-line require-yield -- simulates a CLI-shaped startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      throw geminiCliRateLimitFailure();
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe(buildTierRef(tier.id));
+    expect(updated.resolvedModel).toBe('finding6-model-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    expect(updated.lastExecutedModel).toBe('finding6-model-b');
+    expect(updated.lastExecutedProviderId).toBe(providerB.id);
+    expect(updated.status).not.toBe('error');
+    expect(isUnhealthy(providerA.id, 'finding6-model-a')).toBe(true);
+  });
+
+  it('a subsequent new-session resolution skips the cooled member', async () => {
+    // eslint-disable-next-line require-yield -- simulates a CLI-shaped startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      throw geminiCliRateLimitFailure();
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    expect(isUnhealthy(providerA.id, 'finding6-model-a')).toBe(true);
+
+    mockQuery.mockClear();
+    const session2 = sessionRepo.create(session.projectId, 'Finding6 Session 2', 'prompt', 'standard');
+    sessionRepo.update(session2.id, { model: buildTierRef(tier.id) });
+    await runSession(session2.id, 'Second prompt', tempDir, { model: null });
+
+    // Started directly on B — the cooled member was skipped, not re-attempted.
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    const updated2 = sessionRepo.getById(session2.id);
+    expect(updated2.resolvedModel).toBe('finding6-model-b');
+    expect(updated2.resolvedProviderId).toBe(providerB.id);
+  });
+});
