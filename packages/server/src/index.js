@@ -184,6 +184,10 @@ const { install: installShutdownHandlers } = createShutdownHandler({
   },
   // Kill child processes spawned by commandRunner
   terminateAgentChildren: () => commandRunner.shutdownAll(),
+  // Immediately SIGKILL detached command process groups before a forced
+  // exit (repeated signal or force timeout), where the graceful SIGTERM
+  // path above is still stuck or its escalation timer could never run.
+  forceTerminateAgentChildren: () => commandRunner.shutdownAll({ force: true }),
   // Close all WebSocket connections (must happen before server.close())
   closeRealtimeConnections: () => webSocketManager.close(),
 });

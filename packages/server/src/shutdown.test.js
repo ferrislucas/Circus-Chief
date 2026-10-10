@@ -4,6 +4,7 @@ import {
   createShutdownHandler,
   SHUTDOWN_FORCE_TIMEOUT_MS,
   SHUTDOWN_EXIT_SIGINT,
+  SHUTDOWN_EXIT_SIGTERM,
 } from './shutdown.js';
 
 /**
@@ -83,6 +84,146 @@ describe('createShutdownHandler', () => {
     await vi.advanceTimersByTimeAsync(0);
     releaseClose();
     await first;
+  });
+
+  describe('forced shutdown child cleanup (Issue 1 P2)', () => {
+    function makeBlockedDrain() {
+      let releaseDrain;
+      let drained = false;
+      const stopPeriodicServices = vi.fn(() => new Promise((resolve) => {
+        releaseDrain = () => { drained = true; resolve(); };
+      }));
+      return { stopPeriodicServices, releaseDrain: () => releaseDrain?.(), get drained() { return drained; } };
+    }
+
+    it('repeated SIGINT force-kills children synchronously before exit 130 while the drain stays blocked', async () => {
+      vi.useFakeTimers();
+      const events = [];
+      const server = { close: vi.fn(), closeIdleConnections: vi.fn() };
+      const drain = makeBlockedDrain();
+      const deps = makeDeps(server, {
+        stopPeriodicServices: drain.stopPeriodicServices,
+        forceTerminateAgentChildren: vi.fn(() => { events.push('force-cleanup'); }),
+        exit: vi.fn((code) => { events.push(`exit:${code}`); }),
+      });
+      const { shutdown } = createShutdownHandler(deps);
+
+      const first = shutdown('SIGINT');
+      // Second Ctrl-C must clean up children BEFORE exiting, with no timer
+      // advance and no drain release.
+      await shutdown('SIGINT');
+
+      expect(deps.forceTerminateAgentChildren).toHaveBeenCalledOnce();
+      expect(events).toEqual(['force-cleanup', 'exit:130']);
+      expect(deps.exit).toHaveBeenCalledWith(SHUTDOWN_EXIT_SIGINT);
+      expect(drain.drained).toBe(false);
+      expect(deps.terminateAgentChildren).not.toHaveBeenCalled();
+
+      drain.releaseDrain();
+      await first;
+      vi.useRealTimers();
+    });
+
+    it('repeated SIGTERM force-kills children before exit 143', async () => {
+      vi.useFakeTimers();
+      const events = [];
+      const server = { close: vi.fn(), closeIdleConnections: vi.fn() };
+      const drain = makeBlockedDrain();
+      const deps = makeDeps(server, {
+        stopPeriodicServices: drain.stopPeriodicServices,
+        forceTerminateAgentChildren: vi.fn(() => { events.push('force-cleanup'); }),
+        exit: vi.fn((code) => { events.push(`exit:${code}`); }),
+      });
+      const { shutdown } = createShutdownHandler(deps);
+
+      const first = shutdown('SIGTERM');
+      await shutdown('SIGTERM');
+
+      expect(events).toEqual(['force-cleanup', 'exit:143']);
+      expect(deps.exit).toHaveBeenCalledWith(SHUTDOWN_EXIT_SIGTERM);
+      expect(drain.drained).toBe(false);
+
+      drain.releaseDrain();
+      await first;
+      vi.useRealTimers();
+    });
+
+    it('mixed signals use the second signal exit code after forced cleanup', async () => {
+      vi.useFakeTimers();
+      const events = [];
+      const server = { close: vi.fn(), closeIdleConnections: vi.fn() };
+      const drain = makeBlockedDrain();
+      const deps = makeDeps(server, {
+        stopPeriodicServices: drain.stopPeriodicServices,
+        forceTerminateAgentChildren: vi.fn(() => { events.push('force-cleanup'); }),
+        exit: vi.fn((code) => { events.push(`exit:${code}`); }),
+      });
+      const { shutdown } = createShutdownHandler(deps);
+
+      const first = shutdown('SIGINT');
+      await shutdown('SIGTERM');
+
+      expect(events).toEqual(['force-cleanup', 'exit:143']);
+      expect(drain.drained).toBe(false);
+
+      drain.releaseDrain();
+      await first;
+      vi.useRealTimers();
+    });
+
+    it('force timeout force-kills children before exit 1', async () => {
+      vi.useFakeTimers();
+      const events = [];
+      const server = {
+        close: vi.fn(),
+        closeIdleConnections: vi.fn(),
+        closeAllConnections: vi.fn(() => { events.push('close-connections'); }),
+      };
+      const drain = makeBlockedDrain();
+      const deps = makeDeps(server, {
+        stopPeriodicServices: drain.stopPeriodicServices,
+        forceTerminateAgentChildren: vi.fn(() => { events.push('force-cleanup'); }),
+        exit: vi.fn((code) => { events.push(`exit:${code}`); }),
+      });
+      const { shutdown } = createShutdownHandler(deps);
+
+      const pending = shutdown('SIGINT');
+      await vi.advanceTimersByTimeAsync(SHUTDOWN_FORCE_TIMEOUT_MS - 1);
+      expect(deps.exit).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(deps.exit).toHaveBeenCalledWith(1);
+      // Cleanup must precede the exit call.
+      const cleanupIndex = events.indexOf('force-cleanup');
+      const exitIndex = events.findIndex((e) => e.startsWith('exit:'));
+      expect(cleanupIndex).toBeGreaterThanOrEqual(0);
+      expect(exitIndex).toBeGreaterThan(cleanupIndex);
+
+      drain.releaseDrain();
+      await pending;
+      vi.useRealTimers();
+    });
+
+    it('forced cleanup failure cannot prevent exit', async () => {
+      vi.useFakeTimers();
+      const server = { close: vi.fn(), closeIdleConnections: vi.fn() };
+      const drain = makeBlockedDrain();
+      const deps = makeDeps(server, {
+        stopPeriodicServices: drain.stopPeriodicServices,
+        forceTerminateAgentChildren: vi.fn(() => { throw new Error('kill failed'); }),
+        exit: vi.fn(),
+      });
+      const { shutdown } = createShutdownHandler(deps);
+
+      const first = shutdown('SIGINT');
+      await shutdown('SIGINT');
+
+      expect(deps.exit).toHaveBeenCalledWith(SHUTDOWN_EXIT_SIGINT);
+
+      drain.releaseDrain();
+      await first;
+      vi.useRealTimers();
+    });
   });
 
   it('a stalled close exits non-zero via the force timeout and destroys connections', async () => {

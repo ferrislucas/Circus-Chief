@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   CommandRunner,
   createCommandRunnerEnv,
@@ -438,6 +438,91 @@ describe('CommandRunner', () => {
 
       // Should not throw even though processes are already gone
       expect(() => runner.shutdownAll()).not.toThrow();
+    });
+  });
+
+  describe('shutdownAll force mode (Issue 1 P2)', () => {
+    // This file has no global mock restoration, so spies on process.kill
+    // must not leak into the real-process tests below.
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    function makeTrackedRunner(entries) {
+      const forced = new CommandRunner({ commandRunRepository: null });
+      for (const [runId, child] of entries) {
+        forced.processes.set(runId, { process: child });
+      }
+      return forced;
+    }
+
+    it('force mode SIGKILLs every tracked process group synchronously without timers', async () => {
+      const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {});
+      const childA = { pid: 11111, kill: vi.fn() };
+      const childB = { pid: 22222, kill: vi.fn() };
+      const forced = makeTrackedRunner([['run-a', childA], ['run-b', childB]]);
+
+      // Fake timers only to prove no escalation timer is scheduled: advancing
+      // well past the graceful one-second escalation must change nothing.
+      // Never spy on the global timer functions themselves.
+      vi.useFakeTimers();
+      try {
+        forced.shutdownAll({ force: true });
+
+        expect(killSpy).toHaveBeenCalledWith(-11111, 'SIGKILL');
+        expect(killSpy).toHaveBeenCalledWith(-22222, 'SIGKILL');
+        expect(childA.kill).not.toHaveBeenCalled();
+        expect(childB.kill).not.toHaveBeenCalled();
+        const callsAfterForce = killSpy.mock.calls.length;
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(killSpy.mock.calls.length).toBe(callsAfterForce);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('force mode falls back to the direct child when group signaling fails', () => {
+      const killSpy = vi.spyOn(process, 'kill').mockImplementation((pid) => {
+        if (pid === -11111) throw new Error('ESRCH');
+      });
+      const childA = { pid: 11111, kill: vi.fn() };
+      const childB = { pid: 22222, kill: vi.fn() };
+      const forced = makeTrackedRunner([['run-a', childA], ['run-b', childB]]);
+
+      forced.shutdownAll({ force: true });
+
+      expect(childA.kill).toHaveBeenCalledWith('SIGKILL');
+      expect(killSpy).toHaveBeenCalledWith(-22222, 'SIGKILL');
+      expect(childB.kill).not.toHaveBeenCalled();
+    });
+
+    it('force mode cleans up remaining entries when one child is gone or signaling throws', () => {
+      const killSpy = vi.spyOn(process, 'kill').mockImplementation((pid) => {
+        if (pid === -11111) throw new Error('ESRCH');
+      });
+      const childA = { pid: 11111, kill: vi.fn(() => { throw new Error('gone'); }) };
+      const childB = { pid: 22222, kill: vi.fn() };
+      const forced = makeTrackedRunner([['run-a', childA], ['run-b', childB]]);
+
+      expect(() => forced.shutdownAll({ force: true })).not.toThrow();
+      expect(killSpy).toHaveBeenCalledWith(-22222, 'SIGKILL');
+      expect(childB.kill).not.toHaveBeenCalled();
+    });
+
+    it('force mode never throws and never schedules escalation', async () => {
+      vi.spyOn(process, 'kill').mockImplementation(() => { throw new Error('boom'); });
+      const forced = makeTrackedRunner([['run-a', { pid: 11111, kill: () => { throw new Error('gone'); } }]]);
+
+      vi.useFakeTimers();
+      try {
+        expect(() => forced.shutdownAll({ force: true })).not.toThrow();
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
