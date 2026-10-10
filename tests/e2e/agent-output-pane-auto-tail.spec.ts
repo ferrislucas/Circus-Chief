@@ -455,6 +455,121 @@ test.describe('Agent Output Pane Auto-Tail', () => {
     await expectMarkerLaidOutVisible(secondPre, SECOND_MARKER);
   });
 
+/**
+ * Regression helpers for Issue 2 (P2): follow retries must survive
+ * asynchronous inner growth. The helpers below grow the rendered content
+ * directly — no new stream event, no outer-box resize — after the retry
+ * sequence has gone idle, the way deferred previews grow late.
+ */
+async function injectDelayedGrowth(page: Page, marker: string): Promise<void> {
+  await page
+    .locator('.live-work-log-panel .live-logs')
+    .first()
+    .evaluate((el, text) => {
+      const last = el.querySelector('.live-log-item:last-child') ?? el;
+      const extra = document.createElement('div');
+      extra.className = 'delayed-growth-stub';
+      extra.style.cssText = 'height:120px;';
+      extra.textContent = text;
+      last.appendChild(extra);
+    }, marker);
+}
+
+async function outerClientHeight(page: Page): Promise<number> {
+  return page
+    .locator('.live-work-log-panel .live-logs')
+    .first()
+    .evaluate((el) => el.clientHeight);
+}
+
+  test('delayed inner growth after the retry window stays visible (constant outer box)', async ({
+    page,
+  }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test delayed growth follow',
+      name: 'Agent Output Delayed Growth',
+      startImmediately: false,
+    });
+    await updateSessionStatus(session.id, 'running');
+    await openRunningPane(page, session.id);
+
+    for (let i = 1; i <= 25; i++) {
+      await seedWorkLog(session.id, {
+        type: 'tool_output',
+        content: `delayed-growth line ${i}`,
+        toolName: 'Bash',
+      });
+      if (i % 5 === 0) await new Promise((r) => setTimeout(r, 100));
+    }
+    const container = page.locator('.live-work-log-panel .live-logs').first();
+    await expect
+      .poll(async () => container.evaluate((el) => el.scrollHeight > el.clientHeight), {
+        timeout: 10000,
+      })
+      .toBe(true);
+    await settleOuterFollow(page);
+
+    // Outlast any follow retry sequence, then grow content with no new
+    // stream event and no outer-box resize.
+    await new Promise((r) => setTimeout(r, 800));
+    const cappedHeight = await outerClientHeight(page);
+    const MARKER = 'TAIL-DELAYED-GROWTH-ZZZ';
+    await injectDelayedGrowth(page, MARKER);
+
+    // The outer pane stays capped while the newest content becomes visible.
+    await expect
+      .poll(async () => outerClientHeight(page), { timeout: 5000 })
+      .toBe(cappedHeight);
+    await expectMarkerLaidOutVisible(container, MARKER);
+  });
+
+  test('delayed growth respects manual pause and follows again on return', async ({
+    page,
+  }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test delayed growth pause',
+      name: 'Agent Output Delayed Pause',
+      startImmediately: false,
+    });
+    await updateSessionStatus(session.id, 'running');
+    await openRunningPane(page, session.id);
+
+    for (let i = 1; i <= 25; i++) {
+      await seedWorkLog(session.id, {
+        type: 'tool_output',
+        content: `delayed-pause line ${i}`,
+        toolName: 'Bash',
+      });
+      if (i % 5 === 0) await new Promise((r) => setTimeout(r, 100));
+    }
+    const container = page.locator('.live-work-log-panel .live-logs').first();
+    await expect
+      .poll(async () => container.evaluate((el) => el.scrollHeight > el.clientHeight), {
+        timeout: 10000,
+      })
+      .toBe(true);
+    await settleOuterFollow(page);
+
+    // User scrolls up, then delayed growth arrives with no stream event.
+    await container.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    await container.dispatchEvent('scroll');
+    await new Promise((r) => setTimeout(r, 800));
+    await injectDelayedGrowth(page, 'TAIL-DELAYED-PAUSE-AAA');
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(await container.evaluate((el) => el.scrollTop)).toBe(0);
+
+    // Scrolling back within the threshold resumes following later growth.
+    await container.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await container.dispatchEvent('scroll');
+    await injectDelayedGrowth(page, 'TAIL-DELAYED-PAUSE-ZZZ');
+    await settleOuterFollow(page);
+    await expectMarkerLaidOutVisible(container, 'TAIL-DELAYED-PAUSE-ZZZ');
+  });
+
   test('tail override is scoped: raw JSON details keep the 300px cap', async ({ page }) => {
     await page.setViewportSize({ width: 480, height: 800 });
     const session = await seedSession(project.id, {

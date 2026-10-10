@@ -17,33 +17,41 @@
       class="live-logs"
       @scroll.passive="handleScroll"
     >
+      <!-- Naturally sizing inner content: the outer box sits at its height
+           cap, so only this element's size changes on content-only growth
+           and only observing it can re-pin after the retry window ends. -->
       <div
-        v-for="log in workLogs"
-        :key="log.id"
-        class="live-log-item"
+        ref="logsContentRef"
+        class="live-logs-content"
       >
-        <ThinkingBlock
-          v-if="log.type === 'thinking'"
-          :content="log.content"
-          :timestamp="log.timestamp"
-          :tail="true"
-        />
-        <CommandBlock
-          v-else
-          :log="log"
-          :tail="true"
-        />
-      </div>
-      <!-- Streaming partial thinking -->
-      <div
-        v-if="partialThinking"
-        class="live-log-item"
-      >
-        <ThinkingBlock
-          :content="partialThinking"
-          :streaming="true"
-          :tail="true"
-        />
+        <div
+          v-for="log in workLogs"
+          :key="log.id"
+          class="live-log-item"
+        >
+          <ThinkingBlock
+            v-if="log.type === 'thinking'"
+            :content="log.content"
+            :timestamp="log.timestamp"
+            :tail="true"
+          />
+          <CommandBlock
+            v-else
+            :log="log"
+            :tail="true"
+          />
+        </div>
+        <!-- Streaming partial thinking -->
+        <div
+          v-if="partialThinking"
+          class="live-log-item"
+        >
+          <ThinkingBlock
+            :content="partialThinking"
+            :streaming="true"
+            :tail="true"
+          />
+        </div>
       </div>
     </div>
   </div>
@@ -64,8 +72,10 @@ const props = defineProps({
 // Follow mode lives in the shared composable; the container resolves from
 // this panel's own template ref so multiple live panels scroll correctly.
 const logsRef = ref(null);
+const logsContentRef = ref(null);
 const { isNearBottom, handleScroll, scrollToBottom } = useWorkLogFollow({
   resolveContainer: () => logsRef.value,
+  resolveContent: () => logsContentRef.value,
   watchSources: [() => props.workLogs?.length, () => props.partialThinking],
 });
 
@@ -119,6 +129,15 @@ defineExpose({
   padding-right: 0.25rem;
   border-left: 2px solid var(--color-primary);
   padding-left: 0.75rem;
+}
+
+/* Inner content wrapper: single child of the capped scroll box, so it
+   sizes naturally with its items and preserves the item spacing. */
+.live-logs-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
 }
 
 .live-log-item {
