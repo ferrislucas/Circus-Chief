@@ -112,9 +112,14 @@ import SystemIndicators from './components/SystemIndicators.vue';
 import ProviderAllowanceFeature from './components/ProviderAllowanceFeature.vue';
 import ConnectionBanner from './components/ConnectionBanner.vue';
 import { useVisualViewport } from './composables/useVisualViewport.js';
+import { useCatalogInvalidation } from './composables/useCatalogInvalidation.js';
 
 // Initialize visual viewport tracking for iOS Safari browser chrome offset
 useVisualViewport();
+
+// Converge model-catalog selectors across clients without a reload: a tier,
+// provider, or model mutation anywhere triggers a guarded canonical refetch.
+const catalogInvalidation = useCatalogInvalidation();
 
 const headerRef = ref(null);
 let resizeObserver = null;
@@ -157,6 +162,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  catalogInvalidation.dispose();
   if (resizeObserver) {
     resizeObserver.disconnect();
   }

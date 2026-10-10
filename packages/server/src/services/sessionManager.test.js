@@ -6,8 +6,12 @@ import {
   getSessionAttachmentsContext,
   PLAN_MODE_PROMPT,
   continueSession,
+  continueSessionWithExistingMessage,
   shouldRescheduleOnError,
 } from './sessionManager.js';
+import { modelProviders, modelTiers } from '../database.js';
+import { buildTierRef } from '@circuschief/shared';
+import { markUnhealthy, clearUnhealthy } from './tierResolutionService.js';
 import { activeSessions } from './sessionExecutionOwnership.js';
 import {
   textAccumulators,
@@ -1407,7 +1411,6 @@ describe('summary service integration', () => {
 
   describe('continueSessionWithExistingMessage summary integration', () => {
     it('does not call onSessionComplete when turn completes successfully', async () => {
-      const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
       // Create a conversation and user message
       const conversation = conversationRepo.create(session.id, 'Test Conversation');
@@ -1581,7 +1584,6 @@ describe('buildModelAndProvider agent_type re-derivation (Fix 3)', () => {
     // The cross-kind path is validated by the sessionAgentGuard tests.
 
     // For same-kind (claude → claude), agent_type should remain unchanged
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, {
       model: 'claude-haiku-4-5-20251001', // Same kind (claude-code)
@@ -1600,7 +1602,6 @@ describe('buildModelAndProvider agent_type re-derivation (Fix 3)', () => {
 
     // Even if we could pass an OpenAI model, agent_type should NOT change
     // because there are already assistant messages.
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, {
       model: 'claude-haiku-4-5-20251001',
@@ -1614,7 +1615,6 @@ describe('buildModelAndProvider agent_type re-derivation (Fix 3)', () => {
     const conversation = conversationRepo.create(session.id, 'Test Conversation');
     messageRepo.create(session.id, 'user', 'Test message', { conversationId: conversation.id });
 
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, {
       model: 'claude-haiku-4-5-20251001',
@@ -1675,7 +1675,6 @@ describe('continueSessionWithExistingMessage Codex conversation context', () => 
     messageRepo.create(session.id, 'assistant', '4', null, conversation.id);
     messageRepo.create(session.id, 'user', 'Now tell me more', { conversationId: conversation.id });
 
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, { model: 'gpt-4o-test' });
 
@@ -1710,7 +1709,6 @@ describe('continueSessionWithExistingMessage Codex conversation context', () => 
     const conversation = conversationRepo.create(session.id, 'Test Conversation');
     messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
 
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, { model: 'gpt-4o-test' });
 
@@ -1745,7 +1743,6 @@ describe('continueSessionWithExistingMessage Codex conversation context', () => 
     messageRepo.create(session.id, 'assistant', '4', null, conversation.id);
     messageRepo.create(session.id, 'user', 'Now tell me more', { conversationId: conversation.id });
 
-    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir);
 
@@ -1756,5 +1753,413 @@ describe('continueSessionWithExistingMessage Codex conversation context', () => 
     expect(capturedQueryParams.options.resume).toBe('prior-claude-id');
 
     createAgentSpy.mockRestore();
+  });
+});
+
+// ── Fix 1: buildModelAndProvider tier-ref resolution ──────────────────────────
+// Tests asserting that continueSessionWithExistingMessage never forwards a raw
+// `tier::` sentinel to the agent and always resolves to a concrete model.
+
+describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
+  let sessionRepo;
+  let messageRepo;
+  let conversationRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let tier;
+  let providerA;
+
+  // Capture the model forwarded to the agent via a spy
+  let capturedModel;
+  let stubAgent;
+
+  beforeEach(async () => {
+    capturedModel = undefined;
+    stubAgent = {
+      execute: vi.fn(async function* (queryParams) {
+        capturedModel = queryParams.options?.model;
+        yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'model-a' };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'response' }] } };
+        yield { type: 'result', subtype: 'success' };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => false,
+    };
+    vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    sessionRepo = new SessionRepository();
+    messageRepo = new MessageRepository();
+    conversationRepo = new ConversationRepository();
+    projectRepo = new ProjectRepository();
+
+    tempDir = mkdtempSync(join(tmpdir(), 'fix1-tier-test-'));
+    const project = projectRepo.create('Test Project', tempDir);
+
+    // Create a provider + tier
+    providerA = modelProviders.create({ name: 'Provider A Fix1', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'concrete-model-a', displayName: 'Model A' });
+
+    tier = modelTiers.create({
+      name: 'Fix1 Tier',
+      members: [{ providerId: providerA.id, modelId: 'concrete-model-a', position: 0 }],
+    });
+    const tierRef = buildTierRef(tier.id);
+
+    // Session is bound to the tier, with a stored resolvedModel snapshot
+    session = sessionRepo.create(project.id, 'Tier Session', 'initial', 'standard');
+    sessionRepo.update(session.id, {
+      model: tierRef,
+      resolvedModel: 'concrete-model-a',
+      resolvedProviderId: providerA.id,
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the stored resolvedModel snapshot — never the tier sentinel — when continueSessionWithExistingMessage is called', async () => {
+    // Simulate a reschedule-retry scenario: existing user message, no reply yet
+    const conversation = conversationRepo.create(session.id, 'Conv');
+    messageRepo.create(session.id, 'user', 'What is 2+2?', { conversationId: conversation.id });
+
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir);
+
+    // Agent must receive the concrete model, never the tier:: sentinel
+    expect(capturedModel).toBe('concrete-model-a');
+    expect(capturedModel).not.toMatch(/^tier::/);
+  });
+
+  it('re-resolves from live tier lookup when resolvedModel snapshot is missing (fallback)', async () => {
+    // Clear the snapshot to simulate a legacy row
+    sessionRepo.update(session.id, { resolvedModel: null, resolvedProviderId: null });
+
+    const conversation = conversationRepo.create(session.id, 'Conv');
+    messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
+
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir);
+
+    // Live resolution falls back to the first healthy member
+    expect(capturedModel).toBe('concrete-model-a');
+    expect(capturedModel).not.toMatch(/^tier::/);
+  });
+
+  it('resolves an explicit tier-ref model arg to a concrete model', async () => {
+    const conversation = conversationRepo.create(session.id, 'Conv');
+    messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
+
+    const tierRef = buildTierRef(tier.id);
+
+    // Pass the tier ref as an explicit model override — must still resolve to concrete
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, {
+      model: tierRef,
+    });
+
+    expect(capturedModel).toBe('concrete-model-a');
+    expect(capturedModel).not.toMatch(/^tier::/);
+  });
+
+  // Fix 2: switching from the session's currently-bound tier to a DIFFERENT
+  // tier must resolve the new tier live — reusing the old tier's
+  // `resolvedModel` snapshot here would silently keep dispatching to the
+  // wrong (stale) concrete model.
+  it('switching from tier A to tier B resolves tier B live, not tier A\'s stale snapshot', async () => {
+
+    modelProviders.addModel(providerA.id, { modelId: 'concrete-model-b', displayName: 'Model B' });
+    const tierB = modelTiers.create({
+      name: 'Fix1 Tier B',
+      members: [{ providerId: providerA.id, modelId: 'concrete-model-b', position: 0 }],
+    });
+    const tierBRef = buildTierRef(tierB.id);
+
+    const conversation = conversationRepo.create(session.id, 'Conv');
+    messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
+
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, {
+      model: tierBRef,
+    });
+
+    expect(capturedModel).toBe('concrete-model-b');
+    expect(capturedModel).not.toMatch(/^tier::/);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe(tierBRef);
+    expect(updated.resolvedModel).toBe('concrete-model-b');
+    expect(updated.resolvedProviderId).toBe(providerA.id);
+  });
+
+  // Work Item 4: the agent adapter must be created from the RECONCILED
+  // agentType, not the stale value on the session row read at the top of
+  // continueSessionWithExistingMessage. A tier-bound draft session whose
+  // stale agentType is 'claude-code' must still dispatch through the Codex
+  // adapter once the tier resolves to a Codex member.
+  it('creates the agent from the reconciled agentType, not the stale pre-reconciliation value (Work Item 4)', async () => {
+
+    const codexProvider = modelProviders.create({ name: 'Codex Provider Fix4', kind: 'openai' });
+    modelProviders.addModel(codexProvider.id, { modelId: 'gpt-fix4-test', displayName: 'GPT Fix4' });
+    const codexTier = modelTiers.create({
+      name: 'Fix4 Codex Tier',
+      members: [{ providerId: codexProvider.id, modelId: 'gpt-fix4-test', position: 0 }],
+    });
+    const codexTierRef = buildTierRef(codexTier.id);
+
+    // Stale row: agentType left at 'claude-code' even though the bound tier's
+    // only member is a Codex model (mirrors a draft session whose agentType
+    // was never reconciled against the tier before this first continuation).
+    sessionRepo.update(session.id, {
+      model: codexTierRef,
+      resolvedModel: null,
+      resolvedProviderId: null,
+      agentType: 'claude-code',
+    });
+
+    const conversation = conversationRepo.create(session.id, 'Conv');
+    messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
+
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir);
+
+    // The adapter must be created with 'codex' — never the stale 'claude-code'.
+    expect(agentGateway.createAgent).toHaveBeenCalled();
+    const agentTypesUsed = agentGateway.createAgent.mock.calls.map((call) => call[0]);
+    expect(agentTypesUsed).toContain('codex');
+    expect(agentTypesUsed).not.toContain('claude-code');
+
+    expect(sessionRepo.getById(session.id).agentType).toBe('codex');
+  });
+
+  // ── Finding 4: preparation-failure cleanup on the branch path ──────────────
+  // continueSessionWithExistingMessage registers active state (ownership claim,
+  // running status, conversation id) BEFORE model/environment resolution. A
+  // resolution failure there must surface a sanitized visible error, move the
+  // session to error status, and release all active state — never wedge the
+  // session as permanently running.
+  describe('continueSessionWithExistingMessage preparation-failure cleanup (finding 4)', () => {
+    // Repositories, session, tempDir, and tier reuse the enclosing suite's
+    // bindings (repository instances are stateless); only the branch
+    // fixtures below are owned by this block.
+    let project;
+    let provider;
+    let tierRef;
+
+    beforeEach(() => {
+      sessionRepo = new SessionRepository();
+      messageRepo = new MessageRepository();
+      conversationRepo = new ConversationRepository();
+      projectRepo = new ProjectRepository();
+
+      // The enclosing binding already holds a directory from its own setup;
+      // release it before pointing the shared binding at this block's dir.
+      if (tempDir && existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
+      tempDir = mkdtempSync(join(tmpdir(), 'finding4-branch-'));
+      project = projectRepo.create('Finding4 Branch Project', tempDir);
+      provider = modelProviders.create({ name: 'Finding4 Branch Provider', kind: 'anthropic' });
+      modelProviders.addModel(provider.id, { modelId: 'finding4-branch-model', displayName: 'F4B' });
+      modelProviders.addModel(provider.id, { modelId: 'finding4-branch-model-2', displayName: 'F4B2' });
+      const branchTier = modelTiers.create({
+        name: 'Finding4 Branch Tier',
+        members: [
+          { providerId: provider.id, modelId: 'finding4-branch-model', position: 0 },
+          { providerId: provider.id, modelId: 'finding4-branch-model-2', position: 1 },
+        ],
+      });
+      tierRef = buildTierRef(branchTier.id);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      if (tempDir && existsSync(tempDir)) {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects a cross-kind dispatch candidate on an established session with no provider call', async () => {
+      const codexProvider = modelProviders.create({ name: 'Finding2 Branch Codex', kind: 'openai' });
+      modelProviders.addModel(codexProvider.id, { modelId: 'finding2-branch-codex', displayName: 'F2B Codex' });
+      const mixedTier = modelTiers.create({
+        name: 'Finding2 Branch Mixed Tier',
+        members: [
+          { providerId: provider.id, modelId: 'finding4-branch-model', position: 0 },
+          { providerId: codexProvider.id, modelId: 'finding2-branch-codex', position: 1 },
+        ],
+      });
+      const mixedRef = buildTierRef(mixedTier.id);
+      markUnhealthy(provider.id, 'finding4-branch-model', 60_000);
+      try {
+        const establishedSession = sessionRepo.create(project.id, 'Established Branch Session', 'Initial prompt', 'standard');
+        sessionRepo.update(establishedSession.id, {
+          model: 'finding4-branch-model', providerId: provider.id, agentType: 'claude-code',
+        });
+        const conversation = conversationRepo.create(establishedSession.id, 'Branch Conv');
+        messageRepo.create(establishedSession.id, 'user', 'Existing message', { conversationId: conversation.id });
+        messageRepo.create(establishedSession.id, 'assistant', 'Prior answer', { conversationId: conversation.id });
+
+        const queryCallsBefore = vi.mocked(query).mock.calls.length;
+        await expect(continueSessionWithExistingMessage(establishedSession.id, conversation.id, tempDir, {
+          model: mixedRef,
+        })).rejects.toThrow(/Cannot switch agent kind/);
+
+        // No provider dispatch and no selection mutation.
+        expect(vi.mocked(query).mock.calls.length).toBe(queryCallsBefore);
+        const row = sessionRepo.getById(establishedSession.id);
+        expect(row.model).toBe('finding4-branch-model');
+        expect(activeSessions.has(establishedSession.id)).toBe(false);
+      } finally {
+        clearUnhealthy(provider.id, 'finding4-branch-model');
+      }
+    });
+
+    it('drops resume and replays context on a provider-only switch (finding 9)', async () => {
+      const SHARED = 'finding9-branch-shared';
+      modelProviders.addModel(provider.id, { modelId: SHARED, displayName: 'Shared' });
+      const providerB = modelProviders.create({ name: 'Finding9 Branch B', kind: 'anthropic' });
+      modelProviders.addModel(providerB.id, { modelId: SHARED, displayName: 'Shared' });
+
+      const executedSession = sessionRepo.create(project.id, 'Executed Branch Session', 'Initial prompt', 'standard');
+      sessionRepo.update(executedSession.id, {
+        model: SHARED, providerId: provider.id, agentType: 'claude-code',
+      });
+      const conversation = conversationRepo.create(executedSession.id, 'Branch Conv');
+      conversationRepo.update(conversation.id, { claudeSessionId: 'resume-handle-9-branch' });
+      messageRepo.create(executedSession.id, 'user', 'Existing message', { conversationId: conversation.id });
+      messageRepo.create(executedSession.id, 'assistant', 'Original branch answer', { conversationId: conversation.id });
+
+      // The enclosing suite stubs agent creation with a synthetic agent; this
+      // test needs the real adapter so the SDK query mock observes dispatch.
+      vi.mocked(agentGateway.createAgent).mockRestore();
+
+      const queryCallsBefore = vi.mocked(query).mock.calls.length;
+      await continueSessionWithExistingMessage(executedSession.id, conversation.id, tempDir, {
+        model: SHARED, providerId: providerB.id,
+      });
+
+      expect(vi.mocked(query).mock.calls.length).toBe(queryCallsBefore + 1);
+      const sentParams = vi.mocked(query).mock.calls[queryCallsBefore][0];
+      // Same model string, different provider: a fresh provider thread.
+      expect(sentParams.options?.resume ?? null).toBe(null);
+      expect(sentParams.prompt).toContain('<conversation_history>');
+      const row = sessionRepo.getById(executedSession.id);
+      expect(row.lastExecutedModel).toBe(SHARED);
+      expect(row.lastExecutedProviderId).toBe(providerB.id);
+    });
+
+    it('releases active state, flags error status, and dispatches nothing when a newly selected tier has every member cooling down', async () => {
+      markUnhealthy(provider.id, 'finding4-branch-model', 60_000);
+      markUnhealthy(provider.id, 'finding4-branch-model-2', 60_000);
+      try {
+        const coolingSession = sessionRepo.create(project.id, 'Branch Session', 'Initial prompt', 'standard');
+        sessionRepo.update(coolingSession.id, { model: 'finding4-branch-model', providerId: provider.id });
+        const conversation = conversationRepo.create(coolingSession.id, 'Branch Conv');
+        messageRepo.create(coolingSession.id, 'user', 'Existing message', { conversationId: conversation.id });
+
+        const queryCallsBefore = vi.mocked(query).mock.calls.length;
+        await expect(continueSessionWithExistingMessage(coolingSession.id, conversation.id, tempDir, {
+          model: tierRef,
+        })).rejects.toThrow(/currently healthy/);
+
+        // No provider dispatch happened.
+        expect(vi.mocked(query).mock.calls.length).toBe(queryCallsBefore);
+
+        // Sanitized visible error + error status.
+        const row = sessionRepo.getById(coolingSession.id);
+        expect(row.status).toBe('error');
+        expect(row.error).toMatch(/currently healthy/);
+
+        // Active state fully released.
+        expect(activeSessions.has(coolingSession.id)).toBe(false);
+        expect(activeConversationIds.has(coolingSession.id)).toBe(false);
+      } finally {
+        clearUnhealthy(provider.id, 'finding4-branch-model');
+        clearUnhealthy(provider.id, 'finding4-branch-model-2');
+      }
+    });
+  });
+});
+
+// Catalog-driven fallback on the scheduled path (review issue 1): a
+// follow-up with no explicit model whose snapshot was cleared by a catalog
+// change must validate the live-resolved replacement against the session's
+// established kind before dispatch — the scheduled entry point bypasses the
+// HTTP guard, so this is the only enforcement.
+describe('continueSessionWithExistingMessage — catalog-fallback cross-kind guard (issue 1)', () => {
+  let sessionRepo;
+  let messageRepo;
+  let conversationRepo;
+  let projectRepo;
+  let tempDir;
+  let project;
+  let claudeProvider;
+  let codexProvider;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    sessionRepo = new SessionRepository();
+    messageRepo = new MessageRepository();
+    conversationRepo = new ConversationRepository();
+    projectRepo = new ProjectRepository();
+
+    tempDir = mkdtempSync(join(tmpdir(), 'issue1-branch-test-'));
+    project = projectRepo.create('Issue1 Branch Project', tempDir);
+
+    claudeProvider = modelProviders.create({ name: 'Issue1 Branch Claude', kind: 'anthropic' });
+    modelProviders.addModel(claudeProvider.id, { modelId: 'issue1-branch-claude', displayName: 'Claude' });
+    codexProvider = modelProviders.create({ name: 'Issue1 Branch Codex', kind: 'openai' });
+    modelProviders.addModel(codexProvider.id, { modelId: 'issue1-branch-codex', displayName: 'Codex' });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a scheduled follow-up that would dispatch a cross-kind replacement', async () => {
+    const tier = modelTiers.create({
+      name: 'Issue1 Branch Tier',
+      members: [
+        { providerId: claudeProvider.id, modelId: 'issue1-branch-claude', position: 0 },
+        { providerId: codexProvider.id, modelId: 'issue1-branch-codex', position: 1 },
+      ],
+    });
+    const tierRef = buildTierRef(tier.id);
+
+    const session = sessionRepo.create(project.id, 'Pinned Branch Session', 'Initial prompt', 'standard');
+    sessionRepo.update(session.id, {
+      status: 'waiting',
+      model: tierRef,
+      agentType: 'claude-code',
+      resolvedModel: 'issue1-branch-claude',
+      resolvedProviderId: claudeProvider.id,
+      lastExecutedModel: 'issue1-branch-claude',
+      lastExecutedProviderId: claudeProvider.id,
+    });
+    const conversation = conversationRepo.create(session.id, 'Branch Conv');
+    messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
+    messageRepo.create(session.id, 'assistant', 'Hi there', { conversationId: conversation.id });
+
+    // Catalog change clears the snapshot via the production sweep.
+    modelProviders.updateWithDegradation(claudeProvider.id, { enabled: false });
+    expect(sessionRepo.getById(session.id).resolvedModel ?? null).toBe(null);
+
+    // Scheduled follow-up: no explicit model, pendingModel echoes nothing.
+    const queryCallsBefore = vi.mocked(query).mock.calls.length;
+    await expect(
+      continueSessionWithExistingMessage(session.id, conversation.id, tempDir)
+    ).rejects.toThrow(/Cannot switch agent kind/);
+
+    // No provider dispatch happened.
+    expect(vi.mocked(query).mock.calls.length).toBe(queryCallsBefore);
+
+    // Identity preserved; active state released.
+    const row = sessionRepo.getById(session.id);
+    expect(row.model).toBe(tierRef);
+    expect(row.agentType).toBe('claude-code');
+    expect(row.status).toBe('error');
+    expect(activeSessions.has(session.id)).toBe(false);
+    expect(activeConversationIds.has(session.id)).toBe(false);
   });
 });

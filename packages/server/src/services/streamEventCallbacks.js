@@ -2,7 +2,7 @@ import { sessions, conversations, messages } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
-import { createVisibleFinalErrorMessage } from './visibleFinalErrorMessage.js';
+import { createVisibleFinalErrorMessage, normalizeFinalErrorMessage } from './visibleFinalErrorMessage.js';
 import { turnEndedDueToLimitOrOutage } from './sessionErrors.js';
 import { activeSessions } from './sessionExecutionOwnership.js';
 import {
@@ -388,9 +388,10 @@ async function safeTriggerTemplate(sessionId, handleTemplateTriggerIfNeeded) {
  * @param {{ broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function }} options
  */
 async function finalizeSessionError(sessionId, error, options) {
-  sessions.update(sessionId, { status: 'error', error: error.message });
+  const sanitizedError = normalizeFinalErrorMessage(error);
+  sessions.update(sessionId, { status: 'error', error: sanitizedError });
   createVisibleFinalErrorMessage(sessionId, error, activeConversationIds);
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: sanitizedError });
   if (options.broadcastConversationState) broadcastFinalConversationState(sessionId);
   summaryService.extractPrUrlIfNeeded(sessionId);
   summaryService.onSessionComplete(sessionId);

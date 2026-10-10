@@ -222,6 +222,7 @@ describe('draftSessionService', () => {
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
         pendingModel: null,
+        pendingProviderId: null,
       });
     });
 
@@ -267,7 +268,9 @@ describe('draftSessionService', () => {
       expect(lastCallArgs[3].model).toBe('claude-3-opus');
 
       // resolveAgentTypeFromModel should be called with the final resolved model
-      expect(resolveAgentTypeFromModel).toHaveBeenCalledWith('claude-3-opus');
+      // (and a providerId hint, resolved via resolveModelForAgentKind — null for
+      // a concrete, non-tier model with no explicit provider hint).
+      expect(resolveAgentTypeFromModel).toHaveBeenCalledWith('claude-3-opus', null);
     });
 
     it('throws DraftSessionError when request model is invalid', async () => {
@@ -327,7 +330,9 @@ describe('draftSessionService', () => {
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
         pendingModel: null,
+        pendingProviderId: null,
         model: 'gpt-5.4',
+        providerId: null,
         agentType: 'codex',
       });
 
@@ -345,7 +350,9 @@ describe('draftSessionService', () => {
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
         pendingModel: null,
+        pendingProviderId: null,
         model: 'claude-sonnet-test',
+        providerId: null,
         agentType: 'claude-code',
       });
 
@@ -363,7 +370,9 @@ describe('draftSessionService', () => {
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
         pendingModel: null,
+        pendingProviderId: null,
         model: 'gpt-4o-test',
+        providerId: null,
         agentType: 'codex',
       });
 
@@ -385,11 +394,13 @@ describe('draftSessionService', () => {
       await startDraft(sessionWithPending, { model: 'claude-sonnet' });
 
       // options.model ('claude-sonnet') should win over pendingModel ('gpt-4o-test')
-      expect(resolveAgentTypeFromModel).toHaveBeenCalledWith('claude-sonnet');
+      expect(resolveAgentTypeFromModel).toHaveBeenCalledWith('claude-sonnet', null);
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
         pendingModel: null,
+        pendingProviderId: null,
         model: 'claude-sonnet',
+        providerId: null,
         agentType: 'claude-code',
       });
     });
@@ -402,6 +413,7 @@ describe('draftSessionService', () => {
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
         pendingModel: null,
+        pendingProviderId: null,
       });
     });
   });

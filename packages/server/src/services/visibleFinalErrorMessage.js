@@ -1,18 +1,22 @@
 import { sessions, conversations, messages } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { sanitizeString } from './errorSanitizer.js';
 
 export function normalizeFinalErrorMessage(error) {
+  // Sanitize at this single choke point: every caller persists the result to
+  // sessions.error, broadcasts it, or stores it as a visible chat message, so
+  // provider error text must never carry credentials past here.
   if (error?.message) {
-    return error.message;
+    return sanitizeString(error.message);
   }
   if (typeof error === 'string') {
-    return error;
+    return sanitizeString(error);
   }
   if (error == null) {
     return 'Unknown error';
   }
-  return String(error);
+  return sanitizeString(String(error));
 }
 
 function normalizeMessageContent(content) {

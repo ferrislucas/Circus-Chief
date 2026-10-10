@@ -25,6 +25,7 @@ function prepareLaneValues(data) {
     data.onEnterPrompt || null,
     data.onEnterMode || null,
     data.onEnterModel || null,
+    data.onEnterProviderId || null,
     data.onEnterEffortLevel || null,
     boolToSqlite(data.onEnterThinkingEnabled),
     data.onEnterAutoRescheduleEnabled ? 1 : 0,
@@ -84,6 +85,7 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterPrompt: row.on_enter_prompt,
       onEnterMode: row.on_enter_mode,
       onEnterModel: row.on_enter_model,
+      onEnterProviderId: row.on_enter_provider_id,
       onEnterEffortLevel: row.on_enter_effort_level,
       onEnterThinkingEnabled: row.on_enter_thinking_enabled === null ? null : Boolean(row.on_enter_thinking_enabled),
       onEnterAutoRescheduleEnabled: Boolean(row.on_enter_auto_reschedule_enabled),
@@ -133,13 +135,13 @@ export class KanbanLaneRepository extends BaseRepository {
       .prepare(
         `INSERT INTO kanban_lanes (
           id, board_id, name, sort_order, on_enter_template_id, on_enter_prompt,
-          on_enter_mode, on_enter_model, on_enter_effort_level, on_enter_thinking_enabled,
+          on_enter_mode, on_enter_model, on_enter_provider_id, on_enter_effort_level, on_enter_thinking_enabled,
           on_enter_auto_reschedule_enabled, on_enter_reschedule_delay_minutes,
           on_enter_reschedule_on_token_limit, on_enter_reschedule_on_service_error,
           on_enter_max_reschedule_count, on_enter_max_total_tokens,
           on_enter_reschedule_at_token_count, completion_target_lane_id,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(id, boardId, createData.name, sortOrder, ...laneValues, createData.completionTargetLaneId || null, now, now);
 
@@ -185,6 +187,7 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterPrompt: 'on_enter_prompt',
       onEnterMode: 'on_enter_mode',
       onEnterModel: 'on_enter_model',
+      onEnterProviderId: 'on_enter_provider_id',
       onEnterEffortLevel: 'on_enter_effort_level',
       onEnterThinkingEnabled: 'on_enter_thinking_enabled',
       onEnterAutoRescheduleEnabled: 'on_enter_auto_reschedule_enabled',

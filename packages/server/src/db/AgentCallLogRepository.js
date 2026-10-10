@@ -271,13 +271,17 @@ export class AgentCallLogRepository extends BaseRepository {
   /**
    * Get all call logs for a session
    */
-  getBySessionId(sessionId, { limit = 100, offset = 0 } = {}) {
+  getBySessionId(sessionId, { limit = 100, offset = 0, callType } = {}) {
+    const callTypeClause = callType ? 'AND call_type = ?' : '';
+    const params = callType
+      ? [sessionId, callType, limit, offset]
+      : [sessionId, limit, offset];
     const rows = this.db
       .prepare(
         `SELECT * FROM agent_call_logs WHERE session_id = ?
-      ORDER BY started_at DESC LIMIT ? OFFSET ?`
+      ${callTypeClause} ORDER BY started_at DESC LIMIT ? OFFSET ?`
       )
-      .all(sessionId, limit, offset);
+      .all(...params);
     return this.mapAll(rows);
   }
 

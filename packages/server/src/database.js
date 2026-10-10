@@ -24,6 +24,7 @@ export {
   KanbanBoardRepository,
   KanbanLaneRepository,
   KanbanCardRepository,
+  ModelTierRepository,
   // Singleton instances
   databaseManager,
   projects,
@@ -45,6 +46,7 @@ export {
   kanbanBoards,
   kanbanLanes,
   kanbanCards,
+  modelTiers,
   // Legacy functions
   initDatabase,
   getDatabase,

@@ -129,9 +129,12 @@ import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
 import { useDraftSaving } from '../composables/useDraftSaving.js';
 import { useSessionControl } from '../composables/useSessionControl.js';
+import { createQuickResponseInsert } from '../composables/useQuickResponseInsert.js';
+import './ConversationTab.css';
 import { useScheduleStartNow } from '../composables/useScheduleStartNow.js';
 import { useConnectionStatus } from '../composables/useConnectionStatus.js';
-import { appendTemplatePromptValue, buildTemplateSettingsFields } from '../utils/templateApply.js';
+import { appendTemplatePromptValue, buildTemplateSettingsFields, resolveTemplateProviderId } from '../utils/templateApply.js';
+import { normalizeModelProviderPair, resolveDefaultModelId } from './modelSelectorTiers.js';
 import TodoDrawer from './TodoDrawer.vue';
 import ConversationPanel from './ConversationPanel.vue';
 import ConversationMessages from './ConversationMessages.vue';
@@ -145,6 +148,8 @@ import StaleBadge from './StaleBadge.vue';
 import AgentPromptCard from './AgentPromptCard.vue';
 import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 import { useProjectsStore } from '../stores/projects.js';
+import { useProvidersStore } from '../stores/providers.js';
+import { isTierRef, useTiersStore } from '../stores/tiers.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -170,6 +175,8 @@ const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const defaultsStore = useProjectDefaultsStore();
 const projectsStore = useProjectsStore();
+const providersStore = useProvidersStore();
+const tiersStore = useTiersStore();
 const { getModelDisplayName } = useModelInfo();
 const { isStale } = useConnectionStatus();
 const route = useRoute();
@@ -232,8 +239,27 @@ const isScheduledDraft = computed(() => {
 });
 
 const activeModelDisplayName = computed(() => {
-  const model = sessionsStore.currentSession?.model;
+  const session = sessionsStore.currentSession;
+  if (!session) return null;
+  const model = session.model;
   if (!model) return null;
+
+  // When the session is bound to a tier, display the resolved concrete model
+  // (the one actually running) with a tier annotation (F24).
+  if (isTierRef(model)) {
+    const tierId = model.slice('tier::'.length);
+    const tier = tiersStore.getById(tierId);
+    const tierLabel = tier ? `Tier: ${tier.name}` : 'Tier';
+
+    // Prefer the stored resolved model — it's what the agent is actually using
+    const resolvedModel = session.resolvedModel;
+    if (resolvedModel) {
+      return `${getModelDisplayName(resolvedModel)} (${tierLabel})`;
+    }
+    // Fallback: tier name only when no resolved model is available yet
+    return tierLabel;
+  }
+
   return getModelDisplayName(model);
 });
 
@@ -290,22 +316,22 @@ const nextTemplate = computed(() => {
 const workingDirectory = computed(() => {
   const session = sessionsStore.currentSession;
   if (!session) {
-    console.log('[workingDirectory] No current workspace');
+    console.debug('[workingDirectory] No current workspace');
     return null;
   }
 
   if (session.gitWorktree) {
-    console.log('[workingDirectory] Using workspace.gitWorktree:', session.gitWorktree);
+    console.debug('[workingDirectory] Using workspace.gitWorktree:', session.gitWorktree);
     return session.gitWorktree;
   }
 
   let project = projectsStore.currentProject;
   if ((!project || project.id !== session.projectId) && session.projectId) {
-    console.log('[workingDirectory] currentProject mismatch or null, falling back to getProjectById');
+    console.debug('[workingDirectory] currentProject mismatch or null, falling back to getProjectById');
     project = projectsStore.getProjectById(session.projectId);
   }
   const result = project?.workingDirectory || null;
-  console.log('[workingDirectory] Using project.workingDirectory:', result, 'from project:', project?.id);
+  console.debug('[workingDirectory] Using project.workingDirectory:', result, 'from project:', project?.id);
   return result;
 });
 
@@ -428,7 +454,7 @@ watch(
     if (sessionsStore.currentSession?.id !== props.sessionId) return;
 
     if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
-      console.log(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
+      console.debug(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
       sessionsStore.clearPartialText();
       await sessionsStore.fetchMessages(props.sessionId, false, sessionsStore.activeConversationId);
       await sessionsStore.fetchWorkLogs(props.sessionId);
@@ -487,7 +513,7 @@ watch(
     if (newConvId && newConvId !== oldConvId) {
       sessionsStore.clearPartialText();
       await nextTick();
-      console.log(`[CONV] activeConversationId changed to ${newConvId}, refetching messages`);
+      console.debug(`[CONV] activeConversationId changed to ${newConvId}, refetching messages`);
       await sessionsStore.fetchMessages(props.sessionId, false, newConvId);
     }
   }
@@ -517,18 +543,25 @@ watch(
   }
 );
 
-// Model initialization from active conversation
+// Model initialization from active conversation. The pair resolves
+// atomically: a tier-bound model never pairs with a concrete provider hint,
+// and the legacy 'sonnet' literal defers to the shared default-model
+// resolver so the fallback always names a model in the live catalog.
 watch(
   () => sessionsStore.activeConversation,
   (conv) => {
     if (selectedModel.value === null) {
       suppressNextModelPersist = true;
-      selectedModel.value = sessionsStore.currentSession?.model ||
-        getProjectDefaultModel() ||
-        'sonnet';
-      selectedProviderId.value = sessionsStore.currentSession?.providerId ||
-        getProjectDefaultProviderId() ||
-        null;
+      const pair = normalizeModelProviderPair(
+        sessionsStore.currentSession?.model ||
+          getProjectDefaultModel() ||
+          resolveDefaultModelId(providersStore.providers),
+        sessionsStore.currentSession?.providerId ||
+          getProjectDefaultProviderId() ||
+          null
+      );
+      selectedModel.value = pair.model;
+      selectedProviderId.value = pair.providerId;
       nextTick(() => {
         suppressNextModelPersist = false;
       });
@@ -603,7 +636,12 @@ async function handleFormSubmit(options = {}) {
       inputFormRef.value?.clearFiles();
     }
   } else {
-    const success = await handleSend(currentValue, attachedFiles.value, selectedModel.value, options);
+    const success = await handleSend(
+      currentValue,
+      attachedFiles.value,
+      { model: selectedModel.value, providerId: selectedProviderId.value },
+      options
+    );
     if (success) {
       clearSubmittedInput(textareaRef);
       attachedFiles.value = [];
@@ -612,32 +650,12 @@ async function handleFormSubmit(options = {}) {
   }
 }
 
-function handleQuickResponseInsert({ content, autoSubmit }) {
-  const currentValue = input.value.trim();
-  const newValue = currentValue ? `${currentValue  }\n\n${  content}` : content;
-  input.value = newValue;
-
-  if (autoSubmit) {
-    // Auto-submit path: cancel any pending debounced save, then submit.
-    // This mirrors the regular Send invariant (see handleFormSubmit).
-    cancelDraft();
-    nextTick(() => {
-      handleFormSubmit({ renderLiquid: true });
-    });
-  } else {
-    // Non-submit path: blur the textarea and persist the inserted text.
-    // DOM value syncs automatically via ResizableTextarea's watch(modelValue).
-    nextTick(() => {
-      const textareaRef = inputFormRef.value?.textareaRef;
-      if (textareaRef) {
-        textareaRef.blur();
-      }
-      if (canSendMessage.value && newValue.trim()) {
-        savePendingPrompt(newValue);
-      }
-    });
-  }
-}
+const handleQuickResponseInsert = createQuickResponseInsert({
+  getInput: () => input.value,
+  setInput: (value) => { input.value = value; },
+  cancelDraft, nextTick, inputFormRef, canSendMessage, savePendingPrompt,
+  submit: handleFormSubmit,
+});
 
 async function handleApplyTemplate(templateId) {
   const template = templatesStore.getTemplateById(templateId);
@@ -670,9 +688,10 @@ async function applyTemplateSettings(template) {
     }
 
     if (template.model) {
-      const providerId = Object.prototype.hasOwnProperty.call(template, 'providerId')
-        ? (template.providerId ?? null)
-        : selectedProviderId.value;
+      // Never reuse the current selection: a missing key resolves the owning
+      // provider from the catalog (or null), so a template model from
+      // provider B can't persist bound to provider A.
+      const providerId = resolveTemplateProviderId(template, providersStore.providers);
       await applyTemplateModel(template.model, providerId);
     }
   } catch (err) {
@@ -746,15 +765,3 @@ function handleSlashCommandInsert({ text }) {
 // force-save pending drafts before switching sessions.
 defineExpose({ flushDraft });
 </script>
-
-<style scoped>
-.conversation-tab {
-  display: flex;
-  flex-direction: column;
-  transition: opacity 0.3s ease;
-}
-
-.conversation-tab.connection-stale {
-  opacity: 0.5;
-}
-</style>

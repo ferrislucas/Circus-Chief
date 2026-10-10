@@ -20,6 +20,7 @@ export class SessionTemplateRepository extends BaseRepository {
       gitBranch: row.git_branch,
       gitMode: row.git_mode,
       model: row.model || null,
+      providerId: row.provider_id || null,
       mode: row.mode || null,
       effortLevel: row.effort_level ?? null,
       showInQuickResponses: Boolean(row.show_in_quick_responses),
@@ -64,11 +65,11 @@ export class SessionTemplateRepository extends BaseRepository {
       .prepare(
         `INSERT INTO session_templates (
           id, project_id, name, prompt, next_template_id, thinking_enabled,
-          git_branch, git_mode, model, mode, effort_level,
+          git_branch, git_mode, model, provider_id, mode, effort_level,
           show_in_quick_responses, quick_response_auto_submit,
           quick_response_sort_order,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -80,6 +81,7 @@ export class SessionTemplateRepository extends BaseRepository {
         data.gitBranch || null,
         data.gitMode || null,
         data.model || null,
+        data.providerId || null,
         data.mode !== undefined && data.mode !== null ? data.mode : null,
         data.effortLevel ?? null,
         SessionTemplateRepository.#normalizeBoolean(data.showInQuickResponses),
@@ -103,6 +105,7 @@ export class SessionTemplateRepository extends BaseRepository {
     gitBranch: { column: 'git_branch', transform: (v) => v || null },  // Match create() behavior: empty string -> null
     gitMode: { column: 'git_mode', transform: (v) => v },
     model: { column: 'model', transform: (v) => v },
+    providerId: { column: 'provider_id', transform: (v) => v },
     mode: { column: 'mode', transform: (v) => v },
     effortLevel: { column: 'effort_level', transform: (v) => v },
     showInQuickResponses: { column: 'show_in_quick_responses', transform: (v) => v ? 1 : 0 },

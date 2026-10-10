@@ -13,53 +13,20 @@
 import { sessions, messages, attachments, conversations } from '../database.js';
 import { resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
 import { reconcileAgentTypeForRun, deriveAgentTypeUpdate } from './sessionAgentGuard.js';
-import { agentGateway } from '../agents/AgentGateway.js';
-import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
-import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
-import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
-import { isE2EOpenAIAllowanceFixtureEnabled } from './e2eOpenAIAllowanceFixture.js';
-import { getProviderAllowanceObserver } from './providerAllowanceServiceInstance.js';
-import { buildAgentConfig, buildAgentEnv } from './sessionAgentConfig.js';
+import { buildAgentEnv, createAgentForSession } from './sessionAgentConfig.js';
 import { buildQueryParams } from './queryParamBuilder.js';
 import { buildPromptWithAttachments } from './sessionPrompts.js';
 import {
   activeConversationIds, cleanupSessionState, broadcastSessionStatus,
 } from './streamEventHandler.js';
-import { claimSessionExecution } from './sessionExecutionOwnership.js';
+import { claimSessionExecution, isSessionExecutionConflictError } from './sessionExecutionOwnership.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-
-/**
- * Create the agent for a session, using gateway + logging + VCR.
- *
- * If `config` is empty, the adapter-specific default config is applied
- * (e.g. codex receives a fresh `spawnCodexProcess` spawner). Explicit
- * `config` keys win over defaults.
- *
- * @param {string} agentType - The agent type (e.g., 'claude-code', 'codex')
- * @param {Object} [config] - Optional adapter config forwarded to the gateway.
- * @param {Object} [session] - Session row used for session-scoped adapter config.
- * @returns {{ execute: (queryParams: any, meta?: any) => AsyncGenerator }}
- */
-export function createAgentForSession(agentType = 'claude-code', config = {}, session = null) {
-  // Session-bound allowance sources tap their adapter's stream (Codex headers/
-  // rollout tails, Claude rate-limit events); observation is always on.
-  const allowance = ['codex', 'claude-code'].includes(agentType) ? { allowanceObserver: getProviderAllowanceObserver() } : {};
-  const mergedConfig = { ...buildAgentConfig(agentType, session), ...allowance, ...config };
-  const baseAgent = agentGateway.createAgent(agentType, mergedConfig);
-
-  // Wrap with VCR adapter if in VCR mode — except the sessions that exist to
-  // execute the production adapter against the injected OpenAI allowance
-  // fixture: VCR replay would bypass that adapter boundary entirely.
-  const agent = process.env.VCR_MODE && !isE2ESpawnCaptureEnabled() && !isE2EOpenAIAllowanceFixtureEnabled(mergedConfig)
-    ? new VCRAgentAdapter(baseAgent, { cassetteDir: 'tests/e2e/cassettes' })
-    : baseAgent;
-
-  // Always wrap with logging
-  return new LoggingAgentWrapper(agent);
-}
+import { closeOwnWork } from './workflowSessionService.js';
+import { normalizeFinalErrorMessage } from './visibleFinalErrorMessage.js';
+import { isUserStopAbort } from './sessionAbort.js';
 
 async function resolveInitialSessionModelEnv(session, model) {
   const effectiveModel = model || session.model;
@@ -232,6 +199,44 @@ export async function prepareContinueTurn({ session, sessionId, content, working
 }
 
 /**
+ * Prepare the shared per-start state for runSessionCore: register the abort
+ * controller, ensure the active conversation, flip the session to 'running',
+ * attach any pending file attachments, and build the final prompt. Lives here
+ * (not in sessionExecution.js) so the execution module stays within its
+ * lifecycle size budget — this is turn preparation, which this module owns.
+ *
+ * @returns {{ session: Object, activeConversation: Object, promptWithAttachments: string }}
+ */
+export function beginSessionStart(sessionId, prompt, { model, providerId, fileAttachments, controller }) {
+  // Single atomic admission gate, shared by the standard and tier-bound
+  // initial-start paths: a live turn — running or still shutting down after
+  // a Stop — owns the session until its finalizer releases it. Throws a
+  // 409-coded conflict instead of replacing the live controller.
+  claimSessionExecution(sessionId, controller);
+
+  // Get the active conversation for this session (created in SessionRepository.create)
+  const activeConversation = conversations.ensureActiveConversation(sessionId);
+  activeConversationIds.set(sessionId, activeConversation.id);
+
+  // Update status to running and track the user-requested model (short format) on the session
+  sessions.update(sessionId, { status: 'running', ...(model && { model, providerId: providerId ?? null }) });
+  broadcastSessionStatus(sessionId, 'running');
+
+  // Note: Initial user message is already created in SessionRepository.create()
+  // Associate any pending attachments with the initial message
+  const initialMessage = messages.getBySessionId(sessionId)[0];
+  if (initialMessage && fileAttachments.length > 0) {
+    attachments.updateMessageIdForSession(sessionId, initialMessage.id);
+  }
+
+  return {
+    session: sessions.getById(sessionId),
+    activeConversation,
+    promptWithAttachments: buildPromptWithAttachments(prompt, fileAttachments),
+  };
+}
+
+/**
  * Claim ownership and prepare an initial-run turn.
  * @returns {{ session: Object, queryParams: Object, agentCallMeta: Object, agent: Object, activeConversation: Object }}
  */
@@ -299,5 +304,62 @@ export async function prepareRunTurn({ session, sessionId, prompt, workingDirect
     // Setup failed before _executeSession took over: release this turn's claim.
     cleanupSessionState(sessionId, false, controller);
     throw error;
+  }
+}
+
+/**
+ * Fail a turn whose preparation (ownership registration, conversation/message
+ * setup, model resolution, agent construction, query-param building) threw
+ * BEFORE provider dispatch — i.e. outside `_executeSession`'s own
+ * error/finally boundary. Surfaces a sanitized visible error, moves the
+ * session to error status, fails an owned lane obligation instead of
+ * stranding it, and releases active state with controller fencing so a newer
+ * turn is never erased. Always rethrows so callers still observe the failure.
+ *
+ * A user stop is not a permanent error: stopSession() already set the status
+ * to 'stopped' and paused any open lane obligation, so this path must not
+ * overwrite that state or fail the run — it only releases this turn's claim
+ * and rethrows.
+ *
+ * @param {Object} args
+ * @param {string} args.sessionId
+ * @param {AbortController} args.controller - This turn's controller (fencing).
+ * @param {unknown} args.error - The preparation failure.
+ * @param {boolean} [args.includeConversationId=true] - Whether a conversation
+ *   registration may have been created during preparation.
+ */
+export function handlePreparationFailure({ sessionId, controller, error, includeConversationId = true }) {
+  if (isUserStopAbort(controller)) {
+    cleanupSessionState(sessionId, includeConversationId, controller);
+    throw error;
+  }
+  const sanitizedError = normalizeFinalErrorMessage(error);
+  sessions.update(sessionId, { status: 'error', error: sanitizedError });
+  broadcastSessionStatus(sessionId, 'error');
+  closeOwnWork(sessionId, 'closed_failed', sanitizedError);
+  cleanupSessionState(sessionId, includeConversationId, controller);
+  throw error;
+}
+
+/**
+ * Admit an initial session start through the shared atomic boundary.
+ * Claims execution ownership before any start mutation (both the standard
+ * and tier-bound start paths enter here), then builds the shared per-start
+ * state.
+ *
+ * A claim conflict is a pure admission rejection — no mutation happened for
+ * this start — so it rethrows untouched, without setting error state,
+ * closing workflow, or cleaning up the live turn. Any other preparation
+ * failure after registration fails the turn explicitly through the shared
+ * preparation-failure path so the session is neither wedged nor stranded.
+ *
+ * @returns {{ session: Object, activeConversation: Object, promptWithAttachments: string }}
+ */
+export function admitSessionStart(sessionId, prompt, { model, providerId, fileAttachments, controller }) {
+  try {
+    return beginSessionStart(sessionId, prompt, { model, providerId, fileAttachments, controller });
+  } catch (error) {
+    if (isSessionExecutionConflictError(error)) throw error;
+    handlePreparationFailure({ sessionId, controller, error, includeConversationId: false });
   }
 }

@@ -22,6 +22,7 @@ import { recoverOrphanedStartingSessions, recoverOrphanedRunningSessions, clearS
 import { startLaneEntryRetryWorker, stopLaneEntryRetryWorker } from './services/kanbanService.js';
 import { formatKanbanInvariantReport } from './services/kanbanRecoveryService.js';
 import { runStartupPreflight } from './services/startupPreflight.js';
+import { assertSingleProcessDeployment, DeploymentBoundaryError } from './services/deploymentBoundary.js';
 import { getLoginShellEnv } from './services/loginShellEnv.js';
 import { setAutomationPreflightStatus } from './services/automationStatusService.js';
 import { startKanbanOperationRetention, stopKanbanOperationRetention } from './services/kanbanOperationRetention.js';
@@ -67,6 +68,20 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Validate Node.js environment
 validateNodeEnvironment();
+
+// Tier failover coordinates through process-local state (cooldown, stale-echo
+// registry, catalog revisions): a second server process would silently split
+// that state. Fail fast here — before touching the database — when the
+// runtime requests an unsupported multi-process topology.
+try {
+  assertSingleProcessDeployment();
+} catch (err) {
+  if (err instanceof DeploymentBoundaryError) {
+    console.error(`Unsupported deployment: ${err.message}`);
+    process.exit(1);
+  }
+  throw err;
+}
 
 // Ensure the database directory exists
 mkdirSync(dirname(dbPath), { recursive: true });

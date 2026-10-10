@@ -252,7 +252,9 @@ describe('commandRunOutputResource', () => {
     });
 
     expect(reads).toHaveLength(Math.ceil(output.length / byteWindow) + 1);
-    expect(await readFile(join(workingDirectory, descriptor.path))).toEqual(output);
+    const actualOversized = await readFile(join(workingDirectory, descriptor.path));
+    expect(actualOversized.length).toBe(output.length);
+    expect(actualOversized.equals(output)).toBe(true);
   });
 
   it('preserves mixed UTF-8, empty, and stdout/stderr chunks while reconstructing byte windows', async () => {

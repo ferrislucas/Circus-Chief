@@ -20,6 +20,7 @@ import {
   removeLane as removeLaneService,
 } from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
+import { validateModelAndProvider } from './model-validation.js';
 import { getRun } from '../services/workflowSessionService.js';
 import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
 import { isApiError } from '../errors/ApiError.js';
@@ -294,6 +295,13 @@ router.post('/lanes', (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
+  const modelResult = validateModelAndProvider(
+    result.data.onEnterModel, result.data.onEnterProviderId, { fieldName: 'onEnterModel' }
+  );
+  if (modelResult.error) {
+    return res.status(400).json({ error: modelResult.error });
+  }
+
   const board = kanbanBoards.getByProjectId(projectId);
   if (!board) {
     return res.status(404).json({ error: 'Board not found' });
@@ -304,7 +312,9 @@ router.post('/lanes', (req, res) => {
 
   let lane;
   try {
-    lane = kanbanLanes.create(board.id, result.data);
+    lane = kanbanLanes.create(board.id, {
+      ...result.data, onEnterModel: modelResult.model, onEnterProviderId: modelResult.providerId,
+    });
   } catch (error) {
     if (isApiError(error)) return res.status(error.status).json({ error: error.message, code: error.code, field: error.field });
     throw error;
@@ -319,6 +329,28 @@ router.post('/lanes', (req, res) => {
 
   res.status(201).json(lane);
 });
+
+/**
+ * Resolve the lane's (onEnterModel, onEnterProviderId) pair for an update.
+ * Only validates when the request touches the pair — an unrelated lane edit
+ * must not be blocked by a binding that became unresolvable after it was
+ * stored.
+ *
+ * @param {Object} data - Validated request body
+ * @param {Object} lane - Stored lane row
+ * @returns {{ model: string|null, providerId: string|null }|{ error: string }}
+ */
+function resolveLaneBinding(data, lane) {
+  if (data.onEnterModel === undefined && data.onEnterProviderId === undefined) {
+    return { model: lane.onEnterModel, providerId: lane.onEnterProviderId ?? null };
+  }
+  const model = data.onEnterModel === undefined ? lane.onEnterModel : data.onEnterModel;
+  const providerId = data.onEnterProviderId === undefined
+    ? lane.onEnterProviderId : data.onEnterProviderId;
+  const modelResult = validateModelAndProvider(model, providerId, { fieldName: 'onEnterModel' });
+  if (modelResult.error) return { error: modelResult.error };
+  return { model: modelResult.model, providerId: modelResult.providerId };
+}
 
 /**
  * PATCH /api/projects/:projectId/kanban/lanes/:laneId
@@ -344,12 +376,17 @@ router.patch('/lanes/:laneId', (req, res) => {
     return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
   }
 
+  const binding = resolveLaneBinding(result.data, lane);
+  if (binding.error) return res.status(400).json({ error: binding.error });
+
   const targetError = completionTargetError(lane.boardId, result.data.completionTargetLaneId, laneId);
   if (targetError) return res.status(targetError.status).json({ error: targetError.error });
 
   let updated;
   try {
-    updated = kanbanLanes.update(laneId, result.data);
+    updated = kanbanLanes.update(laneId, {
+      ...result.data, onEnterModel: binding.model, onEnterProviderId: binding.providerId,
+    });
   } catch (error) {
     if (isApiError(error)) return res.status(error.status).json({ error: error.message, code: error.code, field: error.field });
     throw error;

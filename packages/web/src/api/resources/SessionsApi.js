@@ -204,6 +204,9 @@ export function SessionsApi(ApiClient) {
         if (model) {
           formData.append('model', model);
         }
+        if (options.providerId) {
+          formData.append('providerId', options.providerId);
+        }
         if (options.renderLiquid) {
           formData.append('renderLiquid', 'true');
         }
@@ -218,6 +221,7 @@ export function SessionsApi(ApiClient) {
       return this._post(`/sessions/${sessionId}/message`, {
         content,
         model,
+        ...(options.providerId ? { providerId: options.providerId } : {}),
         ...(options.renderLiquid ? { renderLiquid: true } : {}),
       });
     },

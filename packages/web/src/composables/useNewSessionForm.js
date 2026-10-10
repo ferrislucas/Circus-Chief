@@ -1,5 +1,6 @@
 import { ref, nextTick } from 'vue';
-import { generateWorktreeBranch, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
+import { generateWorktreeBranch, DEFAULT_RESCHEDULE_DELAY_MINUTES, isTierRef } from '@circuschief/shared';
+import { normalizeModelProviderPair } from '../components/modelSelectorTiers.js';
 
 /**
  * Composable for managing new session form state and defaults.
@@ -52,8 +53,10 @@ export function useNewSessionForm(storageKey) {
       usingDefaults.value.mode = true;
     }
     if (defaults.model) {
-      model.value = defaults.model;
-      providerId.value = defaults.providerId || null;
+      // A tier-bound default never propagates a concrete provider hint.
+      const pair = normalizeModelProviderPair(defaults.model, defaults.providerId || null);
+      model.value = pair.model;
+      providerId.value = pair.providerId;
       usingDefaults.value.model = true;
     } else {
       model.value = 'sonnet';
@@ -207,7 +210,13 @@ export function applyTemplateToForm(template, formState, textareaRef) {
   }
 
   if (template.thinkingEnabled != null) formState.thinkingEnabled.value = template.thinkingEnabled;
-  if (template.model) formState.model.value = template.model;
+  if (template.model) {
+    formState.model.value = template.model;
+    // Keep the (model, providerId) pair atomic: a concrete template binds its
+    // own provider, a tier ref is provider-less, and a missing key clears any
+    // stale provider instead of persisting it into the session payload.
+    formState.providerId.value = isTierRef(template.model) ? null : (template.providerId ?? null);
+  }
   if (template.mode) formState.mode.value = template.mode;
   if (template.gitBranch) {
     formState.quickWorktreeBranch.value = template.gitBranch;

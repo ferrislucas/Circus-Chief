@@ -38,7 +38,16 @@
               <label class="form-label">Model</label>
               <ModelSelector
                 v-model="form.model"
+                :provider-id="form.providerId"
                 preserve-current-value
+                @update:provider-id="form.providerId = $event"
+              />
+              <SelectionConflictBanner
+                :visible="selectionGuard.showBanner"
+                :problem="selectionGuard.problem"
+                conflict-text="This workspace changed elsewhere while you were editing. Your edits are preserved."
+                @use-canonical="resolveSelectionBanner"
+                @keep-mine="selectionGuard.keepMine"
               />
             </div>
 
@@ -221,7 +230,7 @@
           </button>
           <button
             class="btn btn-primary"
-            :disabled="loading"
+            :disabled="loading || selectionGuard.invalid"
             @click="handleSave"
           >
             {{ loading ? 'Updating...' : 'Update' }}
@@ -241,6 +250,9 @@ import { formatDateTimeLocal } from '../utils/formatters.js';
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';
 import TemplateSelector from './TemplateSelector.vue';
+import SelectionConflictBanner from './SelectionConflictBanner.vue';
+import { useSchedulingSessionSync } from '../composables/useSchedulingSessionSync.js';
+import { normalizeModelProviderPair } from './modelSelectorTiers.js';
 
 const props = defineProps({
   isOpen: { type: Boolean, default: false },
@@ -258,6 +270,7 @@ const form = reactive({
   scheduledAtLocal: '',
   // Session settings
   model: null,
+  providerId: null,
   mode: 'standard',
   thinkingEnabled: false,
   // Template chaining
@@ -290,23 +303,30 @@ function close() {
   emit('close');
 }
 
-function handleTemplateChange(templateId) {
-  form.nextTemplateId = templateId;
-}
-
-function convertToLocalDatetime(timestamp) {
-  if (!timestamp) return '';
-  return formatDateTimeLocal(new Date(timestamp));
-}
+// Canonical session sync (hydration, convergence, guard, websocket intake)
+// lives in useSchedulingSessionSync to keep this component under the
+// file-size lint budget — same behavior, operated on `form` in place.
+const { selectionGuard, resolveSelectionBanner, hydrateFromSession } = useSchedulingSessionSync({
+  formState: form,
+  getSession: () => props.session,
+  isOpen: () => props.isOpen,
+});
 
 async function handleSave() {
+  if (selectionGuard.invalid) {
+    error.value = selectionGuard.problem?.message || 'The model selection is no longer available.';
+    return;
+  }
   loading.value = true;
   error.value = null;
 
   try {
+    // A tier-bound session never persists a concrete provider hint.
+    const pair = normalizeModelProviderPair(form.model, form.providerId);
     const updateData = {
       // Session settings
-      model: form.model,
+      model: pair.model,
+      providerId: pair.providerId,
       mode: form.mode,
       thinkingEnabled: form.thinkingEnabled,
       // Template chaining
@@ -320,6 +340,14 @@ async function handleSave() {
       maxTotalTokens: form.maxTotalTokens || null,
       rescheduleAtTokenCount: form.rescheduleAtTokenCount || null,
     };
+
+    // Scheduled runs resolve the pending pair first. Keep it in lockstep with
+    // the workspace setting so a scheduled edit cannot retain a stale provider
+    // for an otherwise identical model id.
+    if (props.session?.status === 'scheduled') {
+      updateData.pendingModel = pair.model;
+      updateData.pendingProviderId = pair.providerId;
+    }
 
     // Update scheduled time if changed
     if (props.session?.status === 'scheduled' && form.scheduledAtLocal) {
@@ -351,22 +379,7 @@ watch(
   (isOpen) => {
     if (isOpen && props.session) {
       error.value = null; // Clear any previous errors
-      form.scheduledAtLocal = convertToLocalDatetime(props.session.scheduledAt);
-      // Session settings
-      form.model = props.session.model || null;
-      form.mode = props.session.mode || 'standard';
-      form.thinkingEnabled = props.session.thinkingEnabled || false;
-      // Template chaining
-      form.nextTemplateId = props.session.nextTemplateId || null;
-      // Scheduling options
-      form.autoRescheduleEnabled = props.session.autoRescheduleEnabled || false;
-      form.rescheduleDelayMinutes = props.session.rescheduleDelayMinutes || DEFAULT_RESCHEDULE_DELAY_MINUTES;
-      form.rescheduleOnTokenLimit = props.session.rescheduleOnTokenLimit ?? true;
-      form.rescheduleOnServiceError = props.session.rescheduleOnServiceError ?? true;
-      form.maxRescheduleCount = props.session.maxRescheduleCount;
-      form.maxTotalTokens = props.session.maxTotalTokens;
-      form.rescheduleAtTokenCount = props.session.rescheduleAtTokenCount;
-      form.resetRescheduleCount = false;
+      hydrateFromSession(props.session);
     }
   }
 );

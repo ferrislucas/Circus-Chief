@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
-import { modelProviders, settings } from '../db/index.js';
+import { DEFAULT_TOKEN_COST_WEIGHTS, buildTierRef } from '@circuschief/shared';
+import { modelProviders, modelTiers, settings } from '../db/index.js';
 import settingsRouter from './settings.js';
 
 // Use a generous timeout to avoid flakiness during full-suite runs
@@ -129,7 +129,13 @@ describe('Settings API', { timeout: 30_000 }, () => {
       });
     });
 
-    it('rejects google provider kind for summaries', async () => {
+    // NOTE (origin/main merge): main rejected the google kind here via
+    // SUPPORTED_SUMMARY_PROVIDER_KINDS, but the merged branch executes google
+    // summaries end-to-end (summaryModelClient google dispatch +
+    // summaryModelResolver google resolution, both pinned by their own
+    // suites). The kind blocklist is therefore stale and stays dropped; the
+    // ownership/enabled validation above remains the gate.
+    it('accepts a google provider that owns the summary model', async () => {
       const provider = modelProviders.getById('google-default');
       const model = provider.models[0].modelId;
 
@@ -142,8 +148,11 @@ describe('Settings API', { timeout: 30_000 }, () => {
           summaryProviderId: provider.id,
         });
 
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Unsupported summary provider kind: google');
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        summaryModel: model,
+        summaryProviderId: provider.id,
+      });
     });
 
     it('rejects provider/model ownership mismatches', async () => {
@@ -158,6 +167,47 @@ describe('Settings API', { timeout: 30_000 }, () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error).toContain('does not own');
+    });
+
+    it('rejects an explicit pair on a disabled provider', async () => {
+      const provider = modelProviders.create({ name: 'Disabled Settings Provider', kind: 'anthropic' });
+      modelProviders.addModel(provider.id, { modelId: 'settings-disabled-model', displayName: 'D' });
+      modelProviders.update(provider.id, { enabled: false });
+
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: 'settings-disabled-model',
+          summaryProviderId: provider.id,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/disabled/i);
+
+      modelProviders.delete(provider.id);
+    });
+
+    it('rejects an explicit pair with a disabled model', async () => {
+      const provider = modelProviders.create({ name: 'Model Disabled Settings Provider', kind: 'anthropic' });
+      modelProviders.addModel(provider.id, { modelId: 'settings-toggled-model', displayName: 'T' });
+      const rowId = modelProviders.getById(provider.id).models.find((m) => m.modelId === 'settings-toggled-model').id;
+      modelProviders.updateModel(rowId, { enabled: false });
+
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: 'settings-toggled-model',
+          summaryProviderId: provider.id,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/disabled/i);
+
+      modelProviders.delete(provider.id);
     });
 
     it('rejects model-only explicit mode', async () => {
@@ -206,6 +256,171 @@ describe('Settings API', { timeout: 30_000 }, () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error).toContain('must be null');
+    });
+
+    // Fix 7: summary settings can store a tier ref (summaryProviderId must be
+    // null since a tier has no single owning provider — the concrete provider
+    // is resolved per-run from the tier's active member).
+    it('accepts a tier ref with a null provider', async () => {
+      const provider = modelProviders.getById('openai-default');
+      const model = provider.models[0].modelId;
+      const tier = modelTiers.create({
+        name: 'Summary Tier',
+        members: [{ providerId: provider.id, modelId: model, position: 0 }],
+      });
+      const tierRef = buildTierRef(tier.id);
+
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: tierRef,
+          summaryProviderId: null,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        summaryModel: tierRef,
+        summaryProviderId: null,
+      });
+    });
+
+    it('rejects a tier ref paired with a non-null provider', async () => {
+      const provider = modelProviders.getById('openai-default');
+      const model = provider.models[0].modelId;
+      const tier = modelTiers.create({
+        name: 'Summary Tier 2',
+        members: [{ providerId: provider.id, modelId: model, position: 0 }],
+      });
+      const tierRef = buildTierRef(tier.id);
+
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: tierRef,
+          summaryProviderId: provider.id,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('must be null');
+    });
+
+    it('rejects a tier ref for a tier that does not exist', async () => {
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: buildTierRef('missing-summary-tier'),
+          summaryProviderId: null,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Unknown summaryModel tier');
+    });
+
+    it('rejects a summary tier with no executable members', async () => {
+      const tier = modelTiers.create({ name: 'Empty Summary Tier', members: [] });
+
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: buildTierRef(tier.id),
+          summaryProviderId: null,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('at least one executable model');
+    });
+
+    it('accepts a tier ref whose member is a Google provider kind', async () => {
+      const googleProvider = modelProviders.create({ name: 'Settings Summary Google Provider', kind: 'google' });
+      modelProviders.addModel(googleProvider.id, {
+        modelId: 'settings-summary-gemini-model',
+        displayName: 'Gemini Model',
+      });
+      const tier = modelTiers.create({
+        name: 'Summary Tier Google',
+        members: [{ providerId: googleProvider.id, modelId: 'settings-summary-gemini-model', position: 0 }],
+      });
+      const tierRef = buildTierRef(tier.id);
+
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: tierRef,
+          summaryProviderId: null,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ summaryModel: tierRef, summaryProviderId: null });
+    });
+
+    it('accepts a tier ref with a later Google failover member', async () => {
+      const anthropicProvider = modelProviders.getById('anthropic-default');
+      const anthropicModel = anthropicProvider.models[0].modelId;
+      const googleProvider = modelProviders.create({ name: 'Settings Summary Google Provider 2', kind: 'google' });
+      modelProviders.addModel(googleProvider.id, {
+        modelId: 'settings-summary-gemini-model-2',
+        displayName: 'Gemini Model 2',
+      });
+      const tier = modelTiers.create({
+        name: 'Summary Tier Mixed',
+        members: [
+          { providerId: anthropicProvider.id, modelId: anthropicModel, position: 0 },
+          { providerId: googleProvider.id, modelId: 'settings-summary-gemini-model-2', position: 1 },
+        ],
+      });
+      const tierRef = buildTierRef(tier.id);
+
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: tierRef,
+          summaryProviderId: null,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ summaryModel: tierRef, summaryProviderId: null });
+    });
+
+    it('accepts a tier ref whose members are all Anthropic/OpenAI', async () => {
+      const anthropicProvider = modelProviders.getById('anthropic-default');
+      const anthropicModel = anthropicProvider.models[0].modelId;
+      const openaiProvider = modelProviders.getById('openai-default');
+      const openaiModel = openaiProvider.models[0].modelId;
+      const tier = modelTiers.create({
+        name: 'Summary Tier All Supported',
+        members: [
+          { providerId: anthropicProvider.id, modelId: anthropicModel, position: 0 },
+          { providerId: openaiProvider.id, modelId: openaiModel, position: 1 },
+        ],
+      });
+      const tierRef = buildTierRef(tier.id);
+
+      const res = await request(app)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: tierRef,
+          summaryProviderId: null,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        summaryModel: tierRef,
+        summaryProviderId: null,
+      });
     });
   });
 

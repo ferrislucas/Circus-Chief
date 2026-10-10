@@ -236,6 +236,36 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
   });
 
   describe('Form Submission', () => {
+    it('blocks creation when the bound tier has no usable members', async () => {
+      const { useTiersStore } = await import('../stores/tiers.js');
+      const tiersStore = useTiersStore();
+      tiersStore.tiers = [{ id: 't-empty', name: 'Emptied', members: [] }];
+      tiersStore.loaded = true;
+      templatesStoreMock.createProjectTemplate.mockResolvedValue({});
+
+      const wrapper = mount(TemplatesPanel, {
+        props: { projectId: 'proj-1' },
+        global: {
+          plugins: [pinia],
+          stubs: { 'router-link': true },
+        },
+      });
+
+      await wrapper.find('[data-testid="new-template-btn"]').trigger('click');
+
+      wrapper.vm.formData.name = 'Stale Tier Template';
+      wrapper.vm.formData.prompt = 'Do work';
+      wrapper.vm.formData.model = 'tier::t-empty';
+      wrapper.vm.formData.providerId = null;
+      await wrapper.vm.$nextTick();
+
+      expect(wrapper.find('[data-testid="submit-btn"]').element.disabled).toBe(true);
+      await wrapper.find('form').trigger('submit');
+      await wrapper.vm.$nextTick();
+
+      expect(templatesStoreMock.createProjectTemplate).not.toHaveBeenCalled();
+    });
+
     it('does not render template-level quick response auto-submit control', async () => {
       const wrapper = mount(TemplatesPanel, {
         props: { projectId: 'proj-1' },

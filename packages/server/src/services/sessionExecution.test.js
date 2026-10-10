@@ -19,17 +19,21 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 }));
 
 
-import { buildAgentEnv, buildQueryParams, createAgentForSession } from './sessionExecution.js';
-import { continueSession, runSession, continueSessionWithExistingMessage } from './sessionManager.js';
+import { buildAgentEnv, buildQueryParams, createAgentForSession, resolveInitialSessionModelEnv, runSessionCore } from './sessionExecution.js';
+import { TierIdentityError } from './tierIdentity.js';
+import { continueSession, runSession, continueSessionWithExistingMessage, stopSession } from './sessionManager.js';
 import * as sessionProvider from './sessionProvider.js';
 import * as gitService from './gitService.js';
 import { agentGateway } from '../agents/AgentGateway.js';
+import { activeSessions, claimSessionExecution, createSessionExecutionEntry } from './sessionExecutionOwnership.js';
+import { cleanupSessionState } from './streamEventHandler.js';
+import { buildTierRef } from '@circuschief/shared';
 
 import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
 import { MessageRepository } from '../db/MessageRepository.js';
 import { ConversationRepository } from '../db/ConversationRepository.js';
-import { sessions, attachments, projects, modelProviders } from '../database.js';
+import { sessions, attachments, projects, modelProviders, modelTiers } from '../database.js';
 
 describe('session execution module boundary', () => {
   it('does not suppress max-lines now that query parameter construction lives in its own module', () => {
@@ -436,14 +440,21 @@ describe('continueSessionCore model fallback', () => {
   });
 
   it('resolves provider from session.model when model option is null', async () => {
-    const spy = vi.spyOn(sessionProvider, 'resolveProviderFromModel');
+    const spy = vi.spyOn(sessionProvider, 'resolveDispatchProvider');
     conversationRepo.create(session.id, 'Test Conversation');
 
     await continueSession(session.id, 'Follow-up message', tempDir, { model: null });
 
-    // resolveProviderFromModel should be called with session.model (the fallback),
-    // not null, so third-party provider env vars are correctly resolved.
-    expect(spy).toHaveBeenCalledWith('claude-sonnet-4-20250514');
+    // The single dispatch rule should be called with session.model (the fallback),
+    // not null, so third-party provider env vars are correctly resolved. The
+    // last arg is the provider-id disambiguation hint (null here since
+    // this session has no explicit providerId set).
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: session.id }),
+      null,
+      'claude-sonnet-4-20250514',
+      null
+    );
     spy.mockRestore();
   });
 
@@ -495,6 +506,19 @@ describe('runSessionCore model fallback', () => {
     expect(mockQuery).toHaveBeenCalled();
     const queryParams = mockQuery.mock.calls[0][0];
     expect(queryParams.options.model).toBe('claude-sonnet-4-20250514');
+  });
+
+  it('records the durable last-executed identity for the dispatched pair (finding 9)', async () => {
+    const startProvider = modelProviders.create({ name: 'Start Pin Provider', kind: 'anthropic' });
+    modelProviders.addModel(startProvider.id, { modelId: 'finding9-start-model', displayName: 'Start' });
+    sessionRepo.update(session.id, { model: 'finding9-start-model', providerId: startProvider.id });
+
+    await runSession(session.id, 'Initial prompt', tempDir, {});
+
+    expect(mockQuery).toHaveBeenCalled();
+    const row = sessionRepo.getById(session.id);
+    expect(row.lastExecutedModel).toBe('finding9-start-model');
+    expect(row.lastExecutedProviderId).toBe(startProvider.id);
   });
 
   it('uses explicit model when provided', async () => {
@@ -571,15 +595,22 @@ describe('continueSessionWithExistingMessage model fallback', () => {
   });
 
   it('resolves provider from session.model when model option is null', async () => {
-    const spy = vi.spyOn(sessionProvider, 'resolveProviderFromModel');
+    const spy = vi.spyOn(sessionProvider, 'resolveDispatchProvider');
     const conversation = conversationRepo.create(session.id, 'Test Conversation');
     messageRepo.create(session.id, 'user', 'Existing message', { conversationId: conversation.id });
 
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, { model: null });
 
-    // resolveProviderFromModel should be called with session.model (the fallback),
-    // not null, so third-party provider env vars are correctly resolved.
-    expect(spy).toHaveBeenCalledWith('claude-sonnet-4-20250514');
+    // The single dispatch rule should be called with session.model (the fallback),
+    // not null, so third-party provider env vars are correctly resolved. The
+    // last arg is the provider-id disambiguation hint (null here since
+    // this session has no explicit providerId set).
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: session.id }),
+      null,
+      'claude-sonnet-4-20250514',
+      null
+    );
     spy.mockRestore();
   });
 });
@@ -1200,7 +1231,14 @@ describe('commit attribution hook installation guard', () => {
 
   it('continueSession does NOT install hook when no attribution is configured', async () => {
     const hookSpy = vi.spyOn(gitService, 'ensureWorktreeCommitAttributionHook');
-    vi.spyOn(sessionProvider, 'resolveProviderMetadataFromModel').mockReturnValue(null);
+    // Continuation resolves its provider through the single dispatch rule;
+    // metadata without an attribution override installs no hook.
+    vi.spyOn(sessionProvider, 'resolveDispatchProvider').mockImplementation(
+      (sess, model, effectiveModel, hint) => ({
+        provider: sessionProvider.resolveProviderFromModel(effectiveModel, hint),
+        providerMetadata: null,
+      })
+    );
 
     const project = projectRepo.create('Attribution Test', tempDir);
     const session = sessionRepo.create(project.id, 'Attribution Session', 'prompt', 'standard');
@@ -1218,9 +1256,16 @@ describe('commit attribution hook installation guard', () => {
 
   it('continueSession installs hook when attribution IS configured', async () => {
     const hookSpy = vi.spyOn(gitService, 'ensureWorktreeCommitAttributionHook').mockResolvedValue(true);
-    vi.spyOn(sessionProvider, 'resolveProviderMetadataFromModel').mockReturnValue({
-      commitAttributionOverride: 'Co-authored-by: Claude <noreply@anthropic.com>',
-    });
+    // Continuation resolves its provider through the single dispatch rule —
+    // the attribution override travels on providerMetadata.
+    vi.spyOn(sessionProvider, 'resolveDispatchProvider').mockImplementation(
+      (sess, model, effectiveModel, hint) => ({
+        provider: sessionProvider.resolveProviderFromModel(effectiveModel, hint),
+        providerMetadata: {
+          commitAttributionOverride: 'Co-authored-by: Claude <noreply@anthropic.com>',
+        },
+      })
+    );
 
     const project = projectRepo.create('Attribution Test', tempDir);
     const session = sessionRepo.create(project.id, 'Attribution Session', 'prompt', 'standard');
@@ -1250,5 +1295,903 @@ describe('commit attribution hook installation guard', () => {
     await runSession(session.id, 'test', tempDir);
 
     expect(hookSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ── Strict startup validation for tier-bound attempts (finding 5) ───────────
+// A frozen tier member is validated as an exact (providerId, modelId) identity
+// at the startup attempt boundary: a deleted/disabled provider or a
+// removed/renamed model rejects with TierIdentityError instead of falling
+// back to another provider owning the same model id or to SDK defaults.
+// Legacy model-id lookup stays scoped to concrete non-tier bindings.
+describe('resolveInitialSessionModelEnv tier-attempt ownership (finding 5)', () => {
+  let providerA;
+  let providerB;
+
+  const DUP_MODEL = 'finding5-dup-model';
+  const SOLO_MODEL = 'finding5-solo-model';
+
+  function tierSession() {
+    return {
+      id: 'finding5-session',
+      thinkingEnabled: true,
+      effortLevel: null,
+      gitWorktree: null,
+      model: 'tier::finding5-tier',
+      providerId: null,
+    };
+  }
+
+  function concreteSession() {
+    return { ...tierSession(), model: null };
+  }
+
+  beforeEach(() => {
+    providerA = modelProviders.create({ name: 'Finding5 A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Finding5 B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: DUP_MODEL, displayName: 'Dup' });
+    modelProviders.addModel(providerB.id, { modelId: DUP_MODEL, displayName: 'Dup' });
+    modelProviders.addModel(providerA.id, { modelId: SOLO_MODEL, displayName: 'Solo' });
+  });
+
+  it('rejects a tier-bound pair whose provider is disabled', async () => {
+    modelProviders.update(providerB.id, { enabled: false });
+    try {
+      await expect(resolveInitialSessionModelEnv(tierSession(), DUP_MODEL, providerB.id))
+        .rejects.toThrow(TierIdentityError);
+    } finally {
+      modelProviders.update(providerB.id, { enabled: true });
+    }
+  });
+
+  it('rejects a tier-bound pair whose model row was removed from its provider', async () => {
+    const row = modelProviders.addModel(providerB.id, { modelId: 'finding5-doomed', displayName: 'Doomed' });
+    modelProviders.removeModel(row.id);
+    await expect(resolveInitialSessionModelEnv(tierSession(), 'finding5-doomed', providerB.id))
+      .rejects.toThrow(TierIdentityError);
+  });
+
+  it('rejects a tier-bound pair naming a provider that does not own the model', async () => {
+    // SOLO_MODEL lives on providerA only — pinning it to providerB must not
+    // silently resolve providerA (or SDK defaults) instead.
+    await expect(resolveInitialSessionModelEnv(tierSession(), SOLO_MODEL, providerB.id))
+      .rejects.toThrow(TierIdentityError);
+  });
+
+  it('resolves a tier-bound valid pair from its exact owner', async () => {
+    const env = await resolveInitialSessionModelEnv(tierSession(), SOLO_MODEL, providerA.id);
+    expect(env.effectiveModel).toBe(SOLO_MODEL);
+  });
+
+  it('keeps the legacy model-id fallback for concrete non-tier bindings', async () => {
+    const env = await resolveInitialSessionModelEnv(concreteSession(), DUP_MODEL, null);
+    expect(env.effectiveModel).toBe(DUP_MODEL);
+  });
+
+  it('fail-closed rejects a tier ref that reaches the standard start path', async () => {
+    // A `tier::` sentinel must be resolved to a concrete member via
+    // _runTierBoundSession — never dispatched with provider null/SDK
+    // defaults, and never persisted to lastExecutedModel.
+    await expect(resolveInitialSessionModelEnv(tierSession(), 'tier::finding5-tier', null))
+      .rejects.toThrow(TierIdentityError);
+    await expect(resolveInitialSessionModelEnv(tierSession(), null))
+      .rejects.toThrow(TierIdentityError);
+  });
+});
+
+describe('resolveInitialSessionModelEnv built-in Anthropic tier sanitization (finding 1)', () => {
+  const SEEDED_MODEL = 'claude-opus-5';
+  const HOST_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'];
+  const savedHost = {};
+
+  function tierSession() {
+    return {
+      id: 'finding1-session',
+      thinkingEnabled: false,
+      effortLevel: null,
+      gitWorktree: null,
+      model: 'tier::finding1-tier',
+      providerId: null,
+    };
+  }
+
+  beforeEach(() => {
+    for (const key of HOST_KEYS) {
+      savedHost[key] = process.env[key];
+      process.env[key] = `synthetic-finding1-${key}`;
+    }
+  });
+
+  afterEach(() => {
+    for (const key of HOST_KEYS) {
+      if (savedHost[key] === undefined) delete process.env[key];
+      else process.env[key] = savedHost[key];
+    }
+  });
+
+  it('starts a tier-bound Official member with SDK-default env sanitization', async () => {
+    const { effectiveModel, sessionEnv } = await resolveInitialSessionModelEnv(
+      tierSession(), SEEDED_MODEL, 'anthropic-default',
+    );
+    expect(effectiveModel).toBe(SEEDED_MODEL);
+    expect(sessionEnv.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(sessionEnv.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(sessionEnv.ANTHROPIC_BASE_URL).toBeUndefined();
+  });
+});
+
+// ── Finding #2: initial starts claim execution ownership ───────────────────
+// Overlapping runSession calls must be rejected with SESSION_EXECUTION_ACTIVE
+// (SESSION_STOPPING while a stopped turn is still unwinding) instead of
+// replacing the live turn's controller and running a second provider
+// generator against the same conversation.
+
+describe('finding #2 — initial session starts claim execution ownership', () => {
+  let sessionRepo;
+  let projectRepo;
+  let tempDir;
+  let session;
+
+  function makeGatedAgent() {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    let signalEntered;
+    const entered = new Promise((resolve) => { signalEntered = resolve; });
+    const agent = {
+      execute: vi.fn(async function* () {
+        signalEntered();
+        await gate;
+        yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'x', slash_commands: [] };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'late response' }] } };
+        yield { type: 'result', subtype: 'success' };
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+    return { agent, entered, release };
+  }
+
+  beforeEach(() => {
+    mockQuery.mockClear();
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding2-ownership-'));
+    const project = projectRepo.create('Finding2 Project', tempDir);
+    session = sessionRepo.create(project.id, 'Finding2 Session', 'Initial prompt', 'standard');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const [sessionId] of activeSessions) {
+      activeSessions.delete(sessionId);
+    }
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an overlapping initial start without invoking a second provider or replacing the controller', async () => {
+    const { agent, entered, release } = makeGatedAgent();
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(agent);
+
+    const first = runSession(session.id, 'Initial prompt', tempDir, {});
+    await entered;
+    expect(activeSessions.has(session.id)).toBe(true);
+    const firstController = activeSessions.get(session.id).controller;
+
+    const secondOutcome = await Promise.race([
+      runSession(session.id, 'Second prompt', tempDir, {}).then(
+        () => 'resolved',
+        (error) => error,
+      ),
+      new Promise((resolve) => setTimeout(() => resolve('pending'), 500)),
+    ]);
+    // The competing start must be rejected — never admitted alongside the live turn.
+    expect(secondOutcome?.code ?? secondOutcome).toBe('SESSION_EXECUTION_ACTIVE');
+    expect(secondOutcome?.statusCode ?? secondOutcome).toBe(409);
+    // No second provider execution, no controller replacement, no status rewrite.
+    expect(agent.execute).toHaveBeenCalledTimes(1);
+    expect(activeSessions.get(session.id)?.controller).toBe(firstController);
+    expect(sessionRepo.getById(session.id).status).toBe('running');
+
+    release();
+    await first;
+    expect(activeSessions.has(session.id)).toBe(false);
+    expect(sessionRepo.getById(session.id).status).toBe('waiting');
+    createAgentSpy.mockRestore();
+  });
+
+  it('rejects an initial start while the first turn is stopping, keeping Stop on the original controller', async () => {
+    const { agent, entered, release } = makeGatedAgent();
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(agent);
+
+    const first = runSession(session.id, 'Initial prompt', tempDir, {});
+    await entered;
+    const firstController = activeSessions.get(session.id).controller;
+
+    await stopSession(session.id);
+    expect(activeSessions.has(session.id)).toBe(true);
+    expect(firstController.signal.aborted).toBe(true);
+
+    const stoppingError = await runSession(session.id, 'Second prompt', tempDir, {}).then(
+      () => { throw new Error('expected initial start to reject while stopping'); },
+      (error) => error,
+    );
+    expect(stoppingError.code).toBe('SESSION_STOPPING');
+    expect(agent.execute).toHaveBeenCalledTimes(1);
+    expect(activeSessions.get(session.id)?.controller).toBe(firstController);
+
+    release();
+    await first;
+    expect(activeSessions.has(session.id)).toBe(false);
+    createAgentSpy.mockRestore();
+  });
+
+  it('does not overwrite an existing execution claim (atomic admission)', async () => {
+    const owner = new AbortController();
+    claimSessionExecution(session.id, owner);
+    try {
+      const error = await runSession(session.id, 'Initial prompt', tempDir, {}).then(
+        () => { throw new Error('expected initial start to reject on a claimed session'); },
+        (err) => err,
+      );
+      expect(error.code).toBe('SESSION_EXECUTION_ACTIVE');
+      expect(mockQuery).not.toHaveBeenCalled();
+      expect(activeSessions.get(session.id)?.controller).toBe(owner);
+    } finally {
+      cleanupSessionState(session.id);
+    }
+  });
+
+  it('releases ownership when preparation throws after registration', async () => {
+    const updateSpy = vi.spyOn(sessions, 'update').mockImplementationOnce(() => {
+      throw new Error('boom-preparation');
+    });
+    await expect(runSession(session.id, 'Initial prompt', tempDir, {})).rejects.toThrow('boom-preparation');
+    updateSpy.mockRestore();
+    // The stranded claim must be released so the session stays usable.
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+
+  it('stale cleanup cannot remove a replacement controller', () => {
+    const stale = new AbortController();
+    const replacement = new AbortController();
+    claimSessionExecution(session.id, stale);
+    activeSessions.set(session.id, createSessionExecutionEntry(replacement));
+    expect(cleanupSessionState(session.id, false, stale)).toBe(false);
+    expect(activeSessions.get(session.id)?.controller).toBe(replacement);
+    expect(cleanupSessionState(session.id, false, replacement)).toBe(true);
+  });
+
+  it('rejects an overlapping tier-bound initial start at the same shared boundary', async () => {
+    const provider = modelProviders.create({ name: 'Finding2 Tier Provider', kind: 'anthropic' });
+    modelProviders.addModel(provider.id, { modelId: 'finding2-tier-model', displayName: 'Tier Model' });
+    const tier = modelTiers.create({
+      name: 'Finding2 Tier',
+      members: [{ providerId: provider.id, modelId: 'finding2-tier-model', position: 0 }],
+    });
+    sessionRepo.update(session.id, { model: buildTierRef(tier.id) });
+
+    const { agent, entered, release } = makeGatedAgent();
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(agent);
+
+    const first = runSession(session.id, 'Initial prompt', tempDir, {});
+    await entered;
+    expect(activeSessions.has(session.id)).toBe(true);
+
+    const secondOutcome = await Promise.race([
+      runSession(session.id, 'Second prompt', tempDir, {}).then(
+        () => 'resolved',
+        (error) => error,
+      ),
+      new Promise((resolve) => setTimeout(() => resolve('pending'), 500)),
+    ]);
+    expect(secondOutcome?.code ?? secondOutcome).toBe('SESSION_EXECUTION_ACTIVE');
+    expect(agent.execute).toHaveBeenCalledTimes(1);
+
+    release();
+    await first;
+    expect(activeSessions.has(session.id)).toBe(false);
+    createAgentSpy.mockRestore();
+  });
+});
+
+// ── Finding #1: built-in Anthropic sessions keep resume identity ────────────
+// Startup records lastExecutedProviderId from resolveProviderFromModel, which
+// deliberately returns null for the official Anthropic provider. A session
+// started with an explicit anthropic-default selection therefore records
+// (model, null), while continuation dispatches (model, anthropic-default) —
+// a phantom provider switch that drops the resume handle and replays history
+// into a fresh SDK conversation.
+
+describe('finding #1 — built-in Anthropic sessions keep resume identity', () => {
+  const OFFICIAL_MODEL = 'claude-opus-5';
+  const OFFICIAL_PROVIDER = 'anthropic-default';
+
+  let sessionRepo;
+  let conversationRepo;
+  let messageRepo;
+  let projectRepo;
+  let tempDir;
+
+  function resumeCapableAgent(captured) {
+    return {
+      execute: vi.fn(async function* (queryParams) {
+        captured.push(queryParams);
+        yield { type: 'system', subtype: 'init', session_id: 'mock-claude-session-id', model: OFFICIAL_MODEL, slash_commands: [] };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'provider response' }] } };
+        yield { type: 'result', subtype: 'success' };
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+  }
+
+  beforeEach(() => {
+    mockQuery.mockClear();
+    sessionRepo = new SessionRepository();
+    conversationRepo = new ConversationRepository();
+    messageRepo = new MessageRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding1-resume-'));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const [sessionId] of activeSessions) {
+      activeSessions.delete(sessionId);
+    }
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  async function startOfficialSession() {
+    const project = projectRepo.create('Finding1 Project', tempDir);
+    const session = sessionRepo.create(project.id, 'Finding1 Session', 'Initial prompt', 'standard');
+    const startCaptured = [];
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValue(resumeCapableAgent(startCaptured));
+    await runSession(session.id, 'Initial prompt', tempDir, { model: OFFICIAL_MODEL, providerId: OFFICIAL_PROVIDER });
+    createAgentSpy.mockRestore();
+    return sessionRepo.getById(session.id);
+  }
+
+  it('records the real official provider identity at startup', async () => {
+    const row = await startOfficialSession();
+    expect(row.lastExecutedModel).toBe(OFFICIAL_MODEL);
+    expect(row.lastExecutedProviderId).toBe(OFFICIAL_PROVIDER);
+  });
+
+  it('resumes on an explicit same-pair follow-up without replaying history', async () => {
+    const project = projectRepo.create('Finding1 Explicit Project', tempDir);
+    const created = sessionRepo.create(project.id, 'Finding1 Explicit', 'Initial prompt', 'standard');
+    const startCaptured = [];
+    const startSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValue(resumeCapableAgent(startCaptured));
+    await runSession(created.id, 'Initial prompt', tempDir, { model: OFFICIAL_MODEL, providerId: OFFICIAL_PROVIDER });
+    startSpy.mockRestore();
+
+    const continuedCaptured = [];
+    const continueSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValue(resumeCapableAgent(continuedCaptured));
+    await continueSession(created.id, 'Follow-up question', tempDir, { model: OFFICIAL_MODEL, providerId: OFFICIAL_PROVIDER });
+    continueSpy.mockRestore();
+
+    expect(continuedCaptured).toHaveLength(1);
+    // The original resume handle is passed — not a fresh conversation.
+    expect(continuedCaptured[0].options?.resume).toBe('mock-claude-session-id');
+    expect(continuedCaptured[0].prompt).not.toContain('provider response');
+    const row = sessionRepo.getById(created.id);
+    expect(row.lastExecutedModel).toBe(OFFICIAL_MODEL);
+    expect(row.lastExecutedProviderId).toBe(OFFICIAL_PROVIDER);
+  });
+
+  it('resumes on an implicit follow-up that reuses the stored official binding', async () => {
+    const project = projectRepo.create('Finding1 Implicit Project', tempDir);
+    const created = sessionRepo.create(project.id, 'Finding1 Implicit', 'Initial prompt', 'standard');
+    const startSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValue(resumeCapableAgent([]));
+    await runSession(created.id, 'Initial prompt', tempDir, { model: OFFICIAL_MODEL, providerId: OFFICIAL_PROVIDER });
+    startSpy.mockRestore();
+
+    const continuedCaptured = [];
+    const continueSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValue(resumeCapableAgent(continuedCaptured));
+    await continueSession(created.id, 'Follow-up question', tempDir, {});
+    continueSpy.mockRestore();
+
+    expect(continuedCaptured).toHaveLength(1);
+    expect(continuedCaptured[0].options?.resume).toBe('mock-claude-session-id');
+    expect(continuedCaptured[0].prompt).not.toContain('provider response');
+  });
+
+  it('resumes on the branch path with an unchanged pair', async () => {
+    const project = projectRepo.create('Finding1 Branch Project', tempDir);
+    const created = sessionRepo.create(project.id, 'Finding1 Branch', 'Initial prompt', 'standard');
+    const startSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValue(resumeCapableAgent([]));
+    await runSession(created.id, 'Initial prompt', tempDir, { model: OFFICIAL_MODEL, providerId: OFFICIAL_PROVIDER });
+    startSpy.mockRestore();
+
+    const branch = conversationRepo.create(created.id, 'Branch conversation');
+    messageRepo.create(created.id, 'user', 'Branch question', { conversationId: branch.id });
+    conversationRepo.update(branch.id, { claudeSessionId: 'mock-branch-handle' });
+
+    const continuedCaptured = [];
+    const continueSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValue(resumeCapableAgent(continuedCaptured));
+    await continueSessionWithExistingMessage(created.id, branch.id, tempDir, { model: OFFICIAL_MODEL, providerId: OFFICIAL_PROVIDER });
+    continueSpy.mockRestore();
+
+    expect(continuedCaptured).toHaveLength(1);
+    expect(continuedCaptured[0].options?.resume).toBe('mock-branch-handle');
+    expect(continuedCaptured[0].prompt).not.toContain('provider response');
+  });
+
+  it('still invalidates resume on a genuine model change', async () => {
+    const project = projectRepo.create('Finding1 Switch Project', tempDir);
+    const created = sessionRepo.create(project.id, 'Finding1 Switch', 'Initial prompt', 'standard');
+    const startSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValue(resumeCapableAgent([]));
+    await runSession(created.id, 'Initial prompt', tempDir, { model: OFFICIAL_MODEL, providerId: OFFICIAL_PROVIDER });
+    startSpy.mockRestore();
+
+    const continuedCaptured = [];
+    const continueSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValue(resumeCapableAgent(continuedCaptured));
+    await continueSession(created.id, 'Follow-up on sonnet', tempDir, { model: 'claude-sonnet-5', providerId: OFFICIAL_PROVIDER });
+    continueSpy.mockRestore();
+
+    expect(continuedCaptured).toHaveLength(1);
+    expect(continuedCaptured[0].options?.resume ?? null).toBe(null);
+    expect(continuedCaptured[0].prompt).toContain('provider response');
+  });
+
+  it('still invalidates resume on a genuine provider-only switch', async () => {
+    const custom = modelProviders.create({ name: 'Finding1 Custom', kind: 'anthropic' });
+    modelProviders.addModel(custom.id, { modelId: 'finding1-dup-model', displayName: 'Dup' });
+    const other = modelProviders.create({ name: 'Finding1 Other', kind: 'anthropic' });
+    modelProviders.addModel(other.id, { modelId: 'finding1-dup-model', displayName: 'Dup' });
+
+    const project = projectRepo.create('Finding1 ProviderSwitch Project', tempDir);
+    const created = sessionRepo.create(project.id, 'Finding1 ProviderSwitch', 'Initial prompt', 'standard');
+    const startSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValue(resumeCapableAgent([]));
+    await runSession(created.id, 'Initial prompt', tempDir, { model: 'finding1-dup-model', providerId: custom.id });
+    startSpy.mockRestore();
+    expect(sessionRepo.getById(created.id).lastExecutedProviderId).toBe(custom.id);
+
+    const continuedCaptured = [];
+    const continueSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValue(resumeCapableAgent(continuedCaptured));
+    await continueSession(created.id, 'Follow-up on other', tempDir, { model: 'finding1-dup-model', providerId: other.id });
+    continueSpy.mockRestore();
+
+    expect(continuedCaptured).toHaveLength(1);
+    expect(continuedCaptured[0].options?.resume ?? null).toBe(null);
+    expect(continuedCaptured[0].prompt).toContain('provider response');
+    expect(sessionRepo.getById(created.id).lastExecutedProviderId).toBe(other.id);
+  });
+});
+
+// ── Finding #3: settled user stops notify on exceptional provider exit ─────
+// Stopping a provider that rejects during cancellation must still fire
+// onUserStopSettled exactly once after the generator has settled — the
+// deferred summary path depends on it. Only genuine user stops notify, and
+// only after settlement, so summaries read settled output.
+
+describe('finding #3 — settled user stops notify on exceptional provider exit', () => {
+  let sessionRepo;
+  let projectRepo;
+  let messageRepo;
+  let tempDir;
+
+  const noopCallbacks = (events, messageRepoRef, sessionId) => ({
+    handleTemplateTriggerIfNeeded: async () => {},
+    handleAutoSendIfNeeded: async () => false,
+    onUserStopSettled: (settledId) => {
+      events.push('notified');
+      const texts = messageRepoRef.getBySessionId(sessionId).map((message) => message.content).join('\n');
+      events.push(texts.includes('partial output before stop') ? 'saw-output' : 'missing-output');
+      expect(settledId).toBe(sessionId);
+    },
+  });
+
+  function abortRejectingAgent(signal) {
+    return {
+      execute: vi.fn(async function* (queryParams) {
+        const controller = queryParams?.options?.abortController;
+        try {
+          yield { type: 'system', subtype: 'init', session_id: 'mock-stop-session', model: 'x', slash_commands: [] };
+          yield { type: 'assistant', message: { content: [{ type: 'text', text: 'partial output before stop' }] } };
+          signal.entered();
+          await new Promise((_, reject) => {
+            controller?.signal?.addEventListener('abort', () => reject(new Error('provider torn down during abort')));
+          });
+        } finally {
+          signal.settled();
+        }
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+  }
+
+  beforeEach(() => {
+    mockQuery.mockClear();
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    messageRepo = new MessageRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding3-stop-'));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const [sessionId] of activeSessions) {
+      activeSessions.delete(sessionId);
+    }
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  function createStartedSession(name) {
+    const project = projectRepo.create(name, tempDir);
+    return sessionRepo.create(project.id, name, 'Initial prompt', 'standard');
+  }
+
+  it('notifies exactly once after settlement when the provider rejects on user-stop abort', async () => {
+    const session = createStartedSession('Finding3 Exceptional Stop');
+    const events = [];
+    let signalEntered;
+    const entered = new Promise((resolve) => { signalEntered = resolve; });
+    const agent = abortRejectingAgent({ entered: () => signalEntered(), settled: () => events.push('settled') });
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(agent);
+
+    const first = runSessionCore(session.id, 'Initial prompt', tempDir, {
+      options: {},
+      callbacks: noopCallbacks(events, messageRepo, session.id),
+    });
+    await entered;
+    await stopSession(session.id);
+    const outcome = await first.then(() => 'resolved', (error) => error);
+    createAgentSpy.mockRestore();
+
+    // The turn failed exceptionally (the provider rejected on cancellation).
+    expect(outcome?.message ?? outcome).toMatch(/torn down during abort/);
+    // The settled-stop notifier fired exactly once, after generator settlement,
+    // with the partial output already durable.
+    expect(events).toEqual(['settled', 'notified', 'saw-output']);
+    // A user stop stays a stop — never a failure — and ownership is released.
+    expect(sessionRepo.getById(session.id).status).toBe('stopped');
+    expect(sessionRepo.getById(session.id).error).toBeNull();
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+
+  it('notifies exactly once when the provider exits normally after Stop', async () => {
+    const session = createStartedSession('Finding3 Normal Stop');
+    const events = [];
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    let signalEntered;
+    const entered = new Promise((resolve) => { signalEntered = resolve; });
+    const agent = {
+      execute: vi.fn(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'mock-stop-session', model: 'x', slash_commands: [] };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'partial output before stop' }] } };
+        signalEntered();
+        await gate;
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(agent);
+
+    const first = runSessionCore(session.id, 'Initial prompt', tempDir, {
+      options: {},
+      callbacks: noopCallbacks(events, messageRepo, session.id),
+    });
+    await entered;
+    await stopSession(session.id);
+    release();
+    await first;
+    createAgentSpy.mockRestore();
+
+    expect(events).toEqual(['notified', 'saw-output']);
+    expect(sessionRepo.getById(session.id).status).toBe('stopped');
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+
+  it('notifies exactly once when Stop arrives after the final stream event', async () => {
+    const session = createStartedSession('Finding3 PostTurn Stop');
+    const events = [];
+    const agent = {
+      execute: vi.fn(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'mock-stop-session', model: 'x', slash_commands: [] };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'partial output before stop' }] } };
+        yield { type: 'result', subtype: 'success' };
+        // The provider exited normally, but the user stopped before the
+        // post-turn completion pipeline ran.
+        await stopSession(session.id);
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(agent);
+
+    await runSessionCore(session.id, 'Initial prompt', tempDir, {
+      options: {},
+      callbacks: noopCallbacks(events, messageRepo, session.id),
+    });
+    createAgentSpy.mockRestore();
+
+    expect(events).toEqual(['notified', 'saw-output']);
+    expect(sessionRepo.getById(session.id).status).toBe('stopped');
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+
+  it('never notifies for a non-user abort', async () => {
+    const session = createStartedSession('Finding3 NonUser Abort');
+    const events = [];
+    let signalEntered;
+    const entered = new Promise((resolve) => { signalEntered = resolve; });
+    const controller = new AbortController();
+    const agent = {
+      execute: vi.fn(async function* (queryParams) {
+        const abortController = queryParams?.options?.abortController ?? controller;
+        yield { type: 'system', subtype: 'init', session_id: 'mock-stop-session', model: 'x', slash_commands: [] };
+        signalEntered();
+        await new Promise((_, reject) => {
+          abortController?.signal?.addEventListener('abort', () => reject(new Error('non-user abort teardown')));
+        });
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(agent);
+
+    const first = runSessionCore(session.id, 'Initial prompt', tempDir, {
+      options: { abortController: controller },
+      callbacks: noopCallbacks(events, messageRepo, session.id),
+    });
+    await entered;
+    controller.abort();
+    const outcome = await first.then(() => 'resolved', (error) => error);
+    createAgentSpy.mockRestore();
+
+    expect(outcome?.message ?? outcome).toMatch(/non-user abort teardown/);
+    expect(events).toEqual([]);
+    expect(sessionRepo.getById(session.id).status).toBe('error');
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+
+  it('never notifies for a genuine provider error', async () => {
+    const session = createStartedSession('Finding3 Provider Error');
+    const events = [];
+    const agent = {
+      execute: vi.fn(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'mock-stop-session', model: 'x', slash_commands: [] };
+        throw new Error('genuine provider failure');
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(agent);
+
+    const outcome = await runSessionCore(session.id, 'Initial prompt', tempDir, {
+      options: {},
+      callbacks: noopCallbacks(events, messageRepo, session.id),
+    }).then(() => 'resolved', (error) => error);
+    createAgentSpy.mockRestore();
+
+    expect(outcome?.message ?? outcome).toMatch(/genuine provider failure/);
+    expect(events).toEqual([]);
+    expect(sessionRepo.getById(session.id).status).toBe('error');
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+});
+
+// ── Finding 12: user cancellation takes precedence over startup failover ────
+// Stop a tier startup before observable activity; the winding-down provider
+// rejects with an eligible capacity error (quota/503) rather than AbortError.
+// The successor adapter must never be invoked, no failover notice or retry may
+// be produced, work settles as user-paused/cancelled, and the deferred
+// Stop-summary notification fires exactly once after provider settlement.
+
+describe('finding 12 — stop preempts startup tier failover', () => {
+  let sessionRepo;
+  let projectRepo;
+  let tempDir;
+
+  const callbacksFor = (events) => ({
+    handleTemplateTriggerIfNeeded: async () => {},
+    handleAutoSendIfNeeded: async () => false,
+    onUserStopSettled: (settledId) => {
+      events.push(settledId);
+    },
+  });
+
+  function gatedQuotaRejectingAgent({ entered, release }) {
+    return {
+      // eslint-disable-next-line require-yield -- gated rejection before any provider event
+      execute: vi.fn(async function* () {
+        entered();
+        await new Promise((resolve, reject) => {
+          release({ resolve, reject });
+        });
+        throw Object.assign(
+          new Error("You've hit your usage limit. Please upgrade to continue."),
+          { status: 429 }
+        );
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+  }
+
+  function successAgent(calls) {
+    return {
+      execute: vi.fn(async function* () {
+        calls.push('executed');
+        yield { type: 'system', subtype: 'init', session_id: 'finding12-ok', model: 'finding12', slash_commands: [] };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'successor response' }] } };
+        yield { type: 'result', subtype: 'success' };
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+  }
+
+  async function createTierBoundSession(tag) {
+    const provider1 = modelProviders.create({ name: `Finding12 ${tag} P1`, kind: 'anthropic' });
+    const provider2 = modelProviders.create({ name: `Finding12 ${tag} P2`, kind: 'anthropic' });
+    modelProviders.addModel(provider1.id, { modelId: `finding12-${tag}-m1`, displayName: 'M1' });
+    modelProviders.addModel(provider2.id, { modelId: `finding12-${tag}-m2`, displayName: 'M2' });
+    const tier = modelTiers.create({
+      name: `Finding12 ${tag} Tier`,
+      members: [
+        { providerId: provider1.id, modelId: `finding12-${tag}-m1`, position: 0 },
+        { providerId: provider2.id, modelId: `finding12-${tag}-m2`, position: 1 },
+      ],
+    });
+    const project = projectRepo.create(`Finding12 ${tag} Project`, tempDir);
+    const session = sessionRepo.create(project.id, `Finding12 ${tag}`, 'Initial prompt', 'standard');
+    sessionRepo.update(session.id, { model: buildTierRef(tier.id) });
+    return { session, provider1, provider2 };
+  }
+
+  beforeEach(() => {
+    mockQuery.mockClear();
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding12-stop-'));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const [sessionId] of activeSessions) {
+      activeSessions.delete(sessionId);
+    }
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('never dispatches the successor when the cancelled provider rejects with an eligible quota error', async () => {
+    const { session, provider1 } = await createTierBoundSession('cancelled-quota');
+    const events = [];
+    let signalEntered;
+    const entered = new Promise((resolve) => { signalEntered = resolve; });
+    let releaseAttempt;
+    const released = new Promise((resolve) => { releaseAttempt = resolve; });
+    const firstAgent = gatedQuotaRejectingAgent({
+      entered: () => signalEntered(),
+      release: (hooks) => releaseAttempt(hooks),
+    });
+    const successorCalls = [];
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValueOnce(firstAgent)
+      .mockReturnValue(successAgent(successorCalls));
+
+    const run = runSessionCore(session.id, 'Initial prompt', tempDir, {
+      options: {},
+      callbacks: callbacksFor(events),
+    });
+    await entered;
+    await stopSession(session.id);
+    const hooks = await released;
+    hooks.resolve();
+    const outcome = await run.then(() => 'resolved', (error) => error);
+    createAgentSpy.mockRestore();
+
+    // The original capacity error propagates (existing cancellation contract),
+    // but nothing failed over: no successor dispatch, no cooldown, no retry.
+    expect(outcome?.message ?? outcome).toMatch(/usage limit/);
+    expect(successorCalls).toEqual([]);
+    const { isUnhealthy } = await import('./tierResolutionService.js');
+    expect(isUnhealthy(provider1.id, 'finding12-cancelled-quota-m1')).toBe(false);
+    // User-paused settlement, deferred summary exactly once, ownership released.
+    expect(sessionRepo.getById(session.id).status).toBe('stopped');
+    expect(events).toEqual([session.id]);
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+
+  it('settles as cancelled when the provider rejects with AbortError after Stop', async () => {
+    const { session } = await createTierBoundSession('abort-error');
+    const events = [];
+    let signalEntered;
+    const entered = new Promise((resolve) => { signalEntered = resolve; });
+    let releaseAttempt;
+    const released = new Promise((resolve) => { releaseAttempt = resolve; });
+    const abortAgent = {
+      // eslint-disable-next-line require-yield -- gated rejection before any provider event
+      execute: vi.fn(async function* () {
+        signalEntered();
+        await new Promise((resolve, reject) => {
+          releaseAttempt({ resolve, reject });
+        });
+        const abortError = new Error('The operation was aborted');
+        abortError.name = 'AbortError';
+        throw abortError;
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+    const successorCalls = [];
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValueOnce(abortAgent)
+      .mockReturnValue(successAgent(successorCalls));
+
+    const run = runSessionCore(session.id, 'Initial prompt', tempDir, {
+      options: {},
+      callbacks: callbacksFor(events),
+    });
+    await entered;
+    await stopSession(session.id);
+    const hooks = await released;
+    hooks.resolve();
+    const outcome = await run.then(() => 'resolved', (error) => error);
+    createAgentSpy.mockRestore();
+
+    expect(outcome?.message ?? outcome).toMatch(/aborted/i);
+    expect(successorCalls).toEqual([]);
+    expect(sessionRepo.getById(session.id).status).toBe('stopped');
+    expect(events).toEqual([session.id]);
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+
+  it('still advances startup failover for the same capacity error without cancellation', async () => {
+    const { session, provider2 } = await createTierBoundSession('no-cancel');
+    const events = [];
+    const failingAgent = {
+      // eslint-disable-next-line require-yield -- immediate startup failure before any provider event
+      execute: vi.fn(async function* () {
+        throw Object.assign(
+          new Error("You've hit your usage limit. Please upgrade to continue."),
+          { status: 429 }
+        );
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+    const successorCalls = [];
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent')
+      .mockReturnValueOnce(failingAgent)
+      .mockReturnValue(successAgent(successorCalls));
+
+    await runSessionCore(session.id, 'Initial prompt', tempDir, {
+      options: {},
+      callbacks: callbacksFor(events),
+    });
+    createAgentSpy.mockRestore();
+
+    // Eligible, non-cancelled startup failure still fails over transparently.
+    expect(successorCalls).toEqual(['executed']);
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe('finding12-no-cancel-m2');
+    expect(updated.resolvedProviderId).toBe(provider2.id);
+    expect(updated.status).not.toBe('error');
+    expect(events).toEqual([]);
   });
 });

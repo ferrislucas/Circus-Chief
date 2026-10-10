@@ -1,5 +1,5 @@
 import { databaseManager } from './DatabaseManager.js';
-import { DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
+import { DEFAULT_TOKEN_COST_WEIGHTS, isTierRef } from '@circuschief/shared';
 
 const TOKEN_WEIGHTS_KEY = 'token_cost_weights';
 const SUMMARY_SETTINGS_KEY = 'summary_settings';
@@ -144,7 +144,8 @@ export class SettingsRepository {
     const summaryProviderId = typeof settings.summaryProviderId === 'string'
       ? settings.summaryProviderId
       : null;
-    if (summaryModel && !summaryProviderId) {
+    // Tier refs (tier::<id>) are valid without a provider — they resolve at runtime
+    if (summaryModel && !summaryProviderId && !isTierRef(summaryModel)) {
       throw new Error('summaryProviderId is required when summaryModel is set');
     }
     const validated = {
@@ -226,7 +227,8 @@ function normalizeStoredSummarySettings(parsed) {
     ? parsed.summaryProviderId
     : null;
 
-  if (summaryModel && !summaryProviderId) {
+  // Tier refs are valid without a provider id
+  if (summaryModel && !summaryProviderId && !isTierRef(summaryModel)) {
     return { ...DEFAULT_SUMMARY_SETTINGS };
   }
 

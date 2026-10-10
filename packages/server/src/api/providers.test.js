@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { tmpdir } from 'node:os';
-import { modelProviders } from '../database.js';
+import { modelProviders, modelTiers, projects, sessions } from '../database.js';
 import { testProviderConnection } from '../services/providerTestService.js';
-import { OPENAI_MODELS, CLAUDE_MODELS, WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { OPENAI_MODELS, CLAUDE_MODELS, buildTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 const { mockAllowanceService } = vi.hoisted(() => ({
   mockAllowanceService: {
@@ -37,12 +37,16 @@ vi.mock('../services/providerAllowanceServiceInstance.js', async (importOriginal
 // observes the full production chain; mocking the intermediate invalidator
 // would bypass it (its reference is closed over inside the real helper).
 vi.mock('../websocket.js', () => ({
+  broadcastToSession: vi.fn(),
+  broadcastToProject: vi.fn(),
   broadcast: vi.fn(() => Promise.resolve()),
 }));
 
 // Import the router
 import providersRouter from './providers.js';
-import { broadcast } from '../websocket.js';
+import { broadcastToSession, broadcastToProject, broadcast } from '../websocket.js';
+import { SessionTemplateRepository } from '../db/SessionTemplateRepository.js';
+import { databaseManager } from '../db/DatabaseManager.js';
 
 describe('Providers API', () => {
   let app;
@@ -59,6 +63,101 @@ describe('Providers API', () => {
     app = express();
     app.use(express.json());
     app.use('/api/providers', providersRouter);
+  });
+
+  describe('tier degradation reconciliation', () => {
+    it('publishes canonical session updates after deleting a provider that empties a tier', async () => {
+      const provider = modelProviders.create({ name: 'Tier deletion API provider', kind: 'anthropic' });
+      testProviderId = provider.id;
+      modelProviders.addModel(provider.id, { modelId: 'tier-delete-api-model', displayName: 'Tier model' });
+      const tier = modelTiers.create({
+        name: 'Tier deletion API tier',
+        members: [{ providerId: provider.id, modelId: 'tier-delete-api-model', position: 0 }],
+      });
+      const project = projects.create('Tier deletion API project', '/tmp/tier-deletion-api');
+      const session = sessions.create(project.id, 'Tier deletion API session', 'Prompt', {
+        status: 'waiting', model: buildTierRef(tier.id),
+      });
+
+      await request(app).delete(`/api/providers/${provider.id}`).expect(204);
+
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        session.id,
+        WS_MESSAGE_TYPES.SESSION_UPDATED,
+        expect.objectContaining({ session: expect.objectContaining({ model: null, providerId: null }) })
+      );
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        project.id,
+        WS_MESSAGE_TYPES.SESSION_UPDATED,
+        expect.any(Object)
+      );
+    });
+  });
+
+  describe('concrete reference repair (finding 8)', () => {
+    it('repairs concrete dependents and publishes the repair on DELETE', async () => {
+      const provider = modelProviders.create({ name: 'Concrete repair API provider', kind: 'anthropic' });
+      testProviderId = provider.id;
+      modelProviders.addModel(provider.id, { modelId: 'concrete-repair-api-model', displayName: 'M' });
+      const project = projects.create('Concrete repair API project', '/tmp/concrete-repair-api');
+      const template = new SessionTemplateRepository().create({
+        projectId: project.id,
+        name: 'Concrete repair template',
+        prompt: 'prompt',
+        model: 'concrete-repair-api-model',
+        providerId: provider.id,
+      });
+      const session = sessions.create(project.id, 'Concrete repair session', 'Prompt', { status: 'waiting' });
+      sessions.update(session.id, { model: 'concrete-repair-api-model', providerId: provider.id });
+
+      await request(app).delete(`/api/providers/${provider.id}`).expect(204);
+      testProviderId = null;
+
+      expect(new SessionTemplateRepository().getById(template.id)).toMatchObject({
+        model: null,
+        providerId: null,
+      });
+      expect(sessions.getById(session.id)).toMatchObject({ model: null, providerId: null });
+      // The committed repair is published so open clients drop the dead pair.
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        session.id,
+        WS_MESSAGE_TYPES.SESSION_UPDATED,
+        expect.any(Object)
+      );
+    });
+
+    it('returns 500 with no broadcasts when the repair fails', async () => {
+      const provider = modelProviders.create({ name: 'Concrete repair failure provider', kind: 'anthropic' });
+      testProviderId = provider.id;
+      modelProviders.addModel(provider.id, { modelId: 'concrete-repair-failure-model', displayName: 'M' });
+      const project = projects.create('Concrete repair failure project', '/tmp/concrete-repair-failure');
+      new SessionTemplateRepository().create({
+        projectId: project.id,
+        name: 'Concrete repair failure template',
+        prompt: 'prompt',
+        model: 'concrete-repair-failure-model',
+        providerId: provider.id,
+      });
+
+      const db = databaseManager.get();
+      db.exec(`CREATE TEMP TRIGGER finding8_api_inject_failure
+        BEFORE UPDATE ON session_templates
+        BEGIN SELECT RAISE(ABORT, 'injected repair failure'); END;`);
+      let res;
+      try {
+        res = await request(app).delete(`/api/providers/${provider.id}`).expect(500);
+      } finally {
+        db.exec('DROP TRIGGER IF EXISTS finding8_api_inject_failure');
+      }
+      expect(res.body.error).toMatch(/injected repair failure/);
+
+      // Rolled back: the provider survives and no success/degradation notice
+      // was published for a deletion that never committed.
+      expect(modelProviders.getById(provider.id)).not.toBeNull();
+      expect(broadcastToSession).not.toHaveBeenCalled();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+      expect(broadcast).not.toHaveBeenCalled();
+    });
   });
 
   afterEach(() => {
@@ -108,7 +207,7 @@ describe('Providers API', () => {
         .expect(201);
 
       testProviderId = response.body.id;
-      expect(broadcast).toHaveBeenCalledTimes(1);
+      expect(broadcast.mock.calls.filter(([type]) => type === WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_LIST_INVALIDATED)).toHaveLength(1);
       expect(broadcast).toHaveBeenLastCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_LIST_INVALIDATED, {});
     });
 
@@ -121,7 +220,7 @@ describe('Providers API', () => {
         .send({ name: 'Update Probe Renamed' })
         .expect(200);
 
-      expect(broadcast).toHaveBeenCalledTimes(1);
+      expect(broadcast.mock.calls.filter(([type]) => type === WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_LIST_INVALIDATED)).toHaveLength(1);
       expect(broadcast).toHaveBeenLastCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_LIST_INVALIDATED, {});
     });
 
@@ -130,12 +229,14 @@ describe('Providers API', () => {
 
       await request(app).delete(`/api/providers/${provider.id}`).expect(204);
 
-      expect(broadcast).toHaveBeenCalledTimes(1);
+      expect(broadcast.mock.calls.filter(([type]) => type === WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_LIST_INVALIDATED)).toHaveLength(1);
       expect(broadcast).toHaveBeenLastCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_LIST_INVALIDATED, {});
     });
 
     it('still succeeds with a logged diagnostic when the broadcast layer fails', async () => {
-      broadcast.mockRejectedValueOnce(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }));
+      broadcast.mockImplementation((type) => type === WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_LIST_INVALIDATED
+        ? Promise.reject(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }))
+        : Promise.resolve());
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       try {
         const response = await request(app)
@@ -144,11 +245,12 @@ describe('Providers API', () => {
           .expect(201);
 
         testProviderId = response.body.id;
-        expect(broadcast).toHaveBeenCalledTimes(1);
+        expect(broadcast.mock.calls.filter(([type]) => type === WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_LIST_INVALIDATED)).toHaveLength(1);
         expect(warn).toHaveBeenCalledTimes(1);
         expect(warn.mock.calls[0].join(' ')).toContain('list-invalidation-failed');
       } finally {
         warn.mockRestore();
+        broadcast.mockImplementation(() => Promise.resolve());
       }
     });
 
@@ -426,6 +528,15 @@ describe('Providers API', () => {
       expect(response.body.error).toBeDefined();
     });
 
+    it('400: rejects renaming a model to the Model Tier reference prefix', async () => {
+      const response = await request(app)
+        .patch(`/api/providers/${testProviderId}/models/${testModelId}`)
+        .send({ modelId: 'tier::high' })
+        .expect(400);
+
+      expect(response.body.error).toMatch(/reserved "tier::" prefix/);
+    });
+
     it('200: valid request with displayName update only', async () => {
       const response = await request(app)
         .patch(`/api/providers/${testProviderId}/models/${testModelId}`)
@@ -492,6 +603,18 @@ describe('Providers API', () => {
         .expect(400);
 
       expect(response.body.error).toBeDefined();
+    });
+
+    it('400: rejects the Model Tier reference prefix as a concrete model ID', async () => {
+      const response = await request(app)
+        .post(`/api/providers/${testProviderId}/models`)
+        .send({
+          modelId: 'tier::high',
+          displayName: 'Ambiguous model',
+        })
+        .expect(400);
+
+      expect(response.body.error).toMatch(/reserved "tier::" prefix/);
     });
   });
 

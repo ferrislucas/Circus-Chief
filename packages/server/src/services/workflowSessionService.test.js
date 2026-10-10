@@ -132,6 +132,32 @@ describe('workflowSessionService', () => {
     expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
   });
 
+  it('does not inherit an open run after its card has moved off the source lane', () => {
+    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    attachRootSession(run.id, worker.id);
+    databaseManager.get().prepare('UPDATE kanban_cards SET lane_id=? WHERE id=?').run(target.id, card.id);
+
+    const child = sessions.create(project.id, 'Child', 'child work', { parentSessionId: worker.id });
+
+    expect(getRun(run.id).status).toBe('open');
+    expect(sessions.getById(child.id).laneRunId).toBeNull();
+    expect(sessions.getById(child.id).parentSessionId).toBe(worker.id);
+  });
+
+  it('does not inherit an open run that is no longer the card active run', () => {
+    const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+    const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+    attachRootSession(run.id, worker.id);
+    databaseManager.get().prepare('UPDATE kanban_cards SET active_lane_run_id=NULL WHERE id=?').run(card.id);
+
+    const child = sessions.create(project.id, 'Child', 'child work', { parentSessionId: worker.id });
+
+    expect(getRun(run.id).status).toBe('open');
+    expect(sessions.getById(child.id).laneRunId).toBeNull();
+    expect(sessions.getById(child.id).parentSessionId).toBe(worker.id);
+  });
+
   it('clears the active run after success without a completion target', () => {
     const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
     const run = createLaneRunForEntry({
@@ -157,6 +183,26 @@ describe('workflowSessionService', () => {
   });
 
   describe('closeOwnWork (W4: FR-9 failure/cancellation propagation)', () => {
+    const CREDENTIAL_SENTINEL = 'sentinel-4-close-own-work-secret';
+
+    it('redacts credentials from the persisted failure reason and audit details', () => {
+      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+      const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+      attachRootSession(run.id, worker.id);
+      beginWorkflowTurn(worker.id);
+
+      closeOwnWork(worker.id, 'closed_failed', `rate limit exceeded api_key=${CREDENTIAL_SENTINEL}`);
+
+      expect(sessions.getById(worker.id).workflowReason).not.toContain(CREDENTIAL_SENTINEL);
+      const events = databaseManager.get().prepare(
+        "SELECT details_json FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='own_work_failed'"
+      ).all(run.id);
+      expect(events.length).toBeGreaterThan(0);
+      for (const event of events) {
+        expect(event.details_json || '').not.toContain(CREDENTIAL_SENTINEL);
+      }
+    });
+
     it('fails the run and does not move the card on a permanent execution failure (AC-8)', () => {
       const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
       const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });

@@ -67,6 +67,27 @@ export const WS_MESSAGE_TYPES = {
   // A lane worker selected a destination, but its card stays put until the
   // worker's run completes and the handoff can be performed safely.
   KANBAN_EXIT_LANE_DECLARED: 'kanban:exit_lane_declared',
+
+  // Configuration reconciliation events. These carry canonical records after
+  // a tier deletion or member loss rewrites a persisted tier reference.
+  TEMPLATE_UPDATED: 'template:updated',
+  PROJECT_DEFAULTS_UPDATED: 'project:defaults_updated',
+  SUMMARY_SETTINGS_UPDATED: 'settings:summary_updated',
+
+  // Fires after a tier, provider, or model-catalog mutation commits so every
+  // connected client refetches canonical catalog state instead of acting on
+  // a stale snapshot. Payload: `{ scope: 'tiers' | 'providers', revision }`.
+  // Revisions are strictly increasing per server process; clients ignore any
+  // revision that is not newer than the last one they applied, which makes
+  // duplicate, delayed, and out-of-order delivery idempotent.
+  CATALOG_INVALIDATED: 'catalog:invalidated',
+
+  // Tier failover events
+  TIER_FAILOVER: 'tier:failover',
+  // Fires for each session whose tier binding was repaired server-side
+  // (tier deleted/emptied) so the open session can notify instead of
+  // silently changing its model.
+  TIER_DEGRADED: 'tier:degraded',
 };
 
 /**

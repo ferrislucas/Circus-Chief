@@ -93,7 +93,7 @@ test.describe('Provider allowance indicators', () => {
     await page.goto('/');
     const session = await seedSession(project.id, {
       prompt: 'Return a brief allowance fixture response.',
-      model: 'gpt-5.4', providerId: provider.id, startImmediately: true,
+      model: 'gpt-5.6-sol', providerId: provider.id, startImmediately: true,
     });
     await waitForStatus(session.id, 'waiting');
 

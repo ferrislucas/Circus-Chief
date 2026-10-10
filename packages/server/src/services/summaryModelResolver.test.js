@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { modelProviders, projects, sessions } from '../database.js';
 import {
   BUILT_IN_ANTHROPIC_PROVIDER_ID,
@@ -22,13 +22,17 @@ describe('summaryModelResolver', () => {
   });
 
   it('resolves an explicit built-in OpenAI model to the OpenAI provider', () => {
+    // NOTE (Issue #13): the fixture must be a catalog-enabled model.
+    // DEFAULT_OPENAI_SUMMARY_MODEL ('gpt-5.4-mini') is catalog-disabled
+    // (lifecycle 'older', defaultEnabled false), so explicit resolution of
+    // that pair now correctly throws — see the disabled-pair tests below.
     const resolved = resolveSummaryModel({
-      summaryModel: DEFAULT_OPENAI_SUMMARY_MODEL,
+      summaryModel: 'gpt-5.6-sol',
       summaryProviderId: 'openai-default',
     });
 
     expect(resolved).toMatchObject({
-      model: DEFAULT_OPENAI_SUMMARY_MODEL,
+      model: 'gpt-5.6-sol',
       kind: 'openai',
       providerId: 'openai-default',
       isDefault: false,
@@ -169,6 +173,33 @@ describe('summaryModelResolver', () => {
     });
   });
 
+  it('throws for an explicit pair on a disabled provider', () => {
+    const provider = modelProviders.create({ name: 'Disabled Summary Provider', kind: 'anthropic' });
+    modelProviders.addModel(provider.id, { modelId: 'disabled-summary-model', displayName: 'Disabled' });
+    modelProviders.update(provider.id, { enabled: false });
+
+    expect(() => resolveSummaryModel({
+      summaryModel: 'disabled-summary-model',
+      summaryProviderId: provider.id,
+    })).toThrow(/disabled/i);
+
+    modelProviders.delete(provider.id);
+  });
+
+  it('throws for an explicit pair with a disabled model', () => {
+    const provider = modelProviders.create({ name: 'Model Disabled Summary Provider', kind: 'anthropic' });
+    modelProviders.addModel(provider.id, { modelId: 'toggled-summary-model', displayName: 'Toggled' });
+    const rowId = modelProviders.getById(provider.id).models.find((m) => m.modelId === 'toggled-summary-model').id;
+    modelProviders.updateModel(rowId, { enabled: false });
+
+    expect(() => resolveSummaryModel({
+      summaryModel: 'toggled-summary-model',
+      summaryProviderId: provider.id,
+    })).toThrow(/disabled/i);
+
+    modelProviders.delete(provider.id);
+  });
+
   it('throws for model-only explicit settings', () => {
     expect(() => resolveSummaryModel({
       summaryModel: DEFAULT_OPENAI_SUMMARY_MODEL,
@@ -196,5 +227,114 @@ describe('summaryModelResolver', () => {
       selectionReason: 'explicit',
     });
     expect(resolved.provider).toMatchObject({ id: BUILT_IN_ANTHROPIC_PROVIDER_ID, isBuiltIn: true });
+  });
+
+  // A configured summary tier must remain authoritative during cooldown. Only
+  // missing, empty, or stale tier configuration may degrade to the default.
+  describe('tier summary model degradation (Fix 9)', () => {
+    let tierProvider;
+
+    beforeEach(async () => {
+      const { modelTiers } = await import('../database.js');
+      const { markUnhealthy, clearUnhealthy } = await import('./tierResolutionService.js');
+
+      tierProvider = modelProviders.create({ name: 'Tier Provider', kind: 'anthropic' });
+      // Expose helpers on the suite for afterEach cleanup
+      suite.tierProvider = tierProvider;
+      suite.markUnhealthy = markUnhealthy;
+      suite.clearUnhealthy = clearUnhealthy;
+      suite.modelTiers = modelTiers;
+    });
+
+    // Use a plain object as a shared context for this nested describe block
+    const suite = {};
+
+    it('reports cooldown exhaustion when all configured tier members are cooled down', async () => {
+      const { buildTierRef } = await import('@circuschief/shared');
+      modelProviders.addModel(suite.tierProvider.id, {
+        modelId: 'model-cooled',
+        displayName: 'Cooled model',
+      });
+      const tier = suite.modelTiers.create({
+        name: 'Summary Tier',
+        members: [{ providerId: suite.tierProvider.id, modelId: 'model-cooled', position: 0 }],
+      });
+      suite.markUnhealthy(suite.tierProvider.id, 'model-cooled', 60_000);
+
+      expect(() => resolveSummaryModel({
+        summaryModel: buildTierRef(tier.id),
+        summaryProviderId: null,
+      })).toThrow(expect.objectContaining({
+        code: 'MODEL_TIER_COOLDOWN_UNAVAILABLE',
+        tierId: tier.id,
+        tierName: 'Summary Tier',
+      }));
+
+      // Cleanup
+      suite.clearUnhealthy(suite.tierProvider.id, 'model-cooled');
+    });
+
+    it('resolves normally when a tier member is healthy', async () => {
+      const { buildTierRef } = await import('@circuschief/shared');
+      const tier = suite.modelTiers.create({
+        name: 'Healthy Tier',
+        members: [{ providerId: suite.tierProvider.id, modelId: 'claude-haiku-4-5-20251001', position: 0 }],
+      });
+      // The resolved model needs a valid provider — add it to the provider
+      modelProviders.addModel(suite.tierProvider.id, {
+        modelId: 'claude-haiku-4-5-20251001',
+        displayName: 'Haiku test',
+      });
+
+      const resolved = resolveSummaryModel({ summaryModel: buildTierRef(tier.id), summaryProviderId: null });
+
+      expect(resolved.model).toBe('claude-haiku-4-5-20251001');
+      expect(resolved.providerId).toBe(suite.tierProvider.id);
+      expect(resolved.isDefault).toBe(false);
+    });
+
+    it('resolves the active Google tier member for Google summary dispatch', async () => {
+      const { buildTierRef } = await import('@circuschief/shared');
+      const googleProvider = modelProviders.create({ name: 'Summary Resolver Google Provider', kind: 'google' });
+      modelProviders.addModel(googleProvider.id, {
+        modelId: 'summary-resolver-gemini-model',
+        displayName: 'Gemini Model',
+      });
+      const tier = suite.modelTiers.create({
+        name: 'Google Summary Tier',
+        members: [{ providerId: googleProvider.id, modelId: 'summary-resolver-gemini-model', position: 0 }],
+      });
+
+      const resolved = resolveSummaryModel({ summaryModel: buildTierRef(tier.id), summaryProviderId: null });
+
+      expect(resolved.model).toBe('summary-resolver-gemini-model');
+      expect(resolved.kind).toBe('google');
+      expect(resolved.providerId).toBe(googleProvider.id);
+      expect(resolved.isDefault).toBe(false);
+
+      modelProviders.delete(googleProvider.id);
+    });
+
+    it('routes to OpenAI when the active tier member is an OpenAI model', async () => {
+      const { buildTierRef } = await import('@circuschief/shared');
+      const openaiProvider = modelProviders.create({ name: 'Summary Resolver OpenAI Tier Provider', kind: 'openai' });
+      modelProviders.addModel(openaiProvider.id, {
+        modelId: 'summary-resolver-openai-tier-model',
+        displayName: 'OpenAI Tier Model',
+      });
+      const tier = suite.modelTiers.create({
+        name: 'OpenAI Summary Tier',
+        members: [{ providerId: openaiProvider.id, modelId: 'summary-resolver-openai-tier-model', position: 0 }],
+      });
+
+      const resolved = resolveSummaryModel({ summaryModel: buildTierRef(tier.id), summaryProviderId: null });
+
+      expect(resolved.model).toBe('summary-resolver-openai-tier-model');
+      expect(resolved.providerId).toBe(openaiProvider.id);
+      expect(resolved.kind).toBe('openai');
+      expect(resolved.isDefault).toBe(false);
+
+      modelProviders.delete(openaiProvider.id);
+    });
   });
 });

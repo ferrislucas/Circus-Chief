@@ -481,12 +481,14 @@ describe('ConversationTab - Model Initialization Bug', () => {
       await flushAll(wrapper);
 
       // BUG: sendMessage is called with null model
-      // Expected: called with 'sonnet' (system default)
+      // Expected: called with 'sonnet' (system default). The send path also
+      // carries the resolved provider alongside a concrete model.
       expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith(
         'sess-123',
         'Test message',
         [], // attachments
-        'sonnet' // model - should NOT be null
+        'sonnet', // model - should NOT be null
+        { providerId: 'anthropic' }
       );
     });
   });

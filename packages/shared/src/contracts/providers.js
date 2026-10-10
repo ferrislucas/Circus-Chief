@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isTierRef, RESERVED_TIER_REF_MODEL_ID_MESSAGE } from './modelTiers.js';
 import { WS_MESSAGE_TYPES } from '../protocol.js';
 
 export const COMMIT_ATTRIBUTION_VALIDATION_MESSAGE =
@@ -187,7 +188,9 @@ export const ProviderAllowanceUpdatedPayload = z.object({
 }).strict();
 
 export const CreateProviderModelRequest = z.object({
-  modelId: z.string().min(1),
+  modelId: z.string().min(1).refine((value) => !isTierRef(value), {
+    message: RESERVED_TIER_REF_MODEL_ID_MESSAGE,
+  }),
   displayName: z.string().min(1).max(100),
   description: z.string().nullable().optional(),
   tier: z.enum(['fable', 'opus', 'sonnet', 'haiku', 'custom']).nullable().optional(),

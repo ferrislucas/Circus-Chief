@@ -14,6 +14,7 @@ import { getRun } from './workflowRunReader.js';
 import { recomputeSubtreeOutcomes } from './workflowSessionState.js';
 import { broadcastCardTransition, moveCardForTransition } from './workflowLaneTransition.js';
 import { SESSION_EXECUTION_STATES } from '@circuschief/shared';
+import { sanitizeString } from './errorSanitizer.js';
 import { USER_STOP_REASON } from './workflowPauseReasons.js';
 import { publishDiscardedPendingDestination } from './kanbanRoutingObservability.js';
 
@@ -87,7 +88,7 @@ function clearExecutableMemberState(db, runId, reason, time) {
   return db.prepare(`UPDATE sessions SET own_work_state='cancelled', own_work_closed_at=?, workflow_reason=?,
     workflow_updated_at=?, execution_state=CASE WHEN status='running' THEN execution_state ELSE 'stopped' END,
     status=CASE WHEN status='scheduled' THEN 'stopped' ELSE status END,
-    scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_conversation_id=NULL, pending_interactive=NULL,
+    scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_provider_id=NULL, pending_conversation_id=NULL, pending_interactive=NULL,
     auto_send_pending_prompt=0, reschedule_count=0
     WHERE lane_run_id=? AND own_work_state='open'`).run(time, reason, time, runId);
 }
@@ -121,7 +122,7 @@ export function claimWorkflowSessionStart(sessionId) {
     // A user scheduled follow-up has the same authority as an interactive send.
     if (session.pending_interactive) return true;
     const time = now();
-    db.prepare(`UPDATE sessions SET scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_interactive=NULL,
+    db.prepare(`UPDATE sessions SET scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_provider_id=NULL, pending_interactive=NULL,
       auto_send_pending_prompt=0, execution_state='stopped', status=CASE WHEN status='scheduled' THEN 'stopped' ELSE status END,
       workflow_updated_at=? WHERE id=?`).run(time, sessionId);
     audit(db, session.lane_run_id, 'stale_start_rejected', { sessionId });
@@ -339,11 +340,17 @@ export function closeOwnWork(sessionId, outcome, reason = null, { allowTransitio
   return databaseManager.transaction(() => {
     const db = databaseManager.get(); const s = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
     if (!isParticipating(s) || s.own_work_state !== 'open' || (turnToken && s.execution_turn_token !== turnToken)) return null;
+    // Sanitization guarantee: this is the single persistence boundary for
+    // workflow failure/cancellation reasons, so every caller is covered at
+    // once — raw provider error text (which can echo credentials) never
+    // reaches workflow_reason, the audit trail, or the reconciled run's
+    // failure_reason (which reads back the stored value).
+    const safeReason = typeof reason === 'string' ? sanitizeString(reason) : reason;
     const time = now();
     db.prepare(`UPDATE sessions SET own_work_state=?, workflow_reason=?, own_work_closed_at=?,
       execution_state='stopped', subtree_outcome=?, workflow_updated_at=? WHERE id=?`)
-      .run(outcome, reason, time, outcome === 'closed_failed' ? 'failed' : 'cancelled', time, sessionId);
-    audit(db, s.lane_run_id, outcome === 'closed_failed' ? 'own_work_failed' : 'own_work_cancelled', { sessionId, details: { reason } });
+      .run(outcome, safeReason, time, outcome === 'closed_failed' ? 'failed' : 'cancelled', time, sessionId);
+    audit(db, s.lane_run_id, outcome === 'closed_failed' ? 'own_work_failed' : 'own_work_cancelled', { sessionId, details: { reason: safeReason } });
     return reconcileLaneRun(s.lane_run_id, { allowTransition });
   });
 }

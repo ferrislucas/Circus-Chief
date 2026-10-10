@@ -2,6 +2,15 @@ import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { normalizeCommitAttributionOverride } from '@circuschief/shared/contracts/providers';
+import { degradeReferencesToEmptiedTiers } from '../services/tierDeletionService.js';
+import { repairConcreteProviderReferences } from '../services/tierProviderRepair.js';
+import {
+  validateBuiltInUpdate,
+  validateKindImmutable,
+  buildUpdateColumns,
+  removesProviderEligibility,
+  removesModelEligibility,
+} from './providerMutationHelpers.js';
 import * as modelOps from './providerModelOperations.js';
 
 /**
@@ -30,56 +39,6 @@ export const AGENT_TYPE_BY_KIND = Object.freeze({
   google: 'gemini',
   meta: 'muse',
 });
-
-const BUILT_IN_MUTABLE_FIELDS = Object.freeze(['commitAttributionOverride', 'enabled']);
-
-const UPDATE_COLUMN_BUILDERS = Object.freeze({
-  name: (value) => ['name = ?', value],
-  baseUrl: (value) => ['base_url = ?', value],
-  authToken: (value) => ['auth_token = ?', encrypt(value)],
-  apiTimeoutMs: (value) => ['api_timeout_ms = ?', value],
-  additionalEnvVars: (value) => [
-    'additional_env_vars = ?',
-    value ? JSON.stringify(value) : null,
-  ],
-  commitAttributionOverride: (value) => [
-    'commit_attribution_override = ?',
-    normalizeCommitAttributionOverride(value),
-  ],
-  enabled: (value) => ['enabled = ?', value ? 1 : 0],
-});
-
-function validateBuiltInUpdate(provider, data) {
-  if (!provider.isBuiltIn) return;
-
-  const unsupportedFields = Object.keys(data || {}).filter(
-    (key) => !BUILT_IN_MUTABLE_FIELDS.includes(key)
-  );
-  if (unsupportedFields.length > 0) {
-    throw new Error(
-      `Built-in providers can only update: ${BUILT_IN_MUTABLE_FIELDS.join(', ')}. Rejected fields: ${unsupportedFields.join(', ')}.`
-    );
-  }
-}
-
-function validateKindImmutable(data) {
-  if (!data || !Object.prototype.hasOwnProperty.call(data, 'kind')) return;
-
-  throw new Error(
-    "Provider kind is immutable after create. Delete and recreate the provider to change kind."
-  );
-}
-
-function buildUpdateColumns(data = {}) {
-  return Object.entries(UPDATE_COLUMN_BUILDERS).reduce((result, [field, buildColumn]) => {
-    if (data[field] === undefined) return result;
-
-    const [update, value] = buildColumn(data[field]);
-    result.updates.push(update);
-    result.values.push(value);
-    return result;
-  }, { updates: [], values: [] });
-}
 
 /**
  * Provider repository class (replaces ModelProviderRepository).
@@ -203,47 +162,116 @@ export class ProviderRepository extends BaseRepository {
     return { ...provider, models: this.getModels(id) };
   }
 
+  /** Batch-load providers with models in two queries, keyed by id. */
+  getByIdsWithModels(ids) { return modelOps.getProvidersByIds(this.db, ids, (row) => this.map(row)); }
+
+  // Shared update preamble: fetch + mutable-field validation. Both update
+  // variants propagate null for a missing provider.
+  #getUpdatableProvider(id, data) {
+    const provider = this.getById(id);
+    if (!provider) return null;
+    validateBuiltInUpdate(provider, data);
+    validateKindImmutable(data);
+    return provider;
+  }
+
+  // Shared delete preamble: fetch + built-in guard. Both delete variants
+  // throw identically for missing/built-in providers.
+  #requireDeletableProvider(id) {
+    const provider = this.getById(id);
+    if (!provider) throw new Error('Provider not found');
+    if (provider.isBuiltIn) throw new Error('Cannot delete built-in provider');
+    return provider;
+  }
+
   /**
    * Update a provider
    * @param {string} id
    * @param {Object} data
    * @returns {Object} Updated provider (with models array)
    */
+  /** Update a provider. Quiet variant (facts discarded): use `updateWithDegradation` + publish in production. */
   update(id, data) {
-    const provider = this.getById(id);
+    const provider = this.#getUpdatableProvider(id, data);
     if (!provider) return null;
 
-    validateBuiltInUpdate(provider, data);
-    validateKindImmutable(data);
+    return databaseManager.transaction(() => {
+      const { updates, values } = buildUpdateColumns(data);
 
-    const { updates, values } = buildUpdateColumns(data);
+      if (updates.length > 0) {
+        updates.push('updated_at = ?');
+        values.push(Date.now());
+        values.push(id);
 
-    if (updates.length > 0) {
-      updates.push('updated_at = ?');
-      values.push(Date.now());
-      values.push(id);
+        this.db.prepare(`UPDATE providers SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+      }
 
-      this.db.prepare(`UPDATE providers SET ${updates.join(', ')} WHERE id = ?`).run(...values);
-    }
+      if (removesProviderEligibility(provider, data)) degradeReferencesToEmptiedTiers();
+      return this.getById(id);
+    });
+  }
 
-    return this.getById(id);
+  /** Update a provider and return post-commit degradation facts for delivery. */
+  updateWithDegradation(id, data) {
+    const provider = this.#getUpdatableProvider(id, data);
+    if (!provider) return null;
+
+    return databaseManager.transaction(() => {
+      const { updates, values } = buildUpdateColumns(data);
+      if (updates.length > 0) {
+        updates.push('updated_at = ?');
+        values.push(Date.now(), id);
+        this.db.prepare(`UPDATE providers SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+      }
+      const degradation = removesProviderEligibility(provider, data) ? degradeReferencesToEmptiedTiers() : [];
+      return { provider: this.getById(id), degradation };
+    });
   }
 
   /**
-   * Delete a provider (prevents deletion of built-in providers)
+   * Delete a provider (prevents deletion of built-in providers).
+   *
+   * Atomic with tier repair: deleting a provider cascades its
+   * `model_tier_members` rows away, which can empty one or more model tiers.
+   * In the same transaction, every persisted consumer of a tier left with no
+   * executable member (project defaults, templates, lanes, summary settings,
+   * sessions) is degraded to its default — mirroring
+   * `deleteTierAndDegradeReferences` — so session creation and other tier
+   * consumers never fail validation on a dangling `tier::<id>` ref.
+   * Quiet variant (facts discarded): use `deleteWithDegradation` + publish in production.
    * @param {string} id
    * @throws {Error} If attempting to delete a built-in provider or non-existent provider
    */
-  delete(id) {
-    const provider = this.getById(id);
-    if (!provider) {
-      throw new Error('Provider not found');
-    }
-    if (provider.isBuiltIn) {
-      throw new Error('Cannot delete built-in provider');
-    }
+  // Shared transactional deletion core (finding 8): repair dependent concrete
+  // (model, providerId) pairs BEFORE the provider row goes away — upgraded
+  // NO ACTION foreign keys would fail the delete otherwise — then delete the
+  // row (cascading its tier members) and run the existing emptied-tier
+  // degradation after the cascade. Repair facts come first so notifications
+  // read in dependency order; callers publish only after commit.
+  #deleteProviderAndRepair(id) {
+    return databaseManager.transaction(() => {
+      const repair = repairConcreteProviderReferences(databaseManager.get(), id, Date.now());
+      super.delete(id);
+      const tierSweep = degradeReferencesToEmptiedTiers();
+      return repair ? [repair, ...tierSweep] : tierSweep;
+    });
+  }
 
-    super.delete(id);
+  delete(id) {
+    this.#requireDeletableProvider(id);
+
+    this.#deleteProviderAndRepair(id);
+  }
+
+  /**
+   * Delete a provider and return the committed reference-repair facts for
+   * the API layer to publish: the concrete-pair repair first, then the
+   * tier-reference sweep. Kept separate from `delete` so internal cleanup
+   * callers remain transport-agnostic.
+   */
+  deleteWithDegradation(id) {
+    this.#requireDeletableProvider(id);
+    return this.#deleteProviderAndRepair(id);
   }
 
   /**
@@ -297,7 +325,11 @@ export class ProviderRepository extends BaseRepository {
   }
 
   /**
-   * Update an existing model
+   * Update an existing model. Atomic with tier repair: renaming a model id
+   * removes the old id from the executable catalog, which can leave a tier
+   * whose members referenced the old id without any executable member — its
+   * persisted consumers are degraded in the same transaction.
+   * Quiet variant (facts discarded): use `updateModelWithDegradation` + publish in production.
    * @param {string} id - Model row ID
    * @returns {Object} Updated model
    */
@@ -305,18 +337,56 @@ export class ProviderRepository extends BaseRepository {
     const current = this.getModelById(id);
     if (!current) throw new Error('Model not found');
     const provider = this.getById(current.providerId);
-    return modelOps.updateModel(this.db, id, data, { current, provider });
+    const removesEligibility = removesModelEligibility(current, data);
+    return databaseManager.transaction(() => {
+      const updated = modelOps.updateModel(this.db, id, data, { current, provider });
+      if (removesEligibility) degradeReferencesToEmptiedTiers();
+      return updated;
+    });
+  }
+
+  /** Update a model and retain any tier degradation change sets for delivery. */
+  updateModelWithDegradation(id, data) {
+    const current = this.getModelById(id);
+    if (!current) throw new Error('Model not found');
+    const provider = this.getById(current.providerId);
+    const removesEligibility = removesModelEligibility(current, data);
+    return databaseManager.transaction(() => {
+      const model = modelOps.updateModel(this.db, id, data, { current, provider });
+      const degradation = removesEligibility ? degradeReferencesToEmptiedTiers() : [];
+      return { model, degradation };
+    });
   }
 
   /**
    * Remove a model from a provider (soft-removal; see providerModelOperations.js).
+   *
+   * Atomic with tier repair: tombstoning the last executable member of a tier
+   * empties it, so every persisted consumer of that tier is degraded to its
+   * default in the same transaction (safe-deletion requirement; mirrors
+   * `deleteTierAndDegradeReferences`).
+   * Quiet variant (facts discarded): use `removeModelWithDegradation` + publish in production.
    * @param {string} modelId - Model row ID (not the model string like "claude-opus-4-6")
    * @returns {Object} The soft-removed model row
    */
   removeModel(modelId) {
     const model = this.getModelById(modelId);
     if (!model) throw new Error('Model not found');
-    return modelOps.removeModel(this.db, modelId, model);
+    return databaseManager.transaction(() => {
+      const removed = modelOps.removeModel(this.db, modelId, model);
+      degradeReferencesToEmptiedTiers();
+      return removed;
+    });
+  }
+
+  /** Soft-remove a model and retain tier repair facts for post-commit delivery. */
+  removeModelWithDegradation(modelId) {
+    const model = this.getModelById(modelId);
+    if (!model) throw new Error('Model not found');
+    return databaseManager.transaction(() => {
+      const removed = modelOps.removeModel(this.db, modelId, model);
+      return { model: removed, degradation: degradeReferencesToEmptiedTiers() };
+    });
   }
 
   reorderModels(providerId, orderedRowIds) {
@@ -407,7 +477,7 @@ export class ProviderRepository extends BaseRepository {
    */
   getAllModelIds() {
     const rows = this.db
-      .prepare('SELECT DISTINCT model_id FROM provider_models')
+      .prepare("SELECT DISTINCT model_id FROM provider_models WHERE substr(model_id, 1, 6) <> 'tier::'")
       .all();
     const ids = new Set(rows.map((row) => row.model_id));
     for (const alias of MODEL_TIER_ALIASES) {

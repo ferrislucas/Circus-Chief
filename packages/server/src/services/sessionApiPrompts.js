@@ -144,6 +144,7 @@ For \`POST /lanes\`, \`name\` is the only required field (a non-empty string). A
 - \`onEnterPrompt\` — string or null; prompt used for entry automation.
 - \`onEnterMode\` — \`plan\`, \`standard\`, or \`yolo\`, or null; entry session mode.
 - \`onEnterModel\` — string or null; entry session model identifier.
+- \`onEnterProviderId\` — UUID string or null; provider that owns \`onEnterModel\`. Only needed to disambiguate when the same model id is registered under more than one provider; \`null\` lets the server resolve the provider from the model.
 - \`onEnterEffortLevel\` — \`low\`, \`medium\`, \`high\`, \`max\`, or \`auto\`, or null; entry session reasoning effort.
 - \`onEnterThinkingEnabled\` — boolean or null; entry session thinking setting.
 - \`onEnterAutoRescheduleEnabled\` — boolean; enables automatic rescheduling.

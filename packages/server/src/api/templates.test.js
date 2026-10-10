@@ -4,6 +4,7 @@ import request from 'supertest';
 import templatesRouter from './templates.js';
 import { projects, sessionTemplates } from '../database.js';
 import { getDatabase } from '../db/index.js';
+import { callRouter } from '../../test/callRouter.js';
 
 describe('Templates API', () => {
   let app;
@@ -320,6 +321,48 @@ describe('Templates API', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.nextTemplateId).toBeNull();
+    });
+
+    // Network-free coverage (same handlers as the supertest cases above, via
+    // test/callRouter.js) for environments where supertest cannot bind a port.
+    describe('untouched model bindings (direct router calls)', () => {
+      it('allows an unrelated edit when the stored binding is stale', async () => {
+        const template = sessionTemplates.create({
+          projectId: null,
+          name: 'Stale Binding',
+          prompt: 'Prompt',
+          model: 'ghost-model',
+          providerId: null,
+        });
+
+        const res = await callRouter(templatesRouter, {
+          method: 'PATCH',
+          url: `/${template.id}`,
+          body: { name: 'Renamed' },
+        });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.name).toBe('Renamed');
+        expect(res.body.model).toBe('ghost-model');
+      });
+
+      it('still validates the binding when the request touches it', async () => {
+        const template = sessionTemplates.create({
+          projectId: null,
+          name: 'Stale Binding',
+          prompt: 'Prompt',
+          model: 'ghost-model',
+          providerId: null,
+        });
+
+        const res = await callRouter(templatesRouter, {
+          method: 'PATCH',
+          url: `/${template.id}`,
+          body: { model: 'also-ghost' },
+        });
+
+        expect(res.statusCode).toBe(400);
+      });
     });
   });
 
