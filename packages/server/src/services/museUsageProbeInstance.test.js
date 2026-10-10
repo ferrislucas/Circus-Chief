@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MuseUsageProbe } from './museUsageProbe.js';
+import { getProviderAllowanceObserver } from './providerAllowanceServiceInstance.js';
 import {
   MUSE_USAGE_PROBE_HEARTBEAT_MS,
   heartbeatTick,
@@ -45,8 +46,14 @@ function createHangingServe(spawned) {
       for (const line of String(chunk).split('\n')) {
         if (!line.trim()) continue;
         const frame = JSON.parse(line);
-        if (frame.method === 'initialize' || frame.method === 'session/start') {
+        if (frame.method === 'initialize') {
           child.stdout.emit('data', Buffer.from(`${JSON.stringify({ jsonrpc: '2.0', id: frame.id, result: {} })}\n`));
+        } else if (frame.method === 'session/start') {
+          child.stdout.emit('data', Buffer.from(`${JSON.stringify({
+            jsonrpc: '2.0',
+            id: frame.id,
+            result: { session: { sessionId: 'probe-session-1' }, viewCursor: 'cursor-1' },
+          })}\n`));
         }
       }
       return true;
@@ -152,6 +159,18 @@ describe('museUsageProbeInstance', () => {
       expect(probe.stop).toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('wires the allowance observer factory without calling it (Issue 1)', () => {
+    const probe = startMuseUsageProbe();
+    try {
+      // The probe calls this dependency as a zero-argument factory per
+      // attempt; passing the already-bound observer would make every real
+      // observation resolve to null while logging `ok`.
+      expect(probe.getObserver).toBe(getProviderAllowanceObserver);
+    } finally {
+      stopMuseUsageProbe();
     }
   });
 

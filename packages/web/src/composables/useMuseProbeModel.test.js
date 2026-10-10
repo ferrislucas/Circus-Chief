@@ -70,4 +70,48 @@ describe('useMuseProbeModel', () => {
 
     expect(api.probeModel.value).toBe('muse-spark-1.3');
   });
+
+  it('discards a stale load that resolves after a user edit (Issue 9)', async () => {
+    let resolveLoad;
+    const settingsStore = {
+      fetchMuseProbeSettings: vi.fn().mockReturnValue(new Promise((resolve) => { resolveLoad = resolve; })),
+    };
+    const api = useMuseProbeModel({
+      providerRef: ref(META),
+      builtInManageRef: ref(true),
+      localModelsRef: ref(MODELS),
+      settingsStore,
+    });
+    const loading = api.loadProbeModel();
+    // The user picks Contributor while the load is still in flight.
+    api.probeModel.value = 'muse-spark-1.3-contributor';
+    resolveLoad({ probeModel: 'muse-spark-1.3' });
+    await loading;
+
+    expect(api.probeModel.value).toBe('muse-spark-1.3-contributor');
+  });
+
+  it('discards a superseded load when a newer load starts (Issue 9)', async () => {
+    const resolutions = [];
+    const settingsStore = {
+      fetchMuseProbeSettings: vi.fn().mockImplementation(() => new Promise((resolve) => { resolutions.push(resolve); })),
+    };
+    const api = useMuseProbeModel({
+      providerRef: ref(META),
+      builtInManageRef: ref(true),
+      localModelsRef: ref(MODELS),
+      settingsStore,
+    });
+    const first = api.loadProbeModel();
+    const second = api.loadProbeModel();
+    resolutions[0]({ probeModel: 'muse-spark-1.3' });
+    await first;
+    // The stale first response must not mark init complete or clobber state.
+    expect(api.probeModelReady.value).toBe(false);
+    resolutions[1]({ probeModel: 'muse-spark-1.3-contributor' });
+    await second;
+
+    expect(api.probeModel.value).toBe('muse-spark-1.3-contributor');
+    expect(api.probeModelReady.value).toBe(true);
+  });
 });

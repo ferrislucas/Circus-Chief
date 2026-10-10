@@ -1,6 +1,7 @@
+import { randomBytes } from 'node:crypto';
 import { DEFAULT_MUSE_MODEL } from '@circuschief/shared';
 import { mapMuseUsageChanged } from '../agents/adapters/museUsageMapper.js';
-import { killMuseTestProcess, scheduleProbeKillEscalation } from './metaProbe.js';
+import { killMuseTestProcess } from './metaProbe.js';
 
 /**
  * Pure support for the Muse subscription-usage probe: argv construction,
@@ -19,6 +20,30 @@ export const MUSE_PROBE_CLIENT_INFO = Object.freeze({
 
 export const MUSE_PROBE_PROMPT = 'Hi';
 
+/** CLI provider routing pinned so probes always read Meta subscription data. */
+export const MUSE_PROBE_PROVIDER = 'meta';
+
+/**
+ * Mint a UUIDv7 idempotency handle for `session/start` and `turn/start`
+ * (SS2.5, SS3.1.1): 48-bit unix-ms timestamp, `7` version nibble, RFC 4122
+ * variant bits, 74 random bits. Node's `randomUUID()` is v4, which the
+ * schema does not accept here, so the layout is built explicitly.
+ */
+export function newMuseProbeCommandId(nowMs = Date.now()) {
+  const bytes = randomBytes(16);
+  const time = Math.floor(nowMs);
+  bytes[0] = Math.floor(time / 2 ** 40) & 0xff;
+  bytes[1] = Math.floor(time / 2 ** 32) & 0xff;
+  bytes[2] = Math.floor(time / 2 ** 24) & 0xff;
+  bytes[3] = Math.floor(time / 2 ** 16) & 0xff;
+  bytes[4] = Math.floor(time / 2 ** 8) & 0xff;
+  bytes[5] = time & 0xff;
+  bytes[6] = 0x70 | (bytes[6] & 0x0f);
+  bytes[8] = 0x80 | (bytes[8] & 0x3f);
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 /**
  * Build the headless `muse serve` argv for one probe micro-turn (pure).
  * Memory-only sessions (`--no-session-log`) leave no session list/journal
@@ -27,7 +52,7 @@ export const MUSE_PROBE_PROMPT = 'Hi';
 export function buildMuseProbeArgs(model) {
   return {
     command: process.env.MUSE_BIN || 'muse',
-    args: ['serve', '--no-session-log', '--model', model],
+    args: ['serve', '--no-session-log', '--provider', MUSE_PROBE_PROVIDER, '--model', model],
   };
 }
 
@@ -86,6 +111,135 @@ export function observeProbeUsage({ usage, providerId, clock, getObserver }) {
 }
 
 /**
+ * Wait-for-completion state machine for one probe turn. The `turn/start`
+ * response is only admission: the turn ends on the first valid
+ * `usage/changed` or the matching `turn/completed`, falling back to
+ * `usage/read` when the turn ends quietly. A tiny class (not bare
+ * functions over a passed-in bag) so turn bookkeeping mutates `this`
+ * instead of function parameters.
+ */
+export class ProbeTurnWait {
+  constructor() {
+    this.reset();
+  }
+
+  reset() {
+    this.waiter = null;
+    this.usage = null;
+    this.ackedTurnId = null;
+    this.completionTurnId = null;
+  }
+
+  setWaiter(resolve) {
+    this.waiter = { resolve };
+  }
+
+  clearWaiter(resolve) {
+    if (this.waiter?.resolve === resolve) this.waiter = null;
+  }
+
+  resolveWaiter(value) {
+    this.waiter?.resolve(value);
+  }
+
+  /**
+   * Record an admission acknowledgement. Returns `completed` when a
+   * stashed completion already matches the acknowledged turn (completion
+   * raced the ack), `waiting` while the turn runs, or `invalid` for a
+   * non-string turn id.
+   */
+  noteAdmission(turnId) {
+    if (typeof turnId !== 'string' || !turnId) return 'invalid';
+    this.ackedTurnId = turnId;
+    return this.completionTurnId === turnId ? 'completed' : 'waiting';
+  }
+
+  /**
+   * Record a `usage/changed` frame. Returns the ended outcome for the
+   * first valid payload, or null when the frame carries no usable window.
+   */
+  noteUsageChanged(params, observedAt) {
+    const candidate = mapMuseUsageChanged(params, { observedAt });
+    if (!candidate) return null;
+    this.usage = params;
+    return { ended: true, usage: params };
+  }
+
+  /**
+   * Record a `turn/completed` notification. Returns the ended outcome
+   * (usage may be null, sending the caller to `usage/read`) for the
+   * matching turn, or null for malformed or foreign turn ids.
+   */
+  noteCompleted(turnId) {
+    if (typeof turnId !== 'string' || !turnId) return null;
+    if (this.ackedTurnId && this.ackedTurnId !== turnId) return null;
+    this.completionTurnId = turnId;
+    return { ended: true, usage: this.usage };
+  }
+}
+
+/**
+ * Submit one probe `turn/start` and wait for real completion (not the
+ * admission acknowledgement): the returned promise resolves ended only on
+ * the first valid `usage/changed` or the matching `turn/completed` routed
+ * through `turn`, or un-ended on abort, timeout, or rejection. Timers are
+ * `unref`d so an orphaned wait never holds the server event loop open.
+ */
+export function runProbeTurn({ rpc, child, sessionId, turn, turnTimeoutMs, isCurrent }) {
+  const id = rpc.nextId();
+  const frame = JSON.stringify({
+    jsonrpc: '2.0',
+    id,
+    method: 'turn/start',
+    params: {
+      commandId: newMuseProbeCommandId(),
+      sessionId,
+      input: [{ type: 'text', text: MUSE_PROBE_PROMPT }],
+    },
+  });
+  return new Promise((resolve) => {
+    let done = false;
+    const timer = setTimeout(() => finish({ ended: false }), turnTimeoutMs);
+    timer.unref?.();
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      rpc.pendingReads.delete(id);
+      turn.clearWaiter(turnResolve);
+      resolve(value);
+    };
+    const turnResolve = (value) => finish(value);
+    turn.setWaiter(turnResolve);
+    rpc.pendingReads.set(id, {
+      resolve: ({ delivered, result }) => {
+        if (!delivered) {
+          finish({ ended: false });
+          return;
+        }
+        if (!isCurrent()) {
+          finish({ ended: false });
+          return;
+        }
+        // Admission only: record the acknowledged turn and keep waiting.
+        // The request entry is retired so a late duplicate ack cannot end
+        // a later wait; aborts still reach us through the turn waiter.
+        const admission = turn.noteAdmission(result?.turnId);
+        rpc.pendingReads.delete(id);
+        if (admission === 'invalid') finish({ ended: false });
+        else if (admission === 'completed') finish({ ended: true, usage: turn.usage });
+      },
+      timer: null,
+    });
+    try {
+      child.stdin.write(`${frame}\n`);
+    } catch {
+      finish({ ended: false });
+    }
+  });
+}
+
+/**
  * Mutable JSON-RPC request state for one probe generation. A tiny class (not
  * bare functions over a passed-in bag) so request bookkeeping mutates `this`
  * instead of function parameters.
@@ -94,6 +248,13 @@ export class ProbeRpc {
   constructor() {
     this.nextRequestId = 1;
     this.pendingReads = new Map();
+  }
+
+  /** Mint the next JSON-RPC request id (mutates `this`, never a parameter). */
+  nextId() {
+    const id = this.nextRequestId;
+    this.nextRequestId += 1;
+    return id;
   }
 
   /**
@@ -158,12 +319,55 @@ export class ProbeRpc {
 }
 
 /**
+ * Wait for a probe child to exit, resolving false after `timeoutMs` while
+ * the caller keeps draining output. Works with real ChildProcess handles
+ * and emitter fakes alike.
+ */
+export function waitForProbeChildExit(child, timeoutMs) {
+  return new Promise((resolve) => {
+    let done = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.off?.('exit', onExit);
+      child.off?.('close', onExit);
+    };
+    const onExit = () => {
+      if (done) return;
+      done = true;
+      cleanup();
+      resolve(true);
+    };
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      cleanup();
+      resolve(false);
+    }, timeoutMs);
+    timer.unref?.();
+    child.once?.('exit', onExit);
+    child.once?.('close', onExit);
+  });
+}
+
+/**
  * Tear a probe child down with SIGTERM→SIGKILL escalation on hang (FR-7).
+ * Stdout keeps draining through the grace period: the readline is closed
+ * only after the child exits or is force-killed, so no output is lost and
+ * the single-flight guard (held by the caller) covers the whole teardown.
  * Takes the pieces explicitly so the owning class stays under budget.
  */
-export function destroyProbeChild({ child, closeReadline, killGraceMs }) {
-  closeReadline?.();
-  if (!child) return;
-  killMuseTestProcess(child);
-  scheduleProbeKillEscalation(child, { probeKillGraceMs: killGraceMs });
+export async function teardownProbeChild({ child, closeReadline, killGraceMs }) {
+  try {
+    if (child) {
+      killMuseTestProcess(child);
+      const exited = await waitForProbeChildExit(child, killGraceMs);
+      if (!exited) {
+        killMuseTestProcess(child, undefined, true);
+        await waitForProbeChildExit(child, killGraceMs);
+      }
+    }
+  } catch { /* teardown never fails the probe */ }
+  try {
+    closeReadline?.();
+  } catch { /* ignore */ }
 }

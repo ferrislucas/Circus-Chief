@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { DEFAULT_MUSE_MODEL } from '@circuschief/shared';
 
 export const MUSE_PROBE_DEFAULT_MODEL = DEFAULT_MUSE_MODEL;
@@ -20,6 +20,18 @@ export function showsMuseProbeModelSection(provider) {
  */
 export function useMuseProbeModel({ providerRef, builtInManageRef, localModelsRef, settingsStore }) {
   const probeModel = ref(MUSE_PROBE_DEFAULT_MODEL);
+  const probeModelLoading = ref(false);
+  const probeModelReady = ref(false);
+  let loadGeneration = 0;
+  let applyingLoad = false;
+  let userEditedDuringLoad = false;
+
+  // A user edit landing while a load is in flight wins over the stale
+  // response. Synchronous flush so an edit followed by a same-tick load
+  // resolution is still observed as an edit.
+  watch(probeModel, () => {
+    if (probeModelLoading.value && !applyingLoad) userEditedDuringLoad = true;
+  }, { flush: 'sync' });
 
   // Visible only in built-in-manage mode for the `meta` provider (FR-9);
   // every other provider kind keeps byte-for-byte today's layout.
@@ -41,17 +53,50 @@ export function useMuseProbeModel({ providerRef, builtInManageRef, localModelsRe
 
   // Loads the stored probe model, coercing a stale value to the default so
   // the section renders with the default selected. Failures keep the
-  // default so the modal always opens usable.
+  // default so the modal always opens usable. A response from a superseded
+  // load, or one racing a user edit, is discarded so a slow fetch can never
+  // revert a pending selection.
   async function loadProbeModel() {
+    loadGeneration += 1;
+    const generation = loadGeneration;
+    probeModelLoading.value = true;
+    probeModelReady.value = false;
+    userEditedDuringLoad = false;
+    let stored = null;
     try {
-      const stored = await settingsStore.fetchMuseProbeSettings();
-      probeModel.value = stored?.probeModel || MUSE_PROBE_DEFAULT_MODEL;
+      stored = await settingsStore.fetchMuseProbeSettings();
     } catch {
-      probeModel.value = MUSE_PROBE_DEFAULT_MODEL;
+      stored = null;
     }
-    if (!probeModelOptions.value.some((option) => option.modelId === probeModel.value)) {
-      probeModel.value = MUSE_PROBE_DEFAULT_MODEL;
+    if (generation === loadGeneration && !userEditedDuringLoad) {
+      applyingLoad = true;
+      try {
+        probeModel.value = stored?.probeModel || MUSE_PROBE_DEFAULT_MODEL;
+        if (!probeModelOptions.value.some((option) => option.modelId === probeModel.value)) {
+          probeModel.value = MUSE_PROBE_DEFAULT_MODEL;
+        }
+      } finally {
+        applyingLoad = false;
+      }
     }
+    if (generation === loadGeneration) {
+      probeModelLoading.value = false;
+      probeModelReady.value = true;
+    }
+  }
+
+  // Resolves once the latest load (if any) settles, so saving cannot
+  // persist the initial default over a not-yet-loaded stored value.
+  function awaitProbeModelReady() {
+    if (probeModelReady.value) return Promise.resolve();
+    return new Promise((resolve) => {
+      const stopWatch = watch(probeModelReady, (ready) => {
+        if (ready) {
+          stopWatch();
+          resolve();
+        }
+      });
+    });
   }
 
   return {
@@ -59,7 +104,10 @@ export function useMuseProbeModel({ providerRef, builtInManageRef, localModelsRe
     probeModelOptions,
     effectiveProbeModel,
     showProbeModelSection,
+    probeModelLoading,
+    probeModelReady,
     resetProbeModel,
     loadProbeModel,
+    awaitProbeModelReady,
   };
 }

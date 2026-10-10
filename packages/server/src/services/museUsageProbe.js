@@ -1,16 +1,18 @@
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
-import { mapMuseUsageChanged } from '../agents/adapters/museUsageMapper.js';
 import {
   MUSE_PROBE_CLIENT_INFO,
-  MUSE_PROBE_PROMPT,
+  MUSE_PROBE_PROVIDER,
   ProbeRpc,
+  ProbeTurnWait,
   buildMuseProbeArgs,
-  destroyProbeChild,
   logMuseProbeOutcome,
+  newMuseProbeCommandId,
   observeProbeUsage,
   resolveMuseAllowanceProvider,
   resolveMuseProbeModel,
+  runProbeTurn,
+  teardownProbeChild,
 } from './museUsageProbeSupport.js';
 
 export {
@@ -36,6 +38,13 @@ export {
  */
 
 const MAX_CONSECUTIVE_FAILURES = 5;
+
+// Bounded exponential backoff between failed probes (same shape as
+// `CodexAppServerMeter`): rapid retriggers after a failure are suppressed
+// until the next-eligible timestamp, so a brief outage cannot burn the
+// whole failure streak before the CLI recovers.
+const PROBE_BACKOFF_BASE_MS = 1_000;
+const PROBE_BACKOFF_MAX_MS = 60_000;
 
 export class MuseUsageProbe {
   /**
@@ -71,12 +80,12 @@ export class MuseUsageProbe {
     this.state = 'idle'; // idle | probing | disabled
     this.probePromise = null;
     this.consecutiveFailures = 0;
+    this.nextEligibleAtMs = 0;
     this.lastSpawn = [];
     this.process = null;
     this.rl = null;
     this.rpc = new ProbeRpc();
-    this.turnWaiter = null;
-    this.turnUsage = null;
+    this.turn = new ProbeTurnWait();
     this.generation = 0;
   }
 
@@ -88,6 +97,10 @@ export class MuseUsageProbe {
   trigger() {
     if (this.state === 'disabled') return Promise.resolve(false);
     if (this.probePromise) return this.probePromise;
+    if (this.clock.now() < this.nextEligibleAtMs) {
+      logMuseProbeOutcome({ outcome: 'backoff' });
+      return Promise.resolve(false);
+    }
     this.probePromise = this.#runProbe().finally(() => {
       this.probePromise = null;
     });
@@ -97,7 +110,12 @@ export class MuseUsageProbe {
   async stop() {
     this.generation += 1;
     this.#abortPending('aborted');
-    this.#destroyProcess();
+    const child = this.process;
+    if (child) {
+      try {
+        await this.#teardownChild(child);
+      } catch { /* teardown never fails the probe */ }
+    }
   }
 
   async #runProbe() {
@@ -114,7 +132,10 @@ export class MuseUsageProbe {
       if (this.generation !== generation) return false;
       return await this.#serveOneTurn(child, provider);
     } finally {
-      if (this.process === child) this.#destroyProcess();
+      // Awaited so the single-flight guard covers teardown: no second
+      // probe spawns while the prior process is still alive.
+      if (this.process === child) await this.#teardownChild(child);
+      if (this.process === child) this.process = null;
       if (this.state === 'probing') this.state = 'idle';
     }
   }
@@ -136,24 +157,49 @@ export class MuseUsageProbe {
   }
 
   #attachChild(child) {
+    // A displaced reader (stop() raced by a new trigger before its
+    // teardown finished) is closed here; the pending teardown skips it via
+    // the process check in #teardownChild.
+    const displacedRl = this.rl;
+    this.rl = null;
+    if (displacedRl) {
+      try { displacedRl.close(); } catch { /* ignore */ }
+    }
     this.process = child;
     this.state = 'probing';
-    this.turnUsage = null;
-    this.turnWaiter = null;
+    this.turn.reset();
+    const generation = this.generation;
+    const isCurrent = () => generation === this.generation && this.process === child;
     let failed = false;
     const failOnce = () => {
-      if (failed) return;
+      if (failed || !isCurrent()) return;
       failed = true;
       this.#abortPending('exited');
       this.#resolveTurn({ ended: false });
     };
     child.on('error', failOnce);
-    child.on('exit', () => {
-      if (this.process === child) failOnce();
-    });
+    child.on('exit', failOnce);
+    // Owned stdio streams can fail asynchronously (e.g. EPIPE when the
+    // host exits mid-write), outside any synchronous try/catch around
+    // `write`. Abort the current probe safely instead of crashing on an
+    // uncaught stream error; the previous snapshot is retained. Fakes
+    // without emitter stdio simply skip this.
+    const onStreamError = () => {
+      if (!isCurrent()) return;
+      this.#abortPending('stream-error');
+      this.#resolveTurn({ ended: false });
+    };
+    child.stdin?.on?.('error', onStreamError);
+    child.stdout?.on?.('error', onStreamError);
+    child.stderr?.on?.('error', onStreamError);
 
     this.rl = readline.createInterface({ input: child.stdout });
-    this.rl.on('line', (line) => this.#handleFrame(line));
+    // Generation-specific: lines arriving from a superseded child (stop
+    // raced by a new trigger) must not resolve the newer probe's waiters.
+    this.rl.on('line', (line) => {
+      if (!isCurrent()) return;
+      this.#handleFrame(line);
+    });
     // The probe's stderr is diagnostic output from the CLI; it is drained
     // and discarded so the child never blocks, and never logged (NFR-3).
     child.stderr?.resume?.();
@@ -176,10 +222,11 @@ export class MuseUsageProbe {
     }
     this.#notify('initialized');
 
-    const start = await this.#request('session/start', {});
-    const sessionId = start.delivered
-      ? (start.result?.sessionId ?? start.result?.session_id ?? start.result?.id ?? null)
-      : null;
+    const start = await this.#request('session/start', {
+      commandId: newMuseProbeCommandId(),
+      providerId: MUSE_PROBE_PROVIDER,
+    });
+    const sessionId = start.delivered ? start.result?.session?.sessionId ?? null : null;
     if (typeof sessionId !== 'string' || !sessionId) {
       this.#recordFailure(start.delivered ? 'protocol-error' : 'timeout', 'start');
       return null;
@@ -209,46 +256,15 @@ export class MuseUsageProbe {
 
   async #runTurn(child, sessionId) {
     if (!this.#isAlive(child)) return { ended: false };
-    const id = this.rpc.nextRequestId++;
-    const frame = JSON.stringify({
-      jsonrpc: '2.0',
-      id,
-      method: 'turn/start',
-      params: { sessionId, input: [{ type: 'text', text: MUSE_PROBE_PROMPT }] },
+    const generation = this.generation;
+    return runProbeTurn({
+      rpc: this.rpc,
+      child,
+      sessionId,
+      turn: this.turn,
+      turnTimeoutMs: this.turnTimeoutMs,
+      isCurrent: () => generation === this.generation && this.process === child,
     });
-    // The outer promise resolves turn-shaped outcomes only ({ ended,
-    // usage? }): an answered turn request ends the turn (mid-turn usage
-    // wins, otherwise the caller falls back to `usage/read`), while an
-    // aborted, timed-out, or failed turn resolves un-ended so the caller
-    // records no-data instead of reading from a dead process.
-    const outcome = await new Promise((resolve) => {
-      let done = false;
-      const timer = setTimeout(() => finish({ ended: false }), this.turnTimeoutMs);
-      timer.unref?.();
-      const finish = (value) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        this.rpc.pendingReads.delete(id);
-        if (this.turnWaiter?.resolve === turnResolve) this.turnWaiter = null;
-        resolve(value);
-      };
-      const turnResolve = (value) => finish(value);
-      this.turnWaiter = { resolve: turnResolve };
-      this.rpc.pendingReads.set(id, {
-        resolve: ({ delivered }) => {
-          if (delivered) finish({ ended: true, usage: this.turnUsage });
-          else finish({ ended: false });
-        },
-        timer,
-      });
-      try {
-        child.stdin.write(`${frame}\n`);
-      } catch {
-        finish({ ended: false });
-      }
-    });
-    return outcome;
   }
 
   #isAlive(child) {
@@ -267,12 +283,15 @@ export class MuseUsageProbe {
       return false;
     }
     this.consecutiveFailures = 0;
+    this.nextEligibleAtMs = 0;
     return true;
   }
 
   #recordFailure(outcome, phase = null) {
     logMuseProbeOutcome(phase ? { outcome, phase } : { outcome });
     this.consecutiveFailures += 1;
+    this.nextEligibleAtMs = this.clock.now()
+      + Math.min(PROBE_BACKOFF_BASE_MS * 2 ** (this.consecutiveFailures - 1), PROBE_BACKOFF_MAX_MS);
     if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
       this.state = 'disabled';
       logMuseProbeOutcome({ outcome: 'disabled-after-repeated-failures' });
@@ -305,15 +324,13 @@ export class MuseUsageProbe {
 
   #handleNotification(frame) {
     if (frame.method === 'usage/changed') {
-      const candidate = mapMuseUsageChanged(frame.params, { observedAt: this.clock.now() });
-      if (candidate) {
-        this.turnUsage = frame.params;
-        this.turnWaiter?.resolve({ ended: true, usage: frame.params });
-      }
+      const outcome = this.turn.noteUsageChanged(frame.params, this.clock.now());
+      if (outcome) this.turn.resolveWaiter(outcome);
       return;
     }
     if (frame.method === 'turn/completed') {
-      this.turnWaiter?.resolve({ ended: true, usage: this.turnUsage });
+      const outcome = this.turn.noteCompleted(frame.params?.turnId);
+      if (outcome) this.turn.resolveWaiter(outcome);
     }
   }
 
@@ -322,7 +339,7 @@ export class MuseUsageProbe {
   }
 
   #resolveTurn(value) {
-    this.turnWaiter?.resolve(value);
+    this.turn.resolveWaiter(value);
   }
 
   #abortPending(reason) {
@@ -330,15 +347,17 @@ export class MuseUsageProbe {
     this.#resolveTurn({ ended: false });
   }
 
-  #destroyProcess() {
-    const child = this.process;
-    this.process = null;
-    const rl = this.rl;
-    this.rl = null;
-    destroyProbeChild({
+  async #teardownChild(child) {
+    await teardownProbeChild({
       child,
-      closeReadline: rl ? () => { try { rl.close(); } catch { /* ignore */ } } : null,
+      closeReadline: this.process === child && this.rl
+        ? () => {
+          try { this.rl.close(); } catch { /* ignore */ }
+          this.rl = null;
+        }
+        : null,
       killGraceMs: this.killGraceMs,
     });
+    if (this.process === child) this.process = null;
   }
 }

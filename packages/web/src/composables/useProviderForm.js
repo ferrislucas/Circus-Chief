@@ -71,6 +71,7 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     showProbeModelSection,
     resetProbeModel,
     loadProbeModel,
+    awaitProbeModelReady,
   } = useMuseProbeModel({ providerRef, builtInManageRef, localModelsRef: localModels, settingsStore });
 
   // ── Computed ──────────────────────────────────────────────────
@@ -254,6 +255,9 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     }).then(async () => {
       await reconcileModels(providerRef.value.id);
       if (showProbeModelSection.value) {
+        // Never persist the initial default over a stored value whose
+        // load is still in flight.
+        await awaitProbeModelReady();
         await settingsStore.updateMuseProbeSettings({ probeModel: effectiveProbeModel.value });
       }
       uiStore.success('Provider updated successfully');

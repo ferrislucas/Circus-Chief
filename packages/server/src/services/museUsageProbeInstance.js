@@ -30,7 +30,9 @@ export function startMuseUsageProbe({
   activeDeps = { sessionRepository };
   activeProbe = createProbe?.()
     ?? new MuseUsageProbe({
-      getObserver: getProviderAllowanceObserver(),
+      // The factory itself, not its result: the probe calls it as a
+      // zero-argument observer source per attempt (same as the Codex meter).
+      getObserver: getProviderAllowanceObserver,
       modelProviders,
       settings,
       ...probeDeps,

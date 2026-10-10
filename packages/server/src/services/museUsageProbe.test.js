@@ -40,11 +40,16 @@ const settingsFake = (probeModel = 'muse-spark-1.3') => ({
   getMuseProbeSettings: () => ({ probeModel }),
 });
 
+/** UUIDv7 shape required by the MSP schema for `commandId` (SS2.5, SS3.1.1). */
+const UUIDV7_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 /**
- * Fake `muse serve` speaking the probe's JSON-RPC shape: it answers
- * `initialize`, `session/start`, and `usage/read` with canned results,
- * records every frame it is sent, and lets the test push `usage/changed`
- * mid-turn. No real `muse` process is ever spawned.
+ * Fake `muse serve` enforcing the real MSP protocol shapes: it rejects
+ * `session/start` and `turn/start` requests without a UUIDv7 `commandId`
+ * (invalid params), answers `session/start` with the nested
+ * `{session: {sessionId}, viewCursor}` result, answers `turn/start` with an
+ * admission acknowledgement only, and reports turn completion as a
+ * `turn/completed` notification. No real `muse` process is ever spawned.
  */
 function createFakeServe({ usage = USAGE_PAYLOAD, answerInitialize = true } = {}) {
   const child = Object.assign(new EventEmitter(), {
@@ -55,6 +60,8 @@ function createFakeServe({ usage = USAGE_PAYLOAD, answerInitialize = true } = {}
   });
   const sent = [];
   let sessionCounter = 0;
+  let turnCounter = 0;
+  const turnIdsByRequest = new Map();
 
   const fake = {
     sent,
@@ -69,7 +76,18 @@ function createFakeServe({ usage = USAGE_PAYLOAD, answerInitialize = true } = {}
     },
     endTurn() {
       const turn = [...sent].reverse().find((frame) => frame.method === 'turn/start');
-      fake.emitFrame({ jsonrpc: '2.0', id: turn.id, result: { status: 'completed' } });
+      const session = [...sent].reverse().find((frame) => frame.method === 'session/start');
+      fake.emitFrame({
+        jsonrpc: '2.0',
+        method: 'turn/completed',
+        params: {
+          sessionId: turn?.params?.sessionId ?? session?.result,
+          turnId: turnIdsByRequest.get(turn?.id),
+          terminal: 'completed',
+          sourceRange: { start: 0, end: 1 },
+          viewCursor: 'cursor-end',
+        },
+      });
     },
   };
 
@@ -86,8 +104,37 @@ function createFakeServe({ usage = USAGE_PAYLOAD, answerInitialize = true } = {}
           continue;
         }
         if (frame.method === 'session/start') {
+          if (!UUIDV7_RE.test(frame.params?.commandId ?? '')) {
+            fake.emitFrame({ jsonrpc: '2.0', id: frame.id, error: { code: -32602, message: 'missing commandId' } });
+            continue;
+          }
           sessionCounter += 1;
-          fake.emitFrame({ jsonrpc: '2.0', id: frame.id, result: { sessionId: `probe-session-${sessionCounter}` } });
+          fake.emitFrame({
+            jsonrpc: '2.0',
+            id: frame.id,
+            result: { session: { sessionId: `probe-session-${sessionCounter}` }, viewCursor: `cursor-${sessionCounter}` },
+          });
+          continue;
+        }
+        if (frame.method === 'turn/start') {
+          if (!UUIDV7_RE.test(frame.params?.commandId ?? '')) {
+            fake.emitFrame({ jsonrpc: '2.0', id: frame.id, error: { code: -32602, message: 'missing commandId' } });
+            continue;
+          }
+          turnCounter += 1;
+          const turnId = `probe-turn-${turnCounter}`;
+          turnIdsByRequest.set(frame.id, turnId);
+          fake.emitFrame({
+            jsonrpc: '2.0',
+            id: frame.id,
+            result: {
+              commandId: frame.params.commandId,
+              status: 'accepted',
+              disposition: 'started',
+              startedNewTurn: true,
+              turnId,
+            },
+          });
           continue;
         }
         if (frame.method === 'usage/read') {
@@ -103,30 +150,34 @@ function createFakeServe({ usage = USAGE_PAYLOAD, answerInitialize = true } = {}
 
 function makeProbe(overrides = {}) {
   const child = overrides.child ?? createFakeServe(overrides.fakeOptions);
+  let spawnCount = 0;
   const spawnProcess = vi.fn(() => {
     if (overrides.spawnThrows) throw new Error('spawn ENOENT');
-    return child;
+    const next = (overrides.spawnSequence ?? [])[spawnCount];
+    spawnCount += 1;
+    return next ?? child;
   });
   const observed = [];
+  let now = 1_789_855_000_000;
   const probe = new MuseUsageProbe({
     getObserver: () => (candidate) => { observed.push(candidate); },
     modelProviders: overrides.modelProviders ?? modelProvidersFake(),
     settings: overrides.settings ?? settingsFake(overrides.probeModel),
-    clock: { now: () => 1_789_855_000_000 },
+    clock: { now: () => now },
     spawnProcess,
     requestTimeoutMs: 50,
     turnTimeoutMs: 100,
     killGraceMs: 10,
     ...(overrides.probeOptions ?? {}),
   });
-  return { probe, child, spawnProcess, observed };
+  return { probe, child, spawnProcess, observed, advanceTime: (ms) => { now += ms; } };
 }
 
 describe('buildMuseProbeArgs', () => {
   it('serves memory-only with the configured model', () => {
     expect(buildMuseProbeArgs('muse-spark-1.3-contributor')).toEqual({
       command: 'muse',
-      args: ['serve', '--no-session-log', '--model', 'muse-spark-1.3-contributor'],
+      args: ['serve', '--no-session-log', '--provider', 'meta', '--model', 'muse-spark-1.3-contributor'],
     });
   });
 
@@ -224,9 +275,124 @@ describe('MuseUsageProbe', () => {
 
     const [[command, args]] = probe.lastSpawn;
     expect(command).toBe('muse');
-    expect(args).toEqual(['serve', '--no-session-log', '--model', 'muse-spark-1.3-contributor']);
+    expect(args).toEqual(['serve', '--no-session-log', '--provider', 'meta', '--model', 'muse-spark-1.3-contributor']);
     const turn = child.fake.sent.find((frame) => frame.method === 'turn/start');
     expect(turn.params.input).toEqual([{ type: 'text', text: 'Hi' }]);
+  });
+
+  it('sends session/start with a UUIDv7 commandId (Issue 2)', async () => {
+    const { probe, child } = makeProbe();
+    const promise = probe.trigger();
+    await settle();
+    child.fake.pushUsageChanged();
+    await settle();
+    child.fake.endTurn();
+    await promise;
+
+    const start = child.fake.sent.find((frame) => frame.method === 'session/start');
+    expect(start.params?.commandId).toMatch(UUIDV7_RE);
+    const turn = child.fake.sent.find((frame) => frame.method === 'turn/start');
+    expect(turn.params?.sessionId).toBe('probe-session-1');
+  });
+
+  it('sends turn/start with a UUIDv7 commandId (Issue 3)', async () => {
+    const { probe, child } = makeProbe();
+    const promise = probe.trigger();
+    await settle();
+    child.fake.pushUsageChanged();
+    await settle();
+    child.fake.endTurn();
+    await promise;
+
+    const turn = child.fake.sent.find((frame) => frame.method === 'turn/start');
+    expect(turn.params?.commandId).toMatch(UUIDV7_RE);
+    expect(turn.params?.sessionId).toBe('probe-session-1');
+    expect(turn.params?.input).toEqual([{ type: 'text', text: 'Hi' }]);
+  });
+
+  it('waits for turn completion instead of ending on admission (Issue 4)', async () => {
+    const { probe, child, observed } = makeProbe();
+    const promise = probe.trigger();
+    await settle();
+
+    // The admission acknowledgement has arrived; the probe must not read
+    // usage or finish until the turn actually completes.
+    expect(child.fake.sent.some((frame) => frame.method === 'usage/read')).toBe(false);
+    expect(observed).toHaveLength(0);
+
+    child.fake.endTurn();
+    await promise;
+
+    expect(child.fake.sent.some((frame) => frame.method === 'usage/read')).toBe(true);
+    expect(observed).toHaveLength(1);
+  });
+
+  it('pins probe routing to the Meta provider (Issue 6)', async () => {
+    const { probe, child } = makeProbe();
+    const promise = probe.trigger();
+    await settle();
+    child.fake.pushUsageChanged();
+    await settle();
+    child.fake.endTurn();
+    await promise;
+
+    const [[, args]] = probe.lastSpawn;
+    expect(args[args.indexOf('--provider') + 1]).toBe('meta');
+    const start = child.fake.sent.find((frame) => frame.method === 'session/start');
+    expect(start.params?.providerId).toBe('meta');
+  });
+
+  it('spaces consecutive failures with bounded backoff (Issue 7)', async () => {
+    const { probe, spawnProcess, advanceTime } = makeProbe({ spawnThrows: true });
+    await probe.trigger();
+    expect(spawnProcess).toHaveBeenCalledTimes(1);
+    // A rapid retry is suppressed without spawning and without tripping
+    // the permanent breaker.
+    await probe.trigger();
+    expect(spawnProcess).toHaveBeenCalledTimes(1);
+    expect(probe.state).not.toBe('disabled');
+    // After the cooldown a retry is accepted again.
+    advanceTime(2_000);
+    await probe.trigger();
+    expect(spawnProcess).toHaveBeenCalledTimes(2);
+  });
+
+  it('holds the single-flight guard through teardown (Issue 8)', async () => {
+    const { probe, child, spawnProcess, observed } = makeProbe();
+    const first = probe.trigger();
+    await settle();
+    child.fake.pushUsageChanged();
+    await settle();
+    child.fake.endTurn();
+    await settle();
+    // Teardown is still draining the process: a new trigger must join the
+    // in-flight probe, not spawn a second process alongside the old one.
+    expect(probe.process).toBe(child);
+    const second = probe.trigger();
+    await Promise.all([first, second]);
+    expect(spawnProcess).toHaveBeenCalledTimes(1);
+    expect(observed).toHaveLength(1);
+  });
+
+  it('ignores late callbacks from a superseded generation (Issue 8)', async () => {
+    const oldChild = createFakeServe();
+    const newChild = createFakeServe();
+    const { probe, spawnProcess, observed, advanceTime } = makeProbe({ spawnSequence: [oldChild, newChild] });
+    const first = probe.trigger();
+    await settle();
+    await probe.stop();
+    await first;
+    advanceTime(2_000);
+    const second = probe.trigger();
+    await settle();
+    // Late callbacks from the previous generation must not abort the new probe.
+    oldChild.emit('error', new Error('late hangup'));
+    newChild.fake.pushUsageChanged();
+    await settle();
+    newChild.fake.endTurn();
+    await second;
+    expect(spawnProcess).toHaveBeenCalledTimes(2);
+    expect(observed).toHaveLength(1);
   });
 
   it('falls back to usage/read when the turn stays quiet', async () => {
@@ -272,6 +438,19 @@ describe('MuseUsageProbe', () => {
     expect(observed).toHaveLength(0);
   });
 
+  it('aborts safely on async stdin EPIPE without crashing (Issue 5)', async () => {
+    const child = createFakeServe();
+    const { probe, observed } = makeProbe({ child });
+    // A real socket surfaces mid-write pipe failures as an async `error`
+    // event, outside any synchronous try/catch around `write`.
+    child.stdin = Object.assign(new EventEmitter(), { write: child.stdin.write });
+    const promise = probe.trigger();
+    await settle();
+    child.stdin.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
+    await expect(promise).resolves.toBe(false);
+    expect(observed).toHaveLength(0);
+  });
+
   it('resolves no-data on unparseable frames', async () => {
     const { probe, child, observed } = makeProbe();
     const promise = probe.trigger();
@@ -304,8 +483,11 @@ describe('MuseUsageProbe', () => {
   });
 
   it('trips the breaker after repeated failures', async () => {
-    const { probe, spawnProcess } = makeProbe({ spawnThrows: true });
-    for (let i = 0; i < 5; i += 1) await probe.trigger();
+    const { probe, spawnProcess, advanceTime } = makeProbe({ spawnThrows: true });
+    for (let i = 0; i < 5; i += 1) {
+      await probe.trigger();
+      advanceTime(60_000);
+    }
     await probe.trigger();
     expect(spawnProcess).toHaveBeenCalledTimes(5);
   });
@@ -320,8 +502,9 @@ describe('MuseUsageProbe', () => {
       }
       return child;
     });
-    const { probe } = makeProbe({ child, probeOptions: { spawnProcess } });
+    const { probe, advanceTime } = makeProbe({ child, probeOptions: { spawnProcess } });
     await probe.trigger();
+    advanceTime(60_000);
     const promise = probe.trigger();
     await settle();
     child.fake.pushUsageChanged();

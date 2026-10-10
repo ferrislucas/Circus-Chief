@@ -20,8 +20,17 @@ const mockUiStore = {
   error: vi.fn(),
 };
 
+const mockSettingsStore = {
+  fetchMuseProbeSettings: vi.fn(),
+  updateMuseProbeSettings: vi.fn(),
+};
+
 vi.mock('../stores/providers.js', () => ({
   useProvidersStore: () => mockProvidersStore,
+}));
+
+vi.mock('../stores/settings.js', () => ({
+  useSettingsStore: () => mockSettingsStore,
 }));
 
 vi.mock('../stores/ui.js', () => ({
@@ -1574,6 +1583,56 @@ describe('useProviderForm', () => {
 
       expect(result.error.value).toBe(null);
       expect(result.testResult.value).toBe(null);
+    });
+  });
+
+  // ── Probe model save gating (Issue 9) ─────────────────────────────
+  describe('probe model save gating (Issue 9)', () => {
+    const META_PROVIDER = {
+      id: 'meta-default',
+      name: 'Meta (Official)',
+      kind: 'meta',
+      isBuiltIn: true,
+      baseUrl: null,
+      authToken: null,
+      apiTimeoutMs: null,
+      additionalEnvVars: null,
+      models: [
+        { id: 'm1', modelId: 'muse-spark-1.3', displayName: 'Muse Spark 1.3', tier: 'custom', enabled: true },
+        { id: 'm2', modelId: 'muse-spark-1.3-contributor', displayName: 'Muse Spark 1.3 Contributor', tier: 'custom', enabled: true },
+      ],
+    };
+
+    function openMetaModalWithSlowLoad() {
+      let resolveLoad;
+      mockSettingsStore.fetchMuseProbeSettings.mockReturnValue(new Promise((resolve) => { resolveLoad = resolve; }));
+      mockSettingsStore.updateMuseProbeSettings.mockResolvedValue({ probeModel: 'muse-spark-1.3-contributor' });
+      mockProvidersStore.updateProvider.mockResolvedValue({ id: 'meta-default' });
+      mockProvidersStore.fetchProviders.mockResolvedValue([]);
+      const { result } = createForm({ builtInManageRef: ref(true) });
+      providerRef.value = { ...META_PROVIDER };
+      isOpenRef.value = true;
+      return { result, resolveLoad };
+    }
+
+    it('waits for probe model init before saving', async () => {
+      const { result, resolveLoad } = openMetaModalWithSlowLoad();
+      await nextTick();
+
+      const saving = result.save();
+      // Flush the whole provider-save chain so it provably reaches the
+      // probe-settings step while init is still pending.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      // Init still pending: the stored Contributor value must not be
+      // overwritten by the initial default.
+      expect(mockSettingsStore.updateMuseProbeSettings).not.toHaveBeenCalled();
+
+      resolveLoad({ probeModel: 'muse-spark-1.3-contributor' });
+      await saving;
+
+      expect(mockSettingsStore.updateMuseProbeSettings).toHaveBeenCalledWith({
+        probeModel: 'muse-spark-1.3-contributor',
+      });
     });
   });
 });
