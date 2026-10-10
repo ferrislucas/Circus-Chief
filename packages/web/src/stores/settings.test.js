@@ -12,6 +12,9 @@ vi.mock('../composables/useApi.js', () => ({
     getGeneralSettings: vi.fn(),
     updateGeneralSettings: vi.fn(),
     resetGeneralSettings: vi.fn(),
+    getMuseProbeSettings: vi.fn(),
+    updateMuseProbeSettings: vi.fn(),
+    resetMuseProbeSettings: vi.fn(),
   },
 }));
 
@@ -560,6 +563,45 @@ describe('Settings Store', () => {
       const result = await store.resetGeneralSettings();
 
       expect(result).toEqual(defaultSettings);
+    });
+  });
+
+  describe('muse probe settings actions', () => {
+    it('defaults to the non-contributor model', () => {
+      const store = useSettingsStore();
+      expect(store.museProbeSettings).toEqual({ probeModel: 'muse-spark-1.3' });
+    });
+
+    it('fetches probe settings from the API', async () => {
+      const store = useSettingsStore();
+      api.getMuseProbeSettings.mockResolvedValue({ probeModel: 'muse-spark-1.3-contributor' });
+
+      const result = await store.fetchMuseProbeSettings();
+
+      expect(api.getMuseProbeSettings).toHaveBeenCalledOnce();
+      expect(result).toEqual({ probeModel: 'muse-spark-1.3-contributor' });
+      expect(store.museProbeSettings).toEqual({ probeModel: 'muse-spark-1.3-contributor' });
+    });
+
+    it('falls back to defaults when fetching fails', async () => {
+      const store = useSettingsStore();
+      api.getMuseProbeSettings.mockRejectedValue(new Error('Failed'));
+
+      const result = await store.fetchMuseProbeSettings();
+
+      expect(result).toEqual({ probeModel: 'muse-spark-1.3' });
+      expect(store.museProbeSettings).toEqual({ probeModel: 'muse-spark-1.3' });
+    });
+
+    it('updates probe settings through the API', async () => {
+      const store = useSettingsStore();
+      api.updateMuseProbeSettings.mockResolvedValue({ probeModel: 'muse-spark-1.3-contributor' });
+
+      const result = await store.updateMuseProbeSettings({ probeModel: 'muse-spark-1.3-contributor' });
+
+      expect(api.updateMuseProbeSettings).toHaveBeenCalledWith({ probeModel: 'muse-spark-1.3-contributor' });
+      expect(result).toEqual({ probeModel: 'muse-spark-1.3-contributor' });
+      expect(store.museProbeSettings).toEqual({ probeModel: 'muse-spark-1.3-contributor' });
     });
   });
 });

@@ -6,6 +6,7 @@ const ACQUISITION_SOURCES = [
   'Codex rollout tail',
   'Codex app-server',
   'z.ai poll',
+  'Muse usage probe',
   'OpenAI headers',
 ];
 

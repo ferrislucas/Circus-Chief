@@ -1,13 +1,28 @@
-import { ref, computed, watch } from 'vue';
+import { computed, watch } from 'vue';
 import { useProvidersStore } from '../stores/providers.js';
+import { useSettingsStore } from '../stores/settings.js';
 import { useUiStore } from '../stores/ui.js';
-import { localId } from '../utils/id.js';
 import {
   COMMIT_ATTRIBUTION_VALIDATION_MESSAGE,
   parseCommitAttributionOverride,
 } from '@circuschief/shared/contracts/providers';
+import {
+  MUSE_PROBE_DEFAULT_MODEL,
+  showsMuseProbeModelSection,
+  useMuseProbeModel,
+} from './useMuseProbeModel.js';
+import { localId } from '../utils/id.js';
+import {
+  buildFormFromProvider,
+  createFormDefaults,
+  createFormState,
+  moveLocalModelAt,
+  removeLocalModelAt,
+} from './providerFormState.js';
 
 export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai']);
+
+export { MUSE_PROBE_DEFAULT_MODEL, showsMuseProbeModelSection };
 
 function normalizeCommitAttributionOverride(value) {
   const result = parseCommitAttributionOverride(value);
@@ -33,67 +48,6 @@ function buildProviderData(form) {
 }
 
 /**
- * Create the default (empty) form state for a new provider.
- * @returns {Object} Default form values
- */
-function createFormDefaults() {
-  return {
-    name: '',
-    kind: 'anthropic',
-    baseUrl: null,
-    authToken: null,
-    apiTimeoutMs: null,
-    additionalEnvVars: {},
-    commitAttributionOverride: null,
-  };
-}
-
-/**
- * Build form state from an existing provider.
- * @param {Object} provider - The provider to build form data from
- * @returns {{ formData: Object, envKeys: string[], models: Object[], authModified: boolean }}
- */
-function buildFormFromProvider(provider) {
-  const formData = {
-    name: provider.name,
-    kind: provider.kind || 'anthropic',
-    baseUrl: provider.baseUrl,
-    authToken: provider.authToken === '••••••••' ? null : provider.authToken,
-    apiTimeoutMs: provider.apiTimeoutMs,
-    additionalEnvVars: provider.additionalEnvVars ? { ...provider.additionalEnvVars } : {},
-    commitAttributionOverride: provider.commitAttributionOverride || null,
-  };
-  const envKeys = Object.keys(formData.additionalEnvVars);
-  const models = (provider.models || []).map((m) => ({
-    _serverId: m.id,
-    modelId: m.modelId,
-    displayName: m.displayName,
-    tier: m.tier || 'custom',
-    enabled: m.enabled !== false,
-    sortOrder: m.sortOrder ?? null,
-  }));
-  return { formData, envKeys, models, authModified: false };
-}
-
-/**
- * Create all reactive state refs used by the provider form.
- * @returns {Object} All reactive state refs
- */
-function createFormState() {
-  return {
-    form: ref(createFormDefaults()),
-    localModels: ref([]),
-    envVarKeys: ref([]),
-    showAuthToken: ref(false),
-    saving: ref(false),
-    testing: ref(false),
-    error: ref(null),
-    testResult: ref(null),
-    authTokenModified: ref(false),
-  };
-}
-
-/**
  * Composable that manages all ProviderForm state and logic:
  * form data, validation, model list, env-var helpers, test-connection, save & reconcile.
  *
@@ -103,12 +57,22 @@ function createFormState() {
  */
 export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
   const providersStore = useProvidersStore();
+  const settingsStore = useSettingsStore();
   const uiStore = useUiStore();
   const builtInManageRef = options.builtInManageRef;
 
   // ── Form state ────────────────────────────────────────────────
   const state = createFormState();
   const { form, localModels, envVarKeys, showAuthToken, saving, testing, error, testResult, authTokenModified } = state;
+  const {
+    probeModel,
+    probeModelOptions,
+    effectiveProbeModel,
+    showProbeModelSection,
+    resetProbeModel,
+    loadProbeModel,
+    awaitProbeModelReady,
+  } = useMuseProbeModel({ providerRef, builtInManageRef, localModelsRef: localModels, settingsStore });
 
   // ── Computed ──────────────────────────────────────────────────
   const isEditing = computed(() => Boolean(providerRef.value));
@@ -148,21 +112,19 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
       showAuthToken.value = false;
       error.value = null;
       testResult.value = null;
+      resetProbeModel();
+      if (provider && showsMuseProbeModelSection(provider)) {
+        void loadProbeModel();
+      }
     },
     { deep: true },
   );
 
   // ── Model helpers ─────────────────────────────────────────────
+  // New rows get a stable client-side key so `ProviderModelsList`'s `v-for`
+  // can key on `model._serverId || model._localKey` instead of the row's
+  // array index (index keys make Vue patch focused rows in place on reorder).
   function addLocalModel() {
-    // Assign a stable client-side key at creation so `ProviderModelsList`'s
-    // `v-for` can key on `model._serverId || model._localKey` instead of the
-    // row's array index. An index-based key for unsaved rows means
-    // reordering two unsaved rows leaves the *set* of keys unchanged (only
-    // which model sits at which index changes), so Vue patches each DOM node
-    // -- including whichever one currently has focus -- in place with
-    // another row's data instead of moving the matched node with its model.
-    // `localId` falls back when this UI is served from an insecure HTTP origin,
-    // where `crypto.randomUUID()` is unavailable.
     error.value = null;
     try {
       localModels.value.push({
@@ -175,17 +137,6 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     } catch {
       error.value = 'Unable to add model. Please try again.';
     }
-  }
-
-  function removeLocalModel(index) {
-    localModels.value.splice(index, 1);
-  }
-
-  function moveLocalModel(index, delta) {
-    const destination = index + delta;
-    if (destination < 0 || destination >= localModels.value.length) return;
-    const [model] = localModels.value.splice(index, 1);
-    localModels.value.splice(destination, 0, model);
   }
 
   // ── Env-var helpers ───────────────────────────────────────────
@@ -303,6 +254,12 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
       commitAttributionOverride: data.commitAttributionOverride,
     }).then(async () => {
       await reconcileModels(providerRef.value.id);
+      if (showProbeModelSection.value) {
+        // Never persist the initial default over a stored value whose
+        // load is still in flight.
+        await awaitProbeModelReady();
+        await settingsStore.updateMuseProbeSettings({ probeModel: effectiveProbeModel.value });
+      }
       uiStore.success('Provider updated successfully');
       onSaved();
     });
@@ -361,9 +318,13 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     attributionValidationError,
     isValid,
     canTest,
+    probeModel,
+    probeModelOptions,
+    effectiveProbeModel,
+    showProbeModelSection,
     addLocalModel,
-    removeLocalModel,
-    moveLocalModel,
+    removeLocalModel: (index) => removeLocalModelAt(localModels, index),
+    moveLocalModel: (index, delta) => moveLocalModelAt(localModels, index, delta),
     addEnvVar,
     removeEnvVar,
     updateEnvVarKey,

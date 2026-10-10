@@ -13,6 +13,7 @@ import { shouldRescheduleOnError, _checkProactiveReschedule } from './sessionErr
 import { schedulerService } from './schedulerService.js';
 import { beginWorkflowTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, pauseForUserStop, activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
+import { triggerMuseUsageProbe } from './museUsageProbeInstance.js';
 import { isUserStopAbort } from './sessionAbort.js';
 // W6: real cycle (kanbanService -> kanbanTriggers -> sessionManager ->
 // sessionExecution), safe because this is only called at runtime inside
@@ -118,6 +119,10 @@ export async function _executeSession({
       }
       throw controller.signal.reason || new Error('Session execution was aborted');
     }
+    // Refresh the Meta allowance indicator after a Muse turn completes.
+    // Fire-and-forget: the probe never blocks or delays the turn, ignores
+    // non-muse sessions internally, and is fully idle when not started.
+    triggerMuseUsageProbe(sessionId);
     // Some providers report terminal failures as a final stream event and then
     // close their generator normally. Route that outcome through the same retry
     // policy as a rejected execute() call; otherwise the normal completion path

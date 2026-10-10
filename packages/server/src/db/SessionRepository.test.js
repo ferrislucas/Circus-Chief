@@ -88,6 +88,34 @@ describe('SessionRepository', () => {
     });
   });
 
+  describe('hasExecutingAgentType', () => {
+    it('reports executing muse sessions and ignores waiting, stopped, and archived rows', () => {
+      const running = repo.create(projectId, 'Running muse', 'Prompt', { agentType: 'muse' });
+      repo.update(running.id, { status: 'running' });
+
+      expect(repo.hasExecutingAgentType('muse')).toBe(true);
+      expect(repo.hasExecutingAgentType('claude-code')).toBe(false);
+
+      repo.update(running.id, { status: 'waiting' });
+      expect(repo.hasExecutingAgentType('muse')).toBe(false);
+
+      const stopped = repo.create(projectId, 'Stopped muse', 'Prompt', { agentType: 'muse' });
+      repo.update(stopped.id, { status: 'stopped' });
+      expect(repo.hasExecutingAgentType('muse')).toBe(false);
+
+      const archived = repo.create(projectId, 'Archived muse', 'Prompt', { agentType: 'muse' });
+      repo.update(archived.id, { status: 'running', archived: true });
+      expect(repo.hasExecutingAgentType('muse')).toBe(false);
+      expect(archived.agentType).toBe('muse');
+    });
+
+    it('treats starting sessions as executing', () => {
+      repo.create(projectId, 'Starting muse', 'Prompt', { agentType: 'muse' });
+
+      expect(repo.hasExecutingAgentType('muse')).toBe(true);
+    });
+  });
+
   describe('create', () => {
     it('creates a session with required fields', () => {
       const session = repo.create(projectId, 'Test Session', 'Initial prompt');
