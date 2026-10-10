@@ -168,6 +168,40 @@ function answerInitializeFrame(fake, frame, answerInitialize) {
   }
 }
 
+/**
+ * Absent-group signal double (Issue 17): emitter-only fake children own no
+ * real OS process group, so every group signal throws ESRCH and teardown
+ * falls back to the mocked direct `child.kill`. Signal-0 liveness therefore
+ * reads the fake group as already reaped — no fake-spawn test can signal
+ * (or probe the liveness of) an unrelated real process group.
+ */
+function createAbsentGroupDouble() {
+  const killProcessGroup = vi.fn(() => {
+    throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+  });
+  return { killProcessGroup };
+}
+
+/**
+ * Present-group signal double (Issue 17): models termination transitions
+ * for cases that test group escalation. The fake group stays alive while
+ * its members ignore SIGTERM and is gone once it takes SIGKILL; signal `0`
+ * probes liveness without delivering a signal.
+ */
+function createPresentGroupDouble() {
+  const signals = [];
+  let alive = true;
+  const killProcessGroup = vi.fn((pid, signal) => {
+    signals.push([pid, signal]);
+    if (signal === 0) {
+      if (!alive) throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+      return;
+    }
+    if (signal === 'SIGKILL') alive = false;
+  });
+  return { signals, killProcessGroup };
+}
+
 function makeProbe(overrides = {}) {
   const child = overrides.child ?? createFakeServe(overrides.fakeOptions);
   let spawnCount = 0;
@@ -189,6 +223,11 @@ function makeProbe(overrides = {}) {
     turnTimeoutMs: 100,
     killGraceMs: 10,
     ...(overrides.probeOptions ?? {}),
+    // Safety default applied after overrides: fake children own no real OS
+    // group, so an override can only replace this double with another
+    // double — never silently restore real `process.kill` for fake spawns.
+    killProcessGroup: overrides.probeOptions?.killProcessGroup
+      ?? createAbsentGroupDouble().killProcessGroup,
   });
   return { probe, child, spawnProcess, observed, advanceTime: (ms) => { now += ms; } };
 }
@@ -618,6 +657,9 @@ describe('MuseUsageProbe', () => {
 
   it('escalates SIGTERM to SIGKILL when the child hangs on teardown', async () => {
     const { probe, child } = makeProbe();
+    // Direct-child fallback path (Issue 17): no fake PID, so teardown
+    // exercises the mocked `child.kill` instead of any process group.
+    delete child.pid;
     const promise = probe.trigger();
     await settle();
     child.fake.pushUsageChanged();
@@ -629,6 +671,23 @@ describe('MuseUsageProbe', () => {
     const signals = child.kill.mock.calls.map((call) => call[0]);
     expect(signals[0]).toBe('SIGTERM');
     expect(signals).toContain('SIGKILL');
+  });
+
+  it('escalates the owned fake group to SIGKILL when it ignores SIGTERM (Issue 17)', async () => {
+    const { signals, killProcessGroup } = createPresentGroupDouble();
+    const { probe, child } = makeProbe({ probeOptions: { killProcessGroup } });
+    const promise = probe.trigger();
+    await settle();
+    child.fake.pushUsageChanged();
+    await settle();
+    child.fake.endTurn();
+    await promise;
+
+    const delivered = signals.filter(([, signal]) => signal !== 0).map(([, signal]) => signal);
+    expect(delivered[0]).toBe('SIGTERM');
+    expect(delivered).toContain('SIGKILL');
+    expect(signals.every(([pid]) => pid === -child.pid)).toBe(true);
+    expect(child.kill).not.toHaveBeenCalled();
   });
 
   it('spawns with a normalized host env in sparse-PATH launches (Issue 14)', async () => {
@@ -666,6 +725,63 @@ describe('MuseUsageProbe', () => {
     expect(spawnProcess).toHaveBeenCalledTimes(1);
     expect(spawnProcess.mock.calls[0][2]).toMatchObject({
       detached: process.platform !== 'win32',
+    });
+  });
+
+  describe('fake-process signal isolation (Issue 17)', () => {
+    function interceptRealSignals() {
+      // Non-delegating spy: nothing reaches the OS. An absent group reads
+      // as ESRCH so teardown falls back to the mocked direct `child.kill`.
+      return vi.spyOn(process, 'kill').mockImplementation(() => {
+        throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+      });
+    }
+
+    it('never reaches real process signaling on normal completion', async () => {
+      const killSpy = interceptRealSignals();
+      try {
+        const { probe, child } = makeProbe();
+        const promise = probe.trigger();
+        await settle();
+        child.fake.pushUsageChanged();
+        await settle();
+        child.fake.endTurn();
+        await promise;
+        await probe.stop();
+        expect(killSpy).not.toHaveBeenCalled();
+      } finally {
+        killSpy.mockRestore();
+      }
+    });
+
+    it('never reaches real process signaling on timeout cleanup', async () => {
+      const killSpy = interceptRealSignals();
+      try {
+        const child = createFakeServe({ answerInitialize: false });
+        const { probe } = makeProbe({
+          child,
+          probeOptions: { requestTimeoutMs: 20, turnTimeoutMs: 30 },
+        });
+        await probe.trigger();
+        await probe.stop();
+        expect(killSpy).not.toHaveBeenCalled();
+      } finally {
+        killSpy.mockRestore();
+      }
+    });
+
+    it('never reaches real process signaling on stop cleanup', async () => {
+      const killSpy = interceptRealSignals();
+      try {
+        const { probe } = makeProbe();
+        const promise = probe.trigger();
+        await settle();
+        await probe.stop();
+        await promise;
+        expect(killSpy).not.toHaveBeenCalled();
+      } finally {
+        killSpy.mockRestore();
+      }
     });
   });
 

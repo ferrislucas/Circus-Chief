@@ -165,12 +165,45 @@ function deliveredSignals(signals) {
   return signals.map(([, signal]) => signal).filter((signal) => signal !== 0);
 }
 
-function groupIsAlive(pid) {
+/**
+ * True while `pid` still names a live process. Only ESRCH (no such process)
+ * reads as cleaned up; any other outcome — including EPERM, which proves a
+ * process exists that we may not signal — conservatively reads as alive so
+ * observation failures can never masquerade as successful cleanup.
+ */
+function isPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    if (err?.code === 'ESRCH') return false;
+    return true;
+  }
+}
+
+/** True while the owned POSIX process group still has live members. */
+function isGroupAlive(pid) {
+  if (pid === undefined || pid === null || process.platform === 'win32') return false;
   try {
     process.kill(-pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    if (err?.code === 'ESRCH') return false;
+    return true;
+  }
+}
+
+/**
+ * Verification harness for the live fixtures (Issue 18): rejects
+ * pre-recovery observations that show survivors. Recovery in `finally`
+ * cleans up afterwards, but it must never be what the assertions credit —
+ * a broken teardown masked by recovery has to fail here.
+ */
+function assertTeardownCleanedUp({ preRecoveryDescendantAlive, preRecoveryGroupAlive }) {
+  if (preRecoveryDescendantAlive || preRecoveryGroupAlive) {
+    throw new Error(
+      `teardown left survivors before recovery: descendantAlive=${preRecoveryDescendantAlive} groupAlive=${preRecoveryGroupAlive}`,
+    );
   }
 }
 
@@ -179,7 +212,7 @@ describe.runIf(POSIX)('teardownProbeChild owned process group (live fixture)', (
     vi.restoreAllMocks();
   });
 
-  async function runHostFixture(mode, killGraceMs = 300) {
+  async function runHostFixture(mode, killGraceMs = 300, { teardown = teardownProbeChild } = {}) {
     const dir = mkdtempSync(join(tmpdir(), 'muse-probe-group-'));
     const readyFile = join(dir, 'descendant.ready');
     const pidFile = join(dir, 'descendant.pid');
@@ -191,7 +224,7 @@ describe.runIf(POSIX)('teardownProbeChild owned process group (live fixture)', (
     const closeReadline = vi.fn();
     try {
       const descendantPid = await waitForDescendantPid(pidFile);
-      await teardownProbeChild({
+      await teardown({
         child,
         closeReadline,
         killGraceMs,
@@ -200,42 +233,89 @@ describe.runIf(POSIX)('teardownProbeChild owned process group (live fixture)', (
           process.kill(pid, signal);
         },
       });
-      return { descendantPid, hostPid: child.pid, signals, closeReadline };
+      // Captured here — after teardown resolves but before the `finally`
+      // recovery below — so the caller's assertions credit teardown itself,
+      // never the emergency cleanup.
+      const preRecoveryDescendantAlive = isPidAlive(descendantPid);
+      const preRecoveryGroupAlive = isGroupAlive(child.pid);
+      return {
+        descendantPid,
+        hostPid: child.pid,
+        signals,
+        closeReadline,
+        preRecoveryDescendantAlive,
+        preRecoveryGroupAlive,
+      };
     } finally {
       try {
-        if (child.pid && groupIsAlive(child.pid)) process.kill(-child.pid, 'SIGKILL');
+        if (child.pid && isGroupAlive(child.pid)) process.kill(-child.pid, 'SIGKILL');
       } catch { /* already reaped */ }
+      // Bounded drain: SIGKILL lands asynchronously and zombies still
+      // answer signal 0 until reaped, so wait for the owned group to
+      // disappear before returning — recovery must leave no owned
+      // processes behind, even when teardown was a broken no-op.
+      const recoverStart = Date.now();
+      while (child.pid && isGroupAlive(child.pid) && Date.now() - recoverStart < 2000) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
       rmSync(dir, { recursive: true, force: true });
     }
   }
 
   it('kills an ignoring descendant after its host exits first', async () => {
-    const { descendantPid, hostPid, signals, closeReadline } = await runHostFixture('early-exit');
+    const result = await runHostFixture('early-exit');
+    const { hostPid, signals, closeReadline } = result;
 
     expect(deliveredSignals(signals)).toContain('SIGKILL');
     expect(signals.every(([pid]) => pid === -hostPid)).toBe(true);
     expect(deliveredSignals(signals).every((signal) => signal === 'SIGTERM' || signal === 'SIGKILL')).toBe(true);
-    expect(() => process.kill(descendantPid, 0)).toThrow();
-    expect(groupIsAlive(hostPid)).toBe(false);
+    // Proves teardown itself reaped the owned processes: captured before
+    // the fixture's emergency recovery could mask a broken teardown.
+    expect(result.preRecoveryDescendantAlive).toBe(false);
+    expect(result.preRecoveryGroupAlive).toBe(false);
+    assertTeardownCleanedUp(result);
     expect(closeReadline).toHaveBeenCalledTimes(1);
   }, 15000);
 
   it('escalates a hanging host and descendant to SIGKILL', async () => {
-    const { descendantPid, hostPid, signals, closeReadline } = await runHostFixture('hang');
+    const result = await runHostFixture('hang');
+    const { hostPid, signals, closeReadline } = result;
 
     expect(deliveredSignals(signals)[0]).toBe('SIGTERM');
     expect(deliveredSignals(signals)).toContain('SIGKILL');
     expect(signals.every(([pid]) => pid === -hostPid)).toBe(true);
-    expect(() => process.kill(descendantPid, 0)).toThrow();
+    expect(result.preRecoveryDescendantAlive).toBe(false);
+    expect(result.preRecoveryGroupAlive).toBe(false);
+    assertTeardownCleanedUp(result);
     expect(closeReadline).toHaveBeenCalledTimes(1);
   }, 15000);
 
   it('reaps survivors when the host exits during the grace period', async () => {
-    const { descendantPid, hostPid, signals, closeReadline } = await runHostFixture('delayed-exit');
+    const result = await runHostFixture('delayed-exit');
+    const { hostPid, signals, closeReadline } = result;
 
     expect(deliveredSignals(signals)).toContain('SIGKILL');
     expect(signals.every(([pid]) => pid === -hostPid)).toBe(true);
-    expect(() => process.kill(descendantPid, 0)).toThrow();
+    expect(result.preRecoveryDescendantAlive).toBe(false);
+    expect(result.preRecoveryGroupAlive).toBe(false);
+    assertTeardownCleanedUp(result);
     expect(closeReadline).toHaveBeenCalledTimes(1);
+  }, 15000);
+
+  it('proves recovery cannot mask a broken teardown (negative control)', async () => {
+    // Teardown replaced with a no-op double: the owned processes must still
+    // be alive when observed, and the verification harness must reject
+    // those observations — even though `finally` cleans them up afterwards.
+    const result = await runHostFixture('hang', 300, {
+      // Broken-teardown double: deliberately cleans nothing.
+      teardown: async () => {},
+    });
+
+    expect(result.preRecoveryDescendantAlive).toBe(true);
+    expect(result.preRecoveryGroupAlive).toBe(true);
+    expect(() => assertTeardownCleanedUp(result)).toThrow();
+    // Emergency recovery still leaves no owned processes behind.
+    expect(isPidAlive(result.descendantPid)).toBe(false);
+    expect(isGroupAlive(result.hostPid)).toBe(false);
   }, 15000);
 });

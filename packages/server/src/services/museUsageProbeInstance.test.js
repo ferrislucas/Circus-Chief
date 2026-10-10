@@ -34,6 +34,17 @@ const PROBE_SETTINGS = { getMuseProbeSettings: () => ({ probeModel: 'muse-spark-
  * hangs the turn so overlapping triggers share one in-flight probe. No real
  * `muse` process is ever spawned.
  */
+/**
+ * Absent-group signal double (Issue 17): emitter-only fake children own no
+ * real OS process group, so every group signal throws ESRCH and teardown
+ * falls back to the mocked direct `child.kill`.
+ */
+function createAbsentGroupDouble() {
+  return vi.fn(() => {
+    throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+  });
+}
+
 function createHangingServe(spawned) {
   const child = Object.assign(new EventEmitter(), {
     stdout: Object.assign(new EventEmitter(), { resume: vi.fn() }),
@@ -80,6 +91,7 @@ describe('museUsageProbeInstance', () => {
       requestTimeoutMs: 20,
       turnTimeoutMs: 30,
       killGraceMs: 5,
+      killProcessGroup: createAbsentGroupDouble(),
     });
     _setActiveMuseUsageProbeForTests(probe, { sessionRepository: museSessionRepo({ agentType: 'muse' }) });
 
@@ -89,6 +101,39 @@ describe('museUsageProbeInstance', () => {
     await tick();
 
     expect(spawned).toHaveLength(1);
+  });
+
+  it('coalesced triggers never reach real process signaling (Issue 17)', async () => {
+    // Non-delegating spy: nothing reaches the OS. An absent group reads
+    // as ESRCH so teardown falls back to the mocked direct `child.kill`.
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+    });
+    try {
+      const spawned = [];
+      const probe = new MuseUsageProbe({
+        getObserver: () => null,
+        modelProviders: META_PROVIDERS,
+        settings: PROBE_SETTINGS,
+        spawnProcess: () => createHangingServe(spawned),
+        requestTimeoutMs: 20,
+        turnTimeoutMs: 30,
+        killGraceMs: 5,
+        killProcessGroup: createAbsentGroupDouble(),
+      });
+      _setActiveMuseUsageProbeForTests(probe, { sessionRepository: museSessionRepo({ agentType: 'muse' }) });
+
+      triggerMuseUsageProbe('session-1');
+      triggerMuseUsageProbe('session-1');
+      await probe.trigger();
+      await probe.stop();
+      await tick();
+
+      expect(spawned).toHaveLength(1);
+      expect(killSpy).not.toHaveBeenCalled();
+    } finally {
+      killSpy.mockRestore();
+    }
   });
 
   it('ignores triggers for other agent types', () => {
