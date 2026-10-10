@@ -6,6 +6,7 @@ import {
   ProbeRpc,
   ProbeTurnWait,
   buildMuseProbeArgs,
+  buildMuseProbeSpawnOptions,
   logMuseProbeOutcome,
   newMuseProbeCommandId,
   observeProbeUsage,
@@ -64,6 +65,10 @@ export class MuseUsageProbe {
    * @param {number} [options.requestTimeoutMs] - Per-phase timeout for handshake/start/read.
    * @param {number} [options.turnTimeoutMs] - Bound for the probe turn (≈60s per FR-7).
    * @param {number} [options.killGraceMs] - SIGTERM→SIGKILL escalation grace.
+   * @param {Object} [options.shellEnv] - Fixture override for the spawn-env
+   *   normalization path (tests; undefined runs the cached live probe).
+   * @param {Function} [options.killProcessGroup] - Group-signal DI
+   *   (`(pid, signal) => void`; tests; defaults to `process.kill`).
    */
   constructor({
     getObserver = null,
@@ -74,6 +79,8 @@ export class MuseUsageProbe {
     requestTimeoutMs = 10_000,
     turnTimeoutMs = 60_000,
     killGraceMs = 2_000,
+    shellEnv,
+    killProcessGroup,
   } = {}) {
     this.getObserver = getObserver;
     this.modelProviders = modelProviders;
@@ -83,6 +90,8 @@ export class MuseUsageProbe {
     this.requestTimeoutMs = requestTimeoutMs;
     this.turnTimeoutMs = turnTimeoutMs;
     this.killGraceMs = killGraceMs;
+    this.shellEnv = shellEnv;
+    this.killProcessGroup = killProcessGroup;
     this.state = 'idle'; // idle | probing | disabled
     this.probePromise = null;
     this.consecutiveFailures = 0;
@@ -156,10 +165,11 @@ export class MuseUsageProbe {
     const model = resolveMuseProbeModel({ settings: this.settings, modelProviders: this.modelProviders });
     const { command, args } = buildMuseProbeArgs(model);
     try {
-      const child = this.spawnProcess(command, args, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true,
-      });
+      const child = this.spawnProcess(
+        command,
+        args,
+        buildMuseProbeSpawnOptions({ shellEnv: this.shellEnv }),
+      );
       this.recordSpawn(command, args);
       return child;
     } catch {
@@ -369,6 +379,7 @@ export class MuseUsageProbe {
         }
         : null,
       killGraceMs: this.killGraceMs,
+      killProcessGroup: this.killProcessGroup,
     });
     if (this.process === child) this.process = null;
   }

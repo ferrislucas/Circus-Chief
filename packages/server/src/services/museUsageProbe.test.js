@@ -1,5 +1,7 @@
 import { EventEmitter } from 'node:events';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createRobustEnv } from './nodeSpawnHelper.js';
 import {
   LAST_SPAWN_HISTORY,
   MuseUsageProbe,
@@ -474,7 +476,6 @@ describe('MuseUsageProbe', () => {
     ['handshake', { answerInitialize: false }],
     ['start', { hangStart: true }],
     ['turn', { hangTurn: true }],
-    ['read', { hangRead: true, quietTurn: true }],
   ])('resolves no-data on %s timeout without observing', async (_phase, options) => {
     const child = createFakeServe({ answerInitialize: options.answerInitialize ?? true });
     const { probe, observed } = makeProbe({ child, probeOptions: { requestTimeoutMs: 20, turnTimeoutMs: 30 } });
@@ -489,6 +490,35 @@ describe('MuseUsageProbe', () => {
       });
     }
     await probe.trigger();
+    expect(observed).toHaveLength(0);
+  });
+
+  it('times out the read phase only after reaching usage/read (Issue 16)', async () => {
+    const child = createFakeServe();
+    const { probe, observed } = makeProbe({
+      child,
+      probeOptions: { requestTimeoutMs: 20, turnTimeoutMs: 5_000 },
+    });
+    const originalWrite = child.stdin.write;
+    let readAttempted = false;
+    child.stdin.write = vi.fn((chunk) => {
+      if (String(chunk).includes('usage/read')) {
+        readAttempted = true;
+        return true;
+      }
+      return originalWrite(chunk);
+    });
+    const promise = probe.trigger();
+    for (let i = 0; i < 200 && !child.fake.sent.some((frame) => frame.method === 'turn/start'); i += 1) {
+      await tick();
+    }
+    expect(child.fake.sent.some((frame) => frame.method === 'turn/start')).toBe(true);
+    child.fake.endTurn();
+    await promise;
+
+    // The turn deadline (5s) cannot have fired: this no-data result is the
+    // read request timing out after the quiet turn completed.
+    expect(readAttempted).toBe(true);
     expect(observed).toHaveLength(0);
   });
 
@@ -599,6 +629,44 @@ describe('MuseUsageProbe', () => {
     const signals = child.kill.mock.calls.map((call) => call[0]);
     expect(signals[0]).toBe('SIGTERM');
     expect(signals).toContain('SIGKILL');
+  });
+
+  it('spawns with a normalized host env in sparse-PATH launches (Issue 14)', async () => {
+    const shellEnv = { PATH: `/opt/muse/bin:${process.env.PATH ?? ''}` };
+    const parentPath = process.env.PATH;
+    const { probe, child, spawnProcess } = makeProbe({ probeOptions: { shellEnv } });
+    const promise = probe.trigger();
+    await settle();
+    child.fake.pushUsageChanged();
+    await settle();
+    child.fake.endTurn();
+    await promise;
+
+    expect(spawnProcess).toHaveBeenCalledTimes(1);
+    const spawnOptions = spawnProcess.mock.calls[0][2];
+    expect(spawnOptions?.env).toBeDefined();
+    expect(String(spawnOptions.env.PATH).split(path.delimiter)).toContain('/opt/muse/bin');
+    expect(spawnOptions.env.HOME).toBeTruthy();
+    // The spawn seam receives the shared normalization path, not a copy.
+    expect(spawnOptions.env).toEqual(createRobustEnv(process.env, { shellEnv }));
+    // Building the probe environment never mutates the parent environment.
+    expect(process.env.PATH).toBe(parentPath);
+    expect(probe.lastSpawn).toHaveLength(1);
+  });
+
+  it('spawns the probe in its own process group on POSIX (Issue 15)', async () => {
+    const { probe, child, spawnProcess } = makeProbe();
+    const promise = probe.trigger();
+    await settle();
+    child.fake.pushUsageChanged();
+    await settle();
+    child.fake.endTurn();
+    await promise;
+
+    expect(spawnProcess).toHaveBeenCalledTimes(1);
+    expect(spawnProcess.mock.calls[0][2]).toMatchObject({
+      detached: process.platform !== 'win32',
+    });
   });
 
   it('never logs raw frames, prompts, or tier material', async () => {

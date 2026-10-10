@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { DEFAULT_MUSE_MODEL } from '@circuschief/shared';
 import { mapMuseUsageChanged } from '../agents/adapters/museUsageMapper.js';
 import { killMuseTestProcess } from './metaProbe.js';
+import { createRobustEnv } from './nodeSpawnHelper.js';
 
 /**
  * Pure support for the Muse subscription-usage probe: argv construction,
@@ -56,6 +57,27 @@ export function buildMuseProbeArgs(model) {
   return {
     command: process.env.MUSE_BIN || 'muse',
     args: ['serve', '--no-session-log', '--provider', MUSE_PROBE_PROVIDER, '--model', model],
+  };
+}
+
+/**
+ * Spawn options for one probe micro-turn: the host environment goes through
+ * the same shared normalization as supported Muse turns (`createRobustEnv`
+ * merges the cached login-shell env and repairs PATH and user credential
+ * variables), so a sparse GUI/daemon launch that can still run agent turns
+ * can also find the `muse` binary. Detached on POSIX so teardown can signal
+ * the owned process group. No session overrides, credentials, handles, or
+ * streams are borrowed — the probe stays an isolated micro-turn.
+ *
+ * @param {Object} [options] - Optional `{ shellEnv }` fixture override for
+ *   the normalization path (tests; undefined runs the cached live probe).
+ */
+export function buildMuseProbeSpawnOptions({ shellEnv } = {}) {
+  return {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+    detached: process.platform !== 'win32',
+    env: shellEnv === undefined ? createRobustEnv() : createRobustEnv(process.env, { shellEnv }),
   };
 }
 
@@ -353,23 +375,85 @@ export function waitForProbeChildExit(child, timeoutMs) {
 }
 
 /**
- * Tear a probe child down with SIGTERM→SIGKILL escalation on hang (FR-7).
- * Stdout keeps draining through the grace period: the readline is closed
- * only after the child exits or is force-killed, so no output is lost and
- * the single-flight guard (held by the caller) covers the whole teardown.
- * Takes the pieces explicitly so the owning class stays under budget.
+ * True while the probe's owned POSIX process group still has live members.
+ * A missing group (already reaped, Windows, no pid) reads as cleaned up,
+ * never as a reason to signal. Liveness is probed with signal `0`, which
+ * delivers nothing — only the caller's teardown signals the group.
  */
-export async function teardownProbeChild({ child, closeReadline, killGraceMs }) {
+export function probeGroupAlive(child, killProcessGroup) {
+  if (!child?.pid || process.platform === 'win32') return false;
+  const signal = killProcessGroup || ((pid, sig) => process.kill(pid, sig));
+  try {
+    signal(-child.pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wait for the owned group to drain, polling liveness on a bounded,
+ * `unref`d cadence so an orphaned group never holds the server event loop
+ * open past `timeoutMs`. Works with real ChildProcess handles and with
+ * group-signal doubles alike.
+ */
+export function waitForProbeGroupExit(child, timeoutMs, killProcessGroup) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const poll = () => {
+      if (!probeGroupAlive(child, killProcessGroup)) {
+        resolve(true);
+        return;
+      }
+      if (Date.now() - start >= timeoutMs) {
+        resolve(false);
+        return;
+      }
+      const timer = setTimeout(poll, 10);
+      timer.unref?.();
+    };
+    poll();
+  });
+}
+
+/**
+ * Tear a probe child down with SIGTERM→SIGKILL escalation on hang (FR-7).
+ * The direct child's exit (or close) is not proof its group exited: the
+ * host can exit before its descendants (MCP servers, launched tools), so an
+ * owned group that outlives the host is reaped with the same bounded
+ * escalation. Stdout keeps draining through the grace period: stdio is
+ * destroyed and the readline closed only after the child and its group exit
+ * or are force-killed, so no output is lost and the single-flight guard
+ * (held by the caller) covers the whole teardown. Only the probe's owned
+ * group (`-child.pid`, which the detached spawn establishes) is ever
+ * signaled. Takes the pieces explicitly so the owning class stays under
+ * budget.
+ */
+async function reapProbeGroupChild(child, killGraceMs, killProcessGroup) {
+  if (!probeGroupAlive(child, killProcessGroup)) return;
+  killMuseTestProcess(child, killProcessGroup);
+  const reaped = await waitForProbeGroupExit(child, killGraceMs, killProcessGroup);
+  if (reaped) return;
+  killMuseTestProcess(child, killProcessGroup, true);
+  await waitForProbeGroupExit(child, killGraceMs, killProcessGroup);
+}
+
+export async function teardownProbeChild({ child, closeReadline, killGraceMs, killProcessGroup }) {
   try {
     if (child) {
-      killMuseTestProcess(child);
+      killMuseTestProcess(child, killProcessGroup);
       const exited = await waitForProbeChildExit(child, killGraceMs);
       if (!exited) {
-        killMuseTestProcess(child, undefined, true);
+        killMuseTestProcess(child, killProcessGroup, true);
         await waitForProbeChildExit(child, killGraceMs);
       }
+      await reapProbeGroupChild(child, killGraceMs, killProcessGroup);
     }
   } catch { /* teardown never fails the probe */ }
+  try {
+    child?.stdout?.destroy?.();
+    child?.stderr?.destroy?.();
+  } catch { /* ignore */ }
   try {
     closeReadline?.();
   } catch { /* ignore */ }
