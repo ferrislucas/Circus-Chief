@@ -172,6 +172,7 @@ import KanbanLaneSelectorModal from '../components/KanbanLaneSelectorModal.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
 import { useSessionDetailProjectSubscription } from '../composables/useSessionDetailProjectSubscription.js';
+import { useKanbanRealtime } from '../composables/useKanbanRealtime.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 const route = useRoute();
@@ -195,6 +196,14 @@ const projectSubscription = useSessionDetailProjectSubscription(
   () => currentSessionId.value,
   sessionsStore,
 );
+
+// Realtime Kanban board updates for the lane chip in SessionHeaderPanel: the
+// header reads kanbanStore, which is only patched by KANBAN_* broadcasts.
+// Mirrors SessionListView's useKanbanRealtime(projectId) wiring; the shared
+// useProjectSubscription registry refcounts the project subscription so this
+// double subscription is safe.
+const detailProjectId = computed(() => sessionsStore.currentSession?.projectId || null);
+useKanbanRealtime(detailProjectId);
 
 const {
   gitStatus,

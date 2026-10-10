@@ -50,20 +50,26 @@
         class="work-log-content"
         @scroll.passive="handleScroll"
       >
+        <!-- Naturally sizing inner content for content-growth observation. -->
         <div
-          v-for="log in workLogs"
-          :key="log.id"
-          class="work-log-item"
+          ref="contentInnerRef"
+          class="work-log-content-inner"
         >
-          <ThinkingBlock
-            v-if="log.type === 'thinking'"
-            :content="log.content"
-            :timestamp="log.timestamp"
-          />
-          <CommandBlock
-            v-else
-            :log="log"
-          />
+          <div
+            v-for="log in workLogs"
+            :key="log.id"
+            class="work-log-item"
+          >
+            <ThinkingBlock
+              v-if="log.type === 'thinking'"
+              :content="log.content"
+              :timestamp="log.timestamp"
+            />
+            <CommandBlock
+              v-else
+              :log="log"
+            />
+          </div>
         </div>
       </div>
     </details>
@@ -93,8 +99,10 @@ function handleToggle(event) {
 // is near the bottom; scrolling up disengages until they return. Collapsed
 // panels never scroll.
 const contentRef = ref(null);
+const contentInnerRef = ref(null);
 const { isNearBottom, handleScroll } = useWorkLogFollow({
   resolveContainer: () => contentRef.value,
+  resolveContent: () => contentInnerRef.value,
   // Watching expansion scrolls to newest on open when following — expanding
   // with existing rows otherwise lands at the top (length is unchanged).
   // The isActive gate still blocks scrolling while collapsed, and a
@@ -159,6 +167,15 @@ defineExpose({
 
 .work-log-chevron.expanded {
   transform: rotate(90deg);
+}
+
+/* Inner content wrapper: single child of the scroll box, so it sizes
+   naturally with its items and preserves the item spacing. */
+.work-log-content-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
 }
 
 .work-log-content {

@@ -8,6 +8,7 @@ import { processCommandRunOutputCleanup } from './services/commandRunOutputClean
 import { initWebSocket, webSocketManager, setCommandRunOutputAuthorizer } from './websocket.js';
 import { parseCliOptions } from './cli.js';
 import { startServer, prepareBindFailureHandler } from './startup.js';
+import { createShutdownHandler } from './shutdown.js';
 import { DEFAULT_SERVER_HOST } from '@circuschief/shared';
 import { settings } from './db/index.js';
 import * as prStatusService from './services/prStatusService.js';
@@ -88,9 +89,10 @@ mkdirSync(dirname(dbPath), { recursive: true });
 // Initialize database
 initDatabase(dbPath);
 processCommandRunOutputCleanup().catch((error) => console.error('[Command output cleanup] startup pass failed', error));
-setInterval(() => {
+const commandOutputCleanupInterval = setInterval(() => {
   processCommandRunOutputCleanup().catch((error) => console.error('[Command output cleanup] periodic pass failed', error));
-}, 30_000).unref();
+}, 30_000);
+commandOutputCleanupInterval.unref();
 setCommandRunOutputAuthorizer((runId, requestedSessionId) => {
   const run = commandRuns.getById(runId);
   const rootSessionId = sessions.getRootSessionId(requestedSessionId);
@@ -172,49 +174,40 @@ startCodexAppServerMeter({ modelProviders, getObserver: getProviderAllowanceObse
 // provider edits without a restart.
 startZaiQuotaPoller();
 
-// Graceful shutdown
-let shuttingDown = false;
-async function shutdown(signal) {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  console.log(`${signal} received, shutting down gracefully`);
+// Graceful shutdown. The first signal drains (the entry worker gets its
+// documented five-second drain bound before process exit is forced); a
+// repeated Ctrl-C / SIGTERM during the drain forces an immediate exit so the
+// server can never ignore the operator.
+const { install: installShutdownHandlers } = createShutdownHandler({
+  server,
+  stopPeriodicServices: async () => {
+    // Stop periodic services
+    schedulerService.stop();
+    await stopLaneEntryRetryWorker();
+    stopKanbanOperationRetention();
+    stopStreamWatchdog();
+    prStatusService.stop();
+    systemMonitor.stop();
+    stopCodexAppServerMeter();
+    stopZaiQuotaPoller();
 
-  // Safety net: the entry worker gets its documented five-second drain bound
-  // before process exit is forced.
-  const forceTimeout = setTimeout(() => {
-    console.error('Graceful shutdown timed out, forcing exit');
-    process.exit(1);
-  }, 6000);
-  forceTimeout.unref();
+    // Clear dangling timers from summary service
+    clearScheduledTimers();
 
-  // Stop periodic services
-  schedulerService.stop();
-  await stopLaneEntryRetryWorker();
-  stopKanbanOperationRetention();
-  stopStreamWatchdog();
-  prStatusService.stop();
-  systemMonitor.stop();
-  stopCodexAppServerMeter();
-  stopZaiQuotaPoller();
-
-  // Clear dangling timers from summary service
-  clearScheduledTimers();
-
+    // Stop the periodic command-output cleanup pass started above
+    clearInterval(commandOutputCleanupInterval);
+  },
   // Kill child processes spawned by commandRunner
-  commandRunner.shutdownAll();
-
+  terminateAgentChildren: () => commandRunner.shutdownAll(),
+  // Immediately SIGKILL detached command process groups before a forced
+  // exit (repeated signal or force timeout), where the graceful SIGTERM
+  // path above is still stuck or its escalation timer could never run.
+  forceTerminateAgentChildren: () => commandRunner.shutdownAll({ force: true }),
   // Close all WebSocket connections (must happen before server.close())
-  webSocketManager.close();
+  closeRealtimeConnections: () => webSocketManager.close(),
+});
 
-  // Close HTTP server (now unblocked since WS clients are terminated)
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
-}
-
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+installShutdownHandlers();
 
 // Warm the login-shell env probe once at startup so the first Muse turn
 // doesn't pay the ~2s shell-spawn cost. Failures fall back to the server

@@ -354,6 +354,133 @@ describe('CommandBlock', () => {
       expect(wrapper.find('.command-pre').text()).toBe(longContent);
       expect(wrapper.find('.show-more-btn').text()).toBe('Show less');
     });
+
+    it('head-truncates long output by default (completed history)', () => {
+      const longContent = Array.from({ length: 20 }, (_, i) => `Line ${i + 1}`).join('\n');
+      const wrapper = mountComponent({
+        type: 'tool_output',
+        toolName: 'Bash',
+        content: longContent,
+        timestamp: Date.now(),
+      });
+
+      const text = wrapper.find('.command-pre').text();
+      expect(text).toContain('Line 1');
+      expect(text).toContain('Line 10');
+      expect(text).not.toContain('Line 20');
+    });
+
+    it('tail-truncates long output when tail is true (live pane)', () => {
+      const longContent = Array.from({ length: 20 }, (_, i) => `Line ${i + 1}`).join('\n');
+      const wrapper = mount(CommandBlock, {
+        props: {
+          log: {
+            type: 'tool_output',
+            toolName: 'Bash',
+            content: longContent,
+            timestamp: Date.now(),
+          },
+          tail: true,
+        },
+      });
+
+      const text = wrapper.find('.command-pre').text();
+      expect(text).toContain('Line 20');
+      expect(text).toContain('Line 11');
+      expect(text).not.toContain('Line 1\n');
+      expect(wrapper.find('.show-more-btn').text()).toContain('Show more');
+    });
+
+    it('shows full content when expanded regardless of tail', async () => {
+      const longContent = Array.from({ length: 20 }, (_, i) => `Line ${i + 1}`).join('\n');
+      const wrapper = mount(CommandBlock, {
+        props: {
+          log: {
+            type: 'tool_output',
+            toolName: 'Bash',
+            content: longContent,
+            timestamp: Date.now(),
+          },
+          tail: true,
+        },
+      });
+
+      await wrapper.find('.show-more-btn').trigger('click');
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.command-pre').text()).toBe(longContent);
+      expect(wrapper.find('.show-more-btn').text()).toBe('Show less');
+    });
+
+    it('defaults tail to false', () => {
+      const wrapper = mountComponent({
+        type: 'tool_output',
+        toolName: 'Bash',
+        content: 'output',
+        timestamp: Date.now(),
+      });
+      expect(wrapper.props('tail')).toBe(false);
+    });
+  });
+
+  describe('tail-preview sizing override (live pane)', () => {
+    const longContent = Array.from({ length: 20 }, (_, i) => `Line ${i + 1}`).join('\n');
+
+    function mountTail(log, tail = true) {
+      return mount(CommandBlock, {
+        props: {
+          log: { type: 'tool_output', toolName: 'Bash', timestamp: Date.now(), ...log },
+          tail,
+        },
+      });
+    }
+
+    it('marks the collapsed tail preview so the outer scroll owns it', () => {
+      const wrapper = mountTail({ content: longContent });
+      expect(wrapper.find('.command-pre').classes()).toContain('tail-preview');
+    });
+
+    it('marks short outputs too: wrapping alone can exceed the cap', () => {
+      const wrapper = mountTail({ content: 'y'.repeat(2000) });
+      expect(wrapper.find('.show-more-btn').exists()).toBe(false);
+      expect(wrapper.find('.command-pre').classes()).toContain('tail-preview');
+    });
+
+    it('drops the override while expanded and restores it on Show less', async () => {
+      const wrapper = mountTail({ content: longContent });
+      await wrapper.find('.show-more-btn').trigger('click');
+      await flushAll(wrapper);
+      expect(wrapper.find('.command-pre').classes()).toContain('expanded');
+      expect(wrapper.find('.command-pre').classes()).not.toContain('tail-preview');
+
+      await wrapper.find('.show-more-btn').trigger('click');
+      await flushAll(wrapper);
+      expect(wrapper.find('.command-pre').classes()).toContain('tail-preview');
+      expect(wrapper.find('.command-pre').classes()).not.toContain('expanded');
+    });
+
+    it('leaves completed history (tail false) on the capped head preview', () => {
+      const wrapper = mountTail({ content: longContent }, false);
+      expect(wrapper.find('.command-pre').classes()).not.toContain('tail-preview');
+      const text = wrapper.find('.command-pre').text();
+      expect(text).toContain('Line 1');
+      expect(text).not.toContain('Line 20');
+    });
+
+    it('never marks raw JSON details output', () => {
+      const wrapper = mount(CommandBlock, {
+        props: {
+          log: {
+            type: 'tool_input',
+            toolName: 'Bash',
+            content: JSON.stringify({ command: 'echo hi' }),
+            timestamp: Date.now(),
+          },
+          tail: true,
+        },
+      });
+      expect(wrapper.find('.raw-json-details .command-pre').classes()).not.toContain('tail-preview');
+    });
   });
 
   describe('styling classes', () => {

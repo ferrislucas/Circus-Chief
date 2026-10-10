@@ -285,8 +285,20 @@ export class CommandRunner {
     }
   }
 
-  /** Terminate all active child processes (called during graceful shutdown). */
-  shutdownAll() {
+  /**
+   * Terminate all active child processes (called during graceful shutdown).
+   *
+   * @param {{ force?: boolean } | boolean} [options] - `{ force: true }` (or
+   *   `true`) SIGKILLs every tracked detached process group synchronously
+   *   with no escalation timer, for forced-exit paths. Default: SIGTERM now,
+   *   SIGKILL after one second.
+   */
+  shutdownAll(options = {}) {
+    const force = options === true || options?.force === true;
+    if (force) {
+      this.shutdownAllImmediate();
+      return;
+    }
     const sendSignal = (sig) => {
       for (const [, entry] of this.processes) {
         try { process.kill(-entry.process.pid, sig); } catch {
@@ -296,6 +308,17 @@ export class CommandRunner {
     };
     sendSignal('SIGTERM');
     setTimeout(() => sendSignal('SIGKILL'), 1000).unref();
+  }
+
+  /** Synchronously SIGKILL every tracked detached process group. Best-effort: never throws, waits, or schedules timers. */
+  shutdownAllImmediate() {
+    for (const [, entry] of this.processes) {
+      try {
+        process.kill(-entry.process.pid, 'SIGKILL');
+      } catch {
+        try { entry.process.kill('SIGKILL'); } catch { /* already dead */ }
+      }
+    }
   }
 
   /** Get all active runs as a new Map. */
