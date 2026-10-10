@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia';
 import { api } from '../composables/useApi.js';
-import { DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
+import { DEFAULT_MUSE_MODEL, DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
+
+export const MUSE_PROBE_DEFAULT_MODEL = DEFAULT_MUSE_MODEL;
 
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
@@ -14,6 +16,9 @@ export const useSettingsStore = defineStore('settings', {
     },
     generalSettings: {
       disableAnalytics: false,
+    },
+    museProbeSettings: {
+      probeModel: DEFAULT_MUSE_MODEL,
     },
     loading: false,
     error: null,
@@ -134,6 +139,65 @@ export const useSettingsStore = defineStore('settings', {
       try {
         const defaults = await api.resetSummarySettings();
         this.summarySettings = defaults;
+        return defaults;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    /**
+     * Fetch Muse usage probe settings from the server
+     */
+    async fetchMuseProbeSettings() {
+      this.loading = true;
+      this.error = null;
+      try {
+        const settings = await api.getMuseProbeSettings();
+        this.museProbeSettings = settings;
+        return settings;
+      } catch (err) {
+        this.error = err.message;
+        // Fall back to defaults on error
+        this.museProbeSettings = {
+          probeModel: DEFAULT_MUSE_MODEL,
+        };
+        return this.museProbeSettings;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    /**
+     * Update Muse usage probe settings
+     * @param {Object} settings - Probe settings
+     */
+    async updateMuseProbeSettings(settings) {
+      this.loading = true;
+      this.error = null;
+      try {
+        const updated = await api.updateMuseProbeSettings(settings);
+        this.museProbeSettings = updated;
+        return updated;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    /**
+     * Reset Muse usage probe settings to defaults
+     */
+    async resetMuseProbeSettings() {
+      this.loading = true;
+      this.error = null;
+      try {
+        const defaults = await api.resetMuseProbeSettings();
+        this.museProbeSettings = defaults;
         return defaults;
       } catch (err) {
         this.error = err.message;

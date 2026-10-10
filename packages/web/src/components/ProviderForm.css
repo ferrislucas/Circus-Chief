@@ -123,6 +123,34 @@
   color: var(--color-danger);
 }
 
+.probe-model-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.probe-model-option {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+.probe-model-option input[type='radio'] {
+  accent-color: var(--color-primary);
+}
+
+.probe-model-id {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.probe-model-default {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
 .token-input-wrapper {
   display: flex;
   gap: 0.5rem;

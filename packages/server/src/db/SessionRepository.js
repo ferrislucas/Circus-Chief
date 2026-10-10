@@ -300,6 +300,26 @@ export class SessionRepository extends BaseRepository {
   }
 
   /**
+   * Whether any non-archived session driven by the given agent runtime is
+   * currently executing. `waiting` is idle and excluded (same executing
+   * notion as getExecutingProviderIds). Narrow projection for gating
+   * activity-bound background work such as the Muse usage probe heartbeat.
+   */
+  hasExecutingAgentType(agentType) {
+    const row = this.db
+      .prepare(
+        `SELECT 1
+         FROM sessions
+         WHERE status IN ('starting', 'running')
+           AND archived = 0
+           AND agent_type = ?
+         LIMIT 1`
+      )
+      .get(agentType);
+    return Boolean(row);
+  }
+
+  /**
    * Atomically claim a due scheduled session for execution. See
    * `claimScheduledRow` in session-helpers.js for the full contract.
    * @param {string} id - Session id to claim.

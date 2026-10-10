@@ -616,4 +616,41 @@ describe('SettingsRepository', () => {
       expect(repo.get('general_settings')).toBeNull();
     });
   });
+
+  describe('muse probe settings', () => {
+    it('defaults to the non-contributor Muse model', () => {
+      expect(repo.getMuseProbeSettings()).toEqual({ probeModel: 'muse-spark-1.3' });
+    });
+
+    it('persists a meta-provider-enabled model', () => {
+      const updated = repo.setMuseProbeSettings({ probeModel: 'muse-spark-1.3-contributor' });
+
+      expect(updated).toEqual({ probeModel: 'muse-spark-1.3-contributor' });
+      expect(repo.getMuseProbeSettings()).toEqual({ probeModel: 'muse-spark-1.3-contributor' });
+    });
+
+    it('resolves an unset model to the default', () => {
+      repo.setMuseProbeSettings({ probeModel: '' });
+
+      expect(repo.getMuseProbeSettings()).toEqual({ probeModel: 'muse-spark-1.3' });
+    });
+
+    it('resolves corrupt stored values to the default', () => {
+      repo.set('muse_probe_settings', 'invalid-json{');
+      expect(repo.getMuseProbeSettings()).toEqual({ probeModel: 'muse-spark-1.3' });
+
+      repo.set('muse_probe_settings', JSON.stringify({ probeModel: 42 }));
+      expect(repo.getMuseProbeSettings()).toEqual({ probeModel: 'muse-spark-1.3' });
+    });
+
+    it('reset restores the default', () => {
+      repo.setMuseProbeSettings({ probeModel: 'muse-spark-1.3-contributor' });
+
+      const defaults = repo.resetMuseProbeSettings();
+
+      expect(defaults).toEqual({ probeModel: 'muse-spark-1.3' });
+      expect(repo.getMuseProbeSettings()).toEqual(defaults);
+      expect(repo.get('muse_probe_settings')).toBeNull();
+    });
+  });
 });

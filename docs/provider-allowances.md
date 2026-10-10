@@ -14,6 +14,7 @@ validated against real payloads before it is merged.
 | OpenAI / Codex | ChatGPT OAuth subscription | Codex rollout tail: the session's local `rollout-*.jsonl` `token_count` frames | `codex-rollout` |
 | OpenAI / Codex | ChatGPT OAuth subscription | Codex app-server: local JSON-RPC rate-limit meter | `codex-app-server` |
 | Anthropic- or OpenAI-kind provider on a z.ai GLM Coding Plan host | API key | z.ai poll: provider quota endpoint, immediately then every five minutes | `zai-quota-poll` |
+| Meta / Muse | Meta login (`muse login`) | Muse usage probe: a short-lived `muse serve --no-session-log` micro-turn captures `usage/changed` (falling back to `usage/read`) | `provider` |
 | OpenAI-compatible provider | API key | OpenAI headers: documented `x-ratelimit-limit-*`, `x-ratelimit-remaining-*`, and `x-ratelimit-reset-*` response headers | `observed-header` |
 
 The OpenAI direct API adapter is a best-effort header observation path for
@@ -29,6 +30,14 @@ credential applies without a server restart: rotation takes effect on the
 next respawn or refresh, and while no eligible provider remains the meter
 stands down (logging `no-provider`) and rechecks on a bounded cadence
 instead of spawning. Flag changes still require a server restart.
+
+The Muse usage probe re-resolves the built-in `meta` provider per probe, so
+disabling or removing it applies without a restart. It fires only on Muse
+turn completion plus an activity-gated five-minute heartbeat, and is idle
+otherwise. Each probe spends one micro-turn of subscription quota on the
+configured probe model (default `muse-spark-1.3`); observations carry the
+stream freshness window. Validated against `muse` 1.4.2 with sanitized
+`SubscriptionUsage` fixtures checked in as mapper tests.
 
 ## Configuration
 

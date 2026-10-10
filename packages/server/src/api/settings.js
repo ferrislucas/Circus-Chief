@@ -186,6 +186,59 @@ router.delete('/summary', (req, res) => {
 });
 
 /**
+ * GET /api/settings/muse-probe
+ * Get Muse usage probe settings (the probe's only setting, FR-9)
+ */
+router.get('/muse-probe', (req, res) => {
+  try {
+    res.json(settings.getMuseProbeSettings());
+  } catch (error) {
+    console.error('Error getting Muse probe settings:', error);
+    res.status(500).json({ error: 'Failed to get Muse probe settings' });
+  }
+});
+
+/**
+ * PUT /api/settings/muse-probe
+ * Update Muse usage probe settings. Any string persists; an empty model
+ * resolves to the default. Ownership against the meta provider's enabled
+ * models is resolved by the probe itself, so a stored-but-now-invalid
+ * value falls back to the default without rejecting the save.
+ */
+router.put('/muse-probe', (req, res) => {
+  try {
+    const body = req.body || {};
+    const { probeModel } = body;
+
+    if (!Object.prototype.hasOwnProperty.call(body, 'probeModel')) {
+      return res.status(400).json({ error: 'Invalid Muse probe settings. probeModel must be present' });
+    }
+
+    if (typeof probeModel !== 'string') {
+      return res.status(400).json({ error: 'probeModel must be a string' });
+    }
+
+    res.json(settings.setMuseProbeSettings({ probeModel }));
+  } catch (error) {
+    console.error('Error updating Muse probe settings:', error);
+    res.status(500).json({ error: 'Failed to update Muse probe settings' });
+  }
+});
+
+/**
+ * DELETE /api/settings/muse-probe
+ * Reset Muse usage probe settings to defaults
+ */
+router.delete('/muse-probe', (req, res) => {
+  try {
+    res.json(settings.resetMuseProbeSettings());
+  } catch (error) {
+    console.error('Error resetting Muse probe settings:', error);
+    res.status(500).json({ error: 'Failed to reset Muse probe settings' });
+  }
+});
+
+/**
  * GET /api/settings/general
  * Get general settings (includes privacy settings)
  */

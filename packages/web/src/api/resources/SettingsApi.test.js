@@ -145,4 +145,41 @@ describe('SettingsApi', () => {
       });
     });
   });
+
+  describe('Muse Probe Settings', () => {
+    describe('getMuseProbeSettings', () => {
+      it('sends GET to /settings/muse-probe', async () => {
+        mockFetch.mockReturnValue(mockResponse({ probeModel: 'muse-spark-1.3' }));
+
+        const result = await client.getMuseProbeSettings();
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/settings/muse-probe', expect.any(Object));
+        expect(result).toEqual({ probeModel: 'muse-spark-1.3' });
+      });
+    });
+
+    describe('updateMuseProbeSettings', () => {
+      it('sends PUT to /settings/muse-probe', async () => {
+        const settings = { probeModel: 'muse-spark-1.3-contributor' };
+        mockFetch.mockReturnValue(mockResponse(settings));
+
+        await client.updateMuseProbeSettings(settings);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/settings/muse-probe', expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify(settings),
+        }));
+      });
+    });
+
+    describe('resetMuseProbeSettings', () => {
+      it('sends DELETE to /settings/muse-probe', async () => {
+        mockFetch.mockReturnValue(mockResponse({ probeModel: 'muse-spark-1.3' }));
+
+        await client.resetMuseProbeSettings();
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/settings/muse-probe', expect.objectContaining({ method: 'DELETE' }));
+      });
+    });
+  });
 });

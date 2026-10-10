@@ -26,6 +26,7 @@ import { setAutomationPreflightStatus } from './services/automationStatusService
 import { startKanbanOperationRetention, stopKanbanOperationRetention } from './services/kanbanOperationRetention.js';
 import { startStreamWatchdog, stopStreamWatchdog } from './services/streamWatchdog.js';
 import { startCodexAppServerMeter, stopCodexAppServerMeter } from './services/codexAppServerMeter.js';
+import { startMuseUsageProbe, stopMuseUsageProbe } from './services/museUsageProbeInstance.js';
 import { getProviderAllowanceObserver } from './services/providerAllowanceServiceInstance.js';
 import { startZaiQuotaPoller, stopZaiQuotaPoller } from './services/zaiQuotaPoller.js';
 
@@ -157,6 +158,11 @@ startCodexAppServerMeter({ modelProviders, getObserver: getProviderAllowanceObse
 // provider edits without a restart.
 startZaiQuotaPoller();
 
+// Start the Muse subscription-usage probe. It stays fully idle until Muse
+// agent turns complete or the activity-gated heartbeat fires; repeated
+// failures disable it without affecting indicators or sessions.
+startMuseUsageProbe();
+
 // Graceful shutdown
 let shuttingDown = false;
 async function shutdown(signal) {
@@ -181,6 +187,7 @@ async function shutdown(signal) {
   systemMonitor.stop();
   stopCodexAppServerMeter();
   stopZaiQuotaPoller();
+  stopMuseUsageProbe();
 
   // Clear dangling timers from summary service
   clearScheduledTimers();

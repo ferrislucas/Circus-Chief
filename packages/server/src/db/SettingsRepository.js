@@ -1,9 +1,14 @@
 import { databaseManager } from './DatabaseManager.js';
-import { DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
+import { DEFAULT_MUSE_MODEL, DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
 
 const TOKEN_WEIGHTS_KEY = 'token_cost_weights';
 const SUMMARY_SETTINGS_KEY = 'summary_settings';
 const GENERAL_SETTINGS_KEY = 'general_settings';
+const MUSE_PROBE_SETTINGS_KEY = 'muse_probe_settings';
+
+const DEFAULT_MUSE_PROBE_SETTINGS = Object.freeze({
+  probeModel: DEFAULT_MUSE_MODEL,
+});
 
 const DEFAULT_SUMMARY_SETTINGS = Object.freeze({
   disableSessionSummaries: false,
@@ -166,6 +171,47 @@ export class SettingsRepository {
     return { ...DEFAULT_SUMMARY_SETTINGS };
   }
 
+  // Muse Usage Probe Settings (the feature's only setting; FR-9)
+
+  /**
+   * Get Muse probe settings with defaults. An unset, empty, or corrupt
+   * stored model resolves to the non-contributor default; ownership against
+   * the meta provider's enabled models is resolved by the probe itself.
+   * @returns {{ probeModel: string }} Probe settings
+   */
+  getMuseProbeSettings() {
+    const value = this.get(MUSE_PROBE_SETTINGS_KEY);
+    if (!value) {
+      return { ...DEFAULT_MUSE_PROBE_SETTINGS };
+    }
+    try {
+      const parsed = JSON.parse(value);
+      return normalizeStoredMuseProbeSettings(parsed);
+    } catch {
+      return { ...DEFAULT_MUSE_PROBE_SETTINGS };
+    }
+  }
+
+  /**
+   * Set Muse probe settings
+   * @param {Object} settings - Probe settings
+   * @param {string} [settings.probeModel] - Probe model id; empty means default
+   */
+  setMuseProbeSettings(settings) {
+    const validated = normalizeStoredMuseProbeSettings(settings);
+    this.set(MUSE_PROBE_SETTINGS_KEY, JSON.stringify(validated));
+    return validated;
+  }
+
+  /**
+   * Reset Muse probe settings to defaults
+   * @returns {{ probeModel: string }} The default settings
+   */
+  resetMuseProbeSettings() {
+    this.delete(MUSE_PROBE_SETTINGS_KEY);
+    return { ...DEFAULT_MUSE_PROBE_SETTINGS };
+  }
+
   // General Settings
 
   /**
@@ -214,6 +260,14 @@ export class SettingsRepository {
       disableAnalytics: false,
     };
   }
+}
+
+function normalizeStoredMuseProbeSettings(parsed) {
+  const probeModel = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    && typeof parsed.probeModel === 'string' && parsed.probeModel
+    ? parsed.probeModel
+    : DEFAULT_MUSE_MODEL;
+  return { probeModel };
 }
 
 function normalizeStoredSummarySettings(parsed) {
