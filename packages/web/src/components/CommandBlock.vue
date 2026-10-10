@@ -67,7 +67,7 @@
       <template v-else>
         <pre
           class="command-pre low-reflow-output"
-          :class="{ expanded: isExpanded }"
+          :class="{ expanded: isExpanded, 'tail-preview': tail && !isExpanded }"
         >{{ displayContent }}</pre>
         <button
           v-if="shouldTruncate && !isExpanded"
@@ -279,6 +279,15 @@ function formatTime(ts) {
 
 .command-pre.expanded {
   max-height: none;
+}
+
+/* Collapsed tail previews (live pane) grow with the outer scroll container
+   so the newest wrapped line stays visible without inner scrolling.
+   Applies regardless of logical line count: wrapping alone can exceed the
+   cap. Completed history (tail: false) and raw JSON details keep the cap. */
+.command-pre.tail-preview {
+  max-height: none;
+  overflow: visible;
 }
 
 .show-more-btn {

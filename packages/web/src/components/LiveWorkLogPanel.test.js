@@ -262,6 +262,82 @@ describe('LiveWorkLogPanel', () => {
       expect(wrapper.vm.isNearBottom).toBe(true);
     });
 
+    it('re-pins to the bottom when rendered content grows while following', async () => {
+      const observed = [];
+      const OriginalRO = globalThis.ResizeObserver;
+      globalThis.ResizeObserver = class {
+        constructor(cb) {
+          observed.push(cb);
+        }
+
+        observe() {}
+        disconnect() {}
+      };
+      try {
+        const wrapper = mountComponent({
+          workLogs: [createWorkLog(1)],
+        });
+        await flushAll(wrapper);
+        expect(observed.length).toBe(1);
+
+        const logsContainer = wrapper.find('.live-logs');
+        const el = logsContainer.element;
+        Object.defineProperty(el, 'scrollHeight', { value: 500, configurable: true, writable: true });
+        Object.defineProperty(el, 'clientHeight', { value: 250, configurable: true, writable: true });
+        el.scrollTop = 250; // At bottom
+        await logsContainer.trigger('scroll');
+        await flushAll(wrapper);
+        expect(wrapper.vm.isNearBottom).toBe(true);
+
+        // Rendered content grows after the follow scroll ran (late wrap
+        // reflow); the stale position must be re-pinned without interaction.
+        Object.defineProperty(el, 'scrollHeight', { value: 800 });
+        el.scrollTop = 250;
+        observed[0]();
+        await flushAll(wrapper);
+        expect(el.scrollTop).toBe(800);
+      } finally {
+        if (OriginalRO === undefined) delete globalThis.ResizeObserver;
+        else globalThis.ResizeObserver = OriginalRO;
+      }
+    });
+
+    it('does NOT re-pin on content growth while the user is scrolled up', async () => {
+      const observed = [];
+      const OriginalRO = globalThis.ResizeObserver;
+      globalThis.ResizeObserver = class {
+        constructor(cb) {
+          observed.push(cb);
+        }
+
+        observe() {}
+        disconnect() {}
+      };
+      try {
+        const wrapper = mountComponent({
+          workLogs: [createWorkLog(1)],
+        });
+        await flushAll(wrapper);
+        expect(observed.length).toBe(1);
+
+        const logsContainer = wrapper.find('.live-logs');
+        const el = logsContainer.element;
+        Object.defineProperty(el, 'scrollHeight', { value: 500, configurable: true, writable: true });
+        Object.defineProperty(el, 'clientHeight', { value: 250, configurable: true, writable: true });
+        el.scrollTop = 0; // User scrolled to top
+        await logsContainer.trigger('scroll');
+        expect(wrapper.vm.isNearBottom).toBe(false);
+
+        Object.defineProperty(el, 'scrollHeight', { value: 800 });
+        observed[0]();
+        await flushAll(wrapper);
+        expect(el.scrollTop).toBe(0);
+      } finally {
+        if (OriginalRO === undefined) delete globalThis.ResizeObserver;
+        else globalThis.ResizeObserver = OriginalRO;
+      }
+    });
+
     it('considers user NOT "near bottom" when beyond threshold', async () => {
       const wrapper = mountComponent({
         workLogs: [createWorkLog(1)],
