@@ -20,34 +20,13 @@ vi.mock('../composables/useWebSocket.js', () => ({
 import ProviderAllowanceIndicators from './ProviderAllowanceIndicators.vue';
 
 describe('ProviderAllowanceIndicators', () => {
-  let resizeObservers;
-  let rectSpy;
-
   beforeEach(() => {
     setActivePinia(createPinia());
     websocketListeners.clear();
     api.getProviderAllowances.mockImplementation(() => new Promise(() => {}));
-    resizeObservers = [];
-    globalThis.ResizeObserver = class {
-      constructor(callback) {
-        this.callback = callback;
-        this.disconnect = vi.fn();
-        resizeObservers.push(this);
-      }
-
-      observe = vi.fn();
-      trigger = () => this.callback();
-    };
-    rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function getBoundingClientRect() {
-      const width = this.classList.contains('desktop-items') ? 190
-        : this.classList.contains('allowance-item') ? 70
-          : this.classList.contains('overflow-button') ? 30 : 0;
-      return { width, height: 0, top: 0, left: 0, right: width, bottom: 0, x: 0, y: 0, toJSON: () => ({}) };
-    });
   });
 
   afterEach(() => {
-    rectSpy.mockRestore();
     vi.useRealTimers();
     document.body.replaceChildren();
   });
@@ -91,13 +70,12 @@ describe('ProviderAllowanceIndicators', () => {
     }];
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await nextTick();
-    resizeObservers[0].trigger();
     await nextTick();
 
-    const item = wrapper.get('[data-testid="provider-allowance-item"]');
+    const item = wrapper.get('[data-testid="provider-allowance-trigger"]');
     expect(item.attributes('aria-label')).toContain('Unknown');
 
-    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await wrapper.find('[data-testid="provider-allowance-trigger"]').trigger('click');
     await nextTick();
 
     expect(wrapper.find('.provider-detail').text()).toContain('Unknown');
@@ -133,7 +111,8 @@ describe('ProviderAllowanceIndicators', () => {
 
     expect(api.getProviderAllowances).not.toHaveBeenCalled();
     expect(store.snapshots[0].allowances[0].remainingPercent).toBe(5);
-    expect(wrapper.get('[data-testid="provider-allowance-item"]').text()).toContain('5%');
+    expect(wrapper.get('[data-testid="provider-allowance-trigger"]').attributes('aria-label')).toContain('5%');
+    expect(wrapper.get('[data-testid="provider-allowance-trigger"]').find('.battery-fill').attributes('width')).toBe('0.85');
 
     onAllowanceUpdate({ type: 'provider:allowance_updated', snapshot: { providerId: 'invalid' } });
     onAllowanceUpdate({ type: 'provider:allowance_updated', snapshot: snapshot(), rawProviderHeader: 'secret' });
@@ -164,7 +143,7 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
-  it('reorders hydrated visible providers after a WebSocket status transition without refetching', async () => {
+  it('reflects the worst provider status in the single trigger without refetching', async () => {
     api.getProviderAllowances.mockResolvedValueOnce({
       snapshots: [
         snapshot({ providerId: 'active', status: 'available' }),
@@ -173,19 +152,12 @@ describe('ProviderAllowanceIndicators', () => {
       ],
       activeProviderIds: ['active'],
     });
-    rectSpy.mockImplementation(function getBoundingClientRect() {
-      const width = this.classList.contains('desktop-items') ? 400
-        : this.classList.contains('allowance-item') ? 70
-          : this.classList.contains('overflow-button') ? 30 : 0;
-      return { width, height: 0, top: 0, left: 0, right: width, bottom: 0, x: 0, y: 0, toJSON: () => ({}) };
-    });
     const wrapper = mount(ProviderAllowanceIndicators);
     await Promise.resolve();
     await nextTick();
-    resizeObservers[0].trigger();
-    await nextTick();
 
-    expect(wrapper.findAll('.desktop-items .allowance-item .provider-name').map((item) => item.text())).toEqual(['active', 'healthy', 'constrained']);
+    const trigger = () => wrapper.find('[data-testid="provider-allowance-trigger"]');
+    expect(trigger().attributes('aria-label')).toContain('Available');
     expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
 
     websocketListeners.get('provider:allowance_updated')({
@@ -194,7 +166,8 @@ describe('ProviderAllowanceIndicators', () => {
     });
     await nextTick();
 
-    expect(wrapper.findAll('.desktop-items .allowance-item .provider-name').map((item) => item.text())).toEqual(['active', 'constrained', 'healthy']);
+    expect(trigger().classes()).toContain('is-critical');
+    expect(trigger().attributes('aria-label')).toContain('Critical');
     expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });
@@ -384,9 +357,8 @@ describe('ProviderAllowanceIndicators', () => {
     }];
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await nextTick();
-    resizeObservers[0].trigger();
     await nextTick();
-    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await wrapper.find('[data-testid="provider-allowance-trigger"]').trigger('click');
     await nextTick();
 
     expect(wrapper.text()).toContain('25% remaining');
@@ -400,64 +372,74 @@ describe('ProviderAllowanceIndicators', () => {
     })];
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await nextTick();
-    resizeObservers[0].trigger();
     await nextTick();
-    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await wrapper.find('[data-testid="provider-allowance-trigger"]').trigger('click');
     await nextTick();
 
     expect(wrapper.find('.provider-detail').text()).toContain('54M tokens used of 120M');
   });
 
-  it('uses the container width to show complete items and reserves overflow control space', async () => {
-    seedSnapshots(4);
+  it('renders one battery trigger whose fill tracks the worst remaining percent', async () => {
+    const store = useProviderAllowancesStore();
+    store.snapshots = [
+      snapshot({
+        providerId: 'high', status: 'ok',
+        allowances: [{ key: 'window', label: 'Window', remaining: 80, limit: 100, remainingPercent: 80, unit: 'tokens', resetsAt: null }],
+      }),
+      snapshot({
+        providerId: 'low', status: 'warning',
+        allowances: [{ key: 'window', label: 'Window', remaining: 25, limit: 100, remainingPercent: 25, unit: 'tokens', resetsAt: null }],
+      }),
+    ];
     const wrapper = mount(ProviderAllowanceIndicators);
     await nextTick();
-    resizeObservers[0].trigger();
-    await nextTick();
 
-    expect(wrapper.findAll('.desktop-items .allowance-item')).toHaveLength(2);
-    expect(wrapper.find('.overflow-button').text()).toBe('+2');
-  });
-
-  it('uses the rendered flex gap when deciding how many desktop items fit', async () => {
-    seedSnapshots(3);
-    rectSpy.mockImplementation(function getBoundingClientRect() {
-      const width = this.classList.contains('desktop-items') ? 189
-        : this.classList.contains('allowance-item') ? 70
-          : this.classList.contains('overflow-button') ? 30 : 0;
-      return { width, height: 0, top: 0, left: 0, right: width, bottom: 0, x: 0, y: 0, toJSON: () => ({}) };
-    });
-    const wrapper = mount(ProviderAllowanceIndicators);
-    wrapper.find('.desktop-items').element.style.gap = '10px';
-    await nextTick();
-    resizeObservers[0].trigger();
-    await nextTick();
-
-    expect(wrapper.findAll('.desktop-items .allowance-item')).toHaveLength(1);
-    expect(wrapper.find('.desktop-items .overflow-button').text()).toBe('+2');
-  });
-
-  it('re-measures when the container changes size and disconnects on unmount', async () => {
-    seedSnapshots(4);
-    const wrapper = mount(ProviderAllowanceIndicators);
-    await nextTick();
-    resizeObservers[0].trigger();
-    await nextTick();
-    expect(wrapper.findAll('.desktop-items .allowance-item')).toHaveLength(2);
-
-    rectSpy.mockImplementation(function getBoundingClientRect() {
-      const width = this.classList.contains('desktop-items') ? 310
-        : this.classList.contains('allowance-item') ? 70
-          : this.classList.contains('overflow-button') ? 30 : 0;
-      return { width, height: 0, top: 0, left: 0, right: width, bottom: 0, x: 0, y: 0, toJSON: () => ({}) };
-    });
-    resizeObservers[0].trigger();
-    await nextTick();
-
-    expect(wrapper.findAll('.desktop-items .allowance-item')).toHaveLength(4);
-    expect(wrapper.find('.desktop-items .overflow-button').exists()).toBe(false);
+    const triggers = wrapper.findAll('[data-testid="provider-allowance-trigger"]');
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0].classes()).toContain('is-warning');
+    expect(triggers[0].attributes('aria-label')).toBe('Provider usage: Warning, 25% remaining');
+    expect(triggers[0].attributes('title')).toBe('Provider usage: Warning, 25% remaining');
+    expect(triggers[0].find('.battery-icon').exists()).toBe(true);
+    expect(triggers[0].find('.battery-fill').attributes('width')).toBe('4.25');
     wrapper.unmount();
-    expect(resizeObservers[0].disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('renders an empty battery outline with an unknown label when no percentage exists', async () => {
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot({
+      status: 'unknown',
+      allowances: [{ key: 'window', label: 'Window', remaining: null, limit: null, remainingPercent: null, unit: 'tokens', resetsAt: null }],
+    })];
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await nextTick();
+
+    const trigger = wrapper.get('[data-testid="provider-allowance-trigger"]');
+    expect(trigger.classes()).toContain('is-unknown');
+    expect(trigger.attributes('aria-label')).toBe('Provider usage: Unknown, usage unknown');
+    expect(trigger.find('.battery-fill').exists()).toBe(false);
+    expect(trigger.find('.battery-outline').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('prefers the most severe status over the lowest percent across providers', async () => {
+    const store = useProviderAllowancesStore();
+    store.snapshots = [
+      snapshot({
+        providerId: 'drained', status: 'ok',
+        allowances: [{ key: 'window', label: 'Window', remaining: 2, limit: 100, remainingPercent: 2, unit: 'tokens', resetsAt: null }],
+      }),
+      snapshot({
+        providerId: 'alarming', status: 'exhausted',
+        allowances: [{ key: 'window', label: 'Window', remaining: 40, limit: 100, remainingPercent: 40, unit: 'tokens', resetsAt: null }],
+      }),
+    ];
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await nextTick();
+
+    const trigger = wrapper.get('[data-testid="provider-allowance-trigger"]');
+    expect(trigger.classes()).toContain('is-exhausted');
+    expect(trigger.attributes('aria-label')).toBe('Provider usage: Exhausted, 2% remaining');
+    wrapper.unmount();
   });
 
   it('contains keyboard focus, closes on Escape, and restores the exact invoking trigger', async () => {
@@ -465,9 +447,8 @@ describe('ProviderAllowanceIndicators', () => {
     store.snapshots = [snapshot()];
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await nextTick();
-    resizeObservers[0].trigger();
     await nextTick();
-    const trigger = wrapper.find('.desktop-items .allowance-item');
+    const trigger = wrapper.find('[data-testid="provider-allowance-trigger"]');
     trigger.element.focus();
     await trigger.trigger('click');
     await nextTick();
@@ -498,14 +479,12 @@ describe('ProviderAllowanceIndicators', () => {
     expect(closedEscape.defaultPrevented).toBe(false);
   });
 
-  it('opens from the overflow trigger and keeps the dialog focused when it has no focusable children', async () => {
+  it('opens from the single trigger and keeps the dialog focused when it has no focusable children', async () => {
     seedSnapshots(4);
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await nextTick();
-    resizeObservers[0].trigger();
-    await nextTick();
 
-    const trigger = wrapper.find('[data-testid="provider-allowance-overflow"]');
+    const trigger = wrapper.find('[data-testid="provider-allowance-trigger"]');
     trigger.element.focus();
     await trigger.trigger('click');
     await nextTick();
@@ -532,10 +511,9 @@ describe('ProviderAllowanceIndicators', () => {
     store.snapshots = [snapshot({ resetsAt: Date.parse('2026-01-03T03:04:05Z') })];
     const wrapper = mount(ProviderAllowanceIndicators);
     await nextTick();
-    resizeObservers[0].trigger();
     await nextTick();
 
-    expect(wrapper.find('.desktop-items .allowance-item').attributes('aria-label')).toContain('resets');
+    expect(wrapper.find('[data-testid="provider-allowance-trigger"]').attributes('aria-label')).toContain('resets');
     expect(wrapper.find('[aria-live="polite"]').text()).toBe('');
 
     store.replace(snapshot({ status: 'warning' }));
@@ -559,15 +537,14 @@ describe('ProviderAllowanceIndicators', () => {
     }];
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await nextTick();
-    resizeObservers[0].trigger();
     await nextTick();
 
-    const item = wrapper.get('[data-testid="provider-allowance-item"]');
+    const item = wrapper.get('[data-testid="provider-allowance-trigger"]');
     expect(item.classes()).toContain('is-critical');
     expect(item.classes()).toContain('is-stale');
     expect(item.attributes('aria-label')).toContain('Critical');
 
-    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await wrapper.find('[data-testid="provider-allowance-trigger"]').trigger('click');
     await nextTick();
 
     const detail = wrapper.find('.provider-detail');
@@ -584,7 +561,6 @@ describe('ProviderAllowanceIndicators', () => {
     store.snapshots = [snapshot({ status: 'available', source: 'provider', updatedAt: Date.parse('2026-01-02T10:00:00Z') })];
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await nextTick();
-    resizeObservers[0].trigger();
     await nextTick();
 
     // A fresh critical observation announces once (the seeded snapshot is the
@@ -623,9 +599,8 @@ describe('ProviderAllowanceIndicators', () => {
     }];
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await nextTick();
-    resizeObservers[0].trigger();
     await nextTick();
-    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await wrapper.find('[data-testid="provider-allowance-trigger"]').trigger('click');
     await nextTick();
 
     const detail = wrapper.find('.provider-detail');
@@ -649,9 +624,8 @@ describe('ProviderAllowanceIndicators', () => {
     })];
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await nextTick();
-    resizeObservers[0].trigger();
     await nextTick();
-    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await wrapper.find('[data-testid="provider-allowance-trigger"]').trigger('click');
     await nextTick();
 
     const bars = wrapper.findAll('.provider-detail [role="progressbar"]');
@@ -675,9 +649,8 @@ describe('ProviderAllowanceIndicators', () => {
     })];
     const wrapper = mount(ProviderAllowanceIndicators, { attachTo: document.body });
     await nextTick();
-    resizeObservers[0].trigger();
     await nextTick();
-    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await wrapper.find('[data-testid="provider-allowance-trigger"]').trigger('click');
     await nextTick();
 
     expect(wrapper.find('.provider-detail').text()).toContain('Unknown');
@@ -696,9 +669,8 @@ describe('ProviderAllowanceIndicators', () => {
     const store = useProviderAllowancesStore();
     store.snapshots = [snapshot({ allowances: [], unavailableReason: null })];
     await nextTick();
-    resizeObservers[0].trigger();
     await nextTick();
-    await wrapper.find('.desktop-items .allowance-item').trigger('click');
+    await wrapper.find('[data-testid="provider-allowance-trigger"]').trigger('click');
     await nextTick();
     expect(wrapper.find('.unavailable').text()).toBe('Usage data is unavailable.');
   });
