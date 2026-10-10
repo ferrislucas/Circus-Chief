@@ -127,8 +127,8 @@ describe('zaiQuotaPoller', () => {
     await pending;
   });
 
-  it('stops polling a provider whose credential was rejected until the key is rotated', async () => {
-    fetchOutcome = { outcome: 'http', status: 401, retryAfterMs: null };
+  it.each([401, 403])('stops polling a provider whose credential was rejected (%i) until the key is rotated', async (status) => {
+    fetchOutcome = { outcome: 'http', status, retryAfterMs: null };
     await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
     // A rejection with no good snapshot yet observes one diagnostic unknown
     // so the indicator can report the reason.
@@ -139,7 +139,7 @@ describe('zaiQuotaPoller', () => {
       status: 'unknown',
       updatedAt: 1_000,
       allowances: [],
-      unavailableReason: expect.stringContaining('rejected'),
+      unavailableReason: expect.stringContaining(`(HTTP ${status})`),
     });
 
     fetchOutcome = { outcome: 'ok', payload: fixture.payload };
@@ -150,14 +150,14 @@ describe('zaiQuotaPoller', () => {
     expect(zaiQuotaProviders(providers, { clock: { now: () => 1_000 } })).toEqual([rotatedProvider]);
   });
 
-  it('surfaces the rejection reason through the allowance service snapshot', async () => {
+  it.each([401, 403])('surfaces the rejection reason (%i) through the allowance service snapshot', async (status) => {
     const { ProviderAllowanceService } = await import('./ProviderAllowanceService.js');
     const service = new ProviderAllowanceService({
       providerRepository: repositoryWith([zaiProvider]), broadcaster: vi.fn(),
     });
     observer.mockImplementationOnce((candidate) => service.observe(candidate));
 
-    fetchOutcome = { outcome: 'http', status: 401, retryAfterMs: null };
+    fetchOutcome = { outcome: 'http', status, retryAfterMs: null };
     await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
 
     expect(service.getSnapshots().snapshots).toEqual([
@@ -165,18 +165,22 @@ describe('zaiQuotaPoller', () => {
         providerId: zaiProvider.id,
         status: 'unknown',
         allowances: [],
-        unavailableReason: expect.stringContaining('rejected'),
+        unavailableReason: expect.stringContaining(`(HTTP ${status})`),
       }),
     ]);
+    if (status === 403) {
+      const [snapshot] = service.getSnapshots().snapshots;
+      expect(snapshot.unavailableReason).not.toContain('HTTP 401');
+    }
   });
 
-  it('keeps the last good snapshot when a later poll rejects the credential', async () => {
+  it.each([401, 403])('keeps the last good snapshot when a later poll rejects the credential (%i)', async (status) => {
     fetchOutcome = { outcome: 'ok', payload: fixture.payload };
     await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
     expect(observer).toHaveBeenCalledTimes(1);
 
     // A rejection never resets known data to unknown.
-    fetchOutcome = { outcome: 'http', status: 401, retryAfterMs: null };
+    fetchOutcome = { outcome: 'http', status, retryAfterMs: null };
     await pollOnce({ clock: { now: () => 2_000 }, providerRepository: repositoryWith([rotatedProvider]) });
     expect(observer).toHaveBeenCalledTimes(1);
     expect(_authFailureHashForTests(rotatedProvider.id)).toBe(hashAuthToken(rotatedProvider.authToken));

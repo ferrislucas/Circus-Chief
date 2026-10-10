@@ -137,7 +137,7 @@ async function pollProvider(provider, { observer, clock }) {
         // generic "no data" text. Rejections are remembered below, so this
         // observes (and broadcasts) at most once per stored credential.
         authFailedProviders.set(provider.id, hashAuthToken(provider.authToken));
-        observeRejection({ observer, provider, clock });
+        observeRejection({ observer, provider, clock, status: result.status });
       } else if (result.status === 429) {
         rateLimitedUntil.set(provider.id, clock.now() + (result.retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS));
       }
@@ -171,7 +171,7 @@ async function pollProvider(provider, { observer, clock }) {
  * ages into `stale` on its own policy) — a rejection never resets known
  * data to unknown.
  */
-function observeRejection({ observer, provider, clock }) {
+function observeRejection({ observer, provider, clock, status }) {
   if (observedOkProviders.has(provider.id)) return;
   try {
     observer({
@@ -181,7 +181,7 @@ function observeRejection({ observer, provider, clock }) {
       status: 'unknown',
       updatedAt: clock.now(),
       allowances: [],
-      unavailableReason: 'z.ai rejected the stored credential for usage polling (HTTP 401). '
+      unavailableReason: `z.ai rejected the stored credential for usage polling (HTTP ${status}). `
         + 'If this persists, check the provider key.',
     });
   } catch {
