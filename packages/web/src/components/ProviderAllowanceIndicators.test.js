@@ -36,16 +36,16 @@ describe('ProviderAllowanceIndicators', () => {
     store.snapshots = Array.from({ length: count }, (_, index) => ({
       providerId: `provider-${index}`,
       providerName: `Provider ${index + 1}`,
-      status: 'ok',
+      status: 'available',
       allowances: [],
     }));
   }
 
-  function snapshot({ providerId = 'openai', status = 'ok', resetsAt = null, source = 'provider', updatedAt = null, unavailableReason = null, allowances } = {}) {
+  function snapshot({ providerId = 'openai', providerName = null, providerKind = 'openai', status = 'available', resetsAt = null, source = 'provider', updatedAt = null, unavailableReason = null, allowances } = {}) {
     return {
       providerId,
-      providerName: providerId === 'openai' ? 'OpenAI' : providerId,
-      providerKind: 'openai',
+      providerName: providerName ?? (providerId === 'openai' ? 'OpenAI' : providerId),
+      providerKind,
       status,
       source,
       updatedAt,
@@ -383,7 +383,7 @@ describe('ProviderAllowanceIndicators', () => {
     const store = useProviderAllowancesStore();
     store.snapshots = [
       snapshot({
-        providerId: 'high', status: 'ok',
+        providerId: 'high', status: 'available',
         allowances: [{ key: 'window', label: 'Window', remaining: 80, limit: 100, remainingPercent: 80, unit: 'tokens', resetsAt: null }],
       }),
       snapshot({
@@ -421,16 +421,18 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
-  it('prefers the most severe status over the lowest percent across providers', async () => {
+  it('prefers the most severe quantified provider and reports its own percent and reset', async () => {
+    const exhaustedResetsAt = Date.parse('2026-01-03T10:00:00Z');
+    const healthyResetsAt = Date.parse('2026-01-02T11:00:00Z');
     const store = useProviderAllowancesStore();
     store.snapshots = [
       snapshot({
-        providerId: 'drained', status: 'ok',
-        allowances: [{ key: 'window', label: 'Window', remaining: 2, limit: 100, remainingPercent: 2, unit: 'tokens', resetsAt: null }],
+        providerId: 'drained', providerName: 'Drained', status: 'exhausted',
+        allowances: [{ key: 'window', label: 'Window', remaining: 0, limit: 100, remainingPercent: 0, unit: 'tokens', resetsAt: exhaustedResetsAt }],
       }),
       snapshot({
-        providerId: 'alarming', status: 'exhausted',
-        allowances: [{ key: 'window', label: 'Window', remaining: 40, limit: 100, remainingPercent: 40, unit: 'tokens', resetsAt: null }],
+        providerId: 'healthy', providerName: 'Healthy', status: 'available',
+        allowances: [{ key: 'window', label: 'Window', remaining: 80, limit: 100, remainingPercent: 80, unit: 'tokens', resetsAt: healthyResetsAt }],
       }),
     ];
     const wrapper = mount(ProviderAllowanceIndicators);
@@ -438,7 +440,94 @@ describe('ProviderAllowanceIndicators', () => {
 
     const trigger = wrapper.get('[data-testid="provider-allowance-trigger"]');
     expect(trigger.classes()).toContain('is-exhausted');
-    expect(trigger.attributes('aria-label')).toBe('Provider usage: Exhausted, 2% remaining');
+    expect(trigger.attributes('aria-label')).toContain('Exhausted, 0% remaining');
+    expect(trigger.attributes('aria-label')).toContain(new Date(exhaustedResetsAt).toLocaleString());
+    expect(trigger.attributes('aria-label')).not.toContain('80%');
+    expect(trigger.attributes('aria-label')).not.toContain(new Date(healthyResetsAt).toLocaleString());
+    wrapper.unmount();
+  });
+
+  it('breaks equal-severity ties by the lowest known percent with that provider’s reset', async () => {
+    const lowerResetsAt = Date.parse('2026-01-02T12:00:00Z');
+    const higherResetsAt = Date.parse('2026-01-02T14:00:00Z');
+    const store = useProviderAllowancesStore();
+    store.snapshots = [
+      snapshot({
+        providerId: 'higher', providerName: 'Higher', status: 'warning',
+        allowances: [{ key: 'window', label: 'Window', remaining: 25, limit: 100, remainingPercent: 25, unit: 'tokens', resetsAt: higherResetsAt }],
+      }),
+      snapshot({
+        providerId: 'lower', providerName: 'Lower', status: 'warning',
+        allowances: [{ key: 'window', label: 'Window', remaining: 15, limit: 100, remainingPercent: 15, unit: 'tokens', resetsAt: lowerResetsAt }],
+      }),
+    ];
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await nextTick();
+
+    const trigger = wrapper.get('[data-testid="provider-allowance-trigger"]');
+    expect(trigger.classes()).toContain('is-warning');
+    expect(trigger.attributes('aria-label')).toContain('Warning, 15% remaining');
+    expect(trigger.attributes('aria-label')).toContain(new Date(lowerResetsAt).toLocaleString());
+    expect(trigger.attributes('aria-label')).not.toContain(new Date(higherResetsAt).toLocaleString());
+    wrapper.unmount();
+  });
+
+  // A status-only rate-limit observation (exhausted, unknown utilization, a
+  // known reset) must never borrow another provider's percentage or reset.
+  function seedStatusOnlyExhaustedAlongsideHealthy({ exhaustedFirst = true, exhaustedResetsAt = Date.parse('2026-01-03T10:00:00Z') } = {}) {
+    const healthyResetsAt = Date.parse('2026-01-02T11:00:00Z');
+    const exhausted = snapshot({
+      providerId: 'claude', providerName: 'Claude', providerKind: 'anthropic', status: 'exhausted',
+      allowances: [{ key: 'five_hour', label: '5-hour window', remaining: null, limit: null, remainingPercent: null, unit: 'other', resetsAt: exhaustedResetsAt }],
+    });
+    const healthy = snapshot({
+      providerId: 'openai', status: 'available',
+      allowances: [{ key: 'window', label: 'Window', remaining: 80, limit: 100, remainingPercent: 80, unit: 'tokens', resetsAt: healthyResetsAt }],
+    });
+    useProviderAllowancesStore().snapshots = exhaustedFirst ? [exhausted, healthy] : [healthy, exhausted];
+    return { exhaustedResetsAt, healthyResetsAt };
+  }
+
+  function expectStatusOnlyExhaustedTrigger(trigger, { exhaustedResetsAt, healthyResetsAt }) {
+    expect(trigger.classes()).toContain('is-exhausted');
+    expect(trigger.attributes('aria-label')).toContain('Exhausted, usage unknown');
+    expect(trigger.attributes('aria-label')).toContain(new Date(exhaustedResetsAt).toLocaleString());
+    expect(trigger.attributes('title')).toBe(trigger.attributes('aria-label'));
+    expect(trigger.attributes('aria-label')).not.toContain('80%');
+    expect(trigger.attributes('aria-label')).not.toContain(new Date(healthyResetsAt).toLocaleString());
+    expect(trigger.find('.battery-fill').exists()).toBe(false);
+    expect(trigger.find('.battery-outline').exists()).toBe(true);
+  }
+
+  it('keeps a status-only exhausted provider separate from a healthy provider’s usage and reset', async () => {
+    const resets = seedStatusOnlyExhaustedAlongsideHealthy({ exhaustedFirst: true });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await nextTick();
+
+    expectStatusOnlyExhaustedTrigger(wrapper.get('[data-testid="provider-allowance-trigger"]'), resets);
+    wrapper.unmount();
+  });
+
+  it('keeps a status-only exhausted provider separate regardless of snapshot order', async () => {
+    const resets = seedStatusOnlyExhaustedAlongsideHealthy({ exhaustedFirst: false });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await nextTick();
+
+    expectStatusOnlyExhaustedTrigger(wrapper.get('[data-testid="provider-allowance-trigger"]'), resets);
+    wrapper.unmount();
+  });
+
+  it('omits the reset when the status-only exhausted provider has none', async () => {
+    const { healthyResetsAt } = seedStatusOnlyExhaustedAlongsideHealthy({ exhaustedResetsAt: null });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await nextTick();
+
+    const trigger = wrapper.get('[data-testid="provider-allowance-trigger"]');
+    expect(trigger.classes()).toContain('is-exhausted');
+    expect(trigger.attributes('aria-label')).toBe('Provider usage: Exhausted, usage unknown');
+    expect(trigger.attributes('aria-label')).not.toContain('80%');
+    expect(trigger.attributes('aria-label')).not.toContain(new Date(healthyResetsAt).toLocaleString());
+    expect(trigger.find('.battery-fill').exists()).toBe(false);
     wrapper.unmount();
   });
 

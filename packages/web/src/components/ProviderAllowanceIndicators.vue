@@ -171,8 +171,8 @@ const dialogRef = ref(null);
 const snapshots = computed(() => store.snapshots);
 const attentionCount = computed(() => store.attentionCount);
 // Worst status wins for the single trigger: exhausted outranks critical,
-// critical outranks warning, and everything outranks ok/unknown. Ties break
-// toward the lowest remaining percentage.
+// critical outranks warning, and everything outranks available/unknown/stale.
+// Ties break toward the lowest remaining percentage.
 const STATUS_SEVERITY = { exhausted: 0, critical: 1, warning: 2 };
 const BATTERY_FILL_MAX_WIDTH = 17;
 const worstSnapshot = computed(() => {
@@ -193,38 +193,39 @@ const worstSnapshot = computed(() => {
 });
 const triggerStatus = computed(() => worstSnapshot.value?.status ?? 'unknown');
 const triggerStale = computed(() => worstSnapshot.value?.stale ?? false);
+// The single trigger summarizes one provider: the most severe snapshot's
+// lowest quantified allowance. A status-only provider (e.g. an exhausted
+// rate-limit event with unknown utilization but a known reset) keeps unknown
+// utilization instead of borrowing another provider's percentage, and its
+// reset falls back to that same provider's status-only allowance.
+const summaryAllowance = computed(() => (
+  worstSnapshot.value ? lowestAllowance(worstSnapshot.value) : null
+));
+const summaryResetsAt = computed(() => {
+  if (Number.isFinite(summaryAllowance.value?.resetsAt)) return summaryAllowance.value.resetsAt;
+  const resetsAt = (worstSnapshot.value?.allowances ?? [])
+    .map((allowance) => allowance.resetsAt)
+    .filter((value) => Number.isFinite(value));
+  return resetsAt.length ? Math.min(...resetsAt) : null;
+});
 const triggerPercent = computed(() => {
-  let percent = null;
-  for (const snapshot of snapshots.value) {
-    const allowance = lowestAllowance(snapshot);
-    if (allowance && (percent === null || allowance.remainingPercent < percent)) {
-      percent = allowance.remainingPercent;
-    }
-  }
-  if (percent === null || !Number.isFinite(Number(percent))) return null;
-  return Math.min(100, Math.max(0, Math.round(Number(percent))));
+  const raw = summaryAllowance.value?.remainingPercent;
+  if (raw === null || raw === undefined) return null;
+  const percent = Number(raw);
+  if (!Number.isFinite(percent)) return null;
+  return Math.min(100, Math.max(0, Math.round(percent)));
 });
 const batteryFillWidth = computed(() => (
   triggerPercent.value === null
     ? null
     : Math.round((triggerPercent.value / 100) * BATTERY_FILL_MAX_WIDTH * 100) / 100
 ));
-const worstAllowance = computed(() => {
-  let worst = null;
-  for (const snapshot of snapshots.value) {
-    const allowance = lowestAllowance(snapshot);
-    if (allowance && (!worst || allowance.remainingPercent < worst.remainingPercent)) {
-      worst = allowance;
-    }
-  }
-  return worst;
-});
 const triggerAriaLabel = computed(() => {
   const value = triggerPercent.value !== null
     ? `${triggerPercent.value}% remaining`
     : 'usage unknown';
-  const reset = worstAllowance.value?.resetsAt
-    ? `, resets ${new Date(worstAllowance.value.resetsAt).toLocaleString()}`
+  const reset = summaryResetsAt.value !== null
+    ? `, resets ${new Date(summaryResetsAt.value).toLocaleString()}`
     : '';
   return `Provider usage: ${statusText(triggerStatus.value)}, ${value}${reset}`;
 });
