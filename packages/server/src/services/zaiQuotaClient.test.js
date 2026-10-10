@@ -63,6 +63,45 @@ describe('fetchZaiQuotaLimit', () => {
 
     expect(result).toEqual({ outcome: 'http', status: 429, retryAfterMs: 5_000 });
   });
+  it('classifies a 200 error envelope as the HTTP failure it reports', async () => {
+    // z.ai answers rejected credentials with HTTP 200 plus
+    // {"code":401,"msg":"token expired or incorrect","success":false}.
+    const fetchImpl = vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ code: 401, msg: 'token expired or incorrect', success: false }),
+    }));
+
+    const result = await fetchZaiQuotaLimit({ baseUrl: 'https://api.z.ai', authToken: 'stale-key', fetchImpl });
+
+    expect(result).toEqual({ outcome: 'http', status: 401, retryAfterMs: null });
+  });
+
+  it('classifies a success:false envelope without a code as a 401', async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ success: false }),
+    }));
+
+    const result = await fetchZaiQuotaLimit({ baseUrl: 'https://api.z.ai', authToken: 'stale-key', fetchImpl });
+
+    expect(result).toEqual({ outcome: 'http', status: 401, retryAfterMs: null });
+  });
+
+  it('passes a success envelope through as ok', async () => {
+    const payload = { success: true, data: { limits: [] } };
+    const fetchImpl = vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(payload),
+    }));
+
+    const result = await fetchZaiQuotaLimit({ baseUrl: 'https://api.z.ai', authToken: 'plan-key', fetchImpl });
+
+    expect(result).toEqual({ outcome: 'ok', payload });
+  });
+
   it('aborts a stalled request at timeout without exposing its authorization value', async () => {
     vi.useFakeTimers();
     const fetchImpl = vi.fn((_url, options) => new Promise((_resolve, reject) => {

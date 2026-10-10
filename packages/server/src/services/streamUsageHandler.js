@@ -2,6 +2,7 @@ import { sessions, conversations } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { updateTurnUsage, currentTurnUsage, estimatedOutputTokens, estimateTokens } from './usageTracker.js';
+import { resolveContextWindow } from './modelContextWindows.js';
 import { activeConversationIds, currentModels } from './streamEventHandler.js';
 
 // ── Stream usage helpers ────────────────────────────────────────────────────
@@ -129,7 +130,7 @@ export function extractTurnUsage(sessionId, event) {
     cacheReadInputTokens: resolveTokenField(modelUsageEntry, event.usage, { camel: 'cacheReadInputTokens', snake: 'cache_read_input_tokens' }),
     cacheCreationInputTokens: resolveTokenField(modelUsageEntry, event.usage, { camel: 'cacheCreationInputTokens', snake: 'cache_creation_input_tokens' }),
     webSearchRequests: modelUsageEntry?.webSearchRequests || 0,
-    contextWindow: modelUsageEntry?.contextWindow || 200000,
+    contextWindow: resolveContextWindow({ model: primaryModel, reported: modelUsageEntry?.contextWindow }),
     model: primaryModel,
   };
 }

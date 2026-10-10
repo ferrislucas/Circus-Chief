@@ -48,7 +48,15 @@ export async function fetchZaiQuotaLimit({ baseUrl, authToken, timeoutMs = DEFAU
       if (!response.ok) {
         return { outcome: 'http', status: response.status, retryAfterMs: parseRetryAfter(response.headers?.get?.('retry-after')) };
       }
-      return { outcome: 'ok', payload: await response.json() };
+      const payload = await response.json();
+      // z.ai reports auth failures as HTTP 200 with an error envelope
+      // (`{"code":401,"msg":"...","success":false}`) instead of an HTTP
+      // error status. Classify it as the HTTP failure it is so the poller
+      // applies its per-status policies (stop on 401/403 until rotation)
+      // instead of polling a dead key every interval as `no-data`.
+      const envelopeStatus = envelopeErrorStatus(payload);
+      if (envelopeStatus !== null) return { outcome: 'http', status: envelopeStatus, retryAfterMs: null };
+      return { outcome: 'ok', payload };
     })(), timeoutMs, controller);
   } catch {
     return { outcome: 'network' };
@@ -67,6 +75,19 @@ function withTimeout(promise, timeoutMs, controller) {
       timer.unref?.();
     }),
   ]).finally(() => clearTimeout(timer));
+}
+
+// An error envelope is `{success: false}` or a numeric `code >= 400`.
+// Success payloads carry the quota under `data` with `success !== false`.
+function envelopeErrorStatus(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  if (payload.success === false) {
+    return typeof payload.code === 'number' && Number.isFinite(payload.code) && payload.code >= 400
+      ? Math.floor(payload.code)
+      : 401;
+  }
+  const code = payload.code;
+  return typeof code === 'number' && Number.isFinite(code) && code >= 400 ? Math.floor(code) : null;
 }
 
 // `retry-after` arrives either as delay seconds or as an HTTP date.

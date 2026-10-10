@@ -218,6 +218,23 @@ describe('extractTurnUsage', () => {
     expect(result.contextWindow).toBe(200000);
   });
 
+  it('resolves the GLM 1M window for z.ai models without a reported window', () => {
+    mockCurrentModels.set('sess-1', 'GLM-5.3-Flash');
+    const result = extractTurnUsage('sess-1', {
+      usage: { input_tokens: 291, output_tokens: 10 },
+    });
+    expect(result.contextWindow).toBe(1048576);
+  });
+
+  it('prefers a reported contextWindow over GLM model knowledge', () => {
+    mockCurrentModels.set('sess-1', 'GLM-5.3-Flash');
+    const result = extractTurnUsage('sess-1', {
+      modelUsage: { 'GLM-5.3-Flash': { inputTokens: 1, outputTokens: 1, contextWindow: 500000 } },
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+    expect(result.contextWindow).toBe(500000);
+  });
+
   it('defaults webSearchRequests to 0', () => {
     const result = extractTurnUsage('sess-1', { usage: {} });
     expect(result.webSearchRequests).toBe(0);
