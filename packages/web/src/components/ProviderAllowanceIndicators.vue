@@ -202,7 +202,14 @@ const summaryAllowance = computed(() => (
   worstSnapshot.value ? lowestAllowance(worstSnapshot.value) : null
 ));
 const summaryResetsAt = computed(() => {
-  if (Number.isFinite(summaryAllowance.value?.resetsAt)) return summaryAllowance.value.resetsAt;
+  // A quantified summary uses only its own allowance's reset: another window's
+  // reset on the same provider must never stand in for an unknown one. The
+  // same-provider fallback applies only to status-only summaries.
+  if (summaryAllowance.value) {
+    return Number.isFinite(summaryAllowance.value.resetsAt)
+      ? summaryAllowance.value.resetsAt
+      : null;
+  }
   const resetsAt = (worstSnapshot.value?.allowances ?? [])
     .map((allowance) => allowance.resetsAt)
     .filter((value) => Number.isFinite(value));

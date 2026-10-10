@@ -517,6 +517,45 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
+  // A quantified exhausted window with no known reset must not borrow another
+  // window's reset on the same provider.
+  function seedQuantifiedExhaustedWithoutReset({ exhaustedFirst = true } = {}) {
+    const healthyResetsAt = Date.parse('2026-01-02T11:00:00Z');
+    const exhaustedWindow = { key: 'weekly', label: 'Weekly window', remaining: 0, limit: 100, remainingPercent: 0, unit: 'tokens', resetsAt: null };
+    const healthyWindow = { key: 'five_hour', label: '5-hour window', remaining: 80, limit: 100, remainingPercent: 80, unit: 'tokens', resetsAt: healthyResetsAt };
+    useProviderAllowancesStore().snapshots = [snapshot({
+      providerId: 'codex', providerName: 'Codex', providerKind: 'openai', status: 'exhausted',
+      allowances: exhaustedFirst ? [exhaustedWindow, healthyWindow] : [healthyWindow, exhaustedWindow],
+    })];
+    return { healthyResetsAt };
+  }
+
+  function expectQuantifiedExhaustedWithoutReset(trigger, { healthyResetsAt }) {
+    expect(trigger.classes()).toContain('is-exhausted');
+    expect(trigger.attributes('aria-label')).toBe('Provider usage: Exhausted, 0% remaining');
+    expect(trigger.attributes('title')).toBe('Provider usage: Exhausted, 0% remaining');
+    expect(trigger.attributes('aria-label')).not.toContain(new Date(healthyResetsAt).toLocaleString());
+    expect(trigger.find('.battery-fill').attributes('width')).toBe('0');
+  }
+
+  it('omits the reset when the quantified exhausted window has none, even with a healthy window reset', async () => {
+    const resets = seedQuantifiedExhaustedWithoutReset({ exhaustedFirst: true });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await nextTick();
+
+    expectQuantifiedExhaustedWithoutReset(wrapper.get('[data-testid="provider-allowance-trigger"]'), resets);
+    wrapper.unmount();
+  });
+
+  it('omits the reset for the quantified exhausted window regardless of allowance order', async () => {
+    const resets = seedQuantifiedExhaustedWithoutReset({ exhaustedFirst: false });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await nextTick();
+
+    expectQuantifiedExhaustedWithoutReset(wrapper.get('[data-testid="provider-allowance-trigger"]'), resets);
+    wrapper.unmount();
+  });
+
   it('omits the reset when the status-only exhausted provider has none', async () => {
     const { healthyResetsAt } = seedStatusOnlyExhaustedAlongsideHealthy({ exhaustedResetsAt: null });
     const wrapper = mount(ProviderAllowanceIndicators);
