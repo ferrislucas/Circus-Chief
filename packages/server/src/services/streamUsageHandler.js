@@ -122,6 +122,9 @@ export function extractTurnUsage(sessionId, event) {
   // because modelUsage can contain multiple models when sub-agents are used (e.g., Opus using Haiku)
   // and Object.keys()[0] would pick the wrong model
   const primaryModel = currentModels.get(sessionId) || Object.keys(event.modelUsage || {})[0] || null;
+  // The session-configured id preserves long-context opt-in (e.g. `[1m]`)
+  // that SDK normalization can drop from the runtime id.
+  const configuredModel = sessionConfiguredModel(sessionId);
 
   return {
     inputTokens: resolveTokenField(modelUsageEntry, event.usage, { camel: 'inputTokens', snake: 'input_tokens' }),
@@ -130,9 +133,23 @@ export function extractTurnUsage(sessionId, event) {
     cacheReadInputTokens: resolveTokenField(modelUsageEntry, event.usage, { camel: 'cacheReadInputTokens', snake: 'cache_read_input_tokens' }),
     cacheCreationInputTokens: resolveTokenField(modelUsageEntry, event.usage, { camel: 'cacheCreationInputTokens', snake: 'cache_creation_input_tokens' }),
     webSearchRequests: modelUsageEntry?.webSearchRequests || 0,
-    contextWindow: resolveContextWindow({ model: primaryModel, reported: modelUsageEntry?.contextWindow }),
+    contextWindow: resolveContextWindow({ model: primaryModel, configuredModel, reported: modelUsageEntry?.contextWindow }),
     model: primaryModel,
   };
+}
+
+/**
+ * Read the session-configured model id for usage fallback. session.model
+ * tracks the user-requested id while currentModels holds the SDK-reported
+ * runtime id, which can normalize away opt-in markers such as `[1m]`.
+ * Never throws: usage reporting must not fail on a missing session row.
+ */
+function sessionConfiguredModel(sessionId) {
+  try {
+    return sessions.getById(sessionId)?.model ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

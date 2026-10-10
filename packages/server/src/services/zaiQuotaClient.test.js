@@ -77,16 +77,84 @@ describe('fetchZaiQuotaLimit', () => {
     expect(result).toEqual({ outcome: 'http', status: 401, retryAfterMs: null });
   });
 
-  it('classifies a success:false envelope without a code as a 401', async () => {
+  it('classifies a success:false envelope with an explicit 403 as credential rejection', async () => {
     const fetchImpl = vi.fn(() => Promise.resolve({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ success: false }),
+      json: () => Promise.resolve({ code: 403, msg: 'forbidden', success: false }),
     }));
 
     const result = await fetchZaiQuotaLimit({ baseUrl: 'https://api.z.ai', authToken: 'stale-key', fetchImpl });
 
-    expect(result).toEqual({ outcome: 'http', status: 401, retryAfterMs: null });
+    expect(result).toEqual({ outcome: 'http', status: 403, retryAfterMs: null });
+  });
+
+  it.each([
+    ['missing code', { success: false }],
+    ['nonnumeric code', { success: false, code: 'temporarily unavailable' }],
+    ['numeric code below 400', { success: false, code: 200, msg: 'temporarily unavailable' }],
+  ])('treats a success:false envelope with %s as retryable, not credential rejection', async (_label, payload) => {
+    const fetchImpl = vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(payload),
+    }));
+
+    const result = await fetchZaiQuotaLimit({ baseUrl: 'https://api.z.ai', authToken: 'plan-key', fetchImpl });
+
+    expect(result.outcome).toBe('http');
+    expect(result.status).not.toBe(401);
+    expect(result.status).not.toBe(403);
+  });
+
+  it('honors a numeric Retry-After on a 200 envelope reporting 429', async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: { get: (name) => (name === 'retry-after' ? '3600' : null) },
+      json: () => Promise.resolve({ code: 429, msg: 'rate limited', success: false }),
+    }));
+
+    const result = await fetchZaiQuotaLimit({ baseUrl: 'https://api.z.ai', authToken: 'plan-key', fetchImpl });
+
+    expect(result).toEqual({ outcome: 'http', status: 429, retryAfterMs: 3_600_000 });
+  });
+
+  it('honors a date-form Retry-After on a 200 envelope reporting 429', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_789_855_000_000);
+      const retryAt = 1_789_855_000_000 + 3_600_000;
+      const fetchImpl = vi.fn(() => Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: { get: (name) => (name === 'retry-after' ? new Date(retryAt).toUTCString() : null) },
+        json: () => Promise.resolve({ code: 429, msg: 'rate limited', success: false }),
+      }));
+
+      const result = await fetchZaiQuotaLimit({ baseUrl: 'https://api.z.ai', authToken: 'plan-key', fetchImpl });
+
+      expect(result).toEqual({ outcome: 'http', status: 429, retryAfterMs: 3_600_000 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['absent', null],
+    ['malformed', 'not-a-date'],
+    ['past date', new Date(1_000).toUTCString()],
+  ])('falls back to no backoff for a 200/429 envelope with %s Retry-After', async (_label, headerValue) => {
+    const fetchImpl = vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: { get: (name) => (name === 'retry-after' ? headerValue : null) },
+      json: () => Promise.resolve({ code: 429, msg: 'rate limited', success: false }),
+    }));
+
+    const result = await fetchZaiQuotaLimit({ baseUrl: 'https://api.z.ai', authToken: 'plan-key', fetchImpl });
+
+    expect(result).toEqual({ outcome: 'http', status: 429, retryAfterMs: null });
   });
 
   it('passes a success envelope through as ok', async () => {

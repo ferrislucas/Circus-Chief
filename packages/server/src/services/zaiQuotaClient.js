@@ -49,13 +49,20 @@ export async function fetchZaiQuotaLimit({ baseUrl, authToken, timeoutMs = DEFAU
         return { outcome: 'http', status: response.status, retryAfterMs: parseRetryAfter(response.headers?.get?.('retry-after')) };
       }
       const payload = await response.json();
-      // z.ai reports auth failures as HTTP 200 with an error envelope
+      // z.ai reports failures as HTTP 200 with an error envelope
       // (`{"code":401,"msg":"...","success":false}`) instead of an HTTP
       // error status. Classify it as the HTTP failure it is so the poller
-      // applies its per-status policies (stop on 401/403 until rotation)
-      // instead of polling a dead key every interval as `no-data`.
+      // applies its per-status policies (stop on 401/403 until rotation,
+      // honor retry-after on 429) instead of polling a dead key every
+      // interval as `no-data`.
       const envelopeStatus = envelopeErrorStatus(payload);
-      if (envelopeStatus !== null) return { outcome: 'http', status: envelopeStatus, retryAfterMs: null };
+      if (envelopeStatus !== null) {
+        return {
+          outcome: 'http',
+          status: envelopeStatus,
+          retryAfterMs: parseRetryAfter(response.headers?.get?.('retry-after')),
+        };
+      }
       return { outcome: 'ok', payload };
     })(), timeoutMs, controller);
   } catch {
@@ -77,14 +84,21 @@ function withTimeout(promise, timeoutMs, controller) {
   ]).finally(() => clearTimeout(timer));
 }
 
-// An error envelope is `{success: false}` or a numeric `code >= 400`.
-// Success payloads carry the quota under `data` with `success !== false`.
+// An error envelope is `{success: false}` with a numeric `code >= 400`,
+// or a numeric `code >= 400` on its own. Error envelopes never reach the
+// quota mapper as successful responses. Only an explicitly recognized code keeps its status (401/403
+// stop polling until rotation, 429 honors retry-after). An envelope with a
+// missing, nonnumeric, or below-400 code proves nothing about the key, so it
+// surfaces as a generic retryable server failure that preserves the previous
+// snapshot instead of permanently disabling polling for a valid credential.
+const UNKNOWN_ENVELOPE_HTTP_STATUS = 500;
+
 function envelopeErrorStatus(payload) {
   if (!payload || typeof payload !== 'object') return null;
   if (payload.success === false) {
     return typeof payload.code === 'number' && Number.isFinite(payload.code) && payload.code >= 400
       ? Math.floor(payload.code)
-      : 401;
+      : UNKNOWN_ENVELOPE_HTTP_STATUS;
   }
   const code = payload.code;
   return typeof code === 'number' && Number.isFinite(code) && code >= 400 ? Math.floor(code) : null;

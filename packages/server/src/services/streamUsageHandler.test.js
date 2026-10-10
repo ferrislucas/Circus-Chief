@@ -218,8 +218,20 @@ describe('extractTurnUsage', () => {
     expect(result.contextWindow).toBe(200000);
   });
 
-  it('resolves the GLM 1M window for z.ai models without a reported window', () => {
+  it('keeps the 200K default for bare GLM models without long-context opt-in', async () => {
+    const { sessions } = await import('../database.js');
+    sessions.getById.mockReturnValue({ id: 'sess-1', model: 'GLM-5.3-Flash' });
     mockCurrentModels.set('sess-1', 'GLM-5.3-Flash');
+    const result = extractTurnUsage('sess-1', {
+      usage: { input_tokens: 291, output_tokens: 10 },
+    });
+    expect(result.contextWindow).toBe(200000);
+  });
+
+  it('resolves the GLM 1M window for opted-in [1m] models without a reported window', async () => {
+    const { sessions } = await import('../database.js');
+    sessions.getById.mockReturnValue({ id: 'sess-1', model: 'glm-5.3-flash[1m]' });
+    mockCurrentModels.set('sess-1', 'glm-5.3-flash[1m]');
     const result = extractTurnUsage('sess-1', {
       usage: { input_tokens: 291, output_tokens: 10 },
     });
@@ -233,6 +245,29 @@ describe('extractTurnUsage', () => {
       usage: { input_tokens: 1, output_tokens: 1 },
     });
     expect(result.contextWindow).toBe(500000);
+  });
+
+  it('uses the session-configured [1m] model when the runtime model lost the suffix', async () => {
+    // The SDK can report a normalized model id (e.g. glm-5.3) while the
+    // session was configured with the opted-in glm-5.3[1m] id: the fallback
+    // must reflect the actual session configuration, not the bare default.
+    const { sessions } = await import('../database.js');
+    sessions.getById.mockReturnValue({ id: 'sess-1', model: 'GLM-5.3[1m]' });
+    mockCurrentModels.set('sess-1', 'glm-5.3');
+    const result = extractTurnUsage('sess-1', {
+      usage: { input_tokens: 291, output_tokens: 10 },
+    });
+    expect(result.contextWindow).toBe(1048576);
+  });
+
+  it('keeps the 200K default when the session was configured with a bare GLM model', async () => {
+    const { sessions } = await import('../database.js');
+    sessions.getById.mockReturnValue({ id: 'sess-1', model: 'GLM-5.2' });
+    mockCurrentModels.set('sess-1', 'glm-5.2');
+    const result = extractTurnUsage('sess-1', {
+      usage: { input_tokens: 291, output_tokens: 10 },
+    });
+    expect(result.contextWindow).toBe(200000);
   });
 
   it('defaults webSearchRequests to 0', () => {
