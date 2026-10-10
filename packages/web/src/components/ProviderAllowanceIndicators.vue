@@ -11,60 +11,54 @@
     >
       Unable to load provider usage. Showing the last available data when available.
     </p>
-    <div
-      ref="desktopItemsRef"
-      class="desktop-items"
-    >
-      <button
-        v-for="snapshot in visibleSnapshots"
-        :key="snapshot.providerId"
-        class="allowance-item"
-        data-testid="provider-allowance-item"
-        :class="[`is-${snapshot.status}`, { 'is-stale': snapshot.stale }]"
-        type="button"
-        :aria-label="ariaLabel(snapshot)"
-        :title="ariaLabel(snapshot)"
-        @click="open(snapshot.providerId)"
-      >
-        <span class="provider-name">{{ snapshot.providerName }}</span>
-        <span>{{ compactValue(snapshot) }}</span>
-      </button>
-      <button
-        v-if="hiddenCount"
-        type="button"
-        class="overflow-button"
-        data-testid="provider-allowance-overflow"
-        :aria-label="`Show ${hiddenCount} more providers`"
-        @click="open()"
-      >
-        +{{ hiddenCount }}
-      </button>
-    </div>
-    <div
-      class="measurement-items"
-      aria-hidden="true"
-    >
-      <span
-        v-for="snapshot in snapshots"
-        :key="snapshot.providerId"
-        ref="measurementItems"
-        class="allowance-item"
-      >
-        <span class="provider-name">{{ snapshot.providerName }}</span>
-        <span>{{ compactValue(snapshot) }}</span>
-      </span>
-      <span
-        ref="overflowMeasureRef"
-        class="overflow-button"
-      >+{{ snapshots.length }}</span>
-    </div>
     <button
       type="button"
-      class="mobile-button"
-      aria-label="Show provider usage"
+      class="allowance-trigger"
+      data-testid="provider-allowance-trigger"
+      :class="[`is-${triggerStatus}`, { 'is-stale': triggerStale }]"
+      :aria-label="triggerAriaLabel"
+      :title="triggerAriaLabel"
       @click="open()"
     >
-      <span aria-hidden="true">◌</span>
+      <svg
+        class="battery-icon"
+        aria-hidden="true"
+        width="28"
+        height="14"
+        viewBox="0 0 28 14"
+        fill="none"
+        focusable="false"
+      >
+        <rect
+          x="1"
+          y="1"
+          width="22"
+          height="12"
+          rx="3.5"
+          class="battery-outline"
+        />
+        <rect
+          v-if="batteryFillWidth !== null"
+          x="3.5"
+          y="3.5"
+          :width="batteryFillWidth"
+          height="7"
+          rx="1.75"
+          class="battery-fill"
+        />
+        <path
+          d="M13.2 3.2 8.8 8.1h2.9l-1 2.7 4.5-5h-2.9l1-2.6Z"
+          class="battery-bolt"
+        />
+        <rect
+          x="24"
+          y="4.5"
+          width="3"
+          height="5"
+          rx="1.5"
+          class="battery-nub"
+        />
+      </svg>
       <span
         v-if="attentionCount"
         class="attention-badge"
@@ -165,7 +159,6 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { ProviderAllowanceUpdatedPayload } from '@circuschief/shared/contracts/providers';
 import { useWebSocket } from '../composables/useWebSocket.js';
 import { useProviderAllowancesStore, lowestAllowance } from '../stores/providerAllowances.js';
-import { selectVisibleItems } from './providerAllowanceOverflow.js';
 import { formatAllowance, formatDateTime, formatExactTime, formatRelativeTime, sourceLabel } from './providerAllowanceFormatting.js';
 
 const DIALOG_FOCUSABLE_SELECTOR = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -175,20 +168,70 @@ const { on, off, onReconnect } = useWebSocket();
 const isOpen = ref(false);
 const focusedProviderId = ref(null);
 const dialogRef = ref(null);
-const desktopItemsRef = ref(null);
-const measurementItems = ref([]);
-const overflowMeasureRef = ref(null);
 const snapshots = computed(() => store.snapshots);
 const attentionCount = computed(() => store.attentionCount);
-const visibleCount = ref(0);
-const visibleSnapshots = computed(() => snapshots.value.slice(0, visibleCount.value));
-const hiddenCount = computed(() => Math.max(0, snapshots.value.length - visibleSnapshots.value.length));
+// Worst status wins for the single trigger: exhausted outranks critical,
+// critical outranks warning, and everything outranks ok/unknown. Ties break
+// toward the lowest remaining percentage.
+const STATUS_SEVERITY = { exhausted: 0, critical: 1, warning: 2 };
+const BATTERY_FILL_MAX_WIDTH = 17;
+const worstSnapshot = computed(() => {
+  let worst = null;
+  let worstSeverity = Number.POSITIVE_INFINITY;
+  let worstPercent = Number.POSITIVE_INFINITY;
+  for (const snapshot of snapshots.value) {
+    const severity = STATUS_SEVERITY[snapshot.status] ?? 3;
+    const allowance = lowestAllowance(snapshot);
+    const percent = allowance ? allowance.remainingPercent : Number.POSITIVE_INFINITY;
+    if (severity < worstSeverity || (severity === worstSeverity && percent < worstPercent)) {
+      worst = snapshot;
+      worstSeverity = severity;
+      worstPercent = percent;
+    }
+  }
+  return worst;
+});
+const triggerStatus = computed(() => worstSnapshot.value?.status ?? 'unknown');
+const triggerStale = computed(() => worstSnapshot.value?.stale ?? false);
+const triggerPercent = computed(() => {
+  let percent = null;
+  for (const snapshot of snapshots.value) {
+    const allowance = lowestAllowance(snapshot);
+    if (allowance && (percent === null || allowance.remainingPercent < percent)) {
+      percent = allowance.remainingPercent;
+    }
+  }
+  if (percent === null || !Number.isFinite(Number(percent))) return null;
+  return Math.min(100, Math.max(0, Math.round(Number(percent))));
+});
+const batteryFillWidth = computed(() => (
+  triggerPercent.value === null
+    ? null
+    : Math.round((triggerPercent.value / 100) * BATTERY_FILL_MAX_WIDTH * 100) / 100
+));
+const worstAllowance = computed(() => {
+  let worst = null;
+  for (const snapshot of snapshots.value) {
+    const allowance = lowestAllowance(snapshot);
+    if (allowance && (!worst || allowance.remainingPercent < worst.remainingPercent)) {
+      worst = allowance;
+    }
+  }
+  return worst;
+});
+const triggerAriaLabel = computed(() => {
+  const value = triggerPercent.value !== null
+    ? `${triggerPercent.value}% remaining`
+    : 'usage unknown';
+  const reset = worstAllowance.value?.resetsAt
+    ? `, resets ${new Date(worstAllowance.value.resetsAt).toLocaleString()}`
+    : '';
+  return `Provider usage: ${statusText(triggerStatus.value)}, ${value}${reset}`;
+});
 const error = computed(() => store.error);
 const liveAnnouncement = ref('');
 let removeReconnect = null;
 let previousFocus = null;
-let resizeObserver = null;
-const observedLayoutElements = new Set();
 let announcementTimer = null;
 let hasObservedSnapshots = false;
 let previousStatuses = new Map();
@@ -203,46 +246,10 @@ let priorityRefreshPending = false;
 const SESSION_PRIORITY_MEMO_MAX = 500;
 const sessionPriorityMemo = new Map();
 
-function measureVisibleItems() {
-  const availableWidth = desktopItemsRef.value?.getBoundingClientRect().width ?? 0;
-  const itemWidths = measurementItems.value.map((item) => item.getBoundingClientRect().width);
-  const overflowWidth = overflowMeasureRef.value?.getBoundingClientRect().width ?? 0;
-  const styles = desktopItemsRef.value ? getComputedStyle(desktopItemsRef.value) : null;
-  const gap = Number.parseFloat(styles?.columnGap || styles?.gap || '0') || 0;
-  visibleCount.value = selectVisibleItems(itemWidths, availableWidth, overflowWidth, gap);
-}
-
-function observeLayoutMeasurements() {
-  if (!resizeObserver) return;
-  [desktopItemsRef.value, ...measurementItems.value, overflowMeasureRef.value]
-    .filter(Boolean)
-    .forEach((element) => {
-      if (observedLayoutElements.has(element)) return;
-      resizeObserver.observe(element);
-      observedLayoutElements.add(element);
-    });
-}
-
-watch(snapshots, () => nextTick(() => {
-  observeLayoutMeasurements();
-  measureVisibleItems();
-}), { flush: 'post' });
-
 function statusText(status) {
   const text = status ?? 'unknown';
   return text[0].toUpperCase() + text.slice(1);
 }
-function compactValue(snapshot) {
-  const allowance = lowestAllowance(snapshot);
-  return allowance ? `${Math.round(allowance.remainingPercent)}%` : '—';
-}
-function ariaLabel(snapshot) {
-  const allowance = lowestAllowance(snapshot);
-  const value = allowance ? `${Math.round(allowance.remainingPercent)}% remaining in ${allowance.label}` : 'usage unknown';
-  const reset = allowance?.resetsAt ? `, resets ${formatReset(allowance.resetsAt)}` : '';
-  return `${snapshot.providerName}: ${statusText(snapshot.status)}, ${value}${reset}`;
-}
-function formatReset(value) { return new Date(value).toLocaleString(); }
 function barPercent(allowance) {
   const raw = allowance?.remainingPercent;
   if (raw === null || raw === undefined || raw === '') return null;
@@ -441,11 +448,6 @@ onMounted(() => {
   on(WS_MESSAGE_TYPES.SESSION_CREATED, reconcileSessionCreated);
   on(WS_MESSAGE_TYPES.SESSION_DELETED, reconcileSessionDeleted);
   removeReconnect = onReconnect(() => store.fetch());
-  resizeObserver = new ResizeObserver(measureVisibleItems);
-  nextTick(() => {
-    observeLayoutMeasurements();
-    measureVisibleItems();
-  });
 });
 onUnmounted(() => {
   off(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, onUpdate);
@@ -456,8 +458,6 @@ onUnmounted(() => {
   off(WS_MESSAGE_TYPES.SESSION_DELETED, reconcileSessionDeleted);
   sessionPriorityMemo.clear();
   removeReconnect?.();
-  resizeObserver?.disconnect();
-  observedLayoutElements.clear();
   clearTimeout(announcementTimer);
   clearTimeout(priorityRefreshTimer);
   priorityRefreshTimer = null;
@@ -468,23 +468,13 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.provider-allowances,
-.desktop-items {
+.provider-allowances {
   display: flex;
   align-items: center;
-  gap: .35rem;
   min-width: 0;
 }
 
-.provider-allowances {
-  width: min(34rem, 40vw);
-}
-
-.desktop-items { flex: 1 1 auto; }
-
-.allowance-item,
-.overflow-button,
-.mobile-button,
+.allowance-trigger,
 .close-button {
   border: 0;
   background: transparent;
@@ -493,33 +483,43 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-.allowance-item {
+.allowance-trigger {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: .3rem;
   padding: .35rem;
   border-radius: 4px;
-  white-space: nowrap;
+  line-height: 0;
 }
 
-.allowance-item:hover,
-.overflow-button:hover {
+.allowance-trigger:hover {
   background: var(--color-background-mute);
   color: var(--color-text);
 }
 
-.provider-name { font-weight: 600; }
+.battery-icon { display: block; }
+
+.battery-outline,
+.battery-nub {
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.battery-outline { fill: none; }
+.battery-nub { fill: currentColor; }
+
+.battery-fill { fill: var(--color-success); }
+.battery-bolt { fill: var(--color-background-soft); }
+
+.is-warning .battery-fill { fill: var(--color-warning); }
+.is-critical .battery-fill,
+.is-exhausted .battery-fill { fill: var(--color-error); }
+
 .is-warning,
 .fetch-error { color: var(--color-warning); }
 .is-critical,
 .is-exhausted { color: var(--color-error); }
 .is-stale { opacity: .68; }
-
-.mobile-button {
-  position: relative;
-  display: none;
-  font-size: 1.25rem;
-}
 
 .attention-badge {
   position: absolute;
@@ -606,15 +606,6 @@ onUnmounted(() => {
 .allowance-bar-fill.fill-critical,
 .allowance-bar-fill.fill-exhausted { background: var(--color-error); }
 
-.measurement-items {
-  position: absolute;
-  height: 0;
-  overflow: hidden;
-  visibility: hidden;
-  pointer-events: none;
-  white-space: nowrap;
-}
-
 .live-announcement {
   position: absolute;
   width: 1px;
@@ -628,10 +619,6 @@ onUnmounted(() => {
 }
 
 @media (max-width: 480px) {
-  .provider-allowances { width: auto; }
-  .desktop-items { display: none; }
-  .mobile-button { display: block; }
-
   .allowance-dialog {
     align-self: end;
     max-height: 85vh;
