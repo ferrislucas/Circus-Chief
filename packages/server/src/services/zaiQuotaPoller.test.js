@@ -127,23 +127,69 @@ describe('zaiQuotaPoller', () => {
     await pending;
   });
 
-  it('stops polling a provider whose credential was rejected until the key is rotated', async () => {
-    fetchOutcome = { outcome: 'http', status: 401, retryAfterMs: null };
+  it.each([401, 403])('stops polling a provider whose credential was rejected (%i) until the key is rotated', async (status) => {
+    fetchOutcome = { outcome: 'http', status, retryAfterMs: null };
     await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
-    expect(observer).not.toHaveBeenCalled();
+    // A rejection with no good snapshot yet observes one diagnostic unknown
+    // so the indicator can report the reason.
+    expect(observer).toHaveBeenCalledExactlyOnceWith({
+      providerId: zaiProvider.id,
+      providerKind: 'anthropic',
+      source: 'provider',
+      status: 'unknown',
+      updatedAt: 1_000,
+      allowances: [],
+      unavailableReason: expect.stringContaining(`(HTTP ${status})`),
+    });
 
     fetchOutcome = { outcome: 'ok', payload: fixture.payload };
     await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
-    expect(observer).not.toHaveBeenCalled(); // same bad key: skipped
+    expect(observer).toHaveBeenCalledTimes(1); // same bad key: skipped
 
     const providers = repositoryWith([rotatedProvider]);
     expect(zaiQuotaProviders(providers, { clock: { now: () => 1_000 } })).toEqual([rotatedProvider]);
   });
 
+  it.each([401, 403])('surfaces the rejection reason (%i) through the allowance service snapshot', async (status) => {
+    const { ProviderAllowanceService } = await import('./ProviderAllowanceService.js');
+    const service = new ProviderAllowanceService({
+      providerRepository: repositoryWith([zaiProvider]), broadcaster: vi.fn(),
+    });
+    observer.mockImplementationOnce((candidate) => service.observe(candidate));
+
+    fetchOutcome = { outcome: 'http', status, retryAfterMs: null };
+    await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
+
+    expect(service.getSnapshots().snapshots).toEqual([
+      expect.objectContaining({
+        providerId: zaiProvider.id,
+        status: 'unknown',
+        allowances: [],
+        unavailableReason: expect.stringContaining(`(HTTP ${status})`),
+      }),
+    ]);
+    if (status === 403) {
+      const [snapshot] = service.getSnapshots().snapshots;
+      expect(snapshot.unavailableReason).not.toContain('HTTP 401');
+    }
+  });
+
+  it.each([401, 403])('keeps the last good snapshot when a later poll rejects the credential (%i)', async (status) => {
+    fetchOutcome = { outcome: 'ok', payload: fixture.payload };
+    await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
+    expect(observer).toHaveBeenCalledTimes(1);
+
+    // A rejection never resets known data to unknown.
+    fetchOutcome = { outcome: 'http', status, retryAfterMs: null };
+    await pollOnce({ clock: { now: () => 2_000 }, providerRepository: repositoryWith([rotatedProvider]) });
+    expect(observer).toHaveBeenCalledTimes(1);
+    expect(_authFailureHashForTests(rotatedProvider.id)).toBe(hashAuthToken(rotatedProvider.authToken));
+  });
+
   it('detects key rotation without retaining the raw credential', async () => {
     fetchOutcome = { outcome: 'http', status: 401, retryAfterMs: null };
     await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
-    expect(observer).not.toHaveBeenCalled();
+    expect(observer).toHaveBeenCalledTimes(1); // diagnostic unknown with the reason
 
     // The rejection is remembered as a hash, never as the credential string.
     expect(_authFailureHashForTests(zaiProvider.id)).toBe(hashAuthToken(zaiProvider.authToken));
@@ -152,9 +198,13 @@ describe('zaiQuotaPoller', () => {
     // Same key stays skipped; a rotated key polls again.
     fetchOutcome = { outcome: 'ok', payload: fixture.payload };
     await pollOnce({ clock: { now: () => 2_000 }, providerRepository: repositoryWith([zaiProvider]) });
-    expect(observer).not.toHaveBeenCalled();
-    await pollOnce({ clock: { now: () => 3_000 }, providerRepository: repositoryWith([rotatedProvider]) });
     expect(observer).toHaveBeenCalledTimes(1);
+    await pollOnce({ clock: { now: () => 3_000 }, providerRepository: repositoryWith([rotatedProvider]) });
+    expect(observer).toHaveBeenCalledTimes(2);
+    expect(observer).toHaveBeenLastCalledWith({
+      ...mapZaiQuota(fixture.payload, { observedAt: 3_000 }),
+      providerId: rotatedProvider.id,
+    });
   });
 
   it('hashAuthToken is stable, distinct per input, and non-reversible', () => {
@@ -163,6 +213,92 @@ describe('zaiQuotaPoller', () => {
     const digest = hashAuthToken('plan-key-v1');
     expect(digest).toMatch(/^[0-9a-f]{64}$/);
     expect(digest).not.toContain('plan-key-v1');
+  });
+
+  it('keeps polling after an unclassified envelope failure with the same credential', async () => {
+    fetchOutcome = { outcome: 'ok', payload: fixture.payload };
+    await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
+    expect(observer).toHaveBeenCalledTimes(1);
+
+    // An unclassified provider failure must not look like credential rejection.
+    fetchOutcome = { outcome: 'http', status: 500, retryAfterMs: null };
+    await pollOnce({ clock: { now: () => 2_000 }, providerRepository: repositoryWith([zaiProvider]) });
+    expect(observer).toHaveBeenCalledTimes(1); // previous snapshot survives, no diagnostic unknown
+    expect(_authFailureHashForTests(zaiProvider.id)).toBeNull();
+    expect(zaiQuotaProviders(repositoryWith([zaiProvider]), { clock: { now: () => 2_000 } })).toEqual([zaiProvider]);
+
+    fetchOutcome = { outcome: 'ok', payload: fixture.payload };
+    await pollOnce({ clock: { now: () => 3_000 }, providerRepository: repositoryWith([zaiProvider]) });
+    expect(observer).toHaveBeenCalledTimes(2);
+  });
+
+  it('recovers from an unclassified error envelope without credential rotation end-to-end', async () => {
+    // Joins the real quota-client classifier to the poller policy with only
+    // the HTTP transport mocked: a code-less success:false envelope must not
+    // disable polling for the unchanged credential.
+    const actualClient = await vi.importActual('./zaiQuotaClient.js');
+    const httpFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(fixture.payload),
+      })
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: false }),
+      });
+    fetchZaiQuotaLimit.mockImplementation((args) => actualClient.fetchZaiQuotaLimit({ ...args, fetchImpl: httpFetch }));
+
+    await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
+    expect(observer).toHaveBeenCalledTimes(1);
+
+    await pollOnce({ clock: { now: () => 2_000 }, providerRepository: repositoryWith([zaiProvider]) });
+    expect(observer).toHaveBeenCalledTimes(1); // snapshot survives, no rejection diagnostic
+    expect(_authFailureHashForTests(zaiProvider.id)).toBeNull();
+
+    httpFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(fixture.payload),
+    });
+    await pollOnce({ clock: { now: () => 3_000 }, providerRepository: repositoryWith([zaiProvider]) });
+    expect(observer).toHaveBeenCalledTimes(2); // same key polls again, no rotation
+    expect(observer).toHaveBeenLastCalledWith({
+      ...mapZaiQuota(fixture.payload, { observedAt: 3_000 }),
+      providerId: zaiProvider.id,
+    });
+  });
+
+  it('honors a one-hour Retry-After from a 200/429 envelope until expiry', async () => {
+    // Real client classification with mocked HTTP transport: the envelope 429
+    // must back off for the requested hour, not the default five minutes.
+    const actualClient = await vi.importActual('./zaiQuotaClient.js');
+    const httpFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(fixture.payload),
+      })
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: { get: (name) => (name === 'retry-after' ? '3600' : null) },
+        json: () => Promise.resolve({ code: 429, msg: 'rate limited', success: false }),
+      });
+    fetchZaiQuotaLimit.mockImplementation((args) => actualClient.fetchZaiQuotaLimit({ ...args, fetchImpl: httpFetch }));
+
+    await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
+    expect(observer).toHaveBeenCalledTimes(1);
+
+    await pollOnce({ clock: { now: () => 2_000 }, providerRepository: repositoryWith([zaiProvider]) });
+    expect(observer).toHaveBeenCalledTimes(1); // throttled: good data preserved
+    expect(_authFailureHashForTests(zaiProvider.id)).toBeNull();
+
+    const repository = repositoryWith([zaiProvider]);
+    expect(zaiQuotaProviders(repository, { clock: { now: () => 302_000 } })).toEqual([]); // past the 5-minute default
+    expect(zaiQuotaProviders(repository, { clock: { now: () => 3_601_999 } })).toEqual([]);
+    expect(zaiQuotaProviders(repository, { clock: { now: () => 3_602_000 } })).toEqual([zaiProvider]);
   });
 
   it('honors retry-after on 429 and resumes after the backoff elapses', async () => {
@@ -178,6 +314,7 @@ describe('zaiQuotaPoller', () => {
     fetchOutcome = { outcome: 'http', status: 401, retryAfterMs: null };
     await pollOnce({ clock: { now: () => 1_000 }, providerRepository: repositoryWith([zaiProvider]) });
     expect(fetchZaiQuotaLimit).toHaveBeenCalledTimes(1);
+    expect(observer).toHaveBeenCalledTimes(1); // diagnostic unknown with the reason
 
     // The provider is deleted; the next tick prunes its auth-failure memory…
     fetchOutcome = { outcome: 'ok', payload: fixture.payload };
@@ -187,7 +324,8 @@ describe('zaiQuotaPoller', () => {
     // staying skipped until a server restart.
     await pollOnce({ clock: { now: () => 3_000 }, providerRepository: repositoryWith([zaiProvider]) });
     expect(fetchZaiQuotaLimit).toHaveBeenCalledTimes(2);
-    expect(observer).toHaveBeenCalledExactlyOnceWith({
+    expect(observer).toHaveBeenCalledTimes(2);
+    expect(observer).toHaveBeenLastCalledWith({
       ...mapZaiQuota(fixture.payload, { observedAt: 3_000 }),
       providerId: zaiProvider.id,
     });

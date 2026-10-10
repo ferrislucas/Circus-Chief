@@ -45,6 +45,53 @@ describe('zaiAllowanceMapper', () => {
     });
   });
 
+  it('maps CREDIT_LIMIT rows (floored percentages) as used-of-limit credit allowances', () => {
+    // Live lite-tier shape: percentages are floored (99/2000 reported as 4),
+    // so no exact cross-check applies; the service derives from absolutes.
+    const candidate = mapZaiQuota({
+      data: {
+        limits: [
+          { type: 'CREDIT_LIMIT', unit: 3, number: 5, usage: 2000, currentValue: 99, remaining: 1900, percentage: 4, nextResetTime: 1791607489441 },
+          { type: 'CREDIT_LIMIT', unit: 6, number: 1, usage: 10000, currentValue: 150, remaining: 9849, percentage: 1, nextResetTime: 1791768469983 },
+        ],
+        level: 'lite',
+      },
+    }, { observedAt });
+
+    expect(candidate.allowances).toEqual([
+      {
+        key: 'five_hour',
+        label: '5-hour credit window',
+        remaining: null,
+        value: 99,
+        valueKind: 'used',
+        limit: 2000,
+        remainingPercent: null, // derived by the service from absolutes
+        unit: 'credits',
+        resetsAt: 1791607489441,
+      },
+      {
+        key: 'weekly',
+        label: 'Weekly credit window',
+        remaining: null,
+        value: 150,
+        valueKind: 'used',
+        limit: 10000,
+        remainingPercent: null,
+        unit: 'credits',
+        resetsAt: 1791768469983,
+      },
+    ]);
+  });
+
+  it.each([
+    ['negative used', { currentValue: -5, usage: 100 }],
+    ['zero limit', { currentValue: 5, usage: 0 }],
+    ['used above limit', { currentValue: 101, usage: 100 }],
+  ])('rejects malformed CREDIT_LIMIT absolutes: %s', (_name, fields) => {
+    expect(mapZaiQuota({ data: { limits: [{ type: 'CREDIT_LIMIT', unit: 3, percentage: 4, ...fields }] } }, { observedAt })).toBeNull();
+  });
+
   it('filters TIME_LIMIT rows and unknown token units', () => {
     const candidate = mapZaiQuota(fixture.payload, { observedAt });
 
