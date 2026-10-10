@@ -1,11 +1,16 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  LAST_SPAWN_HISTORY,
   MuseUsageProbe,
   buildMuseProbeArgs,
   resolveMuseAllowanceProvider,
   resolveMuseProbeModel,
 } from './museUsageProbe.js';
+import {
+  MUSE_CLIENT_NAME_PATTERN,
+  MUSE_PROBE_CLIENT_INFO,
+} from './museUsageProbeSupport.js';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 async function settle(times = 5) {
@@ -98,9 +103,7 @@ function createFakeServe({ usage = USAGE_PAYLOAD, answerInitialize = true } = {}
         const frame = JSON.parse(line);
         sent.push(frame);
         if (frame.method === 'initialize') {
-          if (answerInitialize) {
-            fake.emitFrame({ jsonrpc: '2.0', id: frame.id, result: { capabilities: ['session'] } });
-          }
+          answerInitializeFrame(fake, frame, answerInitialize);
           continue;
         }
         if (frame.method === 'session/start') {
@@ -148,6 +151,21 @@ function createFakeServe({ usage = USAGE_PAYLOAD, answerInitialize = true } = {}
   return child;
 }
 
+/**
+ * Answer one `initialize` frame like the real host (SS1.4.1):
+ * `clientInfo.name` must be a machine identifier matching `^[a-z0-9_]+$`;
+ * anything else is rejected with `-32602 invalidParams`.
+ */
+function answerInitializeFrame(fake, frame, answerInitialize) {
+  if (!MUSE_CLIENT_NAME_PATTERN.test(frame.params?.clientInfo?.name ?? '')) {
+    fake.emitFrame({ jsonrpc: '2.0', id: frame.id, error: { code: -32602, message: 'clientInfo.name must be a machine identifier matching ^[a-z0-9_]+$ (SS1.4.1)' } });
+    return;
+  }
+  if (answerInitialize) {
+    fake.emitFrame({ jsonrpc: '2.0', id: frame.id, result: { capabilities: ['session'] } });
+  }
+}
+
 function makeProbe(overrides = {}) {
   const child = overrides.child ?? createFakeServe(overrides.fakeOptions);
   let spawnCount = 0;
@@ -172,6 +190,23 @@ function makeProbe(overrides = {}) {
   });
   return { probe, child, spawnProcess, observed, advanceTime: (ms) => { now += ms; } };
 }
+
+describe('MUSE_PROBE_CLIENT_INFO (Issue 10)', () => {
+  it('uses a host-conforming machine identifier', () => {
+    expect(MUSE_PROBE_CLIENT_INFO.name).toMatch(MUSE_CLIENT_NAME_PATTERN);
+    expect(MUSE_PROBE_CLIENT_INFO.version).toBeTruthy();
+  });
+
+  it('fake rejects initialize with a non-conforming name (-32602)', async () => {
+    const child = createFakeServe();
+    const frames = [];
+    child.stdout.on('data', (chunk) => { frames.push(String(chunk)); });
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'initialize', params: { clientInfo: { name: 'has-hyphen', version: '1.0.0' } } })}\n`);
+    await settle();
+    const blob = frames.join('\n');
+    expect(blob).toContain('-32602');
+  });
+});
 
 describe('buildMuseProbeArgs', () => {
   it('serves memory-only with the configured model', () => {
@@ -278,6 +313,34 @@ describe('MuseUsageProbe', () => {
     expect(args).toEqual(['serve', '--no-session-log', '--provider', 'meta', '--model', 'muse-spark-1.3-contributor']);
     const turn = child.fake.sent.find((frame) => frame.method === 'turn/start');
     expect(turn.params.input).toEqual([{ type: 'text', text: 'Hi' }]);
+  });
+
+  it('caps lastSpawn history to the most recent spawns (Issue 13)', async () => {
+    const children = [createFakeServe(), createFakeServe(), createFakeServe(), createFakeServe(), createFakeServe()];
+    const { probe } = makeProbe({ spawnSequence: children });
+    const previousBin = process.env.MUSE_BIN;
+    try {
+      for (let i = 0; i < children.length; i += 1) {
+        process.env.MUSE_BIN = `muse-probe-${i}`;
+        const promise = probe.trigger();
+        await settle();
+        children[i].fake.pushUsageChanged();
+        await settle();
+        children[i].fake.endTurn();
+        await promise;
+      }
+    } finally {
+      if (previousBin === undefined) delete process.env.MUSE_BIN;
+      else process.env.MUSE_BIN = previousBin;
+    }
+    // Five serialized probes retain only the three most recent spawns,
+    // oldest → newest.
+    expect(probe.lastSpawn).toHaveLength(LAST_SPAWN_HISTORY);
+    expect(probe.lastSpawn.map(([command]) => command)).toEqual([
+      'muse-probe-2',
+      'muse-probe-3',
+      'muse-probe-4',
+    ]);
   });
 
   it('sends session/start with a UUIDv7 commandId (Issue 2)', async () => {

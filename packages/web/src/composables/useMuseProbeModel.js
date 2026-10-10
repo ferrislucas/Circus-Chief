@@ -22,16 +22,28 @@ export function useMuseProbeModel({ providerRef, builtInManageRef, localModelsRe
   const probeModel = ref(MUSE_PROBE_DEFAULT_MODEL);
   const probeModelLoading = ref(false);
   const probeModelReady = ref(false);
+  const probeModelLoadFailed = ref(false);
   let loadGeneration = 0;
   let applyingLoad = false;
   let userEditedDuringLoad = false;
+  const userEdited = ref(false);
 
   // A user edit landing while a load is in flight wins over the stale
   // response. Synchronous flush so an edit followed by a same-tick load
-  // resolution is still observed as an edit.
+  // resolution is still observed as an edit. Every non-applied edit also
+  // marks the picker dirty so an explicit pick survives a failed load
+  // (FR-9 covers unset values only, never unreadable ones).
   watch(probeModel, () => {
-    if (probeModelLoading.value && !applyingLoad) userEditedDuringLoad = true;
+    if (applyingLoad) return;
+    userEdited.value = true;
+    if (probeModelLoading.value) userEditedDuringLoad = true;
   }, { flush: 'sync' });
+
+  // Persist the probe model once its load settled cleanly, or when the user
+  // explicitly picked a value despite a failed load. An unread stored value
+  // with no user pick must never be overwritten by the default (Issue 11).
+  const shouldPersistProbeModel = computed(() => probeModelReady.value
+    && (!probeModelLoadFailed.value || userEdited.value));
 
   // Visible only in built-in-manage mode for the `meta` provider (FR-9);
   // every other provider kind keeps byte-for-byte today's layout.
@@ -61,12 +73,15 @@ export function useMuseProbeModel({ providerRef, builtInManageRef, localModelsRe
     const generation = loadGeneration;
     probeModelLoading.value = true;
     probeModelReady.value = false;
+    probeModelLoadFailed.value = false;
     userEditedDuringLoad = false;
+    userEdited.value = false;
     let stored = null;
     try {
       stored = await settingsStore.fetchMuseProbeSettings();
     } catch {
       stored = null;
+      if (generation === loadGeneration) probeModelLoadFailed.value = true;
     }
     if (generation === loadGeneration && !userEditedDuringLoad) {
       applyingLoad = true;
@@ -106,6 +121,8 @@ export function useMuseProbeModel({ providerRef, builtInManageRef, localModelsRe
     showProbeModelSection,
     probeModelLoading,
     probeModelReady,
+    probeModelLoadFailed,
+    shouldPersistProbeModel,
     resetProbeModel,
     loadProbeModel,
     awaitProbeModelReady,

@@ -39,6 +39,12 @@ export {
 
 const MAX_CONSECUTIVE_FAILURES = 5;
 
+/**
+ * Bound for the `lastSpawn` diagnostic history (test-only reads). Entries
+ * are `[command, args]` pairs ordered oldest → newest retained.
+ */
+export const LAST_SPAWN_HISTORY = 3;
+
 // Bounded exponential backoff between failed probes (same shape as
 // `CodexAppServerMeter`): rapid retriggers after a failure are suppressed
 // until the next-eligible timestamp, so a brief outage cannot burn the
@@ -140,6 +146,12 @@ export class MuseUsageProbe {
     }
   }
 
+  /** Record one spawn in the bounded diagnostic history (oldest → newest). */
+  recordSpawn(command, args) {
+    this.lastSpawn.push([command, args]);
+    while (this.lastSpawn.length > LAST_SPAWN_HISTORY) this.lastSpawn.shift();
+  }
+
   #launchChild() {
     const model = resolveMuseProbeModel({ settings: this.settings, modelProviders: this.modelProviders });
     const { command, args } = buildMuseProbeArgs(model);
@@ -148,7 +160,7 @@ export class MuseUsageProbe {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
       });
-      this.lastSpawn.push([command, args]);
+      this.recordSpawn(command, args);
       return child;
     } catch {
       this.#recordFailure('spawn-failed');

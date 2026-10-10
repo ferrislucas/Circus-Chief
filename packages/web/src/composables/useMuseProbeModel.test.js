@@ -71,6 +71,49 @@ describe('useMuseProbeModel', () => {
     expect(api.probeModel.value).toBe('muse-spark-1.3');
   });
 
+  it('records a load failure so an unedited save is skipped (Issue 11)', async () => {
+    const { api, settingsStore } = setup({ models: MODELS });
+    settingsStore.fetchMuseProbeSettings.mockRejectedValue(new Error('offline'));
+
+    await api.loadProbeModel();
+
+    expect(api.probeModel.value).toBe('muse-spark-1.3');
+    expect(api.probeModelReady.value).toBe(true);
+    expect(api.probeModelLoadFailed.value).toBe(true);
+    expect(api.shouldPersistProbeModel.value).toBe(false);
+  });
+
+  it('persists an explicit user pick made during a failed load (Issue 11)', async () => {
+    let rejectLoad;
+    const settingsStore = {
+      fetchMuseProbeSettings: vi.fn().mockReturnValue(new Promise((_, reject) => { rejectLoad = reject; })),
+    };
+    const api = useMuseProbeModel({
+      providerRef: ref(META),
+      builtInManageRef: ref(true),
+      localModelsRef: ref(MODELS),
+      settingsStore,
+    });
+    const loading = api.loadProbeModel();
+    // The user picks Contributor while the load is still in flight.
+    api.probeModel.value = 'muse-spark-1.3-contributor';
+    rejectLoad(new Error('offline'));
+    await loading;
+
+    expect(api.probeModel.value).toBe('muse-spark-1.3-contributor');
+    expect(api.probeModelLoadFailed.value).toBe(true);
+    expect(api.shouldPersistProbeModel.value).toBe(true);
+  });
+
+  it('persists after a successful load even without a user edit (Issue 11)', async () => {
+    const { api } = setup({ models: MODELS, storedProbeModel: 'muse-spark-1.3-contributor' });
+
+    await api.loadProbeModel();
+
+    expect(api.probeModelLoadFailed.value).toBe(false);
+    expect(api.shouldPersistProbeModel.value).toBe(true);
+  });
+
   it('discards a stale load that resolves after a user edit (Issue 9)', async () => {
     let resolveLoad;
     const settingsStore = {

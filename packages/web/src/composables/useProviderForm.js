@@ -22,6 +22,11 @@ import {
 
 export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai']);
 
+/** Scoped copy for a failed usage-probe model write (Issue 12): the provider
+ * save itself already completed, so the failure must never fail the save. */
+export const PROBE_MODEL_SAVE_ERROR_MESSAGE =
+  'Provider saved, but the usage-probe model could not be saved. Please try again.';
+
 export { MUSE_PROBE_DEFAULT_MODEL, showsMuseProbeModelSection };
 
 function normalizeCommitAttributionOverride(value) {
@@ -30,6 +35,23 @@ function normalizeCommitAttributionOverride(value) {
     throw new Error(COMMIT_ATTRIBUTION_VALIDATION_MESSAGE);
   }
   return result.value;
+}
+
+/**
+ * Persist the probe-model pick after a built-in-manage save. Never rejects:
+ * the provider update and model reconciliation above already persisted, so a
+ * failed probe-model write is surfaced on its own scoped channel while the
+ * save completes (Issue 12). An unread stored value with no explicit user
+ * pick is never overwritten by the default (Issue 11, FR-9).
+ */
+async function persistProbeModel({ awaitReady, shouldPersist, probeModel, updateSettings, notifyError }) {
+  await awaitReady();
+  if (!shouldPersist()) return;
+  try {
+    await updateSettings({ probeModel: probeModel() });
+  } catch {
+    notifyError(PROBE_MODEL_SAVE_ERROR_MESSAGE);
+  }
 }
 
 function buildProviderData(form) {
@@ -69,6 +91,7 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     probeModelOptions,
     effectiveProbeModel,
     showProbeModelSection,
+    shouldPersistProbeModel,
     resetProbeModel,
     loadProbeModel,
     awaitProbeModelReady,
@@ -255,10 +278,12 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     }).then(async () => {
       await reconcileModels(providerRef.value.id);
       if (showProbeModelSection.value) {
-        // Never persist the initial default over a stored value whose
-        // load is still in flight.
-        await awaitProbeModelReady();
-        await settingsStore.updateMuseProbeSettings({ probeModel: effectiveProbeModel.value });
+        await persistProbeModel({
+          awaitReady: awaitProbeModelReady, shouldPersist: () => shouldPersistProbeModel.value,
+          probeModel: () => effectiveProbeModel.value,
+          updateSettings: (settings) => settingsStore.updateMuseProbeSettings(settings),
+          notifyError: (message) => uiStore.error(message),
+        });
       }
       uiStore.success('Provider updated successfully');
       onSaved();
@@ -322,6 +347,7 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     probeModelOptions,
     effectiveProbeModel,
     showProbeModelSection,
+    shouldPersistProbeModel,
     addLocalModel,
     removeLocalModel: (index) => removeLocalModelAt(localModels, index),
     moveLocalModel: (index, delta) => moveLocalModelAt(localModels, index, delta),

@@ -12,8 +12,11 @@ import { killMuseTestProcess } from './metaProbe.js';
 
 const LOG_SOURCE = 'muse-usage-probe';
 
+/** Machine-identifier pattern the MSP host enforces for `clientInfo.name` (SS1.4.1). */
+export const MUSE_CLIENT_NAME_PATTERN = /^[a-z0-9_]+$/;
+
 export const MUSE_PROBE_CLIENT_INFO = Object.freeze({
-  name: 'circuschief-muse-usage-probe',
+  name: 'circuschief_muse_usage_probe',
   title: 'Circus Chief',
   version: '1.0.0',
 });

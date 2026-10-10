@@ -160,11 +160,10 @@ export const useSettingsStore = defineStore('settings', {
         return settings;
       } catch (err) {
         this.error = err.message;
-        // Fall back to defaults on error
-        this.museProbeSettings = {
-          probeModel: DEFAULT_MUSE_MODEL,
-        };
-        return this.museProbeSettings;
+        // Do not fall back to defaults here: callers must distinguish an
+        // unreadable stored value from an unset one (FR-9) so a transient
+        // GET failure is never persisted over the stored setting.
+        throw err;
       } finally {
         this.loading = false;
       }

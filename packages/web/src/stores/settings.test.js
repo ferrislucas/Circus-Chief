@@ -583,13 +583,12 @@ describe('Settings Store', () => {
       expect(store.museProbeSettings).toEqual({ probeModel: 'muse-spark-1.3-contributor' });
     });
 
-    it('falls back to defaults when fetching fails', async () => {
+    it('rejects when fetching fails so callers can distinguish unreadable from unset (Issue 11)', async () => {
       const store = useSettingsStore();
       api.getMuseProbeSettings.mockRejectedValue(new Error('Failed'));
 
-      const result = await store.fetchMuseProbeSettings();
-
-      expect(result).toEqual({ probeModel: 'muse-spark-1.3' });
+      await expect(store.fetchMuseProbeSettings()).rejects.toThrow('Failed');
+      expect(store.error).toBe('Failed');
       expect(store.museProbeSettings).toEqual({ probeModel: 'muse-spark-1.3' });
     });
 
