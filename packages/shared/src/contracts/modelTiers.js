@@ -77,13 +77,16 @@ const CanonicalTierMembers = z
     }
   });
 
-export const CreateTierRequest = z.object({
-  // Trimmed so padding-only names fail min(1) and stored names never carry
-  // surrounding whitespace (repository trims again as the boundary backstop).
-  name: z.string().trim().min(1).max(100),
-  description: z.string().nullable().optional(),
-  members: CanonicalTierMembers,
-});
+export const CreateTierRequest = z
+  .object({
+    // Trimmed so padding-only names fail min(1) and stored names never carry
+    // surrounding whitespace (repository trims again as the boundary backstop).
+    name: z.string().trim().min(1).max(100),
+    description: z.string().nullable().optional(),
+    members: CanonicalTierMembers,
+  })
+  // Both tier write contracts reject unknown keys.
+  .strict();
 
 export const UpdateTierRequest = z
   .object({

@@ -206,6 +206,15 @@ describe('Model Tier Contracts', () => {
       expect(result.success).toBe(false);
     });
 
+    it('rejects unknown top-level keys (strict)', () => {
+      const result = CreateTierRequest.safeParse({
+        name: 'Fast tier',
+        members: [],
+        unknown: true,
+      });
+      expect(result.success).toBe(false);
+    });
+
     it('rejects gapped, duplicate, and out-of-order positions', () => {
       for (const members of [
         [

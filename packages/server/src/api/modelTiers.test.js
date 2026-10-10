@@ -193,6 +193,18 @@ describe('Model Tiers API', () => {
       ]);
     });
 
+    it('rejects unknown top-level fields with 400', async () => {
+      const response = await request(app)
+        .post('/api/tiers')
+        .send({
+          name: 'Strict Tier',
+          members: [],
+          unknown: 1,
+        })
+        .expect(400);
+      expect(response.body.error).toBeDefined();
+    });
+
     it('returns 409 on duplicate name', async () => {
       await request(app).post('/api/tiers').send({ name: 'Dup', members: [] }).expect(201);
       const response = await request(app)
