@@ -50,6 +50,10 @@ function broadcastCommandRunError({ sessionId, projectId, runId, buttonId, error
 // GET /api/projects/:projectId/circus-commands - List all command buttons for project
 router.get('/', (req, res) => {
   const { projectId } = req.params;
+  const project = projects.getById(projectId);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
   const buttons = commandButtons.getByProjectId(projectId);
   res.json(buttons);
 });
