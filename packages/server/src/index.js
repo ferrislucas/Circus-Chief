@@ -67,6 +67,15 @@ try {
   process.exit(1);
 }
 process.env.CIRCUSCHIEF_SECURE = tlsConfig.enabled ? '1' : '';
+// Publish the self-signed certificate path (public material only, never the
+// private key) so generated agent API commands and docs can pin --cacert
+// trust to it. Agent child processes inherit this environment at spawn.
+// Custom CA-trusted certs need no extra trust, so publish nothing for them.
+if (tlsConfig.enabled && tlsConfig.source === 'self-signed') {
+  process.env.CIRCUSCHIEF_CA_CERT = tlsConfig.certPath;
+} else {
+  delete process.env.CIRCUSCHIEF_CA_CERT;
+}
 if (tlsConfig.enabled && tlsConfig.source === 'custom') {
   console.log(`TLS enabled (custom cert: ${tlsConfig.certPath}, key: ${tlsConfig.keyPath})`);
 } else if (tlsConfig.enabled) {

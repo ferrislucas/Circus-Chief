@@ -1,6 +1,8 @@
 import { execFileSync } from 'child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
-import { get } from 'https';
+import { get as httpsGet } from 'https';
+import { createSecureContext } from 'tls';
+import { isIP } from 'net';
 import { tmpdir, homedir, hostname, networkInterfaces } from 'os';
 import { join, resolve } from 'path';
 
@@ -38,7 +40,7 @@ export function getLanIPv4s(interfaces = networkInterfaces()) {
  * Best-effort public-IP discovery via api.ipify.org. Resolves to null on any
  * failure (offline machine, DNS blocked, slow link) so boot never fails here.
  */
-export function detectPublicIp({ timeoutMs = 3000 } = {}) {
+export function detectPublicIp({ timeoutMs = 3000, get = httpsGet } = {}) {
   return new Promise((resolvePromise) => {
     const req = get('https://api.ipify.org', { timeout: timeoutMs }, (res) => {
       let body = '';
@@ -46,8 +48,9 @@ export function detectPublicIp({ timeoutMs = 3000 } = {}) {
         body += chunk;
       });
       res.on('end', () => {
+        const okStatus = (res.statusCode || 0) >= 200 && (res.statusCode || 0) < 300;
         const ip = body.trim();
-        resolvePromise(/^[0-9a-fA-F:.]+$/.test(ip) && ip.length > 0 ? ip : null);
+        resolvePromise(okStatus && isIP(ip) !== 0 ? ip : null);
       });
     });
     req.on('timeout', () => {
@@ -142,6 +145,21 @@ function assertTlsModeValid({ sslCert, sslKey, selfSigned }) {
   }
 }
 
+/**
+ * Cryptographically validate a loaded cert/key pair (parseable material,
+ * matching key, usable without a passphrase). Throws a TlsError naming the
+ * resolved paths but never the key contents.
+ */
+function assertPairValid(pair, certPath, keyPath) {
+  try {
+    createSecureContext({ cert: pair.cert, key: pair.key });
+  } catch (err) {
+    throw new TlsError(
+      `TLS certificate and key failed validation (cert: ${certPath}, key: ${keyPath}): ${err?.message || err}`
+    );
+  }
+}
+
 function loadCustomPair(sslCert, sslKey) {
   const certPath = resolve(sslCert);
   const keyPath = resolve(sslKey);
@@ -154,6 +172,7 @@ function loadCustomPair(sslCert, sslKey) {
   if (!pair.cert.includes('BEGIN CERTIFICATE') || !pair.key.includes('PRIVATE KEY')) {
     throw new TlsError(`TLS files do not look like PEM (cert: ${certPath}, key: ${keyPath}).`);
   }
+  assertPairValid(pair, certPath, keyPath);
   return { enabled: true, key: pair.key, cert: pair.cert, source: 'custom', reused: false, certPath, keyPath };
 }
 
@@ -162,12 +181,14 @@ async function loadOrGenerateSelfSignedPair(dir, deps = {}) {
   const keyPath = join(dir, TLS_KEY_FILENAME);
 
   if (existsSync(certPath) && existsSync(keyPath)) {
+    let pair;
     try {
-      const pair = readPair(certPath, keyPath);
-      return { enabled: true, key: pair.key, cert: pair.cert, source: 'self-signed', reused: true, certPath, keyPath };
+      pair = readPair(certPath, keyPath);
     } catch (err) {
       throw new TlsError(`Failed to read existing self-signed pair (cert: ${certPath}, key: ${keyPath}): ${err.message}`);
     }
+    assertPairValid(pair, certPath, keyPath);
+    return { enabled: true, key: pair.key, cert: pair.cert, source: 'self-signed', reused: true, certPath, keyPath };
   }
 
   return generateSelfSignedPair(dir, certPath, keyPath, deps);
@@ -205,18 +226,28 @@ async function generateSelfSignedPair(dir, certPath, keyPath, deps = {}) {
     throw new TlsError(`Self-signed certificate generation failed: ${err?.message || err}`);
   }
   chmodSync(keyPath, 0o600);
+  // The certificate is public trust material: agent processes spawned by the
+  // server run as the same user but must be able to read it regardless of
+  // the operator's umask, so pin it world-readable.
+  chmodSync(certPath, 0o644);
 
   const pair = readPair(certPath, keyPath);
+  assertPairValid(pair, certPath, keyPath);
   return { enabled: true, key: pair.key, cert: pair.cert, source: 'self-signed', reused: false, certPath, keyPath };
 }
 
 async function detectPublicIpSafe(detect) {
   try {
     const publicIp = await detect();
-    if (!publicIp) {
+    // The injected detector is trusted to return a validated IP, but a
+    // custom seam (or a future discovery source) could hand back garbage
+    // that would otherwise become a fatal OpenSSL SAN entry. Treat anything
+    // that is not a valid IP as an unavailable optional lookup.
+    if (!publicIp || isIP(String(publicIp).trim()) === 0) {
       console.warn('[TLS] Public IP could not be detected (offline?); continuing with loopback + LAN SANs only.');
+      return null;
     }
-    return publicIp;
+    return String(publicIp).trim();
   } catch {
     console.warn('[TLS] Public IP could not be detected (offline?); continuing with loopback + LAN SANs only.');
     return null;

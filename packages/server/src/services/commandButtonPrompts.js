@@ -1,3 +1,4 @@
+import { getApiCurlCommand } from './tlsTrust.js';
 /**
  * Build Command API instructions for system prompt.
  * Always included so agents know commands may be available and can discover them.
@@ -6,6 +7,7 @@
  * @returns {string} Command instructions
  */
 export function buildCommandButtonApiInstructions(apiUrl, sessionId) {
+  const apiCurl = getApiCurlCommand();
   return `## Circus Commands
 
 This project may have Circus Commands configured - reusable shell commands you can execute. Use the Bash tool to run these curl commands.
@@ -14,19 +16,19 @@ This project may have Circus Commands configured - reusable shell commands you c
 
 ### List Available Commands
 \`\`\`bash
-curl ${apiUrl}/api/sessions/${sessionId}/circus-commands
+${apiCurl} ${apiUrl}/api/sessions/${sessionId}/circus-commands
 \`\`\`
 
 ### Run a Command
 \`\`\`bash
-curl -X POST ${apiUrl}/api/sessions/${sessionId}/circus-commands/<button_id>/run
+${apiCurl} -X POST ${apiUrl}/api/sessions/${sessionId}/circus-commands/<button_id>/run
 \`\`\`
 
 Response: { runId, buttonId, status: "running", output: "" }
 
 ### Check Run Status
 \`\`\`bash
-curl ${apiUrl}/api/sessions/${sessionId}/circus-commands/runs/<run_id>
+${apiCurl} ${apiUrl}/api/sessions/${sessionId}/circus-commands/runs/<run_id>
 \`\`\`
 
 Response: { runId, buttonId, status, exitCode, startedAt, completedAt }
@@ -36,7 +38,7 @@ Response: { runId, buttonId, status, exitCode, startedAt, completedAt }
 When a command has verbose output, retrieve a small descriptor rather than downloading its transcript in JSON. The returned path is relative to this workspace.
 
 \`\`\`bash
-curl ${apiUrl}/api/sessions/${sessionId}/circus-commands/runs/<run_id>/output-resource
+${apiCurl} ${apiUrl}/api/sessions/${sessionId}/circus-commands/runs/<run_id>/output-resource
 rg -n "FAIL|ERROR|AssertionError" .circus/runs/<run_id>/output.log
 tail -n 200 .circus/runs/<run_id>/output.log
 \`\`\`
@@ -45,11 +47,11 @@ The transcript file may grow while status is \`running\`; prefer targeted search
 
 ### List Command Runs
 \`\`\`bash
-curl ${apiUrl}/api/sessions/${sessionId}/circus-commands/runs
+${apiCurl} ${apiUrl}/api/sessions/${sessionId}/circus-commands/runs
 \`\`\`
 
 ### Kill a Running Command
 \`\`\`bash
-curl -X POST ${apiUrl}/api/sessions/${sessionId}/circus-commands/runs/<run_id>/kill
+${apiCurl} -X POST ${apiUrl}/api/sessions/${sessionId}/circus-commands/runs/<run_id>/kill
 \`\`\``;
 }

@@ -38,7 +38,24 @@ import {
   ReorderKanbanLanesRequest,
   UpdateKanbanLaneRequest,
 } from '@circuschief/shared/contracts/kanban';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { buildKanbanApiInstructions } from './sessionApiPrompts.js';
+import { shellQuote } from './tlsTrust.js';
+
+let hasOpensslPrompts = true;
+try {
+  execFileSync('openssl', ['version'], { stdio: 'ignore' });
+} catch {
+  hasOpensslPrompts = false;
+}
+
+/** Every generated `curl` command line in a prompt block. */
+function extractCurlCommands(prompt) {
+  return prompt.split('\n').filter((line) => /^\s*curl(?:\s|$)/.test(line));
+}
 
 const EXAMPLE_IDS = {
   lane: '11111111-1111-4111-8111-111111111111',
@@ -1012,4 +1029,175 @@ describe('sessionPrompts', () => {
       });
     });
   });
+});
+
+describe('self-signed agent API trust (Finding 1)', () => {
+  const sessionId = 'sess-trust';
+  const projectId = 'proj-trust';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessions.getById.mockReturnValue(null);
+    attachments.getBySessionId.mockReturnValue([]);
+    projects.getById.mockReturnValue(null);
+    kanbanBoards.getByProjectId.mockReturnValue(null);
+    kanbanLanes.getByBoardId.mockReturnValue([]);
+  });
+
+  function selfSignedEnv(certPath) {
+    delete process.env.CIRCUSCHIEF_API_URL;
+    delete process.env.CIRCUSCHIEF_HOST;
+    process.env.CIRCUSCHIEF_SECURE = '1';
+    process.env.CIRCUSCHIEF_CA_CERT = certPath;
+  }
+
+  afterEach(() => {
+    delete process.env.CIRCUSCHIEF_CA_CERT;
+  });
+
+  it('every generated API curl command pins --cacert in self-signed mode', () => {
+    selfSignedEnv('/srv/tls/cert.pem');
+    process.env.PORT = '5000';
+    const prompt = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+    const commands = extractCurlCommands(prompt);
+    // Canvas + session/workspace/provider/scheduling + commands + Kanban.
+    expect(commands.length).toBeGreaterThan(20);
+    for (const command of commands) {
+      expect(command).toContain("--cacert '/srv/tls/cert.pem'");
+      expect(command).not.toContain('--insecure');
+    }
+  });
+
+  it('shell-quotes hostile certificate paths in every command', () => {
+    const hostile = "/tmp/a b'o$d`e/cert.pem";
+    selfSignedEnv(hostile);
+    process.env.PORT = '5000';
+    const prompt = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+    const commands = extractCurlCommands(prompt);
+    expect(commands.length).toBeGreaterThan(20);
+    for (const command of commands) {
+      expect(command).toContain(`--cacert ${shellQuote(hostile)}`);
+    }
+  });
+
+  it('uses plain curl over HTTP', () => {
+    delete process.env.CIRCUSCHIEF_API_URL;
+    delete process.env.CIRCUSCHIEF_SECURE;
+    delete process.env.CIRCUSCHIEF_CA_CERT;
+    process.env.PORT = '5000';
+    const prompt = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+    const commands = extractCurlCommands(prompt);
+    expect(commands.length).toBeGreaterThan(20);
+    for (const command of commands) {
+      expect(command).not.toContain('--cacert');
+    }
+  });
+
+  it('uses plain curl for ordinarily trusted custom TLS', () => {
+    delete process.env.CIRCUSCHIEF_API_URL;
+    process.env.CIRCUSCHIEF_SECURE = '1';
+    delete process.env.CIRCUSCHIEF_CA_CERT;
+    process.env.PORT = '5000';
+    const prompt = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+    const commands = extractCurlCommands(prompt);
+    expect(commands.length).toBeGreaterThan(20);
+    for (const command of commands) {
+      expect(command).not.toContain('--cacert');
+    }
+  });
+
+  it('never attaches the local cert to an override endpoint', () => {
+    selfSignedEnv('/srv/tls/cert.pem');
+    process.env.CIRCUSCHIEF_API_URL = 'https://unrelated.example.com:5443';
+    const prompt = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+    const commands = extractCurlCommands(prompt);
+    expect(commands.length).toBeGreaterThan(20);
+    for (const command of commands) {
+      expect(command).not.toContain('--cacert');
+      expect(command).toContain('https://unrelated.example.com:5443');
+    }
+  });
+
+  it('documents TLS trust for other clients only in self-signed mode', () => {
+    selfSignedEnv('/srv/tls/cert.pem');
+    process.env.PORT = '5000';
+    const trusted = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+    expect(trusted).toContain('## TLS Trust');
+    expect(trusted).toContain('/srv/tls/cert.pem');
+    expect(trusted).toContain('NODE_EXTRA_CA_CERTS');
+
+    delete process.env.CIRCUSCHIEF_SECURE;
+    delete process.env.CIRCUSCHIEF_CA_CERT;
+    const plain = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+    expect(plain).not.toContain('## TLS Trust');
+  });
+
+  it('dynamic Kanban instructions pin --cacert in self-signed mode', () => {
+    selfSignedEnv('/srv/tls/cert.pem');
+    process.env.PORT = '5000';
+    projects.getById.mockReturnValue({ id: projectId });
+    kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
+    kanbanLanes.getByBoardId.mockReturnValue([
+      { id: '11111111-1111-4111-8111-111111111111', name: 'Doing' },
+    ]);
+    const instructions = buildKanbanApiInstructions(sessionId, projectId);
+    expect(instructions).toContain('"Doing"');
+    const commands = extractCurlCommands(instructions);
+    expect(commands.length).toBeGreaterThan(5);
+    for (const command of commands) {
+      expect(command).toContain("--cacert '/srv/tls/cert.pem'");
+    }
+  });
+
+  it.skipIf(!hasOpensslPrompts)(
+    'a generated curl command reaches a self-signed HTTPS API with verification enabled',
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'prompt-trust-'));
+      const keyPath = join(dir, 'key.pem');
+      const certPath = join(dir, 'cert.pem');
+      execFileSync(
+        'openssl',
+        ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+          '-keyout', keyPath, '-out', certPath, '-subj', '/CN=localhost',
+          '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1'],
+        { stdio: 'ignore' }
+      );
+      // Stub HTTPS endpoint via openssl s_server: it answers with a status
+      // page for any path, which is enough to prove the generated command
+      // completes a verified TLS handshake and gets an HTTP response.
+      // (A Node https stub is unusable here: this machine stalls curl→Node
+      // loopback traffic, while curl→s_server and Node→Node both work.)
+      const port = 48997;
+      const stub = spawn('openssl', [
+        's_server', '-accept', `127.0.0.1:${port}`, '-cert', certPath, '-key', keyPath,
+        '-WWW', '-naccept', '5',
+      ], { stdio: 'ignore' });
+      try {
+        // Wait until the stub accepts TLS (exit 60 = reached, untrusted).
+        const deadline = Date.now() + 15000;
+        for (;;) {
+          const probe = spawnSync('curl', ['-sS', '-m', '2', `https://localhost:${port}/`], { encoding: 'utf-8' });
+          if (probe.status === 60) break;
+          if (Date.now() > deadline) throw new Error(`s_server stub never came up (last status=${probe.status})`);
+          await new Promise((r) => setTimeout(r, 200));
+        }
+        process.env.PORT = String(port);
+        selfSignedEnv(certPath);
+        const prompt = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+        const listCommand = extractCurlCommands(prompt).find((line) => /\/canvas$/.test(line.trim()));
+        expect(listCommand, 'expected a generated canvas-list curl command').toBeDefined();
+        // Verification stays enabled: no bypass flags in the generated command.
+        expect(listCommand).not.toContain('--insecure');
+        expect(listCommand).not.toMatch(/(^|\s)-k(\s|$)/);
+        // Control: without trust, curl rejects the self-signed certificate.
+        expect(() => execFileSync(`curl -sS -m 8 https://localhost:${port}/api/workspaces/x/canvas`, { shell: '/bin/bash' })).toThrow();
+        // The generated command completes a verified handshake and reads a response.
+        const output = execFileSync(listCommand, { shell: '/bin/bash', encoding: 'utf-8' });
+        expect(output.length).toBeGreaterThan(0);
+      } finally {
+        stub.kill('SIGKILL');
+      }
+    },
+    60000
+  );
 });
