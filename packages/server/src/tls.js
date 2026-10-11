@@ -1,10 +1,11 @@
 import { execFileSync } from 'child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'fs';
 import { get as httpsGet } from 'https';
 import { createSecureContext } from 'tls';
 import { isIP } from 'net';
-import { tmpdir, homedir, hostname, networkInterfaces } from 'os';
+import { homedir, hostname, networkInterfaces } from 'os';
 import { join, resolve } from 'path';
+import { acquireTlsLock, releaseTlsLock, removeQuietly } from './tlsLock.js';
 
 export const TLS_CERT_FILENAME = 'cert.pem';
 export const TLS_KEY_FILENAME = 'key.pem';
@@ -122,7 +123,7 @@ function readPair(certPath, keyPath) {
  * @param {string|null} options.sslKey - PEM key path (custom mode).
  * @param {boolean} options.selfSigned - Self-signed mode.
  * @param {string|null} options.tlsDir - Self-signed storage override.
- * @param {object} [deps] - Test seams: { run, detectPublicIp, interfaces, host }.
+ * @param {object} [deps] - Test seams: { run, detectPublicIp, interfaces, host, lockTimeoutMs, afterFirstPublish }.
  * @returns {Promise<{enabled:false}|{enabled:true,key,cert,source,reused,certPath?,keyPath?}>}
  * @throws {TlsError} On any misconfiguration (caller exits non-zero pre-bind).
  */
@@ -176,25 +177,86 @@ function loadCustomPair(sslCert, sslKey) {
   return { enabled: true, key: pair.key, cert: pair.cert, source: 'custom', reused: false, certPath, keyPath };
 }
 
-async function loadOrGenerateSelfSignedPair(dir, deps = {}) {
-  const certPath = join(dir, TLS_CERT_FILENAME);
-  const keyPath = join(dir, TLS_KEY_FILENAME);
+// Crashed generations can leave staging directories behind; entries older
+// than this are swept on lock acquisition (a live generation takes seconds).
+const TLS_STALE_STAGING_MS = 60 * 60 * 1000;
 
-  if (existsSync(certPath) && existsSync(keyPath)) {
-    let pair;
-    try {
-      pair = readPair(certPath, keyPath);
-    } catch (err) {
-      throw new TlsError(`Failed to read existing self-signed pair (cert: ${certPath}, key: ${keyPath}): ${err.message}`);
-    }
-    assertPairValid(pair, certPath, keyPath);
-    return { enabled: true, key: pair.key, cert: pair.cert, source: 'self-signed', reused: true, certPath, keyPath };
+/** Best-effort sweep of staging directories left by crashed generations. */
+function sweepStaleStaging(absDir) {
+  let entries;
+  try {
+    entries = readdirSync(absDir);
+  } catch {
+    return;
   }
-
-  return generateSelfSignedPair(dir, certPath, keyPath, deps);
+  for (const name of entries) {
+    if (!name.startsWith('.staging-')) continue;
+    const stagingPath = join(absDir, name);
+    try {
+      if (Date.now() - statSync(stagingPath).mtimeMs > TLS_STALE_STAGING_MS) {
+        removeQuietly(stagingPath);
+      }
+    } catch {
+      // Vanished mid-sweep; ignore.
+    }
+  }
 }
 
-async function generateSelfSignedPair(dir, certPath, keyPath, deps = {}) {
+/**
+ * Read the persisted pair when both files exist. A complete but invalid pair
+ * keeps its explicit early error; an incomplete pair (exactly one file) is a
+ * recoverable leftover of an interrupted publication and regenerates below.
+ */
+function readCompletePair(certPath, keyPath) {
+  if (!existsSync(certPath) || !existsSync(keyPath)) return null;
+  let pair;
+  try {
+    pair = readPair(certPath, keyPath);
+  } catch (err) {
+    throw new TlsError(`Failed to read existing self-signed pair (cert: ${certPath}, key: ${keyPath}): ${err.message}`);
+  }
+  assertPairValid(pair, certPath, keyPath);
+  return pair;
+}
+
+async function loadOrGenerateSelfSignedPair(dir, deps = {}) {
+  // Resolve once so the persisted pair, the lock, staging, and the published
+  // trust path are all absolute and independent of the working directory.
+  const absDir = resolve(dir);
+  const certPath = join(absDir, TLS_CERT_FILENAME);
+  const keyPath = join(absDir, TLS_KEY_FILENAME);
+
+  mkdirSync(absDir, { recursive: true });
+  // Coordinate before checking, and recheck under the lock: the winner
+  // generates while losers wait, then reuse the committed identity.
+  let lock;
+  try {
+    lock = await acquireTlsLock(absDir, { timeoutMs: deps.lockTimeoutMs });
+  } catch (err) {
+    if (err instanceof TlsError) throw err;
+    throw new TlsError(`Failed to coordinate self-signed certificate generation in ${absDir}: ${err?.message || err}`);
+  }
+  try {
+    sweepStaleStaging(absDir);
+    const existing = readCompletePair(certPath, keyPath);
+    if (existing) {
+      return { enabled: true, key: existing.key, cert: existing.cert, source: 'self-signed', reused: true, certPath, keyPath };
+    }
+    const staged = await generateStagedPair(absDir, deps);
+    try {
+      await publishStagedPair(staged, certPath, keyPath, deps);
+    } finally {
+      removeQuietly(staged.stagingDir);
+    }
+    const pair = readPair(certPath, keyPath);
+    assertPairValid(pair, certPath, keyPath);
+    return { enabled: true, key: pair.key, cert: pair.cert, source: 'self-signed', reused: false, certPath, keyPath };
+  } finally {
+    releaseTlsLock(lock);
+  }
+}
+
+async function generateStagedPair(absDir, deps = {}) {
   const run = deps.run || execFileSync;
   ensureOpensslAvailable(run);
   const publicIp = await detectPublicIpSafe(deps.detectPublicIp || detectPublicIp);
@@ -204,8 +266,13 @@ async function generateSelfSignedPair(dir, certPath, keyPath, deps = {}) {
     publicIp,
   });
 
-  mkdirSync(dir, { recursive: true });
-  const configPath = join(mkdtempSync(join(tmpdir(), 'circuschief-tls-')), 'openssl.cnf');
+  // Generate on the same filesystem inside a private staging directory so a
+  // failure or crash can never leave a partial final pair behind.
+  const stagingDir = mkdtempSync(join(absDir, '.staging-'));
+  chmodSync(stagingDir, 0o700);
+  const configPath = join(stagingDir, 'openssl.cnf');
+  const stagedCertPath = join(stagingDir, TLS_CERT_FILENAME);
+  const stagedKeyPath = join(stagingDir, TLS_KEY_FILENAME);
   writeOpensslConfig(configPath, sans);
   try {
     run(
@@ -213,8 +280,8 @@ async function generateSelfSignedPair(dir, certPath, keyPath, deps = {}) {
       [
         'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
         '-days', String(SELF_SIGNED_VALIDITY_DAYS),
-        '-keyout', keyPath,
-        '-out', certPath,
+        '-keyout', stagedKeyPath,
+        '-out', stagedCertPath,
         '-config', configPath,
         // -x509 self-signing reads x509 extensions only from the section
         // named here; req_extensions alone would leave the cert SAN-less.
@@ -223,17 +290,49 @@ async function generateSelfSignedPair(dir, certPath, keyPath, deps = {}) {
       { stdio: 'ignore' }
     );
   } catch (err) {
+    removeQuietly(stagingDir);
     throw new TlsError(`Self-signed certificate generation failed: ${err?.message || err}`);
+  }
+  // Protect the key from creation onward; the staging directory is 0700 and
+  // the final key is pinned 0600 again at publication.
+  chmodSync(stagedKeyPath, 0o600);
+  let staged;
+  try {
+    staged = readPair(stagedCertPath, stagedKeyPath);
+    assertPairValid(staged, stagedCertPath, stagedKeyPath);
+  } catch (err) {
+    removeQuietly(stagingDir);
+    if (err instanceof TlsError) throw err;
+    throw new TlsError(`Self-signed certificate generation failed: ${err?.message || err}`);
+  }
+  return { stagingDir, stagedCertPath, stagedKeyPath };
+}
+
+async function publishStagedPair(staged, certPath, keyPath, deps = {}) {
+  // Publish while holding the directory lock. Two independent renames are not
+  // an atomic pair transaction, so the protocol is recoverable instead: a
+  // crash between the renames leaves an incomplete pair (one file missing),
+  // which the next start regenerates. A complete pre-existing pair is never
+  // overwritten here, so mixed material cannot become the committed state.
+  const published = [];
+  try {
+    renameSync(staged.stagedCertPath, certPath);
+    published.push(certPath);
+    await deps.afterFirstPublish?.();
+    renameSync(staged.stagedKeyPath, keyPath);
+    published.push(keyPath);
+  } catch (err) {
+    for (const publishedPath of published) removeQuietly(publishedPath);
+    if (err instanceof TlsError) throw err;
+    throw new TlsError(
+      `Self-signed certificate publication failed (cert: ${certPath}, key: ${keyPath}): ${err?.message || err}`
+    );
   }
   chmodSync(keyPath, 0o600);
   // The certificate is public trust material: agent processes spawned by the
   // server run as the same user but must be able to read it regardless of
   // the operator's umask, so pin it world-readable.
   chmodSync(certPath, 0o644);
-
-  const pair = readPair(certPath, keyPath);
-  assertPairValid(pair, certPath, keyPath);
-  return { enabled: true, key: pair.key, cert: pair.cert, source: 'self-signed', reused: false, certPath, keyPath };
 }
 
 async function detectPublicIpSafe(detect) {
