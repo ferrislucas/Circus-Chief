@@ -1,5 +1,6 @@
-import { kanbanCards, kanbanLanes, commandRuns, sessions } from '../database.js';
+import { kanbanCards, kanbanLanes, commandRuns, sessions, databaseManager } from '../database.js';
 import { getRun } from './workflowSessionService.js';
+import { computeQueuePositions, getCardEntryState } from './kanbanConcurrency.js';
 import { hasPendingPrompt } from './promptStore.js';
 import { buildRunsBySession } from '../api/projects-helpers.js';
 import { commandRunner } from './commandRunner.js';
@@ -47,16 +48,21 @@ export function buildFullBoardResponse(board) {
     cardsByLane[card.laneId]?.push(card);
   }
   const runsBySession = buildBoardRunsBySession(board.projectId, allCards);
+  const db = databaseManager.get();
   return {
     id: board.id,
     projectId: board.projectId,
-    lanes: lanes.map(lane => ({
-      ...lane,
-      cards: cardsByLane[lane.id].map(card => ({
-        ...withSessionDetails(card, runsBySession),
-        activeLaneRun: card.activeLaneRunId ? getRun(card.activeLaneRunId) : null,
-      })),
-    })),
+    lanes: lanes.map(lane => {
+      const positions = lane.concurrencyLimit != null ? computeQueuePositions(db, lane.id) : null;
+      return {
+        ...lane,
+        cards: cardsByLane[lane.id].map(card => ({
+          ...withSessionDetails(card, runsBySession),
+          activeLaneRun: card.activeLaneRunId ? getRun(card.activeLaneRunId) : null,
+          ...getCardEntryState(db, card, lane, positions),
+        })),
+      };
+    }),
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
   };

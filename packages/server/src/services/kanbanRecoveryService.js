@@ -5,6 +5,7 @@
  */
 import { databaseManager } from '../database.js';
 import { reconcileLaneRun, supersedeLaneRun } from './workflowSessionService.js';
+import { drainLimitedLaneQueues } from './kanbanConcurrency.js';
 
 /** A bounded, request-time view of durable delivery health.  This is kept
  * separate from startup preflight: a healthy boot must still degrade when a
@@ -263,6 +264,10 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
       WHERE lane_run_id IN (SELECT id FROM kanban_lane_runs WHERE status IN ('superseded', 'failed', 'cancelled'))
         AND (scheduled_at IS NOT NULL OR execution_state IN ('running', 'starting', 'retrying', 'paused'))`).run(now).changes;
     if (cancelled) changes.push({ type: 'cancelled_unowned_workers', count: cancelled });
+    // Queued cards stay queued across restart: derived state needs no
+    // repair, and the per-lane drain fills free slots in lane order.
+    const drained = drainLimitedLaneQueues(db);
+    if (drained) changes.push({ type: 'drained_lane_queues', count: drained });
   }
   if (staleRunIds.length) changes.unshift({ type: 'superseded_runs', runIds: staleRunIds });
   if (preservedRootlessRunIds.length) changes.unshift({ type: 'preserved_recoverable_rootless_handoffs', runIds: preservedRootlessRunIds });

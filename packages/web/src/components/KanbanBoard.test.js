@@ -970,4 +970,30 @@ describe('KanbanBoard.vue', () => {
       expect(firstCard.find('[data-testid="button-status-bar"]').exists()).toBe(false);
     });
   });
+
+  describe('lane concurrency limits', () => {
+    it('shows the limit state in the lane header and a queued badge on queued cards', () => {
+      mockKanbanStoreData.board.lanes[0].concurrencyLimit = 1;
+      mockKanbanStoreData.board.lanes[0].cards[0].entryState = 'running';
+      mockKanbanStoreData.board.lanes[0].cards[0].queuePosition = null;
+      mockKanbanStoreData.board.lanes[0].cards[1].entryState = 'queued';
+      mockKanbanStoreData.board.lanes[0].cards[1].queuePosition = 1;
+
+      const wrapper = mountBoard();
+
+      const states = wrapper.findAll('[data-testid="lane-limit-state"]');
+      expect(states).toHaveLength(1);
+      expect(states[0].text()).toBe('1/1 running · 1 queued');
+      const badges = wrapper.findAll('[data-testid="queued-badge"]');
+      expect(badges).toHaveLength(1);
+      expect(badges[0].text()).toContain('#1');
+    });
+
+    it('hides the limit state for unlimited lanes', () => {
+      const wrapper = mountBoard();
+
+      expect(wrapper.find('[data-testid="lane-limit-state"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="queued-badge"]').exists()).toBe(false);
+    });
+  });
 });

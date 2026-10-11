@@ -174,6 +174,33 @@ describe('kanban-drop-completion-mode-hard-cutover', () => {
   });
 });
 
+describe('kanban_lanes-add-concurrency_limit', () => {
+  it('adds a nullable concurrency_limit with a >= 1 check, idempotently, preserving rows', () => {
+    const db = freshDb();
+    try {
+      // Simulate a pre-migration database: fresh schema.sql already has the column.
+      db.exec('ALTER TABLE kanban_lanes DROP COLUMN concurrency_limit');
+      db.prepare("INSERT INTO projects (id,name,working_directory,created_at,updated_at) VALUES ('p','P','/tmp',1,1)").run();
+      db.prepare("INSERT INTO kanban_boards (id,project_id,created_at,updated_at) VALUES ('b','p',1,1)").run();
+      db.prepare("INSERT INTO kanban_lanes (id,board_id,name,sort_order,created_at,updated_at) VALUES ('l','b','Lane',0,1,1)").run();
+      const migration = allMigrations.find((item) => item.name === 'kanban_lanes-add-concurrency_limit');
+      expect(migration).toBeDefined();
+
+      migration.up(db);
+
+      expect(getColumns(db, 'kanban_lanes')).toContain('concurrency_limit');
+      expect(db.prepare('SELECT concurrency_limit FROM kanban_lanes WHERE id=?').get('l').concurrency_limit).toBeNull();
+      // CHECK constraint rejects 0 and negatives, accepts positive integers.
+      expect(() => db.prepare("UPDATE kanban_lanes SET concurrency_limit=0 WHERE id='l'").run()).toThrow();
+      expect(() => db.prepare("UPDATE kanban_lanes SET concurrency_limit=-1 WHERE id='l'").run()).toThrow();
+      expect(() => db.prepare("UPDATE kanban_lanes SET concurrency_limit=2 WHERE id='l'").run()).not.toThrow();
+      expect(() => migration.up(db)).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+});
+
 // Note: there is no 'kanban-backfill-structured-completion-mode' migration in
 // the current chain (hard-cutover removed the completion_mode concept
 // entirely — see 'kanban-drop-completion-mode-hard-cutover' below). This

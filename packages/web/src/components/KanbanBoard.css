@@ -241,6 +241,12 @@
   border-radius: 10px;
 }
 
+.lane-limit-state {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+  white-space: nowrap;
+}
+
 .lane-settings-btn {
   background: none;
   border: none;

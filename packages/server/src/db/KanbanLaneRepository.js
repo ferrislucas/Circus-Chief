@@ -34,6 +34,7 @@ function prepareLaneValues(data) {
     data.onEnterMaxRescheduleCount ?? null,
     data.onEnterMaxTotalTokens ?? null,
     data.onEnterRescheduleAtTokenCount ?? null,
+    data.concurrencyLimit ?? null,
   ];
 }
 
@@ -94,6 +95,7 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterMaxTotalTokens: row.on_enter_max_total_tokens,
       onEnterRescheduleAtTokenCount: row.on_enter_reschedule_at_token_count,
       completionTargetLaneId: row.completion_target_lane_id,
+      concurrencyLimit: row.concurrency_limit ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -137,9 +139,9 @@ export class KanbanLaneRepository extends BaseRepository {
           on_enter_auto_reschedule_enabled, on_enter_reschedule_delay_minutes,
           on_enter_reschedule_on_token_limit, on_enter_reschedule_on_service_error,
           on_enter_max_reschedule_count, on_enter_max_total_tokens,
-          on_enter_reschedule_at_token_count, completion_target_lane_id,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          on_enter_reschedule_at_token_count, concurrency_limit,
+          completion_target_lane_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(id, boardId, createData.name, sortOrder, ...laneValues, createData.completionTargetLaneId || null, now, now);
 
@@ -195,6 +197,7 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterMaxTotalTokens: 'on_enter_max_total_tokens',
       onEnterRescheduleAtTokenCount: 'on_enter_reschedule_at_token_count',
       completionTargetLaneId: 'completion_target_lane_id',
+      concurrencyLimit: 'concurrency_limit',
     };
 
     const updates = [];

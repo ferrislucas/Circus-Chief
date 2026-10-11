@@ -267,6 +267,11 @@ input, textarea, select {
   color: #22c5ff;
 }
 
+.status-queued {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
 /* Loading */
 .loading-spinner {
   display: inline-block;

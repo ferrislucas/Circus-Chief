@@ -389,6 +389,13 @@ export const kanbanMigrations = [
     },
   },
   {
+    name: 'kanban_lanes-add-concurrency_limit',
+    up(db) {
+      addColumnIfMissing(db, 'kanban_lanes', 'concurrency_limit',
+        'INTEGER CHECK (concurrency_limit IS NULL OR concurrency_limit >= 1)');
+    },
+  },
+  {
     name: 'kanban-routing-observability',
     up(db) {
       db.exec(`CREATE TABLE IF NOT EXISTS kanban_routing_audit_events (

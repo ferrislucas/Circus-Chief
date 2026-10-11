@@ -46,4 +46,30 @@ describe('KanbanCardSessionDetails', () => {
     });
     expect(wrapper.get('.lane-run-exit-lane').text()).toBe('Discarded exit: Needs attention');
   });
+
+  it('shows a queued badge with position when the card entry is queued', () => {
+    const wrapper = mount(KanbanCardSessionDetails, {
+      props: {
+        session, sessions: [session], lane: { name: 'Review' },
+        entryState: 'queued', queuePosition: 2,
+      },
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
+    });
+
+    expect(wrapper.get('[data-testid="queued-badge"]').text()).toContain('Queued');
+    expect(wrapper.get('[data-testid="queued-badge"]').text()).toContain('#2');
+  });
+
+  it('shows no queued badge for running or unset entry states', () => {
+    for (const props of [
+      { session, sessions: [session], lane: { name: 'Review' }, entryState: 'running' },
+      { session, sessions: [session], lane: { name: 'Review' } },
+    ]) {
+      const wrapper = mount(KanbanCardSessionDetails, {
+        props,
+        global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
+      });
+      expect(wrapper.find('[data-testid="queued-badge"]').exists()).toBe(false);
+    }
+  });
 });

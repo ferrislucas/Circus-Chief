@@ -526,6 +526,119 @@ describe('Kanban API', () => {
         expect.anything()
       );
     });
+
+    it('sets and clears concurrencyLimit', async () => {
+      setupBoard();
+
+      const set = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ concurrencyLimit: 2 });
+
+      expect(set.status).toBe(200);
+      expect(set.body.concurrencyLimit).toBe(2);
+
+      const cleared = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ concurrencyLimit: null });
+
+      expect(cleared.status).toBe(200);
+      expect(cleared.body.concurrencyLimit).toBeNull();
+    });
+
+    it.each([0, -1, 1.5])('rejects concurrencyLimit %s with KANBAN_LANE_BAD_CONCURRENCY', async (concurrencyLimit) => {
+      setupBoard();
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ concurrencyLimit });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('KANBAN_LANE_BAD_CONCURRENCY');
+      expect(res.body.field).toBe('concurrencyLimit');
+    });
+
+    it('drains the queue synchronously when the limit is raised', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      const runner = createSession('Runner');
+      await addSessionToBoardService(runner.id, lanes[0].id);
+      const queuedSession = createSession('Queued');
+      await addSessionToBoardService(queuedSession.id, lanes[0].id);
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ concurrencyLimit: 2 });
+
+      expect(res.status).toBe(200);
+      const board = await request(app).get(`/api/projects/${projectId}/kanban`);
+      const lane = board.body.lanes.find((l) => l.id === lanes[0].id);
+      const queuedCard = lane.cards.find((c) => c.sessions[0]?.id === queuedSession.id);
+      expect(queuedCard.entryState).toBe('running');
+    });
+  });
+
+  describe('concurrency limits', () => {
+    it('creates a lane with concurrencyLimit', async () => {
+      setupBoard();
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/lanes`)
+        .send({ name: 'Limited', concurrencyLimit: 2 });
+
+      expect(res.status).toBe(201);
+      expect(res.body.concurrencyLimit).toBe(2);
+    });
+
+    it('rejects creating a lane with concurrencyLimit 0', async () => {
+      setupBoard();
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/lanes`)
+        .send({ name: 'Limited', concurrencyLimit: 0 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('KANBAN_LANE_BAD_CONCURRENCY');
+      expect(res.body.field).toBe('concurrencyLimit');
+    });
+
+    it('routes into a full lane with a queued outcome and position', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      const runner = createSession('Runner');
+      await addSessionToBoardService(runner.id, lanes[1].id);
+      const other = createSession('Other');
+      await addSessionToBoardService(other.id, lanes[0].id);
+
+      const res = await request(app)
+        .put(`/api/projects/${projectId}/kanban/cards/by-workspace/${other.id}/lane`)
+        .send({ laneId: lanes[1].id });
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('queued');
+      expect(res.body.laneId).toBe(lanes[1].id);
+      expect(res.body.queuePosition).toBe(1);
+    });
+
+    it('exposes concurrencyLimit and entryState on board fetch', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      const runner = createSession('Runner');
+      await addSessionToBoardService(runner.id, lanes[0].id);
+      const queuedSession = createSession('Queued');
+      await addSessionToBoardService(queuedSession.id, lanes[0].id);
+
+      const res = await request(app).get(`/api/projects/${projectId}/kanban`);
+
+      expect(res.status).toBe(200);
+      const lane = res.body.lanes.find((l) => l.id === lanes[0].id);
+      expect(lane.concurrencyLimit).toBe(1);
+      const bySession = Object.fromEntries(
+        lane.cards.map((c) => [c.sessions[0]?.id, c]),
+      );
+      expect(bySession[runner.id].entryState).toBe('running');
+      expect(bySession[queuedSession.id].entryState).toBe('queued');
+      expect(bySession[queuedSession.id].queuePosition).toBe(1);
+    });
   });
 
   describe('DELETE /api/projects/:projectId/kanban/lanes/:laneId', () => {

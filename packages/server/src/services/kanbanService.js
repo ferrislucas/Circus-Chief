@@ -13,8 +13,11 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
 import {
   createLaneRunForEntry, supersedeLaneRun, supersedeLaneRunAuthorityOnly,
-  supersedeRunForCard, isStructured, getRun,
+  supersedeRunForCard, isStructured, getRun, setLaneRunTerminalHandler,
 } from './workflowSessionService.js';
+import {
+  createGatedLaneRunForEntry, drainLaneQueue,
+} from './kanbanConcurrency.js';
 import { ApiError } from '../errors/ApiError.js';
 import { retrySqliteContention } from './sqliteContention.js';
 import { kanbanRoutingMetrics, recordRouteDecision } from './kanbanRoutingObservability.js';
@@ -55,10 +58,72 @@ function resolveWorkspaceId(sessionId) {
 }
 
 /** Build the committed route outcome and its public response in one place. */
-function createRouteOutcome(status, laneId, finalizeMutation, { eventId = null, ...outcome } = {}) {
-  const response = { status, laneId };
+function createRouteOutcome(status, laneId, finalizeMutation, { eventId = null, responseExtra = null, ...outcome } = {}) {
+  const response = responseExtra ? { status, laneId, ...responseExtra } : { status, laneId };
   return { response: finalizeMutation?.({ response, eventId }) ?? response, ...outcome };
 }
+
+/**
+ * Drain one lane's queue after a slot freed, then deliver + broadcast.
+ * Exported for the PATCH-lane path (synchronous drain inside the request,
+ * FR-4); the terminal-transition handler below funnels through it too.
+ * @param {string} laneId
+ * @returns {Array} Newly created lane runs
+ */
+export function drainLaneAndDeliver(laneId) {
+  let created = [];
+  try {
+    created = drainLaneQueue(laneId);
+  } catch (error) {
+    console.error(`Kanban queue drain for lane ${laneId} failed:`, error);
+    return [];
+  }
+  if (!created.length) return created;
+  // At boot (recovery) the retry worker is not running yet: leave the fresh
+  // pending events to its first tick instead of delivering ahead of preflight.
+  if (isLaneEntryRetryWorkerRunning()) {
+    for (const run of created) scheduleLaneEntryDelivery(run.laneEntryEventId);
+  }
+  broadcastQueueAdvance(laneId);
+  return created;
+}
+
+/** Broadcast the full board so queued->running advances render without refresh. */
+function broadcastQueueAdvance(laneId) {
+  try {
+    const lane = kanbanLanes.getById(laneId);
+    const board = lane && kanbanBoards.getById(lane.boardId);
+    if (!lane || !board) return;
+    broadcastToProject(board.projectId, WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, {
+      projectId: board.projectId,
+      board: buildFullBoardResponse(board),
+    });
+  } catch (error) {
+    console.error(`Kanban queue-advance broadcast for lane ${laneId} failed:`, error);
+  }
+}
+
+// Slot-release drains run deferred (microtask), never inside the commit that
+// freed the slot: the freeing transaction's own follow-ups (move, delete)
+// have not committed yet when the terminal hook fires, so a synchronous drain
+// could start a card that is about to leave. Deferred drains observe only
+// committed state; a rolled-back transition simply finds no free slot.
+const pendingTerminalDrainLanes = new Set();
+let terminalDrainQueued = false;
+
+function handleLaneRunTerminal({ laneIds }) {
+  for (const laneId of laneIds) pendingTerminalDrainLanes.add(laneId);
+  if (terminalDrainQueued) return;
+  terminalDrainQueued = true;
+  queueMicrotask(() => {
+    terminalDrainQueued = false;
+    const lanes = [...pendingTerminalDrainLanes];
+    pendingTerminalDrainLanes.clear();
+    for (const laneId of lanes) drainLaneAndDeliver(laneId);
+  });
+}
+
+setLaneRunTerminalHandler(handleLaneRunTerminal);
 
 /**
  * Repair a card whose active-run pointer is stale before creating its next
@@ -78,15 +143,16 @@ function repairStaleRunAndMoveCard(db, {
   }
 
   const moved = kanbanCards.moveToLane(card.id, targetLane.id);
-  const laneRun = isStructured(targetLane)
-    ? createLaneRunForEntry({
+  const gated = isStructured(targetLane)
+    ? createGatedLaneRunForEntry({
       projectId: workspace.projectId, workspaceId: workspace.id, cardId: card.id, lane: targetLane, cause: 'workspace_route',
     })
-    : null;
-  if (isStructured(targetLane) && !laneRun) throw new Error('Structured lane entry run was not created');
+    : { laneRun: null, queued: false, queuePosition: null };
+  const laneRun = gated.laneRun;
+  if (isStructured(targetLane) && !laneRun && !gated.queued) throw new Error('Structured lane entry run was not created');
   if (!laneRun) db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE id=?')
     .run(Date.now(), card.id);
-  return { moved, laneRun, supersededRunId: openRun?.id || null };
+  return { moved, laneRun, supersededRunId: openRun?.id || null, queued: gated.queued, queuePosition: gated.queuePosition };
 }
 
 function getOwningOpenRun(db, card) {
@@ -112,10 +178,17 @@ function recordScheduledDestination(db, runId, laneId, time) {
 }
 
 function movedRouteOutcome(db, { card, targetLane, workspace, laneId, finalizeMutation, manualMove = false }) {
-  const { moved, laneRun, supersededRunId } = repairStaleRunAndMoveCard(db, {
+  const { moved, laneRun, supersededRunId, queued, queuePosition } = repairStaleRunAndMoveCard(db, {
     card, targetLane, workspace, supersessionReason: manualMove ? 'manual_card_move' : 'workspace_routed',
     preserveMemberSessions: manualMove,
   });
+  if (queued) {
+    return createRouteOutcome('queued', laneId, finalizeMutation, {
+      eventId: null, responseExtra: { queuePosition },
+      moved: { card, moved, laneRun }, projectId: workspace.projectId,
+      auditRunId: supersededRunId, auditOutcome: 'queued',
+    });
+  }
   return createRouteOutcome('moved', laneId, finalizeMutation, {
     eventId: laneRun?.laneEntryEventId || null, moved: { card, moved, laneRun }, projectId: workspace.projectId,
     auditRunId: supersededRunId,
@@ -204,11 +277,14 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
       throw new Error('Session already has a card on the board');
     }
     const createdCard = kanbanCards.create(laneId, workspaceId, { sortOrder });
-    const createdRun = rootSession && runOnEnterTemplate && isStructured(lane)
-      ? createLaneRunForEntry({ projectId: rootSession.projectId, workspaceId, cardId: createdCard.id, lane })
-      : null;
-    const result = finalizeMutation?.({ card: createdCard, eventId: createdRun?.laneEntryEventId || null });
-    return { card: createdCard, laneRun: createdRun, finalizedResult: result };
+    const gated = rootSession && runOnEnterTemplate && isStructured(lane)
+      ? createGatedLaneRunForEntry({ projectId: rootSession.projectId, workspaceId, cardId: createdCard.id, lane })
+      : { laneRun: null, queued: false, queuePosition: null };
+    const resultCard = gated.queued
+      ? { ...createdCard, entryState: 'queued', queuePosition: gated.queuePosition }
+      : createdCard;
+    const result = finalizeMutation?.({ card: resultCard, eventId: gated.laneRun?.laneEntryEventId || null });
+    return { card: resultCard, laneRun: gated.laneRun, finalizedResult: result };
   });
 
   // Delivery remains detached from the committed mutation. It only wakes the
@@ -265,11 +341,14 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
   const { movedCard, laneRun, finalizedResult } = databaseManager.transaction(() => {
     supersedeRunForCard(cardId, 'card_moved');
     const updatedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
-    const createdRun = session && runOnEnterTemplate && isStructured(lane)
-      ? createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause: 'manual_move' })
-      : null;
-    const result = finalizeMutation?.({ card: updatedCard, eventId: createdRun?.laneEntryEventId || null });
-    return { movedCard: updatedCard, laneRun: createdRun, finalizedResult: result };
+    const gated = session && runOnEnterTemplate && isStructured(lane)
+      ? createGatedLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause: 'manual_move' })
+      : { laneRun: null, queued: false, queuePosition: null };
+    const resultCard = gated.queued
+      ? { ...updatedCard, entryState: 'queued', queuePosition: gated.queuePosition }
+      : updatedCard;
+    const result = finalizeMutation?.({ card: resultCard, eventId: gated.laneRun?.laneEntryEventId || null });
+    return { movedCard: resultCard, laneRun: gated.laneRun, finalizedResult: result };
   });
 
   if (session) {
@@ -707,6 +786,11 @@ let retryTimer = null;
 let retryInFlight = null;
 let retryStopping = false;
 const RETRY_POLL_MS = 1_000;
+
+/** Whether the durable outbox poller is running (gates queue-drain delivery). */
+export function isLaneEntryRetryWorkerRunning() {
+  return retryTimer !== null && !retryStopping;
+}
 
 /** Start the bounded durable outbox poller after startup recovery is complete. */
 export function startLaneEntryRetryWorker() {

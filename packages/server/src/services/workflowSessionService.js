@@ -26,6 +26,30 @@ const SELECT_SESSION_BY_ID = 'SELECT * FROM sessions WHERE id=?';
 const SELECT_RUN_BY_ID = 'SELECT * FROM kanban_lane_runs WHERE id=?';
 const OPEN_RUN_STATUS = 'open';
 
+/**
+ * Slot-release hook for per-lane concurrency limits (FR-9/FR-10). Registered
+ * by kanbanService.js (which owns queue drains + entry delivery); this module
+ * must not import it back (import cycle). Invoked synchronously after a
+ * terminal transition commits, with the lanes that may have freed capacity.
+ * Never throws into the transition path.
+ */
+let laneRunTerminalHandler = null;
+/** @param {((event: { laneIds: string[] }) => void)|null} handler */
+export function setLaneRunTerminalHandler(handler) {
+  laneRunTerminalHandler = handler;
+}
+
+function notifyLaneRunTerminal(laneIds) {
+  if (!laneRunTerminalHandler) return;
+  const unique = [...new Set((laneIds || []).filter(Boolean))];
+  if (!unique.length) return;
+  try {
+    laneRunTerminalHandler({ laneIds: unique });
+  } catch (error) {
+    console.error('Kanban queue drain after terminal transition failed:', error);
+  }
+}
+
 function audit(db, runId, type, { sessionId = null, details = null } = {}) {
   const operationKey = `${runId}:${type}:${sessionId || '-'}:${details ? JSON.stringify(details) : '-'}`;
   db.prepare(`INSERT INTO kanban_lane_run_audit_events
@@ -438,9 +462,14 @@ export function reconcileLaneRun(runId, { allowTransition = true, deferBroadcast
   // without ever moving its card or creating a successor run — used by boot
   // recovery, which must not mutate the board ahead of the preflight audit.
   if (reconciliation.discardedPendingDestination) publishDiscardedPendingDestination();
-  return reconciliation.shouldTransition && allowTransition
-    ? attemptLaneRunTransition(runId, { deferBroadcast })
-    : reconciliation.result;
+  if (reconciliation.shouldTransition && allowTransition) {
+    return attemptLaneRunTransition(runId, { deferBroadcast });
+  }
+  // A terminal fail/cancel frees a concurrency slot in the run's lane (FR-9).
+  if (reconciliation.result && ['failed', 'cancelled'].includes(reconciliation.result.status)) {
+    notifyLaneRunTerminal([reconciliation.result.sourceLaneId]);
+  }
+  return reconciliation.result;
 }
 
 /**
@@ -481,6 +510,20 @@ function createCompletionSuccessor(run, card, movedCard) {
     onEnterTemplateId: targetLane.on_enter_template_id,
     onEnterPrompt: targetLane.on_enter_prompt,
   })) return null;
+  // Completion routing into a full lane queues in the target lane (FRD edge
+  // 6): no run row is created and the card pointers are cleared by the caller
+  // so the card reads as queued. Count query mirrors kanbanConcurrency's
+  // countOpenLaneRuns (kept inline: this module must not import it back).
+  const limit = targetLane.concurrency_limit ?? null;
+  if (limit != null) {
+    const open = db.prepare(`SELECT COUNT(*) AS count FROM kanban_cards c
+      JOIN kanban_lane_runs r ON r.id = c.active_lane_run_id
+      WHERE c.lane_id = ? AND r.status = 'open'`).get(targetLane.id)?.count || 0;
+    if (open >= limit) {
+      console.info(`Kanban lane ${targetLane.id} at limit ${limit}: completion-routed card ${card.id} queued`);
+      return null;
+    }
+  }
   return createLaneRunForEntry({
     projectId: run.project_id,
     workspaceId: run.workspace_id,
@@ -490,6 +533,7 @@ function createCompletionSuccessor(run, card, movedCard) {
       completionTargetLaneId: targetLane.completion_target_lane_id,
       onEnterTemplateId: targetLane.on_enter_template_id,
       onEnterPrompt: targetLane.on_enter_prompt,
+      concurrencyLimit: limit,
     },
     cause: 'completion',
     priorLaneRunId: run.id,
@@ -539,6 +583,11 @@ export function attemptLaneRunTransition(runId, { deferBroadcast = false } = {})
   });
   if (!deferBroadcast) broadcastCardTransition(transition.postCommitCardTransition);
   const { result } = transition;
+  // The card left its source lane: a concurrency slot freed there (FR-8).
+  // The target-lane entry was already gated in createCompletionSuccessor.
+  if (transition.postCommitCardTransition) {
+    notifyLaneRunTerminal([transition.postCommitCardTransition.fromLaneId]);
+  }
   return result;
 }
 /* eslint-enable max-statements, complexity */
@@ -573,6 +622,9 @@ function supersedeLaneRunWithPolicy(runId, reason, { cancelMembers }) {
     return { run: getRun(runId), discardedPendingDestination: Boolean(run.chosen_exit_lane_id) };
   });
   if (result?.discardedPendingDestination) publishDiscardedPendingDestination();
+  // Supersession releases the card's slot in its lane (FR-9): queued cards
+  // may start. The caller (move/remove/recovery) owns the card's next state.
+  if (result?.run) notifyLaneRunTerminal([result.run.sourceLaneId]);
   // Deliberately no dedicated lane-run websocket event yet. User-originated
   // card transitions emit their authoritative visible update after commit
   // (KANBAN_CARD_MOVED or KANBAN_CARD_REMOVED); lane/board removal also emits

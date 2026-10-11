@@ -118,3 +118,16 @@ describe('kanban command-run updates', () => {
     expect(store.board.lanes[0].cards[0].sessions[0].latestCommandRuns).toEqual([]);
   });
 });
+
+describe('kanban lane updates', () => {
+  beforeEach(() => setActivePinia(createPinia()));
+
+  it('passes concurrencyLimit through updateLane', async () => {
+    const store = useKanbanStore();
+    vi.spyOn(api, 'updateKanbanLane').mockResolvedValueOnce({ id: 'lane', concurrencyLimit: 2 });
+
+    await store.updateLane('project', 'lane', { name: 'Limited', concurrencyLimit: 2 });
+
+    expect(api.updateKanbanLane).toHaveBeenCalledWith('project', 'lane', { name: 'Limited', concurrencyLimit: 2 });
+  });
+});

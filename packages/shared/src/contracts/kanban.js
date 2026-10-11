@@ -27,6 +27,7 @@ export const CreateKanbanLaneRequest = z.object({
   onEnterMaxTotalTokens: z.number().nullable().optional(),
   onEnterRescheduleAtTokenCount: z.number().nullable().optional(),
   completionTargetLaneId: z.string().uuid().nullable().optional(),
+  concurrencyLimit: z.number().int().min(1).nullable().optional(),
 }).refine(
   (data) => {
     // Mutual exclusivity: can't have both template and prompt set
@@ -57,6 +58,7 @@ export const UpdateKanbanLaneRequest = z.object({
   onEnterMaxTotalTokens: z.number().nullable().optional(),
   onEnterRescheduleAtTokenCount: z.number().nullable().optional(),
   completionTargetLaneId: z.string().uuid().nullable().optional(),
+  concurrencyLimit: z.number().int().min(1).nullable().optional(),
 }).refine(
   (data) => {
     // Mutual exclusivity: can't have both template and prompt set
@@ -91,6 +93,7 @@ export const KanbanLaneResponse = z.object({
   onEnterMaxTotalTokens: z.number().nullable(),
   onEnterRescheduleAtTokenCount: z.number().nullable(),
   completionTargetLaneId: z.string().uuid().nullable(),
+  concurrencyLimit: z.number().int().min(1).nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -127,6 +130,8 @@ export const KanbanCardResponse = z.object({
   laneId: z.string().uuid(),
   sortOrder: z.number(),
   sessions: z.array(KanbanCardSessionResponse),
+  entryState: z.enum(['running', 'queued']).optional(),
+  queuePosition: z.number().int().min(1).nullable().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

@@ -111,6 +111,30 @@ Cleanup logs both the number deleted and the remaining eligible backlog; a
 non-zero backlog is expected to drain over subsequent hourly batches.
 ## Kanban recovery and trust boundary
 
+## Lane concurrency limits and queued state
+
+A lane with `concurrencyLimit` set runs at most that many workspace cards at
+once; further entries queue visibly in the lane (no session started) and begin
+top-down as slots free. Queue state is derived: a card in a limited automated
+lane with no active lane run (`active_lane_run_id IS NULL`) is queued, a card
+with an open run is running, and a card pointing at a terminal run has
+finished. There is no stored queue column to repair.
+
+- Overshoot is normal: lowering a limit never pauses or re-queues running
+  work; the running count may temporarily exceed the limit until slots free.
+- A `stale_card_pointer` violation on a queued card (points at a non-open
+  run) clears to NULL on recovery, which reads as queued again — safe.
+- An `orphan_open_run` for a queued lane still holds its slot; superseding
+  the orphan drains the next queued card.
+- Startup recovery (`reconcileKanbanOwnership`, applied mode) re-runs
+  `drainLaneQueue` per limited lane instead of bulk-starting: free slots fill
+  in lane order while the limit is respected, and fresh entry events stay
+  pending for the retry worker after preflight. A `drained_lane_queues`
+  change entry records how many queued cards were started.
+- `GET` board responses carry `concurrencyLimit` per lane and
+  `entryState: 'running' | 'queued'` plus `queuePosition` per card; route
+  responses use status `'queued'` with `queuePosition` when an entry defers.
+
 ## Card routing
 
 Route a workspace card through the unified `PUT .../lane` endpoint with only a

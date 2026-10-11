@@ -15,6 +15,7 @@ import {
 import {
   addSessionToBoard,
   routeWorkspaceCard,
+  drainLaneAndDeliver,
   removeBoard as removeBoardService,
   removeCard as removeCardService,
   removeLane as removeLaneService,
@@ -26,6 +27,19 @@ import { isApiError } from '../errors/ApiError.js';
 import { kanbanRoutingMetrics } from '../services/kanbanRoutingObservability.js';
 
 const router = Router({ mergeParams: true });
+
+/**
+ * Lane create/update validation failures for `concurrencyLimit` carry a
+ * machine-readable code so clients can render a field-level error.
+ */
+function laneValidationError(result) {
+  const issue = result.error.issues[0];
+  const path = Array.isArray(issue.path) ? issue.path.map(String) : [];
+  if (path.includes('concurrencyLimit')) {
+    return { error: issue.message, code: 'KANBAN_LANE_BAD_CONCURRENCY', field: 'concurrencyLimit' };
+  }
+  return { error: issue.message };
+}
 const LANE_NOT_FOUND_ERROR = 'Lane not found';
 const CARD_NOT_FOUND_ERROR = 'Card not found';
 const TARGET_LANE_NOT_FOUND_ERROR = 'Target lane not found';
@@ -291,7 +305,7 @@ router.post('/lanes', (req, res) => {
 
   const result = CreateKanbanLaneRequest.safeParse(req.body);
   if (!result.success) {
-    return res.status(400).json({ error: result.error.issues[0].message });
+    return res.status(400).json(laneValidationError(result));
   }
 
   const board = kanbanBoards.getByProjectId(projectId);
@@ -331,7 +345,7 @@ router.patch('/lanes/:laneId', (req, res) => {
 
   const result = UpdateKanbanLaneRequest.safeParse(req.body);
   if (!result.success) {
-    return res.status(400).json({ error: result.error.issues[0].message });
+    return res.status(400).json(laneValidationError(result));
   }
 
   const lane = kanbanLanes.getById(laneId);
@@ -353,6 +367,14 @@ router.patch('/lanes/:laneId', (req, res) => {
   } catch (error) {
     if (isApiError(error)) return res.status(error.status).json({ error: error.message, code: error.code, field: error.field });
     throw error;
+  }
+
+  // Raising or clearing the limit drains the queue synchronously so the
+  // response (and the broadcast below) reflect the resulting queue state
+  // (FR-4). Lowering the limit starts nothing: drainLaneQueue no-ops while
+  // the running count covers the limit (FR-3 grandfathering).
+  if (result.data.concurrencyLimit !== undefined) {
+    drainLaneAndDeliver(laneId);
   }
 
   // Broadcast updated board
