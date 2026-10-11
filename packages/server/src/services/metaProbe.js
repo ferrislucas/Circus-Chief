@@ -4,8 +4,11 @@ import { createRobustEnv } from './nodeSpawnHelper.js';
 
 /**
  * Meta (`muse exec`) probe toolkit: process mechanics shared by the
- * provider connection test. Lives here (not in providerTestService.js) so
- * that file stays under the project's max-lines budget.
+ * provider connection test, plus the owned-process-group lifecycle
+ * (teardown escalation and forced SIGKILL) for the Muse subscription-usage
+ * probe's detached `muse serve` child. The group mechanics live here (not
+ * in museUsageProbeSupport.js) so that file stays under the project's
+ * max-lines budget.
  */
 
 /**
@@ -67,6 +70,139 @@ export function scheduleProbeKillEscalation(child, deps = {}) {
   );
   if (timer && typeof timer.unref === 'function') timer.unref();
   return timer;
+}
+
+/**
+ * Wait for a probe child to exit, resolving false after `timeoutMs` while
+ * the caller keeps draining output. Works with real ChildProcess handles
+ * and emitter fakes alike.
+ */
+export function waitForProbeChildExit(child, timeoutMs) {
+  return new Promise((resolve) => {
+    let done = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.off?.('exit', onExit);
+      child.off?.('close', onExit);
+    };
+    const onExit = () => {
+      if (done) return;
+      done = true;
+      cleanup();
+      resolve(true);
+    };
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      cleanup();
+      resolve(false);
+    }, timeoutMs);
+    timer.unref?.();
+    child.once?.('exit', onExit);
+    child.once?.('close', onExit);
+  });
+}
+
+/**
+ * True while the probe's owned POSIX process group still has live members.
+ * A missing group (already reaped, Windows, no pid) reads as cleaned up,
+ * never as a reason to signal. Liveness is probed with signal `0`, which
+ * delivers nothing — only the caller's teardown signals the group.
+ */
+export function probeGroupAlive(child, killProcessGroup) {
+  if (!child?.pid || process.platform === 'win32') return false;
+  const signal = killProcessGroup || ((pid, sig) => process.kill(pid, sig));
+  try {
+    signal(-child.pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wait for the owned group to drain, polling liveness on a bounded,
+ * `unref`d cadence so an orphaned group never holds the server event loop
+ * open past `timeoutMs`. Works with real ChildProcess handles and with
+ * group-signal doubles alike.
+ */
+export function waitForProbeGroupExit(child, timeoutMs, killProcessGroup) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const poll = () => {
+      if (!probeGroupAlive(child, killProcessGroup)) {
+        resolve(true);
+        return;
+      }
+      if (Date.now() - start >= timeoutMs) {
+        resolve(false);
+        return;
+      }
+      const timer = setTimeout(poll, 10);
+      timer.unref?.();
+    };
+    poll();
+  });
+}
+
+/**
+ * Tear a probe child down with SIGTERM→SIGKILL escalation on hang (FR-7).
+ * The direct child's exit (or close) is not proof its group exited: the
+ * host can exit before its descendants (MCP servers, launched tools), so an
+ * owned group that outlives the host is reaped with the same bounded
+ * escalation. Stdout keeps draining through the grace period: stdio is
+ * destroyed and the readline closed only after the child and its group exit
+ * or are force-killed, so no output is lost and the single-flight guard
+ * (held by the caller) covers the whole teardown. Only the probe's owned
+ * group (`-child.pid`, which the detached spawn establishes) is ever
+ * signaled. Takes the pieces explicitly so the owning class stays under
+ * budget.
+ */
+async function reapProbeGroupChild(child, killGraceMs, killProcessGroup) {
+  if (!probeGroupAlive(child, killProcessGroup)) return;
+  killMuseTestProcess(child, killProcessGroup);
+  const reaped = await waitForProbeGroupExit(child, killGraceMs, killProcessGroup);
+  if (reaped) return;
+  killMuseTestProcess(child, killProcessGroup, true);
+  await waitForProbeGroupExit(child, killGraceMs, killProcessGroup);
+}
+
+/**
+ * Synchronously SIGKILL the probe's owned process group (Issue 19): the
+ * forced-exit path (a repeated signal or the shutdown force timeout) cannot
+ * wait for the graceful SIGTERM→SIGKILL escalation above — no timer it
+ * schedules could run before the exit that follows. Best-effort and purely
+ * synchronous: no timers, no awaits, never throws. Only the owned group
+ * (`-child.pid`) is ever signaled, falling back to the direct child when no
+ * group exists; a missing child is a safe no-op. The group is signaled even
+ * when its host already exited, since descendants outlive the host.
+ */
+export function forceKillProbeGroup({ child, killProcessGroup }) {
+  if (!child) return;
+  try {
+    killMuseTestProcess(child, killProcessGroup, true);
+  } catch { /* forced exit: cleanup failures can never block the exit */ }
+}
+
+export async function teardownProbeChild({ child, closeReadline, killGraceMs, killProcessGroup }) {
+  try {
+    if (child) {
+      killMuseTestProcess(child, killProcessGroup);
+      const exited = await waitForProbeChildExit(child, killGraceMs);
+      if (!exited) {
+        killMuseTestProcess(child, killProcessGroup, true);
+        await waitForProbeChildExit(child, killGraceMs);
+      }
+      await reapProbeGroupChild(child, killGraceMs, killProcessGroup);
+    }
+  } catch { /* teardown never fails the probe */ }
+  try {
+    child?.stdout?.destroy?.();
+    child?.stderr?.destroy?.();
+  } catch { /* ignore */ }
+  try {
+    closeReadline?.();
+  } catch { /* ignore */ }
 }
 
 /**

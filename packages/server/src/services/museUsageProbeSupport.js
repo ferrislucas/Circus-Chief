@@ -1,8 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { DEFAULT_MUSE_MODEL } from '@circuschief/shared';
 import { mapMuseUsageChanged } from '../agents/adapters/museUsageMapper.js';
-import { killMuseTestProcess } from './metaProbe.js';
+import { teardownProbeChild } from './metaProbe.js';
 import { createRobustEnv } from './nodeSpawnHelper.js';
+
+export { teardownProbeChild } from './metaProbe.js';
 
 /**
  * Pure support for the Muse subscription-usage probe: argv construction,
@@ -344,117 +346,32 @@ export class ProbeRpc {
 }
 
 /**
- * Wait for a probe child to exit, resolving false after `timeoutMs` while
- * the caller keeps draining output. Works with real ChildProcess handles
- * and emitter fakes alike.
+ * Tear down the probe's currently owned child (Issue 19): builds the
+ * readline closer for this probe generation and clears ownership
+ * afterwards. A tiny class (not a bare function over a passed-in probe) so
+ * teardown mutates `this` instead of function parameters, like ProbeRpc
+ * and ProbeTurnWait above. Lives here so museUsageProbe.js stays under
+ * budget — the same split as teardownProbeChild (now in metaProbe.js).
  */
-export function waitForProbeChildExit(child, timeoutMs) {
-  return new Promise((resolve) => {
-    let done = false;
-    const cleanup = () => {
-      clearTimeout(timer);
-      child.off?.('exit', onExit);
-      child.off?.('close', onExit);
-    };
-    const onExit = () => {
-      if (done) return;
-      done = true;
-      cleanup();
-      resolve(true);
-    };
-    const timer = setTimeout(() => {
-      if (done) return;
-      done = true;
-      cleanup();
-      resolve(false);
-    }, timeoutMs);
-    timer.unref?.();
-    child.once?.('exit', onExit);
-    child.once?.('close', onExit);
-  });
-}
-
-/**
- * True while the probe's owned POSIX process group still has live members.
- * A missing group (already reaped, Windows, no pid) reads as cleaned up,
- * never as a reason to signal. Liveness is probed with signal `0`, which
- * delivers nothing — only the caller's teardown signals the group.
- */
-export function probeGroupAlive(child, killProcessGroup) {
-  if (!child?.pid || process.platform === 'win32') return false;
-  const signal = killProcessGroup || ((pid, sig) => process.kill(pid, sig));
-  try {
-    signal(-child.pid, 0);
-    return true;
-  } catch {
-    return false;
+export class OwnedProbeTeardown {
+  constructor(probe, child) {
+    this.probe = probe;
+    this.child = child;
   }
-}
 
-/**
- * Wait for the owned group to drain, polling liveness on a bounded,
- * `unref`d cadence so an orphaned group never holds the server event loop
- * open past `timeoutMs`. Works with real ChildProcess handles and with
- * group-signal doubles alike.
- */
-export function waitForProbeGroupExit(child, timeoutMs, killProcessGroup) {
-  return new Promise((resolve) => {
-    const start = Date.now();
-    const poll = () => {
-      if (!probeGroupAlive(child, killProcessGroup)) {
-        resolve(true);
-        return;
-      }
-      if (Date.now() - start >= timeoutMs) {
-        resolve(false);
-        return;
-      }
-      const timer = setTimeout(poll, 10);
-      timer.unref?.();
-    };
-    poll();
-  });
-}
+  async run() {
+    const { probe, child } = this;
+    await teardownProbeChild({
+      child,
+      closeReadline: probe.process === child && probe.rl ? () => this.#closeReadline() : null,
+      killGraceMs: probe.killGraceMs,
+      killProcessGroup: probe.killProcessGroup,
+    });
+    if (probe.process === child) probe.process = null;
+  }
 
-/**
- * Tear a probe child down with SIGTERM→SIGKILL escalation on hang (FR-7).
- * The direct child's exit (or close) is not proof its group exited: the
- * host can exit before its descendants (MCP servers, launched tools), so an
- * owned group that outlives the host is reaped with the same bounded
- * escalation. Stdout keeps draining through the grace period: stdio is
- * destroyed and the readline closed only after the child and its group exit
- * or are force-killed, so no output is lost and the single-flight guard
- * (held by the caller) covers the whole teardown. Only the probe's owned
- * group (`-child.pid`, which the detached spawn establishes) is ever
- * signaled. Takes the pieces explicitly so the owning class stays under
- * budget.
- */
-async function reapProbeGroupChild(child, killGraceMs, killProcessGroup) {
-  if (!probeGroupAlive(child, killProcessGroup)) return;
-  killMuseTestProcess(child, killProcessGroup);
-  const reaped = await waitForProbeGroupExit(child, killGraceMs, killProcessGroup);
-  if (reaped) return;
-  killMuseTestProcess(child, killProcessGroup, true);
-  await waitForProbeGroupExit(child, killGraceMs, killProcessGroup);
-}
-
-export async function teardownProbeChild({ child, closeReadline, killGraceMs, killProcessGroup }) {
-  try {
-    if (child) {
-      killMuseTestProcess(child, killProcessGroup);
-      const exited = await waitForProbeChildExit(child, killGraceMs);
-      if (!exited) {
-        killMuseTestProcess(child, killProcessGroup, true);
-        await waitForProbeChildExit(child, killGraceMs);
-      }
-      await reapProbeGroupChild(child, killGraceMs, killProcessGroup);
-    }
-  } catch { /* teardown never fails the probe */ }
-  try {
-    child?.stdout?.destroy?.();
-    child?.stderr?.destroy?.();
-  } catch { /* ignore */ }
-  try {
-    closeReadline?.();
-  } catch { /* ignore */ }
+  #closeReadline() {
+    try { this.probe.rl.close(); } catch { /* ignore */ }
+    this.probe.rl = null;
+  }
 }

@@ -785,6 +785,86 @@ describe('MuseUsageProbe', () => {
     });
   });
 
+  describe('shutdown ownership (Issue 19)', () => {
+    it('stop returns an awaitable cleanup that settles only after teardown', async () => {
+      const { probe } = makeProbe({ probeOptions: { killGraceMs: 10 } });
+      const inFlight = probe.trigger();
+      await settle();
+      const cleanup = probe.stop();
+      expect(typeof cleanup?.then).toBe('function');
+      let settled = false;
+      void Promise.resolve(cleanup).then(() => { settled = true; });
+      await tick();
+      // Teardown (SIGTERM escalation) is still running: cleanup is pending.
+      expect(settled).toBe(false);
+      await cleanup;
+      expect(settled).toBe(true);
+      await inFlight;
+    });
+
+    it('repeated stop shares one cleanup without duplicate teardown', async () => {
+      const { probe } = makeProbe({ probeOptions: { killGraceMs: 10 } });
+      const inFlight = probe.trigger();
+      await settle();
+      const first = probe.stop();
+      const second = probe.stop();
+      // Same cleanup promise: the second stop starts no second teardown.
+      // (The in-flight run's own finally still covers its single-flight
+      // teardown as before — that overlap predates this change.)
+      expect(second).toBe(first);
+      await Promise.resolve(first);
+      await Promise.resolve(second);
+      await inFlight;
+    });
+
+    it('force-kills the owned group synchronously without timers', () => {
+      const { signals, killProcessGroup } = createPresentGroupDouble();
+      const { probe, child } = makeProbe({ probeOptions: { killProcessGroup } });
+      const inFlight = probe.trigger();
+      // Synchronous: no await, no timer advance before asserting.
+      probe.forceKillOwnedGroup();
+      const delivered = signals.filter(([, signal]) => signal !== 0).map(([, signal]) => signal);
+      expect(delivered).toEqual(['SIGKILL']);
+      expect(signals.every(([pid]) => pid === -child.pid)).toBe(true);
+      expect(child.kill).not.toHaveBeenCalled();
+      return inFlight.catch(() => {});
+    });
+
+    it('force-kills a live owned group after its host already exited', () => {
+      const { signals, killProcessGroup } = createPresentGroupDouble();
+      const { probe, child } = makeProbe({ probeOptions: { killProcessGroup } });
+      const inFlight = probe.trigger();
+      child.emit('exit', 0);
+      probe.forceKillOwnedGroup();
+      const delivered = signals.filter(([, signal]) => signal !== 0).map(([, signal]) => signal);
+      expect(delivered).toContain('SIGKILL');
+      expect(signals.every(([pid]) => pid === -child.pid)).toBe(true);
+      return inFlight.catch(() => {});
+    });
+
+    it('force-kill without an active child is a safe no-op', () => {
+      const { signals, killProcessGroup } = createPresentGroupDouble();
+      const { probe } = makeProbe({ probeOptions: { killProcessGroup } });
+      expect(() => probe.forceKillOwnedGroup()).not.toThrow();
+      expect(signals).toHaveLength(0);
+    });
+
+    it('force-kill never reaches real process signaling for fake PIDs', () => {
+      const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
+        throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+      });
+      try {
+        const { probe } = makeProbe();
+        const inFlight = probe.trigger();
+        probe.forceKillOwnedGroup();
+        expect(killSpy).not.toHaveBeenCalled();
+        return inFlight.catch(() => {});
+      } finally {
+        killSpy.mockRestore();
+      }
+    });
+  });
+
   it('never logs raw frames, prompts, or tier material', async () => {
     const logged = [];
     const spy = vi.spyOn(console, 'log').mockImplementation((...args) => { logged.push(args.join(' ')); });

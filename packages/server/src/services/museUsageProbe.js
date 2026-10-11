@@ -1,8 +1,10 @@
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
+import { forceKillProbeGroup } from './metaProbe.js';
 import {
   MUSE_PROBE_CLIENT_INFO,
   MUSE_PROBE_PROVIDER,
+  OwnedProbeTeardown,
   ProbeRpc,
   ProbeTurnWait,
   buildMuseProbeArgs,
@@ -13,7 +15,6 @@ import {
   resolveMuseAllowanceProvider,
   resolveMuseProbeModel,
   runProbeTurn,
-  teardownProbeChild,
 } from './museUsageProbeSupport.js';
 
 export {
@@ -94,6 +95,7 @@ export class MuseUsageProbe {
     this.killProcessGroup = killProcessGroup;
     this.state = 'idle'; // idle | probing | disabled
     this.probePromise = null;
+    this.stopPromise = null;
     this.consecutiveFailures = 0;
     this.nextEligibleAtMs = 0;
     this.lastSpawn = [];
@@ -116,21 +118,39 @@ export class MuseUsageProbe {
       logMuseProbeOutcome({ outcome: 'backoff' });
       return Promise.resolve(false);
     }
+    // A new run retires any previous stop cleanup: a later stop() must tear
+    // down this child, not reuse the settled promise below.
+    this.stopPromise = null;
     this.probePromise = this.#runProbe().finally(() => {
       this.probePromise = null;
     });
     return this.probePromise;
   }
 
-  async stop() {
+  /**
+   * Graceful cleanup for shutdown (Issue 19): aborts the in-flight turn and
+   * awaits the owned child's teardown. Returns the cleanup promise so the
+   * shutdown drain can await it; repeated calls share one teardown instead
+   * of racing a second escalation against the first.
+   */
+  stop() {
+    if (this.stopPromise) return this.stopPromise;
     this.generation += 1;
     this.#abortPending('aborted');
     const child = this.process;
-    if (child) {
-      try {
-        await this.#teardownChild(child);
-      } catch { /* teardown never fails the probe */ }
-    }
+    this.stopPromise = new OwnedProbeTeardown(this, child).run().catch(() => {});
+    return this.stopPromise;
+  }
+
+  /**
+   * Synchronous best-effort SIGKILL of the currently owned process group
+   * (Issue 19): the forced-exit path cannot await stop()'s escalation, so
+   * it signals the group directly. Never throws, never touches timers, and
+   * leaves graceful ownership untouched — a later stop() still settles the
+   * same teardown.
+   */
+  forceKillOwnedGroup() {
+    forceKillProbeGroup({ child: this.process, killProcessGroup: this.killProcessGroup });
   }
 
   async #runProbe() {
@@ -149,7 +169,7 @@ export class MuseUsageProbe {
     } finally {
       // Awaited so the single-flight guard covers teardown: no second
       // probe spawns while the prior process is still alive.
-      if (this.process === child) await this.#teardownChild(child);
+      if (this.process === child) await new OwnedProbeTeardown(this, child).run();
       if (this.process === child) this.process = null;
       if (this.state === 'probing') this.state = 'idle';
     }
@@ -367,20 +387,5 @@ export class MuseUsageProbe {
   #abortPending(reason) {
     this.rpc.abortAll(reason);
     this.#resolveTurn({ ended: false });
-  }
-
-  async #teardownChild(child) {
-    await teardownProbeChild({
-      child,
-      closeReadline: this.process === child && this.rl
-        ? () => {
-          try { this.rl.close(); } catch { /* ignore */ }
-          this.rl = null;
-        }
-        : null,
-      killGraceMs: this.killGraceMs,
-      killProcessGroup: this.killProcessGroup,
-    });
-    if (this.process === child) this.process = null;
   }
 }

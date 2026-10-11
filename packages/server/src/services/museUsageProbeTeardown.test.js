@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { forceKillProbeGroup } from './metaProbe.js';
 import { teardownProbeChild } from './museUsageProbeSupport.js';
 
 const POSIX = process.platform !== 'win32';
@@ -118,6 +119,63 @@ describe('teardownProbeChild process-group ownership (Issue 15)', () => {
 
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
     expect(closeReadline).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('forceKillProbeGroup synchronous cleanup (Issue 19)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('SIGKILLs the owned group synchronously without timers or awaits', () => {
+    const child = createGroupFake();
+    const { signals, killProcessGroup } = createGroupDouble();
+    forceKillProbeGroup({ child, killProcessGroup });
+    // Synchronous: asserted with no await and no timer advance.
+    expect(signals.map(([, signal]) => signal)).toEqual(['SIGKILL']);
+    expect(signals.every(([pid]) => pid === -child.pid)).toBe(true);
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it('still SIGKILLs a live owned group after its host already exited', () => {
+    const child = createGroupFake();
+    const { signals, killProcessGroup } = createGroupDouble();
+    child.emit('exit', 0);
+    forceKillProbeGroup({ child, killProcessGroup });
+    expect(signals.map(([, signal]) => signal)).toContain('SIGKILL');
+    expect(signals.every(([pid]) => pid === -child.pid)).toBe(true);
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it('is a safe no-op without a child', () => {
+    const killProcessGroup = vi.fn();
+    expect(() => forceKillProbeGroup({ child: null, killProcessGroup })).not.toThrow();
+    expect(() => forceKillProbeGroup({ child: undefined, killProcessGroup })).not.toThrow();
+    expect(killProcessGroup).not.toHaveBeenCalled();
+  });
+
+  it('never throws and never reaches real signaling for fake PIDs', () => {
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+    });
+    try {
+      const child = createGroupFake();
+      const killProcessGroup = vi.fn(() => {
+        throw Object.assign(new Error('group gone'), { code: 'ESRCH' });
+      });
+      expect(() => forceKillProbeGroup({ child, killProcessGroup })).not.toThrow();
+      expect(killSpy).not.toHaveBeenCalled();
+      // Absent group falls back to the mocked direct kill, never the OS.
+      expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+    } finally {
+      killSpy.mockRestore();
+    }
+  });
+
+  it('never throws when the group signaler itself throws', () => {
+    const child = createGroupFake();
+    const killProcessGroup = vi.fn(() => { throw new Error('boom'); });
+    expect(() => forceKillProbeGroup({ child, killProcessGroup })).not.toThrow();
   });
 });
 

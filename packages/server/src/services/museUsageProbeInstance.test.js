@@ -4,6 +4,8 @@ import { MuseUsageProbe } from './museUsageProbe.js';
 import { getProviderAllowanceObserver } from './providerAllowanceServiceInstance.js';
 import {
   MUSE_USAGE_PROBE_HEARTBEAT_MS,
+  combineForcedCleanup,
+  forceStopMuseUsageProbe,
   heartbeatTick,
   startMuseUsageProbe,
   stopMuseUsageProbe,
@@ -217,6 +219,174 @@ describe('museUsageProbeInstance', () => {
     } finally {
       stopMuseUsageProbe();
     }
+  });
+
+  describe('shutdown ownership (Issue 19)', () => {
+    function controllableProbe() {
+      let resolveCleanup;
+      const cleanup = new Promise((resolve) => { resolveCleanup = resolve; });
+      return {
+        resolveCleanup,
+        cleanup,
+        probe: {
+          trigger: vi.fn().mockResolvedValue(true),
+          stop: vi.fn(() => cleanup),
+          forceKillOwnedGroup: vi.fn(),
+        },
+      };
+    }
+
+    function activateControllable() {
+      const controlled = controllableProbe();
+      _setActiveMuseUsageProbeForTests(controlled.probe, {
+        sessionRepository: museSessionRepo({ agentType: 'muse' }),
+      });
+      return controlled;
+    }
+
+    it('stop returns cleanup that gates shutdown while disabling triggers immediately', async () => {
+      const { probe, resolveCleanup } = activateControllable();
+      try {
+        const cleanup = stopMuseUsageProbe();
+        expect(probe.stop).toHaveBeenCalledTimes(1);
+
+        // Scheduling and triggers are disabled synchronously, before cleanup.
+        triggerMuseUsageProbe('session-1');
+        expect(probe.trigger).not.toHaveBeenCalled();
+        await heartbeatTick();
+        expect(probe.trigger).not.toHaveBeenCalled();
+
+        let settled = false;
+        void Promise.resolve(cleanup).then(() => { settled = true; });
+        await tick();
+        expect(settled).toBe(false);
+        resolveCleanup();
+        await Promise.resolve(cleanup);
+        expect(settled).toBe(true);
+      } finally {
+        // Never strand a draining entry: a failure here must not hang
+        // later tests behind this probe's unsettled cleanup.
+        resolveCleanup();
+        await tick();
+      }
+    });
+
+    it('repeated stop shares one cleanup without duplicate teardown', async () => {
+      const { probe, resolveCleanup } = activateControllable();
+      try {
+        const first = stopMuseUsageProbe();
+        let firstSettled = false;
+        void Promise.resolve(first).then(() => { firstSettled = true; });
+        const second = stopMuseUsageProbe();
+        let secondSettled = false;
+        void Promise.resolve(second).then(() => { secondSettled = true; });
+        await tick();
+        // Neither cleanup may settle before the probe's teardown does, and
+        // the second stop must not lose (or duplicate) the first cleanup.
+        expect(firstSettled).toBe(false);
+        expect(secondSettled).toBe(false);
+        resolveCleanup();
+        await Promise.resolve(first);
+        await Promise.resolve(second);
+        expect(firstSettled).toBe(true);
+        expect(secondSettled).toBe(true);
+        expect(probe.stop).toHaveBeenCalledTimes(1);
+      } finally {
+        resolveCleanup();
+        await tick();
+      }
+    });
+
+    it('force-stop SIGKILLs the active probe group synchronously', async () => {
+      const { probe, resolveCleanup } = activateControllable();
+      const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
+        throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+      });
+      try {
+        forceStopMuseUsageProbe();
+        expect(probe.forceKillOwnedGroup).toHaveBeenCalledTimes(1);
+        expect(killSpy).not.toHaveBeenCalled();
+      } finally {
+        killSpy.mockRestore();
+      }
+      // Drain the probe this test activated so afterEach cannot strand
+      // its cleanup behind the lost resolver and hang later tests.
+      stopMuseUsageProbe();
+      resolveCleanup();
+      await stopMuseUsageProbe();
+    });
+
+    it('force-stop reaches a draining probe after stop cleared the singleton', async () => {
+      const { probe, resolveCleanup } = activateControllable();
+      stopMuseUsageProbe();
+      forceStopMuseUsageProbe();
+      expect(probe.forceKillOwnedGroup).toHaveBeenCalledTimes(1);
+      // A second force is idempotent best-effort, never a throw.
+      expect(() => forceStopMuseUsageProbe()).not.toThrow();
+      resolveCleanup();
+      await stopMuseUsageProbe();
+    });
+
+    it('retains a restart-displaced probe for force cleanup until teardown settles', async () => {
+      const first = controllableProbe();
+      _setActiveMuseUsageProbeForTests(first.probe, {
+        sessionRepository: museSessionRepo({ agentType: 'muse' }),
+      });
+      const second = controllableProbe();
+      startMuseUsageProbe({
+        createProbe: () => second.probe,
+        sessionRepository: museSessionRepo({ agentType: 'muse' }),
+      });
+      try {
+        expect(first.probe.stop).toHaveBeenCalledTimes(1);
+        forceStopMuseUsageProbe();
+        expect(first.probe.forceKillOwnedGroup).toHaveBeenCalledTimes(1);
+        expect(second.probe.forceKillOwnedGroup).toHaveBeenCalledTimes(1);
+        first.resolveCleanup();
+        second.resolveCleanup();
+        await tick();
+      } finally {
+        stopMuseUsageProbe();
+        first.resolveCleanup();
+        second.resolveCleanup();
+        await stopMuseUsageProbe();
+      }
+    });
+
+    it('drops settled probes from force ownership', async () => {
+      const { probe, resolveCleanup } = activateControllable();
+      const cleanup = stopMuseUsageProbe();
+      resolveCleanup();
+      await Promise.resolve(cleanup);
+      forceStopMuseUsageProbe();
+      expect(probe.forceKillOwnedGroup).not.toHaveBeenCalled();
+    });
+
+    it('stop and force-stop are safe no-ops without an active probe', async () => {
+      _setActiveMuseUsageProbeForTests(null);
+      await expect(Promise.resolve(stopMuseUsageProbe())).resolves.toBeUndefined();
+      expect(() => forceStopMuseUsageProbe()).not.toThrow();
+    });
+
+    it('forced cleanup runs every callback even when one throws', () => {
+      const events = [];
+      const combined = combineForcedCleanup(
+        () => { events.push('command'); throw new Error('command boom'); },
+        () => { events.push('muse'); throw new Error('muse boom'); },
+      );
+      expect(() => combined()).not.toThrow();
+      expect(events).toEqual(['command', 'muse']);
+    });
+
+    it('forced cleanup still runs the command path when the muse path throws first', () => {
+      const events = [];
+      const combined = combineForcedCleanup(
+        () => { events.push('muse'); throw new Error('muse boom'); },
+        () => { events.push('command'); },
+      );
+      expect(() => combined()).not.toThrow();
+      expect(events).toEqual(['muse', 'command']);
+    });
   });
 
   it('never throws out of trigger or heartbeat paths', async () => {
