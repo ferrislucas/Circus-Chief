@@ -144,7 +144,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "main root: $MAIN_ROOT"
   echo "port $PORT holder PID: ${OLD_PID:-none}"
   echo "deployed HEAD: $OLD_HEAD"
-  echo "planned command: $START_SCRIPT --force (cwd=$MAIN_ROOT)"
+  echo "planned command: ./scripts/start-server.sh --force (cwd=$MAIN_ROOT)"
   if [ "$PULL" -eq 1 ]; then
     echo "planned pre-steps: git fetch origin --prune && git pull --ff-only origin main && yarn build (abort pre-kill on failure)"
   fi
