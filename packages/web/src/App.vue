@@ -270,6 +270,15 @@ onUnmounted(() => {
   .nav {
     gap: 0.75rem;
   }
+
+  /* The header row has no slack on phones: logo + CPU/memory/disk
+     indicators + connection dot + battery + settings barely fit at 390px,
+     so the appearance of the connection dot overflows the row and the
+     disk indicator gets clipped. Hide the wordmark (logo image remains)
+     to give the indicators room. */
+  .logo-text {
+    display: none;
+  }
 }
 
 .app-main {
