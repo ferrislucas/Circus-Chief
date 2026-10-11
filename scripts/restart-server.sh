@@ -233,9 +233,23 @@ if [ "$DETACHED" -ne 1 ] && [ "$FOREGROUND" -ne 1 ]; then
   if [ "$PULL" -eq 1 ]; then
     PASS="$PASS --pull"
   fi
+  # Daemonize into a NEW session. Plain nohup only ignores SIGHUP, which is
+  # not enough: when the server drop ends the invoker's turn, the agent
+  # runtime tears down the invoker's whole process group/tree, and a child
+  # that merely ignored SIGHUP dies with it mid-build (seen 2026-10-10:
+  # old server killed, build frozen at "transforming...", server never
+  # came back until a manual start). A fresh session id survives that.
   # shellcheck disable=SC2086
-  nohup "$0" $PASS </dev/null >/dev/null 2>&1 &
-  disown 2>/dev/null || true
+  if command -v perl >/dev/null 2>&1; then
+    perl -MPOSIX -e 'fork and exit; POSIX::setsid() or die "setsid: $!"; open STDIN, "<", "/dev/null"; open STDOUT, ">", "/dev/null"; open STDERR, ">&STDOUT"; exec @ARGV or die "exec: $!";' -- "$0" $PASS || {
+      echo "FATAL: failed to detach restart process." >&2
+      exit 1
+    }
+  else
+    set -m
+    nohup "$0" $PASS </dev/null >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+  fi
   echo "restart initiated (detached) - follow $LOG"
   exit 0
 fi
