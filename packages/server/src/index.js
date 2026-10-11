@@ -28,6 +28,7 @@ import { setAutomationPreflightStatus } from './services/automationStatusService
 import { startKanbanOperationRetention, stopKanbanOperationRetention } from './services/kanbanOperationRetention.js';
 import { startStreamWatchdog, stopStreamWatchdog } from './services/streamWatchdog.js';
 import { startCodexAppServerMeter, stopCodexAppServerMeter } from './services/codexAppServerMeter.js';
+import { combineForcedCleanup, forceStopMuseUsageProbe, startMuseUsageProbe, stopMuseUsageProbe } from './services/museUsageProbeInstance.js';
 import { getProviderAllowanceObserver } from './services/providerAllowanceServiceInstance.js';
 import { startZaiQuotaPoller, stopZaiQuotaPoller } from './services/zaiQuotaPoller.js';
 
@@ -174,6 +175,11 @@ startCodexAppServerMeter({ modelProviders, getObserver: getProviderAllowanceObse
 // provider edits without a restart.
 startZaiQuotaPoller();
 
+// Start the Muse subscription-usage probe. It stays fully idle until Muse
+// agent turns complete or the activity-gated heartbeat fires; repeated
+// failures disable it without affecting indicators or sessions.
+startMuseUsageProbe();
+
 // Graceful shutdown. The first signal drains (the entry worker gets its
 // documented five-second drain bound before process exit is forced); a
 // repeated Ctrl-C / SIGTERM during the drain forces an immediate exit so the
@@ -190,6 +196,10 @@ const { install: installShutdownHandlers } = createShutdownHandler({
     systemMonitor.stop();
     stopCodexAppServerMeter();
     stopZaiQuotaPoller();
+    // Await the probe's cleanup: exiting first would orphan a
+    // SIGTERM-ignoring detached group (Issue 19). Bounded by the shutdown
+    // force timeout like every other drain step.
+    await stopMuseUsageProbe();
 
     // Clear dangling timers from summary service
     clearScheduledTimers();
@@ -199,10 +209,15 @@ const { install: installShutdownHandlers } = createShutdownHandler({
   },
   // Kill child processes spawned by commandRunner
   terminateAgentChildren: () => commandRunner.shutdownAll(),
-  // Immediately SIGKILL detached command process groups before a forced
-  // exit (repeated signal or force timeout), where the graceful SIGTERM
-  // path above is still stuck or its escalation timer could never run.
-  forceTerminateAgentChildren: () => commandRunner.shutdownAll({ force: true }),
+  // Immediately SIGKILL detached process groups before a forced exit
+  // (repeated signal or force timeout), where the graceful SIGTERM path
+  // above is still stuck or its escalation timer could never run. The Muse
+  // probe spawns directly (not via commandRunner), so its owned groups are
+  // killed alongside the command children with independent error handling.
+  forceTerminateAgentChildren: combineForcedCleanup(
+    () => commandRunner.shutdownAll({ force: true }),
+    () => forceStopMuseUsageProbe(),
+  ),
   // Close all WebSocket connections (must happen before server.close())
   closeRealtimeConnections: () => webSocketManager.close(),
 });
