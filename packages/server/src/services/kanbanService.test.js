@@ -34,6 +34,13 @@ vi.mock('./sessionProvider.js', () => ({
   }),
 }));
 
+// Passthrough by default so pause-abandon tests keep real worktree behavior;
+// individual tests hold cleanup with mockImplementationOnce.
+vi.mock('./gitService.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, removeWorktree: vi.fn((...args) => actual.removeWorktree(...args)) };
+});
+
 import {
   kanbanBoards,
   kanbanLanes,
@@ -64,7 +71,9 @@ import {
   drainLaneEntryTrigger,
   reclaimExpiredLaneEntryClaims,
   updateLaneWithAutomationToggle,
+  scheduleLaneEntryDeliveries,
 } from './kanbanService.js';
+import * as gitService from './gitService.js';
 import {
   beginWorkflowTurn, claimWorkflowSessionStart, createLaneRunForEntry, attachRootSession,
   finalizeOwnWorkCompletion, getRun, attemptLaneRunTransition, enqueueDisabledEntry,
@@ -1284,6 +1293,105 @@ describe('kanbanService', () => {
         WS_MESSAGE_TYPES.KANBAN_ENTRY_QUEUED,
         expect.objectContaining({ cardId: card.id, laneId: lanes[0].id, queueDepth: 1 }),
       );
+    });
+  });
+
+  // ── Re-enable during pause cleanup (PR Review finding 6) ───────────
+  // A disable that lands mid-flight starts async abandonment (worktree
+  // removal). A toggle that lands while that cleanup is still pending must
+  // settle against the CURRENT lane config once cleanup finishes — resume
+  // when re-enabled, no-op when automation was cleared — never strand the
+  // entry as queued in an enabled lane.
+
+  describe('re-enable during pause cleanup', () => {
+    function claimedEventRow(eventId) {
+      return databaseManager.get().prepare(
+        'SELECT status, attempt_count FROM kanban_lane_entry_events WHERE id=?'
+      ).get(eventId);
+    }
+
+    // Drive a template delivery to the provider boundary, disable there so
+    // pause-abandon starts, and hold worktree removal so cleanup stays
+    // pending. Returns the in-flight drain promise plus a release function.
+    async function startDrainWithHeldCleanup() {
+      const template = sessionTemplates.create({
+        projectId, name: 'Entry', prompt: 'do something', gitMode: 'worktree', gitBranch: 'lane-feature',
+      });
+      kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+      const root = createSession('Root');
+      const card = kanbanCards.create(lanes[0].id, root.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+      const fakeWt = join(tmpdir(), `kanban-held-wt-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const { setupGitForSession } = await import('./gitSessionSetup.js');
+      setupGitForSession.mockImplementationOnce(async () => ({
+        workingDirectory: fakeWt, gitWorktree: fakeWt,
+      }));
+      let releaseRemoval;
+      const removalPending = new Promise((resolve) => { releaseRemoval = resolve; });
+      gitService.removeWorktree.mockImplementationOnce(() => removalPending);
+      runSession.mockImplementationOnce(async (childId, prompt, workingDirectory, opts) => {
+        kanbanLanes.update(lanes[0].id, { automationEnabled: false });
+        await opts.beforeProviderExecute();
+        return { started: true };
+      });
+      const draining = drainLaneEntryTrigger(run.laneEntryEventId);
+      // Abandonment is awaiting the held worktree removal.
+      await vi.waitFor(() => {
+        expect(gitService.removeWorktree).toHaveBeenCalled();
+      });
+      return { draining, releaseRemoval, root, card, run };
+    }
+
+    it('delivers automatically when the lane is re-enabled during pause cleanup', async () => {
+      const { draining, releaseRemoval, run } = await startDrainWithHeldCleanup();
+
+      // Re-enable through the REAL toggle operation while cleanup is pending.
+      // The entry is still claimed, so this releases nothing yet — same as the
+      // PATCH route, which only schedules what the toggle released.
+      const toggle = updateLaneWithAutomationToggle(lanes[0].id, { automationEnabled: true });
+      expect(toggle.eventIds).toEqual([]);
+      scheduleLaneEntryDeliveries(toggle.eventIds);
+
+      releaseRemoval();
+      expect(await draining).toBe(false);
+
+      // Automatic catch-up with no further PATCH: the woken delivery completes
+      // and spawns exactly one replacement child (the abandoned one is gone).
+      // The entry is never parked as queued in the enabled lane.
+      await vi.waitFor(() => {
+        expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+          .get(run.laneEntryEventId).status).toBe('completed');
+      });
+      expect(broadcastToProject).not.toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_ENTRY_QUEUED,
+        expect.objectContaining({ laneId: lanes[0].id }),
+      );
+      // No attempt penalty for the pause: exactly one delivery attempt counted.
+      expect(claimedEventRow(run.laneEntryEventId)).toEqual({ status: 'completed', attempt_count: 1 });
+      expect(runSession).toHaveBeenCalledTimes(2);
+      const names = sessions.getByProjectId(projectId).map((s) => s.name);
+      expect(names.filter((name) => name !== 'Root' && name !== 'Test Session')).toHaveLength(1);
+    });
+
+    it('consumes the entry as a no-op when automation is cleared during pause cleanup', async () => {
+      const { draining, releaseRemoval, card, run } = await startDrainWithHeldCleanup();
+
+      updateLaneWithAutomationToggle(lanes[0].id, {
+        onEnterPrompt: null, onEnterTemplateId: null, completionTargetLaneId: null,
+      });
+
+      releaseRemoval();
+      expect(await draining).toBe(false);
+      const db = databaseManager.get();
+      expect(db.prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+        .get(run.laneEntryEventId).status).toBe('completed');
+      expect(db.prepare('SELECT lane_entry_event_id FROM kanban_cards WHERE id=?')
+        .get(card.id).lane_entry_event_id).toBeNull();
+      // No delivery was ever attempted after the initial disabled fence trip.
+      expect(runSession).toHaveBeenCalledTimes(1);
     });
   });
 

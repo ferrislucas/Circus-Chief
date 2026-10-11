@@ -845,6 +845,50 @@ function parkClaimedEntryForDisabledLane(db, { eventId, token }) {
 }
 
 /**
+ * Release a claimed entry back to retryable pending: the lane is enabled, so
+ * the pause costs no attempt and a woken delivery resumes automatically.
+ * Guarded on the claim token; the caller owns waking delivery.
+ * @returns {boolean} true when this token holder released the entry
+ */
+function releaseClaimedEntryToPending(db, { eventId, token }) {
+  const time = Date.now();
+  return db.prepare(`UPDATE kanban_lane_entry_events SET status='pending',
+    attempt_count=CASE WHEN attempt_count > 0 THEN attempt_count-1 ELSE 0 END,
+    delivery_phase=CASE WHEN dispatch_acknowledged_at IS NULL THEN 'pending' ELSE delivery_phase END,
+    claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=NULL, updated_at=?
+    WHERE id=? AND claim_token=?`).run(time, eventId, token).changes === 1;
+}
+
+/**
+ * Settle a claimed entry against the CURRENT lane config after async pause
+ * cleanup (FR-4, AC-5): the lane may have been re-enabled — or its automation
+ * cleared — while abandonment was in flight, so a stale disabled error must
+ * not park unconditionally. Only the token holder settles; every branch keeps
+ * the no-attempt-penalty behavior.
+ * @returns {'queued'|'pending'|'consumed'|'unclaimed'} the settlement outcome
+ */
+function settleClaimedEntryAgainstLaneConfig(db, { eventId, token }) {
+  const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+  if (!event || event.claim_token !== token) return 'unclaimed';
+  const lane = kanbanLanes.getById(event.lane_id);
+  if (lane && isStructured(lane) && !isAutomationActive(lane)) {
+    parkClaimedEntryForDisabledLane(db, { eventId, token });
+    const after = db.prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+    return after?.status === 'queued' ? 'queued' : 'unclaimed';
+  }
+  if (lane && isAutomationActive(lane)) {
+    return releaseClaimedEntryToPending(db, { eventId, token }) ? 'pending' : 'unclaimed';
+  }
+  // Automation was cleared mid-cleanup: consume the intent as a no-op rather
+  // than leaving a queued row the no-op consumption transaction already ran past.
+  const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(eventId);
+  completeNoopDelivery(db, { eventId, token, event, run });
+  broadcastQueueSettledState(db, { projectId: event.project_id, laneId: event.lane_id });
+  const after = db.prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+  return after?.status === 'completed' ? 'consumed' : 'unclaimed';
+}
+
+/**
  * Settle a claimed entry before dispatch: reject entries whose card or source
  * transition is gone, and park entries whose structured lane was disabled
  * after they were committed. Entries for lanes whose automation was cleared
@@ -868,9 +912,12 @@ function settleClaimedEntryBeforeDispatch(db, { eventId, token, claim, event }) 
   }
   // A structured lane disabled after its entries were committed parks them
   // back to queued: no spawn, no attempt-count increment, no failure audit.
+  // Settlement re-reads the lane so a toggle that landed during async setup
+  // converges instead of stranding the entry.
   const entryLane = event && kanbanLanes.getById(event.lane_id);
   if (entryLane && isStructured(entryLane) && !isAutomationActive(entryLane)) {
-    parkClaimedEntryForDisabledLane(db, { eventId, token });
+    const outcome = settleClaimedEntryAgainstLaneConfig(db, { eventId, token });
+    if (outcome === 'pending') scheduleLaneEntryDelivery(eventId);
     claim.stop();
     return true;
   }
@@ -1018,10 +1065,14 @@ async function drainLaneEntryTriggerImpl(eventId) {
         claim.assertCurrent();
         return completeVerifiedLaneEntry(event.id, rootSessionId, token);
       } catch (error) {
-        // A mid-flight disable is a park, not a failure: the entry returns to
-        // queued without consuming an attempt, and the caller reports no delivery.
+        // A mid-flight disable is a park, not a failure: the entry settles
+        // against the CURRENT lane config — a re-enable (or automation
+        // removal) may have landed during async abandonment — without
+        // consuming an attempt, and the caller reports no delivery. A
+        // re-enabled entry is woken so catch-up needs no further PATCH.
         if (isLaneAutomationDisabledError(error)) {
-          parkClaimedEntryForDisabledLane(db, { eventId, token });
+          const outcome = settleClaimedEntryAgainstLaneConfig(db, { eventId, token });
+          if (outcome === 'pending') scheduleLaneEntryDelivery(eventId);
           return false;
         }
         auditDeliveryFailure(db, resolved.run?.id || null, fresh, error);
