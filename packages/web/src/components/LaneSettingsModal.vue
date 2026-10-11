@@ -456,6 +456,10 @@ const automationType = ref('none');
 // retry preset fires only on entry into automation (none -> prompt/template)
 // regardless of v-model/@change listener ordering.
 const previousAutomationType = ref('none');
+// True once the lane has entered automation during this editing session, so
+// the retry preset fires at most once and never overwrites an explicit user
+// choice on a later none -> prompt/template return.
+const hasEnteredAutomation = ref(false);
 const showAgentSettings = ref(false);
 const showSlashCommandWizard = ref(false);
 const promptTextareaRef = ref(null);
@@ -582,6 +586,9 @@ function resetForm() {
 
     automationType.value = detectAutomationType(props.lane);
     previousAutomationType.value = automationType.value;
+    // An existing automated lane already reflects saved values: the preset
+    // must not fire for it during this session.
+    hasEnteredAutomation.value = automationType.value !== 'none';
     showAgentSettings.value = buildAgentSettings(form);
 
     // Initialize position tracking
@@ -593,6 +600,7 @@ function resetForm() {
     Object.assign(form, defaults);
     automationType.value = 'none';
     previousAutomationType.value = 'none';
+    hasEnteredAutomation.value = false;
     showAgentSettings.value = false;
     initialLaneIndex.value = -1;
     currentLaneIndex.value = -1;
@@ -639,10 +647,25 @@ function presetRetryDefaultsOnAutomationEntry() {
  * between 'prompt' and 'template' preserve the user's current choices.
  * @param {string} newType - The automation type the user just selected
  */
+/**
+ * Whether entering automation should preset retry-on defaults. Fires at most
+ * once per editing session, on first entry, and never after the lane has been
+ * in automation (so an explicit user choice is never overwritten).
+ * @param {string} newType - The automation type the user just selected
+ * @returns {boolean} Whether to preset retry defaults
+ */
+function shouldPresetRetryDefaults(newType) {
+  return previousAutomationType.value === 'none'
+    && (newType === 'prompt' || newType === 'template')
+    && !hasEnteredAutomation.value;
+}
+
 function handleAutomationTypeChange(newType) {
-  const enteredAutomation = previousAutomationType.value === 'none'
-    && (newType === 'prompt' || newType === 'template');
+  const enteredAutomation = shouldPresetRetryDefaults(newType);
   previousAutomationType.value = newType;
+  if (newType === 'prompt' || newType === 'template') {
+    hasEnteredAutomation.value = true;
+  }
   if (newType === 'none' && form.completionTargetLaneId) {
     form.completionTargetLaneId = null;
     uiStore.info('Completion target cleared because on-entry automation was removed.');
