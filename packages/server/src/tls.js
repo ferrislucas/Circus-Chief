@@ -1,5 +1,5 @@
 import { execFileSync } from 'child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'fs';
 import { get as httpsGet } from 'https';
 import { createSecureContext } from 'tls';
 import { isIP } from 'net';
@@ -308,12 +308,51 @@ async function generateStagedPair(absDir, deps = {}) {
   return { stagingDir, stagedCertPath, stagedKeyPath };
 }
 
+/**
+ * Enforce the publication recovery invariant (finding #7): publication may
+ * only begin when no complete pair exists. The caller holds the directory
+ * lock and `readCompletePair` already returned null, so any surviving final
+ * file is an incomplete remnant of an interrupted earlier publication — a
+ * crash before publication leaves an incomplete or empty final state, and a
+ * crash between the renames below leaves only the new certificate. Clearing
+ * the remnant first means the next start can only ever observe an incomplete
+ * state (regenerated) or the new complete pair, never a new certificate
+ * beside an unrelated old key. A complete pair here fails closed instead of
+ * being overwritten, preserving deliberate rejection of externally supplied
+ * invalid pairs. Clearing is checked: a remnant that cannot be removed aborts
+ * publication with a path-specific TlsError rather than proceeding.
+ */
+export function clearIncompleteRemnants(certPath, keyPath) {
+  if (existsSync(certPath) && existsSync(keyPath)) {
+    throw new TlsError(
+      `Refusing to publish over a complete TLS pair (cert: ${certPath}, key: ${keyPath}).`
+    );
+  }
+  for (const remnantPath of [certPath, keyPath]) {
+    if (!existsSync(remnantPath)) continue;
+    try {
+      rmSync(remnantPath, { recursive: true, force: true });
+    } catch (err) {
+      throw new TlsError(
+        `Failed to clear interrupted TLS publication remnant (${remnantPath}): ${err?.message || err}`
+      );
+    }
+    if (existsSync(remnantPath)) {
+      throw new TlsError(`Failed to clear interrupted TLS publication remnant (${remnantPath}).`);
+    }
+  }
+}
+
 async function publishStagedPair(staged, certPath, keyPath, deps = {}) {
   // Publish while holding the directory lock. Two independent renames are not
-  // an atomic pair transaction, so the protocol is recoverable instead: a
-  // crash between the renames leaves an incomplete pair (one file missing),
-  // which the next start regenerates. A complete pre-existing pair is never
-  // overwritten here, so mixed material cannot become the committed state.
+  // an atomic pair transaction, so the protocol is recoverable instead: both
+  // final paths are verified absent above (any incomplete remnant cleared),
+  // the new certificate is renamed first, then the new key. A crash before
+  // publication leaves an incomplete or empty final state; a crash between
+  // the renames leaves only the new certificate, which the next start
+  // regenerates. A complete pre-existing pair is never overwritten here, so
+  // mixed material cannot become the committed state.
+  clearIncompleteRemnants(certPath, keyPath);
   const published = [];
   try {
     renameSync(staged.stagedCertPath, certPath);

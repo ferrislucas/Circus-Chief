@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import {
   TlsError,
   buildSelfSignedSans,
+  clearIncompleteRemnants,
   detectPublicIp,
   getLanIPv4s,
   getDefaultTlsDir,
@@ -179,11 +180,16 @@ describe('resolveTlsConfig', () => {
     const a = makeRealPair();
     const b = makeRealPair();
     const dir = mkdtempSync(join(tmpdir(), 'tls-badreuse-'));
-    writeFileSync(join(dir, 'cert.pem'), readFileSync(a.certPath, 'utf-8'));
-    writeFileSync(join(dir, 'key.pem'), readFileSync(b.keyPath, 'utf-8'));
+    const badCert = readFileSync(a.certPath, 'utf-8');
+    const badKey = readFileSync(b.keyPath, 'utf-8');
+    writeFileSync(join(dir, 'cert.pem'), badCert);
+    writeFileSync(join(dir, 'key.pem'), badKey);
     const run = vi.fn();
     await expect(resolveTlsConfig({ selfSigned: true, tlsDir: dir }, { run })).rejects.toThrow(TlsError);
     expect(run).not.toHaveBeenCalled();
+    // A complete invalid pair is rejected without overwriting either file.
+    expect(readFileSync(join(dir, 'cert.pem'), 'utf-8')).toBe(badCert);
+    expect(readFileSync(join(dir, 'key.pem'), 'utf-8')).toBe(badKey);
   });
 
   it.skipIf(!hasOpenssl)('generates a self-signed pair via openssl and sets key mode 0600', async () => {
@@ -929,4 +935,220 @@ describe.skipIf(!hasOpenssl)('self-signed relative tlsDir (finding #5)', () => {
       restoreEnv();
     }
   });
+});
+
+/**
+ * Finding #7 (P2): a process crash between the two final publication renames
+ * must leave recoverable state, even when recovery started from a key-only
+ * directory. The crasher child publishes its new certificate, signals the
+ * parent from `afterFirstPublish`, then hangs so the parent can SIGKILL it
+ * before the new key is published. A fresh child must then recover to a
+ * valid matching pair that later starts reuse byte-for-byte.
+ */
+describe.skipIf(!hasOpenssl)('interrupted publication crash recovery (finding #7)', () => {
+  const tlsModuleUrl = pathToFileURL(fileURLToPath(new URL('./tls.js', import.meta.url))).href;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function waitForFile(path, timeoutMs = 60000) {
+    for (let i = 0; i * 50 < timeoutMs; i++) {
+      if (existsSync(path)) return true;
+      await sleep(50);
+    }
+    return existsSync(path);
+  }
+
+  function waitForExit(child, timeoutMs = 90000) {
+    return new Promise((resolveExit, rejectExit) => {
+      const timer = setTimeout(() => rejectExit(new Error('child exit timeout')), timeoutMs);
+      timer.unref?.();
+      child.on('exit', (code, signal) => {
+        clearTimeout(timer);
+        resolveExit({ code, signal });
+      });
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        rejectExit(err);
+      });
+    });
+  }
+
+  const crashChildSource = `
+    import { writeFileSync } from 'fs';
+    import { resolveTlsConfig } from ${JSON.stringify(tlsModuleUrl)};
+    const [tlsDirArg, signalFileArg] = process.argv.slice(2);
+    await resolveTlsConfig(
+      { selfSigned: true, tlsDir: tlsDirArg },
+      {
+        detectPublicIp: async () => null,
+        interfaces: {},
+        host: 'crashhost',
+        afterFirstPublish: async () => {
+          writeFileSync(signalFileArg, 'published');
+          // Hold the event loop open so the child stays inside publication
+          // until the parent SIGKILLs it (a bare never-resolving promise
+          // would let Node drain the loop and exit on its own).
+          await new Promise(() => setInterval(() => {}, 1000));
+        },
+      }
+    );
+  `;
+
+  const recoverChildSource = `
+    import { writeFileSync } from 'fs';
+    import { resolveTlsConfig } from ${JSON.stringify(tlsModuleUrl)};
+    const [tlsDirArg, outFileArg] = process.argv.slice(2);
+    try {
+      const cfg = await resolveTlsConfig(
+        { selfSigned: true, tlsDir: tlsDirArg },
+        { detectPublicIp: async () => null, interfaces: {}, host: 'crashhost' }
+      );
+      writeFileSync(outFileArg, JSON.stringify({ ok: true, cert: cfg.cert, key: cfg.key, reused: cfg.reused }));
+    } catch (err) {
+      writeFileSync(outFileArg, JSON.stringify({ ok: false, error: String(err?.message || err) }));
+      process.exit(1);
+    }
+  `;
+
+  async function killBetweenRenames(tlsDir, root) {
+    const signalFile = join(root, 'published-signal');
+    const childPath = join(root, 'crash-child.mjs');
+    writeFileSync(childPath, crashChildSource);
+    const child = spawn(process.execPath, [childPath, tlsDir, signalFile], { stdio: 'ignore' });
+    try {
+      expect(await waitForFile(signalFile)).toBe(true);
+      // The child must still be inside publication (hung in
+      // afterFirstPublish): it has published the new certificate but not
+      // the new key.
+      expect(child.exitCode).toBeNull();
+      expect(child.signalCode).toBeNull();
+      expect(existsSync(join(tlsDir, 'cert.pem'))).toBe(true);
+      child.kill('SIGKILL');
+      const { code, signal } = await waitForExit(child);
+      expect(signal).toBe('SIGKILL');
+      expect(code).toBeNull();
+    } finally {
+      child.kill('SIGKILL');
+    }
+  }
+
+  async function recoverInChild(tlsDir, root, name) {
+    const childPath = join(root, `recover-child-${name}.mjs`);
+    const outFile = join(root, `recovered-${name}.json`);
+    writeFileSync(childPath, recoverChildSource);
+    const child = spawn(process.execPath, [childPath, tlsDir, outFile], { stdio: 'ignore' });
+    let exit;
+    try {
+      exit = await waitForExit(child);
+    } finally {
+      child.kill('SIGKILL');
+    }
+    // The recovery child writes its result before exiting, so surface the
+    // recovery error itself (not just the exit code) as red/green evidence.
+    const result = existsSync(outFile) ? JSON.parse(readFileSync(outFile, 'utf-8')) : null;
+    expect(result?.ok, `recovery failed: ${result?.error ?? '<no recovery output>'}`).toBe(true);
+    expect(exit.signal).toBeNull();
+    expect(exit.code).toBe(0);
+    return result;
+  }
+
+  it('clears an incomplete remnant so publication starts from an empty state', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tls-remnant-clear-'));
+    const certPath = join(dir, 'cert.pem');
+    const keyPath = join(dir, 'key.pem');
+    try {
+      writeFileSync(keyPath, 'stale-key-bytes');
+      clearIncompleteRemnants(certPath, keyPath);
+      expect(existsSync(certPath)).toBe(false);
+      expect(existsSync(keyPath)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses to clear when a complete pair is present', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tls-remnant-complete-'));
+    const certPath = join(dir, 'cert.pem');
+    const keyPath = join(dir, 'key.pem');
+    try {
+      writeFileSync(certPath, 'cert-bytes');
+      writeFileSync(keyPath, 'key-bytes');
+      expect(() => clearIncompleteRemnants(certPath, keyPath)).toThrow(/complete TLS pair/);
+      // A complete pair — valid or not — is never removed by publication prep.
+      expect(readFileSync(certPath, 'utf-8')).toBe('cert-bytes');
+      expect(readFileSync(keyPath, 'utf-8')).toBe('key-bytes');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.getuid?.() === 0)(
+    'reports the path when an incomplete remnant cannot be cleared',
+    async () => {
+      const { chmodSync } = await import('fs');
+      const dir = mkdtempSync(join(tmpdir(), 'tls-remnant-fail-'));
+      const certPath = join(dir, 'cert.pem');
+      const keyPath = join(dir, 'key.pem');
+      writeFileSync(keyPath, 'stale-key-bytes');
+      chmodSync(dir, 0o555);
+      try {
+        expect(() => clearIncompleteRemnants(certPath, keyPath)).toThrow(/remnant.*key\.pem/);
+      } finally {
+        chmodSync(dir, 0o755);
+      }
+      // Clearing aborted: no new material may be published beside the remnant.
+      expect(existsSync(certPath)).toBe(false);
+      expect(readFileSync(keyPath, 'utf-8')).toBe('stale-key-bytes');
+      rmSync(dir, { recursive: true, force: true });
+    }
+  );
+
+  it.each(['key-only', 'cert-only', 'empty'])(
+    'SIGKILL between publication renames recovers from %s state',
+    async (seed) => {
+      const root = mkdtempSync(join(tmpdir(), 'tls-crash-'));
+      const tlsDir = join(root, 'tls');
+      mkdirSync(tlsDir, { recursive: true });
+      // Seed with an older valid identity so a key-only/cert-only remnant
+      // carries material unrelated to the next generation.
+      const older = makeRealPair();
+      if (seed === 'key-only') {
+        writeFileSync(join(tlsDir, 'key.pem'), readFileSync(older.keyPath, 'utf-8'));
+      } else if (seed === 'cert-only') {
+        writeFileSync(join(tlsDir, 'cert.pem'), readFileSync(older.certPath, 'utf-8'));
+      }
+      try {
+        await killBetweenRenames(tlsDir, root);
+        const recovered = await recoverInChild(tlsDir, root, seed);
+
+        // The recovered pair is cryptographically valid and matches disk.
+        const { createSecureContext } = await import('tls');
+        expect(() =>
+          createSecureContext({ cert: recovered.cert, key: recovered.key })
+        ).not.toThrow();
+        expect(readFileSync(join(tlsDir, 'cert.pem'), 'utf-8')).toBe(recovered.cert);
+        expect(readFileSync(join(tlsDir, 'key.pem'), 'utf-8')).toBe(recovered.key);
+        expect(statSync(join(tlsDir, 'key.pem')).mode & 0o777).toBe(0o600);
+
+        // A later start reuses exactly the recovered bytes without
+        // regenerating (openssl must not run).
+        const reused = await resolveTlsConfig(
+          { selfSigned: true, tlsDir },
+          {
+            run: () => {
+              throw new Error('openssl must not run when a healthy pair exists');
+            },
+            detectPublicIp: async () => {
+              throw new Error('discovery must not run when a healthy pair exists');
+            },
+          }
+        );
+        expect(reused).toMatchObject({ enabled: true, reused: true });
+        expect(reused.cert).toBe(recovered.cert);
+        expect(reused.key).toBe(recovered.key);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+    120000
+  );
 });
