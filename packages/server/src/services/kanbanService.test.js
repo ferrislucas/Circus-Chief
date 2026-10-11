@@ -1393,6 +1393,109 @@ describe('kanbanService', () => {
       // No delivery was ever attempted after the initial disabled fence trip.
       expect(runSession).toHaveBeenCalledTimes(1);
     });
+
+    it('re-enable during pause cleanup preserves FIFO dispatch order (A before B)', async () => {
+      const template = sessionTemplates.create({
+        projectId, name: 'Entry', prompt: 'do something', gitMode: 'worktree', gitBranch: 'lane-feature',
+      });
+      kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+      const rootA = createSession('A');
+      const rootB = createSession('B');
+      const cardA = kanbanCards.create(lanes[0].id, rootA.id);
+      const cardB = kanbanCards.create(lanes[0].id, rootB.id);
+      const db = databaseManager.get();
+      const runA = createLaneRunForEntry({
+        projectId, workspaceId: rootA.id, cardId: cardA.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+      const runB = createLaneRunForEntry({
+        projectId, workspaceId: rootB.id, cardId: cardB.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+
+      const fakeWt = join(tmpdir(), `kanban-fifo-wt-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const { setupGitForSession } = await import('./gitSessionSetup.js');
+      setupGitForSession.mockImplementationOnce(async () => ({
+        workingDirectory: fakeWt, gitWorktree: fakeWt,
+      }));
+      let releaseRemoval;
+      const removalPending = new Promise((resolve) => { releaseRemoval = resolve; });
+      gitService.removeWorktree.mockImplementationOnce(() => removalPending);
+
+      const rootNameForChild = (childId) => {
+        const child = db.prepare('SELECT parent_session_id FROM sessions WHERE id=?').get(childId);
+        return sessions.getById(child.parent_session_id).name;
+      };
+      const invocationOrder = [];
+      // First provider-boundary call is always A's fence trip: B cannot reach
+      // runSession while it waits for A's dispatch slot.
+      runSession.mockImplementationOnce(async (childId, prompt, workingDirectory, opts) => {
+        expect(rootNameForChild(childId)).toBe('A');
+        kanbanLanes.update(lanes[0].id, { automationEnabled: false });
+        await opts.beforeProviderExecute();
+        return { started: true };
+      });
+      const recordDelivery = async (childId, prompt, workingDirectory, opts) => {
+        await opts?.beforeProviderExecute?.();
+        invocationOrder.push(rootNameForChild(childId));
+        opts?.onProviderDispatchInitiated?.();
+        return { started: true };
+      };
+      runSession.mockImplementationOnce(recordDelivery);
+      runSession.mockImplementationOnce(recordDelivery);
+
+      // A arrives first and takes the dispatch slot; B arrives second and waits
+      // claimed behind it. Both sync prefixes run before either async setup can
+      // reach the fence, so the disable always lands mid-flight on A with B
+      // already claimed and waiting.
+      // Per-call mocks (no persistent implementation): A reaches the fence
+      // first while B still waits for the slot, so the first call is always
+      // A's fence trip and the next two are the ordered deliveries.
+      const drainingA = drainLaneEntryTrigger(runA.laneEntryEventId);
+      const drainingB = drainLaneEntryTrigger(runB.laneEntryEventId);
+      // A's pause-abandon is awaiting the held worktree removal.
+      await vi.waitFor(() => {
+        expect(gitService.removeWorktree).toHaveBeenCalled();
+      });
+      await vi.waitFor(() => {
+        expect(db.prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+          .get(runB.laneEntryEventId).status).toBe('claimed');
+      });
+
+      // Re-enable through the REAL toggle operation while A's cleanup is still
+      // pending. Both entries are claimed, so this releases nothing yet — same
+      // as the PATCH route, which only schedules what the toggle released.
+      const toggle = updateLaneWithAutomationToggle(lanes[0].id, { automationEnabled: true });
+      expect(toggle.eventIds).toEqual([]);
+      scheduleLaneEntryDeliveries(toggle.eventIds);
+
+      releaseRemoval();
+      await Promise.all([drainingA, drainingB]);
+
+      // A keeps its arrival precedence with no further PATCH after the
+      // mid-cleanup re-enable: provider invocation order is A then B.
+      await vi.waitFor(() => {
+        expect(db.prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+          .get(runA.laneEntryEventId).status).toBe('completed');
+        expect(db.prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+          .get(runB.laneEntryEventId).status).toBe('completed');
+      });
+      expect(invocationOrder).toEqual(['A', 'B']);
+      // Exactly one live child per entry: each abandoned undispatched child is gone.
+      const childrenOf = (rootId) => sessions.getByProjectId(projectId)
+        .filter((session) => session.parentSessionId === rootId);
+      expect(childrenOf(rootA.id)).toHaveLength(1);
+      expect(childrenOf(rootB.id)).toHaveLength(1);
+      // No attempt penalty for the pause.
+      expect(db.prepare('SELECT attempt_count FROM kanban_lane_entry_events WHERE id=?')
+        .get(runA.laneEntryEventId).attempt_count).toBe(1);
+      expect(db.prepare('SELECT attempt_count FROM kanban_lane_entry_events WHERE id=?')
+        .get(runB.laneEntryEventId).attempt_count).toBe(1);
+      // The pause never parks an entry as queued in the enabled lane.
+      expect(broadcastToProject).not.toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_ENTRY_QUEUED,
+        expect.objectContaining({ laneId: lanes[0].id }),
+      );
+    });
   });
 
   // ── Clearing automation with queued entries (FR-1 no-op) ──────────────

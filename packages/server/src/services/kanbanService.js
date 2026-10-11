@@ -928,31 +928,48 @@ function settleClaimedEntryBeforeDispatch(db, { eventId, token, claim, event }) 
  * Bounded per-lane dispatcher (FR-4, AC-3): at most one entry per lane is
  * inside claim → async setup → provider-dispatch-initiation at a time, so
  * arrival order is dispatch order and a large queue cannot launch unbounded
- * concurrent setup work in the HTTP drain path. Waiters are served FIFO; the
- * slot always releases (failures never block later items); the pause state is
- * re-checked after acquiring, between entries. The slot releases as soon as
- * the provider call starts — runs then proceed concurrently.
+ * concurrent setup work in the HTTP drain path. Waiters are granted the slot
+ * in durable arrival order (outbox rowid), not in waiter-queueing order, so a
+ * pause/resume attempt re-takes its arrival position instead of joining behind
+ * entries that arrived later; the slot always releases (failures never block
+ * later items); the pause state is re-checked after acquiring, between
+ * entries. The slot releases as soon as the provider call starts — runs then
+ * proceed concurrently.
  */
-const laneDispatchTails = new Map();
+const laneDispatchStates = new Map();
 
-async function withLaneDispatchSlot(laneId, work) {
-  const previous = laneDispatchTails.get(laneId) || Promise.resolve();
-  let releaseSlot;
-  const slot = new Promise((resolve) => { releaseSlot = resolve; });
-  const tail = previous.then(() => slot, () => slot);
-  laneDispatchTails.set(laneId, tail);
+async function withLaneDispatchSlot(laneId, work, orderKey = 0) {
+  const state = laneDispatchStates.get(laneId) || { busy: false, waiters: [] };
+  laneDispatchStates.set(laneId, state);
+  if (state.busy) {
+    const key = orderKey;
+    await new Promise((resolve) => { state.waiters.push({ orderKey: key, grant: resolve }); });
+  } else {
+    state.busy = true;
+  }
   let slotHeld = true;
   const release = () => {
     if (!slotHeld) return;
     slotHeld = false;
-    releaseSlot();
+    // Grant the slot to the earliest-arrived waiter, or park the lane idle.
+    // A pause/resume attempt carries its original arrival key, so it re-takes
+    // its position instead of joining behind later arrivals.
+    if (!state.waiters.length) {
+      state.busy = false;
+      if (laneDispatchStates.get(laneId) === state) laneDispatchStates.delete(laneId);
+      return;
+    }
+    let next = 0;
+    for (let i = 1; i < state.waiters.length; i += 1) {
+      if (state.waiters[i].orderKey < state.waiters[next].orderKey) next = i;
+    }
+    const [waiter] = state.waiters.splice(next, 1);
+    waiter.grant();
   };
-  await previous.catch(() => {});
   try {
     return await work(release);
   } finally {
     release();
-    if (laneDispatchTails.get(laneId) === tail) laneDispatchTails.delete(laneId);
   }
 }
 
@@ -999,7 +1016,7 @@ function assertDispatchAllowed(claim, laneId) {
 // eslint-disable-next-line max-statements, complexity -- durable transition boundaries are intentionally linear
 async function drainLaneEntryTriggerImpl(eventId) {
   const db = databaseManager.get();
-  const pre = db.prepare('SELECT lane_id FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+  const pre = db.prepare('SELECT lane_id, rowid AS arrivalSeq FROM kanban_lane_entry_events WHERE id=?').get(eventId);
   if (!pre) return false;
   // Synchronous prefix preserves the established drain timing: every drained
   // entry is claimed, settled, and resolved (run created) before detached
@@ -1025,6 +1042,8 @@ async function drainLaneEntryTriggerImpl(eventId) {
       failClaimedEntryDelivery(db, { eventId, token, event, error });
       throw error;
     }
+    // The waiter carries this entry's durable arrival position so a resumed
+    // attempt re-takes it instead of queueing behind later arrivals (FR-4).
     return await withLaneDispatchSlot(pre.lane_id, async (releaseSlot) => {
       // Re-check between entries: the lane may have been paused, or the card
       // removed, while waiting for the slot.
@@ -1079,7 +1098,7 @@ async function drainLaneEntryTriggerImpl(eventId) {
         failClaimedEntryDelivery(db, { eventId, token, event: fresh, error });
         throw error;
       }
-    });
+    }, pre.arrivalSeq);
   } finally {
     claim.stop();
   }
