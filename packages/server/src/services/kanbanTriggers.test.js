@@ -2,14 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock dependencies before imports
 vi.mock('../database.js', () => ({
-  sessions: { getById: vi.fn(), create: vi.fn(), update: vi.fn() },
+  sessions: { getById: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
   sessionTemplates: { getById: vi.fn() },
   sessionSummaries: { getBySessionId: vi.fn() },
   projects: { getById: vi.fn() },
+  kanbanLanes: { getById: vi.fn() },
+  databaseManager: { get: vi.fn() },
 }));
 
 vi.mock('../websocket.js', () => ({
   broadcastToProject: vi.fn(),
+  broadcastToSession: vi.fn(),
 }));
 
 vi.mock('./templateTriggerService.js', () => ({
@@ -23,6 +26,15 @@ vi.mock('./gitSessionSetup.js', () => ({
 
 vi.mock('./sessionManager.js', () => ({
   runSession: vi.fn(),
+  cleanupActiveSession: vi.fn(),
+}));
+
+vi.mock('./summaryService.js', () => ({
+  cleanupSession: vi.fn(),
+}));
+
+vi.mock('./gitService.js', () => ({
+  removeWorktree: vi.fn(),
 }));
 
 vi.mock('./sessionProvider.js', () => ({
@@ -96,6 +108,7 @@ describe('kanbanTriggers', () => {
       expect(result).toEqual({
         workingDirectory: '/tmp/worktree-abc',
         gitWorktree: '/tmp/worktree-abc',
+        allocatedWorktree: null,
       });
       expect(setupGitForSession).not.toHaveBeenCalled();
     });
@@ -125,6 +138,7 @@ describe('kanbanTriggers', () => {
       expect(result).toEqual({
         workingDirectory: '/tmp/git-setup-dir',
         gitWorktree: '/tmp/git-worktree',
+        allocatedWorktree: '/tmp/git-worktree',
       });
     });
 
@@ -157,6 +171,7 @@ describe('kanbanTriggers', () => {
       expect(result).toEqual({
         workingDirectory: '/home/user/my-project',
         gitWorktree: null,
+        allocatedWorktree: null,
       });
       expect(setupGitForSession).not.toHaveBeenCalled();
     });

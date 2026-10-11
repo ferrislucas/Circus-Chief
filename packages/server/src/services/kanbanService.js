@@ -13,8 +13,8 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   triggerOnEnterTemplate, triggerOnEnterPrompt,
   assertLaneAutomationActive, isLaneAutomationDisabledError, createLaneAutomationDisabledError,
-  abandonUndispatchedChild,
 } from './kanbanTriggers.js';
+import { abandonUndispatchedChild } from './kanbanAbandon.js';
 import {
   createLaneRunForEntry, supersedeLaneRun, supersedeLaneRunAuthorityOnly,
   supersedeRunForCard, isStructured, isAutomationActive, getRun,
@@ -996,7 +996,7 @@ async function drainLaneEntryTriggerImpl(eventId) {
             abortController,
             assertLaneEnabled: () => assertDispatchAllowed(claim, event.lane_id),
             onDispatchInitiated: releaseSlot,
-            beforeDispatch: (childSessionId) => {
+            beforeDispatch: async (childSessionId) => {
               // Final dispatch boundary: re-check the persisted kill-switch after
               // the trigger's async setup. A disable here parks the entry without
               // consuming an attempt; the undispatched child is removed.
@@ -1004,7 +1004,7 @@ async function drainLaneEntryTriggerImpl(eventId) {
                 assertDispatchAllowed(claim, event.lane_id);
               } catch (error) {
                 if (isLaneAutomationDisabledError(error) && createdChild) {
-                  abandonUndispatchedChild({ laneRunId: resolved.run.id, childSessionId });
+                  await abandonUndispatchedChild({ laneRunId: resolved.run.id, childSessionId });
                 }
                 throw error;
               }

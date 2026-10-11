@@ -4,13 +4,14 @@ import {
   sessionSummaries,
   projects,
   kanbanLanes,
-  databaseManager,
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 import { renderTemplatePrompt, getRootSession } from './templateTriggerService.js';
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
+import { abandonUndispatchedChild } from './kanbanAbandon.js';
+import * as gitService from './gitService.js';
 import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
 import { attachRootSession, isAutomationActive, isStructured } from './workflowSessionService.js';
 
@@ -71,26 +72,30 @@ async function broadcastAndStartChild({ session, project, newSession, renderedPr
   return { delivered: true, rootSessionId: newSession.id };
 }
 
-/**
- * Drop a child created but never dispatched because its lane was disabled
- * mid-setup. Restores the owning run to rootless so the parked entry keeps
- * the durable paused shape (open run, no root, card pointers intact).
- */
-export function abandonUndispatchedChild({ laneRunId, childSessionId }) {
-  if (!childSessionId) return;
-  try {
-    sessions.delete(childSessionId);
-  } catch {
-    // The child may already be gone; the run-root clearing below still applies.
-  }
-  if (laneRunId) {
-    databaseManager.get().prepare('UPDATE kanban_lane_runs SET root_session_id=NULL, updated_at=? WHERE id=?')
-      .run(Date.now(), laneRunId);
-  }
-}
-
 function throwIfAborted(controller) {
   if (controller?.signal.aborted) throw controller.signal.reason || new Error('Lane-entry delivery was aborted');
+}
+
+/**
+ * Re-check the abort signal after git setup completed. Setup may have
+ * allocated a worktree for a child that will now never run: release it before
+ * the abort propagates, since no session row records it yet and nothing
+ * downstream could clean it up (it would leak and pin its branch against the
+ * resume retry).
+ */
+async function assertSetupNotAborted(project, gitSetup, gitOptions) {
+  try {
+    throwIfAborted(gitOptions.abortController);
+  } catch (abortError) {
+    if (gitSetup.gitWorktree) {
+      try {
+        await gitService.removeWorktree(project.workingDirectory, gitSetup.gitWorktree, true);
+      } catch (error) {
+        console.warn(`Kanban: Failed to remove worktree after aborted setup for session ${gitOptions.sessionId}:`, error.message);
+      }
+    }
+    throw abortError;
+  }
 }
 
 /**
@@ -100,6 +105,24 @@ function throwIfAborted(controller) {
  */
 function undelivered(reason) {
   return { delivered: false, reason };
+}
+
+/**
+ * Resolve the working directory for a lane-entry child. A redelivery reuses
+ * its existing child's worktree (no fresh allocation); only a first delivery
+ * allocates via determineWorkingDirectory, whose `allocatedWorktree` tracks
+ * exactly what pause-abandon must release. Shared by both trigger paths so
+ * allocation tracking cannot drift between template and prompt delivery.
+ */
+function resolveTriggerWorkingDirectory(existingChild, parentSession, project, gitOptions) {
+  if (existingChild?.gitWorktree) {
+    return Promise.resolve({
+      workingDirectory: existingChild.gitWorktree,
+      gitWorktree: existingChild.gitWorktree,
+      allocatedWorktree: null,
+    });
+  }
+  return determineWorkingDirectory(parentSession, project, gitOptions);
 }
 
 /**
@@ -123,19 +146,23 @@ export function getSessionAndProjectForTrigger(sessionId) {
 
 /**
  * Determine working directory for child session, inheriting parent's worktree if present.
+ * `allocatedWorktree` is the worktree path freshly allocated for this child
+ * (null when inheriting the parent's, sharing the project directory, or when
+ * no git isolation applies) so pause-abandon can release exactly what setup
+ * created without touching shared state.
  * @param {Object} parentSession
  * @param {Object} project
  * @param {Object} [gitOptions]
  * @param {string} [gitOptions.gitMode]
  * @param {string} [gitOptions.gitBranch]
  * @param {string} [gitOptions.sessionId]
- * @returns {Promise<{workingDirectory: string, gitWorktree: string|null}>}
+ * @returns {Promise<{workingDirectory: string, gitWorktree: string|null, allocatedWorktree: string|null}>}
  */
 export async function determineWorkingDirectory(parentSession, project, gitOptions = {}) {
   throwIfAborted(gitOptions.abortController);
   if (parentSession.gitWorktree) {
     console.log(`Kanban: Inheriting parent worktree: ${parentSession.gitWorktree}`);
-    return { workingDirectory: parentSession.gitWorktree, gitWorktree: parentSession.gitWorktree };
+    return { workingDirectory: parentSession.gitWorktree, gitWorktree: parentSession.gitWorktree, allocatedWorktree: null };
   }
 
   if (gitOptions.sessionId) {
@@ -148,11 +175,11 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
       commitAttributionOverride:
         resolveProviderMetadataFromModel(gitOptions.model)?.commitAttributionOverride ?? null,
     });
-    throwIfAborted(gitOptions.abortController);
-    return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
+    await assertSetupNotAborted(project, gitSetup, gitOptions);
+    return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree, allocatedWorktree: gitSetup.gitWorktree };
   }
 
-  return { workingDirectory: project.workingDirectory, gitWorktree: null };
+  return { workingDirectory: project.workingDirectory, gitWorktree: null, allocatedWorktree: null };
 }
 
 /**
@@ -303,6 +330,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
   console.log(`Kanban: Triggering on-enter template "${template.name}" for session "${session.name}" entering lane "${lane.name}"`);
 
   let createdChildId = null;
+  let allocatedWorktree = null;
   try {
     const { newSession, renderedPrompt, settings } = await buildChildSessionFromTemplate(
       template, session, lane, { laneRunId, childSessionId, assertLaneEnabled }
@@ -311,15 +339,15 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
 
     // Determine working directory
     const existingChild = childSessionId ? sessions.getById(childSessionId) : null;
-    const { workingDirectory, gitWorktree } = existingChild?.gitWorktree
-      ? { workingDirectory: existingChild.gitWorktree, gitWorktree: existingChild.gitWorktree }
-      : await determineWorkingDirectory(session, project, {
-      gitMode: settings.gitMode,
-      gitBranch: settings.gitBranch,
-      sessionId: newSession.id,
-      model: settings.model,
-      abortController,
+    const { workingDirectory, gitWorktree, allocatedWorktree: freshAllocation } =
+      await resolveTriggerWorkingDirectory(existingChild, session, project, {
+        gitMode: settings.gitMode,
+        gitBranch: settings.gitBranch,
+        sessionId: newSession.id,
+        model: settings.model,
+        abortController,
       });
+    allocatedWorktree = freshAllocation;
     if (gitWorktree) {
       sessions.update(newSession.id, { gitWorktree });
     }
@@ -337,7 +365,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
     return result;
   } catch (error) {
     if (isLaneAutomationDisabledError(error)) {
-      abandonUndispatchedChild({ laneRunId, childSessionId: childSessionId ? null : createdChildId });
+      await abandonUndispatchedChild({ laneRunId, childSessionId: childSessionId ? null : createdChildId, allocatedWorktree });
       throw error;
     }
     console.error(`Kanban: Failed to trigger on-enter template for session ${sessionId}:`, error);
@@ -395,6 +423,7 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
   console.log(`Kanban: Triggering on-enter prompt for session "${session.name}" entering lane "${lane.name}"`);
 
   let createdChildId = null;
+  let allocatedWorktree = null;
   try {
     const { newSession, renderedPrompt, settings } = await buildChildSessionFromPrompt(
       lane, session, { laneRunId, childSessionId, assertLaneEnabled }
@@ -403,9 +432,9 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
 
     // Determine working directory
     const existingChild = childSessionId ? sessions.getById(childSessionId) : null;
-    const { workingDirectory, gitWorktree } = existingChild?.gitWorktree
-      ? { workingDirectory: existingChild.gitWorktree, gitWorktree: existingChild.gitWorktree }
-      : await determineWorkingDirectory(session, project, { abortController });
+    const { workingDirectory, gitWorktree, allocatedWorktree: freshAllocation } =
+      await resolveTriggerWorkingDirectory(existingChild, session, project, { abortController });
+    allocatedWorktree = freshAllocation;
     if (gitWorktree) {
       sessions.update(newSession.id, { gitWorktree });
     }
@@ -420,7 +449,7 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
     return result;
   } catch (error) {
     if (isLaneAutomationDisabledError(error)) {
-      abandonUndispatchedChild({ laneRunId, childSessionId: childSessionId ? null : createdChildId });
+      await abandonUndispatchedChild({ laneRunId, childSessionId: childSessionId ? null : createdChildId, allocatedWorktree });
       throw error;
     }
     console.error(`Kanban: Failed to trigger on-enter prompt for session ${sessionId}:`, error);

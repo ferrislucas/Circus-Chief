@@ -1,8 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { execSync } from 'child_process';
+import { mkdtempSync, readdirSync, existsSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 
 // Mock external dependencies
 vi.mock('../websocket.js', () => ({
   broadcastToProject: vi.fn(),
+  broadcastToSession: vi.fn(),
 }));
 
 vi.mock('./templateTriggerService.js', () => ({
@@ -38,7 +43,7 @@ import {
   sessionTemplates,
   databaseManager,
 } from '../database.js';
-import { broadcastToProject } from '../websocket.js';
+import { broadcastToProject, broadcastToSession } from '../websocket.js';
 import { runSession } from './sessionManager.js';
 import { renderTemplatePrompt } from './templateTriggerService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
@@ -916,6 +921,170 @@ describe('kanbanService', () => {
       // The abandoned run is rootless again so the parked entry can resume.
       expect(databaseManager.get().prepare('SELECT root_session_id FROM kanban_lane_runs WHERE id=?')
         .get(run.id).root_session_id).toBeNull();
+    });
+
+    // ── PR #1166 findings 4–5: pause-abandon cleanup ────────────────
+    // These tests drive the real git worktree allocation (not the mocked
+    // setupGitForSession) so orphaned worktrees and phantom sessions surface.
+    describe('pause-abandon cleanup (real worktree allocation)', () => {
+      let repoDir;
+      let worktreeRoot;
+      let previousWorktreeRoot;
+      let setupGitMock;
+
+      function initGitRepo() {
+        const dir = mkdtempSync(join(tmpdir(), 'kanban-wt-repo-'));
+        execSync('git init', { cwd: dir, stdio: 'ignore' });
+        execSync('git config user.email "test@test.com"', { cwd: dir, stdio: 'ignore' });
+        execSync('git config user.name "Test"', { cwd: dir, stdio: 'ignore' });
+        execSync('git commit --allow-empty -m "init"', { cwd: dir, stdio: 'ignore' });
+        return dir;
+      }
+
+      function worktreeList() {
+        return execSync('git worktree list --porcelain', { cwd: repoDir }).toString();
+      }
+
+      beforeEach(async () => {
+        repoDir = initGitRepo();
+        worktreeRoot = mkdtempSync(join(tmpdir(), 'kanban-wt-root-'));
+        previousWorktreeRoot = process.env.CIRCUS_TEST_WORKTREE_ROOT;
+        process.env.CIRCUS_TEST_WORKTREE_ROOT = worktreeRoot;
+        // Keep local-only git probes fast: no origin exists in these repos.
+        process.env.GH_REPO_VIEW_TIMEOUT_MS = '1000';
+        process.env.GIT_FETCH_TIMEOUT_MS = '1000';
+        projects.update(projectId, { workingDirectory: repoDir });
+        // Delegate to the real git setup for the duration of these tests.
+        const actual = await vi.importActual('./gitSessionSetup.js');
+        ({ setupGitForSession: setupGitMock } = await import('./gitSessionSetup.js'));
+        setupGitMock.mockImplementation((...args) => actual.setupGitForSession(...args));
+      });
+
+      afterEach(() => {
+        if (previousWorktreeRoot === undefined) delete process.env.CIRCUS_TEST_WORKTREE_ROOT;
+        else process.env.CIRCUS_TEST_WORKTREE_ROOT = previousWorktreeRoot;
+        delete process.env.GH_REPO_VIEW_TIMEOUT_MS;
+        delete process.env.GIT_FETCH_TIMEOUT_MS;
+        // Restore the module-wide mocked setup so later suites keep their fixture.
+        setupGitMock?.mockReset();
+        setupGitMock?.mockResolvedValue({ workingDirectory: '/tmp/test', gitWorktree: null });
+        // Best-effort cleanup: a failing implementation may leave worktrees behind.
+        try {
+          if (repoDir) execSync('git worktree prune', { cwd: repoDir, stdio: 'ignore' });
+        } catch { /* ignore */ }
+        for (const dir of [repoDir, worktreeRoot]) {
+          try {
+            if (dir && existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+          } catch { /* ignore */ }
+        }
+      });
+
+      it('releases a template-allocated worktree on pause-abandon and resumes cleanly on re-enable', async () => {
+        const template = sessionTemplates.create({
+          projectId, name: 'Entry', prompt: 'do something', gitMode: 'worktree', gitBranch: 'lane-feature',
+        });
+        kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+        const root = createSession('Root');
+        const card = kanbanCards.create(lanes[0].id, root.id);
+        const run = createLaneRunForEntry({
+          projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+        });
+        const { setupGitForSession } = await import('./gitSessionSetup.js');
+        setupGitForSession.mockImplementationOnce(async (...args) => {
+          // Disable mid-setup: the post-setup pause fence must park the entry.
+          kanbanLanes.update(lanes[0].id, { automationEnabled: false });
+          const actual = await vi.importActual('./gitSessionSetup.js');
+          return actual.setupGitForSession(...args);
+        });
+
+        expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(false);
+
+        // (a) No orphaned worktree remains registered or on disk for the abandoned child.
+        expect(worktreeList()).not.toContain(worktreeRoot);
+        expect(readdirSync(worktreeRoot)).toHaveLength(0);
+        expect(sessions.getByProjectId(projectId).map((s) => s.name))
+          .not.toContain(expect.stringContaining('Entry'));
+
+        // (b) Re-enable dispatches successfully with no branch-already-checked-out failure.
+        kanbanLanes.update(lanes[0].id, { automationEnabled: true });
+        expect(drainQueuedEntries(lanes[0].id).drainedCount).toBe(1);
+        await vi.waitFor(() => {
+          expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+            .get(run.laneEntryEventId).status).toBe('completed');
+        });
+        expect(runSession).toHaveBeenCalledTimes(1);
+        const registered = worktreeList().split('\n').filter((line) => line.startsWith('worktree '));
+        expect(registered.filter((line) => line.includes(worktreeRoot))).toHaveLength(1);
+
+        // (c) A second pause cycle still leaves no leaked directories/worktrees.
+        expect(readdirSync(worktreeRoot)).toHaveLength(1);
+      });
+
+      it('leaves an inherited worktree untouched when its published child is abandoned', async () => {
+        // Parent owns a real worktree; the child inherits it (no fresh allocation).
+        const actual = await vi.importActual('./gitSessionSetup.js');
+        const parentSetup = await actual.setupGitForSession({
+          projectDir: repoDir, gitMode: 'worktree', gitBranch: 'shared-feature', sessionId: 'parent-wt',
+        });
+        const root = createSession('Root');
+        sessions.update(root.id, { gitWorktree: parentSetup.gitWorktree });
+        kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
+        const card = kanbanCards.create(lanes[0].id, root.id);
+        const run = createLaneRunForEntry({
+          projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+        });
+        // Disable at the provider boundary (after SESSION_CREATED): the
+        // provider fence rejects, and the published child must be abandoned.
+        runSession.mockImplementationOnce(async (childId, prompt, workingDirectory, opts) => {
+          kanbanLanes.update(lanes[0].id, { automationEnabled: false });
+          await opts.beforeProviderExecute();
+        });
+
+        expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(false);
+
+        // The shared worktree survives the abandon; only the child row is gone.
+        expect(existsSync(parentSetup.gitWorktree)).toBe(true);
+        expect(worktreeList()).toContain(parentSetup.gitWorktree);
+        expect(sessions.getById(root.id)).toBeTruthy();
+      });
+
+      it('emits SESSION_DELETED on project and session channels for a published child abandoned at the provider fence', async () => {
+        kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
+        const root = createSession('Root');
+        const card = kanbanCards.create(lanes[0].id, root.id);
+        const run = createLaneRunForEntry({
+          projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+        });
+        // Simulate prepareRunTurn publishing running state, then the provider
+        // fence rejecting because the lane was disabled mid-setup.
+        runSession.mockImplementationOnce(async (childId, prompt, workingDirectory, opts) => {
+          broadcastToProject(projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+            projectId, sessionId: childId, status: 'running',
+          });
+          kanbanLanes.update(lanes[0].id, { automationEnabled: false });
+          await opts.beforeProviderExecute();
+        });
+
+        expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(false);
+
+        const created = broadcastToProject.mock.calls.find(
+          (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+        );
+        expect(created).toBeTruthy();
+        const childId = created[2].session.id;
+        // The child row is gone …
+        expect(sessions.getById(childId)).toBeNull();
+        // … and mounted clients learn about it without a reload: the list/tree
+        // channel and the open detail subscription both observe the deletion.
+        expect(broadcastToProject).toHaveBeenCalledWith(
+          projectId, WS_MESSAGE_TYPES.SESSION_DELETED,
+          expect.objectContaining({ sessionId: childId })
+        );
+        expect(broadcastToSession).toHaveBeenCalledWith(
+          childId, WS_MESSAGE_TYPES.SESSION_DELETED,
+          expect.objectContaining({ sessionId: childId })
+        );
+      });
     });
   });
 
