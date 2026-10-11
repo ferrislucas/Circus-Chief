@@ -115,7 +115,14 @@ export const kanbanWebSocketActions = {
   handleCardRemoved(cardId, laneId) {
     const lane = this.board?.lanes?.find((l) => l.id === laneId);
     if (lane) {
+      const departing = lane.cards?.find((c) => c.id === cardId);
       lane.cards = lane.cards?.filter((c) => c.id !== cardId) || [];
+      // A removed queued card takes its queue slot with it: the removal
+      // broadcast carries no queue state, so the count drops here instead of
+      // leaving a phantom badge in an emptied lane.
+      if (departing?.entryStatus === 'queued' && (lane.queuedCount || 0) > 0) {
+        lane.queuedCount -= 1;
+      }
     }
   },
 

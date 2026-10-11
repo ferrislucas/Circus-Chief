@@ -111,6 +111,29 @@ describe('kanban queue realtime updates', () => {
     }).not.toThrow();
     expect(store.board.lanes[0].queuedCount).toBe(0);
   });
+
+  it('drops the lane count when a queued card is removed', () => {
+    const store = useKanbanStore();
+    store.board = boardWithQueuedLane();
+    store.handleEntryQueued({ cardId: 'card-1', laneId: 'paused', queuePosition: 1, queueDepth: 1 });
+
+    store.handleCardRemoved('card-1', 'paused');
+
+    expect(store.board.lanes[0].cards).toEqual([]);
+    expect(store.board.lanes[0].queuedCount).toBe(0);
+  });
+
+  it('keeps the lane count when a non-queued card is removed', () => {
+    const store = useKanbanStore();
+    store.board = boardWithQueuedLane();
+    store.handleEntryQueued({ cardId: 'card-1', laneId: 'paused', queuePosition: 1, queueDepth: 1 });
+    store.board.lanes[0].cards.push({ id: 'card-2', laneId: 'paused' });
+
+    store.handleCardRemoved('card-2', 'paused');
+
+    expect(store.board.lanes[0].cards).toHaveLength(1);
+    expect(store.board.lanes[0].queuedCount).toBe(1);
+  });
 });
 
 describe('kanban card routing responses', () => {

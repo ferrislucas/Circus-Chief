@@ -40,7 +40,9 @@ export function assertLaneAutomationActive(laneId) {
 /**
  * Broadcast a prepared child and start its provider dispatch. Fence 2 runs
  * first: a disable that landed during working-directory setup prevents
- * broadcast and dispatch. The per-lane slot releases at dispatch initiation
+ * broadcast and dispatch. The lane kill-switch is re-checked at the actual
+ * provider boundary (after runSession's async model/env setup), and the
+ * per-lane slot releases at dispatch initiation — not at dispatch call —
  * so later arrivals keep FIFO start order while runs proceed concurrently.
  */
 async function broadcastAndStartChild({ session, project, newSession, renderedPrompt, settings, workingDirectory,
@@ -55,13 +57,15 @@ async function broadcastAndStartChild({ session, project, newSession, renderedPr
   if (beforeDispatch) await beforeDispatch(newSession.id);
   throwIfAborted(abortController);
   // Initiation and acknowledgement are separate: the dispatcher releases its
-  // per-lane slot as soon as the provider call starts.
+  // per-lane slot as soon as the provider call starts (signalled back through
+  // runSession), never before async provider setup has completed.
   const dispatchPromise = startChildSession(newSession, renderedPrompt, workingDirectory, {
     systemPrompt: project.systemPrompt,
     model: settings.model,
     ...(abortController ? { abortController } : {}),
+    ...(assertLaneEnabled ? { beforeProviderExecute: () => assertLaneEnabled() } : {}),
+    ...(onDispatchInitiated ? { onProviderDispatchInitiated: onDispatchInitiated } : {}),
   });
-  onDispatchInitiated?.();
   const accepted = await dispatchPromise;
   if (!accepted) return undelivered('provider dispatch was not accepted');
   return { delivered: true, rootSessionId: newSession.id };
@@ -158,12 +162,20 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
  * @param {string} workingDirectory
  * @param {Object} options
  */
-export function startChildSession(newSession, prompt, workingDirectory, options) {
-  return runSession(newSession.id, prompt, workingDirectory, options).then((result) =>
+export function startChildSession(newSession, prompt, workingDirectory, options = {}) {
+  const { beforeProviderExecute, onProviderDispatchInitiated, ...runOptions } = options;
+  return runSession(newSession.id, prompt, workingDirectory, {
+    ...runOptions,
+    ...(beforeProviderExecute ? { beforeProviderExecute } : {}),
+    ...(onProviderDispatchInitiated ? { onProviderDispatchInitiated } : {}),
+  }).then((result) =>
     // Older in-process adapters returned undefined. Keep that narrow
     // compatibility path, but never coerce arbitrary resolved values (in
     // particular `{ started: false }`) into a provider acknowledgement.
     result === undefined || result?.started === true).catch((error) => {
+    // A provider-boundary park is not a dispatch failure: it must propagate
+    // so the outbox parks the entry instead of failing the delivery.
+    if (isLaneAutomationDisabledError(error)) throw error;
     console.error(`Kanban: Error running on-enter session ${newSession.id}:`, error);
     const errorSession = sessions.update(newSession.id, { status: 'error', error: error.message });
     broadcastToProject(newSession.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {

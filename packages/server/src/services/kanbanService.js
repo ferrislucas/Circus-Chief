@@ -691,21 +691,105 @@ function dropTerminalHuskRun(db, event, run) {
   return run;
 }
 
+/**
+ * Clear a card's entry pointer when it references a consumed intent. A card
+ * with a newer pending intent keeps pointing at it.
+ */
+function clearConsumedEntryPointer(db, cardId, eventId) {
+  db.prepare(`UPDATE kanban_cards SET lane_entry_event_id=NULL, updated_at=?
+    WHERE id=? AND lane_entry_event_id=?`).run(Date.now(), cardId, eventId);
+}
+
+/**
+ * Supersede a card's open run when it never spawned (no root): no dangling
+ * open obligation may remain on an automation-less lane. A rooted run —
+ * already-spawned work — is deliberately left alone to finish.
+ */
+function supersedeRootlessOpenRun(db, cardId) {
+  const openRun = db.prepare(`SELECT id, root_session_id FROM kanban_lane_runs
+    WHERE card_id=? AND status='open'`).get(cardId);
+  if (openRun && !openRun.root_session_id) {
+    supersedeLaneRun(openRun.id, 'automation_removed');
+  }
+}
+
+/**
+ * Complete a claimed entry as a successful no-op: the lane no longer has
+ * automation, so the intent replays the latest config to empty (FR-1).
+ */
+function completeNoopDelivery(db, { eventId, token, event, run }) {
+  const time = Date.now();
+  db.prepare(`UPDATE kanban_lane_entry_events SET status='completed', delivery_phase='completed',
+    completed_at=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL,
+    next_attempt_at=NULL, last_error=NULL
+    WHERE id=? AND claim_token=?`).run(time, time, eventId, token);
+  clearConsumedEntryPointer(db, event.card_id, eventId);
+  if (run && !run.root_session_id) {
+    supersedeLaneRun(run.id, 'automation_removed');
+  }
+}
+
+/** Ordered queued entries for a lane: the single queue projection behind every queue broadcast. */
+function getQueuedLaneEntries(db, laneId) {
+  return db.prepare(`SELECT id, card_id FROM kanban_lane_entry_events
+    WHERE lane_id=? AND status='queued' ORDER BY created_at, rowid`).all(laneId);
+}
+
+/** Complete a drain as a no-op and converge live queue state (FR-1, FR-3). */
+function completeDrainAsNoop(db, claim, { eventId, token, event, run }) {
+  completeNoopDelivery(db, { eventId, token, event, run });
+  claim.stop();
+  broadcastQueueSettledState(db, { projectId: event.project_id, laneId: event.lane_id });
+  return true;
+}
+
+/** Broadcast the settled queue state after a drain-path no-op (badge/chips converge without refetch). */
+function broadcastQueueSettledState(db, { projectId, laneId }) {
+  const remaining = getQueuedLaneEntries(db, laneId);
+  if (!remaining.length) {
+    broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_QUEUE_DRAINED, {
+      projectId, laneId, drainedCount: 0,
+    });
+    return;
+  }
+  const last = remaining[remaining.length - 1];
+  broadcastQueuedEntry(projectId, last.card_id, laneId, {
+    queuePosition: remaining.length, queueDepth: remaining.length,
+  });
+}
+
+/**
+ * Rebuild the target run for a durable event written before its run existed.
+ * Never creates a replacement once a run exists.
+ */
+function createMissingDeliveryRun(db, event, lane) {
+  if (!lane || !isStructured(lane)) return { state: 'ownership_conflict', reason: 'target lane run is missing' };
+  const created = createLaneRunForEntry({ projectId: event.project_id, workspaceId: event.workspace_id,
+    cardId: event.card_id, lane, cause: event.cause, priorLaneRunId: event.caused_by_run_id, entryEventId: event.id });
+  const run = created && db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(created.id);
+  if (!run) return { state: 'ownership_conflict', reason: 'target lane run is missing' };
+  return { state: 'created', run };
+}
+
 function resolveDeliveryState(event) {
   const db = databaseManager.get();
   let run = db.prepare('SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(event.id);
   run = dropTerminalHuskRun(db, event, run);
+  // The lane's automation was cleared after this entry was committed. Queued
+  // work replays the latest config, and an automation-less lane is a valid
+  // no-op (FR-1) — never an ownership conflict. A missing lane keeps the
+  // established conflict path below.
+  const lane = kanbanLanes.getById(event.lane_id);
+  if (lane && !isStructured(lane)) return { state: 'no_automation_noop', run };
+
   // Compatibility for durable events written by versions which committed the
   // event before creating its target run. New entry sources create both in one
   // transaction; this branch never creates a replacement once a run exists.
   if (!run) {
-    const lane = kanbanLanes.getById(event.lane_id);
-    if (!lane || !isStructured(lane)) return { state: 'ownership_conflict', reason: 'target lane run is missing' };
-    const created = createLaneRunForEntry({ projectId: event.project_id, workspaceId: event.workspace_id,
-      cardId: event.card_id, lane, cause: event.cause, priorLaneRunId: event.caused_by_run_id, entryEventId: event.id });
-    run = created && db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(created.id);
+    const created = createMissingDeliveryRun(db, event, lane);
+    if (created.state !== 'created') return created;
+    run = created.run;
   }
-  if (!run) return { state: 'ownership_conflict', reason: 'target lane run is missing' };
   if (!run.root_session_id) return { state: 'needs_delivery', run };
   const owner = db.prepare(`WITH RECURSIVE ancestors(id, parent_session_id) AS (
     SELECT id, parent_session_id FROM sessions WHERE id=? UNION ALL
@@ -734,17 +818,37 @@ function resolveDeliveryState(event) {
  */
 function parkClaimedEntryForDisabledLane(db, { eventId, token }) {
   const time = Date.now();
-  db.prepare(`UPDATE kanban_lane_entry_events SET status='queued',
+  // A park is always pre-acknowledgement (the lane-disabled error can only
+  // arise before the provider call). A dispatch-intent marker recorded before
+  // the parked setup must be withdrawn, or the retry would misread a
+  // never-dispatched entry as an ambiguous dispatch. Acknowledged entries are
+  // never parked, so the acknowledged timestamp is left untouched.
+  const parked = db.prepare(`UPDATE kanban_lane_entry_events SET status='queued',
     attempt_count=CASE WHEN attempt_count > 0 THEN attempt_count-1 ELSE 0 END,
+    delivery_phase=CASE WHEN dispatch_acknowledged_at IS NULL THEN 'pending' ELSE delivery_phase END,
     claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=NULL, updated_at=?
     WHERE id=? AND claim_token=?`).run(time, eventId, token);
+  // The disable PATCH snapshot went out while this entry was still claimed,
+  // so mounted clients hold stale counts/chips until this authoritative
+  // post-commit queue update lands (FR-3 live queue UX, no refetch).
+  if (parked.changes === 1) {
+    const entry = db.prepare('SELECT project_id, card_id, lane_id FROM kanban_lane_entry_events WHERE id=?')
+      .get(eventId);
+    if (entry) {
+      const queue = getQueuedLaneEntries(db, entry.lane_id);
+      broadcastQueuedEntry(entry.project_id, entry.card_id, entry.lane_id, {
+        queuePosition: queue.findIndex((row) => row.id === eventId) + 1,
+        queueDepth: queue.length,
+      });
+    }
+  }
 }
 
 /**
  * Settle a claimed entry before dispatch: reject entries whose card or source
  * transition is gone, and park entries whose structured lane was disabled
- * after they were committed. Unstructured lanes keep the established
- * ownership-conflict path in the caller.
+ * after they were committed. Entries for lanes whose automation was cleared
+ * settle through resolveDeliveryState's no-op path in the caller.
  * @returns {boolean} true when the entry was settled and the caller must stop
  */
 function settleClaimedEntryBeforeDispatch(db, { eventId, token, claim, event }) {
@@ -833,6 +937,16 @@ function failClaimedEntryDelivery(db, { eventId, token, event, error }) {
     .run(exhausted ? 1 : 0, nextAttemptAt, String(error.message || 'delivery failed').slice(0, 240), time, exhausted ? 1 : 0, time, eventId, token);
 }
 
+/**
+ * Single dispatch-allowed check shared by the render fence, the final
+ * dispatch boundary, and the provider-boundary fence inside runSession: the
+ * claim must still be ours and the lane kill-switch still on.
+ */
+function assertDispatchAllowed(claim, laneId) {
+  claim.assertCurrent();
+  assertLaneAutomationActive(laneId);
+}
+
 /** Drain one committed completion handoff. Safe to call repeatedly. */
 // eslint-disable-next-line complexity -- deliberately linear durable state machine
 // eslint-disable-next-line max-statements, complexity -- durable transition boundaries are intentionally linear
@@ -853,6 +967,11 @@ async function drainLaneEntryTriggerImpl(eventId) {
     if (settleClaimedEntryBeforeDispatch(db, { eventId, token, claim, event })) return false;
     claim.assertCurrent();
     const resolved = resolveDeliveryState(event);
+    // The lane's automation was cleared after this entry was committed: a
+    // successful no-op, not a delivery (FR-1).
+    if (resolved.state === 'no_automation_noop') {
+      return completeDrainAsNoop(db, claim, { eventId, token, event, run: resolved.run });
+    }
     if (resolved.state === 'ownership_conflict' || resolved.state === 'ambiguous_dispatch') {
       const error = new Error(resolved.reason);
       auditDeliveryFailure(db, resolved.run?.id || null, event, error);
@@ -875,15 +994,14 @@ async function drainLaneEntryTriggerImpl(eventId) {
             runOnEnterTemplate: true, laneRunId: resolved.run.id,
             childSessionId: resolved.rootSessionId,
             abortController,
-            assertLaneEnabled: () => assertLaneAutomationActive(event.lane_id),
+            assertLaneEnabled: () => assertDispatchAllowed(claim, event.lane_id),
             onDispatchInitiated: releaseSlot,
             beforeDispatch: (childSessionId) => {
-              claim.assertCurrent();
               // Final dispatch boundary: re-check the persisted kill-switch after
               // the trigger's async setup. A disable here parks the entry without
               // consuming an attempt; the undispatched child is removed.
               try {
-                assertLaneAutomationActive(event.lane_id);
+                assertDispatchAllowed(claim, event.lane_id);
               } catch (error) {
                 if (isLaneAutomationDisabledError(error) && createdChild) {
                   abandonUndispatchedChild({ laneRunId: resolved.run.id, childSessionId });
@@ -933,8 +1051,7 @@ export function drainLaneEntryTrigger(eventId) {
  * @returns {string[]} released event ids in drain order
  */
 function flipQueuedEntriesToPending(db, laneId) {
-  const rows = db.prepare(`SELECT id FROM kanban_lane_entry_events
-    WHERE lane_id=? AND status='queued' ORDER BY created_at, rowid`).all(laneId);
+  const rows = getQueuedLaneEntries(db, laneId);
   if (!rows.length) return [];
   const ids = rows.map((row) => row.id);
   const placeholders = ids.map(() => '?').join(',');
@@ -982,13 +1099,42 @@ export function drainQueuedEntries(laneId) {
  * stranded by an older split-commit crash — no off/on cycle needed.
  * @returns {{ updated: Object, eventIds: string[] }}
  */
+/**
+ * Consume a lane's queued entries as a successful no-op: the lane update
+ * removed its automation, so the queued intents replay the latest config to
+ * empty (FR-1) instead of failing delivery against it. Returns consumed ids.
+ */
+function consumeQueuedEntriesAsNoop(db, laneId) {
+  const rows = getQueuedLaneEntries(db, laneId);
+  if (!rows.length) return [];
+  const time = Date.now();
+  const ids = rows.map((row) => row.id);
+  const placeholders = ids.map(() => '?').join(',');
+  db.prepare(`UPDATE kanban_lane_entry_events SET status='completed', delivery_phase='completed',
+    completed_at=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL,
+    next_attempt_at=NULL, last_error=NULL
+    WHERE id IN (${placeholders})`).run(time, time, ...ids);
+  for (const row of rows) {
+    clearConsumedEntryPointer(db, row.card_id, row.id);
+  }
+  for (const cardId of new Set(rows.map((row) => row.card_id))) {
+    supersedeRootlessOpenRun(db, cardId);
+  }
+  return ids;
+}
+
 export function updateLaneWithAutomationToggle(laneId, updateData) {
   return databaseManager.transaction(() => {
     const db = databaseManager.get();
     const before = kanbanLanes.getById(laneId);
     const updated = kanbanLanes.update(laneId, updateData);
     let eventIds = [];
-    if (updated?.automationEnabled === true) {
+    if (updated && !isStructured(updated)) {
+      // Automation was cleared (or never configured): queued intents replay
+      // the latest config to empty and resolve as a successful no-op (FR-1).
+      // The PATCH snapshot broadcast after commit carries the settled counts.
+      consumeQueuedEntriesAsNoop(db, laneId);
+    } else if (updated?.automationEnabled === true) {
       eventIds = flipQueuedEntriesToPending(db, laneId);
     } else if (updated?.automationEnabled === false && before?.automationEnabled !== false) {
       parkPendingEntriesForLane(laneId);

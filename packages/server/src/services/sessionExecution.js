@@ -51,6 +51,8 @@ export async function _executeSession({
   broadcastConversationStateOnError = false,
   cleanupConversationId = false, interactive = false,
   errorLabel = 'Session error',
+  beforeProviderExecute = null,
+  onProviderDispatchInitiated = null,
 }) {
   const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded, onUserStopSettled } = callbacks;
   const notifyUserStopSettled = () => {
@@ -67,6 +69,20 @@ export async function _executeSession({
   if (!interactive && !workflowTurn && !activeLaneRunOwnsSession(sessionId)) {
     cleanupSessionState(sessionId, cleanupConversationId, controller);
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
+  }
+  // Provider-boundary dispatch fence: runs after every asynchronous turn
+  // setup (prepare*Turn completed in the caller) and immediately before the
+  // adapter is invoked. A rejection aborts before any provider call, so the
+  // turn's execution claim is released without recording a turn outcome —
+  // this stays outside the try below, whose catch closes workflow ownership.
+  if (beforeProviderExecute || onProviderDispatchInitiated) {
+    try {
+      await beforeProviderExecute?.();
+    } catch (error) {
+      cleanupSessionState(sessionId, cleanupConversationId, controller);
+      throw error;
+    }
+    onProviderDispatchInitiated?.();
   }
   // The provider is about to start. The token is generated durably by
   // beginWorkflowTurn and lets the agent's card-move API identify this exact
@@ -254,7 +270,8 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
  */
 export async function runSessionCore(sessionId, prompt, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
-  const { interactive = false, abortController = null } = options;
+  const { interactive = false, abortController = null, beforeProviderExecute = null,
+    onProviderDispatchInitiated = null } = options;
   // Get session for settings
   const session = sessions.getById(sessionId);
   if (!session) throw new Error('Session not found');
@@ -276,5 +293,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     workingDirectory,
     callbacks,
     errorLabel: 'Session error',
+    beforeProviderExecute,
+    onProviderDispatchInitiated,
   }).then((execution) => execution || startedSessionExecution(sessionId));
 }
