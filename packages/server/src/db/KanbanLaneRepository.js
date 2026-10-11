@@ -38,6 +38,16 @@ function prepareLaneValues(data) {
 }
 
 /**
+ * Resolve the automation-enabled insert value, defaulting to enabled.
+ * @param {Object} data - Lane data
+ * @returns {number} 1 when enabled (or unset), 0 when disabled
+ */
+function automationEnabledValue(data) {
+  if (data.automationEnabled === undefined || data.automationEnabled === null) return 1;
+  return data.automationEnabled ? 1 : 0;
+}
+
+/**
  * Boolean field configurations for update operations.
  * - nullable: true means null values are preserved (converts to null in DB)
  * - nullable: false means values are coerced to 0/1
@@ -47,6 +57,7 @@ const BOOLEAN_FIELDS = {
   onEnterAutoRescheduleEnabled: { nullable: false },
   onEnterRescheduleOnTokenLimit: { nullable: false },
   onEnterRescheduleOnServiceError: { nullable: false },
+  automationEnabled: { nullable: false },
 };
 
 /**
@@ -94,6 +105,9 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterMaxTotalTokens: row.on_enter_max_total_tokens,
       onEnterRescheduleAtTokenCount: row.on_enter_reschedule_at_token_count,
       completionTargetLaneId: row.completion_target_lane_id,
+      automationEnabled: row.automation_enabled === undefined || row.automation_enabled === null
+        ? true
+        : Boolean(row.automation_enabled),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -137,11 +151,12 @@ export class KanbanLaneRepository extends BaseRepository {
           on_enter_auto_reschedule_enabled, on_enter_reschedule_delay_minutes,
           on_enter_reschedule_on_token_limit, on_enter_reschedule_on_service_error,
           on_enter_max_reschedule_count, on_enter_max_total_tokens,
-          on_enter_reschedule_at_token_count, completion_target_lane_id,
+          on_enter_reschedule_at_token_count, completion_target_lane_id, automation_enabled,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, boardId, createData.name, sortOrder, ...laneValues, createData.completionTargetLaneId || null, now, now);
+      .run(id, boardId, createData.name, sortOrder, ...laneValues, createData.completionTargetLaneId || null,
+        automationEnabledValue(createData), now, now);
 
     return this.getById(id);
   }
@@ -195,6 +210,7 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterMaxTotalTokens: 'on_enter_max_total_tokens',
       onEnterRescheduleAtTokenCount: 'on_enter_reschedule_at_token_count',
       completionTargetLaneId: 'completion_target_lane_id',
+      automationEnabled: 'automation_enabled',
     };
 
     const updates = [];

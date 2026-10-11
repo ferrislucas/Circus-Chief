@@ -22,3 +22,13 @@ export function broadcastCardTransition(event) {
     });
   }
 }
+
+/** Broadcast a queued lane entry captured while its database transaction was open. */
+export function broadcastQueuedEntryEvent(event) {
+  if (event?.projectId) {
+    broadcastToProject(event.projectId, WS_MESSAGE_TYPES.KANBAN_ENTRY_QUEUED, {
+      projectId: event.projectId, cardId: event.cardId, laneId: event.laneId,
+      queuePosition: event.queuePosition, queueDepth: event.queueDepth,
+    });
+  }
+}

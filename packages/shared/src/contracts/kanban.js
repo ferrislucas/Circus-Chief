@@ -27,6 +27,7 @@ export const CreateKanbanLaneRequest = z.object({
   onEnterMaxTotalTokens: z.number().nullable().optional(),
   onEnterRescheduleAtTokenCount: z.number().nullable().optional(),
   completionTargetLaneId: z.string().uuid().nullable().optional(),
+  automationEnabled: z.boolean().optional(),
 }).refine(
   (data) => {
     // Mutual exclusivity: can't have both template and prompt set
@@ -57,6 +58,7 @@ export const UpdateKanbanLaneRequest = z.object({
   onEnterMaxTotalTokens: z.number().nullable().optional(),
   onEnterRescheduleAtTokenCount: z.number().nullable().optional(),
   completionTargetLaneId: z.string().uuid().nullable().optional(),
+  automationEnabled: z.boolean().optional(),
 }).refine(
   (data) => {
     // Mutual exclusivity: can't have both template and prompt set
@@ -91,6 +93,10 @@ export const KanbanLaneResponse = z.object({
   onEnterMaxTotalTokens: z.number().nullable(),
   onEnterRescheduleAtTokenCount: z.number().nullable(),
   completionTargetLaneId: z.string().uuid().nullable(),
+  // Default-true (not required): legacy lane payloads predate the flag and
+  // read as enabled, preserving current behavior for back-compat readers.
+  automationEnabled: z.boolean().default(true),
+  queuedCount: z.number().default(0),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

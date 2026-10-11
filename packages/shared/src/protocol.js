@@ -67,6 +67,11 @@ export const WS_MESSAGE_TYPES = {
   // A lane worker selected a destination, but its card stays put until the
   // worker's run completes and the handoff can be performed safely.
   KANBAN_EXIT_LANE_DECLARED: 'kanban:exit_lane_declared',
+  // A card arrived at a lane with automation disabled; its entry intent is
+  // durable queue state rather than a spawned session.
+  KANBAN_ENTRY_QUEUED: 'kanban:entry_queued',
+  // Re-enabling a lane drained queued entries back into automation.
+  KANBAN_QUEUE_DRAINED: 'kanban:queue_drained',
 };
 
 /**

@@ -15,6 +15,8 @@ import {
 import {
   addSessionToBoard,
   routeWorkspaceCard,
+  drainQueuedEntries,
+  parkPendingEntriesForLane,
   removeBoard as removeBoardService,
   removeCard as removeCardService,
   removeLane as removeLaneService,
@@ -205,6 +207,31 @@ function targetLaneForBoard(targetLaneId, board) {
   return laneBelongsToBoard(targetLane, board) ? targetLane : null;
 }
 
+/**
+ * Handle automation kill-switch transitions after a lane update.
+ * Re-enabling drains queued entries FIFO through detached delivery;
+ * disabling parks undelivered entries back to queued (open runs continue).
+ * @returns {number} drained entry count (re-enable only, 0 otherwise)
+ */
+function handleLaneAutomationToggle(projectId, lane, updated) {
+  const wasDisabled = lane.automationEnabled === false;
+  if (wasDisabled && updated?.automationEnabled === true) {
+    const { drainedCount } = drainQueuedEntries(lane.id);
+    if (drainedCount > 0) {
+      broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_QUEUE_DRAINED, {
+        projectId,
+        laneId: lane.id,
+        drainedCount,
+      });
+    }
+    return drainedCount;
+  }
+  if (!wasDisabled && updated?.automationEnabled === false) {
+    parkPendingEntriesForLane(lane.id);
+  }
+  return 0;
+}
+
 function completionTargetError(boardId, targetLaneId, sourceLaneId = null) {
   if (targetLaneId === undefined || targetLaneId === null) return null;
   if (targetLaneId === sourceLaneId) {
@@ -355,6 +382,9 @@ router.patch('/lanes/:laneId', (req, res) => {
     throw error;
   }
 
+  // Draining stays detached so PATCH is synchronous; see handleLaneAutomationToggle.
+  const drainedCount = handleLaneAutomationToggle(projectId, lane, updated);
+
   // Broadcast updated board
   const fullBoard = buildFullBoardResponse(board);
   broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, {
@@ -362,7 +392,7 @@ router.patch('/lanes/:laneId', (req, res) => {
     board: fullBoard,
   });
 
-  res.json(updated);
+  res.json({ ...updated, drainedCount });
 });
 
 /**
