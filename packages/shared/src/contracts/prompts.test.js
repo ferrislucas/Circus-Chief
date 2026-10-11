@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PromptResponse } from './prompts.js';
+import { PromptResponse, PROMPT_ACTIONS_BY_KIND } from './prompts.js';
 
 describe('PromptResponse', () => {
   it('keeps an optional cancellation reason through contract validation', () => {
@@ -62,5 +62,19 @@ describe('PromptResponse', () => {
 
   it('continues to accept permission responses without answers', () => {
     expect(PromptResponse.safeParse({ action: 'allow' }).success).toBe(true);
+  });
+});
+
+describe('PROMPT_ACTIONS_BY_KIND plan kind', () => {
+  it('allows exactly approve and request-changes (allow/deny), never always_allow', () => {
+    expect(PROMPT_ACTIONS_BY_KIND.plan.has('allow')).toBe(true);
+    expect(PROMPT_ACTIONS_BY_KIND.plan.has('deny')).toBe(true);
+    expect(PROMPT_ACTIONS_BY_KIND.plan.has('always_allow')).toBe(false);
+    expect(PROMPT_ACTIONS_BY_KIND.plan.size).toBe(2);
+  });
+
+  it('reuses the permission response shape for plan allow/deny', () => {
+    expect(PromptResponse.safeParse({ action: 'allow' }).success).toBe(true);
+    expect(PromptResponse.safeParse({ action: 'deny', reason: 'trim scope' }).success).toBe(true);
   });
 });

@@ -36,6 +36,12 @@ export const PermissionPromptResponse = z.object({
 export const PROMPT_ACTIONS_BY_KIND = Object.freeze({
   question: new Set(['answer', 'cancel']),
   permission: new Set(['allow', 'always_allow', 'deny']),
+  // Plan approval (ExitPlanMode): approving and requesting changes are the only
+  // two outcomes. There is deliberately no 'always_allow' — every plan is a
+  // fresh decision, and the CLI sends no permission suggestions for this tool.
+  // Responses reuse PermissionPromptResponse's allow/deny shape; the kind gate
+  // in respondToPrompt is what rejects 'always_allow' here.
+  plan: new Set(['allow', 'deny']),
 });
 export const PromptResponse = z.union([
   QuestionPromptResponse, PermissionPromptResponse,

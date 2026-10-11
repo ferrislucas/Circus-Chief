@@ -19,6 +19,7 @@ export { createWorkLog } from './workLogService.js';
 import { createWorkLog } from './workLogService.js';
 import { scrubEventForLogging } from './parityDiagnostics.js';
 import { cancelPrompt } from './promptStore.js';
+import { setAgentPermissionMode } from './agentPlanModeService.js';
 import { buildSafeDenialSummary } from './promptDurableSummary.js';
 import { captureScheduleWakeup, clearPendingWakeup } from './scheduleWakeupBridge.js';
 
@@ -186,6 +187,16 @@ function handleSystemEvent(sessionId, event) {
     }), toolName);
     return;
   }
+  // The CLI's permissionMode is the authoritative word on agent-initiated
+  // mode transitions (it overrides tool-call inference). SDKSystemMessage
+  // declares it on `init`; SDKStatusMessage carries it optionally on
+  // `status`. A missing field preserves the persisted mirror — only a
+  // reported mode moves it, so a fresh query that initializes in the
+  // configured baseline reconciles a stale `plan` mirror left behind by a
+  // stopped session.
+  if ((event.subtype === 'status' || event.subtype === 'init') && typeof event.permissionMode === 'string' && event.permissionMode) {
+    setAgentPermissionMode(sessionId, event.permissionMode);
+  }
   // Store Claude's session info
   if (event.subtype !== 'init') return;
 
@@ -245,6 +256,14 @@ function handleAssistantEvent(sessionId, event, controller) {
 
   // Log tool use inputs (dedup by tool_use ID to prevent duplicates from partial assistant events)
   logToolUseInputs(sessionId, toolUseBlocks);
+
+  // Mirror agent-initiated native plan mode; main-thread only (a subagent's
+  // EnterPlanMode is scoped to that subagent). The SDK declares
+  // `parent_tool_use_id` on the assistant-message envelope, beside `message`
+  // — never inside it — so provenance is read from the top level.
+  // ExitPlanMode is deliberately not tracked: the exit completes only when
+  // the user approves (promptStore settles it).
+  if (event.parent_tool_use_id == null && toolUseBlocks.some((t) => t.name === 'EnterPlanMode')) setAgentPermissionMode(sessionId, 'plan');
 }
 
 /**

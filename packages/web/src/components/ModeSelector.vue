@@ -1,5 +1,25 @@
 <template>
   <div class="mode-selector">
+    <!-- Native (agent-initiated) plan mode: the agent switched the CLI into
+         plan mode itself via EnterPlanMode, independent of the product mode
+         above. Clears when the plan is approved or the CLI reports another
+         permission mode. When the pending plan card is available, the badge
+         is an action that jumps to it; otherwise it stays a status label. -->
+    <button
+      v-if="canJumpToPlan"
+      type="button"
+      class="planning-badge planning-badge--action"
+      title="The agent entered plan mode on its own. Activate to jump to the pending plan approval."
+      aria-label="Go to the pending plan approval"
+      @click="scrollToPlanCard"
+    >
+      Planning
+    </button>
+    <span
+      v-else-if="isNativePlanning"
+      class="planning-badge"
+      title="The agent entered plan mode on its own. It will present a plan for your approval before implementing."
+    >Planning</span>
     <select
       id="mode-select"
       :value="selectedMode"
@@ -23,6 +43,7 @@
 import { ref, computed, watch, toRef } from 'vue';
 import { museSessionModeCopy } from '@circuschief/shared';
 import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
+import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 import { useUiStore } from '../stores/ui.js';
 
 const props = defineProps({
@@ -47,6 +68,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue']);
 
 const sessionsStore = useInjectedSessionsStore();
+const promptsStore = useSessionPromptsStore();
 const uiStore = useUiStore();
 const togglingMode = ref(false);
 
@@ -77,6 +99,35 @@ const currentMode = computed(() => {
   }
   return props.modelValue;
 });
+
+// Server-mirrored CLI permission mode — 'plan' here means the agent entered
+// native plan mode on its own (EnterPlanMode), which is orthogonal to the
+// product mode in the select.
+const isNativePlanning = computed(() => Boolean(props.sessionId)
+  && sessionsStore.currentSession?.agentPermissionMode === 'plan');
+
+// Only the queue head is ever surfaced to the client, so the badge jumps
+// exactly when the head is the plan card — a plan queued behind another
+// prompt is not yet reviewable and keeps the badge a plain status label.
+const canJumpToPlan = computed(() => Boolean(props.sessionId)
+  && isNativePlanning.value
+  && promptsStore.promptFor(props.sessionId)?.kind === 'plan');
+
+function scrollToPlanCard(event) {
+  // Scope the lookup to this badge's own conversation view. The page can
+  // host a main conversation and a SessionChatOverlay simultaneously, each
+  // rendering its own plan card through ConversationTab — a global
+  // querySelector would return whichever card comes first in document order,
+  // potentially another session's Approve button. Each ConversationTab
+  // renders only its own session's prompt, so the container boundary is also
+  // the session-identity boundary. A view with no matching card is a safe
+  // no-op, never a jump into another view.
+  const scope = event?.currentTarget?.closest?.('.conversation-tab, .session-chat-content');
+  const card = scope?.querySelector('.agent-prompt-card--plan');
+  if (!card) return;
+  if (typeof card.scrollIntoView === 'function') card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.querySelector('.prompt-primary-action')?.focus?.();
+}
 
 // Local state for optimistic UI updates - provides immediate visual feedback
 const selectedMode = ref(currentMode.value);
@@ -122,6 +173,34 @@ async function handleModeChange(value) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.planning-badge {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid rgba(210, 153, 34, 0.46);
+  border-radius: 999px;
+  background: rgba(210, 153, 34, 0.13);
+  color: #f2c462;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.planning-badge--action {
+  font: inherit;
+  cursor: pointer;
+}
+
+.planning-badge--action:hover {
+  background: rgba(210, 153, 34, 0.25);
+}
+
+.planning-badge--action:focus-visible {
+  outline: 2px solid #f2c462;
+  outline-offset: 2px;
 }
 
 .mode-select {

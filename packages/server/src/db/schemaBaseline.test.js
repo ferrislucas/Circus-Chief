@@ -100,6 +100,7 @@ describe('schema baseline', () => {
         'own_work_closed_at', 'workflow_updated_at', 'workflow_reason',
         'execution_state', 'subtree_outcome', 'last_activity_at',
         'created_at', 'updated_at', 'pending_conversation_id', 'execution_turn_token', 'pending_interactive',
+        'agent_permission_mode',
       ]);
     });
   });

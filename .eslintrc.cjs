@@ -62,6 +62,12 @@ module.exports = {
         // (deferred card-move) lifecycle in a single boundary, which needs
         // slightly more room than the default 300-line limit.
         'packages/server/src/services/sessionExecution.js',
+        // streamEventHandler is the single dispatch hub for all provider
+        // stream event types; each arm (system/assistant/tool_result/
+        // stream_event/result, plus agent-initiated permission-mode
+        // mirroring) belongs in this boundary, which needs slightly more
+        // room than the default 300-line limit.
+        'packages/server/src/services/streamEventHandler.js',
       ],
       rules: {
         'max-lines': ['error', { max: 350, skipBlankLines: true, skipComments: true }],
