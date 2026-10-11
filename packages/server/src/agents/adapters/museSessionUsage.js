@@ -36,29 +36,82 @@ function toCount(value) {
 }
 
 /**
- * Parse one journal line into tokenUsage params, or null when the line is
- * not JSON or not a tokenUsage entry. Malformed lines are skipped so a
- * future CLI format change degrades to null rather than a crash.
+ * Journal files are binary-framed, not JSONL: length-prefixed transport
+ * frames surround compact `{"method":...}` JSON records, with no newline
+ * separation. A line-based parse therefore never matches and every turn
+ * silently resolves to null. Scan for record starts and extract each
+ * balanced JSON object instead; anything unparseable (a baseline-truncated
+ * head, binary framing, a marker quoted inside message text) is skipped so
+ * a future CLI format change degrades to null rather than a crash.
  */
-function parseTokenUsageLine(line) {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith('{')) return null;
+const RECORD_START_RE = /\{"method"\s*:/g;
+
+/** Skip a JSON string starting at its opening quote; index past it, or -1. */
+function skipJsonString(text, start) {
+  let i = start + 1;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === '\\') i += 2;
+    else if (ch === '"') return i + 1;
+    else i += 1;
+  }
+  return -1;
+}
+
+/** End index (exclusive) of the balanced object starting at `start`, or -1. */
+function findBalancedEnd(text, start) {
+  let depth = 0;
+  let i = start;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === '"') {
+      i = skipJsonString(text, i);
+      if (i === -1) return -1;
+    } else if (ch === '{') {
+      depth += 1;
+      i += 1;
+    } else if (ch === '}') {
+      depth -= 1;
+      i += 1;
+      if (depth === 0) return i;
+    } else {
+      i += 1;
+    }
+  }
+  return -1;
+}
+
+/** Extract one balanced JSON object starting at `start`, or null. */
+function extractJsonRecord(text, start) {
+  const end = findBalancedEnd(text, start);
+  if (end === -1) return null;
   try {
-    const entry = JSON.parse(trimmed);
-    return entry?.method === TOKEN_USAGE_METHOD && entry.params && typeof entry.params === 'object'
-      ? entry.params
-      : null;
+    return { value: JSON.parse(text.slice(start, end)), end };
   } catch {
     return null;
   }
+}
+
+/** Parse one framed record into tokenUsage params, or null. */
+function parseTokenUsageRecord(record) {
+  return record?.method === TOKEN_USAGE_METHOD && record.params && typeof record.params === 'object'
+    ? record.params
+    : null;
 }
 
 /** Collect the last session/tokenUsage params across every journal file. */
 function findLastTokenUsage(journalTexts) {
   let found = null;
   for (const text of journalTexts) {
-    for (const line of text.split('\n')) {
-      found = parseTokenUsageLine(line) ?? found;
+    RECORD_START_RE.lastIndex = 0;
+    let match;
+    // eslint-disable-next-line no-cond-assign
+    while ((match = RECORD_START_RE.exec(text)) !== null) {
+      const extracted = extractJsonRecord(text, match.index);
+      if (extracted) {
+        found = parseTokenUsageRecord(extracted.value) ?? found;
+        RECORD_START_RE.lastIndex = extracted.end;
+      }
     }
   }
   return found;
@@ -127,8 +180,8 @@ function isSafeJournalSegment(sessionId) {
 /**
  * Read one journal file, skipping the first `skipBytes` bytes when a
  * turn-start baseline covers them. Bytes are sliced before UTF-8 decoding so
- * a byte offset can never split the string indexing; a partial leading line
- * simply fails the `{` check in parseTokenUsageLine and is skipped. A file
+ * a byte offset can never split the string indexing; a partial leading
+ * record fails balanced extraction and is skipped. A file
  * smaller than its baseline was rotated since the snapshot, so its whole
  * content is fresh.
  */

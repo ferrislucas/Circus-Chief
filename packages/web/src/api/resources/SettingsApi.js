@@ -56,6 +56,31 @@ export function SettingsApi(ApiClient) {
     },
 
     /**
+     * Get Muse usage probe settings (the probe's only setting, FR-9)
+     * @returns {Promise<{probeModel: string}>}
+     */
+    async getMuseProbeSettings() {
+      return this._get('/settings/muse-probe');
+    },
+
+    /**
+     * Update Muse usage probe settings
+     * @param {{probeModel: string}} settings - Probe settings
+     * @returns {Promise<{probeModel: string}>}
+     */
+    async updateMuseProbeSettings(settings) {
+      return this._put('/settings/muse-probe', settings);
+    },
+
+    /**
+     * Reset Muse usage probe settings to defaults
+     * @returns {Promise<{probeModel: string}>}
+     */
+    async resetMuseProbeSettings() {
+      return this._delete('/settings/muse-probe');
+    },
+
+    /**
      * Get general settings
      * @returns {Promise<{disableAnalytics: boolean}>}
      */

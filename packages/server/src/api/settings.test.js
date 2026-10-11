@@ -24,10 +24,13 @@ describe('Settings API', { timeout: 30_000 }, () => {
     delete settings.resetGeneralSettings;
     delete settings.setGeneralSettings;
     delete settings.setSummarySettings;
+    delete settings.setMuseProbeSettings;
+    delete settings.resetMuseProbeSettings;
 
     // Reset token weights to defaults before each test
     settings.resetTokenCostWeights();
     settings.resetSummarySettings();
+    settings.resetMuseProbeSettings();
   });
 
   describe('Summary settings', () => {
@@ -705,6 +708,65 @@ describe('Settings API', { timeout: 30_000 }, () => {
       expect(res.body).toEqual({
         disableAnalytics: false,
       });
+    });
+  });
+
+  describe('Muse usage probe model', () => {
+    it('returns the default probe model when unset', async () => {
+      const res = await request(app).get('/api/settings/muse-probe');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ probeModel: 'muse-spark-1.3' });
+    });
+
+    it('persists a meta-provider-enabled model', async () => {
+      const res = await request(app)
+        .put('/api/settings/muse-probe')
+        .send({ probeModel: 'muse-spark-1.3-contributor' });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ probeModel: 'muse-spark-1.3-contributor' });
+
+      const stored = await request(app).get('/api/settings/muse-probe');
+      expect(stored.body).toEqual({ probeModel: 'muse-spark-1.3-contributor' });
+    });
+
+    it('resolves an empty model to the default', async () => {
+      const res = await request(app)
+        .put('/api/settings/muse-probe')
+        .send({ probeModel: '' });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ probeModel: 'muse-spark-1.3' });
+    });
+
+    it('rejects a body without probeModel', async () => {
+      const res = await request(app)
+        .put('/api/settings/muse-probe')
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('probeModel must be present');
+    });
+
+    it('rejects a non-string probeModel', async () => {
+      const res = await request(app)
+        .put('/api/settings/muse-probe')
+        .send({ probeModel: 42 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('probeModel must be a string');
+    });
+
+    it('reset restores the default', async () => {
+      await request(app)
+        .put('/api/settings/muse-probe')
+        .send({ probeModel: 'muse-spark-1.3-contributor' });
+
+      const res = await request(app).delete('/api/settings/muse-probe');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ probeModel: 'muse-spark-1.3' });
     });
   });
 });

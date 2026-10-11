@@ -139,6 +139,39 @@
             @move-down="moveLocalModel($event, 1)"
           />
 
+          <div
+            v-if="showProbeModelSection"
+            class="form-group probe-model-section"
+          >
+            <label>
+              Usage probe model
+              <span class="label-hint">(meta only)</span>
+            </label>
+            <div class="probe-model-options">
+              <label
+                v-for="option in probeModelOptions"
+                :key="option.modelId"
+                class="probe-model-option"
+              >
+                <input
+                  v-model="probeModel"
+                  type="radio"
+                  name="probe-model"
+                  :value="option.modelId"
+                >
+                <span class="probe-model-name">{{ option.displayName }}</span>
+                <code class="probe-model-id">{{ option.modelId }}</code>
+                <span
+                  v-if="option.modelId === probeModelDefault"
+                  class="probe-model-default"
+                >[default]</span>
+              </label>
+            </div>
+            <p class="field-note">
+              Note: each probe runs one micro-turn on this model to refresh the usage indicator.
+            </p>
+          </div>
+
           <!-- Advanced Settings Section -->
           <details
             v-if="showConnectionFields"
@@ -274,7 +307,7 @@
 
 <script setup>
 import { toRef, computed } from 'vue';
-import { useProviderForm } from '../composables/useProviderForm.js';
+import { MUSE_PROBE_DEFAULT_MODEL, useProviderForm } from '../composables/useProviderForm.js';
 import ProviderModelsList from './ProviderModelsList.vue';
 
 const props = defineProps({
@@ -299,6 +332,9 @@ const {
   attributionValidationError,
   isValid,
   canTest,
+  probeModel,
+  probeModelOptions,
+  showProbeModelSection,
   addLocalModel,
   removeLocalModel,
   moveLocalModel,
@@ -313,6 +349,8 @@ const {
   () => emit('saved'),
   { builtInManageRef: computed(() => props.builtInManage && props.provider?.isBuiltIn) },
 );
+
+const probeModelDefault = MUSE_PROBE_DEFAULT_MODEL;
 
 const isBuiltInManage = computed(() => props.builtInManage && Boolean(props.provider?.isBuiltIn));
 const showConnectionFields = computed(() => !isBuiltInManage.value);

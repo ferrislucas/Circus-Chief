@@ -20,8 +20,17 @@ const mockUiStore = {
   error: vi.fn(),
 };
 
+const mockSettingsStore = {
+  fetchMuseProbeSettings: vi.fn(),
+  updateMuseProbeSettings: vi.fn(),
+};
+
 vi.mock('../stores/providers.js', () => ({
   useProvidersStore: () => mockProvidersStore,
+}));
+
+vi.mock('../stores/settings.js', () => ({
+  useSettingsStore: () => mockSettingsStore,
 }));
 
 vi.mock('../stores/ui.js', () => ({
@@ -1574,6 +1583,154 @@ describe('useProviderForm', () => {
 
       expect(result.error.value).toBe(null);
       expect(result.testResult.value).toBe(null);
+    });
+  });
+
+  // ── Probe model save gating (Issue 9) ─────────────────────────────
+  describe('probe model save gating (Issue 9)', () => {
+    const META_PROVIDER = {
+      id: 'meta-default',
+      name: 'Meta (Official)',
+      kind: 'meta',
+      isBuiltIn: true,
+      baseUrl: null,
+      authToken: null,
+      apiTimeoutMs: null,
+      additionalEnvVars: null,
+      models: [
+        { id: 'm1', modelId: 'muse-spark-1.3', displayName: 'Muse Spark 1.3', tier: 'custom', enabled: true },
+        { id: 'm2', modelId: 'muse-spark-1.3-contributor', displayName: 'Muse Spark 1.3 Contributor', tier: 'custom', enabled: true },
+      ],
+    };
+
+    function openMetaModalWithSlowLoad() {
+      let resolveLoad;
+      mockSettingsStore.fetchMuseProbeSettings.mockReturnValue(new Promise((resolve) => { resolveLoad = resolve; }));
+      mockSettingsStore.updateMuseProbeSettings.mockResolvedValue({ probeModel: 'muse-spark-1.3-contributor' });
+      mockProvidersStore.updateProvider.mockResolvedValue({ id: 'meta-default' });
+      mockProvidersStore.fetchProviders.mockResolvedValue([]);
+      const { result } = createForm({ builtInManageRef: ref(true) });
+      providerRef.value = { ...META_PROVIDER };
+      isOpenRef.value = true;
+      return { result, resolveLoad };
+    }
+
+    it('waits for probe model init before saving', async () => {
+      const { result, resolveLoad } = openMetaModalWithSlowLoad();
+      await nextTick();
+
+      const saving = result.save();
+      // Flush the whole provider-save chain so it provably reaches the
+      // probe-settings step while init is still pending.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      // Init still pending: the stored Contributor value must not be
+      // overwritten by the initial default.
+      expect(mockSettingsStore.updateMuseProbeSettings).not.toHaveBeenCalled();
+
+      resolveLoad({ probeModel: 'muse-spark-1.3-contributor' });
+      await saving;
+
+      expect(mockSettingsStore.updateMuseProbeSettings).toHaveBeenCalledWith({
+        probeModel: 'muse-spark-1.3-contributor',
+      });
+    });
+  });
+
+  // ── Probe model save on failed load (Issue 11) ───────────────────
+  describe('probe model save on failed load (Issue 11)', () => {
+    const META_PROVIDER = {
+      id: 'meta-default',
+      name: 'Meta (Official)',
+      kind: 'meta',
+      isBuiltIn: true,
+      baseUrl: null,
+      authToken: null,
+      apiTimeoutMs: null,
+      additionalEnvVars: null,
+      models: [
+        { id: 'm1', modelId: 'muse-spark-1.3', displayName: 'Muse Spark 1.3', tier: 'custom', enabled: true },
+        { id: 'm2', modelId: 'muse-spark-1.3-contributor', displayName: 'Muse Spark 1.3 Contributor', tier: 'custom', enabled: true },
+      ],
+    };
+
+    async function openMetaModalWithFailedLoad() {
+      mockSettingsStore.fetchMuseProbeSettings.mockRejectedValue(new Error('offline'));
+      mockSettingsStore.updateMuseProbeSettings.mockResolvedValue({ probeModel: 'muse-spark-1.3' });
+      mockProvidersStore.updateProvider.mockResolvedValue({ id: 'meta-default' });
+      mockProvidersStore.fetchProviders.mockResolvedValue([]);
+      const { result } = createForm({ builtInManageRef: ref(true) });
+      providerRef.value = { ...META_PROVIDER };
+      isOpenRef.value = true;
+      await nextTick();
+      // Let the failed probe-model load settle (ready with failure recorded).
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { result };
+    }
+
+    it('skips the probe-model write when the load failed and the user did not pick (Issue 11)', async () => {
+      const { result } = await openMetaModalWithFailedLoad();
+
+      // The user edits only the commit-attribution field.
+      result.form.value.commitAttributionOverride = 'Ada <ada@example.com>';
+      await result.save();
+
+      expect(mockProvidersStore.updateProvider).toHaveBeenCalled();
+      expect(mockSettingsStore.updateMuseProbeSettings).not.toHaveBeenCalled();
+      expect(mockUiStore.success).toHaveBeenCalledWith('Provider updated successfully');
+      expect(onSaved).toHaveBeenCalled();
+    });
+
+    it('persists an explicit user pick made after a failed load (Issue 11)', async () => {
+      const { result } = await openMetaModalWithFailedLoad();
+
+      result.probeModel.value = 'muse-spark-1.3-contributor';
+      await result.save();
+
+      expect(mockSettingsStore.updateMuseProbeSettings).toHaveBeenCalledWith({
+        probeModel: 'muse-spark-1.3-contributor',
+      });
+      expect(onSaved).toHaveBeenCalled();
+    });
+  });
+
+  // ── Probe model save failure is non-fatal (Issue 12) ─────────────
+  describe('probe model save failure is non-fatal (Issue 12)', () => {
+    const META_PROVIDER = {
+      id: 'meta-default',
+      name: 'Meta (Official)',
+      kind: 'meta',
+      isBuiltIn: true,
+      baseUrl: null,
+      authToken: null,
+      apiTimeoutMs: null,
+      additionalEnvVars: null,
+      models: [
+        { id: 'm1', modelId: 'muse-spark-1.3', displayName: 'Muse Spark 1.3', tier: 'custom', enabled: true },
+        { id: 'm2', modelId: 'muse-spark-1.3-contributor', displayName: 'Muse Spark 1.3 Contributor', tier: 'custom', enabled: true },
+      ],
+    };
+
+    it('completes the provider save and surfaces the probe-model failure on its own channel', async () => {
+      mockSettingsStore.fetchMuseProbeSettings.mockResolvedValue({ probeModel: 'muse-spark-1.3-contributor' });
+      mockSettingsStore.updateMuseProbeSettings.mockRejectedValue(new Error('PUT offline'));
+      mockProvidersStore.updateProvider.mockResolvedValue({ id: 'meta-default' });
+      mockProvidersStore.fetchProviders.mockResolvedValue([]);
+      const { result } = createForm({ builtInManageRef: ref(true) });
+      providerRef.value = { ...META_PROVIDER };
+      isOpenRef.value = true;
+      await nextTick();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      await result.save();
+
+      expect(mockProvidersStore.updateProvider).toHaveBeenCalled();
+      expect(mockSettingsStore.updateMuseProbeSettings).toHaveBeenCalled();
+      // The provider save still completes successfully ...
+      expect(mockUiStore.success).toHaveBeenCalledWith('Provider updated successfully');
+      expect(onSaved).toHaveBeenCalled();
+      expect(result.error.value).toBe(null);
+      // ... while the probe-model failure is surfaced on its own channel.
+      expect(mockUiStore.error).toHaveBeenCalledWith(expect.stringMatching(/usage-probe/i));
     });
   });
 });
