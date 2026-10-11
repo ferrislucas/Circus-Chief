@@ -3,6 +3,8 @@ import {
   sessionTemplates,
   sessionSummaries,
   projects,
+  kanbanLanes,
+  databaseManager,
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
@@ -10,7 +12,78 @@ import { renderTemplatePrompt, getRootSession } from './templateTriggerService.j
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
 import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
-import { attachRootSession } from './workflowSessionService.js';
+import { attachRootSession, isAutomationActive, isStructured } from './workflowSessionService.js';
+
+export const LANE_AUTOMATION_DISABLED_CODE = 'LANE_AUTOMATION_DISABLED';
+
+/** Thrown when a lane is disabled mid-dispatch. The outbox parks the entry. */
+export function createLaneAutomationDisabledError() {
+  const error = new Error('Lane automation was disabled during entry dispatch; entry will be parked');
+  error.code = LANE_AUTOMATION_DISABLED_CODE;
+  return error;
+}
+
+export function isLaneAutomationDisabledError(error) {
+  return error?.code === LANE_AUTOMATION_DISABLED_CODE;
+}
+
+/**
+ * Re-read the lane's persisted kill-switch. Throws LaneAutomationDisabledError
+ * when a structured lane is currently disabled. Callers in the delivery path
+ * treat this as "park the entry", never as a delivery failure.
+ */
+export function assertLaneAutomationActive(laneId) {
+  const lane = kanbanLanes.getById(laneId);
+  if (lane && isStructured(lane) && !isAutomationActive(lane)) throw createLaneAutomationDisabledError();
+}
+
+/**
+ * Broadcast a prepared child and start its provider dispatch. Fence 2 runs
+ * first: a disable that landed during working-directory setup prevents
+ * broadcast and dispatch. The per-lane slot releases at dispatch initiation
+ * so later arrivals keep FIFO start order while runs proceed concurrently.
+ */
+async function broadcastAndStartChild({ session, project, newSession, renderedPrompt, settings, workingDirectory,
+  beforeDispatch, abortController, assertLaneEnabled, onDispatchInitiated }) {
+  await assertLaneEnabled?.();
+
+  broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_CREATED, {
+    projectId: session.projectId,
+    session: sessions.getById(newSession.id),
+  });
+
+  if (beforeDispatch) await beforeDispatch(newSession.id);
+  throwIfAborted(abortController);
+  // Initiation and acknowledgement are separate: the dispatcher releases its
+  // per-lane slot as soon as the provider call starts.
+  const dispatchPromise = startChildSession(newSession, renderedPrompt, workingDirectory, {
+    systemPrompt: project.systemPrompt,
+    model: settings.model,
+    ...(abortController ? { abortController } : {}),
+  });
+  onDispatchInitiated?.();
+  const accepted = await dispatchPromise;
+  if (!accepted) return undelivered('provider dispatch was not accepted');
+  return { delivered: true, rootSessionId: newSession.id };
+}
+
+/**
+ * Drop a child created but never dispatched because its lane was disabled
+ * mid-setup. Restores the owning run to rootless so the parked entry keeps
+ * the durable paused shape (open run, no root, card pointers intact).
+ */
+export function abandonUndispatchedChild({ laneRunId, childSessionId }) {
+  if (!childSessionId) return;
+  try {
+    sessions.delete(childSessionId);
+  } catch {
+    // The child may already be gone; the run-root clearing below still applies.
+  }
+  if (laneRunId) {
+    databaseManager.get().prepare('UPDATE kanban_lane_runs SET root_session_id=NULL, updated_at=? WHERE id=?')
+      .run(Date.now(), laneRunId);
+  }
+}
 
 function throwIfAborted(controller) {
   if (controller?.signal.aborted) throw controller.signal.reason || new Error('Lane-entry delivery was aborted');
@@ -163,7 +236,7 @@ export function buildLaneRescheduleUpdates(lane) {
  * @returns {{ newSession: Object, renderedPrompt: string, settings: Object }}
  */
 async function buildChildSessionFromTemplate(template, session, lane, options = {}) {
-  const { laneRunId = null, childSessionId = null } = options;
+  const { laneRunId = null, childSessionId = null, assertLaneEnabled } = options;
   // Render prompt with workspace context
   const rootSession = getRootSession(session);
   const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
@@ -171,6 +244,10 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
     template.prompt,
     { rootSession, rootSummary }
   );
+
+  // Kill-switch fence 1: a disable that landed during prompt rendering must
+  // prevent child allocation entirely (FR-2, AC-5).
+  await assertLaneEnabled?.();
 
   // Get settings and create session with its direct parent set atomically at
   // creation time — avoids a window where the new row briefly has no parent.
@@ -198,7 +275,7 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
 
 // eslint-disable-next-line max-statements, complexity -- capability, cancellation, setup, and dispatch fences form one boundary
 export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
-  const { laneRunId = null, childSessionId = null, beforeDispatch, abortController } = options;
+  const { laneRunId = null, childSessionId = null, beforeDispatch, abortController, assertLaneEnabled, onDispatchInitiated } = options;
 
   const template = sessionTemplates.getById(lane.onEnterTemplateId);
   if (!template) {
@@ -213,10 +290,12 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
 
   console.log(`Kanban: Triggering on-enter template "${template.name}" for session "${session.name}" entering lane "${lane.name}"`);
 
+  let createdChildId = null;
   try {
     const { newSession, renderedPrompt, settings } = await buildChildSessionFromTemplate(
-      template, session, lane, { laneRunId, childSessionId }
+      template, session, lane, { laneRunId, childSessionId, assertLaneEnabled }
     );
+    if (!childSessionId) createdChildId = newSession.id;
 
     // Determine working directory
     const existingChild = childSessionId ? sessions.getById(childSessionId) : null;
@@ -233,27 +312,22 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
       sessions.update(newSession.id, { gitWorktree });
     }
 
-    // Broadcast and start
-    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_CREATED, {
-      projectId: session.projectId,
-      session: sessions.getById(newSession.id),
-    });
-
     // Record dispatch intent after setup/broadcast but immediately before the
     // provider boundary. A crash after this point remains an ambiguous dispatch
     // and is not replayed automatically.
-    if (beforeDispatch) await beforeDispatch(newSession.id);
-    throwIfAborted(abortController);
-    const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
-      systemPrompt: project.systemPrompt,
-      model: settings.model,
-      ...(abortController ? { abortController } : {}),
+    const result = await broadcastAndStartChild({
+      session, project, newSession, renderedPrompt, settings, workingDirectory,
+      beforeDispatch, abortController, assertLaneEnabled, onDispatchInitiated,
     });
-    if (!accepted) return undelivered('provider dispatch was not accepted');
+    if (!result?.delivered) return undelivered('provider dispatch was not accepted');
 
     console.log(`Kanban: Created and started on-enter session ${newSession.id}`);
-    return { delivered: true, rootSessionId: newSession.id };
+    return result;
   } catch (error) {
+    if (isLaneAutomationDisabledError(error)) {
+      abandonUndispatchedChild({ laneRunId, childSessionId: childSessionId ? null : createdChildId });
+      throw error;
+    }
     console.error(`Kanban: Failed to trigger on-enter template for session ${sessionId}:`, error);
     return undelivered(error instanceof Error ? error.message : 'template delivery failed');
   }
@@ -266,7 +340,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
  * @returns {Promise<{ newSession: Object, renderedPrompt: string, settings: Object }>}
  */
 async function buildChildSessionFromPrompt(lane, session, options = {}) {
-  const { laneRunId = null, childSessionId = null } = options;
+  const { laneRunId = null, childSessionId = null, assertLaneEnabled } = options;
   // Render prompt with workspace context
   const rootSession = getRootSession(session);
   const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
@@ -274,6 +348,10 @@ async function buildChildSessionFromPrompt(lane, session, options = {}) {
     lane.onEnterPrompt,
     { rootSession, rootSummary }
   );
+
+  // Kill-switch fence 1: a disable that landed during prompt rendering must
+  // prevent child allocation entirely (FR-2, AC-5).
+  await assertLaneEnabled?.();
 
   // Get settings and create session with its direct parent set atomically at
   // creation time — avoids a window where the new row briefly has no parent.
@@ -295,7 +373,7 @@ async function buildChildSessionFromPrompt(lane, session, options = {}) {
 }
 
 export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
-  const { laneRunId = null, childSessionId = null, beforeDispatch, abortController } = options;
+  const { laneRunId = null, childSessionId = null, beforeDispatch, abortController, assertLaneEnabled, onDispatchInitiated } = options;
 
   const context = getSessionAndProjectForTrigger(sessionId);
   if (!context) return undelivered('workspace session or project not found');
@@ -304,10 +382,12 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
 
   console.log(`Kanban: Triggering on-enter prompt for session "${session.name}" entering lane "${lane.name}"`);
 
+  let createdChildId = null;
   try {
     const { newSession, renderedPrompt, settings } = await buildChildSessionFromPrompt(
-      lane, session, { laneRunId, childSessionId }
+      lane, session, { laneRunId, childSessionId, assertLaneEnabled }
     );
+    if (!childSessionId) createdChildId = newSession.id;
 
     // Determine working directory
     const existingChild = childSessionId ? sessions.getById(childSessionId) : null;
@@ -318,24 +398,19 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
       sessions.update(newSession.id, { gitWorktree });
     }
 
-    // Broadcast and start
-    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_CREATED, {
-      projectId: session.projectId,
-      session: sessions.getById(newSession.id),
+    const result = await broadcastAndStartChild({
+      session, project, newSession, renderedPrompt, settings, workingDirectory,
+      beforeDispatch, abortController, assertLaneEnabled, onDispatchInitiated,
     });
-
-    if (beforeDispatch) await beforeDispatch(newSession.id);
-    throwIfAborted(abortController);
-    const accepted = await startChildSession(newSession, renderedPrompt, workingDirectory, {
-      systemPrompt: project.systemPrompt,
-      model: settings.model,
-      ...(abortController ? { abortController } : {}),
-    });
-    if (!accepted) return undelivered('provider dispatch was not accepted');
+    if (!result?.delivered) return undelivered('provider dispatch was not accepted');
 
     console.log(`Kanban: Created and started on-enter prompt session ${newSession.id}`);
-    return { delivered: true, rootSessionId: newSession.id };
+    return result;
   } catch (error) {
+    if (isLaneAutomationDisabledError(error)) {
+      abandonUndispatchedChild({ laneRunId, childSessionId: childSessionId ? null : createdChildId });
+      throw error;
+    }
     console.error(`Kanban: Failed to trigger on-enter prompt for session ${sessionId}:`, error);
     return undelivered(error instanceof Error ? error.message : 'prompt delivery failed');
   }

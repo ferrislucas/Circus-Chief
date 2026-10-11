@@ -555,6 +555,54 @@ describe('Kanban API', () => {
       );
     });
 
+    it('retries drain stranded queued entries without requiring an off/on cycle', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', automationEnabled: false });
+      const s1 = sessions.create(projectId, 'Queued A', 'Prompt');
+      const s2 = sessions.create(projectId, 'Queued B', 'Prompt');
+      await addSessionToBoardService(s1.id, lanes[0].id);
+      await addSessionToBoardService(s2.id, lanes[0].id);
+      // Strand the queue: flag committed true while entries stay queued, as a
+      // crash between separate commits would leave behind.
+      kanbanLanes.update(lanes[0].id, { automationEnabled: true });
+      const db = databaseManager.get();
+      expect(db.prepare("SELECT COUNT(*) AS count FROM kanban_lane_entry_events WHERE lane_id=? AND status='queued'")
+        .get(lanes[0].id).count).toBe(2);
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ automationEnabled: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.automationEnabled).toBe(true);
+      expect(res.body.drainedCount).toBe(2);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM kanban_lane_entry_events WHERE lane_id=? AND status='queued'")
+        .get(lanes[0].id).count).toBe(0);
+    });
+
+    it('commits the flag flip and queue release together on re-enable', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', automationEnabled: false });
+      const s = sessions.create(projectId, 'Queued', 'Prompt');
+      await addSessionToBoardService(s.id, lanes[0].id);
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ automationEnabled: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.drainedCount).toBe(1);
+      const db = databaseManager.get();
+      expect(db.prepare('SELECT automation_enabled FROM kanban_lanes WHERE id=?').get(lanes[0].id).automation_enabled)
+        .toBe(1);
+      // The release committed with the flag: nothing is still queued, and the
+      // single entry left the queue (detached delivery owns it from here).
+      expect(db.prepare("SELECT COUNT(*) AS count FROM kanban_lane_entry_events WHERE lane_id=? AND status='queued'")
+        .get(lanes[0].id).count).toBe(0);
+      expect(db.prepare('SELECT COUNT(*) AS count FROM kanban_lane_entry_events WHERE lane_id=?')
+        .get(lanes[0].id).count).toBe(1);
+    });
+
     it('includes automationEnabled on board GET', async () => {
       setupBoard();
       kanbanLanes.update(lanes[0].id, { automationEnabled: false });

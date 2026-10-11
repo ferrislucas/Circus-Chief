@@ -53,6 +53,66 @@ describe('kanban session updates', () => {
   });
 });
 
+describe('kanban queue realtime updates', () => {
+  beforeEach(() => setActivePinia(createPinia()));
+
+  function boardWithQueuedLane() {
+    return {
+      lanes: [
+        { id: 'paused', name: 'Paused', automationEnabled: false, queuedCount: 0, cards: [{ id: 'card-1', laneId: 'paused' }] },
+        { id: 'live', name: 'Live', automationEnabled: true, queuedCount: 0, cards: [] },
+      ],
+    };
+  }
+
+  it('marks the card queued and bumps the lane count on entry queued', () => {
+    const store = useKanbanStore();
+    store.board = boardWithQueuedLane();
+
+    store.handleEntryQueued({ cardId: 'card-1', laneId: 'paused', queuePosition: 1, queueDepth: 1 });
+
+    expect(store.board.lanes[0].queuedCount).toBe(1);
+    expect(store.board.lanes[0].cards[0].entryStatus).toBe('queued');
+  });
+
+  it('moves the queued marker and both lane counts on move-out', () => {
+    const store = useKanbanStore();
+    store.board = boardWithQueuedLane();
+    store.handleEntryQueued({ cardId: 'card-1', laneId: 'paused', queuePosition: 1, queueDepth: 1 });
+
+    // The move broadcast carries the card without queue state; the source
+    // lane count drops with the departing queued card, no refetch needed.
+    store.handleCardMoved('card-1', 'paused', 'live', { id: 'card-1', laneId: 'live' });
+
+    expect(store.board.lanes[0].queuedCount).toBe(0);
+    expect(store.board.lanes[0].cards).toEqual([]);
+    expect(store.board.lanes[1].cards[0]).toMatchObject({ id: 'card-1' });
+    expect(store.board.lanes[1].cards[0]).not.toHaveProperty('entryStatus');
+  });
+
+  it('clears the queue state on drain without a refetch', () => {
+    const store = useKanbanStore();
+    store.board = boardWithQueuedLane();
+    store.handleEntryQueued({ cardId: 'card-1', laneId: 'paused', queuePosition: 1, queueDepth: 2 });
+
+    store.handleQueueDrained({ laneId: 'paused', drainedCount: 2 });
+
+    expect(store.board.lanes[0].queuedCount).toBe(0);
+    expect(store.board.lanes[0].cards[0]).not.toHaveProperty('entryStatus');
+  });
+
+  it('ignores queue events for unknown lanes', () => {
+    const store = useKanbanStore();
+    store.board = boardWithQueuedLane();
+
+    expect(() => {
+      store.handleEntryQueued({ cardId: 'ghost', laneId: 'nope', queuePosition: 1, queueDepth: 1 });
+      store.handleQueueDrained({ laneId: 'nope', drainedCount: 1 });
+    }).not.toThrow();
+    expect(store.board.lanes[0].queuedCount).toBe(0);
+  });
+});
+
 describe('kanban card routing responses', () => {
   beforeEach(() => setActivePinia(createPinia()));
 

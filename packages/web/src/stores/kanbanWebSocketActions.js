@@ -49,7 +49,14 @@ export const kanbanWebSocketActions = {
     // Remove from source lane
     const sourceLane = this.board?.lanes?.find((l) => l.id === fromLaneId);
     if (sourceLane) {
+      const departing = sourceLane.cards?.find((c) => c.id === cardId);
       sourceLane.cards = sourceLane.cards?.filter((c) => c.id !== cardId) || [];
+      // A departing queued card takes its queue slot with it: the move
+      // broadcast carries no queue state, so the source count drops here
+      // instead of waiting for a full refetch.
+      if (departing?.entryStatus === 'queued' && (sourceLane.queuedCount || 0) > 0) {
+        sourceLane.queuedCount -= 1;
+      }
     }
 
     // Add to target lane
@@ -60,6 +67,33 @@ export const kanbanWebSocketActions = {
       if (!targetLane.cards.some((c) => c.id === cardId)) {
         targetLane.cards.push(card);
       }
+    }
+  },
+
+  /**
+   * Apply a queue-state broadcast without a full refetch. The server sends
+   * the authoritative queue depth, so the lane badge converges; the card
+   * gains the queued marker the board renders as a paused chip.
+   * @param {Object} msg - KANBAN_ENTRY_QUEUED payload
+   */
+  handleEntryQueued(msg) {
+    const lane = this.board?.lanes?.find((l) => l.id === msg?.laneId);
+    if (!lane) return;
+    if (typeof msg.queueDepth === 'number') lane.queuedCount = msg.queueDepth;
+    const card = lane.cards?.find((c) => c.id === msg.cardId);
+    if (card) card.entryStatus = 'queued';
+  },
+
+  /**
+   * Clear a lane's queue state after a re-enable drain, without a refetch.
+   * @param {Object} msg - KANBAN_QUEUE_DRAINED payload
+   */
+  handleQueueDrained(msg) {
+    const lane = this.board?.lanes?.find((l) => l.id === msg?.laneId);
+    if (!lane) return;
+    lane.queuedCount = 0;
+    for (const card of lane.cards || []) {
+      if (card.entryStatus === 'queued') delete card.entryStatus;
     }
   },
 

@@ -15,8 +15,8 @@ import {
 import {
   addSessionToBoard,
   routeWorkspaceCard,
-  drainQueuedEntries,
-  parkPendingEntriesForLane,
+  updateLaneWithAutomationToggle,
+  scheduleLaneEntryDeliveries,
   removeBoard as removeBoardService,
   removeCard as removeCardService,
   removeLane as removeLaneService,
@@ -208,28 +208,17 @@ function targetLaneForBoard(targetLaneId, board) {
 }
 
 /**
- * Handle automation kill-switch transitions after a lane update.
- * Re-enabling drains queued entries FIFO through detached delivery;
- * disabling parks undelivered entries back to queued (open runs continue).
- * @returns {number} drained entry count (re-enable only, 0 otherwise)
+ * Broadcast a re-enable drain after its transaction has committed. Delivery
+ * was already scheduled; this only notifies live boards of the queue release.
  */
-function handleLaneAutomationToggle(projectId, lane, updated) {
-  const wasDisabled = lane.automationEnabled === false;
-  if (wasDisabled && updated?.automationEnabled === true) {
-    const { drainedCount } = drainQueuedEntries(lane.id);
-    if (drainedCount > 0) {
-      broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_QUEUE_DRAINED, {
-        projectId,
-        laneId: lane.id,
-        drainedCount,
-      });
-    }
-    return drainedCount;
+function broadcastQueueDrained(projectId, laneId, drainedCount) {
+  if (drainedCount > 0) {
+    broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_QUEUE_DRAINED, {
+      projectId,
+      laneId,
+      drainedCount,
+    });
   }
-  if (!wasDisabled && updated?.automationEnabled === false) {
-    parkPendingEntriesForLane(lane.id);
-  }
-  return 0;
 }
 
 function completionTargetError(boardId, targetLaneId, sourceLaneId = null) {
@@ -374,16 +363,22 @@ router.patch('/lanes/:laneId', (req, res) => {
   const targetError = completionTargetError(lane.boardId, result.data.completionTargetLaneId, laneId);
   if (targetError) return res.status(targetError.status).json({ error: targetError.error });
 
+  // The flag flip and the queue release/park commit atomically inside
+  // updateLaneWithAutomationToggle; delivery scheduling and broadcasts stay
+  // detached so PATCH is synchronous.
   let updated;
+  let drainedCount = 0;
   try {
-    updated = kanbanLanes.update(laneId, result.data);
+    const toggle = updateLaneWithAutomationToggle(laneId, result.data);
+    updated = toggle.updated;
+    drainedCount = toggle.eventIds.length;
+    scheduleLaneEntryDeliveries(toggle.eventIds);
   } catch (error) {
     if (isApiError(error)) return res.status(error.status).json({ error: error.message, code: error.code, field: error.field });
     throw error;
   }
 
-  // Draining stays detached so PATCH is synchronous; see handleLaneAutomationToggle.
-  const drainedCount = handleLaneAutomationToggle(projectId, lane, updated);
+  broadcastQueueDrained(projectId, laneId, drainedCount);
 
   // Broadcast updated board
   const fullBoard = buildFullBoardResponse(board);

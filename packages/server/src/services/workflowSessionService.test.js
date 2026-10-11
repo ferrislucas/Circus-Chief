@@ -25,7 +25,11 @@ describe('workflowSessionService', () => {
   });
 
   function structuredLane() {
-    return { ...kanbanLanes.getById(source.id), onEnterPrompt: 'Perform lane work', completionTargetLaneId: target.id };
+    // Completion routing reads the source lane's current config (FR-5), so
+    // the helper persists the target it advertises instead of relying on the
+    // run snapshot alone.
+    kanbanLanes.update(source.id, { onEnterPrompt: 'Perform lane work', completionTargetLaneId: target.id });
+    return kanbanLanes.getById(source.id);
   }
 
   it('advances when the server finalizes a successful turn without an agent callback', () => {
@@ -139,6 +143,8 @@ describe('workflowSessionService', () => {
       lane: { ...structuredLane(), completionTargetLaneId: null },
     });
     attachRootSession(run.id, worker.id);
+    // The run snapshot carries no target and the lane configures none either.
+    kanbanLanes.update(source.id, { completionTargetLaneId: null });
     const token = beginWorkflowTurn(worker.id);
 
     expect(finalizeOwnWorkCompletion(worker.id, token).status).toBe('succeeded');
@@ -768,6 +774,56 @@ describe('workflowSessionService', () => {
       attachRootSession(run.id, worker.id);
 
       expect(() => sessions.create(project.id, 'Child', 'on time', { parentSessionId: worker.id })).not.toThrow();
+    });
+  });
+
+  describe('completion routing reads the current lane config (FR-5)', () => {
+    function completeRun(run, worker) {
+      finalizeOwnWorkCompletion(worker.id, beginWorkflowTurn(worker.id));
+      return getRun(run.id);
+    }
+
+    function startRun() {
+      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+      const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+      attachRootSession(run.id, worker.id);
+      return { run, worker };
+    }
+
+    it('routes to the edited target, not the drain-time snapshot', () => {
+      const { run, worker } = startRun();
+      const edited = kanbanLanes.create(board.id, { name: 'Edited target' });
+      kanbanLanes.update(source.id, { onEnterPrompt: 'Perform lane work', completionTargetLaneId: edited.id });
+
+      expect(completeRun(run, worker).status).toBe('succeeded');
+      expect(kanbanCards.getById(card.id).laneId).toBe(edited.id);
+    });
+
+    it('stays in the source lane when the target is cleared mid-run', () => {
+      const { run, worker } = startRun();
+      kanbanLanes.update(source.id, { completionTargetLaneId: null });
+
+      expect(completeRun(run, worker).status).toBe('succeeded');
+      expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+    });
+
+    it('stays in the source lane when the target lane is deleted mid-run', () => {
+      const { run, worker } = startRun();
+      kanbanLanes.delete(target.id);
+
+      expect(completeRun(run, worker).status).toBe('succeeded');
+      expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+    });
+
+    it('keeps explicit chosen-exit precedence over the current config', () => {
+      const { run, worker } = startRun();
+      const edited = kanbanLanes.create(board.id, { name: 'Edited target' });
+      kanbanLanes.update(source.id, { onEnterPrompt: 'Perform lane work', completionTargetLaneId: edited.id });
+      databaseManager.get().prepare('UPDATE kanban_lane_runs SET chosen_exit_lane_id=? WHERE id=?')
+        .run(target.id, run.id);
+
+      expect(completeRun(run, worker).status).toBe('succeeded');
+      expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
     });
   });
 });

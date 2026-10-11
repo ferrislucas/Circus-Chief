@@ -10,7 +10,11 @@ import {
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
+import {
+  triggerOnEnterTemplate, triggerOnEnterPrompt,
+  assertLaneAutomationActive, isLaneAutomationDisabledError, createLaneAutomationDisabledError,
+  abandonUndispatchedChild,
+} from './kanbanTriggers.js';
 import {
   createLaneRunForEntry, supersedeLaneRun, supersedeLaneRunAuthorityOnly,
   supersedeRunForCard, isStructured, isAutomationActive, getRun,
@@ -194,7 +198,7 @@ function scheduleRouteOrRecover(db, { workspaceId, card, run, targetLane, worksp
 
 export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
   const { runOnEnterTemplate = true, laneRunId = null, childSessionId = null,
-    beforeDispatch, abortController } = options;
+    beforeDispatch, abortController, assertLaneEnabled, onDispatchInitiated } = options;
 
   if (!runOnEnterTemplate) return { delivered: true, rootSessionId: null };
 
@@ -205,14 +209,19 @@ export async function triggerLaneEntryAutomation(sessionId, laneId, options = {}
   let result = { delivered: true, rootSessionId: null };
   if (lane?.onEnterTemplateId) {
     result = await triggerOnEnterTemplate(sessionId, lane, {
-      laneRunId, childSessionId, beforeDispatch, abortController,
+      laneRunId, childSessionId, beforeDispatch, abortController, assertLaneEnabled, onDispatchInitiated,
     });
   } else if (lane?.onEnterPrompt) {
     result = await triggerOnEnterPrompt(sessionId, lane, {
-      laneRunId, childSessionId, beforeDispatch, abortController,
+      laneRunId, childSessionId, beforeDispatch, abortController, assertLaneEnabled, onDispatchInitiated,
     });
   }
-  if (!result?.delivered) throw new Error(`Lane-entry delivery failed: ${result?.reason || 'unknown error'}`);
+  if (!result?.delivered) {
+    // A disable that landed between the claim-time settle check and the final
+    // dispatch boundary parks the entry instead of failing the delivery.
+    if (result?.reason === 'lane_automation_disabled') throw createLaneAutomationDisabledError();
+    throw new Error(`Lane-entry delivery failed: ${result?.reason || 'unknown error'}`);
+  }
   return result;
 }
 
@@ -436,11 +445,20 @@ export async function routeWorkspaceCard(workspaceId, laneId, {
  *   caller's broadcast, or null when the card's lane is already gone and
  *   there is no project left to notify
  */
+/**
+ * Delete every lane-entry event for a card, of any status. Queued entries
+ * have no run, so supersession alone leaves them orphaned (FR-3).
+ */
+function deleteEntryEventsForCard(db, cardId) {
+  db.prepare('DELETE FROM kanban_lane_entry_events WHERE card_id=?').run(cardId);
+}
+
 export function removeCard(card) {
   const projectId = kanbanCards.getProjectId(card.id);
   const laneId = card.laneId;
   databaseManager.transaction(() => {
     supersedeRunForCard(card.id, 'card_removed');
+    deleteEntryEventsForCard(databaseManager.get(), card.id);
     kanbanCards.delete(card.id);
   });
 
@@ -472,9 +490,12 @@ export function removeCard(card) {
  */
 export function removeLane(lane) {
   databaseManager.transaction(() => {
+    const db = databaseManager.get();
     for (const card of kanbanCards.getByLaneId(lane.id)) {
       supersedeRunForCard(card.id, 'card_removed');
+      deleteEntryEventsForCard(db, card.id);
     }
+    db.prepare('DELETE FROM kanban_lane_entry_events WHERE lane_id=?').run(lane.id);
     kanbanLanes.delete(lane.id);
   });
 }
@@ -487,9 +508,13 @@ export function removeLane(lane) {
  */
 export function removeBoard(board) {
   databaseManager.transaction(() => {
+    const db = databaseManager.get();
     for (const card of kanbanCards.getByBoardId(board.id)) {
       supersedeRunForCard(card.id, 'card_removed');
+      deleteEntryEventsForCard(db, card.id);
     }
+    db.prepare('DELETE FROM kanban_lane_entry_events WHERE lane_id IN (SELECT id FROM kanban_lanes WHERE board_id=?)')
+      .run(board.id);
     kanbanBoards.delete(board.id);
   });
 }
@@ -648,9 +673,28 @@ function acknowledgeDispatch(eventId, token) {
   if (result.changes !== 1) throw new Error('Lane-entry claim was lost before dispatch acknowledgement');
 }
 
+/**
+ * Drop a terminal run husk left behind an undelivered entry by an older
+ * recovery that superseded paused rootless runs. Applies only when nothing
+ * ever spawned (no root) and the card is still waiting in a structured lane;
+ * rooted terminal runs are never touched. Returns null when the husk was
+ * dropped so the caller creates a valid replacement.
+ */
+function dropTerminalHuskRun(db, event, run) {
+  if (!run || run.status === 'open' || run.root_session_id) return run;
+  const card = db.prepare('SELECT * FROM kanban_cards WHERE id=?').get(event.card_id);
+  const lane = card && card.lane_id === event.lane_id && kanbanLanes.getById(event.lane_id);
+  if (card && lane && isStructured(lane)) {
+    db.prepare('DELETE FROM kanban_lane_runs WHERE id=?').run(run.id);
+    return null;
+  }
+  return run;
+}
+
 function resolveDeliveryState(event) {
   const db = databaseManager.get();
   let run = db.prepare('SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(event.id);
+  run = dropTerminalHuskRun(db, event, run);
   // Compatibility for durable events written by versions which committed the
   // event before creating its target run. New entry sources create both in one
   // transaction; this branch never creates a replacement once a run exists.
@@ -681,6 +725,22 @@ function resolveDeliveryState(event) {
 }
 
 /**
+ * Park a claimed entry whose lane was disabled mid-flight back to queued: no
+ * spawn, no attempt-count increment, no failure audit. The open run (when one
+ * exists) is deliberately left alone — already-spawned work continues, and a
+ * rootless run keeps the durable paused shape (card pointers intact) that
+ * startup recovery preserves and re-enable resumes. Idempotent: entries
+ * already parked match zero rows.
+ */
+function parkClaimedEntryForDisabledLane(db, { eventId, token }) {
+  const time = Date.now();
+  db.prepare(`UPDATE kanban_lane_entry_events SET status='queued',
+    attempt_count=CASE WHEN attempt_count > 0 THEN attempt_count-1 ELSE 0 END,
+    claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=NULL, updated_at=?
+    WHERE id=? AND claim_token=?`).run(time, eventId, token);
+}
+
+/**
  * Settle a claimed entry before dispatch: reject entries whose card or source
  * transition is gone, and park entries whose structured lane was disabled
  * after they were committed. Unstructured lanes keep the established
@@ -706,57 +766,151 @@ function settleClaimedEntryBeforeDispatch(db, { eventId, token, claim, event }) 
   // back to queued: no spawn, no attempt-count increment, no failure audit.
   const entryLane = event && kanbanLanes.getById(event.lane_id);
   if (entryLane && isStructured(entryLane) && !isAutomationActive(entryLane)) {
-    const time = Date.now();
-    db.prepare(`UPDATE kanban_lane_entry_events SET status='queued',
-      attempt_count=CASE WHEN attempt_count > 0 THEN attempt_count-1 ELSE 0 END,
-      claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=NULL, updated_at=?
-      WHERE id=? AND claim_token=?`).run(time, eventId, token);
+    parkClaimedEntryForDisabledLane(db, { eventId, token });
     claim.stop();
     return true;
   }
   return false;
 }
 
+/**
+ * Bounded per-lane dispatcher (FR-4, AC-3): at most one entry per lane is
+ * inside claim → async setup → provider-dispatch-initiation at a time, so
+ * arrival order is dispatch order and a large queue cannot launch unbounded
+ * concurrent setup work in the HTTP drain path. Waiters are served FIFO; the
+ * slot always releases (failures never block later items); the pause state is
+ * re-checked after acquiring, between entries. The slot releases as soon as
+ * the provider call starts — runs then proceed concurrently.
+ */
+const laneDispatchTails = new Map();
+
+async function withLaneDispatchSlot(laneId, work) {
+  const previous = laneDispatchTails.get(laneId) || Promise.resolve();
+  let releaseSlot;
+  const slot = new Promise((resolve) => { releaseSlot = resolve; });
+  const tail = previous.then(() => slot, () => slot);
+  laneDispatchTails.set(laneId, tail);
+  let slotHeld = true;
+  const release = () => {
+    if (!slotHeld) return;
+    slotHeld = false;
+    releaseSlot();
+  };
+  await previous.catch(() => {});
+  try {
+    return await work(release);
+  } finally {
+    release();
+    if (laneDispatchTails.get(laneId) === tail) laneDispatchTails.delete(laneId);
+  }
+}
+
+/** Record a per-item delivery failure without breaking the failure path. */
+function auditDeliveryFailure(db, runId, event, error) {
+  if (!runId) return;
+  try {
+    db.prepare(`INSERT INTO kanban_lane_run_audit_events
+      (id, operation_key, lane_run_id, session_id, event_type, details_json, created_at)
+      VALUES (?, ?, ?, NULL, 'delivery_failed', ?, ?)
+      ON CONFLICT(operation_key) DO NOTHING`)
+      .run(crypto.randomUUID(), `${runId}:delivery_failed:${event.id}:${event.attempt_count}`, runId,
+        JSON.stringify({ eventId: event.id, error: String(error?.message || 'delivery failed').slice(0, 240) }),
+        Date.now());
+  } catch {
+    // Audit must never break the failure path it observes.
+  }
+}
+
+/** Write a delivery failure back to the outbox for retry. */
+function failClaimedEntryDelivery(db, { eventId, token, event, error }) {
+  const time = Date.now();
+  const exhausted = event.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS;
+  const nextAttemptAt = exhausted ? null : time + laneEntryRetryDelay(event.attempt_count);
+  db.prepare(`UPDATE kanban_lane_entry_events
+    SET status=CASE WHEN ? THEN 'failed' ELSE 'pending' END,
+      claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=?, last_error=?, updated_at=?, completed_at=CASE WHEN ? THEN ? ELSE completed_at END
+    WHERE id=? AND claim_token=?`)
+    .run(exhausted ? 1 : 0, nextAttemptAt, String(error.message || 'delivery failed').slice(0, 240), time, exhausted ? 1 : 0, time, eventId, token);
+}
+
 /** Drain one committed completion handoff. Safe to call repeatedly. */
 // eslint-disable-next-line complexity -- deliberately linear durable state machine
 // eslint-disable-next-line max-statements, complexity -- durable transition boundaries are intentionally linear
 async function drainLaneEntryTriggerImpl(eventId) {
+  const db = databaseManager.get();
+  const pre = db.prepare('SELECT lane_id FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+  if (!pre) return false;
+  // Synchronous prefix preserves the established drain timing: every drained
+  // entry is claimed, settled, and resolved (run created) before detached
+  // delivery resumes. Only the async setup → provider-dispatch section below
+  // is serialized per lane through the dispatch slot.
   const token = claimLaneEntryTrigger(eventId);
   if (!token) return false;
   const abortController = new AbortController();
   const claim = createLaneEntryClaimGuard(eventId, token, abortController);
-  const db = databaseManager.get();
-  const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
-  if (settleClaimedEntryBeforeDispatch(db, { eventId, token, claim, event })) return false;
   try {
+    const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+    if (settleClaimedEntryBeforeDispatch(db, { eventId, token, claim, event })) return false;
     claim.assertCurrent();
     const resolved = resolveDeliveryState(event);
-    if (resolved.state === 'ownership_conflict') throw new Error(resolved.reason);
-    if (resolved.state === 'ambiguous_dispatch') throw new Error(resolved.reason);
-    let rootSessionId = resolved.rootSessionId;
-    if (resolved.state === 'needs_delivery') {
-      const delivery = await triggerLaneEntryAutomation(event.workspace_id, event.lane_id, {
-        runOnEnterTemplate: true, laneRunId: resolved.run.id,
-        childSessionId: resolved.rootSessionId,
-        abortController,
-        beforeDispatch: () => { claim.assertCurrent(); return markDispatchIntent(event.id, token); },
-      });
-      rootSessionId = delivery?.rootSessionId;
-      claim.assertCurrent();
-      acknowledgeDispatch(event.id, token);
+    if (resolved.state === 'ownership_conflict' || resolved.state === 'ambiguous_dispatch') {
+      const error = new Error(resolved.reason);
+      auditDeliveryFailure(db, resolved.run?.id || null, event, error);
+      failClaimedEntryDelivery(db, { eventId, token, event, error });
+      throw error;
     }
-    claim.assertCurrent();
-    return completeVerifiedLaneEntry(event.id, rootSessionId, token);
-  } catch (error) {
-    const time = Date.now();
-    const exhausted = event.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS;
-    const nextAttemptAt = exhausted ? null : time + laneEntryRetryDelay(event.attempt_count);
-    db.prepare(`UPDATE kanban_lane_entry_events
-      SET status=CASE WHEN ? THEN 'failed' ELSE 'pending' END,
-        claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=?, last_error=?, updated_at=?, completed_at=CASE WHEN ? THEN ? ELSE completed_at END
-      WHERE id=? AND claim_token=?`)
-      .run(exhausted ? 1 : 0, nextAttemptAt, String(error.message || 'delivery failed').slice(0, 240), time, exhausted ? 1 : 0, time, eventId, token);
-    throw error;
+    return await withLaneDispatchSlot(pre.lane_id, async (releaseSlot) => {
+      // Re-check between entries: the lane may have been paused, or the card
+      // removed, while waiting for the slot.
+      const fresh = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+      if (!fresh || fresh.status !== 'claimed' || fresh.claim_token !== token) return false;
+      if (settleClaimedEntryBeforeDispatch(db, { eventId, token, claim, event: fresh })) return false;
+      try {
+        claim.assertCurrent();
+        // A redelivery reuses its existing child; only a first delivery allocates.
+        const createdChild = resolved.rootSessionId == null;
+        let rootSessionId = resolved.rootSessionId;
+        if (resolved.state === 'needs_delivery') {
+          const delivery = await triggerLaneEntryAutomation(event.workspace_id, event.lane_id, {
+            runOnEnterTemplate: true, laneRunId: resolved.run.id,
+            childSessionId: resolved.rootSessionId,
+            abortController,
+            assertLaneEnabled: () => assertLaneAutomationActive(event.lane_id),
+            onDispatchInitiated: releaseSlot,
+            beforeDispatch: (childSessionId) => {
+              claim.assertCurrent();
+              // Final dispatch boundary: re-check the persisted kill-switch after
+              // the trigger's async setup. A disable here parks the entry without
+              // consuming an attempt; the undispatched child is removed.
+              try {
+                assertLaneAutomationActive(event.lane_id);
+              } catch (error) {
+                if (isLaneAutomationDisabledError(error) && createdChild) {
+                  abandonUndispatchedChild({ laneRunId: resolved.run.id, childSessionId });
+                }
+                throw error;
+              }
+              return markDispatchIntent(event.id, token);
+            },
+          });
+          rootSessionId = delivery?.rootSessionId;
+          claim.assertCurrent();
+          acknowledgeDispatch(event.id, token);
+        }
+        claim.assertCurrent();
+        return completeVerifiedLaneEntry(event.id, rootSessionId, token);
+      } catch (error) {
+        // A mid-flight disable is a park, not a failure: the entry returns to
+        // queued without consuming an attempt, and the caller reports no delivery.
+        if (isLaneAutomationDisabledError(error)) {
+          parkClaimedEntryForDisabledLane(db, { eventId, token });
+          return false;
+        }
+        auditDeliveryFailure(db, resolved.run?.id || null, fresh, error);
+        failClaimedEntryDelivery(db, { eventId, token, event: fresh, error });
+        throw error;
+      }
+    });
   } finally {
     claim.stop();
   }
@@ -773,6 +927,39 @@ export function drainLaneEntryTrigger(eventId) {
 }
 
 /**
+ * Flip a lane's queued entries to pending in FIFO (arrival) order. Runs
+ * inside the caller's transaction so the flag change and the queue release
+ * commit atomically (FR-4: one PATCH transaction).
+ * @returns {string[]} released event ids in drain order
+ */
+function flipQueuedEntriesToPending(db, laneId) {
+  const rows = db.prepare(`SELECT id FROM kanban_lane_entry_events
+    WHERE lane_id=? AND status='queued' ORDER BY created_at, rowid`).all(laneId);
+  if (!rows.length) return [];
+  const ids = rows.map((row) => row.id);
+  const placeholders = ids.map(() => '?').join(',');
+  db.prepare(`UPDATE kanban_lane_entry_events SET status='pending', updated_at=? WHERE id IN (${placeholders})`)
+    .run(Date.now(), ...ids);
+  return ids;
+}
+
+/** Release a lane's queued entries without scheduling their delivery. */
+export function releaseQueuedEntries(laneId) {
+  return databaseManager.transaction(() => flipQueuedEntriesToPending(databaseManager.get(), laneId));
+}
+
+/** Hand released entries to detached delivery; the outbox owns retry. */
+export function scheduleLaneEntryDeliveries(eventIds) {
+  for (const eventId of eventIds) {
+    try {
+      scheduleLaneEntryDelivery(eventId);
+    } catch (error) {
+      console.error(`Kanban queued-entry drain ${eventId} failed to schedule; outbox retry will pick it up:`, error);
+    }
+  }
+}
+
+/**
  * Drain a lane's queued entries back into automation in FIFO (arrival) order.
  * The `queued → pending` flip commits in one transaction; each event is then
  * handed to the existing detached delivery (same fire-and-forget pattern as
@@ -781,25 +968,33 @@ export function drainLaneEntryTrigger(eventId) {
  * @returns {{ drainedCount: number, eventIds: string[] }}
  */
 export function drainQueuedEntries(laneId) {
-  const db = databaseManager.get();
-  const eventIds = databaseManager.transaction(() => {
-    const rows = db.prepare(`SELECT id FROM kanban_lane_entry_events
-      WHERE lane_id=? AND status='queued' ORDER BY created_at, rowid`).all(laneId);
-    if (!rows.length) return [];
-    const ids = rows.map((row) => row.id);
-    const placeholders = ids.map(() => '?').join(',');
-    db.prepare(`UPDATE kanban_lane_entry_events SET status='pending', updated_at=? WHERE id IN (${placeholders})`)
-      .run(Date.now(), ...ids);
-    return ids;
-  });
-  for (const eventId of eventIds) {
-    try {
-      scheduleLaneEntryDelivery(eventId);
-    } catch (error) {
-      console.error(`Kanban queued-entry drain ${eventId} failed to schedule; outbox retry will pick it up:`, error);
-    }
-  }
+  const eventIds = releaseQueuedEntries(laneId);
+  scheduleLaneEntryDeliveries(eventIds);
   return { drainedCount: eventIds.length, eventIds };
+}
+
+/**
+ * Apply a lane update together with its automation kill-switch transition.
+ * The flag change and the queued→pending release (re-enable) or the
+ * pending→queued park (disable) commit in ONE transaction; delivery is
+ * scheduled only after commit. Draining runs whenever the lane ends up
+ * enabled, so retrying PATCH {automationEnabled:true} also heals entries
+ * stranded by an older split-commit crash — no off/on cycle needed.
+ * @returns {{ updated: Object, eventIds: string[] }}
+ */
+export function updateLaneWithAutomationToggle(laneId, updateData) {
+  return databaseManager.transaction(() => {
+    const db = databaseManager.get();
+    const before = kanbanLanes.getById(laneId);
+    const updated = kanbanLanes.update(laneId, updateData);
+    let eventIds = [];
+    if (updated?.automationEnabled === true) {
+      eventIds = flipQueuedEntriesToPending(db, laneId);
+    } else if (updated?.automationEnabled === false && before?.automationEnabled !== false) {
+      parkPendingEntriesForLane(laneId);
+    }
+    return { updated, eventIds };
+  });
 }
 
 /**

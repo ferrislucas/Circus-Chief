@@ -47,8 +47,12 @@ function buildQueuedCountsByLane() {
     const db = databaseManager.get();
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='kanban_lane_entry_events'").get();
     if (!tables) return new Map();
-    const rows = db.prepare(`SELECT lane_id, COUNT(*) AS queued FROM kanban_lane_entry_events
-      WHERE status='queued' GROUP BY lane_id`).all();
+    // Count only valid owning queued entries: an orphan left behind by a
+    // deletion must never inflate the badge (FR-3).
+    const rows = db.prepare(`SELECT e.lane_id AS lane_id, COUNT(*) AS queued FROM kanban_lane_entry_events e
+      WHERE e.status='queued'
+        AND EXISTS (SELECT 1 FROM kanban_cards c WHERE c.id=e.card_id AND c.lane_id=e.lane_id)
+      GROUP BY e.lane_id`).all();
     return new Map(rows.map((row) => [row.lane_id, row.queued]));
   } catch {
     return new Map();

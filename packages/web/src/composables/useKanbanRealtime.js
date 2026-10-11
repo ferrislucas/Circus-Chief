@@ -41,6 +41,12 @@ export function useKanbanRealtime(projectId) {
       onKanbanExitLaneDeclared: (cardId, activeLaneRun) => {
         kanbanStore.handleExitLaneDeclared(cardId, activeLaneRun);
       },
+      onKanbanEntryQueued: (msg) => {
+        kanbanStore.handleEntryQueued(msg);
+      },
+      onKanbanQueueDrained: (msg) => {
+        kanbanStore.handleQueueDrained(msg);
+      },
       onCommandRunStarted: (runId, sessionId, buttonId) => {
         kanbanStore.handleSessionCommandRun(sessionId, {
           buttonId, runId, status: 'running', exitCode: null, startedAt: Date.now(),

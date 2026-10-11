@@ -154,6 +154,13 @@
                 :button-statuses="cardButtonStatuses[card.sessions[0].id] || []"
                 :session-id="card.sessions[0].id"
               />
+              <span
+                v-if="card.entryStatus === 'queued'"
+                class="card-queued-chip"
+                title="Automation for this lane is paused; the entry runs when the lane is re-enabled"
+              >
+                queued — automation paused
+              </span>
               <!-- Card reorder arrows -->
               <div class="card-reorder-arrows">
                 <button

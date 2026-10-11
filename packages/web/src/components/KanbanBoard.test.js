@@ -388,6 +388,41 @@ describe('KanbanBoard.vue', () => {
     });
   });
 
+  describe('paused lane queue display', () => {
+    function mountPausedBoard() {
+      mockKanbanStoreData.board.lanes[1].automationEnabled = false;
+      mockKanbanStoreData.board.lanes[1].queuedCount = 2;
+      mockKanbanStoreData.board.lanes[1].cards[0].entryStatus = 'queued';
+      return mountBoard();
+    }
+
+    it('marks the paused lane header and queued-count badge', () => {
+      const wrapper = mountPausedBoard();
+      const pausedLane = wrapper.findAll('.kanban-lane')[1];
+
+      expect(pausedLane.classes()).toContain('lane-disabled');
+      expect(pausedLane.find('.lane-automation-paused').attributes('title')).toBe('Automation paused');
+      expect(pausedLane.find('.lane-queued-badge').text()).toContain('2 queued');
+    });
+
+    it('renders the queued chip on cards with entryStatus queued', () => {
+      const wrapper = mountPausedBoard();
+      const pausedLane = wrapper.findAll('.kanban-lane')[1];
+
+      const chip = pausedLane.find('.card-queued-chip');
+      expect(chip.exists()).toBe(true);
+      expect(chip.text()).toContain('queued');
+      expect(chip.text()).toContain('automation paused');
+    });
+
+    it('renders no queued chip or badge without queue state', () => {
+      const wrapper = mountBoard();
+
+      expect(wrapper.find('.card-queued-chip').exists()).toBe(false);
+      expect(wrapper.find('.lane-queued-badge').exists()).toBe(false);
+    });
+  });
+
   describe('Scheduled workspace indicator', () => {
     it('shows scheduled badge and relative time for a scheduled workflow workspace', () => {
       vi.useFakeTimers();

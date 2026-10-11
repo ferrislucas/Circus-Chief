@@ -545,6 +545,19 @@ describe('Kanban Contracts', () => {
       });
       expect(result.success).toBe(true);
     });
+
+    it('accepts the queued entry status and rejects unknown statuses', () => {
+      const base = {
+        id: UUID,
+        laneId: UUID2,
+        sortOrder: 0,
+        sessions: [],
+        createdAt: 1234567890,
+        updatedAt: 1234567890,
+      };
+      expect(KanbanCardResponse.safeParse({ ...base, entryStatus: 'queued' }).success).toBe(true);
+      expect(KanbanCardResponse.safeParse({ ...base, entryStatus: 'pending' }).success).toBe(false);
+    });
   });
 
   // ── KanbanBoardResponse ──────────────────────────────────────────

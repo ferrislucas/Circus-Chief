@@ -68,6 +68,9 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
     board = boardRepo.create(project.id);
     [source, target] = laneRepo.getByBoardId(board.id);
     target = laneRepo.update(target.id, { onEnterPrompt: 'perform target work' });
+    // Completion routing reads the source lane's current config (FR-5): the
+    // target must be persisted on the source row, not only on the run snapshot.
+    source = laneRepo.update(source.id, { onEnterPrompt: 'source work', completionTargetLaneId: target.id });
     workspace = sessionRepo.create(project.id, 'Workspace', 'work');
     card = cardRepo.create(source.id, workspace.id);
     root = sessionRepo.create(project.id, 'Lane prompt', 'do work', { parentSessionId: workspace.id });
@@ -75,7 +78,7 @@ describe('W6: _executeSession triggers target-lane automation after a real succe
       projectId: project.id,
       workspaceId: workspace.id,
       cardId: card.id,
-      lane: { ...laneRepo.getById(source.id), completionTargetLaneId: target.id },
+      lane: laneRepo.getById(source.id),
     });
     attachRootSession(run.id, root.id);
   });

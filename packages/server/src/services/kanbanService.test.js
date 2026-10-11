@@ -791,6 +791,225 @@ describe('kanbanService', () => {
     });
   });
 
+  // ── Kill-switch race: disable mid-async-setup (FR-2, AC-5) ─────────
+
+  describe('kill-switch race during async setup', () => {
+    function enabledLaneWithPrompt(laneId) {
+      kanbanLanes.update(laneId, { onEnterPrompt: 'do something' });
+      return kanbanLanes.getById(laneId);
+    }
+
+    function eventRow(eventId) {
+      return databaseManager.get().prepare('SELECT status, attempt_count FROM kanban_lane_entry_events WHERE id=?')
+        .get(eventId);
+    }
+
+    it('creates no child when the lane is disabled during prompt rendering', async () => {
+      enabledLaneWithPrompt(lanes[0].id);
+      // An already-accepted dispatch must survive the later disable.
+      const rootA = createSession('A');
+      const cardA = kanbanCards.create(lanes[0].id, rootA.id);
+      const runA = createLaneRunForEntry({
+        projectId, workspaceId: rootA.id, cardId: cardA.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+      expect(await drainLaneEntryTrigger(runA.laneEntryEventId)).toBe(true);
+
+      const rootB = createSession('B');
+      const cardB = kanbanCards.create(lanes[0].id, rootB.id);
+      const runB = createLaneRunForEntry({
+        projectId, workspaceId: rootB.id, cardId: cardB.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+      const sessionsBefore = sessions.getByProjectId(projectId).length;
+      const { renderTemplatePrompt: render } = await import('./templateTriggerService.js');
+      render.mockImplementationOnce(async () => {
+        kanbanLanes.update(lanes[0].id, { automationEnabled: false });
+        return 'rendered mid-race';
+      });
+
+      const delivered = await drainLaneEntryTrigger(runB.laneEntryEventId);
+
+      expect(delivered).toBe(false);
+      expect(sessions.getByProjectId(projectId)).toHaveLength(sessionsBefore);
+      expect(runSession).toHaveBeenCalledTimes(1);
+      expect(eventRow(runB.laneEntryEventId)).toEqual({ status: 'queued', attempt_count: 0 });
+      // The already-accepted dispatch is preserved untouched.
+      expect(eventRow(runA.laneEntryEventId).status).toBe('completed');
+      expect(getRun(runA.id).status).toBe('open');
+    });
+
+    it('resumes a parked rootless run after a server restart', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
+      const root = createSession('Root');
+      const card = kanbanCards.create(lanes[0].id, root.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+      kanbanLanes.update(lanes[0].id, { automationEnabled: false });
+
+      expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(false);
+      expect(getRun(run.id).status).toBe('open');
+
+      // Simulate a server restart: recovery must preserve the paused
+      // undelivered ownership instead of classifying it stale/superseded.
+      reconcileKanbanOwnership({ dryRun: false });
+      expect(getRun(run.id).status).toBe('open');
+
+      kanbanLanes.update(lanes[0].id, { automationEnabled: true });
+      expect(drainQueuedEntries(lanes[0].id).drainedCount).toBe(1);
+      await vi.waitFor(() => {
+        expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+          .get(run.laneEntryEventId).status).toBe('completed');
+      });
+      expect(runSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('replaces a terminal husk left behind a queued entry instead of failing delivery', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
+      const root = createSession('Root');
+      const card = kanbanCards.create(lanes[0].id, root.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+      kanbanLanes.update(lanes[0].id, { automationEnabled: false });
+      expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(false);
+      // Legacy damage: an older recovery superseded the paused rootless run.
+      databaseManager.get().prepare("UPDATE kanban_lane_runs SET status='superseded', superseded_at=? WHERE id=?")
+        .run(Date.now(), run.id);
+
+      kanbanLanes.update(lanes[0].id, { automationEnabled: true });
+      expect(drainQueuedEntries(lanes[0].id).drainedCount).toBe(1);
+      await vi.waitFor(() => {
+        expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+          .get(run.laneEntryEventId).status).toBe('completed');
+      });
+      const replacement = databaseManager.get().prepare(
+        "SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=? AND status='open'").get(run.laneEntryEventId);
+      expect(replacement).toBeTruthy();
+      expect(replacement.id).not.toBe(run.id);
+      expect(kanbanCards.getById(card.id).activeLaneRunId).toBe(replacement.id);
+    });
+
+    it('removes the undispatched child when the lane is disabled during git setup', async () => {
+      const template = sessionTemplates.create({ projectId, name: 'Entry', prompt: 'do something' });
+      kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+      const root = createSession('Root');
+      const card = kanbanCards.create(lanes[0].id, root.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+      const sessionsBefore = sessions.getByProjectId(projectId).length;
+      const { setupGitForSession } = await import('./gitSessionSetup.js');
+      const originalSetup = setupGitForSession.getMockImplementation()
+        || (async () => ({ workingDirectory: '/tmp/test', gitWorktree: null }));
+      setupGitForSession.mockImplementationOnce(async (...args) => {
+        kanbanLanes.update(lanes[0].id, { automationEnabled: false });
+        return originalSetup(...args);
+      });
+
+      const delivered = await drainLaneEntryTrigger(run.laneEntryEventId);
+
+      expect(delivered).toBe(false);
+      expect(sessions.getByProjectId(projectId)).toHaveLength(sessionsBefore);
+      expect(runSession).not.toHaveBeenCalled();
+      expect(eventRow(run.laneEntryEventId)).toEqual({ status: 'queued', attempt_count: 0 });
+      // The abandoned run is rootless again so the parked entry can resume.
+      expect(databaseManager.get().prepare('SELECT root_session_id FROM kanban_lane_runs WHERE id=?')
+        .get(run.id).root_session_id).toBeNull();
+    });
+  });
+
+  // ── FIFO dispatch order (FR-4, AC-3) ──────────────────────────────
+
+  describe('FIFO dispatch order', () => {
+    function restoreTriggerMocks() {
+      renderTemplatePrompt.mockReset();
+      renderTemplatePrompt.mockResolvedValue('rendered prompt');
+      runSession.mockReset();
+      runSession.mockResolvedValue(undefined);
+    }
+
+    function rootNameForChild(childId) {
+      const child = databaseManager.get().prepare('SELECT parent_session_id FROM sessions WHERE id=?').get(childId);
+      return sessions.getById(child.parent_session_id).name;
+    }
+
+    it('starts drained entries in arrival order with serialized setup', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something', automationEnabled: false });
+      const cardA = await addSessionToBoard(createSession('A').id, lanes[0].id);
+      const cardB = await addSessionToBoard(createSession('B').id, lanes[0].id);
+      const cardC = await addSessionToBoard(createSession('C').id, lanes[0].id);
+      kanbanLanes.update(lanes[0].id, { automationEnabled: true });
+
+      const startOrder = [];
+      let activeSetups = 0;
+      let maxActiveSetups = 0;
+      renderTemplatePrompt.mockImplementation(async () => {
+        activeSetups += 1;
+        maxActiveSetups = Math.max(maxActiveSetups, activeSetups);
+        try {
+          // A arrives first but resolves setup last; FIFO must still start A first.
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return 'rendered';
+        } finally {
+          activeSetups -= 1;
+        }
+      });
+      // Only A is slow: later arrivals would otherwise win the dispatch race.
+      const baseRender = renderTemplatePrompt.getMockImplementation();
+      renderTemplatePrompt.mockImplementation(async (prompt, ctx) => {
+        if (ctx?.rootSession?.name !== 'A') return 'rendered fast';
+        return baseRender(prompt, ctx);
+      });
+      runSession.mockImplementation(async (childId) => {
+        startOrder.push(rootNameForChild(childId));
+        return undefined;
+      });
+      try {
+        drainQueuedEntries(lanes[0].id);
+        const db = databaseManager.get();
+        await vi.waitFor(() => {
+          for (const card of [cardA, cardB, cardC]) {
+            expect(db.prepare('SELECT status FROM kanban_lane_entry_events WHERE card_id=?').get(card.id).status)
+              .toBe('completed');
+          }
+        });
+      } finally {
+        restoreTriggerMocks();
+      }
+
+      expect(startOrder).toEqual(['A', 'B', 'C']);
+      expect(maxActiveSetups).toBe(1);
+    });
+
+    it('continues past a failed entry and audits the failure', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something', automationEnabled: false });
+      const cardA = await addSessionToBoard(createSession('A').id, lanes[0].id);
+      const cardB = await addSessionToBoard(createSession('B').id, lanes[0].id);
+      const cardC = await addSessionToBoard(createSession('C').id, lanes[0].id);
+      kanbanLanes.update(lanes[0].id, { automationEnabled: true });
+
+      runSession.mockImplementation(async (childId) => {
+        if (rootNameForChild(childId) === 'B') throw new Error('provider down');
+        return undefined;
+      });
+      try {
+        drainQueuedEntries(lanes[0].id);
+        const db = databaseManager.get();
+        await vi.waitFor(() => {
+          expect(db.prepare('SELECT status FROM kanban_lane_entry_events WHERE card_id=?').get(cardA.id).status)
+            .toBe('completed');
+          expect(db.prepare('SELECT status FROM kanban_lane_entry_events WHERE card_id=?').get(cardC.id).status)
+            .toBe('completed');
+        });
+        const runB = db.prepare('SELECT id FROM kanban_lane_runs WHERE card_id=?').get(cardB.id);
+        expect(db.prepare("SELECT event_type FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='delivery_failed'")
+          .get(runB.id)?.event_type).toBe('delivery_failed');
+      } finally {
+        restoreTriggerMocks();
+      }
+    });
+  });
+
   // ── moveCard ───────────────────────────────────────────────────────
 
   describe('moveCard', () => {
@@ -1106,6 +1325,70 @@ describe('kanbanService', () => {
 
     it('is a no-op when the project has no board', () => {
       expect(() => removeBoardForProject('no-such-project')).not.toThrow();
+    });
+  });
+
+  // ── Queued entry deletion cleanup (FR-3) ───────────────────────────
+
+  describe('queued entry deletion cleanup', () => {
+    function entryCount() {
+      return databaseManager.get().prepare('SELECT COUNT(*) AS count FROM kanban_lane_entry_events').get().count;
+    }
+
+    it('removeCard removes the queued entry', async () => {
+      const session = createSession();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something', automationEnabled: false });
+      const card = await addSessionToBoard(session.id, lanes[0].id);
+      expect(entryCount()).toBe(1);
+
+      removeCard(kanbanCards.getById(card.id));
+
+      expect(entryCount()).toBe(0);
+      expect(getFullBoard(projectId).lanes.find((l) => l.id === lanes[0].id).queuedCount).toBe(0);
+    });
+
+    it('removeLane removes queued entries of its lanes', async () => {
+      const session = createSession();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something', automationEnabled: false });
+      await addSessionToBoard(session.id, lanes[0].id);
+      expect(entryCount()).toBe(1);
+
+      removeLane(lanes[0]);
+
+      expect(entryCount()).toBe(0);
+    });
+
+    it('removeBoard removes queued entries of the whole board', async () => {
+      const session = createSession();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something', automationEnabled: false });
+      await addSessionToBoard(session.id, lanes[0].id);
+      expect(entryCount()).toBe(1);
+
+      removeBoard(kanbanBoards.getByProjectId(projectId));
+
+      expect(entryCount()).toBe(0);
+    });
+
+    it('removeBoardForProject removes queued entries with the project board', async () => {
+      const session = createSession();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something', automationEnabled: false });
+      await addSessionToBoard(session.id, lanes[0].id);
+      expect(entryCount()).toBe(1);
+
+      removeBoardForProject(projectId);
+
+      expect(entryCount()).toBe(0);
+    });
+
+    it('removeSessionFromBoard removes the queued entry with the card', async () => {
+      const session = createSession();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something', automationEnabled: false });
+      await addSessionToBoard(session.id, lanes[0].id);
+      expect(entryCount()).toBe(1);
+
+      removeSessionFromBoard(session.id);
+
+      expect(entryCount()).toBe(0);
     });
   });
 

@@ -133,6 +133,8 @@ export const KanbanCardResponse = z.object({
   laneId: z.string().uuid(),
   sortOrder: z.number(),
   sessions: z.array(KanbanCardSessionResponse),
+  // Present only while the card's entry waits in a disabled lane's queue.
+  entryStatus: z.enum(['queued']).optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
