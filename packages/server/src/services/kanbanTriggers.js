@@ -10,7 +10,7 @@ import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief
 import { renderTemplatePrompt, getRootSession } from './templateTriggerService.js';
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
-import { abandonUndispatchedChild } from './kanbanAbandon.js';
+import { abandonPausedTriggerChild } from './kanbanAbandon.js';
 import * as gitService from './gitService.js';
 import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
 import { attachRootSession, isAutomationActive, isStructured } from './workflowSessionService.js';
@@ -365,7 +365,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
     return result;
   } catch (error) {
     if (isLaneAutomationDisabledError(error)) {
-      await abandonUndispatchedChild({ laneRunId, childSessionId: childSessionId ? null : createdChildId, allocatedWorktree });
+      await abandonPausedTriggerChild({ laneRunId, childSessionId, createdChildId, allocatedWorktree });
       throw error;
     }
     console.error(`Kanban: Failed to trigger on-enter template for session ${sessionId}:`, error);
@@ -449,7 +449,7 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
     return result;
   } catch (error) {
     if (isLaneAutomationDisabledError(error)) {
-      await abandonUndispatchedChild({ laneRunId, childSessionId: childSessionId ? null : createdChildId, allocatedWorktree });
+      await abandonPausedTriggerChild({ laneRunId, childSessionId, createdChildId, allocatedWorktree });
       throw error;
     }
     console.error(`Kanban: Failed to trigger on-enter prompt for session ${sessionId}:`, error);

@@ -1057,6 +1057,111 @@ describe('kanbanService', () => {
         expect(sessions.getById(root.id)).toBeTruthy();
       });
 
+      // ── PR #1166 finding 9: retry-time pause must preserve the reused child ──
+      // A redelivery reuses its existing child. Pausing mid-retry must keep
+      // that child/root together for resume — never detach it without cleanup
+      // (leaked child + leaked worktree + phantom run member + failed resume).
+
+      it('preserves a reused template child across retry-time pause and resumes with it on re-enable', async () => {
+        const template = sessionTemplates.create({
+          projectId, name: 'Entry', prompt: 'do something', gitMode: 'worktree', gitBranch: 'lane-feature',
+        });
+        kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+        const root = createSession('Root');
+        const card = kanbanCards.create(lanes[0].id, root.id);
+        const run = createLaneRunForEntry({
+          projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+        });
+        // Pre-dispatch setup failure: attached child C1 + retryable event, no
+        // dispatch intent recorded.
+        const child = createChildSession(root.id, 'Entry (lane: To Do)');
+        attachRootSession(run.id, child.id);
+
+        // Retry reuses C1 and allocates its worktree; the lane is disabled
+        // during that async setup.
+        const { setupGitForSession } = await import('./gitSessionSetup.js');
+        setupGitForSession.mockImplementationOnce(async (...args) => {
+          kanbanLanes.update(lanes[0].id, { automationEnabled: false });
+          const actual = await vi.importActual('./gitSessionSetup.js');
+          return actual.setupGitForSession(...args);
+        });
+
+        expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(false);
+
+        // Pause preserves the child/root together: no detach, no deletion.
+        expect(databaseManager.get().prepare('SELECT status, attempt_count FROM kanban_lane_entry_events WHERE id=?')
+          .get(run.laneEntryEventId)).toEqual({ status: 'queued', attempt_count: 0 });
+        expect(databaseManager.get().prepare('SELECT root_session_id FROM kanban_lane_runs WHERE id=?')
+          .get(run.id).root_session_id).toBe(child.id);
+        const preserved = sessions.getById(child.id);
+        expect(preserved).toBeTruthy();
+        expect(preserved.gitWorktree).toBeTruthy();
+        expect(worktreeList()).toContain(preserved.gitWorktree);
+        const deletions = [...broadcastToProject.mock.calls, ...broadcastToSession.mock.calls]
+          .filter((call) => call[1] === WS_MESSAGE_TYPES.SESSION_DELETED
+            && call[2]?.sessionId === child.id);
+        expect(deletions).toHaveLength(0);
+
+        // Re-enable resumes with the SAME child — exactly once, no duplicate
+        // allocation, no branch-already-checked-out failure.
+        kanbanLanes.update(lanes[0].id, { automationEnabled: true });
+        expect(drainQueuedEntries(lanes[0].id).drainedCount).toBe(1);
+        await vi.waitFor(() => {
+          expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+            .get(run.laneEntryEventId).status).toBe('completed');
+        });
+        expect(runSession).toHaveBeenCalledTimes(1);
+        expect(sessions.getByProjectId(projectId).filter((s) => s.name.includes('Entry')))
+          .toHaveLength(1);
+        expect(databaseManager.get().prepare('SELECT root_session_id FROM kanban_lane_runs WHERE id=?')
+          .get(run.id).root_session_id).toBe(child.id);
+      });
+
+      it('preserves a reused prompt child across retry-time pause during rendering', async () => {
+        kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
+        const root = createSession('Root');
+        const card = kanbanCards.create(lanes[0].id, root.id);
+        const run = createLaneRunForEntry({
+          projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+        });
+        // Pre-dispatch setup failure: attached child C1 + retryable event.
+        const child = createChildSession(root.id, 'Lane prompt (lane: To Do)');
+        attachRootSession(run.id, child.id);
+
+        // Retry-time pause during rendering: the child exists, no worktree yet.
+        const { renderTemplatePrompt: render } = await import('./templateTriggerService.js');
+        render.mockImplementationOnce(async () => {
+          kanbanLanes.update(lanes[0].id, { automationEnabled: false });
+          return 'rendered mid-race';
+        });
+
+        expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(false);
+
+        // No unnecessary detach: the child/root stay attached for resume.
+        expect(databaseManager.get().prepare('SELECT status, attempt_count FROM kanban_lane_entry_events WHERE id=?')
+          .get(run.laneEntryEventId)).toEqual({ status: 'queued', attempt_count: 0 });
+        expect(databaseManager.get().prepare('SELECT root_session_id FROM kanban_lane_runs WHERE id=?')
+          .get(run.id).root_session_id).toBe(child.id);
+        expect(sessions.getById(child.id)).toBeTruthy();
+        const deletions = [...broadcastToProject.mock.calls, ...broadcastToSession.mock.calls]
+          .filter((call) => call[1] === WS_MESSAGE_TYPES.SESSION_DELETED
+            && call[2]?.sessionId === child.id);
+        expect(deletions).toHaveLength(0);
+
+        // Re-enable resumes with the SAME child exactly once.
+        kanbanLanes.update(lanes[0].id, { automationEnabled: true });
+        expect(drainQueuedEntries(lanes[0].id).drainedCount).toBe(1);
+        await vi.waitFor(() => {
+          expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+            .get(run.laneEntryEventId).status).toBe('completed');
+        });
+        expect(runSession).toHaveBeenCalledTimes(1);
+        expect(sessions.getByProjectId(projectId).filter((s) => s.name.includes('Lane prompt')))
+          .toHaveLength(1);
+        expect(databaseManager.get().prepare('SELECT root_session_id FROM kanban_lane_runs WHERE id=?')
+          .get(run.id).root_session_id).toBe(child.id);
+      });
+
       it('emits SESSION_DELETED on project and session channels for a published child abandoned at the provider fence', async () => {
         kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
         const root = createSession('Root');
@@ -1094,6 +1199,88 @@ describe('kanbanService', () => {
           expect.objectContaining({ sessionId: childId })
         );
       });
+    });
+  });
+
+  // ── PR #1166 finding 7: superseded-entry revival ────────────────
+  // A pending entry that survived a move-out (move-out deletes only queued
+  // entries) must not revive once the card moved on: retrying it must spawn
+  // nothing and preserve the newer entry's ownership.
+
+  describe('superseded-entry revival (PR #1166 finding 7)', () => {
+    function eventRow(eventId) {
+      return databaseManager.get().prepare(
+        'SELECT status, attempt_count FROM kanban_lane_entry_events WHERE id=?'
+      ).get(eventId);
+    }
+
+    it('does not revive a superseded entry once a newer entry completed', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
+      const root = createSession('Root');
+      const card = kanbanCards.create(lanes[0].id, root.id);
+      const run1 = createLaneRunForEntry({
+        projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+      const event1 = run1.laneEntryEventId;
+
+      // Move out to B: supersedes run1; the pending E1 survives the move-out.
+      await moveCard(card.id, lanes[1].id);
+      expect(getRun(run1.id).status).toBe('superseded');
+      expect(eventRow(event1)).toEqual({ status: 'pending', attempt_count: 0 });
+
+      // Move back to A: the newer entry E2 dispatches and completes.
+      await moveCard(card.id, lanes[0].id);
+      const event2 = kanbanCards.getById(card.id).laneEntryEventId;
+      expect(event2).not.toBe(event1);
+      await vi.waitFor(() => {
+        expect(eventRow(event2)).toEqual({ status: 'completed', attempt_count: 1 });
+      });
+      const run2Id = kanbanCards.getById(card.id).activeLaneRunId;
+      expect(getRun(run2Id).status).toBe('open');
+
+      const dispatchesBefore = runSession.mock.calls.length;
+
+      // Retrying the obsolete entry must spawn nothing and preserve ownership.
+      await expect(drainLaneEntryTrigger(event1)).resolves.toBe(false);
+      expect(runSession.mock.calls.length).toBe(dispatchesBefore);
+      expect(eventRow(event1).status).toBe('invalid');
+      expect(kanbanCards.getById(card.id)).toMatchObject({
+        activeLaneRunId: run2Id, laneEntryEventId: event2,
+      });
+    });
+
+    it('does not revive a superseded entry while a newer entry is still open', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
+      const root = createSession('Root');
+      const card = kanbanCards.create(lanes[0].id, root.id);
+      const run1 = createLaneRunForEntry({
+        projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+      const event1 = run1.laneEntryEventId;
+
+      await moveCard(card.id, lanes[1].id);
+      expect(getRun(run1.id).status).toBe('superseded');
+
+      // The newer entry's first dispatch fails, leaving its run open.
+      runSession.mockRejectedValueOnce(new Error('provider down'));
+      await moveCard(card.id, lanes[0].id);
+      const event2 = kanbanCards.getById(card.id).laneEntryEventId;
+      expect(event2).not.toBe(event1);
+      await vi.waitFor(() => {
+        expect(eventRow(event2)).toEqual({ status: 'pending', attempt_count: 1 });
+      });
+      const run2Id = kanbanCards.getById(card.id).activeLaneRunId;
+      expect(getRun(run2Id).status).toBe('open');
+
+      const dispatchesBefore = runSession.mock.calls.length;
+
+      await expect(drainLaneEntryTrigger(event1)).resolves.toBe(false);
+      expect(runSession.mock.calls.length).toBe(dispatchesBefore);
+      expect(eventRow(event1).status).toBe('invalid');
+      expect(kanbanCards.getById(card.id)).toMatchObject({
+        activeLaneRunId: run2Id, laneEntryEventId: event2,
+      });
+      expect(getRun(run2Id).status).toBe('open');
     });
   });
 

@@ -43,8 +43,19 @@ async function releaseAbandonedChildWorktree(child, allocatedWorktree) {
  * session lingers without a reload. A worktree allocated for this child is
  * released so re-enable can dispatch cleanly; inherited/shared worktrees are
  * preserved. Missing children are a no-op (double-abandon emits once).
+ *
+ * With `preserveChild`, a redelivery's reused child is kept instead: the
+ * child and its root attachment stay in place for resume, so re-enable reuses
+ * the same child rather than leaking it and allocating another. Only a fresh
+ * allocation from this attempt that never attached to the child is released
+ * (an attached worktree is legitimately reused by the survivor). No deletion,
+ * no notifications, and the run root is never cleared.
  */
-export async function abandonUndispatchedChild({ laneRunId, childSessionId, allocatedWorktree = null }) {
+export async function abandonUndispatchedChild({ laneRunId, childSessionId, allocatedWorktree = null, preserveChild = false }) {
+  if (preserveChild) {
+    await releaseUnattachedRetryAllocation(childSessionId, allocatedWorktree);
+    return;
+  }
   if (childSessionId) {
     const child = sessions.getById(childSessionId);
     if (child) {
@@ -78,5 +89,31 @@ export async function abandonUndispatchedChild({ laneRunId, childSessionId, allo
   if (laneRunId) {
     databaseManager.get().prepare('UPDATE kanban_lane_runs SET root_session_id=NULL, updated_at=? WHERE id=?')
       .run(Date.now(), laneRunId);
+  }
+}
+
+/**
+ * Pause policy shared by the template and prompt trigger paths. A redelivery
+ * reuses its existing child: preserve the child/root together for resume.
+ * Only a first delivery abandons the child it just created.
+ */
+export async function abandonPausedTriggerChild({ laneRunId, childSessionId, createdChildId, allocatedWorktree }) {
+  if (childSessionId) {
+    await abandonUndispatchedChild({ laneRunId, childSessionId, allocatedWorktree, preserveChild: true });
+  } else {
+    await abandonUndispatchedChild({ laneRunId, childSessionId: createdChildId, allocatedWorktree });
+  }
+}
+
+/**
+ * Release a retry attempt's fresh worktree allocation when it never attached
+ * to the preserved child. An attached worktree is legitimately reused by the
+ * survivor and must stay.
+ */
+async function releaseUnattachedRetryAllocation(childSessionId, allocatedWorktree) {
+  if (!childSessionId || !allocatedWorktree) return;
+  const child = sessions.getById(childSessionId);
+  if (child && child.gitWorktree !== allocatedWorktree) {
+    await releaseAbandonedChildWorktree(child, allocatedWorktree);
   }
 }

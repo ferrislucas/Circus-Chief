@@ -684,11 +684,62 @@ function dropTerminalHuskRun(db, event, run) {
   if (!run || run.status === 'open' || run.root_session_id) return run;
   const card = db.prepare('SELECT * FROM kanban_cards WHERE id=?').get(event.card_id);
   const lane = card && card.lane_id === event.lane_id && kanbanLanes.getById(event.lane_id);
-  if (card && lane && isStructured(lane)) {
-    db.prepare('DELETE FROM kanban_lane_runs WHERE id=?').run(run.id);
-    return null;
-  }
-  return run;
+  if (!card || !lane || !isStructured(lane)) return run;
+  // Entry-identity gate (PR #1166 finding 7): only repair a husk that the
+  // card did not intentionally leave behind. A move-out supersedes the run
+  // while its pending entry survives (only queued entries are dequeued), so a
+  // terminal rootless run paired with newer card work is an obsolete arrival,
+  // not legacy damage — dropping it would recreate the run, overwrite the
+  // newer entry's ownership pointers, and dispatch a duplicate session.
+  if (isSupersededEntryRetry(db, event, run)) return run;
+  db.prepare('DELETE FROM kanban_lane_runs WHERE id=?').run(run.id);
+  return null;
+}
+
+/**
+ * Detect an obsolete retry for an entry the card intentionally left behind.
+ * True only for a terminal rootless run where the card moved on: it points at
+ * a different entry, or a newer entry/run owns the card. Legacy husk damage
+ * (no newer work for the card) returns false so repair still applies.
+ */
+function isSupersededEntryRetry(db, event, run) {
+  if (!run || run.status === 'open' || run.root_session_id) return false;
+  const card = db.prepare('SELECT lane_entry_event_id FROM kanban_cards WHERE id=?')
+    .get(event.card_id);
+  if (!card) return false;
+  if (card.lane_entry_event_id && card.lane_entry_event_id !== event.id) return true;
+  const selfEventRowid = db.prepare('SELECT rowid FROM kanban_lane_entry_events WHERE id=?').get(event.id)?.rowid;
+  if (selfEventRowid != null && db.prepare('SELECT 1 FROM kanban_lane_entry_events WHERE card_id=? AND rowid > ?')
+    .get(event.card_id, selfEventRowid)) return true;
+  const selfRunRowid = db.prepare('SELECT rowid FROM kanban_lane_runs WHERE id=?').get(run.id)?.rowid;
+  if (selfRunRowid != null && db.prepare('SELECT 1 FROM kanban_lane_runs WHERE card_id=? AND rowid > ?')
+    .get(event.card_id, selfRunRowid)) return true;
+  return false;
+}
+
+/**
+ * Terminally consume an obsolete superseded arrival without dispatch.
+ * @returns {boolean} true when the entry was consumed and the caller must stop
+ */
+function consumeSupersededEntryIfObsolete(db, { eventId, token, claim, event }) {
+  const entryRun = event && db.prepare('SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(event.id);
+  if (!entryRun || !isSupersededEntryRetry(db, event, entryRun)) return false;
+  invalidateSupersededEntryDelivery(db, { eventId, token, event, reason: 'lane entry was superseded by a newer card move' });
+  claim.stop();
+  return true;
+}
+
+/**
+ * Invalidate an obsolete superseded entry: the card intentionally moved on, so
+ * this arrival is terminally consumed without dispatch. The card pointer is
+ * cleared only if it still references this event (a newer entry owns it).
+ */
+function invalidateSupersededEntryDelivery(db, { eventId, token, event, reason }) {
+  const time = Date.now();
+  db.prepare(`UPDATE kanban_lane_entry_events SET status='invalid', last_error=?,
+    completed_at=?, updated_at=?, claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=NULL
+    WHERE id=? AND claim_token=?`).run(reason, time, time, eventId, token);
+  clearConsumedEntryPointer(db, event.card_id, eventId);
 }
 
 /**
@@ -910,6 +961,10 @@ function settleClaimedEntryBeforeDispatch(db, { eventId, token, claim, event }) 
     claim.stop();
     return true;
   }
+  // An obsolete arrival the card intentionally left behind (a move-out
+  // supersedes the run while its pending entry survives) is terminally
+  // consumed without dispatch — never dropped + recreated (finding 7).
+  if (consumeSupersededEntryIfObsolete(db, { eventId, token, claim, event })) return true;
   // A structured lane disabled after its entries were committed parks them
   // back to queued: no spawn, no attempt-count increment, no failure audit.
   // Settlement re-reads the lane so a toggle that landed during async setup
