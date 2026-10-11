@@ -624,6 +624,91 @@ describe('LaneSettingsModal.vue', () => {
   });
 
   // -----------------------------------------------------------------------
+  // automation type switch presets retry defaults
+  // -----------------------------------------------------------------------
+  describe('automation type switch presets retry defaults', () => {
+    function tokenLimitCheckbox(wrapper) {
+      const label = wrapper.findAll('.checkbox-option')
+        .find((option) => option.text().includes('Token limit errors'));
+      return label.find('input');
+    }
+
+    it('presets auto-reschedule and token-limit retry on when switching none → prompt', async () => {
+      const wrapper = mountModal({ lane: baseLane });
+      await wrapper.find('input[type="radio"][value="prompt"]').setValue(true);
+      await wrapper.find('.section-toggle').trigger('click');
+
+      expect(wrapper.find('.toggle-switch input').element.checked).toBe(true);
+      expect(tokenLimitCheckbox(wrapper).element.checked).toBe(true);
+
+      await wrapper.find('#custom-prompt').setValue('Run the checks');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.onEnterAutoRescheduleEnabled).toBe(true);
+      expect(data.onEnterRescheduleOnTokenLimit).toBe(true);
+    });
+
+    it('presets auto-reschedule and token-limit retry on when switching none → template', async () => {
+      mockTemplatesStore.projectTemplates = [{ id: 'template-42', name: 'Test Template' }];
+      const wrapper = mountModal({ lane: baseLane });
+      await wrapper.find('input[type="radio"][value="template"]').setValue(true);
+      await wrapper.find('.section-toggle').trigger('click');
+
+      expect(wrapper.find('.toggle-switch input').element.checked).toBe(true);
+      expect(tokenLimitCheckbox(wrapper).element.checked).toBe(true);
+
+      await wrapper.find('#template-select').setValue('template-42');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.onEnterAutoRescheduleEnabled).toBe(true);
+      expect(data.onEnterRescheduleOnTokenLimit).toBe(true);
+    });
+
+    it('keeps an explicit opt-out after the preset', async () => {
+      const wrapper = mountModal({ lane: baseLane });
+      await wrapper.find('input[type="radio"][value="prompt"]').setValue(true);
+      await wrapper.find('.section-toggle').trigger('click');
+      await wrapper.find('.toggle-switch input').setValue(false);
+
+      await wrapper.find('#custom-prompt').setValue('Run the checks');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.onEnterAutoRescheduleEnabled).toBe(false);
+    });
+
+    it('preserves user retry choices when switching prompt → template', async () => {
+      mockTemplatesStore.projectTemplates = [{ id: 'template-42', name: 'Test Template' }];
+      const wrapper = mountModal({ lane: laneWithPrompt });
+      await wrapper.find('input[type="radio"][value="template"]').setValue(true);
+      await wrapper.find('#template-select').setValue('template-42');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.onEnterAutoRescheduleEnabled).toBe(true);
+      expect(data.onEnterRescheduleOnTokenLimit).toBe(false);
+    });
+
+    it('preserves user retry choices when switching template → prompt', async () => {
+      const wrapper = mountModal({ lane: laneWithTemplate });
+      await wrapper.find('input[type="radio"][value="prompt"]').setValue(true);
+      await wrapper.find('#custom-prompt').setValue('Run the checks');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.onEnterAutoRescheduleEnabled).toBe(false);
+      expect(data.onEnterRescheduleOnTokenLimit).toBe(true);
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // handleSave with position change
   // -----------------------------------------------------------------------
   describe('handleSave with position change', () => {
