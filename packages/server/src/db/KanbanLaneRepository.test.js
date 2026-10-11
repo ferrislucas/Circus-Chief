@@ -155,6 +155,53 @@ describe('KanbanLaneRepository', () => {
 
       expect(lane.completionTargetLaneId).toBe(target.id);
     });
+
+    it('defaults auto-reschedule on when creating a prompt lane with flags omitted', () => {
+      const lane = laneRepo.create(boardId, { name: 'Prompt Lane', onEnterPrompt: 'Do the work' });
+
+      expect(lane.onEnterAutoRescheduleEnabled).toBe(true);
+      expect(lane.onEnterRescheduleOnTokenLimit).toBe(true);
+      expect(lane.onEnterRescheduleOnServiceError).toBe(true);
+    });
+
+    it('defaults auto-reschedule on when creating a template lane with flags omitted', () => {
+      const template = templateRepo.create({
+        projectId,
+        name: 'Test Template',
+        prompt: 'Do something',
+      });
+
+      const lane = laneRepo.create(boardId, {
+        name: 'Template Lane',
+        onEnterTemplateId: template.id,
+      });
+
+      expect(lane.onEnterAutoRescheduleEnabled).toBe(true);
+      expect(lane.onEnterRescheduleOnTokenLimit).toBe(true);
+      expect(lane.onEnterRescheduleOnServiceError).toBe(true);
+    });
+
+    it('preserves an explicit auto-reschedule opt-out on a prompt lane', () => {
+      const lane = laneRepo.create(boardId, {
+        name: 'Opt-out Lane',
+        onEnterPrompt: 'Do the work',
+        onEnterAutoRescheduleEnabled: false,
+      });
+
+      expect(lane.onEnterAutoRescheduleEnabled).toBe(false);
+    });
+
+    it('keeps auto-reschedule off for a lane without automation when flags omitted', () => {
+      const lane = laneRepo.create(boardId, { name: 'Plain Lane' });
+
+      expect(lane.onEnterAutoRescheduleEnabled).toBe(false);
+    });
+
+    it('treats a whitespace-only prompt as no automation for the default', () => {
+      const lane = laneRepo.create(boardId, { name: 'Blank Prompt Lane', onEnterPrompt: '   ' });
+
+      expect(lane.onEnterAutoRescheduleEnabled).toBe(false);
+    });
   });
 
   describe('update', () => {

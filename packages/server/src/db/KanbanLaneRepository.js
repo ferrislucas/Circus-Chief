@@ -15,11 +15,38 @@ function boolToSqlite(value, defaultValue = null) {
 }
 
 /**
+ * Check whether lane data carries on-entry automation (prompt or template).
+ * Mirrors the validation in #assertConfiguration: a blank prompt counts as
+ * no automation.
+ * @param {Object} data - Lane data
+ * @returns {boolean}
+ */
+function hasAutomation(data) {
+  return Boolean(data.onEnterTemplateId || data.onEnterPrompt?.trim());
+}
+
+/**
+ * Resolve the auto-reschedule column for a lane insert.
+ * A new automated lane with the master switch omitted defaults to retry-on;
+ * explicit true/false pass through unchanged, and lanes without automation
+ * keep the historical default-off behavior.
+ * @param {Object} data - Lane data
+ * @returns {number} 1 or 0
+ */
+function defaultAutoReschedule(data) {
+  if (data.onEnterAutoRescheduleEnabled !== undefined) {
+    return data.onEnterAutoRescheduleEnabled ? 1 : 0;
+  }
+  return hasAutomation(data) ? 1 : 0;
+}
+
+/**
  * Prepare lane insert values from data object.
  * @param {Object} data - Lane data
  * @returns {Array} Array of values for INSERT
  */
 function prepareLaneValues(data) {
+  const autoReschedule = defaultAutoReschedule(data);
   return [
     data.onEnterTemplateId || null,
     data.onEnterPrompt || null,
@@ -27,7 +54,7 @@ function prepareLaneValues(data) {
     data.onEnterModel || null,
     data.onEnterEffortLevel || null,
     boolToSqlite(data.onEnterThinkingEnabled),
-    data.onEnterAutoRescheduleEnabled ? 1 : 0,
+    autoReschedule,
     data.onEnterRescheduleDelayMinutes ?? 15,
     boolToSqlite(data.onEnterRescheduleOnTokenLimit, 1),
     boolToSqlite(data.onEnterRescheduleOnServiceError, 1),
@@ -221,8 +248,7 @@ export class KanbanLaneRepository extends BaseRepository {
 
   /** Reject configurations that cannot have one unambiguous lane-run owner. */
   #assertConfiguration(boardId, lane) {
-    const hasAutomation = Boolean(lane.onEnterTemplateId || lane.onEnterPrompt?.trim());
-    if (lane.completionTargetLaneId && !hasAutomation) {
+    if (lane.completionTargetLaneId && !hasAutomation(lane)) {
       throw new ApiError('A completion target requires an on-entry prompt or template', {
         code: 'KANBAN_LANE_AUTOMATION_REQUIRED', field: 'completionTargetLaneId',
       });
