@@ -185,10 +185,15 @@ do_restart() {
     log "build OK."
   fi
 
-  log "--- starting server ($START_SCRIPT --force) ---"
-  ( cd "$MAIN_ROOT" && nohup ./scripts/start-server.sh --force >>"$LOG" 2>&1 & ) || {
-    fatal "failed to launch start-server.sh."
+  # Invoke start-server.sh exactly as a manual restart does: cwd is the main
+  # root and the command is the relative ./scripts/start-server.sh --force.
+  # Backgrounded (output already goes to the log) so the health loop below
+  # can run; this phase is already a detached session leader, so no nohup.
+  log "--- starting server (./scripts/start-server.sh --force in $MAIN_ROOT) ---"
+  cd "$MAIN_ROOT" || {
+    fatal "cannot cd to main root: $MAIN_ROOT."
   }
+  ./scripts/start-server.sh --force >>"$LOG" 2>&1 &
 
   log "--- health loop (budget ${TIMEOUT}s) ---"
   ELAPSED=0
