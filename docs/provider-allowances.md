@@ -85,11 +85,25 @@ session, and the UI stays honest by reporting stale or `unknown` data.
 
 Staleness is a freshness overlay, not a replacement status: an expired
 snapshot keeps its underlying `status` (`warning`, `critical`, `exhausted`,
-…) alongside a `stale: true` flag, so attention ordering, the mobile badge
-count, and screen-reader announcements keep treating a stale-critical
+…) alongside a `stale: true` flag, so the badge
+count and screen-reader announcements keep treating a stale-critical
 provider as critical. The UI renders the stale marker ("Last value may be
 out of date"), the last-updated time, and the muted treatment from the
 flag.
+
+## Dialog ordering
+
+The `Provider usage` dialog lists providers most-recently-used first. Each
+snapshot carries `lastUsedAt`, defined as `MAX(sessions.updated_at)` over
+every session row for that provider (all statuses, including archived;
+rows with no provider are ignored). Providers never used (`lastUsedAt:
+null`) sort last; equal timestamps keep server/configured order via a
+stable sort, so the list never jitters between equivalent updates. The
+server (`ProviderAllowanceService.getSnapshots`) owns the canonical order
+and the client mirrors the same comparator for live updates, so REST and
+websocket consumers converge without a refetch. Only the dialog list order
+changed: the battery trigger, attention badge, announcements, and staleness
+policy keep their severity-based logic.
 
 ## Validation before merge
 

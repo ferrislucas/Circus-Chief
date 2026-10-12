@@ -170,6 +170,10 @@ export const ProviderAllowanceSnapshot = z.object({
   source: ProviderAllowanceSource.nullable(),
   updatedAt: z.number().finite().nullable(),
   staleAt: z.number().finite().nullable(),
+  // Recency for most-recently-used dialog ordering: MAX(sessions.updated_at)
+  // for the provider, null when never used. Defaulted (not required) so
+  // legacy payloads without the key still parse.
+  lastUsedAt: z.number().finite().nullable().default(null),
   // Freshness overlay: `stale` marks last-known data as out of date while
   // `status` keeps the underlying attention state, so a stale-critical
   // provider still reads as critical. Defaults to false for producers that

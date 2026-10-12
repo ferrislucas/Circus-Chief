@@ -340,7 +340,7 @@ function onUpdate(message) {
   store.replace(parsed.data.snapshot);
 }
 function requestPriorityRefresh(immediate = false) {
-  // The server owns the complete active-session ordering. Event payloads only
+  // The server owns the complete recency ordering. Event payloads only
   // tell us that it may have changed, never enough to reconstruct it safely.
   if (immediate) {
     if (priorityRefreshTimer) {
@@ -377,8 +377,14 @@ function requestPriorityRefresh(immediate = false) {
     }
   }, PRIORITY_REFRESH_DEBOUNCE_MS);
 }
+function sessionRecencyOf(session) {
+  const raw = session?.updatedAt ?? session?.updated_at;
+  if (raw === null || raw === undefined) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
 function rememberSessionPriority(session) {
-  const priority = { status: session.status, providerId: session.providerId };
+  const priority = { status: session.status, providerId: session.providerId, updatedAt: sessionRecencyOf(session) };
   const previous = sessionPriorityMemo.get(session.id);
   sessionPriorityMemo.set(session.id, priority);
   if (sessionPriorityMemo.size > SESSION_PRIORITY_MEMO_MAX) {
@@ -395,7 +401,7 @@ function isActiveSessionStatus(status) {
   return status === 'starting' || status === 'running';
 }
 function reconcileSessionPriority(message) {
-  // The REST response has the complete, authoritative active-session order.
+  // The REST response has the complete, authoritative recency order.
   // A single session event cannot safely reconstruct it client-side, so any
   // priority-relevant change refetches.
   const session = message?.session;
@@ -411,14 +417,18 @@ function reconcileSessionPriority(message) {
     requestPriorityRefresh(true);
     return;
   }
-  // Priority depends only on which providers have sessions in
-  // starting/running — i.e. on status and providerId. Field-only changes
-  // (title, model, summary, …) cannot reorder the indicators.
-  const priority = { status: session.status, providerId: session.providerId };
+  // Recency turns on session activity, tracked here by status,
+  // providerId, and the session's updatedAt/updated_at watermark (the MRU
+  // ordering input is MAX(sessions.updated_at), which moves on every write).
+  // A repeat event with an unchanged pairing and no newer timestamp refetches
+  // nothing; any write that advances updated_at (turn completion, field edit)
+  // reconciles immediately. Duplicate and stale redeliveries stay suppressed.
+  const priority = { status: session.status, providerId: session.providerId, updatedAt: sessionRecencyOf(session) };
   const previous = rememberSessionPriority(session);
   const priorityChanged = !previous
     || previous.status !== priority.status
-    || previous.providerId !== priority.providerId;
+    || previous.providerId !== priority.providerId
+    || (priority.updatedAt !== null && (previous.updatedAt == null || priority.updatedAt > previous.updatedAt));
   if (priorityChanged) requestPriorityRefresh(true);
 }
 function reconcileSessionCreated(message) {
@@ -428,8 +438,10 @@ function reconcileSessionCreated(message) {
     return;
   }
   rememberSessionPriority(session);
-  // A newly created waiting session cannot be active yet, so it cannot
-  // reorder the indicator. All active starts reconcile immediately.
+  // A newly created waiting session needs no immediate reconcile here: the
+  // server fans out a priority invalidation on every creation, so recency
+  // converges through the debounced path. All active starts reconcile
+  // immediately.
   if (isActiveSessionStatus(session.status)) requestPriorityRefresh(true);
 }
 function reconcileSessionDeleted(message) {

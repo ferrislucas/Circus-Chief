@@ -6,9 +6,9 @@ vi.mock('../composables/useApi.js', () => ({ api: { getProviderAllowances } }));
 
 import { isAttention, lowestAllowance, prioritizeSnapshots, useProviderAllowancesStore } from './providerAllowances.js';
 
-const snapshot = (providerId = 'openai-default', status = 'available') => ({
+const snapshot = (providerId = 'openai-default', status = 'available', lastUsedAt = null) => ({
   providerId, providerName: providerId, providerKind: 'openai', status, allowances: [],
-  source: null, updatedAt: null, staleAt: null, unavailableReason: null,
+  source: null, updatedAt: null, staleAt: null, lastUsedAt, unavailableReason: null,
 });
 
 describe('provider allowances store', () => {
@@ -40,20 +40,39 @@ describe('provider allowances store', () => {
     expect(store.error).toBe('network down');
   });
 
-  it('reorders immediately when live updates move providers into attention states', () => {
+  it('holds dialog order on recency when live updates move providers into attention states', () => {
+    // Intentional inversion of the old "attention jumps queue" behavior:
+    // status changes alone never reorder; only recency does.
     const store = useProviderAllowancesStore();
     getProviderAllowances.mockResolvedValue({
-      snapshots: [snapshot('a'), snapshot('b'), snapshot('c')],
+      snapshots: [snapshot('a', 'available', 3000), snapshot('b', 'available', 2000), snapshot('c', 'available', 1000)],
       activeProviderIds: [],
     });
 
     return store.fetch().then(() => {
-      store.replace(snapshot('c', 'warning'));
-      expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['c', 'a', 'b']);
+      store.replace(snapshot('c', 'warning', 1000));
+      expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['a', 'b', 'c']);
 
-      store.replace(snapshot('b', 'exhausted'));
-      expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['c', 'b', 'a']);
+      store.replace(snapshot('b', 'exhausted', 2000));
+      expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['a', 'b', 'c']);
+
+      // A genuinely recent provider moves to top.
+      store.replace(snapshot('c', 'warning', 4000));
+      expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['c', 'a', 'b']);
     });
+  });
+
+  it('preserves the stored recency when a live update carries no lastUsedAt', () => {
+    const store = useProviderAllowancesStore();
+    store.snapshots = [snapshot('a', 'available', 3000), snapshot('b', 'available', 2000)];
+
+    // A stale-cached server may broadcast without recency; that must never
+    // reset the stored value to null.
+    store.replace({ ...snapshot('b', 'exhausted'), lastUsedAt: null });
+
+    expect(store.snapshots.find(({ providerId }) => providerId === 'b'))
+      .toMatchObject({ status: 'exhausted', lastUsedAt: 2000 });
+    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['a', 'b']);
   });
 
   it('pins the attention badge set to warning, critical, and exhausted only', () => {
@@ -75,56 +94,52 @@ describe('provider allowances store', () => {
     expect(store.attentionCount).toBe(3);
   });
 
-  it('moves a recovered provider out of attention while preserving configured order within equal-priority groups', () => {
-    const store = useProviderAllowancesStore();
-    store.setActiveProviderIds([]);
-    store.snapshots = [snapshot('a'), snapshot('b', 'warning'), snapshot('c', 'critical')];
+  it('sorts snapshots by recency with never-used last and stable ties', () => {
+    const snapshots = [
+      snapshot('never-a'), snapshot('old', 'available', 1000), snapshot('recent', 'available', 3000),
+      snapshot('never-b'), snapshot('tie', 'warning', 1000),
+    ];
 
-    store.replace(snapshot('b', 'available'));
-
-    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['c', 'a', 'b']);
+    // The warning tie keeps configured order behind the equally recent
+    // healthy provider: severity never reorders the dialog.
+    expect(prioritizeSnapshots(snapshots).map(({ providerId }) => providerId))
+      .toEqual(['recent', 'old', 'tie', 'never-a', 'never-b']);
   });
 
-  it('preserves the server priority order after fetching', async () => {
+  it('keeps a recovered provider at its recency position instead of leaving an attention group', () => {
     const store = useProviderAllowancesStore();
-    store.setActiveProviderIds(['active']);
+    store.snapshots = [snapshot('c', 'critical', 1000), snapshot('a', 'available', 3000), snapshot('b', 'warning', 2000)];
+
+    store.replace(snapshot('b', 'available', 2000));
+
+    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('preserves the server recency order after fetching', async () => {
+    const store = useProviderAllowancesStore();
     getProviderAllowances.mockResolvedValue({
-      snapshots: [snapshot('active'), snapshot('attention', 'warning'), snapshot('configured')],
-      activeProviderIds: ['active'],
+      snapshots: [snapshot('recent', 'available', 3000), snapshot('older', 'warning', 2000), snapshot('never', 'available')],
+      activeProviderIds: ['recent'],
     });
 
     await store.fetch();
 
-    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['active', 'attention', 'configured']);
+    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['recent', 'older', 'never']);
+    expect(store.activeProviderIds).toEqual(['recent']);
   });
 
-  it('recomputes priority when active sessions start, stop, or switch providers', () => {
+  it('converges REST reconciliation and subsequent websocket updates on one deduplicated recency order', async () => {
     const store = useProviderAllowancesStore();
-    store.snapshots = [snapshot('a'), snapshot('b', 'warning'), snapshot('c')];
-
-    store.setActiveProviderIds(['c']);
-    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['c', 'b', 'a']);
-
-    store.setActiveProviderIds(['a']);
-    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['a', 'b', 'c']);
-
-    store.setActiveProviderIds([]);
-    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['b', 'a', 'c']);
-  });
-
-  it('converges REST reconciliation and subsequent websocket updates on one deduplicated order', async () => {
-    const store = useProviderAllowancesStore();
-    store.setActiveProviderIds(['b']);
     getProviderAllowances.mockResolvedValue({
-      snapshots: [snapshot('a'), snapshot('b'), snapshot('c', 'warning')],
+      snapshots: [snapshot('a', 'available', 3000), snapshot('b', 'available', 2000), snapshot('c', 'warning', 1000)],
       activeProviderIds: ['b'],
     });
 
     await store.fetch();
-    store.replace(snapshot('a', 'exhausted'));
-    store.replace(snapshot('b', 'warning'));
+    store.replace(snapshot('a', 'exhausted', 3000));
+    store.replace({ ...snapshot('b', 'warning'), lastUsedAt: null });
 
-    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['b', 'c', 'a']);
+    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['a', 'b', 'c']);
     expect(store.snapshots).toHaveLength(3);
     expect(new Set(store.snapshots.map(({ providerId }) => providerId)).size).toBe(3);
   });
@@ -157,13 +172,16 @@ describe('provider allowances store', () => {
     expect(store.snapshots[0]).toMatchObject({ status: 'warning', stale: true });
   });
 
-  it('keeps a stale-critical provider in the attention group and badge after refreshStaleness', () => {
+  it('orders a stale-critical provider by recency while keeping it in the badge after refreshStaleness', () => {
+    // Intentional inversion of the old attention-first order: the recently
+    // used healthy provider sorts first, but staleness stays an overlay so
+    // the idle provider still reads as stale-critical for the badge.
     vi.useFakeTimers();
     vi.setSystemTime(300);
     const store = useProviderAllowancesStore();
     store.snapshots = [
-      { ...snapshot('a'), status: 'available', staleAt: null },
-      { ...snapshot('b'), status: 'critical', staleAt: 200 },
+      { ...snapshot('a'), status: 'available', staleAt: null, lastUsedAt: 3000 },
+      { ...snapshot('b'), status: 'critical', staleAt: 200, lastUsedAt: 1000 },
     ];
 
     store.refreshStaleness();
@@ -171,7 +189,7 @@ describe('provider allowances store', () => {
     expect(store.snapshots.find(({ providerId }) => providerId === 'b'))
       .toMatchObject({ status: 'critical', stale: true });
     expect(store.attentionCount).toBe(1);
-    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['b', 'a']);
+    expect(store.snapshots.map(({ providerId }) => providerId)).toEqual(['a', 'b']);
   });
 
   it('does not drop a critical provider from the badge when it goes stale on the timer', () => {

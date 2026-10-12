@@ -300,6 +300,24 @@ export class SessionRepository extends BaseRepository {
   }
 
   /**
+   * Last-used time per provider: MAX(updated_at) over every session row for
+   * that provider, regardless of status or archival. "Used" is historical,
+   * not liveness. Rows with a NULL provider are ignored; providers with no
+   * sessions are absent from the map.
+   */
+  getProviderLastUsedAt() {
+    const rows = this.db
+      .prepare(
+        `SELECT provider_id, MAX(updated_at) AS last_used_at
+         FROM sessions
+         WHERE provider_id IS NOT NULL
+         GROUP BY provider_id`
+      )
+      .all();
+    return Object.fromEntries(rows.map((row) => [row.provider_id, row.last_used_at]));
+  }
+
+  /**
    * Whether any non-archived session driven by the given agent runtime is
    * currently executing. `waiting` is idle and excluded (same executing
    * notion as getExecutingProviderIds). Narrow projection for gating
