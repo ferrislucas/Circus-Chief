@@ -15,6 +15,12 @@ import { closeOwnWork } from './workflowSessionService.js';
  *
  * Call once during server boot, after initDatabase() and before any services start.
  *
+ * A lane retry paused before the restart is intentionally NOT collected here:
+ * the pause path settles its preserved child into durable `stopped` state
+ * while keeping the obligation open (see the pause/resume durability contract
+ * in kanbanAbandon.js), so it reads as resumable queued setup rather than an
+ * orphaned startup.
+ *
  * @returns {{ recovered: number }} Count of sessions recovered.
  */
 export function recoverOrphanedStartingSessions() {

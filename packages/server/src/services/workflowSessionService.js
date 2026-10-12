@@ -12,7 +12,7 @@ import { databaseManager } from '../db/DatabaseManager.js';
 // kanbanService.js/kanbanTriggers.js — see attemptLaneRunTransition below).
 import { getRun } from './workflowRunReader.js';
 import { recomputeSubtreeOutcomes } from './workflowSessionState.js';
-import { broadcastCardTransition, moveCardForTransition } from './workflowLaneTransition.js';
+import { broadcastCardTransition, broadcastQueuedEntryEvent, moveCardForTransition } from './workflowLaneTransition.js';
 import { SESSION_EXECUTION_STATES } from '@circuschief/shared';
 import { USER_STOP_REASON } from './workflowPauseReasons.js';
 import { publishDiscardedPendingDestination } from './kanbanRoutingObservability.js';
@@ -141,9 +141,63 @@ export function isStructured(lane) {
   return Boolean(lane?.completionTargetLaneId || lane?.onEnterTemplateId || lane?.onEnterPrompt);
 }
 
+/**
+ * A structured lane fires entry automation only while its kill-switch is on.
+ * `!== false` keeps legacy rows (and hand-built lane projections without the
+ * flag) on the established enabled behavior.
+ * @returns {boolean}
+ */
+export function isAutomationActive(lane) {
+  return isStructured(lane) && lane?.automationEnabled !== false;
+}
+
+/**
+ * Kill-switch gate for the dispatch fence: a lane whose persisted
+ * `automationEnabled` is false is never dispatchable, whether or not entry
+ * config is retained. Structured-ness is deliberately NOT part of this
+ * predicate — the delivery state machine routes unstructured lanes to the
+ * no-op path, while the fence must still reject a disabled lane whose config
+ * was cleared mid-dispatch (the in-flight trigger holds a stale snapshot).
+ * @returns {boolean}
+ */
+export function isLaneDispatchable(lane) {
+  return lane?.automationEnabled !== false;
+}
+
 /** True for a better-sqlite3 UNIQUE constraint violation, across driver versions. */
 function isUniqueConstraintError(error) {
   return error?.code === 'SQLITE_CONSTRAINT_UNIQUE' || /UNIQUE constraint failed/.test(error?.message || '');
+}
+
+/**
+ * Record a durable queued entry for a card arriving at a lane whose
+ * automation is disabled. No lane run is created and no delivery is
+ * scheduled; the entry replays through the normal outbox when the lane is
+ * re-enabled. Same-lane re-arrivals collapse to one queued entry per card.
+ * Must be called inside the caller's route transaction. The caller owns the
+ * post-commit KANBAN_ENTRY_QUEUED broadcast via the returned descriptor.
+ * Lives here (rather than kanbanService) so the completion-transition path
+ * below can queue without creating an import cycle.
+ */
+export function enqueueDisabledEntry(db, { projectId, workspaceId, cardId, lane, cause, causedByRun = null }) {
+  const time = now();
+  const eventId = id();
+  const key = `${cause}:${cardId}:${lane.id}:${eventId}`;
+  db.prepare(`DELETE FROM kanban_lane_entry_events WHERE card_id=? AND lane_id=? AND status='queued'`)
+    .run(cardId, lane.id);
+  db.prepare(`INSERT INTO kanban_lane_entry_events
+    (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,caused_by_run_id,status,created_at,updated_at,completed_at)
+    VALUES (?,?,?,?,?,?,?,?,'queued',?,?,NULL)`)
+    .run(eventId, key, projectId, workspaceId, cardId, lane.id, cause, causedByRun, time, time);
+  db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=?, updated_at=? WHERE id=?')
+    .run(eventId, time, cardId);
+  const order = db.prepare(`SELECT id FROM kanban_lane_entry_events
+    WHERE lane_id=? AND status='queued' ORDER BY created_at, rowid`).all(lane.id).map((row) => row.id);
+  return {
+    eventId,
+    queuePosition: order.indexOf(eventId) + 1,
+    queueDepth: order.length,
+  };
 }
 
 /**
@@ -317,6 +371,7 @@ export function finalizeOwnWorkCompletion(sessionId, { turnToken = null } = {}) 
     return reconcileLaneRun(s.lane_run_id, { deferBroadcast: true });
   });
   broadcastCardTransition(result?.postCommitCardTransition);
+  broadcastQueuedEntryEvent(result?.queuedCompletionEntry);
   return result;
 }
 
@@ -476,11 +531,36 @@ function createCompletionSuccessor(run, card, movedCard) {
   if (!movedCard) return null;
   const db = databaseManager.get();
   const targetLane = db.prepare('SELECT * FROM kanban_lanes WHERE id=?').get(movedCard.laneId);
-  if (!targetLane || !isStructured({
+  const structuredView = targetLane && {
     completionTargetLaneId: targetLane.completion_target_lane_id,
     onEnterTemplateId: targetLane.on_enter_template_id,
     onEnterPrompt: targetLane.on_enter_prompt,
-  })) return null;
+  };
+  if (!targetLane || !isStructured(structuredView)) return null;
+  // A disabled target queues the completion handoff instead of opening a
+  // run: the source run still succeeds with its exit declared, and the chain
+  // resumes (against the lane's then-current config) on re-enable drain.
+  // `!== 0` keeps legacy rows without the flag on enabled behavior.
+  if (!isAutomationActive({ ...structuredView, automationEnabled: targetLane.automation_enabled !== 0 })) {
+    const queued = enqueueDisabledEntry(db, {
+      projectId: run.project_id,
+      workspaceId: run.workspace_id,
+      cardId: card.id,
+      lane: { id: targetLane.id },
+      cause: 'completion',
+      causedByRun: run.id,
+    });
+    return {
+      queued: true,
+      laneEntryEventId: queued.eventId,
+      projectId: run.project_id,
+      workspaceId: run.workspace_id,
+      cardId: card.id,
+      laneId: targetLane.id,
+      queuePosition: queued.queuePosition,
+      queueDepth: queued.queueDepth,
+    };
+  }
   return createLaneRunForEntry({
     projectId: run.project_id,
     workspaceId: run.workspace_id,
@@ -510,8 +590,11 @@ export function attemptLaneRunTransition(runId, { deferBroadcast = false } = {})
 
     const movedCard = moveCardForTransition(run, card);
     const targetLaneId = movedCard?.laneId || null;
-    const laneRun = createCompletionSuccessor(run, card, movedCard);
-    if (!laneRun) releaseCardFromRun(db, runId, now());
+    const successor = createCompletionSuccessor(run, card, movedCard);
+    // A queued successor already points the card at its queued entry; only a
+    // fully absent successor releases the card from this run.
+    const laneRun = successor && !successor.queued ? successor : null;
+    if (!successor) releaseCardFromRun(db, runId, now());
     audit(db, runId, 'transition_applied');
     if (movedCard) audit(db, runId, 'card_moved', {
       details: { fromLaneId: card.lane_id, toLaneId: movedCard.laneId },
@@ -535,9 +618,20 @@ export function attemptLaneRunTransition(runId, { deferBroadcast = false } = {})
       card: movedCard,
     };
     if (postCommitCardTransition) result.postCommitCardTransition = postCommitCardTransition;
-    return { result, postCommitCardTransition };
+    const postCommitQueuedEntry = successor?.queued ? {
+      projectId: run.project_id,
+      cardId: card.id,
+      laneId: successor.laneId,
+      queuePosition: successor.queuePosition,
+      queueDepth: successor.queueDepth,
+    } : null;
+    if (postCommitQueuedEntry) result.queuedCompletionEntry = postCommitQueuedEntry;
+    return { result, postCommitCardTransition, postCommitQueuedEntry };
   });
-  if (!deferBroadcast) broadcastCardTransition(transition.postCommitCardTransition);
+  if (!deferBroadcast) {
+    broadcastCardTransition(transition.postCommitCardTransition);
+    broadcastQueuedEntryEvent(transition.postCommitQueuedEntry);
+  }
   const { result } = transition;
   return result;
 }

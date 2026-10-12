@@ -156,6 +156,27 @@ describe('KanbanLaneRepository', () => {
       expect(lane.completionTargetLaneId).toBe(target.id);
     });
 
+    it('defaults automationEnabled to true', () => {
+      const lane = laneRepo.create(boardId, { name: 'Plain Lane' });
+
+      expect(lane.automationEnabled).toBe(true);
+    });
+
+    it('persists automationEnabled false on create', () => {
+      const lane = laneRepo.create(boardId, { name: 'Paused Lane', automationEnabled: false });
+
+      expect(lane.automationEnabled).toBe(false);
+      expect(laneRepo.getById(lane.id).automationEnabled).toBe(false);
+    });
+
+    it('carries automationEnabled on default board lanes', () => {
+      const lanes = laneRepo.getByBoardId(boardId);
+
+      for (const lane of lanes) {
+        expect(lane.automationEnabled).toBe(true);
+      }
+    });
+
     it('defaults auto-reschedule on when creating a prompt lane with flags omitted', () => {
       const lane = laneRepo.create(boardId, { name: 'Prompt Lane', onEnterPrompt: 'Do the work' });
 
@@ -296,6 +317,24 @@ describe('KanbanLaneRepository', () => {
       const updated = laneRepo.update(lane.id, { name: 'Updated' });
 
       expect(updated.updatedAt).toBeGreaterThanOrEqual(lane.updatedAt);
+    });
+
+    it('flips automationEnabled false and back to true', () => {
+      const lane = laneRepo.create(boardId, { name: 'Test' });
+
+      const disabled = laneRepo.update(lane.id, { automationEnabled: false });
+      expect(disabled.automationEnabled).toBe(false);
+
+      const reEnabled = laneRepo.update(lane.id, { automationEnabled: true });
+      expect(reEnabled.automationEnabled).toBe(true);
+    });
+
+    it('preserves automationEnabled when omitted from update', () => {
+      const lane = laneRepo.create(boardId, { name: 'Test', automationEnabled: false });
+
+      const updated = laneRepo.update(lane.id, { name: 'Renamed' });
+
+      expect(updated.automationEnabled).toBe(false);
     });
   });
 

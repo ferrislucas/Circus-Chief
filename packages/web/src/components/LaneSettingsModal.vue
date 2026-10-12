@@ -153,6 +153,24 @@
           </div>
         </div>
 
+        <!-- Automation Enabled -->
+        <div class="form-group">
+          <label
+            class="checkbox-option"
+            for="automation-enabled"
+          >
+            <input
+              id="automation-enabled"
+              v-model="form.automationEnabled"
+              type="checkbox"
+            >
+            <span>Automation enabled</span>
+          </label>
+          <p class="form-help">
+            When off, workspaces entering this lane are queued and no sessions start until re-enabled.
+          </p>
+        </div>
+
         <!-- Template Selector -->
         <div
           v-if="automationType === 'template'"
@@ -470,6 +488,7 @@ const currentLaneIndex = ref(-1);
 
 const form = reactive({
   name: '',
+  automationEnabled: true,
   onEnterTemplateId: null,
   onEnterPrompt: '',
   // Agent settings
@@ -541,6 +560,7 @@ function buildRescheduleFields(lane) {
 function buildFormFromLane(lane) {
   return {
     name: lane.name || '',
+    automationEnabled: lane.automationEnabled ?? true,
     onEnterTemplateId: lane.onEnterTemplateId || null,
     onEnterPrompt: lane.onEnterPrompt || '',
     onEnterMode: lane.onEnterMode || null,
@@ -683,10 +703,13 @@ function handleMoveLane(toIndex) {
 
 /**
  * Build save data when automation type is 'none' -- clear all automation fields.
+ * The enabled toggle is orthogonal to the automation type and rides along verbatim.
+ * @param {Object} formData - The reactive form object
  * @returns {Object} Save data fields for 'none' automation
  */
-function buildSaveDataForNone() {
+function buildSaveDataForNone(formData) {
   return {
+    automationEnabled: formData.automationEnabled ?? true,
     onEnterTemplateId: null,
     onEnterPrompt: null,
     onEnterMode: null,
@@ -710,7 +733,8 @@ function buildSaveDataForNone() {
  */
 function buildSaveDataForTemplate(formData) {
   return {
-    ...buildSaveDataForNone(),
+    ...buildSaveDataForNone(formData),
+    automationEnabled: formData.automationEnabled ?? true,
     onEnterTemplateId: formData.onEnterTemplateId,
     onEnterPrompt: null,
     // Retry policy applies to template lanes too (see FR-4).
@@ -731,6 +755,7 @@ function buildSaveDataForTemplate(formData) {
  */
 function buildSaveDataForPrompt(formData) {
   return {
+    automationEnabled: formData.automationEnabled ?? true,
     onEnterTemplateId: null,
     onEnterPrompt: formData.onEnterPrompt.trim(),
     onEnterMode: formData.onEnterMode,
@@ -778,7 +803,7 @@ async function handleSave() {
     } else if (automationType.value === 'prompt') {
       Object.assign(data, buildSaveDataForPrompt(form));
     } else {
-      Object.assign(data, buildSaveDataForNone());
+      Object.assign(data, buildSaveDataForNone(form));
     }
     data.completionTargetLaneId = form.completionTargetLaneId || null;
 

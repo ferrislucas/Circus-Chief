@@ -15,13 +15,15 @@ import {
 import {
   addSessionToBoard,
   routeWorkspaceCard,
+  updateLaneWithAutomationToggle,
+  scheduleLaneEntryDeliveries,
   removeBoard as removeBoardService,
   removeCard as removeCardService,
   removeLane as removeLaneService,
 } from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
 import { getRun } from '../services/workflowSessionService.js';
-import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
+import { buildFullBoardResponse, buildQueuedCountsByLane } from '../services/kanbanBoardResponse.js';
 import { isApiError } from '../errors/ApiError.js';
 import { kanbanRoutingMetrics } from '../services/kanbanRoutingObservability.js';
 
@@ -205,6 +207,20 @@ function targetLaneForBoard(targetLaneId, board) {
   return laneBelongsToBoard(targetLane, board) ? targetLane : null;
 }
 
+/**
+ * Broadcast a re-enable drain after its transaction has committed. Delivery
+ * was already scheduled; this only notifies live boards of the queue release.
+ */
+function broadcastQueueDrained(projectId, laneId, drainedCount) {
+  if (drainedCount > 0) {
+    broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_QUEUE_DRAINED, {
+      projectId,
+      laneId,
+      drainedCount,
+    });
+  }
+}
+
 function completionTargetError(boardId, targetLaneId, sourceLaneId = null) {
   if (targetLaneId === undefined || targetLaneId === null) return null;
   if (targetLaneId === sourceLaneId) {
@@ -334,26 +350,47 @@ router.patch('/lanes/:laneId', (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
+  const operation = beginOperation(req, `lane_toggle:${laneId}`);
+  if (operation.conflict) return res.status(409).json({ error: 'Idempotency-Key was already used with a different payload' });
+  if (replayOrPending(res, operation)) return;
+
   const lane = kanbanLanes.getById(laneId);
   if (!lane) {
-    return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
+    return sendTerminalOperationResponse(res, operation, 404, { error: LANE_NOT_FOUND_ERROR });
   }
 
   const board = kanbanBoards.getByProjectId(projectId);
   if (!board || board.id !== lane.boardId) {
-    return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
+    return sendTerminalOperationResponse(res, operation, 404, { error: LANE_NOT_FOUND_ERROR });
   }
 
   const targetError = completionTargetError(lane.boardId, result.data.completionTargetLaneId, laneId);
-  if (targetError) return res.status(targetError.status).json({ error: targetError.error });
+  if (targetError) return sendTerminalOperationResponse(res, operation, targetError.status, { error: targetError.error });
 
-  let updated;
+  // The flag flip and the queue release/park commit atomically inside
+  // updateLaneWithAutomationToggle; delivery scheduling and broadcasts stay
+  // detached so PATCH is synchronous. Completed-key retries replay the
+  // recorded response above without mutating, scheduling, or broadcasting.
+  let toggle;
   try {
-    updated = kanbanLanes.update(laneId, result.data);
+    toggle = updateLaneWithAutomationToggle(laneId, result.data, {
+      finalizeMutation: ({ updated, eventIds }) => completeOperation(operation, {
+        // The repository lane projection carries no queue depth; attach it
+        // with the same authoritative counting logic as the board response
+        // (FRD §6).
+        ...updated,
+        queuedCount: buildQueuedCountsByLane().get(laneId) || 0,
+        drainedCount: eventIds.length,
+      }, { responseStatus: 200 }),
+    });
+    scheduleLaneEntryDeliveries(toggle.eventIds);
   } catch (error) {
-    if (isApiError(error)) return res.status(error.status).json({ error: error.message, code: error.code, field: error.field });
+    if (isApiError(error)) return sendTerminalResponseFromCatch(res, operation, error.status, { error: error.message, code: error.code, field: error.field });
+    if (operation.keyed) return sendFailureFromCatch(res, operation, error);
     throw error;
   }
+
+  broadcastQueueDrained(projectId, laneId, toggle.eventIds.length);
 
   // Broadcast updated board
   const fullBoard = buildFullBoardResponse(board);
@@ -362,7 +399,10 @@ router.patch('/lanes/:laneId', (req, res) => {
     board: fullBoard,
   });
 
-  res.json(updated);
+  // The recorded body is the legacy shape for unkeyed requests
+  // (completeOperation is a passthrough without a key) and the canonical
+  // recorded response — with operationId — for keyed ones.
+  return res.json(toggle.response);
 });
 
 /**
