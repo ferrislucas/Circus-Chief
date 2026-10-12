@@ -721,6 +721,8 @@ function dropTerminalHuskRun(db, event, run) {
 const INTENTIONAL_SUPERSESSION_REASONS = new Set([
   'card_moved',
   'manual_move',
+  'manual_card_move',
+  'workspace_routed',
   'card_removed',
   'automation_removed',
 ]);

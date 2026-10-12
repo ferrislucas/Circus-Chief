@@ -446,6 +446,24 @@ describe('Kanban API', () => {
       expect(res.body.name).toBe('Renamed');
     });
 
+    it('reports queuedCount on PATCH when the queue is nonempty', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', automationEnabled: false });
+      const s1 = sessions.create(projectId, 'Queued A', 'Prompt');
+      const s2 = sessions.create(projectId, 'Queued B', 'Prompt');
+      await addSessionToBoardService(s1.id, lanes[0].id);
+      await addSessionToBoardService(s2.id, lanes[0].id);
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ name: 'Renamed' });
+
+      expect(res.status).toBe(200);
+      const board = await request(app).get(`/api/projects/${projectId}/kanban`);
+      expect(board.body.lanes.find((l) => l.id === lanes[0].id).queuedCount).toBe(2);
+      expect(res.body.queuedCount).toBe(2);
+    });
+
     it('disables and re-enables lane automation via PATCH', async () => {
       setupBoard();
 

@@ -23,7 +23,7 @@ import {
 } from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
 import { getRun } from '../services/workflowSessionService.js';
-import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
+import { buildFullBoardResponse, buildQueuedCountsByLane } from '../services/kanbanBoardResponse.js';
 import { isApiError } from '../errors/ApiError.js';
 import { kanbanRoutingMetrics } from '../services/kanbanRoutingObservability.js';
 
@@ -387,7 +387,10 @@ router.patch('/lanes/:laneId', (req, res) => {
     board: fullBoard,
   });
 
-  res.json({ ...updated, drainedCount });
+  // The repository lane projection carries no queue depth; attach it with
+  // the same authoritative counting logic as the board response (FRD §6).
+  const queuedCount = buildQueuedCountsByLane().get(laneId) || 0;
+  res.json({ ...updated, queuedCount, drainedCount });
 });
 
 /**

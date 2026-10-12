@@ -42,7 +42,7 @@ function withSessionDetails(card, runsBySession) {
  * queue state predates the feature (no entry-events table or no status
  * column), so old databases read as "nothing queued".
  */
-function buildQueuedCountsByLane() {
+export function buildQueuedCountsByLane() {
   try {
     const db = databaseManager.get();
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='kanban_lane_entry_events'").get();

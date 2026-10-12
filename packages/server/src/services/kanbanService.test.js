@@ -1297,6 +1297,54 @@ describe('kanbanService', () => {
       expect(kanbanCards.getById(card.id)).toMatchObject({ activeLaneRunId: null, laneEntryEventId: null });
     });
 
+    it('does not revive a superseded entry after by-workspace move-out/back through an unautomated configuration', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
+      const root = createSession('Root');
+      const card = kanbanCards.create(lanes[0].id, root.id);
+      const run1 = createLaneRunForEntry({
+        projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+      const event1 = run1.laneEntryEventId;
+
+      // Template-rendering failure before child allocation: a rootless open
+      // run paired with a retryable pending event.
+      renderTemplatePrompt.mockRejectedValueOnce(new Error('render boom'));
+      await expect(drainLaneEntryTrigger(event1)).rejects.toThrow();
+      expect(getRun(run1.id)).toMatchObject({ status: 'open', rootSessionId: null });
+      expect(eventRow(event1)).toEqual({ status: 'pending', attempt_count: 1 });
+
+      // Move out to unautomated lane B through the public by-workspace path:
+      // supersedes run1 with the workspace-route reason and clears the card
+      // pointers; the pending E1 survives.
+      await routeWorkspaceCard(root.id, lanes[1].id, { manualMove: true });
+      expect(getRun(run1.id).status).toBe('superseded');
+      expect(kanbanCards.getById(card.id)).toMatchObject({ activeLaneRunId: null, laneEntryEventId: null });
+
+      // Clear A's automation, then move back while unautomated: neither move
+      // creates a successor entry or run.
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: null, onEnterTemplateId: null, completionTargetLaneId: null });
+      const db = databaseManager.get();
+      const eventsBefore = db.prepare('SELECT count(*) count FROM kanban_lane_entry_events WHERE card_id=?').get(card.id).count;
+      const runsBefore = db.prepare('SELECT count(*) count FROM kanban_lane_runs WHERE card_id=?').get(card.id).count;
+      await routeWorkspaceCard(root.id, lanes[0].id, { manualMove: true });
+      expect(db.prepare('SELECT count(*) count FROM kanban_lane_entry_events WHERE card_id=?').get(card.id).count)
+        .toBe(eventsBefore);
+      expect(db.prepare('SELECT count(*) count FROM kanban_lane_runs WHERE card_id=?').get(card.id).count)
+        .toBe(runsBefore);
+
+      // Restore A's automation, then let the outbox retry fire after backoff:
+      // retrying the old arrival must terminally consume it — never drop the
+      // superseded run and dispatch a replacement.
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
+      db.prepare('UPDATE kanban_lane_entry_events SET next_attempt_at=NULL WHERE id=?').run(event1);
+      const dispatchesBefore = runSession.mock.calls.length;
+      await expect(drainLaneEntryTrigger(event1)).resolves.toBe(false);
+      expect(runSession.mock.calls.length).toBe(dispatchesBefore);
+      expect(eventRow(event1).status).toBe('invalid');
+      expect(getRun(run1.id).status).toBe('superseded');
+      expect(kanbanCards.getById(card.id)).toMatchObject({ activeLaneRunId: null, laneEntryEventId: null });
+    });
+
     it('does not revive a superseded entry while a newer entry is still open', async () => {
       kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
       const root = createSession('Root');
