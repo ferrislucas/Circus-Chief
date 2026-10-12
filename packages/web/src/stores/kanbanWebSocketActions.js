@@ -31,9 +31,14 @@ export const kanbanWebSocketActions = {
     const lane = this.board?.lanes?.find((l) => l.id === laneId);
     if (lane) {
       lane.cards = lane.cards || [];
-      // Avoid duplicates
-      if (!lane.cards.some((c) => c.id === card.id)) {
+      // Upsert the authoritative payload: the lane may already hold an
+      // HTTP-inserted copy that predates the committed entry state, and
+      // ignoring the payload would keep it (and the running count) stale.
+      const index = lane.cards.findIndex((c) => c.id === card.id);
+      if (index === -1) {
         lane.cards.push(card);
+      } else {
+        lane.cards[index] = card;
       }
     }
   },

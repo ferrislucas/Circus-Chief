@@ -142,7 +142,10 @@ describe('kanban lane concurrency limits', () => {
 
       expect(openRunIdsForCard(first.id)).toHaveLength(1);
       expect(openRunIdsForCard(second.id)).toHaveLength(1);
-      expect(second.entryState).toBeUndefined();
+      // An unlimited automated lane still starts immediately, so the create
+      // response carries the running entry state on every transport (Issue 16).
+      expect(second.entryState).toBe('running');
+      expect(second.queuePosition).toBeNull();
     });
 
     it('route into a full lane returns a queued outcome with position', async () => {

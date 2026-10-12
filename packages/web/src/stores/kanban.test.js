@@ -175,6 +175,53 @@ describe('kanban initiating-client entry state (Issue 12)', () => {
   });
 });
 
+describe('kanban card-create entry state (Issue 16)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.restoreAllMocks();
+  });
+
+  function runningCount(lane) {
+    return lane.cards.filter((c) => c.entryState === 'running').length;
+  }
+
+  it('ends authoritative when the websocket add arrives after an incomplete HTTP card', async () => {
+    const store = useKanbanStore();
+    store.board = { lanes: [{ id: 'target', cards: [] }] };
+    // Legacy HTTP payload without entry state arrives first.
+    vi.spyOn(api, 'createKanbanCard').mockResolvedValueOnce({ id: 'card', laneId: 'target' });
+
+    await store.addSessionToBoard('project', 'workspace', 'target');
+    expect(store.board.lanes[0].cards).toHaveLength(1);
+
+    // The authoritative websocket payload must upsert even though the card
+    // already exists, or the header undercounts runners until a refresh.
+    store.handleCardAdded(
+      { id: 'card', laneId: 'target', entryState: 'running', queuePosition: null }, 'target');
+
+    const lane = store.board.lanes[0];
+    expect(lane.cards).toHaveLength(1);
+    expect(lane.cards[0]).toMatchObject({ id: 'card', entryState: 'running', queuePosition: null });
+    expect(runningCount(lane)).toBe(1);
+  });
+
+  it('keeps a single running card when HTTP and websocket payloads agree', async () => {
+    const store = useKanbanStore();
+    store.board = { lanes: [{ id: 'target', cards: [] }] };
+    vi.spyOn(api, 'createKanbanCard')
+      .mockResolvedValueOnce({ id: 'card', laneId: 'target', entryState: 'running', queuePosition: null });
+
+    await store.addSessionToBoard('project', 'workspace', 'target');
+    store.handleCardAdded(
+      { id: 'card', laneId: 'target', entryState: 'running', queuePosition: null }, 'target');
+
+    const lane = store.board.lanes[0];
+    expect(lane.cards).toHaveLength(1);
+    expect(lane.cards[0]).toMatchObject({ entryState: 'running', queuePosition: null });
+    expect(runningCount(lane)).toBe(1);
+  });
+});
+
 describe('kanban command-run updates', () => {
   beforeEach(() => setActivePinia(createPinia()));
 

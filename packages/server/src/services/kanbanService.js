@@ -328,9 +328,10 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
     const gated = rootSession && runOnEnterTemplate && isStructured(lane)
       ? createGatedLaneRunForEntry({ projectId: rootSession.projectId, workspaceId, cardId: createdCard.id, lane })
       : { laneRun: null, queued: false, queuePosition: null };
-    const resultCard = gated.queued
-      ? { ...createdCard, entryState: 'queued', queuePosition: gated.queuePosition }
-      : createdCard;
+    // Enrich before finalizing so the HTTP response, the stored idempotency
+    // response, and the websocket broadcast agree: an immediately-running
+    // entry reads as running on every transport (FRD sections 6/8/10).
+    const resultCard = withEntryState(createdCard, gated);
     const result = finalizeMutation?.({ card: resultCard, eventId: gated.laneRun?.laneEntryEventId || null });
     return { card: resultCard, laneRun: gated.laneRun, finalizedResult: result };
   });
@@ -705,8 +706,14 @@ function completeVerifiedLaneEntry(eventId, rootSessionId, token) {
 function markDispatchIntent(eventId, token) {
   const db = databaseManager.get(); const time = Date.now();
   const key = crypto.randomUUID();
+  // A new intent supersedes any refusal recorded for a previous boundary: the
+  // refusal described that boundary's dispatch, not this one. Clearing it
+  // keeps a crash between intent and acknowledgement visibly uncertain
+  // (ambiguous) instead of letting a stale refusal authorize a retry that
+  // could duplicate a running provider. Refusals are re-recorded by the fail
+  // path when this boundary's own dispatch is definitively refused.
   const result = db.prepare(`UPDATE kanban_lane_entry_events
-    SET delivery_phase='dispatch_intent', dispatch_key=COALESCE(dispatch_key, ?), updated_at=?
+    SET delivery_phase='dispatch_intent', dispatch_key=COALESCE(dispatch_key, ?), last_error=NULL, updated_at=?
     WHERE id=? AND status='claimed' AND claim_token=?`).run(key, time, eventId, token);
   if (result.changes !== 1) throw new Error('Lane-entry claim was lost before provider dispatch');
   return db.prepare('SELECT dispatch_key FROM kanban_lane_entry_events WHERE id=?').get(eventId).dispatch_key;
@@ -747,6 +754,14 @@ function resolveDeliveryState(event) {
   if (event.delivery_phase !== 'dispatch_intent' || !event.dispatch_key) {
     return { state: 'needs_delivery', run, rootSessionId: run.root_session_id };
   }
+  // A recorded definitive provider refusal proves nothing was started under
+  // the current intent (a refusal is only stored for the boundary whose own
+  // dispatch was refused, and a new intent clears it): the next attempt must
+  // retry setup with the existing child rather than quarantine. Without a
+  // recorded refusal the dispatch remains genuinely uncertain.
+  if (isConfirmedRefusalEvent(event)) {
+    return { state: 'needs_delivery', run, rootSessionId: run.root_session_id };
+  }
   // We deliberately refuse to infer acknowledgement from ownership.  This
   // leaves pre-ack crashes visible and safe instead of risking a duplicate.
   return { state: 'ambiguous_dispatch', reason: 'child ownership exists without provider dispatch acknowledgement' };
@@ -768,6 +783,11 @@ function isAmbiguousDispatchEvent(event) {
 /** True when the failure proves the provider never started (confirmed undispatched). */
 function isDefinitiveNonAcceptance(error) {
   return String(error?.message || '').includes(PROVIDER_DISPATCH_NOT_ACCEPTED_REASON);
+}
+
+/** True when the event durably records a definitive provider refusal. */
+function isConfirmedRefusalEvent(event) {
+  return String(event?.last_error || '').includes(PROVIDER_DISPATCH_NOT_ACCEPTED_REASON);
 }
 
 /**
@@ -854,25 +874,53 @@ function failLaneEntryDelivery(event, token, error) {
   }
   const nextAttemptAt = exhausted ? null : time + laneEntryRetryDelay(current.attempt_count);
   const lastError = String(error?.message || 'delivery failed').slice(0, 240);
+  // A definitive refusal proves nothing started under the recorded intent, so
+  // a pending retry resets the dispatch boundary: the next attempt re-runs
+  // setup with the existing child instead of tripping the ambiguous-dispatch
+  // quarantine on the retained intent. The refusal itself is preserved in
+  // last_error. (At exhaustion the terminal path below keeps the evidence as
+  // committed; genuinely uncertain dispatches keep their intent throughout.)
+  const resetDispatchBoundary = !exhausted && isDefinitiveNonAcceptance(error) ? 1 : 0;
   // The event transition and its run terminalization commit atomically, and
   // terminalization runs only when this caller actually owned the event
-  // transition (the token-fenced UPDATE changed a row).
-  databaseManager.transaction(() => {
-    const transitioned = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
-      SET status=CASE WHEN ? THEN 'failed' ELSE 'pending' END,
-        claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=?, last_error=?, updated_at=?, completed_at=CASE WHEN ? THEN ? ELSE completed_at END
-      WHERE id=? AND claim_token=?`)
-      .run(exhausted ? 1 : 0, nextAttemptAt, lastError, time, exhausted ? 1 : 0, time, current.id, token);
-    // Never let a terminalization failure mask the delivery error rethrown
-    // by the caller below.
-    if (exhausted && transitioned.changes === 1) {
-      try {
+  // transition (the token-fenced UPDATE changed a row). A terminalization
+  // failure rolls the transition back with it: the event is left promptly
+  // retryable and both failures surface, instead of swallowing a half-commit
+  // that strands a failed event with an open run.
+  let transitionedExhausted = false;
+  try {
+    databaseManager.transaction(() => {
+      const transitioned = databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+        SET status=CASE WHEN ? THEN 'failed' ELSE 'pending' END,
+          claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=?, last_error=?, updated_at=?, completed_at=CASE WHEN ? THEN ? ELSE completed_at END,
+          delivery_phase=CASE WHEN ? THEN 'pending' ELSE delivery_phase END,
+          dispatch_key=CASE WHEN ? THEN NULL ELSE dispatch_key END
+        WHERE id=? AND claim_token=?`)
+        .run(exhausted ? 1 : 0, nextAttemptAt, lastError, time, exhausted ? 1 : 0, time,
+          resetDispatchBoundary, resetDispatchBoundary, current.id, token);
+      if (exhausted && transitioned.changes === 1) {
+        transitionedExhausted = true;
         terminalizeExhaustedEntryRun({ id: current.id, lane_id: current.lane_id, last_error: lastError });
-      } catch (terminalizeError) {
-        console.error(`Kanban failed to terminalize exhausted entry ${current.id}:`, terminalizeError);
       }
-    }
-  });
+    });
+  } catch (transitionError) {
+    if (!transitionedExhausted) throw transitionError;
+    // Rolled back to claimed-with-run-open: release the claim as pending with
+    // a short backoff, preserving the delivery failure alongside the
+    // terminalization failure. The event stays consistent and retryable until
+    // terminalization succeeds.
+    const retryableError = `${lastError}; run terminalization failed, retrying (${
+      String(transitionError?.message || transitionError).slice(0, 120)})`.slice(0, 240);
+    const retryAt = Date.now() + laneEntryRetryDelay(1);
+    databaseManager.transaction(() => {
+      databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+        SET status='pending', claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL,
+          next_attempt_at=?, last_error=?, updated_at=? WHERE id=? AND status='claimed'`)
+        .run(retryAt, retryableError, Date.now(), current.id);
+    });
+    console.error(`Kanban failed to terminalize exhausted entry ${current.id}; kept retryable:`, transitionError);
+    throw new Error(`Lane-entry delivery failed: ${lastError}; run terminalization failed: ${transitionError?.message || transitionError}`);
+  }
 }
 
 /** Drain one committed completion handoff. Safe to call repeatedly. */
@@ -942,6 +990,33 @@ export function reclaimExpiredLaneEntryClaims(time = Date.now()) {
     WHERE status='claimed' AND claim_expires_at <= ?`).run(time, time).changes;
 }
 
+/**
+ * Terminalize confirmed-undispatched runs still tied to failed delivery
+ * events. A crash between the event-`failed` commit and run terminalization
+ * (or an older version's swallowed terminalization error) leaves exactly
+ * this partial state; the poller only selects pending events, so without
+ * this pass the open run would hold its limited-lane slot forever, across
+ * restart. Events whose dispatch was acknowledged (a provider may be
+ * running) and genuinely uncertain dispatches keep their ownership and are
+ * never terminalized here.
+ */
+function recoverFailedEntriesWithOpenRuns() {
+  const db = databaseManager.get();
+  const rows = db.prepare(`SELECT e.id, e.lane_id, e.last_error FROM kanban_lane_entry_events e
+    WHERE e.status='failed' AND e.dispatch_acknowledged_at IS NULL
+      AND EXISTS (SELECT 1 FROM kanban_lane_runs r WHERE r.lane_entry_event_id=e.id AND r.status='open')
+    LIMIT 50`).all();
+  for (const row of rows) {
+    try {
+      if (terminalizeExhaustedEntryRun(row)) {
+        console.error(`Kanban recovery terminalized run left open by failed entry ${row.id}`);
+      }
+    } catch (error) {
+      console.error(`Kanban recovery failed to terminalize run for failed entry ${row.id}:`, error);
+    }
+  }
+}
+
 export async function drainPendingLaneEntryTriggers() {
   const time = Date.now();
   reclaimExpiredLaneEntryClaims(time);
@@ -967,15 +1042,25 @@ export async function drainPendingLaneEntryTriggers() {
       console.error(`Kanban startup recovery quarantined ambiguous entry ${row.id} instead of terminalizing it`);
       continue;
     }
-    db.prepare(`UPDATE kanban_lane_entry_events SET status='failed', last_error=COALESCE(last_error, 'delivery attempts exhausted'),
-      completed_at=?, updated_at=? WHERE id=? AND status='pending'`).run(Date.now(), Date.now(), row.id);
+    // The failed commit and the run terminalization are one transaction: a
+    // terminalization failure rolls both back, leaving the event
+    // pending-exhausted for the next tick instead of stranding a failed event
+    // with an open run.
     try {
-      const event = db.prepare('SELECT id, lane_id, last_error FROM kanban_lane_entry_events WHERE id=?').get(row.id);
-      if (event) terminalizeExhaustedEntryRun(event);
+      databaseManager.transaction(() => {
+        const transitioned = db.prepare(`UPDATE kanban_lane_entry_events SET status='failed',
+          last_error=COALESCE(last_error, 'delivery attempts exhausted'),
+          completed_at=?, updated_at=? WHERE id=? AND status='pending'`).run(Date.now(), Date.now(), row.id);
+        if (transitioned.changes === 1) {
+          const event = db.prepare('SELECT id, lane_id, last_error FROM kanban_lane_entry_events WHERE id=?').get(row.id);
+          if (event) terminalizeExhaustedEntryRun(event);
+        }
+      });
     } catch (error) {
       console.error(`Kanban startup recovery failed to terminalize exhausted entry ${row.id}:`, error);
     }
   }
+  recoverFailedEntriesWithOpenRuns();
   const events = databaseManager.get().prepare(`SELECT id FROM kanban_lane_entry_events
     WHERE status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at LIMIT 50`).all(Date.now());
   for (const { id } of events) {

@@ -1328,6 +1328,205 @@ describe('kanbanService', () => {
       });
     });
 
+    describe('early provider refusal (Issue 14)', () => {
+      /** Limit-1 automated lane runner; delivery is driven manually per attempt. */
+      function setupRefusedRunner() {
+        kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+        const workspace = createSession('Workspace');
+        const card = kanbanCards.create(lanes[0].id, workspace.id);
+        const run = createLaneRunForEntry({
+          projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+        });
+        return { workspace, card, run };
+      }
+
+      function entryEvent(eventId) {
+        return databaseManager.get().prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+      }
+
+      it('retries setup with the existing child instead of resolving ambiguous dispatch', async () => {
+        const { run } = setupRefusedRunner();
+        // Pre-provider setup throws before any provider starts: a definitive
+        // refusal, recorded with dispatch intent on the FIRST attempt.
+        runSession.mockRejectedValueOnce(new Error('provider setup exploded'));
+
+        await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow(/not accepted/i);
+        const afterFirst = entryEvent(run.laneEntryEventId);
+        expect(afterFirst.status).toBe('pending');
+        expect(afterFirst.last_error).toContain('provider dispatch was not accepted');
+        // The confirmed refusal resets the dispatch boundary while preserving
+        // the refusal, so the retry re-runs setup with the existing child.
+        expect(afterFirst.delivery_phase).toBe('pending');
+        expect(afterFirst.dispatch_key).toBeNull();
+
+        // The retry must re-run setup with the attached child instead of
+        // resolving ambiguous dispatch and overwriting the refusal.
+        databaseManager.get().prepare('UPDATE kanban_lane_entry_events SET next_attempt_at=NULL WHERE id=?')
+          .run(run.laneEntryEventId);
+        await expect(drainLaneEntryTrigger(run.laneEntryEventId)).resolves.toBe(true);
+
+        expect(runSession).toHaveBeenCalledTimes(2);
+        const completed = entryEvent(run.laneEntryEventId);
+        expect(completed.status).toBe('completed');
+        expect(String(completed.last_error || '')).not.toMatch(/acknowledgement|explicit resolution/);
+      });
+
+      it('releases the slot and drains the queue after refusal-driven exhaustion', async () => {
+        const { run } = setupRefusedRunner();
+        const queuedSession = createSession('Queued');
+        const queued = await addSessionToBoard(queuedSession.id, lanes[0].id);
+        expect(queued.entryState).toBe('queued');
+
+        // Every attempt refuses, starting with the first: dispatch intent is
+        // recorded, then pre-provider setup throws before any provider starts.
+        // Restored afterwards: beforeEach only clears calls, so a persistent
+        // rejection would leak into later tests using the default success.
+        runSession.mockRejectedValue(new Error('provider setup exploded'));
+        try {
+          await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow(/not accepted/i);
+          // ...retries keep refusing until the final attempt.
+          databaseManager.get().prepare('UPDATE kanban_lane_entry_events SET attempt_count=7, next_attempt_at=NULL WHERE id=?')
+            .run(run.laneEntryEventId);
+          await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow(/not accepted/i);
+        } finally {
+          runSession.mockResolvedValue(undefined);
+        }
+        await new Promise((resolve) => setImmediate(resolve));
+
+        // A confirmed undispatched start releases its slot instead of
+        // quarantining: the run fails and the queue drains.
+        expect(entryEvent(run.laneEntryEventId).status).toBe('failed');
+        expect(getRun(run.id).status).toBe('failed');
+        const queuedCard = kanbanCards.getBySessionId(queuedSession.id);
+        expect(databaseManager.get()
+          .prepare("SELECT id FROM kanban_lane_runs WHERE card_id=? AND status='open'")
+          .all(queuedCard.id)).toHaveLength(1);
+      });
+
+      it('keeps a genuinely uncertain first-attempt dispatch retryable with its slot held', async () => {
+        kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+        const workspace = createSession('Workspace');
+        const card = kanbanCards.create(lanes[0].id, workspace.id);
+        const run = createLaneRunForEntry({
+          projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+        });
+        const worker = createChildSession(workspace.id, 'Dispatched worker');
+        attachRootSession(run.id, worker.id);
+        // Dispatch intent without acknowledgement and no recorded refusal:
+        // a crash may have left a provider running.
+        databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+          SET delivery_phase='dispatch_intent', dispatch_key='dispatch-1', attempt_count=0 WHERE id=?`)
+          .run(run.laneEntryEventId);
+
+        await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow(/acknowledgement/i);
+
+        const event = entryEvent(run.laneEntryEventId);
+        expect(event.status).toBe('pending');
+        expect(String(event.last_error || '')).not.toContain('provider dispatch was not accepted');
+        expect(getRun(run.id).status).toBe('open');
+      });
+    });
+
+    describe('exhaustion atomicity and recovery (Issue 15)', () => {
+      function setupLimitedLaneRunner() {
+        kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+        const workspace = createSession('Workspace');
+        const card = kanbanCards.create(lanes[0].id, workspace.id);
+        const run = createLaneRunForEntry({
+          projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+        });
+        return { workspace, card, run };
+      }
+
+      function openRunsForCard(cardId) {
+        return databaseManager.get()
+          .prepare("SELECT id FROM kanban_lane_runs WHERE card_id=? AND status='open'")
+          .all(cardId);
+      }
+
+      it('recovers a failed event left with an open confirmed-undispatched run', async () => {
+        const { run } = setupLimitedLaneRunner();
+        const queued = await addSessionToBoard(createSession('Queued').id, lanes[0].id);
+        expect(queued.entryState).toBe('queued');
+        // Simulate the crash window: the event committed as failed while its
+        // confirmed-undispatched run (no intent, no acknowledgement) stayed open.
+        const time = Date.now();
+        databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+          SET status='failed', last_error='delivery attempts exhausted', completed_at=?, updated_at=? WHERE id=?`)
+          .run(time, time, run.laneEntryEventId);
+
+        // A restart runs startup recovery, which must free the stranded slot.
+        await drainPendingLaneEntryTriggers();
+        await new Promise((resolve) => setImmediate(resolve));
+
+        expect(getRun(run.id).status).toBe('failed');
+        expect(openRunsForCard(queued.id)).toHaveLength(1);
+      });
+
+      it('preserves failed events tied to uncertain or acknowledged dispatches', async () => {
+        const { run: ambiguousRun } = setupLimitedLaneRunner();
+        const workspace = createSession('Second workspace');
+        const card = kanbanCards.create(lanes[0].id, workspace.id);
+        const ackedRun = createLaneRunForEntry({
+          projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+        });
+        const time = Date.now();
+        const db = databaseManager.get();
+        // Uncertain dispatch: intent without acknowledgement or refusal.
+        db.prepare(`UPDATE kanban_lane_entry_events SET status='failed', delivery_phase='dispatch_intent',
+          dispatch_key='dispatch-1', last_error='delivery attempts exhausted', completed_at=?, updated_at=? WHERE id=?`)
+          .run(time, time, ambiguousRun.laneEntryEventId);
+        // A provider may be running behind an acknowledged dispatch.
+        db.prepare(`UPDATE kanban_lane_entry_events SET status='failed', delivery_phase='dispatch_acknowledged',
+          dispatch_key='dispatch-2', dispatch_acknowledged_at=?, last_error='delivery attempts exhausted',
+          completed_at=?, updated_at=? WHERE id=?`)
+          .run(time, time, time, ackedRun.laneEntryEventId);
+
+        await drainPendingLaneEntryTriggers();
+        await new Promise((resolve) => setImmediate(resolve));
+
+        expect(getRun(ambiguousRun.id).status).toBe('open');
+        expect(getRun(ackedRun.id).status).toBe('open');
+      });
+
+      it('keeps the event retryable when run terminalization fails on the direct path', async () => {
+        const { workspace, run } = setupLimitedLaneRunner();
+        // Pre-attach the retry child so delivery itself never writes the runs
+        // table: only the exhaustion terminalization hits the sabotaged update.
+        const child = createChildSession(workspace.id, 'Allocated child');
+        const db = databaseManager.get();
+        db.prepare('UPDATE kanban_lane_runs SET root_session_id=? WHERE id=?').run(child.id, run.id);
+        db.prepare('UPDATE sessions SET lane_run_id=? WHERE id=?').run(run.id, child.id);
+        db.prepare('UPDATE kanban_lane_entry_events SET attempt_count=7 WHERE id=?')
+          .run(run.laneEntryEventId);
+        db.exec(`CREATE TRIGGER fail_lane_run_update BEFORE UPDATE ON kanban_lane_runs
+          BEGIN SELECT injected_lane_run_failure(); END;`);
+        runSession.mockRejectedValueOnce(new Error('provider setup exploded'));
+
+        try {
+          // The delivery failure must surface with the event/run consistent,
+          // never a committed failed event with an open run.
+          await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow();
+          const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?')
+            .get(run.laneEntryEventId);
+          expect(event.status).toBe('pending');
+          expect(String(event.last_error || '')).toContain('provider dispatch was not accepted');
+          expect(getRun(run.id).status).toBe('open');
+        } finally {
+          db.exec('DROP TRIGGER IF EXISTS fail_lane_run_update');
+          runSession.mockResolvedValue(undefined);
+        }
+
+        // Once terminalization can succeed, the poller converges the retryable
+        // event: the failed commit and the run terminalization land together.
+        await drainPendingLaneEntryTriggers();
+        await new Promise((resolve) => setImmediate(resolve));
+        expect(db.prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+          .get(run.laneEntryEventId).status).toBe('failed');
+        expect(getRun(run.id).status).toBe('failed');
+      });
+    });
+
     it('reuses an attached child when retrying a failure before dispatch intent', async () => {
       kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue safely' });
       const workspace = createSession('Workspace');
@@ -1462,7 +1661,8 @@ describe('kanbanService', () => {
       const runner = await addSessionToBoard(createSession('Runner').id, lanes[0].id);
       const queued = await addSessionToBoard(createSession('Queued').id, lanes[0].id);
 
-      expect(runner.entryState).toBeUndefined();
+      expect(runner.entryState).toBe('running');
+      expect(runner.queuePosition).toBeNull();
       const added = cardAddedPayloads();
       expect(added).toHaveLength(2);
       expect(added[0].card).toMatchObject({ id: runner.id, entryState: 'running', queuePosition: null });

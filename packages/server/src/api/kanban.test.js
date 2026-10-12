@@ -848,6 +848,31 @@ describe('Kanban API', () => {
       expect(res.body.sessions[0].id).toBe(session.id);
     });
 
+    it('returns running entry state for an immediately-running entry, including idempotency replay (Issue 16)', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      const session = createSession();
+      const key = 'card-add-running-entry-state';
+      const body = { workspaceId: session.id, laneId: lanes[0].id };
+
+      const first = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send(body);
+
+      expect(first.status).toBe(201);
+      expect(first.body.entryState).toBe('running');
+      expect(first.body.queuePosition).toBeNull();
+
+      const replay = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send(body);
+
+      expect(replay.status).toBe(201);
+      expect(replay.text).toBe(first.text);
+    });
+
     it('creates a card for the workflow root when a child workspace ID is provided', async () => {
       setupBoard();
       const root = createSession('Root Session');
