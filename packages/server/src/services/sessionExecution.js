@@ -1,4 +1,6 @@
 import { sessions } from '../database.js';
+import { broadcastToProject, broadcastToSession } from '../websocket.js';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 export { buildAgentEnv } from './sessionAgentConfig.js';
 export { buildQueryParams } from './queryParamBuilder.js';
 // createAgentForSession moved to sessionTurnSetup.js; re-exported here so
@@ -51,6 +53,8 @@ export async function _executeSession({
   broadcastConversationStateOnError = false,
   cleanupConversationId = false, interactive = false,
   errorLabel = 'Session error',
+  beforeProviderExecute = null,
+  onProviderDispatchInitiated = null,
 }) {
   const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded, onUserStopSettled } = callbacks;
   const notifyUserStopSettled = () => {
@@ -67,6 +71,24 @@ export async function _executeSession({
   if (!interactive && !workflowTurn && !activeLaneRunOwnsSession(sessionId)) {
     cleanupSessionState(sessionId, cleanupConversationId, controller);
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
+  }
+  // Provider-boundary dispatch fence: runs after every asynchronous turn
+  // setup (prepare*Turn completed in the caller) and immediately before the
+  // adapter is invoked. A rejection aborts before any provider call, so the
+  // turn's execution claim is released without recording a turn outcome —
+  // this stays outside the try below, whose catch closes workflow ownership.
+  if (beforeProviderExecute || onProviderDispatchInitiated) {
+    try {
+      await beforeProviderExecute?.();
+    } catch (error) {
+      cleanupSessionState(sessionId, cleanupConversationId, controller);
+      // A lane-disable park must also settle the durable lifecycle, not just
+      // the in-memory turn state (PR #1166 issue 10); see
+      // settleFenceParkedExecutionState below.
+      if (error?.code === 'LANE_AUTOMATION_DISABLED') settleFenceParkedExecutionState(sessionId);
+      throw error;
+    }
+    onProviderDispatchInitiated?.();
   }
   // The provider is about to start. The token is generated durably by
   // beginWorkflowTurn and lets the agent's card-move API identify this exact
@@ -201,6 +223,39 @@ export async function _executeSession({
   }
 }
 /**
+ * Settle the durable lifecycle after a lane-disable park at the provider
+ * fence. prepareRunTurn/beginWorkflowTurn already wrote status/execution_state
+ * as running, and the catch above only releases in-memory turn state — without
+ * this, a paused-then-restarted child looks like a live provider run to boot
+ * recovery. The kanban pause path re-settles with ownership fences right
+ * after; this closes the crash window in between. The obligation
+ * (own_work_state, lane_run_id, worktree) is untouched so the entry stays
+ * resumable. Other fence errors keep in-memory-only cleanup.
+ */
+function settleFenceParkedExecutionState(sessionId) {
+  try {
+    const updated = sessions.update(sessionId, { status: 'stopped', executionState: 'stopped' });
+    // The kanban pause path re-settles with ownership fences right after,
+    // but it stays silent when this write already settled the row — without
+    // this broadcast, subscribed clients keep showing the running state
+    // published by prepareRunTurn until refresh (PR #1166 issue 11).
+    const projectId = updated?.projectId;
+    if (!updated || !projectId) return;
+    broadcastToProject(projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId,
+      sessionId,
+      session: updated,
+    });
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      sessionId,
+      session: updated,
+    });
+  } catch {
+    // Best-effort; the pause path settles with fences next.
+  }
+}
+
+/**
  * Continue a session with a follow-up message (core implementation)
  * @param {string} sessionId
  * @param {string} content
@@ -254,7 +309,8 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
  */
 export async function runSessionCore(sessionId, prompt, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
-  const { interactive = false, abortController = null } = options;
+  const { interactive = false, abortController = null, beforeProviderExecute = null,
+    onProviderDispatchInitiated = null } = options;
   // Get session for settings
   const session = sessions.getById(sessionId);
   if (!session) throw new Error('Session not found');
@@ -276,5 +332,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     workingDirectory,
     callbacks,
     errorLabel: 'Session error',
+    beforeProviderExecute,
+    onProviderDispatchInitiated,
   }).then((execution) => execution || startedSessionExecution(sessionId));
 }

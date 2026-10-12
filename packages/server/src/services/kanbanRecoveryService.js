@@ -77,7 +77,7 @@ function auditOpenRunInvariant(violations, db, row) {
   else if (row.active_lane_run_id !== row.run_id) violations.push(issue('stale_run_pointer', 'open run is not the card active run', base));
   else if (row.card_lane_id !== row.source_lane_id) violations.push(issue('run_lane_mismatch', 'card is no longer in the run source lane', base));
   if (!row.root_session_id) {
-    const severity = isRecoverableRootlessHandoff(db, row) ? 'warning' : 'error';
+    const severity = (isRecoverableRootlessHandoff(db, row) || isPausedUndeliveredEntry(db, row)) ? 'warning' : 'error';
     violations.push(issue('run_root', 'open run has no root session', base, severity));
   }
   else if (!db.prepare('SELECT 1 FROM sessions WHERE id=? AND lane_run_id=?').get(row.root_session_id, row.run_id)) {
@@ -158,7 +158,10 @@ function rootlessHandoffMatchesEvent(row, run) {
     row.event_card_id === run.card_id,
     row.event_lane_id === run.source_lane_id,
     row.cause === 'completion',
-    ['pending', 'claimed'].includes(row.event_status),
+    // A lane disabled mid-flight parks its entry as queued while retaining
+    // the open rootless run: that is the durable paused shape, preserved
+    // across restarts and resumed on re-enable (FR-2/FR-4, AC-5).
+    ['pending', 'claimed', 'queued'].includes(row.event_status),
     row.source_status === 'succeeded',
     row.transition_applied_at !== null,
   ].every(Boolean);
@@ -182,6 +185,34 @@ function rootlessQueueDrainMatchesEvent(row, run) {
     row.cause === QUEUE_DRAIN_CAUSE,
     row.caused_by_run_id == null,
     ['pending', 'claimed'].includes(row.event_status),
+  ].every(Boolean);
+}
+
+/**
+ * A paused undelivered entry (lane disabled mid-flight) is durable state of
+ * any cause: an open rootless run whose card still points at it in the source
+ * lane, paired with a queued event. Re-enable resumes it, so startup must
+ * preserve it rather than superseding it as stale (FR-2/FR-4, AC-5).
+ * TODO(issue-25): unify with the limited-lane deferred queue (entry_queued):
+ * a disabled limited lane holds both shapes and recovery must agree on one.
+ */
+export function isPausedUndeliveredEntry(db, run) {
+  if (!run || run.status !== 'open' || run.root_session_id || !run.lane_entry_event_id) return false;
+  const row = db.prepare(`SELECT c.active_lane_run_id, c.lane_id card_lane_id, c.lane_entry_event_id,
+      e.project_id, e.workspace_id, e.card_id event_card_id, e.lane_id event_lane_id, e.status event_status
+    FROM kanban_cards c
+    JOIN kanban_lane_entry_events e ON e.id=?
+    WHERE c.id=?`).get(run.lane_entry_event_id, run.card_id);
+  if (!row) return false;
+  return [
+    row.active_lane_run_id === run.id,
+    row.card_lane_id === run.source_lane_id,
+    row.lane_entry_event_id === run.lane_entry_event_id,
+    row.project_id === run.project_id,
+    row.workspace_id === run.workspace_id,
+    row.event_card_id === run.card_id,
+    row.event_lane_id === run.source_lane_id,
+    row.event_status === 'queued',
   ].every(Boolean);
 }
 
@@ -254,7 +285,7 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
   const openRuns = db.prepare(`SELECT r.*, c.active_lane_run_id, c.lane_id card_lane_id FROM kanban_lane_runs r
     LEFT JOIN kanban_cards c ON c.id=r.card_id WHERE r.status='open'`).all()
   const preservedRootlessRunIds = openRuns
-    .filter((run) => isRecoverableRootlessHandoff(db, run)).map((run) => run.id);
+    .filter((run) => isRecoverableRootlessHandoff(db, run) || isPausedUndeliveredEntry(db, run)).map((run) => run.id);
   const preservedEntryEventIds = openRuns
     .filter((run) => preservedRootlessRunIds.includes(run.id))
     .map((run) => run.lane_entry_event_id);
@@ -277,8 +308,10 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
       WHERE active_lane_run_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM kanban_lane_runs r WHERE r.id=active_lane_run_id AND r.status='open')`).run(now).changes;
     if (stalePointers) changes.push({ type: 'cleared_stale_card_pointers', count: stalePointers });
     const recoveredClaim = preservedEntryEventIds.length
-      ? ` OR id IN (${preservedEntryEventIds.map(() => '?').join(',')})`
+      ? ` OR (id IN (${preservedEntryEventIds.map(() => '?').join(',')}) AND status IN ('pending', 'claimed'))`
       : '';
+    // Paused (queued) entries are durable pause state, not abandoned claims:
+    // they stay queued until re-enable drains them.
     const released = db.prepare(`UPDATE kanban_lane_entry_events SET status='pending', claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, updated_at=?
       WHERE ((status='claimed' AND claim_expires_at < ?) OR (status='pending' AND claim_token IS NOT NULL AND claimed_at < ?)${recoveredClaim})`)
       .run(now, now - 5 * 60 * 1000, now - 5 * 60 * 1000, ...preservedEntryEventIds).changes;

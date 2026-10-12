@@ -14,7 +14,7 @@
  */
 import { databaseManager } from '../db/DatabaseManager.js';
 import { kanbanCards, kanbanLanes, sessions } from '../database.js';
-import { createLaneRunForEntry, isStructured } from './workflowSessionService.js';
+import { createLaneRunForEntry, isStructured, isAutomationActive } from './workflowSessionService.js';
 
 /** Queue cause recorded on entry events created by a drain pass. */
 export const QUEUE_DRAIN_CAUSE = 'queue_drain';
@@ -222,10 +222,14 @@ export function startQueuedCard(db, laneId, cardId) {
   if (!current || current.lane_id !== laneId || current.entry_queued !== 1 || current.active_lane_run_id !== null) return null;
   // Late automation removal turns a not-yet-started entry into a no-op
   // (FR-14): consume the marker instead of starting under new config later.
-  if (!isStructured(kanbanLanes.getById(laneId))) {
+  // A merely disabled lane keeps its markers: they resume on re-enable, so a
+  // disabled drain holds them without consuming (issue-25).
+  const lane = kanbanLanes.getById(laneId);
+  if (!isStructured(lane)) {
     db.prepare('UPDATE kanban_cards SET entry_queued=0, updated_at=? WHERE id=?').run(Date.now(), cardId);
     return null;
   }
+  if (!isAutomationActive(lane)) return null;
   const owner = resolveQueuedCardOwner(cardId);
   if (!owner) {
     // An archived workspace's entry is cancelled, not deferred: consume a
@@ -278,7 +282,10 @@ export function drainLaneQueue(laneId, { ignoreLimit = false } = {}) {
   return databaseManager.transaction(() => {
     const db = databaseManager.get();
     const lane = kanbanLanes.getById(laneId);
-    if (!lane || !isStructured(lane)) return [];
+    // Limit-gated drains key off automation activity, not bare structure: a
+    // disabled lane never starts deferred entries, and its markers wait for
+    // the re-enable replay (issue-25).
+    if (!lane || !isAutomationActive(lane)) return [];
     if (!ignoreLimit && lane.concurrencyLimit == null) return [];
     const deferred = ignoreLimit ? getDeferredCardIds(db, laneId) : getQueuedCardIds(db, laneId);
     const created = [];

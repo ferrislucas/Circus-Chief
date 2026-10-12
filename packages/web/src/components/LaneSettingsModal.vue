@@ -184,6 +184,24 @@
           </div>
         </div>
 
+        <!-- Automation Enabled -->
+        <div class="form-group">
+          <label
+            class="checkbox-option"
+            for="automation-enabled"
+          >
+            <input
+              id="automation-enabled"
+              v-model="form.automationEnabled"
+              type="checkbox"
+            >
+            <span>Automation enabled</span>
+          </label>
+          <p class="form-help">
+            When off, workspaces entering this lane are queued and no sessions start until re-enabled.
+          </p>
+        </div>
+
         <!-- Template Selector -->
         <div
           v-if="automationType === 'template'"
@@ -483,6 +501,14 @@ const saving = ref(false);
 const deleting = ref(false);
 const saveError = ref('');
 const automationType = ref('none');
+// Tracks the automation type before the latest user-initiated switch, so the
+// retry preset fires only on entry into automation (none -> prompt/template)
+// regardless of v-model/@change listener ordering.
+const previousAutomationType = ref('none');
+// True once the lane has entered automation during this editing session, so
+// the retry preset fires at most once and never overwrites an explicit user
+// choice on a later none -> prompt/template return.
+const hasEnteredAutomation = ref(false);
 const showAgentSettings = ref(false);
 const showSlashCommandWizard = ref(false);
 const promptTextareaRef = ref(null);
@@ -494,6 +520,7 @@ const currentLaneIndex = ref(-1);
 const form = reactive({
   name: '',
   concurrencyLimit: null,
+  automationEnabled: true,
   onEnterTemplateId: null,
   onEnterPrompt: '',
   // Agent settings
@@ -584,6 +611,7 @@ function buildFormFromLane(lane) {
   return {
     name: lane.name || '',
     concurrencyLimit: lane.concurrencyLimit ?? null,
+    automationEnabled: lane.automationEnabled ?? true,
     onEnterTemplateId: lane.onEnterTemplateId || null,
     onEnterPrompt: lane.onEnterPrompt || '',
     onEnterMode: lane.onEnterMode || null,
@@ -628,6 +656,10 @@ function resetForm() {
     Object.assign(form, data);
 
     automationType.value = detectAutomationType(props.lane);
+    previousAutomationType.value = automationType.value;
+    // An existing automated lane already reflects saved values: the preset
+    // must not fire for it during this session.
+    hasEnteredAutomation.value = automationType.value !== 'none';
     showAgentSettings.value = buildAgentSettings(form);
 
     // Initialize position tracking
@@ -638,6 +670,8 @@ function resetForm() {
     const defaults = buildFormFromLane({});
     Object.assign(form, defaults);
     automationType.value = 'none';
+    previousAutomationType.value = 'none';
+    hasEnteredAutomation.value = false;
     showAgentSettings.value = false;
     initialLaneIndex.value = -1;
     currentLaneIndex.value = -1;
@@ -667,15 +701,48 @@ function handleSlashCommandInsert({ text }) {
 }
 
 /**
+ * Preset retry-on defaults when a lane first gains on-entry automation.
+ * Only the master switch and the token-limit trigger are set; the
+ * service-error trigger already defaults on and delay/limits are untouched.
+ */
+function presetRetryDefaultsOnAutomationEntry() {
+  form.onEnterAutoRescheduleEnabled = true;
+  form.onEnterRescheduleOnTokenLimit = true;
+}
+
+/**
  * Handle a user-initiated change of the on-entry automation type.
  * A lane cannot keep a completion target once its on-entry automation is
  * removed, so clear the target and inform the user when that happens.
+ * Entering automation from 'none' presets retry-on defaults; switches
+ * between 'prompt' and 'template' preserve the user's current choices.
  * @param {string} newType - The automation type the user just selected
  */
+/**
+ * Whether entering automation should preset retry-on defaults. Fires at most
+ * once per editing session, on first entry, and never after the lane has been
+ * in automation (so an explicit user choice is never overwritten).
+ * @param {string} newType - The automation type the user just selected
+ * @returns {boolean} Whether to preset retry defaults
+ */
+function shouldPresetRetryDefaults(newType) {
+  return previousAutomationType.value === 'none'
+    && (newType === 'prompt' || newType === 'template')
+    && !hasEnteredAutomation.value;
+}
+
 function handleAutomationTypeChange(newType) {
+  const enteredAutomation = shouldPresetRetryDefaults(newType);
+  previousAutomationType.value = newType;
+  if (newType === 'prompt' || newType === 'template') {
+    hasEnteredAutomation.value = true;
+  }
   if (newType === 'none' && form.completionTargetLaneId) {
     form.completionTargetLaneId = null;
     uiStore.info('Completion target cleared because on-entry automation was removed.');
+  }
+  if (enteredAutomation) {
+    presetRetryDefaultsOnAutomationEntry();
   }
 }
 
@@ -687,10 +754,13 @@ function handleMoveLane(toIndex) {
 
 /**
  * Build save data when automation type is 'none' -- clear all automation fields.
+ * The enabled toggle is orthogonal to the automation type and rides along verbatim.
+ * @param {Object} formData - The reactive form object
  * @returns {Object} Save data fields for 'none' automation
  */
-function buildSaveDataForNone() {
+function buildSaveDataForNone(formData) {
   return {
+    automationEnabled: formData.automationEnabled ?? true,
     onEnterTemplateId: null,
     onEnterPrompt: null,
     onEnterMode: null,
@@ -714,7 +784,8 @@ function buildSaveDataForNone() {
  */
 function buildSaveDataForTemplate(formData) {
   return {
-    ...buildSaveDataForNone(),
+    ...buildSaveDataForNone(formData),
+    automationEnabled: formData.automationEnabled ?? true,
     onEnterTemplateId: formData.onEnterTemplateId,
     onEnterPrompt: null,
     // Retry policy applies to template lanes too (see FR-4).
@@ -735,6 +806,7 @@ function buildSaveDataForTemplate(formData) {
  */
 function buildSaveDataForPrompt(formData) {
   return {
+    automationEnabled: formData.automationEnabled ?? true,
     onEnterTemplateId: null,
     onEnterPrompt: formData.onEnterPrompt.trim(),
     onEnterMode: formData.onEnterMode,
@@ -782,7 +854,7 @@ async function handleSave() {
     } else if (automationType.value === 'prompt') {
       Object.assign(data, buildSaveDataForPrompt(form));
     } else {
-      Object.assign(data, buildSaveDataForNone());
+      Object.assign(data, buildSaveDataForNone(form));
     }
     data.completionTargetLaneId = form.completionTargetLaneId || null;
 

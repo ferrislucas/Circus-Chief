@@ -56,6 +56,7 @@
         v-for="lane in board.lanes"
         :key="lane.id"
         class="kanban-lane"
+        :class="{ 'lane-disabled': lane.automationEnabled === false }"
         @dragover.prevent="effectiveLayout === 'horizontal' ? handleCardDragOver($event, lane.id, lane.cards?.length || 0) : null"
         @drop="effectiveLayout === 'horizontal' ? handleDrop($event, lane.id) : null"
       >
@@ -76,11 +77,18 @@
               {{ lane.name }}
             </h3>
             <span
-              v-if="lane.onEnterTemplateId || lane.onEnterPrompt"
+              v-if="(lane.onEnterTemplateId || lane.onEnterPrompt) && lane.automationEnabled !== false"
               class="lane-automation-indicator"
               title="Automation enabled"
             >
               <KanbanBoardIcon name="automation" />
+            </span>
+            <span
+              v-else-if="lane.automationEnabled === false"
+              class="lane-automation-paused"
+              title="Automation paused"
+            >
+              <KanbanBoardIcon name="paused" />
             </span>
           </div>
           <div class="lane-header-actions">
@@ -91,6 +99,13 @@
               :title="`Concurrency limit ${lane.concurrencyLimit}`"
             >{{ laneLimitState(lane) }}</span>
             <span class="lane-count">{{ lane.cards?.length || 0 }}</span>
+            <span
+              v-if="lane.queuedCount > 0"
+              class="lane-queued-badge"
+              title="Entries queued while automation is paused"
+            >
+              {{ lane.queuedCount }} queued
+            </span>
             <button
               class="lane-settings-btn"
               title="Lane settings"
@@ -147,6 +162,13 @@
                 :button-statuses="cardButtonStatuses[card.sessions[0].id] || []"
                 :session-id="card.sessions[0].id"
               />
+              <span
+                v-if="card.entryStatus === 'queued'"
+                class="card-queued-chip"
+                title="Automation for this lane is paused; the entry runs when the lane is re-enabled"
+              >
+                queued — automation paused
+              </span>
               <!-- Card reorder arrows -->
               <div class="card-reorder-arrows">
                 <button

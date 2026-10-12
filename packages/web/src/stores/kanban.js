@@ -301,16 +301,27 @@ export const useKanbanStore = defineStore('kanban', {
         return;
       }
       const targetLane = this.board.lanes.find((l) => l.id === targetLaneId);
-      const automated = Boolean(targetLane?.onEnterPrompt || targetLane?.onEnterTemplateId || targetLane?.completionTargetLaneId);
+      const structured = Boolean(targetLane?.onEnterPrompt || targetLane?.onEnterTemplateId || targetLane?.completionTargetLaneId);
+      // The kill-switch is part of "will run automation": a structured but
+      // disabled lane queues the entry server-side, so the initiating browser
+      // must not mark the card running (issue-25). The queued broadcast that
+      // follows carries the authoritative position.
+      const automationActive = targetLane?.automationEnabled !== false;
       // A moved card never retains stale queue fields. Only the
-      // automated case asserts new state (running); otherwise the
-      // fields are dropped so nothing stale renders.
+      // active-automation case asserts new state (running); a queued
+      // disabled entry reads as queued; otherwise the fields are dropped
+      // so nothing stale renders.
       const next = { ...location.card, laneId: targetLaneId };
       delete next.entryState;
       delete next.queuePosition;
-      location.lane.cards[location.cardIndex] = automated
-        ? { ...next, entryState: 'running', queuePosition: null }
-        : next;
+      delete next.entryStatus;
+      if (!structured) {
+        location.lane.cards[location.cardIndex] = next;
+      } else if (automationActive) {
+        location.lane.cards[location.cardIndex] = { ...next, entryState: 'running', queuePosition: null };
+      } else {
+        location.lane.cards[location.cardIndex] = { ...next, entryStatus: 'queued' };
+      }
     },
 
     /** Route a workspace card to a lane. */

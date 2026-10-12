@@ -406,6 +406,13 @@ export const kanbanMigrations = [
     },
   },
   {
+    name: 'kanban_lanes-add-automation_enabled',
+    up(db) {
+      // DEFAULT 1 backfills existing rows to enabled, preserving current behavior.
+      addColumnIfMissing(db, 'kanban_lanes', 'automation_enabled', 'INTEGER NOT NULL DEFAULT 1');
+    },
+  },
+  {
     name: 'kanban-routing-observability',
     up(db) {
       db.exec(`CREATE TABLE IF NOT EXISTS kanban_routing_audit_events (

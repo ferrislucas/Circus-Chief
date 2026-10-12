@@ -6,6 +6,7 @@ import {
   buildKanbanApiInstructions,
 } from './sessionApiPrompts.js';
 import { getApiBaseUrl } from './apiBaseUrl.js';
+import { getApiCurlCommand, buildTlsTrustDocs } from './tlsTrust.js';
 
 export { getApiBaseUrl };
 
@@ -231,17 +232,18 @@ The canvas is shared across all sessions in this workspace — items you post he
  * @returns {string}
  */
 function buildCanvasReadSystemPrompt(session) {
+  const apiCurl = getApiCurlCommand();
   const canvasUrl = buildCanvasBaseUrl(session);
   return `## Reading from Canvas
 
 To list all files on the canvas:
 \`\`\`bash
-curl ${canvasUrl}/canvas
+${apiCurl} ${canvasUrl}/canvas
 \`\`\`
 
 To read a specific file from the canvas (returns file path for Read tool):
 \`\`\`bash
-curl ${canvasUrl}/canvas/file/{filename}
+${apiCurl} ${canvasUrl}/canvas/file/{filename}
 \`\`\`
 
 Response: { filePath, type, mimeType, createdAt, version, totalVersions }
@@ -254,7 +256,7 @@ Supported types: images, PDFs, markdown, text, JSON
 
 If you need to access an earlier version of a file:
 \`\`\`bash
-curl ${canvasUrl}/canvas/file/{filename}/history/{version}
+${apiCurl} ${canvasUrl}/canvas/file/{filename}/history/{version}
 \`\`\`
 
 Where version 1 = oldest, and higher numbers are newer versions.
@@ -264,13 +266,13 @@ Where version 1 = oldest, and higher numbers are newer versions.
 To move **all active versions** of a named file to recoverable canvas trash:
 
 \`\`\`bash
-curl -X DELETE ${canvasUrl}/canvas/file/{url-encoded-filename}
+${apiCurl} -X DELETE ${canvasUrl}/canvas/file/{url-encoded-filename}
 \`\`\`
 
 For example, delete \`quarterly report #1.md\` with:
 
 \`\`\`bash
-curl -X DELETE ${canvasUrl}/canvas/file/quarterly%20report%20%231.md
+${apiCurl} -X DELETE ${canvasUrl}/canvas/file/quarterly%20report%20%231.md
 \`\`\`
 
 Response: \`{ filename, trashedCount }\`. The operation moves every active version of that exact filename to canvas trash, where it can be recovered; it does not permanently delete the file.`;
@@ -312,6 +314,7 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
     customSystemPrompt || DEFAULT_SYSTEM_PROMPT,
     buildWorktreeContext(session),
     getSessionAttachmentsContext(sessionId),
+    buildTlsTrustDocs(),
     buildCanvasWriteSystemPrompt(session),
     buildCanvasReadSystemPrompt(session),
     buildSessionApiInstructions(sessionId, projectId),

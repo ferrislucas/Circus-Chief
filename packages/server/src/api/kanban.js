@@ -16,14 +16,16 @@ import {
   addSessionToBoard,
   routeWorkspaceCard,
   drainLaneAndDeliver,
+  updateLaneWithAutomationToggle,
+  scheduleLaneEntryDeliveries,
   removeBoard as removeBoardService,
   removeCard as removeCardService,
   removeLane as removeLaneService,
 } from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
 import { getRun, isStructured } from '../services/workflowSessionService.js';
-import { consumeDeferredEntriesForUnautomatedLane } from '../services/kanbanConcurrency.js';
-import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
+import { consumeDeferredEntriesForUnautomatedLane, drainLaneQueue } from '../services/kanbanConcurrency.js';
+import { buildFullBoardResponse, buildQueuedCountsByLane } from '../services/kanbanBoardResponse.js';
 import { isApiError } from '../errors/ApiError.js';
 import { kanbanRoutingMetrics } from '../services/kanbanRoutingObservability.js';
 
@@ -220,6 +222,20 @@ function targetLaneForBoard(targetLaneId, board) {
   return laneBelongsToBoard(targetLane, board) ? targetLane : null;
 }
 
+/**
+ * Broadcast a re-enable drain after its transaction has committed. Delivery
+ * was already scheduled; this only notifies live boards of the queue release.
+ */
+function broadcastQueueDrained(projectId, laneId, drainedCount) {
+  if (drainedCount > 0) {
+    broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_QUEUE_DRAINED, {
+      projectId,
+      laneId,
+      drainedCount,
+    });
+  }
+}
+
 function completionTargetError(boardId, targetLaneId, sourceLaneId = null) {
   if (targetLaneId === undefined || targetLaneId === null) return null;
   if (targetLaneId === sourceLaneId) {
@@ -229,6 +245,46 @@ function completionTargetError(boardId, targetLaneId, sourceLaneId = null) {
   if (!targetLane) return { status: 404, error: 'Completion target lane not found' };
   if (targetLane.boardId !== boardId) {
     return { status: 400, error: 'Completion target lane must be on the same board' };
+  }
+  return null;
+}
+
+/**
+ * Post-commit queue settlement for a lane PATCH. On re-enable, markers (which
+ * predate the disable) take free slots before replayed entries, which then
+ * resolve limit-aware (issue-25). Removing automation resolves deferred
+ * entries under the now-empty configuration (FR-14, edge case 3): their
+ * markers are consumed as durable no-ops so re-enabling automation cannot
+ * resurrect them, while a merely disabled lane keeps its markers for the
+ * re-enable replay. Raising or clearing the limit drains the queue
+ * synchronously so the response and broadcast reflect the resulting queue
+ * state (FR-4/FR-5); lowering the limit starts nothing (FR-3).
+ * @returns {{ status: number, body: Object }|null} Error response when the
+ *   committed drain failed, null when settlement succeeded.
+ */
+function settleLaneQueuesAfterUpdate({ laneId, result, updated, replayEventIds }) {
+  if (replayEventIds.length) {
+    // A marker-drain failure here is non-fatal: the replay still resolves
+    // limit-aware and a later terminal transition drains the markers.
+    try {
+      drainLaneQueue(laneId);
+    } catch (error) {
+      console.error(`Kanban lane ${laneId} re-enable marker drain failed:`, error);
+    }
+  }
+  scheduleLaneEntryDeliveries(replayEventIds);
+  if (!isStructured(updated)) {
+    consumeDeferredEntriesForUnautomatedLane(databaseManager.get(), laneId);
+  }
+  if (result.data.concurrencyLimit !== undefined) {
+    try {
+      drainLaneAndDeliver(laneId, { ignoreLimit: result.data.concurrencyLimit === null, strict: true });
+    } catch (error) {
+      console.error(`Kanban lane ${laneId} limit update committed but queue drain failed:`, error);
+      // The limit change is committed; the stranded entries stay marked and
+      // are recovered by retrying this same PATCH or by startup recovery.
+      return { status: 500, body: { error: 'Lane limit updated but the queue could not be drained; please retry.', code: 'KANBAN_QUEUE_DRAIN_FAILED' } };
+    }
   }
   return null;
 }
@@ -349,51 +405,51 @@ router.patch('/lanes/:laneId', (req, res) => {
     return res.status(400).json(laneValidationError(result));
   }
 
+  const operation = beginOperation(req, `lane_toggle:${laneId}`);
+  if (operation.conflict) return res.status(409).json({ error: 'Idempotency-Key was already used with a different payload' });
+  if (replayOrPending(res, operation)) return;
+
   const lane = kanbanLanes.getById(laneId);
   if (!lane) {
-    return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
+    return sendTerminalOperationResponse(res, operation, 404, { error: LANE_NOT_FOUND_ERROR });
   }
 
   const board = kanbanBoards.getByProjectId(projectId);
   if (!board || board.id !== lane.boardId) {
-    return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
+    return sendTerminalOperationResponse(res, operation, 404, { error: LANE_NOT_FOUND_ERROR });
   }
 
   const targetError = completionTargetError(lane.boardId, result.data.completionTargetLaneId, laneId);
-  if (targetError) return res.status(targetError.status).json({ error: targetError.error });
+  if (targetError) return sendTerminalOperationResponse(res, operation, targetError.status, { error: targetError.error });
 
-  let updated;
+  // The flag flip and the queue release/park commit atomically inside
+  // updateLaneWithAutomationToggle; delivery scheduling and broadcasts stay
+  // detached so PATCH is synchronous. Completed-key retries replay the
+  // recorded response above without mutating, scheduling, or broadcasting.
+  let toggle;
   try {
-    updated = kanbanLanes.update(laneId, result.data);
+    toggle = updateLaneWithAutomationToggle(laneId, result.data, {
+      finalizeMutation: ({ updated, eventIds }) => completeOperation(operation, {
+        // The repository lane projection carries no queue depth; attach it
+        // with the same authoritative counting logic as the board response
+        // (FRD §6).
+        ...updated,
+        queuedCount: buildQueuedCountsByLane().get(laneId) || 0,
+        drainedCount: eventIds.length,
+      }, { responseStatus: 200 }),
+    });
   } catch (error) {
-    if (isApiError(error)) return res.status(error.status).json({ error: error.message, code: error.code, field: error.field });
+    if (isApiError(error)) return sendTerminalResponseFromCatch(res, operation, error.status, { error: error.message, code: error.code, field: error.field });
+    if (operation.keyed) return sendFailureFromCatch(res, operation, error);
     throw error;
   }
 
-  // Removing automation resolves deferred entries under the now-empty
-  // configuration (FR-14, edge case 3): consume their markers as durable
-  // no-ops so re-enabling automation cannot resurrect them. Existing runners
-  // keep running. This applies regardless of which fields changed.
-  if (!isStructured(updated)) {
-    consumeDeferredEntriesForUnautomatedLane(databaseManager.get(), laneId);
-  }
+  const queueFailure = settleLaneQueuesAfterUpdate({
+    laneId, result, updated: toggle.updated, replayEventIds: toggle.eventIds,
+  });
+  if (queueFailure) return res.status(queueFailure.status).json(queueFailure.body);
 
-  // Raising or clearing the limit drains the queue synchronously so the
-  // response (and the broadcast below) reflect the resulting queue state
-  // (FR-4). Clearing to null drains every deferred entry despite the lane
-  // becoming unlimited (FR-5): the pending-entry markers survive the update.
-  // Lowering the limit starts nothing: drainLaneQueue no-ops while
-  // the running count covers the limit (FR-3 grandfathering).
-  if (result.data.concurrencyLimit !== undefined) {
-    try {
-      drainLaneAndDeliver(laneId, { ignoreLimit: result.data.concurrencyLimit === null, strict: true });
-    } catch (error) {
-      console.error(`Kanban lane ${laneId} limit update committed but queue drain failed:`, error);
-      // The limit change is committed; the stranded entries stay marked and
-      // are recovered by retrying this same PATCH or by startup recovery.
-      return res.status(500).json({ error: 'Lane limit updated but the queue could not be drained; please retry.', code: 'KANBAN_QUEUE_DRAIN_FAILED' });
-    }
-  }
+  broadcastQueueDrained(projectId, laneId, toggle.eventIds.length);
 
   // Broadcast updated board
   const fullBoard = buildFullBoardResponse(board);
@@ -402,7 +458,10 @@ router.patch('/lanes/:laneId', (req, res) => {
     board: fullBoard,
   });
 
-  res.json(updated);
+  // The recorded body is the legacy shape for unkeyed requests
+  // (completeOperation is a passthrough without a key) and the canonical
+  // recorded response — with operationId — for keyed ones.
+  return res.json(toggle.response);
 });
 
 /**

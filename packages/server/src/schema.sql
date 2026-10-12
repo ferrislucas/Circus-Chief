@@ -509,6 +509,7 @@ CREATE TABLE IF NOT EXISTS kanban_lanes (
   on_enter_reschedule_at_token_count INTEGER,
   completion_target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
   concurrency_limit INTEGER CHECK (concurrency_limit IS NULL OR concurrency_limit >= 1),
+  automation_enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );

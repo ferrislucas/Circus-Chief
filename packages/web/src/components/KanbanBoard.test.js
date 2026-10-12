@@ -388,6 +388,41 @@ describe('KanbanBoard.vue', () => {
     });
   });
 
+  describe('paused lane queue display', () => {
+    function mountPausedBoard() {
+      mockKanbanStoreData.board.lanes[1].automationEnabled = false;
+      mockKanbanStoreData.board.lanes[1].queuedCount = 2;
+      mockKanbanStoreData.board.lanes[1].cards[0].entryStatus = 'queued';
+      return mountBoard();
+    }
+
+    it('marks the paused lane header and queued-count badge', () => {
+      const wrapper = mountPausedBoard();
+      const pausedLane = wrapper.findAll('.kanban-lane')[1];
+
+      expect(pausedLane.classes()).toContain('lane-disabled');
+      expect(pausedLane.find('.lane-automation-paused').attributes('title')).toBe('Automation paused');
+      expect(pausedLane.find('.lane-queued-badge').text()).toContain('2 queued');
+    });
+
+    it('renders the queued chip on cards with entryStatus queued', () => {
+      const wrapper = mountPausedBoard();
+      const pausedLane = wrapper.findAll('.kanban-lane')[1];
+
+      const chip = pausedLane.find('.card-queued-chip');
+      expect(chip.exists()).toBe(true);
+      expect(chip.text()).toContain('queued');
+      expect(chip.text()).toContain('automation paused');
+    });
+
+    it('renders no queued chip or badge without queue state', () => {
+      const wrapper = mountBoard();
+
+      expect(wrapper.find('.card-queued-chip').exists()).toBe(false);
+      expect(wrapper.find('.lane-queued-badge').exists()).toBe(false);
+    });
+  });
+
   describe('Scheduled workspace indicator', () => {
     it('shows scheduled badge and relative time for a scheduled workflow workspace', () => {
       vi.useFakeTimers();
@@ -614,6 +649,38 @@ describe('KanbanBoard.vue', () => {
       const laneHeaders = wrapper.findAll('.lane-header');
       // First lane (To Do) has no automation
       expect(laneHeaders[0].find('.lane-automation-indicator').exists()).toBe(false);
+    });
+
+    it('shows a paused indicator and disabled styling for automation-disabled lanes', () => {
+      mockKanbanStoreData.board.lanes[1].automationEnabled = false;
+      const wrapper = mountBoard();
+      const laneHeaders = wrapper.findAll('.lane-header');
+      expect(laneHeaders[1].find('[title="Automation paused"]').exists()).toBe(true);
+      expect(laneHeaders[1].find('.lane-automation-indicator').exists()).toBe(false);
+      expect(wrapper.findAll('.kanban-lane')[1].classes()).toContain('lane-disabled');
+    });
+
+    it('shows a queued-count badge when a disabled lane has queued entries', () => {
+      mockKanbanStoreData.board.lanes[1].automationEnabled = false;
+      mockKanbanStoreData.board.lanes[1].queuedCount = 3;
+      const wrapper = mountBoard();
+      const laneHeaders = wrapper.findAll('.lane-header');
+      expect(laneHeaders[1].find('.lane-queued-badge').text()).toContain('3');
+    });
+
+    it('hides the queued-count badge when the queue is empty', () => {
+      mockKanbanStoreData.board.lanes[1].automationEnabled = false;
+      mockKanbanStoreData.board.lanes[1].queuedCount = 0;
+      const wrapper = mountBoard();
+      const laneHeaders = wrapper.findAll('.lane-header');
+      expect(laneHeaders[1].find('.lane-queued-badge').exists()).toBe(false);
+    });
+
+    it('keeps the enabled indicator for automation-enabled lanes', () => {
+      mockKanbanStoreData.board.lanes[1].automationEnabled = true;
+      const wrapper = mountBoard();
+      const laneHeaders = wrapper.findAll('.lane-header');
+      expect(laneHeaders[1].find('.lane-automation-indicator[title="Automation enabled"]').exists()).toBe(true);
     });
   });
 

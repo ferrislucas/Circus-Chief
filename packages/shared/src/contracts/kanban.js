@@ -28,6 +28,7 @@ export const CreateKanbanLaneRequest = z.object({
   onEnterRescheduleAtTokenCount: z.number().nullable().optional(),
   completionTargetLaneId: z.string().uuid().nullable().optional(),
   concurrencyLimit: z.number().int().min(1).nullable().optional(),
+  automationEnabled: z.boolean().optional(),
 }).refine(
   (data) => {
     // Mutual exclusivity: can't have both template and prompt set
@@ -59,6 +60,7 @@ export const UpdateKanbanLaneRequest = z.object({
   onEnterRescheduleAtTokenCount: z.number().nullable().optional(),
   completionTargetLaneId: z.string().uuid().nullable().optional(),
   concurrencyLimit: z.number().int().min(1).nullable().optional(),
+  automationEnabled: z.boolean().optional(),
 }).refine(
   (data) => {
     // Mutual exclusivity: can't have both template and prompt set
@@ -93,7 +95,13 @@ export const KanbanLaneResponse = z.object({
   onEnterMaxTotalTokens: z.number().nullable(),
   onEnterRescheduleAtTokenCount: z.number().nullable(),
   completionTargetLaneId: z.string().uuid().nullable(),
-  concurrencyLimit: z.number().int().min(1).nullable(),
+  // Default-null: lane payloads that predate concurrency limits read as
+  // unlimited, mirroring the automationEnabled default-true above.
+  concurrencyLimit: z.number().int().min(1).nullable().default(null),
+  // Default-true (not required): legacy lane payloads predate the flag and
+  // read as enabled, preserving current behavior for back-compat readers.
+  automationEnabled: z.boolean().default(true),
+  queuedCount: z.number().default(0),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -132,6 +140,10 @@ export const KanbanCardResponse = z.object({
   sessions: z.array(KanbanCardSessionResponse),
   entryState: z.enum(['running', 'queued']).optional(),
   queuePosition: z.number().int().min(1).nullable().optional(),
+  // Present only while the card's entry waits in a disabled lane's queue.
+  // TODO(issue-25): unify with entryState so one queued derivation covers
+  // both the limited-lane marker and the disabled-lane entry queue.
+  entryStatus: z.enum(['queued']).optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

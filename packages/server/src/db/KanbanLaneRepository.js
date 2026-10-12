@@ -15,11 +15,38 @@ function boolToSqlite(value, defaultValue = null) {
 }
 
 /**
+ * Check whether lane data carries on-entry automation (prompt or template).
+ * Mirrors the validation in #assertConfiguration: a blank prompt counts as
+ * no automation.
+ * @param {Object} data - Lane data
+ * @returns {boolean}
+ */
+function hasAutomation(data) {
+  return Boolean(data.onEnterTemplateId || data.onEnterPrompt?.trim());
+}
+
+/**
+ * Resolve the auto-reschedule column for a lane insert.
+ * A new automated lane with the master switch omitted defaults to retry-on;
+ * explicit true/false pass through unchanged, and lanes without automation
+ * keep the historical default-off behavior.
+ * @param {Object} data - Lane data
+ * @returns {number} 1 or 0
+ */
+function defaultAutoReschedule(data) {
+  if (data.onEnterAutoRescheduleEnabled !== undefined) {
+    return data.onEnterAutoRescheduleEnabled ? 1 : 0;
+  }
+  return hasAutomation(data) ? 1 : 0;
+}
+
+/**
  * Prepare lane insert values from data object.
  * @param {Object} data - Lane data
  * @returns {Array} Array of values for INSERT
  */
 function prepareLaneValues(data) {
+  const autoReschedule = defaultAutoReschedule(data);
   return [
     data.onEnterTemplateId || null,
     data.onEnterPrompt || null,
@@ -27,7 +54,7 @@ function prepareLaneValues(data) {
     data.onEnterModel || null,
     data.onEnterEffortLevel || null,
     boolToSqlite(data.onEnterThinkingEnabled),
-    data.onEnterAutoRescheduleEnabled ? 1 : 0,
+    autoReschedule,
     data.onEnterRescheduleDelayMinutes ?? 15,
     boolToSqlite(data.onEnterRescheduleOnTokenLimit, 1),
     boolToSqlite(data.onEnterRescheduleOnServiceError, 1),
@@ -36,6 +63,16 @@ function prepareLaneValues(data) {
     data.onEnterRescheduleAtTokenCount ?? null,
     data.concurrencyLimit ?? null,
   ];
+}
+
+/**
+ * Resolve the automation-enabled insert value, defaulting to enabled.
+ * @param {Object} data - Lane data
+ * @returns {number} 1 when enabled (or unset), 0 when disabled
+ */
+function automationEnabledValue(data) {
+  if (data.automationEnabled === undefined || data.automationEnabled === null) return 1;
+  return data.automationEnabled ? 1 : 0;
 }
 
 /**
@@ -48,6 +85,7 @@ const BOOLEAN_FIELDS = {
   onEnterAutoRescheduleEnabled: { nullable: false },
   onEnterRescheduleOnTokenLimit: { nullable: false },
   onEnterRescheduleOnServiceError: { nullable: false },
+  automationEnabled: { nullable: false },
 };
 
 /**
@@ -96,6 +134,9 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterRescheduleAtTokenCount: row.on_enter_reschedule_at_token_count,
       completionTargetLaneId: row.completion_target_lane_id,
       concurrencyLimit: row.concurrency_limit ?? null,
+      automationEnabled: row.automation_enabled === undefined || row.automation_enabled === null
+        ? true
+        : Boolean(row.automation_enabled),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -140,10 +181,11 @@ export class KanbanLaneRepository extends BaseRepository {
           on_enter_reschedule_on_token_limit, on_enter_reschedule_on_service_error,
           on_enter_max_reschedule_count, on_enter_max_total_tokens,
           on_enter_reschedule_at_token_count, concurrency_limit,
-          completion_target_lane_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          completion_target_lane_id, automation_enabled, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, boardId, createData.name, sortOrder, ...laneValues, createData.completionTargetLaneId || null, now, now);
+      .run(id, boardId, createData.name, sortOrder, ...laneValues, createData.completionTargetLaneId || null,
+        automationEnabledValue(createData), now, now);
 
     return this.getById(id);
   }
@@ -198,6 +240,7 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterRescheduleAtTokenCount: 'on_enter_reschedule_at_token_count',
       completionTargetLaneId: 'completion_target_lane_id',
       concurrencyLimit: 'concurrency_limit',
+      automationEnabled: 'automation_enabled',
     };
 
     const updates = [];
@@ -224,8 +267,7 @@ export class KanbanLaneRepository extends BaseRepository {
 
   /** Reject configurations that cannot have one unambiguous lane-run owner. */
   #assertConfiguration(boardId, lane) {
-    const hasAutomation = Boolean(lane.onEnterTemplateId || lane.onEnterPrompt?.trim());
-    if (lane.completionTargetLaneId && !hasAutomation) {
+    if (lane.completionTargetLaneId && !hasAutomation(lane)) {
       throw new ApiError('A completion target requires an on-entry prompt or template', {
         code: 'KANBAN_LANE_AUTOMATION_REQUIRED', field: 'completionTargetLaneId',
       });

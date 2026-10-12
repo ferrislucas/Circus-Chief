@@ -91,8 +91,16 @@ export function useProjectSubscription(projectId, { autoCleanup = true } = {}) {
   // These messages are currently normally represented to project subscribers
   // by SESSION_UPDATED. Keeping explicit handlers makes the list lifecycle-safe
   // if the server begins forwarding the more specific events as well.
-  const onSessionMessage = createProjectMessageHandler(WS_MESSAGE_TYPES.SESSION_MESSAGE);
-  const onSessionStatus = createProjectMessageHandler(WS_MESSAGE_TYPES.SESSION_STATUS);
+  // Same-shaped project handlers share one table so the list stays compact.
+  const onProjectMessage = Object.fromEntries(
+    [
+      ['onSessionMessage', WS_MESSAGE_TYPES.SESSION_MESSAGE],
+      ['onSessionStatus', WS_MESSAGE_TYPES.SESSION_STATUS],
+      ['onKanbanEntryQueued', WS_MESSAGE_TYPES.KANBAN_ENTRY_QUEUED],
+      ['onKanbanQueueDrained', WS_MESSAGE_TYPES.KANBAN_QUEUE_DRAINED],
+    ].map(([name, type]) => [name, createProjectMessageHandler(type)])
+  );
+  const { onSessionMessage, onSessionStatus, onKanbanEntryQueued, onKanbanQueueDrained } = onProjectMessage;
 
   // Command run handlers for real-time status icon updates on session lists
   const onCommandRunStarted = (callback) => {
@@ -226,5 +234,7 @@ export function useProjectSubscription(projectId, { autoCleanup = true } = {}) {
     onKanbanCardAdded,
     onKanbanCardRemoved,
     onKanbanExitLaneDeclared,
+    onKanbanEntryQueued,
+    onKanbanQueueDrained,
   };
 }

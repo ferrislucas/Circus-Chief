@@ -1,4 +1,5 @@
-import { createServer } from 'http';
+import { createServer as createHttpServer } from 'http';
+import { createServer as createHttpsServer } from 'https';
 import { execSync } from 'child_process';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
@@ -7,6 +8,7 @@ import { initDatabase, commandRuns, sessions, modelProviders } from './database.
 import { processCommandRunOutputCleanup } from './services/commandRunOutputCleanup.js';
 import { initWebSocket, webSocketManager, setCommandRunOutputAuthorizer } from './websocket.js';
 import { parseCliOptions } from './cli.js';
+import { resolveTlsConfig } from './tls.js';
 import { startServer, prepareBindFailureHandler } from './startup.js';
 import { createShutdownHandler } from './shutdown.js';
 import { DEFAULT_SERVER_HOST } from '@circuschief/shared';
@@ -48,13 +50,42 @@ function validateNodeEnvironment() {
   }
 }
 
-const { port, host, disableAnalytics } = parseCliOptions();
+const { port, host, disableAnalytics, sslCert, sslKey, selfSigned, tlsDir } = parseCliOptions();
 process.env.PORT = String(port);
 // Publish the effective bind address (--host flag or loopback default) so
 // downstream consumers like getApiBaseUrl() construct agent-reachable URLs.
 // This is set here from the parsed CLI options; it is never read from the
 // user environment (host env vars are not supported).
 process.env.CIRCUSCHIEF_HOST = host;
+
+// Resolve TLS before binding or opening DB-dependent workers: a bad cert
+// path or a missing openssl is a hard startup error, never a silent HTTP
+// fallback.
+let tlsConfig;
+try {
+  tlsConfig = await resolveTlsConfig({ sslCert, sslKey, selfSigned, tlsDir });
+} catch (err) {
+  console.error(`Error: ${err.message}`);
+  process.exit(1);
+}
+process.env.CIRCUSCHIEF_SECURE = tlsConfig.enabled ? '1' : '';
+// Publish the self-signed certificate path (public material only, never the
+// private key) so generated agent API commands and docs can pin --cacert
+// trust to it. Agent child processes inherit this environment at spawn.
+// Custom CA-trusted certs need no extra trust, so publish nothing for them.
+if (tlsConfig.enabled && tlsConfig.source === 'self-signed') {
+  process.env.CIRCUSCHIEF_CA_CERT = tlsConfig.certPath;
+} else {
+  delete process.env.CIRCUSCHIEF_CA_CERT;
+}
+if (tlsConfig.enabled && tlsConfig.source === 'custom') {
+  console.log(`TLS enabled (custom cert: ${tlsConfig.certPath}, key: ${tlsConfig.keyPath})`);
+} else if (tlsConfig.enabled) {
+  console.log(
+    `TLS enabled (self-signed cert ${tlsConfig.reused ? 'reused' : 'generated'}: ${tlsConfig.certPath}, key: ${tlsConfig.keyPath})`
+  );
+  console.log('Note: self-signed certificates are encrypted but untrusted — browsers will warn until the cert is trusted.');
+}
 const production = process.env.NODE_ENV === 'production';
 const dbPath = process.env.DB_PATH || getDefaultDbPath();
 
@@ -128,8 +159,11 @@ if (disableAnalytics) {
 // Create Express app
 const app = createApp({ production });
 
-// Create HTTP server
-const server = createServer(app);
+// Create HTTP or HTTPS server (HTTPS-only when TLS is configured — no
+// redirect listener, no second port). The WebSocket layer attaches unchanged.
+const server = tlsConfig.enabled
+  ? createHttpsServer({ key: tlsConfig.key, cert: tlsConfig.cert }, app)
+  : createHttpServer(app);
 
 // Install the listen-phase bind-failure handler BEFORE the WebSocket layer
 // attaches. `ws` forwards the HTTP server's 'error' event onto itself, and a
@@ -219,4 +253,6 @@ startServer(server, {
   host,
   isDefaultHost: host === DEFAULT_SERVER_HOST,
   onListenFailure,
+  secure: tlsConfig.enabled,
+  selfSigned: tlsConfig.enabled && tlsConfig.source === 'self-signed',
 });
