@@ -1,6 +1,7 @@
 import { WebSocketServer } from 'ws';
 import { WS_MESSAGE_TYPES, parseMessage, createMessage } from '@circuschief/shared';
 import { commandOutputMetrics, COMMAND_OUTPUT_METRICS } from '../services/commandOutputMetrics.js';
+import { createUpgradeGate } from './upgradeGate.js';
 
 const OUTPUT_SOCKET_HIGH_WATER_BYTES = 256 * 1024;
 
@@ -33,13 +34,39 @@ export class WebSocketManager {
   #usageUpdateBuffer = new Map();
   #sessionPriority = new Map();
 
+  /** @type {import('http').Server|null} */
+  #upgradeServer = null;
+
+  /** @type {Function|null} */
+  #upgradeHandler = null;
+
+  /** @type {{ users: Map<string,string> }|null} */
+  #auth = null;
+
   /**
    * Initialize WebSocket server
+   *
+   * Uses `noServer` mode with an explicit `upgrade` listener (instead of
+   * `new WebSocketServer({ server, path })`) so upgrades can be gated on
+   * Basic credentials when auth is configured. Without auth the behavior is
+   * unchanged: every `/ws` upgrade is accepted.
+   *
    * @param {import('http').Server} server - HTTP server to attach to
+   * @param {object} [options]
+   * @param {{ users: Map<string,string> }|null} [options.auth] - Loaded
+   *   Basic-auth config; shares the startup loader instance so credential
+   *   rotation applies to WebSocket upgrades too.
    * @returns {WebSocketServer}
    */
-  init(server) {
-    this.#wss = new WebSocketServer({ server, path: '/ws' });
+  init(server, { auth = null } = {}) {
+    this.#auth = auth;
+    this.#wss = new WebSocketServer({ noServer: true });
+    this.#upgradeServer = server;
+    this.#upgradeHandler = createUpgradeGate({
+      wss: this.#wss,
+      getUsers: () => this.#auth?.users ?? null,
+    });
+    server.on('upgrade', this.#upgradeHandler);
 
     this.#wss.on('connection', (ws) => {
       this.#clients.add(ws);
@@ -363,6 +390,12 @@ export class WebSocketManager {
    * Close the WebSocket server
    */
   close() {
+    if (this.#upgradeServer && this.#upgradeHandler) {
+      this.#upgradeServer.removeListener('upgrade', this.#upgradeHandler);
+      this.#upgradeServer = null;
+      this.#upgradeHandler = null;
+    }
+    this.#auth = null;
     if (this.#wss) {
       // Terminate all connected clients first so their underlying TCP
       // sockets close, unblocking server.close() during shutdown.

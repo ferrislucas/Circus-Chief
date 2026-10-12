@@ -8,6 +8,7 @@ import { initDatabase, commandRuns, sessions, modelProviders } from './database.
 import { processCommandRunOutputCleanup } from './services/commandRunOutputCleanup.js';
 import { initWebSocket, webSocketManager, setCommandRunOutputAuthorizer } from './websocket.js';
 import { parseCliOptions } from './cli.js';
+import { resolveStartupAuth } from './middleware/basicAuth.js';
 import { resolveTlsConfig } from './tls.js';
 import { startServer, prepareBindFailureHandler } from './startup.js';
 import { createShutdownHandler } from './shutdown.js';
@@ -50,7 +51,21 @@ function validateNodeEnvironment() {
   }
 }
 
-const { port, host, disableAnalytics, sslCert, sslKey, selfSigned, tlsDir } = parseCliOptions();
+const { port, host, disableAnalytics, authEnabled, authFile, sslCert, sslKey, selfSigned, tlsDir } = parseCliOptions();
+
+// Resolve Basic auth before binding or opening the database: a missing or
+// malformed credential file with the flag set is a hard startup error, never
+// a silent fallback to serving open.
+let authConfig = null;
+try {
+  authConfig = resolveStartupAuth({ authEnabled, authFile });
+} catch (err) {
+  console.error(`Error: ${err.message}`);
+  process.exit(1);
+}
+if (authConfig) {
+  console.log(`Basic auth enabled (file: ${authConfig.path})`);
+}
 process.env.PORT = String(port);
 // Publish the effective bind address (--host flag or loopback default) so
 // downstream consumers like getApiBaseUrl() construct agent-reachable URLs.
@@ -157,7 +172,7 @@ if (disableAnalytics) {
 }
 
 // Create Express app
-const app = createApp({ production });
+const app = createApp({ production, auth: authConfig });
 
 // Create HTTP or HTTPS server (HTTPS-only when TLS is configured — no
 // redirect listener, no second port). The WebSocket layer attaches unchanged.
@@ -173,7 +188,7 @@ const server = tlsConfig.enabled
 const { onListenFailure } = prepareBindFailureHandler(server, { port, host });
 
 // Initialize WebSocket for app
-initWebSocket(server);
+initWebSocket(server, { auth: authConfig });
 
 // Scheduler readiness is independent of Kanban automation readiness. A bad
 // board configuration must never strand unrelated scheduled sessions.
@@ -255,4 +270,5 @@ startServer(server, {
   onListenFailure,
   secure: tlsConfig.enabled,
   selfSigned: tlsConfig.enabled && tlsConfig.source === 'self-signed',
+  authEnabled: Boolean(authConfig),
 });

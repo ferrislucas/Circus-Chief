@@ -6,7 +6,7 @@ vi.mock('fs', async (importOriginal) => {
 });
 
 import { readFileSync } from 'fs';
-import { describeBindHost, parseCliOptions } from './cli.js';
+import { describeBindHost, parseCliOptions, resolveAuthConfig } from './cli.js';
 
 describe('parseCliOptions', () => {
   let exitSpy;
@@ -33,17 +33,17 @@ describe('parseCliOptions', () => {
 
   it('returns default port when no arguments provided', () => {
     const result = parseCliOptions(['node', 'cli.js']);
-    expect(result).toEqual({ port: 5000, host: '127.0.0.1', disableAnalytics: false, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
+    expect(result).toEqual({ port: 5000, host: '127.0.0.1', disableAnalytics: false, authEnabled: false, authFile: null, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
   });
 
   it('parses custom port with -p flag', () => {
     const result = parseCliOptions(['node', 'cli.js', '-p', '8080']);
-    expect(result).toEqual({ port: 8080, host: '127.0.0.1', disableAnalytics: false, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
+    expect(result).toEqual({ port: 8080, host: '127.0.0.1', disableAnalytics: false, authEnabled: false, authFile: null, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
   });
 
   it('parses custom port with --port flag', () => {
     const result = parseCliOptions(['node', 'cli.js', '--port', '3000']);
-    expect(result).toEqual({ port: 3000, host: '127.0.0.1', disableAnalytics: false, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
+    expect(result).toEqual({ port: 3000, host: '127.0.0.1', disableAnalytics: false, authEnabled: false, authFile: null, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
   });
 
   it('exits with error for non-numeric port', () => {
@@ -118,25 +118,25 @@ describe('parseCliOptions', () => {
 
   it('accepts minimum valid port (1)', () => {
     const result = parseCliOptions(['node', 'cli.js', '-p', '1']);
-    expect(result).toEqual({ port: 1, host: '127.0.0.1', disableAnalytics: false, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
+    expect(result).toEqual({ port: 1, host: '127.0.0.1', disableAnalytics: false, authEnabled: false, authFile: null, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
   });
 
   it('accepts maximum valid port (65535)', () => {
     const result = parseCliOptions(['node', 'cli.js', '-p', '65535']);
-    expect(result).toEqual({ port: 65535, host: '127.0.0.1', disableAnalytics: false, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
+    expect(result).toEqual({ port: 65535, host: '127.0.0.1', disableAnalytics: false, authEnabled: false, authFile: null, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
   });
 
   describe('PORT environment variable', () => {
     it('respects PORT env var when no CLI flag is given', () => {
       process.env.PORT = '8080';
       const result = parseCliOptions(['node', 'cli.js']);
-      expect(result).toEqual({ port: 8080, host: '127.0.0.1', disableAnalytics: false, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
+      expect(result).toEqual({ port: 8080, host: '127.0.0.1', disableAnalytics: false, authEnabled: false, authFile: null, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
     });
 
     it('CLI --port flag takes precedence over PORT env var', () => {
       process.env.PORT = '8080';
       const result = parseCliOptions(['node', 'cli.js', '--port', '3000']);
-      expect(result).toEqual({ port: 3000, host: '127.0.0.1', disableAnalytics: false, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
+      expect(result).toEqual({ port: 3000, host: '127.0.0.1', disableAnalytics: false, authEnabled: false, authFile: null, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
     });
 
     it('exits with error for invalid PORT env var', () => {
@@ -162,7 +162,7 @@ describe('parseCliOptions', () => {
 
     it('can combine --no-analytics with --port', () => {
       const result = parseCliOptions(['node', 'cli.js', '-p', '8080', '--no-analytics']);
-      expect(result).toEqual({ port: 8080, host: '127.0.0.1', disableAnalytics: true, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
+      expect(result).toEqual({ port: 8080, host: '127.0.0.1', disableAnalytics: true, authEnabled: false, authFile: null, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
     });
   });
 
@@ -194,7 +194,7 @@ describe('parseCliOptions', () => {
 
     it('combines with the other options', () => {
       expect(parseCliOptions(['node', 'cli.js', '-p', '8080', '-H', '0.0.0.0', '--no-analytics']))
-        .toEqual({ port: 8080, host: '0.0.0.0', disableAnalytics: true, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
+        .toEqual({ port: 8080, host: '0.0.0.0', disableAnalytics: true, authEnabled: false, authFile: null, sslCert: null, sslKey: null, selfSigned: false, tlsDir: null });
     });
 
     it('includes host configuration in help text', () => {
@@ -271,6 +271,55 @@ describe('parseCliOptions', () => {
       expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('--ssl-key'));
       expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('--self-signed'));
       expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('--tls-dir'));
+    });
+  });
+
+  describe('--auth / --auth-file flags', () => {
+    it('defaults to auth disabled with null auth file', () => {
+      const result = parseCliOptions(['node', 'cli.js']);
+      expect(result).toEqual(expect.objectContaining({ authEnabled: false, authFile: null }));
+    });
+
+    it('enables auth with the default file via --auth', () => {
+      const result = parseCliOptions(['node', 'cli.js', '--auth']);
+      expect(result).toEqual(expect.objectContaining({ authEnabled: true, authFile: null }));
+    });
+
+    it('enables auth with a custom path via --auth-file alone', () => {
+      const result = parseCliOptions(['node', 'cli.js', '--auth-file', '/x/y.htpasswd']);
+      expect(result).toEqual(expect.objectContaining({ authEnabled: true, authFile: '/x/y.htpasswd' }));
+    });
+
+    it('combines --auth with --auth-file', () => {
+      const result = parseCliOptions(['node', 'cli.js', '--auth', '--auth-file', '/x/y.htpasswd']);
+      expect(result).toEqual(expect.objectContaining({ authEnabled: true, authFile: '/x/y.htpasswd' }));
+    });
+
+    it('documents --auth and --auth-file in help text', () => {
+      expect(() => parseCliOptions(['node', 'cli.js', '--help'])).toThrow('process.exit');
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('--auth'));
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('--auth-file'));
+    });
+
+    it('exits with error for an empty --auth-file value', () => {
+      expect(() => parseCliOptions(['node', 'cli.js', '--auth-file', ''])).toThrow('process.exit');
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('--auth-file'));
+    });
+
+    it('resolveAuthConfig: disabled by default', () => {
+      expect(resolveAuthConfig({ auth: false, 'auth-file': undefined }))
+        .toEqual({ authEnabled: false, authFile: null });
+    });
+
+    it('resolveAuthConfig: --auth-file implies auth', () => {
+      expect(resolveAuthConfig({ auth: false, 'auth-file': '/x/y.htpasswd' }))
+        .toEqual({ authEnabled: true, authFile: '/x/y.htpasswd' });
+    });
+
+    it('resolveAuthConfig: --auth enables with default file', () => {
+      expect(resolveAuthConfig({ auth: true, 'auth-file': undefined }))
+        .toEqual({ authEnabled: true, authFile: null });
     });
   });
 

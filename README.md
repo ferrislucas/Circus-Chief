@@ -57,6 +57,8 @@ npx circuschief
 | `--ssl-cert <path>` / `--ssl-key <path>` | Serve HTTPS with your own PEM cert + key (must supply both) |
 | `--self-signed` | Serve HTTPS with an auto-generated self-signed cert (needs `openssl`) |
 | `--tls-dir <path>` | Storage dir for the self-signed cert pair (default: `~/.circuschief/tls/`) |
+| `--auth` | Enable HTTP Basic auth with the default file (`~/.circuschief/.htpasswd`) |
+| `--auth-file <path>` | Enable HTTP Basic auth with a custom htpasswd file (implies `--auth`) |
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version number |
 
@@ -79,6 +81,29 @@ npx circuschief --self-signed
 ```
 
 The self-signed pair is generated once (RSA 2048, ~825 days, SANs for localhost, LAN IPs, and hostname) and reused from `~/.circuschief/tls/` on later boots. Self-signed certificates are encrypted but untrusted — browsers will warn until the cert is trusted. TLS is HTTPS-only: there is no HTTP→HTTPS redirect.
+
+**Example — require a password (Basic auth):**
+
+```bash
+# 1. create the credential file (prompts for a password, bcrypt-hashed)
+npx htpasswd -cB ~/.circuschief/.htpasswd admin
+chmod 600 ~/.circuschief/.htpasswd
+
+# 2. launch with auth enabled (default file)
+npx circuschief --auth
+
+# custom path (implies --auth; e.g. Docker volume, shared config dir)
+npx circuschief --auth-file /run/secrets/circuschief.htpasswd
+```
+
+Auth is off by default and turns on only via `--auth` / `--auth-file` — the
+mere presence of the file does nothing. When enabled, every REST route, the
+`/ws` WebSocket upgrade, and the production frontend require the credentials,
+except `GET /api/server-info`, which stays open so port-probing tooling can
+identify the server instance. Password changes apply without a restart;
+toggling auth on/off requires a relaunch, as does disabling (relaunch without
+the flag). Basic auth sends base64 credentials with every request, so pair it
+with TLS (above) whenever the server binds beyond localhost.
 
 ## Prerequisites
 

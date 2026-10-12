@@ -11,6 +11,9 @@ import {
   MiscApi,
   KanbanApi,
 } from './resources/index.js';
+import { AUTH_REQUIRED_CODE, getAuthorizationHeader, notifyAuthRequired } from './auth.js';
+
+export { AUTH_REQUIRED_CODE };
 
 /**
  * API client class for making HTTP requests to the backend.
@@ -46,10 +49,12 @@ export class ApiClient {
    * @returns {Promise<any>}
    */
   async #request(method, path, data = null, { signal } = {}) {
+    const authHeader = getAuthorizationHeader();
     const options = {
       method,
       headers: {
         'Content-Type': 'application/json',
+        ...(authHeader ? { Authorization: authHeader } : {}),
       },
       signal,
     };
@@ -62,6 +67,12 @@ export class ApiClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        // Distinct from the generic error path: flips the login gate and
+        // carries AUTH_REQUIRED so views can branch on it.
+        notifyAuthRequired();
+        throw this.#buildAuthRequiredError(errorData);
+      }
       throw this.#buildError(response.status, errorData);
     }
 
@@ -80,6 +91,13 @@ export class ApiClient {
     return error;
   }
 
+  #buildAuthRequiredError(data) {
+    const error = new Error(data.message || data.error || 'Authentication required');
+    error.status = 401;
+    error.code = AUTH_REQUIRED_CODE;
+    return error;
+  }
+
   /**
    * POST a FormData body (for file uploads) and handle the response.
    * Exposed as a protected method so resource mixins can use it.
@@ -88,10 +106,18 @@ export class ApiClient {
    * @returns {Promise<any>}
    */
   async _uploadFormData(path, formData) {
-    const response = await fetch(`${this.#baseUrl}${path}`, {
-      method: 'POST',
-      body: formData,
-    });
+    const authHeader = getAuthorizationHeader();
+    // No headers key at all when logged out: the browser must set
+    // Content-Type with the multipart boundary itself.
+    const init = { method: 'POST', body: formData };
+    if (authHeader) init.headers = { Authorization: authHeader };
+    const response = await fetch(`${this.#baseUrl}${path}`, init);
+
+    if (response.status === 401) {
+      const errorData = await response.json().catch(() => ({}));
+      notifyAuthRequired();
+      throw this.#buildAuthRequiredError(errorData);
+    }
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));

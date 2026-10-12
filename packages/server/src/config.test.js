@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { homedir, tmpdir } from 'os';
 import { join, sep, dirname } from 'path';
 import { mkdirSync, existsSync, rmSync } from 'fs';
-import { getDefaultDbPath } from './config.js';
+import { getDefaultDbPath, getDefaultAuthFilePath } from './config.js';
 
 describe('getDefaultDbPath', () => {
   it('returns an absolute path', () => {
@@ -19,6 +19,12 @@ describe('getDefaultDbPath', () => {
   it('returns a path ending in .circuschief/circuschief.db', () => {
     const result = getDefaultDbPath();
     expect(result).toBe(join(homedir(), '.circuschief', 'circuschief.db'));
+  });
+});
+
+describe('getDefaultAuthFilePath', () => {
+  it('returns ~/.circuschief/.htpasswd', () => {
+    expect(getDefaultAuthFilePath()).toBe(join(homedir(), '.circuschief', '.htpasswd'));
   });
 });
 

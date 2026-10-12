@@ -17,6 +17,8 @@ Options:
   -p, --port <number>  Port to listen on (env: PORT, default: ${DEFAULT_SERVER_PORT})
   -H, --host <address> Network address to bind to (default: ${DEFAULT_SERVER_HOST})
   --no-analytics       Disable anonymous usage analytics
+  --auth               Enable HTTP Basic auth with the default file (~/.circuschief/.htpasswd)
+  --auth-file <path>   Enable HTTP Basic auth with a custom htpasswd file (implies --auth)
   --ssl-cert <path>    Path to a PEM certificate file (must pair with --ssl-key)
   --ssl-key <path>     Path to a PEM private key file (must pair with --ssl-cert)
   --self-signed        Generate (or reuse) a self-signed cert for HTTPS (needs openssl)
@@ -82,7 +84,27 @@ const CLI_OPTIONS = {
   'tls-dir': {
     type: 'string',
   },
+  auth: {
+    type: 'boolean',
+    default: false,
+  },
+  'auth-file': {
+    type: 'string',
+  },
 };
+
+/**
+ * Resolve Basic-auth enablement and file path from parsed CLI values.
+ * `--auth-file` without `--auth` still enables auth. A null authFile
+ * means "use the default path" (resolved later via config.js).
+ * @param {object} values - Parsed CLI values (parseArgs output).
+ * @returns {{ authEnabled: boolean, authFile: string|null }}
+ */
+export function resolveAuthConfig(values) {
+  const authFile = values['auth-file'] ?? null;
+  const authEnabled = Boolean(values.auth) || authFile !== null;
+  return { authEnabled, authFile };
+}
 
 export function parseCliOptions(argv = process.argv) {
   let values;
@@ -123,7 +145,13 @@ export function parseCliOptions(argv = process.argv) {
     process.exit(1);
   }
 
-  return { port, host, disableAnalytics: values['no-analytics'], ...parseTlsFlags(values) };
+  const { authEnabled, authFile } = resolveAuthConfig(values);
+  if (authFile !== null && authFile.trim() === '') {
+    console.error('Error: Invalid --auth-file value. Must be a non-empty path.');
+    process.exit(1);
+  }
+
+  return { port, host, disableAnalytics: values['no-analytics'], authEnabled, authFile, ...parseTlsFlags(values) };
 }
 
 function parseTlsFlags(values) {

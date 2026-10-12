@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createServer } from 'http';
+import { createServer, get as httpGet } from 'http';
 import WebSocket from 'ws';
+import bcrypt from 'bcryptjs';
 import { WebSocketManager } from './WebSocketManager.js';
 import { WS_MESSAGE_TYPES, createMessage } from '@circuschief/shared';
 
@@ -74,6 +75,70 @@ describe('WebSocketManager', () => {
     it('returns WebSocket server instance', () => {
       const wss = manager.init(server);
       expect(wss.constructor.name).toBe('WebSocketServer');
+    });
+  });
+
+  describe('basic-auth upgrade gate', () => {
+    const PASSWORD = 's3cret-password';
+
+    function testAuth() {
+      return { users: new Map([['alice', bcrypt.hashSync(PASSWORD, 4)]]) };
+    }
+
+    function basicHeader(user, password) {
+      return `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
+    }
+
+    // A raw upgrade-shaped request: resolves with the HTTP status the
+    // server answers before the socket is destroyed or upgraded.
+    function upgradeStatus(headers = {}) {
+      return new Promise((resolve, reject) => {
+        const req = httpGet({
+          port,
+          path: '/ws',
+          headers: {
+            Connection: 'Upgrade',
+            Upgrade: 'websocket',
+            'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+            'Sec-WebSocket-Version': 13,
+            ...headers,
+          },
+        }, (res) => resolve(res.statusCode));
+        req.on('error', reject);
+      });
+    }
+
+    it('rejects credential-less upgrades with 401 and tracks no client', async () => {
+      manager.init(server, { auth: testAuth() });
+      await expect(upgradeStatus()).resolves.toBe(401);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(manager.getClients().size).toBe(0);
+    });
+
+    it('rejects wrong-password upgrades with 401', async () => {
+      manager.init(server, { auth: testAuth() });
+      await expect(upgradeStatus({ Authorization: basicHeader('alice', 'wrong') })).resolves.toBe(401);
+      expect(manager.getClients().size).toBe(0);
+    });
+
+    it('accepts upgrades with valid credentials', async () => {
+      manager.init(server, { auth: testAuth() });
+      const ws = await new Promise((resolve, reject) => {
+        const client = new WebSocket(`ws://localhost:${port}/ws`, {
+          headers: { Authorization: basicHeader('alice', PASSWORD) },
+        });
+        client.on('open', () => resolve(client));
+        client.on('error', reject);
+      });
+      expect(manager.getClients().size).toBe(1);
+      ws.close();
+    });
+
+    it('keeps current behavior unchanged without auth configured', async () => {
+      manager.init(server);
+      const ws = await connectClient();
+      expect(manager.getClients().size).toBe(1);
+      ws.close();
     });
   });
 

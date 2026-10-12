@@ -63,6 +63,7 @@ vi.mock('./useWebSocket.js', () => ({
 
 import { useRunningSessionSubscriptions } from './useRunningSessionSubscriptions.js';
 import { useSessionSubscription } from './useWebSocket.js';
+import { setCredentials, clearCredentials } from '../api/auth.js';
 
 describe('useRunningSessionSubscriptions', () => {
   let testComponent;
@@ -455,6 +456,30 @@ describe('useRunningSessionSubscriptions', () => {
     );
   });
 
+  it('sends the stored Basic header on the hydration fetch', async () => {
+    setCredentials('alice', 's3cret');
+    try {
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/sessions/session-1/streaming-state',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: `Basic ${btoa('alice:s3cret')}`,
+          }),
+        })
+      );
+    } finally {
+      clearCredentials();
+    }
+  });
+
   it('wires the AbortController signal into the hydration fetch and aborts it on removal', async () => {
     mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
 
@@ -633,8 +658,9 @@ describe('useRunningSessionSubscriptions', () => {
         expect(globalThis.fetch).toHaveBeenCalledTimes(1);
       });
 
-      // Advance past the 1.5s retry delay
-      vi.advanceTimersByTime(1500);
+      // Advance past the 1.5s retry delay — async so pending promise
+      // callbacks (rejection handling schedules the timer) flush first
+      await vi.advanceTimersByTimeAsync(1500);
 
       await vi.waitFor(() => {
         expect(globalThis.fetch).toHaveBeenCalledTimes(2);
