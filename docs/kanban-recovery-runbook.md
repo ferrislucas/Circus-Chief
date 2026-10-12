@@ -115,15 +115,17 @@ non-zero backlog is expected to drain over subsequent hourly batches.
 
 A lane with `concurrencyLimit` set runs at most that many workspace cards at
 once; further entries queue visibly in the lane (no session started) and begin
-top-down as slots free. Queue state is derived: a card in a limited automated
-lane with no active lane run (`active_lane_run_id IS NULL`) is queued, a card
-with an open run is running, and a card pointing at a terminal run has
-finished. There is no stored queue column to repair.
+top-down as slots free. Queue state is stored (`kanban_cards.entry_queued`):
+a marked card in a limited automated lane is queued, a card with an open run
+is running, and anything else (finished, failed, cancelled, unautomated) is
+neither. Pointer absence alone never means queued.
 
 - Overshoot is normal: lowering a limit never pauses or re-queues running
   work; the running count may temporarily exceed the limit until slots free.
-- A `stale_card_pointer` violation on a queued card (points at a non-open
-  run) clears to NULL on recovery, which reads as queued again — safe.
+- A `stale_card_pointer` violation (points at a non-open run) clears to NULL
+  on recovery together with the queue marker — safe, because the finished
+  entry no longer reads as queued. Never re-mark such a card as queued and
+  never infer pending work from pointer absence alone.
 - An `orphan_open_run` for a queued lane still holds its slot; superseding
   the orphan drains the next queued card.
 - Startup recovery (`reconcileKanbanOwnership`, applied mode) re-runs

@@ -67,18 +67,29 @@ function createRouteOutcome(status, laneId, finalizeMutation, { eventId = null, 
  * Drain one lane's queue after a slot freed, then deliver + broadcast.
  * Exported for the PATCH-lane path (synchronous drain inside the request,
  * FR-4); the terminal-transition handler below funnels through it too.
+ * With `ignoreLimit` (limit cleared, FR-4/FR-5), every deferred entry starts
+ * even though the lane is now unlimited.
  * @param {string} laneId
+ * @param {{ ignoreLimit?: boolean }} [options]
  * @returns {Array} Newly created lane runs
  */
-export function drainLaneAndDeliver(laneId) {
+export function drainLaneAndDeliver(laneId, { ignoreLimit = false } = {}) {
   let created = [];
   try {
-    created = drainLaneQueue(laneId);
+    created = drainLaneQueue(laneId, { ignoreLimit });
   } catch (error) {
     console.error(`Kanban queue drain for lane ${laneId} failed:`, error);
     return [];
   }
-  if (!created.length) return created;
+  // A limited lane's visible state changes on every terminal transition and
+  // every queue-position shift — not only when a drain starts a run. Publish
+  // the authoritative board for limited lanes even when nothing started, so
+  // counts and badges converge without refresh (FR-12). Unlimited lanes keep
+  // the previous quiet behavior.
+  if (!created.length) {
+    if (laneNeedsQueueBroadcast(laneId)) broadcastQueueAdvance(laneId);
+    return created;
+  }
   // At boot (recovery) the retry worker is not running yet: leave the fresh
   // pending events to its first tick instead of delivering ahead of preflight.
   if (isLaneEntryRetryWorkerRunning()) {
@@ -86,6 +97,24 @@ export function drainLaneAndDeliver(laneId) {
   }
   broadcastQueueAdvance(laneId);
   return created;
+}
+
+/**
+ * Enrich a just-committed card payload with its queue presentation state, so
+ * per-card broadcasts render without refresh. The mapped card may predate the
+ * entry transaction, so running/queued state is derived from the committed
+ * outcome rather than the stale object.
+ */
+function withEntryState(card, { laneRun = null, queued = false, queuePosition = null } = {}) {
+  if (queued) return { ...card, entryState: 'queued', queuePosition };
+  if (laneRun) return { ...card, entryState: 'running', queuePosition: null };
+  return card;
+}
+
+/** Whether a lane needs authoritative queue broadcasts (limited + automated). */
+function laneNeedsQueueBroadcast(laneId) {
+  const lane = kanbanLanes.getById(laneId);
+  return Boolean(lane && lane.concurrencyLimit != null && isStructured(lane));
 }
 
 /** Broadcast the full board so queued->running advances render without refresh. */
@@ -150,7 +179,10 @@ function repairStaleRunAndMoveCard(db, {
     : { laneRun: null, queued: false, queuePosition: null };
   const laneRun = gated.laneRun;
   if (isStructured(targetLane) && !laneRun && !gated.queued) throw new Error('Structured lane entry run was not created');
-  if (!laneRun) db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE id=?')
+  // A non-deferred entry without a run (unautomated destination) is finished
+  // state, never pending: clear the marker so pointer absence cannot read as
+  // queued. Deferred entries were already marked by the gate above.
+  if (!laneRun && !gated.queued) db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, entry_queued=0, updated_at=? WHERE id=?')
     .run(Date.now(), card.id);
   return { moved, laneRun, supersededRunId: openRun?.id || null, queued: gated.queued, queuePosition: gated.queuePosition };
 }
@@ -292,7 +324,7 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
   if (rootSession) {
     broadcastToProject(rootSession.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_ADDED, {
       projectId: rootSession.projectId,
-      card,
+      card: withEntryState(card, { laneRun, queued: card.entryState === 'queued', queuePosition: card.queuePosition ?? null }),
       laneId,
     });
 
@@ -348,7 +380,7 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
       ? { ...updatedCard, entryState: 'queued', queuePosition: gated.queuePosition }
       : updatedCard;
     const result = finalizeMutation?.({ card: resultCard, eventId: gated.laneRun?.laneEntryEventId || null });
-    return { movedCard: resultCard, laneRun: gated.laneRun, finalizedResult: result };
+    return { movedCard: withEntryState(resultCard, gated), laneRun: gated.laneRun, finalizedResult: result };
   });
 
   if (session) {
@@ -416,9 +448,15 @@ export async function routeWorkspaceCard(workspaceId, laneId, {
   kanbanRoutingMetrics.recordAccepted(outcome.auditOutcome || outcome.response.status);
 
   if (outcome.moved) {
+    // The moved card predates its entry transaction: carry the committed
+    // running/queued outcome so the move renders without refresh.
+    const routedQueued = outcome.response.status === 'queued';
     broadcastToProject(outcome.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
       projectId: outcome.projectId, cardId: outcome.moved.card.id, fromLaneId: outcome.moved.card.laneId,
-      toLaneId: outcome.moved.moved.laneId, card: outcome.moved.moved,
+      toLaneId: outcome.moved.moved.laneId,
+      card: withEntryState(outcome.moved.moved, {
+        laneRun: outcome.moved.laneRun, queued: routedQueued, queuePosition: outcome.response.queuePosition ?? null,
+      }),
     });
     if (outcome.moved.laneRun) {
       scheduleLaneEntryDelivery(outcome.moved.laneRun.laneEntryEventId);
@@ -469,6 +507,9 @@ export function removeCard(card) {
     cardId: card.id,
     laneId,
   });
+  // Removing a card shifts the remaining queue positions in a limited lane:
+  // publish the authoritative board so badges converge without refresh.
+  if (laneNeedsQueueBroadcast(laneId)) broadcastQueueAdvance(laneId);
   return { projectId, laneId };
 }
 
@@ -693,6 +734,60 @@ function resolveDeliveryState(event) {
   return { state: 'ambiguous_dispatch', reason: 'child ownership exists without provider dispatch acknowledgement' };
 }
 
+/**
+ * Terminalize the open run tied to a definitively failed entry event (FR-9,
+ * FR-10). A deferred start counts as running from run creation, so without
+ * this an exhausted delivery would hold its lane slot forever and block the
+ * rest of the queue. The terminal run stays attached to its card — the same
+ * record as a worker failure — so the card reads as finished, never queued.
+ * Pending retries (not yet exhausted) keep holding their slot.
+ * @param {{ id: string, lane_id: string, last_error: string|null }} event
+ * @returns {string|null} The terminalized run id, or null when no open run remains
+ */
+function terminalizeExhaustedEntryRun(event) {
+  const db = databaseManager.get();
+  const run = db.prepare(`SELECT id FROM kanban_lane_runs WHERE lane_entry_event_id=? AND status='open'`).get(event.id);
+  if (!run) return null;
+  const time = Date.now();
+  const failed = db.prepare(`UPDATE kanban_lane_runs SET status='failed',
+    failure_reason=?, failed_at=?, updated_at=? WHERE id=? AND status='open'`)
+    .run(String(event.last_error || 'lane-entry delivery attempts exhausted').slice(0, 240), time, time, run.id);
+  if (!failed.changes) return null;
+  console.error(`Kanban lane-entry delivery ${event.id} exhausted retries; run ${run.id} marked failed`);
+  // The freed slot drains to the next queued card (deferred: the failure
+  // commit above must be visible before the drain observes state).
+  handleLaneRunTerminal({ laneIds: [event.lane_id] });
+  return run.id;
+}
+
+/**
+ * Record a lane-entry delivery failure as pending retry or terminally failed.
+ * A definitively failed entry must not hold its lane slot: its run is
+ * terminalized (recorded on the card) and the freed capacity drains. Pending
+ * retries keep their slot.
+ */
+function failLaneEntryDelivery(event, token, error) {
+  const db = databaseManager.get();
+  const time = Date.now();
+  const exhausted = event.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS;
+  const nextAttemptAt = exhausted ? null : time + laneEntryRetryDelay(event.attempt_count);
+  const lastError = String(error?.message || 'delivery failed').slice(0, 240);
+  db.prepare(`UPDATE kanban_lane_entry_events
+    SET status=CASE WHEN ? THEN 'failed' ELSE 'pending' END,
+      claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=?, last_error=?, updated_at=?, completed_at=CASE WHEN ? THEN ? ELSE completed_at END
+    WHERE id=? AND claim_token=?`)
+    .run(exhausted ? 1 : 0, nextAttemptAt, lastError, time, exhausted ? 1 : 0, time, event.id, token);
+  // Never let a terminalization failure mask the delivery error rethrown
+  // by the caller below.
+  if (exhausted) {
+    try {
+      terminalizeExhaustedEntryRun({ id: event.id, lane_id: event.lane_id, last_error: lastError });
+    } catch (terminalizeError) {
+      console.error(`Kanban failed to terminalize exhausted entry ${event.id}:`, terminalizeError);
+    }
+  }
+}
+
 /** Drain one committed completion handoff. Safe to call repeatedly. */
 // eslint-disable-next-line complexity -- deliberately linear durable state machine
 // eslint-disable-next-line max-statements, complexity -- durable transition boundaries are intentionally linear
@@ -737,14 +832,7 @@ async function drainLaneEntryTriggerImpl(eventId) {
     claim.assertCurrent();
     return completeVerifiedLaneEntry(event.id, rootSessionId, token);
   } catch (error) {
-    const time = Date.now();
-    const exhausted = event.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS;
-    const nextAttemptAt = exhausted ? null : time + laneEntryRetryDelay(event.attempt_count);
-    db.prepare(`UPDATE kanban_lane_entry_events
-      SET status=CASE WHEN ? THEN 'failed' ELSE 'pending' END,
-        claim_token=NULL, claimed_at=NULL, claim_expires_at=NULL, next_attempt_at=?, last_error=?, updated_at=?, completed_at=CASE WHEN ? THEN ? ELSE completed_at END
-      WHERE id=? AND claim_token=?`)
-      .run(exhausted ? 1 : 0, nextAttemptAt, String(error.message || 'delivery failed').slice(0, 240), time, exhausted ? 1 : 0, time, eventId, token);
+    failLaneEntryDelivery(event, token, error);
     throw error;
   } finally {
     claim.stop();
@@ -773,8 +861,21 @@ export async function drainPendingLaneEntryTriggers() {
   // Terminally expose exhausted deliveries instead of endlessly spinning a
   // startup loop. Pending event age/attempt_count/last_error remain directly
   // queryable through the durable outbox table for operations visibility.
-  databaseManager.get().prepare(`UPDATE kanban_lane_entry_events SET status='failed', last_error=COALESCE(last_error, 'delivery attempts exhausted'),
+  // Their open runs are terminalized too: an exhausted entry must release its
+  // lane slot rather than leak it across restart (FR-9/FR-10).
+  const db = databaseManager.get();
+  const exhaustedIds = db.prepare(`SELECT id FROM kanban_lane_entry_events
+    WHERE status='pending' AND attempt_count >= ?`).all(MAX_ENTRY_EVENT_ATTEMPTS).map((row) => row.id);
+  db.prepare(`UPDATE kanban_lane_entry_events SET status='failed', last_error=COALESCE(last_error, 'delivery attempts exhausted'),
     completed_at=?, updated_at=? WHERE status='pending' AND attempt_count >= ?`).run(Date.now(), Date.now(), MAX_ENTRY_EVENT_ATTEMPTS);
+  for (const eventId of exhaustedIds) {
+    try {
+      const event = db.prepare('SELECT id, lane_id, last_error FROM kanban_lane_entry_events WHERE id=?').get(eventId);
+      if (event) terminalizeExhaustedEntryRun(event);
+    } catch (error) {
+      console.error(`Kanban startup recovery failed to terminalize exhausted entry ${eventId}:`, error);
+    }
+  }
   const events = databaseManager.get().prepare(`SELECT id FROM kanban_lane_entry_events
     WHERE status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at LIMIT 50`).all(Date.now());
   for (const { id } of events) {

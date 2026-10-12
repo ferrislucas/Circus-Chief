@@ -277,7 +277,10 @@ export const useKanbanStore = defineStore('kanban', {
 
       try {
         const result = await api.routeWorkspaceKanbanCard(projectId, workspaceId, targetLaneId);
-        if (result.status !== 'moved') {
+        // Both 'moved' and 'queued' are committed moves: the card is in the
+        // target lane server-side. Only genuinely non-moving outcomes
+        // ('noop', 'scheduled') revert the optimistic move.
+        if (result.status !== 'moved' && result.status !== 'queued') {
           if (optimisticResult) this._revertCardMove(optimisticResult.sourceLane, optimisticResult.card, targetLaneId);
           return result;
         }
@@ -285,7 +288,9 @@ export const useKanbanStore = defineStore('kanban', {
         // The route response deliberately exposes no card internals.
         const location = this._findCardLocation(cardId);
         if (location) {
-          location.lane.cards[location.cardIndex] = { ...location.card, laneId: targetLaneId };
+          location.lane.cards[location.cardIndex] = result.status === 'queued'
+            ? { ...location.card, laneId: targetLaneId, entryState: 'queued', queuePosition: result.queuePosition ?? null }
+            : { ...location.card, laneId: targetLaneId };
         }
 
         return result;

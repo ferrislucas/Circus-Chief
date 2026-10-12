@@ -249,7 +249,10 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
     // Re-run its normal subtree gate after a terminal root.
     reconcileStuckOpenRuns(db, openRuns, staleRunIds, changes);
     const now = Date.now();
-    const stalePointers = db.prepare(`UPDATE kanban_cards SET active_lane_run_id=NULL, updated_at=?
+    // Cleared pointers reference terminal runs: the entries are finished, not
+    // pending. The marker is cleared together so recovery never manufactures
+    // phantom queue entries from pointer absence alone (FR-6).
+    const stalePointers = db.prepare(`UPDATE kanban_cards SET active_lane_run_id=NULL, entry_queued=0, updated_at=?
       WHERE active_lane_run_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM kanban_lane_runs r WHERE r.id=active_lane_run_id AND r.status='open')`).run(now).changes;
     if (stalePointers) changes.push({ type: 'cleared_stale_card_pointers', count: stalePointers });
     const recoveredClaim = preservedEntryEventIds.length

@@ -575,6 +575,39 @@ describe('Kanban API', () => {
       const queuedCard = lane.cards.find((c) => c.sessions[0]?.id === queuedSession.id);
       expect(queuedCard.entryState).toBe('running');
     });
+
+    it('drains every deferred entry in lane order when the limit is cleared', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      const runner = createSession('Runner');
+      await addSessionToBoardService(runner.id, lanes[0].id);
+      const firstQueued = createSession('First queued');
+      await addSessionToBoardService(firstQueued.id, lanes[0].id);
+      const secondQueued = createSession('Second queued');
+      await addSessionToBoardService(secondQueued.id, lanes[0].id);
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ concurrencyLimit: null });
+
+      expect(res.status).toBe(200);
+      expect(res.body.concurrencyLimit).toBeNull();
+      // Same synchronous drain: no refresh needed, every deferred card runs.
+      const board = await request(app).get(`/api/projects/${projectId}/kanban`);
+      const lane = board.body.lanes.find((l) => l.id === lanes[0].id);
+      const bySession = Object.fromEntries(lane.cards.map((c) => [c.sessions[0]?.id, c]));
+      expect(bySession[runner.id].entryState).toBe('running');
+      expect(bySession[firstQueued.id].entryState).toBe('running');
+      expect(bySession[secondQueued.id].entryState).toBe('running');
+      expect(databaseManager.get()
+        .prepare('SELECT COUNT(*) count FROM kanban_cards WHERE lane_id=? AND entry_queued=1')
+        .get(lanes[0].id).count).toBe(0);
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED,
+        expect.anything(),
+      );
+    });
   });
 
   describe('concurrency limits', () => {

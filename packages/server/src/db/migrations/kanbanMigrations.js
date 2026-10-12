@@ -396,6 +396,16 @@ export const kanbanMigrations = [
     },
   },
   {
+    // Durable pending-entry identity (FR-6): a queued card is marked, not
+    // inferred from a NULL run pointer. Historical rows default to NOT queued:
+    // a finished, failed, cancelled, or intentionally unautomated entry must
+    // never read as pending work after upgrade.
+    name: 'kanban_cards-add-entry-queued',
+    up(db) {
+      addColumnIfMissing(db, 'kanban_cards', 'entry_queued', 'INTEGER NOT NULL DEFAULT 0');
+    },
+  },
+  {
     name: 'kanban-routing-observability',
     up(db) {
       db.exec(`CREATE TABLE IF NOT EXISTS kanban_routing_audit_events (

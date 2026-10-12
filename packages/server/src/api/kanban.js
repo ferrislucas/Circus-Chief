@@ -371,10 +371,12 @@ router.patch('/lanes/:laneId', (req, res) => {
 
   // Raising or clearing the limit drains the queue synchronously so the
   // response (and the broadcast below) reflect the resulting queue state
-  // (FR-4). Lowering the limit starts nothing: drainLaneQueue no-ops while
+  // (FR-4). Clearing to null drains every deferred entry despite the lane
+  // becoming unlimited (FR-5): the pending-entry markers survive the update.
+  // Lowering the limit starts nothing: drainLaneQueue no-ops while
   // the running count covers the limit (FR-3 grandfathering).
   if (result.data.concurrencyLimit !== undefined) {
-    drainLaneAndDeliver(laneId);
+    drainLaneAndDeliver(laneId, { ignoreLimit: result.data.concurrencyLimit === null });
   }
 
   // Broadcast updated board

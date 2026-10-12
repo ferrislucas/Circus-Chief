@@ -52,6 +52,8 @@ import {
   attachRootSession,
   createLaneRunForEntry,
   finalizeOwnWorkCompletion,
+  getRun,
+  releaseLaneSlotForUserStop,
 } from './workflowSessionService.js';
 import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
 
@@ -188,6 +190,48 @@ describe('kanban lane concurrency limits', () => {
       expect(openRunIdsForCard(second.id)).toHaveLength(1);
       expect(openRunIdsForCard(third.id)).toHaveLength(0);
       expect(getQueuedCardIds(databaseManager.get(), lanes[0].id)).toEqual([third.id]);
+    });
+
+    it('drains the queue when the runner succeeds without a completion target', async () => {
+      const { root, run } = setupRunningCard('Runner');
+      const worker = attachWorker(run, root);
+      const queued = await addSessionToBoard(createSession('Queued').id, lanes[0].id);
+      expect(queued.entryState).toBe('queued');
+
+      finalizeOwnWorkCompletion(worker.id, {});
+      await flushDrains();
+
+      expect(getRun(run.id).status).toBe('succeeded');
+      expect(countOpenLaneRuns(databaseManager.get(), lanes[0].id)).toBe(1);
+      expect(openRunIdsForCard(queued.id)).toHaveLength(1);
+    });
+
+    it('releases the lane slot when the runner is explicitly stopped by the user', async () => {
+      const { root, run } = setupRunningCard('Runner');
+      const worker = attachWorker(run, root);
+      const queued = await addSessionToBoard(createSession('Queued').id, lanes[0].id);
+      expect(queued.entryState).toBe('queued');
+
+      const released = releaseLaneSlotForUserStop(worker.id);
+      await flushDrains();
+
+      expect(released?.status).toBe('cancelled');
+      expect(getRun(run.id).status).toBe('cancelled');
+      expect(countOpenLaneRuns(databaseManager.get(), lanes[0].id)).toBe(1);
+      expect(openRunIdsForCard(queued.id)).toHaveLength(1);
+    });
+
+    it('keeps the resumable pause with no release in unlimited lanes', async () => {
+      kanbanLanes.update(lanes[0].id, { concurrencyLimit: null });
+      const { root, run } = setupRunningCard('Runner');
+      const worker = attachWorker(run, root);
+
+      expect(releaseLaneSlotForUserStop(worker.id)).toBeNull();
+      expect(getRun(run.id).status).toBe('open');
+    });
+
+    it('releases nothing for a non-participating session', () => {
+      expect(releaseLaneSlotForUserStop(createSession('Plain').id)).toBeNull();
     });
 
     it('drains after a terminal failure, skipping the failed card itself', async () => {
@@ -346,6 +390,58 @@ describe('kanban lane concurrency limits', () => {
   describe('lane helpers', () => {
     it('laneRow reflects the configured limit', () => {
       expect(laneRow().concurrencyLimit).toBe(1);
+    });
+  });
+
+  describe('pending-entry identity (FR-3/FR-6)', () => {
+    it('does not treat a succeeded run with a cleared pointer as queued', async () => {
+      const { root, card, run } = setupRunningCard('Finisher');
+      const worker = attachWorker(run, root);
+
+      finalizeOwnWorkCompletion(worker.id, {});
+      await flushDrains();
+
+      expect(cardRow(card.id).active_lane_run_id).toBeNull();
+      expect(getQueuedCardIds(databaseManager.get(), lanes[0].id)).not.toContain(card.id);
+      expect(drainLaneQueue(lanes[0].id)).toEqual([]);
+      expect(openRunIdsForCard(card.id)).toHaveLength(0);
+    });
+
+    it('does not restart a terminally failed run cleared by recovery', async () => {
+      const { root, run } = setupRunningCard('Doomed runner');
+      const worker = attachWorker(run, root);
+      const queuedRoot = createSession('Queued');
+      const queued = await addSessionToBoard(queuedRoot.id, lanes[0].id);
+      expect(queued.entryState).toBe('queued');
+
+      closeOwnWork(worker.id, 'closed_failed', 'boom');
+      await flushDrains();
+      const failedCard = kanbanCards.getBySessionId(root.id);
+      // The drained card is now genuinely running: attach its worker so
+      // recovery preserves the unambiguous run (as production delivery would).
+      const queuedRunId = openRunIdsForCard(queued.id)[0]?.id;
+      expect(queuedRunId).toBeTruthy();
+      attachWorker({ id: queuedRunId }, queuedRoot);
+
+      reconcileKanbanOwnership({ dryRun: false });
+      await flushDrains();
+
+      // Recovery cleared the stale pointer, but the finished card must not
+      // read as queued and must never gain a fresh run.
+      expect(getQueuedCardIds(databaseManager.get(), lanes[0].id)).not.toContain(failedCard.id);
+      expect(openRunIdsForCard(failedCard.id)).toHaveLength(0);
+      // The genuinely queued card still drains exactly once.
+      expect(openRunIdsForCard(queued.id)).toHaveLength(1);
+    });
+
+    it('never treats an intentionally unautomated entry as queued', async () => {
+      const card = await addSessionToBoard(createSession('Manual').id, lanes[0].id, { runOnEnterTemplate: false });
+
+      expect(cardRow(card.id).active_lane_run_id).toBeNull();
+      expect(getQueuedCardIds(databaseManager.get(), lanes[0].id)).not.toContain(card.id);
+      expect(card.entryState).toBeUndefined();
+      expect(drainLaneQueue(lanes[0].id)).toEqual([]);
+      expect(openRunIdsForCard(card.id)).toHaveLength(0);
     });
   });
 });

@@ -126,10 +126,33 @@ function releaseMemberSessionsFromRun(db, runId) {
   return db.prepare('UPDATE sessions SET lane_run_id=NULL WHERE lane_run_id=?').run(runId);
 }
 
-/** Release a card only when the supplied run still owns it. */
+/**
+ * Release a card only when the supplied run still owns it. Releasing always
+ * clears the pending-entry marker: a finished, failed, cancelled, or
+ * superseded entry is never pending work, and pointer absence alone must not
+ * read as queued (FR-6). Callers that defer into a full lane re-mark the
+ * card via markCardQueuedForFullLane below.
+ */
 function releaseCardFromRun(db, runId, time) {
-  db.prepare(`UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=?
+  db.prepare(`UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, entry_queued=0, updated_at=?
     WHERE active_lane_run_id=?`).run(time, runId);
+}
+
+/**
+ * Mark a completion-routed card as pending entry when its target lane is
+ * full-but-limited (FRD edge 6). No run row exists for the card; without the
+ * marker the deferred entry would be invisible to the queue drain.
+ */
+function markCardQueuedForFullLane(db, cardId, targetLaneId) {
+  const target = db.prepare('SELECT concurrency_limit, completion_target_lane_id, on_enter_template_id, on_enter_prompt FROM kanban_lanes WHERE id=?').get(targetLaneId);
+  if (!target || target.concurrency_limit == null) return false;
+  if (!isStructured({
+    completionTargetLaneId: target.completion_target_lane_id,
+    onEnterTemplateId: target.on_enter_template_id,
+    onEnterPrompt: target.on_enter_prompt,
+  })) return false;
+  db.prepare('UPDATE kanban_cards SET entry_queued=1, updated_at=? WHERE id=?').run(now(), cardId);
+  return true;
 }
 
 /** Scheduler/start guard. Stale lane workers lose their pending work before
@@ -219,7 +242,9 @@ export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, ca
         VALUES (?,?,?,?,?,?,?,?,?,'open',?,?)`)
         .run(runId, eventId, priorLaneRunId, projectId, workspaceId, cardId, lane.id,
           lane.completionTargetLaneId, null, time, time);
-      db2.prepare(`UPDATE kanban_cards SET active_lane_run_id=?, lane_entry_event_id=?, updated_at=? WHERE id=?`)
+      // Creating the run consumes any pending-entry marker: the card is
+      // running now, not queued.
+      db2.prepare(`UPDATE kanban_cards SET active_lane_run_id=?, lane_entry_event_id=?, entry_queued=0, updated_at=? WHERE id=?`)
         .run(runId, eventId, time, cardId);
       audit(db2, runId, 'run_created', { details: { cause, laneId: lane.id } });
       return getRun(runId);
@@ -308,6 +333,36 @@ export function pauseForUserStop(sessionId, { turnToken = null } = {}) {
     });
     return true;
   });
+}
+
+/**
+ * Release a concurrency-lane slot after an explicit user stop (FR-9).
+ * pauseForUserStop preserves the open obligation for a resumable pause; in a
+ * limited automated lane that open run would hold its slot forever and no
+ * drain would ever fire, so the explicit stop additionally cancels this
+ * member's own work and reconciles the run (terminal cancelled), which frees
+ * the slot to the queue. Lanes without a limit have no slot: this returns
+ * null there and the historic pause stands untouched. Automatic
+ * reschedule/retry waits are never user stops and keep holding their slot
+ * (FR-16).
+ * @param {string} sessionId - The explicitly stopped session
+ * @returns {Object|null} The reconciled run, or null when nothing was released
+ */
+export function releaseLaneSlotForUserStop(sessionId) {
+  const db = databaseManager.get();
+  const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
+  if (!session?.lane_run_id) return null;
+  const run = db.prepare(SELECT_RUN_BY_ID).get(session.lane_run_id);
+  if (!run || run.status !== 'open') return null;
+  const lane = db.prepare(`SELECT concurrency_limit, completion_target_lane_id,
+    on_enter_template_id, on_enter_prompt FROM kanban_lanes WHERE id=?`).get(run.source_lane_id);
+  if (!lane || lane.concurrency_limit == null) return null;
+  if (!isStructured({
+    completionTargetLaneId: lane.completion_target_lane_id,
+    onEnterTemplateId: lane.on_enter_template_id,
+    onEnterPrompt: lane.on_enter_prompt,
+  })) return null;
+  return closeOwnWork(sessionId, 'cancelled', USER_STOP_REASON);
 }
 
 /** Mark the provider turn idle only if this is still the turn that started it.
@@ -555,7 +610,12 @@ export function attemptLaneRunTransition(runId, { deferBroadcast = false } = {})
     const movedCard = moveCardForTransition(run, card);
     const targetLaneId = movedCard?.laneId || null;
     const laneRun = createCompletionSuccessor(run, card, movedCard);
-    if (!laneRun) releaseCardFromRun(db, runId, now());
+    if (!laneRun) {
+      releaseCardFromRun(db, runId, now());
+      // A completion-routed card deferred into a full target lane stays
+      // pending entry; success-in-place simply finishes.
+      if (movedCard) markCardQueuedForFullLane(db, card.id, movedCard.laneId);
+    }
     audit(db, runId, 'transition_applied');
     if (movedCard) audit(db, runId, 'card_moved', {
       details: { fromLaneId: card.lane_id, toLaneId: movedCard.laneId },
@@ -583,10 +643,13 @@ export function attemptLaneRunTransition(runId, { deferBroadcast = false } = {})
   });
   if (!deferBroadcast) broadcastCardTransition(transition.postCommitCardTransition);
   const { result } = transition;
-  // The card left its source lane: a concurrency slot freed there (FR-8).
-  // The target-lane entry was already gated in createCompletionSuccessor.
-  if (transition.postCommitCardTransition) {
-    notifyLaneRunTerminal([transition.postCommitCardTransition.fromLaneId]);
+  // Every committed success frees its source-lane slot (FR-9/FR-10), whether
+  // the card moved to a target lane (FR-8) or succeeded in place with no
+  // completion target. The target-lane entry was already gated in
+  // createCompletionSuccessor. Post-commit scheduling is preserved: the
+  // terminal handler drains deferred, observing only committed state.
+  if (result?.status === 'succeeded') {
+    notifyLaneRunTerminal([result.sourceLaneId]);
   }
   return result;
 }

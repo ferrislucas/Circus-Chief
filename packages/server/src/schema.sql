@@ -519,6 +519,7 @@ CREATE TABLE IF NOT EXISTS kanban_cards (
   sort_order INTEGER NOT NULL DEFAULT 0,
   active_lane_run_id TEXT,
   lane_entry_event_id TEXT,
+  entry_queued INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );

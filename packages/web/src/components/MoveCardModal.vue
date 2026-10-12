@@ -201,7 +201,13 @@ async function handleMove() {
       props.cardId,
       selectedLaneId.value
     );
-    uiStore.success(result.status === 'moved' ? 'Card moved successfully' : 'Card is already in that lane');
+    uiStore.success(
+      result.status === 'moved'
+        ? 'Card moved successfully'
+        : result.status === 'queued'
+          ? 'Card moved successfully (queued — starts when a slot frees)'
+          : 'Card is already in that lane',
+    );
     emit('moved');
     close();
   } catch (err) {

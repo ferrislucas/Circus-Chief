@@ -2,12 +2,15 @@
  * Per-lane concurrency limits with visible queueing (FRD: Kanban Lane
  * Concurrency Limits).
  *
- * Queue state is derived, not stored: a card in a limited, automated
- * (`isStructured`) lane whose `active_lane_run_id` is NULL is queued; a card
- * whose pointer references an open run is running; a card pointing at a
- * terminal run has finished and is neither. This module is deliberately free
- * of kanbanService.js imports so workflow-adjacent callers (recovery) and
- * kanbanService alike can use it without an import cycle.
+ * Queue state is stored, not inferred: a card in a limited, automated
+ * (`isStructured`) lane whose `entry_queued` marker is set is queued; a card
+ * whose pointer references an open run is running; anything else (finished,
+ * failed, cancelled, intentionally unautomated) is neither. A NULL
+ * `active_lane_run_id` alone never means queued, so clearing a terminal
+ * pointer (success, failure, recovery) cannot manufacture phantom queue
+ * entries. This module is deliberately free of kanbanService.js imports so
+ * workflow-adjacent callers (recovery) and kanbanService alike can use it
+ * without an import cycle.
  */
 import { databaseManager } from '../db/DatabaseManager.js';
 import { kanbanCards, kanbanLanes, sessions } from '../database.js';
@@ -58,9 +61,24 @@ export function laneHasCapacity(db, lane) {
 }
 
 /**
- * Ordered ids of queued cards in a lane: cards physically in the lane with
- * no active run pointer, top of lane first (sort_order, created_at, id).
- * Empty for unlimited or non-automated lanes.
+ * Ordered ids of deferred cards in a lane: cards physically in the lane with
+ * the pending-entry marker set, top of lane first (sort_order, created_at,
+ * id). The marker survives limit changes, so this deliberately ignores the
+ * lane's current limit; use getQueuedCardIds for the capacity-gated view.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} laneId
+ * @returns {string[]}
+ */
+export function getDeferredCardIds(db, laneId) {
+  return db.prepare(`SELECT id FROM kanban_cards
+    WHERE lane_id = ? AND entry_queued = 1
+    ORDER BY sort_order, created_at, id`).all(laneId).map((row) => row.id);
+}
+
+/**
+ * Ordered ids of queued cards in a lane: deferred cards in a lane that is
+ * currently limited and automated, top of lane first (sort_order,
+ * created_at, id). Empty for unlimited or non-automated lanes.
  * @param {import('better-sqlite3').Database} db
  * @param {string} laneId
  * @returns {string[]}
@@ -68,9 +86,7 @@ export function laneHasCapacity(db, lane) {
 export function getQueuedCardIds(db, laneId) {
   const lane = kanbanLanes.getById(laneId);
   if (!lane || lane.concurrencyLimit == null || !isStructured(lane)) return [];
-  return db.prepare(`SELECT id FROM kanban_cards
-    WHERE lane_id = ? AND active_lane_run_id IS NULL
-    ORDER BY sort_order, created_at, id`).all(laneId).map((row) => row.id);
+  return getDeferredCardIds(db, laneId);
 }
 
 /**
@@ -88,11 +104,12 @@ export function computeQueuePositions(db, laneId) {
 }
 
 /**
- * Derive a card's queue presentation state. Open run -> running; no active
- * run in a limited automated lane -> queued with position; anything else
- * (finished, unlimited, non-automated) carries no queue state.
+ * Derive a card's queue presentation state. Open run -> running; pending-entry
+ * marker in a limited automated lane -> queued with position; anything else
+ * (finished, failed, cancelled, unautomated, unlimited, non-automated)
+ * carries no queue state. Pointer absence alone never implies queued.
  * @param {import('better-sqlite3').Database} db
- * @param {Object} card - Mapped card (with activeLaneRunId)
+ * @param {Object} card - Mapped card (with activeLaneRunId, entryQueued)
  * @param {Object} lane - Mapped lane (with concurrencyLimit)
  * @param {Map<string, number>|null} [positions] - Precomputed queue positions
  * @returns {{ entryState?: 'running'|'queued', queuePosition?: number|null }}
@@ -100,15 +117,14 @@ export function computeQueuePositions(db, laneId) {
 export function getCardEntryState(db, card, lane, positions = null) {
   if (card?.activeLaneRunId) {
     const run = db.prepare('SELECT status FROM kanban_lane_runs WHERE id=?').get(card.activeLaneRunId);
-    if (!run) {
-      // Dangling pointer (cleared by recovery): fall through to the queued check.
-    } else if (run.status === 'open') {
+    if (run?.status === 'open') {
       return { entryState: 'running', queuePosition: null };
-    } else {
-      return {};
     }
+    return {};
   }
-  if (lane && lane.concurrencyLimit != null && isStructured(lane)) {
+  // Fall back to the stored marker when the mapped card predates it.
+  const queued = card?.entryQueued ?? db.prepare('SELECT entry_queued FROM kanban_cards WHERE id=?').get(card?.id)?.entry_queued === 1;
+  if (queued && lane && lane.concurrencyLimit != null && isStructured(lane)) {
     const position = positions
       ? (positions.get(card.id) ?? null)
       : (getQueuedCardIds(db, lane.id).indexOf(card.id) + 1 || null);
@@ -120,8 +136,8 @@ export function getCardEntryState(db, card, lane, positions = null) {
 /**
  * Gate a lane entry behind the lane's concurrency limit. Call inside the
  * caller's entry transaction, after the card move is committed in that
- * transaction. Full lanes defer automation entirely: no run row, and the
- * card pointers are cleared so the card reads as queued.
+ * transaction. Full lanes defer automation entirely: no run row is created,
+ * and the card's pending-entry marker is set so the card reads as queued.
  * @param {Object} args
  * @returns {{ laneRun: Object|null, queued: boolean, queuePosition: number|null }}
  */
@@ -136,7 +152,7 @@ export function createGatedLaneRunForEntry({ projectId, workspaceId, cardId, lan
   const db = databaseManager.get();
   if (countOpenLaneRuns(db, lane.id) >= lane.concurrencyLimit) {
     const time = Date.now();
-    db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=? WHERE id=?')
+    db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, entry_queued=1, updated_at=? WHERE id=?')
       .run(time, cardId);
     const position = getQueuedCardIds(db, lane.id).indexOf(cardId) + 1 || null;
     console.info(`Kanban lane ${lane.id} at limit ${lane.concurrencyLimit}: card ${cardId} queued at position ${position}`);
@@ -167,9 +183,9 @@ function resolveQueuedCardOwner(cardId) {
  */
 function startQueuedCard(db, laneId, cardId) {
   // Re-verify queue membership: a concurrent drain on this connection cannot
-  // interleave (synchronous), but the card may have moved.
-  const current = db.prepare('SELECT lane_id, active_lane_run_id FROM kanban_cards WHERE id=?').get(cardId);
-  if (!current || current.lane_id !== laneId || current.active_lane_run_id !== null) return null;
+  // interleave (synchronous), but the card may have moved or finished.
+  const current = db.prepare('SELECT lane_id, active_lane_run_id, entry_queued FROM kanban_cards WHERE id=?').get(cardId);
+  if (!current || current.lane_id !== laneId || current.entry_queued !== 1 || current.active_lane_run_id !== null) return null;
   const owner = resolveQueuedCardOwner(cardId);
   if (!owner) {
     console.warn(`Kanban queue drain skipped card ${cardId}: no owning session`);
@@ -197,17 +213,22 @@ function startQueuedCard(db, laneId, cardId) {
  * database and the unique-open-run index backstops double-starts (FR-11).
  * A failed start is recorded and skipped; the drain continues (FR-10).
  * Safe to call inside or outside a caller transaction.
+ * With `ignoreLimit` (limit cleared, FR-4/FR-5), every deferred entry starts
+ * regardless of the lane's current limit.
  * @param {string} laneId
+ * @param {{ ignoreLimit?: boolean }} [options]
  * @returns {Array} Newly created lane runs (each with laneEntryEventId)
  */
-export function drainLaneQueue(laneId) {
+export function drainLaneQueue(laneId, { ignoreLimit = false } = {}) {
   return databaseManager.transaction(() => {
     const db = databaseManager.get();
     const lane = kanbanLanes.getById(laneId);
-    if (!lane || lane.concurrencyLimit == null || !isStructured(lane)) return [];
+    if (!lane || !isStructured(lane)) return [];
+    if (!ignoreLimit && lane.concurrencyLimit == null) return [];
+    const deferred = ignoreLimit ? getDeferredCardIds(db, laneId) : getQueuedCardIds(db, laneId);
     const created = [];
-    for (const cardId of getQueuedCardIds(db, laneId)) {
-      if (countOpenLaneRuns(db, laneId) >= lane.concurrencyLimit) break;
+    for (const cardId of deferred) {
+      if (!ignoreLimit && countOpenLaneRuns(db, laneId) >= lane.concurrencyLimit) break;
       const run = startQueuedCard(db, laneId, cardId);
       if (run) created.push(run);
     }

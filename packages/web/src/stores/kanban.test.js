@@ -54,20 +54,68 @@ describe('kanban session updates', () => {
 });
 
 describe('kanban card routing responses', () => {
-  beforeEach(() => setActivePinia(createPinia()));
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.restoreAllMocks();
+  });
 
-  it('reverts an optimistic move when the route is accepted as a no-op', async () => {
-    const store = useKanbanStore();
-    store.board = {
+  function routedBoard() {
+    return {
       lanes: [
         { id: 'source', cards: [{ id: 'card', laneId: 'source' }] },
         { id: 'target', cards: [] },
       ],
     };
+  }
+
+  it('reverts an optimistic move when the route is accepted as a no-op', async () => {
+    const store = useKanbanStore();
+    store.board = routedBoard();
     vi.spyOn(api, 'routeWorkspaceKanbanCard').mockResolvedValueOnce({ status: 'noop', laneId: 'target' });
 
     await expect(store.routeWorkspaceCard('project', 'workspace', 'card', 'target'))
       .resolves.toEqual({ status: 'noop', laneId: 'target' });
+
+    expect(store.board.lanes[0].cards).toEqual([{ id: 'card', laneId: 'source' }]);
+    expect(store.board.lanes[1].cards).toEqual([]);
+  });
+
+  it('keeps the optimistic move and applies queue presentation when the route queues', async () => {
+    const store = useKanbanStore();
+    store.board = routedBoard();
+    vi.spyOn(api, 'routeWorkspaceKanbanCard')
+      .mockResolvedValueOnce({ status: 'queued', laneId: 'target', queuePosition: 2 });
+
+    await expect(store.routeWorkspaceCard('project', 'workspace', 'card', 'target'))
+      .resolves.toEqual({ status: 'queued', laneId: 'target', queuePosition: 2 });
+
+    expect(store.board.lanes[0].cards).toEqual([]);
+    expect(store.board.lanes[1].cards).toEqual([
+      { id: 'card', laneId: 'target', entryState: 'queued', queuePosition: 2 },
+    ]);
+  });
+
+  it('keeps the optimistic move when the route moves', async () => {
+    const store = useKanbanStore();
+    store.board = routedBoard();
+    vi.spyOn(api, 'routeWorkspaceKanbanCard')
+      .mockResolvedValueOnce({ status: 'moved', laneId: 'target' });
+
+    await expect(store.routeWorkspaceCard('project', 'workspace', 'card', 'target'))
+      .resolves.toEqual({ status: 'moved', laneId: 'target' });
+
+    expect(store.board.lanes[0].cards).toEqual([]);
+    expect(store.board.lanes[1].cards).toEqual([{ id: 'card', laneId: 'target' }]);
+  });
+
+  it('reverts an optimistic move when the route only schedules a deferred exit', async () => {
+    const store = useKanbanStore();
+    store.board = routedBoard();
+    vi.spyOn(api, 'routeWorkspaceKanbanCard')
+      .mockResolvedValueOnce({ status: 'scheduled', laneId: 'target' });
+
+    await expect(store.routeWorkspaceCard('project', 'workspace', 'card', 'target'))
+      .resolves.toEqual({ status: 'scheduled', laneId: 'target' });
 
     expect(store.board.lanes[0].cards).toEqual([{ id: 'card', laneId: 'source' }]);
     expect(store.board.lanes[1].cards).toEqual([]);

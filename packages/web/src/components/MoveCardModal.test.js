@@ -6,26 +6,11 @@ import { createPinia, setActivePinia } from 'pinia';
 import MoveCardModal from './MoveCardModal.vue';
 
 vi.mock('../stores/kanban.js', () => ({
-  useKanbanStore: vi.fn(() => ({
-    board: {
-      lanes: [
-        { id: 'lane-1', name: 'To Do', onEnterTemplateId: null, onEnterPrompt: null },
-        { id: 'lane-2', name: 'In Progress', onEnterTemplateId: null, onEnterPrompt: null },
-        { id: 'lane-3', name: 'Review', onEnterTemplateId: 'template-1', onEnterPrompt: null },
-        { id: 'lane-4', name: 'Done', onEnterPrompt: 'Custom prompt', onEnterTemplateId: null },
-      ],
-    },
-    moveCard: vi.fn().mockResolvedValue({}),
-    routeWorkspaceCard: vi.fn().mockResolvedValue({ status: 'moved', laneId: 'lane-2' }),
-    removeCard: vi.fn().mockResolvedValue({}),
-  })),
+  useKanbanStore: vi.fn(),
 }));
 
 vi.mock('../stores/ui.js', () => ({
-  useUiStore: vi.fn(() => ({
-    success: vi.fn(),
-    error: vi.fn(),
-  })),
+  useUiStore: vi.fn(),
 }));
 
 import { useKanbanStore } from '../stores/kanban.js';
@@ -41,8 +26,27 @@ describe('MoveCardModal.vue', () => {
     setActivePinia(pinia);
     vi.clearAllMocks();
 
-    mockKanbanStore = useKanbanStore();
-    mockUiStore = useUiStore();
+    // Stable shared mocks: the component calls the same store hooks, so
+    // per-test mock configuration (e.g. mockResolvedValueOnce) applies.
+    mockKanbanStore = {
+      board: {
+        lanes: [
+          { id: 'lane-1', name: 'To Do', onEnterTemplateId: null, onEnterPrompt: null },
+          { id: 'lane-2', name: 'In Progress', onEnterTemplateId: null, onEnterPrompt: null },
+          { id: 'lane-3', name: 'Review', onEnterTemplateId: 'template-1', onEnterPrompt: null },
+          { id: 'lane-4', name: 'Done', onEnterPrompt: 'Custom prompt', onEnterTemplateId: null },
+        ],
+      },
+      moveCard: vi.fn().mockResolvedValue({}),
+      routeWorkspaceCard: vi.fn().mockResolvedValue({ status: 'moved', laneId: 'lane-2' }),
+      removeCard: vi.fn().mockResolvedValue({}),
+    };
+    mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    useKanbanStore.mockReturnValue(mockKanbanStore);
+    useUiStore.mockReturnValue(mockUiStore);
 
     // Mock window.confirm
     global.confirm = vi.fn();
@@ -248,6 +252,24 @@ describe('MoveCardModal.vue', () => {
       // handleMove is not exposed - skip test
       // Covered by E2E tests
       expect(wrapper.vm.selectedLaneId).toBe('lane-2');
+    });
+
+    it('shows a queued success toast when the move commits as queued', async () => {
+      mockKanbanStore.routeWorkspaceCard.mockResolvedValueOnce({ status: 'queued', laneId: 'lane-2', queuePosition: 1 });
+      const wrapper = mountModal({ currentLaneId: 'lane-1', workspaceId: 'workspace-1' });
+      await wrapper.find('input[value="lane-2"]').setValue();
+      await wrapper.find('button[aria-label="Move card to selected lane"]').trigger('click');
+      for (let i = 0; i < 20 && !wrapper.emitted('moved'); i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      await wrapper.vm.$nextTick();
+
+      expect(mockKanbanStore.routeWorkspaceCard).toHaveBeenCalledWith('proj-1', 'workspace-1', 'card-1', 'lane-2');
+      expect(mockUiStore.success).toHaveBeenCalledWith(expect.stringMatching(/queued/i));
+      // Emitted events are not captured for click handlers in this test
+      // environment (see Close/cancel tests above); the store call and the
+      // queued success message pin the committed-move behavior.
     });
   });
 
