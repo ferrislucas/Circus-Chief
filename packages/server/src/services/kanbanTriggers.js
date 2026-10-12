@@ -287,9 +287,12 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
   });
   if (!newSession) throw new Error('attached lane-entry child session is missing');
   if (childSessionId) {
-    // Redelivery reuses its existing child: replay the latest execution and
-    // retry settings onto the same row (PR Review issue 13).
-    refreshPreservedChildSettings(newSession.id, settings, lane);
+    // Redelivery reuses its existing child: replay the latest execution,
+    // retry, and follow-up-chain settings onto the same row (PR Review
+    // issues 13 and 16). A null follow-up explicitly clears a removed chain.
+    refreshPreservedChildSettings(newSession.id, settings, lane, {
+      nextTemplateId: template.nextTemplateId || null,
+    });
   } else {
     if (laneRunId) attachRootSession(laneRunId, newSession.id);
 
@@ -396,8 +399,10 @@ async function buildChildSessionFromPrompt(lane, session, options = {}) {
   if (!newSession) throw new Error('attached lane-entry child session is missing');
   if (childSessionId) {
     // Redelivery reuses its existing child: replay the latest execution and
-    // retry settings onto the same row (PR Review issue 13).
-    refreshPreservedChildSettings(newSession.id, settings, lane);
+    // retry settings onto the same row (PR Review issue 13). Prompt
+    // automation has no template chaining, so a stale follow-up carried by a
+    // template-created child is explicitly cleared (PR Review issue 16).
+    refreshPreservedChildSettings(newSession.id, settings, lane, { nextTemplateId: null });
   } else {
     if (laneRunId) attachRootSession(laneRunId, newSession.id);
 

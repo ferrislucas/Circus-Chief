@@ -8,10 +8,14 @@ vi.mock('../websocket.js', () => ({
   broadcastToSession: vi.fn(),
 }));
 
-vi.mock('./templateTriggerService.js', () => ({
-  renderTemplatePrompt: vi.fn().mockResolvedValue('rendered prompt'),
-  getRootSession: vi.fn((session) => session),
-}));
+vi.mock('./templateTriggerService.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    renderTemplatePrompt: vi.fn().mockResolvedValue('rendered prompt'),
+    getRootSession: vi.fn((session) => session),
+  };
+});
 
 vi.mock('./gitSessionSetup.js', () => ({
   setupGitForSession: vi.fn().mockResolvedValue({
@@ -57,6 +61,8 @@ import {
 import {
   createLaneRunForEntry, attachRootSession, getRun,
 } from './workflowSessionService.js';
+import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
+import { refreshPreservedChildSettings } from './kanbanChildSettings.js';
 import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
 import { recoverOrphanedStartingSessions, recoverOrphanedRunningSessions } from './sessionStartupRecovery.js';
 import { buildQueryParams } from './queryParamBuilder.js';
@@ -489,6 +495,145 @@ describe('kanban PR remediation (issues 13, 14, 15)', () => {
       });
       expect(getRun(run.id)).toMatchObject({ status: 'open', rootSessionId: childId });
       expect(runSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('issue 16 — preserved template children retain a removed or replaced follow-up', () => {
+    /** Allocate a chained template child, then pause its retry at the fence
+     * (undispatched, preserved). Mirrors the issue-13 template pause shape. */
+    async function pauseWithChainedTemplateChild() {
+      const followupB = sessionTemplates.create({ projectId, name: 'Followup B', prompt: 'b prompt' });
+      const followupC = sessionTemplates.create({ projectId, name: 'Followup C', prompt: 'c prompt' });
+      const template = sessionTemplates.create({
+        projectId, name: 'Entry', prompt: 'do something', nextTemplateId: followupB.id,
+      });
+      kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+      const root = createSession('Root');
+      const card = kanbanCards.create(lanes[0].id, root.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+      const { setupGitForSession } = await import('./gitSessionSetup.js');
+
+      // Attempt 1: git-setup failure attaches the chained child without dispatch.
+      setupGitForSession.mockRejectedValueOnce(new Error('git boom'));
+      await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow();
+      const childId = getRun(run.id).rootSessionId;
+      expect(childId).toBeTruthy();
+      expect(sessions.getById(childId)).toMatchObject({ status: 'starting', nextTemplateId: followupB.id });
+      expect(runSession).not.toHaveBeenCalled();
+
+      // Attempt 2: retry pauses at the fence, preserving the chained child.
+      databaseManager.get().prepare('UPDATE kanban_lane_entry_events SET next_attempt_at=NULL WHERE id=?')
+        .run(run.laneEntryEventId);
+      const fakeWt = join(tmpdir(), `kanban-i16-template-wt-${Date.now()}`);
+      setupGitForSession.mockImplementationOnce(async () => {
+        kanbanLanes.update(lanes[0].id, { automationEnabled: false });
+        return { workingDirectory: fakeWt, gitWorktree: fakeWt };
+      });
+      expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(false);
+      expect(runSession).not.toHaveBeenCalled();
+      expect(getRun(run.id)).toMatchObject({ status: 'open', rootSessionId: childId });
+      return { template, followupB, followupC, root, card, run, childId };
+    }
+
+    /** Re-enable the lane and wait for the preserved child to redeliver. */
+    async function resumePreservedChild(run) {
+      kanbanLanes.update(lanes[0].id, { automationEnabled: true });
+      expect(drainQueuedEntries(lanes[0].id).drainedCount).toBe(1);
+      await vi.waitFor(() => {
+        expect(entryStatus(run.laneEntryEventId)).toBe('completed');
+      });
+      return sessions.getById(getRun(run.id).rootSessionId);
+    }
+
+    function followupsOf(childId) {
+      return sessions.getByProjectId(projectId).filter((s) => s.parentSessionId === childId);
+    }
+
+    it('pause -> remove follow-up -> resume fires nothing on completion', async () => {
+      const { template, root, run, childId } = await pauseWithChainedTemplateChild();
+
+      sessionTemplates.update(template.id, { nextTemplateId: null });
+
+      const child = await resumePreservedChild(run);
+      expect(runSession.mock.calls[runSession.mock.calls.length - 1][0]).toBe(childId);
+      expect(child).toMatchObject({
+        id: childId, parentSessionId: root.id, laneRunId: run.id, nextTemplateId: null,
+      });
+
+      // Drive the completion callback path: no follow-up may start.
+      const callsBefore = runSession.mock.calls.length;
+      await checkAndTriggerNextTemplate(childId);
+      expect(runSession.mock.calls.length).toBe(callsBefore);
+      expect(followupsOf(childId)).toHaveLength(0);
+    });
+
+    it('pause -> replace follow-up B with C -> resume fires only C', async () => {
+      const { template, followupC, root, run, childId } = await pauseWithChainedTemplateChild();
+
+      sessionTemplates.update(template.id, { nextTemplateId: followupC.id });
+
+      const child = await resumePreservedChild(run);
+      expect(runSession.mock.calls[runSession.mock.calls.length - 1][0]).toBe(childId);
+      expect(child).toMatchObject({
+        id: childId, parentSessionId: root.id, laneRunId: run.id, nextTemplateId: followupC.id,
+      });
+
+      // Drive the completion callback path: only C may start, never B.
+      await checkAndTriggerNextTemplate(childId);
+      const followups = followupsOf(childId);
+      expect(followups).toHaveLength(1);
+      expect(followups[0].name).toContain('Followup C');
+      expect(sessions.getByProjectId(projectId).filter((s) => s.name.includes('Followup B (from:'))).toHaveLength(0);
+    });
+
+    it('template -> prompt replay clears chaining', async () => {
+      const { run, childId } = await pauseWithChainedTemplateChild();
+
+      kanbanLanes.update(lanes[0].id, { onEnterTemplateId: null, onEnterPrompt: 'do prompted thing' });
+
+      const child = await resumePreservedChild(run);
+      expect(child).toMatchObject({ id: childId, nextTemplateId: null });
+
+      const callsBefore = runSession.mock.calls.length;
+      await checkAndTriggerNextTemplate(childId);
+      expect(runSession.mock.calls.length).toBe(callsBefore);
+      expect(followupsOf(childId)).toHaveLength(0);
+    });
+
+    it('same-template retry preserves identity, ownership, and the chain', async () => {
+      const { followupB, root, run, childId } = await pauseWithChainedTemplateChild();
+
+      const child = await resumePreservedChild(run);
+      expect(child).toMatchObject({
+        id: childId, parentSessionId: root.id, laneRunId: run.id, nextTemplateId: followupB.id,
+      });
+      expect(getRun(run.id)).toMatchObject({ status: 'open', rootSessionId: childId });
+
+      await checkAndTriggerNextTemplate(childId);
+      const followups = followupsOf(childId);
+      expect(followups).toHaveLength(1);
+      expect(followups[0].name).toContain('Followup B');
+    });
+
+    it('never rewrites the chain on a child past the provider boundary', async () => {
+      const followupB = sessionTemplates.create({ projectId, name: 'Gate B', prompt: 'b' });
+      const followupC = sessionTemplates.create({ projectId, name: 'Gate C', prompt: 'c' });
+      const root = createSession('Root');
+      const childId = sessions.create(projectId, 'Dispatched child', 'prompt', {
+        mode: 'yolo', parentSessionId: root.id, status: 'starting',
+      }).id;
+      sessions.update(childId, { nextTemplateId: followupB.id });
+      databaseManager.get().prepare("UPDATE sessions SET status='running', execution_state='running' WHERE id=?")
+        .run(childId);
+
+      const refreshed = refreshPreservedChildSettings(
+        childId, { mode: 'plan' }, kanbanLanes.getById(lanes[0].id), { nextTemplateId: followupC.id }
+      );
+      // Other settings still replay, but the dispatched chain is untouched.
+      expect(refreshed.mode).toBe('plan');
+      expect(refreshed.nextTemplateId).toBe(followupB.id);
     });
   });
 });
