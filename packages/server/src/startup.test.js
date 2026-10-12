@@ -69,7 +69,7 @@ describe('startServer', () => {
     return server;
   }
 
-  function listen(server, { port = 0, secure = false, selfSigned = false } = {}) {
+  function listen(server, { port = 0, secure = false, selfSigned = false, authEnabled = false } = {}) {
     return new Promise((resolve, reject) => {
       const onEarlyError = (err) => reject(err);
       server.once('error', onEarlyError);
@@ -79,6 +79,7 @@ describe('startServer', () => {
         isDefaultHost: (server.__testHost || '127.0.0.1') === '127.0.0.1',
         secure,
         selfSigned,
+        authEnabled,
       });
       const poll = setInterval(() => {
         if (server.listening) {
@@ -153,6 +154,14 @@ describe('startServer', () => {
       const server = makeServer();
       await listen(server);
       expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('bound to all interfaces'));
+    });
+
+    it('notes Basic auth instead of unauthenticated when auth is enabled', async () => {
+      const server = makeServer();
+      server.__testHost = '0.0.0.0';
+      await listen(server, { authEnabled: true });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('requires Basic auth'));
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('unauthenticated'));
     });
   });
 

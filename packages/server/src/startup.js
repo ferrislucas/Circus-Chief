@@ -57,9 +57,12 @@ export function prepareBindFailureHandler(server, { port, host }) {
  *   by the entry point).
  * @param {boolean} [options.selfSigned] - When true, appends the
  *   untrusted-cert notice for a self-signed certificate.
+ * @param {boolean} [options.authEnabled] - When true, the wildcard warning
+ *   notes that the API requires Basic auth instead of calling it
+ *   unauthenticated.
  * @returns {void}
  */
-export function startServer(server, { port, host, isDefaultHost, onListenFailure, secure = false, selfSigned = false }) {
+export function startServer(server, { port, host, isDefaultHost, onListenFailure, secure = false, selfSigned = false, authEnabled = false }) {
   let failBind = onListenFailure;
   if (!failBind) {
     ({ onListenFailure: failBind } = prepareBindFailureHandler(server, { port, host }));
@@ -86,7 +89,9 @@ export function startServer(server, { port, host, isDefaultHost, onListenFailure
 
     if (isWildcardAddress(bound.address)) {
       console.warn(
-        `Warning: bound to all interfaces (${bound.address}) — the API is unauthenticated; anyone who can reach this port can run commands on this machine.`
+        authEnabled
+          ? `Warning: bound to all interfaces (${bound.address}) — the API requires Basic auth; pair it with TLS beyond localhost.`
+          : `Warning: bound to all interfaces (${bound.address}) — the API is unauthenticated; anyone who can reach this port can run commands on this machine.`
       );
     } else if (isDefaultHost) {
       console.log('Bound to 127.0.0.1 (loopback only — pass --host 0.0.0.0 for LAN/Docker access)');

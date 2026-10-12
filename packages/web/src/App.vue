@@ -102,6 +102,7 @@
     </main>
 
     <ToastContainer />
+    <LoginView v-if="authRequired" />
   </div>
 </template>
 
@@ -111,6 +112,8 @@ import ToastContainer from './components/ToastContainer.vue';
 import SystemIndicators from './components/SystemIndicators.vue';
 import ProviderAllowanceFeature from './components/ProviderAllowanceFeature.vue';
 import ConnectionBanner from './components/ConnectionBanner.vue';
+import LoginView from './views/LoginView.vue';
+import { authRequired } from './api/auth.js';
 import { useVisualViewport } from './composables/useVisualViewport.js';
 
 // Initialize visual viewport tracking for iOS Safari browser chrome offset

@@ -10,10 +10,12 @@ export function setCommandRunOutputAuthorizer(authorizer) {
 /**
  * Initialize WebSocket server
  * @param {import('http').Server} server
+ * @param {object} [options] - Forwarded to WebSocketManager.init
+ *   (e.g. `{ auth }`; omitted = no auth gate).
  * @returns {import('ws').WebSocketServer}
  */
-export function initWebSocket(server) {
-  return webSocketManager.init(server);
+export function initWebSocket(server, options) {
+  return webSocketManager.init(server, options);
 }
 
 /**

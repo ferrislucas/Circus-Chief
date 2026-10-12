@@ -2,6 +2,7 @@ import { ref } from 'vue';
 import { WS_RECONNECT_BASE_DELAY, WS_RECONNECT_MAX_DELAY, parseMessage, createMessage, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { sessionSubscriptionCounts } from './useSessionSubscription.js';
 import { projectSubscriptionIds } from './useProjectSubscription.js';
+import { getBasicCredentials, hasCredentials, isAuthRequired, onAuthed } from '../api/auth.js';
 
 let socket = null;
 let reconnectTimeout = null;
@@ -21,11 +22,40 @@ const reconnectCallbacks = new Set();
 
 function getWebSocketUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/ws`;
+  // `new WebSocket()` cannot set headers, so stored Basic credentials ride
+  // in the URL userinfo (never written to history or disk — memory only).
+  // The server strips userinfo before routing; only /ws is ever requested.
+  const creds = getBasicCredentials();
+  const userinfo = creds
+    ? `${encodeURIComponent(creds.username)}:${encodeURIComponent(creds.password)}@`
+    : '';
+  return `${protocol}//${userinfo}${window.location.host}/ws`;
+}
+
+// True while the server has challenged us and we hold no credentials yet.
+// Connecting anyway would 401-loop against the upgrade gate.
+function waitingForLogin() {
+  return isAuthRequired() && !hasCredentials();
+}
+
+let loginWaiterArmed = false;
+function waitForLoginThenConnect() {
+  if (loginWaiterArmed) return;
+  loginWaiterArmed = true;
+  connectionStatus.value = 'reconnecting';
+  onAuthed(() => {
+    loginWaiterArmed = false;
+    connect();
+  });
 }
 
 function connect() {
   if (socket?.readyState === WebSocket.OPEN) return;
+
+  if (waitingForLogin()) {
+    waitForLoginThenConnect();
+    return;
+  }
 
   socket = new WebSocket(getWebSocketUrl());
 
@@ -97,6 +127,13 @@ function connect() {
     // Don't reconnect on clean close
     if (event.code === 1000) {
       connectionStatus.value = 'disconnected';
+      return;
+    }
+
+    // A challenge rejection (401 upgrade) lands here too: wait for the user
+    // to log in instead of hammering the gate with credential-less retries.
+    if (waitingForLogin()) {
+      waitForLoginThenConnect();
       return;
     }
 
