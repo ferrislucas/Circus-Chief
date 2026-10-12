@@ -13,6 +13,7 @@ const LIVE_SERVER_TESTS = new Set([
   'renders an adapter-observed OpenAI allowance update without source metadata',
   'renders a Claude rate-limit allowance update without source metadata',
   'orders the dialog most-recently-used and moves a provider to top without reload',
+  'reclaims the top provider after same-status activity without reload',
 ]);
 
 function allowanceSnapshot(providerId: string, providerName: string, status: string, percent: number, lastUsedAt: number | null) {
@@ -189,6 +190,58 @@ test.describe('Provider allowance indicators', () => {
 
     // New work on the older provider moves it back to top without a reload.
     await seedSession(project.id, { prompt: 'Recency probe returns to the first provider.', providerId: openai.id, startImmediately: false });
+    await expect.poll(async () => {
+      const names = await headerNames();
+      return names.indexOf(openai.name) >= 0 && names.indexOf(openai.name) < names.indexOf(anthropic.name);
+    }).toBe(true);
+  });
+
+  test('reclaims the top provider after same-status activity without reload', async ({ page }) => {
+    const project = await seedProject('Allowance recency reconcile E2E', process.cwd());
+    const openai = await getProvider('openai-default');
+    const anthropic = await getProvider('anthropic-default');
+
+    // Each seed below must reconcile through a live WebSocket dispatch: a
+    // seed whose creation frame arrives before the page subscribes leaves no
+    // session-priority memo entry, and a later same-status update would then
+    // refetch for the wrong reason (unknown session) instead of through the
+    // recency gate under test. Counting allowance REST fetches proves each
+    // seed's frames were dispatched to the page before moving on.
+    const allowanceFetches: string[] = [];
+    page.on('response', (response) => {
+      if (response.url().includes('/api/providers/allowances')) allowanceFetches.push(response.url());
+    });
+
+    await page.goto('/');
+    const indicators = page.getByTestId('provider-allowance-indicators');
+    await expect(indicators).toBeVisible();
+    await indicators.getByRole('button', { name: /Provider usage/ }).click();
+    const dialog = page.getByRole('dialog');
+    const headerNames = () => dialog.locator('article.provider-detail header strong').allTextContents();
+    const fetchesAfterSettling = allowanceFetches.length;
+
+    const sessionA = await seedSession(project.id, { prompt: 'Recency reconcile probe on the first provider.', providerId: openai.id, startImmediately: false });
+    await expect.poll(() => allowanceFetches.length).toBeGreaterThan(fetchesAfterSettling);
+    await expect.poll(async () => (await headerNames()).indexOf(openai.name)).toBeGreaterThanOrEqual(0);
+    const fetchesAfterA = allowanceFetches.length;
+
+    // A later-created session on the second provider displaces the first.
+    await seedSession(project.id, { prompt: 'Recency reconcile probe on the second provider.', providerId: anthropic.id, startImmediately: false });
+    await expect.poll(() => allowanceFetches.length).toBeGreaterThan(fetchesAfterA);
+    await expect.poll(async () => {
+      const names = await headerNames();
+      return names.indexOf(anthropic.name) >= 0 && names.indexOf(anthropic.name) < names.indexOf(openai.name);
+    }).toBe(true);
+
+    // Same-status activity on the first provider (a field edit bumps
+    // updated_at exactly like a turn's usage write, with no status
+    // transition) moves it back on top without a reload.
+    const rename = await fetch(`${API_URL}/api/sessions/${sessionA.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Recency reconcile probe on the first provider (renamed)' }),
+    });
+    await expect(rename.ok).toBe(true);
     await expect.poll(async () => {
       const names = await headerNames();
       return names.indexOf(openai.name) >= 0 && names.indexOf(openai.name) < names.indexOf(anthropic.name);

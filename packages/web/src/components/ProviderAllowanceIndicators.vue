@@ -377,8 +377,14 @@ function requestPriorityRefresh(immediate = false) {
     }
   }, PRIORITY_REFRESH_DEBOUNCE_MS);
 }
+function sessionRecencyOf(session) {
+  const raw = session?.updatedAt ?? session?.updated_at;
+  if (raw === null || raw === undefined) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
 function rememberSessionPriority(session) {
-  const priority = { status: session.status, providerId: session.providerId };
+  const priority = { status: session.status, providerId: session.providerId, updatedAt: sessionRecencyOf(session) };
   const previous = sessionPriorityMemo.get(session.id);
   sessionPriorityMemo.set(session.id, priority);
   if (sessionPriorityMemo.size > SESSION_PRIORITY_MEMO_MAX) {
@@ -411,15 +417,18 @@ function reconcileSessionPriority(message) {
     requestPriorityRefresh(true);
     return;
   }
-  // Recency turns on session activity, identified here by status and
-  // providerId. A repeat event with an unchanged pairing refetches nothing;
-  // any recency a field-only edit moved converges on the next authoritative
-  // invalidation or refresh.
-  const priority = { status: session.status, providerId: session.providerId };
+  // Recency turns on session activity, tracked here by status,
+  // providerId, and the session's updatedAt/updated_at watermark (the MRU
+  // ordering input is MAX(sessions.updated_at), which moves on every write).
+  // A repeat event with an unchanged pairing and no newer timestamp refetches
+  // nothing; any write that advances updated_at (turn completion, field edit)
+  // reconciles immediately. Duplicate and stale redeliveries stay suppressed.
+  const priority = { status: session.status, providerId: session.providerId, updatedAt: sessionRecencyOf(session) };
   const previous = rememberSessionPriority(session);
   const priorityChanged = !previous
     || previous.status !== priority.status
-    || previous.providerId !== priority.providerId;
+    || previous.providerId !== priority.providerId
+    || (priority.updatedAt !== null && (previous.updatedAt == null || priority.updatedAt > previous.updatedAt));
   if (priorityChanged) requestPriorityRefresh(true);
 }
 function reconcileSessionCreated(message) {

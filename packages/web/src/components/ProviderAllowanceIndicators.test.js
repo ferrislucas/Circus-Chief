@@ -274,6 +274,48 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
+  it('refetches when a same-status update advances updatedAt (running provider reclaims recency)', async () => {
+    api.getProviderAllowances.mockResolvedValue({ snapshots: [], activeProviderIds: [] });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
+
+    // Provider A is running; provider B's session is created later and
+    // displaces it. The waiting creation reconciles through the debounced
+    // server invalidation, so no immediate refetch happens here.
+    websocketListeners.get('session:updated')({ session: { id: 'session-a', providerId: 'openai', status: 'running', updatedAt: 1000 } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
+
+    websocketListeners.get('session:created')({ session: { id: 'session-b', providerId: 'anthropic', status: 'waiting' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
+
+    // A completes a turn: same status and provider, but updated_at advanced —
+    // A's MAX(sessions.updated_at) recency moved, so reconcile immediately.
+    websocketListeners.get('session:updated')({ session: { id: 'session-a', providerId: 'openai', status: 'running', updatedAt: 2000 } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(3);
+
+    // A field-only edit (rename) bumps updated_at with no status transition:
+    // recency moved, so reconcile as well. It lands while the previous
+    // reconciliation is still in flight, so it is served by the single
+    // trailing refresh — exactly one extra fetch, no storm.
+    websocketListeners.get('session:updated')({ session: { id: 'session-b', providerId: 'anthropic', status: 'waiting', title: 'renamed', updatedAt: 3000 } });
+    await vi.waitFor(() => expect(api.getProviderAllowances).toHaveBeenCalledTimes(4));
+
+    // Exact duplicate delivery of the same write moves nothing: suppressed.
+    websocketListeners.get('session:updated')({ session: { id: 'session-a', providerId: 'openai', status: 'running', updatedAt: 2000 } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(4);
+    wrapper.unmount();
+  });
+
   it('never memoizes id-less session updates, so each one safely refetches', async () => {
     api.getProviderAllowances.mockResolvedValue({ snapshots: [], activeProviderIds: [] });
     const wrapper = mount(ProviderAllowanceIndicators);

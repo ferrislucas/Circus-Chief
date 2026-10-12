@@ -74,6 +74,40 @@ describe('WebSocketManager provider priority invalidation', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('invalidates when a repeat running update advances updated_at (turn completion re-reconciles recency)', () => {
+    connectFakeClient();
+    emitSessionUpdated({ session: { id: 'sess-1', status: 'running', providerId: 'p1' } });
+    expect(priorityInvalidations()).toHaveLength(1);
+
+    manager.broadcastToSessionAndProject('sess-2', 'proj-1', WS_MESSAGE_TYPES.SESSION_CREATED, {
+      session: { id: 'sess-2', status: 'waiting', providerId: 'p2' },
+    });
+    expect(priorityInvalidations()).toHaveLength(2);
+
+    // Same status and provider, but a turn completed: updated_at advanced, so
+    // the provider's MAX(sessions.updated_at) recency moved.
+    emitSessionUpdated({ session: { id: 'sess-1', status: 'running', providerId: 'p1', updatedAt: 3000 } });
+    expect(priorityInvalidations()).toHaveLength(3);
+  });
+
+  it('reads recency from either timestamp shape but suppresses duplicate same-timestamp frames', () => {
+    connectFakeClient();
+    emitSessionUpdated({ session: { id: 'sess-1', status: 'running', providerId: 'p1', updated_at: 1000 } });
+    expect(priorityInvalidations()).toHaveLength(1);
+
+    // Exact duplicate delivery of the same write: no recency movement.
+    emitSessionUpdated({ session: { id: 'sess-1', status: 'running', providerId: 'p1', updated_at: 1000 } });
+    expect(priorityInvalidations()).toHaveLength(1);
+
+    // Stale out-of-order redelivery must not refetch either.
+    emitSessionUpdated({ session: { id: 'sess-1', status: 'running', providerId: 'p1', updated_at: 500 } });
+    expect(priorityInvalidations()).toHaveLength(1);
+
+    // A newer write recency-invalidates again.
+    emitSessionUpdated({ session: { id: 'sess-1', status: 'running', providerId: 'p1', updatedAt: 2000 } });
+    expect(priorityInvalidations()).toHaveLength(2);
+  });
+
   it('still invalidates on session creation and deletion membership changes', () => {
     connectFakeClient();
 
