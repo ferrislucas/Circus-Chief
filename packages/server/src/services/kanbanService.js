@@ -16,7 +16,7 @@ import {
   supersedeRunForCard, isStructured, getRun, setLaneRunTerminalHandler,
 } from './workflowSessionService.js';
 import {
-  createGatedLaneRunForEntry, drainLaneQueue,
+  createGatedLaneRunForEntry, drainLaneQueue, getQueuedCardIds,
 } from './kanbanConcurrency.js';
 import { ApiError } from '../errors/ApiError.js';
 import { retrySqliteContention } from './sqliteContention.js';
@@ -171,6 +171,18 @@ function handleLaneRunTerminal({ laneIds }) {
 setLaneRunTerminalHandler(handleLaneRunTerminal);
 
 /**
+ * Normalize a card to finished entry state: no active run pointer, no lane
+ * entry event, no pending-entry marker. A non-deferred entry without a run
+ * (unautomated destination) is finished state, never pending: the clear keeps
+ * pointer absence from reading as queued (FR-6). Shared by the route and
+ * moveCard paths so the two cannot drift.
+ */
+function clearCardEntryState(db, cardId) {
+  db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, entry_queued=0, updated_at=? WHERE id=?')
+    .run(Date.now(), cardId);
+}
+
+/**
  * Repair a card whose active-run pointer is stale before creating its next
  * lane entry. Preconditions: the caller holds the route transaction and has
  * validated `targetLane`. Postconditions: every pre-existing open run for the
@@ -198,8 +210,7 @@ function repairStaleRunAndMoveCard(db, {
   // A non-deferred entry without a run (unautomated destination) is finished
   // state, never pending: clear the marker so pointer absence cannot read as
   // queued. Deferred entries were already marked by the gate above.
-  if (!laneRun && !gated.queued) db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, entry_queued=0, updated_at=? WHERE id=?')
-    .run(Date.now(), card.id);
+  if (!laneRun && !gated.queued) clearCardEntryState(db, card.id);
   return { moved, laneRun, supersededRunId: openRun?.id || null, queued: gated.queued, queuePosition: gated.queuePosition };
 }
 
@@ -388,11 +399,15 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
   // Supersession, movement, and the successor entry intent must commit
   // together. A delivery failure after this point is retryable outbox work.
   const { movedCard, laneRun, finalizedResult } = databaseManager.transaction(() => {
+    const db = databaseManager.get();
     supersedeRunForCard(cardId, 'card_moved');
     const updatedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
     const gated = session && runOnEnterTemplate && isStructured(lane)
       ? createGatedLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause: 'manual_move' })
       : { laneRun: null, queued: false, queuePosition: null };
+    // Mirror the route path's normalize clear: a move that neither starts a
+    // run nor defers the entry leaves no live entry_queued marker behind.
+    if (!gated.laneRun && !gated.queued) clearCardEntryState(db, cardId);
     const resultCard = gated.queued
       ? { ...updatedCard, entryState: 'queued', queuePosition: gated.queuePosition }
       : updatedCard;
@@ -458,6 +473,11 @@ export async function routeWorkspaceCard(workspaceId, laneId, {
       projectId: workspace.projectId, workspaceId, callerSessionId, sourceLaneId: card.laneId,
       destinationLaneId: laneId, outcome: auditOutcome,
       laneRunId: decision.selectedRunId || decision.auditRunId || null,
+      // FRD §12: capture the destination lane's limit and post-decision queue
+      // depth here, inside the route transaction, so the audit row is
+      // consistent with the commit — no second read after commit.
+      laneConcurrencyLimit: targetLane.concurrencyLimit ?? null,
+      queueDepth: getQueuedCardIds(db, laneId).length,
       requestAt, committedAt: Date.now(),
     });
     return decision;
@@ -1143,11 +1163,20 @@ export function releaseLaneSlotForArchivedSession(sessionId) {
     return null; // Workspace wasn't on the board
   }
   const laneId = card.laneId;
-  databaseManager.transaction(() => {
-    supersedeRunForCard(card.id, 'workspace_archived');
+  const supersededRun = databaseManager.transaction(() => {
+    const run = supersedeRunForCard(card.id, 'workspace_archived');
     databaseManager.get().prepare('UPDATE kanban_cards SET entry_queued=0, updated_at=? WHERE id=?')
       .run(Date.now(), card.id);
+    return run;
   });
-  drainLaneAndDeliver(laneId);
+  // A superseded open run already schedules its slot-release drain through the
+  // lane-run terminal notification; draining again here would publish the
+  // authoritative board twice. Drain synchronously only when no run was
+  // superseded (queued-only or idle card), where no notification fires.
+  if (!supersededRun) drainLaneAndDeliver(laneId);
+  // The drain stays silent for lanes without queue state — publish the
+  // authoritative board for those lanes so archival never leaves clients
+  // rendering a superseded open run.
+  if (!laneNeedsQueueBroadcast(laneId)) broadcastQueueAdvance(laneId);
   return { laneId, cardId: card.id };
 }

@@ -218,7 +218,7 @@ export function consumeDeferredEntriesForUnautomatedLane(db, laneId) {
 export function startQueuedCard(db, laneId, cardId) {
   // Re-verify queue membership: a concurrent drain on this connection cannot
   // interleave (synchronous), but the card may have moved or finished.
-  const current = db.prepare('SELECT lane_id, active_lane_run_id, entry_queued FROM kanban_cards WHERE id=?').get(cardId);
+  const current = db.prepare('SELECT lane_id, active_lane_run_id, entry_queued, updated_at FROM kanban_cards WHERE id=?').get(cardId);
   if (!current || current.lane_id !== laneId || current.entry_queued !== 1 || current.active_lane_run_id !== null) return null;
   // Late automation removal turns a not-yet-started entry into a no-op
   // (FR-14): consume the marker instead of starting under new config later.
@@ -241,13 +241,21 @@ export function startQueuedCard(db, laneId, cardId) {
   try {
     // Start-time automation config: the lane is re-read here so late lane
     // edits apply to not-yet-started cards (FR-14).
-    return createLaneRunForEntry({
+    const run = createLaneRunForEntry({
       projectId: owner.projectId,
       workspaceId: owner.workspaceId,
       cardId,
       lane: kanbanLanes.getById(laneId),
       cause: QUEUE_DRAIN_CAUSE,
     });
+    if (run) {
+      // FRD §12 start latency (arrival → start): the baseline is the marker's
+      // updated_at, so a manual reorder (which refreshes updated_at)
+      // re-baselines the clock — latency measures time since the card's queue
+      // state last changed.
+      console.info(`Kanban queue drain started card ${cardId} in lane ${laneId} after ${Date.now() - current.updated_at} ms queued`);
+    }
+    return run;
   } catch (error) {
     console.error(`Kanban queue drain failed to start card ${cardId} in lane ${laneId}; continuing:`, error);
     return null;

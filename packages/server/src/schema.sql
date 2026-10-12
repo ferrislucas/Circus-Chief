@@ -574,7 +574,8 @@ CREATE INDEX IF NOT EXISTS idx_lane_run_audit_run ON kanban_lane_run_audit_event
 CREATE TABLE IF NOT EXISTS kanban_routing_audit_events (
   id TEXT PRIMARY KEY, project_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
   caller_session_id TEXT, source_lane_id TEXT NOT NULL, destination_lane_id TEXT NOT NULL,
-  outcome TEXT NOT NULL, lane_run_id TEXT, request_at INTEGER NOT NULL, committed_at INTEGER NOT NULL
+  outcome TEXT NOT NULL, lane_run_id TEXT, request_at INTEGER NOT NULL, committed_at INTEGER NOT NULL,
+  lane_concurrency_limit INTEGER, queue_depth INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_kanban_routing_audit_workspace ON kanban_routing_audit_events(workspace_id, committed_at);
 

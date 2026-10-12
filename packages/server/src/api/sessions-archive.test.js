@@ -291,6 +291,50 @@ describe('Sessions Archive API', () => {
       expect(openRuns(card.id)).toHaveLength(1);
       expect(cardRow(card.id).entry_queued).toBe(0);
     });
+
+    it('archiving a workspace in an unlimited automated lane still broadcasts the authoritative board (Issue 20)', async () => {
+      kanbanLanes.update(laneId, { concurrencyLimit: null });
+      const root = await addWorkspace('Solo');
+      sessions.update(root.id, { status: 'waiting' });
+      await addSessionToBoard(root.id, laneId);
+      const card = kanbanCards.getBySessionId(root.id);
+      expect(openRuns(card.id)).toHaveLength(1);
+      vi.clearAllMocks();
+
+      const res = await request(app)
+        .post(`/api/sessions/${root.id}/archive`)
+        .send({});
+      // The supersession's slot-release drain runs on a microtask.
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(res.status).toBe(200);
+      expect(openRuns(card.id)).toHaveLength(0);
+      const boardCalls = broadcastToProject.mock.calls
+        .filter(([, type]) => type === WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED);
+      expect(boardCalls).toHaveLength(1);
+      const board = boardCalls[0][2].board;
+      const rendered = board.lanes.flatMap((lane) => lane.cards).find((c) => c.id === card.id);
+      expect(rendered.activeLaneRun).toBeNull();
+    });
+
+    it('archiving in a limited automated lane broadcasts the board exactly once (Issue 20)', async () => {
+      const first = await addWorkspace('First');
+      await addSessionToBoard(first.id, laneId);
+      const firstCard = kanbanCards.getBySessionId(first.id);
+      expect(openRuns(firstCard.id)).toHaveLength(1);
+      vi.clearAllMocks();
+
+      const res = await request(app)
+        .post(`/api/sessions/${first.id}/archive`)
+        .send({});
+      // The supersession's slot-release drain runs on a microtask.
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(res.status).toBe(200);
+      const boardCalls = broadcastToProject.mock.calls
+        .filter(([, type]) => type === WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED);
+      expect(boardCalls).toHaveLength(1);
+    });
   });
 
   describe('POST /:id/unarchive', () => {

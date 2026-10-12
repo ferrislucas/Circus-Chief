@@ -232,6 +232,42 @@ describe('kanbanService', () => {
         overwritten: 0,
       });
     });
+
+    it('records the lane limit and post-decision queue depth on queued routes (Issue 22)', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      const runner = createSession('Runner');
+      await addSessionToBoard(runner.id, lanes[1].id);
+      const waiting = createSession('Waiting');
+      const queued = await addSessionToBoard(waiting.id, lanes[1].id);
+      expect(queued.entryState).toBe('queued');
+
+      const late = createSession('Late');
+      kanbanCards.create(lanes[0].id, late.id);
+      const response = await routeWorkspaceCard(late.id, lanes[1].id, { manualMove: true });
+      expect(response.status).toBe('queued');
+
+      const record = databaseManager.get().prepare(`SELECT outcome, lane_concurrency_limit, queue_depth
+        FROM kanban_routing_audit_events WHERE workspace_id=?`).get(late.id);
+      expect(record.outcome).toBe('queued');
+      expect(record.lane_concurrency_limit).toBe(1);
+      // The newly queued card plus the one already queued.
+      expect(record.queue_depth).toBe(2);
+    });
+
+    it('records a NULL limit and the destination queue depth on unlimited-lane routes (Issue 22)', async () => {
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Do the work' });
+      const workspace = createSession('Workspace');
+      kanbanCards.create(lanes[0].id, workspace.id);
+
+      const response = await routeWorkspaceCard(workspace.id, lanes[1].id, { manualMove: true });
+      expect(response.status).toBe('moved');
+
+      const record = databaseManager.get().prepare(`SELECT outcome, lane_concurrency_limit, queue_depth
+        FROM kanban_routing_audit_events WHERE workspace_id=?`).get(workspace.id);
+      expect(record.outcome).toBe('moved');
+      expect(record.lane_concurrency_limit).toBeNull();
+      expect(record.queue_depth).toBe(0);
+    });
   });
 
   describe('routeWorkspaceCard stale lane-run pointers', () => {
@@ -627,6 +663,55 @@ describe('kanbanService', () => {
       );
       expect(databaseManager.get().prepare('SELECT count(*) AS count FROM kanban_lane_runs').get().count).toBe(0);
       expect(kanbanCards.getById(card.id).activeLaneRunId).toBeNull();
+    });
+
+    it('clears a queued card marker when moving to an unautomated lane (Issue 23)', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      const runner = createSession('Runner');
+      await addSessionToBoard(runner.id, lanes[0].id);
+      const queued = await addSessionToBoard(createSession('Queued').id, lanes[0].id);
+      expect(queued.entryState).toBe('queued');
+
+      await moveCard(queued.id, lanes[1].id);
+
+      const row = databaseManager.get().prepare('SELECT entry_queued, active_lane_run_id FROM kanban_cards WHERE id=?').get(queued.id);
+      expect(row.entry_queued).toBe(0);
+      expect(row.active_lane_run_id).toBeNull();
+      const board = getFullBoard(projectId);
+      const rendered = board.lanes.flatMap((lane) => lane.cards).find((card) => card.id === queued.id);
+      expect(rendered.laneId).toBe(lanes[1].id);
+      expect(rendered.entryState).not.toBe('queued');
+    });
+
+    it('clears the marker via run creation when moving a queued card to an automated unlimited lane (Issue 23)', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Do the work' });
+      const runner = createSession('Runner');
+      await addSessionToBoard(runner.id, lanes[0].id);
+      const queued = await addSessionToBoard(createSession('Queued').id, lanes[0].id);
+      expect(queued.entryState).toBe('queued');
+
+      const moved = await moveCard(queued.id, lanes[1].id);
+
+      const row = databaseManager.get().prepare('SELECT entry_queued, active_lane_run_id FROM kanban_cards WHERE id=?').get(queued.id);
+      expect(row.entry_queued).toBe(0);
+      expect(row.active_lane_run_id).not.toBeNull();
+      expect(moved.entryState).toBe('running');
+    });
+
+    it('re-queues a queued card with position when moving to a full automated lane (Issue 23)', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      await addSessionToBoard(createSession('Runner A').id, lanes[0].id);
+      const queued = await addSessionToBoard(createSession('Queued').id, lanes[0].id);
+      expect(queued.entryState).toBe('queued');
+      await addSessionToBoard(createSession('Runner B').id, lanes[1].id);
+
+      const moved = await moveCard(queued.id, lanes[1].id);
+
+      expect(moved.entryState).toBe('queued');
+      expect(moved.queuePosition).toBe(1);
+      expect(databaseManager.get().prepare('SELECT entry_queued FROM kanban_cards WHERE id=?').get(queued.id).entry_queued).toBe(1);
     });
   });
 

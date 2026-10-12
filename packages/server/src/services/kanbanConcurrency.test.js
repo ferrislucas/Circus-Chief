@@ -298,6 +298,30 @@ describe('kanban lane concurrency limits', () => {
       expect(getQueuedCardIds(databaseManager.get(), lanes[0].id)).toEqual([]);
     });
 
+    it('logs queue start latency when a drain starts a queued card (Issue 22)', async () => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+      try {
+        const { root: firstRoot } = setupRunningCard('First');
+        const second = await addSessionToBoard(createSession('Second').id, lanes[0].id);
+        expect(second.entryState).toBe('queued');
+        info.mockClear();
+
+        await routeWorkspaceCard(firstRoot.id, lanes[1].id, { manualMove: true });
+        await flushDrains();
+
+        expect(openRunIdsForCard(second.id)).toHaveLength(1);
+        const latencyLines = info.mock.calls
+          .map((args) => args.join(' '))
+          .filter((line) => line.includes(second.id));
+        expect(latencyLines).not.toHaveLength(0);
+        const latencyMs = Number(latencyLines[0].match(/(\d+(?:\.\d+)?)\s*ms/)?.[1]);
+        expect(Number.isFinite(latencyMs)).toBe(true);
+        expect(latencyMs).toBeGreaterThanOrEqual(0);
+      } finally {
+        info.mockRestore();
+      }
+    });
+
     it('re-prioritizes the queue on reorder', async () => {
       const { root: runnerRoot, card: runnerCard } = setupRunningCard('First');
       const second = await addSessionToBoard(createSession('Second').id, lanes[0].id);

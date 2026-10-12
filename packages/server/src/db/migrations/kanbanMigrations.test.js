@@ -227,6 +227,34 @@ describe('kanban_cards-add-entry-queued', () => {
   });
 });
 
+describe('kanban-routing-audit-add-queue-context', () => {
+  it('adds nullable lane_concurrency_limit and queue_depth, idempotently, preserving rows', () => {
+    const db = freshDb();
+    try {
+      // Simulate a pre-migration database: fresh schema.sql already has the columns.
+      db.exec('ALTER TABLE kanban_routing_audit_events DROP COLUMN lane_concurrency_limit');
+      db.exec('ALTER TABLE kanban_routing_audit_events DROP COLUMN queue_depth');
+      db.prepare(`INSERT INTO kanban_routing_audit_events
+        (id, project_id, workspace_id, source_lane_id, destination_lane_id, outcome, request_at, committed_at)
+        VALUES ('e','p','w','s','d','moved',1,2)`).run();
+      const migration = allMigrations.find((item) => item.name === 'kanban-routing-audit-add-queue-context');
+      expect(migration).toBeDefined();
+
+      migration.up(db);
+
+      expect(getColumns(db, 'kanban_routing_audit_events')).toContain('lane_concurrency_limit');
+      expect(getColumns(db, 'kanban_routing_audit_events')).toContain('queue_depth');
+      // Historical rows default to NULL context: the limit/depth at an old
+      // decision is unknown, never zero.
+      expect(db.prepare('SELECT lane_concurrency_limit, queue_depth FROM kanban_routing_audit_events WHERE id=?').get('e'))
+        .toEqual({ lane_concurrency_limit: null, queue_depth: null });
+      expect(() => migration.up(db)).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+});
+
 // Note: there is no 'kanban-backfill-structured-completion-mode' migration in
 // the current chain (hard-cutover removed the completion_mode concept
 // entirely — see 'kanban-drop-completion-mode-hard-cutover' below). This

@@ -416,4 +416,14 @@ export const kanbanMigrations = [
       CREATE INDEX IF NOT EXISTS idx_kanban_routing_audit_workspace ON kanban_routing_audit_events(workspace_id, committed_at);`);
     },
   },
+  {
+    // FRD §12 route-decision context: the destination lane's concurrency limit
+    // and the queue depth at decision time. Nullable so historical rows (whose
+    // decision-time context is unknown) stay NULL, never a false zero.
+    name: 'kanban-routing-audit-add-queue-context',
+    up(db) {
+      addColumnIfMissing(db, 'kanban_routing_audit_events', 'lane_concurrency_limit', 'INTEGER');
+      addColumnIfMissing(db, 'kanban_routing_audit_events', 'queue_depth', 'INTEGER');
+    },
+  },
 ];
