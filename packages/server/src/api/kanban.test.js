@@ -30,6 +30,16 @@ vi.mock('../services/kanbanService.js', async (importOriginal) => {
   };
 });
 
+// Wrap the real queue drain so drain-failure paths can be simulated per test.
+vi.mock('../services/kanbanConcurrency.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    drainLaneQueue: vi.fn(actual.drainLaneQueue),
+    consumeDeferredEntriesForUnautomatedLane: vi.fn(actual.consumeDeferredEntriesForUnautomatedLane),
+  };
+});
+
 import kanbanRouter from './kanban.js';
 import { broadcastToProject } from '../websocket.js';
 import { addSessionToBoard as addSessionToBoardService, routeWorkspaceCard as routeWorkspaceCardService } from '../services/kanbanService.js';
@@ -40,6 +50,10 @@ import {
   createLaneRunForEntry,
   getRun,
 } from '../services/workflowSessionService.js';
+import {
+  createGatedLaneRunForEntry,
+  drainLaneQueue,
+} from '../services/kanbanConcurrency.js';
 import {
   WS_MESSAGE_TYPES,
 } from '@circuschief/shared';
@@ -576,6 +590,37 @@ describe('Kanban API', () => {
       expect(queuedCard.entryState).toBe('running');
     });
 
+    it('consumes deferred entries as no-ops when lane automation is removed (Issue 10)', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Old prompt', concurrencyLimit: 1 });
+      const lane = () => kanbanLanes.getById(lanes[0].id);
+      const rootA = createSession('Runner A');
+      const cardA = kanbanCards.create(lanes[0].id, rootA.id);
+      const runA = createLaneRunForEntry({ projectId, workspaceId: rootA.id, cardId: cardA.id, lane: lane() });
+      const rootB = createSession('Queued B');
+      const cardB = kanbanCards.create(lanes[0].id, rootB.id);
+      expect(createGatedLaneRunForEntry(
+        { projectId, workspaceId: rootB.id, cardId: cardB.id, lane: lane() }).queued).toBe(true);
+
+      // Clearing automation (and the completion destination) without touching
+      // the limit must still resolve the deferred entry.
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ onEnterPrompt: null, onEnterTemplateId: null, completionTargetLaneId: null });
+
+      expect(res.status).toBe(200);
+      const db = databaseManager.get();
+      expect(db.prepare('SELECT entry_queued FROM kanban_cards WHERE id=?').get(cardB.id).entry_queued).toBe(0);
+      // The existing runner is untouched.
+      expect(getRun(runA.id).status).toBe('open');
+      expect(db.prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?').get(cardA.id).active_lane_run_id).toBe(runA.id);
+
+      // Re-enabling automation must not resurrect the stale entry.
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'New prompt' });
+      expect(drainLaneQueue(lanes[0].id)).toEqual([]);
+      expect(db.prepare("SELECT id FROM kanban_lane_runs WHERE card_id=? AND status='open'").all(cardB.id)).toHaveLength(0);
+    });
+
     it('drains every deferred entry in lane order when the limit is cleared', async () => {
       setupBoard();
       kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
@@ -607,6 +652,36 @@ describe('Kanban API', () => {
         WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED,
         expect.anything(),
       );
+    });
+
+    it('surfaces queue-drain failure when the limit is cleared and retries succeed (Issue 11)', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      const runner = createSession('Runner');
+      await addSessionToBoardService(runner.id, lanes[0].id);
+      const queuedSession = createSession('Queued');
+      await addSessionToBoardService(queuedSession.id, lanes[0].id);
+
+      drainLaneQueue.mockImplementationOnce(() => { throw new Error('drain boom'); });
+      const failed = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ concurrencyLimit: null });
+
+      // The config commit happened, but the response must not claim success.
+      expect(failed.status).toBe(500);
+      expect(failed.body.code).toBe('KANBAN_QUEUE_DRAIN_FAILED');
+      expect(kanbanLanes.getById(lanes[0].id).concurrencyLimit).toBeNull();
+
+      // Retry path: repeating the same PATCH drains the stranded entries.
+      const retry = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ concurrencyLimit: null });
+
+      expect(retry.status).toBe(200);
+      const queuedCard = kanbanCards.getBySessionId(queuedSession.id);
+      expect(databaseManager.get()
+        .prepare("SELECT id FROM kanban_lane_runs WHERE card_id=? AND status='open'")
+        .all(queuedCard.id)).toHaveLength(1);
     });
   });
 

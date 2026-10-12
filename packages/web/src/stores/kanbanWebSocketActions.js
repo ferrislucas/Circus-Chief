@@ -46,19 +46,25 @@ export const kanbanWebSocketActions = {
    * @param {Object} card - The updated card object
    */
   handleCardMoved(cardId, fromLaneId, toLaneId, card) {
-    // Remove from source lane
-    const sourceLane = this.board?.lanes?.find((l) => l.id === fromLaneId);
-    if (sourceLane) {
-      sourceLane.cards = sourceLane.cards?.filter((c) => c.id !== cardId) || [];
+    // Same-lane moves replace in place; cross-lane moves remove from source.
+    if (fromLaneId !== toLaneId) {
+      const sourceLane = this.board?.lanes?.find((l) => l.id === fromLaneId);
+      if (sourceLane) {
+        sourceLane.cards = sourceLane.cards?.filter((c) => c.id !== cardId) || [];
+      }
     }
 
-    // Add to target lane
+    // Add to target lane, upserting the authoritative payload: the
+    // destination may already hold an optimistic copy that predates the
+    // committed entry state, and ignoring the payload would keep it stale.
     const targetLane = this.board?.lanes?.find((l) => l.id === toLaneId);
     if (targetLane) {
       targetLane.cards = targetLane.cards || [];
-      // Avoid duplicates
-      if (!targetLane.cards.some((c) => c.id === cardId)) {
+      const index = targetLane.cards.findIndex((c) => c.id === cardId);
+      if (index === -1) {
         targetLane.cards.push(card);
+      } else {
+        targetLane.cards[index] = card;
       }
     }
   },

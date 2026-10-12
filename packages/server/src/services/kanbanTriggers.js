@@ -17,6 +17,14 @@ function throwIfAborted(controller) {
 }
 
 /**
+ * The provider definitively refused the dispatch: nothing is running, so the
+ * start is a confirmed undispatched failure (retryable, then terminal).
+ * Any other failure after dispatch intent was recorded leaves ownership
+ * uncertain and must be quarantined at exhaustion instead.
+ */
+export const PROVIDER_DISPATCH_NOT_ACCEPTED_REASON = 'provider dispatch was not accepted';
+
+/**
  * A lane-entry delivery must be observable by its caller.  In particular,
  * recovery must never confuse a missing configuration or a failed setup with
  * a successfully delivered outbox event.
@@ -249,7 +257,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
       model: settings.model,
       ...(abortController ? { abortController } : {}),
     });
-    if (!accepted) return undelivered('provider dispatch was not accepted');
+    if (!accepted) return undelivered(PROVIDER_DISPATCH_NOT_ACCEPTED_REASON);
 
     console.log(`Kanban: Created and started on-enter session ${newSession.id}`);
     return { delivered: true, rootSessionId: newSession.id };
@@ -331,7 +339,7 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
       model: settings.model,
       ...(abortController ? { abortController } : {}),
     });
-    if (!accepted) return undelivered('provider dispatch was not accepted');
+    if (!accepted) return undelivered(PROVIDER_DISPATCH_NOT_ACCEPTED_REASON);
 
     console.log(`Kanban: Created and started on-enter prompt session ${newSession.id}`);
     return { delivered: true, rootSessionId: newSession.id };

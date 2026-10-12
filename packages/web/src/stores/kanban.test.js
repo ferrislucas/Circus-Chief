@@ -122,6 +122,59 @@ describe('kanban card routing responses', () => {
   });
 });
 
+describe('kanban initiating-client entry state (Issue 12)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.restoreAllMocks();
+  });
+
+  function automatedBoard() {
+    return {
+      lanes: [
+        { id: 'source', cards: [{ id: 'card', laneId: 'source' }] },
+        { id: 'target', cards: [], onEnterPrompt: 'Do the work', concurrencyLimit: 1 },
+      ],
+    };
+  }
+
+  it('ends running with a correct count after the response and the authoritative move payload', async () => {
+    const store = useKanbanStore();
+    store.board = automatedBoard();
+    vi.spyOn(api, 'routeWorkspaceKanbanCard')
+      .mockResolvedValueOnce({ status: 'moved', laneId: 'target' });
+
+    await store.routeWorkspaceCard('project', 'workspace', 'card', 'target');
+    store.handleCardMoved('card', 'source', 'target',
+      { id: 'card', laneId: 'target', entryState: 'running', queuePosition: null });
+
+    const target = store.board.lanes.find((l) => l.id === 'target');
+    expect(target.cards).toHaveLength(1);
+    expect(target.cards[0]).toMatchObject({ id: 'card', entryState: 'running', queuePosition: null });
+    expect(target.cards.filter((c) => c.entryState === 'running')).toHaveLength(1);
+  });
+
+  it('drops the stale queued badge when a queued card starts immediately in the target lane', async () => {
+    const store = useKanbanStore();
+    store.board = {
+      lanes: [
+        { id: 'source', cards: [{ id: 'card', laneId: 'source', entryState: 'queued', queuePosition: 1 }] },
+        { id: 'target', cards: [], onEnterPrompt: 'Do the work', concurrencyLimit: 1 },
+      ],
+    };
+    vi.spyOn(api, 'routeWorkspaceKanbanCard')
+      .mockResolvedValueOnce({ status: 'moved', laneId: 'target' });
+
+    await store.routeWorkspaceCard('project', 'workspace', 'card', 'target');
+    store.handleCardMoved('card', 'source', 'target',
+      { id: 'card', laneId: 'target', entryState: 'running', queuePosition: null });
+
+    const target = store.board.lanes.find((l) => l.id === 'target');
+    expect(target.cards).toHaveLength(1);
+    expect(target.cards[0].entryState).toBe('running');
+    expect(target.cards[0].queuePosition).toBeNull();
+  });
+});
+
 describe('kanban command-run updates', () => {
   beforeEach(() => setActivePinia(createPinia()));
 

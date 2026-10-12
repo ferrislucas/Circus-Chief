@@ -178,6 +178,27 @@ function resolveQueuedCardOwner(cardId) {
 }
 
 /**
+ * Consume deferred entries as durable no-ops when a lane has no automation
+ * left to run them under (FR-14, edge case 3). Existing runners are
+ * untouched; only the pending-entry markers are cleared, so re-enabling
+ * automation cannot resurrect stale entries.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} laneId
+ * @returns {number} Cleared markers
+ */
+export function consumeDeferredEntriesForUnautomatedLane(db, laneId) {
+  const lane = kanbanLanes.getById(laneId);
+  if (!lane || isStructured(lane)) return 0;
+  const time = Date.now();
+  const cleared = db.prepare(`UPDATE kanban_cards SET entry_queued=0, updated_at=?
+    WHERE lane_id=? AND entry_queued=1 AND active_lane_run_id IS NULL`).run(time, laneId);
+  if (cleared.changes) {
+    console.info(`Kanban lane ${laneId} lost automation: consumed ${cleared.changes} deferred entr(ies) as no-ops`);
+  }
+  return cleared.changes;
+}
+
+/**
  * Start one queued card. Returns the new run, or null when the card left the
  * queue, has no owner, or its start failed (recorded; the drain continues).
  */
@@ -186,6 +207,12 @@ function startQueuedCard(db, laneId, cardId) {
   // interleave (synchronous), but the card may have moved or finished.
   const current = db.prepare('SELECT lane_id, active_lane_run_id, entry_queued FROM kanban_cards WHERE id=?').get(cardId);
   if (!current || current.lane_id !== laneId || current.entry_queued !== 1 || current.active_lane_run_id !== null) return null;
+  // Late automation removal turns a not-yet-started entry into a no-op
+  // (FR-14): consume the marker instead of starting under new config later.
+  if (!isStructured(kanbanLanes.getById(laneId))) {
+    db.prepare('UPDATE kanban_cards SET entry_queued=0, updated_at=? WHERE id=?').run(Date.now(), cardId);
+    return null;
+  }
   const owner = resolveQueuedCardOwner(cardId);
   if (!owner) {
     console.warn(`Kanban queue drain skipped card ${cardId}: no owning session`);
@@ -252,7 +279,25 @@ export function drainLimitedLaneQueues(db) {
   let drained = 0;
   for (const lane of limitedLanes) {
     try {
+      // Lanes that lost automation while entries were deferred cannot drain:
+      // consume those markers as no-ops so recovery never resurrects them.
+      drained += consumeDeferredEntriesForUnautomatedLane(db, lane.id);
       drained += drainLaneQueue(lane.id).length;
+    } catch (error) {
+      console.error(`Kanban recovery drain for lane ${lane.id} failed:`, error);
+    }
+  }
+  // Limit-clear crash path: the config commit survived but its conversion
+  // drain never ran, leaving deferred markers in an unlimited lane. Those
+  // markers predate the clearing (unlimited lanes never queue), so an
+  // automated lane drains them now; an unautomated lane consumes them.
+  const stranded = db.prepare(`SELECT l.id FROM kanban_lanes l
+    WHERE l.concurrency_limit IS NULL
+      AND EXISTS (SELECT 1 FROM kanban_cards c WHERE c.lane_id=l.id AND c.entry_queued=1)`).all();
+  for (const lane of stranded) {
+    try {
+      if (consumeDeferredEntriesForUnautomatedLane(db, lane.id)) continue;
+      drained += drainLaneQueue(lane.id, { ignoreLimit: true }).length;
     } catch (error) {
       console.error(`Kanban recovery drain for lane ${lane.id} failed:`, error);
     }

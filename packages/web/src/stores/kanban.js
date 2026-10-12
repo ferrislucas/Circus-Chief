@@ -285,12 +285,29 @@ export const useKanbanStore = defineStore('kanban', {
           return result;
         }
 
-        // The route response deliberately exposes no card internals.
+        // The route response deliberately exposes no card internals, but a
+        // 'moved' card is never still queued server-side: an automated
+        // destination started it (running), an unautomated one cleared the
+        // marker (plain). Derive that locally so the initiating browser does
+        // not keep a stale queued badge; the authoritative websocket payload
+        // upserts the committed state right after.
         const location = this._findCardLocation(cardId);
         if (location) {
-          location.lane.cards[location.cardIndex] = result.status === 'queued'
-            ? { ...location.card, laneId: targetLaneId, entryState: 'queued', queuePosition: result.queuePosition ?? null }
-            : { ...location.card, laneId: targetLaneId };
+          if (result.status === 'queued') {
+            location.lane.cards[location.cardIndex] = { ...location.card, laneId: targetLaneId, entryState: 'queued', queuePosition: result.queuePosition ?? null };
+          } else {
+            const targetLane = this.board.lanes.find((l) => l.id === targetLaneId);
+            const automated = Boolean(targetLane?.onEnterPrompt || targetLane?.onEnterTemplateId || targetLane?.completionTargetLaneId);
+            // A moved card never retains stale queue fields. Only the
+            // automated case asserts new state (running); otherwise the
+            // fields are dropped so nothing stale renders.
+            const next = { ...location.card, laneId: targetLaneId };
+            delete next.entryState;
+            delete next.queuePosition;
+            location.lane.cards[location.cardIndex] = automated
+              ? { ...next, entryState: 'running', queuePosition: null }
+              : next;
+          }
         }
 
         return result;

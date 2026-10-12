@@ -21,7 +21,8 @@ import {
   removeLane as removeLaneService,
 } from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
-import { getRun } from '../services/workflowSessionService.js';
+import { getRun, isStructured } from '../services/workflowSessionService.js';
+import { consumeDeferredEntriesForUnautomatedLane } from '../services/kanbanConcurrency.js';
 import { buildFullBoardResponse } from '../services/kanbanBoardResponse.js';
 import { isApiError } from '../errors/ApiError.js';
 import { kanbanRoutingMetrics } from '../services/kanbanRoutingObservability.js';
@@ -369,6 +370,14 @@ router.patch('/lanes/:laneId', (req, res) => {
     throw error;
   }
 
+  // Removing automation resolves deferred entries under the now-empty
+  // configuration (FR-14, edge case 3): consume their markers as durable
+  // no-ops so re-enabling automation cannot resurrect them. Existing runners
+  // keep running. This applies regardless of which fields changed.
+  if (!isStructured(updated)) {
+    consumeDeferredEntriesForUnautomatedLane(databaseManager.get(), laneId);
+  }
+
   // Raising or clearing the limit drains the queue synchronously so the
   // response (and the broadcast below) reflect the resulting queue state
   // (FR-4). Clearing to null drains every deferred entry despite the lane
@@ -376,7 +385,14 @@ router.patch('/lanes/:laneId', (req, res) => {
   // Lowering the limit starts nothing: drainLaneQueue no-ops while
   // the running count covers the limit (FR-3 grandfathering).
   if (result.data.concurrencyLimit !== undefined) {
-    drainLaneAndDeliver(laneId, { ignoreLimit: result.data.concurrencyLimit === null });
+    try {
+      drainLaneAndDeliver(laneId, { ignoreLimit: result.data.concurrencyLimit === null, strict: true });
+    } catch (error) {
+      console.error(`Kanban lane ${laneId} limit update committed but queue drain failed:`, error);
+      // The limit change is committed; the stranded entries stay marked and
+      // are recovered by retrying this same PATCH or by startup recovery.
+      return res.status(500).json({ error: 'Lane limit updated but the queue could not be drained; please retry.', code: 'KANBAN_QUEUE_DRAIN_FAILED' });
+    }
   }
 
   // Broadcast updated board

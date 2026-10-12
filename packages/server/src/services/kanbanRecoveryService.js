@@ -5,7 +5,7 @@
  */
 import { databaseManager } from '../database.js';
 import { reconcileLaneRun, supersedeLaneRun } from './workflowSessionService.js';
-import { drainLimitedLaneQueues } from './kanbanConcurrency.js';
+import { QUEUE_DRAIN_CAUSE, drainLimitedLaneQueues } from './kanbanConcurrency.js';
 
 /** A bounded, request-time view of durable delivery health.  This is kept
  * separate from startup preflight: a healthy boot must still degrade when a
@@ -164,12 +164,33 @@ function rootlessHandoffMatchesEvent(row, run) {
   ].every(Boolean);
 }
 
+/**
+ * A deferred queue-drain start is recoverable when every persisted owner
+ * agrees. Unlike a completion handoff it has no source run: the drain
+ * created the run directly from a queued card, so there is no caused-by run
+ * to verify — card, event, and run agreement is the ownership proof.
+ */
+function rootlessQueueDrainMatchesEvent(row, run) {
+  return [
+    row.active_lane_run_id === run.id,
+    row.card_lane_id === run.source_lane_id,
+    row.lane_entry_event_id === run.lane_entry_event_id,
+    row.project_id === run.project_id,
+    row.workspace_id === run.workspace_id,
+    row.event_card_id === run.card_id,
+    row.event_lane_id === run.source_lane_id,
+    row.cause === QUEUE_DRAIN_CAUSE,
+    row.caused_by_run_id == null,
+    ['pending', 'claimed'].includes(row.event_status),
+  ].every(Boolean);
+}
+
 /** A completion handoff is recoverable only when every persisted owner agrees. */
 export function isRecoverableRootlessHandoff(db, run) {
   if (run.root_session_id || !run.lane_entry_event_id) return false;
   const row = db.prepare(`SELECT c.active_lane_run_id, c.lane_id card_lane_id, c.lane_entry_event_id,
       e.project_id, e.workspace_id, e.card_id event_card_id, e.lane_id event_lane_id,
-      e.cause, e.status event_status, e.claim_token, e.claimed_at,
+      e.cause, e.caused_by_run_id, e.status event_status, e.claim_token, e.claimed_at,
       source.status source_status, source.transition_applied_at
     FROM kanban_cards c
     JOIN kanban_lane_entry_events e ON e.id=?
@@ -179,7 +200,7 @@ export function isRecoverableRootlessHandoff(db, run) {
   // A process that died after claiming an event has no opportunity to renew
   // its lease. The durable run and matching event are stronger evidence than
   // the clock, so startup may reclaim even a fresh-looking abandoned claim.
-  return rootlessHandoffMatchesEvent(row, run);
+  return rootlessHandoffMatchesEvent(row, run) || rootlessQueueDrainMatchesEvent(row, run);
 }
 
 /** Reconcile open runs whose root subtree has reached a terminal state but

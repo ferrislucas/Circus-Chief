@@ -1234,6 +1234,100 @@ describe('kanbanService', () => {
         .all(queuedCard.id)).toHaveLength(1);
     });
 
+    describe('ambiguous dispatch at exhaustion (Issue 9)', () => {
+      /** Runner with an attached worker whose provider dispatch was never acknowledged. */
+      function setupAmbiguousRunner({ laneId, attempts }) {
+        const workspace = createSession('Workspace');
+        const card = kanbanCards.create(laneId, workspace.id);
+        const run = createLaneRunForEntry({
+          projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(laneId),
+        });
+        const worker = createChildSession(workspace.id, 'Dispatched worker');
+        attachRootSession(run.id, worker.id);
+        databaseManager.get().prepare(`UPDATE kanban_lane_entry_events
+          SET delivery_phase='dispatch_intent', dispatch_key='dispatch-1', attempt_count=? WHERE id=?`)
+          .run(attempts, run.laneEntryEventId);
+        return { workspace, card, run };
+      }
+
+      function openRunsForCard(cardId) {
+        return databaseManager.get()
+          .prepare("SELECT id FROM kanban_lane_runs WHERE card_id=? AND status='open'")
+          .all(cardId);
+      }
+
+      it('quarantines ambiguous dispatch instead of failing the run and releasing its slot', async () => {
+        kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+        const { card, run } = setupAmbiguousRunner({ laneId: lanes[0].id, attempts: 7 });
+        const queuedSession = createSession('Queued');
+        await addSessionToBoard(queuedSession.id, lanes[0].id);
+
+        await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow(/acknowledgement/i);
+        await new Promise((resolve) => setImmediate(resolve));
+
+        // Uncertain dispatch ownership is quarantined for explicit
+        // resolution: the run keeps its slot and authority.
+        expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+          .get(run.laneEntryEventId).status).toBe('invalid');
+        expect(getRun(run.id).status).toBe('open');
+        expect(kanbanCards.getById(card.id).activeLaneRunId).toBe(run.id);
+        const queuedCard = kanbanCards.getBySessionId(queuedSession.id);
+        expect(openRunsForCard(queuedCard.id)).toHaveLength(0);
+      });
+
+      it('quarantines ambiguous dispatch during startup recovery instead of terminalizing it', async () => {
+        kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+        const { card, run } = setupAmbiguousRunner({ laneId: lanes[0].id, attempts: 8 });
+
+        await drainPendingLaneEntryTriggers();
+        await new Promise((resolve) => setImmediate(resolve));
+
+        expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+          .get(run.laneEntryEventId).status).toBe('invalid');
+        expect(getRun(run.id).status).toBe('open');
+        expect(kanbanCards.getById(card.id).activeLaneRunId).toBe(run.id);
+      });
+
+      it('still terminalizes a definitive provider refusal at exhaustion', async () => {
+        const template = sessionTemplates.create({ projectId, name: 'Refusing entry', prompt: 'do something' });
+        kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id, concurrencyLimit: 1 });
+        const workspace = createSession('Workspace');
+        const card = kanbanCards.create(lanes[0].id, workspace.id);
+        const run = createLaneRunForEntry({
+          projectId, workspaceId: workspace.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+        });
+        const queuedSession = createSession('Queued');
+        await addSessionToBoard(queuedSession.id, lanes[0].id);
+        // One attempt left; the provider definitively refuses the dispatch.
+        databaseManager.get().prepare('UPDATE kanban_lane_entry_events SET attempt_count=7 WHERE id=?')
+          .run(run.laneEntryEventId);
+        runSession.mockRejectedValueOnce(new Error('provider unavailable'));
+
+        await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow(/not accepted/i);
+        await new Promise((resolve) => setImmediate(resolve));
+
+        // A confirmed undispatched start releases its slot instead of
+        // wedging the lane: the run fails and the queue drains.
+        expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+          .get(run.laneEntryEventId).status).toBe('failed');
+        expect(getRun(run.id).status).toBe('failed');
+        const queuedCard = kanbanCards.getBySessionId(queuedSession.id);
+        expect(openRunsForCard(queuedCard.id)).toHaveLength(1);
+      });
+
+      it('quarantines ambiguous dispatch in unlimited lanes instead of failing the run', async () => {
+        kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: null });
+        const { card, run } = setupAmbiguousRunner({ laneId: lanes[0].id, attempts: 7 });
+
+        await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow(/acknowledgement/i);
+
+        expect(databaseManager.get().prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?')
+          .get(run.laneEntryEventId).status).toBe('invalid');
+        expect(getRun(run.id).status).toBe('open');
+        expect(kanbanCards.getById(card.id).activeLaneRunId).toBe(run.id);
+      });
+    });
+
     it('reuses an attached child when retrying a failure before dispatch intent', async () => {
       kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Continue safely' });
       const workspace = createSession('Workspace');
@@ -1311,6 +1405,57 @@ describe('kanbanService', () => {
         .filter(([, type]) => type === WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED)
         .map(([, , payload]) => payload);
     }
+
+    describe('queued move-out positions (Issue 13)', () => {
+      function laneCards(board, laneId) {
+        const lane = board.lanes.find((l) => l.id === laneId);
+        return Object.fromEntries(lane.cards.map((c) => [c.id, c]));
+      }
+
+      it('publishes remaining queue positions when a queued card moves out', async () => {
+        kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+        await addSessionToBoard(createSession('Runner').id, lanes[0].id);
+        const sessionB = createSession('B');
+        await addSessionToBoard(sessionB.id, lanes[0].id);
+        const sessionC = createSession('C');
+        await addSessionToBoard(sessionC.id, lanes[0].id);
+
+        broadcastToProject.mockClear();
+        // B is queued (#1) with no active run: moving it out schedules no
+        // terminal drain, so positions must be published by the move itself.
+        await routeWorkspaceCard(sessionB.id, lanes[1].id, { manualMove: true });
+        await flushDrains();
+
+        const boards = boardUpdatedPayloads();
+        expect(boards.length).toBeGreaterThan(0);
+        const cardC = kanbanCards.getBySessionId(sessionC.id);
+        expect(laneCards(boards[boards.length - 1].board, lanes[0].id)[cardC.id])
+          .toMatchObject({ entryState: 'queued', queuePosition: 1 });
+      });
+
+      it('publishes updated queue positions after a position-changing insertion', async () => {
+        kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+        await addSessionToBoard(createSession('Runner').id, lanes[0].id);
+        const sessionB = createSession('B');
+        await addSessionToBoard(sessionB.id, lanes[0].id);
+        const sessionC = createSession('C');
+        await addSessionToBoard(sessionC.id, lanes[1].id);
+        const cardC = kanbanCards.getBySessionId(sessionC.id);
+        const cardB = kanbanCards.getBySessionId(sessionB.id);
+        const topSortOrder = databaseManager.get()
+          .prepare('SELECT sort_order FROM kanban_cards WHERE id=?').get(cardB.id).sort_order - 1;
+
+        broadcastToProject.mockClear();
+        await moveCard(cardC.id, lanes[0].id, { sortOrder: topSortOrder });
+        await flushDrains();
+
+        const boards = boardUpdatedPayloads();
+        expect(boards.length).toBeGreaterThan(0);
+        const cards = laneCards(boards[boards.length - 1].board, lanes[0].id);
+        expect(cards[cardC.id]).toMatchObject({ entryState: 'queued', queuePosition: 1 });
+        expect(cards[cardB.id]).toMatchObject({ entryState: 'queued', queuePosition: 2 });
+      });
+    });
 
     it('announces running and queued entry state on entry without refresh', async () => {
       kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });

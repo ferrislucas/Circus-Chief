@@ -55,7 +55,8 @@ import {
   getRun,
   releaseLaneSlotForUserStop,
 } from './workflowSessionService.js';
-import { reconcileKanbanOwnership } from './kanbanRecoveryService.js';
+import { auditKanbanInvariants, reconcileKanbanOwnership } from './kanbanRecoveryService.js';
+import { runStartupPreflight } from './startupPreflight.js';
 
 const flushDrains = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -442,6 +443,64 @@ describe('kanban lane concurrency limits', () => {
       expect(card.entryState).toBeUndefined();
       expect(drainLaneQueue(lanes[0].id)).toEqual([]);
       expect(openRunIdsForCard(card.id)).toHaveLength(0);
+    });
+  });
+
+  describe('limit-clear crash recovery (Issue 11)', () => {
+    it('recovers stranded deferred entries after the limit was cleared without draining', async () => {
+      const { root, run } = setupRunningCard('Runner');
+      attachWorker(run, root);
+      const queuedRoot = createSession('Queued');
+      const queued = await addSessionToBoard(queuedRoot.id, lanes[0].id);
+      expect(queued.entryState).toBe('queued');
+
+      // Simulate a crash between the config commit and the queued-run
+      // creation: the lane is now unlimited with a stranded marker.
+      kanbanLanes.update(lanes[0].id, { concurrencyLimit: null });
+      expect(cardRow(queued.id).entry_queued).toBe(1);
+      expect(openRunIdsForCard(queued.id)).toHaveLength(0);
+
+      reconcileKanbanOwnership({ dryRun: false });
+
+      expect(openRunIdsForCard(queued.id)).toHaveLength(1);
+      expect(cardRow(queued.id).entry_queued).toBe(0);
+    });
+  });
+
+  describe('queue-drain recovery (Issue 8)', () => {
+    it('recognizes queue_drain handoffs across recovery, audit, and preflight', async () => {
+      const { root: runnerRoot } = setupRunningCard('Runner');
+      const queuedRoot = createSession('Queued');
+      const queued = await addSessionToBoard(queuedRoot.id, lanes[0].id);
+      expect(queued.entryState).toBe('queued');
+
+      // Free the slot: the deferred drain starts the queued card with a
+      // rootless queue_drain run, exactly as startup recovery would.
+      await routeWorkspaceCard(runnerRoot.id, lanes[1].id, { manualMove: true });
+      await flushDrains();
+      const drainRuns = openRunIdsForCard(queued.id);
+      expect(drainRuns).toHaveLength(1);
+      const drainRunId = drainRuns[0].id;
+      expect(databaseManager.get().prepare('SELECT cause FROM kanban_lane_entry_events WHERE card_id=?')
+        .get(queued.id).cause).toBe('queue_drain');
+
+      const recovery = reconcileKanbanOwnership({ dryRun: false });
+      expect(recovery.changes.some((c) => c.type === 'preserved_recoverable_rootless_handoffs'
+        && c.runIds.includes(drainRunId))).toBe(true);
+
+      // No error-level run_root violation for the queue-drain run.
+      const report = auditKanbanInvariants();
+      expect(report.violations.filter((v) => v.type === 'run_root' && v.severity === 'error'
+        && v.runId === drainRunId)).toEqual([]);
+      expect(report.ok).toBe(true);
+
+      // Delivery stays enabled globally, and a second restart preserves the
+      // pending queue-drain run instead of superseding it.
+      expect(runStartupPreflight().workersEnabled).toBe(true);
+      const second = reconcileKanbanOwnership({ dryRun: false });
+      expect(second.changes.some((c) => c.type === 'superseded_runs'
+        && c.runIds?.includes(drainRunId))).toBe(false);
+      expect(openRunIdsForCard(queued.id).map((r) => r.id)).toEqual([drainRunId]);
     });
   });
 });
