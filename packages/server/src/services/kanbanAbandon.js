@@ -73,6 +73,22 @@ async function releaseAbandonedChildWorktree(child, allocatedWorktree) {
  * both pause paths meet at. Never settle a child whose obligation already
  * closed or whose run no longer owns it — that row belongs to boot recovery.
  */
+/**
+ * Best-effort SESSION_UPDATED for a preserved paused child. Never throws —
+ * abandonment must always park cleanly even when no subscriber is listening.
+ */
+function broadcastPreservedChildSettled(projectId, childSessionId, session) {
+  try {
+    broadcastToProject(projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId,
+      sessionId: childSessionId,
+      session,
+    });
+  } catch {
+    // Best-effort; the durable pause state is already correct.
+  }
+}
+
 function settlePreservedChildForPause({ laneRunId, childSessionId }) {
   if (!laneRunId || !childSessionId) return;
   const db = databaseManager.get();
@@ -85,14 +101,16 @@ function settlePreservedChildForPause({ laneRunId, childSessionId }) {
   const run = db.prepare('SELECT status FROM kanban_lane_runs WHERE id=?').get(laneRunId);
   if (!run || run.status !== 'open') return;
   // Only executing states need settling; an already-idle child is already
-  // invisible to boot recovery and keeps its row untouched.
-  if (child.status !== 'starting' && child.status !== 'running' && child.execution_state !== 'running') return;
+  // invisible to boot recovery and keeps its row untouched. Subscribers that
+  // saw the earlier running state still need the settled lifecycle, though:
+  // the provider fence may have durably parked this child on its way out, so
+  // notify even when no second write is needed (PR #1166 issue 11).
+  if (child.status !== 'starting' && child.status !== 'running' && child.execution_state !== 'running') {
+    broadcastPreservedChildSettled(child.project_id, childSessionId, sessions.getById(childSessionId));
+    return;
+  }
   const updated = sessions.update(childSessionId, { status: 'stopped', executionState: 'stopped' });
-  broadcastToProject(child.project_id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-    projectId: child.project_id,
-    sessionId: childSessionId,
-    session: updated,
-  });
+  broadcastPreservedChildSettled(child.project_id, childSessionId, updated);
 }
 
 export async function abandonUndispatchedChild({ laneRunId, childSessionId, allocatedWorktree = null, preserveChild = false }) {

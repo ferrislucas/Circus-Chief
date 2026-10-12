@@ -1,4 +1,6 @@
 import { sessions } from '../database.js';
+import { broadcastToProject, broadcastToSession } from '../websocket.js';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 export { buildAgentEnv } from './sessionAgentConfig.js';
 export { buildQueryParams } from './queryParamBuilder.js';
 // createAgentForSession moved to sessionTurnSetup.js; re-exported here so
@@ -232,7 +234,22 @@ export async function _executeSession({
  */
 function settleFenceParkedExecutionState(sessionId) {
   try {
-    sessions.update(sessionId, { status: 'stopped', executionState: 'stopped' });
+    const updated = sessions.update(sessionId, { status: 'stopped', executionState: 'stopped' });
+    // The kanban pause path re-settles with ownership fences right after,
+    // but it stays silent when this write already settled the row — without
+    // this broadcast, subscribed clients keep showing the running state
+    // published by prepareRunTurn until refresh (PR #1166 issue 11).
+    const projectId = updated?.projectId;
+    if (!updated || !projectId) return;
+    broadcastToProject(projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId,
+      sessionId,
+      session: updated,
+    });
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      sessionId,
+      session: updated,
+    });
   } catch {
     // Best-effort; the pause path settles with fences next.
   }
