@@ -6,7 +6,12 @@ import {
   kanbanLanes,
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import {
+  buildLaneRescheduleUpdates, refreshPreservedChildSettings,
+} from './kanbanChildSettings.js';
+
+export { buildLaneRescheduleUpdates };
 import { renderTemplatePrompt, getRootSession } from './templateTriggerService.js';
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
@@ -247,26 +252,6 @@ export function getTemplateSessionSettings(template, session) {
 }
 
 /**
- * Build the reschedule policy update for a lane-entry child session.
- * Returns an empty object when the lane does not enable auto-reschedule,
- * leaving the child's default scheduling untouched.
- * @param {Object} lane
- * @returns {Object}
- */
-export function buildLaneRescheduleUpdates(lane) {
-  if (!lane.onEnterAutoRescheduleEnabled) return {};
-  return {
-    autoRescheduleEnabled: true,
-    rescheduleDelayMinutes: lane.onEnterRescheduleDelayMinutes || DEFAULT_RESCHEDULE_DELAY_MINUTES,
-    rescheduleOnTokenLimit: lane.onEnterRescheduleOnTokenLimit ?? true,
-    rescheduleOnServiceError: lane.onEnterRescheduleOnServiceError ?? true,
-    maxRescheduleCount: lane.onEnterMaxRescheduleCount || null,
-    maxTotalTokens: lane.onEnterMaxTotalTokens || null,
-    rescheduleAtTokenCount: lane.onEnterRescheduleAtTokenCount || null,
-  };
-}
-
-/**
  * Create and configure a child session from a template for lane entry.
  * @param {Object} template
  * @param {Object} session - Parent session
@@ -301,13 +286,19 @@ async function buildChildSessionFromTemplate(template, session, lane, options = 
     parentSessionId: session.id,
   });
   if (!newSession) throw new Error('attached lane-entry child session is missing');
-  if (laneRunId && !childSessionId) attachRootSession(laneRunId, newSession.id);
+  if (childSessionId) {
+    // Redelivery reuses its existing child: replay the latest execution and
+    // retry settings onto the same row (PR Review issue 13).
+    refreshPreservedChildSettings(newSession.id, settings, lane);
+  } else {
+    if (laneRunId) attachRootSession(laneRunId, newSession.id);
 
-  // Configure remaining fields not supported by create()
-  sessions.update(newSession.id, {
-    nextTemplateId: template.nextTemplateId || null,
-    ...buildLaneRescheduleUpdates(lane),
-  });
+    // Configure remaining fields not supported by create()
+    sessions.update(newSession.id, {
+      nextTemplateId: template.nextTemplateId || null,
+      ...buildLaneRescheduleUpdates(lane),
+    });
+  }
 
   return { newSession, renderedPrompt, settings };
 }
@@ -403,11 +394,17 @@ async function buildChildSessionFromPrompt(lane, session, options = {}) {
     parentSessionId: session.id,
   });
   if (!newSession) throw new Error('attached lane-entry child session is missing');
-  if (laneRunId && !childSessionId) attachRootSession(laneRunId, newSession.id);
+  if (childSessionId) {
+    // Redelivery reuses its existing child: replay the latest execution and
+    // retry settings onto the same row (PR Review issue 13).
+    refreshPreservedChildSettings(newSession.id, settings, lane);
+  } else {
+    if (laneRunId) attachRootSession(laneRunId, newSession.id);
 
-  // Configure remaining fields not supported by create()
-  const sessionUpdates = buildLaneRescheduleUpdates(lane);
-  sessions.update(newSession.id, sessionUpdates);
+    // Configure remaining fields not supported by create()
+    const sessionUpdates = buildLaneRescheduleUpdates(lane);
+    sessions.update(newSession.id, sessionUpdates);
+  }
 
   return { newSession, renderedPrompt, settings };
 }

@@ -14,7 +14,7 @@ import {
   triggerOnEnterTemplate, triggerOnEnterPrompt,
   assertLaneAutomationActive, isLaneAutomationDisabledError, createLaneAutomationDisabledError,
 } from './kanbanTriggers.js';
-import { abandonUndispatchedChild } from './kanbanAbandon.js';
+import { abandonUndispatchedChild, settlePreservedChildForPause } from './kanbanAbandon.js';
 import {
   createLaneRunForEntry, supersedeLaneRun, supersedeLaneRunAuthorityOnly,
   supersedeRunForCard, isStructured, isAutomationActive, getRun,
@@ -31,6 +31,9 @@ import {
   stopLaneEntryDelivery,
   trackLaneEntryDelivery,
 } from './laneEntryDeliveryCoordinator.js';
+
+/** Select a lane run by its durable entry event id. */
+const SELECT_RUN_BY_ENTRY_EVENT_ID = 'SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=?';
 
 /**
  * Get the full board with all lanes and cards for a project.
@@ -553,7 +556,7 @@ export async function triggerStructuredTransitionAutomation(pending) {
   if (!workspaceSession) return;
 
   const laneRun = pending.laneEntryEventId
-    ? databaseManager.get().prepare('SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(pending.laneEntryEventId)
+    ? databaseManager.get().prepare(SELECT_RUN_BY_ENTRY_EVENT_ID).get(pending.laneEntryEventId)
     : null;
 
   // Completion commits an automated lane's entry event and run together.
@@ -764,7 +767,7 @@ function isSupersededEntryRetry(db, event, run) {
  * @returns {boolean} true when the entry was consumed and the caller must stop
  */
 function consumeSupersededEntryIfObsolete(db, { eventId, token, claim, event }) {
-  const entryRun = event && db.prepare('SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(event.id);
+  const entryRun = event && db.prepare(SELECT_RUN_BY_ENTRY_EVENT_ID).get(event.id);
   if (!entryRun || !isSupersededEntryRetry(db, event, entryRun)) return false;
   invalidateSupersededEntryDelivery(db, { eventId, token, event, reason: 'lane entry was superseded by a newer card move' });
   claim.stop();
@@ -794,16 +797,36 @@ function clearConsumedEntryPointer(db, cardId, eventId) {
 }
 
 /**
- * Supersede a card's open run when it never spawned (no root): no dangling
- * open obligation may remain on an automation-less lane. A rooted run —
- * already-spawned work — is deliberately left alone to finish.
+ * Whether a no-op entry's attached child actually reached the provider.
+ * Child allocation is setup state, not evidence of dispatch: only an
+ * acknowledged entry or a live (running) child counts as already-spawned
+ * work. A stopped/starting child behind an unacknowledged entry never
+ * executed, even though its run is rooted.
  */
-function supersedeRootlessOpenRun(db, cardId) {
-  const openRun = db.prepare(`SELECT id, root_session_id FROM kanban_lane_runs
-    WHERE card_id=? AND status='open'`).get(cardId);
-  if (openRun && !openRun.root_session_id) {
-    supersedeLaneRun(openRun.id, 'automation_removed');
-  }
+function isNoopChildDispatched(db, event, run) {
+  if (event?.dispatch_acknowledged_at != null) return true;
+  if (!run?.root_session_id) return false;
+  const child = db.prepare('SELECT status, execution_state FROM sessions WHERE id=?')
+    .get(run.root_session_id);
+  if (!child) return false;
+  return child.status === 'running' || child.execution_state === 'running';
+}
+
+/**
+ * Settle an open run for a no-op entry, distinguishing child allocation
+ * from actual dispatch (PR Review issue 15). A rooted run whose child never
+ * dispatched is terminalized and its child's obligation released (via
+ * supersedeLaneRun), so no open run or blocked card remains; a truly
+ * dispatched session is preserved untouched to finish. Rootless runs keep
+ * the established supersede behavior. Shared by both no-op paths so they
+ * cannot drift.
+ */
+function settleUndispatchedRootedRun(db, { event, run }) {
+  const openRun = run && db.prepare('SELECT * FROM kanban_lane_runs WHERE id=? AND status=\'open\'')
+    .get(run.id);
+  if (!openRun) return;
+  if (openRun.root_session_id && isNoopChildDispatched(db, event, openRun)) return;
+  supersedeLaneRun(openRun.id, 'automation_removed');
 }
 
 /**
@@ -817,8 +840,8 @@ function completeNoopDelivery(db, { eventId, token, event, run }) {
     next_attempt_at=NULL, last_error=NULL
     WHERE id=? AND claim_token=?`).run(time, time, eventId, token);
   clearConsumedEntryPointer(db, event.card_id, eventId);
-  if (run && !run.root_session_id) {
-    supersedeLaneRun(run.id, 'automation_removed');
+  if (run) {
+    settleUndispatchedRootedRun(db, { event, run });
   }
 }
 
@@ -866,7 +889,7 @@ function createMissingDeliveryRun(db, event, lane) {
 
 function resolveDeliveryState(event) {
   const db = databaseManager.get();
-  let run = db.prepare('SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(event.id);
+  let run = db.prepare(SELECT_RUN_BY_ENTRY_EVENT_ID).get(event.id);
   run = dropTerminalHuskRun(db, event, run);
   // The lane's automation was cleared after this entry was committed. Queued
   // work replays the latest config, and an automation-less lane is a valid
@@ -974,7 +997,7 @@ function settleClaimedEntryAgainstLaneConfig(db, { eventId, token }) {
   }
   // Automation was cleared mid-cleanup: consume the intent as a no-op rather
   // than leaving a queued row the no-op consumption transaction already ran past.
-  const run = db.prepare('SELECT * FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(eventId);
+  const run = db.prepare(SELECT_RUN_BY_ENTRY_EVENT_ID).get(eventId);
   completeNoopDelivery(db, { eventId, token, event, run });
   broadcastQueueSettledState(db, { projectId: event.project_id, laneId: event.lane_id });
   const after = db.prepare('SELECT status FROM kanban_lane_entry_events WHERE id=?').get(eventId);
@@ -1284,8 +1307,10 @@ function consumeQueuedEntriesAsNoop(db, laneId) {
   for (const row of rows) {
     clearConsumedEntryPointer(db, row.card_id, row.id);
   }
-  for (const cardId of new Set(rows.map((row) => row.card_id))) {
-    supersedeRootlessOpenRun(db, cardId);
+  for (const row of rows) {
+    const event = db.prepare('SELECT * FROM kanban_lane_entry_events WHERE id=?').get(row.id);
+    const run = db.prepare(SELECT_RUN_BY_ENTRY_EVENT_ID).get(row.id);
+    if (run) settleUndispatchedRootedRun(db, { event, run });
   }
   return ids;
 }
@@ -1311,6 +1336,38 @@ export function updateLaneWithAutomationToggle(laneId, updateData) {
 }
 
 /**
+ * Settle the attached children of freshly parked entries that demonstrably
+ * never dispatched (PR Review issue 14): a template setup failure can attach
+ * a `starting` child to a pending entry with backoff, and the disable PATCH
+ * parks the entry without any worker ever reaching settlePreservedChildForPause.
+ * Without this, boot recovery closes the `starting` child as an orphaned
+ * startup and the owning run goes terminal, so re-enable cannot resume.
+ * Only never-provider-reached children are settled (unacknowledged entry,
+ * `starting` status with no running execution state); already-dispatched
+ * work is left untouched. Reuses settlePreservedChildForPause so the park
+ * path and the worker pause path cannot drift.
+ */
+function settleUndispatchedParkedChildren(db, parkedEventIds) {
+  if (!parkedEventIds.length) return;
+  const placeholders = parkedEventIds.map(() => '?').join(',');
+  const candidates = db.prepare(`
+    SELECT s.id AS child_id, s.lane_run_id AS lane_run_id
+    FROM kanban_lane_entry_events e
+    JOIN kanban_lane_runs r ON r.lane_entry_event_id = e.id
+    JOIN sessions s ON s.id = r.root_session_id
+    WHERE e.id IN (${placeholders})
+      AND e.dispatch_acknowledged_at IS NULL
+      AND s.status = 'starting'
+      AND (s.execution_state IS NULL OR s.execution_state != 'running')
+      AND s.own_work_state = 'open'
+      AND s.lane_run_id = r.id
+      AND r.status = 'open'`).all(...parkedEventIds);
+  for (const candidate of candidates) {
+    settlePreservedChildForPause({ laneRunId: candidate.lane_run_id, childSessionId: candidate.child_id });
+  }
+}
+
+/**
  * Park a lane's undelivered entries back to queued when its automation is
  * disabled mid-flight. Open runs are untouched — only new entries are gated —
  * so already-spawned work continues while the remainder replays on re-enable.
@@ -1319,10 +1376,15 @@ export function updateLaneWithAutomationToggle(laneId, updateData) {
  * @returns {{ parkedCount: number }}
  */
 export function parkPendingEntriesForLane(laneId) {
-  const parkedCount = databaseManager.get().prepare(
+  const db = databaseManager.get();
+  const parkedEventIds = db.prepare(
+    `SELECT id FROM kanban_lane_entry_events WHERE lane_id=? AND status='pending'`
+  ).all(laneId).map((row) => row.id);
+  const parkedCount = db.prepare(
     `UPDATE kanban_lane_entry_events SET status='queued', next_attempt_at=NULL, updated_at=?
      WHERE lane_id=? AND status='pending'`
   ).run(Date.now(), laneId).changes;
+  settleUndispatchedParkedChildren(db, parkedEventIds);
   return { parkedCount };
 }
 

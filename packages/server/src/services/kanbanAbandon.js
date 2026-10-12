@@ -89,7 +89,7 @@ function broadcastPreservedChildSettled(projectId, childSessionId, session) {
   }
 }
 
-function settlePreservedChildForPause({ laneRunId, childSessionId }) {
+export function settlePreservedChildForPause({ laneRunId, childSessionId }) {
   if (!laneRunId || !childSessionId) return;
   const db = databaseManager.get();
   const child = db.prepare(`SELECT id, project_id, lane_run_id, own_work_state, status, execution_state
