@@ -33,8 +33,8 @@ describe('ProviderAllowanceService', () => {
     };
 
     service.observe(snapshot);
-    expect(broadcaster).toHaveBeenCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, { snapshot: { ...snapshot, stale: false } });
-    expect(service.getSnapshots()).toEqual({ snapshots: [{ ...snapshot, stale: false }], activeProviderIds: [] });
+    expect(broadcaster).toHaveBeenCalledWith(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED, { snapshot: { ...snapshot, stale: false, lastUsedAt: null } });
+    expect(service.getSnapshots()).toEqual({ snapshots: [{ ...snapshot, stale: false, lastUsedAt: null }], activeProviderIds: [] });
   });
 
   it('normalizes inconsistent adapter measurements and broadcasts only the canonical snapshot', () => {
@@ -55,7 +55,7 @@ describe('ProviderAllowanceService', () => {
 
     const expected = {
       providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
-      status: 'warning', source: 'provider', updatedAt: 1, staleAt: null, stale: false, unavailableReason: null,
+      status: 'warning', source: 'provider', updatedAt: 1, staleAt: null, stale: false, lastUsedAt: null, unavailableReason: null,
       allowances: [{ key: 'requests', label: 'Requests', remaining: 25, value: 25, valueKind: 'remaining', limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: 3 }],
     };
     expect(received).toEqual(expected);
@@ -124,21 +124,21 @@ describe('ProviderAllowanceService', () => {
     expect(observeRemaining(remaining)).toMatchObject({ status, allowances: [{ remainingPercent: remaining }] });
   });
 
-  it('prioritizes executing-session providers, then attention providers, using configured order as a tiebreaker', () => {
+  it('orders snapshots by most-recently-used provider with never-used providers last', () => {
     const providers = [
       { id: 'provider-a', name: 'A', kind: 'openai', enabled: true },
       { id: 'provider-b', name: 'B', kind: 'openai', enabled: true },
       { id: 'provider-c', name: 'C', kind: 'openai', enabled: true },
       { id: 'provider-d', name: 'D', kind: 'openai', enabled: true },
     ];
+    // provider-b is executing, but recency — not liveness — owns dialog
+    // order now. The response keeps activeProviderIds for badge/trigger and
+    // probe-gating consumers; it is no longer an ordering input.
     const getExecutingProviderIds = vi.fn(() => ['provider-b']);
-    const getActiveAndWaiting = vi.fn(() => [{ id: 'idle-c', providerId: 'provider-c' }]);
+    const getProviderLastUsedAt = vi.fn(() => ({ 'provider-c': 2000, 'provider-a': 1000 }));
     const service = new ProviderAllowanceService({
       providerRepository: { getAll: () => providers },
-      sessionRepository: {
-        getExecutingProviderIds,
-        getActiveAndWaiting,
-      },
+      sessionRepository: { getExecutingProviderIds, getProviderLastUsedAt },
     });
 
     service.observe({
@@ -147,11 +147,91 @@ describe('ProviderAllowanceService', () => {
       allowances: [{ key: 'requests', label: 'Requests', remaining: 0, limit: 100, remainingPercent: 0, unit: 'requests', resetsAt: null }],
     });
 
-    expect(service.getSnapshots().snapshots.map(({ providerId }) => providerId)).toEqual([
-      'provider-b', 'provider-c', 'provider-a', 'provider-d',
+    const snapshots = service.getSnapshots();
+    expect(snapshots.snapshots.map(({ providerId }) => providerId)).toEqual([
+      'provider-c', 'provider-a', 'provider-b', 'provider-d',
     ]);
+    expect(snapshots.snapshots).toMatchObject([
+      { lastUsedAt: 2000 }, { lastUsedAt: 1000 }, { lastUsedAt: null }, { lastUsedAt: null },
+    ]);
+    expect(snapshots.activeProviderIds).toEqual(['provider-b']);
+    expect(getProviderLastUsedAt).toHaveBeenCalled();
     expect(getExecutingProviderIds).toHaveBeenCalledOnce();
-    expect(getActiveAndWaiting).not.toHaveBeenCalled();
+  });
+
+  it('preserves configured order for equal recency timestamps', () => {
+    const providers = [
+      { id: 'provider-a', name: 'A', kind: 'openai', enabled: true },
+      { id: 'provider-b', name: 'B', kind: 'openai', enabled: true },
+      { id: 'provider-c', name: 'C', kind: 'openai', enabled: true },
+    ];
+    const service = new ProviderAllowanceService({
+      providerRepository: { getAll: () => providers },
+      sessionRepository: {
+        getExecutingProviderIds: () => [],
+        getProviderLastUsedAt: () => ({ 'provider-a': 1000, 'provider-b': 1000 }),
+      },
+    });
+
+    expect(service.getSnapshots().snapshots.map(({ providerId }) => providerId)).toEqual([
+      'provider-a', 'provider-b', 'provider-c',
+    ]);
+  });
+
+  it('preserves the stored lastUsedAt across observations and broadcasts the stamped snapshot', () => {
+    const broadcaster = vi.fn();
+    const service = new ProviderAllowanceService({
+      providerRepository: { getAll: () => [enabled] },
+      sessionRepository: { getProviderLastUsedAt: () => ({ [enabled.id]: 500 }) },
+      broadcaster,
+    });
+    const candidate = {
+      providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
+      status: 'warning', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: null }],
+    };
+
+    // First sighting stamps recency from the session-domain projection.
+    expect(service.observe(candidate)).toMatchObject({ lastUsedAt: 500 });
+    expect(broadcaster).toHaveBeenCalledWith(
+      WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_UPDATED,
+      { snapshot: expect.objectContaining({ lastUsedAt: 500 }) },
+    );
+
+    // Allowance frames are not a usage signal: a candidate carrying its own
+    // recency — or none at all — never resets the stored value.
+    broadcaster.mockClear();
+    expect(service.observe({ ...candidate, lastUsedAt: 9999 })).toMatchObject({ lastUsedAt: 500 });
+    expect(broadcaster).not.toHaveBeenCalled();
+    expect(service.observe({ ...candidate, status: 'critical', allowances: [{ ...candidate.allowances[0], remaining: 5, remainingPercent: 5 }] }))
+      .toMatchObject({ lastUsedAt: 500, status: 'critical' });
+  });
+
+  it('serves the live session projection when it is newer than the stored stamp', () => {
+    // An observation freezes the projection value of that moment. Session
+    // activity after the observation must still move the provider: reads
+    // prefer the live projection, keeping the stored stamp only for
+    // providers with no session rows at all.
+    let projection = { [enabled.id]: 500 };
+    const service = new ProviderAllowanceService({
+      providerRepository: { getAll: () => [enabled] },
+      sessionRepository: { getProviderLastUsedAt: () => projection },
+    });
+    const candidate = {
+      providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
+      status: 'warning', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: null }],
+    };
+
+    expect(service.observe(candidate)).toMatchObject({ lastUsedAt: 500 });
+
+    projection = { [enabled.id]: 900 };
+    expect(service.getSnapshots().snapshots[0]).toMatchObject({ lastUsedAt: 900 });
+
+    // Providers with no session rows keep their last-known stamp instead of
+    // resetting to null.
+    projection = {};
+    expect(service.getSnapshots().snapshots[0]).toMatchObject({ lastUsedAt: 500 });
   });
 
   it('marks cached snapshots stale at read time while retaining their last-known values', () => {
@@ -165,13 +245,18 @@ describe('ProviderAllowanceService', () => {
     expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'warning', stale: true, updatedAt: 1, staleAt: 5, allowances: [{ remaining: 25, limit: 100 }] });
   });
 
-  it('keeps a stale-critical provider in the attention group ahead of fresh-available providers', () => {
+  it('sorts a fresh-available provider above a stale-critical idle one while keeping the stale overlay', () => {
+    // Intentional inversion of the old attention-first order: recency owns
+    // dialog order now. Staleness stays an overlay — the idle provider still
+    // reads as stale-critical for trigger, badge, and announcements.
     const providers = [
       { id: 'provider-a', name: 'A', kind: 'openai', enabled: true },
       { id: 'provider-b', name: 'B', kind: 'openai', enabled: true },
     ];
     const service = new ProviderAllowanceService({
-      providerRepository: { getAll: () => providers }, clock: { now: () => 10 },
+      providerRepository: { getAll: () => providers },
+      sessionRepository: { getProviderLastUsedAt: () => ({ 'provider-a': 9000, 'provider-b': 1000 }) },
+      clock: { now: () => 10 },
     });
     service.observe({
       providerId: 'provider-a', providerName: 'A', providerKind: 'openai',
@@ -185,8 +270,9 @@ describe('ProviderAllowanceService', () => {
     });
 
     const snapshots = service.getSnapshots().snapshots;
-    expect(snapshots.map(({ providerId }) => providerId)).toEqual(['provider-b', 'provider-a']);
-    expect(snapshots[0]).toMatchObject({ status: 'critical', stale: true });
+    expect(snapshots.map(({ providerId }) => providerId)).toEqual(['provider-a', 'provider-b']);
+    expect(snapshots[1]).toMatchObject({ status: 'critical', stale: true, lastUsedAt: 1000 });
+    expect(snapshots[0]).toMatchObject({ status: 'available', lastUsedAt: 9000 });
   });
 
   it('broadcasts the freshness-aged snapshot when the observation is already stale', () => {

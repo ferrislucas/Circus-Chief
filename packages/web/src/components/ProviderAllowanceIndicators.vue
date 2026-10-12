@@ -340,7 +340,7 @@ function onUpdate(message) {
   store.replace(parsed.data.snapshot);
 }
 function requestPriorityRefresh(immediate = false) {
-  // The server owns the complete active-session ordering. Event payloads only
+  // The server owns the complete recency ordering. Event payloads only
   // tell us that it may have changed, never enough to reconstruct it safely.
   if (immediate) {
     if (priorityRefreshTimer) {
@@ -395,7 +395,7 @@ function isActiveSessionStatus(status) {
   return status === 'starting' || status === 'running';
 }
 function reconcileSessionPriority(message) {
-  // The REST response has the complete, authoritative active-session order.
+  // The REST response has the complete, authoritative recency order.
   // A single session event cannot safely reconstruct it client-side, so any
   // priority-relevant change refetches.
   const session = message?.session;
@@ -411,9 +411,10 @@ function reconcileSessionPriority(message) {
     requestPriorityRefresh(true);
     return;
   }
-  // Priority depends only on which providers have sessions in
-  // starting/running — i.e. on status and providerId. Field-only changes
-  // (title, model, summary, …) cannot reorder the indicators.
+  // Recency turns on session activity, identified here by status and
+  // providerId. A repeat event with an unchanged pairing refetches nothing;
+  // any recency a field-only edit moved converges on the next authoritative
+  // invalidation or refresh.
   const priority = { status: session.status, providerId: session.providerId };
   const previous = rememberSessionPriority(session);
   const priorityChanged = !previous
@@ -428,8 +429,10 @@ function reconcileSessionCreated(message) {
     return;
   }
   rememberSessionPriority(session);
-  // A newly created waiting session cannot be active yet, so it cannot
-  // reorder the indicator. All active starts reconcile immediately.
+  // A newly created waiting session needs no immediate reconcile here: the
+  // server fans out a priority invalidation on every creation, so recency
+  // converges through the debounced path. All active starts reconcile
+  // immediately.
   if (isActiveSessionStatus(session.status)) requestPriorityRefresh(true);
 }
 function reconcileSessionDeleted(message) {

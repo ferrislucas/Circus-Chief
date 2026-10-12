@@ -4,17 +4,18 @@ import {
 } from './helpers';
 
 const snapshots = [
-  allowanceSnapshot('alpha', 'Alpha', 'available', 81),
-  allowanceSnapshot('bravo', 'Bravo', 'warning', 42),
-  allowanceSnapshot('charlie', 'Charlie', 'critical', 9),
-  allowanceSnapshot('delta', 'Delta', 'exhausted', 0),
+  allowanceSnapshot('alpha', 'Alpha', 'available', 81, 1_799_999_000_100),
+  allowanceSnapshot('bravo', 'Bravo', 'warning', 42, 1_799_999_000_300),
+  allowanceSnapshot('charlie', 'Charlie', 'critical', 9, 1_799_999_000_200),
+  allowanceSnapshot('delta', 'Delta', 'exhausted', 0, null),
 ];
 const LIVE_SERVER_TESTS = new Set([
   'renders an adapter-observed OpenAI allowance update without source metadata',
   'renders a Claude rate-limit allowance update without source metadata',
+  'orders the dialog most-recently-used and moves a provider to top without reload',
 ]);
 
-function allowanceSnapshot(providerId: string, providerName: string, status: string, percent: number) {
+function allowanceSnapshot(providerId: string, providerName: string, status: string, percent: number, lastUsedAt: number | null) {
   return {
     providerId,
     providerName,
@@ -25,6 +26,7 @@ function allowanceSnapshot(providerId: string, providerName: string, status: str
       remainingPercent: percent, unit: 'requests', resetsAt: 1_800_000_000_000,
     }],
     source: 'provider', updatedAt: 1_799_999_000_000, staleAt: 1_800_001_000_000,
+    lastUsedAt,
     unavailableReason: null,
   };
 }
@@ -64,6 +66,20 @@ test.describe('Provider allowance indicators', () => {
     await expect(dialog).toContainText('81%');
     await expect(dialog).toContainText('Delta');
     await expect(dialog).not.toContainText('test-provider-secret');
+  });
+
+  test('lists providers most-recently-used first regardless of severity', async ({ page }) => {
+    await page.goto('/');
+
+    const indicators = page.getByTestId('provider-allowance-indicators');
+    await indicators.getByTestId('provider-allowance-trigger').click();
+    // Cassette recency is bravo > charlie > alpha > never-used delta, while
+    // severity runs the opposite way — the dialog must follow recency.
+    const names = await page.getByRole('dialog').locator('article.provider-detail header strong').allTextContents();
+    expect(names).toEqual(['Bravo', 'Charlie', 'Alpha', 'Delta']);
+    // The trigger still summarizes severity, not recency.
+    await expect(indicators.getByTestId('provider-allowance-trigger'))
+      .toHaveAccessibleName(/Provider usage: Exhausted, 0% remaining/);
   });
 
   test('renders the same battery trigger at every width without horizontal overflow', async ({ page }) => {
@@ -146,6 +162,37 @@ test.describe('Provider allowance indicators', () => {
     expect(responseText).not.toContain('rate_limit_event');
     expect(receivedFrames.join('\n')).not.toContain('redacted');
     expect(receivedFrames.join('\n')).not.toContain('rate_limit_event');
+  });
+
+  test('orders the dialog most-recently-used and moves a provider to top without reload', async ({ page }) => {
+    const project = await seedProject('Allowance recency E2E', process.cwd());
+    const openai = await getProvider('openai-default');
+    const anthropic = await getProvider('anthropic-default');
+
+    await page.goto('/');
+    // Seeding a session counts as use (MAX(sessions.updated_at)). Runs stay
+    // off (startImmediately: false): a running agent would complete turns
+    // and bump updated_at asynchronously, making recency nondeterministic.
+    await seedSession(project.id, { prompt: 'Recency probe on the first provider.', providerId: openai.id, startImmediately: false });
+
+    const indicators = page.getByTestId('provider-allowance-indicators');
+    await indicators.getByRole('button', { name: /Provider usage/ }).click();
+    const dialog = page.getByRole('dialog');
+    const headerNames = () => dialog.locator('article.provider-detail header strong').allTextContents();
+    await expect.poll(async () => (await headerNames()).indexOf(openai.name)).toBeGreaterThanOrEqual(0);
+
+    await seedSession(project.id, { prompt: 'Recency probe on the second provider.', providerId: anthropic.id, startImmediately: false });
+    await expect.poll(async () => {
+      const names = await headerNames();
+      return names.indexOf(anthropic.name) >= 0 && names.indexOf(anthropic.name) < names.indexOf(openai.name);
+    }).toBe(true);
+
+    // New work on the older provider moves it back to top without a reload.
+    await seedSession(project.id, { prompt: 'Recency probe returns to the first provider.', providerId: openai.id, startImmediately: false });
+    await expect.poll(async () => {
+      const names = await headerNames();
+      return names.indexOf(openai.name) >= 0 && names.indexOf(openai.name) < names.indexOf(anthropic.name);
+    }).toBe(true);
   });
 
   test('supports complete keyboard dialog operation and restores the single opener at every width', async ({ page }) => {

@@ -41,7 +41,7 @@ describe('ProviderAllowanceIndicators', () => {
     }));
   }
 
-  function snapshot({ providerId = 'openai', providerName = null, providerKind = 'openai', status = 'available', resetsAt = null, source = 'provider', updatedAt = null, unavailableReason = null, allowances } = {}) {
+  function snapshot({ providerId = 'openai', providerName = null, providerKind = 'openai', status = 'available', resetsAt = null, source = 'provider', updatedAt = null, lastUsedAt = null, unavailableReason = null, allowances } = {}) {
     return {
       providerId,
       providerName: providerName ?? (providerId === 'openai' ? 'OpenAI' : providerId),
@@ -50,6 +50,7 @@ describe('ProviderAllowanceIndicators', () => {
       source,
       updatedAt,
       staleAt: null,
+      lastUsedAt,
       unavailableReason,
       allowances: allowances ?? [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt }],
     };
@@ -121,11 +122,11 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
-  it('preserves the server active-first order after a live allowance update when active providers are unknown', async () => {
+  it('preserves the server recency order after a live allowance update when active providers are unknown', async () => {
     api.getProviderAllowances.mockResolvedValueOnce({
       snapshots: [
-        snapshot({ providerId: 'active', status: 'available' }),
-        snapshot({ providerId: 'attention', status: 'warning' }),
+        snapshot({ providerId: 'active', status: 'available', lastUsedAt: 2000 }),
+        snapshot({ providerId: 'attention', status: 'warning', lastUsedAt: 1000 }),
       ],
       activeProviderIds: ['active'],
     });
@@ -172,13 +173,13 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
-  it('reconciles the authoritative order after an active-session lifecycle update', async () => {
+  it('reconciles the authoritative recency order after a session lifecycle update', async () => {
     api.getProviderAllowances
       .mockResolvedValueOnce({ snapshots: [], activeProviderIds: [] })
       .mockResolvedValueOnce({
         snapshots: [
-          snapshot({ providerId: 'active', status: 'available' }),
-          snapshot({ providerId: 'attention', status: 'warning' }),
+          snapshot({ providerId: 'active', status: 'available', lastUsedAt: 2000 }),
+          snapshot({ providerId: 'attention', status: 'warning', lastUsedAt: 1000 }),
         ],
         activeProviderIds: ['active'],
       });
@@ -193,14 +194,14 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
-  it('reconciles authoritative priority on session creation and deletion without waiting for an update', async () => {
+  it('reconciles authoritative recency on session creation and deletion without waiting for an update', async () => {
     api.getProviderAllowances
-      .mockResolvedValueOnce({ snapshots: [snapshot({ providerId: 'idle', status: 'available' })], activeProviderIds: [] })
+      .mockResolvedValueOnce({ snapshots: [snapshot({ providerId: 'idle', status: 'available', lastUsedAt: 1000 })], activeProviderIds: [] })
       .mockResolvedValueOnce({
-        snapshots: [snapshot({ providerId: 'active', status: 'available' }), snapshot({ providerId: 'idle', status: 'available' })],
+        snapshots: [snapshot({ providerId: 'active', status: 'available', lastUsedAt: 2000 }), snapshot({ providerId: 'idle', status: 'available', lastUsedAt: 1000 })],
         activeProviderIds: ['active'],
       })
-      .mockResolvedValueOnce({ snapshots: [snapshot({ providerId: 'idle', status: 'available' })], activeProviderIds: [] });
+      .mockResolvedValueOnce({ snapshots: [snapshot({ providerId: 'idle', status: 'available', lastUsedAt: 1000 })], activeProviderIds: [] });
     const wrapper = mount(ProviderAllowanceIndicators);
     await Promise.resolve();
     await nextTick();
