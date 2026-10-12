@@ -1,7 +1,60 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useKanbanStore } from './kanban.js';
+import { mergeBroadcastCard } from './kanbanWebSocketActions.js';
 import { api } from '../composables/useApi.js';
+
+describe('mergeBroadcastCard', () => {
+  beforeEach(() => setActivePinia(createPinia()));
+
+  it('fills enrichment absent from the broadcast for sessions matched by ID', () => {
+    const existing = {
+      id: 'card-1', laneId: 'live',
+      sessions: [{ id: 's-1', name: 'S', pendingAgentInput: true, latestCommandRuns: [{ buttonId: 'lint' }] }],
+    };
+    const broadcast = { id: 'card-1', laneId: 'live', sessions: [{ id: 's-1', name: 'S', status: 'running' }] };
+
+    const merged = mergeBroadcastCard(existing, broadcast);
+
+    expect(merged.sessions[0]).toMatchObject({ id: 's-1', status: 'running', pendingAgentInput: true });
+    expect(merged.sessions[0].latestCommandRuns).toEqual([{ buttonId: 'lint' }]);
+  });
+
+  it('takes a broadcast session as-is when there is no local match', () => {
+    const existing = { id: 'card-1', laneId: 'live', sessions: [{ id: 's-9', pendingAgentInput: true }] };
+    const broadcast = { id: 'card-1', laneId: 'live', sessions: [{ id: 's-1', name: 'S' }] };
+
+    expect(mergeBroadcastCard(existing, broadcast).sessions).toEqual([{ id: 's-1', name: 'S' }]);
+  });
+
+  it('prefers the broadcast value when it supplies an enrichment field', () => {
+    const existing = { id: 'card-1', laneId: 'live', sessions: [{ id: 's-1', pendingAgentInput: true }] };
+    const broadcast = { id: 'card-1', laneId: 'live', sessions: [{ id: 's-1', pendingAgentInput: false }] };
+
+    expect(mergeBroadcastCard(existing, broadcast).sessions[0].pendingAgentInput).toBe(false);
+  });
+
+  it('does not copy un-allowlisted local fields onto the merged session', () => {
+    const existing = { id: 'card-1', laneId: 'live', sessions: [{ id: 's-1', someFutureLocalField: 'x' }] };
+    const broadcast = { id: 'card-1', laneId: 'live', sessions: [{ id: 's-1' }] };
+
+    expect(mergeBroadcastCard(existing, broadcast).sessions[0]).not.toHaveProperty('someFutureLocalField');
+  });
+
+  it('sets entryStatus from the broadcast and clears a stale local marker when absent', () => {
+    expect(mergeBroadcastCard({ id: 'c' }, { id: 'c', entryStatus: 'queued' }).entryStatus).toBe('queued');
+    expect(mergeBroadcastCard({ id: 'c', entryStatus: 'queued' }, { id: 'c' })).not.toHaveProperty('entryStatus');
+  });
+
+  it('never carries the existing activeLaneRun when the broadcast omits it', () => {
+    const merged = mergeBroadcastCard(
+      { id: 'c', activeLaneRun: { id: 'run', laneId: 'paused' } },
+      { id: 'c', laneId: 'live' },
+    );
+
+    expect(merged).not.toHaveProperty('activeLaneRun');
+  });
+});
 
 describe('kanban session updates', () => {
   beforeEach(() => setActivePinia(createPinia()));
@@ -317,6 +370,89 @@ describe('kanban optimistic queue convergence', () => {
     expect(store.board.lanes[0].queuedCount).toBe(1);
     expect(store.board.lanes[0].cards).toEqual([{ id: 'card-1', laneId: 'paused', entryStatus: 'queued' }]);
     expect(store.board.lanes[1].cards).toEqual([]);
+  });
+});
+
+describe('kanban optimistic move enrichment', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.restoreAllMocks();
+  });
+
+  function enrichedQueuedBoard() {
+    return {
+      lanes: [
+        {
+          id: 'paused', name: 'Paused', automationEnabled: false, queuedCount: 1,
+          cards: [{
+            id: 'card-1',
+            laneId: 'paused',
+            entryStatus: 'queued',
+            sessions: [{
+              id: 's-1', name: 'Session', status: 'running',
+              pendingAgentInput: true,
+              latestCommandRuns: [{ buttonId: 'lint', runId: 'run-1', status: 'running', exitCode: null }],
+            }],
+            activeLaneRun: { id: 'run-1', laneId: 'paused', status: 'open' },
+          }],
+        },
+        { id: 'live', name: 'Live', automationEnabled: true, queuedCount: 0, cards: [] },
+      ],
+    };
+  }
+
+  // Thin repository projection carried by the KANBAN_CARD_MOVED broadcast:
+  // basic session fields only, no board enrichment, no queue marker.
+  function thinBroadcastCard() {
+    return { id: 'card-1', laneId: 'live', sessions: [{ id: 's-1', name: 'Session', status: 'running' }] };
+  }
+
+  async function optimisticMoveThenAcknowledge(store, broadcastCard) {
+    vi.spyOn(api, 'routeWorkspaceKanbanCard').mockResolvedValueOnce({ status: 'moved', laneId: 'live' });
+    const routed = store.routeWorkspaceCard('project', 'workspace', 'card-1', 'live');
+    store.handleCardMoved('card-1', 'paused', 'live', broadcastCard);
+    await routed;
+    return store.board.lanes[1].cards[0];
+  }
+
+  it('preserves the needs-input badge when the broadcast acknowledgement arrives', async () => {
+    const store = useKanbanStore();
+    store.board = enrichedQueuedBoard();
+
+    const card = await optimisticMoveThenAcknowledge(store, thinBroadcastCard());
+
+    expect(card.sessions[0].pendingAgentInput).toBe(true);
+  });
+
+  it('preserves command statuses through the board-data fallback path', async () => {
+    const store = useKanbanStore();
+    store.board = enrichedQueuedBoard();
+
+    const card = await optimisticMoveThenAcknowledge(store, thinBroadcastCard());
+
+    expect(card.sessions[0].latestCommandRuns).toEqual(
+      [{ buttonId: 'lint', runId: 'run-1', status: 'running', exitCode: null }],
+    );
+  });
+
+  it('clears the stale queued marker while preserving session enrichment', async () => {
+    const store = useKanbanStore();
+    store.board = enrichedQueuedBoard();
+
+    const card = await optimisticMoveThenAcknowledge(store, thinBroadcastCard());
+
+    expect(card).not.toHaveProperty('entryStatus');
+    expect(card.sessions[0].pendingAgentInput).toBe(true);
+    expect(card.sessions[0].latestCommandRuns).toHaveLength(1);
+  });
+
+  it('does not retain the source lane activeLaneRun on a cross-lane move', async () => {
+    const store = useKanbanStore();
+    store.board = enrichedQueuedBoard();
+
+    const card = await optimisticMoveThenAcknowledge(store, thinBroadcastCard());
+
+    expect(card).not.toHaveProperty('activeLaneRun');
   });
 });
 

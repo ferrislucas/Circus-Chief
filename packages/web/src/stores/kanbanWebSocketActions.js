@@ -25,6 +25,50 @@ function laneWithoutCard(lane, cardId) {
 }
 
 /**
+ * Board-enrichment keys carried on card sessions by the full-board response
+ * (`buildFullBoardResponse`) but absent from the thin `KANBAN_CARD_MOVED`
+ * broadcast projection. Preserved across a move acknowledgement by session
+ * ID; never a backdoor for un-allowlisted fields.
+ */
+const CARD_SESSION_ENRICHMENT_FIELDS = ['pendingAgentInput', 'latestCommandRuns'];
+
+/**
+ * Reconcile a thin move-broadcast card with the enriched board card it
+ * acknowledges. The broadcast is authoritative for movement and queue state
+ * (`id`, `laneId`, position, `entryStatus` — absent clears a stale queued
+ * marker — and `activeLaneRun`, which is never carried over from the source
+ * lane), while per-session board enrichment is preserved by session ID.
+ * Pure.
+ * @param {Object} existingCard - Enriched board card (optimistic copy)
+ * @param {Object} broadcastCard - Thin authoritative broadcast card
+ * @returns {Object} Merged card for the target lane
+ */
+export function mergeBroadcastCard(existingCard, broadcastCard) {
+  const merged = { ...broadcastCard };
+  const existingSessions = Array.isArray(existingCard?.sessions) ? existingCard.sessions : null;
+  const broadcastSessions = Array.isArray(broadcastCard?.sessions) ? broadcastCard.sessions : null;
+  if (broadcastSessions) {
+    const existingById = new Map((existingSessions || []).map((s) => [s?.id, s]));
+    merged.sessions = broadcastSessions.map((session) => {
+      const local = existingById.get(session?.id);
+      if (!local) return session;
+      const reconciled = { ...session };
+      for (const field of CARD_SESSION_ENRICHMENT_FIELDS) {
+        if (!Object.hasOwn(session, field) && Object.hasOwn(local, field)) {
+          reconciled[field] = local[field];
+        }
+      }
+      return reconciled;
+    });
+  } else if (existingSessions) {
+    // The broadcast carried no session projection; keep board state rather
+    // than wiping the card's sessions.
+    merged.sessions = existingSessions;
+  }
+  return merged;
+}
+
+/**
  * WebSocket-driven actions for the Kanban board store.
  *
  * The board is an authoritative server read model: mutations do not patch
@@ -81,12 +125,14 @@ export const kanbanWebSocketActions = {
       if (existingIndex !== -1) {
         // The owning browser moved this card optimistically before the
         // broadcast arrived, so its copy still carries the source queue
-        // marker. That stale slot belongs to the source lane, and the
-        // authoritative broadcast card replaces the optimistic copy.
+        // marker. That stale slot belongs to the source lane. The broadcast
+        // is authoritative for movement and queue state, but it carries a
+        // thin session projection without board enrichment, so the
+        // acknowledgement reconciles instead of replacing outright.
         if (!departingWasQueued && targetLane.cards[existingIndex]?.entryStatus === 'queued') {
           departingWasQueued = true;
         }
-        targetLane.cards[existingIndex] = card;
+        targetLane.cards[existingIndex] = mergeBroadcastCard(targetLane.cards[existingIndex], card);
       } else {
         targetLane.cards.push(card);
       }
