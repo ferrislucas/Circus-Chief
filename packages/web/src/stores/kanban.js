@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { toRaw } from 'vue';
 import { api } from '../composables/useApi.js';
 import { kanbanWebSocketActions } from './kanbanWebSocketActions.js';
 
@@ -98,12 +99,14 @@ export const useKanbanStore = defineStore('kanban', {
       sourceLane.cards.splice(cardIndex, 1);
 
       const targetLane = this.board.lanes.find((l) => l.id === targetLaneId);
+      let movedCard = null;
       if (targetLane) {
         targetLane.cards = targetLane.cards || [];
-        targetLane.cards.push({ ...card, laneId: targetLaneId });
+        movedCard = { ...card, laneId: targetLaneId };
+        targetLane.cards.push(movedCard);
       }
 
-      return { sourceLane, card };
+      return { sourceLane, card, movedCard };
     },
 
     /**
@@ -268,25 +271,78 @@ export const useKanbanStore = defineStore('kanban', {
       }
     },
 
+    /**
+     * Reconcile an HTTP route response onto local state, fenced against
+     * newer authoritative updates (Issue 18).
+     *
+     * The server broadcasts the move before the HTTP response returns, so a
+     * websocket/board update may have already superseded the optimistic copy
+     * while the response was in flight (queue advance, completion-routing).
+     * Every such handler replaces the card object, so the response only owns
+     * the local card while its own optimistic copy is still in the target
+     * lane; otherwise the newer state stands. Identity is compared through
+     * toRaw: Pinia serves reactive proxies, so the live card never ===
+     * the raw optimistic copy.
+     * @private
+     */
+    _reconcileRouteResponse(cardId, targetLaneId, result, optimisticCard) {
+      const location = this._findCardLocation(cardId);
+      if (!location || location.lane.id !== targetLaneId) return;
+      if (optimisticCard && toRaw(location.card) !== optimisticCard) return;
+
+      // The route response deliberately exposes no card internals, but a
+      // 'moved' card is never still queued server-side: an automated
+      // destination started it (running), an unautomated one cleared the
+      // marker (plain). Derive that locally so the initiating browser does
+      // not keep a stale queued badge; the authoritative websocket payload
+      // upserts the committed state right after.
+      if (result.status === 'queued') {
+        location.lane.cards[location.cardIndex] = { ...location.card, laneId: targetLaneId, entryState: 'queued', queuePosition: result.queuePosition ?? null };
+        return;
+      }
+      const targetLane = this.board.lanes.find((l) => l.id === targetLaneId);
+      const structured = Boolean(targetLane?.onEnterPrompt || targetLane?.onEnterTemplateId || targetLane?.completionTargetLaneId);
+      // The kill-switch is part of "will run automation": a structured but
+      // disabled lane queues the entry server-side, so the initiating browser
+      // must not mark the card running (issue-25). The queued broadcast that
+      // follows carries the authoritative position.
+      const automationActive = targetLane?.automationEnabled !== false;
+      // A moved card never retains stale queue fields. Only the
+      // active-automation case asserts new state (running); a queued
+      // disabled entry reads as queued; otherwise the fields are dropped
+      // so nothing stale renders.
+      const next = { ...location.card, laneId: targetLaneId };
+      delete next.entryState;
+      delete next.queuePosition;
+      delete next.entryStatus;
+      if (!structured) {
+        location.lane.cards[location.cardIndex] = next;
+      } else if (automationActive) {
+        location.lane.cards[location.cardIndex] = { ...next, entryState: 'running', queuePosition: null };
+      } else {
+        location.lane.cards[location.cardIndex] = { ...next, entryStatus: 'queued' };
+      }
+    },
+
     /** Route a workspace card to a lane. */
     async routeWorkspaceCard(projectId, workspaceId, cardId, targetLaneId) {
       this.error = null;
 
       // Optimistic update
       const optimisticResult = this._moveCardOptimistic(cardId, targetLaneId);
+      const optimisticCard = optimisticResult ? optimisticResult.movedCard : null;
 
       try {
         const result = await api.routeWorkspaceKanbanCard(projectId, workspaceId, targetLaneId);
-        if (result.status !== 'moved') {
+        // Both 'moved' and 'queued' are committed moves: the card is in the
+        // target lane server-side. Only genuinely non-moving outcomes
+        // ('noop', 'scheduled') revert the optimistic move.
+        if (result.status !== 'moved' && result.status !== 'queued') {
           if (optimisticResult) this._revertCardMove(optimisticResult.sourceLane, optimisticResult.card, targetLaneId);
           return result;
         }
 
-        // The route response deliberately exposes no card internals.
-        const location = this._findCardLocation(cardId);
-        if (location) {
-          location.lane.cards[location.cardIndex] = { ...location.card, laneId: targetLaneId };
-        }
+        this._reconcileRouteResponse(cardId, targetLaneId, result, optimisticCard);
 
         return result;
       } catch (err) {

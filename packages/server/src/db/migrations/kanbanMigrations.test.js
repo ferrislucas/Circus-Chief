@@ -174,6 +174,87 @@ describe('kanban-drop-completion-mode-hard-cutover', () => {
   });
 });
 
+describe('kanban_lanes-add-concurrency_limit', () => {
+  it('adds a nullable concurrency_limit with a >= 1 check, idempotently, preserving rows', () => {
+    const db = freshDb();
+    try {
+      // Simulate a pre-migration database: fresh schema.sql already has the column.
+      db.exec('ALTER TABLE kanban_lanes DROP COLUMN concurrency_limit');
+      db.prepare("INSERT INTO projects (id,name,working_directory,created_at,updated_at) VALUES ('p','P','/tmp',1,1)").run();
+      db.prepare("INSERT INTO kanban_boards (id,project_id,created_at,updated_at) VALUES ('b','p',1,1)").run();
+      db.prepare("INSERT INTO kanban_lanes (id,board_id,name,sort_order,created_at,updated_at) VALUES ('l','b','Lane',0,1,1)").run();
+      const migration = allMigrations.find((item) => item.name === 'kanban_lanes-add-concurrency_limit');
+      expect(migration).toBeDefined();
+
+      migration.up(db);
+
+      expect(getColumns(db, 'kanban_lanes')).toContain('concurrency_limit');
+      expect(db.prepare('SELECT concurrency_limit FROM kanban_lanes WHERE id=?').get('l').concurrency_limit).toBeNull();
+      // CHECK constraint rejects 0 and negatives, accepts positive integers.
+      expect(() => db.prepare("UPDATE kanban_lanes SET concurrency_limit=0 WHERE id='l'").run()).toThrow();
+      expect(() => db.prepare("UPDATE kanban_lanes SET concurrency_limit=-1 WHERE id='l'").run()).toThrow();
+      expect(() => db.prepare("UPDATE kanban_lanes SET concurrency_limit=2 WHERE id='l'").run()).not.toThrow();
+      expect(() => migration.up(db)).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe('kanban_cards-add-entry-queued', () => {
+  it('adds a NOT NULL entry_queued defaulting to 0, idempotently, preserving rows', () => {
+    const db = freshDb();
+    try {
+      // Simulate a pre-migration database: fresh schema.sql already has the column.
+      db.exec('ALTER TABLE kanban_cards DROP COLUMN entry_queued');
+      db.prepare("INSERT INTO projects (id,name,working_directory,created_at,updated_at) VALUES ('p','P','/tmp',1,1)").run();
+      db.prepare("INSERT INTO kanban_boards (id,project_id,created_at,updated_at) VALUES ('b','p',1,1)").run();
+      db.prepare("INSERT INTO kanban_lanes (id,board_id,name,sort_order,created_at,updated_at) VALUES ('l','b','Lane',0,1,1)").run();
+      db.prepare("INSERT INTO kanban_cards (id,lane_id,sort_order,created_at,updated_at) VALUES ('c','l',0,1,1)").run();
+      const migration = allMigrations.find((item) => item.name === 'kanban_cards-add-entry-queued');
+      expect(migration).toBeDefined();
+
+      migration.up(db);
+
+      expect(getColumns(db, 'kanban_cards')).toContain('entry_queued');
+      // Historical rows default to NOT queued: finished work must never read
+      // as pending after upgrade.
+      expect(db.prepare('SELECT entry_queued FROM kanban_cards WHERE id=?').get('c').entry_queued).toBe(0);
+      expect(() => migration.up(db)).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe('kanban-routing-audit-add-queue-context', () => {
+  it('adds nullable lane_concurrency_limit and queue_depth, idempotently, preserving rows', () => {
+    const db = freshDb();
+    try {
+      // Simulate a pre-migration database: fresh schema.sql already has the columns.
+      db.exec('ALTER TABLE kanban_routing_audit_events DROP COLUMN lane_concurrency_limit');
+      db.exec('ALTER TABLE kanban_routing_audit_events DROP COLUMN queue_depth');
+      db.prepare(`INSERT INTO kanban_routing_audit_events
+        (id, project_id, workspace_id, source_lane_id, destination_lane_id, outcome, request_at, committed_at)
+        VALUES ('e','p','w','s','d','moved',1,2)`).run();
+      const migration = allMigrations.find((item) => item.name === 'kanban-routing-audit-add-queue-context');
+      expect(migration).toBeDefined();
+
+      migration.up(db);
+
+      expect(getColumns(db, 'kanban_routing_audit_events')).toContain('lane_concurrency_limit');
+      expect(getColumns(db, 'kanban_routing_audit_events')).toContain('queue_depth');
+      // Historical rows default to NULL context: the limit/depth at an old
+      // decision is unknown, never zero.
+      expect(db.prepare('SELECT lane_concurrency_limit, queue_depth FROM kanban_routing_audit_events WHERE id=?').get('e'))
+        .toEqual({ lane_concurrency_limit: null, queue_depth: null });
+      expect(() => migration.up(db)).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+});
+
 // Note: there is no 'kanban-backfill-structured-completion-mode' migration in
 // the current chain (hard-cutover removed the completion_mode concept
 // entirely — see 'kanban-drop-completion-mode-hard-cutover' below). This

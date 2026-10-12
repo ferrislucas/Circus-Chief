@@ -370,6 +370,10 @@ export const allMigrations = validateMigrations([
   k.get('sessions-drop-lane_trigger_depth'),
   k.get('kanban-drop-deferred-card-move-turn-fence'),
   k.get('kanban-routing-observability'),
+  k.get('kanban_lanes-add-concurrency_limit'),
+  k.get('kanban_cards-add-entry-queued'),
+  k.get('kanban_lanes-add-automation_enabled'),
+  k.get('kanban-routing-audit-add-queue-context'),
 
   // --- Sessions blocked on agent input ---
   // Keep this last: it is additive and must run for databases created before

@@ -50,11 +50,14 @@ export function publishDiscardedPendingDestination() {
 export function recordRouteDecision(db, {
   projectId, workspaceId, callerSessionId = null, sourceLaneId, destinationLaneId,
   outcome, laneRunId = null, requestAt, committedAt,
+  laneConcurrencyLimit = null, queueDepth = null,
 }) {
   db.prepare(`INSERT INTO kanban_routing_audit_events
     (id, project_id, workspace_id, caller_session_id, source_lane_id,
-      destination_lane_id, outcome, lane_run_id, request_at, committed_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      destination_lane_id, outcome, lane_run_id, request_at, committed_at,
+      lane_concurrency_limit, queue_depth)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(crypto.randomUUID(), projectId, workspaceId, callerSessionId, sourceLaneId,
-      destinationLaneId, outcome, laneRunId, requestAt, committedAt);
+      destinationLaneId, outcome, laneRunId, requestAt, committedAt,
+      laneConcurrencyLimit, queueDepth);
 }

@@ -5,7 +5,7 @@ import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
-import { activeLaneRunOwnsSession, pauseForUserStop } from './workflowSessionService.js';
+import { activeLaneRunOwnsSession, pauseForUserStop, releaseLaneSlotForUserStop } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 import { clearedPendingSchedule } from './pendingSchedule.js';
 import {
@@ -454,6 +454,10 @@ export async function stopSession(sessionId) {
   // A user stop pauses an active structured-lane obligation rather than
   // cancelling it. Non-participating and already-closed sessions are no-ops.
   pauseForUserStop(sessionId);
+  // ...except in a concurrency-limited lane, where the paused open run would
+  // hold its slot forever (FR-9): the explicit stop terminally releases it so
+  // the next queued card starts. Unlimited lanes keep the resumable pause.
+  releaseLaneSlotForUserStop(sessionId);
 
   if (!hadActiveExecution) {
     // No provider turn is unwinding, so the session is truly complete now.

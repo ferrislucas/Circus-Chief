@@ -17,6 +17,11 @@
       aria-label="Agent input required"
     >needs input</span>
     <span
+      v-if="entryState === 'queued'"
+      class="status-badge status-queued"
+      data-testid="queued-badge"
+    >Queued<span v-if="queuePosition != null">&nbsp;#{{ queuePosition }}</span></span>
+    <span
       v-if="session.mode"
       class="card-mode"
     >{{ session.mode }}</span>
@@ -90,5 +95,7 @@ defineProps({
   statusIndicator: { type: String, required: true },
   scheduledInfo: { type: Object, default: null },
   activeLaneRun: { type: Object, default: null },
+  entryState: { type: String, default: null },
+  queuePosition: { type: Number, default: null },
 });
 </script>

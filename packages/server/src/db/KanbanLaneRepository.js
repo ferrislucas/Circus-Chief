@@ -61,6 +61,7 @@ function prepareLaneValues(data) {
     data.onEnterMaxRescheduleCount ?? null,
     data.onEnterMaxTotalTokens ?? null,
     data.onEnterRescheduleAtTokenCount ?? null,
+    data.concurrencyLimit ?? null,
   ];
 }
 
@@ -132,6 +133,7 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterMaxTotalTokens: row.on_enter_max_total_tokens,
       onEnterRescheduleAtTokenCount: row.on_enter_reschedule_at_token_count,
       completionTargetLaneId: row.completion_target_lane_id,
+      concurrencyLimit: row.concurrency_limit ?? null,
       automationEnabled: row.automation_enabled === undefined || row.automation_enabled === null
         ? true
         : Boolean(row.automation_enabled),
@@ -178,9 +180,9 @@ export class KanbanLaneRepository extends BaseRepository {
           on_enter_auto_reschedule_enabled, on_enter_reschedule_delay_minutes,
           on_enter_reschedule_on_token_limit, on_enter_reschedule_on_service_error,
           on_enter_max_reschedule_count, on_enter_max_total_tokens,
-          on_enter_reschedule_at_token_count, completion_target_lane_id, automation_enabled,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          on_enter_reschedule_at_token_count, concurrency_limit,
+          completion_target_lane_id, automation_enabled, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(id, boardId, createData.name, sortOrder, ...laneValues, createData.completionTargetLaneId || null,
         automationEnabledValue(createData), now, now);
@@ -237,6 +239,7 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterMaxTotalTokens: 'on_enter_max_total_tokens',
       onEnterRescheduleAtTokenCount: 'on_enter_reschedule_at_token_count',
       completionTargetLaneId: 'completion_target_lane_id',
+      concurrencyLimit: 'concurrency_limit',
       automationEnabled: 'automation_enabled',
     };
 

@@ -157,6 +157,7 @@ For \`POST /lanes\`, \`name\` is the only required field (a non-empty string). A
 - \`onEnterMaxTotalTokens\` — number or null; total token cap for the entry workflow.
 - \`onEnterRescheduleAtTokenCount\` — number or null; token count that triggers a continuation reschedule.
 - \`completionTargetLaneId\` — UUID string or null; destination lane after successful completion. It must be a different lane on the same board; \`null\` clears the destination.
+- \`concurrencyLimit\` — positive integer or null; max workspace cards running in the lane at once. Entries beyond the limit queue visibly in the lane and start top-down as slots free; \`null\` (default) means unlimited. Invalid values (0, negative, fractional) fail with \`KANBAN_LANE_BAD_CONCURRENCY\`.
 - \`automationEnabled\` — boolean; lane entry automation kill-switch (default true). When false, arrivals queue instead of spawning sessions until re-enabled.
 
 \`onEnterTemplateId\` and a non-blank \`onEnterPrompt\` are mutually exclusive: never send both. To replace template automation with prompt automation, set \`onEnterPrompt\` and \`onEnterTemplateId: null\`; to replace prompt automation with template automation, set \`onEnterTemplateId\` and \`onEnterPrompt: null\`. Omitting either property preserves its existing value.

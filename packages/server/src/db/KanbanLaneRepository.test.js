@@ -139,6 +139,19 @@ describe('KanbanLaneRepository', () => {
       expect(lane.completionTargetLaneId).toBeNull();
     });
 
+    it('maps concurrencyLimit as null by default', () => {
+      const lane = laneRepo.create(boardId, { name: 'Plain Lane' });
+
+      expect(lane.concurrencyLimit).toBeNull();
+    });
+
+    it('round-trips concurrencyLimit on create', () => {
+      const lane = laneRepo.create(boardId, { name: 'Limited', concurrencyLimit: 2 });
+
+      expect(lane.concurrencyLimit).toBe(2);
+      expect(laneRepo.getById(lane.id).concurrencyLimit).toBe(2);
+    });
+
     it('rejects a completion target when the lane has no on-entry automation (hard-cutover contract)', () => {
       const target = laneRepo.create(boardId, { name: 'Target' });
       expect(() => laneRepo.create(boardId, { name: 'Target-only', completionTargetLaneId: target.id }))
@@ -310,6 +323,24 @@ describe('KanbanLaneRepository', () => {
       const result = laneRepo.update(lane.id, {});
 
       expect(result.name).toBe('Test');
+    });
+
+    it('updates concurrencyLimit and preserves it when omitted', () => {
+      const lane = laneRepo.create(boardId, { name: 'Limited', concurrencyLimit: 3 });
+
+      const updated = laneRepo.update(lane.id, { concurrencyLimit: 2 });
+      expect(updated.concurrencyLimit).toBe(2);
+
+      const preserved = laneRepo.update(lane.id, { name: 'Renamed' });
+      expect(preserved.concurrencyLimit).toBe(2);
+    });
+
+    it('clears concurrencyLimit when set to null', () => {
+      const lane = laneRepo.create(boardId, { name: 'Limited', concurrencyLimit: 2 });
+
+      const updated = laneRepo.update(lane.id, { concurrencyLimit: null });
+
+      expect(updated.concurrencyLimit).toBeNull();
     });
 
     it('updates updatedAt timestamp', () => {

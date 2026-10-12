@@ -93,9 +93,14 @@ export const kanbanWebSocketActions = {
     const lane = this.board?.lanes?.find((l) => l.id === laneId);
     if (lane) {
       lane.cards = lane.cards || [];
-      // Avoid duplicates
-      if (!lane.cards.some((c) => c.id === card.id)) {
+      // Upsert the authoritative payload: the lane may already hold an
+      // HTTP-inserted copy that predates the committed entry state, and
+      // ignoring the payload would keep it (and the running count) stale.
+      const index = lane.cards.findIndex((c) => c.id === card.id);
+      if (index === -1) {
         lane.cards.push(card);
+      } else {
+        lane.cards[index] = card;
       }
     }
   },
@@ -107,6 +112,9 @@ export const kanbanWebSocketActions = {
    * @param {string} toLaneId - The target lane ID
    * @param {Object} card - The updated card object
    */
+  // TODO(issue-25): unify departing-queue detection for the limited-lane
+  // marker (entryState) with the disabled-lane marker (entryStatus) so both
+  // queue shapes converge the source badge.
   handleCardMoved(cardId, fromLaneId, toLaneId, card) {
     // Remove from source lane
     const sourceLane = this.board?.lanes?.find((l) => l.id === fromLaneId);
@@ -117,7 +125,9 @@ export const kanbanWebSocketActions = {
       departingWasQueued = next.wasQueued;
     }
 
-    // Add to target lane
+    // Add to target lane, upserting the authoritative payload: the
+    // destination may already hold an optimistic copy that predates the
+    // committed entry state, and ignoring the payload would keep it stale.
     const targetLane = this.board?.lanes?.find((l) => l.id === toLaneId);
     if (targetLane) {
       targetLane.cards = targetLane.cards || [];

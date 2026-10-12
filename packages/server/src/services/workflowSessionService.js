@@ -26,6 +26,30 @@ const SELECT_SESSION_BY_ID = 'SELECT * FROM sessions WHERE id=?';
 const SELECT_RUN_BY_ID = 'SELECT * FROM kanban_lane_runs WHERE id=?';
 const OPEN_RUN_STATUS = 'open';
 
+/**
+ * Slot-release hook for per-lane concurrency limits (FR-9/FR-10). Registered
+ * by kanbanService.js (which owns queue drains + entry delivery); this module
+ * must not import it back (import cycle). Invoked synchronously after a
+ * terminal transition commits, with the lanes that may have freed capacity.
+ * Never throws into the transition path.
+ */
+let laneRunTerminalHandler = null;
+/** @param {((event: { laneIds: string[] }) => void)|null} handler */
+export function setLaneRunTerminalHandler(handler) {
+  laneRunTerminalHandler = handler;
+}
+
+function notifyLaneRunTerminal(laneIds) {
+  if (!laneRunTerminalHandler) return;
+  const unique = [...new Set((laneIds || []).filter(Boolean))];
+  if (!unique.length) return;
+  try {
+    laneRunTerminalHandler({ laneIds: unique });
+  } catch (error) {
+    console.error('Kanban queue drain after terminal transition failed:', error);
+  }
+}
+
 function audit(db, runId, type, { sessionId = null, details = null } = {}) {
   const operationKey = `${runId}:${type}:${sessionId || '-'}:${details ? JSON.stringify(details) : '-'}`;
   db.prepare(`INSERT INTO kanban_lane_run_audit_events
@@ -102,10 +126,33 @@ function releaseMemberSessionsFromRun(db, runId) {
   return db.prepare('UPDATE sessions SET lane_run_id=NULL WHERE lane_run_id=?').run(runId);
 }
 
-/** Release a card only when the supplied run still owns it. */
+/**
+ * Release a card only when the supplied run still owns it. Releasing always
+ * clears the pending-entry marker: a finished, failed, cancelled, or
+ * superseded entry is never pending work, and pointer absence alone must not
+ * read as queued (FR-6). Callers that defer into a full lane re-mark the
+ * card via markCardQueuedForFullLane below.
+ */
 function releaseCardFromRun(db, runId, time) {
-  db.prepare(`UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, updated_at=?
+  db.prepare(`UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=NULL, entry_queued=0, updated_at=?
     WHERE active_lane_run_id=?`).run(time, runId);
+}
+
+/**
+ * Mark a completion-routed card as pending entry when its target lane is
+ * full-but-limited (FRD edge 6). No run row exists for the card; without the
+ * marker the deferred entry would be invisible to the queue drain.
+ */
+function markCardQueuedForFullLane(db, cardId, targetLaneId) {
+  const target = db.prepare('SELECT concurrency_limit, completion_target_lane_id, on_enter_template_id, on_enter_prompt FROM kanban_lanes WHERE id=?').get(targetLaneId);
+  if (!target || target.concurrency_limit == null) return false;
+  if (!isStructured({
+    completionTargetLaneId: target.completion_target_lane_id,
+    onEnterTemplateId: target.on_enter_template_id,
+    onEnterPrompt: target.on_enter_prompt,
+  })) return false;
+  db.prepare('UPDATE kanban_cards SET entry_queued=1, updated_at=? WHERE id=?').run(now(), cardId);
+  return true;
 }
 
 /** Scheduler/start guard. Stale lane workers lose their pending work before
@@ -189,7 +236,10 @@ export function enqueueDisabledEntry(db, { projectId, workspaceId, cardId, lane,
     (id,idempotency_key,project_id,workspace_id,card_id,lane_id,cause,caused_by_run_id,status,created_at,updated_at,completed_at)
     VALUES (?,?,?,?,?,?,?,?,'queued',?,?,NULL)`)
     .run(eventId, key, projectId, workspaceId, cardId, lane.id, cause, causedByRun, time, time);
-  db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=?, updated_at=? WHERE id=?')
+  // A card holds exactly one queue identity: entering the disabled queue
+  // clears a carried limit marker, or the marker would read as a phantom
+  // limit entry after this entry runs (issue-25).
+  db.prepare('UPDATE kanban_cards SET active_lane_run_id=NULL, lane_entry_event_id=?, entry_queued=0, updated_at=? WHERE id=?')
     .run(eventId, time, cardId);
   const order = db.prepare(`SELECT id FROM kanban_lane_entry_events
     WHERE lane_id=? AND status='queued' ORDER BY created_at, rowid`).all(lane.id).map((row) => row.id);
@@ -249,7 +299,9 @@ export function createLaneRunForEntry({ projectId, workspaceId, cardId, lane, ca
         VALUES (?,?,?,?,?,?,?,?,?,'open',?,?)`)
         .run(runId, eventId, priorLaneRunId, projectId, workspaceId, cardId, lane.id,
           lane.completionTargetLaneId, null, time, time);
-      db2.prepare(`UPDATE kanban_cards SET active_lane_run_id=?, lane_entry_event_id=?, updated_at=? WHERE id=?`)
+      // Creating the run consumes any pending-entry marker: the card is
+      // running now, not queued.
+      db2.prepare(`UPDATE kanban_cards SET active_lane_run_id=?, lane_entry_event_id=?, entry_queued=0, updated_at=? WHERE id=?`)
         .run(runId, eventId, time, cardId);
       audit(db2, runId, 'run_created', { details: { cause, laneId: lane.id } });
       return getRun(runId);
@@ -338,6 +390,36 @@ export function pauseForUserStop(sessionId, { turnToken = null } = {}) {
     });
     return true;
   });
+}
+
+/**
+ * Release a concurrency-lane slot after an explicit user stop (FR-9).
+ * pauseForUserStop preserves the open obligation for a resumable pause; in a
+ * limited automated lane that open run would hold its slot forever and no
+ * drain would ever fire, so the explicit stop additionally cancels this
+ * member's own work and reconciles the run (terminal cancelled), which frees
+ * the slot to the queue. Lanes without a limit have no slot: this returns
+ * null there and the historic pause stands untouched. Automatic
+ * reschedule/retry waits are never user stops and keep holding their slot
+ * (FR-16).
+ * @param {string} sessionId - The explicitly stopped session
+ * @returns {Object|null} The reconciled run, or null when nothing was released
+ */
+export function releaseLaneSlotForUserStop(sessionId) {
+  const db = databaseManager.get();
+  const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
+  if (!session?.lane_run_id) return null;
+  const run = db.prepare(SELECT_RUN_BY_ID).get(session.lane_run_id);
+  if (!run || run.status !== 'open') return null;
+  const lane = db.prepare(`SELECT concurrency_limit, completion_target_lane_id,
+    on_enter_template_id, on_enter_prompt FROM kanban_lanes WHERE id=?`).get(run.source_lane_id);
+  if (!lane || lane.concurrency_limit == null) return null;
+  if (!isStructured({
+    completionTargetLaneId: lane.completion_target_lane_id,
+    onEnterTemplateId: lane.on_enter_template_id,
+    onEnterPrompt: lane.on_enter_prompt,
+  })) return null;
+  return closeOwnWork(sessionId, 'cancelled', USER_STOP_REASON);
 }
 
 /** Mark the provider turn idle only if this is still the turn that started it.
@@ -493,9 +575,14 @@ export function reconcileLaneRun(runId, { allowTransition = true, deferBroadcast
   // without ever moving its card or creating a successor run — used by boot
   // recovery, which must not mutate the board ahead of the preflight audit.
   if (reconciliation.discardedPendingDestination) publishDiscardedPendingDestination();
-  return reconciliation.shouldTransition && allowTransition
-    ? attemptLaneRunTransition(runId, { deferBroadcast })
-    : reconciliation.result;
+  if (reconciliation.shouldTransition && allowTransition) {
+    return attemptLaneRunTransition(runId, { deferBroadcast });
+  }
+  // A terminal fail/cancel frees a concurrency slot in the run's lane (FR-9).
+  if (reconciliation.result && ['failed', 'cancelled'].includes(reconciliation.result.status)) {
+    notifyLaneRunTerminal([reconciliation.result.sourceLaneId]);
+  }
+  return reconciliation.result;
 }
 
 /**
@@ -541,6 +628,10 @@ function createCompletionSuccessor(run, card, movedCard) {
   // run: the source run still succeeds with its exit declared, and the chain
   // resumes (against the lane's then-current config) on re-enable drain.
   // `!== 0` keeps legacy rows without the flag on enabled behavior.
+  // Disabled wins over the concurrency limit: a lane that is both disabled
+  // and over-limit holds the entry in the disabled queue (entry events), and
+  // the limit applies when the entry replays on re-enable (issue-25).
+  const limit = targetLane.concurrency_limit ?? null;
   if (!isAutomationActive({ ...structuredView, automationEnabled: targetLane.automation_enabled !== 0 })) {
     const queued = enqueueDisabledEntry(db, {
       projectId: run.project_id,
@@ -561,6 +652,19 @@ function createCompletionSuccessor(run, card, movedCard) {
       queueDepth: queued.queueDepth,
     };
   }
+  // Completion routing into a full lane queues in the target lane (FRD edge
+  // 6): no run row is created and the card pointers are cleared by the caller
+  // so the card reads as queued. Count query mirrors kanbanConcurrency's
+  // countOpenLaneRuns (kept inline: this module must not import it back).
+  if (limit != null) {
+    const open = db.prepare(`SELECT COUNT(*) AS count FROM kanban_cards c
+      JOIN kanban_lane_runs r ON r.id = c.active_lane_run_id
+      WHERE c.lane_id = ? AND r.status = 'open'`).get(targetLane.id)?.count || 0;
+    if (open >= limit) {
+      console.info(`Kanban lane ${targetLane.id} at limit ${limit}: completion-routed card ${card.id} queued`);
+      return null;
+    }
+  }
   return createLaneRunForEntry({
     projectId: run.project_id,
     workspaceId: run.workspace_id,
@@ -570,6 +674,7 @@ function createCompletionSuccessor(run, card, movedCard) {
       completionTargetLaneId: targetLane.completion_target_lane_id,
       onEnterTemplateId: targetLane.on_enter_template_id,
       onEnterPrompt: targetLane.on_enter_prompt,
+      concurrencyLimit: limit,
     },
     cause: 'completion',
     priorLaneRunId: run.id,
@@ -594,7 +699,12 @@ export function attemptLaneRunTransition(runId, { deferBroadcast = false } = {})
     // A queued successor already points the card at its queued entry; only a
     // fully absent successor releases the card from this run.
     const laneRun = successor && !successor.queued ? successor : null;
-    if (!successor) releaseCardFromRun(db, runId, now());
+    if (!successor) {
+      releaseCardFromRun(db, runId, now());
+      // A completion-routed card deferred into a full target lane stays
+      // pending entry; success-in-place simply finishes.
+      if (movedCard) markCardQueuedForFullLane(db, card.id, movedCard.laneId);
+    }
     audit(db, runId, 'transition_applied');
     if (movedCard) audit(db, runId, 'card_moved', {
       details: { fromLaneId: card.lane_id, toLaneId: movedCard.laneId },
@@ -633,6 +743,14 @@ export function attemptLaneRunTransition(runId, { deferBroadcast = false } = {})
     broadcastQueuedEntryEvent(transition.postCommitQueuedEntry);
   }
   const { result } = transition;
+  // Every committed success frees its source-lane slot (FR-9/FR-10), whether
+  // the card moved to a target lane (FR-8) or succeeded in place with no
+  // completion target. The target-lane entry was already gated in
+  // createCompletionSuccessor. Post-commit scheduling is preserved: the
+  // terminal handler drains deferred, observing only committed state.
+  if (result?.status === 'succeeded') {
+    notifyLaneRunTerminal([result.sourceLaneId]);
+  }
   return result;
 }
 /* eslint-enable max-statements, complexity */
@@ -667,6 +785,9 @@ function supersedeLaneRunWithPolicy(runId, reason, { cancelMembers }) {
     return { run: getRun(runId), discardedPendingDestination: Boolean(run.chosen_exit_lane_id) };
   });
   if (result?.discardedPendingDestination) publishDiscardedPendingDestination();
+  // Supersession releases the card's slot in its lane (FR-9): queued cards
+  // may start. The caller (move/remove/recovery) owns the card's next state.
+  if (result?.run) notifyLaneRunTerminal([result.run.sourceLaneId]);
   // Deliberately no dedicated lane-run websocket event yet. User-originated
   // card transitions emit their authoritative visible update after commit
   // (KANBAN_CARD_MOVED or KANBAN_CARD_REMOVED); lane/board removal also emits

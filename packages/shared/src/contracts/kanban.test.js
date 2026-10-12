@@ -219,6 +219,20 @@ describe('Kanban Contracts', () => {
       expect(result.success).toBe(true);
     });
 
+    it.each([null, 1, 2, 1000000])('accepts concurrencyLimit %s', (concurrencyLimit) => {
+      for (const schema of [CreateKanbanLaneRequest, UpdateKanbanLaneRequest]) {
+        const result = schema.safeParse({ name: 'Limited', concurrencyLimit });
+        expect(result.success).toBe(true);
+      }
+    });
+
+    it.each([0, -1, 1.5, '2', NaN])('rejects concurrencyLimit %s', (concurrencyLimit) => {
+      for (const schema of [CreateKanbanLaneRequest, UpdateKanbanLaneRequest]) {
+        const result = schema.safeParse({ name: 'Limited', concurrencyLimit });
+        expect(result.success).toBe(false);
+      }
+    });
+
     it('accepts an optional automationEnabled boolean', () => {
       const result = UpdateKanbanLaneRequest.safeParse({ automationEnabled: false });
       expect(result.success).toBe(true);
@@ -335,6 +349,7 @@ describe('Kanban Contracts', () => {
         onEnterMaxTotalTokens: null,
         onEnterRescheduleAtTokenCount: null,
         completionTargetLaneId: null,
+        concurrencyLimit: null,
         createdAt: 1234567890,
         updatedAt: 1234567890,
       });
@@ -361,6 +376,7 @@ describe('Kanban Contracts', () => {
         onEnterMaxTotalTokens: null,
         onEnterRescheduleAtTokenCount: null,
         completionTargetLaneId: UUID3,
+        concurrencyLimit: 2,
         createdAt: 1234567890,
         updatedAt: 1234567890,
       });
@@ -413,6 +429,7 @@ describe('Kanban Contracts', () => {
         onEnterMaxTotalTokens: null,
         onEnterRescheduleAtTokenCount: null,
         completionTargetLaneId: null,
+        concurrencyLimit: null,
         createdAt: 1234567890,
         updatedAt: 1234567890,
       });
@@ -546,6 +563,33 @@ describe('Kanban Contracts', () => {
       expect(result.success).toBe(true);
     });
 
+    it('accepts queued entryState with a queue position', () => {
+      const result = KanbanCardResponse.safeParse({
+        id: UUID,
+        laneId: UUID2,
+        sortOrder: 0,
+        sessions: [],
+        entryState: 'queued',
+        queuePosition: 2,
+        createdAt: 1234567890,
+        updatedAt: 1234567890,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects an unknown entryState', () => {
+      const result = KanbanCardResponse.safeParse({
+        id: UUID,
+        laneId: UUID2,
+        sortOrder: 0,
+        sessions: [],
+        entryState: 'waiting',
+        createdAt: 1234567890,
+        updatedAt: 1234567890,
+      });
+      expect(result.success).toBe(false);
+    });
+
     it('accepts the queued entry status and rejects unknown statuses', () => {
       const base = {
         id: UUID,
@@ -587,6 +631,7 @@ describe('Kanban Contracts', () => {
             onEnterMaxTotalTokens: null,
             onEnterRescheduleAtTokenCount: null,
             completionTargetLaneId: null,
+            concurrencyLimit: null,
             createdAt: 1234567890,
             updatedAt: 1234567890,
           },
@@ -636,6 +681,7 @@ describe('Kanban Contracts', () => {
             onEnterMaxTotalTokens: null,
             onEnterRescheduleAtTokenCount: null,
             completionTargetLaneId: null,
+            concurrencyLimit: null,
             createdAt: 1234567890,
             updatedAt: 1234567890,
             cards: [

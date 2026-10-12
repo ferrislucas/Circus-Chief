@@ -92,6 +92,12 @@
             </span>
           </div>
           <div class="lane-header-actions">
+            <span
+              v-if="lane.concurrencyLimit != null"
+              class="lane-limit-state"
+              data-testid="lane-limit-state"
+              :title="`Concurrency limit ${lane.concurrencyLimit}`"
+            >{{ laneLimitState(lane) }}</span>
             <span class="lane-count">{{ lane.cards?.length || 0 }}</span>
             <span
               v-if="lane.queuedCount > 0"
@@ -146,6 +152,8 @@
                   :status-indicator="getStatusIndicator(card.sessions[0].status)"
                   :scheduled-info="cardsScheduledInfo[card.id]"
                   :active-lane-run="card.activeLaneRun"
+                  :entry-state="card.entryState"
+                  :queue-position="card.queuePosition"
                 />
               </router-link>
               <CommandButtonStatusBar
@@ -517,6 +525,14 @@ const STATUS_INDICATORS = {
   error: '✕', stopped: '■', scheduled: '⏰',
 };
 const getStatusIndicator = (status) => STATUS_INDICATORS[status] || '○';
+/** Lane header limit state, e.g. "1/2 running" or "2/2 running · 3 queued". */
+const laneLimitState = (lane) => {
+  const cards = lane.cards || [];
+  const running = cards.filter((card) => card.entryState === 'running').length;
+  const queued = cards.filter((card) => card.entryState === 'queued').length;
+  const base = `${running}/${lane.concurrencyLimit} running`;
+  return queued > 0 ? `${base} · ${queued} queued` : base;
+};
 const isCardEffectivelyRunning = (session) => {
   if (!session?.id) return false;
   if (sessionsStore.getWorkflowEffectiveStatus(session.id) === 'running') {

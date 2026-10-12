@@ -1,5 +1,6 @@
 import { kanbanCards, kanbanLanes, commandRuns, sessions, databaseManager } from '../database.js';
 import { getRun } from './workflowSessionService.js';
+import { computeQueuePositions, getCardEntryState } from './kanbanConcurrency.js';
 import { hasPendingPrompt } from './promptStore.js';
 import { buildRunsBySession } from '../api/projects-helpers.js';
 import { commandRunner } from './commandRunner.js';
@@ -90,18 +91,26 @@ export function buildFullBoardResponse(board) {
     cardsByLane[card.laneId]?.push(card);
   }
   const runsBySession = buildBoardRunsBySession(board.projectId, allCards);
+  const db = databaseManager.get();
   return {
     id: board.id,
     projectId: board.projectId,
-    lanes: lanes.map(lane => ({
-      ...lane,
-      queuedCount: queuedCounts.get(lane.id) || 0,
-      cards: cardsByLane[lane.id].map(card => ({
-        ...withSessionDetails(card, runsBySession),
-        activeLaneRun: card.activeLaneRunId ? getRun(card.activeLaneRunId) : null,
-        ...(queuedStatusByEventId.get(card.laneEntryEventId) ? { entryStatus: 'queued' } : {}),
-      })),
-    })),
+    lanes: lanes.map(lane => {
+      // TODO(issue-25): unify the two queued-state derivations: the
+      // entry_queued marker (limited lanes) and entryStatus 'queued'
+      // (disabled lanes) must agree on one card entryState.
+      const positions = lane.concurrencyLimit != null ? computeQueuePositions(db, lane.id) : null;
+      return {
+        ...lane,
+        queuedCount: queuedCounts.get(lane.id) || 0,
+        cards: cardsByLane[lane.id].map(card => ({
+          ...withSessionDetails(card, runsBySession),
+          activeLaneRun: card.activeLaneRunId ? getRun(card.activeLaneRunId) : null,
+          ...(queuedStatusByEventId.get(card.laneEntryEventId) ? { entryStatus: 'queued' } : {}),
+          ...getCardEntryState(db, card, lane, positions),
+        })),
+      };
+    }),
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
   };

@@ -37,6 +37,16 @@ vi.mock('../services/kanbanService.js', async (importOriginal) => {
   };
 });
 
+// Wrap the real queue drain so drain-failure paths can be simulated per test.
+vi.mock('../services/kanbanConcurrency.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    drainLaneQueue: vi.fn(actual.drainLaneQueue),
+    consumeDeferredEntriesForUnautomatedLane: vi.fn(actual.consumeDeferredEntriesForUnautomatedLane),
+  };
+});
+
 import kanbanRouter from './kanban.js';
 import { broadcastToProject } from '../websocket.js';
 import { addSessionToBoard as addSessionToBoardService, routeWorkspaceCard as routeWorkspaceCardService } from '../services/kanbanService.js';
@@ -47,6 +57,10 @@ import {
   createLaneRunForEntry,
   getRun,
 } from '../services/workflowSessionService.js';
+import {
+  createGatedLaneRunForEntry,
+  drainLaneQueue,
+} from '../services/kanbanConcurrency.js';
 import {
   WS_MESSAGE_TYPES,
 } from '@circuschief/shared';
@@ -723,6 +737,213 @@ describe('Kanban API', () => {
       );
     });
 
+    it('sets and clears concurrencyLimit', async () => {
+      setupBoard();
+
+      const set = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ concurrencyLimit: 2 });
+
+      expect(set.status).toBe(200);
+      expect(set.body.concurrencyLimit).toBe(2);
+
+      const cleared = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ concurrencyLimit: null });
+
+      expect(cleared.status).toBe(200);
+      expect(cleared.body.concurrencyLimit).toBeNull();
+    });
+
+    it.each([0, -1, 1.5])('rejects concurrencyLimit %s with KANBAN_LANE_BAD_CONCURRENCY', async (concurrencyLimit) => {
+      setupBoard();
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ concurrencyLimit });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('KANBAN_LANE_BAD_CONCURRENCY');
+      expect(res.body.field).toBe('concurrencyLimit');
+    });
+
+    it('drains the queue synchronously when the limit is raised', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      const runner = createSession('Runner');
+      await addSessionToBoardService(runner.id, lanes[0].id);
+      const queuedSession = createSession('Queued');
+      await addSessionToBoardService(queuedSession.id, lanes[0].id);
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ concurrencyLimit: 2 });
+
+      expect(res.status).toBe(200);
+      const board = await request(app).get(`/api/projects/${projectId}/kanban`);
+      const lane = board.body.lanes.find((l) => l.id === lanes[0].id);
+      const queuedCard = lane.cards.find((c) => c.sessions[0]?.id === queuedSession.id);
+      expect(queuedCard.entryState).toBe('running');
+    });
+
+    it('consumes deferred entries as no-ops when lane automation is removed (Issue 10)', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Old prompt', concurrencyLimit: 1 });
+      const lane = () => kanbanLanes.getById(lanes[0].id);
+      const rootA = createSession('Runner A');
+      const cardA = kanbanCards.create(lanes[0].id, rootA.id);
+      const runA = createLaneRunForEntry({ projectId, workspaceId: rootA.id, cardId: cardA.id, lane: lane() });
+      const rootB = createSession('Queued B');
+      const cardB = kanbanCards.create(lanes[0].id, rootB.id);
+      expect(createGatedLaneRunForEntry(
+        { projectId, workspaceId: rootB.id, cardId: cardB.id, lane: lane() }).queued).toBe(true);
+
+      // Clearing automation (and the completion destination) without touching
+      // the limit must still resolve the deferred entry.
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ onEnterPrompt: null, onEnterTemplateId: null, completionTargetLaneId: null });
+
+      expect(res.status).toBe(200);
+      const db = databaseManager.get();
+      expect(db.prepare('SELECT entry_queued FROM kanban_cards WHERE id=?').get(cardB.id).entry_queued).toBe(0);
+      // The existing runner is untouched.
+      expect(getRun(runA.id).status).toBe('open');
+      expect(db.prepare('SELECT active_lane_run_id FROM kanban_cards WHERE id=?').get(cardA.id).active_lane_run_id).toBe(runA.id);
+
+      // Re-enabling automation must not resurrect the stale entry.
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'New prompt' });
+      expect(drainLaneQueue(lanes[0].id)).toEqual([]);
+      expect(db.prepare("SELECT id FROM kanban_lane_runs WHERE card_id=? AND status='open'").all(cardB.id)).toHaveLength(0);
+    });
+
+    it('drains every deferred entry in lane order when the limit is cleared', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      const runner = createSession('Runner');
+      await addSessionToBoardService(runner.id, lanes[0].id);
+      const firstQueued = createSession('First queued');
+      await addSessionToBoardService(firstQueued.id, lanes[0].id);
+      const secondQueued = createSession('Second queued');
+      await addSessionToBoardService(secondQueued.id, lanes[0].id);
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ concurrencyLimit: null });
+
+      expect(res.status).toBe(200);
+      expect(res.body.concurrencyLimit).toBeNull();
+      // Same synchronous drain: no refresh needed, every deferred card runs.
+      const board = await request(app).get(`/api/projects/${projectId}/kanban`);
+      const lane = board.body.lanes.find((l) => l.id === lanes[0].id);
+      const bySession = Object.fromEntries(lane.cards.map((c) => [c.sessions[0]?.id, c]));
+      expect(bySession[runner.id].entryState).toBe('running');
+      expect(bySession[firstQueued.id].entryState).toBe('running');
+      expect(bySession[secondQueued.id].entryState).toBe('running');
+      expect(databaseManager.get()
+        .prepare('SELECT COUNT(*) count FROM kanban_cards WHERE lane_id=? AND entry_queued=1')
+        .get(lanes[0].id).count).toBe(0);
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED,
+        expect.anything(),
+      );
+    });
+
+    it('surfaces queue-drain failure when the limit is cleared and retries succeed (Issue 11)', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      const runner = createSession('Runner');
+      await addSessionToBoardService(runner.id, lanes[0].id);
+      const queuedSession = createSession('Queued');
+      await addSessionToBoardService(queuedSession.id, lanes[0].id);
+
+      drainLaneQueue.mockImplementationOnce(() => { throw new Error('drain boom'); });
+      const failed = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ concurrencyLimit: null });
+
+      // The config commit happened, but the response must not claim success.
+      expect(failed.status).toBe(500);
+      expect(failed.body.code).toBe('KANBAN_QUEUE_DRAIN_FAILED');
+      expect(kanbanLanes.getById(lanes[0].id).concurrencyLimit).toBeNull();
+
+      // Retry path: repeating the same PATCH drains the stranded entries.
+      const retry = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ concurrencyLimit: null });
+
+      expect(retry.status).toBe(200);
+      const queuedCard = kanbanCards.getBySessionId(queuedSession.id);
+      expect(databaseManager.get()
+        .prepare("SELECT id FROM kanban_lane_runs WHERE card_id=? AND status='open'")
+        .all(queuedCard.id)).toHaveLength(1);
+    });
+  });
+
+  describe('concurrency limits', () => {
+    it('creates a lane with concurrencyLimit', async () => {
+      setupBoard();
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/lanes`)
+        .send({ name: 'Limited', concurrencyLimit: 2 });
+
+      expect(res.status).toBe(201);
+      expect(res.body.concurrencyLimit).toBe(2);
+    });
+
+    it('rejects creating a lane with concurrencyLimit 0', async () => {
+      setupBoard();
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/lanes`)
+        .send({ name: 'Limited', concurrencyLimit: 0 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('KANBAN_LANE_BAD_CONCURRENCY');
+      expect(res.body.field).toBe('concurrencyLimit');
+    });
+
+    it('routes into a full lane with a queued outcome and position', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[1].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      const runner = createSession('Runner');
+      await addSessionToBoardService(runner.id, lanes[1].id);
+      const other = createSession('Other');
+      await addSessionToBoardService(other.id, lanes[0].id);
+
+      const res = await request(app)
+        .put(`/api/projects/${projectId}/kanban/cards/by-workspace/${other.id}/lane`)
+        .send({ laneId: lanes[1].id });
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('queued');
+      expect(res.body.laneId).toBe(lanes[1].id);
+      expect(res.body.queuePosition).toBe(1);
+    });
+
+    it('exposes concurrencyLimit and entryState on board fetch', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      const runner = createSession('Runner');
+      await addSessionToBoardService(runner.id, lanes[0].id);
+      const queuedSession = createSession('Queued');
+      await addSessionToBoardService(queuedSession.id, lanes[0].id);
+
+      const res = await request(app).get(`/api/projects/${projectId}/kanban`);
+
+      expect(res.status).toBe(200);
+      const lane = res.body.lanes.find((l) => l.id === lanes[0].id);
+      expect(lane.concurrencyLimit).toBe(1);
+      const bySession = Object.fromEntries(
+        lane.cards.map((c) => [c.sessions[0]?.id, c]),
+      );
+      expect(bySession[runner.id].entryState).toBe('running');
+      expect(bySession[queuedSession.id].entryState).toBe('queued');
+      expect(bySession[queuedSession.id].queuePosition).toBe(1);
+    });
+
     describe('lane toggle idempotency (Idempotency-Key)', () => {
       function queuedEntryIds() {
         return databaseManager.get().prepare(`SELECT id FROM kanban_lane_entry_events
@@ -919,6 +1140,31 @@ describe('Kanban API', () => {
       expect(res.status).toBe(201);
       expect(res.body.laneId).toBe(lanes[0].id);
       expect(res.body.sessions[0].id).toBe(session.id);
+    });
+
+    it('returns running entry state for an immediately-running entry, including idempotency replay (Issue 16)', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      const session = createSession();
+      const key = 'card-add-running-entry-state';
+      const body = { workspaceId: session.id, laneId: lanes[0].id };
+
+      const first = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send(body);
+
+      expect(first.status).toBe(201);
+      expect(first.body.entryState).toBe('running');
+      expect(first.body.queuePosition).toBeNull();
+
+      const replay = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .set('Idempotency-Key', key)
+        .send(body);
+
+      expect(replay.status).toBe(201);
+      expect(replay.text).toBe(first.text);
     });
 
     it('creates a card for the workflow root when a child workspace ID is provided', async () => {

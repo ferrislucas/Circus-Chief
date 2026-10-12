@@ -34,6 +34,37 @@
           >
         </div>
 
+        <!-- Concurrency Limit -->
+        <div class="form-group">
+          <label
+            for="lane-concurrency-limit"
+            class="form-label"
+          >Concurrency limit</label>
+          <input
+            id="lane-concurrency-limit"
+            v-model.number="form.concurrencyLimit"
+            type="number"
+            min="1"
+            step="1"
+            class="form-input"
+            placeholder="Unlimited"
+            data-testid="lane-concurrency-limit"
+          >
+          <p
+            v-if="concurrencyLimitError"
+            class="form-help form-error"
+            data-testid="concurrency-limit-error"
+          >
+            {{ concurrencyLimitError }}
+          </p>
+          <p
+            v-else
+            class="form-help"
+          >
+            Applies when this lane runs automation on entry. Empty means unlimited.
+          </p>
+        </div>
+
         <!-- Lane Position -->
         <div
           v-if="totalLanes > 1"
@@ -488,6 +519,7 @@ const currentLaneIndex = ref(-1);
 
 const form = reactive({
   name: '',
+  concurrencyLimit: null,
   automationEnabled: true,
   onEnterTemplateId: null,
   onEnterPrompt: '',
@@ -529,11 +561,29 @@ const targetRequiresAutomation = computed(() =>
 
 const isValid = computed(() => {
   if (!form.name.trim()) return false;
+  if (concurrencyLimitError.value) return false;
   if (automationType.value === 'template' && !form.onEnterTemplateId) return false;
   if (automationType.value === 'prompt' && !form.onEnterPrompt.trim()) return false;
   if (targetRequiresAutomation.value) return false;
   return true;
 });
+
+const concurrencyLimitError = computed(() => {
+  const raw = form.concurrencyLimit;
+  if (raw === null || raw === undefined || raw === '') return '';
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) {
+    return 'Concurrency limit must be a positive whole number, or empty for unlimited.';
+  }
+  return '';
+});
+
+/** Normalized limit for save: empty input clears to null (unlimited). */
+function normalizedConcurrencyLimit() {
+  const raw = form.concurrencyLimit;
+  if (raw === null || raw === undefined || raw === '') return null;
+  return Number(raw);
+}
 
 /**
  * Build the reschedule-related form fields from lane data.
@@ -560,6 +610,7 @@ function buildRescheduleFields(lane) {
 function buildFormFromLane(lane) {
   return {
     name: lane.name || '',
+    concurrencyLimit: lane.concurrencyLimit ?? null,
     automationEnabled: lane.automationEnabled ?? true,
     onEnterTemplateId: lane.onEnterTemplateId || null,
     onEnterPrompt: lane.onEnterPrompt || '',
@@ -796,7 +847,7 @@ async function handleSave() {
   saving.value = true;
   saveError.value = '';
   try {
-    const data = { name: form.name.trim() };
+    const data = { name: form.name.trim(), concurrencyLimit: normalizedConcurrencyLimit() };
 
     if (automationType.value === 'template') {
       Object.assign(data, buildSaveDataForTemplate(form));

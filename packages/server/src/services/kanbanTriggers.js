@@ -84,6 +84,14 @@ function throwIfAborted(controller) {
 }
 
 /**
+ * The provider definitively refused the dispatch: nothing is running, so the
+ * start is a confirmed undispatched failure (retryable, then terminal).
+ * Any other failure after dispatch intent was recorded leaves ownership
+ * uncertain and must be quarantined at exhaustion instead.
+ */
+export const PROVIDER_DISPATCH_NOT_ACCEPTED_REASON = 'provider dispatch was not accepted';
+
+/**
  * Re-check the abort signal after git setup completed. Setup may have
  * allocated a worktree for a child that will now never run: release it before
  * the abort propagates, since no session row records it yet and nothing
@@ -355,7 +363,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
       session, project, newSession, renderedPrompt, settings, workingDirectory,
       beforeDispatch, abortController, assertLaneEnabled, onDispatchInitiated,
     });
-    if (!result?.delivered) return undelivered('provider dispatch was not accepted');
+    if (!result?.delivered) return undelivered(PROVIDER_DISPATCH_NOT_ACCEPTED_REASON);
 
     console.log(`Kanban: Created and started on-enter session ${newSession.id}`);
     return result;
@@ -447,7 +455,7 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
       session, project, newSession, renderedPrompt, settings, workingDirectory,
       beforeDispatch, abortController, assertLaneEnabled, onDispatchInitiated,
     });
-    if (!result?.delivered) return undelivered('provider dispatch was not accepted');
+    if (!result?.delivered) return undelivered(PROVIDER_DISPATCH_NOT_ACCEPTED_REASON);
 
     console.log(`Kanban: Created and started on-enter prompt session ${newSession.id}`);
     return result;

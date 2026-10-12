@@ -1190,6 +1190,50 @@ describe('LaneSettingsModal.vue', () => {
   });
 
   // -----------------------------------------------------------------------
+  // Concurrency limit
+  // -----------------------------------------------------------------------
+  describe('concurrency limit', () => {
+    it('renders the field with the lane limit value', () => {
+      const wrapper = mountModal({ lane: { ...baseLane, concurrencyLimit: 2 } });
+
+      expect(wrapper.find('[data-testid="lane-concurrency-limit"]').element.value).toBe('2');
+    });
+
+    it('renders empty for unlimited lanes', () => {
+      const wrapper = mountModal({ lane: baseLane });
+
+      expect(wrapper.find('[data-testid="lane-concurrency-limit"]').element.value).toBe('');
+    });
+
+    it('shows an inline error and disables Save for a zero limit', async () => {
+      const wrapper = mountModal({ lane: baseLane });
+      await wrapper.find('[data-testid="lane-concurrency-limit"]').setValue(0);
+
+      expect(wrapper.find('[data-testid="concurrency-limit-error"]').exists()).toBe(true);
+      expect(wrapper.find('.btn-primary').attributes('disabled')).toBeDefined();
+    });
+
+    it('saves the concurrency limit through updateLane', async () => {
+      const wrapper = mountModal({ lane: baseLane });
+      await wrapper.find('[data-testid="lane-concurrency-limit"]').setValue(3);
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.concurrencyLimit).toBe(3);
+    });
+
+    it('saves null when the field is cleared', async () => {
+      const wrapper = mountModal({ lane: { ...baseLane, concurrencyLimit: 2 } });
+      await wrapper.find('[data-testid="lane-concurrency-limit"]').setValue('');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.concurrencyLimit).toBeNull();
+    });
+  });
+
   // Automation enabled toggle (staged in local form state until Save)
   // -----------------------------------------------------------------------
   describe('automationEnabled toggle', () => {

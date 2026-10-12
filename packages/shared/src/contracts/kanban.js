@@ -27,6 +27,7 @@ export const CreateKanbanLaneRequest = z.object({
   onEnterMaxTotalTokens: z.number().nullable().optional(),
   onEnterRescheduleAtTokenCount: z.number().nullable().optional(),
   completionTargetLaneId: z.string().uuid().nullable().optional(),
+  concurrencyLimit: z.number().int().min(1).nullable().optional(),
   automationEnabled: z.boolean().optional(),
 }).refine(
   (data) => {
@@ -58,6 +59,7 @@ export const UpdateKanbanLaneRequest = z.object({
   onEnterMaxTotalTokens: z.number().nullable().optional(),
   onEnterRescheduleAtTokenCount: z.number().nullable().optional(),
   completionTargetLaneId: z.string().uuid().nullable().optional(),
+  concurrencyLimit: z.number().int().min(1).nullable().optional(),
   automationEnabled: z.boolean().optional(),
 }).refine(
   (data) => {
@@ -93,6 +95,9 @@ export const KanbanLaneResponse = z.object({
   onEnterMaxTotalTokens: z.number().nullable(),
   onEnterRescheduleAtTokenCount: z.number().nullable(),
   completionTargetLaneId: z.string().uuid().nullable(),
+  // Default-null: lane payloads that predate concurrency limits read as
+  // unlimited, mirroring the automationEnabled default-true above.
+  concurrencyLimit: z.number().int().min(1).nullable().default(null),
   // Default-true (not required): legacy lane payloads predate the flag and
   // read as enabled, preserving current behavior for back-compat readers.
   automationEnabled: z.boolean().default(true),
@@ -133,7 +138,11 @@ export const KanbanCardResponse = z.object({
   laneId: z.string().uuid(),
   sortOrder: z.number(),
   sessions: z.array(KanbanCardSessionResponse),
+  entryState: z.enum(['running', 'queued']).optional(),
+  queuePosition: z.number().int().min(1).nullable().optional(),
   // Present only while the card's entry waits in a disabled lane's queue.
+  // TODO(issue-25): unify with entryState so one queued derivation covers
+  // both the limited-lane marker and the disabled-lane entry queue.
   entryStatus: z.enum(['queued']).optional(),
   createdAt: z.number(),
   updatedAt: z.number(),

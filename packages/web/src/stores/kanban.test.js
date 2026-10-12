@@ -190,16 +190,23 @@ describe('kanban queue realtime updates', () => {
 });
 
 describe('kanban card routing responses', () => {
-  beforeEach(() => setActivePinia(createPinia()));
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.restoreAllMocks();
+  });
 
-  it('reverts an optimistic move when the route is accepted as a no-op', async () => {
-    const store = useKanbanStore();
-    store.board = {
+  function routedBoard() {
+    return {
       lanes: [
         { id: 'source', cards: [{ id: 'card', laneId: 'source' }] },
         { id: 'target', cards: [] },
       ],
     };
+  }
+
+  it('reverts an optimistic move when the route is accepted as a no-op', async () => {
+    const store = useKanbanStore();
+    store.board = routedBoard();
     vi.spyOn(api, 'routeWorkspaceKanbanCard').mockResolvedValueOnce({ status: 'noop', laneId: 'target' });
 
     await expect(store.routeWorkspaceCard('project', 'workspace', 'card', 'target'))
@@ -207,6 +214,251 @@ describe('kanban card routing responses', () => {
 
     expect(store.board.lanes[0].cards).toEqual([{ id: 'card', laneId: 'source' }]);
     expect(store.board.lanes[1].cards).toEqual([]);
+  });
+
+  it('keeps the optimistic move and applies queue presentation when the route queues', async () => {
+    const store = useKanbanStore();
+    store.board = routedBoard();
+    vi.spyOn(api, 'routeWorkspaceKanbanCard')
+      .mockResolvedValueOnce({ status: 'queued', laneId: 'target', queuePosition: 2 });
+
+    await expect(store.routeWorkspaceCard('project', 'workspace', 'card', 'target'))
+      .resolves.toEqual({ status: 'queued', laneId: 'target', queuePosition: 2 });
+
+    expect(store.board.lanes[0].cards).toEqual([]);
+    expect(store.board.lanes[1].cards).toEqual([
+      { id: 'card', laneId: 'target', entryState: 'queued', queuePosition: 2 },
+    ]);
+  });
+
+  it('keeps the optimistic move when the route moves', async () => {
+    const store = useKanbanStore();
+    store.board = routedBoard();
+    vi.spyOn(api, 'routeWorkspaceKanbanCard')
+      .mockResolvedValueOnce({ status: 'moved', laneId: 'target' });
+
+    await expect(store.routeWorkspaceCard('project', 'workspace', 'card', 'target'))
+      .resolves.toEqual({ status: 'moved', laneId: 'target' });
+
+    expect(store.board.lanes[0].cards).toEqual([]);
+    expect(store.board.lanes[1].cards).toEqual([{ id: 'card', laneId: 'target' }]);
+  });
+
+  it('reverts an optimistic move when the route only schedules a deferred exit', async () => {
+    const store = useKanbanStore();
+    store.board = routedBoard();
+    vi.spyOn(api, 'routeWorkspaceKanbanCard')
+      .mockResolvedValueOnce({ status: 'scheduled', laneId: 'target' });
+
+    await expect(store.routeWorkspaceCard('project', 'workspace', 'card', 'target'))
+      .resolves.toEqual({ status: 'scheduled', laneId: 'target' });
+
+    expect(store.board.lanes[0].cards).toEqual([{ id: 'card', laneId: 'source' }]);
+    expect(store.board.lanes[1].cards).toEqual([]);
+  });
+});
+
+describe('kanban stale move responses (Issue 18)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.restoreAllMocks();
+  });
+
+  function threeLaneBoard() {
+    return {
+      lanes: [
+        { id: 'source', cards: [{ id: 'card', laneId: 'source' }] },
+        { id: 'target', cards: [], onEnterPrompt: 'Do the work', concurrencyLimit: 1 },
+        { id: 'third', cards: [] },
+      ],
+    };
+  }
+
+  function deferredRoute(response) {
+    let resolveRoute;
+    vi.spyOn(api, 'routeWorkspaceKanbanCard')
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveRoute = resolve; }));
+    return { respond: () => resolveRoute(response) };
+  }
+
+  it('does not overwrite newer authoritative running state with a stale queued response', async () => {
+    const store = useKanbanStore();
+    store.board = threeLaneBoard();
+    const route = deferredRoute({ status: 'queued', laneId: 'target', queuePosition: 1 });
+
+    const pending = store.routeWorkspaceCard('project', 'workspace', 'card', 'target');
+    // The queue advances while the HTTP response is in flight: the
+    // authoritative board already shows the card running.
+    store.handleBoardUpdated({
+      lanes: [
+        { id: 'source', cards: [] },
+        { id: 'target', cards: [{ id: 'card', laneId: 'target', entryState: 'running', queuePosition: null }] },
+        { id: 'third', cards: [] },
+      ],
+    });
+    route.respond();
+    await pending;
+
+    const target = store.board.lanes.find((l) => l.id === 'target');
+    expect(target.cards).toHaveLength(1);
+    expect(target.cards[0]).toMatchObject({ id: 'card', entryState: 'running', queuePosition: null });
+  });
+
+  it('does not restore queuePosition from a stale queued response after the card started', async () => {
+    const store = useKanbanStore();
+    store.board = threeLaneBoard();
+    const route = deferredRoute({ status: 'queued', laneId: 'target', queuePosition: 2 });
+
+    const pending = store.routeWorkspaceCard('project', 'workspace', 'card', 'target');
+    store.handleCardMoved('card', 'source', 'target',
+      { id: 'card', laneId: 'target', entryState: 'running', queuePosition: null });
+    route.respond();
+    await pending;
+
+    const target = store.board.lanes.find((l) => l.id === 'target');
+    expect(target.cards).toHaveLength(1);
+    expect(target.cards[0].entryState).toBe('running');
+    expect(target.cards[0].queuePosition).toBeNull();
+  });
+
+  it('does not write the card back to the original destination after completion-routing', async () => {
+    const store = useKanbanStore();
+    store.board = threeLaneBoard();
+    const route = deferredRoute({ status: 'moved', laneId: 'target' });
+
+    const pending = store.routeWorkspaceCard('project', 'workspace', 'card', 'target');
+    // The card completion-routes to a third lane before the original
+    // response lands; the stale response must not duplicate or return it.
+    store.handleBoardUpdated({
+      lanes: [
+        { id: 'source', cards: [] },
+        { id: 'target', cards: [] },
+        { id: 'third', cards: [{ id: 'card', laneId: 'third', entryState: 'running', queuePosition: null }] },
+      ],
+    });
+    route.respond();
+    await pending;
+
+    const target = store.board.lanes.find((l) => l.id === 'target');
+    const third = store.board.lanes.find((l) => l.id === 'third');
+    expect(target.cards).toEqual([]);
+    expect(third.cards).toHaveLength(1);
+    expect(third.cards[0]).toMatchObject({ id: 'card', laneId: 'third' });
+  });
+
+  it('still applies the HTTP fallback when the response lands before any websocket update', async () => {
+    const store = useKanbanStore();
+    store.board = threeLaneBoard();
+    const route = deferredRoute({ status: 'queued', laneId: 'target', queuePosition: 2 });
+
+    const pending = store.routeWorkspaceCard('project', 'workspace', 'card', 'target');
+    route.respond();
+    await pending;
+
+    const target = store.board.lanes.find((l) => l.id === 'target');
+    expect(target.cards).toEqual([
+      { id: 'card', laneId: 'target', entryState: 'queued', queuePosition: 2 },
+    ]);
+  });
+});
+
+describe('kanban initiating-client entry state (Issue 12)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.restoreAllMocks();
+  });
+
+  function automatedBoard() {
+    return {
+      lanes: [
+        { id: 'source', cards: [{ id: 'card', laneId: 'source' }] },
+        { id: 'target', cards: [], onEnterPrompt: 'Do the work', concurrencyLimit: 1 },
+      ],
+    };
+  }
+
+  it('ends running with a correct count after the response and the authoritative move payload', async () => {
+    const store = useKanbanStore();
+    store.board = automatedBoard();
+    vi.spyOn(api, 'routeWorkspaceKanbanCard')
+      .mockResolvedValueOnce({ status: 'moved', laneId: 'target' });
+
+    await store.routeWorkspaceCard('project', 'workspace', 'card', 'target');
+    store.handleCardMoved('card', 'source', 'target',
+      { id: 'card', laneId: 'target', entryState: 'running', queuePosition: null });
+
+    const target = store.board.lanes.find((l) => l.id === 'target');
+    expect(target.cards).toHaveLength(1);
+    expect(target.cards[0]).toMatchObject({ id: 'card', entryState: 'running', queuePosition: null });
+    expect(target.cards.filter((c) => c.entryState === 'running')).toHaveLength(1);
+  });
+
+  it('drops the stale queued badge when a queued card starts immediately in the target lane', async () => {
+    const store = useKanbanStore();
+    store.board = {
+      lanes: [
+        { id: 'source', cards: [{ id: 'card', laneId: 'source', entryState: 'queued', queuePosition: 1 }] },
+        { id: 'target', cards: [], onEnterPrompt: 'Do the work', concurrencyLimit: 1 },
+      ],
+    };
+    vi.spyOn(api, 'routeWorkspaceKanbanCard')
+      .mockResolvedValueOnce({ status: 'moved', laneId: 'target' });
+
+    await store.routeWorkspaceCard('project', 'workspace', 'card', 'target');
+    store.handleCardMoved('card', 'source', 'target',
+      { id: 'card', laneId: 'target', entryState: 'running', queuePosition: null });
+
+    const target = store.board.lanes.find((l) => l.id === 'target');
+    expect(target.cards).toHaveLength(1);
+    expect(target.cards[0].entryState).toBe('running');
+    expect(target.cards[0].queuePosition).toBeNull();
+  });
+});
+
+describe('kanban card-create entry state (Issue 16)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.restoreAllMocks();
+  });
+
+  function runningCount(lane) {
+    return lane.cards.filter((c) => c.entryState === 'running').length;
+  }
+
+  it('ends authoritative when the websocket add arrives after an incomplete HTTP card', async () => {
+    const store = useKanbanStore();
+    store.board = { lanes: [{ id: 'target', cards: [] }] };
+    // Legacy HTTP payload without entry state arrives first.
+    vi.spyOn(api, 'createKanbanCard').mockResolvedValueOnce({ id: 'card', laneId: 'target' });
+
+    await store.addSessionToBoard('project', 'workspace', 'target');
+    expect(store.board.lanes[0].cards).toHaveLength(1);
+
+    // The authoritative websocket payload must upsert even though the card
+    // already exists, or the header undercounts runners until a refresh.
+    store.handleCardAdded(
+      { id: 'card', laneId: 'target', entryState: 'running', queuePosition: null }, 'target');
+
+    const lane = store.board.lanes[0];
+    expect(lane.cards).toHaveLength(1);
+    expect(lane.cards[0]).toMatchObject({ id: 'card', entryState: 'running', queuePosition: null });
+    expect(runningCount(lane)).toBe(1);
+  });
+
+  it('keeps a single running card when HTTP and websocket payloads agree', async () => {
+    const store = useKanbanStore();
+    store.board = { lanes: [{ id: 'target', cards: [] }] };
+    vi.spyOn(api, 'createKanbanCard')
+      .mockResolvedValueOnce({ id: 'card', laneId: 'target', entryState: 'running', queuePosition: null });
+
+    await store.addSessionToBoard('project', 'workspace', 'target');
+    store.handleCardAdded(
+      { id: 'card', laneId: 'target', entryState: 'running', queuePosition: null }, 'target');
+
+    const lane = store.board.lanes[0];
+    expect(lane.cards).toHaveLength(1);
+    expect(lane.cards[0]).toMatchObject({ entryState: 'running', queuePosition: null });
+    expect(runningCount(lane)).toBe(1);
   });
 });
 
@@ -305,6 +557,28 @@ describe('kanban optimistic queue convergence', () => {
 
     expect(store.board.lanes[0].queuedCount).toBe(0);
     expect(store.board.lanes[1].cards).toEqual([{ id: 'card-1', laneId: 'live' }]);
+  });
+
+  it('marks a card queued (not running) when the route lands in a disabled automated lane', async () => {
+    // Issue 25: the server queues entries of disabled lanes, so the
+    // initiating browser must not derive a running state from lane fields.
+    const store = useKanbanStore();
+    store.board = {
+      lanes: [
+        { id: 'live', name: 'Live', automationEnabled: true, cards: [{ id: 'card-1', laneId: 'live' }] },
+        {
+          id: 'paused', name: 'Paused', automationEnabled: false,
+          onEnterPrompt: 'Do the work', queuedCount: 0, cards: [],
+        },
+      ],
+    };
+    vi.spyOn(api, 'routeWorkspaceKanbanCard').mockResolvedValueOnce({ status: 'moved', laneId: 'paused' });
+
+    await store.routeWorkspaceCard('project', 'workspace', 'card-1', 'paused');
+
+    expect(store.board.lanes[1].cards).toHaveLength(1);
+    expect(store.board.lanes[1].cards[0]).toMatchObject({ id: 'card-1', entryStatus: 'queued' });
+    expect(store.board.lanes[1].cards[0]).not.toHaveProperty('entryState');
   });
 
   it('drops the source count by exactly one when other queued cards remain', async () => {
@@ -498,5 +772,18 @@ describe('kanban command-run updates', () => {
     store.handleSessionCommandRun('elsewhere', { buttonId: 'lint', runId: 'run-1', status: 'success' });
 
     expect(store.board.lanes[0].cards[0].sessions[0].latestCommandRuns).toEqual([]);
+  });
+});
+
+describe('kanban lane updates', () => {
+  beforeEach(() => setActivePinia(createPinia()));
+
+  it('passes concurrencyLimit through updateLane', async () => {
+    const store = useKanbanStore();
+    vi.spyOn(api, 'updateKanbanLane').mockResolvedValueOnce({ id: 'lane', concurrencyLimit: 2 });
+
+    await store.updateLane('project', 'lane', { name: 'Limited', concurrencyLimit: 2 });
+
+    expect(api.updateKanbanLane).toHaveBeenCalledWith('project', 'lane', { name: 'Limited', concurrencyLimit: 2 });
   });
 });
