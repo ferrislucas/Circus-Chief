@@ -18,7 +18,7 @@ import { runSession } from './sessionManager.js';
 import { abandonPausedTriggerChild } from './kanbanAbandon.js';
 import * as gitService from './gitService.js';
 import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
-import { attachRootSession, isAutomationActive, isStructured } from './workflowSessionService.js';
+import { attachRootSession, isLaneDispatchable } from './workflowSessionService.js';
 
 export const LANE_AUTOMATION_DISABLED_CODE = 'LANE_AUTOMATION_DISABLED';
 
@@ -35,12 +35,14 @@ export function isLaneAutomationDisabledError(error) {
 
 /**
  * Re-read the lane's persisted kill-switch. Throws LaneAutomationDisabledError
- * when a structured lane is currently disabled. Callers in the delivery path
- * treat this as "park the entry", never as a delivery failure.
+ * when the lane is currently disabled, whether or not entry config is
+ * retained: an in-flight trigger holds a stale lane/template snapshot, so the
+ * fence must not depend on the lane still looking structured. Callers in the
+ * delivery path treat this as "park the entry", never as a delivery failure.
  */
 export function assertLaneAutomationActive(laneId) {
   const lane = kanbanLanes.getById(laneId);
-  if (lane && isStructured(lane) && !isAutomationActive(lane)) throw createLaneAutomationDisabledError();
+  if (lane && !isLaneDispatchable(lane)) throw createLaneAutomationDisabledError();
 }
 
 /**

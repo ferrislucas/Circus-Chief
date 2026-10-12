@@ -151,6 +151,19 @@ export function isAutomationActive(lane) {
   return isStructured(lane) && lane?.automationEnabled !== false;
 }
 
+/**
+ * Kill-switch gate for the dispatch fence: a lane whose persisted
+ * `automationEnabled` is false is never dispatchable, whether or not entry
+ * config is retained. Structured-ness is deliberately NOT part of this
+ * predicate — the delivery state machine routes unstructured lanes to the
+ * no-op path, while the fence must still reject a disabled lane whose config
+ * was cleared mid-dispatch (the in-flight trigger holds a stale snapshot).
+ * @returns {boolean}
+ */
+export function isLaneDispatchable(lane) {
+  return lane?.automationEnabled !== false;
+}
+
 /** True for a better-sqlite3 UNIQUE constraint violation, across driver versions. */
 function isUniqueConstraintError(error) {
   return error?.code === 'SQLITE_CONSTRAINT_UNIQUE' || /UNIQUE constraint failed/.test(error?.message || '');

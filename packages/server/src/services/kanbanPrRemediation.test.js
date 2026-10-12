@@ -636,4 +636,58 @@ describe('kanban PR remediation (issues 13, 14, 15)', () => {
       expect(refreshed.nextTemplateId).toBe(followupB.id);
     });
   });
+
+  describe('issue 19 — disable + clear config mid-dispatch still fences the provider', () => {
+    function startEnabledPromptEntry() {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
+      const root = createSession('Root');
+      const card = kanbanCards.create(lanes[0].id, root.id);
+      const run = createLaneRunForEntry({
+        projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id),
+      });
+      return { root, card, run };
+    }
+
+    function disableAndClearConfig() {
+      return updateLaneWithAutomationToggle(lanes[0].id, {
+        automationEnabled: false, onEnterPrompt: null, onEnterTemplateId: null, completionTargetLaneId: null,
+      });
+    }
+
+    function expectParkedAsNoop({ card, run, root }) {
+      const db = databaseManager.get();
+      expect(entryStatus(run.laneEntryEventId)).toBe('completed');
+      expect(getRun(run.id).status).not.toBe('open');
+      expect(db.prepare('SELECT active_lane_run_id, lane_entry_event_id FROM kanban_cards WHERE id=?').get(card.id))
+        .toEqual({ active_lane_run_id: null, lane_entry_event_id: null });
+      expect(sessions.getByProjectId(projectId).filter((s) => s.parentSessionId === root.id)).toHaveLength(0);
+    }
+
+    it('disable + clear config during prompt rendering parks the entry with zero provider calls', async () => {
+      const { root, card, run } = startEnabledPromptEntry();
+      const { renderTemplatePrompt } = await import('./templateTriggerService.js');
+      renderTemplatePrompt.mockImplementationOnce(async () => {
+        disableAndClearConfig();
+        return 'rendered prompt';
+      });
+
+      expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(false);
+      expect(runSession).not.toHaveBeenCalled();
+      expectParkedAsNoop({ card, run, root });
+    });
+
+    it('disable + clear config at the provider fence rejects dispatch and removes the undispatched child', async () => {
+      const { root, card, run } = startEnabledPromptEntry();
+      let providerInvoked = false;
+      runSession.mockImplementationOnce(async (childId, prompt, workingDirectory, opts) => {
+        disableAndClearConfig();
+        await opts.beforeProviderExecute();
+        providerInvoked = true;
+      });
+
+      expect(await drainLaneEntryTrigger(run.laneEntryEventId)).toBe(false);
+      expect(providerInvoked).toBe(false);
+      expectParkedAsNoop({ card, run, root });
+    });
+  });
 });

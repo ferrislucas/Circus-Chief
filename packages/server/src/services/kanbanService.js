@@ -1315,7 +1315,8 @@ function consumeQueuedEntriesAsNoop(db, laneId) {
   return ids;
 }
 
-export function updateLaneWithAutomationToggle(laneId, updateData) {
+export function updateLaneWithAutomationToggle(laneId, updateData, options = {}) {
+  const { finalizeMutation } = options;
   return databaseManager.transaction(() => {
     const db = databaseManager.get();
     const before = kanbanLanes.getById(laneId);
@@ -1331,7 +1332,12 @@ export function updateLaneWithAutomationToggle(laneId, updateData) {
     } else if (updated?.automationEnabled === false && before?.automationEnabled !== false) {
       parkPendingEntriesForLane(laneId);
     }
-    return { updated, eventIds };
+    const outcome = { updated, eventIds };
+    // Keyed API callers record the response in the same transaction so the
+    // flag/queue transition and its idempotency record commit atomically
+    // (same finalizeMutation contract as the card mutations).
+    if (finalizeMutation) return { ...outcome, response: finalizeMutation(outcome) };
+    return outcome;
   });
 }
 

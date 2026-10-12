@@ -6,7 +6,7 @@ import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
   getRun, attachRootSession, reconcileLaneRun,
   supersedeRunForCard, closeOwnWork, markExecutionState, markHeldForLimit, pauseForUserStop,
-  computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition,
+  computeSubtreeOutcome, recomputeSubtreeOutcomes, attemptLaneRunTransition, isLaneDispatchable,
 } from './workflowSessionService.js';
 import { auditKanbanInvariants, reconcileKanbanOwnership } from './kanbanRecoveryService.js';
 import { kanbanRoutingMetrics } from './kanbanRoutingObservability.js';
@@ -824,6 +824,21 @@ describe('workflowSessionService', () => {
 
       expect(completeRun(run, worker).status).toBe('succeeded');
       expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
+    });
+  });
+
+  describe('isLaneDispatchable (dispatch-fence kill-switch)', () => {
+    it.each([
+      [{ onEnterPrompt: 'work', automationEnabled: true }, true, 'structured + enabled'],
+      [{ onEnterPrompt: 'work', automationEnabled: false }, false, 'structured + disabled'],
+      [{ onEnterPrompt: null, onEnterTemplateId: null, completionTargetLaneId: null, automationEnabled: true }, true, 'unstructured + enabled'],
+      [{ onEnterPrompt: null, onEnterTemplateId: null, completionTargetLaneId: null, automationEnabled: false }, false, 'unstructured + disabled'],
+    ])('lane %s is dispatchable=%s (%s)', (flags, expected) => {
+      expect(isLaneDispatchable({ ...structuredLane(), ...flags })).toBe(expected);
+    });
+
+    it('treats a missing flag as enabled (legacy rows)', () => {
+      expect(isLaneDispatchable({ ...structuredLane(), automationEnabled: undefined })).toBe(true);
     });
   });
 });

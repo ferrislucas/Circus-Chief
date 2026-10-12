@@ -722,6 +722,104 @@ describe('Kanban API', () => {
         expect.anything()
       );
     });
+
+    describe('lane toggle idempotency (Idempotency-Key)', () => {
+      function queuedEntryIds() {
+        return databaseManager.get().prepare(`SELECT id FROM kanban_lane_entry_events
+          WHERE lane_id=? AND status='queued' ORDER BY created_at, rowid`)
+          .all(lanes[0].id).map((row) => row.id);
+      }
+
+      function queueDrainedBroadcasts() {
+        return broadcastToProject.mock.calls.filter(
+          (call) => call[1] === WS_MESSAGE_TYPES.KANBAN_QUEUE_DRAINED,
+        );
+      }
+
+      it('replays the recorded toggle response byte-for-byte without re-draining', async () => {
+        setupBoard();
+        kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', automationEnabled: false });
+        const s1 = sessions.create(projectId, 'Queued A', 'Prompt');
+        const s2 = sessions.create(projectId, 'Queued B', 'Prompt');
+        await addSessionToBoardService(s1.id, lanes[0].id);
+        await addSessionToBoardService(s2.id, lanes[0].id);
+
+        const key = 'lane-toggle-replay';
+        const first = await request(app)
+          .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+          .set('Idempotency-Key', key)
+          .send({ automationEnabled: true });
+
+        expect(first.status).toBe(200);
+        expect(first.body.drainedCount).toBe(2);
+        const broadcastsAfterFirst = queueDrainedBroadcasts().length;
+
+        const replay = await request(app)
+          .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+          .set('Idempotency-Key', key)
+          .send({ automationEnabled: true });
+
+        expect(replay.status).toBe(200);
+        expect(replay.text).toBe(first.text);
+        expect(queueDrainedBroadcasts()).toHaveLength(broadcastsAfterFirst);
+      });
+
+      it('replay after an intervening disable + new arrival returns the recorded response without mutating', async () => {
+        setupBoard();
+        kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', automationEnabled: false });
+        const s1 = sessions.create(projectId, 'Queued A', 'Prompt');
+        await addSessionToBoardService(s1.id, lanes[0].id);
+
+        const key = 'lane-toggle-enable-once';
+        const first = await request(app)
+          .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+          .set('Idempotency-Key', key)
+          .send({ automationEnabled: true });
+
+        expect(first.status).toBe(200);
+
+        const disabled = await request(app)
+          .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+          .send({ automationEnabled: false });
+        expect(disabled.body.automationEnabled).toBe(false);
+
+        const s2 = sessions.create(projectId, 'Queued B', 'Prompt');
+        await addSessionToBoardService(s2.id, lanes[0].id);
+        const queuedBefore = queuedEntryIds();
+        expect(queuedBefore.length).toBeGreaterThan(0);
+
+        const replay = await request(app)
+          .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+          .set('Idempotency-Key', key)
+          .send({ automationEnabled: true });
+
+        expect(replay.status).toBe(200);
+        expect(replay.text).toBe(first.text);
+        expect(kanbanLanes.getById(lanes[0].id).automationEnabled).toBe(false);
+        expect(queuedEntryIds()).toEqual(queuedBefore);
+      });
+
+      it('rejects reuse of a toggle key with a different payload without mutating', async () => {
+        setupBoard();
+        kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work' });
+
+        const key = 'lane-toggle-conflict';
+        const first = await request(app)
+          .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+          .set('Idempotency-Key', key)
+          .send({ automationEnabled: false });
+
+        expect(first.status).toBe(200);
+
+        const conflict = await request(app)
+          .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+          .set('Idempotency-Key', key)
+          .send({ automationEnabled: true });
+
+        expect(conflict.status).toBe(409);
+        expect(kanbanLanes.getById(lanes[0].id).automationEnabled).toBe(false);
+      });
+    });
   });
 
   describe('DELETE /api/projects/:projectId/kanban/lanes/:laneId', () => {
