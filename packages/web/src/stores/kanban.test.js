@@ -122,6 +122,110 @@ describe('kanban card routing responses', () => {
   });
 });
 
+describe('kanban stale move responses (Issue 18)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.restoreAllMocks();
+  });
+
+  function threeLaneBoard() {
+    return {
+      lanes: [
+        { id: 'source', cards: [{ id: 'card', laneId: 'source' }] },
+        { id: 'target', cards: [], onEnterPrompt: 'Do the work', concurrencyLimit: 1 },
+        { id: 'third', cards: [] },
+      ],
+    };
+  }
+
+  function deferredRoute(response) {
+    let resolveRoute;
+    vi.spyOn(api, 'routeWorkspaceKanbanCard')
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveRoute = resolve; }));
+    return { respond: () => resolveRoute(response) };
+  }
+
+  it('does not overwrite newer authoritative running state with a stale queued response', async () => {
+    const store = useKanbanStore();
+    store.board = threeLaneBoard();
+    const route = deferredRoute({ status: 'queued', laneId: 'target', queuePosition: 1 });
+
+    const pending = store.routeWorkspaceCard('project', 'workspace', 'card', 'target');
+    // The queue advances while the HTTP response is in flight: the
+    // authoritative board already shows the card running.
+    store.handleBoardUpdated({
+      lanes: [
+        { id: 'source', cards: [] },
+        { id: 'target', cards: [{ id: 'card', laneId: 'target', entryState: 'running', queuePosition: null }] },
+        { id: 'third', cards: [] },
+      ],
+    });
+    route.respond();
+    await pending;
+
+    const target = store.board.lanes.find((l) => l.id === 'target');
+    expect(target.cards).toHaveLength(1);
+    expect(target.cards[0]).toMatchObject({ id: 'card', entryState: 'running', queuePosition: null });
+  });
+
+  it('does not restore queuePosition from a stale queued response after the card started', async () => {
+    const store = useKanbanStore();
+    store.board = threeLaneBoard();
+    const route = deferredRoute({ status: 'queued', laneId: 'target', queuePosition: 2 });
+
+    const pending = store.routeWorkspaceCard('project', 'workspace', 'card', 'target');
+    store.handleCardMoved('card', 'source', 'target',
+      { id: 'card', laneId: 'target', entryState: 'running', queuePosition: null });
+    route.respond();
+    await pending;
+
+    const target = store.board.lanes.find((l) => l.id === 'target');
+    expect(target.cards).toHaveLength(1);
+    expect(target.cards[0].entryState).toBe('running');
+    expect(target.cards[0].queuePosition).toBeNull();
+  });
+
+  it('does not write the card back to the original destination after completion-routing', async () => {
+    const store = useKanbanStore();
+    store.board = threeLaneBoard();
+    const route = deferredRoute({ status: 'moved', laneId: 'target' });
+
+    const pending = store.routeWorkspaceCard('project', 'workspace', 'card', 'target');
+    // The card completion-routes to a third lane before the original
+    // response lands; the stale response must not duplicate or return it.
+    store.handleBoardUpdated({
+      lanes: [
+        { id: 'source', cards: [] },
+        { id: 'target', cards: [] },
+        { id: 'third', cards: [{ id: 'card', laneId: 'third', entryState: 'running', queuePosition: null }] },
+      ],
+    });
+    route.respond();
+    await pending;
+
+    const target = store.board.lanes.find((l) => l.id === 'target');
+    const third = store.board.lanes.find((l) => l.id === 'third');
+    expect(target.cards).toEqual([]);
+    expect(third.cards).toHaveLength(1);
+    expect(third.cards[0]).toMatchObject({ id: 'card', laneId: 'third' });
+  });
+
+  it('still applies the HTTP fallback when the response lands before any websocket update', async () => {
+    const store = useKanbanStore();
+    store.board = threeLaneBoard();
+    const route = deferredRoute({ status: 'queued', laneId: 'target', queuePosition: 2 });
+
+    const pending = store.routeWorkspaceCard('project', 'workspace', 'card', 'target');
+    route.respond();
+    await pending;
+
+    const target = store.board.lanes.find((l) => l.id === 'target');
+    expect(target.cards).toEqual([
+      { id: 'card', laneId: 'target', entryState: 'queued', queuePosition: 2 },
+    ]);
+  });
+});
+
 describe('kanban initiating-client entry state (Issue 12)', () => {
   beforeEach(() => {
     setActivePinia(createPinia());

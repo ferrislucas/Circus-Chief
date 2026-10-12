@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { projects, sessions } from '../database.js';
+import { projects, sessions, kanbanBoards, kanbanLanes, kanbanCards, databaseManager } from '../database.js';
 
 // Mock websocket before importing the router
 vi.mock('../websocket.js', () => ({
@@ -14,10 +14,36 @@ vi.mock('../services/hookService.js', () => ({
   executeHookAsync: vi.fn(),
 }));
 
+// Mocks for the kanban lane lifecycle (mirrors kanbanService.test.js)
+vi.mock('../services/templateTriggerService.js', () => ({
+  renderTemplatePrompt: vi.fn().mockResolvedValue('rendered prompt'),
+  getRootSession: vi.fn((session) => session),
+}));
+
+vi.mock('../services/gitSessionSetup.js', () => ({
+  setupGitForSession: vi.fn().mockResolvedValue({
+    workingDirectory: '/tmp/test',
+    gitWorktree: null,
+  }),
+}));
+
+vi.mock('../services/sessionManager.js', () => ({
+  runSession: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../services/sessionProvider.js', () => ({
+  resolveAgentTypeFromModel: vi.fn().mockReturnValue('codex'),
+  resolveProviderMetadataFromModel: vi.fn().mockReturnValue({
+    kind: 'openai', authToken: 'test-key', commitAttributionOverride: null,
+    supportsIdempotentDispatch: true,
+  }),
+}));
+
 import archiveRouter from './sessions-archive.js';
 import { broadcastToProject } from '../websocket.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { addSessionToBoard } from '../services/kanbanService.js';
 
 describe('Sessions Archive API', () => {
   let app;
@@ -183,6 +209,87 @@ describe('Sessions Archive API', () => {
           session: expect.objectContaining({ archived: true }),
         })
       );
+    });
+  });
+
+  describe('kanban lane slot release (Issue 17)', () => {
+    let laneId;
+
+    function cardRow(cardId) {
+      return databaseManager.get().prepare('SELECT * FROM kanban_cards WHERE id=?').get(cardId);
+    }
+
+    function openRuns(cardId) {
+      return databaseManager.get()
+        .prepare("SELECT id FROM kanban_lane_runs WHERE card_id=? AND status='open'")
+        .all(cardId);
+    }
+
+    async function addWorkspace(name) {
+      const root = sessions.create(project.id, name, 'Prompt');
+      sessions.update(root.id, { status: 'stopped' });
+      return root;
+    }
+
+    beforeEach(() => {
+      process.env.USE_CODEX_DIRECT_API = '1';
+      const board = kanbanBoards.create(project.id);
+      const lanes = kanbanLanes.getByBoardId(board.id);
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'Do the work', concurrencyLimit: 1 });
+      laneId = lanes[0].id;
+    });
+
+    it('archiving a queued workspace cancels its queued entry without starting it', async () => {
+      const first = await addWorkspace('First');
+      await addSessionToBoard(first.id, laneId);
+      const second = await addWorkspace('Second');
+      const queued = await addSessionToBoard(second.id, laneId);
+      expect(queued.entryState).toBe('queued');
+      const secondCard = kanbanCards.getBySessionId(second.id);
+      expect(cardRow(secondCard.id).entry_queued).toBe(1);
+
+      const res = await request(app)
+        .post(`/api/sessions/${second.id}/archive`)
+        .send({});
+
+      expect(res.status).toBe(200);
+      expect(cardRow(secondCard.id).entry_queued).toBe(0);
+      expect(openRuns(secondCard.id)).toHaveLength(0);
+    });
+
+    it('archiving a running workspace releases its slot and starts the next queued card', async () => {
+      const first = await addWorkspace('First');
+      await addSessionToBoard(first.id, laneId);
+      const second = await addWorkspace('Second');
+      const queued = await addSessionToBoard(second.id, laneId);
+      expect(queued.entryState).toBe('queued');
+      const firstCard = kanbanCards.getBySessionId(first.id);
+      const secondCard = kanbanCards.getBySessionId(second.id);
+
+      const res = await request(app)
+        .post(`/api/sessions/${first.id}/archive`)
+        .send({});
+
+      expect(res.status).toBe(200);
+      expect(openRuns(firstCard.id)).toHaveLength(0);
+      expect(openRuns(secondCard.id)).toHaveLength(1);
+      expect(cardRow(secondCard.id).entry_queued).toBe(0);
+    });
+
+    it('archiving a child session leaves the workspace root lane state untouched', async () => {
+      const root = await addWorkspace('Root');
+      await addSessionToBoard(root.id, laneId);
+      const card = kanbanCards.getBySessionId(root.id);
+      const child = sessions.create(project.id, 'Child', 'child prompt', { parentSessionId: root.id });
+      sessions.update(child.id, { status: 'stopped' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${child.id}/archive`)
+        .send({});
+
+      expect(res.status).toBe(200);
+      expect(openRuns(card.id)).toHaveLength(1);
+      expect(cardRow(card.id).entry_queued).toBe(0);
     });
   });
 

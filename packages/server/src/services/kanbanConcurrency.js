@@ -166,14 +166,25 @@ export function createGatedLaneRunForEntry({ projectId, workspaceId, cardId, lan
 }
 
 /**
- * Resolve the workspace + project that own a queued card for a deferred start.
- * @returns {{ projectId: string, workspaceId: string }|null}
+ * Read a queued card's owning session for deferred admission.
+ * @returns {{ card: Object|null, session: Object|null }}
  */
-function resolveQueuedCardOwner(cardId) {
+function getQueuedCardOwner(cardId) {
   const card = kanbanCards.getByIdWithLane(cardId);
   const sessionId = card?.sessions?.[0]?.id;
-  const session = sessionId ? sessions.getById(sessionId) : null;
-  if (!card || !session) return null;
+  return { card, session: sessionId ? sessions.getById(sessionId) : null };
+}
+
+/**
+ * Resolve the workspace + project that own a queued card for a deferred start.
+ * Archived owners never receive deferred automation (FR-8): an archived
+ * workspace's entry is cancelled, so admission resolves to null even when a
+ * stale `entry_queued` marker survived.
+ * @returns {{ projectId: string, workspaceId: string }|null}
+ */
+export function resolveQueuedCardOwner(cardId) {
+  const { card, session } = getQueuedCardOwner(cardId);
+  if (!card || !session || session.archived) return null;
   return { projectId: session.projectId, workspaceId: session.id };
 }
 
@@ -200,9 +211,11 @@ export function consumeDeferredEntriesForUnautomatedLane(db, laneId) {
 
 /**
  * Start one queued card. Returns the new run, or null when the card left the
- * queue, has no owner, or its start failed (recorded; the drain continues).
+ * queue, has no owner, is archived, or its start failed (recorded; the drain
+ * continues). Recovery and limit-clear drains funnel through here, so the
+ * archived-owner refusal below covers every drain path (FR-8).
  */
-function startQueuedCard(db, laneId, cardId) {
+export function startQueuedCard(db, laneId, cardId) {
   // Re-verify queue membership: a concurrent drain on this connection cannot
   // interleave (synchronous), but the card may have moved or finished.
   const current = db.prepare('SELECT lane_id, active_lane_run_id, entry_queued FROM kanban_cards WHERE id=?').get(cardId);
@@ -215,7 +228,14 @@ function startQueuedCard(db, laneId, cardId) {
   }
   const owner = resolveQueuedCardOwner(cardId);
   if (!owner) {
-    console.warn(`Kanban queue drain skipped card ${cardId}: no owning session`);
+    // An archived workspace's entry is cancelled, not deferred: consume a
+    // stale marker so a later restart or limit-clear drain cannot revive it.
+    if (getQueuedCardOwner(cardId).session?.archived) {
+      db.prepare('UPDATE kanban_cards SET entry_queued=0, updated_at=? WHERE id=?').run(Date.now(), cardId);
+      console.info(`Kanban queue drain skipped archived card ${cardId}: entry cancelled`);
+    } else {
+      console.warn(`Kanban queue drain skipped card ${cardId}: no owning session`);
+    }
     return null;
   }
   try {

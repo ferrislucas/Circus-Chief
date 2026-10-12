@@ -45,8 +45,10 @@ import {
 import {
   countOpenLaneRuns,
   drainLaneQueue,
+  drainLimitedLaneQueues,
   getQueuedCardIds,
 } from './kanbanConcurrency.js';
+import * as kanbanConcurrency from './kanbanConcurrency.js';
 import {
   closeOwnWork,
   attachRootSession,
@@ -394,6 +396,83 @@ describe('kanban lane concurrency limits', () => {
   describe('lane helpers', () => {
     it('laneRow reflects the configured limit', () => {
       expect(laneRow().concurrencyLimit).toBe(1);
+    });
+  });
+
+  describe('archived workspaces (Issue 17)', () => {
+    function archiveWorkspace(rootId) {
+      // Mirrors POST /api/sessions/:id/archive without the HTTP layer: the
+      // board observes archival even when a stale entry_queued marker survives.
+      sessions.update(rootId, { archived: true });
+    }
+
+    function stoppableSession(name) {
+      const root = createSession(name);
+      sessions.update(root.id, { status: 'stopped' });
+      return root;
+    }
+
+    it('never starts an archived queued card; the drain advances to the next live card', async () => {
+      const { root: firstRoot } = setupRunningCard('First');
+      const secondRoot = stoppableSession('Second');
+      const second = await addSessionToBoard(secondRoot.id, lanes[0].id);
+      const third = await addSessionToBoard(createSession('Third').id, lanes[0].id);
+      expect(second.entryState).toBe('queued');
+      expect(third.entryState).toBe('queued');
+
+      archiveWorkspace(secondRoot.id);
+
+      await routeWorkspaceCard(firstRoot.id, lanes[1].id, { manualMove: true });
+      await flushDrains();
+
+      expect(openRunIdsForCard(second.id)).toHaveLength(0);
+      expect(openRunIdsForCard(third.id)).toHaveLength(1);
+    });
+
+    it('resolveQueuedCardOwner returns null for an archived owner', async () => {
+      setupRunningCard('First');
+      const secondRoot = stoppableSession('Second');
+      const second = await addSessionToBoard(secondRoot.id, lanes[0].id);
+      expect(second.entryState).toBe('queued');
+
+      archiveWorkspace(secondRoot.id);
+
+      expect(kanbanConcurrency.resolveQueuedCardOwner(second.id)).toBeNull();
+    });
+
+    it('startQueuedCard refuses an archived owner and consumes its stale marker', async () => {
+      setupRunningCard('First');
+      const secondRoot = stoppableSession('Second');
+      const second = await addSessionToBoard(secondRoot.id, lanes[0].id);
+      expect(second.entryState).toBe('queued');
+
+      archiveWorkspace(secondRoot.id);
+
+      const run = kanbanConcurrency.startQueuedCard(databaseManager.get(), lanes[0].id, second.id);
+      expect(run).toBeNull();
+      expect(cardRow(second.id).entry_queued).toBe(0);
+      expect(openRunIdsForCard(second.id)).toHaveLength(0);
+    });
+
+    it('recovery and limit-clear drains never start archived owners', async () => {
+      const { root, run } = setupRunningCard('Runner');
+      attachWorker(run, root);
+      const queuedRoot = stoppableSession('Queued');
+      const queued = await addSessionToBoard(queuedRoot.id, lanes[0].id);
+      expect(queued.entryState).toBe('queued');
+      archiveWorkspace(queuedRoot.id);
+
+      // Free a slot so a recovery drain would start the queued card if it
+      // did not filter archived owners.
+      kanbanLanes.update(lanes[0].id, { concurrencyLimit: 2 });
+      drainLimitedLaneQueues(databaseManager.get());
+      await flushDrains();
+      expect(openRunIdsForCard(queued.id)).toHaveLength(0);
+
+      kanbanLanes.update(lanes[0].id, { concurrencyLimit: null });
+      drainLaneQueue(lanes[0].id, { ignoreLimit: true });
+      await flushDrains();
+      expect(openRunIdsForCard(queued.id)).toHaveLength(0);
     });
   });
 

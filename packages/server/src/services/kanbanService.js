@@ -1123,3 +1123,31 @@ export function removeSessionFromBoard(sessionId) {
   }
   return removeCard(card);
 }
+
+/**
+ * Release a workspace's lane slot when its root session is archived, keeping
+ * its card on the board (FR-8). Cancels the card's queued entry, revokes its
+ * open lane run, and drains the freed capacity to the next live card.
+ * Archived owners never receive deferred automation: the drain skips them via
+ * the admission guard in kanbanConcurrency.js.
+ *
+ * Callers must only pass workspace roots: archiving a child session shares
+ * the root's card and must leave lane state alone.
+ *
+ * @param {string} sessionId - Workspace root session id
+ * @returns {Object|null} `{ laneId, cardId }`, or null when the workspace had no card
+ */
+export function releaseLaneSlotForArchivedSession(sessionId) {
+  const card = kanbanCards.getBySessionId(sessionId);
+  if (!card) {
+    return null; // Workspace wasn't on the board
+  }
+  const laneId = card.laneId;
+  databaseManager.transaction(() => {
+    supersedeRunForCard(card.id, 'workspace_archived');
+    databaseManager.get().prepare('UPDATE kanban_cards SET entry_queued=0, updated_at=? WHERE id=?')
+      .run(Date.now(), card.id);
+  });
+  drainLaneAndDeliver(laneId);
+  return { laneId, cardId: card.id };
+}
