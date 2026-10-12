@@ -2,6 +2,7 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import App from './App.vue';
 import router from './router.js';
+import { authorizedFetch } from './api/auth.js';
 import { initPostHog } from './plugins/posthog.js';
 import './assets/main.css';
 
@@ -12,8 +13,9 @@ import './assets/main.css';
 // via the browser History API — no router.afterEach hook needed.
 async function initializeApp() {
   try {
-    // Fetch general settings before initializing PostHog
-    const resp = await fetch('/api/settings/general');
+    // Fetch general settings before initializing PostHog (fail-open for
+    // analytics only; sends stored credentials when logged in).
+    const resp = await authorizedFetch('/api/settings/general');
     const { disableAnalytics } = await resp.json();
     initPostHog({ disableAnalytics });
   } catch {

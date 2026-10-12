@@ -20,11 +20,13 @@ const outboundQueue = [];
 // Reconnect callbacks - fired when WebSocket reconnects (not on initial connect)
 const reconnectCallbacks = new Set();
 
-function getWebSocketUrl() {
+export function getWebSocketUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   // `new WebSocket()` cannot set headers, so stored Basic credentials ride
   // in the URL userinfo (never written to history or disk — memory only).
-  // The server strips userinfo before routing; only /ws is ever requested.
+  // The browser converts userinfo into the `Authorization` header of the
+  // upgrade request; the server authenticates that header at the upgrade
+  // gate and never sees credentials in `req.url`. Only /ws is requested.
   const creds = getBasicCredentials();
   const userinfo = creds
     ? `${encodeURIComponent(creds.username)}:${encodeURIComponent(creds.password)}@`

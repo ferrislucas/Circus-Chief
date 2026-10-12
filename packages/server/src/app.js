@@ -3,7 +3,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import apiRouter from './api/index.js';
-import { createAuthMiddleware } from './middleware/basicAuth.js';
+import { createAuthMiddleware, verifyBasicHeader } from './middleware/basicAuth.js';
 import { MAX_JSON_SIZE } from '@circuschief/shared';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -16,7 +16,8 @@ const __dirname = dirname(__filename);
  * @param {{ users: Map<string,string> }|null} [options.auth] - Loaded Basic-auth
  *   config (null/omitted = auth disabled, behavior unchanged). When set, every
  *   request requires valid credentials except GET /api/server-info, which
- *   stays open so port-probing tooling (pw.sh) works without credentials.
+ *   stays open so port-probing tooling (pw.sh) works without credentials
+ *   (unauthenticated callers get a minimal subset; see the route handler).
  * @returns {express.Application}
  */
 export function createApp(options = {}) {
@@ -36,8 +37,22 @@ export function createApp(options = {}) {
   // static serving so the frontend is gated too when auth is enabled.
   if (options.auth) {
     const authMiddleware = createAuthMiddleware(options.auth);
+    app.set('authEnabled', true);
+    const authConfig = options.auth;
     app.use((req, res, next) => {
-      if (req.method === 'GET' && req.path === '/api/server-info') return next();
+      if (req.method === 'GET' && req.path === '/api/server-info') {
+        // Probe-friendly: attach the user when credentials verify, but never
+        // challenge — the handler branches on req.authUser to decide how
+        // much of the payload to disclose.
+        verifyBasicHeader(authConfig.users, req.headers.authorization).then(
+          (user) => {
+            if (user) req.authUser = user;
+            next();
+          },
+          () => next()
+        );
+        return;
+      }
       authMiddleware(req, res, next);
     });
   }

@@ -43,13 +43,30 @@ CMD ["circuschief", "--host", "0.0.0.0", "--auth-file", "/run/secrets/circuschie
   Wrong password and unknown user get byte-identical `401`s.
 - **Exemption.** `GET /api/server-info` stays open so `scripts/pw.sh` and
   worktree tooling can probe which server instance owns a port without
-  knowing its auth state. Everything else is gated.
+  knowing its auth state — but when auth is on, unauthenticated callers
+  get only a minimal subset (`{ "authEnabled": true }`), never the
+  machine-fingerprinting fields (`cwd`, `dbPath`, `schedulerRunning`,
+  `e2eSpawnCaptureEnabled`, `automationStatus`). Authenticated callers
+  (valid `Authorization` header, never challenged on this route) and
+  auth-off servers get the full payload. Everything else is gated.
 - **Rotation.** The file is watched: password/user changes apply without a
   restart (HTTP and WebSocket share the same loader). Turning auth on/off
   requires a relaunch. Disable by relaunching without the flag.
 - **Frontend.** On a `401` the UI shows a login form. Credentials live in
-  memory only (never `localStorage`); a reload re-prompts. The WebSocket
-  URL carries the credentials because `new WebSocket()` cannot set headers.
+  memory only (never `localStorage`); a reload re-prompts. Every REST
+  call — including streaming-state hydration, the parallel `useApi`
+  wrapper, and the startup settings probe — goes through one shared
+  `authorizedFetch` helper that injects the stored header and funnels
+  `401`s into the login gate. The WebSocket URL carries the credentials
+  because `new WebSocket()` cannot set headers: the browser converts the
+  URL userinfo into the upgrade request's `Authorization` header (the
+  server authenticates that header at the upgrade gate; credentials never
+  appear in `req.url`). This is the only WebSocket auth mechanism —
+  verified in Chromium via Playwright; Safari/Firefox userinfo-in-WS-URL
+  support is unverified, and on those browsers the socket may fail to
+  connect after login. Note the password travels in the URL, so it can
+  surface in devtools network logs and proxy logs; pair with TLS beyond
+  localhost.
 - **Permissions.** `chmod 600` the file; looser permissions log a warning.
 
 ## Security notes

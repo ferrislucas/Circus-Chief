@@ -2,8 +2,9 @@ import { verifyBasicHeader, AUTH_REALM } from '../middleware/basicAuth.js';
 
 /**
  * Path filter preserving the old `new WebSocketServer({ server, path })`
- * behavior: only `/ws` upgrades are handled, everything else is left for
- * other listeners.
+ * behavior: only `/ws` upgrades are handled; anything else is answered
+ * with `400` and closed (this is the only `upgrade` listener, so there is
+ * nothing to delegate to — leaving the socket untouched would hang it).
  */
 export function isWsUpgradeRequest(req) {
   try {
@@ -23,6 +24,16 @@ export function rejectUpgrade(socket) {
   socket.destroy();
 }
 
+/** Answer a non-`/ws` upgrade with `400` and close the socket. */
+export function rejectNonWsUpgrade(socket) {
+  const body = 'Bad Request';
+  socket.write(
+    `HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n` +
+    `Content-Length: ${body.length}\r\nConnection: close\r\n\r\n${body}`
+  );
+  socket.end();
+}
+
 /**
  * Build the `upgrade` listener for a `noServer`-mode WebSocketServer.
  * Failures get a 401 and a destroyed socket; the client never becomes a
@@ -33,9 +44,13 @@ export function rejectUpgrade(socket) {
  * @param {import('ws').WebSocketServer} options.wss
  * @param {Function} options.getUsers - Returns the live user→hash Map, or null when auth is off.
  */
+
 export function createUpgradeGate({ wss, getUsers }) {
   return async (req, socket, head) => {
-    if (!isWsUpgradeRequest(req)) return;
+    if (!isWsUpgradeRequest(req)) {
+      rejectNonWsUpgrade(socket);
+      return;
+    }
 
     const users = getUsers();
     if (users) {

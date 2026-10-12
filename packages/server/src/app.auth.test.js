@@ -43,6 +43,41 @@ describe('createApp auth wiring', () => {
     expect(res.status).toBe(200);
   });
 
+  it('returns only a minimal subset for unauthenticated server-info when auth is on', async () => {
+    const app = createApp({ production: false, auth: testAuth() });
+    const res = await request(app).get('/api/server-info');
+    expect(res.status).toBe(200);
+    expect(res.body.authEnabled).toBe(true);
+    expect(res.body).not.toHaveProperty('cwd');
+    expect(res.body).not.toHaveProperty('dbPath');
+    expect(res.body).not.toHaveProperty('schedulerRunning');
+    expect(res.body).not.toHaveProperty('e2eSpawnCaptureEnabled');
+    expect(res.body).not.toHaveProperty('automationStatus');
+  });
+
+  it('returns the full payload for authenticated server-info when auth is on', async () => {
+    const app = createApp({ production: false, auth: testAuth() });
+    const res = await request(app)
+      .get('/api/server-info')
+      .set('Authorization', basicHeader('alice', PASSWORD));
+    expect(res.status).toBe(200);
+    expect(typeof res.body.cwd).toBe('string');
+    expect(res.body).toHaveProperty('dbPath');
+    expect(res.body).toHaveProperty('schedulerRunning');
+    expect(res.body).toHaveProperty('e2eSpawnCaptureEnabled');
+    expect(res.body).toHaveProperty('automationStatus');
+    expect(res.body.authEnabled).toBe(true);
+  });
+
+  it('returns the full payload with authEnabled:false when auth is off', async () => {
+    const app = createApp({ production: false });
+    const res = await request(app).get('/api/server-info');
+    expect(res.status).toBe(200);
+    expect(typeof res.body.cwd).toBe('string');
+    expect(res.body).toHaveProperty('dbPath');
+    expect(res.body.authEnabled).toBe(false);
+  });
+
   it('passes authenticated requests through', async () => {
     const app = createApp({ production: false, auth: testAuth() });
     const res = await request(app)

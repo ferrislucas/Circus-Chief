@@ -1,4 +1,5 @@
 import { ref } from 'vue';
+import { authorizedFetch } from '../api/auth.js';
 
 // Re-export from api module for backward compatibility
 export { ApiClient, api } from '../api/index.js';
@@ -28,7 +29,7 @@ export function useApi() {
         options.body = JSON.stringify(data);
       }
 
-      const response = await fetch(`${BASE_URL}${path}`, options);
+      const response = await authorizedFetch(`${BASE_URL}${path}`, options);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));

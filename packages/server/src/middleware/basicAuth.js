@@ -1,12 +1,35 @@
 import { readFileSync, statSync, watch, existsSync } from 'fs';
+import { dirname, basename } from 'path';
 import bcrypt from 'bcryptjs';
 import { getDefaultAuthFilePath } from '../config.js';
 
 export const AUTH_REALM = 'Circus Chief';
 
 // Compared when the username is unknown so the unknown-user and
-// wrong-password paths cost the same shape (no user oracle).
-const DUMMY_HASH = bcrypt.hashSync('circus-chief-invalid-credential', 4);
+// wrong-password paths cost the same shape (no user oracle). The cost is
+// derived from the loaded file hashes and cached per cost — a fixed cheap
+// dummy would answer measurably faster than a real wrong-password compare
+// and leak username validity through response timing.
+const dummyHashByCost = new Map();
+
+function costOfHash(hash) {
+  const match = /^\$2[by]\$(\d{2})\$/.exec(hash);
+  return match ? parseInt(match[1], 10) : 12;
+}
+
+function dummyHashFor(users) {
+  let cost = 12;
+  for (const hash of users.values()) {
+    cost = costOfHash(hash);
+    break;
+  }
+  let dummy = dummyHashByCost.get(cost);
+  if (!dummy) {
+    dummy = bcrypt.hashSync('circus-chief-invalid-credential', cost);
+    dummyHashByCost.set(cost, dummy);
+  }
+  return dummy;
+}
 
 const BCRYPT_HASH_RE = /^\$2[by]\$\d{2}\$[./A-Za-z0-9]{53}$/;
 
@@ -95,7 +118,13 @@ export function loadAuthConfig(filePath) {
 
   let watcher = null;
   try {
-    watcher = watch(filePath, (eventType) => {
+    // Watch the parent directory, not the file itself: atomic rotation
+    // (temp file + rename over the path) replaces the watched inode, which
+    // permanently silences a file watcher after the first rename event.
+    const watchedDir = dirname(filePath);
+    const watchedName = basename(filePath);
+    watcher = watch(watchedDir, (eventType, filename) => {
+      if (filename != null && filename.toString() !== watchedName) return;
       if (eventType === 'change' || eventType === 'rename') reload();
     });
     watcher.unref();
@@ -139,7 +168,7 @@ export async function verifyBasicHeader(users, header) {
   if (colon <= 0) return null;
   const user = decoded.slice(0, colon);
   const password = decoded.slice(colon + 1);
-  const hash = users.get(user) ?? DUMMY_HASH;
+  const hash = users.get(user) ?? dummyHashFor(users);
   let ok;
   try {
     ok = await bcrypt.compare(password, hash);

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, chmodSync, rmSync, renameSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import express from 'express';
@@ -121,6 +121,25 @@ describe('loadAuthConfig', () => {
     expect(() => load(file)).toThrow(/line 1/);
   });
 
+  it('keeps reloading across atomic (rename-based) rotation', async () => {
+    const file = join(dir, '.htpasswd');
+    writeFileSync(file, `${htpasswdLine('alice')}\n`);
+    const config = load(file);
+    expect(config.users.has('alice')).toBe(true);
+
+    // Atomic rotation: write a temp file and rename it over the watched path
+    // (what `htpasswd` replacements and most editors do).
+    const tmp = join(dir, '.htpasswd.tmp');
+    writeFileSync(tmp, `${htpasswdLine('bob')}\n`);
+    renameSync(tmp, file);
+    await vi.waitFor(() => expect(config.users.has('bob')).toBe(true), { timeout: 5000 });
+
+    // A second change after the rename must still be picked up — the
+    // watcher must not have gone silent with the replaced inode.
+    writeFileSync(file, `${htpasswdLine('carol')}\n`);
+    await vi.waitFor(() => expect(config.users.has('carol')).toBe(true), { timeout: 5000 });
+  });
+
   it('warns but does not throw on world-readable permissions', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const file = join(dir, '.htpasswd');
@@ -150,6 +169,25 @@ describe('verifyBasicHeader', () => {
     await expect(verifyBasicHeader(users, basicHeader('mallory', PASSWORD))).resolves.toBeNull();
   });
 
+  it('compares unknown users against a dummy hash at the loaded cost (no timing oracle)', async () => {
+    const costedUsers = new Map([['alice', bcrypt.hashSync(PASSWORD, 10)]]);
+    const compareSpy = vi.spyOn(bcrypt, 'compare');
+    try {
+      await expect(
+        verifyBasicHeader(costedUsers, basicHeader('mallory', PASSWORD))
+      ).resolves.toBeNull();
+      await expect(
+        verifyBasicHeader(costedUsers, basicHeader('alice', 'wrong'))
+      ).resolves.toBeNull();
+      expect(compareSpy).toHaveBeenCalledTimes(2);
+      const costs = compareSpy.mock.calls.map(([, usedHash]) => usedHash.slice(4, 6));
+      expect(costs[0]).toBe(costs[1]);
+      expect(costs[0]).toBe('10');
+    } finally {
+      compareSpy.mockRestore();
+    }
+  });
+
   it('returns null without a header', async () => {
     await expect(verifyBasicHeader(users, undefined)).resolves.toBeNull();
   });
@@ -160,6 +198,13 @@ describe('verifyBasicHeader', () => {
 
   it('returns null for malformed base64', async () => {
     await expect(verifyBasicHeader(users, 'Basic %%%')).resolves.toBeNull();
+  });
+
+  it('accepts UTF-8 credentials (non-Latin1 passwords)', async () => {
+    const password = 'pässwörd-🔑-中文';
+    const utf8Users = new Map([['user', bcrypt.hashSync(password, 4)]]);
+    const header = `Basic ${Buffer.from(`user:${password}`, 'utf-8').toString('base64')}`;
+    await expect(verifyBasicHeader(utf8Users, header)).resolves.toBe('user');
   });
 });
 

@@ -1,6 +1,7 @@
 import { watch, onUnmounted, ref, unref } from 'vue';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { authorizedFetch } from '../api/auth.js';
 import { useSessionSubscription, useWebSocket } from './useWebSocket.js';
 
 /**
@@ -28,7 +29,7 @@ export function useRunningSessionSubscriptions(desiredSessionIds) {
   }
 
   function hydrate(sessionId, entry, retry = 0) {
-    fetch(`/api/sessions/${sessionId}/streaming-state`, { signal: entry.controller.signal })
+    authorizedFetch(`/api/sessions/${sessionId}/streaming-state`, { signal: entry.controller.signal })
       .then(res => res.ok ? res.json() : null)
       .then(snapshot => {
         if (!isCurrent(sessionId, entry)) return;

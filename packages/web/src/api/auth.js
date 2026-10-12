@@ -16,10 +16,15 @@ const authedListeners = new Set();
 
 /**
  * Build a Basic Authorization header value.
- * Single header-construction helper for the whole frontend.
+ * Single header-construction helper for the whole frontend. UTF-8-safe:
+ * raw `btoa` throws on non-Latin1 input, so the pair is encoded to UTF-8
+ * bytes first (consistent with the percent-encoded WebSocket URL path).
  */
 export function buildAuthHeader(username, password) {
-  return `Basic ${btoa(`${username}:${password}`)}`;
+  const bytes = new TextEncoder().encode(`${username}:${password}`);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return `Basic ${btoa(binary)}`;
 }
 
 /** Current Authorization header value, or null when logged out. */
@@ -52,6 +57,27 @@ export function isAuthRequired() {
 export function notifyAuthRequired() {
   authRequired.value = true;
   for (const cb of authRequiredListeners) cb();
+}
+
+/**
+ * Shared auth-aware fetch for request paths outside ApiClient (streaming
+ * hydration, parallel wrappers, startup probes). Injects the stored Basic
+ * header when logged in and funnels 401s into the login gate. Returns the
+ * raw response so callers keep their own body/error handling. Callers pass
+ * plain-object headers (merging a `Headers` instance is not supported).
+ */
+export function authorizedFetch(url, init = {}) {
+  const header = getAuthorizationHeader();
+  return fetch(url, {
+    ...init,
+    headers: {
+      ...(init.headers || {}),
+      ...(header ? { Authorization: header } : {}),
+    },
+  }).then((response) => {
+    if (response.status === 401) notifyAuthRequired();
+    return response;
+  });
 }
 
 export function onAuthRequired(callback) {

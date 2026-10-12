@@ -35,6 +35,15 @@ describe('auth store (memory-only Basic credentials)', () => {
     expect(getAuthorizationHeader()).toBe(`Basic ${btoa('alice:s3cret')}`);
   });
 
+  it('builds a valid header for non-Latin1 credentials (no InvalidCharacterError)', () => {
+    const header = buildAuthHeader('user', 'pässwörd-🔑-中文');
+    expect(header.startsWith('Basic ')).toBe(true);
+    // The server decodes the same bytes back to the original pair.
+    const binary = atob(header.slice('Basic '.length));
+    const decoded = new TextDecoder().decode(Uint8Array.from(binary, (ch) => ch.charCodeAt(0)));
+    expect(decoded).toBe('user:pässwörd-🔑-中文');
+  });
+
   it('returns null header when logged out', () => {
     expect(getAuthorizationHeader()).toBeNull();
     expect(hasCredentials()).toBe(false);
