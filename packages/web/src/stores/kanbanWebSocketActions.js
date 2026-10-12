@@ -7,6 +7,24 @@ import { KanbanCardSessionResponse } from '@circuschief/shared/contracts/kanban'
 const KANBAN_CARD_SESSION_FIELDS = Object.keys(KanbanCardSessionResponse.shape);
 
 /**
+ * Describe a lane with one card removed, reporting whether the departing
+ * card held a queue slot. Move and removal broadcasts carry no queue state,
+ * so the caller drops the lane count for a departing queued card instead of
+ * waiting for a full refetch. Pure — the caller assigns the returned cards
+ * onto its own lane reference and applies the single count decrement.
+ * @param {Object} lane - Lane the card is leaving
+ * @param {string} cardId - Card leaving the lane
+ * @returns {{ cards: Array, wasQueued: boolean }}
+ */
+function laneWithoutCard(lane, cardId) {
+  const wasQueued = lane.cards?.some((c) => c.id === cardId && c.entryStatus === 'queued') ?? false;
+  return {
+    cards: lane.cards?.filter((c) => c.id !== cardId) || [],
+    wasQueued,
+  };
+}
+
+/**
  * WebSocket-driven actions for the Kanban board store.
  *
  * The board is an authoritative server read model: mutations do not patch
@@ -48,25 +66,34 @@ export const kanbanWebSocketActions = {
   handleCardMoved(cardId, fromLaneId, toLaneId, card) {
     // Remove from source lane
     const sourceLane = this.board?.lanes?.find((l) => l.id === fromLaneId);
+    let departingWasQueued = false;
     if (sourceLane) {
-      const departing = sourceLane.cards?.find((c) => c.id === cardId);
-      sourceLane.cards = sourceLane.cards?.filter((c) => c.id !== cardId) || [];
-      // A departing queued card takes its queue slot with it: the move
-      // broadcast carries no queue state, so the source count drops here
-      // instead of waiting for a full refetch.
-      if (departing?.entryStatus === 'queued' && (sourceLane.queuedCount || 0) > 0) {
-        sourceLane.queuedCount -= 1;
-      }
+      const next = laneWithoutCard(sourceLane, cardId);
+      sourceLane.cards = next.cards;
+      departingWasQueued = next.wasQueued;
     }
 
     // Add to target lane
     const targetLane = this.board?.lanes?.find((l) => l.id === toLaneId);
     if (targetLane) {
       targetLane.cards = targetLane.cards || [];
-      // Avoid duplicates
-      if (!targetLane.cards.some((c) => c.id === cardId)) {
+      const existingIndex = targetLane.cards.findIndex((c) => c.id === cardId);
+      if (existingIndex !== -1) {
+        // The owning browser moved this card optimistically before the
+        // broadcast arrived, so its copy still carries the source queue
+        // marker. That stale slot belongs to the source lane, and the
+        // authoritative broadcast card replaces the optimistic copy.
+        if (!departingWasQueued && targetLane.cards[existingIndex]?.entryStatus === 'queued') {
+          departingWasQueued = true;
+        }
+        targetLane.cards[existingIndex] = card;
+      } else {
         targetLane.cards.push(card);
       }
+    }
+
+    if (departingWasQueued && sourceLane && (sourceLane.queuedCount || 0) > 0) {
+      sourceLane.queuedCount -= 1;
     }
   },
 
@@ -114,16 +141,10 @@ export const kanbanWebSocketActions = {
    */
   handleCardRemoved(cardId, laneId) {
     const lane = this.board?.lanes?.find((l) => l.id === laneId);
-    if (lane) {
-      const departing = lane.cards?.find((c) => c.id === cardId);
-      lane.cards = lane.cards?.filter((c) => c.id !== cardId) || [];
-      // A removed queued card takes its queue slot with it: the removal
-      // broadcast carries no queue state, so the count drops here instead of
-      // leaving a phantom badge in an emptied lane.
-      if (departing?.entryStatus === 'queued' && (lane.queuedCount || 0) > 0) {
-        lane.queuedCount -= 1;
-      }
-    }
+    if (!lane) return;
+    const next = laneWithoutCard(lane, cardId);
+    lane.cards = next.cards;
+    if (next.wasQueued && (lane.queuedCount || 0) > 0) lane.queuedCount -= 1;
   },
 
   /**
