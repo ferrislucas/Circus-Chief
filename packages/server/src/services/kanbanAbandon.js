@@ -51,9 +51,54 @@ async function releaseAbandonedChildWorktree(child, allocatedWorktree) {
  * (an attached worktree is legitimately reused by the survivor). No deletion,
  * no notifications, and the run root is never cleared.
  */
+
+/**
+ * Pause/resume durability contract (PR #1166 issue 10; FR-3/FR-4/AC-5).
+ *
+ * A retry paused mid-setup keeps its child and run root for resume
+ * (`preserveChild`). The preserved child MUST rest in a durable non-executing
+ * state: status/execution_state settled, with its open obligation, lane_run
+ * attachment, and worktree retained. This shape is what makes pause survive a
+ * restart:
+ * - boot recovery (`recoverOrphanedStartingSessions` /
+ *   `recoverOrphanedRunningSessions`, which run before Kanban preflight)
+ *   collects only `starting`/`running` rows, so a settled child is left
+ *   alone instead of being closed as an orphaned startup;
+ * - Kanban preflight preserves the open rooted run (pointers intact, root
+ *   tree unambiguous), and re-enable redelivery reuses the same child
+ *   exactly once.
+ *
+ * The provider-fence rejection in `sessionExecution` durably clears executing
+ * state on its way out; this settle is the ownership-fenced convergence point
+ * both pause paths meet at. Never settle a child whose obligation already
+ * closed or whose run no longer owns it — that row belongs to boot recovery.
+ */
+function settlePreservedChildForPause({ laneRunId, childSessionId }) {
+  if (!laneRunId || !childSessionId) return;
+  const db = databaseManager.get();
+  const child = db.prepare(`SELECT id, project_id, lane_run_id, own_work_state, status, execution_state
+    FROM sessions WHERE id=?`).get(childSessionId);
+  if (!child) return;
+  // Ownership fences: only settle a child still attached to this OPEN run
+  // with an open obligation.
+  if (child.lane_run_id !== laneRunId || child.own_work_state !== 'open') return;
+  const run = db.prepare('SELECT status FROM kanban_lane_runs WHERE id=?').get(laneRunId);
+  if (!run || run.status !== 'open') return;
+  // Only executing states need settling; an already-idle child is already
+  // invisible to boot recovery and keeps its row untouched.
+  if (child.status !== 'starting' && child.status !== 'running' && child.execution_state !== 'running') return;
+  const updated = sessions.update(childSessionId, { status: 'stopped', executionState: 'stopped' });
+  broadcastToProject(child.project_id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    projectId: child.project_id,
+    sessionId: childSessionId,
+    session: updated,
+  });
+}
+
 export async function abandonUndispatchedChild({ laneRunId, childSessionId, allocatedWorktree = null, preserveChild = false }) {
   if (preserveChild) {
     await releaseUnattachedRetryAllocation(childSessionId, allocatedWorktree);
+    settlePreservedChildForPause({ laneRunId, childSessionId });
     return;
   }
   if (childSessionId) {

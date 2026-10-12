@@ -80,6 +80,10 @@ export async function _executeSession({
       await beforeProviderExecute?.();
     } catch (error) {
       cleanupSessionState(sessionId, cleanupConversationId, controller);
+      // A lane-disable park must also settle the durable lifecycle, not just
+      // the in-memory turn state (PR #1166 issue 10); see
+      // settleFenceParkedExecutionState below.
+      if (error?.code === 'LANE_AUTOMATION_DISABLED') settleFenceParkedExecutionState(sessionId);
       throw error;
     }
     onProviderDispatchInitiated?.();
@@ -216,6 +220,24 @@ export async function _executeSession({
     cleanupSessionState(sessionId, cleanupConversationId, controller);
   }
 }
+/**
+ * Settle the durable lifecycle after a lane-disable park at the provider
+ * fence. prepareRunTurn/beginWorkflowTurn already wrote status/execution_state
+ * as running, and the catch above only releases in-memory turn state — without
+ * this, a paused-then-restarted child looks like a live provider run to boot
+ * recovery. The kanban pause path re-settles with ownership fences right
+ * after; this closes the crash window in between. The obligation
+ * (own_work_state, lane_run_id, worktree) is untouched so the entry stays
+ * resumable. Other fence errors keep in-memory-only cleanup.
+ */
+function settleFenceParkedExecutionState(sessionId) {
+  try {
+    sessions.update(sessionId, { status: 'stopped', executionState: 'stopped' });
+  } catch {
+    // Best-effort; the pause path settles with fences next.
+  }
+}
+
 /**
  * Continue a session with a follow-up message (core implementation)
  * @param {string} sessionId

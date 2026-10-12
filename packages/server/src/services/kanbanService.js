@@ -680,11 +680,25 @@ function acknowledgeDispatch(eventId, token) {
  * rooted terminal runs are never touched. Returns null when the husk was
  * dropped so the caller creates a valid replacement.
  */
+/** The structured lane a husk repair would deliver into, or null. */
+function huskRepairLane(db, event) {
+  const card = db.prepare('SELECT lane_id FROM kanban_cards WHERE id=?').get(event.card_id);
+  if (!card || card.lane_id !== event.lane_id) return null;
+  const lane = kanbanLanes.getById(event.lane_id);
+  return lane && isStructured(lane) ? lane : null;
+}
+
 function dropTerminalHuskRun(db, event, run) {
   if (!run || run.status === 'open' || run.root_session_id) return run;
-  const card = db.prepare('SELECT * FROM kanban_cards WHERE id=?').get(event.card_id);
-  const lane = card && card.lane_id === event.lane_id && kanbanLanes.getById(event.lane_id);
-  if (!card || !lane || !isStructured(lane)) return run;
+  // Deliberate supersession is never legacy damage: a run whose persisted
+  // reason marks an intentional move-out/removal/automation change is kept
+  // for the superseded-entry consumer above, never dropped for repair.
+  if (isIntentionallySupersededRun(run)) return run;
+  // Husk repair is limited to positively identified recovery damage: the run
+  // must belong to this exact card/event arrival. A run attached to another
+  // card's arrival is never this entry's husk.
+  if (run.card_id !== event.card_id || run.lane_entry_event_id !== event.id) return run;
+  if (!huskRepairLane(db, event)) return run;
   // Entry-identity gate (PR #1166 finding 7): only repair a husk that the
   // card did not intentionally leave behind. A move-out supersedes the run
   // while its pending entry survives (only queued entries are dequeued), so a
@@ -697,13 +711,39 @@ function dropTerminalHuskRun(db, event, run) {
 }
 
 /**
+ * Failure reasons that mark a run as deliberately superseded by an operator
+ * or automation-config change (move-out, removal, automation cleared). A run
+ * carrying one of these was intentionally left behind: its arrival must never
+ * be revived, independently of whether newer work exists. Rows with any other
+ * reason (including the NULL left by legacy recovery damage) stay on the
+ * husk-repair path below.
+ */
+const INTENTIONAL_SUPERSESSION_REASONS = new Set([
+  'card_moved',
+  'manual_move',
+  'card_removed',
+  'automation_removed',
+]);
+
+/** True when the run's persisted reason marks deliberate supersession. */
+function isIntentionallySupersededRun(run) {
+  return Boolean(run && run.status !== 'open' && run.failure_reason
+    && INTENTIONAL_SUPERSESSION_REASONS.has(run.failure_reason));
+}
+
+/**
  * Detect an obsolete retry for an entry the card intentionally left behind.
- * True only for a terminal rootless run where the card moved on: it points at
- * a different entry, or a newer entry/run owns the card. Legacy husk damage
- * (no newer work for the card) returns false so repair still applies.
+ * True for a terminal rootless run the card moved on from: it carries an
+ * intentional-supersession reason, points at a different entry, or a newer
+ * entry/run owns the card. The reason check is first and needs no newer rows:
+ * a card moved out and back through an unautomated configuration leaves no
+ * successor entry, yet its old arrival is still cancelled. Legacy husk damage
+ * (no intentional reason, no newer work for the card) returns false so repair
+ * still applies.
  */
 function isSupersededEntryRetry(db, event, run) {
   if (!run || run.status === 'open' || run.root_session_id) return false;
+  if (isIntentionallySupersededRun(run)) return true;
   const card = db.prepare('SELECT lane_entry_event_id FROM kanban_cards WHERE id=?')
     .get(event.card_id);
   if (!card) return false;
