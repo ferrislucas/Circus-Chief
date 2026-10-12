@@ -54,6 +54,9 @@ npx circuschief
 | `-p, --port <number>` | Port to listen on (default: `5000`) |
 | `-H, --host <address>` | Network address to bind to (default: `127.0.0.1`; flag only, no env var). For LAN, Docker, or remote access, use `--host 0.0.0.0`. |
 | `--no-analytics` | Disable anonymous usage analytics |
+| `--ssl-cert <path>` / `--ssl-key <path>` | Serve HTTPS with your own PEM cert + key (must supply both) |
+| `--self-signed` | Serve HTTPS with an auto-generated self-signed cert (needs `openssl`) |
+| `--tls-dir <path>` | Storage dir for the self-signed cert pair (default: `~/.circuschief/tls/`) |
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version number |
 
@@ -62,6 +65,20 @@ npx circuschief
 ```bash
 npx circuschief -p 8080
 ```
+
+**Example — serve HTTPS with your own certificate:**
+
+```bash
+npx circuschief --ssl-cert ./cert.pem --ssl-key ./key.pem
+```
+
+**Example — serve HTTPS with a self-signed certificate:**
+
+```bash
+npx circuschief --self-signed
+```
+
+The self-signed pair is generated once (RSA 2048, ~825 days, SANs for localhost, LAN IPs, and hostname) and reused from `~/.circuschief/tls/` on later boots. Self-signed certificates are encrypted but untrusted — browsers will warn until the cert is trusted. TLS is HTTPS-only: there is no HTTP→HTTPS redirect.
 
 ## Prerequisites
 

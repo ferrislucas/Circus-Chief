@@ -11,7 +11,7 @@ import { describeBindHost, isWildcardAddress } from './bindAddress.js';
  *
  * The handler is removed by `startServer` once listening succeeds.
  *
- * @param {import('http').Server} server - Server that will be bound.
+ * @param {import('http').Server|import('https').Server} server - Server that will be bound.
  * @param {object} options
  * @param {number} options.port - Port that will be listened on.
  * @param {string} options.host - Bind address as resolved by the CLI.
@@ -43,7 +43,7 @@ export function prepareBindFailureHandler(server, { port, host }) {
  *   healthy server must not `process.exit` — that would skip graceful
  *   shutdown and orphan agent child processes.
  *
- * @param {import('http').Server} server - Server to bind.
+ * @param {import('http').Server|import('https').Server} server - Server to bind.
  * @param {object} options
  * @param {number} options.port - Port to listen on.
  * @param {string} options.host - Bind address as resolved by the CLI.
@@ -52,9 +52,14 @@ export function prepareBindFailureHandler(server, { port, host }) {
  * @param {Function} [options.onListenFailure] - Handler previously installed
  *   by `prepareBindFailureHandler`; defaults to installing a fresh one for
  *   callers (and tests) that attach no WebSocket layer.
+ * @param {boolean} [options.secure] - When true, the banner advertises
+ *   `https://`/`wss://` schemes (the server itself is built with node:https
+ *   by the entry point).
+ * @param {boolean} [options.selfSigned] - When true, appends the
+ *   untrusted-cert notice for a self-signed certificate.
  * @returns {void}
  */
-export function startServer(server, { port, host, isDefaultHost, onListenFailure }) {
+export function startServer(server, { port, host, isDefaultHost, onListenFailure, secure = false, selfSigned = false }) {
   let failBind = onListenFailure;
   if (!failBind) {
     ({ onListenFailure: failBind } = prepareBindFailureHandler(server, { port, host }));
@@ -71,8 +76,13 @@ export function startServer(server, { port, host, isDefaultHost, onListenFailure
     const bound = server.address();
     const { urlHost } = describeBindHost(bound.address);
 
-    console.log(`Circus Chief running on http://${urlHost}:${bound.port}`);
-    console.log(`WebSocket available at ws://${urlHost}:${bound.port}/ws`);
+    const httpScheme = secure ? 'https' : 'http';
+    const wsScheme = secure ? 'wss' : 'ws';
+    console.log(`Circus Chief running on ${httpScheme}://${urlHost}:${bound.port}`);
+    console.log(`WebSocket available at ${wsScheme}://${urlHost}:${bound.port}/ws`);
+    if (selfSigned) {
+      console.log('Note: self-signed certificate in use — browsers will warn until the cert is trusted.');
+    }
 
     if (isWildcardAddress(bound.address)) {
       console.warn(
