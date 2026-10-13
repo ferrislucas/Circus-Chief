@@ -88,6 +88,11 @@ export const WS_MESSAGE_TYPES = {
   // (tier deleted/emptied) so the open session can notify instead of
   // silently changing its model.
   TIER_DEGRADED: 'tier:degraded',
+  // A card arrived at a lane with automation disabled; its entry intent is
+  // durable queue state rather than a spawned session.
+  KANBAN_ENTRY_QUEUED: 'kanban:entry_queued',
+  // Re-enabling a lane drained queued entries back into automation.
+  KANBAN_QUEUE_DRAINED: 'kanban:queue_drained',
 };
 
 /**

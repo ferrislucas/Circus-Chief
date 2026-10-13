@@ -1518,6 +1518,46 @@ describe('summary service integration', () => {
       await expect(stopSession(session.id)).resolves.not.toThrow();
       expect(sessionRepo.getById(session.id).ownWorkState).toBe('open');
     });
+
+    it('releases the lane slot for a limited-lane participant, starting the queued card', async () => {
+      const { stopSession } = await import('./sessionManager.js');
+      const { createGatedLaneRunForEntry } = await import('./kanbanConcurrency.js');
+
+      const boardRepo = new KanbanBoardRepository();
+      const laneRepo = new KanbanLaneRepository();
+      const cardRepo = new KanbanCardRepository();
+
+      const projectId = session.projectId;
+      const board = boardRepo.create(projectId);
+      const [source, target] = laneRepo.getByBoardId(board.id);
+      laneRepo.update(source.id, { onEnterPrompt: 'Lane work', concurrencyLimit: 1 });
+      const workspace = sessionRepo.create(projectId, 'Workspace', 'work');
+      const card = cardRepo.create(source.id, workspace.id);
+      const root = sessionRepo.create(projectId, 'Lane prompt', 'do work', { parentSessionId: workspace.id });
+      const run = createLaneRunForEntry({
+        projectId,
+        workspaceId: workspace.id,
+        cardId: card.id,
+        lane: { ...laneRepo.getById(source.id), completionTargetLaneId: target.id },
+      });
+      attachRootSession(run.id, root.id);
+
+      const queuedWorkspace = sessionRepo.create(projectId, 'Queued workspace', 'work');
+      const queuedCard = cardRepo.create(source.id, queuedWorkspace.id);
+      const gated = createGatedLaneRunForEntry({
+        projectId, workspaceId: queuedWorkspace.id, cardId: queuedCard.id, lane: laneRepo.getById(source.id),
+      });
+      expect(gated.queued).toBe(true);
+
+      await stopSession(root.id);
+      // The slot-release drain runs deferred; observe only committed state.
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(getRun(run.id).status).toBe('cancelled');
+      expect(databaseManager.get()
+        .prepare("SELECT id FROM kanban_lane_runs WHERE card_id=? AND status='open'")
+        .all(queuedCard.id)).toHaveLength(1);
+    });
   });
 
   describe('error handling summary integration', () => {

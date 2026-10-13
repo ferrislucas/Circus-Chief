@@ -90,6 +90,34 @@ describe('SessionRepository', () => {
     });
   });
 
+  describe('getProviderLastUsedAt', () => {
+    it('returns MAX(updated_at) per provider across every status including archived rows', () => {
+      const providerRepo = new ProviderRepository();
+      const openai = providerRepo.create({ name: 'OpenAI', kind: 'openai' });
+      const google = providerRepo.create({ name: 'Google', kind: 'google' });
+      const unused = providerRepo.create({ name: 'Unused', kind: 'anthropic' });
+
+      const running = repo.create(projectId, 'Running OpenAI', 'Prompt', { providerId: openai.id });
+      repo.update(running.id, { status: 'running' });
+      repo.db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(1000, running.id);
+      const waiting = repo.create(projectId, 'Waiting OpenAI', 'Prompt', { status: 'waiting', providerId: openai.id });
+      repo.db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(2000, waiting.id);
+      const stopped = repo.create(projectId, 'Stopped Google', 'Prompt', { providerId: google.id });
+      repo.update(stopped.id, { status: 'stopped' });
+      repo.db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(3000, stopped.id);
+      const archived = repo.create(projectId, 'Archived Google', 'Prompt', { providerId: google.id });
+      repo.update(archived.id, { status: 'stopped', archived: true });
+      repo.db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(4000, archived.id);
+      const errored = repo.create(projectId, 'Errored OpenAI', 'Prompt', { providerId: openai.id });
+      repo.update(errored.id, { status: 'error' });
+      repo.db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(500, errored.id);
+      repo.create(projectId, 'No provider', 'Prompt');
+
+      expect(repo.getProviderLastUsedAt()).toEqual({ [openai.id]: 2000, [google.id]: 4000 });
+      expect(unused.id in repo.getProviderLastUsedAt()).toBe(false);
+    });
+  });
+
   describe('hasExecutingAgentType', () => {
     it('reports executing muse sessions and ignores waiting, stopped, and archived rows', () => {
       const running = repo.create(projectId, 'Running muse', 'Prompt', { agentType: 'muse' });

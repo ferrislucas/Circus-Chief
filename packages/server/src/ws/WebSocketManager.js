@@ -1,6 +1,7 @@
 import { WebSocketServer } from 'ws';
 import { WS_MESSAGE_TYPES, parseMessage, createMessage } from '@circuschief/shared';
 import { commandOutputMetrics, COMMAND_OUTPUT_METRICS } from '../services/commandOutputMetrics.js';
+import { createUpgradeGate } from './upgradeGate.js';
 
 const OUTPUT_SOCKET_HIGH_WATER_BYTES = 256 * 1024;
 
@@ -33,13 +34,39 @@ export class WebSocketManager {
   #usageUpdateBuffer = new Map();
   #sessionPriority = new Map();
 
+  /** @type {import('http').Server|null} */
+  #upgradeServer = null;
+
+  /** @type {Function|null} */
+  #upgradeHandler = null;
+
+  /** @type {{ users: Map<string,string> }|null} */
+  #auth = null;
+
   /**
    * Initialize WebSocket server
+   *
+   * Uses `noServer` mode with an explicit `upgrade` listener (instead of
+   * `new WebSocketServer({ server, path })`) so upgrades can be gated on
+   * Basic credentials when auth is configured. Without auth the behavior is
+   * unchanged: every `/ws` upgrade is accepted.
+   *
    * @param {import('http').Server} server - HTTP server to attach to
+   * @param {object} [options]
+   * @param {{ users: Map<string,string> }|null} [options.auth] - Loaded
+   *   Basic-auth config; shares the startup loader instance so credential
+   *   rotation applies to WebSocket upgrades too.
    * @returns {WebSocketServer}
    */
-  init(server) {
-    this.#wss = new WebSocketServer({ server, path: '/ws' });
+  init(server, { auth = null } = {}) {
+    this.#auth = auth;
+    this.#wss = new WebSocketServer({ noServer: true });
+    this.#upgradeServer = server;
+    this.#upgradeHandler = createUpgradeGate({
+      wss: this.#wss,
+      getUsers: () => this.#auth?.users ?? null,
+    });
+    server.on('upgrade', this.#upgradeHandler);
 
     this.#wss.on('connection', (ws) => {
       this.#clients.add(ws);
@@ -322,15 +349,15 @@ export class WebSocketManager {
       }));
       return false;
     }
-    const next = { status: session.status, providerId: session.providerId };
+    const next = { status: session.status, providerId: session.providerId, updatedAt: sessionRecencyOf(session) };
     const previous = this.#sessionPriority.get(sessionId);
     this.#sessionPriority.set(sessionId, next);
-    return !previous || hasPriorityChanged(previous, next);
+    return !previous || hasPriorityChanged(previous, next) || hasRecencyAdvanced(previous, next);
   }
 
   #recordSessionPriority(type, sessionId, session) {
     if (type === WS_MESSAGE_TYPES.SESSION_CREATED && hasSessionPriorityShape(session, sessionId)) {
-      this.#sessionPriority.set(sessionId, { status: session.status, providerId: session.providerId });
+      this.#sessionPriority.set(sessionId, { status: session.status, providerId: session.providerId, updatedAt: sessionRecencyOf(session) });
     }
     if (type === WS_MESSAGE_TYPES.SESSION_DELETED && sessionId) this.#sessionPriority.delete(sessionId);
   }
@@ -363,6 +390,12 @@ export class WebSocketManager {
    * Close the WebSocket server
    */
   close() {
+    if (this.#upgradeServer && this.#upgradeHandler) {
+      this.#upgradeServer.removeListener('upgrade', this.#upgradeHandler);
+      this.#upgradeServer = null;
+      this.#upgradeHandler = null;
+    }
+    this.#auth = null;
     if (this.#wss) {
       // Terminate all connected clients first so their underlying TCP
       // sockets close, unblocking server.close() during shutdown.
@@ -404,6 +437,32 @@ function isSessionLifecycleEvent(type) {
 function hasPriorityChanged(previous, next) {
   return previous.providerId !== next.providerId
     || isActiveSessionStatus(previous.status) !== isActiveSessionStatus(next.status);
+}
+
+/**
+ * Recency watermark for the MRU ordering input (`MAX(sessions.updated_at)`
+ * per provider). Every session write bumps `updated_at`, so a same-status
+ * update carrying a newer timestamp moved recency even though liveness did
+ * not change. Accepts both the repository's camelCase `updatedAt` and raw
+ * snake_case `updated_at` shapes; anything else carries no recency signal.
+ */
+function sessionRecencyOf(session) {
+  const raw = session?.updatedAt ?? session?.updated_at;
+  if (raw === null || raw === undefined) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * True when the update proves recency moved: it carries a timestamp and the
+ * memo has nothing newer to compare against (first timestamp sighting) or an
+ * older one. Duplicate and stale out-of-order redeliveries stay suppressed
+ * so a duplicated frame cannot cause a refetch. A timestamp-less update
+ * falls back to the liveness comparison above.
+ */
+function hasRecencyAdvanced(previous, next) {
+  return next.updatedAt !== null
+    && (previous.updatedAt == null || next.updatedAt > previous.updatedAt);
 }
 
 // Singleton instance

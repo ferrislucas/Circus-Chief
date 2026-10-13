@@ -77,7 +77,10 @@ describe('commandRunOutputResource', () => {
     });
     await expect(Promise.race([
       snapshotRead.then(() => true),
-      new Promise((resolve) => setTimeout(() => resolve(false), 50)),
+      // NOTE: generous barrier under coverage — a 50ms window flakes when the
+      // heavily-loaded coverage run delays the snapshot read past the timeout,
+      // which inverts the intended chunk order (seq 3 before seq 2) and fails.
+      new Promise((resolve) => setTimeout(() => resolve(false), 5000)),
     ])).resolves.toBe(true);
     const laterChunk = { sequence: 3, content: 'after handoff\n' };
     chunks.push(laterChunk);

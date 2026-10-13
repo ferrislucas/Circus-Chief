@@ -1,4 +1,5 @@
 import { onMounted, onUnmounted, watch } from 'vue';
+import { authorizedFetch } from '../api/auth.js';
 import { useSessionSubscription } from './useWebSocket.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
@@ -129,7 +130,7 @@ export function useSummaryStreaming(sessionId) {
 async function hydrateStreamingState(targetSessionId) {
   if (typeof window === 'undefined') return;
   try {
-    const response = await fetch(`/api/sessions/${targetSessionId}/streaming-state`);
+    const response = await authorizedFetch(`/api/sessions/${targetSessionId}/streaming-state`);
     if (response.ok) {
       const snapshot = await response.json();
       const streamingStore = useSessionStreamingStore();

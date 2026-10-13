@@ -1,11 +1,13 @@
 import { sessions, projects, kanbanBoards, kanbanLanes } from '../database.js';
 import { getApiBaseUrl } from './apiBaseUrl.js';
+import { getApiCurlCommand } from './tlsTrust.js';
 
 /** Build workspace and session CRUD operations section */
 function buildSessionCrudOps(apiUrl, projectId, sessionId, workspaceId) {
+  const apiCurl = getApiCurlCommand();
   return `### Create a New Workspace
 \`\`\`bash
-curl -X POST ${apiUrl}/api/projects/${projectId}/workspaces \\
+${apiCurl} -X POST ${apiUrl}/api/projects/${projectId}/workspaces \\
   -H "Content-Type: application/json" \\
   -d '{"prompt": "Your task description here"}'
 \`\`\`
@@ -14,7 +16,7 @@ Optional fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`effortLeve
 
 ### Add a Session to this Workspace
 \`\`\`bash
-curl -X POST ${apiUrl}/api/workspaces/${workspaceId}/sessions \\
+${apiCurl} -X POST ${apiUrl}/api/workspaces/${workspaceId}/sessions \\
   -H "Content-Type: application/json" \\
   -d '{"prompt": "Your task description here", "parentSessionId": "${sessionId}"}'
 \`\`\`
@@ -25,40 +27,40 @@ Optional fields: same as creating a workspace. Add \`scheduledAt\` to schedule t
 
 ### List Providers & Available Models
 \`\`\`bash
-curl ${apiUrl}/api/providers
+${apiCurl} ${apiUrl}/api/providers
 \`\`\`
 Returns configured providers, each with \`kind\` (\`anthropic\` | \`openai\` | \`google\`) and a \`models\` array of \`{modelId, displayName, tier, enabled, lifecycle}\`. Use a listed \`models[].modelId\` to discover the currently available model choices for new workspaces/sessions. This is a discoverability list, not an exhaustive validation contract: validation also accepts SDK tier aliases (such as \`fable\`, \`opus\`, \`sonnet\`, and \`haiku\`) and can retain historical model IDs that are not listed.
 
 ### Send a Follow-up Message
 \`\`\`bash
-curl -X POST ${apiUrl}/api/sessions/<session_id>/message \\
+${apiCurl} -X POST ${apiUrl}/api/sessions/<session_id>/message \\
   -H "Content-Type: application/json" \\
   -d '{"content": "Your follow-up message"}'
 \`\`\`
 
 ### List All Active Sessions / Get Session Details / Get Messages
 \`\`\`bash
-curl ${apiUrl}/api/sessions
-curl ${apiUrl}/api/sessions/<session_id>
-curl ${apiUrl}/api/sessions/<session_id>/messages
+${apiCurl} ${apiUrl}/api/sessions
+${apiCurl} ${apiUrl}/api/sessions/<session_id>
+${apiCurl} ${apiUrl}/api/sessions/<session_id>/messages
 \`\`\`
 
 ### List Workspaces / Get Workspace Detail
 \`\`\`bash
-curl ${apiUrl}/api/projects/${projectId}/workspaces
-curl ${apiUrl}/api/workspaces/${workspaceId}
+${apiCurl} ${apiUrl}/api/projects/${projectId}/workspaces
+${apiCurl} ${apiUrl}/api/workspaces/${workspaceId}
 \`\`\`
 
 ### Stop / Restart / Delete a Session
 \`\`\`bash
-curl -X POST ${apiUrl}/api/sessions/<session_id>/stop
-curl -X POST ${apiUrl}/api/sessions/<session_id>/restart
-curl -X DELETE ${apiUrl}/api/sessions/<session_id>
+${apiCurl} -X POST ${apiUrl}/api/sessions/<session_id>/stop
+${apiCurl} -X POST ${apiUrl}/api/sessions/<session_id>/restart
+${apiCurl} -X DELETE ${apiUrl}/api/sessions/<session_id>
 \`\`\`
 
 ### Update Session Settings
 \`\`\`bash
-curl -X PATCH ${apiUrl}/api/sessions/<session_id> \\
+${apiCurl} -X PATCH ${apiUrl}/api/sessions/<session_id> \\
   -H "Content-Type: application/json" \\
   -d '{"thinkingEnabled": true, "effortLevel": "high"}'
 \`\`\`
@@ -68,7 +70,7 @@ Use this single call to schedule **this session** to resume with a given prompt.
 This is the preferred, race-free alternative to the multi-step PATCH dance.
 Works whether the session is idle or still running (the schedule survives the turn-completion).
 \`\`\`bash
-curl -X POST ${apiUrl}/api/sessions/${sessionId}/schedule \\
+${apiCurl} -X POST ${apiUrl}/api/sessions/${sessionId}/schedule \\
   -H "Content-Type: application/json" \\
   -d '{"prompt": "Continue: <work to resume>", "scheduledAt": "<future ISO 8601 timestamp>"}'
 \`\`\`
@@ -79,12 +81,13 @@ Only \`prompt\`, \`scheduledAt\`, and \`model\` are honored by this endpoint. Se
 
 /** Build project and summary operations section */
 function buildProjectOps(apiUrl, sessionId) {
+  const apiCurl = getApiCurlCommand();
   return `### Project Operations
 \`\`\`bash
-curl ${apiUrl}/api/projects                          # List all projects
-curl ${apiUrl}/api/projects/<project_id>             # Get project details
-curl ${apiUrl}/api/projects/<project_id>/sessions    # List project sessions
-curl -X POST ${apiUrl}/api/projects \\
+${apiCurl} ${apiUrl}/api/projects                          # List all projects
+${apiCurl} ${apiUrl}/api/projects/<project_id>             # Get project details
+${apiCurl} ${apiUrl}/api/projects/<project_id>/sessions    # List project sessions
+${apiCurl} -X POST ${apiUrl}/api/projects \\
   -H "Content-Type: application/json" \\
   -d '{"name": "Project Name", "workingDirectory": "/path/to/directory"}'
 \`\`\`
@@ -92,8 +95,8 @@ Optional field: \`systemPrompt\`
 
 ### Workflow Summary
 \`\`\`bash
-curl "${apiUrl}/api/sessions/${sessionId}/summary?generate=true"
-curl -X POST ${apiUrl}/api/sessions/${sessionId}/summary  # Regenerate
+${apiCurl} "${apiUrl}/api/sessions/${sessionId}/summary?generate=true"
+${apiCurl} -X POST ${apiUrl}/api/sessions/${sessionId}/summary  # Regenerate
 \`\`\``;
 }
 
@@ -155,6 +158,8 @@ For \`POST /lanes\`, \`name\` is the only required field (a non-empty string). A
 - \`onEnterMaxTotalTokens\` — number or null; total token cap for the entry workflow.
 - \`onEnterRescheduleAtTokenCount\` — number or null; token count that triggers a continuation reschedule.
 - \`completionTargetLaneId\` — UUID string or null; destination lane after successful completion. It must be a different lane on the same board; \`null\` clears the destination.
+- \`concurrencyLimit\` — positive integer or null; max workspace cards running in the lane at once. Entries beyond the limit queue visibly in the lane and start top-down as slots free; \`null\` (default) means unlimited. Invalid values (0, negative, fractional) fail with \`KANBAN_LANE_BAD_CONCURRENCY\`.
+- \`automationEnabled\` — boolean; lane entry automation kill-switch (default true). When false, arrivals queue instead of spawning sessions until re-enabled.
 
 \`onEnterTemplateId\` and a non-blank \`onEnterPrompt\` are mutually exclusive: never send both. To replace template automation with prompt automation, set \`onEnterPrompt\` and \`onEnterTemplateId: null\`; to replace prompt automation with template automation, set \`onEnterTemplateId\` and \`onEnterPrompt: null\`. Omitting either property preserves its existing value.
 
@@ -163,22 +168,23 @@ Completion routing requires on-entry automation: a create or update that sets \`
 
 /** Build workspace card operations section */
 function buildKanbanCardOps(apiUrl, projectId, workspaceId) {
+  const apiCurl = getApiCurlCommand();
   return `### Add Current Workspace to the Board
 \`\`\`bash
-curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
+${apiCurl} -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
   -H "Content-Type: application/json" \\
   -d '{"workspaceId": "${workspaceId}", "laneId": "<lane_id>"}'
 \`\`\`
 
 ### Move this Workspace's Card
 \`\`\`bash
-curl -X PUT ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/lane \\
+${apiCurl} -X PUT ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/lane \\
   -H "Content-Type: application/json" \\
   -d '{"laneId":"<lane_id>"}'
 \`\`\`
 ### Remove a Card from the Board
 \`\`\`bash
-curl -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}
+${apiCurl} -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}
 \`\`\``;
 }
 
@@ -189,6 +195,7 @@ curl -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${w
  * @returns {string} Kanban instructions or empty string if the project is missing
  */
 export function buildKanbanApiInstructions(sessionId, projectId) {
+  const apiCurl = getApiCurlCommand();
   const project = projects.getById(projectId);
   if (!project) {
     return '';
@@ -206,7 +213,7 @@ Note: Moving a workspace card moves all sessions in the workspace together.
 ${laneContext}
 ### Get Board with All Lanes and Cards
 \`\`\`bash
-curl ${apiUrl}/api/projects/${projectId}/kanban
+${apiCurl} ${apiUrl}/api/projects/${projectId}/kanban
 \`\`\`
 Read the board before changing settings that depend on existing lanes (completion routing or reordering). Its response is the authoritative source for current settings and lane IDs; use those returned IDs rather than guessing. The displayed lane list, when present, is convenience context only.
 
@@ -216,21 +223,21 @@ ${buildKanbanCardOps(apiUrl, projectId, workspaceId)}
 
 ### Create a New Lane
 \`\`\`bash
-curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/lanes \\
+${apiCurl} -X POST ${apiUrl}/api/projects/${projectId}/kanban/lanes \\
   -H "Content-Type: application/json" \\
   -d '{"name": "Lane Name"}'
 \`\`\`
 
 ### Create a Lane with Prompt Automation
 \`\`\`bash
-curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/lanes \\
+${apiCurl} -X POST ${apiUrl}/api/projects/${projectId}/kanban/lanes \\
   -H "Content-Type: application/json" \\
   -d '{"name":"Testing","onEnterPrompt":"Run the test suite and report failures.","onEnterMode":"standard","onEnterModel":"gpt-5.6","onEnterEffortLevel":"high","onEnterThinkingEnabled":true,"onEnterAutoRescheduleEnabled":true,"onEnterRescheduleDelayMinutes":15,"onEnterRescheduleOnTokenLimit":true,"onEnterRescheduleOnServiceError":true,"onEnterMaxRescheduleCount":2,"onEnterMaxTotalTokens":500000,"onEnterRescheduleAtTokenCount":400000}'
 \`\`\`
 
 ### Update a Lane
 \`\`\`bash
-curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id> \\
+${apiCurl} -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id> \\
   -H "Content-Type: application/json" \\
   -d '{"name": "New Name"}'
 \`\`\`
@@ -238,7 +245,7 @@ curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id> \\
 ### Set Completion Routing
 After reading the board and using its returned IDs, route successful completion to a different lane on the same board. The source lane must have on-entry automation, so this example configures it in the same request (omit \`onEnterPrompt\` when the lane already has automation):
 \`\`\`bash
-curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id> \\
+${apiCurl} -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id> \\
   -H "Content-Type: application/json" \\
   -d '{"onEnterPrompt":"Continue with the next workflow stage.","completionTargetLaneId":"<target_lane_id>"}'
 \`\`\`
@@ -246,7 +253,7 @@ curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id> \\
 ### Clear Lane Automation and Completion Routing
 Disable entry automation and clear the completion destination explicitly:
 \`\`\`bash
-curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id> \\
+${apiCurl} -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id> \\
   -H "Content-Type: application/json" \\
   -d '{"onEnterTemplateId":null,"onEnterPrompt":null,"completionTargetLaneId":null}'
 \`\`\`
@@ -254,13 +261,13 @@ curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id> \\
 ### Reorder Lanes
 Use this canonical deterministic lane-order operation after reading the board. The body is the complete desired order of lane UUIDs, not a card-order request:
 \`\`\`bash
-curl -X PUT ${apiUrl}/api/projects/${projectId}/kanban/lanes/reorder \\
+${apiCurl} -X PUT ${apiUrl}/api/projects/${projectId}/kanban/lanes/reorder \\
   -H "Content-Type: application/json" \\
   -d '["<lane_id_1>","<lane_id_2>"]'
 \`\`\`
 
 ### Delete a Lane
 \`\`\`bash
-curl -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id>
+${apiCurl} -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id>
 \`\`\``;
 }

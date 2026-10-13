@@ -25,9 +25,20 @@ const router = Router();
 // DB file it is using, and whether VCR / scheduler are in the expected
 // state. This endpoint is additive-safe: consumers must ignore unknown
 // fields so new ones can be added freely.
-router.get('/server-info', (_req, res) => {
+//
+// When auth is enabled, unauthenticated callers get only a minimal subset
+// (`authEnabled`) so the open probe cannot fingerprint the machine
+// (absolute paths, scheduler/automation state). Authenticated callers and
+// auth-off servers get the full payload.
+router.get('/server-info', (req, res) => {
+  const authEnabled = req.app?.get?.('authEnabled') === true;
+  if (authEnabled && !req.authUser) {
+    res.json({ authEnabled: true });
+    return;
+  }
   const vcr = process.env.VCR_MODE;
   res.json({
+    authEnabled,
     cwd: process.cwd(),
     dbPath: getDbPath(),
     vcrMode: vcr && vcr.length > 0 ? vcr : null,

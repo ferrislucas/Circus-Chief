@@ -388,6 +388,41 @@ describe('KanbanBoard.vue', () => {
     });
   });
 
+  describe('paused lane queue display', () => {
+    function mountPausedBoard() {
+      mockKanbanStoreData.board.lanes[1].automationEnabled = false;
+      mockKanbanStoreData.board.lanes[1].queuedCount = 2;
+      mockKanbanStoreData.board.lanes[1].cards[0].entryStatus = 'queued';
+      return mountBoard();
+    }
+
+    it('marks the paused lane header and queued-count badge', () => {
+      const wrapper = mountPausedBoard();
+      const pausedLane = wrapper.findAll('.kanban-lane')[1];
+
+      expect(pausedLane.classes()).toContain('lane-disabled');
+      expect(pausedLane.find('.lane-automation-paused').attributes('title')).toBe('Automation paused');
+      expect(pausedLane.find('.lane-queued-badge').text()).toContain('2 queued');
+    });
+
+    it('renders the queued chip on cards with entryStatus queued', () => {
+      const wrapper = mountPausedBoard();
+      const pausedLane = wrapper.findAll('.kanban-lane')[1];
+
+      const chip = pausedLane.find('.card-queued-chip');
+      expect(chip.exists()).toBe(true);
+      expect(chip.text()).toContain('queued');
+      expect(chip.text()).toContain('automation paused');
+    });
+
+    it('renders no queued chip or badge without queue state', () => {
+      const wrapper = mountBoard();
+
+      expect(wrapper.find('.card-queued-chip').exists()).toBe(false);
+      expect(wrapper.find('.lane-queued-badge').exists()).toBe(false);
+    });
+  });
+
   describe('Scheduled workspace indicator', () => {
     it('shows scheduled badge and relative time for a scheduled workflow workspace', () => {
       vi.useFakeTimers();
@@ -614,6 +649,38 @@ describe('KanbanBoard.vue', () => {
       const laneHeaders = wrapper.findAll('.lane-header');
       // First lane (To Do) has no automation
       expect(laneHeaders[0].find('.lane-automation-indicator').exists()).toBe(false);
+    });
+
+    it('shows a paused indicator and disabled styling for automation-disabled lanes', () => {
+      mockKanbanStoreData.board.lanes[1].automationEnabled = false;
+      const wrapper = mountBoard();
+      const laneHeaders = wrapper.findAll('.lane-header');
+      expect(laneHeaders[1].find('[title="Automation paused"]').exists()).toBe(true);
+      expect(laneHeaders[1].find('.lane-automation-indicator').exists()).toBe(false);
+      expect(wrapper.findAll('.kanban-lane')[1].classes()).toContain('lane-disabled');
+    });
+
+    it('shows a queued-count badge when a disabled lane has queued entries', () => {
+      mockKanbanStoreData.board.lanes[1].automationEnabled = false;
+      mockKanbanStoreData.board.lanes[1].queuedCount = 3;
+      const wrapper = mountBoard();
+      const laneHeaders = wrapper.findAll('.lane-header');
+      expect(laneHeaders[1].find('.lane-queued-badge').text()).toContain('3');
+    });
+
+    it('hides the queued-count badge when the queue is empty', () => {
+      mockKanbanStoreData.board.lanes[1].automationEnabled = false;
+      mockKanbanStoreData.board.lanes[1].queuedCount = 0;
+      const wrapper = mountBoard();
+      const laneHeaders = wrapper.findAll('.lane-header');
+      expect(laneHeaders[1].find('.lane-queued-badge').exists()).toBe(false);
+    });
+
+    it('keeps the enabled indicator for automation-enabled lanes', () => {
+      mockKanbanStoreData.board.lanes[1].automationEnabled = true;
+      const wrapper = mountBoard();
+      const laneHeaders = wrapper.findAll('.lane-header');
+      expect(laneHeaders[1].find('.lane-automation-indicator[title="Automation enabled"]').exists()).toBe(true);
     });
   });
 
@@ -968,6 +1035,32 @@ describe('KanbanBoard.vue', () => {
       const firstCard = wrapper.findAll('.kanban-card')[0];
 
       expect(firstCard.find('[data-testid="button-status-bar"]').exists()).toBe(false);
+    });
+  });
+
+  describe('lane concurrency limits', () => {
+    it('shows the limit state in the lane header and a queued badge on queued cards', () => {
+      mockKanbanStoreData.board.lanes[0].concurrencyLimit = 1;
+      mockKanbanStoreData.board.lanes[0].cards[0].entryState = 'running';
+      mockKanbanStoreData.board.lanes[0].cards[0].queuePosition = null;
+      mockKanbanStoreData.board.lanes[0].cards[1].entryState = 'queued';
+      mockKanbanStoreData.board.lanes[0].cards[1].queuePosition = 1;
+
+      const wrapper = mountBoard();
+
+      const states = wrapper.findAll('[data-testid="lane-limit-state"]');
+      expect(states).toHaveLength(1);
+      expect(states[0].text()).toBe('1/1 running · 1 queued');
+      const badges = wrapper.findAll('[data-testid="queued-badge"]');
+      expect(badges).toHaveLength(1);
+      expect(badges[0].text()).toContain('#1');
+    });
+
+    it('hides the limit state for unlimited lanes', () => {
+      const wrapper = mountBoard();
+
+      expect(wrapper.find('[data-testid="lane-limit-state"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="queued-badge"]').exists()).toBe(false);
     });
   });
 });

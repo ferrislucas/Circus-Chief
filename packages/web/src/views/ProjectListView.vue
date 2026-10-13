@@ -261,31 +261,63 @@ function cardStatusFilter() {
 
 async function loadProjectCards() {
   const request = ++projectCardsRequest;
-  const cards = await Promise.all(
+  const results = await Promise.all(
     visibleProjects.value.map(async (project) => {
-      const options = { status: cardStatusFilter(), limit: hasStatusFilter.value ? 500 : 3 };
-      let response = await api.getWorkspaceCards(project.id, options);
-      const workspaces = [...(response.workspaces || [])];
+      try {
+        const options = { status: cardStatusFilter(), limit: hasStatusFilter.value ? 500 : 3 };
+        let response = await api.getWorkspaceCards(project.id, options);
+        const workspaces = [...(response.workspaces || [])];
 
-      // A selected filter promises every match, rather than a page-sized
-      // preview. Cursor paging preserves the activity ordering from the API.
-      while (
-        hasStatusFilter.value &&
-        response.pagination?.hasMore &&
-        response.pagination.nextCursor
-      ) {
-        response = await api.getWorkspaceCards(project.id, {
-          ...options,
-          cursor: response.pagination.nextCursor,
-        });
-        workspaces.push(...(response.workspaces || []));
+        // A selected filter promises every match, rather than a page-sized
+        // preview. Cursor paging preserves the activity ordering from the API.
+        while (
+          hasStatusFilter.value &&
+          response.pagination?.hasMore &&
+          response.pagination.nextCursor
+        ) {
+          response = await api.getWorkspaceCards(project.id, {
+            ...options,
+            cursor: response.pagination.nextCursor,
+          });
+          workspaces.push(...(response.workspaces || []));
+        }
+        return [project.id, workspaces];
+      } catch {
+        // A single overloaded project must not blank every other project's
+        // session toggle: keep its previous cards and retry below.
+        return [project.id, null];
       }
-      return [project.id, workspaces];
     })
   );
-  if (request === projectCardsRequest) {
-    projectCards.value = Object.fromEntries(cards);
+  if (request !== projectCardsRequest) return;
+  const failed = results.some(([, workspaces]) => workspaces === null);
+  if (!failed) {
+    projectCardsRetryAttempts.delete('load');
+    projectCards.value = Object.fromEntries(results);
+    return;
   }
+  const next = { ...projectCards.value };
+  for (const [id, workspaces] of results) {
+    if (workspaces !== null) next[id] = workspaces;
+  }
+  projectCards.value = next;
+  scheduleProjectCardsRetry();
+}
+
+const maxProjectCardsRetries = 3;
+const projectCardsRetryDelayMs = 1000;
+let projectCardsRetryTimer = null;
+const projectCardsRetryAttempts = new Map();
+
+function scheduleProjectCardsRetry() {
+  if (isUnmounted || projectCardsRetryTimer) return;
+  const attempt = projectCardsRetryAttempts.get('load') || 0;
+  if (attempt >= maxProjectCardsRetries) return;
+  projectCardsRetryAttempts.set('load', attempt + 1);
+  projectCardsRetryTimer = setTimeout(() => {
+    projectCardsRetryTimer = null;
+    if (!isUnmounted) void loadProjectCards().catch(() => {});
+  }, projectCardsRetryDelayMs * 2 ** attempt);
 }
 
 async function handleStar({ id, starred }) {
@@ -389,6 +421,10 @@ onBeforeUnmount(() => {
     clearTimeout(timer);
   }
   commandButtonRetryTimers.clear();
+  if (projectCardsRetryTimer) {
+    clearTimeout(projectCardsRetryTimer);
+    projectCardsRetryTimer = null;
+  }
 });
 </script>
 

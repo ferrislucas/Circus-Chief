@@ -3,18 +3,18 @@ import { buildAgentEnv, createAgentForSession } from './sessionAgentConfig.js';
 import { resolveProviderFromModel, resolveProviderMetadataFromModel, resolveDurableProviderId, resolveTierMemberProvider, buildSessionEnv } from './sessionProvider.js';
 import { buildLastExecutedUpdate, reconcileAgentTypeForRun, sessionHasNoObservableAgentActivity } from './sessionAgentGuard.js';
 import { admitSessionStart } from './sessionTurnSetup.js';
+import { broadcastToProject, broadcastToSession } from '../websocket.js';
+import { WS_MESSAGE_TYPES, isTierRef } from '@circuschief/shared';
 export { buildQueryParams } from './queryParamBuilder.js';
 import { buildQueryParams } from './queryParamBuilder.js';
 import {
   handleStreamEvent, handleTurnCompletion,
-  handleSessionError, cleanupSessionState, broadcastSessionStatus,
+  handleSessionError, cleanupSessionState,
 } from './streamEventHandler.js';
 import { shouldRescheduleOnError, _checkProactiveReschedule } from './sessionErrors.js';
-import { isTierRef } from '@circuschief/shared';
 import { assertConcreteStartModel } from './tierIdentity.js';
-import { runSessionWithTierFailover, hasResolvableTierMembers } from './sessionTierFailover.js';
+import { _dispatchStartPath } from './sessionTierFailover.js';
 import { shouldRethrowForTierFailover, reportTierMemberFailureHealth } from './tierFailureHealth.js';
-import { applyStaleTierFallback } from './sessionStaleTierFallback.js';
 import { schedulerService } from './schedulerService.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { beginWorkflowTurn, finalizeOwnWorkCompletion, finishWorkflowTurn, closeOwnWork, markExecutionState, markHeldForLimit, pauseForUserStop, activeLaneRunOwnsSession } from './workflowSessionService.js';
@@ -26,7 +26,6 @@ import { isUserStopAbort } from './sessionAbort.js';
 // _executeSession, long after the module graph is loaded (same pattern as
 // session-helpers.js's database.js <-> SessionRepository cycle).
 import { drainLaneEntryTrigger } from './kanbanService.js';
-import { normalizeFinalErrorMessage } from './visibleFinalErrorMessage.js';
 import { redactUrlCredentials } from './errorSanitizer.js';
 // continueSessionCore lives in sessionContinuation.js (extracted to keep this
 // file under the max-lines limit); re-exported here so sessionManager.js's
@@ -288,6 +287,29 @@ function settleAbortedTurn({ sessionId, controller, workflowTurn, notifyUserStop
  * @param {string} [options.errorLabel] - Label for error logging
  * @param {Object|null} [options.tierContext] - Tier failover context passed to shouldRescheduleOnError
  */
+/**
+ * Provider-boundary dispatch fence: runs after every asynchronous turn
+ * setup (prepare*Turn completed in the caller) and immediately before the
+ * adapter is invoked. A rejection aborts before any provider call, so the
+ * turn's execution claim is released without recording a turn outcome —
+ * this stays outside _executeSession's try below, whose catch closes
+ * workflow ownership.
+ */
+async function runProviderBoundaryFence({ sessionId, controller, cleanupConversationId,
+  beforeProviderExecute, onProviderDispatchInitiated }) {
+  if (!beforeProviderExecute && !onProviderDispatchInitiated) return;
+  try {
+    await beforeProviderExecute?.();
+  } catch (error) {
+    cleanupSessionState(sessionId, cleanupConversationId, controller);
+    // A lane-disable park must also settle the durable lifecycle, not just
+    // the in-memory turn state (PR #1166 issue 10); see
+    // settleFenceParkedExecutionState below.
+    if (error?.code === 'LANE_AUTOMATION_DISABLED') settleFenceParkedExecutionState(sessionId);
+    throw error;
+  }
+  onProviderDispatchInitiated?.();
+}
 // The orchestration branches mirror the distinct durable workflow outcomes.
 // eslint-disable-next-line complexity
 export async function _executeSession({
@@ -302,6 +324,8 @@ export async function _executeSession({
   cleanupConversationId = false, interactive = false,
   errorLabel = 'Session error',
   tierContext = null,
+  beforeProviderExecute = null,
+  onProviderDispatchInitiated = null,
 }) {
   const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded, onUserStopSettled } = callbacks;
   // Idempotent: the settled-stop signal must fire exactly once per turn,
@@ -326,6 +350,10 @@ export async function _executeSession({
     cleanupSessionState(sessionId, cleanupConversationId, controller);
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
+  // Provider-boundary dispatch fence (see runProviderBoundaryFence above).
+  await runProviderBoundaryFence({
+    sessionId, controller, cleanupConversationId, beforeProviderExecute, onProviderDispatchInitiated,
+  });
   // The provider is about to start. The token is generated durably by
   // beginWorkflowTurn and lets the agent's card-move API identify this exact
   // execution, not merely this reusable session row.
@@ -370,6 +398,39 @@ export async function _executeSession({
     // above has settled, and only clears this turn's own entry (controller
     // fence). A replacement turn can never be admitted before this runs.
     cleanupSessionState(sessionId, cleanupConversationId, controller);
+  }
+}
+
+/**
+ * Settle the durable lifecycle after a lane-disable park at the provider
+ * fence. prepareRunTurn/beginWorkflowTurn already wrote status/execution_state
+ * as running, and the catch above only releases in-memory turn state — without
+ * this, a paused-then-restarted child looks like a live provider run to boot
+ * recovery. The kanban pause path re-settles with ownership fences right
+ * after; this closes the crash window in between. The obligation
+ * (own_work_state, lane_run_id, worktree) is untouched so the entry stays
+ * resumable. Other fence errors keep in-memory-only cleanup.
+ */
+function settleFenceParkedExecutionState(sessionId) {
+  try {
+    const updated = sessions.update(sessionId, { status: 'stopped', executionState: 'stopped' });
+    // The kanban pause path re-settles with ownership fences right after,
+    // but it stays silent when this write already settled the row — without
+    // this broadcast, subscribed clients keep showing the running state
+    // published by prepareRunTurn until refresh (PR #1166 issue 11).
+    const projectId = updated?.projectId;
+    if (!updated || !projectId) return;
+    broadcastToProject(projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId,
+      sessionId,
+      session: updated,
+    });
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      sessionId,
+      session: updated,
+    });
+  } catch {
+    // Best-effort; the pause path settles with fences next.
   }
 }
 
@@ -436,45 +497,6 @@ async function handleTerminalStreamError({
   return { started: true, outcome: 'failed', error: terminalError, observableActivityBeforeTerminalError };
 }
 /**
- * Tier-bound start path: run the tier's members in order via the failover loop,
- * or — when the ref no longer resolves to any member — degrade to a concrete
- * fallback model on the standard path.
- *
- * @returns {Promise<Object|undefined>} A start-result when the start was
- *   rejected before dispatch, otherwise undefined.
- */
-async function _runTierBoundSession(sessionId, promptWithAttachments, workingDirectory, ctx) {
-  const { session, tierRef, systemPrompt, activeConversation, controller, callbacks } = ctx;
-  if (hasResolvableTierMembers(tierRef)) {
-    return runSessionWithTierFailover(sessionId, promptWithAttachments, workingDirectory, {
-      systemPrompt,
-      activeConversation,
-      controller,
-      callbacks,
-      tierRef,
-    });
-  }
-
-  // Fix 6: the tier ref no longer resolves to any member (deleted / emptied /
-  // every member's provider or model was removed) — this is a stale binding,
-  // not a live "all members failed" exhaustion (that case is handled inside
-  // runSessionWithTierFailover and correctly falls through to normal error
-  // handling instead). Degrade to a concrete fallback so a new or scheduled
-  // session doesn't fail outright on a binding the user can no longer fix
-  // from within this session.
-  const fallback = applyStaleTierFallback(sessionId, session, tierRef);
-  return _runStandardSession(sessionId, promptWithAttachments, workingDirectory, {
-    session: fallback.session,
-    model: fallback.model,
-    providerId: fallback.session.providerId,
-    systemPrompt,
-    activeConversation,
-    controller,
-    callbacks,
-  });
-}
-
-/**
  * Run a Claude session (initial session start)
  * @param {string} sessionId
  * @param {string} prompt
@@ -487,7 +509,7 @@ async function _runTierBoundSession(sessionId, promptWithAttachments, workingDir
 export async function runSessionCore(sessionId, prompt, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
   const { systemPrompt = null, fileAttachments = [], model = null, providerId = null, interactive = false,
-    abortController = null } = options;
+    abortController = null, beforeProviderExecute = null, onProviderDispatchInitiated = null } = options;
   // Get session for settings
   const existing = sessions.getById(sessionId);
   if (!existing) throw new Error('Session not found');
@@ -504,39 +526,14 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
   const { session, activeConversation, promptWithAttachments } =
     admitSessionStart(sessionId, prompt, { model, providerId, fileAttachments, controller });
 
-  const startCtx = { session, systemPrompt, activeConversation, controller, callbacks };
+  const startCtx = {
+    session, systemPrompt, activeConversation, controller, callbacks,
+    beforeProviderExecute, onProviderDispatchInitiated,
+  };
 
-  // ── Tier failover path ────────────────────────────────────────────────────
-  const effectiveModelField = model || session.model;
-  let execution;
-  try {
-    execution = isTierRef(effectiveModelField)
-      ? await _runTierBoundSession(sessionId, promptWithAttachments, workingDirectory, {
-        ...startCtx, tierRef: effectiveModelField,
-      })
-    // ── Standard (non-tier) path ────────────────────────────────────────────
-      : await _runStandardSession(sessionId, promptWithAttachments, workingDirectory, {
-        ...startCtx, model, providerId,
-      });
-  } catch (error) {
-    // Resolution and tier selection can fail before _executeSession establishes
-    // its own error/finally boundary. Do not leave the session registered as
-    // active or a participating lane run waiting forever for open work.
-    //
-    // A user stop is not a permanent error: stopSession() already set the
-    // status to 'stopped' and paused any open lane obligation, so this catch
-    // must not overwrite that state or fail the run. Keep parity with
-    // handleTurnFailure — only real failures terminally close own work.
-    if (!isUserStopAbort(controller)) {
-      const sanitizedError = normalizeFinalErrorMessage(error);
-      sessions.update(sessionId, { status: 'error', error: sanitizedError });
-      broadcastSessionStatus(sessionId, 'error');
-      closeOwnWork(sessionId, 'closed_failed', sanitizedError);
-    }
-    throw error;
-  } finally {
-    cleanupSessionState(sessionId, false, controller);
-  }
+  // ── Tier failover path / standard (non-tier) path ─────────────────────────
+  const execution = await _dispatchStartPath(sessionId, promptWithAttachments, workingDirectory,
+    { startCtx, model, providerId, controller });
 
   // A start path only returns a result when the dispatch was rejected before
   // reaching the provider (e.g. lane-run ownership lost); anything else means
@@ -552,11 +549,12 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
  * @param {string} workingDirectory
  * @param {Object} ctx
  */
-async function _runStandardSession(
+export async function _runStandardSession(
   sessionId,
   promptWithAttachments,
   workingDirectory,
-  { session, model, providerId, systemPrompt, activeConversation, controller, callbacks }
+  { session, model, providerId, systemPrompt, activeConversation, controller, callbacks,
+    beforeProviderExecute = null, onProviderDispatchInitiated = null }
 ) {
   // Defense in depth: re-derive and persist the correct agent kind before creating
   // the adapter — self-heals legacy corrupted rows and any entry point that
@@ -620,5 +618,7 @@ async function _runStandardSession(
     workingDirectory,
     callbacks,
     errorLabel: 'Session error',
+    beforeProviderExecute,
+    onProviderDispatchInitiated,
   });
 }

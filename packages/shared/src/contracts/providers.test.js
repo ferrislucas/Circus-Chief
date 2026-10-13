@@ -54,6 +54,28 @@ describe('Provider Contracts', () => {
       expect(parsed.data).toMatchObject({ status: 'critical', stale: true });
     });
 
+    it('carries provider recency for most-recently-used dialog ordering', () => {
+      const snapshot = {
+        providerId: 'openai-default', providerName: 'OpenAI', providerKind: 'openai',
+        status: 'available', allowances: [], source: 'provider', updatedAt: 1, staleAt: null,
+        lastUsedAt: 123, unavailableReason: null,
+      };
+      const parsed = ProviderAllowanceSnapshot.safeParse(snapshot);
+      expect(parsed.success).toBe(true);
+      expect(parsed.data).toMatchObject({ lastUsedAt: 123 });
+    });
+
+    it('defaults recency to null for legacy payloads without a lastUsedAt key', () => {
+      const snapshot = {
+        providerId: 'openai-default', providerName: 'OpenAI', providerKind: 'openai',
+        status: 'available', allowances: [], source: 'provider', updatedAt: 1, staleAt: null,
+        unavailableReason: null,
+      };
+      const parsed = ProviderAllowanceSnapshot.safeParse(snapshot);
+      expect(parsed.success).toBe(true);
+      expect(parsed.data).toMatchObject({ lastUsedAt: null });
+    });
+
     it('defaults the staleness overlay to false so producers that omit it keep current behavior', () => {
       const snapshot = {
         providerId: 'openai-default', providerName: 'OpenAI', providerKind: 'openai',

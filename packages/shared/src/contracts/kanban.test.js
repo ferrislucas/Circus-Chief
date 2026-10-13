@@ -133,6 +133,13 @@ describe('Kanban Contracts', () => {
         name: 'Automated', completionTargetLaneId: 'not-a-uuid',
       }).success).toBe(false);
     });
+
+    it('accepts an optional automationEnabled boolean', () => {
+      const result = CreateKanbanLaneRequest.safeParse({ name: 'L', automationEnabled: false });
+      expect(result.success).toBe(true);
+      expect(result.data.automationEnabled).toBe(false);
+      expect(CreateKanbanLaneRequest.safeParse({ name: 'L', automationEnabled: 'no' }).success).toBe(false);
+    });
   });
 
   // ── UpdateKanbanLaneRequest ──────────────────────────────────────
@@ -210,6 +217,31 @@ describe('Kanban Contracts', () => {
         onEnterPrompt: '   ',
       });
       expect(result.success).toBe(true);
+    });
+
+    it.each([null, 1, 2, 1000000])('accepts concurrencyLimit %s', (concurrencyLimit) => {
+      for (const schema of [CreateKanbanLaneRequest, UpdateKanbanLaneRequest]) {
+        const result = schema.safeParse({ name: 'Limited', concurrencyLimit });
+        expect(result.success).toBe(true);
+      }
+    });
+
+    it.each([0, -1, 1.5, '2', NaN])('rejects concurrencyLimit %s', (concurrencyLimit) => {
+      for (const schema of [CreateKanbanLaneRequest, UpdateKanbanLaneRequest]) {
+        const result = schema.safeParse({ name: 'Limited', concurrencyLimit });
+        expect(result.success).toBe(false);
+      }
+    });
+
+    it('accepts an optional automationEnabled boolean', () => {
+      const result = UpdateKanbanLaneRequest.safeParse({ automationEnabled: false });
+      expect(result.success).toBe(true);
+      expect(result.data.automationEnabled).toBe(false);
+      expect(UpdateKanbanLaneRequest.safeParse({ automationEnabled: true }).success).toBe(true);
+    });
+
+    it('rejects a non-boolean automationEnabled', () => {
+      expect(UpdateKanbanLaneRequest.safeParse({ automationEnabled: 'yes' }).success).toBe(false);
     });
   });
 
@@ -317,6 +349,7 @@ describe('Kanban Contracts', () => {
         onEnterMaxTotalTokens: null,
         onEnterRescheduleAtTokenCount: null,
         completionTargetLaneId: null,
+        concurrencyLimit: null,
         createdAt: 1234567890,
         updatedAt: 1234567890,
       });
@@ -343,6 +376,7 @@ describe('Kanban Contracts', () => {
         onEnterMaxTotalTokens: null,
         onEnterRescheduleAtTokenCount: null,
         completionTargetLaneId: UUID3,
+        concurrencyLimit: 2,
         createdAt: 1234567890,
         updatedAt: 1234567890,
       });
@@ -395,6 +429,7 @@ describe('Kanban Contracts', () => {
         onEnterMaxTotalTokens: null,
         onEnterRescheduleAtTokenCount: null,
         completionTargetLaneId: null,
+        concurrencyLimit: null,
         createdAt: 1234567890,
         updatedAt: 1234567890,
       });
@@ -405,6 +440,61 @@ describe('Kanban Contracts', () => {
     it('requires all fields', () => {
       const result = KanbanLaneResponse.safeParse({ id: UUID });
       expect(result.success).toBe(false);
+    });
+
+    it('defaults a legacy lane without automationEnabled to true', () => {
+      const result = KanbanLaneResponse.safeParse({
+        id: UUID,
+        boardId: UUID2,
+        name: 'Legacy',
+        sortOrder: 0,
+        onEnterTemplateId: null,
+        onEnterPrompt: null,
+        onEnterMode: null,
+        onEnterModel: null,
+        onEnterEffortLevel: null,
+        onEnterThinkingEnabled: null,
+        onEnterAutoRescheduleEnabled: false,
+        onEnterRescheduleDelayMinutes: null,
+        onEnterRescheduleOnTokenLimit: null,
+        onEnterRescheduleOnServiceError: null,
+        onEnterMaxRescheduleCount: null,
+        onEnterMaxTotalTokens: null,
+        onEnterRescheduleAtTokenCount: null,
+        completionTargetLaneId: null,
+        createdAt: 1234567890,
+        updatedAt: 1234567890,
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.automationEnabled).toBe(true);
+      expect(result.data.queuedCount).toBe(0);
+    });
+
+    it('accepts an explicit automationEnabled boolean', () => {
+      const base = {
+        id: UUID,
+        boardId: UUID2,
+        name: 'Paused',
+        sortOrder: 0,
+        onEnterTemplateId: null,
+        onEnterPrompt: null,
+        onEnterMode: null,
+        onEnterModel: null,
+        onEnterEffortLevel: null,
+        onEnterThinkingEnabled: null,
+        onEnterAutoRescheduleEnabled: false,
+        onEnterRescheduleDelayMinutes: null,
+        onEnterRescheduleOnTokenLimit: null,
+        onEnterRescheduleOnServiceError: null,
+        onEnterMaxRescheduleCount: null,
+        onEnterMaxTotalTokens: null,
+        onEnterRescheduleAtTokenCount: null,
+        completionTargetLaneId: null,
+        createdAt: 1234567890,
+        updatedAt: 1234567890,
+      };
+      expect(KanbanLaneResponse.safeParse({ ...base, automationEnabled: false }).data.automationEnabled).toBe(false);
+      expect(KanbanLaneResponse.safeParse({ ...base, automationEnabled: 'no' }).success).toBe(false);
     });
   });
 
@@ -472,6 +562,46 @@ describe('Kanban Contracts', () => {
       });
       expect(result.success).toBe(true);
     });
+
+    it('accepts queued entryState with a queue position', () => {
+      const result = KanbanCardResponse.safeParse({
+        id: UUID,
+        laneId: UUID2,
+        sortOrder: 0,
+        sessions: [],
+        entryState: 'queued',
+        queuePosition: 2,
+        createdAt: 1234567890,
+        updatedAt: 1234567890,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects an unknown entryState', () => {
+      const result = KanbanCardResponse.safeParse({
+        id: UUID,
+        laneId: UUID2,
+        sortOrder: 0,
+        sessions: [],
+        entryState: 'waiting',
+        createdAt: 1234567890,
+        updatedAt: 1234567890,
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('accepts the queued entry status and rejects unknown statuses', () => {
+      const base = {
+        id: UUID,
+        laneId: UUID2,
+        sortOrder: 0,
+        sessions: [],
+        createdAt: 1234567890,
+        updatedAt: 1234567890,
+      };
+      expect(KanbanCardResponse.safeParse({ ...base, entryStatus: 'queued' }).success).toBe(true);
+      expect(KanbanCardResponse.safeParse({ ...base, entryStatus: 'pending' }).success).toBe(false);
+    });
   });
 
   // ── KanbanBoardResponse ──────────────────────────────────────────
@@ -501,6 +631,7 @@ describe('Kanban Contracts', () => {
             onEnterMaxTotalTokens: null,
             onEnterRescheduleAtTokenCount: null,
             completionTargetLaneId: null,
+            concurrencyLimit: null,
             createdAt: 1234567890,
             updatedAt: 1234567890,
           },
@@ -550,6 +681,7 @@ describe('Kanban Contracts', () => {
             onEnterMaxTotalTokens: null,
             onEnterRescheduleAtTokenCount: null,
             completionTargetLaneId: null,
+            concurrencyLimit: null,
             createdAt: 1234567890,
             updatedAt: 1234567890,
             cards: [

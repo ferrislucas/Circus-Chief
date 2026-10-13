@@ -4,7 +4,7 @@ import {
   sessionHasNoAssistantMessages,
   sessionHasNoObservableAgentActivity,
 } from './sessionAgentGuard.js';
-import { parseTierRef } from '@circuschief/shared';
+import { isTierRef, parseTierRef } from '@circuschief/shared';
 import {
   getTierMembersResolved,
   isUnhealthy,
@@ -15,7 +15,12 @@ import {
   createAgentForSession,
   resolveInitialSessionModelEnv,
   _executeSession,
+  _runStandardSession,
 } from './sessionExecution.js';
+import { applyStaleTierFallback } from './sessionStaleTierFallback.js';
+import { broadcastSessionStatus, cleanupSessionState } from './streamEventHandler.js';
+import { closeOwnWork } from './workflowSessionService.js';
+import { normalizeFinalErrorMessage } from './visibleFinalErrorMessage.js';
 import { redactUrlCredentials } from './errorSanitizer.js';
 import { isUserStopAbort } from './sessionAbort.js';
 import { createTierCooldownUnavailableError } from './tierCooldownUnavailableError.js';
@@ -41,7 +46,8 @@ async function attemptRunWithModel(
   sessionId,
   promptWithAttachments,
   workingDirectory,
-  { systemPrompt, activeConversation, controller, callbacks, tierContext }
+  { systemPrompt, activeConversation, controller, callbacks, tierContext,
+    beforeProviderExecute = null, onProviderDispatchInitiated = null }
 ) {
   // Re-derive session from DB in case a previous attempt updated it
   const currentSession = sessions.getById(sessionId);
@@ -107,6 +113,8 @@ async function attemptRunWithModel(
     callbacks,
     errorLabel: 'Session error',
     tierContext,
+    beforeProviderExecute,
+    onProviderDispatchInitiated,
   });
 }
 
@@ -170,6 +178,7 @@ function snapshotSuccessfulMember(sessionId, tierRef, member, attemptToken) {
 async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDirectory, {
   member, nextMember, memberIndex, controller, tierRef, tierId, tierName, attempts,
   systemPrompt, activeConversation, callbacks,
+  beforeProviderExecute = null, onProviderDispatchInitiated = null,
 }) {
   // Finding 12: user cancellation takes precedence over startup failover —
   // never (re-)register active ownership or dispatch a successor adapter
@@ -216,6 +225,8 @@ async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDir
       controller,
       callbacks,
       tierContext,
+      beforeProviderExecute,
+      onProviderDispatchInitiated,
     });
 
     // A rejected dispatch (e.g. lane-run ownership lost before the provider
@@ -259,7 +270,8 @@ export async function runSessionWithTierFailover(
   sessionId,
   promptWithAttachments,
   workingDirectory,
-  { systemPrompt, activeConversation, controller, callbacks, tierRef }
+  { systemPrompt, activeConversation, controller, callbacks, tierRef,
+    beforeProviderExecute = null, onProviderDispatchInitiated = null }
 ) {
   const tierId = parseTierRef(tierRef);
   if (!tierId) {
@@ -312,6 +324,8 @@ export async function runSessionWithTierFailover(
         systemPrompt,
         activeConversation,
         callbacks,
+        beforeProviderExecute,
+        onProviderDispatchInitiated,
       });
       if (result.attemptToken !== undefined) latestAttemptToken = result.attemptToken;
       if (result.settled) return result.execution;
@@ -338,6 +352,91 @@ function _getTierName(tierId) {
   } catch {
     return tierId;
   }
+}
+
+/**
+ * Tier-bound start path: run the tier's members in order via the failover loop,
+ * or — when the ref no longer resolves to any member — degrade to a concrete
+ * fallback model on the standard path.
+ *
+ * @returns {Promise<Object|undefined>} A start-result when the start was
+ *   rejected before dispatch, otherwise undefined.
+ */
+async function _runTierBoundSession(sessionId, promptWithAttachments, workingDirectory, ctx) {
+  const { session, tierRef, systemPrompt, activeConversation, controller, callbacks,
+    beforeProviderExecute = null, onProviderDispatchInitiated = null } = ctx;
+  if (hasResolvableTierMembers(tierRef)) {
+    return runSessionWithTierFailover(sessionId, promptWithAttachments, workingDirectory, {
+      systemPrompt,
+      activeConversation,
+      controller,
+      callbacks,
+      tierRef,
+      beforeProviderExecute,
+      onProviderDispatchInitiated,
+    });
+  }
+
+  // Fix 6: the tier ref no longer resolves to any member (deleted / emptied /
+  // every member's provider or model was removed) — this is a stale binding,
+  // not a live "all members failed" exhaustion (that case is handled inside
+  // runSessionWithTierFailover and correctly falls through to normal error
+  // handling instead). Degrade to a concrete fallback so a new or scheduled
+  // session doesn't fail outright on a binding the user can no longer fix
+  // from within this session.
+  const fallback = applyStaleTierFallback(sessionId, session, tierRef);
+  return _runStandardSession(sessionId, promptWithAttachments, workingDirectory, {
+    session: fallback.session,
+    model: fallback.model,
+    providerId: fallback.session.providerId,
+    systemPrompt,
+    activeConversation,
+    controller,
+    callbacks,
+    beforeProviderExecute,
+    onProviderDispatchInitiated,
+  });
+}
+
+/**
+ * Dispatch a session start down the tier-failover or standard path and settle
+ * start-boundary failures. Resolution and tier selection can fail before
+ * _executeSession establishes its own error/finally boundary: do not leave
+ * the session registered as active or a participating lane run waiting
+ * forever for open work.
+ */
+export async function _dispatchStartPath(sessionId, promptWithAttachments, workingDirectory,
+  { startCtx, model, providerId, controller }) {
+  const effectiveModelField = model || startCtx.session.model;
+  let execution;
+  try {
+    execution = isTierRef(effectiveModelField)
+      ? await _runTierBoundSession(sessionId, promptWithAttachments, workingDirectory, {
+        ...startCtx, tierRef: effectiveModelField,
+      })
+      : await _runStandardSession(sessionId, promptWithAttachments, workingDirectory, {
+        ...startCtx, model, providerId,
+      });
+  } catch (error) {
+    // A user stop is not a permanent error: stopSession() already set the
+    // status to 'stopped' and paused any open lane obligation, so this catch
+    // must not overwrite that state or fail the run. Keep parity with
+    // handleTurnFailure — only real failures terminally close own work.
+    // A lane-disable park is likewise not a failure: the kanban pause path
+    // owns the settlement (settleFenceParkedExecutionState already wrote
+    // stopped/stopped; abandonPausedTriggerChild re-settles with fences), so
+    // writing 'error' here would overwrite that paused state.
+    if (!isUserStopAbort(controller) && error?.code !== 'LANE_AUTOMATION_DISABLED') {
+      const sanitizedError = normalizeFinalErrorMessage(error);
+      sessions.update(sessionId, { status: 'error', error: sanitizedError });
+      broadcastSessionStatus(sessionId, 'error');
+      closeOwnWork(sessionId, 'closed_failed', sanitizedError);
+    }
+    throw error;
+  } finally {
+    cleanupSessionState(sessionId, false, controller);
+  }
+  return execution;
 }
 
 /** Exposed tier-name lookup shared with the stale-fallback degradation module. */

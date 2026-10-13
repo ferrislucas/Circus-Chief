@@ -56,6 +56,7 @@
         v-for="lane in board.lanes"
         :key="lane.id"
         class="kanban-lane"
+        :class="{ 'lane-disabled': lane.automationEnabled === false }"
         @dragover.prevent="effectiveLayout === 'horizontal' ? handleCardDragOver($event, lane.id, lane.cards?.length || 0) : null"
         @drop="effectiveLayout === 'horizontal' ? handleDrop($event, lane.id) : null"
       >
@@ -76,15 +77,35 @@
               {{ lane.name }}
             </h3>
             <span
-              v-if="lane.onEnterTemplateId || lane.onEnterPrompt"
+              v-if="(lane.onEnterTemplateId || lane.onEnterPrompt) && lane.automationEnabled !== false"
               class="lane-automation-indicator"
               title="Automation enabled"
             >
               <KanbanBoardIcon name="automation" />
             </span>
+            <span
+              v-else-if="lane.automationEnabled === false"
+              class="lane-automation-paused"
+              title="Automation paused"
+            >
+              <KanbanBoardIcon name="paused" />
+            </span>
           </div>
           <div class="lane-header-actions">
+            <span
+              v-if="lane.concurrencyLimit != null"
+              class="lane-limit-state"
+              data-testid="lane-limit-state"
+              :title="`Concurrency limit ${lane.concurrencyLimit}`"
+            >{{ laneLimitState(lane) }}</span>
             <span class="lane-count">{{ lane.cards?.length || 0 }}</span>
+            <span
+              v-if="lane.queuedCount > 0"
+              class="lane-queued-badge"
+              title="Entries queued while automation is paused"
+            >
+              {{ lane.queuedCount }} queued
+            </span>
             <button
               class="lane-settings-btn"
               title="Lane settings"
@@ -131,6 +152,8 @@
                   :status-indicator="getStatusIndicator(card.sessions[0].status)"
                   :scheduled-info="cardsScheduledInfo[card.id]"
                   :active-lane-run="card.activeLaneRun"
+                  :entry-state="card.entryState"
+                  :queue-position="card.queuePosition"
                 />
               </router-link>
               <CommandButtonStatusBar
@@ -139,6 +162,13 @@
                 :button-statuses="cardButtonStatuses[card.sessions[0].id] || []"
                 :session-id="card.sessions[0].id"
               />
+              <span
+                v-if="card.entryStatus === 'queued'"
+                class="card-queued-chip"
+                title="Automation for this lane is paused; the entry runs when the lane is re-enabled"
+              >
+                queued — automation paused
+              </span>
               <!-- Card reorder arrows -->
               <div class="card-reorder-arrows">
                 <button
@@ -495,6 +525,14 @@ const STATUS_INDICATORS = {
   error: '✕', stopped: '■', scheduled: '⏰',
 };
 const getStatusIndicator = (status) => STATUS_INDICATORS[status] || '○';
+/** Lane header limit state, e.g. "1/2 running" or "2/2 running · 3 queued". */
+const laneLimitState = (lane) => {
+  const cards = lane.cards || [];
+  const running = cards.filter((card) => card.entryState === 'running').length;
+  const queued = cards.filter((card) => card.entryState === 'queued').length;
+  const base = `${running}/${lane.concurrencyLimit} running`;
+  return queued > 0 ? `${base} · ${queued} queued` : base;
+};
 const isCardEffectivelyRunning = (session) => {
   if (!session?.id) return false;
   if (sessionsStore.getWorkflowEffectiveStatus(session.id) === 'running') {

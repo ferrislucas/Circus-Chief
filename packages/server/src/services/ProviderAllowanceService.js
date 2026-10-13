@@ -25,14 +25,19 @@ export class ProviderAllowanceService {
     const activeIds = new Set(providers.map((provider) => provider.id));
     for (const id of this.snapshots.keys()) if (!activeIds.has(id)) this.snapshots.delete(id);
 
+    // Recency is a session-domain fact: MAX(sessions.updated_at) per
+    // provider. Active (`starting`/`running`) sessions naturally carry the
+    // freshest timestamps, so the old "active first" intent is preserved as
+    // a consequence of recency rather than as a special group.
+    const lastUsedAt = this.sessionRepository?.getProviderLastUsedAt?.() ?? {};
     const snapshots = providers.map((provider) =>
-      withFreshness(this.#normalizeSnapshot(this.snapshots.get(provider.id), provider), this.clock.now()),
+      withFreshness(this.#normalizeSnapshot(this.snapshots.get(provider.id), provider, lastUsedAt), this.clock.now()),
     );
-    // A `waiting` session is idle: allowance priority tracks only providers
-    // used by work that is starting or running, via a distinct DB projection.
+    // Retained for badge/trigger and probe-gating consumers; it is no longer
+    // an ordering input for the dialog.
     const activeProviderIds = new Set(this.sessionRepository?.getExecutingProviderIds?.() || []);
     return ProviderAllowanceListResponse.parse({
-      snapshots: prioritizeSnapshots(snapshots, activeProviderIds),
+      snapshots: prioritizeSnapshots(snapshots),
       activeProviderIds: [...activeProviderIds],
     });
   }
@@ -41,7 +46,9 @@ export class ProviderAllowanceService {
     const provider = this.#enabledProviders().find((candidate) => candidate.id === snapshot?.providerId);
     if (!provider) return null;
     if (!this.#candidateTargetsProvider(snapshot, provider)) return null;
-    const normalized = this.#normalizeSnapshot(snapshot, provider);
+    const normalized = this.#normalizeSnapshot(
+      snapshot, provider, this.sessionRepository?.getProviderLastUsedAt?.() ?? {},
+    );
     const previous = this.snapshots.get(normalized.providerId);
     this.snapshots.set(normalized.providerId, normalized);
     if (!isDeepStrictEqual(previous, normalized)) {
@@ -59,7 +66,7 @@ export class ProviderAllowanceService {
     return candidate?.providerKind === undefined || candidate.providerKind === provider.kind;
   }
 
-  #unknownSnapshot(provider) {
+  #unknownSnapshot(provider, lastUsedAt = {}) {
     return {
       providerId: provider.id,
       providerName: provider.name,
@@ -69,12 +76,24 @@ export class ProviderAllowanceService {
       source: null,
       updatedAt: null,
       staleAt: null,
+      lastUsedAt: this.#recencyFor(provider, lastUsedAt),
       unavailableReason: 'No verified provider allowance data is available.',
     };
   }
 
-  #normalizeSnapshot(snapshot, provider) {
-    if (!snapshot || typeof snapshot !== 'object') return this.#unknownSnapshot(provider);
+  // Recency never comes from the allowance candidate: frames carry no
+  // usage signal. The live session-domain projection wins whenever it has
+  // the provider — a stored stamp goes stale as soon as newer session
+  // activity lands, and reads must not serve it. The stored stamp survives
+  // only as a fallback for providers with no session rows (e.g. deleted
+  // sessions), so a missing projection never resets recency to null.
+  #recencyFor(provider, lastUsedAt) {
+    return finiteNumber(lastUsedAt?.[provider.id])
+      ?? finiteNumber(this.snapshots.get(provider.id)?.lastUsedAt);
+  }
+
+  #normalizeSnapshot(snapshot, provider, lastUsedAt = {}) {
+    if (!snapshot || typeof snapshot !== 'object') return this.#unknownSnapshot(provider, lastUsedAt);
 
     const allowances = Array.isArray(snapshot.allowances)
       ? snapshot.allowances.map(normalizeAllowance).filter(Boolean)
@@ -99,6 +118,7 @@ export class ProviderAllowanceService {
       source: isSource(snapshot.source) ? snapshot.source : null,
       updatedAt,
       staleAt: calculateStaleAt(snapshot, updatedAt),
+      lastUsedAt: this.#recencyFor(provider, lastUsedAt),
       unavailableReason: typeof snapshot.unavailableReason === 'string' ? snapshot.unavailableReason : null,
     });
   }
@@ -200,17 +220,19 @@ export function withFreshness(snapshot, now) {
     : snapshot;
 }
 
-const ATTENTION_STATUSES = new Set(['warning', 'critical', 'exhausted']);
-
 /**
- * Preserves configured order within each priority group so REST and websocket
- * consumers share deterministic ordering without exposing session details.
+ * Most-recently-used order: the most recently used provider sorts first,
+ * never-used providers (`lastUsedAt: null`) sort last. Ties keep configured
+ * order via a stable sort, so REST and websocket consumers share
+ * deterministic ordering without exposing session details.
  */
-export function prioritizeSnapshots(snapshots, activeProviderIds) {
-  return [...snapshots].sort((left, right) => priority(left, activeProviderIds) - priority(right, activeProviderIds));
+export function prioritizeSnapshots(snapshots) {
+  return [...snapshots].sort((left, right) => compareRecency(left?.lastUsedAt, right?.lastUsedAt));
 }
 
-function priority(snapshot, activeProviderIds) {
-  if (activeProviderIds.has(snapshot.providerId)) return 0;
-  return ATTENTION_STATUSES.has(snapshot.status) ? 1 : 2;
+function compareRecency(left, right) {
+  if (left === right) return 0;
+  if (left === null || left === undefined) return 1;
+  if (right === null || right === undefined) return -1;
+  return right - left;
 }

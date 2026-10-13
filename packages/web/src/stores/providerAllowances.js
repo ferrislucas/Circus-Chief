@@ -11,25 +11,42 @@ function isAttention(snapshot) {
   return ['warning', 'critical', 'exhausted'].includes(snapshot.status);
 }
 
-function snapshotPriority(snapshot, activeProviderIds) {
-  if (activeProviderIds.has(snapshot.providerId)) return 0;
-  return isAttention(snapshot) ? 1 : 2;
+// Dialog order is most-recently-used, mirroring the server comparator:
+// highest lastUsedAt first, never-used (null) last.
+function compareRecency(left, right) {
+  if (left === right) return 0;
+  if (left === null || left === undefined) return 1;
+  if (right === null || right === undefined) return -1;
+  return right - left;
 }
 
-// JavaScript's stable sort preserves the server/configured order for equal
-// priorities, keeping indicators from jittering between equivalent updates.
-export function prioritizeSnapshots(snapshots, activeProviderIds = []) {
-  const activeIds = new Set(activeProviderIds);
+// The index tiebreaker keeps the sort stable even where the engine would
+// not, preserving server order for equal recency so indicators never jitter
+// between equivalent updates.
+export function prioritizeSnapshots(snapshots) {
   return [...snapshots]
     .map((snapshot, index) => ({ snapshot, index }))
-    .sort((left, right) => snapshotPriority(left.snapshot, activeIds) - snapshotPriority(right.snapshot, activeIds) || left.index - right.index)
+    .sort((left, right) => compareRecency(left.snapshot.lastUsedAt, right.snapshot.lastUsedAt) || left.index - right.index)
     .map(({ snapshot }) => snapshot);
 }
 
+// A live update without recency (a stale-cached server) must never reset
+// the stored stamp: allowance frames are not a usage signal.
+function preserveRecency(snapshots, nextSnapshot) {
+  if (nextSnapshot.lastUsedAt === null || nextSnapshot.lastUsedAt === undefined) {
+    const existing = snapshots.find((snapshot) => snapshot.providerId === nextSnapshot.providerId);
+    if (existing?.lastUsedAt !== null && existing?.lastUsedAt !== undefined) {
+      return { ...nextSnapshot, lastUsedAt: existing.lastUsedAt };
+    }
+  }
+  return nextSnapshot;
+}
+
 function upsertSnapshot(snapshots, nextSnapshot) {
-  const index = snapshots.findIndex((snapshot) => snapshot.providerId === nextSnapshot.providerId);
-  if (index === -1) return [...snapshots, nextSnapshot];
-  return snapshots.map((snapshot, currentIndex) => currentIndex === index ? nextSnapshot : snapshot);
+  const merged = preserveRecency(snapshots, nextSnapshot);
+  const index = snapshots.findIndex((snapshot) => snapshot.providerId === merged.providerId);
+  if (index === -1) return [...snapshots, merged];
+  return snapshots.map((snapshot, currentIndex) => currentIndex === index ? merged : snapshot);
 }
 
 function lowestAllowance(snapshot) {
@@ -53,8 +70,11 @@ export const useProviderAllowancesStore = defineStore('providerAllowances', {
         const parsed = ProviderAllowanceListResponse.safeParse(response);
         if (!parsed.success) throw new Error('Invalid provider allowance response');
         if (snapshotVersion !== this.snapshotVersion) return;
+        // Retained as plain state for response-shape fidelity (badge and
+        // probe-gating consumers read the server field); it is not an
+        // ordering input — dialog order is recency only.
         this.activeProviderIds = [...new Set(parsed.data.activeProviderIds)];
-        this.snapshots = prioritizeSnapshots(markStaleSnapshots(parsed.data.snapshots), this.activeProviderIds);
+        this.snapshots = prioritizeSnapshots(markStaleSnapshots(parsed.data.snapshots));
         this.error = null;
         this.scheduleStaleness();
       } catch (error) {
@@ -63,19 +83,14 @@ export const useProviderAllowancesStore = defineStore('providerAllowances', {
     },
     replace(snapshot) {
       const freshSnapshot = markStaleSnapshots([snapshot])[0];
-      this.snapshots = prioritizeSnapshots(upsertSnapshot(this.snapshots, freshSnapshot), this.activeProviderIds);
+      this.snapshots = prioritizeSnapshots(upsertSnapshot(this.snapshots, freshSnapshot));
       this.snapshotVersion += 1;
       this.scheduleStaleness();
-    },
-    setActiveProviderIds(providerIds) {
-      this.activeProviderIds = [...new Set(providerIds)];
-      this.snapshots = prioritizeSnapshots(this.snapshots, this.activeProviderIds);
-      this.snapshotVersion += 1;
     },
     refreshStaleness() {
       const refreshed = markStaleSnapshots(this.snapshots);
       if (refreshed.some((snapshot, index) => snapshot !== this.snapshots[index])) {
-        this.snapshots = prioritizeSnapshots(refreshed, this.activeProviderIds);
+        this.snapshots = prioritizeSnapshots(refreshed);
         this.snapshotVersion += 1;
       }
       this.scheduleStaleness();
@@ -93,8 +108,8 @@ export const useProviderAllowancesStore = defineStore('providerAllowances', {
 
 // Staleness is a freshness overlay: the flag marks last-known data as out
 // of date while `status` keeps the underlying attention state, so
-// `isAttention`, `snapshotPriority`, and `attentionCount` keep working
-// unchanged for stale-critical and stale-exhausted providers.
+// `isAttention` and `attentionCount` keep working unchanged for
+// stale-critical and stale-exhausted providers.
 function markStaleSnapshots(snapshots) {
   const now = Date.now();
   return snapshots.map((snapshot) => (

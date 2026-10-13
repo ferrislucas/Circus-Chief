@@ -4,6 +4,7 @@ import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import { executeHookAsync } from '../services/hookService.js';
+import { releaseLaneSlotForArchivedSession } from '../services/kanbanService.js';
 
 const router = Router();
 
@@ -17,6 +18,13 @@ router.post('/:id/archive', requireSessionAndProject, async (req, res) => {
   const { cleanup } = req.body || {};
 
   const updated = sessions.update(req.params.id, { archived: true });
+
+  // Archival frees the workspace's lane slot (FR-8): cancel its queued entry,
+  // revoke its open lane run, and drain to the next live card. Child sessions
+  // share the root's card, so only archiving the root touches lane state.
+  if (!req.session_.parentSessionId) {
+    releaseLaneSlotForArchivedSession(req.params.id);
+  }
 
   // Execute project cleanup command if cleanup requested and project has one configured
   // Only run for worktree sessions - branch-mode sessions have nothing to clean up

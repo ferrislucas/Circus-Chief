@@ -531,6 +531,8 @@ CREATE TABLE IF NOT EXISTS kanban_lanes (
   on_enter_max_total_tokens INTEGER,
   on_enter_reschedule_at_token_count INTEGER,
   completion_target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
+  concurrency_limit INTEGER CHECK (concurrency_limit IS NULL OR concurrency_limit >= 1),
+  automation_enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -541,6 +543,7 @@ CREATE TABLE IF NOT EXISTS kanban_cards (
   sort_order INTEGER NOT NULL DEFAULT 0,
   active_lane_run_id TEXT,
   lane_entry_event_id TEXT,
+  entry_queued INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -595,7 +598,8 @@ CREATE INDEX IF NOT EXISTS idx_lane_run_audit_run ON kanban_lane_run_audit_event
 CREATE TABLE IF NOT EXISTS kanban_routing_audit_events (
   id TEXT PRIMARY KEY, project_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
   caller_session_id TEXT, source_lane_id TEXT NOT NULL, destination_lane_id TEXT NOT NULL,
-  outcome TEXT NOT NULL, lane_run_id TEXT, request_at INTEGER NOT NULL, committed_at INTEGER NOT NULL
+  outcome TEXT NOT NULL, lane_run_id TEXT, request_at INTEGER NOT NULL, committed_at INTEGER NOT NULL,
+  lane_concurrency_limit INTEGER, queue_depth INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_kanban_routing_audit_workspace ON kanban_routing_audit_events(workspace_id, committed_at);
 

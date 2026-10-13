@@ -624,6 +624,149 @@ describe('LaneSettingsModal.vue', () => {
   });
 
   // -----------------------------------------------------------------------
+  // automation type switch presets retry defaults
+  // -----------------------------------------------------------------------
+  describe('automation type switch presets retry defaults', () => {
+    function tokenLimitCheckbox(wrapper) {
+      const label = wrapper.findAll('.checkbox-option')
+        .find((option) => option.text().includes('Token limit errors'));
+      return label.find('input');
+    }
+
+    it('presets auto-reschedule and token-limit retry on when switching none → prompt', async () => {
+      const wrapper = mountModal({ lane: baseLane });
+      await wrapper.find('input[type="radio"][value="prompt"]').setValue(true);
+      await wrapper.find('.section-toggle').trigger('click');
+
+      expect(wrapper.find('.toggle-switch input').element.checked).toBe(true);
+      expect(tokenLimitCheckbox(wrapper).element.checked).toBe(true);
+
+      await wrapper.find('#custom-prompt').setValue('Run the checks');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.onEnterAutoRescheduleEnabled).toBe(true);
+      expect(data.onEnterRescheduleOnTokenLimit).toBe(true);
+    });
+
+    it('presets auto-reschedule and token-limit retry on when switching none → template', async () => {
+      mockTemplatesStore.projectTemplates = [{ id: 'template-42', name: 'Test Template' }];
+      const wrapper = mountModal({ lane: baseLane });
+      await wrapper.find('input[type="radio"][value="template"]').setValue(true);
+      await wrapper.find('.section-toggle').trigger('click');
+
+      expect(wrapper.find('.toggle-switch input').element.checked).toBe(true);
+      expect(tokenLimitCheckbox(wrapper).element.checked).toBe(true);
+
+      await wrapper.find('#template-select').setValue('template-42');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.onEnterAutoRescheduleEnabled).toBe(true);
+      expect(data.onEnterRescheduleOnTokenLimit).toBe(true);
+    });
+
+    it('keeps an explicit opt-out after the preset', async () => {
+      const wrapper = mountModal({ lane: baseLane });
+      await wrapper.find('input[type="radio"][value="prompt"]').setValue(true);
+      await wrapper.find('.section-toggle').trigger('click');
+      await wrapper.find('.toggle-switch input').setValue(false);
+
+      await wrapper.find('#custom-prompt').setValue('Run the checks');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.onEnterAutoRescheduleEnabled).toBe(false);
+    });
+
+    it('preserves user retry choices when switching prompt → template', async () => {
+      mockTemplatesStore.projectTemplates = [{ id: 'template-42', name: 'Test Template' }];
+      const wrapper = mountModal({ lane: laneWithPrompt });
+      await wrapper.find('input[type="radio"][value="template"]').setValue(true);
+      await wrapper.find('#template-select').setValue('template-42');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.onEnterAutoRescheduleEnabled).toBe(true);
+      expect(data.onEnterRescheduleOnTokenLimit).toBe(false);
+    });
+
+    it('preserves user retry choices when switching template → prompt', async () => {
+      const wrapper = mountModal({ lane: laneWithTemplate });
+      await wrapper.find('input[type="radio"][value="prompt"]').setValue(true);
+      await wrapper.find('#custom-prompt').setValue('Run the checks');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.onEnterAutoRescheduleEnabled).toBe(false);
+      expect(data.onEnterRescheduleOnTokenLimit).toBe(true);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // none round-trip preserves explicit retry opt-out (Issue #1)
+  // -----------------------------------------------------------------------
+  describe('none round-trip preserves explicit retry opt-out', () => {
+    function tokenLimitCheckbox(wrapper) {
+      const label = wrapper.findAll('.checkbox-option')
+        .find((option) => option.text().includes('Token limit errors'));
+      return label.find('input');
+    }
+
+    it('preserves an auto-reschedule opt-out across a prompt → none → prompt round trip', async () => {
+      const wrapper = mountModal({ lane: baseLane });
+      await wrapper.find('input[type="radio"][value="prompt"]').setValue(true);
+      await wrapper.find('.section-toggle').trigger('click');
+      await wrapper.find('.toggle-switch input').setValue(false);
+      await wrapper.find('input[type="radio"][value="none"]').setValue(true);
+      await wrapper.find('input[type="radio"][value="prompt"]').setValue(true);
+
+      await wrapper.find('#custom-prompt').setValue('Run the checks');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.onEnterAutoRescheduleEnabled).toBe(false);
+    });
+
+    it('preserves a token-limit-only opt-out across a prompt → none → template round trip', async () => {
+      mockTemplatesStore.projectTemplates = [{ id: 'template-42', name: 'Test Template' }];
+      const wrapper = mountModal({ lane: baseLane });
+      await wrapper.find('input[type="radio"][value="prompt"]').setValue(true);
+      await wrapper.find('.section-toggle').trigger('click');
+      await tokenLimitCheckbox(wrapper).setValue(false);
+      await wrapper.find('input[type="radio"][value="none"]').setValue(true);
+      await wrapper.find('input[type="radio"][value="template"]').setValue(true);
+
+      await wrapper.find('#template-select').setValue('template-42');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.onEnterRescheduleOnTokenLimit).toBe(false);
+    });
+
+    it('preserves retry opt-out of an existing automated lane across a brief none detour', async () => {
+      mockTemplatesStore.projectTemplates = [{ id: 'template-42', name: 'Test Template' }];
+      const wrapper = mountModal({ lane: laneWithTemplate });
+      await wrapper.find('input[type="radio"][value="none"]').setValue(true);
+      await wrapper.find('input[type="radio"][value="template"]').setValue(true);
+
+      await wrapper.find('#template-select').setValue('template-42');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.onEnterAutoRescheduleEnabled).toBe(false);
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // handleSave with position change
   // -----------------------------------------------------------------------
   describe('handleSave with position change', () => {
@@ -1065,6 +1208,96 @@ describe('LaneSettingsModal.vue', () => {
       expect(saveBtn.element.disabled).toBe(true);
       await saveBtn.trigger('click');
       expect(mockKanbanStore.updateLane).not.toHaveBeenCalled();
+    });
+  });
+
+  // Concurrency limit
+  // -----------------------------------------------------------------------
+  describe('concurrency limit', () => {
+    it('renders the field with the lane limit value', () => {
+      const wrapper = mountModal({ lane: { ...baseLane, concurrencyLimit: 2 } });
+
+      expect(wrapper.find('[data-testid="lane-concurrency-limit"]').element.value).toBe('2');
+    });
+
+    it('renders empty for unlimited lanes', () => {
+      const wrapper = mountModal({ lane: baseLane });
+
+      expect(wrapper.find('[data-testid="lane-concurrency-limit"]').element.value).toBe('');
+    });
+
+    it('shows an inline error and disables Save for a zero limit', async () => {
+      const wrapper = mountModal({ lane: baseLane });
+      await wrapper.find('[data-testid="lane-concurrency-limit"]').setValue(0);
+
+      expect(wrapper.find('[data-testid="concurrency-limit-error"]').exists()).toBe(true);
+      expect(wrapper.find('.btn-primary').attributes('disabled')).toBeDefined();
+    });
+
+    it('saves the concurrency limit through updateLane', async () => {
+      const wrapper = mountModal({ lane: baseLane });
+      await wrapper.find('[data-testid="lane-concurrency-limit"]').setValue(3);
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.concurrencyLimit).toBe(3);
+    });
+
+    it('saves null when the field is cleared', async () => {
+      const wrapper = mountModal({ lane: { ...baseLane, concurrencyLimit: 2 } });
+      await wrapper.find('[data-testid="lane-concurrency-limit"]').setValue('');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.concurrencyLimit).toBeNull();
+    });
+  });
+
+  // Automation enabled toggle (staged in local form state until Save)
+  // -----------------------------------------------------------------------
+  describe('automationEnabled toggle', () => {
+    it('checks the toggle for lanes with automation enabled', () => {
+      const wrapper = mountModal({ lane: { ...baseLane, automationEnabled: true } });
+      expect(wrapper.find('#automation-enabled').element.checked).toBe(true);
+    });
+
+    it('checks the toggle by default for legacy lanes without the flag', () => {
+      const wrapper = mountModal({ lane: baseLane });
+      expect(wrapper.find('#automation-enabled').element.checked).toBe(true);
+    });
+
+    it('unchecks the toggle for lanes with automation disabled', () => {
+      const wrapper = mountModal({ lane: { ...baseLane, automationEnabled: false } });
+      expect(wrapper.find('#automation-enabled').element.checked).toBe(false);
+    });
+
+    it('does not call updateLane when the toggle changes but Cancel is clicked', async () => {
+      const wrapper = mountModal({ lane: baseLane });
+      await wrapper.find('#automation-enabled').setValue(false);
+      await wrapper.find('.btn-secondary').trigger('click');
+      await flushPromises();
+      expect(mockKanbanStore.updateLane).not.toHaveBeenCalled();
+    });
+
+    it('sends automationEnabled false with other fields intact on Save', async () => {
+      const wrapper = mountModal({ lane: { ...laneWithPrompt, automationEnabled: true } });
+      await wrapper.find('#automation-enabled').setValue(false);
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.automationEnabled).toBe(false);
+      expect(data.onEnterPrompt).toBe('Run the lint check');
+      expect(data.name).toBe('Auto Lane');
+    });
+
+    it('does not affect save validation on its own', async () => {
+      const wrapper = mountModal({ lane: baseLane });
+      expect(wrapper.find('.btn-primary').attributes('disabled')).toBeUndefined();
+      await wrapper.find('#automation-enabled').setValue(false);
+      expect(wrapper.find('.btn-primary').attributes('disabled')).toBeUndefined();
     });
   });
 });

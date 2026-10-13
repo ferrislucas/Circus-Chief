@@ -41,7 +41,7 @@ describe('ProviderAllowanceIndicators', () => {
     }));
   }
 
-  function snapshot({ providerId = 'openai', providerName = null, providerKind = 'openai', status = 'available', resetsAt = null, source = 'provider', updatedAt = null, unavailableReason = null, allowances } = {}) {
+  function snapshot({ providerId = 'openai', providerName = null, providerKind = 'openai', status = 'available', resetsAt = null, source = 'provider', updatedAt = null, lastUsedAt = null, unavailableReason = null, allowances } = {}) {
     return {
       providerId,
       providerName: providerName ?? (providerId === 'openai' ? 'OpenAI' : providerId),
@@ -50,6 +50,7 @@ describe('ProviderAllowanceIndicators', () => {
       source,
       updatedAt,
       staleAt: null,
+      lastUsedAt,
       unavailableReason,
       allowances: allowances ?? [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt }],
     };
@@ -121,11 +122,11 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
-  it('preserves the server active-first order after a live allowance update when active providers are unknown', async () => {
+  it('preserves the server recency order after a live allowance update when active providers are unknown', async () => {
     api.getProviderAllowances.mockResolvedValueOnce({
       snapshots: [
-        snapshot({ providerId: 'active', status: 'available' }),
-        snapshot({ providerId: 'attention', status: 'warning' }),
+        snapshot({ providerId: 'active', status: 'available', lastUsedAt: 2000 }),
+        snapshot({ providerId: 'attention', status: 'warning', lastUsedAt: 1000 }),
       ],
       activeProviderIds: ['active'],
     });
@@ -172,13 +173,13 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
-  it('reconciles the authoritative order after an active-session lifecycle update', async () => {
+  it('reconciles the authoritative recency order after a session lifecycle update', async () => {
     api.getProviderAllowances
       .mockResolvedValueOnce({ snapshots: [], activeProviderIds: [] })
       .mockResolvedValueOnce({
         snapshots: [
-          snapshot({ providerId: 'active', status: 'available' }),
-          snapshot({ providerId: 'attention', status: 'warning' }),
+          snapshot({ providerId: 'active', status: 'available', lastUsedAt: 2000 }),
+          snapshot({ providerId: 'attention', status: 'warning', lastUsedAt: 1000 }),
         ],
         activeProviderIds: ['active'],
       });
@@ -193,14 +194,14 @@ describe('ProviderAllowanceIndicators', () => {
     wrapper.unmount();
   });
 
-  it('reconciles authoritative priority on session creation and deletion without waiting for an update', async () => {
+  it('reconciles authoritative recency on session creation and deletion without waiting for an update', async () => {
     api.getProviderAllowances
-      .mockResolvedValueOnce({ snapshots: [snapshot({ providerId: 'idle', status: 'available' })], activeProviderIds: [] })
+      .mockResolvedValueOnce({ snapshots: [snapshot({ providerId: 'idle', status: 'available', lastUsedAt: 1000 })], activeProviderIds: [] })
       .mockResolvedValueOnce({
-        snapshots: [snapshot({ providerId: 'active', status: 'available' }), snapshot({ providerId: 'idle', status: 'available' })],
+        snapshots: [snapshot({ providerId: 'active', status: 'available', lastUsedAt: 2000 }), snapshot({ providerId: 'idle', status: 'available', lastUsedAt: 1000 })],
         activeProviderIds: ['active'],
       })
-      .mockResolvedValueOnce({ snapshots: [snapshot({ providerId: 'idle', status: 'available' })], activeProviderIds: [] });
+      .mockResolvedValueOnce({ snapshots: [snapshot({ providerId: 'idle', status: 'available', lastUsedAt: 1000 })], activeProviderIds: [] });
     const wrapper = mount(ProviderAllowanceIndicators);
     await Promise.resolve();
     await nextTick();
@@ -270,6 +271,48 @@ describe('ProviderAllowanceIndicators', () => {
     // Unknown payload shapes fall back to fetching — never silently skip.
     websocketListeners.get('session:updated')({});
     await vi.waitFor(() => expect(api.getProviderAllowances).toHaveBeenCalledTimes(4));
+    wrapper.unmount();
+  });
+
+  it('refetches when a same-status update advances updatedAt (running provider reclaims recency)', async () => {
+    api.getProviderAllowances.mockResolvedValue({ snapshots: [], activeProviderIds: [] });
+    const wrapper = mount(ProviderAllowanceIndicators);
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(1);
+
+    // Provider A is running; provider B's session is created later and
+    // displaces it. The waiting creation reconciles through the debounced
+    // server invalidation, so no immediate refetch happens here.
+    websocketListeners.get('session:updated')({ session: { id: 'session-a', providerId: 'openai', status: 'running', updatedAt: 1000 } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
+
+    websocketListeners.get('session:created')({ session: { id: 'session-b', providerId: 'anthropic', status: 'waiting' } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(2);
+
+    // A completes a turn: same status and provider, but updated_at advanced —
+    // A's MAX(sessions.updated_at) recency moved, so reconcile immediately.
+    websocketListeners.get('session:updated')({ session: { id: 'session-a', providerId: 'openai', status: 'running', updatedAt: 2000 } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(3);
+
+    // A field-only edit (rename) bumps updated_at with no status transition:
+    // recency moved, so reconcile as well. It lands while the previous
+    // reconciliation is still in flight, so it is served by the single
+    // trailing refresh — exactly one extra fetch, no storm.
+    websocketListeners.get('session:updated')({ session: { id: 'session-b', providerId: 'anthropic', status: 'waiting', title: 'renamed', updatedAt: 3000 } });
+    await vi.waitFor(() => expect(api.getProviderAllowances).toHaveBeenCalledTimes(4));
+
+    // Exact duplicate delivery of the same write moves nothing: suppressed.
+    websocketListeners.get('session:updated')({ session: { id: 'session-a', providerId: 'openai', status: 'running', updatedAt: 2000 } });
+    await Promise.resolve();
+    await nextTick();
+    expect(api.getProviderAllowances).toHaveBeenCalledTimes(4);
     wrapper.unmount();
   });
 

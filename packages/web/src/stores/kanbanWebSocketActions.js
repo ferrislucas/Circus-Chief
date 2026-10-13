@@ -7,6 +7,68 @@ import { KanbanCardSessionResponse } from '@circuschief/shared/contracts/kanban'
 const KANBAN_CARD_SESSION_FIELDS = Object.keys(KanbanCardSessionResponse.shape);
 
 /**
+ * Describe a lane with one card removed, reporting whether the departing
+ * card held a queue slot. Move and removal broadcasts carry no queue state,
+ * so the caller drops the lane count for a departing queued card instead of
+ * waiting for a full refetch. Pure — the caller assigns the returned cards
+ * onto its own lane reference and applies the single count decrement.
+ * @param {Object} lane - Lane the card is leaving
+ * @param {string} cardId - Card leaving the lane
+ * @returns {{ cards: Array, wasQueued: boolean }}
+ */
+function laneWithoutCard(lane, cardId) {
+  const wasQueued = lane.cards?.some((c) => c.id === cardId && c.entryStatus === 'queued') ?? false;
+  return {
+    cards: lane.cards?.filter((c) => c.id !== cardId) || [],
+    wasQueued,
+  };
+}
+
+/**
+ * Board-enrichment keys carried on card sessions by the full-board response
+ * (`buildFullBoardResponse`) but absent from the thin `KANBAN_CARD_MOVED`
+ * broadcast projection. Preserved across a move acknowledgement by session
+ * ID; never a backdoor for un-allowlisted fields.
+ */
+const CARD_SESSION_ENRICHMENT_FIELDS = ['pendingAgentInput', 'latestCommandRuns'];
+
+/**
+ * Reconcile a thin move-broadcast card with the enriched board card it
+ * acknowledges. The broadcast is authoritative for movement and queue state
+ * (`id`, `laneId`, position, `entryStatus` — absent clears a stale queued
+ * marker — and `activeLaneRun`, which is never carried over from the source
+ * lane), while per-session board enrichment is preserved by session ID.
+ * Pure.
+ * @param {Object} existingCard - Enriched board card (optimistic copy)
+ * @param {Object} broadcastCard - Thin authoritative broadcast card
+ * @returns {Object} Merged card for the target lane
+ */
+export function mergeBroadcastCard(existingCard, broadcastCard) {
+  const merged = { ...broadcastCard };
+  const existingSessions = Array.isArray(existingCard?.sessions) ? existingCard.sessions : null;
+  const broadcastSessions = Array.isArray(broadcastCard?.sessions) ? broadcastCard.sessions : null;
+  if (broadcastSessions) {
+    const existingById = new Map((existingSessions || []).map((s) => [s?.id, s]));
+    merged.sessions = broadcastSessions.map((session) => {
+      const local = existingById.get(session?.id);
+      if (!local) return session;
+      const reconciled = { ...session };
+      for (const field of CARD_SESSION_ENRICHMENT_FIELDS) {
+        if (!Object.hasOwn(session, field) && Object.hasOwn(local, field)) {
+          reconciled[field] = local[field];
+        }
+      }
+      return reconciled;
+    });
+  } else if (existingSessions) {
+    // The broadcast carried no session projection; keep board state rather
+    // than wiping the card's sessions.
+    merged.sessions = existingSessions;
+  }
+  return merged;
+}
+
+/**
  * WebSocket-driven actions for the Kanban board store.
  *
  * The board is an authoritative server read model: mutations do not patch
@@ -31,9 +93,14 @@ export const kanbanWebSocketActions = {
     const lane = this.board?.lanes?.find((l) => l.id === laneId);
     if (lane) {
       lane.cards = lane.cards || [];
-      // Avoid duplicates
-      if (!lane.cards.some((c) => c.id === card.id)) {
+      // Upsert the authoritative payload: the lane may already hold an
+      // HTTP-inserted copy that predates the committed entry state, and
+      // ignoring the payload would keep it (and the running count) stale.
+      const index = lane.cards.findIndex((c) => c.id === card.id);
+      if (index === -1) {
         lane.cards.push(card);
+      } else {
+        lane.cards[index] = card;
       }
     }
   },
@@ -45,21 +112,71 @@ export const kanbanWebSocketActions = {
    * @param {string} toLaneId - The target lane ID
    * @param {Object} card - The updated card object
    */
+  // TODO(issue-25): unify departing-queue detection for the limited-lane
+  // marker (entryState) with the disabled-lane marker (entryStatus) so both
+  // queue shapes converge the source badge.
   handleCardMoved(cardId, fromLaneId, toLaneId, card) {
     // Remove from source lane
     const sourceLane = this.board?.lanes?.find((l) => l.id === fromLaneId);
+    let departingWasQueued = false;
     if (sourceLane) {
-      sourceLane.cards = sourceLane.cards?.filter((c) => c.id !== cardId) || [];
+      const next = laneWithoutCard(sourceLane, cardId);
+      sourceLane.cards = next.cards;
+      departingWasQueued = next.wasQueued;
     }
 
-    // Add to target lane
+    // Add to target lane, upserting the authoritative payload: the
+    // destination may already hold an optimistic copy that predates the
+    // committed entry state, and ignoring the payload would keep it stale.
     const targetLane = this.board?.lanes?.find((l) => l.id === toLaneId);
     if (targetLane) {
       targetLane.cards = targetLane.cards || [];
-      // Avoid duplicates
-      if (!targetLane.cards.some((c) => c.id === cardId)) {
+      const existingIndex = targetLane.cards.findIndex((c) => c.id === cardId);
+      if (existingIndex !== -1) {
+        // The owning browser moved this card optimistically before the
+        // broadcast arrived, so its copy still carries the source queue
+        // marker. That stale slot belongs to the source lane. The broadcast
+        // is authoritative for movement and queue state, but it carries a
+        // thin session projection without board enrichment, so the
+        // acknowledgement reconciles instead of replacing outright.
+        if (!departingWasQueued && targetLane.cards[existingIndex]?.entryStatus === 'queued') {
+          departingWasQueued = true;
+        }
+        targetLane.cards[existingIndex] = mergeBroadcastCard(targetLane.cards[existingIndex], card);
+      } else {
         targetLane.cards.push(card);
       }
+    }
+
+    if (departingWasQueued && sourceLane && (sourceLane.queuedCount || 0) > 0) {
+      sourceLane.queuedCount -= 1;
+    }
+  },
+
+  /**
+   * Apply a queue-state broadcast without a full refetch. The server sends
+   * the authoritative queue depth, so the lane badge converges; the card
+   * gains the queued marker the board renders as a paused chip.
+   * @param {Object} msg - KANBAN_ENTRY_QUEUED payload
+   */
+  handleEntryQueued(msg) {
+    const lane = this.board?.lanes?.find((l) => l.id === msg?.laneId);
+    if (!lane) return;
+    if (typeof msg.queueDepth === 'number') lane.queuedCount = msg.queueDepth;
+    const card = lane.cards?.find((c) => c.id === msg.cardId);
+    if (card) card.entryStatus = 'queued';
+  },
+
+  /**
+   * Clear a lane's queue state after a re-enable drain, without a refetch.
+   * @param {Object} msg - KANBAN_QUEUE_DRAINED payload
+   */
+  handleQueueDrained(msg) {
+    const lane = this.board?.lanes?.find((l) => l.id === msg?.laneId);
+    if (!lane) return;
+    lane.queuedCount = 0;
+    for (const card of lane.cards || []) {
+      if (card.entryStatus === 'queued') delete card.entryStatus;
     }
   },
 
@@ -80,9 +197,10 @@ export const kanbanWebSocketActions = {
    */
   handleCardRemoved(cardId, laneId) {
     const lane = this.board?.lanes?.find((l) => l.id === laneId);
-    if (lane) {
-      lane.cards = lane.cards?.filter((c) => c.id !== cardId) || [];
-    }
+    if (!lane) return;
+    const next = laneWithoutCard(lane, cardId);
+    lane.cards = next.cards;
+    if (next.wasQueued && (lane.queuedCount || 0) > 0) lane.queuedCount -= 1;
   },
 
   /**

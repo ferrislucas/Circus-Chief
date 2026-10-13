@@ -184,6 +184,9 @@ describe('W4: failure/cancellation propagation through _executeSession', () => {
       ],
     });
     sessionRepo.update(root.id, { model: buildTierRef(tier.id) });
+    // FR-5: completion routing reads the source lane's CURRENT persisted
+    // target at transition time, not the run-creation snapshot.
+    laneRepo.update(source.id, { onEnterPrompt: 'do work', completionTargetLaneId: target.id });
 
     let attempt = 0;
     const stubAgent = {

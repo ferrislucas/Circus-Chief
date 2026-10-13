@@ -426,6 +426,45 @@ describe('ProjectListView', () => {
       expect(toggle.attributes('aria-expanded')).toBe('true');
     });
 
+    it('keeps other projects toggles when one project cards request fails', async () => {
+      getWorkspaceCards.mockImplementation((projectId) => {
+        if (projectId === 'proj-2') return Promise.reject(new Error('overloaded'));
+        return Promise.resolve({ workspaces: [{ id: 'ws-1', name: 'latest' }] });
+      });
+      projectsStore.projects = [
+        fullProject({ id: 'proj-1', name: 'healthy', sessionCount: 1 }),
+        fullProject({ id: 'proj-2', name: 'failing', sessionCount: 1 }),
+      ];
+      projectsStore.loading = false;
+      const wrapper = mount(ProjectListView, { global: { plugins: [pinia, router] } });
+      await flushAll(wrapper);
+
+      const cards = wrapper.findAll('.project-card');
+      expect(cards).toHaveLength(2);
+      expect(cards[0].find('.sessions-toggle').exists()).toBe(true);
+    });
+
+    it('retries failed project cards requests until the toggle appears', async () => {
+      vi.useFakeTimers();
+      try {
+        getWorkspaceCards.mockRejectedValueOnce(new Error('overloaded'));
+        projectsStore.projects = [fullProject({ sessionCount: 1 })];
+        projectsStore.loading = false;
+        const wrapper = mount(ProjectListView, { global: { plugins: [pinia, router] } });
+        await flushAll(wrapper);
+        expect(wrapper.find('.sessions-toggle').exists()).toBe(false);
+
+        getWorkspaceCards.mockResolvedValueOnce({
+          workspaces: [{ id: 'ws-1', name: 'latest' }],
+        });
+        await vi.advanceTimersByTimeAsync(1500);
+        await flushAll(wrapper);
+        expect(wrapper.find('.sessions-toggle').exists()).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('restores each project session toggle state from local storage', async () => {
       localStorage.setItem(
         'circus-chief.project-list.session-visibility',

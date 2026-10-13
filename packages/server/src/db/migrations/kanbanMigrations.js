@@ -389,6 +389,30 @@ export const kanbanMigrations = [
     },
   },
   {
+    name: 'kanban_lanes-add-concurrency_limit',
+    up(db) {
+      addColumnIfMissing(db, 'kanban_lanes', 'concurrency_limit',
+        'INTEGER CHECK (concurrency_limit IS NULL OR concurrency_limit >= 1)');
+    },
+  },
+  {
+    // Durable pending-entry identity (FR-6): a queued card is marked, not
+    // inferred from a NULL run pointer. Historical rows default to NOT queued:
+    // a finished, failed, cancelled, or intentionally unautomated entry must
+    // never read as pending work after upgrade.
+    name: 'kanban_cards-add-entry-queued',
+    up(db) {
+      addColumnIfMissing(db, 'kanban_cards', 'entry_queued', 'INTEGER NOT NULL DEFAULT 0');
+    },
+  },
+  {
+    name: 'kanban_lanes-add-automation_enabled',
+    up(db) {
+      // DEFAULT 1 backfills existing rows to enabled, preserving current behavior.
+      addColumnIfMissing(db, 'kanban_lanes', 'automation_enabled', 'INTEGER NOT NULL DEFAULT 1');
+    },
+  },
+  {
     name: 'kanban-routing-observability',
     up(db) {
       db.exec(`CREATE TABLE IF NOT EXISTS kanban_routing_audit_events (
@@ -397,6 +421,16 @@ export const kanbanMigrations = [
         outcome TEXT NOT NULL, lane_run_id TEXT, request_at INTEGER NOT NULL, committed_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_kanban_routing_audit_workspace ON kanban_routing_audit_events(workspace_id, committed_at);`);
+    },
+  },
+  {
+    // FRD §12 route-decision context: the destination lane's concurrency limit
+    // and the queue depth at decision time. Nullable so historical rows (whose
+    // decision-time context is unknown) stay NULL, never a false zero.
+    name: 'kanban-routing-audit-add-queue-context',
+    up(db) {
+      addColumnIfMissing(db, 'kanban_routing_audit_events', 'lane_concurrency_limit', 'INTEGER');
+      addColumnIfMissing(db, 'kanban_routing_audit_events', 'queue_depth', 'INTEGER');
     },
   },
 ];

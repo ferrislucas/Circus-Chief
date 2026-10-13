@@ -82,6 +82,29 @@
     fill="currentColor"
   ><path d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
   <svg
+    v-else-if="name === 'paused'"
+    xmlns="http://www.w3.org/2000/svg"
+    width="12"
+    height="12"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+  >
+    <rect
+      x="6"
+      y="4"
+      width="4"
+      height="16"
+      rx="1"
+    />
+    <rect
+      x="14"
+      y="4"
+      width="4"
+      height="16"
+      rx="1"
+    />
+  </svg>
+  <svg
     v-else-if="name === 'settings'"
     xmlns="http://www.w3.org/2000/svg"
     width="14"

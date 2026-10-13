@@ -300,8 +300,12 @@ test.describe('Kanban Board', () => {
     await page.click('button.section-toggle');
     await expect(page.locator('.agent-settings-body')).toBeVisible();
 
-    // Enable auto-reschedule by clicking the toggle label (input is hidden by CSS)
-    await page.locator('.agent-settings-body .toggle-switch-row').click();
+    // Entering prompt automation presets retry-on defaults, so auto-reschedule
+    // is already enabled; only click the toggle label if it is off (input is hidden by CSS)
+    const autoRescheduleCheckbox = page.locator('.agent-settings-body .toggle-switch-row input[type="checkbox"]');
+    if (!(await autoRescheduleCheckbox.isChecked())) {
+      await page.locator('.agent-settings-body .toggle-switch-row').click();
+    }
     await expect(page.locator('.reschedule-settings')).toBeVisible();
 
     // Save the settings
@@ -320,7 +324,6 @@ test.describe('Kanban Board', () => {
     await expect(page.locator('.agent-settings-body')).toBeVisible();
 
     // Auto-reschedule should still be enabled - check the checkbox with force (input is hidden)
-    const autoRescheduleCheckbox = page.locator('.agent-settings-body .toggle-switch-row input[type="checkbox"]');
     await expect(autoRescheduleCheckbox).toBeChecked();
   });
 
@@ -337,8 +340,13 @@ test.describe('Kanban Board', () => {
     await page.click('input[type="radio"][value="prompt"]');
     await page.fill('textarea#custom-prompt', 'Test prompt');
     await page.click('button.section-toggle');
-    // Click the toggle label to enable auto-reschedule (input is hidden by CSS)
-    await page.locator('.agent-settings-body .toggle-switch-row').click();
+    // Entering prompt automation presets retry-on defaults; ensure
+    // auto-reschedule is on before saving (input is hidden by CSS)
+    const clearedAutoRescheduleCheckbox = page.locator('.agent-settings-body .toggle-switch-row input[type="checkbox"]');
+    if (!(await clearedAutoRescheduleCheckbox.isChecked())) {
+      await page.locator('.agent-settings-body .toggle-switch-row').click();
+    }
+    await expect(page.locator('.reschedule-settings')).toBeVisible();
 
     // Save
     await page.click('.modal-footer .btn-primary');
