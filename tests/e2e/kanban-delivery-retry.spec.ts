@@ -23,8 +23,10 @@ import {
  * E2E coverage for the kanban lane-entry delivery outbox
  * (packages/server/src/services/kanbanService.js drainLaneEntryTrigger): the
  * retry/backoff loop, the `ambiguous_dispatch` state, the 1s background
- * retry worker, and terminal exhaustion after MAX_ENTRY_EVENT_ATTEMPTS (8)
- * attempts. None of this had test coverage before this file.
+ * retry worker, and quarantine at exhaustion after MAX_ENTRY_EVENT_ATTEMPTS (8)
+ * attempts (status `invalid`: a post-initiation provider failure is genuinely
+ * uncertain, never a definitive refusal). None of this had test coverage
+ * before this file.
  *
  * Recipe: an onEnterPrompt with NO committed VCR cassette (UNRECORDED_PROMPT).
  * Attempt 1 creates the child, attaches it as the run's root, marks dispatch
@@ -35,7 +37,9 @@ import {
  * retry. From attempt 2 onward, resolveDeliveryState() sees an attached root
  * with dispatch_intent but no acknowledgement -> 'ambiguous_dispatch', so it
  * never calls triggerLaneEntryAutomation again — no second child is ever
- * created. After the 8th attempt the event flips to terminal 'failed'.
+ * created. After the 8th attempt the event quarantines (terminal 'invalid'):
+ * the dispatch was initiated but never acknowledged, so it stays explicit
+ * for operator resolution instead of failing shut.
  *
  * The e2e server is shared across parallel spec files, and terminal events
  * persist (24h delivery-health window), so all server-info health
@@ -136,7 +140,7 @@ test.describe('Kanban lane-entry delivery outbox', () => {
 
     // 'ambiguous' counts any pending/claimed event whose delivery_phase is
     // 'dispatch_intent' with no acknowledgement — true from attempt 1 onward.
-    // Unlike 'exhausted' (terminal, monotonic within the 24h health window),
+    // Unlike 'quarantined' (terminal, monotonic within the 24h health window),
     // 'ambiguous' is a live/transient count: a concurrently-running spec's
     // event can exit that state between our two snapshots, so assert an
     // absolute floor instead of a baseline-relative delta.
@@ -165,13 +169,16 @@ test.describe('Kanban lane-entry delivery outbox', () => {
       iterations += 1;
     }
 
-    const terminal = await pollEntryEvent(eventId!, (e) => e.status === 'failed', 10000);
+    // Uncertain dispatches quarantine at exhaustion (status 'invalid'), never
+    // fail: a provider may already be running. Quarantine still stamps
+    // completed_at and keeps the ambiguous evidence in last_error.
+    const terminal = await pollEntryEvent(eventId!, (e) => e.status === 'invalid', 10000);
     expect(terminal.attempt_count).toBe(8);
     expect(terminal.completed_at).toBeTruthy();
     expect(terminal.last_error).toMatch(/ambiguous|child ownership/);
 
     const afterHealth = (await getServerInfo()).automationStatus.deliveryHealth.counts;
-    expect(afterHealth.exhausted).toBeGreaterThanOrEqual((before.exhausted || 0) + 1);
+    expect(afterHealth.quarantined).toBeGreaterThanOrEqual((before.quarantined || 0) + 1);
 
     // The card never advances. The lane run independently failed (via the
     // child's own turn error) well before the entry event exhausted its
